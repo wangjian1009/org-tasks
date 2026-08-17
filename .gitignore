@@ -1,0 +1,10 @@
+# DevEco Studio local state
+.idea/
+.hvigor/
+local.properties
+
+# Build outputs and dependencies
+build/
+entry/build/
+node_modules/
+*.hap

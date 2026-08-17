@@ -1,0 +1,10 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Org Tasks 日历同步" },
+    { "name": "EntryAbility_desc", "value": "Org Tasks" },
+    { "name": "EntryAbility_label", "value": "Org Tasks" },
+    { "name": "calendar_permission_reason", "value": "用于同步 org 任务到系统日历" },
+    { "name": "file_permission_reason", "value": "用于读取坚果云同步的 org 文件" },
+    { "name": "background_permission_reason", "value": "用于定时自动同步任务" }
+  ]
+}

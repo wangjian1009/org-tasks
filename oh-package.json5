@@ -1,0 +1,10 @@
+{
+  "modelVersion": "6.1.1",
+  "name": "org-tasks",
+  "version": "1.0.0",
+  "description": "Org Tasks - 日历同步",
+  "main": "",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
