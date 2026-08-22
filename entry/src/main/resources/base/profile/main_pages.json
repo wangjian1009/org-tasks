@@ -1,6 +1,8 @@
 {
   "src": [
     "pages/Index",
+    "pages/Files",
+    "pages/FileDetail",
     "pages/Settings",
     "pages/AddTask"
   ]

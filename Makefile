@@ -7,6 +7,9 @@ HVIGOR_HOME    := $(DEVECO_HOME)/tools/hvigor
 OHPM           := $(DEVECO_HOME)/tools/ohpm/bin/ohpm
 HDC            := $(DEVECO_HOME)/sdk/default/openharmony/toolchains/hdc
 HVIGORW        := $(HVIGOR_HOME)/bin/hvigorw
+# 默认选择 HDC 列表中的唯一设备；多设备场景仍可通过 HDC_TARGET 显式覆盖。
+HDC_TARGET     ?= $$( $(HDC) list targets | awk 'NR == 1 { print $$1 }' )
+HDC_DEVICE     := $(HDC) $(if $(HDC_TARGET),-t $(HDC_TARGET))
 
 # SDK 路径。DevEco Studio 6.1 的内置 HarmonyOS SDK 位于此目录。
 # 可通过环境变量或命令行覆盖，例如 make build DEVECO_SDK_HOME=/path/to/sdk。
@@ -60,7 +63,7 @@ install: build
 	@hap_file="$$(find "$(HAP_DIR)" -maxdepth 1 -type f -name '*-signed.hap' -print -quit)"; \
 		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先在 DevEco Studio 配置 default 调试签名。"; exit 1; }; \
 		echo ">>> 安装应用: $$hap_file"; \
-		$(HDC) install -r "$$hap_file"
+		$(HDC_DEVICE) install -r "$$hap_file"
 
 # 仅安装（不重新编译）
 install-only:
@@ -69,23 +72,23 @@ install-only:
 	@hap_file="$$(find "$(HAP_DIR)" -maxdepth 1 -type f -name '*-signed.hap' -print -quit)"; \
 		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先在 DevEco Studio 配置 default 调试签名。"; exit 1; }; \
 		echo ">>> 安装应用: $$hap_file"; \
-		$(HDC) install -r "$$hap_file"
+		$(HDC_DEVICE) install -r "$$hap_file"
 
 # 启动应用
 run:
 	@echo ">>> 启动应用..."
-	$(HDC) shell aa start -a $(ABILITY_NAME) -b $(BUNDLE_NAME)
+	$(HDC_DEVICE) shell aa start -a $(ABILITY_NAME) -b $(BUNDLE_NAME)
 
 # 编译 + 安装 + 启动
 deploy: install run
 
 # 查看日志
 log:
-	$(HDC) shell hilog | grep -i "org"
+	$(HDC_DEVICE) shell hilog | grep -i "org"
 
 # 查看完整日志
 log-all:
-	$(HDC) shell hilog
+	$(HDC_DEVICE) shell hilog
 
 # 清理构建产物
 clean:
@@ -97,15 +100,15 @@ clean:
 # 重启应用
 restart:
 	@echo ">>> 停止应用..."
-	-$(HDC) shell aa force-stop $(BUNDLE_NAME)
+	-$(HDC_DEVICE) shell aa force-stop $(BUNDLE_NAME)
 	@sleep 1
 	@echo ">>> 启动应用..."
-	$(HDC) shell aa start -a $(ABILITY_NAME) -b $(BUNDLE_NAME)
+	$(HDC_DEVICE) shell aa start -a $(ABILITY_NAME) -b $(BUNDLE_NAME)
 
 # 卸载应用
 uninstall:
 	@echo ">>> 卸载应用..."
-	-$(HDC) uninstall $(BUNDLE_NAME)
+	-$(HDC_DEVICE) uninstall $(BUNDLE_NAME)
 
 # 查看设备列表
 devices:
@@ -126,4 +129,5 @@ help:
 	@echo "  make log           查看应用日志"
 	@echo "  make log-all       查看全部日志"
 	@echo "  make devices       查看已连接设备"
+	@echo "  make deploy       部署到唯一连接设备（多设备时可设置 HDC_TARGET）"
 	@echo "  make clean         清理构建产物"

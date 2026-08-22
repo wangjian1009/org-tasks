@@ -35,7 +35,9 @@ export class OrgParser {
         currentTask.body = bodyLines.join('\n').trim()
         currentTask.filePath = filePath
         currentTask.fileName = fileName
-        currentTask.id = OrgParser.generateId(filePath, currentTask.heading || '')
+        if (!currentTask.id) {
+          currentTask.id = OrgParser.generateId(filePath, currentTask.heading || '')
+        }
         tasks.push(currentTask as OrgTask)
       }
       currentTask = null
@@ -134,7 +136,9 @@ export class OrgParser {
           if (propMatch) {
             const key = propMatch[1].toUpperCase()
             const value = propMatch[2].trim()
-            // 目前不需要额外属性，ID 由 hash 生成
+            if (key === 'ID' && value) {
+              currentTask.id = value
+            }
           }
           continue
         }
@@ -151,20 +155,14 @@ export class OrgParser {
           continue
         }
 
-        // SCHEDULED 行
-        if (line.trim().startsWith('SCHEDULED:')) {
-          const dateMatch = line.match(DATE_PATTERN)
-          if (dateMatch) {
-            currentTask.scheduled = OrgParser.formatDate(dateMatch)
+        const scheduled = OrgParser.extractDate(line, 'SCHEDULED')
+        const deadline = OrgParser.extractDate(line, 'DEADLINE')
+        if (scheduled || deadline) {
+          if (scheduled) {
+            currentTask.scheduled = scheduled
           }
-          continue
-        }
-
-        // DEADLINE 行
-        if (line.trim().startsWith('DEADLINE:')) {
-          const dateMatch = line.match(DATE_PATTERN)
-          if (dateMatch) {
-            currentTask.deadline = OrgParser.formatDate(dateMatch)
+          if (deadline) {
+            currentTask.deadline = deadline
           }
           continue
         }
@@ -192,6 +190,12 @@ export class OrgParser {
       return `${year}-${month}-${day}T${time}:00`
     }
     return `${year}-${month}-${day}`
+  }
+
+  private static extractDate(line: string, keyword: string): string {
+    const pattern = new RegExp(`${keyword}:\\s*${DATE_PATTERN.source}`)
+    const match = line.match(pattern)
+    return match ? OrgParser.formatDate(match) : ''
   }
 
   /**

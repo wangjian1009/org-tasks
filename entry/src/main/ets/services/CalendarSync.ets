@@ -3,7 +3,22 @@
 
 import { Context } from '@kit.AbilityKit'
 import { calendarManager } from '@kit.CalendarKit'
+import { preferences } from '@kit.ArkData'
 import { OrgTask, SyncResult } from '../models/OrgTask'
+
+const PREF_NAME = 'org_tasks_config'
+const SYNC_STATE_KEY = 'calendar_sync_state'
+
+interface SyncEventRecord {
+  taskId: string
+  eventId: number
+  fingerprint: string
+}
+
+interface StoredSyncState {
+  calendarName: string
+  records: SyncEventRecord[]
+}
 
 export class CalendarSync {
   private calendar: calendarManager.Calendar | undefined = undefined
@@ -38,10 +53,15 @@ export class CalendarSync {
     }
   }
 
-  async syncTasks(tasks: OrgTask[], existingIds: Set<string>): Promise<SyncResult> {
+  async syncTasks(tasks: OrgTask[]): Promise<SyncResult> {
     const result: SyncResult = {
       total: tasks.length,
       synced: 0,
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      unchanged: 0,
+      skipped: 0,
       errors: [],
       timestamp: Date.now()
     }
@@ -57,15 +77,52 @@ export class CalendarSync {
       return result
     }
 
+    const records = await this.loadSyncRecords()
+    const recordByTaskId = new Map<string, SyncEventRecord>()
+    for (const record of records) {
+      recordByTaskId.set(record.taskId, record)
+    }
+
+    const calendarEvents = await this.getExistingEvents(calendar)
+    const activeTaskIds = new Set<string>()
+
     for (const task of tasks) {
       if (!task.scheduled && !task.deadline) {
+        result.skipped++
         continue
       }
 
+      activeTaskIds.add(task.id)
       try {
-        // Event 标识符用于后续增量同步时检索和更新。
-        if (!existingIds.has(task.id)) {
-          await calendar.addEvent(this.taskToEvent(task))
+        const fingerprint = this.taskFingerprint(task)
+        let record = recordByTaskId.get(task.id)
+
+        // 日历被手动清空或重新创建后，丢弃失效的事件记录。
+        if (record && calendarEvents && !calendarEvents.has(record.eventId)) {
+          recordByTaskId.delete(task.id)
+          record = undefined
+        }
+
+        if (!record && calendarEvents) {
+          const existingEventId = this.findEventByIdentifier(calendarEvents, task.id)
+          if (existingEventId !== undefined) {
+            record = { taskId: task.id, eventId: existingEventId, fingerprint: '' }
+            recordByTaskId.set(task.id, record)
+          }
+        }
+
+        if (!record) {
+          const eventId = await calendar.addEvent(this.taskToEvent(task))
+          recordByTaskId.set(task.id, { taskId: task.id, eventId, fingerprint })
+          result.created++
+        } else if (record.fingerprint !== fingerprint) {
+          const event = this.taskToEvent(task)
+          event.id = record.eventId
+          await calendar.updateEvent(event)
+          record.fingerprint = fingerprint
+          result.updated++
+        } else {
+          result.unchanged++
         }
         result.synced++
       } catch (error) {
@@ -73,7 +130,93 @@ export class CalendarSync {
       }
     }
 
+    for (const record of records) {
+      if (activeTaskIds.has(record.taskId)) {
+        continue
+      }
+
+      try {
+        // 如果用户已手动删除日历事件，只清除本地记录。
+        if (!calendarEvents || calendarEvents.has(record.eventId)) {
+          await calendar.deleteEvent(record.eventId)
+          result.deleted++
+        }
+        recordByTaskId.delete(record.taskId)
+      } catch (error) {
+        result.errors.push(`删除日历事件失败: ${JSON.stringify(error)}`)
+      }
+    }
+
+    await this.saveSyncRecords(Array.from(recordByTaskId.values()))
+
     return result
+  }
+
+  private async getExistingEvents(calendar: calendarManager.Calendar): Promise<Map<number, calendarManager.Event> | undefined> {
+    try {
+      const events = await calendar.getEvents()
+      const eventMap = new Map<number, calendarManager.Event>()
+      for (const event of events) {
+        if (event.id !== undefined) {
+          eventMap.set(event.id, event)
+        }
+      }
+      return eventMap
+    } catch (error) {
+      console.warn('读取现有日历事件失败，将仅使用本地同步记录:', JSON.stringify(error))
+      return undefined
+    }
+  }
+
+  private findEventByIdentifier(events: Map<number, calendarManager.Event>, taskId: string): number | undefined {
+    for (const entry of events.entries()) {
+      const eventId = entry[0]
+      const event = entry[1]
+      if (event.identifier === taskId) {
+        return eventId
+      }
+    }
+    return undefined
+  }
+
+  private taskFingerprint(task: OrgTask): string {
+    return JSON.stringify([
+      task.heading,
+      task.todoState,
+      task.priority,
+      task.scheduled,
+      task.deadline,
+      task.tags,
+      task.fileName,
+      task.body,
+      task.progress
+    ])
+  }
+
+  private async loadSyncRecords(): Promise<SyncEventRecord[]> {
+    try {
+      const store = await preferences.getPreferences(this.context, PREF_NAME)
+      const rawState = await store.get(SYNC_STATE_KEY, '') as string
+      if (!rawState) {
+        return []
+      }
+
+      const state = JSON.parse(rawState) as StoredSyncState
+      if (state.calendarName !== this.calendarName || !Array.isArray(state.records)) {
+        return []
+      }
+      return state.records.filter((record) => record.taskId && record.eventId > 0)
+    } catch (error) {
+      console.warn('读取同步状态失败:', JSON.stringify(error))
+      return []
+    }
+  }
+
+  private async saveSyncRecords(records: SyncEventRecord[]): Promise<void> {
+    const store = await preferences.getPreferences(this.context, PREF_NAME)
+    const state: StoredSyncState = { calendarName: this.calendarName, records }
+    await store.put(SYNC_STATE_KEY, JSON.stringify(state))
+    await store.flush()
   }
 
   private taskToEvent(task: OrgTask): calendarManager.Event {

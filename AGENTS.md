@@ -1,6 +1,11 @@
 # AGENTS.md
 
-This file provides guidance to AI agents operating in this repository.
+本文件为在此仓库中工作的 AI 代理提供协作规范。
+
+## 文档规范
+
+- 项目中的文档说明、设计决策、注释性段落和面向用户的文本使用中文。
+- 代码、命令、路径、协议名、API 名称、字段名和技术专有名词保留其原始英文形式。
 
 ## 项目概述
 

@@ -1,10 +1,13 @@
 // 主页面 - 同步按钮 + 状态显示
 
 import { router } from '@kit.ArkUI'
+import { abilityAccessCtrl, Permissions } from '@kit.AbilityKit'
 import { CalendarSync } from '../services/CalendarSync'
 import { FileService } from '../services/FileService'
 import { OrgTask, SyncResult, AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
+import { CredentialService } from '../services/CredentialService'
+import { WebDavService } from '../services/WebDavService'
 
 const PREF_NAME = 'org_tasks_config'
 
@@ -31,9 +34,13 @@ struct Index {
       const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
       const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
       const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
+      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
+      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
+      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
+      const webdavPassword = await CredentialService.getWebDavPassword(context)
       const lastSyncTime = await store.get('lastSyncTime', 0) as number
 
-      this.config = { orgDir, inboxFile, calendarName, syncInterval }
+      this.config = { orgDir, inboxFile, calendarName, syncInterval, webdavEnabled, webdavUrl, webdavUsername, webdavPassword }
       this.calendarSync = new CalendarSync(context, calendarName)
 
       if (lastSyncTime > 0) {
@@ -52,17 +59,37 @@ struct Index {
     this.syncMessage = '正在同步...'
 
     try {
-      // 检查目录是否存在
-      if (!FileService.dirExists(this.config.orgDir)) {
-        this.syncMessage = `目录不存在: ${this.config.orgDir}`
+      if (!await this.requestSyncPermissions()) {
+        this.syncMessage = '需要日历权限才能同步'
+        this.syncing = false
+        return
+      }
+
+      let orgDir = this.config.orgDir
+      if (this.config.webdavEnabled) {
+        this.syncMessage = '正在从 WebDAV 下载 org 文件...'
+        const webdav = await new WebDavService(getContext(this), this.config).syncToCache()
+        if (!webdav.ok) {
+          this.syncMessage = `WebDAV 同步失败: ${webdav.message}`
+          this.syncing = false
+          return
+        }
+        orgDir = webdav.localDir
+      } else if (!FileService.dirExists(orgDir)) {
+        this.syncMessage = `目录不存在: ${orgDir}`
         this.syncing = false
         return
       }
 
       // 解析所有 org 文件
       this.syncMessage = '正在解析 org 文件...'
-      const tasks = await FileService.parseAllTasks(this.config.orgDir)
-      this.taskCount = tasks.length
+      const parsed = await FileService.parseAllTasks(orgDir)
+      if (parsed.errors.length > 0) {
+        this.syncMessage = `读取 org 文件失败，已取消同步: ${parsed.errors[0]}`
+        this.syncing = false
+        return
+      }
+      this.taskCount = parsed.tasks.length
 
       // 初始化日历
       this.syncMessage = '正在写入日历...'
@@ -78,8 +105,7 @@ struct Index {
         return
       }
 
-      // 同步到日历（目前全量同步，后续可优化为增量）
-      const result = await this.calendarSync.syncTasks(tasks, new Set<string>())
+      const result = await this.calendarSync.syncTasks(parsed.tasks)
 
       // 保存同步时间
       const context = getContext(this)
@@ -89,7 +115,7 @@ struct Index {
 
       const now = new Date()
       this.lastSync = `${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`
-      this.syncMessage = `同步完成: ${result.synced}/${result.total} 个任务`
+      this.syncMessage = `同步完成: ${result.synced}/${result.total} 个任务（新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}）`
 
       if (result.errors.length > 0) {
         this.syncMessage += `\n${result.errors.length} 个错误`
@@ -101,6 +127,22 @@ struct Index {
     this.syncing = false
   }
 
+  private async requestSyncPermissions(): Promise<boolean> {
+    const context = getContext(this)
+    const manager = abilityAccessCtrl.createAtManager()
+    const permissions: Permissions[] = [
+      'ohos.permission.READ_CALENDAR' as Permissions,
+      'ohos.permission.WRITE_CALENDAR' as Permissions
+    ]
+    const requestResult = await manager.requestPermissionsFromUser(context, permissions)
+    for (const authResult of requestResult.authResults) {
+      if (authResult !== 0) {
+        return false
+      }
+    }
+    return true
+  }
+
   build() {
     Column() {
       // 标题栏
@@ -109,6 +151,11 @@ struct Index {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
         Blank()
+        Button('文件')
+          .fontSize(14)
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/Files' })
+          })
         Button('设置')
           .fontSize(14)
           .onClick(() => {

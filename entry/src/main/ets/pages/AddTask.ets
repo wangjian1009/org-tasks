@@ -5,6 +5,8 @@ import { router } from '@kit.ArkUI'
 import { FileService } from '../services/FileService'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
+import { CredentialService } from '../services/CredentialService'
+import { WebDavService } from '../services/WebDavService'
 
 const PREF_NAME = 'org_tasks_config'
 
@@ -30,11 +32,19 @@ struct AddTask {
       const store = await preferences.getPreferences(context, PREF_NAME)
       const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
       const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
+      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
+      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
+      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
+      const webdavPassword = await CredentialService.getWebDavPassword(context)
       this.config = {
         orgDir,
         inboxFile,
         calendarName: DEFAULT_CONFIG.calendarName,
-        syncInterval: DEFAULT_CONFIG.syncInterval
+        syncInterval: DEFAULT_CONFIG.syncInterval,
+        webdavEnabled,
+        webdavUrl,
+        webdavUsername,
+        webdavPassword
       }
     } catch (e) {
       console.error('加载配置失败:', JSON.stringify(e))
@@ -59,24 +69,36 @@ struct AddTask {
     const scheduledOrg = this.scheduled ? this.formatOrgDate(this.scheduled) : undefined
     const deadlineOrg = this.deadline ? this.formatOrgDate(this.deadline) : undefined
 
-    const ok = FileService.addTaskToInbox(
-      this.config.orgDir,
-      this.config.inboxFile,
-      this.heading.trim(),
-      scheduledOrg,
-      deadlineOrg,
-      tags,
-      this.priority || undefined
-    )
+    if (this.config.webdavEnabled) {
+      const content = FileService.formatNewTask(
+        this.heading.trim(), scheduledOrg, deadlineOrg, tags, this.priority || undefined
+      )
+      const result = await new WebDavService(getContext(this), this.config).saveTask(content)
+      if (result.ok) {
+        this.message = '已上传到 ' + this.config.inboxFile
+      } else if (result.message === '无法保存待上传任务') {
+        this.message = '保存失败，请检查应用存储空间'
+      } else {
+        this.message = '已保存到待上传队列，将在下次同步时上传'
+      }
+    } else {
+      const ok = FileService.addTaskToInbox(
+        this.config.orgDir,
+        this.config.inboxFile,
+        this.heading.trim(),
+        scheduledOrg,
+        deadlineOrg,
+        tags,
+        this.priority || undefined
+      )
+      this.message = ok ? '已保存到 ' + this.config.inboxFile : '保存失败，请检查文件路径'
+    }
 
-    if (ok) {
-      this.message = '已保存到 ' + this.config.inboxFile
+    if (!this.message.includes('失败')) {
       // 延迟返回
       setTimeout(() => {
         router.back()
       }, 1000)
-    } else {
-      this.message = '保存失败，请检查文件路径'
     }
 
     this.saving = false
@@ -175,7 +197,7 @@ struct AddTask {
             .height(44)
 
           // 提示
-          Text(`将写入: ${this.config.orgDir}/${this.config.inboxFile}`)
+          Text(this.config.webdavEnabled ? `将同步到 WebDAV: ${this.config.inboxFile}` : `将写入: ${this.config.orgDir}/${this.config.inboxFile}`)
             .fontSize(12)
             .fontColor('#999')
             .margin({ top: 24 })

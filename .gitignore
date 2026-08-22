@@ -2,6 +2,7 @@
 .idea/
 .hvigor/
 local.properties
+build-profile.json5
 
 # Build outputs and dependencies
 build/
