@@ -40,6 +40,8 @@ C++ bridge 使用 `napi_create_async_work` 在后台 worker 中初始化和调�
 
 `CsvCoreStore` 的目录由 `current.csv` manifest 与 `snapshots/<generation>/tasks.csv`、`task_tags.csv`、`jobs.csv`、`outbox.csv` 组成。它先写入完整新快照，再原子替换 manifest；宿主将 `CsvCoreStore::open(data_dir)` 注入 `HttpApi::new(store)`。
 
+HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/org-tasks-httpd.rs`，运行模型位于 `http/src/server.rs`。其命令行、监听、认证、CSV 数据目录、单写入者并发模型和验收标准见 `../docs/http-server-design.md`；修改其运行行为前必须先遵循该设计。
+
 适配层只保存短生命周期输入，不保存密码。平台 I/O 的结果应通过 core 定义的 action 回执返回给服务。
 
 ## 变更要求

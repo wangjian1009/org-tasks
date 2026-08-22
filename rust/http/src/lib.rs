@@ -3,6 +3,7 @@
 //! 该 crate 提供无框架的路由映射。宿主可将 HttpRequest/HttpResponse 对接 axum、
 //! hyper 或 HarmonyOS 侧的任意 HTTP server，而不改变 core 业务逻辑。
 
+pub mod server;
 mod store;
 
 use org_tasks_core::{
@@ -96,7 +97,14 @@ fn map_result<T>(
             status: success,
             body: Some(map(value)),
         },
-        Err(error) => error_response(error, 400),
+        Err(error) => {
+            let status = if matches!(error, CoreError::Store(_)) {
+                500
+            } else {
+                400
+            };
+            error_response(error, status)
+        }
     }
 }
 

@@ -51,6 +51,21 @@ impl CsvCoreStore {
         })
     }
 
+    /// 仅校验现有 CSV 数据目录，不创建目录或写入数据。
+    pub fn validate(root: impl AsRef<Path>) -> Result<(), CoreError> {
+        let root = root.as_ref();
+        if root.as_os_str().is_empty() {
+            return Err(CoreError::InvalidInput("CSV 数据目录不能为空"));
+        }
+        if !root.is_dir() {
+            return Err(CoreError::InvalidInput("CSV 数据目录不存在或不是目录"));
+        }
+        if let Some(generation) = read_generation(root)? {
+            read_snapshot(root, generation)?;
+        }
+        Ok(())
+    }
+
     fn persist(&mut self, state: CsvState) -> Result<(), CoreError> {
         let generation = self.next_generation()?;
         let snapshot_dir = snapshot_dir(&self.root, generation);

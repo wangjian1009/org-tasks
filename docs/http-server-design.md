@@ -1,0 +1,105 @@
+# HTTP 服务命令行设计
+
+## 状态与边界
+
+本文定义 Rust HTTP 宿主的启动方式和运行边界。当前实现位于 `rust/http/src/bin/org-tasks-httpd.rs` 与 `rust/http/src/server.rs`，并复用 `HttpApi` 和 `CsvCoreStore`。
+
+宿主二进制命名为 `org-tasks-httpd`，归属 Cargo package `org-tasks-http`。它负责命令行解析、网络监听、认证、优雅退出和日志；`core` 只保留领域用例和异步 `CoreStore` 端口，不能依赖命令行、HTTP 或运行时库。
+
+## 启动命令
+
+开发环境通过 Cargo 启动：
+
+```sh
+cd rust
+cargo run -p org-tasks-http --bin org-tasks-httpd -- \
+  serve --data-dir ./var/org-tasks --listen 127.0.0.1:8787
+```
+
+发布版直接执行：
+
+```sh
+./target/release/org-tasks-httpd \
+  serve --data-dir /var/lib/org-tasks --listen 127.0.0.1:8787
+```
+
+`--data-dir` 是必填参数。目录不存在时创建；打开已有目录时必须校验 `current.csv` 与其指向快照的完整性，校验失败则拒绝启动。
+
+## 命令与参数
+
+```text
+org-tasks-httpd serve [OPTIONS]
+org-tasks-httpd check --data-dir <DIR>
+```
+
+| 命令或参数 | 默认值 | 说明 |
+|---|---|---|
+| `serve` | 无 | 打开 CSV 仓储并启动 HTTP 服务。 |
+| `check` | 无 | 只校验 CSV 仓储，不监听端口、不修改数据。 |
+| `--data-dir <DIR>` | 无，必填 | CSV 数据目录。 |
+| `--listen <IP:PORT>` | `127.0.0.1:8787` | TCP 监听地址。 |
+| `--shutdown-timeout-secs <N>` | `10` | 收到退出信号后等待在途请求完成的最长秒数。 |
+| `--log-level <LEVEL>` | `info` | `error`、`warn`、`info`、`debug` 或 `trace`。 |
+| `--access-token-file <FILE>` | 无 | Bearer Token 文件；令牌仅在进程内存中保留，不写入 CSV 或日志。 |
+| `--allow-non-loopback` | `false` | 明确允许绑定非回环地址。 |
+
+`--help` 和 `--version` 由命令行框架提供。首版不提供 `init`，因为 `serve` 与 `check` 均可通过 `CsvCoreStore::open` 创建所需目录。
+
+## 网络与认证
+
+默认只允许回环地址。监听地址不是 `127.0.0.0/8`、`::1` 或 Unix domain socket 时，必须同时提供 `--allow-non-loopback` 和 `--access-token-file`；否则进程以配置错误退出。
+
+启用令牌后，除 `GET /healthz` 外的请求必须携带 `Authorization: Bearer <token>`。认证失败只返回 `401`，日志不得输出请求头、令牌、密码、任务正文或 outbox 内容。
+
+首版不内置 TLS。需要局域网或公网访问时，宿主应只绑定到受控网络，并在前置反向代理中终止 TLS。令牌不是 TLS 的替代品。
+
+## 运行模型
+
+实现采用 `tokio`、`axum`、`clap` 与 `tracing`，但这些依赖只能存在于 HTTP 宿主 crate，不能进入 `core`。
+
+HTTP 前端可以并发接收连接，但单个 `HttpApi<CsvCoreStore>` 由服务 actor 独占。每个请求先转换为 `HttpRequest`，随后依次交给 actor 调用 `HttpApi::handle`，避免并发写入导致内存状态与 CSV 快照不一致。CSV 文件 I/O 在阻塞工作线程执行，不能占用 Tokio 网络执行器。
+
+收到 `SIGINT` 或 `SIGTERM` 后，服务停止接受新连接，等待在途请求至 `--shutdown-timeout-secs`，再退出。每次领域写入已经在请求响应前提交新的 CSV 快照，因此不需要额外的进程退出 flush。
+
+首版不支持多个 `org-tasks-httpd` 进程共用同一 `--data-dir`。启动时应创建排他锁文件；锁已被持有时以错误退出，避免两个进程分别生成快照版本。
+
+当前实现使用 `<data-dir>/.org-tasks-httpd.lock` 的操作系统排他锁；进程异常退出后锁会由操作系统释放，锁文件本身可以保留。
+
+## 数据目录
+
+`--data-dir` 的布局由 `CsvCoreStore` 定义：
+
+```text
+<data-dir>/
+  current.csv
+  snapshots/
+    <generation>/
+      tasks.csv
+      task_tags.csv
+      jobs.csv
+      outbox.csv
+```
+
+`current.csv` 是唯一的提交 manifest。写入顺序为：创建新的 generation 目录、写入并同步所有 CSV 文件、原子替换 `current.csv`。重启或 `check` 只读取 manifest 指向的 generation，因此未提交或残缺的快照不能对外可见。
+
+## HTTP 接口
+
+宿主将 JSON 请求映射至 `HttpApi`，首版暴露以下资源，并额外提供不涉及领域状态的健康检查：
+
+| 方法 | 路径 | 状态 |
+|---|---|---|
+| `GET` | `/healthz` | 返回 `200` 与服务版本，不访问 CSV。 |
+| `POST` | `/v1/tasks` | 已有 `HttpApi` 映射。 |
+| `POST` | `/v1/sync-jobs` | 已有 `HttpApi` 映射。 |
+| `GET` | `/v1/sync-jobs/{id}` | 已有 `HttpApi` 映射。 |
+
+请求与响应 JSON 字段遵循 `docs/rust-core-service-api.md` 的 RESTful 资源定义。新增领域资源时先扩展 `core`，再扩展 `HttpApi` 与宿主 JSON 映射。
+
+## 验收标准
+
+- `serve --data-dir <DIR>` 能创建目录、监听回环地址并调用现有 REST 路由。
+- 重启后从 `current.csv` 恢复任务、标签、作业和 outbox。
+- `check` 能在不修改目录的情况下报告 manifest 或 CSV 结构错误。
+- 非回环监听缺少显式确认或令牌文件时启动失败。
+- 同一数据目录的第二个进程启动失败。
+- `SIGINT`、`SIGTERM` 与请求中的持久化错误均具有自动化测试。

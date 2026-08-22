@@ -54,6 +54,8 @@ org-tasks/
 
 `rust/` 是独立 Cargo workspace：`core` 保持平台无关，`harmony` 提供 FFI 访问适配，`http` 提供 RESTful 映射。Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用放到工作线程，避免阻塞 ArkUI 线程。
 
+HTTP 宿主 `org-tasks-httpd` 位于 `rust/http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http-server-design.md`。修改该宿主前必须遵循该文档。
+
 ## 核心功能
 
 | 功能 | 实现文件 | 说明 |
