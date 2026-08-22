@@ -5,6 +5,8 @@
 
 extern "C" int32_t org_tasks_harmony_queue_sync(const char* idempotency_key, const char* job_id,
     const char* reason, bool include_calendar, bool foreground, int64_t now);
+extern "C" int32_t org_tasks_harmony_initialize(const char* data_dir);
+extern "C" int32_t org_tasks_harmony_finish_active_sync(bool succeeded, int64_t now);
 
 namespace {
 struct QueueSyncWork {
@@ -13,6 +15,21 @@ struct QueueSyncWork {
     std::string reason;
     bool include_calendar = true;
     bool foreground = false;
+    int64_t now = 0;
+    int32_t result = -2;
+    napi_deferred deferred = nullptr;
+    napi_async_work work = nullptr;
+};
+
+struct InitializeWork {
+    std::string data_dir;
+    int32_t result = -2;
+    napi_deferred deferred = nullptr;
+    napi_async_work work = nullptr;
+};
+
+struct FinishSyncWork {
+    bool succeeded = false;
     int64_t now = 0;
     int32_t result = -2;
     napi_deferred deferred = nullptr;
@@ -61,6 +78,133 @@ void CompleteQueueSync(napi_env env, napi_status status, void* data)
     }
     napi_delete_async_work(env, work->work);
     delete work;
+}
+
+void ExecuteInitialize(napi_env, void* data)
+{
+    auto* work = static_cast<InitializeWork*>(data);
+    work->result = org_tasks_harmony_initialize(work->data_dir.c_str());
+}
+
+void CompleteInitialize(napi_env env, napi_status status, void* data)
+{
+    auto* work = static_cast<InitializeWork*>(data);
+    if (status != napi_ok || work->result != 0) {
+        napi_value message;
+        napi_create_string_utf8(env, "Rust 核心服务初始化失败", NAPI_AUTO_LENGTH, &message);
+        napi_value error;
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, work->deferred, error);
+    } else {
+        napi_value value;
+        napi_create_int32(env, work->result, &value);
+        napi_resolve_deferred(env, work->deferred, value);
+    }
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+napi_value Initialize(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 1) {
+        napi_throw_error(env, nullptr, "initialize 需要 1 个参数");
+        return nullptr;
+    }
+
+    auto* work = new InitializeWork();
+    if (!ReadString(env, args[0], &work->data_dir)) {
+        delete work;
+        napi_throw_error(env, nullptr, "initialize 参数无效");
+        return nullptr;
+    }
+
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 initialize Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksInitialize", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteInitialize, CompleteInitialize, work, &work->work) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Rust 初始化任务");
+        return nullptr;
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Rust 初始化任务");
+        return nullptr;
+    }
+    return promise;
+}
+
+void ExecuteFinishSync(napi_env, void* data)
+{
+    auto* work = static_cast<FinishSyncWork*>(data);
+    work->result = org_tasks_harmony_finish_active_sync(work->succeeded, work->now);
+}
+
+void CompleteFinishSync(napi_env env, napi_status status, void* data)
+{
+    auto* work = static_cast<FinishSyncWork*>(data);
+    if (status != napi_ok || work->result != 0) {
+        napi_value message;
+        napi_create_string_utf8(env, "Rust 核心服务未能完成同步作业", NAPI_AUTO_LENGTH, &message);
+        napi_value error;
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, work->deferred, error);
+    } else {
+        napi_value value;
+        napi_create_int32(env, work->result, &value);
+        napi_resolve_deferred(env, work->deferred, value);
+    }
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+napi_value FinishSync(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 2) {
+        napi_throw_error(env, nullptr, "finishSync 需要 2 个参数");
+        return nullptr;
+    }
+
+    auto* work = new FinishSyncWork();
+    double now = 0;
+    if (napi_get_value_bool(env, args[0], &work->succeeded) != napi_ok ||
+        napi_get_value_double(env, args[1], &now) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "finishSync 参数无效");
+        return nullptr;
+    }
+    work->now = static_cast<int64_t>(now);
+
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 finishSync Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksFinishSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteFinishSync, CompleteFinishSync, work, &work->work) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Rust 作业完成任务");
+        return nullptr;
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Rust 作业完成任务");
+        return nullptr;
+    }
+    return promise;
 }
 
 napi_value QueueSync(napi_env env, napi_callback_info info)
@@ -114,6 +258,8 @@ EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor descriptors[] = {
+        {"finishSync", nullptr, FinishSync, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"initialize", nullptr, Initialize, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"queueSync", nullptr, QueueSync, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);

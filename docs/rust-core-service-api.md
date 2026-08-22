@@ -2,9 +2,11 @@
 
 ## 当前实现状态
 
-当前 Harmony 应用已通过 `entry/src/main/cpp/` 的 C++ N-API bridge 接入 Rust。ArkTS 的 `NativeCoreService.recordSyncIntent` 调用 `queueSync`，C++ 使用 `napi_create_async_work` 在工作线程执行 Rust FFI，因此不会阻塞 ArkUI 线程。该入口只接收同步元数据，不传入 WebDAV URL、密码或远端文件内容。
+当前 Harmony 应用已通过 `entry/src/main/cpp/` 的 C++ N-API bridge 接入 Rust。ArkTS 的 `NativeCoreService.recordSyncIntent` 先以 `context.filesDir` 调用 `initialize`，再调用 `queueSync`；同步流程在 `finally` 中调用 `finishSync` 写入成功或失败终态。C++ 使用 `napi_create_async_work` 在工作线程执行 Rust FFI，因此不会阻塞 ArkUI 线程。入口只接收数据目录和同步元数据，不传入 WebDAV URL、密码或远端文件内容。
 
-当前 `harmony` 适配器使用进程内易失 `SessionStore` 创建或合并 `sync` 作业，现有 ArkTS WebDAV 与 CalendarKit 流程继续执行。以下接口是完整持久化数据服务的 v1 目标契约；SQLite、执行租约、action 回执和完整资源接口尚未接入 Harmony bridge。
+`core::CoreStore` 是返回 `Send Future` 的异步持久化端口，所有核心用例、Harmony 适配器和 HTTP 路由均以异步方式调用。当前 `harmony::FileCoreStore` 在应用私有目录保存版本化状态快照，临时文件完整写入并同步后才原子替换正式文件。现有 ArkTS WebDAV 与 CalendarKit 流程继续执行；SQLite、执行租约、action 回执和完整资源接口尚未接入 Harmony bridge。
+
+HTTP 宿主可使用 `http::CsvCoreStore::open(dataDir)` 并注入 `HttpApi::new(store)`。该目录包含 `current.csv` manifest 和 `snapshots/<generation>/` 下的 `tasks.csv`、`task_tags.csv`、`jobs.csv`、`outbox.csv`。写入时先生成完整快照，最后原子替换 manifest，因此重启时只会读取完整版本；CSV 使用标准 Reader/Writer 处理引号、逗号和换行字段。
 
 ## 目标与边界
 

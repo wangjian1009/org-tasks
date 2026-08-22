@@ -58,10 +58,13 @@ struct Index {
 
     this.syncing = true
     this.syncMessage = '正在同步...'
+    let nativeSyncRecorded = false
+    let syncSucceeded = false
 
     try {
       try {
-        await NativeCoreService.recordSyncIntent('manual', true, true)
+        await NativeCoreService.recordSyncIntent(getContext(this).filesDir, 'manual', true, true)
+        nativeSyncRecorded = true
       } catch (e) {
         console.warn('Rust 核心服务登记手动同步失败:', JSON.stringify(e))
       }
@@ -119,6 +122,7 @@ struct Index {
       const store = await preferences.getPreferences(context, PREF_NAME)
       await store.put('lastSyncTime', Date.now())
       await store.flush()
+      syncSucceeded = true
 
       const now = new Date()
       this.lastSync = `${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`
@@ -129,9 +133,16 @@ struct Index {
       }
     } catch (e) {
       this.syncMessage = `同步失败: ${JSON.stringify(e)}`
+    } finally {
+      if (nativeSyncRecorded) {
+        try {
+          await NativeCoreService.finishSync(syncSucceeded)
+        } catch (e) {
+          console.warn('Rust 核心服务完成手动同步失败:', JSON.stringify(e))
+        }
+      }
+      this.syncing = false
     }
-
-    this.syncing = false
   }
 
   private async requestSyncPermissions(): Promise<boolean> {

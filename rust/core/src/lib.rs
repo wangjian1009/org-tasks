@@ -1,6 +1,7 @@
 //! 平台与持久化无关的 Org Tasks 领域核心。
 
 use std::fmt::{Display, Formatter};
+use std::future::Future;
 
 pub type TimestampMs = i64;
 
@@ -192,12 +193,24 @@ pub struct CoreChangeSet {
 }
 
 /// 持久化端口。实现者必须保证 apply 是一个原子提交。
-pub trait CoreStore {
-    fn find_task(&self, id: &str) -> Result<Option<TaskRecord>, CoreError>;
-    fn find_job(&self, id: &str) -> Result<Option<SyncJob>, CoreError>;
-    fn find_job_by_idempotency(&self, idempotency_key: &str) -> Result<Option<SyncJob>, CoreError>;
-    fn find_active_sync_job(&self) -> Result<Option<SyncJob>, CoreError>;
-    fn apply(&mut self, changes: CoreChangeSet) -> Result<(), CoreError>;
+pub trait CoreStore: Send {
+    fn find_task(
+        &self,
+        id: &str,
+    ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send;
+    fn find_job(&self, id: &str)
+    -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send;
+    fn find_job_by_idempotency(
+        &self,
+        idempotency_key: &str,
+    ) -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send;
+    fn find_active_sync_job(
+        &self,
+    ) -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send;
+    fn apply(
+        &mut self,
+        changes: CoreChangeSet,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
 }
 
 pub struct CoreService<S> {
@@ -224,11 +237,14 @@ where
         self.store
     }
 
-    pub fn get_job(&self, id: &str) -> Result<Option<SyncJob>, CoreError> {
-        self.store.find_job(id)
+    pub async fn get_job(&self, id: &str) -> Result<Option<SyncJob>, CoreError> {
+        self.store.find_job(id).await
     }
 
-    pub fn create_task(&mut self, request: CreateTaskRequest) -> Result<TaskCreation, CoreError> {
+    pub async fn create_task(
+        &mut self,
+        request: CreateTaskRequest,
+    ) -> Result<TaskCreation, CoreError> {
         validate_id(&request.idempotency_key)?;
         validate_id(&request.job_id)?;
         validate_id(&request.outbox_entry_id)?;
@@ -236,7 +252,8 @@ where
 
         if let Some(existing_job) = self
             .store
-            .find_job_by_idempotency(&request.idempotency_key)?
+            .find_job_by_idempotency(&request.idempotency_key)
+            .await?
         {
             let task_id = existing_job
                 .task_id
@@ -244,7 +261,8 @@ where
                 .ok_or(CoreError::InvalidState("幂等键已绑定到非任务作业"))?;
             let task = self
                 .store
-                .find_task(task_id)?
+                .find_task(task_id)
+                .await?
                 .ok_or(CoreError::InvalidState("幂等任务缺少任务记录"))?;
             return Ok(TaskCreation {
                 task,
@@ -282,24 +300,30 @@ where
             Some(task.id.clone()),
             request.now,
         );
-        self.store.apply(CoreChangeSet {
-            tasks: vec![task.clone()],
-            outbox_entries: vec![outbox_entry],
-            jobs: vec![job.clone()],
-        })?;
+        self.store
+            .apply(CoreChangeSet {
+                tasks: vec![task.clone()],
+                outbox_entries: vec![outbox_entry],
+                jobs: vec![job.clone()],
+            })
+            .await?;
         Ok(TaskCreation { task, job })
     }
 
-    pub fn create_sync_job(&mut self, request: CreateSyncJobRequest) -> Result<SyncJob, CoreError> {
+    pub async fn create_sync_job(
+        &mut self,
+        request: CreateSyncJobRequest,
+    ) -> Result<SyncJob, CoreError> {
         validate_id(&request.idempotency_key)?;
         validate_id(&request.job_id)?;
         if let Some(job) = self
             .store
-            .find_job_by_idempotency(&request.idempotency_key)?
+            .find_job_by_idempotency(&request.idempotency_key)
+            .await?
         {
             return Ok(job);
         }
-        if let Some(job) = self.store.find_active_sync_job()? {
+        if let Some(job) = self.store.find_active_sync_job().await? {
             return Ok(job);
         }
         let job = queued_job(
@@ -312,11 +336,39 @@ where
             None,
             request.now,
         );
-        self.store.apply(CoreChangeSet {
-            jobs: vec![job.clone()],
-            ..CoreChangeSet::default()
-        })?;
+        self.store
+            .apply(CoreChangeSet {
+                jobs: vec![job.clone()],
+                ..CoreChangeSet::default()
+            })
+            .await?;
         Ok(job)
+    }
+
+    /// 写入当前活跃同步作业的最终状态。
+    ///
+    /// 平台 I/O 由外层执行，完成后必须回传结果，避免已完成作业持续参与后续合并。
+    pub async fn finish_active_sync(
+        &mut self,
+        succeeded: bool,
+        now: TimestampMs,
+    ) -> Result<Option<SyncJob>, CoreError> {
+        let Some(mut job) = self.store.find_active_sync_job().await? else {
+            return Ok(None);
+        };
+        job.state = if succeeded {
+            JobState::Completed
+        } else {
+            JobState::Failed
+        };
+        job.updated_at = now;
+        self.store
+            .apply(CoreChangeSet {
+                jobs: vec![job.clone()],
+                ..CoreChangeSet::default()
+            })
+            .await?;
+        Ok(Some(job))
     }
 
     pub fn plan_execution(job: &SyncJob) -> Result<Vec<PlatformAction>, CoreError> {
@@ -393,6 +445,8 @@ fn validate_task(task: &NewTask) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::future::Future;
+    use std::task::{Context, Poll, Waker};
 
     #[derive(Default)]
     struct MemoryStore {
@@ -402,34 +456,52 @@ mod tests {
     }
 
     impl CoreStore for MemoryStore {
-        fn find_task(&self, id: &str) -> Result<Option<TaskRecord>, CoreError> {
-            Ok(self.tasks.get(id).cloned())
+        fn find_task(
+            &self,
+            id: &str,
+        ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send {
+            let value = self.tasks.get(id).cloned();
+            async move { Ok(value) }
         }
 
-        fn find_job(&self, id: &str) -> Result<Option<SyncJob>, CoreError> {
-            Ok(self.jobs.get(id).cloned())
+        fn find_job(
+            &self,
+            id: &str,
+        ) -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send {
+            let value = self.jobs.get(id).cloned();
+            async move { Ok(value) }
         }
 
-        fn find_job_by_idempotency(&self, key: &str) -> Result<Option<SyncJob>, CoreError> {
-            Ok(self
+        fn find_job_by_idempotency(
+            &self,
+            key: &str,
+        ) -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send {
+            let value = self
                 .jobs
                 .values()
                 .find(|job| job.idempotency_key == key)
-                .cloned())
+                .cloned();
+            async move { Ok(value) }
         }
 
-        fn find_active_sync_job(&self) -> Result<Option<SyncJob>, CoreError> {
-            Ok(self
+        fn find_active_sync_job(
+            &self,
+        ) -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send {
+            let value = self
                 .jobs
                 .values()
                 .find(|job| {
                     job.kind == JobKind::Sync
                         && matches!(job.state, JobState::Queued | JobState::Running)
                 })
-                .cloned())
+                .cloned();
+            async move { Ok(value) }
         }
 
-        fn apply(&mut self, changes: CoreChangeSet) -> Result<(), CoreError> {
+        fn apply(
+            &mut self,
+            changes: CoreChangeSet,
+        ) -> impl Future<Output = Result<(), CoreError>> + Send {
             for task in changes.tasks {
                 self.tasks.insert(task.id.clone(), task);
             }
@@ -439,7 +511,17 @@ mod tests {
             for job in changes.jobs {
                 self.jobs.insert(job.id.clone(), job);
             }
-            Ok(())
+            async { Ok(()) }
+        }
+    }
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        let mut future = Box::pin(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("内存仓储不应产生挂起的 Future"),
         }
     }
 
@@ -468,7 +550,7 @@ mod tests {
     #[test]
     fn creating_a_task_persists_task_outbox_and_job() {
         let mut service = CoreService::new(MemoryStore::default());
-        let created = service.create_task(create_task_request()).unwrap();
+        let created = block_on(service.create_task(create_task_request())).unwrap();
         assert_eq!(created.task.heading, "整理设计");
         assert_eq!(created.job.kind, JobKind::AddTask);
         assert_eq!(service.store().tasks.len(), 1);
@@ -479,8 +561,8 @@ mod tests {
     #[test]
     fn repeated_task_request_is_idempotent() {
         let mut service = CoreService::new(MemoryStore::default());
-        service.create_task(create_task_request()).unwrap();
-        let repeated = service.create_task(create_task_request()).unwrap();
+        block_on(service.create_task(create_task_request())).unwrap();
+        let repeated = block_on(service.create_task(create_task_request())).unwrap();
         assert_eq!(repeated.job.id, "job-1");
         assert_eq!(service.store().outbox.len(), 1);
     }
@@ -488,27 +570,55 @@ mod tests {
     #[test]
     fn active_sync_job_is_coalesced() {
         let mut service = CoreService::new(MemoryStore::default());
-        let first = service
-            .create_sync_job(CreateSyncJobRequest {
-                idempotency_key: "sync-1".into(),
-                job_id: "sync-job-1".into(),
-                reason: "scheduler".into(),
-                priority: JobPriority::Background,
-                include_calendar: true,
-                now: 1,
-            })
-            .unwrap();
-        let second = service
-            .create_sync_job(CreateSyncJobRequest {
-                idempotency_key: "sync-2".into(),
-                job_id: "sync-job-2".into(),
-                reason: "foreground".into(),
-                priority: JobPriority::Foreground,
-                include_calendar: true,
-                now: 2,
-            })
-            .unwrap();
+        let first = block_on(service.create_sync_job(CreateSyncJobRequest {
+            idempotency_key: "sync-1".into(),
+            job_id: "sync-job-1".into(),
+            reason: "scheduler".into(),
+            priority: JobPriority::Background,
+            include_calendar: true,
+            now: 1,
+        }))
+        .unwrap();
+        let second = block_on(service.create_sync_job(CreateSyncJobRequest {
+            idempotency_key: "sync-2".into(),
+            job_id: "sync-job-2".into(),
+            reason: "foreground".into(),
+            priority: JobPriority::Foreground,
+            include_calendar: true,
+            now: 2,
+        }))
+        .unwrap();
         assert_eq!(first.id, second.id);
         assert_eq!(service.store().jobs.len(), 1);
+    }
+
+    #[test]
+    fn completed_sync_job_does_not_block_a_new_sync_job() {
+        let mut service = CoreService::new(MemoryStore::default());
+        let first = block_on(service.create_sync_job(CreateSyncJobRequest {
+            idempotency_key: "sync-1".into(),
+            job_id: "sync-job-1".into(),
+            reason: "scheduler".into(),
+            priority: JobPriority::Background,
+            include_calendar: true,
+            now: 1,
+        }))
+        .unwrap();
+        let completed = block_on(service.finish_active_sync(true, 2))
+            .unwrap()
+            .expect("应完成活跃同步作业");
+        let second = block_on(service.create_sync_job(CreateSyncJobRequest {
+            idempotency_key: "sync-2".into(),
+            job_id: "sync-job-2".into(),
+            reason: "foreground".into(),
+            priority: JobPriority::Foreground,
+            include_calendar: true,
+            now: 3,
+        }))
+        .unwrap();
+
+        assert_eq!(completed.id, first.id);
+        assert_eq!(completed.state, JobState::Completed);
+        assert_eq!(second.id, "sync-job-2");
     }
 }

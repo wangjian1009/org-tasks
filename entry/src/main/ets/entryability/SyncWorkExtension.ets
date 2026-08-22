@@ -15,10 +15,13 @@ const PREF_NAME = 'org_tasks_config'
 export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
   async onWorkStart(workInfo: workScheduler.WorkInfo) {
     console.info('后台同步任务开始')
+    let nativeSyncRecorded = false
+    let syncSucceeded = false
 
     try {
       try {
-        await NativeCoreService.recordSyncIntent('background', true, false)
+        await NativeCoreService.recordSyncIntent(this.context.filesDir, 'background', true, false)
+        nativeSyncRecorded = true
       } catch (e) {
         console.warn('Rust 核心服务登记后台同步失败:', JSON.stringify(e))
       }
@@ -73,8 +76,17 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
       // 更新最后同步时间
       await store.put('lastSyncTime', Date.now())
       await store.flush()
+      syncSucceeded = true
     } catch (e) {
       console.error('后台同步失败:', JSON.stringify(e))
+    } finally {
+      if (nativeSyncRecorded) {
+        try {
+          await NativeCoreService.finishSync(syncSucceeded)
+        } catch (e) {
+          console.warn('Rust 核心服务完成后台同步失败:', JSON.stringify(e))
+        }
+      }
     }
   }
 

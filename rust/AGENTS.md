@@ -9,8 +9,8 @@
 ```text
 rust/
   core/       领域模型、用例、端口和平台无关的 action 定义
-  harmony/    HarmonyOS/N-API 的访问适配层
-  http/       RESTful HTTP 请求与响应适配层
+  harmony/    HarmonyOS/N-API 访问与持久化适配层
+  http/       RESTful HTTP 请求、响应与 CSV 持久化适配层
 ```
 
 依赖只能从外向内：`harmony -> core`、`http -> core`。`core` 不得依赖 `harmony`、`http`、ArkTS、N-API、HarmonyOS SDK、网络库、数据库库或文件系统库。
@@ -22,7 +22,7 @@ rust/
 - 任务、文件、同步作业、冲突和执行租约等领域数据结构。
 - 新建任务、创建/合并同步作业、认领执行租约等用例。
 - 校验、幂等、状态迁移和 action 计划。
-- `CoreStore` 等端口 trait，只定义持久化所需语义，不提供 SQLite、文件或 Preferences 实现。
+- `CoreStore` 等端口 trait，只定义持久化所需语义。所有 I/O 方法返回 `Send Future`，领域用例以 `async` 方式调用。
 
 `core` 不负责：密码、WebDAV URL、HTTP 请求、日历写入、后台调度、日志输出、线程创建、JSON 编解码和磁盘落盘。
 
@@ -32,9 +32,13 @@ rust/
 
 `harmony` 将 ArkTS/N-API 传入的结构化请求映射为 core 用例调用。当前 C++ N-API bridge 位于 `entry/src/main/cpp/`，通过 `napi_create_async_work` 调用 `harmony` 导出的 C FFI；Rust 核心仍不可感知 N-API 类型。
 
-当前 bridge 已接入 `queueSync`，用于登记并合并同步意图。它注入的是进程内易失 `SessionStore`，仅用于验证调用链；持久化 `CoreStore` 必须作为独立适配器实现，不能写入 `core` crate。
+当前 bridge 提供 `initialize(dataDir)`、`queueSync` 与 `finishSync`：ArkTS 传入 `context.filesDir`，`harmony::FileCoreStore` 在该应用私有目录保存版本化状态快照。它在临时文件写入和 `sync_all` 成功后原子替换正式文件，并以 `CoreStore` 注入服务；平台同步在 `finally` 中回传作业终态，持久化实现不进入 `core` crate。
 
-`http` 将 REST method、path、query 和 body 映射为相同的 core 用例；它只是 HTTP 接口，不拥有业务规则。实际 HTTP server、TLS 和认证由其外层宿主负责。
+C++ bridge 使用 `napi_create_async_work` 在后台 worker 中初始化和调用 Rust。`core`、`harmony` 与 `http` 的服务入口均为异步接口；Rust 不访问 ArkTS 对象或 UI 线程。
+
+`http` 将 REST method、path、query 和 body 映射为相同的 core 用例；它不拥有业务规则。`http::CsvCoreStore` 是可选的外部持久化实现，保存到宿主指定目录的 CSV 快照；实际 HTTP server、TLS 和认证由其外层宿主负责。
+
+`CsvCoreStore` 的目录由 `current.csv` manifest 与 `snapshots/<generation>/tasks.csv`、`task_tags.csv`、`jobs.csv`、`outbox.csv` 组成。它先写入完整新快照，再原子替换 manifest；宿主将 `CsvCoreStore::open(data_dir)` 注入 `HttpApi::new(store)`。
 
 适配层只保存短生命周期输入，不保存密码。平台 I/O 的结果应通过 core 定义的 action 回执返回给服务。
 
