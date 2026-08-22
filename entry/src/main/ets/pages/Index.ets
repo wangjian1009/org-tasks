@@ -8,6 +8,7 @@ import { OrgTask, SyncResult, AppConfig, DEFAULT_CONFIG } from '../models/OrgTas
 import { preferences } from '@kit.ArkData'
 import { CredentialService } from '../services/CredentialService'
 import { WebDavService } from '../services/WebDavService'
+import { NativeCoreService } from '../services/NativeCoreService'
 
 const PREF_NAME = 'org_tasks_config'
 
@@ -59,6 +60,12 @@ struct Index {
     this.syncMessage = '正在同步...'
 
     try {
+      try {
+        await NativeCoreService.recordSyncIntent('manual', true, true)
+      } catch (e) {
+        console.warn('Rust 核心服务登记手动同步失败:', JSON.stringify(e))
+      }
+
       if (!await this.requestSyncPermissions()) {
         this.syncMessage = '需要日历权限才能同步'
         this.syncing = false

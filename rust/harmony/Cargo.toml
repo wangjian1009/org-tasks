@@ -1,0 +1,12 @@
+[package]
+name = "org-tasks-harmony"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "org_tasks_harmony"
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+org-tasks-core = { path = "../core" }

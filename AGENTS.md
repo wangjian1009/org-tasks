@@ -7,13 +7,17 @@
 - 项目中的文档说明、设计决策、注释性段落和面向用户的文本使用中文。
 - 代码、命令、路径、协议名、API 名称、字段名和技术专有名词保留其原始英文形式。
 
+## 提交规范
+
+- Git 提交信息使用中文，遵循 Conventional Commits 的类型前缀，例如 `feat: 接入 Rust 核心服务`。
+
 ## 项目概述
 
 Org Tasks 是一个 HarmonyOS NEXT 应用，用于将 org-mode 任务同步到系统日历。通过坚果云/Nextcloud WebDAV 将 org 文件同步到手机，应用解析后写入系统日历，并支持从手机新增任务写回 `inbox.org`。
 
 ## 技术栈
 
-- **语言**: ArkTS（TypeScript 超集）
+- **语言**: ArkTS（TypeScript 超集）+ Rust（领域核心）+ C++（N-API bridge）
 - **UI 框架**: ArkUI（声明式 UI）
 - **目标平台**: HarmonyOS NEXT（API 12）
 - **构建工具**: hvigorw + Makefile
@@ -28,6 +32,7 @@ org-tasks/
 ├── entry/
 │   ├── oh-package.json5              # 模块依赖
 │   └── src/main/
+│       ├── cpp/                      # CMake + C++ N-API bridge，链接 Rust 静态库
 │       ├── module.json5              # 模块清单（权限、后台任务注册）
 │       ├── resources/                # 字符串、颜色、页面路由
 │       └── ets/
@@ -36,7 +41,8 @@ org-tasks/
 │           ├── services/
 │           │   ├── OrgParser.ets     # org 文件解析器
 │           │   ├── FileService.ets   # 文件读写
-│           │   └── CalendarSync.ets  # 系统日历同步
+│           │   ├── CalendarSync.ets  # 系统日历同步
+│           │   └── NativeCoreService.ets # 异步调用 Rust 核心服务
 │           ├── entryability/
 │           │   ├── EntryAbility.ets       # 应用入口，注册后台任务
 │           │   └── SyncWorkExtension.ets  # WorkScheduler 后台同步回调
@@ -45,6 +51,8 @@ org-tasks/
 │               ├── AddTask.ets       # 新增任务
 │               └── Settings.ets      # 设置（路径、间隔等）
 ```
+
+`rust/` 是独立 Cargo workspace：`core` 保持平台无关，`harmony` 提供 FFI 访问适配，`http` 提供 RESTful 映射。Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用放到工作线程，避免阻塞 ArkUI 线程。
 
 ## 核心功能
 

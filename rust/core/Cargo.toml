@@ -1,0 +1,9 @@
+[package]
+name = "org-tasks-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "org_tasks_core"
+path = "src/lib.rs"

@@ -1,0 +1,8 @@
+[package]
+name = "org-tasks-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+org-tasks-core = { path = "../core" }

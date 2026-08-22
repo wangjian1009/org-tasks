@@ -8,4 +8,10 @@ build-profile.json5
 build/
 entry/build/
 node_modules/
+oh_modules/
+entry/oh_modules/
+entry/.cxx/
 *.hap
+
+# Rust build outputs
+rust/target/

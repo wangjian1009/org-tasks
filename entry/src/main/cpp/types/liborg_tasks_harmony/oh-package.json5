@@ -1,0 +1,6 @@
+{
+  "name": "liborg_tasks_harmony.so",
+  "types": "./index.d.ts",
+  "version": "1.0.0",
+  "description": "Org Tasks Rust Harmony N-API bridge"
+}

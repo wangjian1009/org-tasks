@@ -1,5 +1,11 @@
 # Rust 核心数据服务 API v1
 
+## 当前实现状态
+
+当前 Harmony 应用已通过 `entry/src/main/cpp/` 的 C++ N-API bridge 接入 Rust。ArkTS 的 `NativeCoreService.recordSyncIntent` 调用 `queueSync`，C++ 使用 `napi_create_async_work` 在工作线程执行 Rust FFI，因此不会阻塞 ArkUI 线程。该入口只接收同步元数据，不传入 WebDAV URL、密码或远端文件内容。
+
+当前 `harmony` 适配器使用进程内易失 `SessionStore` 创建或合并 `sync` 作业，现有 ArkTS WebDAV 与 CalendarKit 流程继续执行。以下接口是完整持久化数据服务的 v1 目标契约；SQLite、执行租约、action 回执和完整资源接口尚未接入 Harmony bridge。
+
 ## 目标与边界
 
 `orgTasksCore` 是运行在应用进程内的 Rust 数据服务。它管理任务、文件元数据、同步作业、离线 outbox、冲突和 SQLite 持久化状态；ArkTS 管理 ArkUI、WorkScheduler、WebDAV HTTP、CalendarKit、Preferences 和 Asset Store。

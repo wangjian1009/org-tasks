@@ -8,6 +8,7 @@ import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
 import { CredentialService } from '../services/CredentialService'
 import { WebDavService } from '../services/WebDavService'
+import { NativeCoreService } from '../services/NativeCoreService'
 
 const PREF_NAME = 'org_tasks_config'
 
@@ -16,6 +17,12 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
     console.info('后台同步任务开始')
 
     try {
+      try {
+        await NativeCoreService.recordSyncIntent('background', true, false)
+      } catch (e) {
+        console.warn('Rust 核心服务登记后台同步失败:', JSON.stringify(e))
+      }
+
       // 读取配置
       const store = await preferences.getPreferences(this.context, PREF_NAME)
       const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
