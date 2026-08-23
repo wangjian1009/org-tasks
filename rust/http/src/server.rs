@@ -16,7 +16,7 @@ use axum::{Json, Router};
 use clap::{Args, Subcommand, ValueEnum};
 use org_tasks_core::{
     CoreError, CreateSyncJobRequest, CreateTaskRequest, JobKind, JobPriority, JobState, NewTask,
-    Priority, SyncJob, TaskCreation, TaskRecord, TodoState,
+    OutboxEntry, Priority, SyncJob, TaskCreation,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -404,7 +404,7 @@ impl CreateTaskPayload {
 struct NewTaskPayload {
     id: String,
     heading: String,
-    target_path: String,
+    relative_path: String,
     scheduled_at: Option<i64>,
     deadline_at: Option<i64>,
     #[serde(default)]
@@ -419,7 +419,7 @@ impl NewTaskPayload {
         NewTask {
             id: self.id,
             heading: self.heading,
-            target_path: self.target_path,
+            relative_path: self.relative_path,
             scheduled_at: self.scheduled_at,
             deadline_at: self.deadline_at,
             tags: self.tags,
@@ -489,22 +489,20 @@ impl ApiPriority {
 }
 
 fn task_creation_json(creation: TaskCreation) -> Value {
-    json!({ "task": task_json(creation.task), "job": sync_job_json(creation.job) })
+    json!({
+        "taskId": creation.task_id,
+        "outboxEntry": outbox_entry_json(creation.outbox_entry),
+        "job": sync_job_json(creation.job),
+    })
 }
 
-fn task_json(task: TaskRecord) -> Value {
+fn outbox_entry_json(entry: OutboxEntry) -> Value {
     json!({
-        "id": task.id,
-        "filePath": task.file_path,
-        "heading": task.heading,
-        "todoState": todo_state_name(task.todo_state),
-        "priority": task.priority.map(priority_name),
-        "scheduledAt": task.scheduled_at,
-        "deadlineAt": task.deadline_at,
-        "tags": task.tags,
-        "body": task.body,
-        "sourceRevision": task.source_revision,
-        "updatedAt": task.updated_at,
+        "id": entry.id,
+        "relativePath": entry.relative_path,
+        "orgEntry": entry.org_entry,
+        "contentHash": entry.content_hash,
+        "createdAt": entry.created_at,
     })
 }
 
@@ -518,29 +516,12 @@ fn sync_job_json(job: SyncJob) -> Value {
         "reason": job.reason,
         "includeCalendar": job.include_calendar,
         "taskId": job.task_id,
+        "outboxEntryId": job.outbox_entry_id,
         "attemptCount": job.attempt_count,
         "nextRunAt": job.next_run_at,
         "createdAt": job.created_at,
         "updatedAt": job.updated_at,
     })
-}
-
-fn todo_state_name(value: TodoState) -> &'static str {
-    match value {
-        TodoState::Todo => "TODO",
-        TodoState::Next => "NEXT",
-        TodoState::Wait => "WAIT",
-        TodoState::Done => "DONE",
-        TodoState::Cncl => "CNCL",
-    }
-}
-
-fn priority_name(value: Priority) -> &'static str {
-    match value {
-        Priority::A => "A",
-        Priority::B => "B",
-        Priority::C => "C",
-    }
 }
 
 fn job_kind_name(value: JobKind) -> &'static str {
@@ -730,6 +711,58 @@ mod tests {
         let response: Value = serde_json::from_slice(&body).expect("应为 JSON");
         assert_eq!(response["requestId"], "test-request-1");
         assert_eq!(response["data"]["id"], "job-1");
+        fs::remove_dir_all(data_dir).expect("应移除测试数据目录");
+    }
+
+    #[tokio::test]
+    async fn creates_task_intent_without_returning_task_projection() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "org-tasks-http-task-request-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("系统时间应有效")
+                .as_nanos()
+        ));
+        let actor = CoreActor::start(CsvCoreStore::open(&data_dir).expect("应打开仓储"))
+            .expect("应启动 actor");
+        let app = router(AppState { actor, token: None });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tasks")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                            "idempotencyKey":"task-request-1",
+                            "jobId":"task-job-1",
+                            "outboxEntryId":"outbox-1",
+                            "reason":"manual",
+                            "priority":"foreground",
+                            "now":1,
+                            "task":{
+                                "id":"task-1",
+                                "heading":"待写入任务",
+                                "relativePath":"inbox.org",
+                                "tags":["work"],
+                                "priority":"A",
+                                "orgEntry":"* TODO 待写入任务\\n",
+                                "contentHash":"abc"
+                            }
+                        }"#,
+                    ))
+                    .expect("应创建请求"),
+            )
+            .await
+            .expect("路由应返回响应");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("应读取响应体");
+        let response: Value = serde_json::from_slice(&body).expect("应为 JSON");
+        assert_eq!(response["data"]["taskId"], "task-1");
+        assert_eq!(response["data"]["outboxEntry"]["relativePath"], "inbox.org");
+        assert!(response["data"].get("task").is_none());
         fs::remove_dir_all(data_dir).expect("应移除测试数据目录");
     }
 }

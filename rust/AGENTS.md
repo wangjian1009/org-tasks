@@ -28,6 +28,8 @@ rust/
 
 所有时间以 `TimestampMs`（Unix epoch 毫秒）表示；外部生成的 ID 与幂等键必须是非空 UUID 字符串。密码、Authorization header 和完整远端文件内容不得出现在 core 的公开模型、错误或 checkpoint 中。
 
+`CoreStore` 只持久化相对路径的 `FileSyncRecord`、`SyncJob` 历史和 `OutboxEntry` 写入意图。基准目录每次由同步入口传入，绝不落盘；不持久化完整文件、文件基础属性或解析后的 `TaskRecord`。
+
 核心数据结构、CSV 映射与规划模型见 `../docs/rust-data-model.org`；实体关系的 PlantUML 源码内嵌在该文档中。修改领域模型时必须同步更新说明和源码块。
 
 ## 适配层
@@ -40,7 +42,7 @@ C++ bridge 使用 `napi_create_async_work` 在后台 worker 中初始化和调�
 
 `http` 将 REST method、path、query 和 body 映射为相同的 core 用例；它不拥有业务规则。`http::CsvCoreStore` 是可选的外部持久化实现，保存到宿主指定目录的 CSV 快照；实际 HTTP server、TLS 和认证由其外层宿主负责。
 
-`CsvCoreStore` 的目录由 `current.csv` manifest 与 `snapshots/<generation>/tasks.csv`、`task_tags.csv`、`jobs.csv`、`outbox.csv` 组成。它先写入完整新快照，再原子替换 manifest；宿主将 `CsvCoreStore::open(data_dir)` 注入 `HttpApi::new(store)`。
+`CsvCoreStore` 的目录由 `current.csv` manifest 与 `snapshots/<generation>/files.csv`、`jobs.csv`、`outbox.csv` 组成。`files.csv` 只保存相对路径与下次变更检测所需同步元数据；`jobs.csv` 保留同步历史。它先写入完整新快照，再原子替换 manifest；宿主将 `CsvCoreStore::open(data_dir)` 注入 `HttpApi::new(store)`。
 
 HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/org-tasks-httpd.rs`，运行模型位于 `http/src/server.rs`。其命令行、监听、认证、CSV 数据目录、单写入者并发模型和验收标准见 `../docs/http-server-design.org`；修改其运行行为前必须先遵循该设计。
 

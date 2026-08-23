@@ -44,7 +44,7 @@ pub enum Priority {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRecord {
     pub id: String,
-    pub file_path: String,
+    pub relative_path: String,
     pub heading: String,
     pub todo_state: TodoState,
     pub priority: Option<Priority>,
@@ -57,8 +57,9 @@ pub struct TaskRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FileRecord {
-    pub path: String,
+pub struct FileSyncRecord {
+    /// 相对于每次同步传入基准目录的路径，不能是绝对路径。
+    pub relative_path: String,
     pub content_hash: String,
     pub remote_etag: Option<String>,
     pub remote_mtime: Option<TimestampMs>,
@@ -79,7 +80,7 @@ pub enum FileSyncState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutboxEntry {
     pub id: String,
-    pub target_path: String,
+    pub relative_path: String,
     pub org_entry: String,
     pub content_hash: String,
     pub created_at: TimestampMs,
@@ -121,6 +122,7 @@ pub struct SyncJob {
     pub reason: String,
     pub include_calendar: bool,
     pub task_id: Option<String>,
+    pub outbox_entry_id: Option<String>,
     pub attempt_count: u32,
     pub next_run_at: Option<TimestampMs>,
     pub created_at: TimestampMs,
@@ -137,7 +139,7 @@ pub enum ConflictState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConflictRecord {
     pub id: String,
-    pub file_path: String,
+    pub relative_path: String,
     pub local_revision: Option<String>,
     pub remote_revision: Option<String>,
     pub state: ConflictState,
@@ -149,7 +151,7 @@ pub struct ConflictRecord {
 pub struct NewTask {
     pub id: String,
     pub heading: String,
-    pub target_path: String,
+    pub relative_path: String,
     pub scheduled_at: Option<TimestampMs>,
     pub deadline_at: Option<TimestampMs>,
     pub tags: Vec<String>,
@@ -181,23 +183,28 @@ pub struct CreateSyncJobRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskCreation {
-    pub task: TaskRecord,
+    pub task_id: String,
+    pub outbox_entry: OutboxEntry,
     pub job: SyncJob,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CoreChangeSet {
-    pub tasks: Vec<TaskRecord>,
+    pub file_sync_records: Vec<FileSyncRecord>,
     pub outbox_entries: Vec<OutboxEntry>,
     pub jobs: Vec<SyncJob>,
 }
 
 /// 持久化端口。实现者必须保证 apply 是一个原子提交。
 pub trait CoreStore: Send {
-    fn find_task(
+    fn find_file_sync(
+        &self,
+        relative_path: &str,
+    ) -> impl Future<Output = Result<Option<FileSyncRecord>, CoreError>> + Send;
+    fn find_outbox(
         &self,
         id: &str,
-    ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send;
+    ) -> impl Future<Output = Result<Option<OutboxEntry>, CoreError>> + Send;
     fn find_job(&self, id: &str)
     -> impl Future<Output = Result<Option<SyncJob>, CoreError>> + Send;
     fn find_job_by_idempotency(
@@ -241,6 +248,20 @@ where
         self.store.find_job(id).await
     }
 
+    /// 保存同步后用于下次变更检测的元数据，不保存基准目录、文件内容或任务投影。
+    pub async fn record_file_sync(&mut self, record: FileSyncRecord) -> Result<(), CoreError> {
+        validate_relative_path(&record.relative_path)?;
+        if record.content_hash.is_empty() {
+            return Err(CoreError::InvalidInput("文件内容哈希不能为空"));
+        }
+        self.store
+            .apply(CoreChangeSet {
+                file_sync_records: vec![record],
+                ..CoreChangeSet::default()
+            })
+            .await
+    }
+
     pub async fn create_task(
         &mut self,
         request: CreateTaskRequest,
@@ -259,33 +280,25 @@ where
                 .task_id
                 .as_deref()
                 .ok_or(CoreError::InvalidState("幂等键已绑定到非任务作业"))?;
-            let task = self
+            let outbox_entry_id = existing_job
+                .outbox_entry_id
+                .as_deref()
+                .ok_or(CoreError::InvalidState("幂等任务缺少 outbox 引用"))?;
+            let outbox_entry = self
                 .store
-                .find_task(task_id)
+                .find_outbox(outbox_entry_id)
                 .await?
-                .ok_or(CoreError::InvalidState("幂等任务缺少任务记录"))?;
+                .ok_or(CoreError::InvalidState("幂等任务缺少 outbox 记录"))?;
             return Ok(TaskCreation {
-                task,
+                task_id: task_id.to_owned(),
+                outbox_entry,
                 job: existing_job,
             });
         }
 
-        let task = TaskRecord {
-            id: request.task.id.clone(),
-            file_path: request.task.target_path.clone(),
-            heading: request.task.heading.trim().to_owned(),
-            todo_state: TodoState::Todo,
-            priority: request.task.priority,
-            scheduled_at: request.task.scheduled_at,
-            deadline_at: request.task.deadline_at,
-            tags: request.task.tags.clone(),
-            body: String::new(),
-            source_revision: request.task.content_hash.clone(),
-            updated_at: request.now,
-        };
         let outbox_entry = OutboxEntry {
-            id: request.outbox_entry_id,
-            target_path: request.task.target_path,
+            id: request.outbox_entry_id.clone(),
+            relative_path: request.task.relative_path,
             org_entry: request.task.org_entry,
             content_hash: request.task.content_hash,
             created_at: request.now,
@@ -297,17 +310,22 @@ where
             request.priority,
             request.reason,
             true,
-            Some(task.id.clone()),
+            Some(request.task.id.clone()),
+            Some(request.outbox_entry_id),
             request.now,
         );
         self.store
             .apply(CoreChangeSet {
-                tasks: vec![task.clone()],
-                outbox_entries: vec![outbox_entry],
+                outbox_entries: vec![outbox_entry.clone()],
                 jobs: vec![job.clone()],
+                ..CoreChangeSet::default()
             })
             .await?;
-        Ok(TaskCreation { task, job })
+        Ok(TaskCreation {
+            task_id: request.task.id,
+            outbox_entry,
+            job,
+        })
     }
 
     pub async fn create_sync_job(
@@ -333,6 +351,7 @@ where
             request.priority,
             request.reason,
             request.include_calendar,
+            None,
             None,
             request.now,
         );
@@ -400,6 +419,7 @@ fn queued_job(
     reason: String,
     include_calendar: bool,
     task_id: Option<String>,
+    outbox_entry_id: Option<String>,
     now: TimestampMs,
 ) -> SyncJob {
     SyncJob {
@@ -411,6 +431,7 @@ fn queued_job(
         reason,
         include_calendar,
         task_id,
+        outbox_entry_id,
         attempt_count: 0,
         next_run_at: None,
         created_at: now,
@@ -430,13 +451,27 @@ fn validate_task(task: &NewTask) -> Result<(), CoreError> {
     if task.heading.trim().is_empty() {
         return Err(CoreError::InvalidInput("任务标题不能为空"));
     }
-    if !task.target_path.ends_with(".org") || task.target_path.contains("..") {
+    if !task.relative_path.ends_with(".org") {
         return Err(CoreError::InvalidInput(
-            "任务目标文件必须是安全的 .org 路径",
+            "任务目标文件必须是安全的相对 .org 路径",
         ));
     }
+    validate_relative_path(&task.relative_path)?;
     if task.org_entry.is_empty() || task.content_hash.is_empty() {
         return Err(CoreError::InvalidInput("任务内容和哈希不能为空"));
+    }
+    Ok(())
+}
+
+fn validate_relative_path(value: &str) -> Result<(), CoreError> {
+    if value.trim().is_empty()
+        || value.starts_with('/')
+        || value.starts_with('\\')
+        || value
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(CoreError::InvalidInput("文件路径必须是安全的相对路径"));
     }
     Ok(())
 }
@@ -450,17 +485,25 @@ mod tests {
 
     #[derive(Default)]
     struct MemoryStore {
-        tasks: HashMap<String, TaskRecord>,
+        files: HashMap<String, FileSyncRecord>,
         jobs: HashMap<String, SyncJob>,
         outbox: HashMap<String, OutboxEntry>,
     }
 
     impl CoreStore for MemoryStore {
-        fn find_task(
+        fn find_file_sync(
+            &self,
+            relative_path: &str,
+        ) -> impl Future<Output = Result<Option<FileSyncRecord>, CoreError>> + Send {
+            let value = self.files.get(relative_path).cloned();
+            async move { Ok(value) }
+        }
+
+        fn find_outbox(
             &self,
             id: &str,
-        ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send {
-            let value = self.tasks.get(id).cloned();
+        ) -> impl Future<Output = Result<Option<OutboxEntry>, CoreError>> + Send {
+            let value = self.outbox.get(id).cloned();
             async move { Ok(value) }
         }
 
@@ -502,8 +545,8 @@ mod tests {
             &mut self,
             changes: CoreChangeSet,
         ) -> impl Future<Output = Result<(), CoreError>> + Send {
-            for task in changes.tasks {
-                self.tasks.insert(task.id.clone(), task);
+            for record in changes.file_sync_records {
+                self.files.insert(record.relative_path.clone(), record);
             }
             for entry in changes.outbox_entries {
                 self.outbox.insert(entry.id.clone(), entry);
@@ -536,7 +579,7 @@ mod tests {
             task: NewTask {
                 id: "task-1".into(),
                 heading: "整理设计".into(),
-                target_path: "inbox.org".into(),
+                relative_path: "inbox.org".into(),
                 scheduled_at: None,
                 deadline_at: None,
                 tags: vec!["work".into()],
@@ -548,12 +591,13 @@ mod tests {
     }
 
     #[test]
-    fn creating_a_task_persists_task_outbox_and_job() {
+    fn creating_a_task_persists_only_outbox_and_job() {
         let mut service = CoreService::new(MemoryStore::default());
         let created = block_on(service.create_task(create_task_request())).unwrap();
-        assert_eq!(created.task.heading, "整理设计");
+        assert_eq!(created.task_id, "task-1");
+        assert_eq!(created.outbox_entry.id, "outbox-1");
         assert_eq!(created.job.kind, JobKind::AddTask);
-        assert_eq!(service.store().tasks.len(), 1);
+        assert_eq!(created.job.outbox_entry_id.as_deref(), Some("outbox-1"));
         assert_eq!(service.store().outbox.len(), 1);
         assert_eq!(service.store().jobs.len(), 1);
     }
@@ -564,7 +608,38 @@ mod tests {
         block_on(service.create_task(create_task_request())).unwrap();
         let repeated = block_on(service.create_task(create_task_request())).unwrap();
         assert_eq!(repeated.job.id, "job-1");
+        assert_eq!(repeated.task_id, "task-1");
+        assert_eq!(repeated.outbox_entry.id, "outbox-1");
         assert_eq!(service.store().outbox.len(), 1);
+    }
+
+    #[test]
+    fn file_sync_metadata_uses_relative_path_without_task_projection() {
+        let mut service = CoreService::new(MemoryStore::default());
+        block_on(service.record_file_sync(FileSyncRecord {
+            relative_path: "projects/inbox.org".into(),
+            content_hash: "abc".into(),
+            remote_etag: Some("etag-1".into()),
+            remote_mtime: Some(1),
+            remote_size: Some(2),
+            last_synced_at: Some(3),
+            sync_state: FileSyncState::Synced,
+        }))
+        .expect("应保存文件同步元数据");
+
+        assert_eq!(service.store().files.len(), 1);
+        assert!(
+            block_on(service.record_file_sync(FileSyncRecord {
+                relative_path: "/private/inbox.org".into(),
+                content_hash: "abc".into(),
+                remote_etag: None,
+                remote_mtime: None,
+                remote_size: None,
+                last_synced_at: None,
+                sync_state: FileSyncState::Synced,
+            }))
+            .is_err()
+        );
     }
 
     #[test]

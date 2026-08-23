@@ -11,15 +11,15 @@ use std::path::{Path, PathBuf};
 
 use csv::{ReaderBuilder, StringRecord, Writer};
 use org_tasks_core::{
-    CoreChangeSet, CoreError, CoreStore, JobKind, JobPriority, JobState, OutboxEntry, Priority,
-    SyncJob, TaskRecord, TodoState,
+    CoreChangeSet, CoreError, CoreStore, FileSyncRecord, FileSyncState, JobKind, JobPriority,
+    JobState, OutboxEntry, SyncJob,
 };
 
 const MAX_RECORDS: usize = 100_000;
 
 #[derive(Clone, Default)]
 struct CsvState {
-    tasks: BTreeMap<String, TaskRecord>,
+    files: BTreeMap<String, FileSyncRecord>,
     jobs: BTreeMap<String, SyncJob>,
     outbox: BTreeMap<String, OutboxEntry>,
 }
@@ -39,6 +39,7 @@ impl CsvCoreStore {
         }
         fs::create_dir_all(root.join("snapshots"))
             .map_err(|error| store_error(format!("无法创建 CSV 数据目录: {error}")))?;
+        remove_legacy_task_projections(&root)?;
         let generation = read_generation(&root)?;
         let state = match generation {
             Some(generation) => read_snapshot(&root, generation)?,
@@ -71,8 +72,7 @@ impl CsvCoreStore {
         let snapshot_dir = snapshot_dir(&self.root, generation);
         fs::create_dir_all(&snapshot_dir)
             .map_err(|error| store_error(format!("无法创建 CSV 快照目录: {error}")))?;
-        write_tasks(&snapshot_dir.join("tasks.csv"), &state.tasks)?;
-        write_task_tags(&snapshot_dir.join("task_tags.csv"), &state.tasks)?;
+        write_files(&snapshot_dir.join("files.csv"), &state.files)?;
         write_jobs(&snapshot_dir.join("jobs.csv"), &state.jobs)?;
         write_outbox(&snapshot_dir.join("outbox.csv"), &state.outbox)?;
         write_generation(&self.root, generation)?;
@@ -95,12 +95,43 @@ impl CsvCoreStore {
     }
 }
 
+fn remove_legacy_task_projections(root: &Path) -> Result<(), CoreError> {
+    let snapshots = root.join("snapshots");
+    for entry in fs::read_dir(&snapshots)
+        .map_err(|error| store_error(format!("无法读取 CSV 快照目录: {error}")))?
+    {
+        let entry =
+            entry.map_err(|error| store_error(format!("无法读取 CSV 快照条目: {error}")))?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        for name in ["tasks.csv", "task_tags.csv"] {
+            let legacy_path = path.join(name);
+            if legacy_path.exists() {
+                fs::remove_file(&legacy_path).map_err(|error| {
+                    store_error(format!("无法移除已废弃的任务投影文件: {error}"))
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
 impl CoreStore for CsvCoreStore {
-    fn find_task(
+    fn find_file_sync(
+        &self,
+        relative_path: &str,
+    ) -> impl Future<Output = Result<Option<FileSyncRecord>, CoreError>> + Send {
+        let value = self.state.files.get(relative_path).cloned();
+        async move { Ok(value) }
+    }
+
+    fn find_outbox(
         &self,
         id: &str,
-    ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send {
-        let value = self.state.tasks.get(id).cloned();
+    ) -> impl Future<Output = Result<Option<OutboxEntry>, CoreError>> + Send {
+        let value = self.state.outbox.get(id).cloned();
         async move { Ok(value) }
     }
 
@@ -145,8 +176,8 @@ impl CoreStore for CsvCoreStore {
         changes: CoreChangeSet,
     ) -> impl Future<Output = Result<(), CoreError>> + Send {
         let mut next = self.state.clone();
-        for task in changes.tasks {
-            next.tasks.insert(task.id.clone(), task);
+        for record in changes.file_sync_records {
+            next.files.insert(record.relative_path.clone(), record);
         }
         for entry in changes.outbox_entries {
             next.outbox.insert(entry.id.clone(), entry);
@@ -203,67 +234,46 @@ fn write_generation(root: &Path, generation: u64) -> Result<(), CoreError> {
 
 fn read_snapshot(root: &Path, generation: u64) -> Result<CsvState, CoreError> {
     let directory = snapshot_dir(root, generation);
-    let mut tasks = read_tasks(&directory.join("tasks.csv"))?;
-    read_task_tags(&directory.join("task_tags.csv"), &mut tasks)?;
+    let files_path = directory.join("files.csv");
+    let files = if files_path.exists() {
+        read_files(&files_path)?
+    } else {
+        BTreeMap::new()
+    };
     let jobs = read_jobs(&directory.join("jobs.csv"))?;
     let outbox = read_outbox(&directory.join("outbox.csv"))?;
     Ok(CsvState {
-        tasks,
+        files,
         jobs,
         outbox,
     })
 }
 
-fn write_tasks(path: &Path, tasks: &BTreeMap<String, TaskRecord>) -> Result<(), CoreError> {
+fn write_files(path: &Path, files: &BTreeMap<String, FileSyncRecord>) -> Result<(), CoreError> {
     let mut writer = csv_writer(path)?;
     writer
         .write_record([
-            "id",
-            "file_path",
-            "heading",
-            "todo_state",
-            "priority",
-            "scheduled_at",
-            "deadline_at",
-            "body",
-            "source_revision",
-            "updated_at",
+            "relative_path",
+            "content_hash",
+            "remote_etag",
+            "remote_mtime",
+            "remote_size",
+            "last_synced_at",
+            "sync_state",
         ])
         .map_err(csv_error)?;
-    for task in tasks.values() {
+    for record in files.values() {
         writer
             .write_record([
-                task.id.as_str(),
-                task.file_path.as_str(),
-                task.heading.as_str(),
-                todo_state_name(task.todo_state),
-                task.priority.map(priority_name).unwrap_or(""),
-                optional_i64(task.scheduled_at).as_str(),
-                optional_i64(task.deadline_at).as_str(),
-                task.body.as_str(),
-                task.source_revision.as_str(),
-                task.updated_at.to_string().as_str(),
+                record.relative_path.as_str(),
+                record.content_hash.as_str(),
+                record.remote_etag.as_deref().unwrap_or(""),
+                optional_i64(record.remote_mtime).as_str(),
+                optional_i64(record.remote_size).as_str(),
+                optional_i64(record.last_synced_at).as_str(),
+                file_sync_state_name(record.sync_state),
             ])
             .map_err(csv_error)?;
-    }
-    sync_writer(writer)
-}
-
-fn write_task_tags(path: &Path, tasks: &BTreeMap<String, TaskRecord>) -> Result<(), CoreError> {
-    let mut writer = csv_writer(path)?;
-    writer
-        .write_record(["task_id", "position", "tag"])
-        .map_err(csv_error)?;
-    for task in tasks.values() {
-        for (position, tag) in task.tags.iter().enumerate() {
-            writer
-                .write_record([
-                    task.id.as_str(),
-                    position.to_string().as_str(),
-                    tag.as_str(),
-                ])
-                .map_err(csv_error)?;
-        }
     }
     sync_writer(writer)
 }
@@ -280,6 +290,7 @@ fn write_jobs(path: &Path, jobs: &BTreeMap<String, SyncJob>) -> Result<(), CoreE
             "reason",
             "include_calendar",
             "task_id",
+            "outbox_entry_id",
             "attempt_count",
             "next_run_at",
             "created_at",
@@ -301,6 +312,7 @@ fn write_jobs(path: &Path, jobs: &BTreeMap<String, SyncJob>) -> Result<(), CoreE
                     "false"
                 },
                 job.task_id.as_deref().unwrap_or(""),
+                job.outbox_entry_id.as_deref().unwrap_or(""),
                 job.attempt_count.to_string().as_str(),
                 optional_i64(job.next_run_at).as_str(),
                 job.created_at.to_string().as_str(),
@@ -316,7 +328,7 @@ fn write_outbox(path: &Path, outbox: &BTreeMap<String, OutboxEntry>) -> Result<(
     writer
         .write_record([
             "id",
-            "target_path",
+            "relative_path",
             "org_entry",
             "content_hash",
             "created_at",
@@ -326,7 +338,7 @@ fn write_outbox(path: &Path, outbox: &BTreeMap<String, OutboxEntry>) -> Result<(
         writer
             .write_record([
                 entry.id.as_str(),
-                entry.target_path.as_str(),
+                entry.relative_path.as_str(),
                 entry.org_entry.as_str(),
                 entry.content_hash.as_str(),
                 entry.created_at.to_string().as_str(),
@@ -336,57 +348,34 @@ fn write_outbox(path: &Path, outbox: &BTreeMap<String, OutboxEntry>) -> Result<(
     sync_writer(writer)
 }
 
-fn read_tasks(path: &Path) -> Result<BTreeMap<String, TaskRecord>, CoreError> {
-    let mut tasks = BTreeMap::new();
+fn read_files(path: &Path) -> Result<BTreeMap<String, FileSyncRecord>, CoreError> {
+    let mut files = BTreeMap::new();
     for record in records(path)? {
-        let task = TaskRecord {
-            id: required(&record, 0, "id")?.to_owned(),
-            file_path: required(&record, 1, "file_path")?.to_owned(),
-            heading: required(&record, 2, "heading")?.to_owned(),
-            todo_state: parse_todo_state(required(&record, 3, "todo_state")?)?,
-            priority: parse_optional_priority(required(&record, 4, "priority")?)?,
-            scheduled_at: parse_optional_i64(required(&record, 5, "scheduled_at")?)?,
-            deadline_at: parse_optional_i64(required(&record, 6, "deadline_at")?)?,
-            tags: Vec::new(),
-            body: required(&record, 7, "body")?.to_owned(),
-            source_revision: required(&record, 8, "source_revision")?.to_owned(),
-            updated_at: parse_i64(required(&record, 9, "updated_at")?)?,
+        let file = FileSyncRecord {
+            relative_path: required(&record, 0, "relative_path")?.to_owned(),
+            content_hash: required(&record, 1, "content_hash")?.to_owned(),
+            remote_etag: optional_string(required(&record, 2, "remote_etag")?),
+            remote_mtime: parse_optional_i64(required(&record, 3, "remote_mtime")?)?,
+            remote_size: parse_optional_i64(required(&record, 4, "remote_size")?)?,
+            last_synced_at: parse_optional_i64(required(&record, 5, "last_synced_at")?)?,
+            sync_state: parse_file_sync_state(required(&record, 6, "sync_state")?)?,
         };
-        if task.id.is_empty() || tasks.insert(task.id.clone(), task).is_some() {
-            return Err(CoreError::InvalidState("tasks.csv 存在空或重复 ID"));
+        if file.relative_path.is_empty() || files.insert(file.relative_path.clone(), file).is_some()
+        {
+            return Err(CoreError::InvalidState("files.csv 存在空或重复相对路径"));
         }
     }
-    Ok(tasks)
-}
-
-fn read_task_tags(path: &Path, tasks: &mut BTreeMap<String, TaskRecord>) -> Result<(), CoreError> {
-    let mut tags: BTreeMap<String, Vec<(usize, String)>> = BTreeMap::new();
-    for record in records(path)? {
-        let task_id = required(&record, 0, "task_id")?.to_owned();
-        if !tasks.contains_key(&task_id) {
-            return Err(CoreError::InvalidState("task_tags.csv 引用了不存在的任务"));
-        }
-        let position = required(&record, 1, "position")?
-            .parse::<usize>()
-            .map_err(|_| CoreError::InvalidState("task_tags.csv 位置无效"))?;
-        tags.entry(task_id)
-            .or_default()
-            .push((position, required(&record, 2, "tag")?.to_owned()));
-    }
-    for (task_id, mut values) in tags {
-        values.sort_by_key(|(position, _)| *position);
-        if values.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-            return Err(CoreError::InvalidState("task_tags.csv 包含重复位置"));
-        }
-        tasks.get_mut(&task_id).expect("已校验任务存在").tags =
-            values.into_iter().map(|(_, tag)| tag).collect();
-    }
-    Ok(())
+    Ok(files)
 }
 
 fn read_jobs(path: &Path) -> Result<BTreeMap<String, SyncJob>, CoreError> {
     let mut jobs = BTreeMap::new();
     for record in records(path)? {
+        let (outbox_entry_id, offset) = if record.len() == 12 {
+            (None, 8)
+        } else {
+            (record.get(8).map(optional_string).unwrap_or(None), 9)
+        };
         let job = SyncJob {
             id: required(&record, 0, "id")?.to_owned(),
             idempotency_key: required(&record, 1, "idempotency_key")?.to_owned(),
@@ -396,12 +385,13 @@ fn read_jobs(path: &Path) -> Result<BTreeMap<String, SyncJob>, CoreError> {
             reason: required(&record, 5, "reason")?.to_owned(),
             include_calendar: parse_bool(required(&record, 6, "include_calendar")?)?,
             task_id: optional_string(required(&record, 7, "task_id")?),
-            attempt_count: required(&record, 8, "attempt_count")?
+            outbox_entry_id,
+            attempt_count: required(&record, offset, "attempt_count")?
                 .parse()
                 .map_err(|_| CoreError::InvalidState("jobs.csv 尝试次数无效"))?,
-            next_run_at: parse_optional_i64(required(&record, 9, "next_run_at")?)?,
-            created_at: parse_i64(required(&record, 10, "created_at")?)?,
-            updated_at: parse_i64(required(&record, 11, "updated_at")?)?,
+            next_run_at: parse_optional_i64(required(&record, offset + 1, "next_run_at")?)?,
+            created_at: parse_i64(required(&record, offset + 2, "created_at")?)?,
+            updated_at: parse_i64(required(&record, offset + 3, "updated_at")?)?,
         };
         if job.id.is_empty() || jobs.insert(job.id.clone(), job).is_some() {
             return Err(CoreError::InvalidState("jobs.csv 存在空或重复 ID"));
@@ -415,7 +405,7 @@ fn read_outbox(path: &Path) -> Result<BTreeMap<String, OutboxEntry>, CoreError> 
     for record in records(path)? {
         let entry = OutboxEntry {
             id: required(&record, 0, "id")?.to_owned(),
-            target_path: required(&record, 1, "target_path")?.to_owned(),
+            relative_path: required(&record, 1, "relative_path")?.to_owned(),
             org_entry: required(&record, 2, "org_entry")?.to_owned(),
             content_hash: required(&record, 3, "content_hash")?.to_owned(),
             created_at: parse_i64(required(&record, 4, "created_at")?)?,
@@ -502,42 +492,24 @@ fn parse_bool(value: &str) -> Result<bool, CoreError> {
     }
 }
 
-fn todo_state_name(value: TodoState) -> &'static str {
+fn file_sync_state_name(value: FileSyncState) -> &'static str {
     match value {
-        TodoState::Todo => "TODO",
-        TodoState::Next => "NEXT",
-        TodoState::Wait => "WAIT",
-        TodoState::Done => "DONE",
-        TodoState::Cncl => "CNCL",
+        FileSyncState::Synced => "synced",
+        FileSyncState::LocalChanged => "local_changed",
+        FileSyncState::RemoteChanged => "remote_changed",
+        FileSyncState::RemoteDeleted => "remote_deleted",
+        FileSyncState::Conflict => "conflict",
     }
 }
 
-fn parse_todo_state(value: &str) -> Result<TodoState, CoreError> {
+fn parse_file_sync_state(value: &str) -> Result<FileSyncState, CoreError> {
     match value {
-        "TODO" => Ok(TodoState::Todo),
-        "NEXT" => Ok(TodoState::Next),
-        "WAIT" => Ok(TodoState::Wait),
-        "DONE" => Ok(TodoState::Done),
-        "CNCL" => Ok(TodoState::Cncl),
-        _ => Err(CoreError::InvalidState("tasks.csv 状态无效")),
-    }
-}
-
-fn priority_name(value: Priority) -> &'static str {
-    match value {
-        Priority::A => "A",
-        Priority::B => "B",
-        Priority::C => "C",
-    }
-}
-
-fn parse_optional_priority(value: &str) -> Result<Option<Priority>, CoreError> {
-    match value {
-        "" => Ok(None),
-        "A" => Ok(Some(Priority::A)),
-        "B" => Ok(Some(Priority::B)),
-        "C" => Ok(Some(Priority::C)),
-        _ => Err(CoreError::InvalidState("tasks.csv 优先级无效")),
+        "synced" => Ok(FileSyncState::Synced),
+        "local_changed" => Ok(FileSyncState::LocalChanged),
+        "remote_changed" => Ok(FileSyncState::RemoteChanged),
+        "remote_deleted" => Ok(FileSyncState::RemoteDeleted),
+        "conflict" => Ok(FileSyncState::Conflict),
+        _ => Err(CoreError::InvalidState("files.csv 同步状态无效")),
     }
 }
 

@@ -7,11 +7,11 @@
 
 ~core::CoreStore~ 是返回 ~Send Future~ 的异步持久化端口，所有核心用例、Harmony 适配器和 HTTP 路由均以异步方式调用。当前 ~harmony::FileCoreStore~ 在应用私有目录保存版本化状态快照，临时文件完整写入并同步后才原子替换正式文件。现有 ArkTS WebDAV 与 CalendarKit 流程继续执行；SQLite、执行租约、action 回执和完整资源接口尚未接入 Harmony bridge。
 
-HTTP 宿主可使用 ~http::CsvCoreStore::open(dataDir)~ 并注入 ~HttpApi::new(store)~。该目录包含 ~current.csv~ manifest 和 ~snapshots/<generation>/~ 下的 ~tasks.csv~、~task_tags.csv~、~jobs.csv~、~outbox.csv~。写入时先生成完整快照，最后原子替换 manifest，因此重启时只会读取完整版本；CSV 使用标准 Reader/Writer 处理引号、逗号和换行字段。
+HTTP 宿主可使用 ~http::CsvCoreStore::open(dataDir)~ 并注入 ~HttpApi::new(store)~。该目录包含 ~current.csv~ manifest 和 ~snapshots/<generation>/~ 下的 ~files.csv~、~jobs.csv~、~outbox.csv~。~files.csv~ 只保存相对路径和同步变更检测元数据；基准目录由同步请求传入，解析任务与完整文件均不落盘。写入时先生成完整快照，最后原子替换 manifest，因此重启时只会读取完整版本；CSV 使用标准 Reader/Writer 处理引号、逗号和换行字段。
 
 * 目标与边界
 
-~orgTasksCore~ 是运行在应用进程内的 Rust 数据服务。它管理任务、文件元数据、同步作业、离线 outbox、冲突和 SQLite 持久化状态；ArkTS 管理 ArkUI、WorkScheduler、WebDAV HTTP、CalendarKit、Preferences 和 Asset Store。
+~orgTasksCore~ 是运行在应用进程内的 Rust 数据服务。它持久化相对路径的文件变更检测元数据、同步作业历史和离线 outbox；解析任务与完整文件只属于当次同步流程，不进入持久化状态。ArkTS 管理 ArkUI、WorkScheduler、WebDAV HTTP、CalendarKit、Preferences 和 Asset Store。
 
 Rust 只处理领域数据和同步决策，不能从原生工作线程访问 ArkTS 对象、UI 状态、日历、网络或安全凭据。WebDAV 密码只由 ArkTS 从 Asset Store 临时读取，不能进入 Rust 数据库、请求、日志或错误信息。
 
@@ -93,7 +93,7 @@ type ConflictState = 'open' | 'resolved' | 'dismissed'
 
 interface TaskRecord {
   id: string
-  filePath: string
+  relativePath: string
   heading: string
   todoState: TaskState
   priority?: 'A' | 'B' | 'C'
@@ -106,8 +106,8 @@ interface TaskRecord {
   updatedAt: number
 }
 
-interface FileRecord {
-  path: string
+interface FileSyncRecord {
+  relativePath: string
   contentHash: string
   remoteEtag?: string
   remoteMtime?: number
@@ -123,6 +123,8 @@ interface JobRecord {
   state: JobState
   priority: 'foreground' | 'background'
   reason: string
+  taskId?: string
+  outboxEntryId?: string
   attemptCount: number
   nextRunAt?: number
   createdAt: number
@@ -132,7 +134,7 @@ interface JobRecord {
 
 interface ConflictRecord {
   id: string
-  filePath: string
+  relativePath: string
   state: ConflictState
   localRevision?: string
   remoteRevision?: string
@@ -141,7 +143,7 @@ interface ConflictRecord {
 }
 #+end_src
 
-时间均为 Unix epoch 毫秒。~sourceRevision~ 与 ~contentHash~ 均为小写 SHA-256 十六进制字符串。
+时间均为 Unix epoch 毫秒。~sourceRevision~ 与 ~contentHash~ 均为小写 SHA-256 十六进制字符串。~TaskRecord~ 是同步中即时解析的只读投影，不由服务持久化；~FileSyncRecord.relativePath~ 相对于每次请求传入的基准目录。
 
 * 数据模型
 
@@ -184,7 +186,15 @@ interface CreateConflictResolutionRequest extends CreateResourceRequest {
   resolution: 'keep_local' | 'keep_remote' | 'save_local_copy' | 'dismiss'
 }
 
-interface TaskCreation { task: TaskRecord; job: JobRecord }
+interface OutboxEntry {
+  id: string
+  relativePath: string
+  orgEntry: string
+  contentHash: string
+  createdAt: number
+}
+
+interface TaskCreation { taskId: string; outboxEntry: OutboxEntry; job: JobRecord }
 interface ConflictResolution {
   id: string
   conflictId: string
@@ -260,10 +270,8 @@ WebDAV 写操作必须使用 ~If-Match~ 或 ~If-None-Match~，不得对已知远
 | 方法 | 路径 | 查询参数 | 成功响应 |
 |-
 | ~GET~ | ~/v1/service-status~ | 无 | ~200 ServiceStatus~ |
-| ~GET~ | ~/v1/tasks~ | ~state~、~filePath~、~limit~、~cursor~ | ~200 Page<TaskRecord>~ |
-| ~GET~ | ~/v1/tasks/{taskId}~ | 无 | ~200 TaskRecord~ |
-| ~GET~ | ~/v1/files~ | ~state~、~limit~、~cursor~ | ~200 Page<FileRecord>~ |
-| ~GET~ | ~/v1/files/{path}~ | 无 | ~200 FileRecord~ |
+| ~GET~ | ~/v1/files~ | ~state~、~limit~、~cursor~ | ~200 Page<FileSyncRecord>~ |
+| ~GET~ | ~/v1/files/{relativePath}~ | 无 | ~200 FileSyncRecord~ |
 | ~GET~ | ~/v1/conflicts~ | ~state~、~limit~、~cursor~ | ~200 Page<ConflictRecord>~ |
 | ~GET~ | ~/v1/conflicts/{conflictId}~ | 无 | ~200 ConflictRecord~ |
 | ~GET~ | ~/v1/sync-jobs~ | ~state~、~limit~、~cursor~ | ~200 Page<JobRecord>~ |

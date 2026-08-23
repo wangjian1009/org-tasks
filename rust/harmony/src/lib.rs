@@ -275,4 +275,29 @@ mod tests {
         }
         fs::remove_dir_all(data_dir).expect("应移除测试仓储");
     }
+
+    #[test]
+    fn persisted_file_sync_metadata_is_restored_after_reopen() {
+        let data_dir = test_data_dir();
+        let mut service = CoreService::new(FileCoreStore::open(&data_dir).expect("应创建测试仓储"));
+        run_ready(service.record_file_sync(org_tasks_core::FileSyncRecord {
+            relative_path: "inbox.org".into(),
+            content_hash: "abc".into(),
+            remote_etag: Some("etag-1".into()),
+            remote_mtime: Some(1),
+            remote_size: Some(2),
+            last_synced_at: Some(3),
+            sync_state: org_tasks_core::FileSyncState::Synced,
+        }))
+        .expect("应保存同步元数据");
+        drop(service);
+
+        let store = FileCoreStore::open(&data_dir).expect("应恢复测试仓储");
+        let restored = run_ready(store.find_file_sync("inbox.org"))
+            .expect("应查询同步元数据")
+            .expect("应恢复同步元数据");
+        assert_eq!(restored.relative_path, "inbox.org");
+        assert_eq!(restored.remote_etag.as_deref(), Some("etag-1"));
+        fs::remove_dir_all(data_dir).expect("应移除测试仓储");
+    }
 }

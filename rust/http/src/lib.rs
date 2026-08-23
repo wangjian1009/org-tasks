@@ -118,7 +118,10 @@ fn error_response(error: CoreError, status: u16) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use org_tasks_core::{CoreChangeSet, JobKind, JobPriority, JobState, TaskRecord};
+    use org_tasks_core::{
+        CoreChangeSet, CoreService, FileSyncRecord, FileSyncState, JobKind, JobPriority, JobState,
+        OutboxEntry,
+    };
     use std::collections::HashMap;
     use std::fs;
     use std::future::Future;
@@ -132,14 +135,23 @@ mod tests {
     #[derive(Default)]
     struct MemoryStore {
         jobs: HashMap<String, SyncJob>,
+        outbox: HashMap<String, OutboxEntry>,
     }
 
     impl CoreStore for MemoryStore {
-        fn find_task(
+        fn find_file_sync(
             &self,
             _: &str,
-        ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send {
+        ) -> impl Future<Output = Result<Option<FileSyncRecord>, CoreError>> + Send {
             async { Ok(None) }
+        }
+
+        fn find_outbox(
+            &self,
+            id: &str,
+        ) -> impl Future<Output = Result<Option<OutboxEntry>, CoreError>> + Send {
+            let value = self.outbox.get(id).cloned();
+            async move { Ok(value) }
         }
 
         fn find_job(
@@ -180,6 +192,9 @@ mod tests {
             &mut self,
             changes: CoreChangeSet,
         ) -> impl Future<Output = Result<(), CoreError>> + Send {
+            for entry in changes.outbox_entries {
+                self.outbox.insert(entry.id.clone(), entry);
+            }
             for job in changes.jobs {
                 self.jobs.insert(job.id.clone(), job);
             }
@@ -235,7 +250,7 @@ mod tests {
                 task: org_tasks_core::NewTask {
                     id: "task-1".into(),
                     heading: "CSV 恢复测试".into(),
-                    target_path: "inbox.org".into(),
+                    relative_path: "inbox.org".into(),
                     scheduled_at: None,
                     deadline_at: Some(2),
                     tags: vec!["work".into(), "csv".into()],
@@ -287,15 +302,15 @@ mod tests {
     }
 
     #[test]
-    fn csv_store_restores_task_tags_and_outbox_after_reopen() {
+    fn csv_store_restores_outbox_without_persisting_task_projection() {
         let data_dir = test_data_dir();
         let store = CsvCoreStore::open(&data_dir).expect("应创建 CSV 仓储");
         let mut first_api = HttpApi::new(store);
         let first = block_on(first_api.handle(task_request()));
         drop(first_api);
         let snapshot = data_dir.join("snapshots/00000000000000000001");
-        assert!(snapshot.join("tasks.csv").exists());
-        assert!(snapshot.join("task_tags.csv").exists());
+        assert!(!snapshot.join("tasks.csv").exists());
+        assert!(!snapshot.join("task_tags.csv").exists());
         assert!(snapshot.join("outbox.csv").exists());
 
         let store = CsvCoreStore::open(&data_dir).expect("应恢复 CSV 仓储");
@@ -307,11 +322,58 @@ mod tests {
                 Some(HttpResponseBody::TaskCreation(first)),
                 Some(HttpResponseBody::TaskCreation(second)),
             ) => {
-                assert_eq!(first.task.id, second.task.id);
-                assert_eq!(second.task.tags, vec!["work", "csv"]);
+                assert_eq!(first.task_id, second.task_id);
+                assert_eq!(second.outbox_entry.id, "outbox-1");
             }
             _ => panic!("CSV 任务恢复后返回了错误响应"),
         }
+        fs::remove_dir_all(data_dir).expect("应移除 CSV 测试仓储");
+    }
+
+    #[test]
+    fn csv_store_restores_relative_file_sync_metadata_without_task_files() {
+        let data_dir = test_data_dir();
+        let mut service = CoreService::new(CsvCoreStore::open(&data_dir).expect("应创建 CSV 仓储"));
+        block_on(service.record_file_sync(FileSyncRecord {
+            relative_path: "projects/inbox.org".into(),
+            content_hash: "abc".into(),
+            remote_etag: Some("etag-1".into()),
+            remote_mtime: Some(1),
+            remote_size: Some(2),
+            last_synced_at: Some(3),
+            sync_state: FileSyncState::Synced,
+        }))
+        .expect("应保存同步元数据");
+        drop(service);
+
+        let snapshot = data_dir.join("snapshots/00000000000000000001");
+        assert!(snapshot.join("files.csv").exists());
+        assert!(!snapshot.join("tasks.csv").exists());
+        assert!(!snapshot.join("task_tags.csv").exists());
+
+        let store = CsvCoreStore::open(&data_dir).expect("应恢复 CSV 仓储");
+        let restored = block_on(store.find_file_sync("projects/inbox.org"))
+            .expect("应查询同步元数据")
+            .expect("应恢复同步元数据");
+        assert_eq!(restored.relative_path, "projects/inbox.org");
+        assert_eq!(restored.remote_etag.as_deref(), Some("etag-1"));
+        fs::remove_dir_all(data_dir).expect("应移除 CSV 测试仓储");
+    }
+
+    #[test]
+    fn opening_csv_store_removes_legacy_task_projection_files() {
+        let data_dir = test_data_dir();
+        let store = CsvCoreStore::open(&data_dir).expect("应创建 CSV 仓储");
+        let mut api = HttpApi::new(store);
+        let _ = block_on(api.handle(sync_request("request-1", "job-1")));
+        drop(api);
+        let snapshot = data_dir.join("snapshots/00000000000000000001");
+        fs::write(snapshot.join("tasks.csv"), "legacy").expect("应写入旧任务投影");
+        fs::write(snapshot.join("task_tags.csv"), "legacy").expect("应写入旧任务标签");
+
+        let _ = CsvCoreStore::open(&data_dir).expect("应迁移 CSV 仓储");
+        assert!(!snapshot.join("tasks.csv").exists());
+        assert!(!snapshot.join("task_tags.csv").exists());
         fs::remove_dir_all(data_dir).expect("应移除 CSV 测试仓储");
     }
 }

@@ -1,6 +1,6 @@
 //! HarmonyOS 宿主的持久化适配器。
 //!
-//! 核心层只定义 `CoreStore` 语义。本模块把当前需要的任务、outbox 和同步作业
+//! 核心层只定义 `CoreStore` 语义。本模块把文件同步元数据、outbox 和同步作业
 //! 写入应用私有目录中的版本化二进制快照，并通过临时文件与原子替换保证提交边界。
 
 use std::collections::BTreeMap;
@@ -10,19 +10,19 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use org_tasks_core::{
-    CoreChangeSet, CoreError, CoreStore, JobKind, JobPriority, JobState, OutboxEntry, Priority,
-    SyncJob, TaskRecord, TodoState,
+    CoreChangeSet, CoreError, CoreStore, FileSyncRecord, FileSyncState, JobKind, JobPriority,
+    JobState, OutboxEntry, Priority, SyncJob, TodoState,
 };
 
 const MAGIC: &[u8; 8] = b"ORGCORE1";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const MAX_STATE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RECORDS: usize = 100_000;
 const MAX_STRING_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Default)]
 struct PersistedState {
-    tasks: BTreeMap<String, TaskRecord>,
+    files: BTreeMap<String, FileSyncRecord>,
     jobs: BTreeMap<String, SyncJob>,
     outbox: BTreeMap<String, OutboxEntry>,
 }
@@ -42,14 +42,18 @@ impl FileCoreStore {
         fs::create_dir_all(data_dir)
             .map_err(|error| store_error(format!("无法创建数据目录: {error}")))?;
         let state_path = data_dir.join("core-state-v1.bin");
-        let state = if state_path.exists() {
+        let (state, needs_migration) = if state_path.exists() {
             let bytes = fs::read(&state_path)
                 .map_err(|error| store_error(format!("无法读取核心状态: {error}")))?;
-            decode_state(&bytes)?
+            (decode_state(&bytes)?, state_version(&bytes)? == 1)
         } else {
-            PersistedState::default()
+            (PersistedState::default(), false)
         };
-        Ok(Self { state_path, state })
+        let store = Self { state_path, state };
+        if needs_migration {
+            store.persist(&store.state)?;
+        }
+        Ok(store)
     }
 
     fn persist(&self, state: &PersistedState) -> Result<(), CoreError> {
@@ -68,11 +72,19 @@ impl FileCoreStore {
 }
 
 impl CoreStore for FileCoreStore {
-    fn find_task(
+    fn find_file_sync(
+        &self,
+        relative_path: &str,
+    ) -> impl Future<Output = Result<Option<FileSyncRecord>, CoreError>> + Send {
+        let value = self.state.files.get(relative_path).cloned();
+        async move { Ok(value) }
+    }
+
+    fn find_outbox(
         &self,
         id: &str,
-    ) -> impl Future<Output = Result<Option<TaskRecord>, CoreError>> + Send {
-        let value = self.state.tasks.get(id).cloned();
+    ) -> impl Future<Output = Result<Option<OutboxEntry>, CoreError>> + Send {
+        let value = self.state.outbox.get(id).cloned();
         async move { Ok(value) }
     }
 
@@ -117,8 +129,8 @@ impl CoreStore for FileCoreStore {
         changes: CoreChangeSet,
     ) -> impl Future<Output = Result<(), CoreError>> + Send {
         let mut next = self.state.clone();
-        for task in changes.tasks {
-            next.tasks.insert(task.id.clone(), task);
+        for record in changes.file_sync_records {
+            next.files.insert(record.relative_path.clone(), record);
         }
         for entry in changes.outbox_entries {
             next.outbox.insert(entry.id.clone(), entry);
@@ -142,9 +154,9 @@ fn encode_state(state: &PersistedState) -> Result<Vec<u8>, CoreError> {
     let mut encoder = Encoder::default();
     encoder.write_bytes(MAGIC);
     encoder.write_u32(VERSION);
-    encoder.write_u32(checked_count(state.tasks.len())?);
-    for task in state.tasks.values() {
-        encoder.write_task(task)?;
+    encoder.write_u32(checked_count(state.files.len())?);
+    for record in state.files.values() {
+        encoder.write_file_sync(record)?;
     }
     encoder.write_u32(checked_count(state.jobs.len())?);
     for job in state.jobs.values() {
@@ -168,18 +180,30 @@ fn decode_state(bytes: &[u8]) -> Result<PersistedState, CoreError> {
     if decoder.read_exact(MAGIC.len())? != MAGIC {
         return Err(CoreError::InvalidState("核心状态文件格式无效"));
     }
-    if decoder.read_u32()? != VERSION {
-        return Err(CoreError::InvalidState("核心状态文件版本不受支持"));
-    }
+    let version = decoder.read_u32()?;
     let mut state = PersistedState::default();
-    for _ in 0..decoder.read_count()? {
-        let task = decoder.read_task()?;
-        if state.tasks.insert(task.id.clone(), task).is_some() {
-            return Err(CoreError::InvalidState("核心状态存在重复任务 ID"));
+    match version {
+        1 => {
+            for _ in 0..decoder.read_count()? {
+                decoder.skip_legacy_task()?;
+            }
         }
+        VERSION => {
+            for _ in 0..decoder.read_count()? {
+                let record = decoder.read_file_sync()?;
+                if state
+                    .files
+                    .insert(record.relative_path.clone(), record)
+                    .is_some()
+                {
+                    return Err(CoreError::InvalidState("核心状态存在重复文件相对路径"));
+                }
+            }
+        }
+        _ => return Err(CoreError::InvalidState("核心状态文件版本不受支持")),
     }
     for _ in 0..decoder.read_count()? {
-        let job = decoder.read_job()?;
+        let job = decoder.read_job(version)?;
         if state.jobs.insert(job.id.clone(), job).is_some() {
             return Err(CoreError::InvalidState("核心状态存在重复作业 ID"));
         }
@@ -194,6 +218,16 @@ fn decode_state(bytes: &[u8]) -> Result<PersistedState, CoreError> {
         return Err(CoreError::InvalidState("核心状态文件包含多余数据"));
     }
     Ok(state)
+}
+
+fn state_version(bytes: &[u8]) -> Result<u32, CoreError> {
+    if bytes.len() < MAGIC.len() + 4 || &bytes[..MAGIC.len()] != MAGIC {
+        return Err(CoreError::InvalidState("核心状态文件格式无效"));
+    }
+    let version: [u8; 4] = bytes[MAGIC.len()..MAGIC.len() + 4]
+        .try_into()
+        .map_err(|_| CoreError::InvalidState("核心状态文件版本格式无效"))?;
+    Ok(u32::from_le_bytes(version))
 }
 
 fn checked_count(value: usize) -> Result<u32, CoreError> {
@@ -254,25 +288,6 @@ impl Encoder {
         }
     }
 
-    fn write_optional_priority(&mut self, value: Option<Priority>) {
-        self.write_u8(match value {
-            None => 0,
-            Some(Priority::A) => 1,
-            Some(Priority::B) => 2,
-            Some(Priority::C) => 3,
-        });
-    }
-
-    fn write_todo_state(&mut self, value: TodoState) {
-        self.write_u8(match value {
-            TodoState::Todo => 0,
-            TodoState::Next => 1,
-            TodoState::Wait => 2,
-            TodoState::Done => 3,
-            TodoState::Cncl => 4,
-        });
-    }
-
     fn write_job_kind(&mut self, value: JobKind) {
         self.write_u8(match value {
             JobKind::Sync => 0,
@@ -302,22 +317,25 @@ impl Encoder {
         });
     }
 
-    fn write_task(&mut self, task: &TaskRecord) -> Result<(), CoreError> {
-        self.write_string(&task.id)?;
-        self.write_string(&task.file_path)?;
-        self.write_string(&task.heading)?;
-        self.write_todo_state(task.todo_state);
-        self.write_optional_priority(task.priority);
-        self.write_optional_i64(task.scheduled_at);
-        self.write_optional_i64(task.deadline_at);
-        self.write_u32(checked_count(task.tags.len())?);
-        for tag in &task.tags {
-            self.write_string(tag)?;
-        }
-        self.write_string(&task.body)?;
-        self.write_string(&task.source_revision)?;
-        self.write_i64(task.updated_at);
+    fn write_file_sync(&mut self, record: &FileSyncRecord) -> Result<(), CoreError> {
+        self.write_string(&record.relative_path)?;
+        self.write_string(&record.content_hash)?;
+        self.write_optional_string(&record.remote_etag)?;
+        self.write_optional_i64(record.remote_mtime);
+        self.write_optional_i64(record.remote_size);
+        self.write_optional_i64(record.last_synced_at);
+        self.write_file_sync_state(record.sync_state);
         Ok(())
+    }
+
+    fn write_file_sync_state(&mut self, value: FileSyncState) {
+        self.write_u8(match value {
+            FileSyncState::Synced => 0,
+            FileSyncState::LocalChanged => 1,
+            FileSyncState::RemoteChanged => 2,
+            FileSyncState::RemoteDeleted => 3,
+            FileSyncState::Conflict => 4,
+        });
     }
 
     fn write_job(&mut self, job: &SyncJob) -> Result<(), CoreError> {
@@ -329,6 +347,7 @@ impl Encoder {
         self.write_string(&job.reason)?;
         self.write_u8(u8::from(job.include_calendar));
         self.write_optional_string(&job.task_id)?;
+        self.write_optional_string(&job.outbox_entry_id)?;
         self.write_u32(job.attempt_count);
         self.write_optional_i64(job.next_run_at);
         self.write_i64(job.created_at);
@@ -338,7 +357,7 @@ impl Encoder {
 
     fn write_outbox(&mut self, entry: &OutboxEntry) -> Result<(), CoreError> {
         self.write_string(&entry.id)?;
-        self.write_string(&entry.target_path)?;
+        self.write_string(&entry.relative_path)?;
         self.write_string(&entry.org_entry)?;
         self.write_string(&entry.content_hash)?;
         self.write_i64(entry.created_at);
@@ -483,26 +502,47 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    fn read_task(&mut self) -> Result<TaskRecord, CoreError> {
-        let id = self.read_string()?;
-        Ok(TaskRecord {
-            file_path: self.read_string()?,
-            heading: self.read_string()?,
-            todo_state: self.read_todo_state()?,
-            priority: self.read_optional_priority()?,
-            scheduled_at: self.read_optional_i64()?,
-            deadline_at: self.read_optional_i64()?,
-            tags: (0..self.read_count()?)
-                .map(|_| self.read_string())
-                .collect::<Result<Vec<_>, _>>()?,
-            body: self.read_string()?,
-            source_revision: self.read_string()?,
-            updated_at: self.read_i64()?,
-            id,
+    fn read_file_sync_state(&mut self) -> Result<FileSyncState, CoreError> {
+        match self.read_u8()? {
+            0 => Ok(FileSyncState::Synced),
+            1 => Ok(FileSyncState::LocalChanged),
+            2 => Ok(FileSyncState::RemoteChanged),
+            3 => Ok(FileSyncState::RemoteDeleted),
+            4 => Ok(FileSyncState::Conflict),
+            _ => Err(CoreError::InvalidState("核心状态文件同步状态格式无效")),
+        }
+    }
+
+    fn read_file_sync(&mut self) -> Result<FileSyncRecord, CoreError> {
+        Ok(FileSyncRecord {
+            relative_path: self.read_string()?,
+            content_hash: self.read_string()?,
+            remote_etag: self.read_optional_string()?,
+            remote_mtime: self.read_optional_i64()?,
+            remote_size: self.read_optional_i64()?,
+            last_synced_at: self.read_optional_i64()?,
+            sync_state: self.read_file_sync_state()?,
         })
     }
 
-    fn read_job(&mut self) -> Result<SyncJob, CoreError> {
+    fn skip_legacy_task(&mut self) -> Result<(), CoreError> {
+        let _ = self.read_string()?;
+        let _ = self.read_string()?;
+        let _ = self.read_string()?;
+        let _ = self.read_todo_state()?;
+        let _ = self.read_optional_priority()?;
+        let _ = self.read_optional_i64()?;
+        let _ = self.read_optional_i64()?;
+        for _ in 0..self.read_count()? {
+            let _ = self.read_string()?;
+        }
+        let _ = self.read_string()?;
+        let _ = self.read_string()?;
+        let _ = self.read_i64()?;
+        Ok(())
+    }
+
+    fn read_job(&mut self, version: u32) -> Result<SyncJob, CoreError> {
         let id = self.read_string()?;
         Ok(SyncJob {
             id,
@@ -513,6 +553,11 @@ impl<'a> Decoder<'a> {
             reason: self.read_string()?,
             include_calendar: self.read_bool()?,
             task_id: self.read_optional_string()?,
+            outbox_entry_id: if version == 1 {
+                None
+            } else {
+                self.read_optional_string()?
+            },
             attempt_count: self.read_u32()?,
             next_run_at: self.read_optional_i64()?,
             created_at: self.read_i64()?,
@@ -523,7 +568,7 @@ impl<'a> Decoder<'a> {
     fn read_outbox(&mut self) -> Result<OutboxEntry, CoreError> {
         Ok(OutboxEntry {
             id: self.read_string()?,
-            target_path: self.read_string()?,
+            relative_path: self.read_string()?,
             org_entry: self.read_string()?,
             content_hash: self.read_string()?,
             created_at: self.read_i64()?,

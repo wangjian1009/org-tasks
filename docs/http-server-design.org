@@ -75,13 +75,12 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvCoreStore>~ 由服�
   current.csv
   snapshots/
     <generation>/
-      tasks.csv
-      task_tags.csv
+      files.csv
       jobs.csv
       outbox.csv
 #+end_src
 
-~current.csv~ 是唯一的提交 manifest。写入顺序为：创建新的 generation 目录、写入并同步所有 CSV 文件、原子替换 ~current.csv~。重启或 ~check~ 只读取 manifest 指向的 generation，因此未提交或残缺的快照不能对外可见。
+~files.csv~ 只保存相对于每次同步传入基准目录的路径、哈希、远端版本与同步时间，用于下次文件变化检测；不保存基准目录、绝对路径、完整文件内容或解析任务。~jobs.csv~ 不清理已完成作业，作为同步历史保留。首次打开旧数据目录时会移除废弃的 ~tasks.csv~ 与 ~task_tags.csv~。~current.csv~ 是唯一的提交 manifest。写入顺序为：创建新的 generation 目录、写入并同步所有 CSV 文件、原子替换 ~current.csv~。重启或 ~check~ 只读取 manifest 指向的 generation，因此未提交或残缺的快照不能对外可见。
 
 * HTTP 接口
 
@@ -99,7 +98,7 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvCoreStore>~ 由服�
 * 验收标准
 
 - ~serve --data-dir <DIR>~ 能创建目录、监听回环地址并调用现有 REST 路由。
-- 重启后从 ~current.csv~ 恢复任务、标签、作业和 outbox。
+- 重启后从 ~current.csv~ 恢复相对路径文件同步元数据、作业历史和 outbox，且快照中不包含任务投影。
 - ~check~ 能在不修改目录的情况下报告 manifest 或 CSV 结构错误。
 - 非回环监听缺少显式确认或令牌文件时启动失败。
 - 同一数据目录的第二个进程启动失败。
