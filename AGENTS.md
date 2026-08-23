@@ -6,6 +6,8 @@
 
 - 项目中的文档说明、设计决策、注释性段落和面向用户的文本使用中文。
 - 代码、命令、路径、协议名、API 名称、字段名和技术专有名词保留其原始英文形式。
+- 项目文档统一使用 Org 格式，放置于 `docs/*.org`；不得新增 Markdown 文档。
+- UML 使用与说明紧邻的 `#+begin_src plantuml` Org 源码块内嵌维护，不保留独立 `.puml` 文件。
 
 ## 提交规范
 
@@ -54,7 +56,9 @@ org-tasks/
 
 `rust/` 是独立 Cargo workspace：`core` 保持平台无关，`harmony` 提供 FFI 访问适配，`http` 提供 RESTful 映射。Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用放到工作线程，避免阻塞 ArkUI 线程。
 
-HTTP 宿主 `org-tasks-httpd` 位于 `rust/http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http-server-design.md`。修改该宿主前必须遵循该文档。
+HTTP 宿主 `org-tasks-httpd` 位于 `rust/http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http-server-design.org`。修改该宿主前必须遵循该文档。
+
+Rust 核心数据结构、CSV 映射和规划模型见 `docs/rust-data-model.org`；实体关系的 PlantUML 源码内嵌在该文档中。修改领域模型时必须同步更新说明和源码块。
 
 ## 核心功能
 

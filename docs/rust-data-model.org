@@ -1,0 +1,180 @@
+#+SETUPFILE: .setup.org
+#+TITLE: Rust 数据模型
+
+* 范围与状态
+
+本文集中描述 Org Tasks Rust 核心的数据结构、关系与持久化映射。当前代码的唯一事实来源是 ~rust/core/src/lib.rs~；本文中的“规划模型”仅说明后续完整数据服务的目标，不表示已经落盘或开放 HTTP 接口。
+
+以下 PlantUML 源码直接内嵌在本文档中，可由 Org Babel、IDE 插件或 CI 渲染为 SVG/PNG。修改模型字段或关系时必须同步更新这个源码块。
+
+#+begin_src plantuml :file images/rust-data-model.svg :exports both
+@startuml
+title Org Tasks Rust Core Data Model
+
+hide circle
+skinparam classAttributeIconSize 0
+
+package "Core records" {
+  class TaskRecord {
+    id: String
+    file_path: String
+    heading: String
+    todo_state: TodoState
+    priority: Option<Priority>
+    scheduled_at: Option<TimestampMs>
+    deadline_at: Option<TimestampMs>
+    tags: Vec<String>
+    body: String
+    source_revision: String
+    updated_at: TimestampMs
+  }
+
+  class FileRecord {
+    path: String
+    content_hash: String
+    remote_etag: Option<String>
+    remote_mtime: Option<TimestampMs>
+    remote_size: Option<i64>
+    last_synced_at: Option<TimestampMs>
+    sync_state: FileSyncState
+  }
+
+  class OutboxEntry {
+    id: String
+    target_path: String
+    org_entry: String
+    content_hash: String
+    created_at: TimestampMs
+  }
+
+  class SyncJob {
+    id: String
+    idempotency_key: String
+    kind: JobKind
+    state: JobState
+    priority: JobPriority
+    reason: String
+    include_calendar: bool
+    task_id: Option<String>
+    attempt_count: u32
+    next_run_at: Option<TimestampMs>
+    created_at: TimestampMs
+    updated_at: TimestampMs
+  }
+
+  class ConflictRecord {
+    id: String
+    file_path: String
+    local_revision: Option<String>
+    remote_revision: Option<String>
+    state: ConflictState
+    message: String
+    created_at: TimestampMs
+  }
+}
+
+package "Requests and commit" {
+  class NewTask
+  class CreateTaskRequest
+  class CreateSyncJobRequest
+  class TaskCreation
+  class CoreChangeSet
+}
+
+enum TodoState
+enum Priority
+enum FileSyncState
+enum JobKind
+enum JobState
+enum JobPriority
+enum ConflictState
+
+TaskRecord --> TodoState
+TaskRecord --> Priority
+FileRecord --> FileSyncState
+SyncJob --> JobKind
+SyncJob --> JobState
+SyncJob --> JobPriority
+ConflictRecord --> ConflictState
+
+TaskRecord "*" --> "1" FileRecord : file_path -> path
+ConflictRecord "*" --> "1" FileRecord : file_path -> path
+SyncJob "0..*" --> "0..1" TaskRecord : task_id -> id
+
+CreateTaskRequest *-- NewTask
+CreateTaskRequest ..> TaskRecord : creates
+CreateTaskRequest ..> OutboxEntry : creates
+CreateTaskRequest ..> SyncJob : creates AddTask job
+CreateSyncJobRequest ..> SyncJob : creates or merges Sync job
+TaskCreation *-- TaskRecord
+TaskCreation *-- SyncJob
+CoreChangeSet *-- "0..*" TaskRecord
+CoreChangeSet *-- "0..*" OutboxEntry
+CoreChangeSet *-- "0..*" SyncJob
+@enduml
+#+end_src
+
+* 通用类型与枚举
+
+| 类型或枚举      | 值或格式                                                                                   | 说明                                         |
+|-----------------+--------------------------------------------------------------------------------------------+----------------------------------------------|
+| ~TimestampMs~   | ~i64~                                                                                      | Unix epoch 毫秒。                            |
+| ID              | 非空 UUID 字符串                                                                           | 任务、作业、outbox 和幂等键均由外层生成。    |
+| 内容版本        | 小写 SHA-256 十六进制字符串                                                                | ~contentHash~、~sourceRevision~ 等字段使用。 |
+| ~TodoState~     | ~TODO~、~NEXT~、~WAIT~、~DONE~、~CNCL~                                                     | org 任务状态。                               |
+| ~Priority~      | ~A~、~B~、~C~                                                                              | org 优先级，可为空。                         |
+| ~FileSyncState~ | ~synced~、~local_changed~、~remote_changed~、~remote_deleted~、~conflict~                  | 文件同步状态。                               |
+| ~JobKind~       | ~sync~、~add_task~、~retry~、~resolve_conflict~、~rebuild_calendar~、~refresh_local_index~ | 作业类型。                                   |
+| ~JobState~      | ~queued~、~running~、~retry_wait~、~blocked~、~completed~、~failed~                        | 作业生命周期。                               |
+| ~JobPriority~   | ~foreground~、~background~                                                                 | 前台和后台调度优先级。                       |
+| ~ConflictState~ | ~open~、~resolved~、~dismissed~                                                            | 冲突处理状态。                               |
+
+* 当前领域实体
+
+| 实体             | 关键字段                                                                                                  | 责任                                    | 当前状态                         |
+|------------------+-----------------------------------------------------------------------------------------------------------+-----------------------------------------+----------------------------------|
+| ~TaskRecord~     | ~id~、~filePath~、~heading~、~todoState~、~priority~、时间、~tags~、~body~、~sourceRevision~、~updatedAt~ | 已解析 org 任务的领域投影。             | 已定义并由 HTTP CSV 仓储持久化。 |
+| ~FileRecord~     | ~path~、~contentHash~、远端 ETag/时间/大小、~lastSyncedAt~、~syncState~                                   | 单个 org 文件的远端版本与本地同步状态。 | 已定义，尚未写入 CSV。           |
+| ~OutboxEntry~    | ~id~、~targetPath~、~orgEntry~、~contentHash~、~createdAt~                                                | 本地新增任务等待条件上传的意图。        | 已定义并由 HTTP CSV 仓储持久化。 |
+| ~SyncJob~        | ~id~、~idempotencyKey~、~kind~、~state~、~priority~、~reason~、~includeCalendar~、~taskId~、重试与时间    | 可合并、可恢复的异步工作单元。          | 已定义并由 HTTP CSV 仓储持久化。 |
+| ~ConflictRecord~ | ~id~、~filePath~、本地/远端版本、~state~、~message~、~createdAt~                                          | 本地与远端不能自动合并的分歧。          | 已定义，尚未写入 CSV。           |
+
+~TaskRecord.filePath~ 对应 ~FileRecord.path~。~SyncJob.taskId~ 在 ~JobKind::AddTask~ 时指向创建的任务，在普通 ~sync~ 作业中为空。~OutboxEntry~ 不保存 ~taskId~，以写入目标和内容哈希表达待发布内容。
+
+* 写入请求与提交单元
+
+| 结构                   | 组成                                                        | 作用                                                                  |
+|------------------------+-------------------------------------------------------------+-----------------------------------------------------------------------|
+| ~NewTask~              | 新任务内容、目标 ~.org~ 文件、标签、时间、优先级与 org 文本 | 创建任务的输入，不直接持久化。                                        |
+| ~CreateTaskRequest~    | 幂等键、作业 ID、outbox ID、原因、优先级、时间与 ~NewTask~  | 生成一个 ~TaskRecord~、一个 ~OutboxEntry~ 和一个 ~SyncJob(AddTask)~。 |
+| ~CreateSyncJobRequest~ | 幂等键、作业 ID、原因、优先级、日历开关与时间               | 创建或合并一个 ~SyncJob(Sync)~。                                      |
+| ~TaskCreation~         | ~task~、~job~                                               | 创建任务成功后的返回值。                                              |
+| ~CoreChangeSet~        | ~tasks~、~outboxEntries~、~jobs~                            | ~CoreStore::apply~ 的原子提交单元。                                   |
+
+~CoreService~ 先校验 ID 和任务目标路径，再进行幂等检查，最后通过一次 ~CoreStore::apply~ 提交 ~CoreChangeSet~。持久化适配器必须保证该调用的原子可见性。
+
+* 当前 HTTP CSV 映射
+
+~CsvCoreStore~ 只落盘已经由 HTTP 路由使用的三个实体。标签独立成表，避免在单个 CSV 字段中定义自定义分隔规则。
+
+| CSV 文件        | 主键                | 领域实体                                    |
+|-----------------+---------------------+---------------------------------------------|
+| ~tasks.csv~     | ~id~                | ~TaskRecord~ 的除 ~tags~ 外字段。           |
+| ~task_tags.csv~ | ~taskId + position~ | ~TaskRecord.tags~，按 ~position~ 恢复顺序。 |
+| ~jobs.csv~      | ~id~                | ~SyncJob~。                                 |
+| ~outbox.csv~    | ~id~                | ~OutboxEntry~。                             |
+
+这些文件位于 ~snapshots/<generation>/~，由 ~current.csv~ 指向已提交 generation。完整快照写入并同步后才原子替换 manifest，因而 ~CoreChangeSet~ 不会出现半提交状态。详细目录和服务运行约束见 [[http-server-design.org][HTTP 服务命令行设计]]。
+
+* 规划模型
+
+完整数据服务后续会增加以下结构；当前 core 与 HTTP CSV 仓储尚未实现其持久化或路由。
+
+| 模型              | 关键字段                                                            | 目标职责                                    |
+|-------------------+---------------------------------------------------------------------+---------------------------------------------|
+| ~CalendarBinding~ | ~taskId~、~calendarName~、~eventId~、~eventFingerprint~、~syncedAt~ | org 任务与系统日历事件的映射。              |
+| ~ExecutionLease~  | ~id~、~jobId~、~workerId~、~leaseExpiresAt~、~actions~              | 认领后交给 Harmony 平台执行的 action 计划。 |
+| ~ServiceMeta~     | schema 版本、变更游标、最近成功同步时间                             | 服务级元数据。                              |
+| ~ChangeLog~       | cursor、资源类型、资源 ID、变更时间                                 | 增量 UI 刷新。                              |
+
+规划中的 SQLite 表为 ~service_meta~、~files~、~tasks~、~calendar_bindings~、~outbox_entries~、~sync_jobs~、~execution_leases~、~conflicts~ 与 ~change_log~。下载的 org 文件仍应保存在 ~<dataDir>/cache/<path>~，不作为数据库 blob 保存。
