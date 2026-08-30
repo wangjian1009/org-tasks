@@ -1,9 +1,9 @@
-#+SETUPFILE: .setup.org
+#+SETUPFILE: ../.setup.org
 #+TITLE: Rust 数据模型
 
 * 范围与状态
 
-本文集中描述 Org Tasks Rust 核心的数据结构、关系与持久化映射。当前代码的唯一事实来源是 ~rust/core/src/lib.rs~；本文中的“规划模型”仅说明后续完整数据服务的目标，不表示已经落盘或开放 HTTP 接口。
+本文集中描述 Org Tasks Rust 核心的数据结构、关系与持久化映射。当前代码的唯一事实来源是 ~core/src/lib.rs~；本文中的“规划模型”仅说明后续完整数据服务的目标，不表示已经落盘或开放 HTTP 接口。
 
 以下 PlantUML 源码直接内嵌在本文档中，可由 Org Babel、IDE 插件或 CI 渲染为 SVG/PNG。修改模型字段或关系时必须同步更新这个源码块。
 
@@ -161,7 +161,7 @@ CoreChangeSet *-- "0..*" SyncJob
 | ~jobs.csv~     | ~id~              | ~SyncJob~，保留已完成和失败作业作为同步历史。      |
 | ~outbox.csv~   | ~id~              | ~OutboxEntry~，保留待上传的原始 org 写入意图。     |
 
-这些文件位于 ~snapshots/<generation>/~，由 ~current.csv~ 指向已提交 generation。完整快照写入并同步后才原子替换 manifest，因而 ~CoreChangeSet~ 不会出现半提交状态。详细目录和服务运行约束见 [[file:HTTP 服务命令行设计.org][HTTP 服务命令行设计]]。
+这些文件位于 ~snapshots/<generation>/~，由 ~current.csv~ 指向已提交 generation。完整快照写入并同步后才原子替换 manifest，因而 ~CoreChangeSet~ 不会出现半提交状态。详细目录和服务运行约束见 [[file:../http/服务命令行设计.org][HTTP 服务命令行设计]]。
 
 * 规划模型
 

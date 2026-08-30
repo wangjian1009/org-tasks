@@ -5,7 +5,7 @@
 
 本文是 Org Tasks 当前功能范围的唯一清单，用于产品验收、开发排期和变更评审。状态以仓库当前代码为准；设计文档中未接入应用流程的能力必须标为“规划中”，不能视为已交付。
 
-修改用户可见功能、功能入口或交付状态时，必须同步更新本文。领域数据边界以 [[file:Rust 数据模型.org][Rust 数据模型]] 为准，WebDAV 协议和后续同步编排以 [[file:WebDAV 文件同步设计.org][WebDAV 文件同步设计]] 为准，HTTP 宿主约束以 [[file:HTTP 服务命令行设计.org][HTTP 服务命令行设计]] 为准。
+修改用户可见功能、功能入口或交付状态时，必须同步更新本文。领域数据边界以 [[file:core/数据模型.org][数据模型]] 为准，WebDAV 协议和后续同步编排以 [[file:WebDAV 文件同步设计.org][WebDAV 文件同步设计]] 为准，HTTP 宿主约束以 [[file:http/服务命令行设计.org][HTTP 服务命令行设计]] 为准。
 
 * 状态定义
 
@@ -36,12 +36,12 @@
 
 | ID | 功能 | 用户或调用方结果 | 状态 | 主要实现 | 验收要点 |
 |-
-| CORE-001 | 同步作业登记 | 手动和后台入口可登记 ~sync~ 作业；重复请求复用已有幂等或活跃作业。 | 部分接入 | ~rust/core/src/lib.rs~、~NativeCoreService.ets~ | 同步意图和最终成功/失败状态在应用私有目录持久化。 |
-| CORE-002 | 原子领域提交 | 文件变更元数据、outbox 和作业作为一个 ~CoreChangeSet~ 提交。 | 已实现 | ~rust/core/src/lib.rs~、~rust/harmony/src/store.rs~ | ~apply~ 失败时不暴露半提交状态。 |
-| CORE-003 | 新增任务领域命令 | 通过幂等请求同时生成 ~OutboxEntry~ 与 ~add_task~ 作业。 | 部分接入 | ~rust/core/src/lib.rs~、~rust/harmony/src/lib.rs~ | 核心与 HTTP 映射已实现；Harmony 新增任务页面尚未调用该命令。 |
+| CORE-001 | 同步作业登记 | 手动和后台入口可登记 ~sync~ 作业；重复请求复用已有幂等或活跃作业。 | 部分接入 | ~core/src/lib.rs~、~NativeCoreService.ets~ | 同步意图和最终成功/失败状态在应用私有目录持久化。 |
+| CORE-002 | 原子领域提交 | 文件变更元数据、outbox 和作业作为一个 ~CoreChangeSet~ 提交。 | 已实现 | ~core/src/lib.rs~、~harmony/src/store.rs~ | ~apply~ 失败时不暴露半提交状态。 |
+| CORE-003 | 新增任务领域命令 | 通过幂等请求同时生成 ~OutboxEntry~ 与 ~add_task~ 作业。 | 部分接入 | ~core/src/lib.rs~、~harmony/src/lib.rs~ | 核心与 HTTP 映射已实现；Harmony 新增任务页面尚未调用该命令。 |
 | CORE-004 | Harmony 异步 bridge | ArkTS 经 C++ N-API 在工作线程调用 Rust，同步 UI 线程不被阻塞。 | 已实现 | ~entry/src/main/cpp/napi_init.cpp~、~NativeCoreService.ets~ | 当前暴露初始化、登记同步与完成同步三项调用。 |
-| CORE-005 | HTTP 宿主 | 通过 ~org-tasks-httpd~ 提供健康检查、创建任务、创建同步作业及查询单个作业。 | 已实现 | ~rust/http/src/bin/org-tasks-httpd.rs~、~rust/http/src/server.rs~ | 默认只监听回环地址；非回环监听必须显式允许并配置 Bearer Token。 |
-| CORE-006 | HTTP CSV 仓储 | 以 generation 快照持久化文件变更元数据、outbox 和作业历史。 | 已实现 | ~rust/http/src/store.rs~ | 仅 ~current.csv~ 指向的完整快照可见；~check~ 不修改数据目录。 |
+| CORE-005 | HTTP 宿主 | 通过 ~org-tasks-httpd~ 提供健康检查、创建任务、创建同步作业及查询单个作业。 | 已实现 | ~http/src/bin/org-tasks-httpd.rs~、~http/src/server.rs~ | 默认只监听回环地址；非回环监听必须显式允许并配置 Bearer Token。 |
+| CORE-006 | HTTP CSV 仓储 | 以 generation 快照持久化文件变更元数据、outbox 和作业历史。 | 已实现 | ~http/src/store.rs~ | 仅 ~current.csv~ 指向的完整快照可见；~check~ 不修改数据目录。 |
 
 * 规划中功能
 

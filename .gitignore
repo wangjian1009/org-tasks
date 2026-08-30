@@ -14,4 +14,4 @@ entry/.cxx/
 *.hap
 
 # Rust build outputs
-rust/target/
+target/

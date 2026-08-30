@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(org_tasks_harmony)
 
-set(RUST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../rust")
-set(RUST_MANIFEST "${RUST_ROOT}/Cargo.toml")
+set(RUST_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../..")
+set(RUST_MANIFEST "${RUST_WORKSPACE_ROOT}/Cargo.toml")
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
 
 if(OHOS_ARCH STREQUAL "arm64-v8a")
@@ -14,20 +14,20 @@ endif()
 
 string(TOUPPER "${RUST_TARGET}" RUST_TARGET_ENV)
 string(REPLACE "-" "_" RUST_TARGET_ENV "${RUST_TARGET_ENV}")
-set(RUST_STATIC_LIBRARY "${RUST_ROOT}/target/${RUST_TARGET}/release/liborg_tasks_harmony.a")
+set(RUST_STATIC_LIBRARY "${RUST_WORKSPACE_ROOT}/target/${RUST_TARGET}/release/liborg_tasks_harmony.a")
 
 file(GLOB_RECURSE RUST_SOURCES CONFIGURE_DEPENDS
-  "${RUST_ROOT}/Cargo.toml"
-  "${RUST_ROOT}/Cargo.lock"
-  "${RUST_ROOT}/core/src/*.rs"
-  "${RUST_ROOT}/harmony/src/*.rs")
+  "${RUST_WORKSPACE_ROOT}/Cargo.toml"
+  "${RUST_WORKSPACE_ROOT}/Cargo.lock"
+  "${RUST_WORKSPACE_ROOT}/core/src/*.rs"
+  "${RUST_WORKSPACE_ROOT}/harmony/src/*.rs")
 
 add_custom_command(
   OUTPUT "${RUST_STATIC_LIBRARY}"
   COMMAND ${CMAKE_COMMAND} -E env
     "CARGO_TARGET_${RUST_TARGET_ENV}_LINKER=${RUST_LINKER}"
     ${CARGO_EXECUTABLE} build --manifest-path "${RUST_MANIFEST}" --package org-tasks-harmony --target ${RUST_TARGET} --release
-  WORKING_DIRECTORY "${RUST_ROOT}"
+  WORKING_DIRECTORY "${RUST_WORKSPACE_ROOT}"
   DEPENDS ${RUST_SOURCES}
   COMMENT "编译 Rust Harmony 核心静态库")
 

@@ -1,4 +1,4 @@
-#+SETUPFILE: .setup.org
+#+SETUPFILE: ../.setup.org
 #+TITLE: Rust 核心数据服务 API v1
 
 * 当前实现状态
@@ -147,7 +147,7 @@ interface ConflictRecord {
 
 * 数据模型
 
-领域实体、写入请求、当前 CSV 映射和完整服务的 SQLite 规划统一见 [[file:Rust 数据模型.org][Rust 数据模型]]；实体关系的 PlantUML 源码内嵌在该文档中。
+领域实体、写入请求、当前 CSV 映射和完整服务的 SQLite 规划统一见 [[file:数据模型.org][数据模型]]；实体关系的 PlantUML 源码内嵌在该文档中。
 
 * 变更资源
 

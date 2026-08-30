@@ -31,6 +31,10 @@ Org Tasks 是一个 HarmonyOS NEXT 应用，用于将 org-mode 任务同步到�
 org-tasks/
 ├── Makefile                          # 编译安装脚本
 ├── build-profile.json5               # 项目构建配置
+├── Cargo.toml                         # Rust workspace 配置
+├── core/                              # 平台无关的 Rust 领域核心库
+├── harmony/                           # HarmonyOS FFI 与持久化适配 crate
+├── http/                              # Rust HTTP 服务可执行程序与适配 crate
 ├── entry/
 │   ├── oh-package.json5              # 模块依赖
 │   └── src/main/
@@ -54,11 +58,18 @@ org-tasks/
 │               └── Settings.ets      # 设置（路径、间隔等）
 ```
 
-`rust/` 是独立 Cargo workspace：`core` 保持平台无关，`harmony` 提供 FFI 访问适配，`http` 提供 RESTful 映射。Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用放到工作线程，避免阻塞 ArkUI 线程。
+## Rust 架构决策
 
-HTTP 宿主 `org-tasks-httpd` 位于 `rust/http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/HTTP 服务命令行设计.org`。修改该宿主前必须遵循该文档。
+- 仓库根目录是 Cargo workspace，成员为 `core`、`harmony` 和 `http`。
+- `core` 是独立的领域核心库，依赖方向只能是 `harmony -> core` 和 `http -> core`；禁止反向依赖或适配层之间的依赖。
+- `core` 不得依赖 ArkTS、N-API、HarmonyOS SDK、HTTP/网络库、数据库库或文件系统库。它只包含领域模型、用例、校验、状态迁移、action 定义和 `CoreStore` 等端口。
+- 新增领域能力时先修改 `core`，再由 `harmony` 和 `http` 分别适配；平台 I/O、HTTP 协议、认证、持久化实现与线程调度只能位于适配层或应用宿主。
 
-Rust 核心数据结构、CSV 映射和规划模型见 `docs/Rust 数据模型.org`；实体关系的 PlantUML 源码内嵌在该文档中。修改领域模型时必须同步更新说明和源码块。
+Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用放到工作线程，避免阻塞 ArkUI 线程。
+
+HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http/服务命令行设计.org`。修改该宿主前必须遵循该文档。
+
+Rust 核心 API、数据结构、CSV 映射和规划模型见 `docs/core/`；实体关系的 PlantUML 源码内嵌在 `docs/core/数据模型.org`。修改领域模型时必须同步更新说明和源码块。
 
 持久化仅保存相对路径的同步变更检测元数据、作业历史和 outbox 写入意图；同步基准目录通过运行时请求传入，不保存绝对路径、完整文件或解析任务。
 

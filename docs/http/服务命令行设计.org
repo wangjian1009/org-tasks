@@ -1,9 +1,9 @@
-#+SETUPFILE: .setup.org
+#+SETUPFILE: ../.setup.org
 #+TITLE: HTTP 服务命令行设计
 
 * 状态与边界
 
-本文定义 Rust HTTP 宿主的启动方式和运行边界。当前实现位于 ~rust/http/src/bin/org-tasks-httpd.rs~ 与 ~rust/http/src/server.rs~，并复用 ~HttpApi~ 和 ~CsvCoreStore~。
+本文定义 Rust HTTP 宿主的启动方式和运行边界。当前实现位于 ~http/src/bin/org-tasks-httpd.rs~ 与 ~http/src/server.rs~，并复用 ~HttpApi~ 和 ~CsvCoreStore~。
 
 宿主二进制命名为 ~org-tasks-httpd~，归属 Cargo package ~org-tasks-http~。它负责命令行解析、网络监听、认证、优雅退出和日志；~core~ 只保留领域用例和异步 ~CoreStore~ 端口，不能依赖命令行、HTTP 或运行时库。
 
@@ -12,7 +12,6 @@
 开发环境通过 Cargo 启动：
 
 #+begin_src sh
-cd rust
 cargo run -p org-tasks-http --bin org-tasks-httpd -- \
   serve --data-dir ./var/org-tasks --listen 127.0.0.1:8787
 #+end_src
@@ -93,7 +92,7 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvCoreStore>~ 由服�
 | ~POST~ | ~/v1/sync-jobs~ | 已有 ~HttpApi~ 映射。 |
 | ~GET~ | ~/v1/sync-jobs/{id}~ | 已有 ~HttpApi~ 映射。 |
 
-请求与响应 JSON 字段遵循 [[file:Rust 核心服务 API.org][Rust 核心服务 API]] 的 RESTful 资源定义。新增领域资源时先扩展 ~core~，再扩展 ~HttpApi~ 与宿主 JSON 映射。
+请求与响应 JSON 字段遵循 [[file:../core/核心服务 API.org][核心服务 API]] 的 RESTful 资源定义。新增领域资源时先扩展 ~core~，再扩展 ~HttpApi~ 与宿主 JSON 映射。
 
 * 验收标准
 
