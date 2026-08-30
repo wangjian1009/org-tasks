@@ -161,7 +161,7 @@ CoreChangeSet *-- "0..*" SyncJob
 | ~jobs.csv~     | ~id~              | ~SyncJob~，保留已完成和失败作业作为同步历史。      |
 | ~outbox.csv~   | ~id~              | ~OutboxEntry~，保留待上传的原始 org 写入意图。     |
 
-这些文件位于 ~snapshots/<generation>/~，由 ~current.csv~ 指向已提交 generation。完整快照写入并同步后才原子替换 manifest，因而 ~CoreChangeSet~ 不会出现半提交状态。详细目录和服务运行约束见 [[http-server-design.org][HTTP 服务命令行设计]]。
+这些文件位于 ~snapshots/<generation>/~，由 ~current.csv~ 指向已提交 generation。完整快照写入并同步后才原子替换 manifest，因而 ~CoreChangeSet~ 不会出现半提交状态。详细目录和服务运行约束见 [[file:HTTP 服务命令行设计.org][HTTP 服务命令行设计]]。
 
 * 规划模型
 

@@ -93,7 +93,7 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvCoreStore>~ 由服�
 | ~POST~ | ~/v1/sync-jobs~ | 已有 ~HttpApi~ 映射。 |
 | ~GET~ | ~/v1/sync-jobs/{id}~ | 已有 ~HttpApi~ 映射。 |
 
-请求与响应 JSON 字段遵循 [[rust-core-service-api.org][Rust 核心数据服务 API]] 的 RESTful 资源定义。新增领域资源时先扩展 ~core~，再扩展 ~HttpApi~ 与宿主 JSON 映射。
+请求与响应 JSON 字段遵循 [[file:Rust 核心服务 API.org][Rust 核心服务 API]] 的 RESTful 资源定义。新增领域资源时先扩展 ~core~，再扩展 ~HttpApi~ 与宿主 JSON 映射。
 
 * 验收标准
 

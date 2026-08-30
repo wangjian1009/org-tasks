@@ -56,21 +56,15 @@ org-tasks/
 
 `rust/` 是独立 Cargo workspace：`core` 保持平台无关，`harmony` 提供 FFI 访问适配，`http` 提供 RESTful 映射。Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用放到工作线程，避免阻塞 ArkUI 线程。
 
-HTTP 宿主 `org-tasks-httpd` 位于 `rust/http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http-server-design.org`。修改该宿主前必须遵循该文档。
+HTTP 宿主 `org-tasks-httpd` 位于 `rust/http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/HTTP 服务命令行设计.org`。修改该宿主前必须遵循该文档。
 
-Rust 核心数据结构、CSV 映射和规划模型见 `docs/rust-data-model.org`；实体关系的 PlantUML 源码内嵌在该文档中。修改领域模型时必须同步更新说明和源码块。
+Rust 核心数据结构、CSV 映射和规划模型见 `docs/Rust 数据模型.org`；实体关系的 PlantUML 源码内嵌在该文档中。修改领域模型时必须同步更新说明和源码块。
 
 持久化仅保存相对路径的同步变更检测元数据、作业历史和 outbox 写入意图；同步基准目录通过运行时请求传入，不保存绝对路径、完整文件或解析任务。
 
-## 核心功能
+## 功能清单
 
-| 功能 | 实现文件 | 说明 |
-|------|---------|------|
-| Org 解析 | `OrgParser.ets` | 解析 TODO/NEXT/WAIT/DONE/CNCL、SCHEDULED、DEADLINE、优先级、标签、进度 |
-| 日历同步 | `CalendarSync.ets` | 调用 calendarManager API 写入系统日历 |
-| 文件读写 | `FileService.ets` | 读取 org 目录，追加写入 inbox.org |
-| 后台同步 | `SyncWorkExtension.ets` | WorkScheduler 定时触发，默认 15 分钟 |
-| 新增任务 | `AddTask.ets` | 写入 inbox.org（路径可配置） |
+项目功能范围、当前实现状态、验收要点与规划项统一维护于 `docs/功能清单.org`。修改用户可见功能、入口或交付状态时，必须同步更新该文档；本文件不重复维护功能明细。
 
 ## 数据流
 
