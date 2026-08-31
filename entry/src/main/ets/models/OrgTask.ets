@@ -37,6 +37,7 @@ export interface OrgParseResult {
 
 // 应用配置
 export interface AppConfig {
+  repoId: string       // 仓库稳定标识；配置更新时保持不变
   orgDir: string       // org 文件目录（坚果云同步路径）
   inboxFile: string    // 新增任务写入的文件
   calendarName: string // 日历名称
@@ -49,6 +50,7 @@ export interface AppConfig {
 
 // 默认配置
 export const DEFAULT_CONFIG: AppConfig = {
+  repoId: '',
   orgDir: '/storage/Users/currentUser/CloudDrive/org-roam/tasks',
   inboxFile: 'inbox.org',
   calendarName: 'Org Tasks',

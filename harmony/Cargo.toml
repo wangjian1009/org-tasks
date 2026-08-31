@@ -10,3 +10,5 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 org-tasks-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

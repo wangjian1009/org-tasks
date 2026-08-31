@@ -14,15 +14,15 @@
 
 * 范围
 
-本文定义 ~OrgRepoRemote::WebDav(OrgRepoRemoteWebDav)~ 的同步语义，以及将协议结果转换为 ~OrgRepoSyncRecord~ 和 ~OrgRepoSyncFileRecord~ 的运行时 adapter 契约。内容与同步结构见 [[file:数据模型.org][数据模型]]，仓库级 API 见 [[file:接口文档.org][接口文档]]，Harmony 的配置、凭据和保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
+本文定义 ~core::webdav~ 的 WebDAV 同步语义，以及将协议结果转换为 ~OrgRepoSyncRecord~ 和 ~OrgRepoSyncFileRecord~ 的运行时契约。内容与同步结构见 [[file:数据模型.org][数据模型]]，仓库级 API 见 [[file:接口文档.org][接口文档]]，Harmony 的配置、凭据和保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-WebDAV 是当前唯一受支持的 ~OrgRepoRemote~ 变体。 ~OrgRepo.remote = None~ 表示本地仓库；本地仓库仅扫描和解析根目录，不调用任何 WebDAV 操作。adapter、HTTP 客户端、认证、并发控制和重试均是运行时概念，不进入核心数据结构。
+WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料由策略实例持有；本地仓库只调用 ~OrgRepo.load~ ，不调用任何 WebDAV 操作。HTTP 客户端、认证、并发控制和重试均是运行时概念，不进入核心数据结构。
 
 * Adapter 契约
 
-~OrgRepoWebDavSyncAdapter~ 实现 ~OrgRepoSyncAdapter~ 。它接收一个 ~OrgRepo~ ，读取其相对路径文件和可选的 WebDAV 远端，在结束时返回完整的 ~OrgRepoSyncRecord~ 。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
+~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 与 ~WebDavTransport~ 处理仓库文件，并在结束时返回完整的 ~OrgRepoSyncRecord~ 。下载成功后会以 parser 产生的 ~OrgFile~ 更新仓库快照。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
 
-adapter 不得直接修改同步记录存储、日历投影、UI 状态或宿主的待写入队列。记录保存、后台调度、取消和重试由调用 adapter 的宿主负责。adapter 不得返回密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件正文。
+策略不得直接修改同步记录存储、日历投影、UI 状态或宿主的待写入队列。记录保存、后台调度、取消和重试由调用策略的宿主负责。 ~WebDavTransport~ 负责实际 HTTP、认证与 TLS；策略不得返回密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件正文。
 
 对由内容编辑产生的上传，宿主必须先按 ~OrgFile.sourceBytes~ 执行保真序列化，再将所得完整字节作为 ~PUT~ 请求体。未编辑文件的上传内容必须与读取内容逐字节一致；编辑文件不得因同步流程格式化、重排或改写未修改区域。
 
@@ -42,7 +42,7 @@ adapter 不得直接修改同步记录存储、日历投影、UI 状态或宿主
 
 * 文件决策
 
-adapter 在同一 ~OrgRepoId~ 范围内，按 ~relativePath~ 比较 ~LocalFileVersion.contentHash~ 与 ~RemoteFileVersion~ 。不同仓库可以包含同名相对路径，彼此不相关。
+策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~RemoteFileVersion~ 。不同仓库可以包含同名相对路径，彼此不相关。
 
 | 自上次确认后本地状态 | 远端状态 | ~OrgRepoSyncFileRecord~ |
 |-
@@ -58,14 +58,14 @@ adapter 在同一 ~OrgRepoId~ 范围内，按 ~relativePath~ 比较 ~LocalFileVe
 
 * 宿主写入、进度与错误
 
-追加 ~inbox.org~ 、创建文件、重命名和删除都是宿主产生的写入意图。WebDAV adapter 只执行已授权的意图，并以相应的 ~OrgRepoSyncFileRecord~ 反映条件写入结果。写入意图队列、确认消费和 UI 冲突解决不属于 core 数据结构。
+追加 ~inbox.org~ 、创建文件、重命名和删除都是宿主产生的写入意图。WebDAV 策略只执行已授权的意图，并以相应的 ~OrgRepoSyncFileRecord~ 反映条件写入结果。写入意图队列、确认消费和 UI 冲突解决不属于 core 数据结构。
 
 运行时可报告列举、下载、上传、解析和收尾进度，但进度事件不写入 ~OrgRepoSyncRecord~ 的领域结构。错误至少区分网络、认证、TLS、校验、本地存储与冲突；错误摘要必须脱敏，是否重试由宿主决定。
 
 * 验收标准
 
 - ~PROPFIND~ 解析、条件 ~PUT~ 与 ~412~ 冲突均能映射为仓库同步文件记录的版本、action 和 state。
-- 本地仓库不会调用 WebDAV；带 WebDAV 远端的仓库仅使用其 ~OrgRepoRemoteWebDav~ 配置。
+- 本地仓库不会调用 WebDAV；WebDAV 策略只使用其自身的远端配置。
 - 一个同步记录只归属一个 ~OrgRepoId~ ，其中每个文件记录只使用相对路径。
-- adapter 返回的记录不包含配置凭据、绝对路径、远端完整 URL 或完整 org 内容。
+- 策略返回的记录不包含配置凭据、绝对路径、远端完整 URL 或完整 org 内容。
 - 写入意图只在对应条件写入成功后由宿主确认；失败与 ~412~ 不得丢弃意图。

@@ -1,12 +1,8 @@
 import { router } from '@kit.ArkUI'
-import { preferences } from '@kit.ArkData'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { FileService } from '../services/FileService'
-import { CredentialService } from '../services/CredentialService'
 import { OrgParser } from '../services/OrgParser'
 import { WebDavService } from '../services/WebDavService'
-
-const PREF_NAME = 'org_tasks_config'
+import { AppConfigService } from '../services/AppConfigService'
 
 interface FileDetailParams {
   path?: string
@@ -35,18 +31,9 @@ struct FileDetail {
 
     try {
       const context = getContext(this)
-      const store = await preferences.getPreferences(context, PREF_NAME)
-      const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
-      const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-      const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-      const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
-      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-      const webdavPassword = await CredentialService.getWebDavPassword(context)
-      const config: AppConfig = { orgDir, inboxFile, calendarName, syncInterval, webdavEnabled, webdavUrl, webdavUsername, webdavPassword }
-      const sourceDir = webdavEnabled ? new WebDavService(context, config).getLocalDir() : orgDir
-      this.content = webdavEnabled
+      const config = await AppConfigService.load(context)
+      const sourceDir = config.webdavEnabled ? new WebDavService(context, config).getLocalDir() : config.orgDir
+      this.content = config.webdavEnabled
         ? new WebDavService(context, config).readCachedFile(this.path)
         : FileService.readFileIfExists(`${sourceDir}/${this.path}`)
       if (!this.content) {

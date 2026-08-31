@@ -4,44 +4,23 @@
 import { WorkSchedulerExtensionAbility, workScheduler } from '@kit.BackgroundTasksKit'
 import { CalendarSync } from '../services/CalendarSync'
 import { FileService } from '../services/FileService'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
-import { CredentialService } from '../services/CredentialService'
 import { WebDavService } from '../services/WebDavService'
-import { NativeCoreService } from '../services/NativeCoreService'
-
-const PREF_NAME = 'org_tasks_config'
+import { NativeSyncRecordService } from '../services/NativeSyncRecordService'
+import { AppConfigService, APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
 
 export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
   async onWorkStart(workInfo: workScheduler.WorkInfo) {
     console.info('后台同步任务开始')
-    let nativeSyncRecorded = false
+    const syncStartedAt = Date.now()
     let syncSucceeded = false
+    let repoId = ''
 
     try {
-      try {
-        await NativeCoreService.recordSyncIntent(this.context.filesDir, 'background', true, false)
-        nativeSyncRecorded = true
-      } catch (e) {
-        console.warn('Rust 核心服务登记后台同步失败:', JSON.stringify(e))
-      }
+      const config = await AppConfigService.load(this.context)
+      repoId = config.repoId
 
-      // 读取配置
-      const store = await preferences.getPreferences(this.context, PREF_NAME)
-      const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
-      const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-      const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-      const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
-      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-      const webdavPassword = await CredentialService.getWebDavPassword(this.context)
-      const config: AppConfig = {
-        orgDir, inboxFile, calendarName, syncInterval,
-        webdavEnabled, webdavUrl, webdavUsername, webdavPassword
-      }
-
-      let sourceDir = orgDir
+      let sourceDir = config.orgDir
       if (config.webdavEnabled) {
         const webdav = await new WebDavService(this.context, config).syncToCache()
         if (!webdav.ok) {
@@ -63,7 +42,7 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
       console.info(`解析到 ${parsed.tasks.length} 个任务`)
 
       // 同步到日历
-      const sync = new CalendarSync(this.context, calendarName)
+      const sync = new CalendarSync(this.context, config.calendarName)
       const ok = await sync.init()
       if (!ok) {
         console.error('初始化日历失败')
@@ -74,18 +53,24 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
       console.info(`同步完成: ${result.synced}/${result.total}，新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}`)
 
       // 更新最后同步时间
+      const store = await preferences.getPreferences(this.context, APP_CONFIG_PREFERENCES)
       await store.put('lastSyncTime', Date.now())
       await store.flush()
       syncSucceeded = true
     } catch (e) {
       console.error('后台同步失败:', JSON.stringify(e))
     } finally {
-      if (nativeSyncRecorded) {
-        try {
-          await NativeCoreService.finishSync(syncSucceeded)
-        } catch (e) {
-          console.warn('Rust 核心服务完成后台同步失败:', JSON.stringify(e))
+      try {
+        if (repoId) {
+          await NativeSyncRecordService.recordSyncResult(
+            this.context.filesDir,
+            repoId,
+            syncStartedAt,
+            syncSucceeded
+          )
         }
+      } catch (e) {
+        console.warn('Rust 核心服务保存后台同步记录失败:', JSON.stringify(e))
       }
     }
   }

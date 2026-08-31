@@ -1,4 +1,4 @@
-import { finishSync as finishNativeSync, initialize, queueSync } from 'liborg_tasks_harmony.so'
+import { initialize, recordSync } from 'liborg_tasks_harmony.so'
 
 function createUuid(seed: number): string {
   let value = ''
@@ -17,16 +17,24 @@ function createUuid(seed: number): string {
   return value
 }
 
-export class NativeCoreService {
-  static async recordSyncIntent(dataDir: string, reason: string, includeCalendar: boolean, foreground: boolean): Promise<void> {
+export class NativeSyncRecordService {
+  static async recordSyncResult(
+    dataDir: string,
+    repoId: string,
+    startedAt: number,
+    succeeded: boolean
+  ): Promise<void> {
+    if (!repoId.trim()) {
+      throw new Error('仓库 ID 不能为空')
+    }
     await initialize(dataDir)
-    const now = Date.now()
-    const idempotencyKey = createUuid(now)
-    const jobId = createUuid(now + 1)
-    await queueSync(idempotencyKey, jobId, reason, includeCalendar, foreground, now)
-  }
-
-  static async finishSync(succeeded: boolean): Promise<void> {
-    await finishNativeSync(succeeded, Date.now())
+    const finishedAt = Date.now()
+    await recordSync(
+      repoId,
+      createUuid(finishedAt),
+      startedAt,
+      finishedAt,
+      succeeded
+    )
   }
 }

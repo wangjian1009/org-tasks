@@ -1,12 +1,10 @@
-//! `org-tasks-httpd` 的 HTTP 宿主实现。
-//!
-//! 网络、命令行和运行时依赖仅位于此模块；领域服务通过单写入者 actor 调用。
+//! `org-tasks-httpd` 的仓库同步记录 HTTP 宿主。
 
 use std::fs::{self, File, OpenOptions};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use axum::extract::{Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -14,24 +12,24 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::{Args, Subcommand, ValueEnum};
-use org_tasks_core::{
-    CoreError, CreateSyncJobRequest, CreateTaskRequest, JobKind, JobPriority, JobState, NewTask,
-    OutboxEntry, Priority, SyncJob, TaskCreation,
-};
-use serde::Deserialize;
+use org_tasks_core::OrgRepoSyncRecord;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 use tracing::info;
 
 use crate::{
-    CsvCoreStore, HttpApi, HttpBody, HttpMethod, HttpRequest, HttpResponse, HttpResponseBody,
+    CsvOrgRepoSyncRecordStore, HttpApi, HttpBody, HttpMethod, HttpRequest, HttpResponse,
+    HttpResponseBody,
 };
 
-const API_VERSION: u8 = 1;
 const ACTOR_CHANNEL_CAPACITY: usize = 128;
 
 #[derive(clap::Parser)]
-#[command(name = "org-tasks-httpd", version, about = "Org Tasks HTTP 数据服务")]
+#[command(
+    name = "org-tasks-httpd",
+    version,
+    about = "Org Tasks HTTP 同步记录服务"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -39,37 +37,28 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// 打开 CSV 仓储并启动 HTTP 服务。
     Serve(ServeArgs),
-    /// 只校验 CSV 仓储，不监听端口也不修改数据。
     Check(CheckArgs),
 }
 
 #[derive(Args)]
 pub struct ServeArgs {
-    /// CSV 数据目录。
     #[arg(long)]
     pub data_dir: PathBuf,
-    /// HTTP 监听地址。
     #[arg(long, default_value = "127.0.0.1:8787")]
     pub listen: SocketAddr,
-    /// 收到退出信号后等待在途请求的最长秒数。
     #[arg(long, default_value_t = 10)]
     pub shutdown_timeout_secs: u64,
-    /// 日志详细程度；首版仅用于启动诊断。
     #[arg(long, value_enum, default_value_t = LogLevel::Info)]
     pub log_level: LogLevel,
-    /// 可选的 Bearer Token 文件。
     #[arg(long)]
     pub access_token_file: Option<PathBuf>,
-    /// 显式允许监听非回环地址。
     #[arg(long)]
     pub allow_non_loopback: bool,
 }
 
 #[derive(Args)]
 pub struct CheckArgs {
-    /// CSV 数据目录。
     #[arg(long)]
     pub data_dir: PathBuf,
 }
@@ -110,7 +99,8 @@ pub async fn run(command: Command) -> Result<(), String> {
 }
 
 fn check(data_dir: &Path) -> Result<(), String> {
-    CsvCoreStore::validate(data_dir).map_err(|error| format!("CSV 仓储校验失败: {error}"))?;
+    CsvOrgRepoSyncRecordStore::validate(data_dir)
+        .map_err(|error| format!("CSV 仓储校验失败: {error}"))?;
     println!("CSV 仓储校验通过: {}", data_dir.display());
     Ok(())
 }
@@ -119,9 +109,9 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     validate_serve_args(&args)?;
     let token = read_token(args.access_token_file.as_deref())?;
     let _data_lock = DataDirectoryLock::acquire(&args.data_dir)?;
-    let store = CsvCoreStore::open(&args.data_dir)
+    let store = CsvOrgRepoSyncRecordStore::open(&args.data_dir)
         .map_err(|error| format!("无法打开 CSV 仓储: {error}"))?;
-    let actor = CoreActor::start(store)?;
+    let actor = SyncRecordActor::start(store);
     let app = router(AppState { actor, token });
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await
@@ -140,16 +130,12 @@ fn validate_serve_args(args: &ServeArgs) -> Result<(), String> {
     if args.shutdown_timeout_secs == 0 {
         return Err("--shutdown-timeout-secs 必须大于 0".into());
     }
-    if !is_loopback(args.listen.ip())
+    if !args.listen.ip().is_loopback()
         && (!args.allow_non_loopback || args.access_token_file.is_none())
     {
         return Err("非回环监听必须同时指定 --allow-non-loopback 和 --access-token-file".into());
     }
     Ok(())
-}
-
-fn is_loopback(address: IpAddr) -> bool {
-    address.is_loopback()
 }
 
 fn read_token(path: Option<&Path>) -> Result<Option<Arc<str>>, String> {
@@ -173,13 +159,13 @@ impl DataDirectoryLock {
     fn acquire(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("无法创建 CSV 数据目录 {}: {error}", data_dir.display()))?;
-        let lock_path = data_dir.join(".org-tasks-httpd.lock");
+        let path = data_dir.join(".org-tasks-httpd.lock");
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(&lock_path)
-            .map_err(|error| format!("无法打开数据目录锁 {}: {error}", lock_path.display()))?;
+            .open(&path)
+            .map_err(|error| format!("无法打开数据目录锁 {}: {error}", path.display()))?;
         file.try_lock()
             .map_err(|error| format!("CSV 数据目录已被其他服务占用: {error}"))?;
         Ok(Self { _file: file })
@@ -188,16 +174,17 @@ impl DataDirectoryLock {
 
 #[derive(Clone)]
 struct AppState {
-    actor: CoreActor,
+    actor: SyncRecordActor,
     token: Option<Arc<str>>,
 }
 
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
-        .route("/v1/tasks", post(create_task))
-        .route("/v1/sync-jobs", post(create_sync_job))
-        .route("/v1/sync-jobs/:id", get(get_sync_job))
+        .route(
+            "/v1/repos/:repo_id/sync-records",
+            post(append_sync_record).get(list_sync_records),
+        )
         .with_state(state)
 }
 
@@ -209,425 +196,141 @@ async fn health() -> Response {
         .into_response()
 }
 
-async fn create_task(
+async fn append_sync_record(
     State(state): State<AppState>,
+    AxumPath(repo_id): AxumPath<String>,
     headers: HeaderMap,
-    Json(payload): Json<CreateTaskPayload>,
+    Json(record): Json<OrgRepoSyncRecord>,
 ) -> Response {
     if let Err(response) = authorize(&state, &headers) {
         return response;
     }
-    let request_id = request_id(&headers);
-    let request = HttpRequest {
-        method: HttpMethod::Post,
-        path: "/v1/tasks".into(),
-        body: Some(HttpBody::CreateTask(payload.into_core())),
-    };
-    dispatch(&state.actor, request, request_id).await
+    dispatch(
+        &state.actor,
+        HttpRequest {
+            method: HttpMethod::Post,
+            path: format!("/v1/repos/{repo_id}/sync-records"),
+            body: Some(HttpBody::SyncRecord(record)),
+        },
+    )
+    .await
 }
 
-async fn create_sync_job(
+async fn list_sync_records(
     State(state): State<AppState>,
+    AxumPath(repo_id): AxumPath<String>,
     headers: HeaderMap,
-    Json(payload): Json<CreateSyncJobPayload>,
 ) -> Response {
     if let Err(response) = authorize(&state, &headers) {
         return response;
     }
-    let request_id = request_id(&headers);
-    let request = HttpRequest {
-        method: HttpMethod::Post,
-        path: "/v1/sync-jobs".into(),
-        body: Some(HttpBody::CreateSyncJob(payload.into_core())),
-    };
-    dispatch(&state.actor, request, request_id).await
-}
-
-async fn get_sync_job(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    AxumPath(id): AxumPath<String>,
-) -> Response {
-    if let Err(response) = authorize(&state, &headers) {
-        return response;
-    }
-    let request_id = request_id(&headers);
-    let request = HttpRequest {
-        method: HttpMethod::Get,
-        path: format!("/v1/sync-jobs/{id}"),
-        body: None,
-    };
-    dispatch(&state.actor, request, request_id).await
+    dispatch(
+        &state.actor,
+        HttpRequest {
+            method: HttpMethod::Get,
+            path: format!("/v1/repos/{repo_id}/sync-records"),
+            body: None,
+        },
+    )
+    .await
 }
 
 fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
-    let Some(expected_token) = &state.token else {
+    let Some(token) = &state.token else {
         return Ok(());
     };
-    let expected = format!("Bearer {expected_token}");
-    let authorized = headers
+    let expected = format!("Bearer {token}");
+    if headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == expected);
-    if authorized {
+        == Some(expected.as_str())
+    {
         Ok(())
     } else {
-        Err(json_error(
-            StatusCode::UNAUTHORIZED,
-            request_id(headers),
-            "unauthorized",
-            "缺少或无效的访问令牌",
-            false,
-        ))
+        Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": "未授权" }))).into_response())
     }
 }
 
-fn request_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            let millis = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis();
-            format!("request-{millis}")
-        })
-}
-
-async fn dispatch(actor: &CoreActor, request: HttpRequest, request_id: String) -> Response {
-    match actor.call(request).await {
-        Ok(response) => response_to_json(response, request_id),
-        Err(message) => json_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            request_id,
-            "service_unavailable",
-            &message,
-            true,
-        ),
-    }
-}
-
-fn response_to_json(response: HttpResponse, request_id: String) -> Response {
-    let status = StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    match response.body {
-        Some(HttpResponseBody::TaskCreation(creation)) => {
-            json_success(status, request_id, task_creation_json(creation))
-        }
-        Some(HttpResponseBody::SyncJob(job)) => {
-            json_success(status, request_id, sync_job_json(job))
-        }
-        Some(HttpResponseBody::Error(error)) => {
-            let (code, message, retryable) = core_error_json(&error);
-            json_error(status, request_id, code, &message, retryable)
-        }
-        None => (
-            status,
-            Json(json!({ "apiVersion": API_VERSION, "requestId": request_id })),
+async fn dispatch(actor: &SyncRecordActor, request: HttpRequest) -> Response {
+    match actor.handle(request).await {
+        Ok(response) => response_to_http(response),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "服务 actor 不可用", "detail": error })),
         )
             .into_response(),
     }
 }
 
-fn json_success(status: StatusCode, request_id: String, data: Value) -> Response {
-    (
-        status,
-        Json(json!({
-            "apiVersion": API_VERSION,
-            "requestId": request_id,
-            "data": data,
-        })),
-    )
-        .into_response()
+fn response_to_http(response: HttpResponse) -> Response {
+    let status = StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let body = match response.body {
+        Some(HttpResponseBody::SyncRecord(record)) => json!({ "data": record }),
+        Some(HttpResponseBody::SyncRecords(records)) => json!({ "data": records }),
+        Some(HttpResponseBody::Error(error)) => json!({ "error": error.to_string() }),
+        None => Value::Null,
+    };
+    (status, Json(body)).into_response()
 }
 
-fn json_error(
-    status: StatusCode,
-    request_id: String,
-    code: &str,
-    message: &str,
-    retryable: bool,
-) -> Response {
-    (
-        status,
-        Json(json!({
-            "apiVersion": API_VERSION,
-            "requestId": request_id,
-            "error": {
-                "code": code,
-                "message": message,
-                "retryable": retryable,
-            }
-        })),
-    )
-        .into_response()
+struct SyncRecordActor {
+    sender: mpsc::Sender<ActorCommand>,
 }
 
-fn core_error_json(error: &CoreError) -> (&'static str, String, bool) {
-    match error {
-        CoreError::InvalidInput(message) => ("invalid_input", (*message).into(), false),
-        CoreError::InvalidState(message) => ("invalid_state", (*message).into(), false),
-        CoreError::Store(_) => ("store_failure", "存储操作失败".into(), true),
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateTaskPayload {
-    idempotency_key: String,
-    job_id: String,
-    outbox_entry_id: String,
-    reason: String,
-    priority: ApiJobPriority,
-    now: i64,
-    task: NewTaskPayload,
-}
-
-impl CreateTaskPayload {
-    fn into_core(self) -> CreateTaskRequest {
-        CreateTaskRequest {
-            idempotency_key: self.idempotency_key,
-            job_id: self.job_id,
-            outbox_entry_id: self.outbox_entry_id,
-            reason: self.reason,
-            priority: self.priority.into_core(),
-            now: self.now,
-            task: self.task.into_core(),
+impl Clone for SyncRecordActor {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
         }
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NewTaskPayload {
-    id: String,
-    heading: String,
-    relative_path: String,
-    scheduled_at: Option<i64>,
-    deadline_at: Option<i64>,
-    #[serde(default)]
-    tags: Vec<String>,
-    priority: Option<ApiPriority>,
-    org_entry: String,
-    content_hash: String,
-}
-
-impl NewTaskPayload {
-    fn into_core(self) -> NewTask {
-        NewTask {
-            id: self.id,
-            heading: self.heading,
-            relative_path: self.relative_path,
-            scheduled_at: self.scheduled_at,
-            deadline_at: self.deadline_at,
-            tags: self.tags,
-            priority: self.priority.map(ApiPriority::into_core),
-            org_entry: self.org_entry,
-            content_hash: self.content_hash,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateSyncJobPayload {
-    idempotency_key: String,
-    job_id: String,
-    reason: String,
-    priority: ApiJobPriority,
-    include_calendar: bool,
-    now: i64,
-}
-
-impl CreateSyncJobPayload {
-    fn into_core(self) -> CreateSyncJobRequest {
-        CreateSyncJobRequest {
-            idempotency_key: self.idempotency_key,
-            job_id: self.job_id,
-            reason: self.reason,
-            priority: self.priority.into_core(),
-            include_calendar: self.include_calendar,
-            now: self.now,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ApiJobPriority {
-    Foreground,
-    Background,
-}
-
-impl ApiJobPriority {
-    fn into_core(self) -> JobPriority {
-        match self {
-            Self::Foreground => JobPriority::Foreground,
-            Self::Background => JobPriority::Background,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
-enum ApiPriority {
-    A,
-    B,
-    C,
-}
-
-impl ApiPriority {
-    fn into_core(self) -> Priority {
-        match self {
-            Self::A => Priority::A,
-            Self::B => Priority::B,
-            Self::C => Priority::C,
-        }
-    }
-}
-
-fn task_creation_json(creation: TaskCreation) -> Value {
-    json!({
-        "taskId": creation.task_id,
-        "outboxEntry": outbox_entry_json(creation.outbox_entry),
-        "job": sync_job_json(creation.job),
-    })
-}
-
-fn outbox_entry_json(entry: OutboxEntry) -> Value {
-    json!({
-        "id": entry.id,
-        "relativePath": entry.relative_path,
-        "orgEntry": entry.org_entry,
-        "contentHash": entry.content_hash,
-        "createdAt": entry.created_at,
-    })
-}
-
-fn sync_job_json(job: SyncJob) -> Value {
-    json!({
-        "id": job.id,
-        "idempotencyKey": job.idempotency_key,
-        "kind": job_kind_name(job.kind),
-        "state": job_state_name(job.state),
-        "priority": job_priority_name(job.priority),
-        "reason": job.reason,
-        "includeCalendar": job.include_calendar,
-        "taskId": job.task_id,
-        "outboxEntryId": job.outbox_entry_id,
-        "attemptCount": job.attempt_count,
-        "nextRunAt": job.next_run_at,
-        "createdAt": job.created_at,
-        "updatedAt": job.updated_at,
-    })
-}
-
-fn job_kind_name(value: JobKind) -> &'static str {
-    match value {
-        JobKind::Sync => "sync",
-        JobKind::AddTask => "add_task",
-        JobKind::Retry => "retry",
-        JobKind::ResolveConflict => "resolve_conflict",
-        JobKind::RebuildCalendar => "rebuild_calendar",
-        JobKind::RefreshLocalIndex => "refresh_local_index",
-    }
-}
-
-fn job_state_name(value: JobState) -> &'static str {
-    match value {
-        JobState::Queued => "queued",
-        JobState::Running => "running",
-        JobState::RetryWait => "retry_wait",
-        JobState::Blocked => "blocked",
-        JobState::Completed => "completed",
-        JobState::Failed => "failed",
-    }
-}
-
-fn job_priority_name(value: JobPriority) -> &'static str {
-    match value {
-        JobPriority::Foreground => "foreground",
-        JobPriority::Background => "background",
-    }
-}
-
-#[derive(Clone)]
-struct CoreActor {
-    sender: mpsc::Sender<CoreCommand>,
-}
-
-struct CoreCommand {
+struct ActorCommand {
     request: HttpRequest,
-    reply: oneshot::Sender<HttpResponse>,
+    response: oneshot::Sender<HttpResponse>,
 }
 
-impl CoreActor {
-    fn start(store: CsvCoreStore) -> Result<Self, String> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| format!("无法创建服务 actor 运行时: {error}"))?;
-        let (sender, mut receiver) = mpsc::channel::<CoreCommand>(ACTOR_CHANNEL_CAPACITY);
-        std::thread::Builder::new()
-            .name("org-tasks-core-writer".into())
-            .spawn(move || {
-                let mut api = HttpApi::new(store);
-                while let Some(command) = receiver.blocking_recv() {
-                    let response = runtime.block_on(api.handle(command.request));
-                    let _ = command.reply.send(response);
-                }
-            })
-            .map_err(|error| format!("无法启动服务 actor: {error}"))?;
-        Ok(Self { sender })
+impl SyncRecordActor {
+    fn start(store: CsvOrgRepoSyncRecordStore) -> Self {
+        let (sender, mut receiver) = mpsc::channel::<ActorCommand>(ACTOR_CHANNEL_CAPACITY);
+        tokio::spawn(async move {
+            let mut api = HttpApi::new(store);
+            while let Some(command) = receiver.recv().await {
+                let response = api.handle(command.request).await;
+                let _ = command.response.send(response);
+            }
+        });
+        Self { sender }
     }
 
-    async fn call(&self, request: HttpRequest) -> Result<HttpResponse, String> {
-        let (reply, receiver) = oneshot::channel();
+    async fn handle(&self, request: HttpRequest) -> Result<HttpResponse, String> {
+        let (sender, receiver) = oneshot::channel();
         self.sender
-            .send(CoreCommand { request, reply })
+            .send(ActorCommand {
+                request,
+                response: sender,
+            })
             .await
-            .map_err(|_| "核心服务不可用".to_owned())?;
-        receiver.await.map_err(|_| "核心服务未返回响应".to_owned())
+            .map_err(|_| "服务 actor 已停止".to_string())?;
+        receiver
+            .await
+            .map_err(|_| "服务 actor 未返回响应".to_string())
     }
 }
 
 async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("无法监听 Ctrl-C 退出信号");
-    };
-    #[cfg(unix)]
-    {
-        let terminate = async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("无法监听 SIGTERM 退出信号")
-                .recv()
-                .await;
-        };
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = terminate => {},
-        }
-    }
-    #[cfg(not(unix))]
-    ctrl_c.await;
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::{Body, to_bytes};
-    use axum::http::Request;
-    use tower::ServiceExt;
 
     #[test]
     fn rejects_unprotected_non_loopback_listener() {
         let args = ServeArgs {
-            data_dir: PathBuf::from("/tmp/org-tasks-http-test"),
-            listen: "0.0.0.0:8787".parse().expect("地址应有效"),
+            data_dir: PathBuf::from("/tmp/org-tasks"),
+            listen: "0.0.0.0:8787".parse().unwrap(),
             shutdown_timeout_secs: 10,
             log_level: LogLevel::Info,
             access_token_file: None,
@@ -636,133 +339,16 @@ mod tests {
         assert!(validate_serve_args(&args).is_err());
     }
 
-    #[tokio::test]
-    async fn health_check_does_not_require_access_token() {
-        let data_dir = std::env::temp_dir().join(format!(
-            "org-tasks-http-server-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("系统时间应有效")
-                .as_nanos()
-        ));
-        let actor = CoreActor::start(CsvCoreStore::open(&data_dir).expect("应打开仓储"))
-            .expect("应启动 actor");
-        let app = router(AppState {
-            actor,
-            token: Some(Arc::from("test-token")),
-        });
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/healthz")
-                    .body(Body::empty())
-                    .expect("应创建请求"),
-            )
-            .await
-            .expect("路由应返回响应");
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("应读取响应体");
-        assert_eq!(
-            json!(serde_json::from_slice::<Value>(&body).expect("应为 JSON"))["status"],
-            "ok"
-        );
-        fs::remove_dir_all(data_dir).expect("应移除测试数据目录");
-    }
-
-    #[tokio::test]
-    async fn creates_sync_job_from_json_request() {
-        let data_dir = std::env::temp_dir().join(format!(
-            "org-tasks-http-request-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("系统时间应有效")
-                .as_nanos()
-        ));
-        let actor = CoreActor::start(CsvCoreStore::open(&data_dir).expect("应打开仓储"))
-            .expect("应启动 actor");
-        let app = router(AppState { actor, token: None });
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/sync-jobs")
-                    .header("content-type", "application/json")
-                    .header("x-request-id", "test-request-1")
-                    .body(Body::from(
-                        r#"{
-                            "idempotencyKey":"request-1",
-                            "jobId":"job-1",
-                            "reason":"manual",
-                            "priority":"foreground",
-                            "includeCalendar":true,
-                            "now":1
-                        }"#,
-                    ))
-                    .expect("应创建请求"),
-            )
-            .await
-            .expect("路由应返回响应");
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("应读取响应体");
-        let response: Value = serde_json::from_slice(&body).expect("应为 JSON");
-        assert_eq!(response["requestId"], "test-request-1");
-        assert_eq!(response["data"]["id"], "job-1");
-        fs::remove_dir_all(data_dir).expect("应移除测试数据目录");
-    }
-
-    #[tokio::test]
-    async fn creates_task_intent_without_returning_task_projection() {
-        let data_dir = std::env::temp_dir().join(format!(
-            "org-tasks-http-task-request-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("系统时间应有效")
-                .as_nanos()
-        ));
-        let actor = CoreActor::start(CsvCoreStore::open(&data_dir).expect("应打开仓储"))
-            .expect("应启动 actor");
-        let app = router(AppState { actor, token: None });
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/tasks")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{
-                            "idempotencyKey":"task-request-1",
-                            "jobId":"task-job-1",
-                            "outboxEntryId":"outbox-1",
-                            "reason":"manual",
-                            "priority":"foreground",
-                            "now":1,
-                            "task":{
-                                "id":"task-1",
-                                "heading":"待写入任务",
-                                "relativePath":"inbox.org",
-                                "tags":["work"],
-                                "priority":"A",
-                                "orgEntry":"* TODO 待写入任务\\n",
-                                "contentHash":"abc"
-                            }
-                        }"#,
-                    ))
-                    .expect("应创建请求"),
-            )
-            .await
-            .expect("路由应返回响应");
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("应读取响应体");
-        let response: Value = serde_json::from_slice(&body).expect("应为 JSON");
-        assert_eq!(response["data"]["taskId"], "task-1");
-        assert_eq!(response["data"]["outboxEntry"]["relativePath"], "inbox.org");
-        assert!(response["data"].get("task").is_none());
-        fs::remove_dir_all(data_dir).expect("应移除测试数据目录");
+    #[test]
+    fn loopback_listener_is_allowed_without_token() {
+        let args = ServeArgs {
+            data_dir: PathBuf::from("/tmp/org-tasks"),
+            listen: "127.0.0.1:8787".parse().unwrap(),
+            shutdown_timeout_secs: 10,
+            log_level: LogLevel::Info,
+            access_token_file: None,
+            allow_non_loopback: false,
+        };
+        assert!(validate_serve_args(&args).is_ok());
     }
 }

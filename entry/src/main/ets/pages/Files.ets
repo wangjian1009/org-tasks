@@ -1,11 +1,8 @@
 import { router } from '@kit.ArkUI'
-import { preferences } from '@kit.ArkData'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { FileService, OrgFileInfo } from '../services/FileService'
-import { CredentialService } from '../services/CredentialService'
 import { WebDavCachedFile, WebDavService } from '../services/WebDavService'
-
-const PREF_NAME = 'org_tasks_config'
+import { AppConfigService } from '../services/AppConfigService'
 
 interface FileRow extends OrgFileInfo {
   status: 'synced' | 'pending' | 'local'
@@ -31,16 +28,7 @@ struct Files {
   async loadConfigAndFiles() {
     try {
       const context = getContext(this)
-      const store = await preferences.getPreferences(context, PREF_NAME)
-      const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
-      const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-      const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-      const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
-      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-      const webdavPassword = await CredentialService.getWebDavPassword(context)
-      this.config = { orgDir, inboxFile, calendarName, syncInterval, webdavEnabled, webdavUrl, webdavUsername, webdavPassword }
+      this.config = await AppConfigService.load(context)
       this.loadCachedFiles()
     } catch (e) {
       this.message = `读取文件列表失败: ${JSON.stringify(e)}`

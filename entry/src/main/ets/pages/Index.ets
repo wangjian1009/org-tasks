@@ -6,11 +6,9 @@ import { CalendarSync } from '../services/CalendarSync'
 import { FileService } from '../services/FileService'
 import { OrgTask, SyncResult, AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
-import { CredentialService } from '../services/CredentialService'
 import { WebDavService } from '../services/WebDavService'
-import { NativeCoreService } from '../services/NativeCoreService'
-
-const PREF_NAME = 'org_tasks_config'
+import { NativeSyncRecordService } from '../services/NativeSyncRecordService'
+import { AppConfigService, APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
 
 @Entry
 @Component
@@ -30,19 +28,11 @@ struct Index {
   async loadConfig() {
     try {
       const context = getContext(this)
-      const store = await preferences.getPreferences(context, PREF_NAME)
-      const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
-      const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-      const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-      const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
-      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-      const webdavPassword = await CredentialService.getWebDavPassword(context)
+      const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
       const lastSyncTime = await store.get('lastSyncTime', 0) as number
 
-      this.config = { orgDir, inboxFile, calendarName, syncInterval, webdavEnabled, webdavUrl, webdavUsername, webdavPassword }
-      this.calendarSync = new CalendarSync(context, calendarName)
+      this.config = await AppConfigService.load(context)
+      this.calendarSync = new CalendarSync(context, this.config.calendarName)
 
       if (lastSyncTime > 0) {
         const d = new Date(lastSyncTime)
@@ -58,17 +48,10 @@ struct Index {
 
     this.syncing = true
     this.syncMessage = '正在同步...'
-    let nativeSyncRecorded = false
+    const syncStartedAt = Date.now()
     let syncSucceeded = false
 
     try {
-      try {
-        await NativeCoreService.recordSyncIntent(getContext(this).filesDir, 'manual', true, true)
-        nativeSyncRecorded = true
-      } catch (e) {
-        console.warn('Rust 核心服务登记手动同步失败:', JSON.stringify(e))
-      }
-
       if (!await this.requestSyncPermissions()) {
         this.syncMessage = '需要日历权限才能同步'
         this.syncing = false
@@ -119,7 +102,7 @@ struct Index {
 
       // 保存同步时间
       const context = getContext(this)
-      const store = await preferences.getPreferences(context, PREF_NAME)
+      const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
       await store.put('lastSyncTime', Date.now())
       await store.flush()
       syncSucceeded = true
@@ -134,12 +117,15 @@ struct Index {
     } catch (e) {
       this.syncMessage = `同步失败: ${JSON.stringify(e)}`
     } finally {
-      if (nativeSyncRecorded) {
-        try {
-          await NativeCoreService.finishSync(syncSucceeded)
-        } catch (e) {
-          console.warn('Rust 核心服务完成手动同步失败:', JSON.stringify(e))
-        }
+      try {
+        await NativeSyncRecordService.recordSyncResult(
+          getContext(this).filesDir,
+          this.config.repoId,
+          syncStartedAt,
+          syncSucceeded
+        )
+      } catch (e) {
+        console.warn('Rust 核心服务保存手动同步记录失败:', JSON.stringify(e))
       }
       this.syncing = false
     }

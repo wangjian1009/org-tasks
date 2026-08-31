@@ -1,13 +1,8 @@
 // Stores sensitive WebDAV credentials outside the app preferences database.
 
-import { Context } from '@kit.AbilityKit'
-import { preferences } from '@kit.ArkData'
 import { util } from '@kit.ArkTS'
 import { asset } from '@kit.AssetStoreKit'
 
-const PREF_NAME = 'org_tasks_config'
-const LEGACY_PASSWORD_KEY = 'webdavPassword'
-const PASSWORD_ALIAS = 'org-tasks.webdav.password.v1'
 const ASSET_NOT_FOUND = 24000002
 
 interface AssetError {
@@ -15,18 +10,18 @@ interface AssetError {
 }
 
 export class CredentialService {
-  static async getWebDavPassword(context: Context): Promise<string> {
+  static async getWebDavPassword(repoId: string): Promise<string> {
     let records: asset.AssetMap[]
     try {
-      records = await asset.query(passwordQuery())
+      records = await asset.query(passwordQuery(repoId))
     } catch (error) {
       if (errorCode(error) === ASSET_NOT_FOUND) {
-        return migrateLegacyPassword(context)
+        return ''
       }
       throw assetFailure('读取 WebDAV 密码失败', error)
     }
     if (records.length === 0) {
-      return migrateLegacyPassword(context)
+      return ''
     }
     const secret = records[0].get(asset.Tag.SECRET)
     if (!(secret instanceof Uint8Array)) {
@@ -35,13 +30,13 @@ export class CredentialService {
     return util.TextDecoder.create('utf-8').decodeToString(secret)
   }
 
-  static async setWebDavPassword(password: string): Promise<void> {
+  static async setWebDavPassword(repoId: string, password: string): Promise<void> {
     if (!password) {
-      await clearWebDavPassword()
+      await clearWebDavPassword(repoId)
       return
     }
 
-    const attributes = passwordAlias()
+    const attributes = passwordAlias(repoId)
     attributes.set(asset.Tag.SECRET, toBytes(password))
     attributes.set(asset.Tag.ACCESSIBILITY, asset.Accessibility.DEVICE_FIRST_UNLOCKED)
     attributes.set(asset.Tag.IS_PERSISTENT, true)
@@ -54,20 +49,9 @@ export class CredentialService {
   }
 }
 
-async function migrateLegacyPassword(context: Context): Promise<string> {
-  const store = await preferences.getPreferences(context, PREF_NAME)
-  const legacyPassword = await store.get(LEGACY_PASSWORD_KEY, '') as string
-  if (!legacyPassword) return ''
-
-  await CredentialService.setWebDavPassword(legacyPassword)
-  await store.delete(LEGACY_PASSWORD_KEY)
-  await store.flush()
-  return legacyPassword
-}
-
-async function clearWebDavPassword(): Promise<void> {
+async function clearWebDavPassword(repoId: string): Promise<void> {
   try {
-    await asset.remove(passwordAlias())
+    await asset.remove(passwordAlias(repoId))
   } catch (error) {
     if (errorCode(error) !== ASSET_NOT_FOUND) {
       throw assetFailure('删除 WebDAV 密码失败', error)
@@ -75,16 +59,19 @@ async function clearWebDavPassword(): Promise<void> {
   }
 }
 
-function passwordQuery(): asset.AssetMap {
-  const query = passwordAlias()
+function passwordQuery(repoId: string): asset.AssetMap {
+  const query = passwordAlias(repoId)
   query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL)
   query.set(asset.Tag.RETURN_LIMIT, 1)
   return query
 }
 
-function passwordAlias(): asset.AssetMap {
+function passwordAlias(repoId: string): asset.AssetMap {
+  if (!repoId.trim()) {
+    throw new Error('仓库 ID 不能为空')
+  }
   const attributes = new Map<asset.Tag, asset.Value>()
-  attributes.set(asset.Tag.ALIAS, toBytes(PASSWORD_ALIAS))
+  attributes.set(asset.Tag.ALIAS, toBytes(`org-tasks.webdav.${repoId}.password.v1`))
   return attributes
 }
 

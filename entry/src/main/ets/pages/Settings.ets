@@ -6,12 +6,14 @@ import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
 import { CredentialService } from '../services/CredentialService'
 import { WebDavService } from '../services/WebDavService'
+import { AppConfigService } from '../services/AppConfigService'
 
 const PREF_NAME = 'org_tasks_config'
 
 @Entry
 @Component
 struct Settings {
+  @State repoId: string = ''
   @State orgDir: string = DEFAULT_CONFIG.orgDir
   @State inboxFile: string = DEFAULT_CONFIG.inboxFile
   @State calendarName: string = DEFAULT_CONFIG.calendarName
@@ -31,16 +33,16 @@ struct Settings {
   async loadConfig() {
     try {
       const context = getContext(this)
-      const store = await preferences.getPreferences(context, PREF_NAME)
-      this.orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
-      this.inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-      this.calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-      const interval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
-      this.syncInterval = interval.toString()
-      this.webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-      this.webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-      this.webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-      this.webdavPassword = await CredentialService.getWebDavPassword(context)
+      const config = await AppConfigService.load(context)
+      this.repoId = config.repoId
+      this.orgDir = config.orgDir
+      this.inboxFile = config.inboxFile
+      this.calendarName = config.calendarName
+      this.syncInterval = config.syncInterval.toString()
+      this.webdavEnabled = config.webdavEnabled
+      this.webdavUrl = config.webdavUrl
+      this.webdavUsername = config.webdavUsername
+      this.webdavPassword = config.webdavPassword
     } catch (e) {
       console.error('加载配置失败:', JSON.stringify(e))
     }
@@ -52,8 +54,9 @@ struct Settings {
 
     try {
       const context = getContext(this)
-      await CredentialService.setWebDavPassword(this.webdavPassword)
+      await CredentialService.setWebDavPassword(this.repoId, this.webdavPassword)
       const store = await preferences.getPreferences(context, PREF_NAME)
+      await store.put('repoId', this.repoId)
       await store.put('orgDir', this.orgDir.trim())
       await store.put('inboxFile', this.inboxFile.trim())
       await store.put('calendarName', this.calendarName.trim())
@@ -81,6 +84,7 @@ struct Settings {
     try {
       const context = getContext(this)
       const config: AppConfig = {
+        repoId: this.repoId,
         orgDir: this.orgDir.trim(),
         inboxFile: this.inboxFile.trim(),
         calendarName: this.calendarName.trim(),

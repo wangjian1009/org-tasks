@@ -4,11 +4,8 @@
 import { router } from '@kit.ArkUI'
 import { FileService } from '../services/FileService'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { preferences } from '@kit.ArkData'
-import { CredentialService } from '../services/CredentialService'
 import { WebDavService } from '../services/WebDavService'
-
-const PREF_NAME = 'org_tasks_config'
+import { AppConfigService } from '../services/AppConfigService'
 
 @Entry
 @Component
@@ -29,23 +26,7 @@ struct AddTask {
   async loadConfig() {
     try {
       const context = getContext(this)
-      const store = await preferences.getPreferences(context, PREF_NAME)
-      const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
-      const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-      const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-      const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-      const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-      const webdavPassword = await CredentialService.getWebDavPassword(context)
-      this.config = {
-        orgDir,
-        inboxFile,
-        calendarName: DEFAULT_CONFIG.calendarName,
-        syncInterval: DEFAULT_CONFIG.syncInterval,
-        webdavEnabled,
-        webdavUrl,
-        webdavUsername,
-        webdavPassword
-      }
+      this.config = await AppConfigService.load(context)
     } catch (e) {
       console.error('加载配置失败:', JSON.stringify(e))
     }

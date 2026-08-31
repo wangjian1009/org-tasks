@@ -3,24 +3,11 @@
 
 #include "napi/native_api.h"
 
-extern "C" int32_t org_tasks_harmony_queue_sync(const char* idempotency_key, const char* job_id,
-    const char* reason, bool include_calendar, bool foreground, int64_t now);
 extern "C" int32_t org_tasks_harmony_initialize(const char* data_dir);
-extern "C" int32_t org_tasks_harmony_finish_active_sync(bool succeeded, int64_t now);
+extern "C" int32_t org_tasks_harmony_record_sync(const char* repo_id, const char* record_id,
+    int64_t started_at, int64_t finished_at, bool succeeded);
 
 namespace {
-struct QueueSyncWork {
-    std::string idempotency_key;
-    std::string job_id;
-    std::string reason;
-    bool include_calendar = true;
-    bool foreground = false;
-    int64_t now = 0;
-    int32_t result = -2;
-    napi_deferred deferred = nullptr;
-    napi_async_work work = nullptr;
-};
-
 struct InitializeWork {
     std::string data_dir;
     int32_t result = -2;
@@ -28,9 +15,12 @@ struct InitializeWork {
     napi_async_work work = nullptr;
 };
 
-struct FinishSyncWork {
+struct RecordSyncWork {
+    std::string repo_id;
+    std::string record_id;
+    int64_t started_at = 0;
+    int64_t finished_at = 0;
     bool succeeded = false;
-    int64_t now = 0;
     int32_t result = -2;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
@@ -55,29 +45,20 @@ bool ReadString(napi_env env, napi_value value, std::string* result)
     return true;
 }
 
-void ExecuteQueueSync(napi_env, void* data)
+void ResolveOrReject(napi_env env, napi_status status, int32_t result, napi_deferred deferred,
+    const char* message)
 {
-    auto* work = static_cast<QueueSyncWork*>(data);
-    work->result = org_tasks_harmony_queue_sync(work->idempotency_key.c_str(), work->job_id.c_str(),
-        work->reason.c_str(), work->include_calendar, work->foreground, work->now);
-}
-
-void CompleteQueueSync(napi_env env, napi_status status, void* data)
-{
-    auto* work = static_cast<QueueSyncWork*>(data);
-    if (status != napi_ok || work->result != 0) {
-        napi_value message;
-        napi_create_string_utf8(env, "Rust 核心服务未能登记同步意图", NAPI_AUTO_LENGTH, &message);
+    if (status != napi_ok || result != 0) {
+        napi_value text;
+        napi_create_string_utf8(env, message, NAPI_AUTO_LENGTH, &text);
         napi_value error;
-        napi_create_error(env, nullptr, message, &error);
-        napi_reject_deferred(env, work->deferred, error);
-    } else {
-        napi_value value;
-        napi_create_int32(env, work->result, &value);
-        napi_resolve_deferred(env, work->deferred, value);
+        napi_create_error(env, nullptr, text, &error);
+        napi_reject_deferred(env, deferred, error);
+        return;
     }
-    napi_delete_async_work(env, work->work);
-    delete work;
+    napi_value value;
+    napi_create_int32(env, result, &value);
+    napi_resolve_deferred(env, deferred, value);
 }
 
 void ExecuteInitialize(napi_env, void* data)
@@ -89,17 +70,22 @@ void ExecuteInitialize(napi_env, void* data)
 void CompleteInitialize(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<InitializeWork*>(data);
-    if (status != napi_ok || work->result != 0) {
-        napi_value message;
-        napi_create_string_utf8(env, "Rust 核心服务初始化失败", NAPI_AUTO_LENGTH, &message);
-        napi_value error;
-        napi_create_error(env, nullptr, message, &error);
-        napi_reject_deferred(env, work->deferred, error);
-    } else {
-        napi_value value;
-        napi_create_int32(env, work->result, &value);
-        napi_resolve_deferred(env, work->deferred, value);
-    }
+    ResolveOrReject(env, status, work->result, work->deferred, "Rust 同步记录服务初始化失败");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+void ExecuteRecordSync(napi_env, void* data)
+{
+    auto* work = static_cast<RecordSyncWork*>(data);
+    work->result = org_tasks_harmony_record_sync(work->repo_id.c_str(), work->record_id.c_str(),
+        work->started_at, work->finished_at, work->succeeded);
+}
+
+void CompleteRecordSync(napi_env env, napi_status status, void* data)
+{
+    auto* work = static_cast<RecordSyncWork*>(data);
+    ResolveOrReject(env, status, work->result, work->deferred, "Rust 同步记录服务未能保存同步结果");
     napi_delete_async_work(env, work->work);
     delete work;
 }
@@ -112,14 +98,12 @@ napi_value Initialize(napi_env env, napi_callback_info info)
         napi_throw_error(env, nullptr, "initialize 需要 1 个参数");
         return nullptr;
     }
-
     auto* work = new InitializeWork();
     if (!ReadString(env, args[0], &work->data_dir)) {
         delete work;
         napi_throw_error(env, nullptr, "initialize 参数无效");
         return nullptr;
     }
-
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
         delete work;
@@ -142,112 +126,45 @@ napi_value Initialize(napi_env env, napi_callback_info info)
     return promise;
 }
 
-void ExecuteFinishSync(napi_env, void* data)
+napi_value RecordSync(napi_env env, napi_callback_info info)
 {
-    auto* work = static_cast<FinishSyncWork*>(data);
-    work->result = org_tasks_harmony_finish_active_sync(work->succeeded, work->now);
-}
-
-void CompleteFinishSync(napi_env env, napi_status status, void* data)
-{
-    auto* work = static_cast<FinishSyncWork*>(data);
-    if (status != napi_ok || work->result != 0) {
-        napi_value message;
-        napi_create_string_utf8(env, "Rust 核心服务未能完成同步作业", NAPI_AUTO_LENGTH, &message);
-        napi_value error;
-        napi_create_error(env, nullptr, message, &error);
-        napi_reject_deferred(env, work->deferred, error);
-    } else {
-        napi_value value;
-        napi_create_int32(env, work->result, &value);
-        napi_resolve_deferred(env, work->deferred, value);
-    }
-    napi_delete_async_work(env, work->work);
-    delete work;
-}
-
-napi_value FinishSync(napi_env env, napi_callback_info info)
-{
-    size_t argc = 2;
-    napi_value args[2] = {nullptr};
-    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 2) {
-        napi_throw_error(env, nullptr, "finishSync 需要 2 个参数");
+    size_t argc = 5;
+    napi_value args[5] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 5) {
+        napi_throw_error(env, nullptr, "recordSync 需要 5 个参数");
         return nullptr;
     }
-
-    auto* work = new FinishSyncWork();
-    double now = 0;
-    if (napi_get_value_bool(env, args[0], &work->succeeded) != napi_ok ||
-        napi_get_value_double(env, args[1], &now) != napi_ok) {
+    auto* work = new RecordSyncWork();
+    double started_at = 0;
+    double finished_at = 0;
+    if (!ReadString(env, args[0], &work->repo_id) || !ReadString(env, args[1], &work->record_id) ||
+        napi_get_value_double(env, args[2], &started_at) != napi_ok ||
+        napi_get_value_double(env, args[3], &finished_at) != napi_ok ||
+        napi_get_value_bool(env, args[4], &work->succeeded) != napi_ok) {
         delete work;
-        napi_throw_error(env, nullptr, "finishSync 参数无效");
+        napi_throw_error(env, nullptr, "recordSync 参数无效");
         return nullptr;
     }
-    work->now = static_cast<int64_t>(now);
+    work->started_at = static_cast<int64_t>(started_at);
+    work->finished_at = static_cast<int64_t>(finished_at);
 
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
         delete work;
-        napi_throw_error(env, nullptr, "无法创建 finishSync Promise");
+        napi_throw_error(env, nullptr, "无法创建 recordSync Promise");
         return nullptr;
     }
     napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksFinishSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
-        napi_create_async_work(env, nullptr, resource_name, ExecuteFinishSync, CompleteFinishSync, work, &work->work) != napi_ok) {
+    if (napi_create_string_utf8(env, "OrgTasksRecordSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRecordSync, CompleteRecordSync, work, &work->work) != napi_ok) {
         delete work;
-        napi_throw_error(env, nullptr, "无法创建 Rust 作业完成任务");
+        napi_throw_error(env, nullptr, "无法创建 Rust 同步记录任务");
         return nullptr;
     }
     if (napi_queue_async_work(env, work->work) != napi_ok) {
         napi_delete_async_work(env, work->work);
         delete work;
-        napi_throw_error(env, nullptr, "无法调度 Rust 作业完成任务");
-        return nullptr;
-    }
-    return promise;
-}
-
-napi_value QueueSync(napi_env env, napi_callback_info info)
-{
-    size_t argc = 6;
-    napi_value args[6] = {nullptr};
-    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok) {
-        napi_throw_error(env, nullptr, "无法读取 queueSync 参数");
-        return nullptr;
-    }
-    if (argc != 6) {
-        napi_throw_error(env, nullptr, "queueSync 需要 6 个参数");
-        return nullptr;
-    }
-
-    auto* work = new QueueSyncWork();
-    double now = 0;
-    if (!ReadString(env, args[0], &work->idempotency_key) || !ReadString(env, args[1], &work->job_id) ||
-        !ReadString(env, args[2], &work->reason) || napi_get_value_bool(env, args[3], &work->include_calendar) != napi_ok ||
-        napi_get_value_bool(env, args[4], &work->foreground) != napi_ok || napi_get_value_double(env, args[5], &now) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "queueSync 参数无效");
-        return nullptr;
-    }
-    work->now = static_cast<int64_t>(now);
-
-    napi_value promise;
-    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 queueSync Promise");
-        return nullptr;
-    }
-    napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksQueueSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
-        napi_create_async_work(env, nullptr, resource_name, ExecuteQueueSync, CompleteQueueSync, work, &work->work) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 Rust 异步任务");
-        return nullptr;
-    }
-    if (napi_queue_async_work(env, work->work) != napi_ok) {
-        napi_delete_async_work(env, work->work);
-        delete work;
-        napi_throw_error(env, nullptr, "无法调度 Rust 异步任务");
+        napi_throw_error(env, nullptr, "无法调度 Rust 同步记录任务");
         return nullptr;
     }
     return promise;
@@ -258,9 +175,8 @@ EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor descriptors[] = {
-        {"finishSync", nullptr, FinishSync, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"initialize", nullptr, Initialize, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"queueSync", nullptr, QueueSync, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"recordSync", nullptr, RecordSync, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);
     return exports;

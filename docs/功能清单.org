@@ -35,22 +35,20 @@
 
 | ID | 功能 | 用户或调用方结果 | 状态 | 主要实现 | 验收要点 |
 |-
-| CORE-001 | 同步作业登记 | 手动和后台入口可登记 ~sync~ 作业；重复请求复用已有幂等或活跃作业。 | 部分接入 | ~core/src/lib.rs~ 、 ~NativeCoreService.ets~ | 同步意图和最终成功/失败状态在应用私有目录持久化。 |
-| CORE-002 | 原子领域提交 | 文件变更元数据、outbox 和作业作为一个 ~CoreChangeSet~ 提交。 | 已实现 | ~core/src/lib.rs~ 、 ~harmony/src/store.rs~ | ~apply~ 失败时不暴露半提交状态。 |
-| CORE-003 | 新增任务领域命令 | 通过幂等请求同时生成 ~OutboxEntry~ 与 ~add_task~ 作业。 | 部分接入 | ~core/src/lib.rs~ 、 ~harmony/src/lib.rs~ | 核心与 HTTP 映射已实现；Harmony 新增任务页面尚未调用该命令。 |
-| CORE-004 | Harmony 异步 bridge | ArkTS 经 C++ N-API 在工作线程调用 Rust，同步 UI 线程不被阻塞。 | 已实现 | ~entry/src/main/cpp/napi_init.cpp~ 、 ~NativeCoreService.ets~ | 当前暴露初始化、登记同步与完成同步三项调用。 |
-| CORE-005 | HTTP 宿主 | 通过 ~org-tasks-httpd~ 提供健康检查、创建任务、创建同步作业及查询单个作业。 | 已实现 | ~http/src/bin/org-tasks-httpd.rs~ 、 ~http/src/server.rs~ | 默认只监听回环地址；非回环监听必须显式允许并配置 Bearer Token。 |
-| CORE-006 | HTTP CSV 仓储 | 以 generation 快照持久化文件变更元数据、outbox 和作业历史。 | 已实现 | ~http/src/store.rs~ | 仅 ~current.csv~ 指向的完整快照可见； ~check~ 不修改数据目录。 |
+| CORE-001 | 仓库核心模型与服务 | 调用方可构造 ~OrgWorkspace~ ，按 ~repoId~ 调用解析和同步 adapter。 | 已实现 | ~core/src/model.rs~ 、 ~core/src/service.rs~ | 不存在的仓库 ID 被拒绝；adapter 只能返回已完成且归属正确的同步记录。 |
+| CORE-002 | 保真编辑 | 调用方可替换或插入 ~OrgElement~ ，未修改字节保持原样。 | 已实现 | ~core/src/edit.rs~ | 编辑后受影响元素和后续元素的位置重算；过期范围或非法锚点被拒绝。 |
+| CORE-003 | 仓库同步记录持久化 | Harmony 与 HTTP 按 ~repoId~ 保存并查询完成的同步记录。 | 已实现 | ~harmony/src/store.rs~ 、 ~http/src/store.rs~ | 记录不包含绝对路径、完整 org 内容或凭据；重启后可恢复。 |
+| CORE-004 | Harmony 异步 bridge | ArkTS 经 C++ N-API 在工作线程保存同步结果。 | 已实现 | ~entry/src/main/cpp/napi_init.cpp~ 、 ~NativeSyncRecordService.ets~ | 当前暴露初始化和同步记录保存；不再登记全局作业。 |
+| CORE-005 | HTTP 宿主 | 通过 ~org-tasks-httpd~ 提供健康检查及仓库同步记录的追加和查询。 | 已实现 | ~http/src/bin/org-tasks-httpd.rs~ 、 ~http/src/server.rs~ | 默认只监听回环地址；非回环监听必须显式允许并配置 Bearer Token。 |
+| CORE-006 | HTTP CSV 仓储 | 以 generation 快照持久化仓库同步记录。 | 已实现 | ~http/src/store.rs~ | 仅 ~current.csv~ 指向的完整快照可见； ~check~ 不修改数据目录。 |
 
 * 规划中功能
 
 | ID | 功能 | 目标 |
 |-
-| PLAN-001 | 仓库内容与同步模型 | 在 core 中实现 ~OrgWorkspace~ 、 ~OrgRepo~ 内容树、仓库级解析、 ~OrgRepoSyncRecord~ 与同步 adapter。 |
+| PLAN-001 | 宿主解析与同步策略 | 以 ~OrgRepoLoader~ 、 ~OrgRepoParser~ 和 WebDAV ~SyncPolicy~ 接入本地目录与 WebDAV I/O。 |
 | PLAN-002 | Harmony 仓库写入意图 | 用仓库级写入意图替换 ArkTS 私有待上传文件，并由 WebDAV adapter 的条件写入结果生成同步文件记录。 |
 | PLAN-003 | 仓库冲突处理界面 | 消费 ~OrgRepoSyncFileRecord~ 的 ~action/state~ ，提供保留本地、保留远端、另存副本和暂不处理的用户流程。 |
-| PLAN-004 | 仓库查询与 HTTP 映射 | 按仓库提供 ~OrgFile~ 内容投影与 ~OrgRepoSyncRecord~ 历史，并由 HTTP 宿主映射为资源。 |
-| PLAN-005 | 仓库同步记录迁移 | 将 Harmony 快照与 HTTP CSV 仓储迁移为按 ~repoId~ 分区的 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 。 |
 
 * 当前不支持
 

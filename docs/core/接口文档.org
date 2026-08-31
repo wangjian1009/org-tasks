@@ -16,61 +16,51 @@
 
 本文定义围绕 ~OrgWorkspace~ 与 ~OrgRepo~ 的目标 core 接口。数据结构与源码保真规则见 [[file:数据模型.org][数据模型]]，WebDAV 协议语义见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]，Harmony 的配置与凭据边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-本文中的接口均为待实现设计。领域数据只描述内容与同步结果；目录访问、网络、认证、持久化实现、线程、重试、取消和进度通知都由运行时服务或适配层承担。
+~core::model~ 包含核心数据、保真编辑、仓库加载、同步策略和同步记录存储端口； ~core::webdav~ 包含 WebDAV 的版本比较、下载、创建与条件更新编排。目录访问、HTTP 传输、认证、线程、重试、取消和进度通知仍由宿主适配层承担。
 
 * 核心场景
 
 ** 初始化 Workspace
 
-宿主读取配置和安全存储中的凭据后，构造稳定的仓库标识、根目录与可选远端。凭据不进入 ~OrgRepoRemoteWebDav~ ，而由同步 adapter 在网络调用时取得。
+宿主读取配置后构造稳定的仓库标识与根目录。WebDAV 地址和凭据由 ~SyncPolicy~ 的 WebDAV 实现持有，不进入 ~OrgRepo~ 。
 
 #+begin_src rust
 let workspace = OrgWorkspace::new(vec![
-    OrgRepo::new(
-        repo_id,
-        "/data/org".into(),
-        Some(OrgRepoRemote::WebDav(OrgRepoRemoteWebDav::new(
-            "https://dav.example.com/org/".into(),
-        )?)),
-    )?,
+    OrgRepo::new(repo_id, "/data/org".into())?,
 ])?;
-
-let service = OrgWorkspaceService::new(
-    workspace,
-    parser,
-    webdav_sync_adapter,
-)?;
 #+end_src
 
-~OrgWorkspace::new~ 校验仓库 ID 的唯一性； ~OrgRepo::new~ 校验根目录和远端地址。初始化不能扫描目录、请求 WebDAV、创建后台线程或写入同步记录。
+~OrgWorkspace::new~ 校验仓库 ID 的唯一性； ~OrgRepo::new~ 校验根目录。初始化不能扫描目录、请求 WebDAV、创建后台线程或写入同步记录。
 
 ** 解析、编辑并写回 org 文件
 
-调用方先解析指定仓库，再用当前快照中的元素定位替换或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
+调用方通过 ~OrgRepo.load~ 扫描目录，并让 parser 将每个源文件解析为 ~OrgFile~ 。随后用当前快照中的元素定位替换或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
 
 #+begin_src rust
-let mut files = service.parse_repo(&repo_id)?;
-let file = files.iter_mut().find(|file| file.relative_path == "inbox.org")?;
+let repo = workspace.repos.iter_mut().find(|repo| repo.id == repo_id)?;
+repo.load(&directory_loader, &parser)?;
+let file = repo.files.iter_mut().find(|file| file.path == "inbox.org")?;
 
 apply_edit(
     file,
     OrgFileEdit::ReplaceElement {
         target: OrgElementLocator::for_element(&entry_id, &title_element),
-        replacement: b"* TODO 更新后的标题\n".to_vec(),
+        kind: OrgElementKind::Title(updated_title),
+        content: b"* TODO 更新后的标题\n".to_vec(),
     },
 )?;
 
-file_writer.write(&file.relative_path, serialize_file(file))?;
+file_writer.write(&file.path, serialize_file(file))?;
 #+end_src
 
 调用方在下一次编辑前必须使用编辑器更新后的元素定位；旧的 ~SourceRange~ 不能跨文件快照复用。 ~Raw~ 与其他未建模内容不参与替换时必须保持原始字节。
 
 ** 同步一个仓库
 
-宿主调用同步 adapter，并将返回的记录追加至存储。adapter 根据 ~OrgRepo.remote~ 选择本地或 WebDAV 流程；上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
+宿主将同步策略传入仓库。WebDAV 策略在其自身配置中决定远端流程； ~OrgRepo.sync~ 只接受属于该仓库且已完成的记录，并追加至仓库的 ~syncRecords~ 。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
 
 #+begin_src rust
-let record = service.synchronize(&repo_id).await?;
+let record = repo.sync(&webdav_sync_policy, started_at).await?;
 sync_record_store.append(record).await?;
 #+end_src
 
@@ -96,21 +86,28 @@ impl OrgWorkspace {
 
 *** OrgRepo
 
-~OrgRepo~ 定义一个本地 org 文件仓库及其可选远端。根目录仅在运行时使用，不能写入同步记录。
+~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用，不能写入同步记录；文件快照与同步记录归属该仓库。
 
 #+begin_src rust
 impl OrgRepo {
-    pub fn new(
-        id: OrgRepoId,
-        root_directory: String,
-        remote: Option<OrgRepoRemote>,
-    ) -> Result<Self, OrgRepoValidationError>;
+    pub fn new(id: OrgRepoId, root_directory: String) -> Result<Self, OrgRepoValidationError>;
 
-    pub fn contains_relative_path(&self, relative_path: &str) -> bool;
+    pub fn contains_path(&self, path: &str) -> bool;
+
+    pub fn files(&self) -> &[OrgFile];
+
+    pub fn sync_records(&self) -> &[OrgRepoSyncRecord];
+
+    pub fn load<L, P>(&mut self, loader: &L, parser: &P) -> Result<&[OrgFile], CoreError>
+    where L: OrgRepoLoader, P: OrgRepoParser;
+
+    pub async fn sync<P>(&mut self, policy: &P, started_at: TimestampMs)
+        -> Result<OrgRepoSyncRecord, CoreError>
+    where P: SyncPolicy;
 }
 #+end_src
 
-~contains_relative_path~ 必须拒绝绝对路径和包含 ~..~ 的路径，不能访问文件系统。
+~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 通过 loader 扫描根目录，替换仓库的完整文件快照；重复或越界路径必须失败。 ~sync~ 不直接执行网络 I/O，而是委托给策略并只追加归属本仓库的完成记录。
 
 *** OrgFile
 
@@ -120,7 +117,7 @@ impl OrgRepo {
 impl OrgFile {
     pub fn new(
         repo_id: OrgRepoId,
-        relative_path: String,
+        path: String,
         source_bytes: Vec<u8>,
         entries: Vec<OrgEntry>,
     ) -> Result<Self, OrgFileValidationError>;
@@ -187,29 +184,22 @@ impl SourceRange {
 
 ** 同步数据
 
-*** OrgRepoRemote 与 OrgRepoRemoteWebDav
-
-~OrgRepoRemote~ 是远端的枚举，当前仅支持 ~WebDav~ 变体； ~OrgRepoRemoteWebDav~ 只保存远端根地址。
-
-#+begin_src rust
-impl OrgRepoRemoteWebDav {
-    pub fn new(base_url: String) -> Result<Self, OrgRepoRemoteValidationError>;
-
-    pub fn base_url(&self) -> &str;
-}
-#+end_src
-
-~new~ 必须校验 ~baseUrl~ ，但不得接收或保存用户名、密码、令牌、证书或 Authorization header。
-
 *** OrgRepoSyncRecord
 
 ~OrgRepoSyncRecord~ 描述一次仓库同步的整体结果及各文件记录。
 
 #+begin_src rust
 impl OrgRepoSyncRecord {
-    pub fn start(repo_id: OrgRepoId, started_at: TimestampMs) -> Self;
+    pub fn new(
+        id: OrgRepoSyncRecordId,
+        repo_id: OrgRepoId,
+        started_at: TimestampMs,
+    ) -> Result<Self, OrgRepoSyncRecordError>;
 
-    pub fn append_file(&mut self, file: OrgRepoSyncFileRecord);
+    pub fn append_file(
+        &mut self,
+        file: OrgRepoSyncFileRecord,
+    ) -> Result<(), OrgRepoSyncRecordError>;
 
     pub fn finish(
         &mut self,
@@ -219,7 +209,7 @@ impl OrgRepoSyncRecord {
 }
 #+end_src
 
-~append_file~ 只能加入同一 ~repoId~ 的记录。 ~finish~ 只能调用一次，并将结果固定为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。
+~new~ 创建进行中的记录，其 ~result~ 与 ~finishedAt~ 均为 ~None~ 。 ~append_file~ 只能加入同一 ~repoId~ 的记录。 ~finish~ 只能调用一次，并将结果固定为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。
 
 *** OrgRepoSyncFileRecord
 
@@ -252,7 +242,7 @@ impl OrgRepoSyncFileRecord {
 
 #+begin_src rust
 impl LocalFileVersion {
-    pub fn from_content(content: &[u8]) -> Self;
+    pub fn new(content_hash: String) -> Result<Self, CoreError>;
 }
 
 impl RemoteFileVersion {
@@ -264,54 +254,32 @@ impl RemoteFileVersion {
 }
 #+end_src
 
-** 运行时服务
+** 运行时端口
 
-*** OrgWorkspaceService
+*** OrgRepoLoader 与 OrgRepoParser
 
-~OrgWorkspaceService~ 是组合 parser 和 sync adapter 的运行时外观，不是领域实体。
+~OrgRepoLoader~ 是扫描仓库根目录的 I/O 端口；它只返回相对路径及原始字节。 ~OrgRepoParser~ 只解析一个源文件，不扫描目录、不访问文件系统、不写回文件或同步记录。
 
 #+begin_src rust
-impl<P, S> OrgWorkspaceService<P, S>
-where
-    P: OrgRepoParser,
-    S: OrgRepoSyncAdapter,
-{
-    pub fn new(
-        workspace: OrgWorkspace,
-        parser: P,
-        sync_adapter: S,
-    ) -> Result<Self, OrgWorkspaceValidationError>;
-
-    pub fn list_repos(&self) -> &[OrgRepo];
-
-    pub fn parse_repo(
-        &self,
-        repo_id: &OrgRepoId,
-    ) -> Result<Vec<OrgFile>, OrgParseError>;
-
-    pub async fn synchronize(
-        &self,
-        repo_id: &OrgRepoId,
-    ) -> Result<OrgRepoSyncRecord, OrgRepoSyncError>;
+pub struct OrgRepoSourceFile {
+    pub path: String,
+    pub source_bytes: Vec<u8>,
 }
-#+end_src
 
-~new~ 只校验构造参数，不能产生 I/O 或后台任务。 ~parse_repo~ 与 ~synchronize~ 均须先验证 ~repoId~ 存在。
+pub trait OrgRepoLoader: Send + Sync {
+    fn scan(&self, root_directory: &str) -> Result<Vec<OrgRepoSourceFile>, CoreError>;
+}
 
-*** OrgRepoParser
-
-~OrgRepoParser~ 是解析仓库目录的 I/O 端口。实现读取文件后构造保留完整源字节的 ~OrgFile~ ，但不写回文件或同步记录。
-
-#+begin_src rust
 pub trait OrgRepoParser: Send + Sync {
-    fn parse_repo(
+    fn parse_file(
         &self,
-        repo: &OrgRepo,
-    ) -> Result<Vec<OrgFile>, OrgParseError>;
+        repo_id: &OrgRepoId,
+        source: OrgRepoSourceFile,
+    ) -> Result<OrgFile, CoreError>;
 }
 #+end_src
 
-解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。
+~OrgRepo.load~ 校验 loader 返回的路径与 parser 返回的 ~OrgFile.path~ 一致后，原子替换仓库的文件列表。解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。
 
 *** OrgFileEdit 与保真序列化
 
@@ -330,11 +298,13 @@ impl OrgElementLocator {
 pub enum OrgFileEdit {
     ReplaceElement {
         target: OrgElementLocator,
-        replacement: Vec<u8>,
+        kind: OrgElementKind,
+        content: Vec<u8>,
     },
     InsertElement {
         entry_id: OrgEntryId,
         anchor: SourcePosition,
+        kind: OrgElementKind,
         content: Vec<u8>,
     },
 }
@@ -349,34 +319,57 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 ~apply_edit~ 必须拒绝过期范围、越界锚点和不属于指定 entry 的目标。它不得格式化、重新缩进、对齐表格、规范化换行、重排元素或重建未修改节点。插入或替换后，受影响元素及后续元素的 ~SourceRange~ 必须更新；未修改范围的字节必须保持不变。
 
-*** OrgRepoSyncAdapter 与 OrgRepoSyncRecordStore
+*** SyncPolicy 与 OrgRepoSyncRecordStore
 
-~OrgRepoSyncAdapter~ 是同步 I/O 端口； ~OrgRepoSyncRecordStore~ 持久化已完成的同步记录。
+~SyncPolicy~ 是同步 I/O 端口， ~core::webdav::WebDavSyncPolicy~ 实现该 trait； ~OrgRepoSyncRecordStore~ 可将仓库已经接受的记录持久化。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
 #+begin_src rust
-pub trait OrgRepoSyncAdapter: Send + Sync {
+pub trait SyncPolicy: Send + Sync {
     fn synchronize(
         &self,
-        repo: &OrgRepo,
-    ) -> impl Future<Output = Result<OrgRepoSyncRecord, OrgRepoSyncError>> + Send;
+        repo: &mut OrgRepo,
+        started_at: TimestampMs,
+    ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send;
 }
 
-pub trait OrgRepoSyncRecordStore: Send + Sync {
+pub trait OrgRepoSyncRecordStore: Send {
     fn append(
-        &self,
+        &mut self,
         record: OrgRepoSyncRecord,
-    ) -> impl Future<Output = Result<(), OrgRepoSyncStoreError>> + Send;
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
     fn list(
         &self,
         repo_id: &OrgRepoId,
         limit: usize,
-    ) -> impl Future<Output = Result<Vec<OrgRepoSyncRecord>, OrgRepoSyncStoreError>> + Send;
+    ) -> impl Future<Output = Result<Vec<OrgRepoSyncRecord>, CoreError>> + Send;
 }
 #+end_src
 
-adapter 不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件内容写入同步记录或错误摘要。上传前必须使用 ~serialize_file~ 的完整字节，不能对未修改区域重新格式化。
+策略不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件内容写入同步记录或错误摘要。上传前必须使用 ~serialize_file~ 的完整字节，不能对未修改区域重新格式化。
 
-* 迁移
+*** WebDavSyncPolicy 与 WebDavTransport
 
-当前 ~core~ 、 ~harmony~ 与 ~http~ 仍实现旧的全局作业接口。迁移顺序为：先实现上述数据与接口的单元测试，再由 Harmony 与 HTTP 适配新服务；迁移期间旧作业模型不得与新仓库同步同时写入同一持久化分区。
+~WebDavSyncPolicy~ 位于 ~core::webdav~ 。它用最近一次成功同步的本地哈希和远端版本作为基准，处理新建、下载、条件更新、冲突、远端删除和传输失败。 ~WebDavTransport~ 是唯一需要映射到 HTTP 的端口。
+
+#+begin_src rust
+let endpoint = WebDavEndpoint::new("https://dav.example.com/org/".into())?;
+let policy = WebDavSyncPolicy::new(endpoint, transport, parser);
+let record = repo.sync(&policy, started_at).await?;
+
+pub trait WebDavTransport: Send + Sync {
+    fn list(&self, endpoint: &WebDavEndpoint)
+        -> impl Future<Output = Result<Vec<WebDavRemoteFile>, WebDavError>> + Send;
+    fn get(&self, endpoint: &WebDavEndpoint, path: &str)
+        -> impl Future<Output = Result<Vec<u8>, WebDavError>> + Send;
+    fn put(&self, endpoint: &WebDavEndpoint, path: &str, source_bytes: &[u8],
+        condition: WebDavPutCondition)
+        -> impl Future<Output = Result<RemoteFileVersion, WebDavError>> + Send;
+}
+#+end_src
+
+~list~ 映射 ~PROPFIND~ ， ~get~ 映射 ~GET~ ， ~put~ 的 ~CreateOnly~ 映射 ~If-None-Match: *~ ， ~Match~ 映射 ~If-Match~ 。传输实现不得把认证材料放入领域记录。
+
+* 旧接口
+
+旧的全局作业接口已移除。宿主不读取、不转换也不写入旧作业状态；使用旧版本数据时，应清理数据后按当前接口重新配置和同步。
