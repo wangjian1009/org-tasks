@@ -1,2 +1,0 @@
-#+STARTUP: show2levels hideblocks hidestars indent
-#+PROPERTY:  DIR ../output/docs

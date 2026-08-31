@@ -1,177 +1,230 @@
-#+SETUPFILE: ../.setup.org
-#+TITLE: Rust 数据模型
+#+TITLE: 核心数据模型
+:PROPERTIES:
+#+EXPORT_FILE_NAME: ../../output/docs/core/核心数据模型
+#+STARTUP: show2levels hideblocks hidestars indent latexpreview
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper]
+#+LATEX_HEADER: \usepackage{xeCJK}
+#+LATEX_HEADER: \usepackage{geometry}
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+#+LATEX_HEADER: \setCJKmainfont{Microsoft YaHei}
+#+LATEX_HEADER: \geometry{a4paper,left=1cm,right=1cm,top=1cm,bottom=1cm}
+:END:
 
 * 范围与状态
 
-本文集中描述 Org Tasks Rust 核心的数据结构、关系与持久化映射。当前代码的唯一事实来源是 ~core/src/lib.rs~；本文中的“规划模型”仅说明后续完整数据服务的目标，不表示已经落盘或开放 HTTP 接口。
+本文定义以数据源为边界的核心领域模型。 ~DataSourceConfig~ 、 ~OrgFileRecord~ 、 ~SyncRun~ 与 ~SyncMonitorEvent~ 是下一阶段核心 SDK 的目标模型；当前 ~core/src/lib.rs~ 仍使用未带数据源归属的 ~FileSyncRecord~ 与 ~SyncJob~ ，尚未实现本文定义的同步接口或监控器。
 
-以下 PlantUML 源码直接内嵌在本文档中，可由 Org Babel、IDE 插件或 CI 渲染为 SVG/PNG。修改模型字段或关系时必须同步更新这个源码块。
+数据源配置仅在 SDK 构造时提供，不能由同步请求、HTTP 请求或 UI 设置直接修改。持久化状态只使用稳定的 ~sourceId~ 关联配置，不保存本地绝对目录、密码、Authorization header、完整 org 文件或解析任务。实体关系的 TikZ UML 源码与本文同步维护。
 
-#+begin_src plantuml :file images/rust-data-model.svg :exports both
-@startuml
-title Org Tasks Rust Core Data Model
+* 模型概览
 
-hide circle
-skinparam classAttributeIconSize 0
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
 
-package "Core records" {
-  class TaskRecord {
-    id: String
-    relative_path: String
-    heading: String
-    todo_state: TodoState
-    priority: Option<Priority>
-    scheduled_at: Option<TimestampMs>
-    deadline_at: Option<TimestampMs>
-    tags: Vec<String>
-    body: String
-    source_revision: String
-    updated_at: TimestampMs
-  }
+\begin{umlpackage}{Runtime configuration}
+\umlclass[x=0,y=0]{DataSourceConfig}{
+  id: SourceId \\
+  local\_directory: String \\
+  remote: Option\textless RemoteConfig\textgreater
+}{}
+\umlclass[x=4.8,y=0]{RemoteConfig}{
+  WebDav
+}{}
+\umlclass[x=4.8,y=-2.8]{WebDavRemoteConfig}{
+  base\_url: String
+}{}
+\umlclass[x=0,y=-2.8]{RemoteFileVersion}{
+  etag: Option\textless String\textgreater \\
+  modified\_at: Option\textless TimestampMs\textgreater \\
+  size: Option\textless i64\textgreater
+}{}
+\end{umlpackage}
 
-  class FileSyncRecord {
-    relative_path: String
-    content_hash: String
-    remote_etag: Option<String>
-    remote_mtime: Option<TimestampMs>
-    remote_size: Option<i64>
-    last_synced_at: Option<TimestampMs>
-    sync_state: FileSyncState
-  }
+\begin{umlpackage}[x=10,y=0]{Persistent source state}
+\umlclass[x=0,y=0]{OrgFileRecord}{
+  source\_id: SourceId \\
+  relative\_path: String \\
+  content\_hash: String \\
+  remote\_version: Option\textless RemoteFileVersion\textgreater \\
+  sync\_state: FileSyncState
+}{}
+\umlclass[x=5.3,y=0]{SyncRun}{
+  id: SyncRunId \\
+  source\_id: SourceId \\
+  trigger: SyncTrigger \\
+  state: SyncRunState \\
+  summary: Option\textless SyncSummary\textgreater \\
+  error: Option\textless SyncErrorSummary\textgreater
+}{}
+\umlclass[x=5.3,y=-4.1]{SourceSyncState}{
+  source\_id: SourceId \\
+  active\_sync\_run\_id: Option\textless SyncRunId\textgreater
+}{}
+\umlclass[x=0,y=-4.1]{OutboxEntry}{
+  id: String \\
+  source\_id: SourceId \\
+  target\_path: String \\
+  org\_entry: String
+}{}
+\umlclass[x=0,y=-7.7]{ConflictRecord}{
+  id: String \\
+  source\_id: SourceId \\
+  relative\_path: String
+}{}
+\umlclass[x=5.3,y=-7.7]{SyncSummary}{
+  discovered\_files: u32 \\
+  downloaded\_files: u32 \\
+  uploaded\_files: u32 \\
+  conflicted\_files: u32
+}{}
+\umlclass[x=10.6,y=-7.7]{SyncErrorSummary}{
+  category: SyncErrorCategory \\
+  retryable: bool \\
+  message: String
+}{}
+\umlclass[x=5.3,y=-11.5]{SourceSyncOutcome}{
+  files: Vec\textless OrgFileRecord\textgreater \\
+  acknowledged\_outbox\_ids: Vec\textless String\textgreater \\
+  conflicts: Vec\textless ConflictRecord\textgreater \\
+  summary: SyncSummary
+}{}
+\end{umlpackage}
 
-  class OutboxEntry {
-    id: String
-    target_path: String
-    org_entry: String
-    content_hash: String
-    created_at: TimestampMs
-  }
+\umluniassoc[mult1=1,mult2=0..1]{DataSourceConfig}{RemoteConfig}
+\umldep{RemoteConfig}{WebDavRemoteConfig}
+\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{OrgFileRecord}
+\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{SyncRun}
+\umluniassoc[mult1=1,mult2=1]{DataSourceConfig}{SourceSyncState}
+\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{OutboxEntry}
+\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{ConflictRecord}
+\umluniassoc[mult1=0..1,mult2=1]{SourceSyncState}{SyncRun}
+\umldep{OrgFileRecord}{RemoteFileVersion}
+\umldep{SyncRun}{SyncSummary}
+\umldep{SyncRun}{SyncErrorSummary}
+\end{tikzpicture}%
+}
+\end{center}
 
-  class SyncJob {
-    id: String
-    idempotency_key: String
-    kind: JobKind
-    state: JobState
-    priority: JobPriority
-    reason: String
-    include_calendar: bool
-    task_id: Option<String>
-    outbox_entry_id: Option<String>
-    attempt_count: u32
-    next_run_at: Option<TimestampMs>
-    created_at: TimestampMs
-    updated_at: TimestampMs
-  }
+* 基础约定
 
-  class ConflictRecord {
-    id: String
-    relative_path: String
-    local_revision: Option<String>
-    remote_revision: Option<String>
-    state: ConflictState
-    message: String
-    created_at: TimestampMs
-  }
+| 类型或规则    | 定义                                                                                                                       |
+|---------------+----------------------------------------------------------------------------------------------------------------------------|
+| ~TimestampMs~ | Unix epoch 毫秒。                                                                                                          |
+| ~SourceId~    | 非空、由调用方稳定保存的 UUID 字符串；同一逻辑数据源重建 SDK 时必须使用同一 ID。                                           |
+| ~SyncRunId~   | 非空 UUID 字符串，由 SDK 或调用方生成。                                                                                    |
+| 相对路径      | ~relativePath~ 相对于所属数据源的 ~localDirectory~ ，不能是绝对路径或包含 ~..~ 。                                          |
+| 内容版本      | ~contentHash~ 和 ~RemoteFileVersion~ 均为不透明版本元数据；core 不保存完整文件内容。                                       |
+| 配置边界      | ~localDirectory~ 、 ~baseUrl~ 只保留在运行时 ~DataSourceConfig~ ；密码与认证信息不属于 core 模型。保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。 |
+
+* 运行时配置
+
+~DataSourceConfig~ 是 SDK 构造期的运行时对象，不是可写资源，也不写入 ~CoreStore~ 。
+
+#+begin_src rust
+pub struct DataSourceConfig {
+    pub id: SourceId,
+    pub local_directory: String,
+    pub remote: Option<RemoteConfig>,
 }
 
-package "Requests and commit" {
-  class NewTask
-  class CreateTaskRequest
-  class CreateSyncJobRequest
-  class TaskCreation
-  class CoreChangeSet
+pub enum RemoteConfig {
+    WebDav(WebDavRemoteConfig),
 }
 
-enum TodoState
-enum Priority
-enum FileSyncState
-enum JobKind
-enum JobState
-enum JobPriority
-enum ConflictState
-
-TaskRecord --> TodoState
-TaskRecord --> Priority
-FileSyncRecord --> FileSyncState
-SyncJob --> JobKind
-SyncJob --> JobState
-SyncJob --> JobPriority
-ConflictRecord --> ConflictState
-
-SyncJob "0..*" --> "0..1" OutboxEntry : outbox_entry_id -> id
-
-CreateTaskRequest *-- NewTask
-CreateTaskRequest ..> OutboxEntry : creates
-CreateTaskRequest ..> SyncJob : creates AddTask job
-CreateSyncJobRequest ..> SyncJob : creates or merges Sync job
-TaskCreation *-- OutboxEntry
-TaskCreation *-- SyncJob
-CoreChangeSet *-- "0..*" FileSyncRecord
-CoreChangeSet *-- "0..*" OutboxEntry
-CoreChangeSet *-- "0..*" SyncJob
-@enduml
+pub struct WebDavRemoteConfig {
+    pub base_url: String,
+}
 #+end_src
 
-* 通用类型与枚举
+~localDirectory~ 指向该数据源的本地 org 文件根目录。 ~remote = None~ 表示仅扫描本地目录； ~remote = Some(WebDav(...))~ 表示同步驱动还需要与该 WebDAV 根目录协调文件版本。当前只支持 WebDAV，后续新增远端类型必须扩展 ~RemoteConfig~ ，不能以未结构化字符串或 UI 开关表示。
 
-| 类型或枚举      | 值或格式                                                                                   | 说明                                         |
-|-----------------+--------------------------------------------------------------------------------------------+----------------------------------------------|
-| ~TimestampMs~   | ~i64~                                                                                      | Unix epoch 毫秒。                            |
-| ID              | 非空 UUID 字符串                                                                           | 任务、作业、outbox 和幂等键均由外层生成。    |
-| 内容版本        | 小写 SHA-256 十六进制字符串                                                                | ~contentHash~、~sourceRevision~ 等字段使用。 |
-| ~TodoState~     | ~TODO~、~NEXT~、~WAIT~、~DONE~、~CNCL~                                                     | org 任务状态。                               |
-| ~Priority~      | ~A~、~B~、~C~                                                                              | org 优先级，可为空。                         |
-| ~FileSyncState~ | ~synced~、~local_changed~、~remote_changed~、~remote_deleted~、~conflict~                  | 文件同步状态。                               |
-| ~JobKind~       | ~sync~、~add_task~、~retry~、~resolve_conflict~、~rebuild_calendar~、~refresh_local_index~ | 作业类型。                                   |
-| ~JobState~      | ~queued~、~running~、~retry_wait~、~blocked~、~completed~、~failed~                        | 作业生命周期。                               |
-| ~JobPriority~   | ~foreground~、~background~                                                                 | 前台和后台调度优先级。                       |
-| ~ConflictState~ | ~open~、~resolved~、~dismissed~                                                            | 冲突处理状态。                               |
+~WebDavRemoteConfig~ 不包含用户名、密码、令牌、客户端证书或认证 header。认证材料不进入 core 的配置、持久化状态、错误或监控事件。
 
-* 当前领域实体
+* 同步结果模型
 
-| 实体             | 关键字段                                                                                                     | 责任                                                       | 当前状态                         |
-|------------------+--------------------------------------------------------------------------------------------------------------+------------------------------------------------------------+----------------------------------|
-| ~TaskRecord~     | ~id~、~relativePath~、标题、状态、时间、标签、正文与版本                                                     | org 解析器产生的瞬态投影，用于本次同步和日历操作。          | 已定义，绝不由 ~CoreStore~ 落盘。 |
-| ~FileSyncRecord~ | ~relativePath~、~contentHash~、远端 ETag/时间/大小、~lastSyncedAt~、~syncState~                              | 下次同步的文件变化检测元数据。                              | 已定义并由 HTTP/Harmony 仓储持久化。 |
-| ~OutboxEntry~    | ~id~、~relativePath~、~orgEntry~、~contentHash~、~createdAt~                                                 | 本地新增任务等待条件上传的原始写入意图。                    | 已定义并由 HTTP/Harmony 仓储持久化。 |
-| ~SyncJob~        | ~id~、~idempotencyKey~、~kind~、~state~、~priority~、~taskId~、~outboxEntryId~、重试与时间                   | 可合并、可恢复且保留历史的异步工作单元。                    | 已定义并由 HTTP/Harmony 仓储持久化。 |
-| ~ConflictRecord~ | ~id~、~relativePath~、本地/远端版本、~state~、~message~、~createdAt~                                        | 本地与远端不能自动合并的分歧。                              | 已定义，尚未写入 CSV。           |
+WebDAV 协议及其他数据源驱动与 core 交互时，使用以下无敏感内容的数据结构。驱动只返回元数据和操作结果，core 负责将其原子写入数据源状态。
 
-~relativePath~ 始终相对于同步入口本次传入的基准目录，不能是绝对路径或包含 ~..~；基准目录不进入任何持久化记录。~SyncJob.taskId~ 在 ~JobKind::AddTask~ 时标识创建意图，~outboxEntryId~ 指向可恢复的 ~OutboxEntry~。解析任务可从基准目录中的 org 文件重新生成。
+#+begin_src rust
+pub struct RemoteFileVersion {
+    pub etag: Option<String>,
+    pub modified_at: Option<TimestampMs>,
+    pub size: Option<i64>,
+}
 
-* 写入请求与提交单元
+pub struct OrgFileRecord {
+    pub source_id: SourceId,
+    pub relative_path: String,
+    pub content_hash: String,
+    pub remote_version: Option<RemoteFileVersion>,
+    pub sync_state: FileSyncState,
+    pub updated_at: TimestampMs,
+}
 
-| 结构                   | 组成                                                        | 作用                                                                  |
-|------------------------+-------------------------------------------------------------+-----------------------------------------------------------------------|
-| ~NewTask~              | 新任务内容、相对 ~.org~ 路径、标签、时间、优先级与 org 文本 | 创建任务的输入，不直接持久化。                                        |
-| ~CreateTaskRequest~    | 幂等键、作业 ID、outbox ID、原因、优先级、时间与 ~NewTask~  | 生成一个 ~OutboxEntry~ 和一个 ~SyncJob(AddTask)~，不生成持久化任务投影。 |
-| ~CreateSyncJobRequest~ | 幂等键、作业 ID、原因、优先级、日历开关与时间               | 创建或合并一个 ~SyncJob(Sync)~。                                      |
-| ~TaskCreation~         | ~taskId~、~outboxEntry~、~job~                              | 创建任务成功后的返回值。                                              |
-| ~CoreChangeSet~        | ~fileSyncRecords~、~outboxEntries~、~jobs~                  | ~CoreStore::apply~ 的原子提交单元。                                   |
+pub struct SyncSummary {
+    pub discovered_files: u32,
+    pub downloaded_files: u32,
+    pub uploaded_files: u32,
+    pub conflicted_files: u32,
+}
 
-~CoreService~ 先校验 ID 和任务目标路径，再进行幂等检查，最后通过一次 ~CoreStore::apply~ 提交 ~CoreChangeSet~。持久化适配器必须保证该调用的原子可见性。
+pub enum SyncErrorCategory {
+    Network,
+    Authentication,
+    Tls,
+    Validation,
+    Conflict,
+    LocalStorage,
+    Unknown,
+}
 
-* 当前 HTTP CSV 映射
+pub struct SyncErrorSummary {
+    pub category: SyncErrorCategory,
+    pub retryable: bool,
+    pub message: String,
+}
 
-~CsvCoreStore~ 只落盘下次同步所需的文件变更检测元数据、outbox 和作业历史；不落盘解析任务、完整文件或基准目录。
+pub struct SourceSyncOutcome {
+    pub files: Vec<OrgFileRecord>,
+    pub acknowledged_outbox_ids: Vec<String>,
+    pub conflicts: Vec<ConflictRecord>,
+    pub summary: SyncSummary,
+}
+#+end_src
 
-| CSV 文件       | 主键              | 领域实体与用途                                  |
-|----------------+-------------------+---------------------------------------------------|
-| ~files.csv~    | ~relativePath~    | ~FileSyncRecord~，仅保存变更检测元数据。          |
-| ~jobs.csv~     | ~id~              | ~SyncJob~，保留已完成和失败作业作为同步历史。      |
-| ~outbox.csv~   | ~id~              | ~OutboxEntry~，保留待上传的原始 org 写入意图。     |
+~RemoteFileVersion~ 优先使用 ETag；服务器没有 ETag 时可使用修改时间和大小参与变化判断。 ~SyncErrorSummary.message~ 必须是脱敏摘要。 ~SourceSyncOutcome~ 不得携带本地绝对路径、远端完整 URL、认证 header 或 org 文件正文。
 
-这些文件位于 ~snapshots/<generation>/~，由 ~current.csv~ 指向已提交 generation。完整快照写入并同步后才原子替换 manifest，因而 ~CoreChangeSet~ 不会出现半提交状态。详细目录和服务运行约束见 [[file:../http/服务命令行设计.org][HTTP 服务命令行设计]]。
+* 数据源持久化状态
 
-* 规划模型
+数据源在领域上包含零到多个 ~OrgFileRecord~ 和零到多个 ~SyncRun~ 。 ~OrgFileRecord~ 是已发现 org 文件的元数据投影；文件尚未被扫描或被忽略时，数据源可以没有任何文件记录。
 
-完整数据服务后续会增加以下结构；当前 core 与 HTTP CSV 仓储尚未实现其持久化或路由。
+** 关联与职责
 
-| 模型              | 关键字段                                                            | 目标职责                                    |
-|-------------------+---------------------------------------------------------------------+---------------------------------------------|
-| ~CalendarBinding~ | ~taskId~、~calendarName~、~eventId~、~eventFingerprint~、~syncedAt~ | org 任务与系统日历事件的映射。              |
-| ~ExecutionLease~  | ~id~、~jobId~、~workerId~、~leaseExpiresAt~、~actions~              | 认领后交给 Harmony 平台执行的 action 计划。 |
-| ~ServiceMeta~     | schema 版本、变更游标、最近成功同步时间                             | 服务级元数据。                              |
-| ~ChangeLog~       | cursor、资源类型、资源 ID、变更时间                                 | 增量 UI 刷新。                              |
+| 实体 | 关键字段 | 责任 |
+|-
+| ~OrgFileRecord~ | ~sourceId~ 、 ~relativePath~ 、 ~contentHash~ 、远端版本、 ~syncState~ | 一个数据源内一个 org 文件的同步元数据。唯一键为 ~(sourceId, relativePath)~ 。 |
+| ~SyncRun~ | ~id~ 、 ~sourceId~ 、触发来源、状态、起止时间、统计和错误摘要 | 一次同步操作的不可变历史；完成后仅允许补充最终统计或错误摘要。 |
+| ~SourceSyncState~ | ~sourceId~ 、 ~activeSyncRunId~ | 数据源当前执行权。其 ~activeSyncRunId~ 为空或指向一个 ~running~ 的 ~SyncRun~ 。 |
+| ~OutboxEntry~ | ~id~ 、 ~sourceId~ 、 ~targetPath~ 、 ~orgEntry~ | 面向特定数据源的本地写入意图。 |
+| ~ConflictRecord~ | ~id~ 、 ~sourceId~ 、 ~relativePath~ 、版本和状态 | 同一数据源中无法自动处理的本地与远端分歧。 |
 
-规划中的 SQLite 表为 ~service_meta~、~files~、~calendar_bindings~、~outbox_entries~、~sync_jobs~、~execution_leases~、~conflicts~ 与 ~change_log~；其中 ~files~ 同样只保存相对路径同步元数据。解析任务和下载的 org 文件均不进入持久化数据库，org 文件由每次传入的基准目录定位。
+~TaskRecord~ 仍是从 ~OrgFileRecord~ 对应文件即时解析出的短生命周期投影，不属于数据源持久化内容。
+
+** 同步历史与并发控制
+
+~SyncRunState~ 取值为 ~running~ 、 ~succeeded~ 、 ~failed~ 、 ~cancelled~ 与 ~interrupted~ 。 ~SyncTrigger~ 取值为 ~manual~ 、 ~background~ 、 ~retry~ 或 ~external~ 。
+
+开始同步必须在一次原子提交中创建 ~SyncRun(running)~ 并设置 ~SourceSyncState.activeSyncRunId~ 。若该字段已有值，新的同步请求返回 ~SyncAlreadyRunning~ ，其中包含现有 ~syncRunId~ ；不得排队、替换或并行执行。结束同步必须在一次原子提交中写入最终状态、统计或错误摘要，并清空 ~activeSyncRunId~ 。
+
+SDK 构造时会恢复未完成记录：上一次进程退出后仍为 ~running~ 的 ~SyncRun~ 必须标记为 ~interrupted~ 并释放执行权。历史由 ~sourceId~ 查询并按 ~startedAt~ 倒序返回；保留策略属于宿主配置，不改变单数据源单执行权约束。
+
+* 持久化与迁移
+
+新 ~CoreStore~ 持久化 ~OrgFileRecord~ 、 ~SyncRun~ 、 ~SourceSyncState~ 、 ~OutboxEntry~ 和 ~ConflictRecord~ ，并保证“开始同步”和“完成同步”各自原子可见。 ~DataSourceConfig~ 由每次 SDK 构造传入，因此不会因设备路径变化或凭据更新而进入持久化状态。
+
+当前 Harmony 二进制快照和 HTTP CSV 仓储仅实现旧模型的 ~FileSyncRecord~ 、 ~SyncJob~ 与 ~OutboxEntry~ ，需要在引入数据源 SDK 时迁移为以 ~sourceId~ 分区的记录。迁移前不得将旧记录自动归属到任意数据源；宿主必须显式提供映射或执行一次受控重建。

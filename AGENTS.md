@@ -69,7 +69,7 @@ Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用�
 
 HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http/服务命令行设计.org`。修改该宿主前必须遵循该文档。
 
-Rust 核心 API、数据结构、CSV 映射和规划模型见 `docs/core/`；实体关系的 PlantUML 源码内嵌在 `docs/core/数据模型.org`。修改领域模型时必须同步更新说明和源码块。
+Rust 核心 API、数据结构、WebDAV 同步能力、CSV 映射和规划模型见 `docs/core/`；实体关系的 PlantUML 源码内嵌在 `docs/core/数据模型.org`。修改领域模型时必须同步更新说明和源码块。
 
 持久化仅保存相对路径的同步变更检测元数据、作业历史和 outbox 写入意图；同步基准目录通过运行时请求传入，不保存绝对路径、完整文件或解析任务。
 
@@ -102,16 +102,9 @@ make devices       # 查看已连接设备
 3. 开启 USB 调试（设置 → 系统 → 开发者选项 → USB 调试）
 4. USB 连接设备，`make devices` 确认连接
 
-## 配置项
+## 配置与保存
 
-应用配置存储在 Preferences 中，可在设置页面修改：
-
-| 配置 | 默认值 | 说明 |
-|------|--------|------|
-| orgDir | `/storage/.../CloudDrive/org-roam/tasks` | 坚果云同步的 org 目录 |
-| inboxFile | `inbox.org` | 新增任务写入的文件 |
-| calendarName | `Org Tasks` | 系统日历名称 |
-| syncInterval | `15` | 自动同步间隔（分钟） |
+Harmony 的数据源配置、Preferences、Asset Store 凭据、core 状态、日历映射与旧存储迁移统一维护于 `docs/harmony/配置项设计.org`。修改配置项、保存位置或凭据处理方式时，必须同步更新该文档。
 
 ## 注意事项
 

@@ -15,3 +15,5 @@ entry/.cxx/
 
 # Rust build outputs
 target/
+
+/output/

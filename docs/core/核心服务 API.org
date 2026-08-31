@@ -1,322 +1,138 @@
-#+SETUPFILE: ../.setup.org
-#+TITLE: Rust 核心数据服务 API v1
+#+TITLE: 核心服务 API
+:PROPERTIES:
+#+EXPORT_FILE_NAME: ../../output/docs/core/核心服务 API
+#+STARTUP: show2levels hideblocks hidestars indent
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper]
+#+LATEX_HEADER: \usepackage{xeCJK}
+#+LATEX_HEADER: \usepackage{geometry}
+#+LATEX_HEADER: \setCJKmainfont{Microsoft YaHei}
+#+LATEX_HEADER: \geometry{a4paper,left=1cm,right=1cm,top=1cm,bottom=1cm}
+:END:
 
-* 当前实现状态
+* 范围与状态
 
-当前 Harmony 应用已通过 ~entry/src/main/cpp/~ 的 C++ N-API bridge 接入 Rust。ArkTS 的 ~NativeCoreService.recordSyncIntent~ 先以 ~context.filesDir~ 调用 ~initialize~，再调用 ~queueSync~；同步流程在 ~finally~ 中调用 ~finishSync~ 写入成功或失败终态。C++ 使用 ~napi_create_async_work~ 在工作线程执行 Rust FFI，因此不会阻塞 ArkUI 线程。入口只接收数据目录和同步元数据，不传入 WebDAV URL、密码或远端文件内容。
+本文定义以数据源为中心的 core SDK API。它取代以全局 ~sync-jobs~ 、执行租约和进程内 REST 请求描述同步编排的目标接口。当前 ~core~ 、 ~harmony~ 和 ~http~ 仍实现旧的作业接口；本文所述 ~OrgTasksSdk~ 、 ~DataSourceConfig~ 、 ~SyncRun~ 和 ~SyncMonitor~ 均为待实现设计。
 
-~core::CoreStore~ 是返回 ~Send Future~ 的异步持久化端口，所有核心用例、Harmony 适配器和 HTTP 路由均以异步方式调用。当前 ~harmony::FileCoreStore~ 在应用私有目录保存版本化状态快照，临时文件完整写入并同步后才原子替换正式文件。现有 ArkTS WebDAV 与 CalendarKit 流程继续执行；SQLite、执行租约、action 回执和完整资源接口尚未接入 Harmony bridge。
+领域模型见 [[file:数据模型.org][数据模型]]。WebDAV 仅是远端传输适配，协议细节见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]；Harmony 的配置和保存边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-HTTP 宿主可使用 ~http::CsvCoreStore::open(dataDir)~ 并注入 ~HttpApi::new(store)~。该目录包含 ~current.csv~ manifest 和 ~snapshots/<generation>/~ 下的 ~files.csv~、~jobs.csv~、~outbox.csv~。~files.csv~ 只保存相对路径和同步变更检测元数据；基准目录由同步请求传入，解析任务与完整文件均不落盘。写入时先生成完整快照，最后原子替换 manifest，因此重启时只会读取完整版本；CSV 使用标准 Reader/Writer 处理引号、逗号和换行字段。
+* SDK 构造
 
-* 目标与边界
+数据源只能在 SDK 构造阶段注册。SDK 构造完成后，数据源集合与每个数据源的本地目录、远端类型和远端地址均不可变；修改配置必须销毁并使用新的配置重新构造 SDK，且沿用同一逻辑数据源的 ~sourceId~ 。
 
-~orgTasksCore~ 是运行在应用进程内的 Rust 数据服务。它持久化相对路径的文件变更检测元数据、同步作业历史和离线 outbox；解析任务与完整文件只属于当次同步流程，不进入持久化状态。ArkTS 管理 ArkUI、WorkScheduler、WebDAV HTTP、CalendarKit、Preferences 和 Asset Store。
-
-Rust 只处理领域数据和同步决策，不能从原生工作线程访问 ArkTS 对象、UI 状态、日历、网络或安全凭据。WebDAV 密码只由 ArkTS 从 Asset Store 临时读取，不能进入 Rust 数据库、请求、日志或错误信息。
-
-* 进程内 REST 传输
-
-接口采用 RESTful 资源模型，但不启动 HTTP 服务、不监听端口。ArkTS 通过一条异步 N-API 入口调用；C++ N-API 层将 UTF-8 JSON 传给 Rust，再将结果包装为 Promise。
-
-#+begin_src ts
-interface OrgTasksCore {
-  request<T>(request: CoreRequest): Promise<CoreResponse<T>>
+#+begin_src rust
+pub struct SourceBinding<D> {
+    pub config: DataSourceConfig,
+    pub driver: D,
 }
 
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
-
-interface CoreRequest {
-  requestId: string
-  method: HttpMethod
-  path: string
-  query?: Record<string, string>
-  body?: unknown
+pub struct OrgTasksSdk<S, D> {
+    // CoreStore 和按 sourceId 路由的同步驱动。
 }
 
-interface CoreResponse<T> {
-  apiVersion: 1
-  requestId: string
-  status: 200 | 201 | 202 | 204 | 400 | 404 | 409 | 423 | 500 | 503
-  data?: T
-  error?: CoreError
-}
-
-interface CoreError {
-  code: CoreErrorCode
-  message: string
-  retryable: boolean
-  details?: Record<string, string | number | boolean>
+impl<S, D> OrgTasksSdk<S, D>
+where
+    S: CoreStore,
+    D: SourceSyncDriver,
+{
+    pub async fn new(
+        store: S,
+        sources: Vec<SourceBinding<D>>,
+    ) -> Result<Self, SdkInitializationError>;
 }
 #+end_src
 
-~requestId~ 用于链路追踪。每个创建资源请求还必须带 ~idempotencyKey~（UUID），用于重试去重。预期的业务失败通过 ~status~ 和 ~error~ 返回；仅 JSON 编解码或 N-API 桥接故障会 reject Promise。
+构造必须校验： ~sourceId~ 唯一、 ~localDirectory~ 非空、WebDAV ~baseUrl~ 合法且每个 ~sourceId~ 恰好绑定一个同步驱动。驱动由 Harmony、HTTP 或其他宿主创建；core 只读取结构化 ~DataSourceConfig~ ，不读取或保存宿主配置、环境变量或网络凭据。
 
-* 生命周期资源
+构造会恢复遗留的 ~running~ 记录，将其终止为 ~interrupted~ 并释放该数据源的执行权。构造不扫描目录、不访问网络，也不启动后台线程。
 
-| 方法 | 路径 | 请求体 | 成功响应 |
-|-
-| ~POST~ | ~/v1/service-instances~ | ~ServiceInitialization~ | ~201 ServiceInfo~ |
-| ~POST~ | ~/v1/service-migrations~ | ~MigrationRequest~ | ~200 MigrationResult~ |
-| ~DELETE~ | ~/v1/service-instances/current~ | 无 | ~204~ |
+* 异步同步接口
 
-#+begin_src ts
-interface ServiceInitialization {
-  dataDir: string
-  schemaVersion: number
+#+begin_src rust
+pub struct SyncRequest {
+    pub trigger: SyncTrigger,
+    pub include_calendar: bool,
+    pub requested_at: TimestampMs,
 }
 
-interface ServiceInfo {
-  schemaVersion: number
-  serviceState: 'ready' | 'migration_required'
-  pendingJobs: number
-  runningJobId?: string
-}
-
-interface MigrationRequest { targetSchemaVersion: number }
-interface MigrationResult {
-  fromVersion: number
-  toVersion: number
-  migrated: boolean
+impl<S, D> OrgTasksSdk<S, D>
+where
+    S: CoreStore,
+    D: SourceSyncDriver,
+{
+    pub async fn sync(
+        &mut self,
+        source_id: &SourceId,
+        request: SyncRequest,
+        monitor: &dyn SyncMonitor,
+    ) -> Result<SyncRun, SyncError>;
 }
 #+end_src
 
-~dataDir~ 必须是应用私有目录，例如 ~context.filesDir + '/org-tasks-core'~。初始化会打开 SQLite、校验完整性并回收过期执行租约；不会访问网络或日历。删除当前服务实例只关闭数据库句柄，不删除用户数据。
+~sync~ 是异步操作：调用方负责 await 它，core 不创建线程、Tokio task 或平台后台任务。调用成功返回已完成的 ~SyncRun~ ；失败同样会尽力写入对应的失败历史并向 monitor 发送最终事件。
 
-* 核心资源
+执行顺序如下：
 
-#+begin_src ts
-type TaskState = 'TODO' | 'NEXT' | 'WAIT' | 'DONE' | 'CNCL'
-type JobState = 'queued' | 'running' | 'retry_wait' | 'blocked' | 'completed' | 'failed'
-type JobType = 'sync' | 'add_task' | 'retry_job' | 'resolve_conflict' | 'rebuild_calendar' | 'refresh_local_index'
-type ConflictState = 'open' | 'resolved' | 'dismissed'
+1. 按 ~sourceId~ 查找构造期注册的数据源；未注册时返回 ~SourceNotFound~ 。
+2. 原子创建 ~running~ 的 ~SyncRun~ 并占有该数据源执行权；已有活动运行时返回 ~SyncAlreadyRunning { sourceId, syncRunId }~ ，不调用驱动。
+3. 发送 ~Started~ 事件，并调用 ~SourceSyncDriver~ 对本地目录和可选远端执行同步。
+4. 将文件元数据、outbox 确认、冲突和最终运行状态作为原子变更提交。
+5. 清空执行权，发送 ~Completed~ 、 ~Failed~ 或 ~Cancelled~ 事件，并返回最终 ~SyncRun~ 。
 
-interface TaskRecord {
-  id: string
-  relativePath: string
-  heading: string
-  todoState: TaskState
-  priority?: 'A' | 'B' | 'C'
-  scheduledAt?: number
-  deadlineAt?: number
-  tags: string[]
-  body: string
-  progress?: number
-  sourceRevision: string
-  updatedAt: number
-}
+同一 ~sourceId~ 任意时刻最多一个 ~running~ 记录。不同数据源是否并行由宿主决定；core 不以全局锁阻塞它们。
 
-interface FileSyncRecord {
-  relativePath: string
-  contentHash: string
-  remoteEtag?: string
-  remoteMtime?: number
-  remoteSize?: number
-  lastSyncedAt?: number
-  syncState: 'synced' | 'local_changed' | 'remote_changed' | 'remote_deleted' | 'conflict'
-}
+* 同步驱动端口
 
-interface JobRecord {
-  id: string
-  idempotencyKey: string
-  type: JobType
-  state: JobState
-  priority: 'foreground' | 'background'
-  reason: string
-  taskId?: string
-  outboxEntryId?: string
-  attemptCount: number
-  nextRunAt?: number
-  createdAt: number
-  updatedAt: number
-  error?: CoreError
-}
+~SourceSyncDriver~ 是 core 的 I/O 端口，负责读取本地目录、在存在远端配置时调用对应协议，并以领域结果返回发现文件、版本变化、冲突和传输结果。它不能绕过 SDK 直接写入 ~CoreStore~ ，也不能改变 ~SyncRun~ 状态。
 
-interface ConflictRecord {
-  id: string
-  relativePath: string
-  state: ConflictState
-  localRevision?: string
-  remoteRevision?: string
-  createdAt: number
-  message: string
+#+begin_src rust
+pub trait SourceSyncDriver: Send + Sync {
+    fn synchronize(
+        &self,
+        source: &DataSourceConfig,
+        request: &SyncRequest,
+        observer: &dyn SyncProgressObserver,
+    ) -> impl Future<Output = Result<SourceSyncOutcome, SourceSyncError>> + Send;
 }
 #+end_src
 
-时间均为 Unix epoch 毫秒。~sourceRevision~ 与 ~contentHash~ 均为小写 SHA-256 十六进制字符串。~TaskRecord~ 是同步中即时解析的只读投影，不由服务持久化；~FileSyncRecord.relativePath~ 相对于每次请求传入的基准目录。
+Harmony 驱动负责私有目录访问、WebDAV HTTP 和 CalendarKit；HTTP 宿主驱动负责其部署环境的文件与凭据访问。任何驱动都不得将密码、Authorization header 或完整文件内容放入 ~SourceSyncOutcome~ 、 ~SyncRun~ 或 monitor 事件。
 
-* 数据模型
+* 监控接口
 
-领域实体、写入请求、当前 CSV 映射和完整服务的 SQLite 规划统一见 [[file:数据模型.org][数据模型]]；实体关系的 PlantUML 源码内嵌在该文档中。
+外部通过 ~SyncMonitor~ 观察过程和结果，而不是轮询 UI 状态或读取适配器私有文件。 ~SyncMonitor~ 必须快速返回；耗时的日志、网络或 UI 操作由宿主自行排队，不能阻塞同步。
 
-* 变更资源
-
-每个写操作都创建持久化资源，不提供泛化的 ~submit(command)~ 接口。
-
-| 方法 | 路径 | 请求体 | 成功响应 |
-|-
-| ~POST~ | ~/v1/tasks~ | ~CreateTaskRequest~ | ~201 TaskCreation~ |
-| ~POST~ | ~/v1/sync-jobs~ | ~CreateSyncJobRequest~ | ~201 JobRecord~；可合并时为 ~200~ |
-| ~POST~ | ~/v1/job-retry-requests~ | ~CreateJobRetryRequest~ | ~201 JobRecord~ |
-| ~POST~ | ~/v1/conflict-resolutions~ | ~CreateConflictResolutionRequest~ | ~201 ConflictResolution~ |
-| ~POST~ | ~/v1/calendar-rebuild-jobs~ | ~CreateJobRequest~ | ~201 JobRecord~ |
-| ~POST~ | ~/v1/local-index-refresh-jobs~ | ~CreateJobRequest~ | ~201 JobRecord~ |
-
-#+begin_src ts
-interface CreateResourceRequest {
-  idempotencyKey: string
-  reason: string
-  priority?: 'foreground' | 'background'
+#+begin_src rust
+pub trait SyncMonitor: Send + Sync {
+    fn on_event(&self, event: SyncMonitorEvent);
 }
 
-interface NewTask {
-  heading: string
-  scheduledAt?: number
-  deadlineAt?: number
-  tags?: string[]
-  priority?: 'A' | 'B' | 'C'
-}
-
-interface CreateTaskRequest extends CreateResourceRequest { task: NewTask }
-interface CreateSyncJobRequest extends CreateResourceRequest { includeCalendar: boolean }
-interface CreateJobRetryRequest extends CreateResourceRequest { jobId: string }
-interface CreateJobRequest extends CreateResourceRequest {}
-interface CreateConflictResolutionRequest extends CreateResourceRequest {
-  conflictId: string
-  resolution: 'keep_local' | 'keep_remote' | 'save_local_copy' | 'dismiss'
-}
-
-interface OutboxEntry {
-  id: string
-  relativePath: string
-  orgEntry: string
-  contentHash: string
-  createdAt: number
-}
-
-interface TaskCreation { taskId: string; outboxEntry: OutboxEntry; job: JobRecord }
-interface ConflictResolution {
-  id: string
-  conflictId: string
-  resolution: 'keep_local' | 'keep_remote' | 'save_local_copy' | 'dismiss'
-  job: JobRecord
-  createdAt: number
+pub enum SyncMonitorEvent {
+    Started { source_id: SourceId, sync_run_id: SyncRunId, at: TimestampMs },
+    Progress { source_id: SourceId, sync_run_id: SyncRunId, phase: SyncPhase, completed: u32, total: Option<u32> },
+    Conflict { source_id: SourceId, sync_run_id: SyncRunId, relative_path: String },
+    Completed { run: SyncRun },
+    Failed { run: SyncRun },
+    Cancelled { run: SyncRun },
 }
 #+end_src
 
-重复同一 ~idempotencyKey~ 必须返回原资源，绝不能重复追加任务。新的同步作业可与既有 ~queued~ 或 ~running~ 同步作业合并。
+~SyncPhase~ 至少包含 ~scanning_local~ 、 ~listing_remote~ 、 ~downloading~ 、 ~uploading~ 、 ~indexing~ 和 ~finalizing~ 。事件只携带 ~sourceId~ 、 ~syncRunId~ 、相对路径、计数和脱敏错误摘要；不得包含本地绝对路径、完整 org 内容或凭据。监控器只观察，不得取消、重入或启动另一次同数据源同步。
 
-* 执行租约资源
+* 查询与历史
 
-Rust 生成平台 action，ArkTS 执行 WebDAV 和 CalendarKit 操作后再提交回执。这样既避免 Rust 原生线程直接调用平台 API，也支持进程被杀后的恢复。
+SDK 提供按数据源查询文件与同步历史的接口：
 
-| 方法 | 路径 | 请求体 | 成功响应 |
-|-
-| ~POST~ | ~/v1/execution-leases~ | ~CreateExecutionLeaseRequest~ | ~201 Execution~；无待执行作业时为 ~204~ |
-| ~GET~ | ~/v1/execution-leases/{executionId}~ | 无 | ~200 Execution~ |
-| ~PATCH~ | ~/v1/execution-leases/{executionId}~ | ~CompleteExecutionLeaseRequest~ | ~200 ExecutionCompletion~ |
-
-#+begin_src ts
-interface CreateExecutionLeaseRequest { workerId: string; now: number }
-interface Execution {
-  id: string
-  jobId: string
-  leaseExpiresAt: number
-  actions: PlatformAction[]
-}
-interface CompleteExecutionLeaseRequest {
-  state: 'completed'
-  completedAt: number
-  results: PlatformActionResult[]
-}
-interface ExecutionCompletion { job: JobRecord; nextExecutionAvailable: boolean }
+#+begin_src rust
+pub async fn list_org_files(&self, source_id: &SourceId) -> Result<Vec<OrgFileRecord>, CoreError>;
+pub async fn list_sync_history(&self, source_id: &SourceId, limit: usize) -> Result<Vec<SyncRun>, CoreError>;
+pub async fn active_sync(&self, source_id: &SourceId) -> Result<Option<SyncRun>, CoreError>;
 #+end_src
 
-创建租约会原子认领一个到期作业。v1 只允许一个未过期租约。ArkTS 在创建资源、应用回到前台和 WorkScheduler 回调后创建租约，按顺序执行 action，最后仅 PATCH 一次。若中断，初始化时回收过期租约并重试。
+这些查询使用构造期已知的 ~sourceId~ ，不暴露数据源配置修改接口。HTTP 宿主后续可将它们映射为资源，但 HTTP 路由不得成为 core 的公共依赖。
 
-* 平台 action 与回执
+* 当前实现迁移
 
-#+begin_src ts
-type PlatformAction = WebDavListAction | WebDavGetAction | WebDavPutAction | CalendarUpsertAction | CalendarDeleteAction
-interface ActionBase { id: string; idempotencyKey: string }
-interface WebDavListAction extends ActionBase { type: 'webdav_list'; directoryUrl: string; depth: 1 }
-interface WebDavGetAction extends ActionBase { type: 'webdav_get'; path: string }
-interface WebDavPutAction extends ActionBase {
-  type: 'webdav_put'; path: string; content: string
-  precondition: { kind: 'if_match'; etag: string } | { kind: 'if_none_match' }
-}
-interface CalendarUpsertAction extends ActionBase { type: 'calendar_upsert'; task: TaskRecord; existingEventId?: number }
-interface CalendarDeleteAction extends ActionBase { type: 'calendar_delete'; eventId: number; taskId: string }
-
-interface PlatformActionResult {
-  actionId: string
-  idempotencyKey: string
-  outcome: 'succeeded' | 'failed' | 'conflict' | 'not_found'
-  result?: Record<string, unknown>
-  error?: PlatformError
-}
-interface PlatformError {
-  category: 'network' | 'authentication' | 'tls' | 'permission' | 'calendar' | 'validation' | 'unknown'
-  code?: number
-  message: string
-  retryable: boolean
-}
-#+end_src
-
-WebDAV 写操作必须使用 ~If-Match~ 或 ~If-None-Match~，不得对已知远端文件执行无条件 ~PUT~。~412~ 必须创建冲突资源，不得自动覆盖。日历 action 必须以 ~task.id~ 作为事件 identifier，恢复时将已应用 action 回报为 ~succeeded~。
-
-* 查询资源
-
-| 方法 | 路径 | 查询参数 | 成功响应 |
-|-
-| ~GET~ | ~/v1/service-status~ | 无 | ~200 ServiceStatus~ |
-| ~GET~ | ~/v1/files~ | ~state~、~limit~、~cursor~ | ~200 Page<FileSyncRecord>~ |
-| ~GET~ | ~/v1/files/{relativePath}~ | 无 | ~200 FileSyncRecord~ |
-| ~GET~ | ~/v1/conflicts~ | ~state~、~limit~、~cursor~ | ~200 Page<ConflictRecord>~ |
-| ~GET~ | ~/v1/conflicts/{conflictId}~ | 无 | ~200 ConflictRecord~ |
-| ~GET~ | ~/v1/sync-jobs~ | ~state~、~limit~、~cursor~ | ~200 Page<JobRecord>~ |
-| ~GET~ | ~/v1/sync-jobs/{jobId}~ | 无 | ~200 JobRecord~ |
-| ~GET~ | ~/v1/changes~ | ~after~、~limit~ | ~200 ChangeFeed~ |
-
-#+begin_src ts
-interface ServiceStatus {
-  latestCompletedSyncAt?: number
-  activeJob?: JobRecord
-  pendingJobs: number
-  pendingOutboxEntries: number
-  openConflicts: number
-  lastError?: CoreError
-  changeCursor: number
-}
-interface Page<T> { items: T[]; nextCursor?: string }
-interface ChangeFeed { cursor: number; changes: DomainChange[] }
-interface DomainChange {
-  cursor: number
-  kind: 'task' | 'file' | 'job' | 'conflict' | 'status'
-  id: string
-  operation: 'created' | 'updated' | 'deleted'
-}
-#+end_src
-
-路径中的文件名必须逐段 percent-encode；Rust 解码一次后拒绝空段、~.~、~..~ 和反斜杠。Rust 不直接回调 ArkTS，页面可见期间或后台执行结束后由 ArkTS 轮询 ~/v1/changes~。
-
-* 错误、并发与版本
-
-| 状态码 | 含义 | 常见 ~code~ |
-|-
-| ~400~ | 请求体或查询参数无效 | ~invalid_request~ |
-| ~404~ | 资源不存在 | ~not_found~ |
-| ~409~ | 幂等键、版本或冲突状态不匹配 | ~conflict~ |
-| ~423~ | 资源等待用户处理 | ~operation_blocked~ |
-| ~500~ | 不可恢复的原生或数据库故障 | ~internal~、~database_corrupt~ |
-| ~503~ | 临时锁冲突或服务不可用 | ~busy~、~database_unavailable~ |
-
-#+begin_src ts
-type CoreErrorCode =
-  | 'not_initialized' | 'invalid_request' | 'unsupported_schema'
-  | 'database_unavailable' | 'database_corrupt' | 'not_found'
-  | 'conflict' | 'lease_lost' | 'busy' | 'action_result_invalid'
-  | 'operation_blocked' | 'internal'
-#+end_src
-
-创建变更资源和 PATCH 执行租约必须使用 SQLite 事务。读取或解析失败时不得生成日历删除 action；新增任务必须先持久化 outbox；前台同步只能提高已排队作业的优先级，不能与后台同步并发执行。~apiVersion~ 固定为 ~1~，删除字段、改变枚举含义或持久化语义时必须升级为 v2 并提供数据库迁移。
+当前 ~CoreService.createSyncJob~ 、Harmony ~queueSync~ 与 HTTP ~POST /v1/sync-jobs~ 是兼容层；它们不具备数据源绑定、单源执行权或 ~SyncMonitor~ 。迁移顺序必须为：先实现数据模型和 ~CoreStore~ 原子操作，再实现 ~OrgTasksSdk.sync~ 与单元测试，最后由 Harmony 和 HTTP 替换旧入口。旧入口在迁移期间不得与新 SDK 操作同一数据源。

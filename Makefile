@@ -27,7 +27,7 @@ HAP_DIR := entry/build/default/outputs/default
 BUNDLE_NAME := com.example.orgtasks
 ABILITY_NAME := EntryAbility
 
-.PHONY: all clean install install-only run deploy log log-all deps check-sdk help
+.PHONY: all clean install install-only run deploy log log-all deps check-sdk docs-export help
 
 # 默认目标：编译
 all: build
@@ -114,6 +114,55 @@ uninstall:
 devices:
 	$(HDC) list targets
 
+# 根据 Org 导出设置创建输出目录。
+# 仅接受位于 output/ 下的相对路径，避免文档设置意外创建仓库外目录。
+docs-export:
+	@set -eu; \
+	normalize_path() { \
+		printf '%s\n' "$$1" | awk -F/ '{ \
+			for (i = 1; i <= NF; i++) { \
+				part = $$i; \
+				if (part == "" || part == ".") continue; \
+				if (part == "..") { \
+					if (count == 0) exit 1; \
+					count--; \
+				} else { \
+					parts[++count] = part; \
+				} \
+			} \
+			for (i = 1; i <= count; i++) { \
+				printf "%s%s", (i == 1 ? "" : "/"), parts[i]; \
+			} \
+			print ""; \
+		}'; \
+	}; \
+	find docs -type f -name '*.org' -print | while IFS= read -r org_file; do \
+		awk ' \
+			/^[[:space:]]*#[+]EXPORT_FILE_NAME:[[:space:]]*/ { \
+				path = $$0; \
+				sub(/^[[:space:]]*#[+]EXPORT_FILE_NAME:[[:space:]]*/, "", path); \
+				print path; \
+			} \
+			/:file[[:space:]]+/ { \
+				path = $$0; \
+				sub(/^.*:file[[:space:]]+/, "", path); \
+				sub(/[[:space:]].*$$/, "", path); \
+				print path; \
+			}' "$$org_file" | while IFS= read -r export_file; do \
+			[ -n "$$export_file" ] || continue; \
+			case "$$export_file" in \
+				/*) echo "拒绝绝对导出路径: $$export_file" >&2; exit 1 ;; \
+			esac; \
+			export_path="$$(normalize_path "$$(dirname "$$org_file")/$$export_file")" \
+				|| { echo "无法归一化导出路径: $$export_file" >&2; exit 1; }; \
+			case "$$export_path" in \
+				output/*) mkdir -p "$$(dirname "$$export_path")" ;; \
+				*) echo "拒绝 output 目录外的导出路径: $$export_file" >&2; exit 1 ;; \
+			esac; \
+		done; \
+	done
+	@echo ">>> 已按 Org 导出设置创建 output/docs 下的目录"
+
 # 帮助
 help:
 	@echo "可用目标:"
@@ -130,4 +179,5 @@ help:
 	@echo "  make log-all       查看全部日志"
 	@echo "  make devices       查看已连接设备"
 	@echo "  make deploy       部署到唯一连接设备（多设备时可设置 HDC_TARGET）"
+	@echo "  make docs-export  按 Org 设置创建 output/docs 下的导出目录"
 	@echo "  make clean         清理构建产物"
