@@ -16,9 +16,11 @@
 
 * 范围与状态
 
-本文定义以数据源为边界的核心领域模型。 ~DataSourceConfig~ 、 ~OrgFileRecord~ 、 ~SyncRun~ 与 ~SyncMonitorEvent~ 是下一阶段核心 SDK 的目标模型；当前 ~core/src/lib.rs~ 仍使用未带数据源归属的 ~FileSyncRecord~ 与 ~SyncJob~ ，尚未实现本文定义的同步接口或监控器。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并可选择关联一个远端。
 
-数据源配置仅在 SDK 构造时提供，不能由同步请求、HTTP 请求或 UI 设置直接修改。持久化状态只使用稳定的 ~sourceId~ 关联配置，不保存本地绝对目录、密码、Authorization header、完整 org 文件或解析任务。实体关系的 TikZ UML 源码与本文同步维护。
+~OrgFile~ 、递归 ~OrgEntry~ 与 ~OrgElement~ 描述解析后的 org 内容树； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果。当前 ~core/src/lib.rs~ 仍使用旧的 ~FileSyncRecord~ 、 ~SyncJob~ 与 ~OutboxEntry~ ，尚未实现本文所述目标模型。
+
+调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
 
 * 模型概览
 
@@ -27,204 +29,236 @@
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 
-\begin{umlpackage}{Runtime configuration}
-\umlclass[x=0,y=0]{DataSourceConfig}{
-  id: SourceId \\
-  local\_directory: String \\
-  remote: Option\textless RemoteConfig\textgreater
+\begin{umlpackage}{Workspace and parsed content}
+\umlclass[x=0,y=0]{OrgWorkspace}{
+  repos: Vec\textless OrgRepo\textgreater
 }{}
-\umlclass[x=4.8,y=0]{RemoteConfig}{
-  WebDav
+\umlclass[x=0,y=-2.8]{OrgRepo}{
+  id: OrgRepoId \\
+  root\_directory: String \\
+  remote: Option\textless OrgRepoRemote\textgreater
 }{}
-\umlclass[x=4.8,y=-2.8]{WebDavRemoteConfig}{
+\umlclass[x=0,y=-5.8]{OrgFile}{
+  repo\_id: OrgRepoId \\
+  relative\_path: String \\
+  source\_bytes: Vec\textless u8\textgreater \\
+  entries: Vec\textless OrgEntry\textgreater
+}{}
+\umlclass[x=0,y=-9.2]{OrgEntry}{
+  id: OrgEntryId \\
+  parent\_id: Option\textless OrgEntryId\textgreater \\
+  level: u16 \\
+  elements: Vec\textless OrgElement\textgreater
+}{}
+\umlclass[x=6.0,y=-9.2]{OrgElement}{
+  kind: OrgElementKind \\
+  source\_range: SourceRange
+}{}
+\end{umlpackage}
+
+\begin{umlpackage}[x=10.0,y=0]{Remote and synchronization}
+\umlclass[x=0,y=0]{OrgRepoRemote}{
+  WebDav(OrgRepoRemoteWebDav)
+}{}
+\umlclass[x=0,y=-2.8]{OrgRepoRemoteWebDav}{
   base\_url: String
 }{}
-\umlclass[x=0,y=-2.8]{RemoteFileVersion}{
-  etag: Option\textless String\textgreater \\
-  modified\_at: Option\textless TimestampMs\textgreater \\
-  size: Option\textless i64\textgreater
+\umlclass[x=0,y=-5.8]{OrgRepoSyncRecord}{
+  id: OrgRepoSyncRecordId \\
+  repo\_id: OrgRepoId \\
+  result: OrgRepoSyncResult \\
+  started\_at: TimestampMs \\
+  finished\_at: Option\textless TimestampMs\textgreater
 }{}
-\end{umlpackage}
-
-\begin{umlpackage}[x=10,y=0]{Persistent source state}
-\umlclass[x=0,y=0]{OrgFileRecord}{
-  source\_id: SourceId \\
+\umlclass[x=0,y=-9.2]{OrgRepoSyncFileRecord}{
+  repo\_id: OrgRepoId \\
   relative\_path: String \\
-  content\_hash: String \\
-  remote\_version: Option\textless RemoteFileVersion\textgreater \\
-  sync\_state: FileSyncState
-}{}
-\umlclass[x=5.3,y=0]{SyncRun}{
-  id: SyncRunId \\
-  source\_id: SourceId \\
-  trigger: SyncTrigger \\
-  state: SyncRunState \\
-  summary: Option\textless SyncSummary\textgreater \\
-  error: Option\textless SyncErrorSummary\textgreater
-}{}
-\umlclass[x=5.3,y=-4.1]{SourceSyncState}{
-  source\_id: SourceId \\
-  active\_sync\_run\_id: Option\textless SyncRunId\textgreater
-}{}
-\umlclass[x=0,y=-4.1]{OutboxEntry}{
-  id: String \\
-  source\_id: SourceId \\
-  target\_path: String \\
-  org\_entry: String
-}{}
-\umlclass[x=0,y=-7.7]{ConflictRecord}{
-  id: String \\
-  source\_id: SourceId \\
-  relative\_path: String
-}{}
-\umlclass[x=5.3,y=-7.7]{SyncSummary}{
-  discovered\_files: u32 \\
-  downloaded\_files: u32 \\
-  uploaded\_files: u32 \\
-  conflicted\_files: u32
-}{}
-\umlclass[x=10.6,y=-7.7]{SyncErrorSummary}{
-  category: SyncErrorCategory \\
-  retryable: bool \\
-  message: String
-}{}
-\umlclass[x=5.3,y=-11.5]{SourceSyncOutcome}{
-  files: Vec\textless OrgFileRecord\textgreater \\
-  acknowledged\_outbox\_ids: Vec\textless String\textgreater \\
-  conflicts: Vec\textless ConflictRecord\textgreater \\
-  summary: SyncSummary
+  action: OrgRepoSyncFileAction \\
+  state: OrgRepoSyncFileState \\
+  local\_version: Option\textless LocalFileVersion\textgreater \\
+  remote\_version: Option\textless RemoteFileVersion\textgreater
 }{}
 \end{umlpackage}
 
-\umluniassoc[mult1=1,mult2=0..1]{DataSourceConfig}{RemoteConfig}
-\umldep{RemoteConfig}{WebDavRemoteConfig}
-\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{OrgFileRecord}
-\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{SyncRun}
-\umluniassoc[mult1=1,mult2=1]{DataSourceConfig}{SourceSyncState}
-\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{OutboxEntry}
-\umluniassoc[mult1=1,mult2=0..*]{DataSourceConfig}{ConflictRecord}
-\umluniassoc[mult1=0..1,mult2=1]{SourceSyncState}{SyncRun}
-\umldep{OrgFileRecord}{RemoteFileVersion}
-\umldep{SyncRun}{SyncSummary}
-\umldep{SyncRun}{SyncErrorSummary}
+\umluniassoc[mult1=1,mult2=0..*]{OrgWorkspace}{OrgRepo}
+\umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
+\umluniassoc[mult1=1,mult2=0..*]{OrgFile}{OrgEntry}
+\umluniassoc[mult1=0..1,mult2=0..*]{OrgEntry}{OrgEntry}
+\umluniassoc[mult1=1,mult2=0..*]{OrgEntry}{OrgElement}
+\umluniassoc[mult1=1,mult2=0..1]{OrgRepo}{OrgRepoRemote}
+\umldep{OrgRepoRemote}{OrgRepoRemoteWebDav}
+\umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgRepoSyncRecord}
+\umluniassoc[mult1=1,mult2=0..*]{OrgRepoSyncRecord}{OrgRepoSyncFileRecord}
+\umldep{OrgRepoSyncFileRecord}{OrgFile}
 \end{tikzpicture}%
 }
 \end{center}
 
 * 基础约定
 
-| 类型或规则    | 定义                                                                                                                       |
-|---------------+----------------------------------------------------------------------------------------------------------------------------|
-| ~TimestampMs~ | Unix epoch 毫秒。                                                                                                          |
-| ~SourceId~    | 非空、由调用方稳定保存的 UUID 字符串；同一逻辑数据源重建 SDK 时必须使用同一 ID。                                           |
-| ~SyncRunId~   | 非空 UUID 字符串，由 SDK 或调用方生成。                                                                                    |
-| 相对路径      | ~relativePath~ 相对于所属数据源的 ~localDirectory~ ，不能是绝对路径或包含 ~..~ 。                                          |
-| 内容版本      | ~contentHash~ 和 ~RemoteFileVersion~ 均为不透明版本元数据；core 不保存完整文件内容。                                       |
-| 配置边界      | ~localDirectory~ 、 ~baseUrl~ 只保留在运行时 ~DataSourceConfig~ ；密码与认证信息不属于 core 模型。保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。 |
+| 类型或规则 | 定义 |
+|-
+| ~TimestampMs~ | Unix epoch 毫秒。 |
+| ~OrgRepoId~ | 非空 UUID 字符串；同一逻辑仓库重建 workspace 时必须保持不变。 |
+| ~OrgEntryId~ | 由仓库 ID、相对路径和稳定 outline 位置派生的标识。显式 ~ID~ property 存在时优先使用它。 |
+| ~OrgRepoSyncRecordId~ | 一次同步记录的非空 UUID 字符串。 |
+| 相对路径 | ~relativePath~ 相对于所属 ~OrgRepo.rootDirectory~ ，不能是绝对路径或包含 ~..~ 。 |
+| 源位置 | ~SourceRange~ 是引用 ~OrgFile.sourceBytes~ 的半开区间 ~[start, end)~ 。~SourcePosition~ 同时记录 1-based 行号、0-based UTF-8 字节列号与 0-based UTF-8 字节偏移；它仅在当前文件快照内有效，不能作为跨版本稳定 ID。 |
+| 内容与版本 | ~OrgFile.sourceBytes~ 保存当前解析/编辑会话的完整源字节，用于保真写回；它不写入 core 持久化状态或同步记录。内容树可由文件重新解析； ~LocalFileVersion~ 只保存内容哈希， ~RemoteFileVersion~ 只保存 ETag、修改时间和大小。 |
 
-* 运行时配置
+* 工作空间与仓库
 
-~DataSourceConfig~ 是 SDK 构造期的运行时对象，不是可写资源，也不写入 ~CoreStore~ 。
+~OrgWorkspace~ 是应用级管理对象，负责聚合仓库，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
+
+~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在 workspace 构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。持久化记录一律通过 ~repoId~ 与 ~relativePath~ 定位文件。
+
+~OrgRepo.remote~ 是可选的结构化远端定义。当前唯一变体为 ~OrgRepoRemote::WebDav(OrgRepoRemoteWebDav)~ ，其中只包含 ~baseUrl~ 。用户名、密码、令牌、客户端证书和 Authorization header 均由宿主的安全存储和网络适配器持有，不进入 core。
 
 #+begin_src rust
-pub struct DataSourceConfig {
-    pub id: SourceId,
-    pub local_directory: String,
-    pub remote: Option<RemoteConfig>,
+pub struct OrgWorkspace {
+    pub repos: Vec<OrgRepo>,
 }
 
-pub enum RemoteConfig {
-    WebDav(WebDavRemoteConfig),
+pub struct OrgRepo {
+    pub id: OrgRepoId,
+    pub root_directory: String,
+    pub remote: Option<OrgRepoRemote>,
 }
 
-pub struct WebDavRemoteConfig {
+pub enum OrgRepoRemote {
+    WebDav(OrgRepoRemoteWebDav),
+}
+
+pub struct OrgRepoRemoteWebDav {
     pub base_url: String,
 }
 #+end_src
 
-~localDirectory~ 指向该数据源的本地 org 文件根目录。 ~remote = None~ 表示仅扫描本地目录； ~remote = Some(WebDav(...))~ 表示同步驱动还需要与该 WebDAV 根目录协调文件版本。当前只支持 WebDAV，后续新增远端类型必须扩展 ~RemoteConfig~ ，不能以未结构化字符串或 UI 开关表示。
+* Org 内容树
 
-~WebDavRemoteConfig~ 不包含用户名、密码、令牌、客户端证书或认证 header。认证材料不进入 core 的配置、持久化状态、错误或监控事件。
+~OrgFile~ 是仓库中一个可解析 org 文件的内容投影。它以 ~repoId~ 与 ~relativePath~ 标识， ~sourceBytes~ 是读取时得到的完整原始字节快照，并拥有零到多个顶层 ~OrgEntry~ 。没有 headline 的文件仍是有效的 ~OrgFile~ ，其 entries 为空；其前言、注释和其他未归属 entry 的片段仍由 ~sourceBytes~ 保留。
 
-* 同步结果模型
+~OrgEntry~ 对应一个 org headline。 ~OrgFile~ 只直接拥有顶层 entry；子 headline 通过 ~OrgEntry.parentId~ 与递归子 entry 表达。因此一个 entry 可拥有零到多个子 entry，同时最多有一个父 entry。文件内的 outline 关系必须保持解析顺序。
 
-WebDAV 协议及其他数据源驱动与 core 交互时，使用以下无敏感内容的数据结构。驱动只返回元数据和操作结果，core 负责将其原子写入数据源状态。
+~OrgEntry.elements~ 是有序元素列表。模型允许零到多个元素，以便表示解析失败后的部分投影；正常解析出的 headline entry 必须恰好包含一个 ~Title~ 元素。标题的 TODO keyword、优先级和 tags 均属于该元素，不能另建平行任务结构。
 
 #+begin_src rust
+pub struct OrgFile {
+    pub repo_id: OrgRepoId,
+    pub relative_path: String,
+    pub source_bytes: Vec<u8>,
+    pub entries: Vec<OrgEntry>,
+}
+
+pub struct OrgEntry {
+    pub id: OrgEntryId,
+    pub parent_id: Option<OrgEntryId>,
+    pub level: u16,
+    pub elements: Vec<OrgElement>,
+    pub children: Vec<OrgEntry>,
+}
+
+pub struct OrgElement {
+    pub kind: OrgElementKind,
+    pub source_range: SourceRange,
+}
+
+pub struct SourceRange {
+    pub start: SourcePosition,
+    pub end: SourcePosition,
+}
+
+pub struct SourcePosition {
+    pub line: u32,
+    pub column: u32,
+    pub byte_offset: u64,
+}
+#+end_src
+
+** OrgElement 与 org-mode 语法
+
+~OrgElementKind~ 依照 org-mode 语法建模，不把日程、截止日期或标题拆到仓库级平行字段。元素保留在原始顺序中，写回时才能避免重排正文、drawer 或块内容。
+
+| 元素类型 | 对应 org 语法 | 领域内容 |
+|-
+| ~Title~ | headline 文本 | 标题文本、TODO keyword、优先级和 tags。 |
+| ~Scheduled~ | headline 后的 ~SCHEDULED: <...>~ | 活动 timestamp、时间范围、repeater、delay。 |
+| ~Deadline~ | headline 后的 ~DEADLINE: <...>~ | 活动 timestamp、时间范围、repeater、warning。 |
+| ~Closed~ | headline 后的 ~CLOSED: [...]~ | 非活动完成 timestamp。 |
+| ~Property~ | 紧随 headline 的 ~:PROPERTIES:~ drawer | 大小写不敏感的 key 与原始 value；显式 ~ID~ 可参与 entry ID 计算。 |
+| ~Timestamp~ | 正文中的活动或非活动 timestamp | 单点、日期范围或同日时间范围。 |
+| ~Drawer~ | 其他 ~:NAME:~ drawer | drawer 名称与其子元素。 |
+| ~Text~ 、 ~List~ 、 ~Link~ | 正文、普通列表和链接 | 保留可显示文本及链接目标。 |
+| ~Block~ 、 ~Keyword~ | ~#+begin_src ... #+end_src~ 等块和 ~#+KEYWORD:~ | 块类型、参数与内容，或 keyword 的 key/value。 |
+| ~Raw~ | 当前解析器尚未结构化的合法 org 片段 | 原始内容，确保升级解析器前不丢失信息。 |
+
+~Scheduled~ 、 ~Deadline~ 和 ~Closed~ 必须位于 headline 或其 property drawer 之后的 planning 区域。 ~Scheduled~ 与 ~Deadline~ 的 timestamp 可带时间、时间范围、repeater、delay 或 warning； ~Closed~ 使用非活动 timestamp。一个 entry 同种 planning 元素最多一个，重复项属于解析错误而不是以最后一项覆盖。
+
+** 源码保真与最小差异写回
+
+~OrgFile.sourceBytes~ 是内容树的唯一写回基准， ~OrgElement.sourceRange~ 必须精确指向该缓冲区中该元素的完整来源。解析器必须为每个元素保存起止行、列和字节偏移；行号从 1 开始，列号与字节偏移从 0 开始，区间采用 ~[start, end)~ 。行列仅用于诊断和定位展示，实际替换必须以 UTF-8 字节偏移执行，避免多字节字符导致偏移错误。
+
+- 未对文件应用编辑时，序列化必须直接返回读取时的 ~sourceBytes~ ，结果须与原文件逐字节一致。这包含编码字节、换行风格、末尾换行、空行、缩进、行尾空格、注释、drawer 顺序、未知语法和未建模内容。
+- 替换一个元素时，只能替换其 ~sourceRange~ 覆盖的字节；插入元素时，只能在明确的元素边界或 entry 内合法锚点插入所需字节。写回不得格式化、重新缩进、对齐表格、规范化换行、重排元素，或重建未修改节点。
+- 每次替换或插入后必须以更新后的 ~sourceBytes~ 更新受影响元素及其后续元素的 ~SourceRange~ 。跨行变更时必须从新缓冲区重新计算行号、列号和字节偏移，不能只对后续列号累加差值。必要时可重新解析受影响 entry 或整个文件校验结构。
+- ~Raw~ 元素、未建模片段和不属于任何 entry 的内容必须按原始字节保留。编辑实现不得因解析器尚不理解某段合法 org 语法而删除或改写该片段。
+
+上述规则适用于本地保存与上传前序列化。源字节快照仅在本次解析/编辑会话内保留；关闭会话后可从文件重新读取，持久化层仍只保存同步元数据。
+
+* 仓库同步记录
+
+~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它属于 ~OrgRepo~ ，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
+
+~OrgRepoSyncFileRecord~ 记录该次同步中一个相对路径的决策与结果。它不保存完整文件内容，也不把远端 URL、认证 header 或密码写入错误摘要。冲突、下载、上传、创建、删除和跳过均由 ~action~ 与 ~state~ 表达，不另建运行时执行权或 UI 事件实体。
+
+#+begin_src rust
+pub struct OrgRepoSyncRecord {
+    pub id: OrgRepoSyncRecordId,
+    pub repo_id: OrgRepoId,
+    pub started_at: TimestampMs,
+    pub finished_at: Option<TimestampMs>,
+    pub result: OrgRepoSyncResult,
+    pub files: Vec<OrgRepoSyncFileRecord>,
+}
+
+pub struct OrgRepoSyncFileRecord {
+    pub repo_id: OrgRepoId,
+    pub relative_path: String,
+    pub action: OrgRepoSyncFileAction,
+    pub state: OrgRepoSyncFileState,
+    pub local_version: Option<LocalFileVersion>,
+    pub remote_version: Option<RemoteFileVersion>,
+    pub error: Option<OrgRepoSyncErrorSummary>,
+}
+
+pub struct LocalFileVersion {
+    pub content_hash: String,
+}
+
 pub struct RemoteFileVersion {
     pub etag: Option<String>,
     pub modified_at: Option<TimestampMs>,
     pub size: Option<i64>,
 }
-
-pub struct OrgFileRecord {
-    pub source_id: SourceId,
-    pub relative_path: String,
-    pub content_hash: String,
-    pub remote_version: Option<RemoteFileVersion>,
-    pub sync_state: FileSyncState,
-    pub updated_at: TimestampMs,
-}
-
-pub struct SyncSummary {
-    pub discovered_files: u32,
-    pub downloaded_files: u32,
-    pub uploaded_files: u32,
-    pub conflicted_files: u32,
-}
-
-pub enum SyncErrorCategory {
-    Network,
-    Authentication,
-    Tls,
-    Validation,
-    Conflict,
-    LocalStorage,
-    Unknown,
-}
-
-pub struct SyncErrorSummary {
-    pub category: SyncErrorCategory,
-    pub retryable: bool,
-    pub message: String,
-}
-
-pub struct SourceSyncOutcome {
-    pub files: Vec<OrgFileRecord>,
-    pub acknowledged_outbox_ids: Vec<String>,
-    pub conflicts: Vec<ConflictRecord>,
-    pub summary: SyncSummary,
-}
 #+end_src
 
-~RemoteFileVersion~ 优先使用 ETag；服务器没有 ETag 时可使用修改时间和大小参与变化判断。 ~SyncErrorSummary.message~ 必须是脱敏摘要。 ~SourceSyncOutcome~ 不得携带本地绝对路径、远端完整 URL、认证 header 或 org 文件正文。
+~OrgRepoSyncResult~ 取值为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。 ~OrgRepoSyncFileAction~ 取值为 ~Unchanged~ 、 ~Downloaded~ 、 ~Uploaded~ 、 ~Created~ 、 ~Deleted~ 、 ~Conflicted~ 或 ~Skipped~ 。 ~OrgRepoSyncFileState~ 表示最终文件状态，至少区分 ~Synchronized~ 、 ~LocalChanged~ 、 ~RemoteChanged~ 、 ~RemoteDeleted~ 、 ~Conflict~ 与 ~Failed~ 。错误摘要只包含分类、是否可重试和脱敏消息。
 
-* 数据源持久化状态
+* 持久化与运行时边界
 
-数据源在领域上包含零到多个 ~OrgFileRecord~ 和零到多个 ~SyncRun~ 。 ~OrgFileRecord~ 是已发现 org 文件的元数据投影；文件尚未被扫描或被忽略时，数据源可以没有任何文件记录。
+持久化层保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据；内容树可从文件重新生成，因此默认不持久化 ~OrgFile~ 、 ~OrgEntry~ 或 ~OrgElement~ 的完整内容。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
 
-** 关联与职责
+~OrgWorkspace~ 的构造、目录扫描、WebDAV HTTP、认证、并发控制、进度通知、取消、重试与日历投影均由宿主或适配层负责。它们可以引用上述 ID 和记录，但不得反向成为核心结构字段。
 
-| 实体 | 关键字段 | 责任 |
+* 迁移
+
+| 旧目标模型 | 新模型中的归属 |
 |-
-| ~OrgFileRecord~ | ~sourceId~ 、 ~relativePath~ 、 ~contentHash~ 、远端版本、 ~syncState~ | 一个数据源内一个 org 文件的同步元数据。唯一键为 ~(sourceId, relativePath)~ 。 |
-| ~SyncRun~ | ~id~ 、 ~sourceId~ 、触发来源、状态、起止时间、统计和错误摘要 | 一次同步操作的不可变历史；完成后仅允许补充最终统计或错误摘要。 |
-| ~SourceSyncState~ | ~sourceId~ 、 ~activeSyncRunId~ | 数据源当前执行权。其 ~activeSyncRunId~ 为空或指向一个 ~running~ 的 ~SyncRun~ 。 |
-| ~OutboxEntry~ | ~id~ 、 ~sourceId~ 、 ~targetPath~ 、 ~orgEntry~ | 面向特定数据源的本地写入意图。 |
-| ~ConflictRecord~ | ~id~ 、 ~sourceId~ 、 ~relativePath~ 、版本和状态 | 同一数据源中无法自动处理的本地与远端分歧。 |
+| ~DataSourceConfig~ 与 ~RemoteConfig~ | ~OrgRepo~ 与可选 ~OrgRepoRemote~ 。根目录和远端地址仅在构造时绑定。 |
+| ~OrgFileRecord~ | 每次同步中的 ~OrgRepoSyncFileRecord~ ；其稳定定位键为 ~(repoId, relativePath)~ 。 |
+| ~SyncRun~ | ~OrgRepoSyncRecord~ 。 |
+| ~TaskRecord~ | 从 ~OrgEntry~ 、 ~Title~ 、 ~Scheduled~ 、 ~Deadline~ 等元素导出的短生命周期任务投影。 |
+| ~SourceSyncState~ 、 ~SyncMonitorEvent~ 、 ~SourceSyncOutcome~ | 运行时编排和适配层结果，不属于核心数据结构。 |
+| ~OutboxEntry~ 与独立 ~ConflictRecord~ | 由同步写入意图和 ~OrgRepoSyncFileRecord.action/state~ 表达；具体队列与 UI 流程属于宿主。 |
 
-~TaskRecord~ 仍是从 ~OrgFileRecord~ 对应文件即时解析出的短生命周期投影，不属于数据源持久化内容。
-
-** 同步历史与并发控制
-
-~SyncRunState~ 取值为 ~running~ 、 ~succeeded~ 、 ~failed~ 、 ~cancelled~ 与 ~interrupted~ 。 ~SyncTrigger~ 取值为 ~manual~ 、 ~background~ 、 ~retry~ 或 ~external~ 。
-
-开始同步必须在一次原子提交中创建 ~SyncRun(running)~ 并设置 ~SourceSyncState.activeSyncRunId~ 。若该字段已有值，新的同步请求返回 ~SyncAlreadyRunning~ ，其中包含现有 ~syncRunId~ ；不得排队、替换或并行执行。结束同步必须在一次原子提交中写入最终状态、统计或错误摘要，并清空 ~activeSyncRunId~ 。
-
-SDK 构造时会恢复未完成记录：上一次进程退出后仍为 ~running~ 的 ~SyncRun~ 必须标记为 ~interrupted~ 并释放执行权。历史由 ~sourceId~ 查询并按 ~startedAt~ 倒序返回；保留策略属于宿主配置，不改变单数据源单执行权约束。
-
-* 持久化与迁移
-
-新 ~CoreStore~ 持久化 ~OrgFileRecord~ 、 ~SyncRun~ 、 ~SourceSyncState~ 、 ~OutboxEntry~ 和 ~ConflictRecord~ ，并保证“开始同步”和“完成同步”各自原子可见。 ~DataSourceConfig~ 由每次 SDK 构造传入，因此不会因设备路径变化或凭据更新而进入持久化状态。
-
-当前 Harmony 二进制快照和 HTTP CSV 仓储仅实现旧模型的 ~FileSyncRecord~ 、 ~SyncJob~ 与 ~OutboxEntry~ ，需要在引入数据源 SDK 时迁移为以 ~sourceId~ 分区的记录。迁移前不得将旧记录自动归属到任意数据源；宿主必须显式提供映射或执行一次受控重建。
+迁移前不得将旧记录自动归属到任意仓库；宿主必须显式提供旧记录到 ~OrgRepoId~ 的映射，或执行一次受控重建。

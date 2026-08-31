@@ -46,11 +46,11 @@
 
 | ID | 功能 | 目标 |
 |-
-| PLAN-001 | 数据源同步 SDK | 在 core 中实现构造期数据源配置、异步 ~sync~ 、单数据源执行权、同步历史和 ~SyncMonitor~ 。 |
-| PLAN-002 | Harmony 新增任务接入 Rust outbox | 用 ~CORE-003~ 替换 ArkTS 私有待上传文件，使任务创建与作业持久化处于同一领域提交。 |
-| PLAN-003 | 冲突资源与界面 | 持久化冲突记录，提供保留本地、保留远端、另存副本和暂不处理的用户流程。 |
-| PLAN-004 | 数据源查询与 HTTP 映射 | 按数据源提供 org 文件、同步历史和活动同步查询，并由 HTTP 宿主映射为资源。 |
-| PLAN-005 | 数据源持久化迁移 | 将 Harmony 快照与 HTTP CSV 仓储迁移为按 ~sourceId~ 分区的文件、同步历史、outbox 和冲突记录。 |
+| PLAN-001 | 仓库内容与同步模型 | 在 core 中实现 ~OrgWorkspace~ 、 ~OrgRepo~ 内容树、仓库级解析、 ~OrgRepoSyncRecord~ 与同步 adapter。 |
+| PLAN-002 | Harmony 仓库写入意图 | 用仓库级写入意图替换 ArkTS 私有待上传文件，并由 WebDAV adapter 的条件写入结果生成同步文件记录。 |
+| PLAN-003 | 仓库冲突处理界面 | 消费 ~OrgRepoSyncFileRecord~ 的 ~action/state~ ，提供保留本地、保留远端、另存副本和暂不处理的用户流程。 |
+| PLAN-004 | 仓库查询与 HTTP 映射 | 按仓库提供 ~OrgFile~ 内容投影与 ~OrgRepoSyncRecord~ 历史，并由 HTTP 宿主映射为资源。 |
+| PLAN-005 | 仓库同步记录迁移 | 将 Harmony 快照与 HTTP CSV 仓储迁移为按 ~repoId~ 分区的 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 。 |
 
 * 当前不支持
 

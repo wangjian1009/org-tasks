@@ -7,7 +7,7 @@
 - 项目中的文档说明、设计决策、注释性段落和面向用户的文本使用中文。
 - 代码、命令、路径、协议名、API 名称、字段名和技术专有名词保留其原始英文形式。
 - 项目文档统一使用 Org 格式，放置于 `docs/*.org`；不得新增 Markdown 文档。
-- UML 使用与说明紧邻的 `#+begin_src plantuml` Org 源码块内嵌维护，不保留独立 `.puml` 文件。
+- UML 使用 LaTeX `TikZ` 与 `tikz-uml` 绘制，与说明紧邻的 `\begin{tikzpicture}` 源码内嵌维护；不保留独立 `.puml` 或 `.tex` 文件。
 
 ## 提交规范
 
@@ -69,7 +69,7 @@ Harmony 侧的 C++ N-API bridge 通过 `napi_create_async_work` 将 Rust 调用�
 
 HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http/服务命令行设计.org`。修改该宿主前必须遵循该文档。
 
-Rust 核心 API、数据结构、WebDAV 同步能力、CSV 映射和规划模型见 `docs/core/`；实体关系的 PlantUML 源码内嵌在 `docs/core/数据模型.org`。修改领域模型时必须同步更新说明和源码块。
+Rust 核心 API、数据结构、WebDAV 同步能力、CSV 映射和规划模型见 `docs/core/`；实体关系的 TikZ UML 源码内嵌在 `docs/core/数据模型.org`。修改领域模型时必须同步更新说明和源码块。
 
 持久化仅保存相对路径的同步变更检测元数据、作业历史和 outbox 写入意图；同步基准目录通过运行时请求传入，不保存绝对路径、完整文件或解析任务。
 

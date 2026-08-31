@@ -14,60 +14,58 @@
 
 * 范围
 
-本文定义 core 对 ~RemoteConfig::WebDav~ 的同步语义与 ~SourceSyncDriver~ 契约。数据结构见 [[file:数据模型.org][数据模型]]，异步调用与监控接口见 [[file:核心服务 API.org][核心同步 SDK API]]。Harmony 的配置、凭据和保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
+本文定义 ~OrgRepoRemote::WebDav(OrgRepoRemoteWebDav)~ 的同步语义，以及将协议结果转换为 ~OrgRepoSyncRecord~ 和 ~OrgRepoSyncFileRecord~ 的运行时 adapter 契约。内容与同步结构见 [[file:数据模型.org][数据模型]]，仓库级 API 见 [[file:接口文档.org][接口文档]]，Harmony 的配置、凭据和保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-WebDAV 是当前唯一受支持的远端类型。数据源的 ~remote = None~ 时，core 仅要求驱动扫描本地目录并产生 ~OrgFileRecord~ ；不会执行远端协议操作。
+WebDAV 是当前唯一受支持的 ~OrgRepoRemote~ 变体。 ~OrgRepo.remote = None~ 表示本地仓库；本地仓库仅扫描和解析根目录，不调用任何 WebDAV 操作。adapter、HTTP 客户端、认证、并发控制和重试均是运行时概念，不进入核心数据结构。
 
-* 驱动契约
+* Adapter 契约
 
-对于带 ~WebDavRemoteConfig~ 的数据源， ~SourceSyncDriver~ 接收 core 提供的 ~DataSourceConfig~ 、 ~SyncRequest~ 和进度观察器，并返回 ~SourceSyncOutcome~ 。驱动只能返回相对路径、版本元数据、冲突、outbox 确认和统计；core 负责唯一的持久化提交与 ~SyncRun~ 状态变迁。
+~OrgRepoWebDavSyncAdapter~ 实现 ~OrgRepoSyncAdapter~ 。它接收一个 ~OrgRepo~ ，读取其相对路径文件和可选的 WebDAV 远端，在结束时返回完整的 ~OrgRepoSyncRecord~ 。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
 
-驱动不得直接修改 ~CoreStore~ 、 ~SyncRun~ 、 ~OrgFileRecord~ 、outbox 或冲突记录。它也不能绕开 ~OrgTasksSdk.sync~ 启动第二次同数据源同步；单数据源执行权由 core 的 ~SourceSyncState~ 原子维护。
+adapter 不得直接修改同步记录存储、日历投影、UI 状态或宿主的待写入队列。记录保存、后台调度、取消和重试由调用 adapter 的宿主负责。adapter 不得返回密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件正文。
+
+对由内容编辑产生的上传，宿主必须先按 ~OrgFile.sourceBytes~ 执行保真序列化，再将所得完整字节作为 ~PUT~ 请求体。未编辑文件的上传内容必须与读取内容逐字节一致；编辑文件不得因同步流程格式化、重排或改写未修改区域。
 
 * 协议能力
 
-| 同步意图 | WebDAV 请求 | 成功条件 | 对 core 的结果 |
+| 同步意图 | WebDAV 请求 | 成功条件 | 对同步文件记录的结果 |
 |-
-| 列举目录 | ~PROPFIND~ ， ~Depth: 1~ | ~207 Multi-Status~ | 返回相对路径和 ~RemoteFileVersion~ ；列举失败时不报告远端删除。 |
-| 下载文件 | ~GET~ | ~200 OK~ | 返回新的文件版本与下载结果。 |
-| 创建远端文件 | ~PUT~ + ~If-None-Match: *~ | ~201~ 、 ~200~ 或 ~204~ | 确认创建的文件版本。 |
-| 更新远端文件 | ~PUT~ + ~If-Match: <etag>~ | ~200~ 或 ~204~ | 确认更新的文件版本； ~412~ 返回冲突。 |
+| 列举目录 | ~PROPFIND~ ， ~Depth: 1~ | ~207 Multi-Status~ | 发现相对路径和 ~RemoteFileVersion~ ；列举失败时不报告远端删除。 |
+| 下载文件 | ~GET~ | ~200 OK~ | action 为 ~Downloaded~ ，写入新的本地版本。 |
+| 创建远端文件 | ~PUT~ + ~If-None-Match: *~ | ~201~ 、 ~200~ 或 ~204~ | action 为 ~Created~ ，确认远端版本。 |
+| 更新远端文件 | ~PUT~ + ~If-Match: <etag>~ | ~200~ 或 ~204~ | action 为 ~Uploaded~ ，确认远端版本； ~412~ 为冲突。 |
 | 创建目录 | ~MKCOL~ | ~201~ 或已存在 | 仅为上传缺失父目录服务。 |
-| 重命名 | ~MOVE~ + ~Destination~ + ~Overwrite: F~ | ~201~ 或 ~204~ | 返回路径变更；不覆盖目标。 |
-| 显式删除 | ~DELETE~ | ~204~ | 仅在上层明确生成删除意图时确认。 |
+| 重命名 | ~MOVE~ + ~Destination~ + ~Overwrite: F~ | ~201~ 或 ~204~ | 为旧路径和新路径分别产生文件记录。 |
+| 显式删除 | ~DELETE~ | ~204~ | action 为 ~Deleted~ ；只接受宿主显式给出的删除意图。 |
 
-已知远端版本的写入必须使用条件 ~PUT~ 。远端不提供 ETag 时，驱动不得无条件更新已有文件，应以 ~SyncErrorSummary~ 或 ~ConflictRecord~ 返回可见结果。
+已知远端版本的写入必须使用条件 ~PUT~ 。远端不提供 ETag 时，adapter 不得无条件更新已有文件，而应以 ~OrgRepoSyncFileState::Conflict~ 或可见失败结果结束该文件记录。
 
 * 文件决策
 
-驱动以一个 ~sourceId~ 为范围，对 ~OrgFileRecord.contentHash~ 与 ~RemoteFileVersion~ 进行比较。不同数据源的同名相对路径互不相关。
+adapter 在同一 ~OrgRepoId~ 范围内，按 ~relativePath~ 比较 ~LocalFileVersion.contentHash~ 与 ~RemoteFileVersion~ 。不同仓库可以包含同名相对路径，彼此不相关。
 
-| 自上次确认后本地状态 | 远端状态 | ~SourceSyncOutcome~ |
+| 自上次确认后本地状态 | 远端状态 | ~OrgRepoSyncFileRecord~ |
 |-
-| 未变化 | 未变化 | 不产生文件变更。 |
-| 未变化 | 已变化 | 报告下载后的文件版本。 |
-| 已变化 | 未变化 | 报告条件上传后的文件版本。 |
-| 已变化 | 已变化 | 产生 ~ConflictRecord~ ，保留双方内容。 |
-| 存在 | 已删除 | 报告远端删除，不自动移除本地记录。 |
-| 缺失 | 存在 | 报告下载的新文件。 |
-| 缺失 | 缺失 | 仅在上层明确确认后报告移除。 |
+| 未变化 | 未变化 | action 为 ~Unchanged~ ，state 为 ~Synchronized~ 。 |
+| 未变化 | 已变化 | 下载；action 为 ~Downloaded~ 。 |
+| 已变化 | 未变化 | 条件上传；action 为 ~Uploaded~ 。 |
+| 已变化 | 已变化 | action 为 ~Conflicted~ ，state 为 ~Conflict~ ，保留双方内容。 |
+| 存在 | 已删除 | state 为 ~RemoteDeleted~ ；不自动移除本地文件。 |
+| 缺失 | 存在 | 下载；action 为 ~Downloaded~ 。 |
+| 缺失 | 缺失 | 仅在宿主明确确认后 action 为 ~Deleted~ 。 |
 
-只有完整列举、必要传输和本地解析均成功时，core 才以 ~SourceSyncOutcome~ 更新该数据源的 ~OrgFileRecord~ 。驱动失败时必须返回脱敏的 ~SyncErrorSummary~ ，由 core 保留上一次成功的文件元数据。
+一次同步完成时， ~OrgRepoSyncRecord.files~ 必须包含所有已作出决策的路径。列举、传输或本地解析失败时，记录应为 ~Failed~ 或 ~Interrupted~ ，已完成文件的记录仍可保留；失败不能伪装为“仓库没有文件”。
 
-* outbox 确认
+* 宿主写入、进度与错误
 
-WebDAV 驱动从 core 获得面向当前数据源的待写入意图。追加 ~inbox.org~ 时先读取当前版本，再以 ~If-Match~ 写入；不存在的目标使用 ~If-None-Match: *~ 。成功后仅在 ~SourceSyncOutcome.acknowledged_outbox_ids~ 中确认已写入的 ID，core 在完成同步的原子提交中移除对应 outbox。网络失败、认证失败或 ~412~ 都不得确认或丢弃 outbox。
+追加 ~inbox.org~ 、创建文件、重命名和删除都是宿主产生的写入意图。WebDAV adapter 只执行已授权的意图，并以相应的 ~OrgRepoSyncFileRecord~ 反映条件写入结果。写入意图队列、确认消费和 UI 冲突解决不属于 core 数据结构。
 
-* 进度与错误
-
-驱动可依次报告 ~listing_remote~ 、 ~downloading~ 、 ~uploading~ 和 ~finalizing~ 等 ~SyncPhase~ 。core 将其转换为 ~SyncMonitorEvent~ ；事件只包含 ~sourceId~ 、 ~syncRunId~ 、相对路径、计数及错误类别，不包含完整文件内容或远端访问细节。
-
-~SyncErrorCategory~ 至少区分 ~Network~ 、 ~Authentication~ 、 ~Tls~ 、 ~Validation~ 、 ~Conflict~ 与 ~LocalStorage~ 。 ~Conflict~ 不得被自动重试为无条件上传； ~Network~ 错误是否重试由调用方创建新的同步请求决定。
+运行时可报告列举、下载、上传、解析和收尾进度，但进度事件不写入 ~OrgRepoSyncRecord~ 的领域结构。错误至少区分网络、认证、TLS、校验、本地存储与冲突；错误摘要必须脱敏，是否重试由宿主决定。
 
 * 验收标准
 
-- ~PROPFIND~ 解析、条件 ~PUT~ 与 ~412~ 冲突均能映射为核心定义的版本、冲突或错误结果。
-- 同一数据源的并发同步请求只允许一个驱动调用；另一个请求得到当前 ~syncRunId~ 。
-- 驱动返回的结果不包含配置、凭据、本地绝对路径或完整 org 内容。
-- 无远端的数据源不会调用任何 WebDAV 操作。
-- outbox 只在对应条件写入确认后从该数据源移除。
+- ~PROPFIND~ 解析、条件 ~PUT~ 与 ~412~ 冲突均能映射为仓库同步文件记录的版本、action 和 state。
+- 本地仓库不会调用 WebDAV；带 WebDAV 远端的仓库仅使用其 ~OrgRepoRemoteWebDav~ 配置。
+- 一个同步记录只归属一个 ~OrgRepoId~ ，其中每个文件记录只使用相对路径。
+- adapter 返回的记录不包含配置凭据、绝对路径、远端完整 URL 或完整 org 内容。
+- 写入意图只在对应条件写入成功后由宿主确认；失败与 ~412~ 不得丢弃意图。

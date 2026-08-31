@@ -1,0 +1,382 @@
+#+TITLE: 接口文档
+:PROPERTIES:
+#+EXPORT_FILE_NAME: ../../output/docs/core/接口文档
+#+STARTUP: show2levels hideblocks hidestars indent
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper]
+#+LATEX_HEADER: \usepackage{xeCJK}
+#+LATEX_HEADER: \usepackage{geometry}
+#+LATEX_HEADER: \setCJKmainfont{Microsoft YaHei}
+#+LATEX_HEADER: \geometry{a4paper,left=1cm,right=1cm,top=1cm,bottom=1cm}
+:END:
+
+* 范围与状态
+
+本文定义围绕 ~OrgWorkspace~ 与 ~OrgRepo~ 的目标 core 接口。数据结构与源码保真规则见 [[file:数据模型.org][数据模型]]，WebDAV 协议语义见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]，Harmony 的配置与凭据边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
+
+本文中的接口均为待实现设计。领域数据只描述内容与同步结果；目录访问、网络、认证、持久化实现、线程、重试、取消和进度通知都由运行时服务或适配层承担。
+
+* 核心场景
+
+** 初始化 Workspace
+
+宿主读取配置和安全存储中的凭据后，构造稳定的仓库标识、根目录与可选远端。凭据不进入 ~OrgRepoRemoteWebDav~ ，而由同步 adapter 在网络调用时取得。
+
+#+begin_src rust
+let workspace = OrgWorkspace::new(vec![
+    OrgRepo::new(
+        repo_id,
+        "/data/org".into(),
+        Some(OrgRepoRemote::WebDav(OrgRepoRemoteWebDav::new(
+            "https://dav.example.com/org/".into(),
+        )?)),
+    )?,
+])?;
+
+let service = OrgWorkspaceService::new(
+    workspace,
+    parser,
+    webdav_sync_adapter,
+)?;
+#+end_src
+
+~OrgWorkspace::new~ 校验仓库 ID 的唯一性； ~OrgRepo::new~ 校验根目录和远端地址。初始化不能扫描目录、请求 WebDAV、创建后台线程或写入同步记录。
+
+** 解析、编辑并写回 org 文件
+
+调用方先解析指定仓库，再用当前快照中的元素定位替换或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
+
+#+begin_src rust
+let mut files = service.parse_repo(&repo_id)?;
+let file = files.iter_mut().find(|file| file.relative_path == "inbox.org")?;
+
+apply_edit(
+    file,
+    OrgFileEdit::ReplaceElement {
+        target: OrgElementLocator::for_element(&entry_id, &title_element),
+        replacement: b"* TODO 更新后的标题\n".to_vec(),
+    },
+)?;
+
+file_writer.write(&file.relative_path, serialize_file(file))?;
+#+end_src
+
+调用方在下一次编辑前必须使用编辑器更新后的元素定位；旧的 ~SourceRange~ 不能跨文件快照复用。 ~Raw~ 与其他未建模内容不参与替换时必须保持原始字节。
+
+** 同步一个仓库
+
+宿主调用同步 adapter，并将返回的记录追加至存储。adapter 根据 ~OrgRepo.remote~ 选择本地或 WebDAV 流程；上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
+
+#+begin_src rust
+let record = service.synchronize(&repo_id).await?;
+sync_record_store.append(record).await?;
+#+end_src
+
+* 接口定义
+
+** 核心数据
+
+*** OrgWorkspace
+
+~OrgWorkspace~ 聚合应用中的零到多个仓库。它是运行时构造输入，不是持久化实体。
+
+#+begin_src rust
+impl OrgWorkspace {
+    pub fn new(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError>;
+
+    pub fn repos(&self) -> &[OrgRepo];
+
+    pub fn repo(&self, repo_id: &OrgRepoId) -> Option<&OrgRepo>;
+}
+#+end_src
+
+~new~ 必须拒绝重复的 ~OrgRepoId~ 。返回的集合不可由调用方原地修改；变更仓库集合应构造新的 workspace。
+
+*** OrgRepo
+
+~OrgRepo~ 定义一个本地 org 文件仓库及其可选远端。根目录仅在运行时使用，不能写入同步记录。
+
+#+begin_src rust
+impl OrgRepo {
+    pub fn new(
+        id: OrgRepoId,
+        root_directory: String,
+        remote: Option<OrgRepoRemote>,
+    ) -> Result<Self, OrgRepoValidationError>;
+
+    pub fn contains_relative_path(&self, relative_path: &str) -> bool;
+}
+#+end_src
+
+~contains_relative_path~ 必须拒绝绝对路径和包含 ~..~ 的路径，不能访问文件系统。
+
+*** OrgFile
+
+~OrgFile~ 保存一次解析/编辑会话内的完整源字节与顶层条目。 ~sourceBytes~ 不得持久化，但它是保真序列化的唯一来源。
+
+#+begin_src rust
+impl OrgFile {
+    pub fn new(
+        repo_id: OrgRepoId,
+        relative_path: String,
+        source_bytes: Vec<u8>,
+        entries: Vec<OrgEntry>,
+    ) -> Result<Self, OrgFileValidationError>;
+
+    pub fn source_bytes(&self) -> &[u8];
+
+    pub fn entries(&self) -> &[OrgEntry];
+}
+#+end_src
+
+~new~ 必须验证所有 entry 与元素范围都位于 ~sourceBytes~ 内，且不改变输入字节。未应用 ~OrgFileEdit~ 时， ~serialize_file~ 必须逐字节返回 ~source_bytes~ 。
+
+*** OrgEntry
+
+~OrgEntry~ 表示一个 headline，以及其有序元素和递归子 headline。
+
+#+begin_src rust
+impl OrgEntry {
+    pub fn id(&self) -> &OrgEntryId;
+
+    pub fn elements(&self) -> &[OrgElement];
+
+    pub fn children(&self) -> &[OrgEntry];
+
+    pub fn find_element(&self, range: &SourceRange) -> Option<&OrgElement>;
+}
+#+end_src
+
+~find_element~ 只在当前文件快照内按完整来源范围查找元素；同一 entry 的元素与 children 均须保持原始源码顺序。
+
+*** OrgElement
+
+~OrgElement~ 是标题、planning、property、timestamp、drawer、正文、块、keyword 或 ~Raw~ 片段的有序内容单元。每个元素必须带有来源范围。
+
+#+begin_src rust
+impl OrgElement {
+    pub fn kind(&self) -> &OrgElementKind;
+
+    pub fn source_range(&self) -> &SourceRange;
+
+    pub fn contains(&self, position: &SourcePosition) -> bool;
+}
+#+end_src
+
+~source_range~ 必须精确指向 ~OrgFile.sourceBytes~ 内该元素的完整来源。 ~Raw~ 是保留未知合法 org 语法的正常元素，不能因缺少结构化字段而在写回时删除。
+
+*** SourcePosition 与 SourceRange
+
+~SourcePosition~ 同时保存行号、列号和 UTF-8 字节偏移； ~SourceRange~ 是对同一文件快照的半开区间 ~[start, end)~ 。
+
+#+begin_src rust
+impl SourcePosition {
+    pub fn new(line: u32, column: u32, byte_offset: u64) -> Result<Self, SourcePositionError>;
+}
+
+impl SourceRange {
+    pub fn new(start: SourcePosition, end: SourcePosition) -> Result<Self, SourceRangeError>;
+
+    pub fn contains(&self, position: &SourcePosition) -> bool;
+}
+#+end_src
+
+行号从 1 开始，列号与字节偏移从 0 开始。替换以 ~byteOffset~ 执行；跨行编辑后必须从更新后的字节缓冲区重新计算受影响及后续元素的位置。
+
+** 同步数据
+
+*** OrgRepoRemote 与 OrgRepoRemoteWebDav
+
+~OrgRepoRemote~ 是远端的枚举，当前仅支持 ~WebDav~ 变体； ~OrgRepoRemoteWebDav~ 只保存远端根地址。
+
+#+begin_src rust
+impl OrgRepoRemoteWebDav {
+    pub fn new(base_url: String) -> Result<Self, OrgRepoRemoteValidationError>;
+
+    pub fn base_url(&self) -> &str;
+}
+#+end_src
+
+~new~ 必须校验 ~baseUrl~ ，但不得接收或保存用户名、密码、令牌、证书或 Authorization header。
+
+*** OrgRepoSyncRecord
+
+~OrgRepoSyncRecord~ 描述一次仓库同步的整体结果及各文件记录。
+
+#+begin_src rust
+impl OrgRepoSyncRecord {
+    pub fn start(repo_id: OrgRepoId, started_at: TimestampMs) -> Self;
+
+    pub fn append_file(&mut self, file: OrgRepoSyncFileRecord);
+
+    pub fn finish(
+        &mut self,
+        result: OrgRepoSyncResult,
+        finished_at: TimestampMs,
+    ) -> Result<(), OrgRepoSyncRecordError>;
+}
+#+end_src
+
+~append_file~ 只能加入同一 ~repoId~ 的记录。 ~finish~ 只能调用一次，并将结果固定为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。
+
+*** OrgRepoSyncFileRecord
+
+~OrgRepoSyncFileRecord~ 保存一次同步中一个相对路径的决策与最终版本元数据。
+
+#+begin_src rust
+impl OrgRepoSyncFileRecord {
+    pub fn new(
+        repo_id: OrgRepoId,
+        relative_path: String,
+        action: OrgRepoSyncFileAction,
+        state: OrgRepoSyncFileState,
+    ) -> Result<Self, OrgRepoSyncFileRecordError>;
+
+    pub fn with_versions(
+        self,
+        local: Option<LocalFileVersion>,
+        remote: Option<RemoteFileVersion>,
+    ) -> Self;
+
+    pub fn with_error(self, error: OrgRepoSyncErrorSummary) -> Self;
+}
+#+end_src
+
+记录只保存相对路径、版本、action、state 和脱敏错误摘要；不得保存完整 org 内容、绝对路径、远端完整 URL 或凭据。
+
+*** LocalFileVersion 与 RemoteFileVersion
+
+本地版本只保存内容哈希；远端版本只保存 ETag、修改时间和大小。
+
+#+begin_src rust
+impl LocalFileVersion {
+    pub fn from_content(content: &[u8]) -> Self;
+}
+
+impl RemoteFileVersion {
+    pub fn new(
+        etag: Option<String>,
+        modified_at: Option<TimestampMs>,
+        size: Option<i64>,
+    ) -> Result<Self, RemoteFileVersionError>;
+}
+#+end_src
+
+** 运行时服务
+
+*** OrgWorkspaceService
+
+~OrgWorkspaceService~ 是组合 parser 和 sync adapter 的运行时外观，不是领域实体。
+
+#+begin_src rust
+impl<P, S> OrgWorkspaceService<P, S>
+where
+    P: OrgRepoParser,
+    S: OrgRepoSyncAdapter,
+{
+    pub fn new(
+        workspace: OrgWorkspace,
+        parser: P,
+        sync_adapter: S,
+    ) -> Result<Self, OrgWorkspaceValidationError>;
+
+    pub fn list_repos(&self) -> &[OrgRepo];
+
+    pub fn parse_repo(
+        &self,
+        repo_id: &OrgRepoId,
+    ) -> Result<Vec<OrgFile>, OrgParseError>;
+
+    pub async fn synchronize(
+        &self,
+        repo_id: &OrgRepoId,
+    ) -> Result<OrgRepoSyncRecord, OrgRepoSyncError>;
+}
+#+end_src
+
+~new~ 只校验构造参数，不能产生 I/O 或后台任务。 ~parse_repo~ 与 ~synchronize~ 均须先验证 ~repoId~ 存在。
+
+*** OrgRepoParser
+
+~OrgRepoParser~ 是解析仓库目录的 I/O 端口。实现读取文件后构造保留完整源字节的 ~OrgFile~ ，但不写回文件或同步记录。
+
+#+begin_src rust
+pub trait OrgRepoParser: Send + Sync {
+    fn parse_repo(
+        &self,
+        repo: &OrgRepo,
+    ) -> Result<Vec<OrgFile>, OrgParseError>;
+}
+#+end_src
+
+解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。
+
+*** OrgFileEdit 与保真序列化
+
+编辑接口以已解析的单个 ~OrgFile~ 为边界。它只可修改一个元素来源范围，或在 entry 内的合法元素边界插入内容。
+
+#+begin_src rust
+pub struct OrgElementLocator {
+    pub entry_id: OrgEntryId,
+    pub source_range: SourceRange,
+}
+
+impl OrgElementLocator {
+    pub fn for_element(entry_id: &OrgEntryId, element: &OrgElement) -> Self;
+}
+
+pub enum OrgFileEdit {
+    ReplaceElement {
+        target: OrgElementLocator,
+        replacement: Vec<u8>,
+    },
+    InsertElement {
+        entry_id: OrgEntryId,
+        anchor: SourcePosition,
+        content: Vec<u8>,
+    },
+}
+
+pub fn apply_edit(
+    file: &mut OrgFile,
+    edit: OrgFileEdit,
+) -> Result<(), OrgFileEditError>;
+
+pub fn serialize_file(file: &OrgFile) -> &[u8];
+#+end_src
+
+~apply_edit~ 必须拒绝过期范围、越界锚点和不属于指定 entry 的目标。它不得格式化、重新缩进、对齐表格、规范化换行、重排元素或重建未修改节点。插入或替换后，受影响元素及后续元素的 ~SourceRange~ 必须更新；未修改范围的字节必须保持不变。
+
+*** OrgRepoSyncAdapter 与 OrgRepoSyncRecordStore
+
+~OrgRepoSyncAdapter~ 是同步 I/O 端口； ~OrgRepoSyncRecordStore~ 持久化已完成的同步记录。
+
+#+begin_src rust
+pub trait OrgRepoSyncAdapter: Send + Sync {
+    fn synchronize(
+        &self,
+        repo: &OrgRepo,
+    ) -> impl Future<Output = Result<OrgRepoSyncRecord, OrgRepoSyncError>> + Send;
+}
+
+pub trait OrgRepoSyncRecordStore: Send + Sync {
+    fn append(
+        &self,
+        record: OrgRepoSyncRecord,
+    ) -> impl Future<Output = Result<(), OrgRepoSyncStoreError>> + Send;
+
+    fn list(
+        &self,
+        repo_id: &OrgRepoId,
+        limit: usize,
+    ) -> impl Future<Output = Result<Vec<OrgRepoSyncRecord>, OrgRepoSyncStoreError>> + Send;
+}
+#+end_src
+
+adapter 不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件内容写入同步记录或错误摘要。上传前必须使用 ~serialize_file~ 的完整字节，不能对未修改区域重新格式化。
+
+* 迁移
+
+当前 ~core~ 、 ~harmony~ 与 ~http~ 仍实现旧的全局作业接口。迁移顺序为：先实现上述数据与接口的单元测试，再由 Harmony 与 HTTP 适配新服务；迁移期间旧作业模型不得与新仓库同步同时写入同一持久化分区。

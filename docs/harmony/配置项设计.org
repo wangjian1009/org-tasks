@@ -14,25 +14,27 @@
 
 * 范围与边界
 
-本文定义 Harmony 宿主的全部配置与保存边界。Harmony 负责从用户设置和安全存储构造 core 的 ~DataSourceConfig~ 与同步驱动；core 只接收构造期配置，保存按 ~sourceId~ 归属的文件元数据、同步历史、outbox 和冲突。核心模型见 [[file:../core/数据模型.org][数据模型]]，同步 SDK 接口见 [[file:../core/核心服务 API.org][核心同步 SDK API]]。
+本文定义 Harmony 宿主的配置、凭据与保存边界。Harmony 从 Preferences 和安全存储构造一个 ~OrgWorkspace~ 及其 ~OrgRepo~ ；core 只接收仓库结构、解析内容树和按 ~repoId~ 归属的同步记录。核心模型见 [[file:../core/数据模型.org][数据模型]]，仓库 API 见 [[file:../core/接口文档.org][接口文档]]。
 
-配置、凭据与持久化状态必须分离。密码、令牌和客户端证书不能写入 Preferences、core 状态、HTTP 请求日志、监控事件或错误摘要。 ~sourceId~ 是连接 Harmony 配置与 core 持久化状态的唯一稳定标识，修改目录或 WebDAV 地址时不得重新生成它。
+配置、凭据与持久化状态必须分离。密码、令牌和客户端证书不能写入 Preferences、core 同步记录、HTTP 请求日志、进度事件或错误摘要。 ~repoId~ 是连接 Harmony 配置与 core 同步历史的唯一稳定标识，修改目录或 WebDAV 地址时不得重新生成它。
+
+~OrgWorkspace~ 是应用级核心结构；一个应用通常只构造一个。WorkScheduler 调度、CalendarKit 映射、N-API service 实例和活动同步任务都是 Harmony 运行时概念，不是 ~OrgWorkspace~ 或 ~OrgRepo~ 的字段。
 
 * 配置模型
 
-目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~sources~ 至少可为空；每个数据源对应一个 core ~DataSourceConfig~ 。当前应用尚使用旧的分散 key，迁移安排见后文。
+目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ 。当前应用仍使用旧的分散 key，迁移安排见后文。
 
 #+begin_src ts
 interface HarmonyAppConfig {
-  version: 2
+  version: 3
   calendar: { name: string }
   scheduler: { intervalMinutes: number }
-  sources: HarmonySourceConfig[]
+  repos: HarmonyOrgRepoConfig[]
 }
 
-interface HarmonySourceConfig {
-  sourceId: string
-  localDirectory: string
+interface HarmonyOrgRepoConfig {
+  repoId: string
+  rootDirectory: string
   inboxFile: string
   remote?: HarmonyWebDavConfig
 }
@@ -48,49 +50,53 @@ interface HarmonyWebDavConfig {
 |-
 | 全局日历 | ~calendar.name~ | Preferences | 默认 ~Org Tasks~ ；只用于 Harmony CalendarKit。 |
 | 后台调度 | ~scheduler.intervalMinutes~ | Preferences | 默认 15 分钟；仅控制 WorkScheduler 唤醒，不保存同步结果。 |
-| 数据源身份 | ~sourceId~ | Preferences | UUID，创建后不可变；删除并重建数据源才生成新 ID。 |
-| 本地目录 | ~localDirectory~ | Preferences | 非空目录路径；仅在 SDK 构造时映射为 core 配置，不写入 core 状态。 |
-| inbox 目标 | ~inboxFile~ | Preferences | 相对 ~localDirectory~ 的 ~.org~ 路径；用于 Harmony 的新增任务和 WebDAV outbox 驱动。 |
-| WebDAV 地址 | ~remote.baseUrl~ | Preferences | HTTPS 根目录 URL；当前唯一远端类型为 ~webdav~ 。 |
+| 仓库身份 | ~repoId~ | Preferences | UUID，创建后不可变；删除并重建仓库才生成新 ID。 |
+| 仓库根目录 | ~rootDirectory~ | Preferences | 非空目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
+| inbox 目标 | ~inboxFile~ | Preferences | 相对 ~rootDirectory~ 的 ~.org~ 路径；是 Harmony 产生写入意图的目标。 |
+| WebDAV 地址 | ~remote.baseUrl~ | Preferences | HTTPS 根目录 URL；映射为 ~OrgRepoRemoteWebDav.baseUrl~ 。 |
 | WebDAV 用户名 | ~remote.username~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
-| WebDAV 密码 | 不属于该结构 | Asset Store | 按 ~sourceId~ 保存，永不序列化进 Preferences。 |
+| WebDAV 密码 | 不属于该结构 | Asset Store | 按 ~repoId~ 保存，永不序列化进 Preferences。 |
 
-删除远端配置等同于将 ~remote~ 设为 ~undefined~ ，构造本地数据源；不得用 ~webdavEnabled~ 之类与远端类型重复的布尔开关表示。
+删除远端配置等同于将 ~remote~ 设为 ~undefined~ ，构造本地 ~OrgRepo~ 。不得用 ~webdavEnabled~ 之类与远端类型重复的布尔开关表示。
 
-* 凭据保存
+* 凭据与 Workspace 构造
 
-每个 WebDAV 数据源的秘密以独立 Asset Store 记录保存，别名为 ~org-tasks.webdav.<sourceId>.password.v1~ 。记录必须设置 ~DEVICE_FIRST_UNLOCKED~ 、持久化和覆盖语义，以支持已解锁后的后台同步。用户名、地址和密码更新时，密码先写入 Asset Store，再提交 Preferences 配置；若 Preferences 写入失败，宿主必须保留可重试的清理或恢复动作，不能把密码写回 Preferences。
+每个 WebDAV 仓库的秘密以独立 Asset Store 记录保存，别名为 ~org-tasks.webdav.<repoId>.password.v1~ 。记录必须设置 ~DEVICE_FIRST_UNLOCKED~ 、持久化和覆盖语义，以支持已解锁后的后台同步。用户名、地址和密码更新时，密码先写入 Asset Store，再提交 Preferences 配置；若 Preferences 写入失败，宿主必须保留可重试的清理或恢复动作，不能把密码写回 Preferences。
 
-SDK 构造阶段按 ~sourceId~ 读取凭据，创建 WebDAV 驱动，并将不含凭据的 ~DataSourceConfig { id, localDirectory, remote }~ 传入 ~OrgTasksSdk::new~ 。无远端的数据源不读取 Asset Store。凭据缺失、格式无效或已被撤销时，构造返回可显示的配置错误，不触发网络同步。
+Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoConfig~ ，宿主构造 ~OrgRepo { id, rootDirectory, remote }~ ；存在 WebDAV 远端时再读取该 ~repoId~ 的凭据并创建 ~OrgRepoWebDavSyncAdapter~ 。无远端的仓库不读取 Asset Store。凭据缺失、格式无效或已被撤销时，构造对应 adapter 失败并返回可显示的配置错误，不触发网络同步。
+
+根目录、用户名和密码是宿主运行时输入，不能写入 core 的 ~OrgRepoSyncRecord~ 或 ~OrgRepoSyncFileRecord~ 。 ~OrgRepoRemoteWebDav~ 只保留 ~baseUrl~ ，不承担认证字段。
 
 * 持久化职责
 
 | 数据 | 所有者 | 保存位置 | 内容与限制 |
 |-
 | 用户配置 | Harmony | Preferences 的 ~org_tasks_config~ | ~HarmonyAppConfig~ ；不保存密码、同步历史或完整文件。 |
-| WebDAV 密码 | Harmony | Asset Store | 每个 ~sourceId~ 独立秘密记录。 |
-| 数据源同步状态 | core | ~context.filesDir/org-tasks-core/~ | 按 ~sourceId~ 分区的 ~OrgFileRecord~ 、 ~SyncRun~ 、 ~SourceSyncState~ 、outbox 与冲突；不保存绝对目录和凭据。 |
-| 日历映射 | Harmony，后续可迁入 core | Preferences 的 ~calendar_sync_state~ | 任务 ID、日历事件 ID 和指纹；不得与用户配置混写。 |
-| WebDAV 缓存与旧 outbox | Harmony 旧实现 | ~context.filesDir/org-tasks-webdav/~ | 仅为迁移前兼容路径；数据源 SDK 落地后应按 ~sourceId~ 迁移或受控清理。 |
+| WebDAV 密码 | Harmony | Asset Store | 每个 ~repoId~ 独立秘密记录。 |
+| 仓库同步记录 | core | ~context.filesDir/org-tasks-core/~ | 按 ~repoId~ 分区的 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ；不保存绝对目录、凭据或完整 org 内容。 |
+| 日历映射 | Harmony | Preferences 的 ~calendar_sync_state~ | entry ID、日历事件 ID 和指纹；不得与用户配置混写。 |
+| WebDAV 缓存与旧写入队列 | Harmony 旧实现 | ~context.filesDir/org-tasks-webdav/~ | 仅为迁移前兼容路径；新模型由宿主按仓库受控迁移或清理。 |
 
-~lastSyncTime~ 不是配置。新 SDK 上线后，首页和后台状态必须从指定数据源的 ~SyncRun~ 历史读取，而不是写入 Preferences。
+~lastSyncTime~ 不是配置。首页和后台状态应从指定 ~repoId~ 的 ~OrgRepoSyncRecord~ 历史读取，而不是写入 Preferences。
 
 * 设置、更新与删除
 
-设置页面编辑 ~HarmonyAppConfig~ 的草稿，不得在字段变化时直接重配已运行的 SDK。保存成功后，应用在下一次同步前根据完整配置重建 SDK；正在执行同步的数据源必须先完成、取消或被标记为中断。
+设置页面编辑 ~HarmonyAppConfig~ 草稿，不得在字段变化时直接重配已运行的 service。保存成功后，应用在下一次解析或同步前根据完整配置重建 workspace。活动同步的取消、等待或中断标记由 Harmony 运行时决定，不进入 core 数据结构。
 
-新增数据源按以下顺序执行：生成 ~sourceId~ 、校验本地目录和远端地址、写入可选秘密、写入 Preferences、在下一次构造注册数据源。更新数据源保留 ~sourceId~ ；改变本地目录或远端地址不会改变既有同步历史的归属。删除数据源时先阻止活动同步，再删除 Preferences 条目和对应 Asset Store 秘密；core 历史保留或清除必须由用户明确选择，默认保留以便诊断。
+新增仓库按以下顺序执行：生成 ~repoId~ 、校验根目录和远端地址、写入可选秘密、写入 Preferences、在下一次构造注册仓库。更新仓库保留 ~repoId~ ；改变根目录或远端地址不会改变既有同步历史的归属。删除仓库时先阻止活动同步，再删除 Preferences 条目和对应 Asset Store 秘密；core 历史保留或清除必须由用户明确选择，默认保留以便诊断。
 
 * 旧配置迁移
 
-当前应用的 v1 Preferences 使用 ~orgDir~ 、 ~inboxFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~webdavEnabled~ 、 ~webdavUrl~ 和 ~webdavUsername~ 等分散 key，密码使用固定别名 ~org-tasks.webdav.password.v1~ 。首次加载 v2 时，宿主创建一个稳定的默认 ~sourceId~ ，将本地目录和 inbox 映射为唯一数据源；当 ~webdavEnabled~ 为真时创建 ~remote.kind = webdav~ 并迁移密码至数据源别名。
+当前应用的 v1 Preferences 使用 ~orgDir~ 、 ~inboxFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~webdavEnabled~ 、 ~webdavUrl~ 和 ~webdavUsername~ 等分散 key，密码使用固定别名 ~org-tasks.webdav.password.v1~ 。v2 的 ~sources/sourceId/localDirectory~ 结构同样属于旧模型。
 
-迁移必须在 Preferences 完整写入并确认后标记 ~version = 2~ 。旧密码秘密在新秘密写入成功后删除；任何一步失败都保留旧配置和秘密以供下次重试。旧 WebDAV 缓存、待上传文件和 ~sync-state.json~ 不能自动归属到新数据源，必须由迁移向导显式确认、重新同步或清理。
+首次加载 v3 时，宿主创建一个稳定的默认 ~repoId~ ，将本地目录和 inbox 映射为唯一仓库；当旧 WebDAV 开关为真时创建 ~remote.kind = webdav~ 并迁移密码至仓库别名。旧同步记录、缓存、待上传文件和 ~sync-state.json~ 不能自动归属到新仓库，必须由迁移向导显式确认、重新同步或清理。
+
+迁移必须在 Preferences 完整写入并确认后标记 ~version = 3~ 。旧密码秘密在新秘密写入成功后删除；任何一步失败都保留旧配置和秘密以供下次重试。
 
 * 验收标准
 
-- 两个数据源可拥有独立目录、WebDAV 地址、用户名、密码与 core 同步历史。
+- 两个仓库可拥有独立根目录、WebDAV 地址、用户名、密码与 core 同步历史。
 - Preferences 导出内容不包含密码、令牌、绝对 core 数据路径或同步结果。
-- 重新构造 SDK 时，同一 ~sourceId~ 能恢复其历史；修改地址或目录不会创建新的历史分区。
-- 删除数据源不会影响其他数据源的凭据和记录。
-- v1 到 v2 的迁移在任意失败点重启后都不会丢失唯一一份可用配置或密码。
+- 重建 workspace 时，同一 ~repoId~ 能查询其历史；修改地址或目录不会创建新的历史分区。
+- 删除仓库不会影响其他仓库的凭据和记录。
+- v1、v2 到 v3 的迁移在任意失败点重启后都不会丢失唯一一份可用配置或密码。

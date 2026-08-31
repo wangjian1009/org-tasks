@@ -103,7 +103,7 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvCoreStore>~ 由服�
 | ~POST~ | ~/v1/sync-jobs~ | 已有 ~HttpApi~ 映射。 |
 | ~GET~ | ~/v1/sync-jobs/{id}~ | 已有 ~HttpApi~ 映射。 |
 
-上表是当前 ~HttpApi~ 的兼容路由，仍使用旧的全局作业模型。以数据源为中心的异步同步接口见 [[file:../core/核心服务 API.org][核心同步 SDK API]]；迁移后 HTTP 宿主应将构造期注册的数据源和 SDK 查询接口映射为资源，但不得让 HTTP 路由反向成为 core 的依赖。
+上表是当前 ~HttpApi~ 的兼容路由，仍使用旧的全局作业模型。以仓库为中心的异步同步接口见 [[file:../core/接口文档.org][接口文档]]；迁移后 HTTP 宿主应将构造期注册的仓库和查询接口映射为资源，但不得让 HTTP 路由反向成为 core 的依赖。
 
 * 验收标准
 
