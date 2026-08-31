@@ -14,7 +14,7 @@ const MAX_RECORDS: usize = 100_000;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct PersistedState {
-    records: BTreeMap<String, OrgRepoSyncRecord>,
+    records: BTreeMap<OrgRepoId, BTreeMap<String, OrgRepoSyncRecord>>,
 }
 
 /// 使用 HarmonyOS 应用私有目录保存已完成仓库同步记录。
@@ -40,7 +40,7 @@ impl FileOrgRepoSyncRecordStore {
         } else {
             PersistedState::default()
         };
-        if state.records.len() > MAX_RECORDS {
+        if state.records.values().map(BTreeMap::len).sum::<usize>() > MAX_RECORDS {
             return Err(CoreError::InvalidState("同步记录数量超过允许上限"));
         }
         Ok(Self { state_path, state })
@@ -65,22 +65,27 @@ impl FileOrgRepoSyncRecordStore {
 impl OrgRepoSyncRecordStore for FileOrgRepoSyncRecordStore {
     fn append(
         &mut self,
+        repo_id: &OrgRepoId,
         record: OrgRepoSyncRecord,
     ) -> impl Future<Output = Result<(), CoreError>> + Send {
         let result = (|| {
             if record.finished_at.is_none() || record.result.is_none() {
                 return Err(CoreError::InvalidState("持久化的同步记录必须已经完成"));
             }
-            if self.state.records.len() >= MAX_RECORDS
-                && !self.state.records.contains_key(&record.id)
+            let records = self.state.records.get(repo_id);
+            if records.is_some_and(|records| records.len() >= MAX_RECORDS)
+                && !records.is_some_and(|records| records.contains_key(&record.id))
             {
                 return Err(CoreError::InvalidState("同步记录数量超过允许上限"));
             }
-            if self.state.records.contains_key(&record.id) {
+            if records.is_some_and(|records| records.contains_key(&record.id)) {
                 return Err(CoreError::InvalidState("同步记录 ID 已存在"));
             }
             let mut next = self.state.clone();
-            next.records.insert(record.id.clone(), record);
+            next.records
+                .entry(repo_id.clone())
+                .or_default()
+                .insert(record.id.clone(), record);
             self.persist(&next)?;
             self.state = next;
             Ok(())
@@ -96,8 +101,9 @@ impl OrgRepoSyncRecordStore for FileOrgRepoSyncRecordStore {
         let mut records = self
             .state
             .records
-            .values()
-            .filter(|record| &record.repo_id == repo_id)
+            .get(repo_id)
+            .into_iter()
+            .flat_map(|records| records.values())
             .cloned()
             .collect::<Vec<_>>();
         records.sort_by(|left, right| right.started_at.cmp(&left.started_at));

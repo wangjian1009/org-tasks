@@ -14,7 +14,7 @@ const MAX_RECORDS: usize = 100_000;
 
 #[derive(Clone, Default)]
 struct CsvState {
-    records: BTreeMap<String, OrgRepoSyncRecord>,
+    records: BTreeMap<OrgRepoId, BTreeMap<String, OrgRepoSyncRecord>>,
 }
 
 /// 以 generation CSV 快照保存已完成的仓库同步记录。
@@ -84,20 +84,32 @@ impl CsvOrgRepoSyncRecordStore {
 impl OrgRepoSyncRecordStore for CsvOrgRepoSyncRecordStore {
     fn append(
         &mut self,
+        repo_id: &OrgRepoId,
         record: OrgRepoSyncRecord,
     ) -> impl Future<Output = Result<(), CoreError>> + Send {
         let result = (|| {
             if record.finished_at.is_none() || record.result.is_none() {
                 return Err(CoreError::InvalidState("持久化的同步记录必须已经完成"));
             }
-            if self.state.records.contains_key(&record.id) {
+            let records = self.state.records.get(repo_id);
+            if records.is_some_and(|records| records.contains_key(&record.id)) {
                 return Err(CoreError::InvalidState("同步记录 ID 已存在"));
             }
-            if self.state.records.len() >= MAX_RECORDS {
+            if self
+                .state
+                .records
+                .values()
+                .map(BTreeMap::len)
+                .sum::<usize>()
+                >= MAX_RECORDS
+            {
                 return Err(CoreError::InvalidState("同步记录数量超过允许上限"));
             }
             let mut next = self.state.clone();
-            next.records.insert(record.id.clone(), record);
+            next.records
+                .entry(repo_id.clone())
+                .or_default()
+                .insert(record.id.clone(), record);
             self.persist(next)
         })();
         async move { result }
@@ -111,8 +123,9 @@ impl OrgRepoSyncRecordStore for CsvOrgRepoSyncRecordStore {
         let mut records = self
             .state
             .records
-            .values()
-            .filter(|record| &record.repo_id == repo_id)
+            .get(repo_id)
+            .into_iter()
+            .flat_map(|records| records.values())
             .cloned()
             .collect::<Vec<_>>();
         records.sort_by(|left, right| right.started_at.cmp(&left.started_at));
@@ -162,21 +175,34 @@ fn read_snapshot(root: &Path, generation: u64) -> Result<CsvState, CoreError> {
     let mut state = CsvState::default();
     for row in reader.records() {
         let row = row.map_err(|error| store_error(format!("同步记录 CSV 格式无效: {error}")))?;
-        let id = row
+        let repo_id = row
             .get(0)
+            .ok_or(CoreError::InvalidState("同步记录 CSV 缺少仓库 ID"))?;
+        let id = row
+            .get(1)
             .ok_or(CoreError::InvalidState("同步记录 CSV 缺少 ID"))?;
         let payload = row
-            .get(1)
+            .get(2)
             .ok_or(CoreError::InvalidState("同步记录 CSV 缺少内容"))?;
         let record: OrgRepoSyncRecord = serde_json::from_str(payload)
             .map_err(|error| CoreError::Store(format!("同步记录 JSON 格式无效: {error}")))?;
-        if id != record.id || record.finished_at.is_none() || record.result.is_none() {
+        if repo_id.is_empty()
+            || id != record.id
+            || record.finished_at.is_none()
+            || record.result.is_none()
+        {
             return Err(CoreError::InvalidState("同步记录 CSV 内容无效"));
         }
-        if state.records.insert(record.id.clone(), record).is_some() {
+        if state
+            .records
+            .entry(repo_id.into())
+            .or_default()
+            .insert(record.id.clone(), record)
+            .is_some()
+        {
             return Err(CoreError::InvalidState("同步记录 CSV 包含重复 ID"));
         }
-        if state.records.len() > MAX_RECORDS {
+        if state.records.values().map(BTreeMap::len).sum::<usize>() > MAX_RECORDS {
             return Err(CoreError::InvalidState("同步记录数量超过允许上限"));
         }
     }
@@ -185,19 +211,21 @@ fn read_snapshot(root: &Path, generation: u64) -> Result<CsvState, CoreError> {
 
 fn write_records(
     path: &Path,
-    records: &BTreeMap<String, OrgRepoSyncRecord>,
+    records: &BTreeMap<OrgRepoId, BTreeMap<String, OrgRepoSyncRecord>>,
 ) -> Result<(), CoreError> {
     let mut writer = Writer::from_path(path)
         .map_err(|error| store_error(format!("无法创建同步记录 CSV: {error}")))?;
     writer
-        .write_record(["id", "record_json"])
+        .write_record(["repo_id", "id", "record_json"])
         .map_err(|error| store_error(format!("无法写入同步记录 CSV 表头: {error}")))?;
-    for record in records.values() {
-        let payload = serde_json::to_string(record)
-            .map_err(|error| CoreError::Store(format!("无法编码同步记录 JSON: {error}")))?;
-        writer
-            .write_record([record.id.as_str(), payload.as_str()])
-            .map_err(|error| store_error(format!("无法写入同步记录 CSV: {error}")))?;
+    for (repo_id, repo_records) in records {
+        for record in repo_records.values() {
+            let payload = serde_json::to_string(record)
+                .map_err(|error| CoreError::Store(format!("无法编码同步记录 JSON: {error}")))?;
+            writer
+                .write_record([repo_id.as_str(), record.id.as_str(), payload.as_str()])
+                .map_err(|error| store_error(format!("无法写入同步记录 CSV: {error}")))?;
+        }
     }
     writer
         .flush()

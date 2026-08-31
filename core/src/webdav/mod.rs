@@ -125,11 +125,8 @@ where
         repo: &mut OrgRepo,
         started_at: TimestampMs,
     ) -> Result<OrgRepoSyncRecord, CoreError> {
-        let mut record = OrgRepoSyncRecord::new(
-            format!("webdav-{}-{started_at}", repo.id),
-            repo.id.clone(),
-            started_at,
-        )?;
+        let mut record =
+            OrgRepoSyncRecord::new(format!("webdav-{}-{started_at}", repo.id), started_at)?;
         let remote_files = match self.transport.list(&self.endpoint).await {
             Ok(files) => files,
             Err(_) => {
@@ -335,29 +332,25 @@ where
 }
 
 fn success_record(
-    repo: &OrgRepo,
+    _repo: &OrgRepo,
     path: String,
     action: OrgRepoSyncFileAction,
     local: LocalFileVersion,
     remote: RemoteFileVersion,
 ) -> Result<OrgRepoSyncFileRecord, CoreError> {
-    Ok(OrgRepoSyncFileRecord::new(
-        repo.id.clone(),
-        path,
-        action,
-        OrgRepoSyncFileState::Synchronized,
-    )?
-    .with_versions(Some(local), Some(remote)))
+    Ok(
+        OrgRepoSyncFileRecord::new(path, action, OrgRepoSyncFileState::Synchronized)?
+            .with_versions(Some(local), Some(remote)),
+    )
 }
 
 fn unchanged_record(
-    repo: &OrgRepo,
+    _repo: &OrgRepo,
     path: String,
     local: LocalFileVersion,
     remote: RemoteFileVersion,
 ) -> OrgRepoSyncFileRecord {
     OrgRepoSyncFileRecord::new(
-        repo.id.clone(),
         path,
         OrgRepoSyncFileAction::Unchanged,
         OrgRepoSyncFileState::Synchronized,
@@ -367,13 +360,12 @@ fn unchanged_record(
 }
 
 fn conflict_record(
-    repo: &OrgRepo,
+    _repo: &OrgRepo,
     path: String,
     local: OrgFile,
     remote: WebDavRemoteFile,
 ) -> OrgRepoSyncFileRecord {
     OrgRepoSyncFileRecord::new(
-        repo.id.clone(),
         path,
         OrgRepoSyncFileAction::Conflicted,
         OrgRepoSyncFileState::Conflict,
@@ -384,13 +376,12 @@ fn conflict_record(
 }
 
 fn remote_deleted_record(
-    repo: &OrgRepo,
+    _repo: &OrgRepo,
     path: String,
     local: OrgFile,
     baseline: OrgRepoSyncFileRecord,
 ) -> OrgRepoSyncFileRecord {
     OrgRepoSyncFileRecord::new(
-        repo.id.clone(),
         path,
         OrgRepoSyncFileAction::Skipped,
         OrgRepoSyncFileState::RemoteDeleted,
@@ -400,14 +391,13 @@ fn remote_deleted_record(
 }
 
 fn failed_record(
-    repo: &OrgRepo,
+    _repo: &OrgRepo,
     path: String,
     local: LocalFileVersion,
     remote: Option<RemoteFileVersion>,
     error: OrgRepoSyncErrorSummary,
 ) -> OrgRepoSyncFileRecord {
     OrgRepoSyncFileRecord::new(
-        repo.id.clone(),
         path,
         OrgRepoSyncFileAction::Skipped,
         OrgRepoSyncFileState::Failed,
@@ -632,11 +622,10 @@ mod tests {
             )
             .unwrap(),
         );
-        let mut previous = OrgRepoSyncRecord::new("previous".into(), repo.id.clone(), 0).unwrap();
+        let mut previous = OrgRepoSyncRecord::new("previous".into(), 0).unwrap();
         previous
             .append_file(
                 OrgRepoSyncFileRecord::new(
-                    repo.id.clone(),
                     "inbox.org".into(),
                     OrgRepoSyncFileAction::Uploaded,
                     OrgRepoSyncFileState::Synchronized,

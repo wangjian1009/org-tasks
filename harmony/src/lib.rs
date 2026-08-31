@@ -53,9 +53,9 @@ where
                 finished_at,
                 result,
             } => {
-                let mut record = OrgRepoSyncRecord::new(record_id, repo_id, started_at)?;
+                let mut record = OrgRepoSyncRecord::new(record_id, started_at)?;
                 record.finish(result, finished_at)?;
-                self.store.append(record.clone()).await?;
+                self.store.append(&repo_id, record.clone()).await?;
                 Ok(HarmonyResponse::SyncRecordStored(record))
             }
         }

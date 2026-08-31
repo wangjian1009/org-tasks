@@ -16,7 +16,7 @@
 
 * 范围与状态
 
-本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照与同步记录。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照与同步记录。仓库根目录内 ~.sync~ 的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
 
 ~OrgFile~ 、递归 ~OrgEntry~ 与 ~OrgElement~ 描述解析后的 org 内容树； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果。当前 ~core~ 已实现这些目标数据结构、保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
@@ -60,13 +60,11 @@
 \begin{umlpackage}[x=10.0,y=0]{Synchronization}
 \umlclass[x=0,y=0]{OrgRepoSyncRecord}{
   id: OrgRepoSyncRecordId \\
-  repo\_id: OrgRepoId \\
   result: Option\textless OrgRepoSyncResult\textgreater \\
   started\_at: TimestampMs \\
   finished\_at: Option\textless TimestampMs\textgreater
 }{}
 \umlclass[x=0,y=-3.6]{OrgRepoSyncFileRecord}{
-  repo\_id: OrgRepoId \\
   relative\_path: String \\
   action: OrgRepoSyncFileAction \\
   state: OrgRepoSyncFileState \\
@@ -200,7 +198,6 @@ pub struct SourcePosition {
 #+begin_src rust
 pub struct OrgRepoSyncRecord {
     pub id: OrgRepoSyncRecordId,
-    pub repo_id: OrgRepoId,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub result: Option<OrgRepoSyncResult>,
@@ -208,7 +205,6 @@ pub struct OrgRepoSyncRecord {
 }
 
 pub struct OrgRepoSyncFileRecord {
-    pub repo_id: OrgRepoId,
     pub relative_path: String,
     pub action: OrgRepoSyncFileAction,
     pub state: OrgRepoSyncFileState,
@@ -228,11 +224,11 @@ pub struct RemoteFileVersion {
 }
 #+end_src
 
-进行中的 ~OrgRepoSyncRecord.result~ 与 ~finishedAt~ 均为 ~None~ ；完成后必须同时设置它们。 ~OrgRepoSyncResult~ 取值为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。 ~OrgRepoSyncFileAction~ 取值为 ~Unchanged~ 、 ~Downloaded~ 、 ~Uploaded~ 、 ~Created~ 、 ~Deleted~ 、 ~Conflicted~ 或 ~Skipped~ 。 ~OrgRepoSyncFileState~ 表示最终文件状态，至少区分 ~Synchronized~ 、 ~LocalChanged~ 、 ~RemoteChanged~ 、 ~RemoteDeleted~ 、 ~Conflict~ 与 ~Failed~ 。错误摘要只包含分类、是否可重试和脱敏消息。
+进行中的 ~OrgRepoSyncRecord.result~ 与 ~finishedAt~ 均为 ~None~ ；完成后必须同时设置它们。记录及其文件记录不重复保存 ~repoId~ ，归属由包含它们的 ~OrgRepo~ 与其 ~.sync~ 目录表达。 ~OrgRepoSyncResult~ 取值为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。 ~OrgRepoSyncFileAction~ 取值为 ~Unchanged~ 、 ~Downloaded~ 、 ~Uploaded~ 、 ~Created~ 、 ~Deleted~ 、 ~Conflicted~ 或 ~Skipped~ 。 ~OrgRepoSyncFileState~ 表示最终文件状态，至少区分 ~Synchronized~ 、 ~LocalChanged~ 、 ~RemoteChanged~ 、 ~RemoteDeleted~ 、 ~Conflict~ 与 ~Failed~ 。错误摘要只包含分类、是否可重试和脱敏消息。
 
 * 持久化与运行时边界
 
-持久化层保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据；内容树可从文件重新生成，因此默认不持久化 ~OrgFile~ 、 ~OrgEntry~ 或 ~OrgElement~ 的完整内容。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
+持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。内容树可从文件重新生成，因此默认不持久化 ~OrgFile~ 、 ~OrgEntry~ 或 ~OrgElement~ 的完整内容。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
 
 ~OrgWorkspace~ 的构造、目录扫描、WebDAV HTTP 传输、认证、并发控制、进度通知、取消、重试与日历投影均由宿主或适配层负责。 ~core::webdav~ 负责基于传输结果作同步决策并更新仓库快照；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 

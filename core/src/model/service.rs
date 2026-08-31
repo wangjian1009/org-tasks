@@ -50,6 +50,7 @@ pub trait SyncPolicy: Send + Sync {
 pub trait OrgRepoSyncRecordStore: Send {
     fn append(
         &mut self,
+        repo_id: &OrgRepoId,
         record: OrgRepoSyncRecord,
     ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
@@ -102,7 +103,7 @@ impl OrgRepo {
         P: SyncPolicy,
     {
         let record = policy.synchronize(self, started_at).await?;
-        if record.repo_id != self.id || record.finished_at.is_none() || record.result.is_none() {
+        if record.finished_at.is_none() || record.result.is_none() {
             return Err(CoreError::InvalidState(
                 "同步策略必须返回当前仓库已完成的同步记录",
             ));
@@ -159,11 +160,11 @@ mod tests {
     impl SyncPolicy for CompletedSync {
         fn synchronize(
             &self,
-            repo: &mut OrgRepo,
+            _repo: &mut OrgRepo,
             started_at: TimestampMs,
         ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send {
-            let mut record = OrgRepoSyncRecord::new("sync-1".into(), repo.id.clone(), started_at)
-                .expect("记录应有效");
+            let mut record =
+                OrgRepoSyncRecord::new("sync-1".into(), started_at).expect("记录应有效");
             record
                 .finish(OrgRepoSyncResult::Succeeded, started_at + 1)
                 .expect("记录应完成");

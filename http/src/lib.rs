@@ -52,13 +52,7 @@ where
         };
         match (request.method, request.body) {
             (HttpMethod::Post, Some(HttpBody::SyncRecord(record))) => {
-                if record.repo_id != repo_id {
-                    return error_response(
-                        CoreError::InvalidInput("请求路径与同步记录仓库不一致"),
-                        400,
-                    );
-                }
-                match self.store.append(record.clone()).await {
+                match self.store.append(&repo_id, record.clone()).await {
                     Ok(()) => HttpResponse {
                         status: 201,
                         body: Some(HttpResponseBody::SyncRecord(record)),
@@ -122,15 +116,19 @@ mod tests {
 
     #[derive(Default)]
     struct MemoryStore {
-        records: BTreeMap<String, OrgRepoSyncRecord>,
+        records: BTreeMap<OrgRepoId, BTreeMap<String, OrgRepoSyncRecord>>,
     }
 
     impl OrgRepoSyncRecordStore for MemoryStore {
         fn append(
             &mut self,
+            repo_id: &OrgRepoId,
             record: OrgRepoSyncRecord,
         ) -> impl Future<Output = Result<(), CoreError>> + Send {
-            self.records.insert(record.id.clone(), record);
+            self.records
+                .entry(repo_id.clone())
+                .or_default()
+                .insert(record.id.clone(), record);
             async { Ok(()) }
         }
 
@@ -141,8 +139,9 @@ mod tests {
         ) -> impl Future<Output = Result<Vec<OrgRepoSyncRecord>, CoreError>> + Send {
             let mut records = self
                 .records
-                .values()
-                .filter(|record| &record.repo_id == repo_id)
+                .get(repo_id)
+                .into_iter()
+                .flat_map(|records| records.values())
                 .cloned()
                 .collect::<Vec<_>>();
             records.sort_by(|left, right| right.started_at.cmp(&left.started_at));
@@ -162,7 +161,7 @@ mod tests {
     }
 
     fn record(id: &str, started_at: TimestampMs) -> OrgRepoSyncRecord {
-        let mut record = OrgRepoSyncRecord::new(id.into(), "repo-1".into(), started_at).unwrap();
+        let mut record = OrgRepoSyncRecord::new(id.into(), started_at).unwrap();
         record
             .finish(OrgRepoSyncResult::Succeeded, started_at + 1)
             .unwrap();

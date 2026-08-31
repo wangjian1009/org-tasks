@@ -296,7 +296,6 @@ impl SourceRange {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrgRepoSyncRecord {
     pub id: OrgRepoSyncRecordId,
-    pub repo_id: OrgRepoId,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub result: Option<OrgRepoSyncResult>,
@@ -306,14 +305,11 @@ pub struct OrgRepoSyncRecord {
 impl OrgRepoSyncRecord {
     pub fn new(
         id: OrgRepoSyncRecordId,
-        repo_id: OrgRepoId,
         started_at: TimestampMs,
     ) -> Result<Self, OrgRepoSyncRecordError> {
         validate_id(&id, "同步记录 ID 不能为空")?;
-        validate_id(&repo_id, "同步记录仓库 ID 不能为空")?;
         Ok(Self {
             id,
-            repo_id,
             started_at,
             finished_at: None,
             result: None,
@@ -327,9 +323,6 @@ impl OrgRepoSyncRecord {
     ) -> Result<(), OrgRepoSyncRecordError> {
         if self.finished_at.is_some() {
             return Err(CoreError::InvalidState("已完成的同步记录不能追加文件结果"));
-        }
-        if file.repo_id != self.repo_id {
-            return Err(CoreError::InvalidInput("同步文件记录必须属于同一仓库"));
         }
         self.files.push(file);
         Ok(())
@@ -362,7 +355,6 @@ pub enum OrgRepoSyncResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrgRepoSyncFileRecord {
-    pub repo_id: OrgRepoId,
     pub relative_path: String,
     pub action: OrgRepoSyncFileAction,
     pub state: OrgRepoSyncFileState,
@@ -373,15 +365,12 @@ pub struct OrgRepoSyncFileRecord {
 
 impl OrgRepoSyncFileRecord {
     pub fn new(
-        repo_id: OrgRepoId,
         relative_path: String,
         action: OrgRepoSyncFileAction,
         state: OrgRepoSyncFileState,
     ) -> Result<Self, OrgRepoSyncFileRecordError> {
-        validate_id(&repo_id, "同步文件记录仓库 ID 不能为空")?;
         validate_relative_path(&relative_path)?;
         Ok(Self {
-            repo_id,
             relative_path,
             action,
             state,
@@ -736,20 +725,39 @@ mod tests {
     }
 
     #[test]
-    fn sync_record_enforces_ownership_and_terminal_state() {
-        let mut record = OrgRepoSyncRecord::new("sync-1".into(), "repo-1".into(), 10).unwrap();
-        let wrong_repo = OrgRepoSyncFileRecord::new(
-            "repo-2".into(),
+    fn sync_record_enforces_terminal_state() {
+        let mut record = OrgRepoSyncRecord::new("sync-1".into(), 10).unwrap();
+        let file = OrgRepoSyncFileRecord::new(
             "inbox.org".into(),
             OrgRepoSyncFileAction::Uploaded,
             OrgRepoSyncFileState::Synchronized,
         )
         .unwrap();
-        assert!(record.append_file(wrong_repo).is_err());
+        assert!(record.append_file(file).is_ok());
 
         record.finish(OrgRepoSyncResult::Succeeded, 11).unwrap();
         assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
         assert!(record.finish(OrgRepoSyncResult::Failed, 12).is_err());
+    }
+
+    #[test]
+    fn sync_record_json_does_not_repeat_repository_identity() {
+        let mut record = OrgRepoSyncRecord::new("sync-1".into(), 10).unwrap();
+        record
+            .append_file(
+                OrgRepoSyncFileRecord::new(
+                    "inbox.org".into(),
+                    OrgRepoSyncFileAction::Uploaded,
+                    OrgRepoSyncFileState::Synchronized,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        record.finish(OrgRepoSyncResult::Succeeded, 11).unwrap();
+
+        let value = serde_json::to_value(record).unwrap();
+        assert!(value.get("repo_id").is_none());
+        assert!(value["files"][0].get("repo_id").is_none());
     }
 
     #[test]

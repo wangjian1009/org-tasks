@@ -88,7 +88,7 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvOrgRepoSyncRecordSto
       sync_records.csv
 #+end_src
 
-~sync_records.csv~ 保存完成的 ~OrgRepoSyncRecord~ 及其中的 ~OrgRepoSyncFileRecord~ ，按 ~repoId~ 查询；不保存基准目录、绝对路径、完整文件内容或凭据。旧的文件元数据、作业和 outbox CSV 快照不再读取或转换，使用旧数据时需清理后重新同步。 ~current.csv~ 是唯一的提交 manifest。写入顺序为：创建新的 generation 目录、写入并同步同步记录 CSV、原子替换 ~current.csv~ 。重启或 ~check~ 只读取 manifest 指向的 generation，因此未提交或残缺的快照不能对外可见。
+~sync_records.csv~ 以外层 ~repo_id~ 列与记录 ID 列分区保存完成的 ~OrgRepoSyncRecord~ 及其中的 ~OrgRepoSyncFileRecord~ ；嵌入的记录 JSON 不重复保存 ~repo_id~ 。它不保存基准目录、绝对路径、完整文件内容或凭据。旧的文件元数据、作业和 outbox CSV 快照不再读取或转换，使用旧数据时需清理后重新同步。 ~current.csv~ 是唯一的提交 manifest。写入顺序为：创建新的 generation 目录、写入并同步同步记录 CSV、原子替换 ~current.csv~ 。重启或 ~check~ 只读取 manifest 指向的 generation，因此未提交或残缺的快照不能对外可见。
 
 * HTTP 接口
 
@@ -97,7 +97,7 @@ HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvOrgRepoSyncRecordSto
 | 方法 | 路径 | 状态 |
 |-
 | ~GET~ | ~/healthz~ | 返回 ~200~ 与服务版本，不访问 CSV。 |
-| ~POST~ | ~/v1/repos/{repoId}/sync-records~ | 追加一个已完成的 ~OrgRepoSyncRecord~ 。 |
+| ~POST~ | ~/v1/repos/{repoId}/sync-records~ | 追加一个已完成的 ~OrgRepoSyncRecord~ ；仓库归属由路径表达，不在 JSON body 重复传递。 |
 | ~GET~ | ~/v1/repos/{repoId}/sync-records~ | 返回该仓库最新 100 条同步记录。 |
 
 HTTP 只接收并查询已完成的仓库同步记录，不承担目录扫描、WebDAV 调用或后台调度。以仓库为中心的接口见 [[file:../core/接口文档.org][接口文档]]；HTTP 路由不得反向成为 core 的依赖。

@@ -1,0 +1,123 @@
+#+TITLE: 目录结构设计
+#+EXPORT_FILE_NAME: ../../output/docs/core/目录结构设计
+#+STARTUP: show2levels hideblocks hidestars indent
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper]
+#+LATEX_HEADER: \usepackage{xeCJK}
+#+LATEX_HEADER: \usepackage{geometry}
+#+LATEX_HEADER: \setCJKmainfont{Microsoft YaHei}
+#+LATEX_HEADER: \geometry{a4paper,left=1cm,right=1cm,top=1cm,bottom=1cm}
+
+* 范围
+
+本文定义一个 ~OrgRepo~ 根目录内的文件布局，特别约定同步记录与仓库标识的持久化位置。核心数据结构及字段语义见 [[file:数据模型.org][数据模型]]，仓库加载和同步接口见 [[file:接口文档.org][接口文档]]，WebDAV 的文件决策见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]。
+
+~.sync~ 是本地控制目录，不是 org 内容的一部分，也不是 WebDAV 远端目录的一部分。它只保存可重新读取的仓库标识和已完成的同步元数据；不保存绝对路径、完整 org 文件、 ~OrgFile.sourceBytes~ 、远端完整 URL、密码、令牌、Authorization header、日志或运行时锁。
+
+* 仓库布局
+
+#+begin_example
+<OrgRepo.rootDirectory>/
+├── inbox.org
+├── projects/
+│   └── work.org
+└── .sync/
+    ├── id
+    ├── format-version
+    ├── records/
+    │   ├── 1788134400000.json
+    │   └── 1788134401200.json
+    └── tmp/
+#+end_example
+
+普通文件和目录是用户管理并参与同步的 org 仓库内容。 ~.sync~ 及其全部后代由本地同步记录存储拥有；应用不得把用户文件写入此目录，用户也不应手工修改其中内容。
+
+| 路径                              | 类型                | 内容与规则                                                                                                                                                      |
+|-----------------------------------+---------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ~.sync/~                          | 目录                | 每个本地 ~OrgRepo~ 唯一的控制目录。首次初始化时创建；目录不存在不视为错误。                                                                                     |
+| ~.sync/id~                        | 普通 UTF-8 文本文件 | 唯一内容为 ~OrgRepoId~ 和一个结尾换行。首次初始化时生成 UUID 并以原子写入创建；后续加载必须复用，不能因根目录移动、WebDAV 地址变更或重建 workspace 而生成新值。 |
+| ~.sync/format-version~            | 普通 ASCII 文本文件 | 唯一内容为布局格式版本和一个结尾换行。首版固定为 ~1~ 。读取到未知版本必须明确失败，不能猜测字段或覆盖现有目录。                                                 |
+| ~.sync/records/~                  | 目录                | 只包含一个已完成 ~OrgRepoSyncRecord~ 对应的 JSON 文件。目录不存在时按空历史处理，并在第一次成功保存记录时创建。                                                 |
+| ~.sync/records/<started-at>.json~ | UTF-8 JSON 文件     | ~<started-at>~ 是 JSON 中 ~started_at~ 的十进制 Unix 毫秒值，文件内容是一个完整、已完成的 ~OrgRepoSyncRecord~ 。仓库归属只由上层 ~.sync/id~ 表达。              |
+| ~.sync/tmp/~                      | 目录                | 原子提交前的同目录临时文件区。正常情况下为空；进程崩溃后的遗留临时文件可在下次初始化时删除，且绝不能作为记录读取。                                              |
+
+~records/~ 内不得存在索引、基准快照或完整文件副本。同步基准由历史记录中的相对路径、 ~LocalFileVersion~ 和 ~RemoteFileVersion~ 推导；读取记录时按文件名的 ~started_at~ 毫秒值降序排序。单个仓库不允许两个记录拥有相同的 ~started_at~ ，因此无需额外排序键。这样每份记录独立可校验，单个损坏文件不会使其他历史不可见。
+
+* 记录文件格式
+
+记录使用 core 数据模型的 JSON 表示，字段名称使用 Rust 的 ~snake_case~ 序列化名称。保存前必须确认 ~result~ 和 ~finished_at~ 均非空；进行中的记录、进度事件、重试状态和取消句柄不能写入磁盘。
+
+#+begin_src json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "started_at": 1788134400000,
+  "finished_at": 1788134401200,
+  "result": "Succeeded",
+  "files": [
+    {
+      "relative_path": "inbox.org",
+      "action": "Unchanged",
+      "state": "Synchronized",
+      "local_version": { "content_hash": "sha256:..." },
+      "remote_version": { "etag": "\"abc\"", "modified_at": 1788134300000, "size": 42 },
+      "error": null
+    }
+  ]
+}
+#+end_src
+
+记录内容的字段校验与 ~OrgRepoSyncRecord~ 保持一致，并额外满足以下文件系统约束：
+
+- 文件名必须是合法十进制 Unix 毫秒值加 ~.json~ 后缀，且其数值必须等于 JSON 的 ~started_at~ 。
+- JSON 不得出现 ~repo_id~ ；记录所属仓库由其位于 ~.sync/records/~ 以及该目录同级的 ~.sync/id~ 唯一表达。
+- 记录只可追加，已经提交的 ~.json~ 文件绝不原地修改或重命名。
+- 错误摘要必须脱敏；读取实现不得将损坏文件的原文写入日志。
+
+* 创建、读取与提交
+
+** 初始化
+
+~OrgRepo~ 的本地存储适配器在获得 ~rootDirectory~ 后按以下顺序初始化：创建 ~.sync/~ ，读取或原子创建 ~id~ ，读取或原子创建 ~format-version~ ，确认其为支持的版本，最后创建 ~records/~ 与 ~tmp/~ 。 ~id~ 与 ~format-version~ 任一文件为空、包含多行、不是合法值，或二者不能完成创建时，初始化必须失败并保留现场供诊断。
+
+仓库根目录本身由调用方负责存在性、权限和可写性校验。同步记录持久化只以当前根目录解析相对路径，绝不把该绝对根目录写入 ~.sync~ 。
+
+** 追加同步记录
+
+同步成功、失败、取消或中断后，只要产生了完整的 ~OrgRepoSyncRecord~ ，适配器即可追加它。提交顺序如下：
+
+1. 校验记录已完成，并确认 ~started_at~ 对应的目标文件尚不存在；仓库归属由当前 ~.sync~ 目录确定。
+2. 将完整 JSON 写入 ~.sync/tmp/<started-at>.<nonce>.json~ ，刷新该文件。
+3. 将临时文件原子重命名为 ~.sync/records/<started-at>.json~ ，再刷新 ~records/~ 目录；目标已存在时必须失败，不能覆盖或改用其他时间戳。
+
+临时文件与目标文件位于同一 ~.sync~ 文件系统中，才能保证重命名的原子性。若提交在重命名前失败，历史中没有该记录；若重命名已完成，即使目录刷新前进程终止，恢复逻辑也应把可完整解析且校验通过的目标文件视为已提交。
+
+** 读取与恢复
+
+读取时只枚举 ~records/~ 的常规 ~.json~ 文件，逐一解析并执行模型和文件名校验，包括文件名的毫秒值与 ~started_at~ 一致。 ~tmp/~ 中的内容、未知扩展名和子目录一律忽略。初始化可删除 ~tmp/~ 中残留文件，但不得删除任何 ~records/*.json~ 文件。
+
+单个记录文件为空、格式错误、字段不一致或重复 ID 时，读取操作必须返回明确的本地存储错误，不能静默跳过后继续同步。这样不会把不可信的版本基准用于 WebDAV 决策。只读场景可读取记录；追加记录需要 ~.sync~ 可写。
+
+* 扫描与同步隔离
+
+~OrgRepoLoader~ 扫描根目录时必须跳过 ~.sync/~ 整棵目录。 ~OrgRepo.files~ 中不得出现以 ~.sync/~ 开头的路径， ~OrgRepoParser~ 也不会收到这些文件。文件写入器应拒绝以 ~.sync/~ 开头的 org 相对路径，防止用户内容覆盖控制数据。
+
+~WebDavSyncPolicy~ 的远端列举、下载、上传、创建、移动和删除同样必须排除 ~.sync/~ 及其后代。它们不能产生 ~OrgRepoSyncFileRecord~ ，也不能作为本地或远端删除处理。这样本地设备的同步历史不会上传至服务器、不会在多个设备间互相覆盖，也不会被当作 org 内容。
+
+~.gitignore~、文件管理器隐藏规则或平台备份策略可以额外忽略 ~.sync/~ ，但它们只是便利措施，不能取代 loader 和同步策略的强制排除。
+
+* 生命周期与兼容性
+
+复制整个仓库目录会连同 ~.sync/id~ 一起复制，因此副本默认代表同一个逻辑仓库；需要独立仓库时，调用方应显式创建新的空根目录或在用户确认后移除整个 ~.sync~ 目录再初始化。不得只删除或替换 ~id~ ，否则既有同步记录会被错误归属到新仓库。
+
+当前实现不读取、不迁移应用私有目录、CSV 快照、旧 ~sync-state.json~ 或任何先前持久化格式。首次采用本布局的旧仓库需要由用户清理旧同步状态后重新同步。后续不兼容布局变更必须递增 ~format-version~ 并新增明确的迁移设计；未知版本始终保持只读失败。
+
+* 验收标准
+
+- 新仓库首次初始化后， ~.sync/id~ 是稳定 UUID， ~.sync/format-version~ 的内容为 ~1~ ，且不会生成完整 org 内容副本。
+- 一次完成的同步只新增一个 ~records/<started-at>.json~ 文件；文件名与 JSON 的 ~started_at~ 精确到毫秒一致，且未修改旧记录。
+- 进程在临时写入阶段中断后，残留文件仅位于 ~tmp/~ ，不会被读取为同步记录。
+- 改变仓库根目录、WebDAV 地址或重建 workspace 后，复用同一目录时仍读取同一 ~OrgRepoId~ 与同步历史。
+- loader、文件写入器与 WebDAV 策略均不会读取、写入或同步 ~.sync/~ 内容。
+- 持久化记录不含绝对路径、完整 org 内容、远端完整 URL、凭据或运行时调度状态。

@@ -192,7 +192,6 @@ impl SourceRange {
 impl OrgRepoSyncRecord {
     pub fn new(
         id: OrgRepoSyncRecordId,
-        repo_id: OrgRepoId,
         started_at: TimestampMs,
     ) -> Result<Self, OrgRepoSyncRecordError>;
 
@@ -209,7 +208,7 @@ impl OrgRepoSyncRecord {
 }
 #+end_src
 
-~new~ 创建进行中的记录，其 ~result~ 与 ~finishedAt~ 均为 ~None~ 。 ~append_file~ 只能加入同一 ~repoId~ 的记录。 ~finish~ 只能调用一次，并将结果固定为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。
+~new~ 创建进行中的记录，其 ~result~ 与 ~finishedAt~ 均为 ~None~ 。同步记录不包含 ~repoId~ ，归属由外层 ~OrgRepo~ 和持久化目录表达。 ~finish~ 只能调用一次，并将结果固定为 ~Succeeded~ 、 ~Failed~ 、 ~Cancelled~ 或 ~Interrupted~ 。
 
 *** OrgRepoSyncFileRecord
 
@@ -218,7 +217,6 @@ impl OrgRepoSyncRecord {
 #+begin_src rust
 impl OrgRepoSyncFileRecord {
     pub fn new(
-        repo_id: OrgRepoId,
         relative_path: String,
         action: OrgRepoSyncFileAction,
         state: OrgRepoSyncFileState,
@@ -321,7 +319,7 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 *** SyncPolicy 与 OrgRepoSyncRecordStore
 
-~SyncPolicy~ 是同步 I/O 端口， ~core::webdav::WebDavSyncPolicy~ 实现该 trait； ~OrgRepoSyncRecordStore~ 可将仓库已经接受的记录持久化。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
+~SyncPolicy~ 是同步 I/O 端口， ~core::webdav::WebDavSyncPolicy~ 实现该 trait； ~OrgRepoSyncRecordStore~ 可将仓库已经接受的记录持久化。面向本地 ~OrgRepo~ 的文件系统实现必须将记录追加到根目录内的 ~.sync/records/~ ，并从 ~.sync/id~ 读取仓库 ID；完整布局见 [[file:目录结构设计.org][目录结构设计]]。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
 #+begin_src rust
 pub trait SyncPolicy: Send + Sync {
@@ -335,6 +333,7 @@ pub trait SyncPolicy: Send + Sync {
 pub trait OrgRepoSyncRecordStore: Send {
     fn append(
         &mut self,
+        repo_id: &OrgRepoId,
         record: OrgRepoSyncRecord,
     ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
