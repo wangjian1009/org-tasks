@@ -4,109 +4,65 @@
 #+STARTUP: show2levels hideblocks hidestars indent
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
-#+LATEX_CLASS: article
-#+LATEX_CLASS_OPTIONS: [a4paper]
-#+LATEX_HEADER: \usepackage{xeCJK}
-#+LATEX_HEADER: \usepackage{geometry}
-#+LATEX_HEADER: \setCJKmainfont{Microsoft YaHei}
-#+LATEX_HEADER: \geometry{a4paper,left=1cm,right=1cm,top=1cm,bottom=1cm}
 :END:
 
 * 状态与边界
 
-本文定义 Rust HTTP 宿主的启动方式和运行边界。当前实现位于 ~http/src/bin/org-tasks-httpd.rs~ 与 ~http/src/server.rs~ ，并复用 ~HttpApi~ 和 ~CsvOrgRepoSyncRecordStore~ 。
+~org-tasks-httpd~ 是单仓库的 Web App 宿主。它读取命令行配置，打开 core 管理的本地 ~OrgRepo~ ，创建 ~WebDavSyncPolicy~ 并调用 core 的加载、启动、停止、进度与快照接口。HTTP 只提供页面和访问控制，不实现 org 解析、WebDAV 请求、文件同步决策、文件写回或同步记录生成。
 
-宿主二进制命名为 ~org-tasks-httpd~ ，归属 Cargo package ~org-tasks-http~ 。它负责命令行解析、网络监听、认证、优雅退出和日志； ~core~ 只保留领域模型、保真编辑和异步 ~OrgRepoSyncRecordStore~ 端口，不能依赖命令行、HTTP 或运行时库。
+完整本地仓库能力位于 ~core::model~ ，包括文件扫描和解析；完整 WebDAV 同步能力位于 ~core::webdav~ ，包括认证、 ~PROPFIND~ 、 ~GET~ 、条件 ~PUT~ 、冲突识别、下载文件落盘与同步记录生成。core 控制器持有当前 ~OrgRepo~ 、同步记录和运行状态；HTTP 只读取这些 core 数据以渲染页面。进程结束时，HTTP 不额外保存任何状态。
+
+服务只运行一个仓库，内部仓库 ID 由 core 管理，不是命令行参数。多仓库应启动多个服务进程。
 
 * 启动命令
 
-开发环境通过 Cargo 启动：
-
 #+begin_src sh
 cargo run -p org-tasks-http --bin org-tasks-httpd -- \
-  serve --data-dir ./var/org-tasks --listen 127.0.0.1:8787
+  serve \
+  --repo-dir ./org \
+  --webdav-url https://dav.example.com/org/ \
+  --webdav-username alice \
+  --webdav-password-file ./secrets/webdav-password
 #+end_src
-
-发布版直接执行：
-
-#+begin_src sh
-./target/release/org-tasks-httpd \
-  serve --data-dir /var/lib/org-tasks --listen 127.0.0.1:8787
-#+end_src
-
-~--data-dir~ 是必填参数。目录不存在时创建；打开已有目录时必须校验 ~current.csv~ 与其指向快照的完整性，校验失败则拒绝启动。
-
-* 命令与参数
 
 #+begin_src text
 org-tasks-httpd serve [OPTIONS]
-org-tasks-httpd check --data-dir <DIR>
+org-tasks-httpd check --repo-dir <DIR>
 #+end_src
 
-| 命令或参数 | 默认值 | 说明 |
+| 参数 | 默认值 | 传给 core 的值 | 说明 |
 |-
-| ~serve~ | 无 | 打开 CSV 仓储并启动 HTTP 服务。 |
-| ~check~ | 无 | 只校验 CSV 仓储，不监听端口、不修改数据。 |
-| ~--data-dir <DIR>~ | 无，必填 | CSV 数据目录。 |
-| ~--listen <IP:PORT>~ | ~127.0.0.1:8787~ | TCP 监听地址。 |
-| ~--shutdown-timeout-secs <N>~ | ~10~ | 收到退出信号后等待在途请求完成的最长秒数。 |
-| ~--log-level <LEVEL>~ | ~info~ | ~error~ 、 ~warn~ 、 ~info~ 、 ~debug~ 或 ~trace~ 。 |
-| ~--access-token-file <FILE>~ | 无 | Bearer Token 文件；令牌仅在进程内存中保留，不写入 CSV 或日志。 |
-| ~--allow-non-loopback~ | ~false~ | 明确允许绑定非回环地址。 |
+| ~--repo-dir <DIR>~ | 无，必填 | 仓库初始化根目录 | 已存在、可读写的本地 org 仓库。 |
+| ~--webdav-url <URL>~ | 无，必填 | ~WebDavSyncPolicy~ 端点 | WebDAV 根目录；只接受 ~https://~ 。 |
+| ~--webdav-username <NAME>~ | 无，必填 | ~WebDavSyncPolicy~ 认证配置 | Basic 用户名。 |
+| ~--webdav-password-file <FILE>~ | 无，必填 | ~WebDavSyncPolicy~ 认证配置 | 读取一行非空密码到内存；不支持直接传递密码。 |
+| ~--listen <IP:PORT>~ | ~127.0.0.1:8787~ | 无 | Web 界面监听地址。 |
+| ~--shutdown-timeout-secs <N>~ | ~10~ | 控制器关闭时限 | 等待正在停止的同步的最长秒数。 |
+| ~--log-level <LEVEL>~ | ~info~ | 无 | ~error~、~warn~、~info~、~debug~ 或 ~trace~ 。 |
+| ~--access-token-file <FILE>~ | 无 | 无 | 非回环 Web 访问的 Bearer Token。 |
+| ~--allow-non-loopback~ | ~false~ | 无 | 允许非回环监听；必须同时指定令牌文件。 |
 
-~--help~ 和 ~--version~ 由命令行框架提供。首版不提供 ~init~ ，因为 ~serve~ 与 ~check~ 均可通过 ~CsvOrgRepoSyncRecordStore::open~ 创建所需目录。
+~check~ 仅验证目录可供 core 初始化；它不读取密码、连接 WebDAV、写入文件或监听端口。
 
-* 网络与认证
+* 页面与操作
 
-默认只允许回环地址。监听地址不是 ~127.0.0.0/8~ 、 ~::1~ 或 Unix domain socket 时，必须同时提供 ~--allow-non-loopback~ 和 ~--access-token-file~ ；否则进程以配置错误退出。
+服务提供浏览器页面，不提供 RESTful API：
 
-启用令牌后，除 ~GET /healthz~ 外的请求必须携带 ~Authorization: Bearer <token>~ 。认证失败只返回 ~401~ ，日志不得输出请求头、令牌、密码、任务正文或 outbox 内容。
-
-首版不内置 TLS。需要局域网或公网访问时，宿主应只绑定到受控网络，并在前置反向代理中终止 TLS。令牌不是 TLS 的替代品。
-
-* 运行模型
-
-实现采用 ~tokio~ 、 ~axum~ 、 ~clap~ 与 ~tracing~ ，但这些依赖只能存在于 HTTP 宿主 crate，不能进入 ~core~ 。
-
-HTTP 前端可以并发接收连接，但单个 ~HttpApi<CsvOrgRepoSyncRecordStore>~ 由服务 actor 独占。每个请求先转换为 ~HttpRequest~ ，随后依次交给 actor 调用 ~HttpApi::handle~ ，避免并发写入导致内存状态与 CSV 快照不一致。CSV 文件 I/O 在 actor 内串行执行，不能占用网络请求的并发状态。
-
-收到 ~SIGINT~ 或 ~SIGTERM~ 后，服务停止接受新连接，等待在途请求至 ~--shutdown-timeout-secs~ ，再退出。每次领域写入已经在请求响应前提交新的 CSV 快照，因此不需要额外的进程退出 flush。
-
-首版不支持多个 ~org-tasks-httpd~ 进程共用同一 ~--data-dir~ 。启动时应创建排他锁文件；锁已被持有时以错误退出，避免两个进程分别生成快照版本。
-
-当前实现使用 ~<data-dir>/.org-tasks-httpd.lock~ 的操作系统排他锁；进程异常退出后锁会由操作系统释放，锁文件本身可以保留。
-
-* 数据目录
-
-~--data-dir~ 的布局由 ~CsvOrgRepoSyncRecordStore~ 定义：
-
-#+begin_src text
-<data-dir>/
-  current.csv
-  snapshots/
-    <generation>/
-      sync_records.csv
-#+end_src
-
-~sync_records.csv~ 以外层 ~repo_id~ 列与记录 ID 列分区保存完成的 ~OrgRepoSyncRecord~ 及其中的 ~OrgRepoSyncFileRecord~ ；嵌入的记录 JSON 不重复保存 ~repo_id~ 。它不保存基准目录、绝对路径、完整文件内容或凭据。旧的文件元数据、作业和 outbox CSV 快照不再读取或转换，使用旧数据时需清理后重新同步。 ~current.csv~ 是唯一的提交 manifest。写入顺序为：创建新的 generation 目录、写入并同步同步记录 CSV、原子替换 ~current.csv~ 。重启或 ~check~ 只读取 manifest 指向的 generation，因此未提交或残缺的快照不能对外可见。
-
-* HTTP 接口
-
-宿主将 JSON 请求映射至 ~HttpApi~ ，首版暴露以下资源，并额外提供不涉及领域状态的健康检查：
-
-| 方法 | 路径 | 状态 |
+| 方法 | 路径 | 行为 |
 |-
-| ~GET~ | ~/healthz~ | 返回 ~200~ 与服务版本，不访问 CSV。 |
-| ~POST~ | ~/v1/repos/{repoId}/sync-records~ | 追加一个已完成的 ~OrgRepoSyncRecord~ ；仓库归属由路径表达，不在 JSON body 重复传递。 |
-| ~GET~ | ~/v1/repos/{repoId}/sync-records~ | 返回该仓库最新 100 条同步记录。 |
+| ~GET~ | ~/~ | 渲染同步控制台，数据来自 core 当前快照。 |
+| ~POST~ | ~/sync/start~ | 调用 core 启动同步，随后重定向到控制台。 |
+| ~POST~ | ~/sync/stop~ | 调用 core 请求停止同步，随后重定向到控制台。 |
+| ~GET~ | ~/sync/events~ | 以 Server-Sent Events 推送 core 进度、运行状态和完成记录；不是领域 REST 资源。 |
+| ~GET~ | ~/healthz~ | 返回服务存活状态。 |
 
-HTTP 只接收并查询已完成的仓库同步记录，不承担目录扫描、WebDAV 调用或后台调度。以仓库为中心的接口见 [[file:../core/接口文档.org][接口文档]]；HTTP 路由不得反向成为 core 的依赖。
+页面显示仓库概览、当前状态、进度、最近一次同步记录及文件 action、state 和脱敏错误。同步运行时按钮状态由 core 快照决定；停止请求只调用 core 取消句柄，不由 HTTP 中断 WebDAV 请求或构造结果。
 
-* 验收标准
+* 安全与验收
 
-- ~serve --data-dir <DIR>~ 能创建目录、监听回环地址并调用现有 REST 路由。
-- 重启后从 ~current.csv~ 恢复相对路径文件同步元数据、作业历史和 outbox，且快照中不包含任务投影。
-- ~check~ 能在不修改目录的情况下报告 manifest 或 CSV 结构错误。
-- 非回环监听缺少显式确认或令牌文件时启动失败。
-- 同一数据目录的第二个进程启动失败。
-- ~SIGINT~ 、 ~SIGTERM~ 与请求中的持久化错误均具有自动化测试。
+密码和 Token 仅在 HTTP 宿主内存中读取后传入 core 初始化，不写入日志、页面、记录或请求 URL。非回环监听必须同时指定 ~--allow-non-loopback~ 和 ~--access-token-file~ ；除首页和健康检查外，页面操作必须携带 Bearer Token。
+
+- HTTP crate 不定义 WebDAV 传输、同步记录存储、缓存或 outbox。
+- core 能接收 policy 并完成启动、进度、停止和记录快照；HTTP 仅调用这些接口。
+- 用户可在网页启动同步、观察进度、请求停止，并查看 core 返回的完成结果。
+- ~check~ 与页面读取不产生 HTTP 自有持久化数据。

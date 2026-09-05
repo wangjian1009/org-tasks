@@ -32,18 +32,18 @@ org-tasks/
 ├── Makefile                          # 编译安装脚本
 ├── build-profile.json5               # 项目构建配置
 ├── Cargo.toml                         # Rust workspace 配置
-├── core/                              # 平台无关的 Rust 领域核心库
-├── harmony/                           # HarmonyOS FFI 与持久化适配 crate
-├── http/                              # Rust HTTP 服务可执行程序与适配 crate
+├── core/                              # 本地 OrgRepo 管理、解析与同步核心库
+├── harmony/                           # HarmonyOS 手机上的仓库维护能力
+├── http/                              # Rust Web App 宿主
 ├── entry/                             # HarmonyOS 应用模块，详见 entry/AGENTS.md
 ```
 
 ## Rust 架构决策
 
 - 仓库根目录是 Cargo workspace，成员为 `core`、`harmony` 和 `http`。
-- `core` 是独立的领域核心库，依赖方向只能是 `harmony -> core` 和 `http -> core`；禁止反向依赖或适配层之间的依赖。
-- `core` 不得依赖 ArkTS、N-API、HarmonyOS SDK、HTTP/网络库、数据库库或文件系统库。`core::model` 包含领域模型、保真编辑、校验、状态约束、同步记录与 `OrgRepoLoader`、`OrgRepoParser`、`SyncPolicy`、`OrgRepoSyncRecordStore` 等端口；`core::webdav` 包含基于 `WebDavTransport` 端口的同步决策与条件写入编排。
-- 新增领域能力时先修改 `core`，再由 `harmony` 和 `http` 分别适配；平台 I/O、具体 HTTP 客户端、认证、持久化实现与线程调度只能位于适配层或应用宿主。
+- `core` 是独立的本地仓库核心库，依赖方向只能是 `harmony -> core` 和 `http -> core`；禁止反向依赖或适配层之间的依赖。
+- `core::model` 负责 `OrgRepo` 的本地目录扫描、org 文件解析、保真编辑与同步记录数据维护；`core::webdav` 实现 `SyncPolicy`，负责 WebDAV 文件传输、下载写回、条件写入和同步记录生成。`SyncPolicy` 是后续接入其他同步方式的扩展点。
+- `core/src/bin/org-tasks/` 是操作本地 `OrgRepo` 的命令行程序，使用 Tokio 作为异步运行时。`core::model` 的加载与同步控制器、`core::webdav` 的文件与 HTTP I/O 均运行于 Tokio；`http` 只提供 Web App 操作入口；`harmony` 提供 HarmonyOS 手机上的仓库维护入口。新增仓库或同步能力时先修改 `core`，再由宿主接入。
 
 HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http/服务命令行设计.org`。修改该宿主前必须遵循该文档。
 

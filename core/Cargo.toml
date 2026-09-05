@@ -8,8 +8,15 @@ license.workspace = true
 name = "org_tasks_core"
 path = "src/lib.rs"
 
-[dependencies]
-serde = { version = "1", features = ["derive"] }
+[[bin]]
+name = "org-tasks"
+path = "src/bin/org-tasks/main.rs"
 
-[dev-dependencies]
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+getrandom = "0.4"
+quick-xml = "0.37"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "time"] }

@@ -14,31 +14,31 @@
 
 * 范围与状态
 
-本文定义围绕 ~OrgWorkspace~ 与 ~OrgRepo~ 的目标 core 接口。数据结构与源码保真规则见 [[file:数据模型.org][数据模型]]，WebDAV 协议语义见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]，Harmony 的配置与凭据边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
+本文定义围绕 ~OrgWorkspace~ 与 ~OrgRepo~ 的 core 接口。数据结构与源码保真规则见 [[file:数据模型.org][数据模型]]，WebDAV 协议语义见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]，Harmony 的配置与凭据边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-~core::model~ 包含核心数据、保真编辑、仓库加载、同步策略和同步记录存储端口； ~core::webdav~ 包含 WebDAV 的版本比较、下载、创建与条件更新编排。目录访问、HTTP 传输、认证、线程、重试、取消和进度通知仍由宿主适配层承担。
+~core::model~ 是本地仓库管理能力，直接扫描目录、解析 org 文件、维护文件快照和同步记录数据； ~core::webdav~ 是 ~SyncPolicy~ 的 WebDAV 实现，执行版本比较、下载、文件写回、创建与条件更新，并生成同步记录。CLI 使用 Tokio 作为异步入口，仓库加载、WebDAV I/O 与同步控制器任务均在该运行时执行；HTTP 和 Harmony 只负责选择和操作本地仓库；其他同步方式通过实现 ~SyncPolicy~ 接入。
 
 * 核心场景
 
 ** 初始化 Workspace
 
-宿主读取配置后构造稳定的仓库标识与根目录。WebDAV 地址和凭据由 ~SyncPolicy~ 的 WebDAV 实现持有，不进入 ~OrgRepo~ 。
+宿主读取配置后只构造仓库根目录。 ~OrgRepo.load~ 初始化时从 ~.sync/id~ 读取稳定仓库标识；文件缺失时由 core 生成 UUID 并持久化。WebDAV 地址和凭据由 ~SyncPolicy~ 的 WebDAV 实现持有，不进入 ~OrgRepo~ 。
 
 #+begin_src rust
-let workspace = OrgWorkspace::new(vec![
-    OrgRepo::new(repo_id, "/data/org".into())?,
-])?;
+let mut repo = OrgRepo::new("/data/org".into())?;
+repo.load().await?;
+let workspace = OrgWorkspace::new(vec![repo])?;
 #+end_src
 
-~OrgWorkspace::new~ 校验仓库 ID 的唯一性； ~OrgRepo::new~ 校验根目录。初始化不能扫描目录、请求 WebDAV、创建后台线程或写入同步记录。
+~OrgWorkspace::new~ 校验已加载仓库的 ID 唯一性； ~OrgRepo::new~ 只校验根目录。 ~load~ 才会扫描目录并读取或创建 ~.sync/id~ ；它不会请求 WebDAV、创建后台线程或写入同步记录。
 
 ** 解析、编辑并写回 org 文件
 
-调用方通过 ~OrgRepo.load~ 扫描目录，并让 parser 将每个源文件解析为 ~OrgFile~ 。随后用当前快照中的元素定位替换或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
+调用方通过 ~OrgRepo.load~ 扫描并解析目录中的 org 文件。随后用当前快照中的元素定位替换或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
 
 #+begin_src rust
 let repo = workspace.repos.iter_mut().find(|repo| repo.id == repo_id)?;
-repo.load(&directory_loader, &parser)?;
+repo.load().await?;
 let file = repo.files.iter_mut().find(|file| file.path == "inbox.org")?;
 
 apply_edit(
@@ -90,7 +90,7 @@ impl OrgWorkspace {
 
 #+begin_src rust
 impl OrgRepo {
-    pub fn new(id: OrgRepoId, root_directory: String) -> Result<Self, OrgRepoValidationError>;
+    pub fn new(root_directory: String) -> Result<Self, OrgRepoValidationError>;
 
     pub fn contains_path(&self, path: &str) -> bool;
 
@@ -98,8 +98,7 @@ impl OrgRepo {
 
     pub fn sync_records(&self) -> &[OrgRepoSyncRecord];
 
-    pub fn load<L, P>(&mut self, loader: &L, parser: &P) -> Result<&[OrgFile], CoreError>
-    where L: OrgRepoLoader, P: OrgRepoParser;
+    pub async fn load(&mut self) -> Result<&[OrgFile], CoreError>;
 
     pub async fn sync<P>(&mut self, policy: &P, started_at: TimestampMs)
         -> Result<OrgRepoSyncRecord, CoreError>
@@ -107,7 +106,7 @@ impl OrgRepo {
 }
 #+end_src
 
-~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 通过 loader 扫描根目录，替换仓库的完整文件快照；重复或越界路径必须失败。 ~sync~ 不直接执行网络 I/O，而是委托给策略并只追加归属本仓库的完成记录。
+~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 先读取或创建 ~.sync/id~ ，再扫描根目录、跳过 ~.sync/~ 并解析 org 文件，最后替换仓库的完整文件快照；重复或越界路径必须失败。首次加载生成的 UUID 必须写入带换行的 ~.sync/id~ ，后续加载同一根目录必须复用该值。 ~sync~ 委托给策略执行同步，并只追加归属本仓库的完成记录。
 
 *** OrgFile
 
@@ -254,30 +253,11 @@ impl RemoteFileVersion {
 
 ** 运行时端口
 
-*** OrgRepoLoader 与 OrgRepoParser
+*** 本地仓库加载与解析
 
-~OrgRepoLoader~ 是扫描仓库根目录的 I/O 端口；它只返回相对路径及原始字节。 ~OrgRepoParser~ 只解析一个源文件，不扫描目录、不访问文件系统、不写回文件或同步记录。
+~OrgRepo.load~ 是 core 的异步本地初始化操作。它先确保 ~.sync/~ 存在，读取合法的 ~.sync/id~ ；若文件不存在，则生成 UUID 并以独占创建、写入与刷新持久化。之后递归扫描根目录中的普通 ~.org~ 文件，跳过符号链接和 ~.sync/~ ，并以原始字节构造 ~OrgFile~ 。扫描到重复、越界或非法的相对路径时必须失败，不能部分替换文件快照。
 
-#+begin_src rust
-pub struct OrgRepoSourceFile {
-    pub path: String,
-    pub source_bytes: Vec<u8>,
-}
-
-pub trait OrgRepoLoader: Send + Sync {
-    fn scan(&self, root_directory: &str) -> Result<Vec<OrgRepoSourceFile>, CoreError>;
-}
-
-pub trait OrgRepoParser: Send + Sync {
-    fn parse_file(
-        &self,
-        repo_id: &OrgRepoId,
-        source: OrgRepoSourceFile,
-    ) -> Result<OrgFile, CoreError>;
-}
-#+end_src
-
-~OrgRepo.load~ 校验 loader 返回的路径与 parser 返回的 ~OrgFile.path~ 一致后，原子替换仓库的文件列表。解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。
+解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。WebDAV 下载获得的字节也必须复用相同的 core 解析规则，而不是在 WebDAV 模块中定义另一套内容模型。
 
 *** OrgFileEdit 与保真序列化
 
@@ -317,9 +297,9 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 ~apply_edit~ 必须拒绝过期范围、越界锚点和不属于指定 entry 的目标。它不得格式化、重新缩进、对齐表格、规范化换行、重排元素或重建未修改节点。插入或替换后，受影响元素及后续元素的 ~SourceRange~ 必须更新；未修改范围的字节必须保持不变。
 
-*** SyncPolicy 与 OrgRepoSyncRecordStore
+*** SyncPolicy 与本地同步历史
 
-~SyncPolicy~ 是同步 I/O 端口， ~core::webdav::WebDavSyncPolicy~ 实现该 trait； ~OrgRepoSyncRecordStore~ 可将仓库已经接受的记录持久化。面向本地 ~OrgRepo~ 的文件系统实现必须将记录追加到根目录内的 ~.sync/records/~ ，并从 ~.sync/id~ 读取仓库 ID；完整布局见 [[file:目录结构设计.org][目录结构设计]]。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
+~SyncPolicy~ 是同步策略接口， ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load~ 从 ~.sync/history/~ 恢复完成记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ ，再更新内存历史。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
 #+begin_src rust
 pub trait SyncPolicy: Send + Sync {
@@ -327,47 +307,47 @@ pub trait SyncPolicy: Send + Sync {
         &self,
         repo: &mut OrgRepo,
         started_at: TimestampMs,
+        cancellation: &SyncCancellation,
+        progress: &SyncProgressReporter,
     ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send;
 }
 
-pub trait OrgRepoSyncRecordStore: Send {
-    fn append(
-        &mut self,
-        repo_id: &OrgRepoId,
-        record: OrgRepoSyncRecord,
-    ) -> impl Future<Output = Result<(), CoreError>> + Send;
-
-    fn list(
-        &self,
-        repo_id: &OrgRepoId,
-        limit: usize,
-    ) -> impl Future<Output = Result<Vec<OrgRepoSyncRecord>, CoreError>> + Send;
-}
 #+end_src
 
 策略不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件内容写入同步记录或错误摘要。上传前必须使用 ~serialize_file~ 的完整字节，不能对未修改区域重新格式化。
 
-*** WebDavSyncPolicy 与 WebDavTransport
+*** OrgRepoSyncController
 
-~WebDavSyncPolicy~ 位于 ~core::webdav~ 。它用最近一次成功同步的本地哈希和远端版本作为基准，处理新建、下载、条件更新、冲突、远端删除和传输失败。 ~WebDavTransport~ 是唯一需要映射到 HTTP 的端口。
+~OrgRepoSyncController~ 在 core 内持有一个 ~OrgRepo~ 与启动时传入的 ~SyncPolicy~ 。它通过 Tokio task 执行一次同步，并以快照让 UI 宿主读取当前状态；HTTP、Harmony 等宿主不得自行维护同步状态或伪造完成记录。调用 ~start~ 的宿主必须运行在 Tokio runtime 中。
+
+#+begin_src rust
+let controller = OrgRepoSyncController::new(repo, policy);
+controller.start(started_at).await?;
+let snapshot = controller.snapshot();
+controller.cancel()?;
+#+end_src
+
+~start~ 在已有同步运行时返回错误。 ~cancel~ 仅设置 ~SyncCancellation~ ，策略在列举和文件边界检查该信号后以 ~Cancelled~ 完成当前记录。 ~snapshot~ 返回 ~Idle~ 、~Running~ 、~Cancelling~ 、~Succeeded~ 、~Failed~ 或 ~Cancelled~ ，以及阶段、已完成数量、总数、当前文件和最近完成记录。进度和取消句柄是运行时数据，不属于持久化记录。
+
+进度快照可附带本轮按发生顺序排列的脱敏 HTTP 事件，内容仅包含请求方法、相对路径或根路径，以及“请求中”或响应状态码。它用于 CLI 的 ~-v~ 输出，不属于同步记录，也不得包含完整 URL、认证材料或传输正文。
+
+*** WebDavSyncPolicy
+
+~WebDavSyncPolicy~ 位于 ~core::webdav~ 。它用最近一次成功同步的本地哈希和远端版本作为基准，处理新建、下载、条件更新、冲突、远端删除和传输失败，并直接持有 HTTPS Basic 认证配置与 HTTP client；HTTP 宿主不实现 WebDAV 端口。
+
+~WebDavSyncMonitor~ 是 WebDAV 同步的观察接口。通过 ~WebDavSyncPolicy.with_monitor~ 注入后，调用方可按顺序获得同步开始、列举、文件处理、HTTP 请求和响应、结束事件。事件只携带仓库 ID、相对路径、文件记录和 HTTP 状态，不含凭据、完整 URL、绝对路径或文件正文。
 
 #+begin_src rust
 let endpoint = WebDavEndpoint::new("https://dav.example.com/org/".into())?;
-let policy = WebDavSyncPolicy::new(endpoint, transport, parser);
+let policy = WebDavSyncPolicy::new(endpoint, username, password)?;
 let record = repo.sync(&policy, started_at).await?;
 
-pub trait WebDavTransport: Send + Sync {
-    fn list(&self, endpoint: &WebDavEndpoint)
-        -> impl Future<Output = Result<Vec<WebDavRemoteFile>, WebDavError>> + Send;
-    fn get(&self, endpoint: &WebDavEndpoint, path: &str)
-        -> impl Future<Output = Result<Vec<u8>, WebDavError>> + Send;
-    fn put(&self, endpoint: &WebDavEndpoint, path: &str, source_bytes: &[u8],
-        condition: WebDavPutCondition)
-        -> impl Future<Output = Result<RemoteFileVersion, WebDavError>> + Send;
+pub trait WebDavSyncMonitor: Send + Sync {
+    fn on_event(&self, event: WebDavSyncEvent);
 }
 #+end_src
 
-~list~ 映射 ~PROPFIND~ ， ~get~ 映射 ~GET~ ， ~put~ 的 ~CreateOnly~ 映射 ~If-None-Match: *~ ， ~Match~ 映射 ~If-Match~ 。传输实现不得把认证材料放入领域记录。
+策略内部的列举映射 ~PROPFIND~ ，下载映射 ~GET~ ，上传的 ~CreateOnly~ 映射 ~If-None-Match: *~ ， ~Match~ 映射 ~If-Match~ 。策略不得把认证材料放入领域记录。
 
 * 旧接口
 

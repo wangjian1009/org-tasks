@@ -54,13 +54,12 @@ pub struct OrgRepo {
 }
 
 impl OrgRepo {
-    pub fn new(id: OrgRepoId, root_directory: String) -> Result<Self, OrgRepoValidationError> {
-        validate_id(&id, "仓库 ID 不能为空")?;
+    pub fn new(root_directory: String) -> Result<Self, OrgRepoValidationError> {
         if root_directory.trim().is_empty() {
             return Err(CoreError::InvalidInput("仓库根目录不能为空"));
         }
         Ok(Self {
-            id,
+            id: String::new(),
             root_directory,
             files: Vec::new(),
             sync_records: Vec::new(),
@@ -629,7 +628,12 @@ mod tests {
 
     #[test]
     fn workspace_rejects_duplicate_repo_ids() {
-        let repo = OrgRepo::new("repo-1".into(), "/data/org".into()).unwrap();
+        let repo = OrgRepo {
+            id: "repo-1".into(),
+            root_directory: "/data/org".into(),
+            files: Vec::new(),
+            sync_records: Vec::new(),
+        };
         assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
     }
 

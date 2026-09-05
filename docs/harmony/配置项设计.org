@@ -14,7 +14,7 @@
 
 * 范围与边界
 
-本文定义 Harmony 宿主的配置、凭据与保存边界。Harmony 从 Preferences、安全存储和仓库根目录的 ~.sync/~ 构造一个 ~OrgWorkspace~ 及其 ~OrgRepo~ ；core 只接收仓库结构、解析内容树和按 ~repoId~ 归属的同步记录。核心模型见 [[file:../core/数据模型.org][数据模型]]，仓库 API 见 [[file:../core/接口文档.org][接口文档]]，本地控制目录见 [[file:../core/目录结构设计.org][目录结构设计]]。
+本文定义 Harmony 宿主的配置、凭据与保存边界。Harmony 从 Preferences 与安全存储取得仓库根目录和远端配置，再调用 core 打开并维护本地 ~OrgRepo~ 。core 负责 org 文件扫描和解析； ~core::webdav~ 负责同步文件写回与同步记录生成。核心模型见 [[file:../core/数据模型.org][数据模型]]，仓库 API 见 [[file:../core/接口文档.org][接口文档]]，本地控制目录见 [[file:../core/目录结构设计.org][目录结构设计]]。
 
 配置、凭据与持久化状态必须分离。密码、令牌和客户端证书不能写入 Preferences、core 同步记录、HTTP 请求日志、进度事件或错误摘要。 ~repoId~ 由仓库根目录的 ~.sync/id~ 持久化，是连接 Harmony 凭据与 core 同步历史的唯一稳定标识；Preferences 不得复制保存该值。
 
@@ -22,7 +22,7 @@
 
 * 配置模型
 
-目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ 。当前单仓库页面只保存根目录与远端配置；首次选定根目录时由本地存储适配器创建或读取 ~.sync/id~ ，扩展为 ~HarmonyAppConfig~ 前也不得复制该 ID。
+目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ 。当前单仓库页面只保存根目录与远端配置；首次加载根目录时由 ~OrgRepo.load~ 创建或读取 ~.sync/id~ ，扩展为 ~HarmonyAppConfig~ 前也不得复制该 ID。
 
 #+begin_src ts
 interface HarmonyAppConfig {
@@ -61,7 +61,7 @@ interface HarmonyWebDavConfig {
 
 每个 WebDAV 仓库的秘密以独立 Asset Store 记录保存，别名为 ~org-tasks.webdav.<repoId>.password.v1~ 。 ~repoId~ 必须先从 ~rootDirectory/.sync/id~ 读取或初始化后才能定位该别名。记录必须设置 ~DEVICE_FIRST_UNLOCKED~ 、持久化和覆盖语义，以支持已解锁后的后台同步。用户名、地址和密码更新时，密码先写入 Asset Store，再提交 Preferences 配置；若 Preferences 写入失败，宿主必须保留可重试的清理或恢复动作，不能把密码写回 Preferences。
 
-Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoConfig~ ，宿主先从 ~rootDirectory/.sync/id~ 取得 ~repoId~ ，再构造 ~OrgRepo { id, rootDirectory, files, syncRecords }~ ；存在 WebDAV 远端时再读取该 ~repoId~ 的凭据并创建 ~core::webdav::WebDavSyncPolicy~ 及其 ~WebDavTransport~ 实现。无远端的仓库不读取 Asset Store。控制目录缺失时可初始化；ID 或布局格式无效时，构造对应仓库失败并返回可显示的本地存储错误，不触发网络同步。
+Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoConfig~ ，宿主把根目录交给 core 打开本地 ~OrgRepo~ ，由 core 读取或初始化 ~rootDirectory/.sync/id~ 并加载文件快照；存在 WebDAV 远端时再读取该 ~repoId~ 的凭据并创建 ~core::webdav::WebDavSyncPolicy~ 。无远端的仓库不读取 Asset Store。控制目录缺失时可初始化；ID 或布局格式无效时，构造对应仓库失败并返回可显示的本地存储错误，不触发网络同步。
 
 根目录、WebDAV 地址、用户名和密码是宿主运行时输入，不能写入 core 的 ~OrgRepoSyncRecord~ 或 ~OrgRepoSyncFileRecord~ 。 ~OrgRepo~ 不承担远端地址或认证字段。
 
@@ -71,7 +71,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoC
 |-
 | 用户配置 | Harmony | Preferences 的 ~org_tasks_config~ | ~HarmonyAppConfig~ ；不保存密码、同步历史或完整文件。 |
 | WebDAV 密码 | Harmony | Asset Store | 每个 ~repoId~ 独立秘密记录。 |
-| 仓库同步记录与身份 | 仓库本地存储适配器 | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~records/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 。不保存绝对路径、凭据或完整 org 内容。 |
+| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 。不保存绝对路径、凭据或完整 org 内容。 |
 | 日历映射 | Harmony | Preferences 的 ~calendar_sync_state~ | entry ID、日历事件 ID 和指纹；不得与用户配置混写。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
