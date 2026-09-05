@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::{Local, TimeZone};
 use clap::{ArgAction, Args, Parser, Subcommand};
 use org_tasks_core::webdav::{WebDavEndpoint, WebDavSyncPolicy};
 use org_tasks_core::{
@@ -12,6 +13,8 @@ use org_tasks_core::{
 #[derive(Parser)]
 #[command(name = "org-tasks", version, about = "Org Tasks 命令行工具")]
 struct Cli {
+    #[arg(long, global = true)]
+    repo_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -19,6 +22,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Sync(SyncCommand),
+    History(HistoryCommand),
 }
 
 #[derive(Args)]
@@ -33,9 +37,24 @@ enum SyncTarget {
 }
 
 #[derive(Args)]
+struct HistoryCommand {
+    #[command(subcommand)]
+    target: HistoryTarget,
+}
+
+#[derive(Subcommand)]
+enum HistoryTarget {
+    List,
+    Show(HistoryShowArgs),
+}
+
+#[derive(Args)]
+struct HistoryShowArgs {
+    id: String,
+}
+
+#[derive(Args)]
 struct WebDavArgs {
-    #[arg(long)]
-    repo_dir: PathBuf,
     #[arg(long)]
     webdav_url: String,
     #[arg(long)]
@@ -49,32 +68,41 @@ struct WebDavArgs {
 }
 
 pub async fn run() -> Result<(), String> {
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    let repo_dir = cli
+        .repo_dir
+        .ok_or_else(|| "--repo-dir 是必填参数".to_string())?;
+    let repo = load_repo(repo_dir).await?;
+    match cli.command {
         Command::Sync(command) => match command.target {
-            SyncTarget::Webdav(args) => sync_webdav(args).await,
+            SyncTarget::Webdav(args) => sync_webdav(repo, args).await,
         },
+        Command::History(command) => history(repo, command),
     }
 }
 
-async fn sync_webdav(args: WebDavArgs) -> Result<(), String> {
-    if !args.repo_dir.is_dir() {
+async fn load_repo(repo_dir: PathBuf) -> Result<OrgRepo, String> {
+    if !repo_dir.is_dir() {
         return Err("--repo-dir 必须是已存在的目录".into());
     }
-    if !args.webdav_url.starts_with("https://") {
-        return Err("--webdav-url 必须使用 HTTPS".into());
-    }
-    let root_directory = args
-        .repo_dir
+    let root_directory = repo_dir
         .to_str()
         .ok_or_else(|| "--repo-dir 必须是 UTF-8 路径".to_string())?
         .to_owned();
+    let mut repo = OrgRepo::new(root_directory).map_err(|error| error.to_string())?;
+    repo.load().await.map_err(|error| error.to_string())?;
+    Ok(repo)
+}
+
+async fn sync_webdav(repo: OrgRepo, args: WebDavArgs) -> Result<(), String> {
+    if !args.webdav_url.starts_with("https://") {
+        return Err("--webdav-url 必须使用 HTTPS".into());
+    }
     let silent = args.silent;
     let verbose = args.verbose > 0;
     let endpoint = WebDavEndpoint::new(args.webdav_url).map_err(|error| error.to_string())?;
     let policy = WebDavSyncPolicy::new(endpoint, args.webdav_user, args.webdav_passwd)
         .map_err(|error| error.to_string())?;
-    let mut repo = OrgRepo::new(root_directory).map_err(|error| error.to_string())?;
-    repo.load().await.map_err(|error| error.to_string())?;
     if !silent {
         println!("同步开始: 本地文件={}。", repo.files().len());
     }
@@ -110,11 +138,121 @@ async fn sync_webdav(args: WebDavArgs) -> Result<(), String> {
     }
 }
 
+fn history(repo: OrgRepo, command: HistoryCommand) -> Result<(), String> {
+    match command.target {
+        HistoryTarget::List => {
+            if repo.sync_records().is_empty() {
+                println!("没有同步历史。");
+            } else {
+                for record in repo.sync_records() {
+                    let summary = summarize_files(record);
+                    println!(
+                        "{}  开始={}  耗时={}  结果={}  文件: 新增={} 修改={} 删除={} 不变={} 冲突={} 失败={}",
+                        record.id,
+                        format_timestamp(record.started_at),
+                        format_duration(record.finished_at.map(|value| value - record.started_at)),
+                        result_label(record),
+                        summary.added,
+                        summary.modified,
+                        summary.deleted,
+                        summary.unchanged,
+                        summary.conflicted,
+                        summary.failed,
+                    );
+                }
+            }
+            Ok(())
+        }
+        HistoryTarget::Show(args) => {
+            let record = repo
+                .sync_records()
+                .iter()
+                .find(|record| record.id == args.id)
+                .ok_or_else(|| format!("未找到同步历史: {}", args.id))?;
+            println!(
+                "历史记录: {}\n开始={}  耗时={}",
+                record.id,
+                format_timestamp(record.started_at),
+                format_duration(record.finished_at.map(|value| value - record.started_at)),
+            );
+            let summary = summarize_files(record);
+            println!(
+                "文件: 新增={} 修改={} 删除={} 不变={} 冲突={} 失败={}",
+                summary.added,
+                summary.modified,
+                summary.deleted,
+                summary.unchanged,
+                summary.conflicted,
+                summary.failed,
+            );
+            print_record(record, true);
+            Ok(())
+        }
+    }
+}
+
 fn timestamp_ms() -> Result<i64, String> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "系统时间早于 Unix epoch".to_string())?;
     i64::try_from(duration.as_millis()).map_err(|_| "当前时间超出支持范围".to_string())
+}
+
+#[derive(Default)]
+struct FileSummary {
+    added: usize,
+    modified: usize,
+    deleted: usize,
+    unchanged: usize,
+    conflicted: usize,
+    failed: usize,
+}
+
+fn summarize_files(record: &OrgRepoSyncRecord) -> FileSummary {
+    let mut summary = FileSummary::default();
+    for file in &record.files {
+        match file.state {
+            OrgRepoSyncFileState::Conflict => summary.conflicted += 1,
+            OrgRepoSyncFileState::Failed => summary.failed += 1,
+            OrgRepoSyncFileState::RemoteDeleted => summary.deleted += 1,
+            _ => match file.action {
+                OrgRepoSyncFileAction::Downloaded | OrgRepoSyncFileAction::Created => {
+                    summary.added += 1
+                }
+                OrgRepoSyncFileAction::Uploaded => summary.modified += 1,
+                OrgRepoSyncFileAction::Deleted => summary.deleted += 1,
+                OrgRepoSyncFileAction::Unchanged => summary.unchanged += 1,
+                OrgRepoSyncFileAction::Conflicted => summary.conflicted += 1,
+                OrgRepoSyncFileAction::Skipped => summary.failed += 1,
+            },
+        }
+    }
+    summary
+}
+
+fn format_timestamp(timestamp: i64) -> String {
+    Local
+        .timestamp_millis_opt(timestamp)
+        .single()
+        .map(|value| value.format("%Y-%m-%d %H:%M:%S%.3f %:z").to_string())
+        .unwrap_or_else(|| "未知".into())
+}
+
+fn format_duration(duration: Option<i64>) -> String {
+    let Some(milliseconds) = duration.filter(|value| *value >= 0) else {
+        return "未知".into();
+    };
+    if milliseconds < 1_000 {
+        format!("{milliseconds} ms")
+    } else if milliseconds < 60_000 {
+        format!("{:.1} s", milliseconds as f64 / 1_000.0)
+    } else {
+        format!(
+            "{} 分 {} 秒",
+            milliseconds / 60_000,
+            (milliseconds / 1_000) % 60
+        )
+    }
 }
 
 fn print_snapshot(
@@ -270,5 +408,53 @@ fn format_size(bytes: i64) -> String {
         format!("{:.1} KiB", bytes as f64 / KIB as f64)
     } else {
         format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_history_show_with_only_global_repository_parameter() {
+        let cli = Cli::try_parse_from([
+            "org-tasks",
+            "--repo-dir",
+            "./org",
+            "history",
+            "show",
+            "record-1",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::History(HistoryCommand {
+                target: HistoryTarget::Show(HistoryShowArgs { id })
+            }) if id == "record-1"
+        ));
+    }
+
+    #[test]
+    fn parses_webdav_parameters_only_for_webdav_sync() {
+        let cli = Cli::try_parse_from([
+            "org-tasks",
+            "--repo-dir",
+            "./org",
+            "sync",
+            "webdav",
+            "--webdav-url",
+            "https://dav.example.com/org/",
+            "--webdav-user",
+            "alice",
+            "--webdav-passwd",
+            "password",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCommand {
+                target: SyncTarget::Webdav(_)
+            })
+        ));
     }
 }

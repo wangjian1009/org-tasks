@@ -49,8 +49,8 @@ core crate 显式注册 ~org-tasks~ binary，其命令入口位于 ~core/src/bin
 
 #+begin_src sh
 cargo run -p org-tasks-core --bin org-tasks -- \
-  sync webdav \
   --repo-dir ./org \
+  sync webdav \
   --webdav-url https://dav.example.com/org/ \
   --webdav-user alice \
   --webdav-passwd "$WEBDAV_PASSWORD" \
@@ -58,6 +58,15 @@ cargo run -p org-tasks-core --bin org-tasks -- \
 #+end_src
 
 命令的 Tokio ~main~ 用参数构造 policy、异步加载本地仓库后启动 core 控制器，持续输出其状态、阶段、已完成数量、总数和当前路径。屏幕输出仅属于 CLI； ~core::webdav~ 不依赖命令行解析或输出 API。
+
+~--repo-dir~ 是 CLI 的全局仓库参数，所有子命令均使用它初始化 ~OrgRepo~ 。WebDAV 地址、用户名和密码只属于 ~sync webdav~ ，历史查询不会读取这些参数。
+
+#+begin_src sh
+org-tasks --repo-dir ./org history list
+org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
+#+end_src
+
+~history list~ 输出每条记录的 ID、本地格式的开始时间、耗时、结果，以及新增、修改、删除、不变、冲突和失败文件数。下载或创建计为新增，上传计为修改，删除或远端删除计为删除，~Unchanged~ 计为不变。 ~history show <id>~ 在这些摘要之外输出指定记录的逐文件 action、state、变化、大小、版本与脱敏错误摘要；不存在的 ID 必须以错误退出。
 
 ** 终端输出
 

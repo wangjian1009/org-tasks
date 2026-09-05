@@ -7,6 +7,7 @@ pub mod runtime;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
 
@@ -181,7 +182,7 @@ impl WebDavSyncPolicy {
             repo_id: repo.id.clone(),
         });
         if cancellation.is_cancelled() {
-            record.finish(OrgRepoSyncResult::Cancelled, started_at)?;
+            record.finish(OrgRepoSyncResult::Cancelled, finished_at()?)?;
             self.report(WebDavSyncEvent::Finished {
                 result: OrgRepoSyncResult::Cancelled,
                 files: 0,
@@ -202,7 +203,7 @@ impl WebDavSyncPolicy {
         {
             Ok(files) => files,
             Err(_) => {
-                record.finish(OrgRepoSyncResult::Failed, started_at)?;
+                record.finish(OrgRepoSyncResult::Failed, finished_at()?)?;
                 self.report(WebDavSyncEvent::Finished {
                     result: OrgRepoSyncResult::Failed,
                     files: 0,
@@ -231,7 +232,7 @@ impl WebDavSyncPolicy {
         let total = paths.len();
         for (index, path) in paths.into_iter().enumerate() {
             if cancellation.is_cancelled() {
-                record.finish(OrgRepoSyncResult::Cancelled, started_at)?;
+                record.finish(OrgRepoSyncResult::Cancelled, finished_at()?)?;
                 progress.report("Cancelled", index, total, None);
                 self.report(WebDavSyncEvent::Finished {
                     result: OrgRepoSyncResult::Cancelled,
@@ -290,7 +291,7 @@ impl WebDavSyncPolicy {
         } else {
             OrgRepoSyncResult::Succeeded
         };
-        record.finish(result, started_at)?;
+        record.finish(result, finished_at()?)?;
         progress.report("Finished", total, total, None);
         self.report(WebDavSyncEvent::Finished {
             result,
@@ -562,6 +563,13 @@ fn redact(message: &str) -> String {
     } else {
         value
     }
+}
+
+fn finished_at() -> Result<TimestampMs, CoreError> {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CoreError::InvalidState("系统时间早于 Unix epoch"))?;
+    i64::try_from(duration.as_millis()).map_err(|_| CoreError::InvalidState("当前时间超出支持范围"))
 }
 
 #[cfg(test)]

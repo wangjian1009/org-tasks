@@ -42,6 +42,7 @@
 | CORE-005 | HTTP 宿主 | 通过 ~org-tasks-httpd~ 提供健康检查及仓库同步记录的追加和查询。 | 已实现 | ~http/src/bin/org-tasks-httpd.rs~ 、 ~http/src/server.rs~ | 默认只监听回环地址；非回环监听必须显式允许并配置 Bearer Token。 |
 | CORE-006 | HTTP CSV 仓储 | 以 generation 快照持久化仓库同步记录。 | 已实现 | ~http/src/store.rs~ | 仅 ~current.csv~ 指向的完整快照可见； ~check~ 不修改数据目录。 |
 | CORE-007 | WebDAV 验证 CLI | 通过 ~org-tasks sync webdav~ 反复验证一个本地仓库与 WebDAV 端点的同步过程。 | 已实现 | ~core/src/bin/org-tasks/~ 、 ~core/src/webdav/~ | 默认输出阶段和逐文件 action/state、变化与大小； ~--silent~ 无正常输出； ~-v~ 显示脱敏 HTTP 概要与版本信息。 |
+| CORE-008 | 同步历史 CLI | 通过 ~history list~ 查询格式化时间、耗时和文件变化摘要，或通过 ~history show <id>~ 查询单条完整记录。 | 已实现 | ~core/src/bin/org-tasks/~ | ~--repo-dir~ 为全局仓库参数；历史查询不要求 WebDAV 参数；不存在的记录 ID 返回错误。 |
 
 * 规划中功能
 
