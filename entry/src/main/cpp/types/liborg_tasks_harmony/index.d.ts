@@ -7,3 +7,5 @@ export function recordSync(
   finishedAt: number,
   succeeded: boolean
 ): Promise<number>;
+
+export function executeCore(request: string): Promise<string>;

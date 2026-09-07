@@ -6,6 +6,8 @@
 extern "C" int32_t org_tasks_harmony_initialize(const char* data_dir);
 extern "C" int32_t org_tasks_harmony_record_sync(const char* repo_id, const char* record_id,
     int64_t started_at, int64_t finished_at, bool succeeded);
+extern "C" char* org_tasks_harmony_execute(const char* request);
+extern "C" void org_tasks_harmony_free_string(char* value);
 
 namespace {
 struct InitializeWork {
@@ -22,6 +24,13 @@ struct RecordSyncWork {
     int64_t finished_at = 0;
     bool succeeded = false;
     int32_t result = -2;
+    napi_deferred deferred = nullptr;
+    napi_async_work work = nullptr;
+};
+
+struct ExecuteCoreWork {
+    std::string request;
+    std::string response;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -86,6 +95,34 @@ void CompleteRecordSync(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<RecordSyncWork*>(data);
     ResolveOrReject(env, status, work->result, work->deferred, "Rust 同步记录服务未能保存同步结果");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+void ExecuteCore(napi_env, void* data)
+{
+    auto* work = static_cast<ExecuteCoreWork*>(data);
+    char* response = org_tasks_harmony_execute(work->request.c_str());
+    if (response != nullptr) {
+        work->response = response;
+        org_tasks_harmony_free_string(response);
+    }
+}
+
+void CompleteExecuteCore(napi_env env, napi_status status, void* data)
+{
+    auto* work = static_cast<ExecuteCoreWork*>(data);
+    if (status != napi_ok || work->response.empty()) {
+        napi_value text;
+        napi_create_string_utf8(env, "Rust core 请求失败", NAPI_AUTO_LENGTH, &text);
+        napi_value error;
+        napi_create_error(env, nullptr, text, &error);
+        napi_reject_deferred(env, work->deferred, error);
+    } else {
+        napi_value result;
+        napi_create_string_utf8(env, work->response.c_str(), work->response.size(), &result);
+        napi_resolve_deferred(env, work->deferred, result);
+    }
     napi_delete_async_work(env, work->work);
     delete work;
 }
@@ -169,6 +206,42 @@ napi_value RecordSync(napi_env env, napi_callback_info info)
     }
     return promise;
 }
+
+napi_value ExecuteCore(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 1) {
+        napi_throw_error(env, nullptr, "executeCore 需要 1 个参数");
+        return nullptr;
+    }
+    auto* work = new ExecuteCoreWork();
+    if (!ReadString(env, args[0], &work->request)) {
+        delete work;
+        napi_throw_error(env, nullptr, "executeCore 参数无效");
+        return nullptr;
+    }
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 executeCore Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksExecuteCore", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteCore, CompleteExecuteCore, work, &work->work) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Rust core 任务");
+        return nullptr;
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Rust core 任务");
+        return nullptr;
+    }
+    return promise;
+}
 } // namespace
 
 EXTERN_C_START
@@ -177,6 +250,7 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_property_descriptor descriptors[] = {
         {"initialize", nullptr, Initialize, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"recordSync", nullptr, RecordSync, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"executeCore", nullptr, ExecuteCore, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);
     return exports;

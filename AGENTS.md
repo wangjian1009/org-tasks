@@ -66,3 +66,4 @@ make deploy        # 编译 + 安装 + 启动
 make log           # 查看应用日志
 make devices       # 查看已连接设备
 ```
+- Rust bridge 位于与 `http` 平级的 `harmony` 模块，负责将 Harmony 宿主请求转换为对 `core` 已有 API 的调用，并处理 N-API 参数编组、异步边界、结果投影与资源释放。bridge 不得重写 `OrgRepo`、`SyncPolicy`、WebDAV 或 org 解析算法；新增领域规则与可复用数据结构仍须先定义在 `core`。

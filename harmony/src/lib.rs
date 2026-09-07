@@ -3,9 +3,10 @@
 //! C++ N-API bridge 在工作线程调用本 crate。目录扫描、WebDAV 与日历同步仍由
 //! ArkTS 宿主执行；Rust 只接收已完成的仓库同步结果并持久化其领域记录。
 
+mod bridge;
 mod store;
 
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, CString, c_char};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -145,6 +146,30 @@ pub extern "C" fn org_tasks_harmony_record_sync(
         }
     })();
     ffi_result_code(result)
+}
+
+/// 将 JSON 请求直接交给 Harmony bridge。
+///
+/// 此层不解析领域字段、不构造同步策略，也不保存业务状态；返回字符串须由
+/// ~org_tasks_harmony_free_string~ 释放。
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_execute(request: *const c_char) -> *mut c_char {
+    let result = (|| {
+        let response = bridge::execute_json(&read_c_string(request)?)?;
+        CString::new(response)
+            .map(CString::into_raw)
+            .map_err(|_| CoreError::InvalidState("Harmony bridge 响应包含空字符"))
+    })();
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
+    if !value.is_null() {
+        unsafe {
+            drop(CString::from_raw(value));
+        }
+    }
 }
 
 fn ffi_result_code(result: Result<(), CoreError>) -> i32 {
