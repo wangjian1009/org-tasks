@@ -243,9 +243,6 @@ pub fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 .collect::<Vec<_>>();
             ancestors.push((level, own_tags.clone()));
 
-            let Some(state) = headline.todo_keyword().map(|value| value.to_string()) else {
-                continue;
-            };
             let offset = u32::from(headline.start()) as usize;
             let (line, column) = source_position(file.source_bytes(), offset);
             let body = headline
@@ -264,7 +261,7 @@ pub fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 line,
                 column,
                 byte_offset: offset as u64,
-                state: Some(state),
+                state: headline.todo_keyword().map(|value| value.to_string()),
                 state_type: match headline.todo_type() {
                     Some(TodoType::Done) => FilterStateType::Done,
                     Some(TodoType::Todo) => FilterStateType::Todo,
@@ -275,9 +272,9 @@ pub fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 inherited_tags,
                 title: headline.title_raw().trim_end().to_owned(),
                 body,
-                scheduled: headline.scheduled().and_then(timestamp_to_date),
-                deadline: headline.deadline().and_then(timestamp_to_date),
-                closed: headline.closed().and_then(timestamp_to_date),
+                scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
+                deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
+                closed: planning_date(&headline, "CLOSED", headline.closed()),
                 created: None,
                 events,
             });
@@ -300,6 +297,41 @@ fn timestamp_to_date(timestamp: Timestamp) -> Option<FilterDate> {
     Some(FilterDate {
         date,
         active: timestamp.is_active(),
+    })
+}
+
+fn planning_date(
+    headline: &Headline,
+    keyword: &str,
+    timestamp: Option<Timestamp>,
+) -> Option<FilterDate> {
+    timestamp.and_then(timestamp_to_date).or_else(|| {
+        headline
+            .raw()
+            .lines()
+            .take_while(|line| {
+                line.chars()
+                    .take_while(|character| *character == '*')
+                    .count()
+                    <= headline.level()
+            })
+            .find_map(|line| parse_planning_line(line, keyword))
+    })
+}
+
+fn parse_planning_line(line: &str, keyword: &str) -> Option<FilterDate> {
+    let value = line
+        .trim_start()
+        .strip_prefix(&format!("{keyword}:"))?
+        .trim_start();
+    let opener = value.chars().next()?;
+    if opener != '<' && opener != '[' {
+        return None;
+    }
+    let date = NaiveDate::parse_from_str(value.get(1..11)?, "%Y-%m-%d").ok()?;
+    Some(FilterDate {
+        date,
+        active: opener == '<',
     })
 }
 
@@ -892,14 +924,14 @@ mod tests {
 
     #[test]
     fn filters_tasks_with_reference_state_tag_and_date_semantics() {
-        let file = OrgFile::new("repo".into(), "work.org".into(), b"* TODO Parent :work:\n** DONE Child :home:\nSCHEDULED: <2024-01-03 Wed>\n* TODO Other\n".to_vec()).unwrap();
+        let file = OrgFile::new("repo".into(), "work.org".into(), b"* TODO Parent :work:\n** DONE Child :home:\nSCHEDULED: <2024-01-03 Wed>\n* TODO Other\n* Plain heading\n".to_vec()).unwrap();
         let repository = OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             files: vec![file],
         };
         let tasks = tasks_from_repo(&repository);
-        assert_eq!(tasks.len(), 3);
+        assert_eq!(tasks.len(), 4);
         let tag_filter = Filter::parse("t.work");
         assert_eq!(
             tasks
@@ -926,6 +958,38 @@ mod tests {
                     .matches_at(task, NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()))
                 .count(),
             1
+        );
+        let not_done_filter = Filter::parse(".it.done");
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| not_done_filter
+                    .matches_at(task, NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()))
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn projects_scheduled_timestamp_with_repeater() {
+        let file = OrgFile::new(
+            "repo".into(),
+            "work.org".into(),
+            b"* TODO Repeated\nSCHEDULED: <2026-09-27 Sun .+4w/5w>\n".to_vec(),
+        )
+        .unwrap();
+        let repository = OrgRepo {
+            id: "repo".into(),
+            root_directory: "/tmp".into(),
+            files: vec![file],
+        };
+        let task = tasks_from_repo(&repository).pop().unwrap();
+        assert_eq!(
+            task.scheduled,
+            Some(FilterDate {
+                date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+                active: true,
+            })
         );
     }
 }
