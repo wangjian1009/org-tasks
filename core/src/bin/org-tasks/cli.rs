@@ -8,9 +8,9 @@ use org_tasks_core::webdav::{
     WebDavEndpoint, WebDavSyncContextDetail, WebDavSyncFileDetail, WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction, OrgRepoSyncFileRecord,
-    OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress, OrgRepoSyncRecord,
-    OrgRepoSyncSnapshot,
+    Filter, FilterTask, OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction,
+    OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress,
+    OrgRepoSyncRecord, OrgRepoSyncSnapshot, tasks_from_repo,
 };
 use orgize::ast::Headline;
 use orgize::rowan::ast::AstNode;
@@ -29,6 +29,7 @@ enum Command {
     Sync(SyncCommand),
     History(HistoryCommand),
     File(FileCommand),
+    Task(TaskCommand),
 }
 
 #[derive(Args)]
@@ -77,6 +78,23 @@ struct FileDumpArgs {
 }
 
 #[derive(Args)]
+struct TaskCommand {
+    #[command(subcommand)]
+    target: TaskTarget,
+}
+
+#[derive(Subcommand)]
+enum TaskTarget {
+    All,
+    Search(TaskSearchArgs),
+}
+
+#[derive(Args)]
+struct TaskSearchArgs {
+    expression: String,
+}
+
+#[derive(Args)]
 struct WebDavArgs {
     #[arg(long)]
     webdav_url: String,
@@ -102,7 +120,53 @@ pub async fn run() -> Result<(), String> {
         },
         Command::History(command) => history(history_records, command),
         Command::File(command) => file(repo, command).await,
+        Command::Task(command) => task(repo, command),
     }
+}
+
+fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
+    match command.target {
+        TaskTarget::All => print_tasks(tasks_from_repo(&repo)),
+        TaskTarget::Search(args) => {
+            let filter = Filter::parse(&args.expression);
+            let mut tasks = tasks_from_repo(&repo);
+            filter.filter_tasks(&mut tasks);
+            print_tasks(tasks)
+        }
+    }
+}
+
+fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {
+    println!("文件:位置\t状态\t优先级\t标题\t标签");
+    for task in tasks {
+        let priority = task
+            .priority
+            .as_deref()
+            .map(|value| format!("[#{value}]"))
+            .unwrap_or_else(|| "-".into());
+        let tags = task
+            .own_tags
+            .iter()
+            .chain(&task.inherited_tags)
+            .cloned()
+            .collect::<Vec<_>>();
+        let tags = if tags.is_empty() {
+            "-".into()
+        } else {
+            format!(":{}:", tags.join(":"))
+        };
+        println!(
+            "{}:{}:{}\t{}\t{}\t{}\t{}",
+            task.path,
+            task.line,
+            task.column,
+            task.state.as_deref().unwrap_or("-"),
+            priority,
+            task.title,
+            tags,
+        );
+    }
+    Ok(())
 }
 
 async fn file(repo: OrgRepo, command: FileCommand) -> Result<(), String> {
@@ -601,6 +665,58 @@ mod tests {
                 target: FileTarget::Dump(FileDumpArgs { path })
             }) if path == "inbox.org"
         ));
+    }
+
+    #[test]
+    fn parses_task_all_command() {
+        let cli = Cli::try_parse_from(["org-tasks", "--repo-dir", "./org", "task", "all"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Task(TaskCommand {
+                target: TaskTarget::All
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_task_search_command() {
+        let cli = Cli::try_parse_from([
+            "org-tasks",
+            "--repo-dir",
+            "./org",
+            "task",
+            "search",
+            "i.todo t.work",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Task(TaskCommand {
+                target: TaskTarget::Search(TaskSearchArgs { expression })
+            }) if expression == "i.todo t.work"
+        ));
+    }
+
+    #[test]
+    fn task_search_view_uses_core_filter_task_projection() {
+        let file = org_tasks_core::OrgFile::new(
+            "repo-1".into(),
+            "inbox.org".into(),
+            b"* TODO [#A] Parent :work:\n** DONE Child :done:\n".to_vec(),
+        )
+        .unwrap();
+        let repo = OrgRepo {
+            id: "repo-1".into(),
+            root_directory: "/tmp/org".into(),
+            files: vec![file],
+        };
+        let tasks = tasks_from_repo(&repo);
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].state.as_deref(), Some("TODO"));
+        assert_eq!(tasks[0].priority.as_deref(), Some("A"));
+        assert_eq!(tasks[0].own_tags, vec!["work"]);
+        assert_eq!(tasks[1].state.as_deref(), Some("DONE"));
+        assert_eq!(tasks[1].inherited_tags, vec!["work"]);
     }
 
     #[test]

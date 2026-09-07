@@ -1,0 +1,57 @@
+#+TITLE: 查询语言设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+
+* 目的
+
+本查询语言用于从 ~OrgRepo~ 的任务快照中选择和排序任务。语法以参考项目 Orgzly Android Revived 的 ~DottedQueryParser~ 、~QueryTokenizer~ 、~QueryInterval~ 及其 ~QueryTest~ 和 ~QueryTokenizerTest~ 为准；本项目在 ~core::filter~ 中实现同一套 dotted expression，而不使用 Android 的 SQLite 表达式实现。
+
+查询是完整的 ~Filter~ ：它由可选布尔表达式、零个或多个排序项和可选 agenda 天数构成。无法识别为操作符的 token 按普通文本条件处理，保持参考实现的宽容输入行为。
+
+* 语法
+
+空白表示隐式 ~AND~ 。关键字 ~and~ / ~AND~ 与 ~or~ / ~OR~ 不区分大小写；~AND~ 的优先级高于 ~OR~ 。圆括号可改变分组。双引号把带空白、圆括号或操作符外观的文本视作一个 token；反斜杠转义引号和反斜杠。
+
+#+begin_example
+i.todo t.work or i.next t.home
+i.todo (i.next or t.work)
+b."book(1) name"
+#+end_example
+
+首个点号是对下列离散条件的否定标记，例如 ~.i.done~ 、~.t.archive~ 和 ~.o.priority~ 。它不适用于日期条件；~.s.none~ 与参考实现一致，作为普通文本而不是“未计划”的日期条件。
+
+* 条件
+
+| 形式 | 含义 |
+|-
+| ~b.<name>~ | 文件路径等于 name。 |
+| ~i.<state>~ | TODO 状态等于 state。 |
+| ~it.todo~ / ~it.done~ / ~it.none~ | 按状态类别筛选。 |
+| ~p.<letter>~ | 优先级；未设置时使用默认 ~B~ 。 |
+| ~ps.<letter>~ | 显式设置的优先级。 |
+| ~t.<tag>~ | 自身或祖先继承的标签。 |
+| ~tn.<tag>~ | 仅自身标签。 |
+| ~e.<interval>~ | 正文中的活动 timestamp。 |
+| ~s.<interval>~ / ~d.<interval>~ / ~c.<interval>~ / ~cr.<interval>~ | 计划、截止、关闭、创建时间。 |
+| ~text~ / ~"text with spaces"~ | 在标题、正文和标签中匹配文本。 |
+
+日期条件可以在字段与 interval 之间插入 ~eq~ 、~ne~ 、~lt~ 、~le~ 、~gt~ 或 ~ge~ ，例如 ~s.ge.3d~ 。缺省关系与参考实现相同：~e~ 和 ~c~ 为 ~eq~ ，其余日期字段为 ~le~ 。~s~ 与 ~d~ 只匹配活动 timestamp。
+
+interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~ / ~tom~ 、~yesterday~ ，以及带正负号的 ~<number><unit>~ 。unit 为 ~h~ 、~d~ 、~w~ 、~m~ 和 ~y~ 。日期比较以运行时本地日期的自然日边界进行。
+
+* 排序与选项
+
+排序 token 为 ~o.<field>~ ；在前面增加点号表示降序。field 可为 ~book~ / ~b~ 、~title~ / ~t~ 、~scheduled~ / ~s~ 、~deadline~ / ~d~ 、~event~ / ~e~ 、~closed~ / ~c~ 、~created~ / ~cr~ 、~priority~ / ~p~ 、~state~ / ~st~ 和 ~position~ / ~pos~ 。未指定排序时，任务按相对文件路径与源字节位置排序。
+
+~ad.<positive-integer>~ 设置 agenda 天数，不参与匹配。多个排序项按出现顺序依次比较。
+
+* core 映射
+
+~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存相对路径、源位置、状态、优先级、自身标签、继承标签、标题、正文和规划时间。核心过滤器在该结构上求值；宿主和 CLI 不得重新解释 org AST。
+
+当前任务投影只产生带 TODO keyword 的 headline。~created~ 语法已由 ~Filter~ 表达，但当前 ~OrgFile~ 还未提供创建时间字段，因此该条件在任务搜索中不会匹配；新增创建时间模型时应补充投影，而不改变语法或 parser。
+
+* 兼容性测试
+
+core 测试从参考项目移植了 tokenizer 的括号和引号场景、~AND~ / ~OR~ 优先级、带引号的笔记本名、interval 别名、排序、agenda、状态、继承标签和计划时间筛选。测试以 core 的内存仓库快照运行，避免依赖 Android 的数据库实现。

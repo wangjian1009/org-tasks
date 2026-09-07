@@ -24,7 +24,9 @@ impl Display for CoreError {
 
 impl std::error::Error for CoreError {}
 
+pub mod filter;
 pub mod model;
 pub mod webdav;
 
+pub use filter::*;
 pub use model::*;
