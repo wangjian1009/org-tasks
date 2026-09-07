@@ -34,6 +34,13 @@ struct Index {
       this.config = await AppConfigService.load(context)
       this.calendarSync = new CalendarSync(context, this.config.calendarName)
 
+      const sourceDir = this.config.webdavEnabled
+        ? new WebDavService(context, this.config).getLocalDir()
+        : this.config.orgDir
+      if (FileService.dirExists(sourceDir)) {
+        this.taskCount = (await FileService.parseAllTasks(sourceDir)).tasks.length
+      }
+
       if (lastSyncTime > 0) {
         const d = new Date(lastSyncTime)
         this.lastSync = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`
@@ -149,75 +156,146 @@ struct Index {
 
   build() {
     Column() {
-      // 标题栏
       Row() {
-        Text('Org Tasks')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-        Blank()
-        Button('文件')
+        Column() {
+          Text('Org Tasks')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+          Text('任务同步工作台')
+            .fontSize(12)
+            .fontColor('#65746B')
+            .margin({ top: 2 })
+        }
+        .layoutWeight(1)
+        Button('工作区')
           .fontSize(14)
+          .backgroundColor('#E6F1EC')
+          .fontColor('#175C43')
           .onClick(() => {
-            router.pushUrl({ url: 'pages/Files' })
+            router.pushUrl({ url: 'pages/Workspace' })
           })
         Button('设置')
           .fontSize(14)
+          .margin({ left: 8 })
+          .backgroundColor('#F0F2F1')
+          .fontColor('#34423B')
           .onClick(() => {
             router.pushUrl({ url: 'pages/Settings' })
           })
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+      .padding({ left: 20, right: 20, top: 18, bottom: 18 })
 
-      // 状态信息
-      Column() {
-        Text(`上次同步: ${this.lastSync}`)
-          .fontSize(14)
-          .fontColor('#666')
-        if (this.taskCount > 0) {
-          Text(`共 ${this.taskCount} 个任务`)
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 4 })
+      Scroll() {
+        Column({ space: 20 }) {
+          Column() {
+            Text('同步状态')
+              .fontSize(14)
+              .fontColor('#65746B')
+            Text(this.lastSync === '尚未同步' ? '等待首次同步' : `上次同步 ${this.lastSync}`)
+              .fontSize(22)
+              .fontWeight(FontWeight.Medium)
+              .margin({ top: 6 })
+            Text(this.config.webdavEnabled ? 'WebDAV 缓存将写入系统日历' : '本地 org 目录将写入系统日历')
+              .fontSize(13)
+              .fontColor('#65746B')
+              .margin({ top: 8 })
+          }
+          .width('100%')
+          .backgroundColor('#E6F1EC')
+          .padding(20)
+
+          Row() {
+            Column() {
+              Text(this.taskCount.toString())
+                .fontSize(28)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#175C43')
+              Text('已发现任务')
+                .fontSize(12)
+                .fontColor('#65746B')
+            }
+            .layoutWeight(1)
+            Column() {
+              Text(this.config.calendarName || 'Org Tasks')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text('目标日历')
+                .fontSize(12)
+                .fontColor('#65746B')
+                .margin({ top: 4 })
+            }
+            .layoutWeight(1)
+          }
+          .width('100%')
+          .padding({ left: 4, right: 4 })
+
+          Text('快捷入口')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .width('100%')
+          Row() {
+            Button('日程')
+              .layoutWeight(1)
+              .height(44)
+              .backgroundColor('#FFFFFF')
+              .fontColor('#175C43')
+              .onClick(() => router.pushUrl({ url: 'pages/Agenda' }))
+            Button('笔记本')
+              .layoutWeight(1)
+              .height(44)
+              .margin({ left: 8 })
+              .backgroundColor('#FFFFFF')
+              .fontColor('#175C43')
+              .onClick(() => router.pushUrl({ url: 'pages/Files' }))
+            Button('搜索')
+              .layoutWeight(1)
+              .height(44)
+              .margin({ left: 8 })
+              .backgroundColor('#FFFFFF')
+              .fontColor('#175C43')
+              .onClick(() => router.pushUrl({ url: 'pages/Search' }))
+          }
+          .width('100%')
+
+          if (this.syncMessage) {
+            Text(this.syncMessage)
+              .fontSize(13)
+              .fontColor(this.syncMessage.includes('失败') ? '#B3261E' : '#175C43')
+              .width('100%')
+              .backgroundColor('#FFFFFF')
+              .padding(14)
+          }
         }
+        .width('100%')
+        .padding({ left: 20, right: 20, bottom: 18 })
+      }
+      .layoutWeight(1)
+
+      Row() {
+        Button('新增任务')
+          .layoutWeight(1)
+          .height(48)
+          .backgroundColor('#FFFFFF')
+          .fontColor('#175C43')
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/AddTask' })
+          })
+        Button(this.syncing ? '同步中...' : '同步到日历')
+          .layoutWeight(2)
+          .height(48)
+          .margin({ left: 10 })
+          .backgroundColor('#175C43')
+          .enabled(!this.syncing)
+          .onClick(() => this.doSync())
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 8 })
-
-      // 同步消息
-      if (this.syncMessage) {
-        Text(this.syncMessage)
-          .fontSize(14)
-          .fontColor(this.syncMessage.includes('失败') ? '#F44336' : '#4CAF50')
-          .width('100%')
-          .padding({ left: 20, right: 20, top: 12 })
-      }
-
-      Blank()
-
-      // 同步按钮
-      Button(this.syncing ? '同步中...' : '同步到日历')
-        .type(ButtonType.Capsule)
-        .width('80%')
-        .height(48)
-        .fontSize(18)
-        .enabled(!this.syncing)
-        .onClick(() => this.doSync())
-
-      // 新增任务按钮
-      Button('新增任务')
-        .type(ButtonType.Capsule)
-        .width('80%')
-        .height(48)
-        .fontSize(18)
-        .backgroundColor('#2196F3')
-        .margin({ top: 12, bottom: 40 })
-        .onClick(() => {
-          router.pushUrl({ url: 'pages/AddTask' })
-        })
+      .padding({ left: 20, right: 20, bottom: 24 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor('#F7F8F7')
   }
 }

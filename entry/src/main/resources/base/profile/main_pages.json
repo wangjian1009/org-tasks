@@ -1,8 +1,13 @@
 {
   "src": [
     "pages/Index",
+    "pages/Workspace",
+    "pages/Agenda",
+    "pages/Search",
+    "pages/SavedSearches",
     "pages/Files",
     "pages/FileDetail",
+    "pages/TaskDetail",
     "pages/Settings",
     "pages/AddTask"
   ]

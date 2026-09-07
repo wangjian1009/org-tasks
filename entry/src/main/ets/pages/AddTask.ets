@@ -107,11 +107,22 @@ struct AddTask {
 
   build() {
     Column() {
-      // 标题栏
       Row() {
-        Text('新增任务')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
+        Button('返回')
+          .fontSize(14)
+          .backgroundColor('#FFFFFF')
+          .fontColor('#34423B')
+          .onClick(() => router.back())
+        Column() {
+          Text('新增任务')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+          Text('写入 inbox.org，保留 org 工作流')
+            .fontSize(12)
+            .fontColor('#65746B')
+            .margin({ top: 2 })
+        }
+        .margin({ left: 12 })
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: 16, bottom: 16 })
@@ -137,8 +148,8 @@ struct AddTask {
               Button(`[#${p}]`)
                 .fontSize(14)
                 .height(36)
-                .backgroundColor(this.priority === p ? '#FF5722' : '#E0E0E0')
-                .fontColor(this.priority === p ? '#FFF' : '#333')
+                .backgroundColor(this.priority === p ? '#8A3D24' : '#FFFFFF')
+                .fontColor(this.priority === p ? '#FFF' : '#34423B')
                 .margin({ right: 8 })
                 .onClick(() => {
                   this.priority = this.priority === p ? '' : p
@@ -192,23 +203,23 @@ struct AddTask {
       if (this.message) {
         Text(this.message)
           .fontSize(14)
-          .fontColor(this.message.includes('失败') ? '#F44336' : '#4CAF50')
+        .fontColor(this.message.includes('失败') ? '#B3261E' : '#357A55')
           .width('100%')
           .padding({ left: 20, right: 20, bottom: 8 })
       }
 
       // 保存按钮
       Button(this.saving ? '保存中...' : '保存')
-        .type(ButtonType.Capsule)
         .width('80%')
         .height(48)
-        .fontSize(18)
+        .fontSize(17)
+        .backgroundColor('#175C43')
         .enabled(!this.saving)
         .margin({ bottom: 40 })
         .onClick(() => this.saveTask())
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor('#F7F8F7')
   }
 }

@@ -104,11 +104,22 @@ struct Settings {
 
   build() {
     Column() {
-      // 标题栏
       Row() {
-        Text('设置')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
+        Button('返回')
+          .fontSize(14)
+          .backgroundColor('#FFFFFF')
+          .fontColor('#34423B')
+          .onClick(() => router.back())
+        Column() {
+          Text('设置')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+          Text('仓库、日历和后台同步')
+            .fontSize(12)
+            .fontColor('#65746B')
+            .margin({ top: 2 })
+        }
+        .margin({ left: 12 })
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: 16, bottom: 16 })
@@ -248,23 +259,23 @@ struct Settings {
       if (this.message) {
         Text(this.message)
           .fontSize(14)
-          .fontColor(this.message.includes('失败') ? '#F44336' : '#4CAF50')
+        .fontColor(this.message.includes('失败') ? '#B3261E' : '#357A55')
           .width('100%')
           .padding({ left: 20, right: 20, bottom: 8 })
       }
 
       // 保存按钮
       Button(this.saving ? '保存中...' : '保存设置')
-        .type(ButtonType.Capsule)
         .width('80%')
         .height(48)
         .fontSize(18)
+        .backgroundColor('#175C43')
         .enabled(!this.saving)
         .margin({ bottom: 40 })
         .onClick(() => this.saveConfig())
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor('#F7F8F7')
   }
 }

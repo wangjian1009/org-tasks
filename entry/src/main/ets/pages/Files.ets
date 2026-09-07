@@ -108,18 +108,22 @@ struct Files {
   build() {
     Column() {
       Row() {
-        Button('返回')
+        Button('工作区')
           .fontSize(14)
-          .onClick(() => router.back())
-        Text('文件')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .margin({ left: 12 })
-        Blank()
-        Button(this.refreshing ? '刷新中...' : '刷新')
-          .fontSize(14)
-          .enabled(!this.refreshing)
-          .onClick(() => this.refresh())
+          .backgroundColor('#FFFFFF')
+          .fontColor('#34423B')
+          .onClick(() => router.pushUrl({ url: 'pages/Workspace' }))
+        Column() {
+          Text('笔记本')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+          Text('org 文件与任务层级')
+            .fontSize(12)
+            .fontColor('#65746B')
+            .margin({ top: 2 })
+        }
+        .margin({ left: 12 })
+        .layoutWeight(1)
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 16, bottom: 12 })
@@ -131,9 +135,28 @@ struct Files {
         .padding({ left: 20, right: 20 })
 
       Row() {
-        Button('全部').fontSize(13).backgroundColor(this.filter === 'all' ? '#1976D2' : '#E0E0E0').onClick(() => this.filter = 'all')
-        Button('已同步').fontSize(13).backgroundColor(this.filter === 'synced' ? '#1976D2' : '#E0E0E0').margin({ left: 8 }).onClick(() => this.filter = 'synced')
-        Button('待上传').fontSize(13).backgroundColor(this.filter === 'pending' ? '#1976D2' : '#E0E0E0').margin({ left: 8 }).onClick(() => this.filter = 'pending')
+        Button('新增任务')
+          .layoutWeight(1)
+          .height(40)
+          .backgroundColor('#FFFFFF')
+          .fontColor('#7A4D16')
+          .onClick(() => router.pushUrl({ url: 'pages/AddTask' }))
+        Button(this.refreshing ? '刷新中...' : '刷新文件')
+          .layoutWeight(1)
+          .height(40)
+          .margin({ left: 8 })
+          .backgroundColor('#FFF3E5')
+          .fontColor('#7A4D16')
+          .enabled(!this.refreshing)
+          .onClick(() => this.refresh())
+      }
+      .width('100%')
+      .padding({ left: 20, right: 20, top: 12 })
+
+      Row() {
+        Button('全部').fontSize(13).backgroundColor(this.filter === 'all' ? '#7A4D16' : '#FFFFFF').fontColor(this.filter === 'all' ? '#FFFFFF' : '#34423B').onClick(() => this.filter = 'all')
+        Button('已同步').fontSize(13).backgroundColor(this.filter === 'synced' ? '#7A4D16' : '#FFFFFF').fontColor(this.filter === 'synced' ? '#FFFFFF' : '#34423B').margin({ left: 8 }).onClick(() => this.filter = 'synced')
+        Button('待上传').fontSize(13).backgroundColor(this.filter === 'pending' ? '#7A4D16' : '#FFFFFF').fontColor(this.filter === 'pending' ? '#FFFFFF' : '#34423B').margin({ left: 8 }).onClick(() => this.filter = 'pending')
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: 12, bottom: 8 })
@@ -178,6 +201,6 @@ struct Files {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor('#F7F8F7')
   }
 }
