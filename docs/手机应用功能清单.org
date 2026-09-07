@@ -1,0 +1,32 @@
+#+TITLE: 手机应用功能清单
+
+* 目的
+
+本文是 Org Tasks 手机应用当前功能范围的唯一清单，用于产品验收、开发排期和变更评审。状态以应用流程为准；设计文档中未接入应用流程的能力必须标为“规划中”，不能视为已交付。
+
+修改手机应用中用户可见的功能、入口或交付状态时，必须同步更新本文。Harmony 配置与保存边界见 [[file:harmony/配置项设计.org][Harmony 配置项设计]]；Rust 核心、CLI、HTTP 宿主和 WebDAV 传输能力的设计说明不属于本文范围。
+
+* 状态定义
+
+| 状态 | 含义 |
+|-
+| 已实现 | 已有手机应用入口，且主流程已经接入。 |
+| 部分接入 | 已有部分应用流程，但尚未贯通预期的完整用户体验。 |
+| 规划中 | 已有应用设计，但当前没有可用入口。 |
+| 不支持 | 当前版本明确不提供的能力。 |
+
+* 应用功能
+
+| ID | 功能 | 用户结果 | 状态 | 主要实现 | 验收要点 |
+|-
+| APP-001 | 本地目录同步 | 从配置的本地目录读取 ~.org~ 文件并导入日历。 | 已实现 | ~Index.ets~ 、 ~SyncWorkExtension.ets~ 、 ~FileService.ets~ | 目录可读时能解析任务并写入指定日历；目录不存在时不执行日历删除。 |
+| APP-002 | WebDAV 连接配置 | 配置 WebDAV 根目录、用户名和密码，并可测试列举远端 org 文件。 | 已实现 | ~Settings.ets~ 、 ~WebDavService.ets~ 、 ~CredentialService.ets~ | 仅接受 HTTPS；配置无效或认证失败时显示失败原因。 |
+| APP-003 | WebDAV 缓存同步 | 通过 ~PROPFIND~ 列举并下载远端 ~.org~ 文件至应用私有缓存，成功后刷新缓存文件。 | 已实现 | ~WebDavService.ets~ | 完整列举和下载成功后才移除过期缓存；缓存写入使用临时文件替换。 |
+| APP-004 | 手动同步 | 在首页触发从本地目录或 WebDAV 缓存到系统日历的同步，并展示统计结果。 | 已实现 | ~Index.ets~ 、 ~CalendarSync.ets~ | 请求日历读写权限；展示新增、更新、删除和错误数量。 |
+| APP-005 | 后台定时同步 | 使用 WorkScheduler 按配置间隔执行同步。 | 已实现 | ~EntryAbility.ets~ 、 ~SyncWorkExtension.ets~ | 默认间隔为 15 分钟；后台失败不应删除既有日历事件。 |
+| APP-006 | Org 任务解析 | 解析标题、TODO 状态、优先级、 ~SCHEDULED~ 、 ~DEADLINE~ 、标签、正文和进度。 | 已实现 | ~OrgParser.ets~ | 仅带 TODO 关键字的标题成为任务；解析或读取任一文件失败时取消本轮删除同步。 |
+| APP-007 | 日历增量同步 | 以任务 ID 映射系统日历事件，并创建、更新、跳过或删除事件。 | 已实现 | ~CalendarSync.ets~ | 无计划或截止时间的任务不创建事件；任务内容变化更新既有事件；源任务消失时删除对应事件。 |
+| APP-008 | 新增任务 | 从应用填写标题、日期、标签和优先级，写入 ~inbox.org~ 。 | 已实现 | ~AddTask.ets~ 、 ~FileService.ets~ | 本地模式追加至配置目录；WebDAV 模式先保存待上传内容。 |
+| APP-009 | WebDAV 待上传任务 | 将离线新增任务保存在私有待上传文件，并在下次同步时追加到远端 ~inbox.org~ 。 | 已实现 | ~WebDavService.ets~ | 已存在的远端 inbox 使用 ETag 条件 ~PUT~ ；遇到 ~412~ 保留待上传内容。 |
+| APP-010 | 文件浏览 | 浏览本地目录或 WebDAV 缓存中的 org 文件，按状态筛选，并查看文件内容和任务数。 | 已实现 | ~Files.ets~ 、 ~FileDetail.ets~ | WebDAV 模式可显示缓存和待上传标记；非法文件路径不得读取。 |
+| APP-011 | 同步设置 | 配置本地目录、inbox 文件、日历名称和后台同步间隔；密码独立安全存储。 | 已实现 | ~Settings.ets~ 、 ~CredentialService.ets~ | 密码不写入 Preferences；保存后后续同步使用新配置。 |
