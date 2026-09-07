@@ -50,7 +50,6 @@ pub struct OrgRepo {
     pub id: OrgRepoId,
     pub root_directory: String,
     pub files: Vec<OrgFile>,
-    pub sync_records: Vec<OrgRepoSyncRecord>,
 }
 
 impl OrgRepo {
@@ -62,7 +61,6 @@ impl OrgRepo {
             id: String::new(),
             root_directory,
             files: Vec::new(),
-            sync_records: Vec::new(),
         })
     }
 
@@ -72,10 +70,6 @@ impl OrgRepo {
 
     pub fn files(&self) -> &[OrgFile] {
         &self.files
-    }
-
-    pub fn sync_records(&self) -> &[OrgRepoSyncRecord] {
-        &self.sync_records
     }
 }
 
@@ -293,15 +287,17 @@ impl SourceRange {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OrgRepoSyncRecord {
+pub struct OrgRepoSyncRecord<C = serde_json::Value, F = serde_json::Value> {
     pub id: OrgRepoSyncRecordId,
+    pub kind: String,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub result: Option<OrgRepoSyncResult>,
-    pub files: Vec<OrgRepoSyncFileRecord>,
+    pub context_detail: C,
+    pub files: Vec<OrgRepoSyncFileRecord<F>>,
 }
 
-impl OrgRepoSyncRecord {
+impl<C: Default, F: Default> OrgRepoSyncRecord<C, F> {
     pub fn new(
         id: OrgRepoSyncRecordId,
         started_at: TimestampMs,
@@ -309,16 +305,23 @@ impl OrgRepoSyncRecord {
         validate_id(&id, "同步记录 ID 不能为空")?;
         Ok(Self {
             id,
+            kind: String::new(),
             started_at,
             finished_at: None,
             result: None,
+            context_detail: C::default(),
             files: Vec::new(),
         })
     }
 
+    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = kind.into();
+        self
+    }
+
     pub fn append_file(
         &mut self,
-        file: OrgRepoSyncFileRecord,
+        file: OrgRepoSyncFileRecord<F>,
     ) -> Result<(), OrgRepoSyncRecordError> {
         if self.finished_at.is_some() {
             return Err(CoreError::InvalidState("已完成的同步记录不能追加文件结果"));
@@ -342,6 +345,11 @@ impl OrgRepoSyncRecord {
         self.result = Some(result);
         Ok(())
     }
+
+    pub fn with_context_detail(mut self, detail: C) -> Self {
+        self.context_detail = detail;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -353,16 +361,16 @@ pub enum OrgRepoSyncResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OrgRepoSyncFileRecord {
+pub struct OrgRepoSyncFileRecord<F = serde_json::Value> {
     pub relative_path: String,
     pub action: OrgRepoSyncFileAction,
     pub state: OrgRepoSyncFileState,
     pub local_version: Option<LocalFileVersion>,
-    pub remote_version: Option<RemoteFileVersion>,
+    pub detail: F,
     pub error: Option<OrgRepoSyncErrorSummary>,
 }
 
-impl OrgRepoSyncFileRecord {
+impl<F: Default> OrgRepoSyncFileRecord<F> {
     pub fn new(
         relative_path: String,
         action: OrgRepoSyncFileAction,
@@ -374,18 +382,18 @@ impl OrgRepoSyncFileRecord {
             action,
             state,
             local_version: None,
-            remote_version: None,
+            detail: F::default(),
             error: None,
         })
     }
 
-    pub fn with_versions(
-        mut self,
-        local: Option<LocalFileVersion>,
-        remote: Option<RemoteFileVersion>,
-    ) -> Self {
+    pub fn with_local_version(mut self, local: Option<LocalFileVersion>) -> Self {
         self.local_version = local;
-        self.remote_version = remote;
+        self
+    }
+
+    pub fn with_detail(mut self, detail: F) -> Self {
+        self.detail = detail;
         self
     }
 
@@ -632,7 +640,6 @@ mod tests {
             id: "repo-1".into(),
             root_directory: "/data/org".into(),
             files: Vec::new(),
-            sync_records: Vec::new(),
         };
         assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
     }
@@ -730,7 +737,9 @@ mod tests {
 
     #[test]
     fn sync_record_enforces_terminal_state() {
-        let mut record = OrgRepoSyncRecord::new("sync-1".into(), 10).unwrap();
+        let mut record =
+            OrgRepoSyncRecord::<serde_json::Value, serde_json::Value>::new("sync-1".into(), 10)
+                .unwrap();
         let file = OrgRepoSyncFileRecord::new(
             "inbox.org".into(),
             OrgRepoSyncFileAction::Uploaded,
@@ -746,7 +755,9 @@ mod tests {
 
     #[test]
     fn sync_record_json_does_not_repeat_repository_identity() {
-        let mut record = OrgRepoSyncRecord::new("sync-1".into(), 10).unwrap();
+        let mut record =
+            OrgRepoSyncRecord::<serde_json::Value, serde_json::Value>::new("sync-1".into(), 10)
+                .unwrap();
         record
             .append_file(
                 OrgRepoSyncFileRecord::new(

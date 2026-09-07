@@ -20,7 +20,7 @@ WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料
 
 * Adapter 契约
 
-~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 使用 Tokio runtime 上的异步 HTTP client 处理仓库文件，并在结束时返回完整的 ~OrgRepoSyncRecord~ 。下载成功后，它调用 core 的 org 解析能力更新仓库快照，并负责将下载文件异步写回本地仓库。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
+~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 使用 Tokio runtime 上的异步 HTTP client 处理仓库文件，并在结束时返回带有全局 ~kind: "webdav"~ 和 ~WebDavSyncFileDetail~ 的完整 ~OrgRepoSyncRecord~ 。下载成功后，它调用 core 的 org 解析能力更新仓库快照，并负责将下载文件异步写回本地仓库。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
 
 ** Monitor
 
@@ -80,7 +80,7 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 
 | 同步意图 | WebDAV 请求 | 成功条件 | 对同步文件记录的结果 |
 |-
-| 列举目录 | ~PROPFIND~ ， ~Depth: 1~ | ~207 Multi-Status~ | 发现相对路径和 ~RemoteFileVersion~ ；列举失败时不报告远端删除。 |
+| 列举目录 | ~PROPFIND~ ， ~Depth: 1~ | ~207 Multi-Status~ | 发现相对路径和 ~WebDavSyncFileDetail~ ；列举失败时不报告远端删除。 |
 | 下载文件 | ~GET~ | ~200 OK~ | action 为 ~Downloaded~ ，写入新的本地版本。 |
 | 创建远端文件 | ~PUT~ + ~If-None-Match: *~ | ~201~ 、 ~200~ 或 ~204~ | action 为 ~Created~ ，确认远端版本。 |
 | 更新远端文件 | ~PUT~ + ~If-Match: <etag>~ | ~200~ 或 ~204~ | action 为 ~Uploaded~ ，确认远端版本； ~412~ 为冲突。 |
@@ -92,7 +92,7 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 
 * 文件决策
 
-策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~RemoteFileVersion~ 。不同仓库可以包含同名相对路径，彼此不相关。
+策略仅加载 ~kind~ 等于自身 ~SyncPolicy::KIND~ 的历史记录。策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~WebDavSyncFileDetail~ 。不同仓库可以包含同名相对路径，彼此不相关。
 
 | 自上次确认后本地状态 | 远端状态 | ~OrgRepoSyncFileRecord~ |
 |-

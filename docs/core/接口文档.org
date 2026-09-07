@@ -26,7 +26,7 @@
 
 #+begin_src rust
 let mut repo = OrgRepo::new("/data/org".into())?;
-repo.load().await?;
+repo.load::<WebDavSyncPolicy>().await?;
 let workspace = OrgWorkspace::new(vec![repo])?;
 #+end_src
 
@@ -38,7 +38,7 @@ let workspace = OrgWorkspace::new(vec![repo])?;
 
 #+begin_src rust
 let repo = workspace.repos.iter_mut().find(|repo| repo.id == repo_id)?;
-repo.load().await?;
+repo.load::<WebDavSyncPolicy>().await?;
 let file = repo.files.iter_mut().find(|file| file.path == "inbox.org")?;
 
 apply_edit(
@@ -57,11 +57,11 @@ file_writer.write(&file.path, serialize_file(file))?;
 
 ** 同步一个仓库
 
-宿主将同步策略传入仓库。WebDAV 策略在其自身配置中决定远端流程； ~OrgRepo.sync~ 只接受属于该仓库且已完成的记录，并追加至仓库的 ~syncRecords~ 。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
+宿主在加载时指定同步策略类型，再将策略传入仓库。 ~OrgRepo.load::<P>~ 据此解析策略专属历史细节； ~OrgRepo.sync~ 构造 ~SyncContext~ 并只接受属于该仓库且已完成的记录。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
 
 #+begin_src rust
-let record = repo.sync(&webdav_sync_policy, started_at).await?;
-sync_record_store.append(record).await?;
+let history = repo.load::<WebDavSyncPolicy>().await?;
+let record = repo.sync(&webdav_sync_policy, &history, started_at).await?;
 #+end_src
 
 * 接口定义
@@ -86,7 +86,7 @@ impl OrgWorkspace {
 
 *** OrgRepo
 
-~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用，不能写入同步记录；文件快照与同步记录归属该仓库。
+~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~，由 ~load::<P>~ 返回，不作为仓库字段保留。
 
 #+begin_src rust
 impl OrgRepo {
@@ -96,12 +96,13 @@ impl OrgRepo {
 
     pub fn files(&self) -> &[OrgFile];
 
-    pub fn sync_records(&self) -> &[OrgRepoSyncRecord];
+    pub async fn load<P: SyncPolicy>(&mut self)
+        -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError>;
 
-    pub async fn load(&mut self) -> Result<&[OrgFile], CoreError>;
-
-    pub async fn sync<P>(&mut self, policy: &P, started_at: TimestampMs)
-        -> Result<OrgRepoSyncRecord, CoreError>
+    pub async fn sync<P>(&mut self, policy: &P,
+        history: &[OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>],
+        started_at: TimestampMs)
+        -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where P: SyncPolicy;
 }
 #+end_src
@@ -221,11 +222,9 @@ impl OrgRepoSyncFileRecord {
         state: OrgRepoSyncFileState,
     ) -> Result<Self, OrgRepoSyncFileRecordError>;
 
-    pub fn with_versions(
-        self,
-        local: Option<LocalFileVersion>,
-        remote: Option<RemoteFileVersion>,
-    ) -> Self;
+    pub fn with_local_version(self, local: Option<LocalFileVersion>) -> Self;
+
+    pub fn with_detail(self, detail: F) -> Self;
 
     pub fn with_error(self, error: OrgRepoSyncErrorSummary) -> Self;
 }
@@ -233,21 +232,13 @@ impl OrgRepoSyncFileRecord {
 
 记录只保存相对路径、版本、action、state 和脱敏错误摘要；不得保存完整 org 内容、绝对路径、远端完整 URL 或凭据。
 
-*** LocalFileVersion 与 RemoteFileVersion
+*** LocalFileVersion 与策略文件细节
 
-本地版本只保存内容哈希；远端版本只保存 ETag、修改时间和大小。
+本地版本只保存内容哈希；远端版本由具体策略的 ~SyncFileDetail~ 实现保存。WebDAV 使用 ~WebDavSyncFileDetail { etag, modified_at, size }~ ，该值序列化到文件记录的 ~detail~。
 
 #+begin_src rust
 impl LocalFileVersion {
     pub fn new(content_hash: String) -> Result<Self, CoreError>;
-}
-
-impl RemoteFileVersion {
-    pub fn new(
-        etag: Option<String>,
-        modified_at: Option<TimestampMs>,
-        size: Option<i64>,
-    ) -> Result<Self, RemoteFileVersionError>;
 }
 #+end_src
 
@@ -255,7 +246,7 @@ impl RemoteFileVersion {
 
 *** 本地仓库加载与解析
 
-~OrgRepo.load~ 是 core 的异步本地初始化操作。它先确保 ~.sync/~ 存在，读取合法的 ~.sync/id~ ；若文件不存在，则生成 UUID 并以独占创建、写入与刷新持久化。之后递归扫描根目录中的普通 ~.org~ 文件，跳过符号链接和 ~.sync/~ ，并以原始字节构造 ~OrgFile~ 。扫描到重复、越界或非法的相对路径时必须失败，不能部分替换文件快照。
+~OrgRepo.load~ 是 core 的异步本地初始化操作。它先确保 ~.sync/~ 存在，读取合法的 ~.sync/id~ 并按指定 ~SyncPolicy~ 解析历史 detail ；若文件不存在，则生成 UUID 并以独占创建、写入与刷新持久化。之后递归扫描根目录中的普通 ~.org~ 文件，跳过符号链接和 ~.sync/~ ，并以原始字节构造 ~OrgFile~ 。扫描到重复、越界或非法的相对路径时必须失败，不能部分替换文件快照。
 
 解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。WebDAV 下载获得的字节也必须复用相同的 core 解析规则，而不是在 WebDAV 模块中定义另一套内容模型。
 
@@ -299,29 +290,54 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 *** SyncPolicy 与本地同步历史
 
-~SyncPolicy~ 是同步策略接口， ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load~ 从 ~.sync/history/~ 恢复完成记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ ，再更新内存历史。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
+~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史不保存在 ~OrgRepo~ 字段中，宿主应将 ~load~ 返回的历史传入同步控制器或 ~sync~。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
 #+begin_src rust
 pub trait SyncPolicy: Send + Sync {
+    const KIND: &'static str;
+
+    type ContextDetail: SyncContextDetail;
+    type FileDetail: SyncFileDetail;
+
     fn synchronize(
         &self,
-        repo: &mut OrgRepo,
-        started_at: TimestampMs,
+        context: &mut SyncContext<'_>,
+        history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-    ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send;
+    ) -> impl Future<Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>> + Send;
 }
 
 #+end_src
 
 策略不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件内容写入同步记录或错误摘要。上传前必须使用 ~serialize_file~ 的完整字节，不能对未修改区域重新格式化。
 
+*** SyncContext 与策略细节
+
+~SyncContext~ 表达一次同步，持有可变 ~OrgRepo~ 、 ~started_at~ 和仓库根路径 ~base~ 。 ~SyncContextDetail~ 与 ~SyncFileDetail~ 约束策略专属且可序列化的历史细节；前者保存到记录的 ~context_detail~ ，后者保存到每个文件的 ~detail~ 。
+
+#+begin_src rust
+pub struct SyncContext<'a> {
+    pub repo: &'a mut OrgRepo,
+    pub started_at: TimestampMs,
+    pub base: PathBuf,
+}
+
+pub trait SyncPolicy: Send + Sync {
+    const KIND: &'static str;
+
+    type ContextDetail: SyncContextDetail;
+    type FileDetail: SyncFileDetail;
+}
+#+end_src
+
 *** OrgRepoSyncController
 
 ~OrgRepoSyncController~ 在 core 内持有一个 ~OrgRepo~ 与启动时传入的 ~SyncPolicy~ 。它通过 Tokio task 执行一次同步，并以快照让 UI 宿主读取当前状态；HTTP、Harmony 等宿主不得自行维护同步状态或伪造完成记录。调用 ~start~ 的宿主必须运行在 Tokio runtime 中。
 
 #+begin_src rust
-let controller = OrgRepoSyncController::new(repo, policy);
+let history = repo.load::<WebDavSyncPolicy>().await?;
+let controller = OrgRepoSyncController::new(repo, history, policy);
 controller.start(started_at).await?;
 let snapshot = controller.snapshot();
 controller.cancel()?;
@@ -340,7 +356,8 @@ controller.cancel()?;
 #+begin_src rust
 let endpoint = WebDavEndpoint::new("https://dav.example.com/org/".into())?;
 let policy = WebDavSyncPolicy::new(endpoint, username, password)?;
-let record = repo.sync(&policy, started_at).await?;
+let history = repo.load::<WebDavSyncPolicy>().await?;
+let record = repo.sync(&policy, &history, started_at).await?;
 
 pub trait WebDavSyncMonitor: Send + Sync {
     fn on_event(&self, event: WebDavSyncEvent);

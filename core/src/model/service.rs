@@ -1,8 +1,10 @@
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
@@ -29,15 +31,61 @@ impl OrgRepoSourceFile {
     }
 }
 
-/// 仓库同步策略。WebDAV 是该端口的一个宿主实现。
+/// 可随同步历史保存的策略级细节。
+pub trait SyncContextDetail:
+    Serialize + DeserializeOwned + Send + Sync + Clone + Default + 'static
+{
+}
+
+impl<T> SyncContextDetail for T where
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + Default + 'static
+{
+}
+
+/// 可随单个文件同步结果保存的策略级细节。
+pub trait SyncFileDetail:
+    Serialize + DeserializeOwned + Send + Sync + Clone + Default + 'static
+{
+}
+
+impl<T> SyncFileDetail for T where
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + Default + 'static
+{
+}
+
+/// 一次同步的上下文，统一持有仓库、开始时间与同步根路径。
+pub struct SyncContext<'a> {
+    pub repo: &'a mut OrgRepo,
+    pub started_at: TimestampMs,
+    pub base: PathBuf,
+}
+
+impl<'a> SyncContext<'a> {
+    pub fn new(repo: &'a mut OrgRepo, started_at: TimestampMs) -> Self {
+        Self {
+            base: PathBuf::from(&repo.root_directory),
+            repo,
+            started_at,
+        }
+    }
+}
+
+/// 仓库同步策略。WebDAV 是该端口的一个实现。
 pub trait SyncPolicy: Send + Sync {
+    const KIND: &'static str;
+
+    type ContextDetail: SyncContextDetail;
+    type FileDetail: SyncFileDetail;
+
     fn synchronize(
         &self,
-        repo: &mut OrgRepo,
-        started_at: TimestampMs,
+        context: &mut SyncContext<'_>,
+        history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-    ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send;
+    ) -> impl Future<
+        Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>,
+    > + Send;
 }
 
 /// 同步运行期间可由策略查询的取消信号。
@@ -130,13 +178,13 @@ pub enum OrgRepoSyncLifecycle {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OrgRepoSyncSnapshot {
+pub struct OrgRepoSyncSnapshot<C = serde_json::Value, F = serde_json::Value> {
     pub lifecycle: OrgRepoSyncLifecycle,
     pub progress: OrgRepoSyncProgress,
-    pub latest_record: Option<OrgRepoSyncRecord>,
+    pub latest_record: Option<OrgRepoSyncRecord<C, F>>,
 }
 
-impl Default for OrgRepoSyncSnapshot {
+impl<C: Default, F: Default> Default for OrgRepoSyncSnapshot<C, F> {
     fn default() -> Self {
         Self {
             lifecycle: OrgRepoSyncLifecycle::Idle,
@@ -147,10 +195,11 @@ impl Default for OrgRepoSyncSnapshot {
 }
 
 /// core 持有仓库与 policy，并提供启动、停止和快照读取接口。
-pub struct OrgRepoSyncController<P> {
+pub struct OrgRepoSyncController<P: SyncPolicy> {
     repo: Arc<Mutex<OrgRepo>>,
+    history: Arc<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>>,
     policy: Arc<P>,
-    snapshot: Arc<Mutex<OrgRepoSyncSnapshot>>,
+    snapshot: Arc<Mutex<OrgRepoSyncSnapshot<P::ContextDetail, P::FileDetail>>>,
     cancellation: Arc<Mutex<Option<SyncCancellation>>>,
 }
 
@@ -158,9 +207,14 @@ impl<P> OrgRepoSyncController<P>
 where
     P: SyncPolicy + 'static,
 {
-    pub fn new(repo: OrgRepo, policy: P) -> Self {
+    pub fn new(
+        repo: OrgRepo,
+        history: Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>,
+        policy: P,
+    ) -> Self {
         Self {
             repo: Arc::new(Mutex::new(repo)),
+            history: Arc::new(history),
             policy: Arc::new(policy),
             snapshot: Arc::new(Mutex::new(OrgRepoSyncSnapshot::default())),
             cancellation: Arc::new(Mutex::new(None)),
@@ -195,12 +249,19 @@ where
             .clone();
         let repo = Arc::clone(&self.repo);
         let policy = Arc::clone(&self.policy);
+        let history = Arc::clone(&self.history);
         let state = Arc::clone(&self.snapshot);
         let active = Arc::clone(&self.cancellation);
         tokio::spawn(async move {
             let mut working_repo = initial_repo;
             let result = working_repo
-                .sync(policy.as_ref(), started_at, &cancellation, &progress)
+                .sync(
+                    policy.as_ref(),
+                    &history,
+                    started_at,
+                    &cancellation,
+                    &progress,
+                )
                 .await;
             if let Ok(mut stored_repo) = repo.lock() {
                 *stored_repo = working_repo;
@@ -253,7 +314,7 @@ where
         Ok(())
     }
 
-    pub fn snapshot(&self) -> OrgRepoSyncSnapshot {
+    pub fn snapshot(&self) -> OrgRepoSyncSnapshot<P::ContextDetail, P::FileDetail> {
         self.snapshot
             .lock()
             .map(|value| value.clone())
@@ -281,9 +342,11 @@ pub trait OrgRepoSyncRecordStore: Send {
 
 impl OrgRepo {
     /// 初始化仓库标识并扫描本地根目录，生成完整文件快照。
-    pub async fn load(&mut self) -> Result<&[OrgFile], CoreError> {
+    pub async fn load<P: SyncPolicy>(
+        &mut self,
+    ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
         self.id = load_or_create_repo_id(Path::new(&self.root_directory)).await?;
-        self.sync_records = load_sync_history(Path::new(&self.root_directory)).await?;
+        let history = load_sync_history::<P>(Path::new(&self.root_directory)).await?;
         let sources = scan_org_files(Path::new(&self.root_directory)).await?;
         let mut files = Vec::with_capacity(sources.len());
         for source in sources {
@@ -297,7 +360,7 @@ impl OrgRepo {
             files.push(file);
         }
         self.files = files;
-        Ok(&self.files)
+        Ok(history)
     }
 
     pub(crate) fn parse_file(
@@ -318,33 +381,36 @@ impl OrgRepo {
     pub async fn sync<P>(
         &mut self,
         policy: &P,
+        history: &[OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>],
         started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-    ) -> Result<OrgRepoSyncRecord, CoreError>
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where
         P: SyncPolicy,
     {
         if self.id.is_empty() {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
-        let record = policy
-            .synchronize(self, started_at, cancellation, progress)
+        let mut context = SyncContext::new(self, started_at);
+        let mut record = policy
+            .synchronize(&mut context, history, cancellation, progress)
             .await?;
+        if record.kind.is_empty() {
+            record.kind = P::KIND.into();
+        }
+        if record.kind != P::KIND {
+            return Err(CoreError::InvalidState("同步记录 kind 与策略不一致"));
+        }
         if record.finished_at.is_none() || record.result.is_none() {
             return Err(CoreError::InvalidState(
                 "同步策略必须返回当前仓库已完成的同步记录",
             ));
         }
-        if self
-            .sync_records
-            .iter()
-            .any(|existing| existing.id == record.id)
-        {
+        if history.iter().any(|existing| existing.id == record.id) {
             return Err(CoreError::InvalidState("同步记录 ID 已存在"));
         }
         persist_sync_record(Path::new(&self.root_directory), &record).await?;
-        self.sync_records.push(record.clone());
         Ok(record)
     }
 }
@@ -405,7 +471,9 @@ async fn read_repo_id(path: &Path) -> Result<OrgRepoId, std::io::Error> {
     Ok(id.to_owned())
 }
 
-async fn load_sync_history(root: &Path) -> Result<Vec<OrgRepoSyncRecord>, CoreError> {
+async fn load_sync_history<P: SyncPolicy>(
+    root: &Path,
+) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
     let history_directory = root.join(".sync/history");
     fs::create_dir_all(&history_directory)
         .await
@@ -436,14 +504,20 @@ async fn load_sync_history(root: &Path) -> Result<Vec<OrgRepoSyncRecord>, CoreEr
         let source = fs::read(&path)
             .await
             .map_err(|error| CoreError::Store(format!("无法读取同步历史文件: {error}")))?;
-        let record: OrgRepoSyncRecord = serde_json::from_slice(&source)
-            .map_err(|_| CoreError::Store("同步历史 JSON 无效".into()))?;
+        let record: OrgRepoSyncRecord<P::ContextDetail, P::FileDetail> =
+            serde_json::from_slice(&source)
+                .map_err(|_| CoreError::Store("同步历史 JSON 无效".into()))?;
+        if record.kind != P::KIND {
+            return Err(CoreError::Store("同步历史 kind 与策略不一致".into()));
+        }
         if record.started_at != started_at
             || record.finished_at.is_none()
             || record.result.is_none()
-            || records.iter().any(|existing: &OrgRepoSyncRecord| {
-                existing.id == record.id || existing.started_at == record.started_at
-            })
+            || records.iter().any(
+                |existing: &OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>| {
+                    existing.id == record.id || existing.started_at == record.started_at
+                },
+            )
         {
             return Err(CoreError::Store("同步历史记录无效或重复".into()));
         }
@@ -453,7 +527,14 @@ async fn load_sync_history(root: &Path) -> Result<Vec<OrgRepoSyncRecord>, CoreEr
     Ok(records)
 }
 
-async fn persist_sync_record(root: &Path, record: &OrgRepoSyncRecord) -> Result<(), CoreError> {
+async fn persist_sync_record<C, F>(
+    root: &Path,
+    record: &OrgRepoSyncRecord<C, F>,
+) -> Result<(), CoreError>
+where
+    C: SyncContextDetail,
+    F: SyncFileDetail,
+{
     if record.finished_at.is_none() || record.result.is_none() {
         return Err(CoreError::InvalidState("未完成的同步记录不能持久化"));
     }
@@ -591,17 +672,27 @@ mod tests {
     struct CompletedSync;
 
     impl SyncPolicy for CompletedSync {
+        const KIND: &'static str = "test";
+        type ContextDetail = serde_json::Value;
+        type FileDetail = serde_json::Value;
+
         fn synchronize(
             &self,
-            _repo: &mut OrgRepo,
-            started_at: TimestampMs,
+            context: &mut SyncContext<'_>,
+            _: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
             _: &SyncCancellation,
             _: &SyncProgressReporter,
-        ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send {
+        ) -> impl Future<
+            Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>,
+        > + Send {
             let mut record =
-                OrgRepoSyncRecord::new("sync-1".into(), started_at).expect("记录应有效");
+                OrgRepoSyncRecord::new("sync-1".into(), context.started_at).expect("记录应有效");
+            assert_eq!(
+                context.base,
+                std::path::PathBuf::from(&context.repo.root_directory)
+            );
             record
-                .finish(OrgRepoSyncResult::Succeeded, started_at + 1)
+                .finish(OrgRepoSyncResult::Succeeded, context.started_at + 1)
                 .expect("记录应完成");
             async move { Ok(record) }
         }
@@ -610,17 +701,23 @@ mod tests {
     struct FailedSync;
 
     impl SyncPolicy for FailedSync {
+        const KIND: &'static str = "test";
+        type ContextDetail = serde_json::Value;
+        type FileDetail = serde_json::Value;
+
         fn synchronize(
             &self,
-            _repo: &mut OrgRepo,
-            started_at: TimestampMs,
+            context: &mut SyncContext<'_>,
+            _: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
             _: &SyncCancellation,
             _: &SyncProgressReporter,
-        ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send {
-            let mut record =
-                OrgRepoSyncRecord::new("failed-sync-1".into(), started_at).expect("记录应有效");
+        ) -> impl Future<
+            Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>,
+        > + Send {
+            let mut record = OrgRepoSyncRecord::new("failed-sync-1".into(), context.started_at)
+                .expect("记录应有效");
             record
-                .finish(OrgRepoSyncResult::Failed, started_at + 1)
+                .finish(OrgRepoSyncResult::Failed, context.started_at + 1)
                 .expect("记录应完成");
             async move { Ok(record) }
         }
@@ -637,13 +734,13 @@ mod tests {
         std::fs::write(root.join(".sync/history.org"), b"hidden\n").unwrap();
 
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        let files = repo.load().await.unwrap();
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "inbox.org");
+        let history = repo.load::<CompletedSync>().await.unwrap();
+        assert!(history.is_empty());
+        assert_eq!(repo.files()[0].path, "inbox.org");
         let initial_id = repo.id.clone();
 
         let mut reloaded_repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        reloaded_repo.load().await.unwrap();
+        reloaded_repo.load::<CompletedSync>().await.unwrap();
         assert_eq!(reloaded_repo.id, initial_id);
         assert_eq!(
             std::fs::read_to_string(root.join(".sync/id")).unwrap(),
@@ -656,10 +753,11 @@ mod tests {
     async fn repo_sync_appends_completed_record() {
         let root = test_root("sync");
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        repo.load().await.unwrap();
+        let history = repo.load::<CompletedSync>().await.unwrap();
         let record = repo
             .sync(
                 &CompletedSync,
+                &history,
                 10,
                 &SyncCancellation::default(),
                 &SyncProgressReporter::default(),
@@ -667,15 +765,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
-        assert_eq!(repo.sync_records().len(), 1);
         assert!(
             tokio::fs::try_exists(root.join(".sync/history/10.json"))
                 .await
                 .unwrap()
         );
         let mut reloaded_repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        reloaded_repo.load().await.unwrap();
-        assert_eq!(reloaded_repo.sync_records(), &[record]);
+        reloaded_repo.load::<CompletedSync>().await.unwrap();
+        assert_eq!(
+            reloaded_repo.load::<CompletedSync>().await.unwrap(),
+            vec![record]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -683,8 +783,8 @@ mod tests {
     async fn controller_exposes_completed_sync_snapshot() {
         let root = test_root("controller");
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        repo.load().await.unwrap();
-        let controller = OrgRepoSyncController::new(repo, CompletedSync);
+        let history = repo.load::<CompletedSync>().await.unwrap();
+        let controller = OrgRepoSyncController::new(repo, history, CompletedSync);
         controller.start(10).await.unwrap();
         for _ in 0..100 {
             let snapshot = controller.snapshot();
@@ -705,8 +805,8 @@ mod tests {
     async fn controller_exposes_failed_sync_snapshot() {
         let root = test_root("failed-controller");
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        repo.load().await.unwrap();
-        let controller = OrgRepoSyncController::new(repo, FailedSync);
+        let history = repo.load::<CompletedSync>().await.unwrap();
+        let controller = OrgRepoSyncController::new(repo, history, FailedSync);
         controller.start(10).await.unwrap();
         for _ in 0..100 {
             let snapshot = controller.snapshot();
@@ -721,6 +821,31 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         panic!("同步控制器未在预期时间内失败");
+    }
+
+    #[tokio::test]
+    async fn repo_rejects_history_kind_mismatch() {
+        let root = test_root("kind-mismatch");
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        let mut record = OrgRepoSyncRecord::<serde_json::Value, serde_json::Value>::new(
+            "kind-mismatch-record".into(),
+            10,
+        )
+        .unwrap()
+        .with_kind("other");
+        record.finish(OrgRepoSyncResult::Succeeded, 11).unwrap();
+        tokio::fs::write(
+            root.join(".sync/history/10.json"),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let mut reloaded = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        let error = reloaded.load::<CompletedSync>().await.unwrap_err();
+        assert!(error.to_string().contains("kind 与策略不一致"));
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
     fn test_root(name: &str) -> std::path::PathBuf {

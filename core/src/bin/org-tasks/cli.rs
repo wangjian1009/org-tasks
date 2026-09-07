@@ -3,7 +3,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{Local, TimeZone};
 use clap::{ArgAction, Args, Parser, Subcommand};
-use org_tasks_core::webdav::{WebDavEndpoint, WebDavSyncPolicy};
+use org_tasks_core::webdav::{
+    WebDavEndpoint, WebDavSyncContextDetail, WebDavSyncFileDetail, WebDavSyncPolicy,
+};
 use org_tasks_core::{
     OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction, OrgRepoSyncFileRecord,
     OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress, OrgRepoSyncRecord,
@@ -72,16 +74,24 @@ pub async fn run() -> Result<(), String> {
     let repo_dir = cli
         .repo_dir
         .ok_or_else(|| "--repo-dir 是必填参数".to_string())?;
-    let repo = load_repo(repo_dir).await?;
+    let (repo, history_records) = load_repo(repo_dir).await?;
     match cli.command {
         Command::Sync(command) => match command.target {
-            SyncTarget::Webdav(args) => sync_webdav(repo, args).await,
+            SyncTarget::Webdav(args) => sync_webdav(repo, history_records, args).await,
         },
-        Command::History(command) => history(repo, command),
+        Command::History(command) => history(history_records, command),
     }
 }
 
-async fn load_repo(repo_dir: PathBuf) -> Result<OrgRepo, String> {
+async fn load_repo(
+    repo_dir: PathBuf,
+) -> Result<
+    (
+        OrgRepo,
+        Vec<org_tasks_core::OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>,
+    ),
+    String,
+> {
     if !repo_dir.is_dir() {
         return Err("--repo-dir 必须是已存在的目录".into());
     }
@@ -90,11 +100,18 @@ async fn load_repo(repo_dir: PathBuf) -> Result<OrgRepo, String> {
         .ok_or_else(|| "--repo-dir 必须是 UTF-8 路径".to_string())?
         .to_owned();
     let mut repo = OrgRepo::new(root_directory).map_err(|error| error.to_string())?;
-    repo.load().await.map_err(|error| error.to_string())?;
-    Ok(repo)
+    let history = repo
+        .load::<WebDavSyncPolicy>()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok((repo, history))
 }
 
-async fn sync_webdav(repo: OrgRepo, args: WebDavArgs) -> Result<(), String> {
+async fn sync_webdav(
+    repo: OrgRepo,
+    history: Vec<org_tasks_core::OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>,
+    args: WebDavArgs,
+) -> Result<(), String> {
     if !args.webdav_url.starts_with("https://") {
         return Err("--webdav-url 必须使用 HTTPS".into());
     }
@@ -107,7 +124,7 @@ async fn sync_webdav(repo: OrgRepo, args: WebDavArgs) -> Result<(), String> {
         println!("同步开始: 本地文件={}。", repo.files().len());
     }
 
-    let controller = OrgRepoSyncController::new(repo, policy);
+    let controller = OrgRepoSyncController::new(repo, history, policy);
     controller
         .start(timestamp_ms()?)
         .await
@@ -138,13 +155,16 @@ async fn sync_webdav(repo: OrgRepo, args: WebDavArgs) -> Result<(), String> {
     }
 }
 
-fn history(repo: OrgRepo, command: HistoryCommand) -> Result<(), String> {
+fn history(
+    history: Vec<org_tasks_core::OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>,
+    command: HistoryCommand,
+) -> Result<(), String> {
     match command.target {
         HistoryTarget::List => {
-            if repo.sync_records().is_empty() {
+            if history.is_empty() {
                 println!("没有同步历史。");
             } else {
-                for record in repo.sync_records() {
+                for record in &history {
                     let summary = summarize_files(record);
                     println!(
                         "{}  开始={}  耗时={}  结果={}  文件: 新增={} 修改={} 删除={} 不变={} 冲突={} 失败={}",
@@ -164,8 +184,7 @@ fn history(repo: OrgRepo, command: HistoryCommand) -> Result<(), String> {
             Ok(())
         }
         HistoryTarget::Show(args) => {
-            let record = repo
-                .sync_records()
+            let record = history
                 .iter()
                 .find(|record| record.id == args.id)
                 .ok_or_else(|| format!("未找到同步历史: {}", args.id))?;
@@ -208,7 +227,9 @@ struct FileSummary {
     failed: usize,
 }
 
-fn summarize_files(record: &OrgRepoSyncRecord) -> FileSummary {
+fn summarize_files(
+    record: &OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
+) -> FileSummary {
     let mut summary = FileSummary::default();
     for file in &record.files {
         match file.state {
@@ -256,7 +277,7 @@ fn format_duration(duration: Option<i64>) -> String {
 }
 
 fn print_snapshot(
-    snapshot: &OrgRepoSyncSnapshot,
+    snapshot: &OrgRepoSyncSnapshot<WebDavSyncContextDetail, WebDavSyncFileDetail>,
     verbose: bool,
     last_progress: &mut Option<OrgRepoSyncProgress>,
     displayed_http_events: &mut usize,
@@ -307,7 +328,10 @@ fn print_progress(progress: &OrgRepoSyncProgress) {
     println!("{stage}: {}/{}{}", progress.completed, progress.total, path);
 }
 
-fn print_record(record: &OrgRepoSyncRecord, verbose: bool) {
+fn print_record(
+    record: &OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
+    verbose: bool,
+) {
     println!(
         "同步结果: {}，文件数={}",
         result_label(record),
@@ -318,7 +342,7 @@ fn print_record(record: &OrgRepoSyncRecord, verbose: bool) {
     }
 }
 
-fn print_file_record(file: &OrgRepoSyncFileRecord, verbose: bool) {
+fn print_file_record(file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>, verbose: bool) {
     let outcome = match file.state {
         OrgRepoSyncFileState::Failed => "失败",
         OrgRepoSyncFileState::Conflict => "冲突",
@@ -329,8 +353,8 @@ fn print_file_record(file: &OrgRepoSyncFileRecord, verbose: bool) {
     } else {
         "是"
     };
-    let size = file
-        .remote_version
+    let remote = webdav_detail(file);
+    let size = remote
         .as_ref()
         .and_then(|version| version.size)
         .map(format_size)
@@ -349,7 +373,7 @@ fn print_file_record(file: &OrgRepoSyncFileRecord, verbose: bool) {
         if let Some(local) = &file.local_version {
             println!("  本地版本: {}", local.content_hash);
         }
-        if let Some(remote) = &file.remote_version {
+        if let Some(remote) = remote {
             println!(
                 "  远端版本: etag={}，修改时间={}，大小={}",
                 remote.etag.as_deref().unwrap_or("未知"),
@@ -366,7 +390,9 @@ fn print_file_record(file: &OrgRepoSyncFileRecord, verbose: bool) {
     }
 }
 
-fn result_label(record: &OrgRepoSyncRecord) -> &'static str {
+fn result_label(
+    record: &OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
+) -> &'static str {
     match record.result {
         Some(org_tasks_core::OrgRepoSyncResult::Succeeded) => "成功",
         Some(org_tasks_core::OrgRepoSyncResult::Failed) => "失败",
@@ -397,6 +423,12 @@ fn state_label(state: OrgRepoSyncFileState) -> &'static str {
         OrgRepoSyncFileState::Conflict => "冲突",
         OrgRepoSyncFileState::Failed => "失败",
     }
+}
+
+fn webdav_detail(
+    file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
+) -> Option<WebDavSyncFileDetail> {
+    Some(file.detail.clone())
 }
 
 fn format_size(bytes: i64) -> String {

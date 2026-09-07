@@ -62,14 +62,15 @@
   id: OrgRepoSyncRecordId \\
   result: Option\textless OrgRepoSyncResult\textgreater \\
   started\_at: TimestampMs \\
-  finished\_at: Option\textless TimestampMs\textgreater
+  finished\_at: Option\textless TimestampMs\textgreater \\
+  context\_detail: C
 }{}
 \umlclass[x=0,y=-3.6]{OrgRepoSyncFileRecord}{
   relative\_path: String \\
   action: OrgRepoSyncFileAction \\
   state: OrgRepoSyncFileState \\
   local\_version: Option\textless LocalFileVersion\textgreater \\
-  remote\_version: Option\textless RemoteFileVersion\textgreater
+  detail: F
 }{}
 \end{umlpackage}
 
@@ -93,9 +94,10 @@
 | ~OrgRepoId~ | 非空 UUID 字符串；同一逻辑仓库重建 workspace 时必须保持不变。 |
 | ~OrgEntryId~ | 由仓库 ID、相对路径和稳定 outline 位置派生的标识。显式 ~ID~ property 存在时优先使用它。 |
 | ~OrgRepoSyncRecordId~ | 一次同步记录的非空 UUID 字符串。 |
+| ~OrgRepoSyncRecord.kind~ | 策略类型标识；必须与加载和执行该记录的 ~SyncPolicy::KIND~ 一致。 |
 | 相对路径 | ~relativePath~ 相对于所属 ~OrgRepo.rootDirectory~ ，不能是绝对路径或包含 ~..~ 。 |
 | 源位置 | ~SourceRange~ 是引用 ~OrgFile.sourceBytes~ 的半开区间 ~[start, end)~ 。 ~SourcePosition~ 同时记录 1-based 行号、0-based UTF-8 字节列号与 0-based UTF-8 字节偏移；它仅在当前文件快照内有效，不能作为跨版本稳定 ID。 |
-| 内容与版本 | ~OrgFile.sourceBytes~ 保存当前解析/编辑会话的完整源字节，用于保真写回；它不写入 core 持久化状态或同步记录。内容树可由文件重新解析； ~LocalFileVersion~ 只保存内容哈希， ~RemoteFileVersion~ 只保存 ETag、修改时间和大小。 |
+| 内容与版本 | ~OrgFile.sourceBytes~ 保存当前解析/编辑会话的完整源字节，用于保真写回；它不写入 core 持久化状态或同步记录。内容树可由文件重新解析； ~LocalFileVersion~ 只保存内容哈希， 策略专属的文件 ~detail~ 保存远端 ETag、修改时间和大小等信息。 |
 
 * 工作空间与仓库
 
@@ -114,7 +116,6 @@ pub struct OrgRepo {
     pub id: OrgRepoId,
     pub root_directory: String,
     pub files: Vec<OrgFile>,
-    pub sync_records: Vec<OrgRepoSyncRecord>,
 }
 #+end_src
 
@@ -191,36 +192,32 @@ pub struct SourcePosition {
 
 * 仓库同步记录
 
-~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它属于 ~OrgRepo~ ，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
+~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它由 ~OrgRepo.load::<P>~ 返回或由同步策略产生，不作为 ~OrgRepo~ 的字段保存，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
 
 ~OrgRepoSyncFileRecord~ 记录该次同步中一个相对路径的决策与结果。它不保存完整文件内容，也不把远端 URL、认证 header 或密码写入错误摘要。冲突、下载、上传、创建、删除和跳过均由 ~action~ 与 ~state~ 表达，不另建运行时执行权或 UI 事件实体。
 
 #+begin_src rust
-pub struct OrgRepoSyncRecord {
+pub struct OrgRepoSyncRecord<C, F> {
     pub id: OrgRepoSyncRecordId,
+    pub kind: String,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub result: Option<OrgRepoSyncResult>,
-    pub files: Vec<OrgRepoSyncFileRecord>,
+    pub context_detail: C,
+    pub files: Vec<OrgRepoSyncFileRecord<F>>,
 }
 
-pub struct OrgRepoSyncFileRecord {
+pub struct OrgRepoSyncFileRecord<F> {
     pub relative_path: String,
     pub action: OrgRepoSyncFileAction,
     pub state: OrgRepoSyncFileState,
     pub local_version: Option<LocalFileVersion>,
-    pub remote_version: Option<RemoteFileVersion>,
+    pub detail: F,
     pub error: Option<OrgRepoSyncErrorSummary>,
 }
 
 pub struct LocalFileVersion {
     pub content_hash: String,
-}
-
-pub struct RemoteFileVersion {
-    pub etag: Option<String>,
-    pub modified_at: Option<TimestampMs>,
-    pub size: Option<i64>,
 }
 #+end_src
 

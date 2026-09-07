@@ -10,11 +10,13 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{
     LocalFileVersion, OrgFile, OrgRepo, OrgRepoSyncErrorCategory, OrgRepoSyncErrorSummary,
     OrgRepoSyncFileAction, OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncRecord,
-    OrgRepoSyncResult, RemoteFileVersion, SyncCancellation, SyncPolicy, SyncProgressReporter,
+    OrgRepoSyncResult, RemoteFileVersion, SyncCancellation, SyncContext, SyncPolicy,
+    SyncProgressReporter,
 };
 use crate::{CoreError, TimestampMs};
 
@@ -36,6 +38,36 @@ impl WebDavEndpoint {
             return Err(CoreError::InvalidInput("WebDAV 地址格式无效"));
         }
         Ok(Self { base_url })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebDavSyncContextDetail;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebDavSyncFileDetail {
+    pub etag: Option<String>,
+    pub modified_at: Option<TimestampMs>,
+    pub size: Option<i64>,
+}
+
+impl From<RemoteFileVersion> for WebDavSyncFileDetail {
+    fn from(version: RemoteFileVersion) -> Self {
+        Self {
+            etag: version.etag,
+            modified_at: version.modified_at,
+            size: version.size,
+        }
+    }
+}
+
+impl From<WebDavSyncFileDetail> for RemoteFileVersion {
+    fn from(detail: WebDavSyncFileDetail) -> Self {
+        Self {
+            etag: detail.etag,
+            modified_at: detail.modified_at,
+            size: detail.size,
+        }
     }
 }
 
@@ -83,7 +115,7 @@ pub enum WebDavSyncEvent {
         total: usize,
     },
     FileProcessed {
-        record: OrgRepoSyncFileRecord,
+        record: OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
     },
     HttpRequest {
         method: String,
@@ -172,12 +204,15 @@ impl WebDavSyncPolicy {
     async fn synchronize_repo(
         &self,
         repo: &mut OrgRepo,
+        history: &[OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>],
         started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-    ) -> Result<OrgRepoSyncRecord, CoreError> {
+    ) -> Result<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>, CoreError> {
         let mut record =
-            OrgRepoSyncRecord::new(format!("webdav-{}-{started_at}", repo.id), started_at)?;
+            OrgRepoSyncRecord::new(format!("webdav-{}-{started_at}", repo.id), started_at)?
+                .with_kind(Self::KIND)
+                .with_context_detail(WebDavSyncContextDetail::default());
         self.report(WebDavSyncEvent::Started {
             repo_id: repo.id.clone(),
         });
@@ -248,19 +283,20 @@ impl WebDavSyncPolicy {
             });
             let local = repo.files.iter().find(|file| file.path == path).cloned();
             let remote = remote_by_path.get(&path).cloned();
-            let baseline = latest_file_record(repo, &path).cloned();
+            let baseline = latest_file_record(history, &path).cloned();
             let outcome = match (local, remote, baseline) {
                 (Some(local), None, None) => self.create_remote(repo, &local, progress).await,
                 (Some(local), Some(remote), None) => Ok(conflict_record(repo, path, local, remote)),
                 (None, Some(remote), _) => self.download_remote(repo, remote, progress).await,
-                (Some(local), None, Some(baseline)) if baseline.remote_version.is_some() => {
+                (Some(local), None, Some(baseline)) if remote_version_for(&baseline).is_some() => {
                     Ok(remote_deleted_record(repo, path, local, baseline))
                 }
                 (Some(local), None, Some(_)) => self.create_remote(repo, &local, progress).await,
                 (Some(local), Some(remote), Some(baseline)) => {
                     let local_version = local_version(&local);
                     let local_changed = baseline.local_version.as_ref() != Some(&local_version);
-                    let remote_changed = baseline.remote_version.as_ref() != Some(&remote.version);
+                    let remote_changed =
+                        remote_version_for(&baseline).as_ref() != Some(&remote.version);
                     match (local_changed, remote_changed) {
                         (false, false) => {
                             Ok(unchanged_record(repo, path, local_version, remote.version))
@@ -305,7 +341,7 @@ impl WebDavSyncPolicy {
         repo: &OrgRepo,
         local: &OrgFile,
         progress: &SyncProgressReporter,
-    ) -> Result<OrgRepoSyncFileRecord, CoreError> {
+    ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
         let local_version = local_version(local);
         match runtime::put_remote(
             &self.client,
@@ -331,7 +367,6 @@ impl WebDavSyncPolicy {
                 repo,
                 local.path.clone(),
                 local_version,
-                None,
                 error.summary(),
             )),
         }
@@ -341,12 +376,11 @@ impl WebDavSyncPolicy {
         &self,
         repo: &OrgRepo,
         local: &OrgFile,
-        baseline: OrgRepoSyncFileRecord,
+        baseline: OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
         progress: &SyncProgressReporter,
-    ) -> Result<OrgRepoSyncFileRecord, CoreError> {
+    ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
         let local_version = local_version(local);
-        let Some(etag) = baseline
-            .remote_version
+        let Some(etag) = remote_version_for(&baseline)
             .as_ref()
             .and_then(|version| version.etag.clone())
         else {
@@ -354,7 +388,6 @@ impl WebDavSyncPolicy {
                 repo,
                 local.path.clone(),
                 local_version,
-                baseline.remote_version,
                 WebDavError::Conflict("远端缺少 ETag，不能条件更新".into()).summary(),
             ));
         };
@@ -382,7 +415,6 @@ impl WebDavSyncPolicy {
                 repo,
                 local.path.clone(),
                 local_version,
-                baseline.remote_version,
                 error.summary(),
             )),
         }
@@ -393,7 +425,7 @@ impl WebDavSyncPolicy {
         repo: &mut OrgRepo,
         remote: WebDavRemoteFile,
         progress: &SyncProgressReporter,
-    ) -> Result<OrgRepoSyncFileRecord, CoreError> {
+    ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
         match runtime::get_remote(
             &self.client,
             &self.username,
@@ -426,7 +458,6 @@ impl WebDavSyncPolicy {
                 repo,
                 remote.path,
                 LocalFileVersion::new("unavailable".into())?,
-                Some(remote.version),
                 error.summary(),
             )),
         }
@@ -434,14 +465,26 @@ impl WebDavSyncPolicy {
 }
 
 impl SyncPolicy for WebDavSyncPolicy {
+    const KIND: &'static str = "webdav";
+    type ContextDetail = WebDavSyncContextDetail;
+    type FileDetail = WebDavSyncFileDetail;
+
     fn synchronize(
         &self,
-        repo: &mut OrgRepo,
-        started_at: TimestampMs,
+        context: &mut SyncContext<'_>,
+        history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-    ) -> impl Future<Output = Result<OrgRepoSyncRecord, CoreError>> + Send {
-        self.synchronize_repo(repo, started_at, cancellation, progress)
+    ) -> impl Future<
+        Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>,
+    > + Send {
+        self.synchronize_repo(
+            context.repo,
+            history,
+            context.started_at,
+            cancellation,
+            progress,
+        )
     }
 }
 
@@ -451,11 +494,14 @@ fn success_record(
     action: OrgRepoSyncFileAction,
     local: LocalFileVersion,
     remote: RemoteFileVersion,
-) -> Result<OrgRepoSyncFileRecord, CoreError> {
-    Ok(
-        OrgRepoSyncFileRecord::new(path, action, OrgRepoSyncFileState::Synchronized)?
-            .with_versions(Some(local), Some(remote)),
-    )
+) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
+    Ok(OrgRepoSyncFileRecord::<WebDavSyncFileDetail>::new(
+        path,
+        action,
+        OrgRepoSyncFileState::Synchronized,
+    )?
+    .with_local_version(Some(local))
+    .with_detail(WebDavSyncFileDetail::from(remote)))
 }
 
 fn unchanged_record(
@@ -463,14 +509,15 @@ fn unchanged_record(
     path: String,
     local: LocalFileVersion,
     remote: RemoteFileVersion,
-) -> OrgRepoSyncFileRecord {
+) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
     OrgRepoSyncFileRecord::new(
         path,
         OrgRepoSyncFileAction::Unchanged,
         OrgRepoSyncFileState::Synchronized,
     )
     .expect("未变化文件记录应有效")
-    .with_versions(Some(local), Some(remote))
+    .with_local_version(Some(local))
+    .with_detail(WebDavSyncFileDetail::from(remote))
 }
 
 fn conflict_record(
@@ -478,14 +525,15 @@ fn conflict_record(
     path: String,
     local: OrgFile,
     remote: WebDavRemoteFile,
-) -> OrgRepoSyncFileRecord {
+) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
     OrgRepoSyncFileRecord::new(
         path,
         OrgRepoSyncFileAction::Conflicted,
         OrgRepoSyncFileState::Conflict,
     )
     .expect("冲突文件记录应有效")
-    .with_versions(Some(local_version(&local)), Some(remote.version))
+    .with_local_version(Some(local_version(&local)))
+    .with_detail(WebDavSyncFileDetail::from(remote.version))
     .with_error(WebDavError::Conflict("本地与远端均有未确认变更".into()).summary())
 }
 
@@ -493,40 +541,54 @@ fn remote_deleted_record(
     _repo: &OrgRepo,
     path: String,
     local: OrgFile,
-    baseline: OrgRepoSyncFileRecord,
-) -> OrgRepoSyncFileRecord {
+    baseline: OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
+) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
     OrgRepoSyncFileRecord::new(
         path,
         OrgRepoSyncFileAction::Skipped,
         OrgRepoSyncFileState::RemoteDeleted,
     )
     .expect("远端删除文件记录应有效")
-    .with_versions(Some(local_version(&local)), baseline.remote_version)
+    .with_local_version(Some(local_version(&local)))
+    .with_detail(baseline.detail)
 }
 
 fn failed_record(
     _repo: &OrgRepo,
     path: String,
     local: LocalFileVersion,
-    remote: Option<RemoteFileVersion>,
     error: OrgRepoSyncErrorSummary,
-) -> OrgRepoSyncFileRecord {
+) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
     OrgRepoSyncFileRecord::new(
         path,
         OrgRepoSyncFileAction::Skipped,
         OrgRepoSyncFileState::Failed,
     )
     .expect("失败文件记录应有效")
-    .with_versions(Some(local), remote)
+    .with_local_version(Some(local))
+    .with_detail(WebDavSyncFileDetail::default())
     .with_error(error)
 }
 
-fn latest_file_record<'a>(repo: &'a OrgRepo, path: &str) -> Option<&'a OrgRepoSyncFileRecord> {
-    repo.sync_records
+fn latest_file_record<'a>(
+    history: &'a [OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>],
+    path: &str,
+) -> Option<&'a OrgRepoSyncFileRecord<WebDavSyncFileDetail>> {
+    history
         .iter()
         .rev()
         .filter(|record| record.result == Some(OrgRepoSyncResult::Succeeded))
         .find_map(|record| record.files.iter().find(|file| file.relative_path == path))
+}
+
+fn remote_version_for(
+    file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
+) -> Option<RemoteFileVersion> {
+    if file.detail.etag.is_some() {
+        Some(RemoteFileVersion::from(file.detail.clone()))
+    } else {
+        None
+    }
 }
 
 fn local_version(file: &OrgFile) -> LocalFileVersion {
@@ -606,7 +668,7 @@ mod tests {
         ));
         tokio::fs::create_dir_all(&root).await.unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        repo.load().await.unwrap();
+        let history = repo.load::<WebDavSyncPolicy>().await.unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let monitor = RecordingMonitor {
             events: Arc::clone(&events),
@@ -622,6 +684,7 @@ mod tests {
         let record = repo
             .sync(
                 &policy,
+                &history,
                 1,
                 &SyncCancellation::default(),
                 &SyncProgressReporter::default(),

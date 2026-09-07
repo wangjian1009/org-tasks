@@ -39,7 +39,7 @@
 | ~.sync/history/~                  | 目录                | 只包含一个已完成 ~OrgRepoSyncRecord~ 对应的 JSON 文件。由 ~OrgRepo.load~ 创建并恢复，由 ~OrgRepo.sync~ 追加。                                                 |
 | ~.sync/history/<started-at>.json~ | UTF-8 JSON 文件     | ~<started-at>~ 是 JSON 中 ~started_at~ 的十进制 Unix 毫秒值，文件内容是一个完整、已完成的 ~OrgRepoSyncRecord~ 。仓库归属只由上层 ~.sync/id~ 表达。              |
 
-~history/~ 内不得存在索引、基准快照或完整文件副本。同步基准由历史记录中的相对路径、 ~LocalFileVersion~ 和 ~RemoteFileVersion~ 推导；读取记录时按文件名的 ~started_at~ 毫秒值升序排序。单个仓库不允许两个记录拥有相同的 ~started_at~ ，因此无需额外排序键。这样每份记录独立可校验，单个损坏文件不会使其他历史不可见。
+~history/~ 内不得存在索引、基准快照或完整文件副本。同步基准由历史记录中的相对路径、 ~LocalFileVersion~ 和策略专属 ~detail~ 推导；读取记录时按文件名的 ~started_at~ 毫秒值升序排序。单个仓库不允许两个记录拥有相同的 ~started_at~ ，因此无需额外排序键。这样每份记录独立可校验，单个损坏文件不会使其他历史不可见。
 
 * 记录文件格式
 
@@ -48,6 +48,7 @@
 #+begin_src json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
+  "kind": "webdav",
   "started_at": 1788134400000,
   "finished_at": 1788134401200,
   "result": "Succeeded",
@@ -57,7 +58,7 @@
       "action": "Unchanged",
       "state": "Synchronized",
       "local_version": { "content_hash": "sha256:..." },
-      "remote_version": { "etag": "\"abc\"", "modified_at": 1788134300000, "size": 42 },
+      "detail": { "etag": "\"abc\"", "modified_at": 1788134300000, "size": 42 },
       "error": null
     }
   ]
@@ -81,7 +82,7 @@
 
 ** 追加同步记录
 
-同步成功、失败、取消或中断后，只要产生了完整的 ~OrgRepoSyncRecord~ ， ~OrgRepo.sync~ 即可追加它。提交顺序如下：
+同步成功、失败、取消或中断后，只要产生了带有全局 ~kind~ 和 ~WebDavSyncFileDetail~ 的完整 ~OrgRepoSyncRecord~ ， ~OrgRepo.sync~ 即可追加它。提交顺序如下：
 
 1. 校验记录已完成，并确认 ~started_at~ 对应的目标文件尚不存在；仓库归属由当前 ~.sync~ 目录确定。
 2. 将完整 JSON 写入 ~.sync/history/.<nonce>.tmp~ ，刷新该文件。
