@@ -374,7 +374,7 @@ impl OrgRepo {
         if !self.contains_path(&path) {
             return Err(CoreError::InvalidInput("扫描结果包含非法文件路径"));
         }
-        OrgFile::new(self.id.clone(), path, source_bytes, Vec::new())
+        OrgFile::new(self.id.clone(), path, source_bytes)
     }
 
     /// 执行同步策略，并将已完成的记录追加到仓库历史。
@@ -747,6 +747,29 @@ mod tests {
             format!("{initial_id}\n")
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parser_preserves_orgize_headline_structure() {
+        use orgize::SyntaxKind;
+        use orgize::rowan::ast::AstNode;
+
+        let file = OrgFile::new(
+            "repo-1".into(),
+            "inbox.org".into(),
+            b"* TODO [#A] Parent :work:urgent:\n** DONE Child\n* Plain heading\n".to_vec(),
+        )
+        .unwrap();
+        let document = file.syntax().document();
+        let syntax = document.syntax();
+        assert_eq!(
+            syntax
+                .descendants()
+                .filter(|node| node.kind() == SyntaxKind::HEADLINE)
+                .count(),
+            3
+        );
+        assert_eq!(file.syntax().to_org().as_bytes(), file.source_bytes());
     }
 
     #[tokio::test]

@@ -16,9 +16,9 @@
 
 * 范围与状态
 
-本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照与同步记录。仓库根目录内 ~.sync~ 的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~。仓库控制目录的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
 
-~OrgFile~ 、递归 ~OrgEntry~ 与 ~OrgElement~ 描述解析后的 org 内容树； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果。当前 ~core~ 已实现这些目标数据结构、保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
+~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
 调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
 
@@ -29,57 +29,41 @@
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 
-\begin{umlpackage}{Workspace and parsed content}
+\begin{umlpackage}{Workspace}
 \umlclass[x=0,y=0]{OrgWorkspace}{
   repos: Vec\textless OrgRepo\textgreater
 }{}
-\umlclass[x=0,y=-2.8]{OrgRepo}{
+\umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
-  files: Vec\textless OrgFile\textgreater \\
-  sync\_records: Vec\textless OrgRepoSyncRecord\textgreater
+  files: Vec\textless OrgFile\textgreater
 }{}
-\umlclass[x=0,y=-5.8]{OrgFile}{
+\umlclass[x=0,y=-6.0]{OrgFile}{
   repo\_id: OrgRepoId \\
   path: String \\
-  source\_bytes: Vec\textless u8\textgreater \\
-  entries: Vec\textless OrgEntry\textgreater
-}{}
-\umlclass[x=0,y=-9.2]{OrgEntry}{
-  id: OrgEntryId \\
-  parent\_id: Option\textless OrgEntryId\textgreater \\
-  level: u16 \\
-  elements: Vec\textless OrgElement\textgreater
-}{}
-\umlclass[x=6.0,y=-9.2]{OrgElement}{
-  kind: OrgElementKind \\
-  source\_range: SourceRange
+  source\_bytes: Vec\textless u8\textgreater
 }{}
 \end{umlpackage}
 
-\begin{umlpackage}[x=10.0,y=0]{Synchronization}
+\begin{umlpackage}[x=8.5,y=-1.4]{Synchronization}
 \umlclass[x=0,y=0]{OrgRepoSyncRecord}{
   id: OrgRepoSyncRecordId \\
+  kind: String \\
   result: Option\textless OrgRepoSyncResult\textgreater \\
   started\_at: TimestampMs \\
-  finished\_at: Option\textless TimestampMs\textgreater \\
-  context\_detail: C
+  finished\_at: Option\textless TimestampMs\textgreater
 }{}
-\umlclass[x=0,y=-3.6]{OrgRepoSyncFileRecord}{
+\umlclass[x=0,y=-3.4]{OrgRepoSyncFileRecord}{
   relative\_path: String \\
   action: OrgRepoSyncFileAction \\
   state: OrgRepoSyncFileState \\
-  local\_version: Option\textless LocalFileVersion\textgreater \\
-  detail: F
+  local\_version: Option\textless LocalFileVersion\textgreater
 }{}
 \end{umlpackage}
 
 \umluniassoc[mult1=1,mult2=0..*]{OrgWorkspace}{OrgRepo}
 \umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
-\umluniassoc[mult1=1,mult2=0..*]{OrgFile}{OrgEntry}
-\umluniassoc[mult1=0..1,mult2=0..*]{OrgEntry}{OrgEntry}
-\umluniassoc[mult1=1,mult2=0..*]{OrgEntry}{OrgElement}
-\umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgRepoSyncRecord}
+\umldep{OrgRepo}{OrgRepoSyncRecord}
 \umluniassoc[mult1=1,mult2=0..*]{OrgRepoSyncRecord}{OrgRepoSyncFileRecord}
 \umldep{OrgRepoSyncFileRecord}{OrgFile}
 \end{tikzpicture}%
@@ -92,7 +76,6 @@
 |-
 | ~TimestampMs~ | Unix epoch 毫秒。 |
 | ~OrgRepoId~ | 非空 UUID 字符串；同一逻辑仓库重建 workspace 时必须保持不变。 |
-| ~OrgEntryId~ | 由仓库 ID、相对路径和稳定 outline 位置派生的标识。显式 ~ID~ property 存在时优先使用它。 |
 | ~OrgRepoSyncRecordId~ | 一次同步记录的非空 UUID 字符串。 |
 | ~OrgRepoSyncRecord.kind~ | 策略类型标识；必须与加载和执行该记录的 ~SyncPolicy::KIND~ 一致。 |
 | 相对路径 | ~relativePath~ 相对于所属 ~OrgRepo.rootDirectory~ ，不能是绝对路径或包含 ~..~ 。 |
@@ -103,7 +86,7 @@
 
 ~OrgWorkspace~ 是应用级管理对象，负责聚合仓库，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
-~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照， ~syncRecords~ 保存已完成同步的仓库历史。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
+~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史由 ~load::<P>~ 返回而不保存在仓库字段。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
 远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不进入 ~OrgRepo~ 或任何其他 core 数据结构。
 
@@ -119,74 +102,19 @@ pub struct OrgRepo {
 }
 #+end_src
 
-* Org 内容树
+* Org 解析与保真
 
-~OrgFile~ 是仓库中一个可解析 org 文件的内容投影。它以 ~repoId~ 与相对 ~path~ 标识， ~path~ 必须相对于所属 ~OrgRepo.rootDirectory~ 。 ~sourceBytes~ 是读取时得到的完整原始字节快照，并拥有零到多个顶层 ~OrgEntry~ 。没有 headline 的文件仍是有效的 ~OrgFile~ ，其 entries 为空；其前言、注释和其他未归属 entry 的片段仍由 ~sourceBytes~ 保留。
+~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
 
-~OrgEntry~ 对应一个 org headline。 ~OrgFile~ 只直接拥有顶层 entry；子 headline 通过 ~OrgEntry.parentId~ 与递归子 entry 表达。因此一个 entry 可拥有零到多个子 entry，同时最多有一个父 entry。文件内的 outline 关系必须保持解析顺序。
-
-~OrgEntry.elements~ 是有序元素列表。模型允许零到多个元素，以便表示解析失败后的部分投影；正常解析出的 headline entry 必须恰好包含一个 ~Title~ 元素。标题的 TODO keyword、优先级和 tags 均属于该元素，不能另建平行任务结构。
-
-#+begin_src rust
-pub struct OrgFile {
-    pub repo_id: OrgRepoId,
-    pub path: String,
-    pub source_bytes: Vec<u8>,
-    pub entries: Vec<OrgEntry>,
-}
-
-pub struct OrgEntry {
-    pub id: OrgEntryId,
-    pub parent_id: Option<OrgEntryId>,
-    pub level: u16,
-    pub elements: Vec<OrgElement>,
-    pub children: Vec<OrgEntry>,
-}
-
-pub struct OrgElement {
-    pub kind: OrgElementKind,
-    pub source_range: SourceRange,
-}
-
-pub struct SourceRange {
-    pub start: SourcePosition,
-    pub end: SourcePosition,
-}
-
-pub struct SourcePosition {
-    pub line: u32,
-    pub column: u32,
-    pub byte_offset: u64,
-}
-#+end_src
-
-** OrgElement 与 org-mode 语法
-
-~OrgElementKind~ 依照 org-mode 语法建模，不把日程、截止日期或标题拆到仓库级平行字段。元素保留在原始顺序中，写回时才能避免重排正文、drawer 或块内容。
-
-| 元素类型 | 对应 org 语法 | 领域内容 |
-|-
-| ~Title~ | headline 文本 | 标题文本、TODO keyword、优先级和 tags。 |
-| ~Scheduled~ | headline 后的 ~SCHEDULED: <...>~ | 活动 timestamp、时间范围、repeater、delay。 |
-| ~Deadline~ | headline 后的 ~DEADLINE: <...>~ | 活动 timestamp、时间范围、repeater、warning。 |
-| ~Closed~ | headline 后的 ~CLOSED: [...]~ | 非活动完成 timestamp。 |
-| ~Property~ | 紧随 headline 的 ~:PROPERTIES:~ drawer | 大小写不敏感的 key 与原始 value；显式 ~ID~ 可参与 entry ID 计算。 |
-| ~Timestamp~ | 正文中的活动或非活动 timestamp | 单点、日期范围或同日时间范围。 |
-| ~Drawer~ | 其他 ~:NAME:~ drawer | drawer 名称与其子元素。 |
-| ~Text~ 、 ~List~ 、 ~Link~ | 正文、普通列表和链接 | 保留可显示文本及链接目标。 |
-| ~Block~ 、 ~Keyword~ | ~#+begin_src ... #+end_src~ 等块和 ~#+KEYWORD:~ | 块类型、参数与内容，或 keyword 的 key/value。 |
-| ~Raw~ | 当前解析器尚未结构化的合法 org 片段 | 原始内容，确保升级解析器前不丢失信息。 |
-
-~Scheduled~ 、 ~Deadline~ 和 ~Closed~ 必须位于 headline 或其 property drawer 之后的 planning 区域。 ~Scheduled~ 与 ~Deadline~ 的 timestamp 可带时间、时间范围、repeater、delay 或 warning； ~Closed~ 使用非活动 timestamp。一个 entry 同种 planning 元素最多一个，重复项属于解析错误而不是以最后一项覆盖。
+未修改时，~OrgFile~ 必须直接写回 ~sourceBytes~，不能经解析器重新序列化。局部编辑只替换明确的 ~SourceRange~ 或在明确 ~SourcePosition~ 插入字节；变更完成后重新构造 ~orgize::Org~ 缓存。因此空行、换行风格、缩进、行尾空格、未知语法和未改动区域保持原始字节。
 
 ** 源码保真与最小差异写回
 
-~OrgFile.sourceBytes~ 是内容树的唯一写回基准， ~OrgElement.sourceRange~ 必须精确指向该缓冲区中该元素的完整来源。解析器必须为每个元素保存起止行、列和字节偏移；行号从 1 开始，列号与字节偏移从 0 开始，区间采用 ~[start, end)~ 。行列仅用于诊断和定位展示，实际替换必须以 UTF-8 字节偏移执行，避免多字节字符导致偏移错误。
+~OrgFile.sourceBytes~ 是唯一写回基准。编辑范围使用 ~SourceRange~，插入位置使用 ~SourcePosition~；行号从 1 开始，列号与字节偏移从 0 开始，区间采用 ~[start, end)~ 。行列仅用于诊断和定位展示，实际替换必须以 UTF-8 字节偏移执行，避免多字节字符导致偏移错误。
 
 - 未对文件应用编辑时，序列化必须直接返回读取时的 ~sourceBytes~ ，结果须与原文件逐字节一致。这包含编码字节、换行风格、末尾换行、空行、缩进、行尾空格、注释、drawer 顺序、未知语法和未建模内容。
-- 替换一个元素时，只能替换其 ~sourceRange~ 覆盖的字节；插入元素时，只能在明确的元素边界或 entry 内合法锚点插入所需字节。写回不得格式化、重新缩进、对齐表格、规范化换行、重排元素，或重建未修改节点。
-- 每次替换或插入后必须以更新后的 ~sourceBytes~ 更新受影响元素及其后续元素的 ~SourceRange~ 。跨行变更时必须从新缓冲区重新计算行号、列号和字节偏移，不能只对后续列号累加差值。必要时可重新解析受影响 entry 或整个文件校验结构。
-- ~Raw~ 元素、未建模片段和不属于任何 entry 的内容必须按原始字节保留。编辑实现不得因解析器尚不理解某段合法 org 语法而删除或改写该片段。
+- 替换一个元素时，只能替换其 ~sourceRange~ 覆盖的字节；插入元素时，只能在明确的容器元素边界插入所需字节。写回不得格式化、重新缩进、对齐表格、规范化换行、重排元素，或重建未修改节点。
+- 每次替换或插入后必须以更新后的 ~sourceBytes~ 更新受影响节点及其后续节点的 ~SourceRange~ 。跨行变更时必须从新缓冲区重新计算行号、列号和字节偏移，不能只对后续列号累加差值。
 
 上述规则适用于本地保存与上传前序列化。源字节快照仅在本次解析/编辑会话内保留；关闭会话后可从文件重新读取，持久化层仍只保存同步元数据。
 
@@ -225,7 +153,7 @@ pub struct LocalFileVersion {
 
 * 持久化与运行时边界
 
-持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。内容树可从文件重新生成，因此默认不持久化 ~OrgFile~ 、 ~OrgEntry~ 或 ~OrgElement~ 的完整内容。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
+持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
 
 ~OrgWorkspace~ 的构造、目录扫描、WebDAV HTTP 传输、认证、并发控制、进度通知、取消、重试与日历投影均由宿主或适配层负责。 ~core::webdav~ 负责基于传输结果作同步决策并更新仓库快照；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 

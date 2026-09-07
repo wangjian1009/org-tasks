@@ -43,6 +43,7 @@ org-tasks/
 - 仓库根目录是 Cargo workspace，成员为 `core`、`harmony` 和 `http`。
 - `core` 是独立的本地仓库核心库，依赖方向只能是 `harmony -> core` 和 `http -> core`；禁止反向依赖或适配层之间的依赖。
 - `core::model` 负责 `OrgRepo` 的本地目录扫描、org 文件解析、保真编辑与同步记录数据维护；`core::webdav` 实现 `SyncPolicy`，负责 WebDAV 文件传输、下载写回、条件写入和同步记录生成。`SyncPolicy` 是后续接入其他同步方式的扩展点。
+- `OrgFile` 是单个完整 org 文件的根模型，使用 `orgize` 提供无损运行时语法树；解析、编辑、序列化和展示的语义必须以 Emacs 自带 `org-element.el` 为准。不得另建不兼容的项目解析 AST；未修改文件必须直接写回原始字节，局部编辑后不得改写未涉及的字节区间。
 - `core/src/bin/org-tasks/` 是操作本地 `OrgRepo` 的命令行程序，使用 Tokio 作为异步运行时。`core::model` 的加载与同步控制器、`core::webdav` 的文件与 HTTP I/O 均运行于 Tokio；`http` 只提供 Web App 操作入口；`harmony` 提供 HarmonyOS 手机上的仓库维护入口。新增仓库或同步能力时先修改 `core`，再由宿主接入。
 
 HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http/服务命令行设计.org`。修改该宿主前必须遵循该文档。

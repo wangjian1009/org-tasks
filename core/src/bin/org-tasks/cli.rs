@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{Local, TimeZone};
 use clap::{ArgAction, Args, Parser, Subcommand};
+use md5::{Digest, Md5};
 use org_tasks_core::webdav::{
     WebDavEndpoint, WebDavSyncContextDetail, WebDavSyncFileDetail, WebDavSyncPolicy,
 };
@@ -11,6 +12,8 @@ use org_tasks_core::{
     OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress, OrgRepoSyncRecord,
     OrgRepoSyncSnapshot,
 };
+use orgize::ast::Headline;
+use orgize::rowan::ast::AstNode;
 
 #[derive(Parser)]
 #[command(name = "org-tasks", version, about = "Org Tasks 命令行工具")]
@@ -25,6 +28,7 @@ struct Cli {
 enum Command {
     Sync(SyncCommand),
     History(HistoryCommand),
+    File(FileCommand),
 }
 
 #[derive(Args)]
@@ -56,6 +60,23 @@ struct HistoryShowArgs {
 }
 
 #[derive(Args)]
+struct FileCommand {
+    #[command(subcommand)]
+    target: FileTarget,
+}
+
+#[derive(Subcommand)]
+enum FileTarget {
+    List,
+    Dump(FileDumpArgs),
+}
+
+#[derive(Args)]
+struct FileDumpArgs {
+    path: String,
+}
+
+#[derive(Args)]
 struct WebDavArgs {
     #[arg(long)]
     webdav_url: String,
@@ -80,7 +101,71 @@ pub async fn run() -> Result<(), String> {
             SyncTarget::Webdav(args) => sync_webdav(repo, history_records, args).await,
         },
         Command::History(command) => history(history_records, command),
+        Command::File(command) => file(repo, command).await,
     }
+}
+
+async fn file(repo: OrgRepo, command: FileCommand) -> Result<(), String> {
+    match command.target {
+        FileTarget::List => list_files(&repo).await,
+        FileTarget::Dump(args) => dump_file(&repo, &args.path),
+    }
+}
+
+async fn list_files(repo: &OrgRepo) -> Result<(), String> {
+    if repo.files().is_empty() {
+        println!("没有 Org 文件。");
+        return Ok(());
+    }
+    println!("文件  任务数  大小  MD5  最后修改时间");
+    for file in repo.files() {
+        let metadata = tokio::fs::metadata(PathBuf::from(&repo.root_directory).join(&file.path))
+            .await
+            .map_err(|error| format!("无法读取文件元数据 {}: {error}", file.path))?;
+        let modified = metadata
+            .modified()
+            .map_err(|error| format!("无法读取文件修改时间 {}: {error}", file.path))?;
+        println!(
+            "{}  {}  {}  {}  {}",
+            file.path,
+            task_count(file),
+            format_size(i64::try_from(file.source_bytes().len()).unwrap_or(i64::MAX)),
+            md5_hex(file.source_bytes()),
+            format_system_time(modified),
+        );
+    }
+    Ok(())
+}
+
+fn dump_file(repo: &OrgRepo, path: &str) -> Result<(), String> {
+    let file = repo
+        .files()
+        .iter()
+        .find(|file| file.path == path)
+        .ok_or_else(|| format!("未找到 Org 文件: {path}"))?;
+    println!("{}", file.path);
+    println!("{:#?}", file.syntax().document().syntax());
+    Ok(())
+}
+
+fn task_count(file: &org_tasks_core::OrgFile) -> usize {
+    file.syntax()
+        .document()
+        .syntax()
+        .descendants()
+        .filter_map(Headline::cast)
+        .filter(|headline| headline.todo_keyword().is_some())
+        .count()
+}
+
+fn md5_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Md5::digest(bytes))
+}
+
+fn format_system_time(time: SystemTime) -> String {
+    chrono::DateTime::<Local>::from(time)
+        .format("%Y-%m-%d %H:%M:%S%.3f %:z")
+        .to_string()
 }
 
 async fn load_repo(
@@ -488,5 +573,38 @@ mod tests {
                 target: SyncTarget::Webdav(_)
             })
         ));
+    }
+
+    #[test]
+    fn parses_file_commands() {
+        let list =
+            Cli::try_parse_from(["org-tasks", "--repo-dir", "./org", "file", "list"]).unwrap();
+        assert!(matches!(
+            list.command,
+            Command::File(FileCommand {
+                target: FileTarget::List
+            })
+        ));
+
+        let dump = Cli::try_parse_from([
+            "org-tasks",
+            "--repo-dir",
+            "./org",
+            "file",
+            "dump",
+            "inbox.org",
+        ])
+        .unwrap();
+        assert!(matches!(
+            dump.command,
+            Command::File(FileCommand {
+                target: FileTarget::Dump(FileDumpArgs { path })
+            }) if path == "inbox.org"
+        ));
+    }
+
+    #[test]
+    fn md5_uses_standard_lowercase_hex() {
+        assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
     }
 }

@@ -43,9 +43,8 @@ let file = repo.files.iter_mut().find(|file| file.path == "inbox.org")?;
 
 apply_edit(
     file,
-    OrgFileEdit::ReplaceElement {
-        target: OrgElementLocator::for_element(&entry_id, &title_element),
-        kind: OrgElementKind::Title(updated_title),
+    OrgFileEdit::ReplaceRange {
+        target: headline_range,
         content: b"* TODO 更新后的标题\n".to_vec(),
     },
 )?;
@@ -53,7 +52,7 @@ apply_edit(
 file_writer.write(&file.path, serialize_file(file))?;
 #+end_src
 
-调用方在下一次编辑前必须使用编辑器更新后的元素定位；旧的 ~SourceRange~ 不能跨文件快照复用。 ~Raw~ 与其他未建模内容不参与替换时必须保持原始字节。
+调用方在下一次编辑前必须使用重新解析后的来源范围；旧的 ~SourceRange~ 不能跨文件快照复用。未被替换的字节必须保持原始值。
 
 ** 同步一个仓库
 
@@ -62,6 +61,15 @@ file_writer.write(&file.path, serialize_file(file))?;
 #+begin_src rust
 let history = repo.load::<WebDavSyncPolicy>().await?;
 let record = repo.sync(&webdav_sync_policy, &history, started_at).await?;
+#+end_src
+
+** 检查本地 Org 文件
+
+CLI 的 ~file list~ 只读取本地仓库快照及文件元数据，展示相对路径、TODO 状态 headline 数、源字节大小、MD5 与最后修改时间；不请求 WebDAV。~file dump <path>~ 直接输出 ~orgize~ 的无损语法树。路径必须与仓库中已加载文件的相对路径完全一致。
+
+#+begin_src sh
+org-tasks --repo-dir /data/org file list
+org-tasks --repo-dir /data/org file dump inbox.org
 #+end_src
 
 * 接口定义
@@ -111,7 +119,7 @@ impl OrgRepo {
 
 *** OrgFile
 
-~OrgFile~ 保存一次解析/编辑会话内的完整源字节与顶层条目。 ~sourceBytes~ 不得持久化，但它是保真序列化的唯一来源。
+~OrgFile~ 保存一次解析/编辑会话内的完整源字节，并在运行时缓存 ~orgize::Org~ 无损语法树。缓存不属于 core 持久化模型； ~sourceBytes~ 是保真序列化的唯一来源。
 
 #+begin_src rust
 impl OrgFile {
@@ -119,50 +127,13 @@ impl OrgFile {
         repo_id: OrgRepoId,
         path: String,
         source_bytes: Vec<u8>,
-        entries: Vec<OrgEntry>,
     ) -> Result<Self, OrgFileValidationError>;
 
     pub fn source_bytes(&self) -> &[u8];
-
-    pub fn entries(&self) -> &[OrgEntry];
 }
 #+end_src
 
-~new~ 必须验证所有 entry 与元素范围都位于 ~sourceBytes~ 内，且不改变输入字节。未应用 ~OrgFileEdit~ 时， ~serialize_file~ 必须逐字节返回 ~source_bytes~ 。
-
-*** OrgEntry
-
-~OrgEntry~ 表示一个 headline，以及其有序元素和递归子 headline。
-
-#+begin_src rust
-impl OrgEntry {
-    pub fn id(&self) -> &OrgEntryId;
-
-    pub fn elements(&self) -> &[OrgElement];
-
-    pub fn children(&self) -> &[OrgEntry];
-
-    pub fn find_element(&self, range: &SourceRange) -> Option<&OrgElement>;
-}
-#+end_src
-
-~find_element~ 只在当前文件快照内按完整来源范围查找元素；同一 entry 的元素与 children 均须保持原始源码顺序。
-
-*** OrgElement
-
-~OrgElement~ 是标题、planning、property、timestamp、drawer、正文、块、keyword 或 ~Raw~ 片段的有序内容单元。每个元素必须带有来源范围。
-
-#+begin_src rust
-impl OrgElement {
-    pub fn kind(&self) -> &OrgElementKind;
-
-    pub fn source_range(&self) -> &SourceRange;
-
-    pub fn contains(&self, position: &SourcePosition) -> bool;
-}
-#+end_src
-
-~source_range~ 必须精确指向 ~OrgFile.sourceBytes~ 内该元素的完整来源。 ~Raw~ 是保留未知合法 org 语法的正常元素，不能因缺少结构化字段而在写回时删除。
+~new~ 必须验证 UTF-8 编码并构造 ~orgize~ 缓存，且不改变输入字节。未应用 ~OrgFileEdit~ 时， ~serialize_file~ 必须逐字节返回 ~source_bytes~ 。CLI 的 ~file dump~ 直接输出 ~orgize~ 语法树；语义解释以 Emacs ~org-element.el~ 为准。
 
 *** SourcePosition 与 SourceRange
 
@@ -248,32 +219,20 @@ impl LocalFileVersion {
 
 ~OrgRepo.load~ 是 core 的异步本地初始化操作。它先确保 ~.sync/~ 存在，读取合法的 ~.sync/id~ 并按指定 ~SyncPolicy~ 解析历史 detail ；若文件不存在，则生成 UUID 并以独占创建、写入与刷新持久化。之后递归扫描根目录中的普通 ~.org~ 文件，跳过符号链接和 ~.sync/~ ，并以原始字节构造 ~OrgFile~ 。扫描到重复、越界或非法的相对路径时必须失败，不能部分替换文件快照。
 
-解析器遇到尚未结构化的合法 org 语法必须产生 ~OrgElementKind::Raw~ ，不能静默丢弃内容。WebDAV 下载获得的字节也必须复用相同的 core 解析规则，而不是在 WebDAV 模块中定义另一套内容模型。
+~orgize~ 解析结果必须保持无损；WebDAV 下载获得的字节也必须复用相同的 core 解析规则，而不是在 WebDAV 模块中定义另一套内容模型。
 
 *** OrgFileEdit 与保真序列化
 
-编辑接口以已解析的单个 ~OrgFile~ 为边界。它只可修改一个元素来源范围，或在 entry 内的合法元素边界插入内容。
+编辑接口以已解析的单个 ~OrgFile~ 为边界。它只可替换明确来源范围，或在明确来源位置插入内容；完成后重新构造 ~orgize~ 缓存。
 
 #+begin_src rust
-pub struct OrgElementLocator {
-    pub entry_id: OrgEntryId,
-    pub source_range: SourceRange,
-}
-
-impl OrgElementLocator {
-    pub fn for_element(entry_id: &OrgEntryId, element: &OrgElement) -> Self;
-}
-
 pub enum OrgFileEdit {
-    ReplaceElement {
-        target: OrgElementLocator,
-        kind: OrgElementKind,
+    ReplaceRange {
+        target: SourceRange,
         content: Vec<u8>,
     },
-    InsertElement {
-        entry_id: OrgEntryId,
+    InsertAt {
         anchor: SourcePosition,
-        kind: OrgElementKind,
         content: Vec<u8>,
     },
 }
@@ -286,7 +245,7 @@ pub fn apply_edit(
 pub fn serialize_file(file: &OrgFile) -> &[u8];
 #+end_src
 
-~apply_edit~ 必须拒绝过期范围、越界锚点和不属于指定 entry 的目标。它不得格式化、重新缩进、对齐表格、规范化换行、重排元素或重建未修改节点。插入或替换后，受影响元素及后续元素的 ~SourceRange~ 必须更新；未修改范围的字节必须保持不变。
+~apply_edit~ 必须拒绝过期范围和越界锚点。它不得格式化、重新缩进、对齐表格、规范化换行或重建未修改节点；只允许对目标范围执行字节替换或在目标位置插入字节。未修改范围的字节必须保持不变。
 
 *** SyncPolicy 与本地同步历史
 

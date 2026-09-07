@@ -36,13 +36,14 @@
 | ID | 功能 | 用户或调用方结果 | 状态 | 主要实现 | 验收要点 |
 |-
 | CORE-001 | 本地仓库核心模型与服务 | 调用方可构造 ~OrgWorkspace~ ，并直接由 ~OrgRepo~ 扫描、解析和维护本地 org 文件快照。 | 已实现 | ~core/src/model/~ | 不存在的仓库 ID 被拒绝；扫描会跳过 ~.sync/~ 与符号链接；同步策略只能返回已完成且归属正确的同步记录。 |
-| CORE-002 | 保真编辑 | 调用方可替换或插入 ~OrgElement~ ，未修改字节保持原样。 | 已实现 | ~core/src/edit.rs~ | 编辑后受影响元素和后续元素的位置重算；过期范围或非法锚点被拒绝。 |
+| CORE-002 | 保真编辑 | 调用方可替换来源范围或在来源位置插入内容，未修改字节保持原样。 | 已实现 | ~core/src/edit.rs~ | 编辑后重新构造无损解析缓存；过期范围或非法锚点被拒绝。 |
 | CORE-003 | 仓库同步记录持久化 | core 将完成记录写入仓库 ~.sync/history/~ ，并在加载时恢复。 | 已实现 | ~core/src/model/service.rs~ | 记录不包含绝对路径、完整 org 内容或凭据；重启后可恢复并作为同步基线。 |
 | CORE-004 | Harmony 异步 bridge | ArkTS 经 C++ N-API 在工作线程保存同步结果。 | 已实现 | ~entry/src/main/cpp/napi_init.cpp~ 、 ~NativeSyncRecordService.ets~ | 当前暴露初始化和同步记录保存；不再登记全局作业。 |
 | CORE-005 | HTTP 宿主 | 通过 ~org-tasks-httpd~ 提供健康检查及仓库同步记录的追加和查询。 | 已实现 | ~http/src/bin/org-tasks-httpd.rs~ 、 ~http/src/server.rs~ | 默认只监听回环地址；非回环监听必须显式允许并配置 Bearer Token。 |
 | CORE-006 | HTTP CSV 仓储 | 以 generation 快照持久化仓库同步记录。 | 已实现 | ~http/src/store.rs~ | 仅 ~current.csv~ 指向的完整快照可见； ~check~ 不修改数据目录。 |
 | CORE-007 | WebDAV 验证 CLI | 通过 ~org-tasks sync webdav~ 反复验证一个本地仓库与 WebDAV 端点的同步过程。 | 已实现 | ~core/src/bin/org-tasks/~ 、 ~core/src/webdav/~ | 默认输出阶段和逐文件 action/state、变化与大小； ~--silent~ 无正常输出； ~-v~ 显示脱敏 HTTP 概要与版本信息。 |
 | CORE-008 | 同步历史 CLI | 通过 ~history list~ 查询格式化时间、耗时和文件变化摘要，或通过 ~history show <id>~ 查询单条完整记录。 | 已实现 | ~core/src/bin/org-tasks/~ | ~--repo-dir~ 为全局仓库参数；历史查询不要求 WebDAV 参数；不存在的记录 ID 返回错误。 |
+| CORE-009 | 本地 Org 文件 CLI | 通过 ~file list~ 查看文件的任务数、大小、MD5 与最后修改时间，或通过 ~file dump <path>~ 检查无损语法树。 | 已实现 | ~core/src/bin/org-tasks/~ 、~core/src/model/service.rs~ | 仅列出仓库内 ~.org~ 文件；任务数统计带 TODO 状态的标题；dump 输出 ~orgize~ 语法树。 |
 
 * 规划中功能
 
