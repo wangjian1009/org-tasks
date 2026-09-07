@@ -8,6 +8,7 @@
 - 代码、命令、路径、协议名、API 名称、字段名和技术专有名词保留其原始英文形式。
 - 项目文档统一使用 Org 格式，放置于 `docs/*.org`；不得新增 Markdown 文档。
 - UML 使用 LaTeX `TikZ` 与 `tikz-uml` 绘制，与说明紧邻的 `\begin{tikzpicture}` 源码内嵌维护；不保留独立 `.puml` 或 `.tex` 文件。
+- 测试程序的功能、子命令和参数不得写入项目文档；通过程序的 `-h` 或 `--help` 发现和验证。
 
 ## 提交规范
 
@@ -45,6 +46,7 @@ org-tasks/
 - `core::model` 负责 `OrgRepo` 的本地目录扫描、org 文件解析、保真编辑与同步记录数据维护；`core::webdav` 实现 `SyncPolicy`，负责 WebDAV 文件传输、下载写回、条件写入和同步记录生成。`SyncPolicy` 是后续接入其他同步方式的扩展点。
 - `OrgFile` 是单个完整 org 文件的根模型，使用 `orgize` 提供无损运行时语法树；解析、编辑、序列化和展示的语义必须以 Emacs 自带 `org-element.el` 为准。不得另建不兼容的项目解析 AST；未修改文件必须直接写回原始字节，局部编辑后不得改写未涉及的字节区间。
 - `core/src/bin/org-tasks/` 是操作本地 `OrgRepo` 的命令行程序，使用 Tokio 作为异步运行时。`core::model` 的加载与同步控制器、`core::webdav` 的文件与 HTTP I/O 均运行于 Tokio；`http` 只提供 Web App 操作入口；`harmony` 提供 HarmonyOS 手机上的仓库维护入口。新增仓库或同步能力时先修改 `core`，再由宿主接入。
+- Rust bridge 位于与 `http` 平级的 `harmony` 模块，负责将 Harmony 宿主请求转换为对 `core` 已有 API 的调用，并处理 N-API 参数编组、异步边界、结果投影与资源释放。bridge 不得重写 `OrgRepo`、`SyncPolicy`、WebDAV 或 org 解析算法；新增领域规则与可复用数据结构仍须先定义在 `core`。
 
 HTTP 宿主 `org-tasks-httpd` 位于 `http/src/bin/`；其命令行、监听、认证、CSV 数据目录与并发约束见 `docs/http/服务命令行设计.org`。修改该宿主前必须遵循该文档。
 
@@ -66,4 +68,3 @@ make deploy        # 编译 + 安装 + 启动
 make log           # 查看应用日志
 make devices       # 查看已连接设备
 ```
-- Rust bridge 位于与 `http` 平级的 `harmony` 模块，负责将 Harmony 宿主请求转换为对 `core` 已有 API 的调用，并处理 N-API 参数编组、异步边界、结果投影与资源释放。bridge 不得重写 `OrgRepo`、`SyncPolicy`、WebDAV 或 org 解析算法；新增领域规则与可复用数据结构仍须先定义在 `core`。

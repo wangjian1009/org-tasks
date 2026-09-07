@@ -16,7 +16,7 @@
 
 本文定义围绕 ~OrgWorkspace~ 与 ~OrgRepo~ 的 core 接口。数据结构与源码保真规则见 [[file:数据模型.org][数据模型]]，WebDAV 协议语义见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]，Harmony 的配置与凭据边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-~core::model~ 是本地仓库管理能力，直接扫描目录、解析 org 文件、维护文件快照和同步记录数据； ~core::webdav~ 是 ~SyncPolicy~ 的 WebDAV 实现，执行版本比较、下载、文件写回、创建与条件更新，并生成同步记录。CLI 使用 Tokio 作为异步入口，仓库加载、WebDAV I/O 与同步控制器任务均在该运行时执行；HTTP 和 Harmony 只负责选择和操作本地仓库；其他同步方式通过实现 ~SyncPolicy~ 接入。
+~core::model~ 是本地仓库管理能力，直接扫描目录、解析 org 文件、维护文件快照和同步记录数据； ~core::webdav~ 是 ~SyncPolicy~ 的 WebDAV 实现，执行版本比较、下载、文件写回、创建与条件更新，并生成同步记录。仓库加载、WebDAV I/O 与同步控制器任务均运行于 Tokio；HTTP 和 Harmony 只负责选择和操作本地仓库；其他同步方式通过实现 ~SyncPolicy~ 接入。
 
 * 核心场景
 
@@ -61,15 +61,6 @@ file_writer.write(&file.path, serialize_file(file))?;
 #+begin_src rust
 let history = repo.load::<WebDavSyncPolicy>().await?;
 let record = repo.sync(&webdav_sync_policy, &history, started_at).await?;
-#+end_src
-
-** 检查本地 Org 文件
-
-CLI 的 ~file list~ 只读取本地仓库快照及文件元数据，展示相对路径、TODO 状态 headline 数、源字节大小、MD5 与最后修改时间；不请求 WebDAV。~file dump <path>~ 直接输出 ~orgize~ 的无损语法树。路径必须与仓库中已加载文件的相对路径完全一致。
-
-#+begin_src sh
-org-tasks --repo-dir /data/org file list
-org-tasks --repo-dir /data/org file dump inbox.org
 #+end_src
 
 * 接口定义
@@ -133,7 +124,7 @@ impl OrgFile {
 }
 #+end_src
 
-~new~ 必须验证 UTF-8 编码并构造 ~orgize~ 缓存，且不改变输入字节。未应用 ~OrgFileEdit~ 时， ~serialize_file~ 必须逐字节返回 ~source_bytes~ 。CLI 的 ~file dump~ 直接输出 ~orgize~ 语法树；语义解释以 Emacs ~org-element.el~ 为准。
+~new~ 必须验证 UTF-8 编码并构造 ~orgize~ 缓存，且不改变输入字节。未应用 ~OrgFileEdit~ 时， ~serialize_file~ 必须逐字节返回 ~source_bytes~ 。解析语义以 Emacs ~org-element.el~ 为准。
 
 *** SourcePosition 与 SourceRange
 
@@ -304,7 +295,7 @@ controller.cancel()?;
 
 ~start~ 在已有同步运行时返回错误。 ~cancel~ 仅设置 ~SyncCancellation~ ，策略在列举和文件边界检查该信号后以 ~Cancelled~ 完成当前记录。 ~snapshot~ 返回 ~Idle~ 、~Running~ 、~Cancelling~ 、~Succeeded~ 、~Failed~ 或 ~Cancelled~ ，以及阶段、已完成数量、总数、当前文件和最近完成记录。进度和取消句柄是运行时数据，不属于持久化记录。
 
-进度快照可附带本轮按发生顺序排列的脱敏 HTTP 事件，内容仅包含请求方法、相对路径或根路径，以及“请求中”或响应状态码。它用于 CLI 的 ~-v~ 输出，不属于同步记录，也不得包含完整 URL、认证材料或传输正文。
+进度快照可附带本轮按发生顺序排列的脱敏 HTTP 事件，内容仅包含请求方法、相对路径或根路径，以及“请求中”或响应状态码。它供宿主展示同步过程，不属于同步记录，也不得包含完整 URL、认证材料或传输正文。
 
 *** WebDavSyncPolicy
 
