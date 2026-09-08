@@ -1,23 +1,51 @@
-export function initialize(dataDir: string): Promise<number>;
+export interface RepositoryFile {
+  path: string;
+  source: string;
+  byte_length: number;
+}
 
-export function recordSync(
-  repoId: string,
-  recordId: string,
-  startedAt: number,
-  finishedAt: number,
-  succeeded: boolean
-): Promise<number>;
+export interface RepositorySnapshot {
+  id: string;
+  files: RepositoryFile[];
+}
 
-export function openWorkspace(rootDirectory: string): Promise<Workspace>;
+export interface Task {
+  id: string;
+  heading: string;
+  todoState: string;
+  priority: string;
+  scheduled: string;
+  deadline: string;
+  tags: string[];
+  filePath: string;
+  fileName: string;
+  level: number;
+  body: string;
+  progress: number;
+}
+
+export interface SyncRecord {
+  id: string;
+  result: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+  started_at: number;
+  finished_at: number | null;
+  files: number;
+}
+
+export class WebDavSyncPolicy {
+  constructor(webdavUrl: string, username: string, password: string);
+}
 
 export class Workspace {
+  constructor();
   repos(): Promise<Repo[]>;
-  snapshot(): Promise<string>;
-  search(expression: string): Promise<string>;
-  syncWebDav(webdavUrl: string, username: string, password: string): Promise<string>;
+  addRepo(rootDirectory: string): Promise<void>;
+  load(): Promise<void>;
+  search(expression: string): Promise<Task[]>;
 }
 
 export class Repo {
   id(): string;
-  snapshot(): Promise<string>;
+  snapshot(): Promise<RepositorySnapshot>;
+  sync(policy: WebDavSyncPolicy): Promise<SyncRecord>;
 }

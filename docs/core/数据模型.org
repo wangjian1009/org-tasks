@@ -155,7 +155,7 @@ pub struct LocalFileVersion {
 
 持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
 
-~OrgWorkspace~ 的构造、目录扫描、WebDAV HTTP 传输、认证、并发控制、进度通知、取消、重试与日历投影均由宿主或适配层负责。 ~core::webdav~ 负责基于传输结果作同步决策并更新仓库快照；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
+~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和仓库快照更新；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 
 * 旧接口
 

@@ -18,8 +18,7 @@ entry/
         │   ├── CalendarSync.ets        # 系统日历同步
         │   ├── CredentialService.ets   # Asset Store 凭据
         │   ├── AppConfigService.ets    # Preferences 配置读取
-        │   ├── NativeSyncRecordService.ets # 异步保存 Rust 同步记录
-        │   └── NativeCoreService.ets # core bridge 的结构化请求与响应
+        │   └── NativeCoreService.ets # core bridge 的对象与结构化响应
         ├── entryability/
         │   ├── EntryAbility.ets        # 应用入口与后台任务注册
         │   └── SyncWorkExtension.ets   # WorkScheduler 后台同步回调
@@ -33,7 +32,7 @@ entry/
 
 ## 线程与 Bridge
 
-ArkUI 线程不得执行 Rust 同步记录持久化或 core 请求。C++ N-API bridge 必须使用 `napi_create_async_work` 在工作线程调用 Rust；ArkTS 通过 `NativeSyncRecordService` 调用 `initialize` 与 `recordSync`，通过 `NativeCoreService` 打开并持有 native `Workspace` / `Repo` session。ArkTS 不得解析 org 内容或重写 core 同步规则。
+ArkUI 线程不得执行 core 请求。C++ N-API bridge 必须使用 `napi_create_async_work` 在工作线程调用 Rust；ArkTS 通过 `NativeCoreService` 打开并持有 native `Workspace` / `Repo` / `WebDavSyncPolicy` 对象。ArkTS 不得解析 org 内容或重写 core 同步规则。
 
 新增 N-API 方法时必须同时更新：
 

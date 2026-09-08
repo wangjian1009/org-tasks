@@ -1,4 +1,11 @@
-import { openWorkspace, Repo as NativeRepo, Workspace as NativeWorkspace } from 'liborg_tasks_harmony.so'
+import {
+  Repo as NativeRepo,
+  RepositorySnapshot as NativeRepositorySnapshot,
+  SyncRecord as NativeSyncRecord,
+  Task as NativeTask,
+  WebDavSyncPolicy as NativeWebDavSyncPolicy,
+  Workspace as NativeWorkspace
+} from 'liborg_tasks_harmony.so'
 
 export interface CoreRepositoryFile {
   path: string
@@ -44,6 +51,18 @@ export interface CoreBridgeResponse {
   sync: CoreSyncSnapshot | null
 }
 
+export class CoreWebDavSyncPolicy {
+  private readonly native: NativeWebDavSyncPolicy
+
+  constructor(webdavUrl: string, username: string, password: string) {
+    this.native = new NativeWebDavSyncPolicy(webdavUrl, username, password)
+  }
+
+  nativePolicy(): NativeWebDavSyncPolicy {
+    return this.native
+  }
+}
+
 export class CoreRepo {
   private readonly native: NativeRepo
 
@@ -56,7 +75,11 @@ export class CoreRepo {
   }
 
   async snapshot(): Promise<CoreRepositorySnapshot> {
-    return JSON.parse(await this.native.snapshot()) as CoreRepositorySnapshot
+    return await this.native.snapshot() as NativeRepositorySnapshot
+  }
+
+  async sync(policy: CoreWebDavSyncPolicy): Promise<CoreSyncSnapshot> {
+    return await this.native.sync(policy.nativePolicy()) as NativeSyncRecord
   }
 }
 
@@ -72,17 +95,18 @@ export class CoreWorkspace {
     return repos.map((repo: NativeRepo) => new CoreRepo(repo))
   }
 
-  async snapshot(): Promise<CoreWorkspaceSnapshot> {
-    return JSON.parse(await this.native.snapshot()) as CoreWorkspaceSnapshot
+  async addRepo(rootDirectory: string): Promise<void> {
+    await this.native.addRepo(rootDirectory)
+  }
+
+  async load(): Promise<void> {
+    await this.native.load()
   }
 
   async search(expression: string): Promise<CoreTask[]> {
-    return JSON.parse(await this.native.search(expression)) as CoreTask[]
+    return await this.native.search(expression) as NativeTask[]
   }
 
-  async syncWebDav(webdavUrl: string, username: string, password: string): Promise<CoreSyncSnapshot> {
-    return JSON.parse(await this.native.syncWebDav(webdavUrl, username, password)) as CoreSyncSnapshot
-  }
 }
 
 let activeWorkspace: CoreWorkspace | undefined = undefined
@@ -94,15 +118,17 @@ export class NativeCoreService {
     if (activeWorkspace && activeRootDirectory === rootDirectory) {
       return activeWorkspace
     }
-    activeWorkspace = new CoreWorkspace(await openWorkspace(rootDirectory))
+    activeWorkspace = new CoreWorkspace(new NativeWorkspace())
+    await activeWorkspace.addRepo(rootDirectory)
     activeRootDirectory = rootDirectory
     return activeWorkspace
   }
 
   static async loadWorkspace(rootDirectory: string): Promise<CoreBridgeResponse> {
     const workspace = await NativeCoreService.workspaceFor(rootDirectory)
+    await workspace.load()
     return {
-      workspace: await workspace.snapshot(),
+      workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(''),
       sync: null
     }
@@ -110,9 +136,15 @@ export class NativeCoreService {
 
   static async syncWorkspaceWebDav(rootDirectory: string, webdavUrl: string, username: string, password: string): Promise<CoreBridgeResponse> {
     const workspace = await NativeCoreService.workspaceFor(rootDirectory)
-    const sync = await workspace.syncWebDav(webdavUrl, username, password)
+    await workspace.load()
+    const repos = await workspace.repos()
+    if (repos.length !== 1) {
+      throw new Error('当前 Harmony workspace 必须包含一个仓库')
+    }
+    const policy = new CoreWebDavSyncPolicy(webdavUrl, username, password)
+    const sync = await repos[0].sync(policy)
     return {
-      workspace: await workspace.snapshot(),
+      workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(''),
       sync
     }
@@ -120,10 +152,16 @@ export class NativeCoreService {
 
   static async searchWorkspace(rootDirectory: string, expression: string): Promise<CoreBridgeResponse> {
     const workspace = await NativeCoreService.workspaceFor(rootDirectory)
+    await workspace.load()
     return {
-      workspace: await workspace.snapshot(),
+      workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(expression),
       sync: null
     }
+  }
+
+  private static async workspaceSnapshot(workspace: CoreWorkspace): Promise<CoreWorkspaceSnapshot> {
+    const repos = await workspace.repos()
+    return { repos: await Promise.all(repos.map((repo: CoreRepo) => repo.snapshot())) }
   }
 }

@@ -5,39 +5,23 @@
 
 #include "napi/native_api.h"
 
-extern "C" int32_t org_tasks_harmony_initialize(const char* data_dir);
-extern "C" int32_t org_tasks_harmony_record_sync(const char* repo_id, const char* record_id,
-    int64_t started_at, int64_t finished_at, bool succeeded);
 extern "C" void org_tasks_harmony_free_string(char* value);
-extern "C" uint64_t org_tasks_harmony_workspace_open(const char* root_directory);
+extern "C" uint64_t org_tasks_harmony_workspace_create();
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_ids(uint64_t handle);
-extern "C" char* org_tasks_harmony_workspace_snapshot(uint64_t handle);
+extern "C" int32_t org_tasks_harmony_workspace_load(uint64_t handle);
+extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
-extern "C" char* org_tasks_harmony_workspace_sync_webdav(uint64_t handle, const char* webdav_url,
-    const char* username, const char* password, int64_t started_at);
+extern "C" uint64_t org_tasks_harmony_webdav_sync_policy_create(const char* webdav_url,
+    const char* username, const char* password);
+extern "C" bool org_tasks_harmony_webdav_sync_policy_retain(uint64_t handle);
+extern "C" void org_tasks_harmony_webdav_sync_policy_release(uint64_t handle);
+extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
+    uint64_t policy_handle, int64_t started_at);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
 
 namespace {
-struct InitializeWork {
-    std::string data_dir;
-    int32_t result = -2;
-    napi_deferred deferred = nullptr;
-    napi_async_work work = nullptr;
-};
-
-struct RecordSyncWork {
-    std::string repo_id;
-    std::string record_id;
-    int64_t started_at = 0;
-    int64_t finished_at = 0;
-    bool succeeded = false;
-    int32_t result = -2;
-    napi_deferred deferred = nullptr;
-    napi_async_work work = nullptr;
-};
-
 struct WorkspaceWrap {
     uint64_t handle = 0;
 };
@@ -47,21 +31,29 @@ struct RepoWrap {
     std::string id;
 };
 
-struct OpenWorkspaceWork {
-    std::string root_directory;
+struct WebDavSyncPolicyWrap {
     uint64_t handle = 0;
-    napi_deferred deferred = nullptr;
-    napi_async_work work = nullptr;
 };
 
 struct WorkspaceStringWork {
     uint64_t handle = 0;
-    std::string first;
-    std::string second;
-    std::string third;
-    int64_t started_at = 0;
+    std::string expression;
     std::string response;
-    enum class Operation { Snapshot, Search, Sync } operation = Operation::Snapshot;
+    napi_deferred deferred = nullptr;
+    napi_async_work work = nullptr;
+};
+
+struct WorkspaceLoadWork {
+    uint64_t handle = 0;
+    int32_t result = -1;
+    napi_deferred deferred = nullptr;
+    napi_async_work work = nullptr;
+};
+
+struct WorkspaceAddRepoWork {
+    uint64_t handle = 0;
+    std::string root_directory;
+    int32_t result = -1;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -76,12 +68,13 @@ struct WorkspaceReposWork {
 struct RepoSnapshotWork {
     uint64_t workspace_handle = 0;
     std::string id;
+    uint64_t policy_handle = 0;
     std::string response;
+    enum class Operation { Snapshot, Sync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
 
-napi_ref workspace_constructor = nullptr;
 napi_ref repo_constructor = nullptr;
 
 bool ReadString(napi_env env, napi_value value, std::string* result)
@@ -131,19 +124,13 @@ void FinalizeRepo(napi_env, void* data, void*)
     delete repo;
 }
 
-napi_value CreateWorkspaceObject(napi_env env, uint64_t handle)
+void FinalizeWebDavSyncPolicy(napi_env, void* data, void*)
 {
-    napi_value constructor;
-    if (napi_get_reference_value(env, workspace_constructor, &constructor) != napi_ok) {
-        return nullptr;
+    auto* policy = static_cast<WebDavSyncPolicyWrap*>(data);
+    if (policy->handle != 0) {
+        org_tasks_harmony_webdav_sync_policy_release(policy->handle);
     }
-    napi_value argument;
-    napi_create_double(env, static_cast<double>(handle), &argument);
-    napi_value object;
-    if (napi_new_instance(env, constructor, 1, &argument, &object) != napi_ok) {
-        return nullptr;
-    }
-    return object;
+    delete policy;
 }
 
 napi_value CreateRepoObject(napi_env env, uint64_t workspace_handle, const std::string& id)
@@ -172,98 +159,24 @@ std::string TakeRustString(char* value)
     return result;
 }
 
-void ResolveOrReject(napi_env env, napi_status status, int32_t result, napi_deferred deferred,
-    const char* message)
+bool ParseJson(napi_env env, const std::string& source, napi_value* result)
 {
-    if (status != napi_ok || result != 0) {
-        napi_value text;
-        napi_create_string_utf8(env, message, NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, deferred, error);
-        return;
-    }
-    napi_value value;
-    napi_create_int32(env, result, &value);
-    napi_resolve_deferred(env, deferred, value);
-}
-
-void ExecuteInitialize(napi_env, void* data)
-{
-    auto* work = static_cast<InitializeWork*>(data);
-    work->result = org_tasks_harmony_initialize(work->data_dir.c_str());
-}
-
-void CompleteInitialize(napi_env env, napi_status status, void* data)
-{
-    auto* work = static_cast<InitializeWork*>(data);
-    ResolveOrReject(env, status, work->result, work->deferred, "Rust 同步记录服务初始化失败");
-    napi_delete_async_work(env, work->work);
-    delete work;
-}
-
-void ExecuteRecordSync(napi_env, void* data)
-{
-    auto* work = static_cast<RecordSyncWork*>(data);
-    work->result = org_tasks_harmony_record_sync(work->repo_id.c_str(), work->record_id.c_str(),
-        work->started_at, work->finished_at, work->succeeded);
-}
-
-void CompleteRecordSync(napi_env env, napi_status status, void* data)
-{
-    auto* work = static_cast<RecordSyncWork*>(data);
-    ResolveOrReject(env, status, work->result, work->deferred, "Rust 同步记录服务未能保存同步结果");
-    napi_delete_async_work(env, work->work);
-    delete work;
-}
-
-void ExecuteOpenWorkspace(napi_env, void* data)
-{
-    auto* work = static_cast<OpenWorkspaceWork*>(data);
-    work->handle = org_tasks_harmony_workspace_open(work->root_directory.c_str());
-}
-
-void CompleteOpenWorkspace(napi_env env, napi_status status, void* data)
-{
-    auto* work = static_cast<OpenWorkspaceWork*>(data);
-    if (status != napi_ok || work->handle == 0) {
-        napi_value text;
-        napi_create_string_utf8(env, "core workspace 打开失败", NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, work->deferred, error);
-    } else {
-        napi_value workspace = CreateWorkspaceObject(env, work->handle);
-        if (workspace == nullptr) {
-            org_tasks_harmony_workspace_release(work->handle);
-            napi_value text;
-            napi_create_string_utf8(env, "无法创建 Workspace 对象", NAPI_AUTO_LENGTH, &text);
-            napi_value error;
-            napi_create_error(env, nullptr, text, &error);
-            napi_reject_deferred(env, work->deferred, error);
-        } else {
-            napi_resolve_deferred(env, work->deferred, workspace);
-        }
-    }
-    napi_delete_async_work(env, work->work);
-    delete work;
+    napi_value input;
+    napi_value global;
+    napi_value json;
+    napi_value parse;
+    return napi_create_string_utf8(env, source.c_str(), source.size(), &input) == napi_ok &&
+        napi_get_global(env, &global) == napi_ok &&
+        napi_get_named_property(env, global, "JSON", &json) == napi_ok &&
+        napi_get_named_property(env, json, "parse", &parse) == napi_ok &&
+        napi_call_function(env, json, parse, 1, &input, result) == napi_ok;
 }
 
 void ExecuteWorkspaceString(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
-    switch (work->operation) {
-        case WorkspaceStringWork::Operation::Snapshot:
-            work->response = TakeRustString(org_tasks_harmony_workspace_snapshot(work->handle));
-            break;
-        case WorkspaceStringWork::Operation::Search:
-            work->response = TakeRustString(org_tasks_harmony_workspace_search(work->handle, work->first.c_str()));
-            break;
-        case WorkspaceStringWork::Operation::Sync:
-            work->response = TakeRustString(org_tasks_harmony_workspace_sync_webdav(
-                work->handle, work->first.c_str(), work->second.c_str(), work->third.c_str(), work->started_at));
-            break;
-    }
+    work->response = TakeRustString(org_tasks_harmony_workspace_search(
+        work->handle, work->expression.c_str()));
 }
 
 void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
@@ -277,8 +190,63 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         napi_reject_deferred(env, work->deferred, error);
     } else {
         napi_value result;
-        napi_create_string_utf8(env, work->response.c_str(), work->response.size(), &result);
-        napi_resolve_deferred(env, work->deferred, result);
+        if (!ParseJson(env, work->response, &result)) {
+            napi_value text;
+            napi_create_string_utf8(env, "core workspace 响应格式无效", NAPI_AUTO_LENGTH, &text);
+            napi_value error;
+            napi_create_error(env, nullptr, text, &error);
+            napi_reject_deferred(env, work->deferred, error);
+        } else {
+            napi_resolve_deferred(env, work->deferred, result);
+        }
+    }
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+void ExecuteWorkspaceLoad(napi_env, void* data)
+{
+    auto* work = static_cast<WorkspaceLoadWork*>(data);
+    work->result = org_tasks_harmony_workspace_load(work->handle);
+}
+
+void CompleteWorkspaceLoad(napi_env env, napi_status status, void* data)
+{
+    auto* work = static_cast<WorkspaceLoadWork*>(data);
+    if (status != napi_ok || work->result != 0) {
+        napi_value text;
+        napi_create_string_utf8(env, "Workspace.load 失败", NAPI_AUTO_LENGTH, &text);
+        napi_value error;
+        napi_create_error(env, nullptr, text, &error);
+        napi_reject_deferred(env, work->deferred, error);
+    } else {
+        napi_value value;
+        napi_get_undefined(env, &value);
+        napi_resolve_deferred(env, work->deferred, value);
+    }
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+void ExecuteWorkspaceAddRepo(napi_env, void* data)
+{
+    auto* work = static_cast<WorkspaceAddRepoWork*>(data);
+    work->result = org_tasks_harmony_workspace_add_repo(work->handle, work->root_directory.c_str());
+}
+
+void CompleteWorkspaceAddRepo(napi_env env, napi_status status, void* data)
+{
+    auto* work = static_cast<WorkspaceAddRepoWork*>(data);
+    if (status != napi_ok || work->result != 0) {
+        napi_value text;
+        napi_create_string_utf8(env, "Workspace.addRepo 失败", NAPI_AUTO_LENGTH, &text);
+        napi_value error;
+        napi_create_error(env, nullptr, text, &error);
+        napi_reject_deferred(env, work->deferred, error);
+    } else {
+        napi_value value;
+        napi_get_undefined(env, &value);
+        napi_resolve_deferred(env, work->deferred, value);
     }
     napi_delete_async_work(env, work->work);
     delete work;
@@ -332,121 +300,66 @@ void CompleteWorkspaceRepos(napi_env env, napi_status status, void* data)
 void ExecuteRepoSnapshot(napi_env, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
-    work->response = TakeRustString(org_tasks_harmony_repo_snapshot(work->workspace_handle, work->id.c_str()));
+    switch (work->operation) {
+        case RepoSnapshotWork::Operation::Snapshot:
+            work->response = TakeRustString(org_tasks_harmony_repo_snapshot(
+                work->workspace_handle, work->id.c_str()));
+            break;
+        case RepoSnapshotWork::Operation::Sync:
+            work->response = TakeRustString(org_tasks_harmony_repo_sync(work->workspace_handle,
+                work->id.c_str(), work->policy_handle, static_cast<int64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count())));
+            break;
+    }
 }
 
 void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
+    if (work->policy_handle != 0) {
+        org_tasks_harmony_webdav_sync_policy_release(work->policy_handle);
+    }
     if (status != napi_ok || work->response.empty()) {
         napi_value text;
-        napi_create_string_utf8(env, "读取 Repo 快照失败", NAPI_AUTO_LENGTH, &text);
+        napi_create_string_utf8(env,
+            work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" : "Repo 同步失败",
+            NAPI_AUTO_LENGTH, &text);
         napi_value error;
         napi_create_error(env, nullptr, text, &error);
         napi_reject_deferred(env, work->deferred, error);
     } else {
         napi_value result;
-        napi_create_string_utf8(env, work->response.c_str(), work->response.size(), &result);
-        napi_resolve_deferred(env, work->deferred, result);
+        if (!ParseJson(env, work->response, &result)) {
+            napi_value text;
+            napi_create_string_utf8(env, "Repo 响应格式无效", NAPI_AUTO_LENGTH, &text);
+            napi_value error;
+            napi_create_error(env, nullptr, text, &error);
+            napi_reject_deferred(env, work->deferred, error);
+        } else {
+            napi_resolve_deferred(env, work->deferred, result);
+        }
     }
     napi_delete_async_work(env, work->work);
     delete work;
 }
 
-napi_value Initialize(napi_env env, napi_callback_info info)
-{
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
-    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 1) {
-        napi_throw_error(env, nullptr, "initialize 需要 1 个参数");
-        return nullptr;
-    }
-    auto* work = new InitializeWork();
-    if (!ReadString(env, args[0], &work->data_dir)) {
-        delete work;
-        napi_throw_error(env, nullptr, "initialize 参数无效");
-        return nullptr;
-    }
-    napi_value promise;
-    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 initialize Promise");
-        return nullptr;
-    }
-    napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksInitialize", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
-        napi_create_async_work(env, nullptr, resource_name, ExecuteInitialize, CompleteInitialize, work, &work->work) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 Rust 初始化任务");
-        return nullptr;
-    }
-    if (napi_queue_async_work(env, work->work) != napi_ok) {
-        napi_delete_async_work(env, work->work);
-        delete work;
-        napi_throw_error(env, nullptr, "无法调度 Rust 初始化任务");
-        return nullptr;
-    }
-    return promise;
-}
-
-napi_value RecordSync(napi_env env, napi_callback_info info)
-{
-    size_t argc = 5;
-    napi_value args[5] = {nullptr};
-    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 5) {
-        napi_throw_error(env, nullptr, "recordSync 需要 5 个参数");
-        return nullptr;
-    }
-    auto* work = new RecordSyncWork();
-    double started_at = 0;
-    double finished_at = 0;
-    if (!ReadString(env, args[0], &work->repo_id) || !ReadString(env, args[1], &work->record_id) ||
-        napi_get_value_double(env, args[2], &started_at) != napi_ok ||
-        napi_get_value_double(env, args[3], &finished_at) != napi_ok ||
-        napi_get_value_bool(env, args[4], &work->succeeded) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "recordSync 参数无效");
-        return nullptr;
-    }
-    work->started_at = static_cast<int64_t>(started_at);
-    work->finished_at = static_cast<int64_t>(finished_at);
-
-    napi_value promise;
-    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 recordSync Promise");
-        return nullptr;
-    }
-    napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksRecordSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
-        napi_create_async_work(env, nullptr, resource_name, ExecuteRecordSync, CompleteRecordSync, work, &work->work) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 Rust 同步记录任务");
-        return nullptr;
-    }
-    if (napi_queue_async_work(env, work->work) != napi_ok) {
-        napi_delete_async_work(env, work->work);
-        delete work;
-        napi_throw_error(env, nullptr, "无法调度 Rust 同步记录任务");
-        return nullptr;
-    }
-    return promise;
-}
-
 napi_value WorkspaceConstructor(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
+    size_t argc = 0;
     napi_value self;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1) {
-        napi_throw_error(env, nullptr, "Workspace 不能直接构造");
+    if (napi_get_cb_info(env, info, &argc, nullptr, &self, nullptr) != napi_ok || argc != 0) {
+        napi_throw_error(env, nullptr, "Workspace 不接受构造参数");
         return nullptr;
     }
     auto* workspace = new WorkspaceWrap();
-    if (!ReadHandle(env, args[0], &workspace->handle) ||
-        napi_wrap(env, self, workspace, FinalizeWorkspace, nullptr, nullptr) != napi_ok) {
+    workspace->handle = org_tasks_harmony_workspace_create();
+    if (workspace->handle == 0 || napi_wrap(env, self, workspace, FinalizeWorkspace, nullptr, nullptr) != napi_ok) {
+        if (workspace->handle != 0) {
+            org_tasks_harmony_workspace_release(workspace->handle);
+        }
         delete workspace;
-        napi_throw_error(env, nullptr, "Workspace handle 无效");
+        napi_throw_error(env, nullptr, "无法创建 Workspace");
         return nullptr;
     }
     return self;
@@ -466,6 +379,37 @@ napi_value RepoConstructor(napi_env env, napi_callback_info info)
         napi_wrap(env, self, repo, FinalizeRepo, nullptr, nullptr) != napi_ok) {
         delete repo;
         napi_throw_error(env, nullptr, "Repo handle 无效");
+        return nullptr;
+    }
+    return self;
+}
+
+napi_value WebDavSyncPolicyConstructor(napi_env env, napi_callback_info info)
+{
+    size_t argc = 3;
+    napi_value args[3] = {nullptr, nullptr, nullptr};
+    napi_value self;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 3) {
+        napi_throw_error(env, nullptr, "WebDavSyncPolicy 需要 3 个参数");
+        return nullptr;
+    }
+    std::string webdav_url;
+    std::string username;
+    std::string password;
+    if (!ReadString(env, args[0], &webdav_url) || !ReadString(env, args[1], &username) ||
+        !ReadString(env, args[2], &password)) {
+        napi_throw_error(env, nullptr, "WebDavSyncPolicy 参数无效");
+        return nullptr;
+    }
+    auto* policy = new WebDavSyncPolicyWrap();
+    policy->handle = org_tasks_harmony_webdav_sync_policy_create(
+        webdav_url.c_str(), username.c_str(), password.c_str());
+    if (policy->handle == 0 || napi_wrap(env, self, policy, FinalizeWebDavSyncPolicy, nullptr, nullptr) != napi_ok) {
+        if (policy->handle != 0) {
+            org_tasks_harmony_webdav_sync_policy_release(policy->handle);
+        }
+        delete policy;
+        napi_throw_error(env, nullptr, "无法创建 WebDavSyncPolicy");
         return nullptr;
     }
     return self;
@@ -493,6 +437,15 @@ bool UnwrapRepo(napi_env env, napi_callback_info info, RepoWrap** repo, napi_val
     return true;
 }
 
+bool UnwrapWebDavSyncPolicy(napi_env env, napi_value value, WebDavSyncPolicyWrap** policy)
+{
+    if (napi_unwrap(env, value, reinterpret_cast<void**>(policy)) != napi_ok || (*policy)->handle == 0) {
+        napi_throw_error(env, nullptr, "WebDavSyncPolicy 已关闭");
+        return false;
+    }
+    return true;
+}
+
 napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const char* name)
 {
     napi_value promise;
@@ -513,49 +466,6 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
     return promise;
 }
 
-napi_value OpenWorkspace(napi_env env, napi_callback_info info)
-{
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
-    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 1) {
-        napi_throw_error(env, nullptr, "openWorkspace 需要 1 个参数");
-        return nullptr;
-    }
-    auto* work = new OpenWorkspaceWork();
-    if (!ReadString(env, args[0], &work->root_directory)) {
-        delete work;
-        napi_throw_error(env, nullptr, "openWorkspace 参数无效");
-        return nullptr;
-    }
-    napi_value promise;
-    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 openWorkspace Promise");
-        return nullptr;
-    }
-    napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksOpenWorkspace", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
-        napi_create_async_work(env, nullptr, resource_name, ExecuteOpenWorkspace, CompleteOpenWorkspace, work, &work->work) != napi_ok ||
-        napi_queue_async_work(env, work->work) != napi_ok) {
-        if (work->work != nullptr) napi_delete_async_work(env, work->work);
-        delete work;
-        napi_throw_error(env, nullptr, "无法调度 Workspace 打开任务");
-        return nullptr;
-    }
-    return promise;
-}
-
-napi_value WorkspaceSnapshot(napi_env env, napi_callback_info info)
-{
-    WorkspaceWrap* workspace = nullptr;
-    napi_value self;
-    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
-    auto* work = new WorkspaceStringWork();
-    work->handle = workspace->handle;
-    work->operation = WorkspaceStringWork::Operation::Snapshot;
-    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSnapshot");
-}
-
 napi_value WorkspaceSearch(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
@@ -568,39 +478,74 @@ napi_value WorkspaceSearch(napi_env env, napi_callback_info info)
         return nullptr;
     }
     auto* work = new WorkspaceStringWork();
-    if (!ReadString(env, args[0], &work->first)) {
+    if (!ReadString(env, args[0], &work->expression)) {
         delete work;
         napi_throw_error(env, nullptr, "Workspace.search 表达式无效");
         return nullptr;
     }
     work->handle = workspace->handle;
-    work->operation = WorkspaceStringWork::Operation::Search;
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSearch");
 }
 
-napi_value WorkspaceSyncWebDav(napi_env env, napi_callback_info info)
+napi_value WorkspaceLoad(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3] = {nullptr, nullptr, nullptr};
     WorkspaceWrap* workspace = nullptr;
     napi_value self;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 3 ||
-        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace->handle == 0) {
-        napi_throw_error(env, nullptr, "Workspace.syncWebDav 参数无效");
+    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
+    auto* work = new WorkspaceLoadWork();
+    work->handle = workspace->handle;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Workspace.load Promise");
         return nullptr;
     }
-    auto* work = new WorkspaceStringWork();
-    if (!ReadString(env, args[0], &work->first) || !ReadString(env, args[1], &work->second) ||
-        !ReadString(env, args[2], &work->third)) {
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksWorkspaceLoad", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceLoad, CompleteWorkspaceLoad, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
-        napi_throw_error(env, nullptr, "Workspace.syncWebDav 参数无效");
+        napi_throw_error(env, nullptr, "无法调度 Workspace.load 请求");
+        return nullptr;
+    }
+    return promise;
+}
+
+napi_value WorkspaceAddRepo(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace->handle == 0) {
+        napi_throw_error(env, nullptr, "Workspace.addRepo 参数无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceAddRepoWork();
+    if (!ReadString(env, args[0], &work->root_directory)) {
+        delete work;
+        napi_throw_error(env, nullptr, "Workspace.addRepo 路径无效");
         return nullptr;
     }
     work->handle = workspace->handle;
-    work->started_at = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count());
-    work->operation = WorkspaceStringWork::Operation::Sync;
-    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSyncWebDav");
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Workspace.addRepo Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksWorkspaceAddRepo", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceAddRepo, CompleteWorkspaceAddRepo, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Workspace.addRepo 请求");
+        return nullptr;
+    }
+    return promise;
 }
 
 napi_value WorkspaceRepos(napi_env env, napi_callback_info info)
@@ -663,6 +608,48 @@ napi_value RepoSnapshot(napi_env env, napi_callback_info info)
     }
     return promise;
 }
+
+napi_value RepoSync(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    RepoWrap* repo = nullptr;
+    WebDavSyncPolicyWrap* policy = nullptr;
+    napi_value self;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo->workspace_handle == 0 ||
+        !UnwrapWebDavSyncPolicy(env, args[0], &policy)) {
+        napi_throw_error(env, nullptr, "Repo.sync 参数无效");
+        return nullptr;
+    }
+    if (!org_tasks_harmony_webdav_sync_policy_retain(policy->handle)) {
+        napi_throw_error(env, nullptr, "WebDavSyncPolicy 已关闭");
+        return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    work->workspace_handle = repo->workspace_handle;
+    work->id = repo->id;
+    work->policy_handle = policy->handle;
+    work->operation = RepoSnapshotWork::Operation::Sync;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        org_tasks_harmony_webdav_sync_policy_release(work->policy_handle);
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Repo.sync Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksRepoSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        org_tasks_harmony_webdav_sync_policy_release(work->policy_handle);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Repo.sync 请求");
+        return nullptr;
+    }
+    return promise;
+}
 } // namespace
 
 EXTERN_C_START
@@ -670,19 +657,19 @@ static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor workspace_descriptors[] = {
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"snapshot", nullptr, WorkspaceSnapshot, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"load", nullptr, WorkspaceLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"search", nullptr, WorkspaceSearch, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"syncWebDav", nullptr, WorkspaceSyncWebDav, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value workspace_class;
     napi_define_class(env, "Workspace", NAPI_AUTO_LENGTH, WorkspaceConstructor, nullptr,
         sizeof(workspace_descriptors) / sizeof(workspace_descriptors[0]), workspace_descriptors, &workspace_class);
-    napi_create_reference(env, workspace_class, 1, &workspace_constructor);
     napi_set_named_property(env, exports, "Workspace", workspace_class);
 
     napi_property_descriptor repo_descriptors[] = {
         {"id", nullptr, RepoId, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"snapshot", nullptr, RepoSnapshot, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value repo_class;
     napi_define_class(env, "Repo", NAPI_AUTO_LENGTH, RepoConstructor, nullptr,
@@ -690,12 +677,11 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_create_reference(env, repo_class, 1, &repo_constructor);
     napi_set_named_property(env, exports, "Repo", repo_class);
 
-    napi_property_descriptor descriptors[] = {
-        {"initialize", nullptr, Initialize, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"recordSync", nullptr, RecordSync, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"openWorkspace", nullptr, OpenWorkspace, nullptr, nullptr, nullptr, napi_default, nullptr},
-    };
-    napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);
+    napi_value webdav_sync_policy_class;
+    napi_define_class(env, "WebDavSyncPolicy", NAPI_AUTO_LENGTH, WebDavSyncPolicyConstructor, nullptr,
+        0, nullptr, &webdav_sync_policy_class);
+    napi_set_named_property(env, exports, "WebDavSyncPolicy", webdav_sync_policy_class);
+
     return exports;
 }
 EXTERN_C_END

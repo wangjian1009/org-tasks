@@ -1,152 +1,13 @@
-//! HarmonyOS 宿主的仓库同步记录适配层。
+//! HarmonyOS 宿主的 core bridge。
 //!
-//! C++ N-API bridge 在工作线程调用本 crate。目录扫描、WebDAV 与日历同步仍由
-//! ArkTS 宿主执行；Rust 只接收已完成的仓库同步结果并持久化其领域记录。
+//! C++ N-API bridge 在工作线程调用本 crate。目录扫描、WebDAV 与仓库同步均由
+//! core 执行；ArkTS 只持有 bridge 暴露的对象并渲染结构化数据。
 
 mod bridge;
-mod store;
 
 use std::ffi::{CStr, CString, c_char};
-use std::future::Future;
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-use std::task::{Context, Poll, Waker};
 
-use org_tasks_core::{
-    CoreError, OrgRepoId, OrgRepoSyncRecord, OrgRepoSyncRecordId, OrgRepoSyncRecordStore,
-    OrgRepoSyncResult, TimestampMs,
-};
-
-pub use store::FileOrgRepoSyncRecordStore;
-
-pub enum HarmonyRequest {
-    AppendSyncRecord {
-        repo_id: OrgRepoId,
-        record_id: OrgRepoSyncRecordId,
-        started_at: TimestampMs,
-        finished_at: TimestampMs,
-        result: OrgRepoSyncResult,
-    },
-}
-
-pub enum HarmonyResponse {
-    SyncRecordStored(OrgRepoSyncRecord),
-}
-
-pub struct HarmonySyncRecordAdapter<S> {
-    store: S,
-}
-
-impl<S> HarmonySyncRecordAdapter<S>
-where
-    S: OrgRepoSyncRecordStore,
-{
-    pub fn new(store: S) -> Self {
-        Self { store }
-    }
-
-    pub async fn handle(&mut self, request: HarmonyRequest) -> Result<HarmonyResponse, CoreError> {
-        match request {
-            HarmonyRequest::AppendSyncRecord {
-                repo_id,
-                record_id,
-                started_at,
-                finished_at,
-                result,
-            } => {
-                let mut record = OrgRepoSyncRecord::new(record_id, started_at)?;
-                record.finish(result, finished_at)?;
-                self.store.append(&repo_id, record.clone()).await?;
-                Ok(HarmonyResponse::SyncRecordStored(record))
-            }
-        }
-    }
-
-    pub fn store(&self) -> &S {
-        &self.store
-    }
-
-    pub fn into_store(self) -> S {
-        self.store
-    }
-}
-
-type Runtime = HarmonySyncRecordAdapter<FileOrgRepoSyncRecordStore>;
-
-#[derive(Default)]
-struct RuntimeState {
-    data_dir: Option<PathBuf>,
-    runtime: Option<Runtime>,
-}
-
-static RUNTIME: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
-
-fn runtime_state() -> &'static Mutex<RuntimeState> {
-    RUNTIME.get_or_init(|| Mutex::new(RuntimeState::default()))
-}
-
-/// 初始化 HarmonyOS 进程内同步记录服务。
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_initialize(data_dir: *const c_char) -> i32 {
-    let result = (|| {
-        let data_dir = PathBuf::from(read_c_string(data_dir)?);
-        let mut state = runtime_state()
-            .lock()
-            .map_err(|_| CoreError::Store("Harmony 运行时锁不可用".into()))?;
-        if let Some(active_data_dir) = &state.data_dir {
-            if active_data_dir == &data_dir {
-                return Ok(());
-            }
-            return Err(CoreError::InvalidState(
-                "Harmony 服务已使用其他数据目录初始化",
-            ));
-        }
-        state.runtime = Some(HarmonySyncRecordAdapter::new(
-            FileOrgRepoSyncRecordStore::open(&data_dir)?,
-        ));
-        state.data_dir = Some(data_dir);
-        Ok(())
-    })();
-    ffi_result_code(result)
-}
-
-/// 保存一次已完成的仓库同步记录。
-///
-/// C++ N-API bridge 保证在 worker 线程调用此函数。它不接收目录、WebDAV URL、
-/// 密码或 org 文件内容。
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_record_sync(
-    repo_id: *const c_char,
-    record_id: *const c_char,
-    started_at: i64,
-    finished_at: i64,
-    succeeded: bool,
-) -> i32 {
-    let result = (|| {
-        let request = HarmonyRequest::AppendSyncRecord {
-            repo_id: read_c_string(repo_id)?,
-            record_id: read_c_string(record_id)?,
-            started_at,
-            finished_at,
-            result: if succeeded {
-                OrgRepoSyncResult::Succeeded
-            } else {
-                OrgRepoSyncResult::Failed
-            },
-        };
-        let mut state = runtime_state()
-            .lock()
-            .map_err(|_| CoreError::Store("Harmony 运行时锁不可用".into()))?;
-        let runtime = state
-            .runtime
-            .as_mut()
-            .ok_or(CoreError::InvalidState("Harmony 服务尚未初始化"))?;
-        match run_ready(runtime.handle(request))? {
-            HarmonyResponse::SyncRecordStored(_) => Ok(()),
-        }
-    })();
-    ffi_result_code(result)
-}
+use org_tasks_core::CoreError;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
@@ -158,10 +19,8 @@ pub extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_open(root_directory: *const c_char) -> u64 {
-    read_c_string(root_directory)
-        .and_then(bridge::open_workspace)
-        .unwrap_or_default()
+pub extern "C" fn org_tasks_harmony_workspace_create() -> u64 {
+    bridge::create_workspace().unwrap_or_default()
 }
 
 #[unsafe(no_mangle)]
@@ -180,8 +39,24 @@ pub extern "C" fn org_tasks_harmony_workspace_repo_ids(handle: u64) -> *mut c_ch
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_snapshot(handle: u64) -> *mut c_char {
-    string_result(bridge::workspace_snapshot_json(handle))
+pub extern "C" fn org_tasks_harmony_workspace_load(handle: u64) -> i32 {
+    match bridge::workspace_load(handle) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_add_repo(
+    handle: u64,
+    root_directory: *const c_char,
+) -> i32 {
+    match read_c_string(root_directory)
+        .and_then(|root_directory| bridge::workspace_add_repo(handle, root_directory))
+    {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -195,22 +70,41 @@ pub extern "C" fn org_tasks_harmony_workspace_search(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_sync_webdav(
-    handle: u64,
+pub extern "C" fn org_tasks_harmony_webdav_sync_policy_create(
     webdav_url: *const c_char,
     username: *const c_char,
     password: *const c_char,
-    started_at: i64,
-) -> *mut c_char {
-    string_result((|| {
-        bridge::workspace_sync_webdav_json(
-            handle,
+) -> u64 {
+    (|| {
+        bridge::create_webdav_sync_policy(
             read_c_string(webdav_url)?,
             read_c_string(username)?,
             read_c_string(password)?,
-            started_at,
         )
-    })())
+    })()
+    .unwrap_or_default()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_webdav_sync_policy_retain(handle: u64) -> bool {
+    bridge::retain_webdav_sync_policy(handle).is_ok()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_webdav_sync_policy_release(handle: u64) {
+    bridge::release_webdav_sync_policy(handle);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_sync(
+    workspace_handle: u64,
+    repo_id: *const c_char,
+    policy_handle: u64,
+    started_at: i64,
+) -> *mut c_char {
+    string_result(read_c_string(repo_id).and_then(|repo_id| {
+        bridge::repo_sync_json(workspace_handle, repo_id, policy_handle, started_at)
+    }))
 }
 
 #[unsafe(no_mangle)]
@@ -234,25 +128,6 @@ fn string_result(result: Result<String, CoreError>) -> *mut c_char {
         .unwrap_or(std::ptr::null_mut())
 }
 
-fn ffi_result_code(result: Result<(), CoreError>) -> i32 {
-    match result {
-        Ok(()) => 0,
-        Err(CoreError::InvalidInput(_) | CoreError::InvalidState(_)) => -1,
-        Err(CoreError::Store(message)) if message.contains("锁不可用") => -3,
-        Err(CoreError::Store(_)) => -2,
-    }
-}
-
-fn run_ready<F: Future>(future: F) -> F::Output {
-    let waker = Waker::noop();
-    let mut context = Context::from_waker(waker);
-    let mut future = Box::pin(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("Harmony 仓储 Future 不应在 N-API worker 外等待"),
-    }
-}
-
 fn read_c_string(value: *const c_char) -> Result<String, CoreError> {
     if value.is_null() {
         return Err(CoreError::InvalidInput("Harmony 字符串参数不能为空"));
@@ -262,52 +137,4 @@ fn read_c_string(value: *const c_char) -> Result<String, CoreError> {
         .to_str()
         .map(str::to_owned)
         .map_err(|_| CoreError::InvalidInput("Harmony 字符串必须是 UTF-8"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-    fn test_data_dir() -> PathBuf {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("系统时间应晚于 Unix epoch")
-            .as_nanos();
-        let sequence = TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("org-tasks-harmony-{timestamp}-{sequence}"))
-    }
-
-    fn request(record_id: &str) -> HarmonyRequest {
-        HarmonyRequest::AppendSyncRecord {
-            repo_id: "repo-1".into(),
-            record_id: record_id.into(),
-            started_at: 1,
-            finished_at: 2,
-            result: OrgRepoSyncResult::Succeeded,
-        }
-    }
-
-    #[test]
-    fn completed_sync_record_is_persisted_and_restored() {
-        let data_dir = test_data_dir();
-        let mut adapter = HarmonySyncRecordAdapter::new(
-            FileOrgRepoSyncRecordStore::open(&data_dir).expect("应创建测试仓储"),
-        );
-        let response = run_ready(adapter.handle(request("record-1"))).expect("应保存同步记录");
-        match response {
-            HarmonyResponse::SyncRecordStored(record) => assert_eq!(record.id, "record-1"),
-        }
-        drop(adapter);
-
-        let store = FileOrgRepoSyncRecordStore::open(&data_dir).expect("应恢复测试仓储");
-        let records = run_ready(store.list(&"repo-1".into(), 10)).expect("应查询同步记录");
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].result, Some(OrgRepoSyncResult::Succeeded));
-        fs::remove_dir_all(data_dir).expect("应移除测试仓储");
-    }
 }
