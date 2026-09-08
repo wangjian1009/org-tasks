@@ -78,10 +78,12 @@ impl OrgWorkspace {
     pub fn repos(&self) -> &[OrgRepo];
 
     pub fn repo(&self, repo_id: &OrgRepoId) -> Option<&OrgRepo>;
+
+    pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
 }
 #+end_src
 
-~new~ 必须拒绝重复的 ~OrgRepoId~ 。返回的集合不可由调用方原地修改；变更仓库集合应构造新的 workspace。
+~new~ 必须拒绝重复的 ~OrgRepoId~ 。返回的集合不可由调用方原地修改；变更仓库集合应构造新的 workspace。~search~ 汇总全部仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 *** OrgRepo
 
@@ -128,7 +130,7 @@ impl OrgFile {
 
 *** SourcePosition 与 SourceRange
 
-~SourcePosition~ 同时保存行号、列号和 UTF-8 字节偏移； ~SourceRange~ 是对同一文件快照的半开区间 ~[start, end)~ 。
+~SourcePosition~ 同时保存行号、列号和 UTF-8 字节偏移； ~SourceRange~ 是对同一文件快照的半开区间 ~[start, end)~ 。它们与 ~OrgFileEdit~ 、~apply_edit~ 和 ~serialize_file~ 一同定义在 ~core::model::editor~ ，不属于 workspace 或查询响应。
 
 #+begin_src rust
 impl SourcePosition {

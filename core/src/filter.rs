@@ -121,6 +121,7 @@ pub enum FilterSortField {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterTask {
+    pub repo_id: String,
     pub path: String,
     pub line: u32,
     pub column: u32,
@@ -215,7 +216,7 @@ impl FilterInterval {
     }
 }
 
-pub fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
+pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
     let mut tasks = Vec::new();
     for file in repository.files() {
         let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
@@ -257,6 +258,7 @@ pub fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 .filter_map(timestamp_to_date)
                 .collect();
             tasks.push(FilterTask {
+                repo_id: repository.id.clone(),
                 path: file.path.clone(),
                 line,
                 column,

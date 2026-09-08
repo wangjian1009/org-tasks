@@ -10,7 +10,7 @@ use org_tasks_core::webdav::{
 use org_tasks_core::{
     Filter, FilterTask, OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction,
     OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress,
-    OrgRepoSyncRecord, OrgRepoSyncSnapshot, tasks_from_repo,
+    OrgRepoSyncRecord, OrgRepoSyncSnapshot, OrgWorkspace,
 };
 use orgize::ast::Headline;
 use orgize::rowan::ast::AstNode;
@@ -125,13 +125,12 @@ pub async fn run() -> Result<(), String> {
 }
 
 fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
+    let workspace = OrgWorkspace::new(vec![repo]).map_err(|error| error.to_string())?;
     match command.target {
-        TaskTarget::All => print_tasks(tasks_from_repo(&repo)),
+        TaskTarget::All => print_tasks(workspace.search(&Filter::parse(""))),
         TaskTarget::Search(args) => {
             let filter = Filter::parse(&args.expression);
-            let mut tasks = tasks_from_repo(&repo);
-            filter.filter_tasks(&mut tasks);
-            print_tasks(tasks)
+            print_tasks(workspace.search(&filter))
         }
     }
 }
@@ -710,7 +709,8 @@ mod tests {
             root_directory: "/tmp/org".into(),
             files: vec![file],
         };
-        let tasks = tasks_from_repo(&repo);
+        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let tasks = workspace.search(&Filter::parse(""));
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].state.as_deref(), Some("TODO"));
         assert_eq!(tasks[0].priority.as_deref(), Some("A"));

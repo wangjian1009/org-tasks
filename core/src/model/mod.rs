@@ -1,48 +1,22 @@
 use crate::{CoreError, TimestampMs};
 use serde::{Deserialize, Serialize};
 
-mod edit;
+mod editor;
 mod service;
+mod workspace;
 
-pub use edit::*;
+pub use editor::*;
 pub use service::*;
+pub use workspace::*;
 
 pub type OrgRepoId = String;
 pub type OrgRepoSyncRecordId = String;
 
-pub type OrgWorkspaceValidationError = CoreError;
 pub type OrgRepoValidationError = CoreError;
 pub type OrgFileValidationError = CoreError;
-pub type SourcePositionError = CoreError;
-pub type SourceRangeError = CoreError;
 pub type OrgRepoSyncRecordError = CoreError;
 pub type OrgRepoSyncFileRecordError = CoreError;
 pub type RemoteFileVersionError = CoreError;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OrgWorkspace {
-    pub repos: Vec<OrgRepo>,
-}
-
-impl OrgWorkspace {
-    pub fn new(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError> {
-        for (index, repo) in repos.iter().enumerate() {
-            validate_id(&repo.id, "仓库 ID 不能为空")?;
-            if repos[..index].iter().any(|other| other.id == repo.id) {
-                return Err(CoreError::InvalidInput("仓库 ID 必须唯一"));
-            }
-        }
-        Ok(Self { repos })
-    }
-
-    pub fn repos(&self) -> &[OrgRepo] {
-        &self.repos
-    }
-
-    pub fn repo(&self, repo_id: &OrgRepoId) -> Option<&OrgRepo> {
-        self.repos.iter().find(|repo| &repo.id == repo_id)
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrgRepo {
@@ -134,46 +108,6 @@ impl PartialEq for OrgFile {
 }
 
 impl Eq for OrgFile {}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SourcePosition {
-    pub line: u32,
-    pub column: u32,
-    pub byte_offset: u64,
-}
-
-impl SourcePosition {
-    pub fn new(line: u32, column: u32, byte_offset: u64) -> Result<Self, SourcePositionError> {
-        if line == 0 {
-            return Err(CoreError::InvalidInput("源位置行号必须从 1 开始"));
-        }
-        Ok(Self {
-            line,
-            column,
-            byte_offset,
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SourceRange {
-    pub start: SourcePosition,
-    pub end: SourcePosition,
-}
-
-impl SourceRange {
-    pub fn new(start: SourcePosition, end: SourcePosition) -> Result<Self, SourceRangeError> {
-        if start.byte_offset > end.byte_offset {
-            return Err(CoreError::InvalidInput("源范围起点不能位于终点之后"));
-        }
-        Ok(Self { start, end })
-    }
-
-    pub fn contains(&self, position: &SourcePosition) -> bool {
-        self.start.byte_offset <= position.byte_offset
-            && position.byte_offset < self.end.byte_offset
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrgRepoSyncRecord<C = serde_json::Value, F = serde_json::Value> {
