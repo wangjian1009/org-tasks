@@ -32,6 +32,18 @@ export interface SyncRecord {
   files: number;
 }
 
+export type WebDavSyncEvent =
+  | { type: 'started'; repoId: string }
+  | { type: 'listingStarted' }
+  | { type: 'listed'; files: number }
+  | { type: 'fileStarted'; path: string; index: number; total: number }
+  | { type: 'fileProcessed'; path: string; action: string; state: string }
+  | { type: 'httpRequest'; method: string; path: string }
+  | { type: 'httpResponse'; method: string; path: string; status: number | null }
+  | { type: 'finished'; result: 'succeeded' | 'failed' | 'cancelled' | 'interrupted'; files: number };
+
+export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
+
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
 }
@@ -47,5 +59,5 @@ export class Workspace {
 export class Repo {
   id(): string;
   snapshot(): Promise<RepositorySnapshot>;
-  sync(policy: WebDavSyncPolicy): Promise<SyncRecord>;
+  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor): Promise<SyncRecord>;
 }

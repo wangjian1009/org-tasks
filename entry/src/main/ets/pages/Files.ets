@@ -1,7 +1,7 @@
 import { router } from '@kit.ArkUI'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreTask, NativeCoreService } from '../services/NativeCoreService'
+import { CoreTask, CoreWebDavSyncEvent, NativeCoreService } from '../services/NativeCoreService'
 
 interface FileRow {
   relativePath: string
@@ -66,7 +66,11 @@ struct Files {
       this.message = this.config.webdavEnabled ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载 workspace...'
       if (this.config.webdavEnabled) {
         await NativeCoreService.syncWorkspaceWebDav(
-          this.config.orgDir, this.config.webdavUrl, this.config.webdavUsername, this.config.webdavPassword
+          this.config.orgDir,
+          this.config.webdavUrl,
+          this.config.webdavUsername,
+          this.config.webdavPassword,
+          (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event)
         )
       }
       await this.loadWorkspace()
@@ -79,6 +83,23 @@ struct Files {
 
   visibleFiles(): FileRow[] {
     return this.files
+  }
+
+  private updateWebDavProgress(event: CoreWebDavSyncEvent) {
+    switch (event.type) {
+      case 'listingStarted':
+        this.message = '正在读取 WebDAV 文件列表...'
+        break
+      case 'fileStarted':
+        this.message = `正在同步 ${event.index + 1}/${event.total}: ${event.path}`
+        break
+      case 'fileProcessed':
+        this.message = `已处理 ${event.path}`
+        break
+      case 'finished':
+        this.message = `WebDAV 同步${event.result === 'succeeded' ? '完成' : '结束'}，共 ${event.files} 个文件`
+        break
+    }
   }
 
   openFile(file: FileRow) {

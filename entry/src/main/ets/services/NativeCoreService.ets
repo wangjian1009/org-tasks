@@ -3,6 +3,8 @@ import {
   RepositorySnapshot as NativeRepositorySnapshot,
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
+  WebDavSyncEvent as NativeWebDavSyncEvent,
+  WebDavSyncMonitor as NativeWebDavSyncMonitor,
   WebDavSyncPolicy as NativeWebDavSyncPolicy,
   Workspace as NativeWorkspace
 } from 'liborg_tasks_harmony.so'
@@ -51,6 +53,9 @@ export interface CoreBridgeResponse {
   sync: CoreSyncSnapshot | null
 }
 
+export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
+export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
+
 export class CoreWebDavSyncPolicy {
   private readonly native: NativeWebDavSyncPolicy
 
@@ -78,8 +83,8 @@ export class CoreRepo {
     return await this.native.snapshot() as NativeRepositorySnapshot
   }
 
-  async sync(policy: CoreWebDavSyncPolicy): Promise<CoreSyncSnapshot> {
-    return await this.native.sync(policy.nativePolicy()) as NativeSyncRecord
+  async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor): Promise<CoreSyncSnapshot> {
+    return await this.native.sync(policy.nativePolicy(), monitor) as NativeSyncRecord
   }
 }
 
@@ -134,7 +139,13 @@ export class NativeCoreService {
     }
   }
 
-  static async syncWorkspaceWebDav(rootDirectory: string, webdavUrl: string, username: string, password: string): Promise<CoreBridgeResponse> {
+  static async syncWorkspaceWebDav(
+    rootDirectory: string,
+    webdavUrl: string,
+    username: string,
+    password: string,
+    monitor?: CoreWebDavSyncMonitor
+  ): Promise<CoreBridgeResponse> {
     const workspace = await NativeCoreService.workspaceFor(rootDirectory)
     await workspace.load()
     const repos = await workspace.repos()
@@ -142,7 +153,7 @@ export class NativeCoreService {
       throw new Error('当前 Harmony workspace 必须包含一个仓库')
     }
     const policy = new CoreWebDavSyncPolicy(webdavUrl, username, password)
-    const sync = await repos[0].sync(policy)
+    const sync = await repos[0].sync(policy, monitor)
     return {
       workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(''),

@@ -13,12 +13,9 @@ extern "C" char* org_tasks_harmony_workspace_repo_ids(uint64_t handle);
 extern "C" int32_t org_tasks_harmony_workspace_load(uint64_t handle);
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
-extern "C" uint64_t org_tasks_harmony_webdav_sync_policy_create(const char* webdav_url,
-    const char* username, const char* password);
-extern "C" bool org_tasks_harmony_webdav_sync_policy_retain(uint64_t handle);
-extern "C" void org_tasks_harmony_webdav_sync_policy_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
-    uint64_t policy_handle, int64_t started_at);
+    const char* webdav_url, const char* username, const char* password, uint64_t monitor_handle,
+    int64_t started_at);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
 
 namespace {
@@ -32,7 +29,9 @@ struct RepoWrap {
 };
 
 struct WebDavSyncPolicyWrap {
-    uint64_t handle = 0;
+    std::string webdav_url;
+    std::string username;
+    std::string password;
 };
 
 struct WorkspaceStringWork {
@@ -68,7 +67,10 @@ struct WorkspaceReposWork {
 struct RepoSnapshotWork {
     uint64_t workspace_handle = 0;
     std::string id;
-    uint64_t policy_handle = 0;
+    std::string webdav_url;
+    std::string username;
+    std::string password;
+    napi_threadsafe_function monitor = nullptr;
     std::string response;
     enum class Operation { Snapshot, Sync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
@@ -127,9 +129,6 @@ void FinalizeRepo(napi_env, void* data, void*)
 void FinalizeWebDavSyncPolicy(napi_env, void* data, void*)
 {
     auto* policy = static_cast<WebDavSyncPolicyWrap*>(data);
-    if (policy->handle != 0) {
-        org_tasks_harmony_webdav_sync_policy_release(policy->handle);
-    }
     delete policy;
 }
 
@@ -170,6 +169,32 @@ bool ParseJson(napi_env env, const std::string& source, napi_value* result)
         napi_get_named_property(env, global, "JSON", &json) == napi_ok &&
         napi_get_named_property(env, json, "parse", &parse) == napi_ok &&
         napi_call_function(env, json, parse, 1, &input, result) == napi_ok;
+}
+
+void CallWebDavSyncMonitor(napi_env env, napi_value callback, void*, void* data)
+{
+    auto* source = static_cast<std::string*>(data);
+    if (env != nullptr && callback != nullptr) {
+        napi_value event;
+        if (ParseJson(env, *source, &event)) {
+            napi_value receiver;
+            napi_get_undefined(env, &receiver);
+            napi_value ignored;
+            napi_call_function(env, receiver, callback, 1, &event, &ignored);
+        }
+    }
+    delete source;
+}
+
+extern "C" void org_tasks_harmony_webdav_sync_monitor_event(uint64_t monitor_handle,
+    const char* event_json)
+{
+    auto* work = reinterpret_cast<RepoSnapshotWork*>(static_cast<uintptr_t>(monitor_handle));
+    if (work == nullptr || work->monitor == nullptr || event_json == nullptr) return;
+    auto* event = new std::string(event_json);
+    if (napi_call_threadsafe_function(work->monitor, event, napi_tsfn_nonblocking) != napi_ok) {
+        delete event;
+    }
 }
 
 void ExecuteWorkspaceString(napi_env, void* data)
@@ -307,7 +332,8 @@ void ExecuteRepoSnapshot(napi_env, void* data)
             break;
         case RepoSnapshotWork::Operation::Sync:
             work->response = TakeRustString(org_tasks_harmony_repo_sync(work->workspace_handle,
-                work->id.c_str(), work->policy_handle, static_cast<int64_t>(
+                work->id.c_str(), work->webdav_url.c_str(), work->username.c_str(), work->password.c_str(),
+                work->monitor == nullptr ? 0 : reinterpret_cast<uintptr_t>(work), static_cast<int64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count())));
             break;
@@ -317,9 +343,6 @@ void ExecuteRepoSnapshot(napi_env, void* data)
 void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
-    if (work->policy_handle != 0) {
-        org_tasks_harmony_webdav_sync_policy_release(work->policy_handle);
-    }
     if (status != napi_ok || work->response.empty()) {
         napi_value text;
         napi_create_string_utf8(env,
@@ -339,6 +362,9 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
         } else {
             napi_resolve_deferred(env, work->deferred, result);
         }
+    }
+    if (work->monitor != nullptr) {
+        napi_release_threadsafe_function(work->monitor, napi_tsfn_release);
     }
     napi_delete_async_work(env, work->work);
     delete work;
@@ -401,13 +427,8 @@ napi_value WebDavSyncPolicyConstructor(napi_env env, napi_callback_info info)
         napi_throw_error(env, nullptr, "WebDavSyncPolicy 参数无效");
         return nullptr;
     }
-    auto* policy = new WebDavSyncPolicyWrap();
-    policy->handle = org_tasks_harmony_webdav_sync_policy_create(
-        webdav_url.c_str(), username.c_str(), password.c_str());
-    if (policy->handle == 0 || napi_wrap(env, self, policy, FinalizeWebDavSyncPolicy, nullptr, nullptr) != napi_ok) {
-        if (policy->handle != 0) {
-            org_tasks_harmony_webdav_sync_policy_release(policy->handle);
-        }
+    auto* policy = new WebDavSyncPolicyWrap { webdav_url, username, password };
+    if (napi_wrap(env, self, policy, FinalizeWebDavSyncPolicy, nullptr, nullptr) != napi_ok) {
         delete policy;
         napi_throw_error(env, nullptr, "无法创建 WebDavSyncPolicy");
         return nullptr;
@@ -439,7 +460,7 @@ bool UnwrapRepo(napi_env env, napi_callback_info info, RepoWrap** repo, napi_val
 
 bool UnwrapWebDavSyncPolicy(napi_env env, napi_value value, WebDavSyncPolicyWrap** policy)
 {
-    if (napi_unwrap(env, value, reinterpret_cast<void**>(policy)) != napi_ok || (*policy)->handle == 0) {
+    if (napi_unwrap(env, value, reinterpret_cast<void**>(policy)) != napi_ok) {
         napi_throw_error(env, nullptr, "WebDavSyncPolicy 已关闭");
         return false;
     }
@@ -611,29 +632,39 @@ napi_value RepoSnapshot(napi_env env, napi_callback_info info)
 
 napi_value RepoSync(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
     RepoWrap* repo = nullptr;
     WebDavSyncPolicyWrap* policy = nullptr;
     napi_value self;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 1 || argc > 2 ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo->workspace_handle == 0 ||
         !UnwrapWebDavSyncPolicy(env, args[0], &policy)) {
         napi_throw_error(env, nullptr, "Repo.sync 参数无效");
         return nullptr;
     }
-    if (!org_tasks_harmony_webdav_sync_policy_retain(policy->handle)) {
-        napi_throw_error(env, nullptr, "WebDavSyncPolicy 已关闭");
-        return nullptr;
-    }
     auto* work = new RepoSnapshotWork();
     work->workspace_handle = repo->workspace_handle;
     work->id = repo->id;
-    work->policy_handle = policy->handle;
+    work->webdav_url = policy->webdav_url;
+    work->username = policy->username;
+    work->password = policy->password;
     work->operation = RepoSnapshotWork::Operation::Sync;
+    if (argc == 2) {
+        napi_valuetype monitor_type;
+        napi_value resource_name;
+        if (napi_typeof(env, args[1], &monitor_type) != napi_ok || monitor_type != napi_function ||
+            napi_create_string_utf8(env, "OrgTasksWebDavSyncMonitor", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+            napi_create_threadsafe_function(env, args[1], nullptr, resource_name, 0, 1, nullptr, nullptr,
+                nullptr, CallWebDavSyncMonitor, &work->monitor) != napi_ok) {
+            delete work;
+            napi_throw_error(env, nullptr, "Repo.sync monitor 参数无效");
+            return nullptr;
+        }
+    }
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
-        org_tasks_harmony_webdav_sync_policy_release(work->policy_handle);
+        if (work->monitor != nullptr) napi_release_threadsafe_function(work->monitor, napi_tsfn_abort);
         delete work;
         napi_throw_error(env, nullptr, "无法创建 Repo.sync Promise");
         return nullptr;
@@ -643,7 +674,7 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
         napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
-        org_tasks_harmony_webdav_sync_policy_release(work->policy_handle);
+        if (work->monitor != nullptr) napi_release_threadsafe_function(work->monitor, napi_tsfn_abort);
         delete work;
         napi_throw_error(env, nullptr, "无法调度 Repo.sync 请求");
         return nullptr;

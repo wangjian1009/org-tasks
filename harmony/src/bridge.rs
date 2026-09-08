@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
+use std::ffi::CString;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use org_tasks_core::webdav::{WebDavEndpoint, WebDavSyncPolicy};
+use org_tasks_core::webdav::{
+    WebDavEndpoint, WebDavSyncEvent, WebDavSyncMonitor, WebDavSyncPolicy,
+};
 use org_tasks_core::{
     CoreError, Filter, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace, SyncCancellation,
     SyncProgressReporter, TimestampMs,
@@ -13,32 +16,16 @@ struct WorkspaceSession {
     references: usize,
 }
 
-struct WebDavSyncPolicySession {
-    policy: Arc<WebDavSyncPolicy>,
-    references: usize,
-}
-
 #[derive(Default)]
 struct WorkspaceSessions {
     next_handle: u64,
     sessions: BTreeMap<u64, WorkspaceSession>,
 }
 
-#[derive(Default)]
-struct WebDavSyncPolicySessions {
-    next_handle: u64,
-    sessions: BTreeMap<u64, WebDavSyncPolicySession>,
-}
-
 static WORKSPACE_SESSIONS: OnceLock<Mutex<WorkspaceSessions>> = OnceLock::new();
-static WEBDAV_SYNC_POLICY_SESSIONS: OnceLock<Mutex<WebDavSyncPolicySessions>> = OnceLock::new();
 
 fn workspace_sessions() -> &'static Mutex<WorkspaceSessions> {
     WORKSPACE_SESSIONS.get_or_init(|| Mutex::new(WorkspaceSessions::default()))
-}
-
-fn webdav_sync_policy_sessions() -> &'static Mutex<WebDavSyncPolicySessions> {
-    WEBDAV_SYNC_POLICY_SESSIONS.get_or_init(|| Mutex::new(WebDavSyncPolicySessions::default()))
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +65,108 @@ pub struct HarmonyBridgeSync {
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub files: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum HarmonyBridgeWebDavSyncEvent {
+    Started {
+        repo_id: String,
+    },
+    ListingStarted,
+    Listed {
+        files: usize,
+    },
+    FileStarted {
+        path: String,
+        index: usize,
+        total: usize,
+    },
+    FileProcessed {
+        path: String,
+        action: String,
+        state: String,
+    },
+    HttpRequest {
+        method: String,
+        path: String,
+    },
+    HttpResponse {
+        method: String,
+        path: String,
+        status: Option<u16>,
+    },
+    Finished {
+        result: String,
+        files: usize,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct HarmonyWebDavSyncMonitor {
+    handle: u64,
+}
+
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn org_tasks_harmony_webdav_sync_monitor_event(
+        handle: u64,
+        event_json: *const std::ffi::c_char,
+    );
+}
+
+fn report_webdav_sync_event(handle: u64, event: &CString) {
+    #[cfg(not(test))]
+    unsafe {
+        org_tasks_harmony_webdav_sync_monitor_event(handle, event.as_ptr());
+    }
+    #[cfg(test)]
+    let _ = (handle, event);
+}
+
+impl WebDavSyncMonitor for HarmonyWebDavSyncMonitor {
+    fn on_event(&self, event: WebDavSyncEvent) {
+        let event = match event {
+            WebDavSyncEvent::Started { repo_id } => {
+                HarmonyBridgeWebDavSyncEvent::Started { repo_id }
+            }
+            WebDavSyncEvent::ListingStarted => HarmonyBridgeWebDavSyncEvent::ListingStarted,
+            WebDavSyncEvent::Listed { files } => HarmonyBridgeWebDavSyncEvent::Listed { files },
+            WebDavSyncEvent::FileStarted { path, index, total } => {
+                HarmonyBridgeWebDavSyncEvent::FileStarted { path, index, total }
+            }
+            WebDavSyncEvent::FileProcessed { record } => {
+                HarmonyBridgeWebDavSyncEvent::FileProcessed {
+                    path: record.relative_path,
+                    action: format!("{:?}", record.action),
+                    state: format!("{:?}", record.state),
+                }
+            }
+            WebDavSyncEvent::HttpRequest { method, path } => {
+                HarmonyBridgeWebDavSyncEvent::HttpRequest { method, path }
+            }
+            WebDavSyncEvent::HttpResponse {
+                method,
+                path,
+                status,
+            } => HarmonyBridgeWebDavSyncEvent::HttpResponse {
+                method,
+                path,
+                status,
+            },
+            WebDavSyncEvent::Finished { result, files } => HarmonyBridgeWebDavSyncEvent::Finished {
+                result: sync_result_label(Some(result)).unwrap_or_else(|_| "failed".into()),
+                files,
+            },
+        };
+        let Ok(event) = serde_json::to_string(&event) else {
+            return;
+        };
+        let Ok(event) = CString::new(event) else {
+            return;
+        };
+        report_webdav_sync_event(self.handle, &event);
+    }
 }
 
 fn task_snapshot(
@@ -205,63 +294,23 @@ pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, 
     encode(&task_snapshot(&workspace, &Filter::parse(&expression))?)
 }
 
-pub fn create_webdav_sync_policy(
-    webdav_url: String,
-    username: String,
-    password: String,
-) -> Result<u64, CoreError> {
-    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
-    let mut sessions = webdav_sync_policy_sessions()
-        .lock()
-        .map_err(|_| CoreError::Store("WebDAV SyncPolicy session 锁不可用".into()))?;
-    sessions.next_handle = sessions
-        .next_handle
-        .checked_add(1)
-        .ok_or(CoreError::InvalidState("WebDAV SyncPolicy handle 已耗尽"))?;
-    let handle = sessions.next_handle;
-    sessions.sessions.insert(
-        handle,
-        WebDavSyncPolicySession {
-            policy: Arc::new(policy),
-            references: 1,
-        },
-    );
-    Ok(handle)
-}
-
-pub fn retain_webdav_sync_policy(handle: u64) -> Result<(), CoreError> {
-    let mut sessions = webdav_sync_policy_sessions()
-        .lock()
-        .map_err(|_| CoreError::Store("WebDAV SyncPolicy session 锁不可用".into()))?;
-    let session = sessions
-        .sessions
-        .get_mut(&handle)
-        .ok_or(CoreError::InvalidInput("WebDAV SyncPolicy handle 无效"))?;
-    session.references = session
-        .references
-        .checked_add(1)
-        .ok_or(CoreError::InvalidState("WebDAV SyncPolicy 引用已耗尽"))?;
-    Ok(())
-}
-
-pub fn release_webdav_sync_policy(handle: u64) {
-    if let Ok(mut sessions) = webdav_sync_policy_sessions().lock() {
-        if let Some(session) = sessions.sessions.get_mut(&handle) {
-            session.references = session.references.saturating_sub(1);
-            if session.references == 0 {
-                sessions.sessions.remove(&handle);
-            }
-        }
-    }
-}
-
 pub fn repo_sync_json(
     workspace_handle: u64,
     repo_id: String,
-    policy_handle: u64,
+    webdav_url: String,
+    username: String,
+    password: String,
+    monitor_handle: u64,
     started_at: TimestampMs,
 ) -> Result<String, CoreError> {
-    let policy = webdav_sync_policy_for_handle(policy_handle)?;
+    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
+    let policy = if monitor_handle == 0 {
+        policy
+    } else {
+        policy.with_monitor(HarmonyWebDavSyncMonitor {
+            handle: monitor_handle,
+        })
+    };
     let workspace = workspace_for_handle(workspace_handle)?;
     let mut workspace = workspace
         .lock()
@@ -272,7 +321,7 @@ pub fn repo_sync_json(
     let runtime = runtime()?;
     let history = runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
     let record = runtime.block_on(repository.sync(
-        policy.as_ref(),
+        &policy,
         &history,
         started_at,
         &SyncCancellation::default(),
@@ -285,17 +334,6 @@ pub fn repo_sync_json(
         finished_at: record.finished_at,
         files: record.files.len(),
     })
-}
-
-fn webdav_sync_policy_for_handle(handle: u64) -> Result<Arc<WebDavSyncPolicy>, CoreError> {
-    let sessions = webdav_sync_policy_sessions()
-        .lock()
-        .map_err(|_| CoreError::Store("WebDAV SyncPolicy session 锁不可用".into()))?;
-    sessions
-        .sessions
-        .get(&handle)
-        .map(|session| Arc::clone(&session.policy))
-        .ok_or(CoreError::InvalidInput("WebDAV SyncPolicy handle 无效"))
 }
 
 pub fn repo_snapshot_json(handle: u64, repo_id: String) -> Result<String, CoreError> {

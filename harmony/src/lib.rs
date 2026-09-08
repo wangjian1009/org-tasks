@@ -70,40 +70,25 @@ pub extern "C" fn org_tasks_harmony_workspace_search(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_webdav_sync_policy_create(
-    webdav_url: *const c_char,
-    username: *const c_char,
-    password: *const c_char,
-) -> u64 {
-    (|| {
-        bridge::create_webdav_sync_policy(
-            read_c_string(webdav_url)?,
-            read_c_string(username)?,
-            read_c_string(password)?,
-        )
-    })()
-    .unwrap_or_default()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_webdav_sync_policy_retain(handle: u64) -> bool {
-    bridge::retain_webdav_sync_policy(handle).is_ok()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_webdav_sync_policy_release(handle: u64) {
-    bridge::release_webdav_sync_policy(handle);
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_sync(
     workspace_handle: u64,
     repo_id: *const c_char,
-    policy_handle: u64,
+    webdav_url: *const c_char,
+    username: *const c_char,
+    password: *const c_char,
+    monitor_handle: u64,
     started_at: i64,
 ) -> *mut c_char {
     string_result(read_c_string(repo_id).and_then(|repo_id| {
-        bridge::repo_sync_json(workspace_handle, repo_id, policy_handle, started_at)
+        bridge::repo_sync_json(
+            workspace_handle,
+            repo_id,
+            read_c_string(webdav_url)?,
+            read_c_string(username)?,
+            read_c_string(password)?,
+            monitor_handle,
+            started_at,
+        )
     }))
 }
 

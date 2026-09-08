@@ -5,7 +5,7 @@ import { abilityAccessCtrl, Permissions } from '@kit.AbilityKit'
 import { CalendarSync } from '../services/CalendarSync'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
-import { NativeCoreService } from '../services/NativeCoreService'
+import { CoreWebDavSyncEvent, NativeCoreService } from '../services/NativeCoreService'
 import { AppConfigService, APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
 
 @Entry
@@ -59,7 +59,11 @@ struct Index {
       this.syncMessage = this.config.webdavEnabled ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载仓库...'
       const workspace = this.config.webdavEnabled
         ? await NativeCoreService.syncWorkspaceWebDav(
-            this.config.orgDir, this.config.webdavUrl, this.config.webdavUsername, this.config.webdavPassword
+            this.config.orgDir,
+            this.config.webdavUrl,
+            this.config.webdavUsername,
+            this.config.webdavPassword,
+            (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event)
           )
         : await NativeCoreService.loadWorkspace(this.config.orgDir)
       this.taskCount = workspace.tasks.length
@@ -114,6 +118,26 @@ struct Index {
       }
     }
     return true
+  }
+
+  private updateWebDavProgress(event: CoreWebDavSyncEvent) {
+    switch (event.type) {
+      case 'listingStarted':
+        this.syncMessage = '正在读取 WebDAV 文件列表...'
+        break
+      case 'listed':
+        this.syncMessage = `已发现 ${event.files} 个远端文件`
+        break
+      case 'fileStarted':
+        this.syncMessage = `正在同步 ${event.index + 1}/${event.total}: ${event.path}`
+        break
+      case 'fileProcessed':
+        this.syncMessage = `已处理 ${event.path}`
+        break
+      case 'finished':
+        this.syncMessage = `WebDAV 同步${event.result === 'succeeded' ? '完成' : '结束'}，共 ${event.files} 个文件`
+        break
+    }
   }
 
   build() {
