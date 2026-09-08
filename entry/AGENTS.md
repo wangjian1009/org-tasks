@@ -15,10 +15,7 @@ entry/
         ├── models/
         │   └── OrgTask.ets            # ArkTS 数据模型与应用配置
         ├── services/
-        │   ├── OrgParser.ets          # 当前 ArkTS org 文件解析器
-        │   ├── FileService.ets         # 文件读写
         │   ├── CalendarSync.ets        # 系统日历同步
-        │   ├── WebDavService.ets       # WebDAV 缓存与传输
         │   ├── CredentialService.ets   # Asset Store 凭据
         │   ├── AppConfigService.ets    # Preferences 配置读取
         │   ├── NativeSyncRecordService.ets # 异步保存 Rust 同步记录
@@ -36,7 +33,7 @@ entry/
 
 ## 线程与 Bridge
 
-ArkUI 线程不得执行 Rust 同步记录持久化或 core 请求。C++ N-API bridge 必须使用 `napi_create_async_work` 在工作线程调用 Rust；ArkTS 通过 `NativeSyncRecordService` 调用 `initialize` 与 `recordSync`，通过 `NativeCoreService` 传递 core bridge 的结构化请求与响应。ArkTS 不得解析 org 内容或重写 core 同步规则。
+ArkUI 线程不得执行 Rust 同步记录持久化或 core 请求。C++ N-API bridge 必须使用 `napi_create_async_work` 在工作线程调用 Rust；ArkTS 通过 `NativeSyncRecordService` 调用 `initialize` 与 `recordSync`，通过 `NativeCoreService` 打开并持有 native `Workspace` / `Repo` session。ArkTS 不得解析 org 内容或重写 core 同步规则。
 
 新增 N-API 方法时必须同时更新：
 
@@ -47,12 +44,12 @@ ArkUI 线程不得执行 Rust 同步记录持久化或 core 请求。C++ N-API b
 ## 数据流
 
 ```
-坚果云 WebDAV → 本地目录 → OrgParser 解析 → CalendarSync 写入系统日历
-                                                    ↓
-新增任务 → FileService → inbox.org → 坚果云同步回电脑
+坚果云 WebDAV → NativeCoreService → harmony bridge → core OrgWorkspace
+                                                        ↓
+                                                  CalendarSync 写入系统日历
 ```
 
-Rust core 的 `OrgRepo`、`SyncPolicy` 与 WebDAV 同步能力是领域接口；当前 ArkTS 服务仍承担 HarmonyOS 文件、日历、网络、凭据和调度 I/O。跨越这些边界时不得把密码、绝对目录或完整 org 内容写入 Rust 同步记录。
+Rust core 的 `OrgRepo`、`OrgWorkspace`、`Filter`、`SyncPolicy` 与 WebDAV 同步能力是领域接口；ArkTS 仅承担页面、日历、凭据和调度 I/O。跨越这些边界时不得把密码、绝对目录或完整 org 内容写入 Rust 同步记录。
 
 ## 配置与保存
 

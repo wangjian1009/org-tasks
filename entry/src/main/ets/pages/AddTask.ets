@@ -2,9 +2,7 @@
 // 填写任务信息，写入 inbox.org
 
 import { router } from '@kit.ArkUI'
-import { FileService } from '../services/FileService'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { WebDavService } from '../services/WebDavService'
 import { AppConfigService } from '../services/AppConfigService'
 
 @Entry
@@ -41,68 +39,8 @@ struct AddTask {
     this.saving = true
     this.message = ''
 
-    // 解析标签
-    const tags = this.tags
-      ? this.tags.split(/[,，\s]+/).filter(t => t.length > 0)
-      : undefined
-
-    // 格式化日期为 org 格式
-    const scheduledOrg = this.scheduled ? this.formatOrgDate(this.scheduled) : undefined
-    const deadlineOrg = this.deadline ? this.formatOrgDate(this.deadline) : undefined
-
-    if (this.config.webdavEnabled) {
-      const content = FileService.formatNewTask(
-        this.heading.trim(), scheduledOrg, deadlineOrg, tags, this.priority || undefined
-      )
-      const result = await new WebDavService(getContext(this), this.config).saveTask(content)
-      if (result.ok) {
-        this.message = '已上传到 ' + this.config.inboxFile
-      } else if (result.message === '无法保存待上传任务') {
-        this.message = '保存失败，请检查应用存储空间'
-      } else {
-        this.message = '已保存到待上传队列，将在下次同步时上传'
-      }
-    } else {
-      const ok = FileService.addTaskToInbox(
-        this.config.orgDir,
-        this.config.inboxFile,
-        this.heading.trim(),
-        scheduledOrg,
-        deadlineOrg,
-        tags,
-        this.priority || undefined
-      )
-      this.message = ok ? '已保存到 ' + this.config.inboxFile : '保存失败，请检查文件路径'
-    }
-
-    if (!this.message.includes('失败')) {
-      // 延迟返回
-      setTimeout(() => {
-        router.back()
-      }, 1000)
-    }
-
+    this.message = '新增任务需要 core editor 支持，当前未接入写入操作'
     this.saving = false
-  }
-
-  /**
-   * 将日期选择器的值转为 org 日期格式
-   * 输入: "2026-08-12" 或 "2026-08-12T14:30"
-   * 输出: "2026-08-12 Wed" 或 "2026-08-12 Wed 14:30"
-   */
-  formatOrgDate(dateStr: string): string {
-    const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    const d = new Date(dateStr)
-    const year = d.getFullYear()
-    const month = (d.getMonth() + 1).toString().padStart(2, '0')
-    const day = d.getDate().toString().padStart(2, '0')
-    const weekday = WEEKDAYS[d.getDay()]
-
-    if (dateStr.includes('T') && dateStr.split('T')[1]) {
-      const time = dateStr.split('T')[1]
-      return `${year}-${month}-${day} ${weekday} ${time}`
-    }
-    return `${year}-${month}-${day} ${weekday}`
   }
 
   build() {

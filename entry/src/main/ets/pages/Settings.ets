@@ -5,7 +5,6 @@ import { router } from '@kit.ArkUI'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
 import { CredentialService } from '../services/CredentialService'
-import { WebDavService } from '../services/WebDavService'
 import { AppConfigService } from '../services/AppConfigService'
 
 const PREF_NAME = 'org_tasks_config'
@@ -23,7 +22,6 @@ struct Settings {
   @State webdavUsername: string = DEFAULT_CONFIG.webdavUsername
   @State webdavPassword: string = DEFAULT_CONFIG.webdavPassword
   @State saving: boolean = false
-  @State testing: boolean = false
   @State message: string = ''
 
   aboutToAppear() {
@@ -76,30 +74,6 @@ struct Settings {
     }
 
     this.saving = false
-  }
-
-  async testWebDavConnection() {
-    this.testing = true
-    this.message = ''
-    try {
-      const context = getContext(this)
-      const config: AppConfig = {
-        repoId: this.repoId,
-        orgDir: this.orgDir.trim(),
-        inboxFile: this.inboxFile.trim(),
-        calendarName: this.calendarName.trim(),
-        syncInterval: parseInt(this.syncInterval) || 15,
-        webdavEnabled: true,
-        webdavUrl: this.webdavUrl.trim(),
-        webdavUsername: this.webdavUsername.trim(),
-        webdavPassword: this.webdavPassword
-      }
-      const result = await new WebDavService(context, config).testConnection()
-      this.message = result.ok ? result.message : `连接失败: ${result.message}`
-    } catch (e) {
-      this.message = `连接失败: ${JSON.stringify(e)}`
-    }
-    this.testing = false
   }
 
   build() {
@@ -169,12 +143,6 @@ struct Settings {
               .margin({ top: 8 })
               .height(44)
 
-            Button(this.testing ? '测试中...' : '测试 WebDAV 连接')
-              .width('100%')
-              .height(40)
-              .margin({ top: 16 })
-              .enabled(!this.testing)
-              .onClick(() => this.testWebDavConnection())
           } else {
             Text('Org 文件目录')
               .fontSize(14)

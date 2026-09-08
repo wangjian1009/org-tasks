@@ -1,15 +1,14 @@
 import { router } from '@kit.ArkUI'
-import { OrgTask, AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { FileService } from '../services/FileService'
-import { WebDavService } from '../services/WebDavService'
+import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { CoreTask, NativeCoreService } from '../services/NativeCoreService'
 
 interface SearchRouteParams {
   query?: string
 }
 
 interface TaskRouteParams {
-  task: OrgTask
+  task: CoreTask
 }
 
 @Entry
@@ -17,7 +16,7 @@ interface TaskRouteParams {
 struct TaskSearch {
   @State query: string = ''
   @State stateFilter: string = '全部'
-  @State tasks: OrgTask[] = []
+  @State tasks: CoreTask[] = []
   @State message: string = ''
   @State config: AppConfig = DEFAULT_CONFIG
 
@@ -31,35 +30,22 @@ struct TaskSearch {
     try {
       const context = getContext(this)
       this.config = await AppConfigService.load(context)
-      const sourceDir = this.config.webdavEnabled
-        ? new WebDavService(context, this.config).getLocalDir()
-        : this.config.orgDir
-      if (!FileService.dirExists(sourceDir)) {
-        this.message = this.config.webdavEnabled ? '尚无 WebDAV 缓存，请先在同步中心同步' : '尚未找到 org 文件目录'
-        return
-      }
-      const parsed = await FileService.parseAllTasks(sourceDir)
-      this.tasks = parsed.tasks
-      this.message = parsed.errors.length > 0 ? `有 ${parsed.errors.length} 个文件无法读取` : ''
+      let expression = this.query.trim()
+      if (this.stateFilter === '未完成') expression = `${expression} .it.done`.trim()
+      if (this.stateFilter === '已完成') expression = `${expression} it.done`.trim()
+      const response = await NativeCoreService.searchWorkspace(this.config.orgDir, expression)
+      this.tasks = response.tasks
+      this.message = ''
     } catch (e) {
       this.message = `读取任务失败: ${JSON.stringify(e)}`
     }
   }
 
-  visibleTasks(): OrgTask[] {
-    const keywords = this.query.trim().toLowerCase()
-    return this.tasks.filter((task: OrgTask) => {
-      const stateMatched = this.stateFilter === '全部' ||
-        (this.stateFilter === '未完成' && task.todoState !== 'DONE') ||
-        (this.stateFilter === '已完成' && task.todoState === 'DONE')
-      if (!stateMatched) return false
-      if (!keywords) return true
-      const searchable = `${task.heading} ${task.body} ${task.tags.join(' ')} ${task.todoState} ${task.fileName}`.toLowerCase()
-      return searchable.includes(keywords)
-    })
+  visibleTasks(): CoreTask[] {
+    return this.tasks
   }
 
-  openTask(task: OrgTask) {
+  openTask(task: CoreTask) {
     const params: TaskRouteParams = { task }
     router.pushUrl({ url: 'pages/TaskDetail', params })
   }
@@ -96,7 +82,10 @@ struct TaskSearch {
         .height(44)
         .backgroundColor('#FFFFFF')
         .margin({ left: 20, right: 20 })
-        .onChange((value: string) => this.query = value)
+        .onChange((value: string) => {
+          this.query = value
+          this.loadTasks()
+        })
 
       Row() {
         ForEach(['全部', '未完成', '已完成'], (item: string) => {
@@ -106,7 +95,10 @@ struct TaskSearch {
             .backgroundColor(this.stateFilter === item ? '#6A4C93' : '#FFFFFF')
             .fontColor(this.stateFilter === item ? '#FFFFFF' : '#34423B')
             .margin({ right: 8 })
-            .onClick(() => this.stateFilter = item)
+            .onClick(() => {
+              this.stateFilter = item
+              this.loadTasks()
+            })
         })
       }
       .width('100%')
@@ -140,7 +132,7 @@ struct TaskSearch {
         .justifyContent(FlexAlign.Center)
       } else {
         List({ space: 1 }) {
-          ForEach(this.visibleTasks(), (task: OrgTask) => {
+          ForEach(this.visibleTasks(), (task: CoreTask) => {
             ListItem() {
               Column() {
                 Row() {
@@ -179,7 +171,7 @@ struct TaskSearch {
               .backgroundColor('#FFFFFF')
               .onClick(() => this.openTask(task))
             }
-          }, (task: OrgTask) => task.id)
+          }, (task: CoreTask) => task.id)
         }
         .width('100%')
         .layoutWeight(1)

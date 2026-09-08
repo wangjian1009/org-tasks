@@ -3,11 +3,9 @@
 import { router } from '@kit.ArkUI'
 import { abilityAccessCtrl, Permissions } from '@kit.AbilityKit'
 import { CalendarSync } from '../services/CalendarSync'
-import { FileService } from '../services/FileService'
-import { OrgTask, SyncResult, AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
-import { WebDavService } from '../services/WebDavService'
-import { NativeSyncRecordService } from '../services/NativeSyncRecordService'
+import { NativeCoreService } from '../services/NativeCoreService'
 import { AppConfigService, APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
 
 @Entry
@@ -34,12 +32,8 @@ struct Index {
       this.config = await AppConfigService.load(context)
       this.calendarSync = new CalendarSync(context, this.config.calendarName)
 
-      const sourceDir = this.config.webdavEnabled
-        ? new WebDavService(context, this.config).getLocalDir()
-        : this.config.orgDir
-      if (FileService.dirExists(sourceDir)) {
-        this.taskCount = (await FileService.parseAllTasks(sourceDir)).tasks.length
-      }
+      const workspace = await NativeCoreService.loadWorkspace(this.config.orgDir)
+      this.taskCount = workspace.tasks.length
 
       if (lastSyncTime > 0) {
         const d = new Date(lastSyncTime)
@@ -55,9 +49,6 @@ struct Index {
 
     this.syncing = true
     this.syncMessage = '正在同步...'
-    const syncStartedAt = Date.now()
-    let syncSucceeded = false
-
     try {
       if (!await this.requestSyncPermissions()) {
         this.syncMessage = '需要日历权限才能同步'
@@ -65,31 +56,13 @@ struct Index {
         return
       }
 
-      let orgDir = this.config.orgDir
-      if (this.config.webdavEnabled) {
-        this.syncMessage = '正在从 WebDAV 下载 org 文件...'
-        const webdav = await new WebDavService(getContext(this), this.config).syncToCache()
-        if (!webdav.ok) {
-          this.syncMessage = `WebDAV 同步失败: ${webdav.message}`
-          this.syncing = false
-          return
-        }
-        orgDir = webdav.localDir
-      } else if (!FileService.dirExists(orgDir)) {
-        this.syncMessage = `目录不存在: ${orgDir}`
-        this.syncing = false
-        return
-      }
-
-      // 解析所有 org 文件
-      this.syncMessage = '正在解析 org 文件...'
-      const parsed = await FileService.parseAllTasks(orgDir)
-      if (parsed.errors.length > 0) {
-        this.syncMessage = `读取 org 文件失败，已取消同步: ${parsed.errors[0]}`
-        this.syncing = false
-        return
-      }
-      this.taskCount = parsed.tasks.length
+      this.syncMessage = this.config.webdavEnabled ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载仓库...'
+      const workspace = this.config.webdavEnabled
+        ? await NativeCoreService.syncWorkspaceWebDav(
+            this.config.orgDir, this.config.webdavUrl, this.config.webdavUsername, this.config.webdavPassword
+          )
+        : await NativeCoreService.loadWorkspace(this.config.orgDir)
+      this.taskCount = workspace.tasks.length
 
       // 初始化日历
       this.syncMessage = '正在写入日历...'
@@ -105,18 +78,17 @@ struct Index {
         return
       }
 
-      const result = await this.calendarSync.syncTasks(parsed.tasks)
+      const result = await this.calendarSync.syncTasks(workspace.tasks)
 
       // 保存同步时间
       const context = getContext(this)
       const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
       await store.put('lastSyncTime', Date.now())
       await store.flush()
-      syncSucceeded = true
-
       const now = new Date()
       this.lastSync = `${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`
-      this.syncMessage = `同步完成: ${result.synced}/${result.total} 个任务（新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}）`
+      const coreResult = workspace.sync ? ` · core ${workspace.sync.result}` : ''
+      this.syncMessage = `同步完成: ${result.synced}/${result.total} 个任务（新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}）${coreResult}`
 
       if (result.errors.length > 0) {
         this.syncMessage += `\n${result.errors.length} 个错误`
@@ -124,16 +96,6 @@ struct Index {
     } catch (e) {
       this.syncMessage = `同步失败: ${JSON.stringify(e)}`
     } finally {
-      try {
-        await NativeSyncRecordService.recordSyncResult(
-          getContext(this).filesDir,
-          this.config.repoId,
-          syncStartedAt,
-          syncSucceeded
-        )
-      } catch (e) {
-        console.warn('Rust 核心服务保存手动同步记录失败:', JSON.stringify(e))
-      }
       this.syncing = false
     }
   }

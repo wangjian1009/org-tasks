@@ -1,17 +1,16 @@
 import { router } from '@kit.ArkUI'
-import { OrgTask, AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { FileService } from '../services/FileService'
-import { WebDavService } from '../services/WebDavService'
+import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { CoreTask, NativeCoreService } from '../services/NativeCoreService'
 
 interface TaskRouteParams {
-  task: OrgTask
+  task: CoreTask
 }
 
 @Entry
 @Component
 struct Agenda {
-  @State tasks: OrgTask[] = []
+  @State tasks: CoreTask[] = []
   @State filter: string = '全部'
   @State message: string = ''
   @State config: AppConfig = DEFAULT_CONFIG
@@ -24,34 +23,30 @@ struct Agenda {
     try {
       const context = getContext(this)
       this.config = await AppConfigService.load(context)
-      const sourceDir = this.config.webdavEnabled
-        ? new WebDavService(context, this.config).getLocalDir()
-        : this.config.orgDir
-      if (!FileService.dirExists(sourceDir)) {
-        this.message = this.config.webdavEnabled ? '尚无 WebDAV 缓存，请先在同步中心同步' : '尚未找到 org 文件目录'
-        return
-      }
-      const parsed = await FileService.parseAllTasks(sourceDir)
-      this.tasks = parsed.tasks.filter((task: OrgTask) => task.scheduled.length > 0 || task.deadline.length > 0)
-      this.message = parsed.errors.length > 0 ? `有 ${parsed.errors.length} 个文件无法读取` : ''
+      const expression = this.filter === '计划'
+        ? 's.ge.-100y'
+        : this.filter === '截止'
+          ? 'd.ge.-100y'
+          : 's.ge.-100y or d.ge.-100y'
+      const response = await NativeCoreService.searchWorkspace(this.config.orgDir, expression)
+      this.tasks = response.tasks
+      this.message = ''
     } catch (e) {
       this.message = `读取日程失败: ${JSON.stringify(e)}`
     }
   }
 
-  visibleTasks(): OrgTask[] {
-    if (this.filter === '计划') return this.tasks.filter((task: OrgTask) => task.scheduled.length > 0)
-    if (this.filter === '截止') return this.tasks.filter((task: OrgTask) => task.deadline.length > 0)
+  visibleTasks(): CoreTask[] {
     return this.tasks
   }
 
-  taskDate(task: OrgTask): string {
+  taskDate(task: CoreTask): string {
     if (task.deadline.length > 0 && task.scheduled.length > 0) return `计划 ${task.scheduled} · 截止 ${task.deadline}`
     if (task.deadline.length > 0) return `截止 ${task.deadline}`
     return `计划 ${task.scheduled}`
   }
 
-  openTask(task: OrgTask) {
+  openTask(task: CoreTask) {
     const params: TaskRouteParams = { task }
     router.pushUrl({ url: 'pages/TaskDetail', params })
   }
@@ -92,7 +87,10 @@ struct Agenda {
             .backgroundColor(this.filter === item ? '#175C43' : '#FFFFFF')
             .fontColor(this.filter === item ? '#FFFFFF' : '#34423B')
             .margin({ right: 8 })
-            .onClick(() => this.filter = item)
+            .onClick(() => {
+              this.filter = item
+              this.loadTasks()
+            })
         })
       }
       .width('100%')
@@ -120,7 +118,7 @@ struct Agenda {
         .justifyContent(FlexAlign.Center)
       } else {
         List({ space: 1 }) {
-          ForEach(this.visibleTasks(), (task: OrgTask) => {
+          ForEach(this.visibleTasks(), (task: CoreTask) => {
             ListItem() {
               Row() {
                 Text(task.todoState === 'DONE' ? '完成' : '待办')
@@ -151,7 +149,7 @@ struct Agenda {
               .backgroundColor('#FFFFFF')
               .onClick(() => this.openTask(task))
             }
-          }, (task: OrgTask) => task.id)
+        }, (task: CoreTask) => task.id)
         }
         .width('100%')
         .layoutWeight(1)

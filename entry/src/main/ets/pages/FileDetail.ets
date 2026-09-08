@@ -1,12 +1,11 @@
 import { router } from '@kit.ArkUI'
-import { FileService } from '../services/FileService'
-import { OrgParser } from '../services/OrgParser'
-import { WebDavService } from '../services/WebDavService'
-import { AppConfigService } from '../services/AppConfigService'
 import { OrgTask } from '../models/OrgTask'
+import { CoreTask } from '../services/NativeCoreService'
 
 interface FileDetailParams {
   path?: string
+  source?: string
+  tasks?: CoreTask[]
 }
 
 interface TaskRouteParams {
@@ -31,32 +30,12 @@ struct FileDetail {
   async loadFile() {
     const params = router.getParams() as FileDetailParams
     this.path = params.path || ''
-    if (!this.isSafeFileName(this.path)) {
-      this.message = '无效的文件路径'
-      return
+    this.content = params.source || ''
+    this.tasks = (params.tasks || []) as OrgTask[]
+    this.taskCount = this.tasks.length
+    if (!this.path || !this.content) {
+      this.message = 'workspace 快照中未找到此文件'
     }
-
-    try {
-      const context = getContext(this)
-      const config = await AppConfigService.load(context)
-      const sourceDir = config.webdavEnabled ? new WebDavService(context, config).getLocalDir() : config.orgDir
-      this.content = config.webdavEnabled
-        ? new WebDavService(context, config).readCachedFile(this.path)
-        : FileService.readFileIfExists(`${sourceDir}/${this.path}`)
-      if (!this.content) {
-        this.message = '缓存中未找到此文件'
-        return
-      }
-      this.tasks = OrgParser.parse(this.content, `${sourceDir}/${this.path}`)
-      this.taskCount = this.tasks.length
-      this.mtime = FileService.getMtime(`${sourceDir}/${this.path}`)
-    } catch (e) {
-      this.message = `读取文件失败: ${JSON.stringify(e)}`
-    }
-  }
-
-  isSafeFileName(value: string): boolean {
-    return value.length > 0 && !value.includes('/') && !value.includes('\\') && !value.includes('..')
   }
 
   formatTime(timestamp: number): string {
@@ -96,7 +75,7 @@ struct FileDetail {
           .width('100%')
           .padding({ left: 20, right: 20, bottom: 12 })
       } else {
-        Text(`${this.taskCount} 个任务 · ${this.formatTime(this.mtime)}`)
+        Text(`${this.taskCount} 个任务 · core workspace 快照`)
           .fontSize(13)
           .fontColor('#666')
           .width('100%')
