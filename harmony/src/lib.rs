@@ -148,21 +148,6 @@ pub extern "C" fn org_tasks_harmony_record_sync(
     ffi_result_code(result)
 }
 
-/// 将 JSON 请求直接交给 Harmony bridge。
-///
-/// 此层不解析领域字段、不构造同步策略，也不保存业务状态；返回字符串须由
-/// ~org_tasks_harmony_free_string~ 释放。
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_execute(request: *const c_char) -> *mut c_char {
-    let result = (|| {
-        let response = bridge::execute_json(&read_c_string(request)?)?;
-        CString::new(response)
-            .map(CString::into_raw)
-            .map_err(|_| CoreError::InvalidState("Harmony bridge 响应包含空字符"))
-    })();
-    result.unwrap_or(std::ptr::null_mut())
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
     if !value.is_null() {
@@ -170,6 +155,83 @@ pub extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
             drop(CString::from_raw(value));
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_open(root_directory: *const c_char) -> u64 {
+    read_c_string(root_directory)
+        .and_then(bridge::open_workspace)
+        .unwrap_or_default()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_retain(handle: u64) -> bool {
+    bridge::retain_workspace(handle).is_ok()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_release(handle: u64) {
+    bridge::release_workspace(handle);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_repo_ids(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_repo_ids(handle).map(|ids| ids.join("\n")))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_snapshot(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_snapshot_json(handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_search(
+    handle: u64,
+    expression: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(expression).and_then(|value| bridge::workspace_search_json(handle, value)),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_sync_webdav(
+    handle: u64,
+    webdav_url: *const c_char,
+    username: *const c_char,
+    password: *const c_char,
+    started_at: i64,
+) -> *mut c_char {
+    string_result((|| {
+        bridge::workspace_sync_webdav_json(
+            handle,
+            read_c_string(webdav_url)?,
+            read_c_string(username)?,
+            read_c_string(password)?,
+            started_at,
+        )
+    })())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_snapshot(
+    workspace_handle: u64,
+    repo_id: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(repo_id)
+            .and_then(|value| bridge::repo_snapshot_json(workspace_handle, value)),
+    )
+}
+
+fn string_result(result: Result<String, CoreError>) -> *mut c_char {
+    result
+        .and_then(|value| {
+            CString::new(value)
+                .map(CString::into_raw)
+                .map_err(|_| CoreError::InvalidState("Harmony bridge 响应包含空字符"))
+        })
+        .unwrap_or(std::ptr::null_mut())
 }
 
 fn ffi_result_code(result: Result<(), CoreError>) -> i32 {

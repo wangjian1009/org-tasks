@@ -1,29 +1,33 @@
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
 use org_tasks_core::webdav::{WebDavEndpoint, WebDavSyncPolicy};
 use org_tasks_core::{
-    CoreError, OrgRepo, OrgRepoSyncResult, SyncCancellation, SyncProgressReporter, TimestampMs,
+    CoreError, Filter, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace, SyncCancellation,
+    SyncProgressReporter, TimestampMs,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-/// Harmony 宿主到 core 的结构化请求。
-#[derive(Debug, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
-pub enum HarmonyBridgeRequest {
-    LoadRepository {
-        root_directory: String,
-    },
-    SyncWebDav {
-        root_directory: String,
-        webdav_url: String,
-        username: String,
-        password: String,
-        started_at: TimestampMs,
-    },
+struct WorkspaceSession {
+    workspace: Arc<Mutex<OrgWorkspace>>,
+    references: usize,
+}
+
+#[derive(Default)]
+struct WorkspaceSessions {
+    next_handle: u64,
+    sessions: BTreeMap<u64, WorkspaceSession>,
+}
+
+static WORKSPACE_SESSIONS: OnceLock<Mutex<WorkspaceSessions>> = OnceLock::new();
+
+fn workspace_sessions() -> &'static Mutex<WorkspaceSessions> {
+    WORKSPACE_SESSIONS.get_or_init(|| Mutex::new(WorkspaceSessions::default()))
 }
 
 #[derive(Debug, Serialize)]
-pub struct HarmonyBridgeResponse {
-    pub repository: HarmonyBridgeRepository,
-    pub sync: Option<HarmonyBridgeSync>,
+pub struct HarmonyBridgeWorkspace {
+    pub repos: Vec<HarmonyBridgeRepository>,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,6 +44,23 @@ pub struct HarmonyBridgeFile {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarmonyBridgeTask {
+    pub id: String,
+    pub heading: String,
+    pub todo_state: String,
+    pub priority: String,
+    pub scheduled: String,
+    pub deadline: String,
+    pub tags: Vec<String>,
+    pub file_path: String,
+    pub file_name: String,
+    pub level: u32,
+    pub body: String,
+    pub progress: i32,
+}
+
+#[derive(Debug, Serialize)]
 pub struct HarmonyBridgeSync {
     pub id: String,
     pub result: String,
@@ -48,65 +69,173 @@ pub struct HarmonyBridgeSync {
     pub files: usize,
 }
 
-/// 调用 core 的仓库加载与 WebDAV 同步能力，返回供 ArkTS 渲染的快照。
-pub async fn execute(request: HarmonyBridgeRequest) -> Result<HarmonyBridgeResponse, CoreError> {
-    match request {
-        HarmonyBridgeRequest::LoadRepository { root_directory } => {
-            let mut repository = OrgRepo::new(root_directory)?;
-            repository.load::<WebDavSyncPolicy>().await?;
-            Ok(HarmonyBridgeResponse {
-                repository: repository_snapshot(&repository)?,
-                sync: None,
-            })
+async fn load_workspace(root_directory: String) -> Result<OrgWorkspace, CoreError> {
+    let mut repository = OrgRepo::new(root_directory)?;
+    repository.load::<WebDavSyncPolicy>().await?;
+    OrgWorkspace::new(vec![repository])
+}
+
+fn task_snapshot(
+    workspace: &OrgWorkspace,
+    filter: &Filter,
+) -> Result<Vec<HarmonyBridgeTask>, CoreError> {
+    Ok(workspace
+        .search(filter)
+        .into_iter()
+        .map(task_from_filter)
+        .collect())
+}
+
+fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
+    let mut tags = task.own_tags;
+    for inherited in task.inherited_tags {
+        if !tags.contains(&inherited) {
+            tags.push(inherited);
         }
-        HarmonyBridgeRequest::SyncWebDav {
-            root_directory,
-            webdav_url,
-            username,
-            password,
-            started_at,
-        } => {
-            let mut repository = OrgRepo::new(root_directory)?;
-            let history = repository.load::<WebDavSyncPolicy>().await?;
-            let policy =
-                WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
-            let record = repository
-                .sync(
-                    &policy,
-                    &history,
-                    started_at,
-                    &SyncCancellation::default(),
-                    &SyncProgressReporter::default(),
-                )
-                .await?;
-            Ok(HarmonyBridgeResponse {
-                repository: repository_snapshot(&repository)?,
-                sync: Some(HarmonyBridgeSync {
-                    id: record.id,
-                    result: sync_result_label(record.result)?,
-                    started_at: record.started_at,
-                    finished_at: record.finished_at,
-                    files: record.files.len(),
-                }),
-            })
+    }
+    HarmonyBridgeTask {
+        id: format!("{}:{}:{}", task.repo_id, task.path, task.byte_offset),
+        heading: task.title,
+        todo_state: task.state.unwrap_or_default(),
+        priority: task.priority.unwrap_or_default(),
+        scheduled: task
+            .scheduled
+            .map(|date| date.date.to_string())
+            .unwrap_or_default(),
+        deadline: task
+            .deadline
+            .map(|date| date.date.to_string())
+            .unwrap_or_default(),
+        tags,
+        file_name: task.path.rsplit('/').next().unwrap_or(&task.path).into(),
+        file_path: task.path,
+        level: 0,
+        body: task.body,
+        progress: -1,
+    }
+}
+
+/// 创建持久 workspace session。session 仅由 opaque handle 引用，Rust 领域对象不离开本模块。
+pub fn open_workspace(root_directory: String) -> Result<u64, CoreError> {
+    let runtime = runtime()?;
+    let workspace = runtime.block_on(load_workspace(root_directory))?;
+    let mut sessions = workspace_sessions()
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace session 锁不可用".into()))?;
+    sessions.next_handle = sessions
+        .next_handle
+        .checked_add(1)
+        .ok_or(CoreError::InvalidState("workspace handle 已耗尽"))?;
+    let handle = sessions.next_handle;
+    sessions.sessions.insert(
+        handle,
+        WorkspaceSession {
+            workspace: Arc::new(Mutex::new(workspace)),
+            references: 1,
+        },
+    );
+    Ok(handle)
+}
+
+pub fn retain_workspace(handle: u64) -> Result<(), CoreError> {
+    let mut sessions = workspace_sessions()
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace session 锁不可用".into()))?;
+    let session = sessions
+        .sessions
+        .get_mut(&handle)
+        .ok_or(CoreError::InvalidInput("workspace handle 无效"))?;
+    session.references = session
+        .references
+        .checked_add(1)
+        .ok_or(CoreError::InvalidState("workspace 引用已耗尽"))?;
+    Ok(())
+}
+
+pub fn release_workspace(handle: u64) {
+    if let Ok(mut sessions) = workspace_sessions().lock() {
+        if let Some(session) = sessions.sessions.get_mut(&handle) {
+            session.references = session.references.saturating_sub(1);
+            if session.references == 0 {
+                sessions.sessions.remove(&handle);
+            }
         }
     }
 }
 
-/// C ABI 使用的同步包装。Tokio runtime 在 Harmony 宿主层创建。
-pub fn execute_json(request: &str) -> Result<String, CoreError> {
-    let request: HarmonyBridgeRequest = serde_json::from_str(request)
-        .map_err(|_| CoreError::InvalidInput("Harmony bridge 请求 JSON 无效"))?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| CoreError::Store(format!("无法创建 Harmony runtime: {error}")))?;
-    let response = runtime.block_on(execute(request))?;
-    serde_json::to_string(&response)
-        .map_err(|error| CoreError::Store(format!("无法编码 Harmony bridge 响应: {error}")))
+pub fn workspace_repo_ids(handle: u64) -> Result<Vec<String>, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    Ok(workspace
+        .repos()
+        .iter()
+        .map(|repo| repo.id.clone())
+        .collect())
 }
 
-fn repository_snapshot(repository: &OrgRepo) -> Result<HarmonyBridgeRepository, CoreError> {
+pub fn workspace_snapshot_json(handle: u64) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    encode(&workspace_snapshot(&workspace)?)
+}
+
+pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    encode(&task_snapshot(&workspace, &Filter::parse(&expression))?)
+}
+
+pub fn workspace_sync_webdav_json(
+    handle: u64,
+    webdav_url: String,
+    username: String,
+    password: String,
+    started_at: TimestampMs,
+) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    if workspace.repos.len() != 1 {
+        return Err(CoreError::InvalidState(
+            "当前 Harmony session 必须包含一个仓库",
+        ));
+    }
+    let repository = &mut workspace.repos[0];
+    let runtime = runtime()?;
+    let history = runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
+    let record = runtime.block_on(repository.sync(
+        &policy,
+        &history,
+        started_at,
+        &SyncCancellation::default(),
+        &SyncProgressReporter::default(),
+    ))?;
+    encode(&HarmonyBridgeSync {
+        id: record.id,
+        result: sync_result_label(record.result)?,
+        started_at: record.started_at,
+        finished_at: record.finished_at,
+        files: record.files.len(),
+    })
+}
+
+pub fn repo_snapshot_json(handle: u64, repo_id: String) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo(&repo_id)
+        .ok_or(CoreError::InvalidInput("仓库 ID 不属于 workspace"))?;
+    let mut repos = Vec::with_capacity(1);
     let mut files = Vec::with_capacity(repository.files().len());
     for file in repository.files() {
         files.push(HarmonyBridgeFile {
@@ -117,10 +246,55 @@ fn repository_snapshot(repository: &OrgRepo) -> Result<HarmonyBridgeRepository, 
             byte_length: file.source_bytes().len(),
         });
     }
-    Ok(HarmonyBridgeRepository {
+    repos.push(HarmonyBridgeRepository {
         id: repository.id.clone(),
         files,
-    })
+    });
+    encode(&HarmonyBridgeWorkspace { repos })
+}
+
+fn workspace_for_handle(handle: u64) -> Result<Arc<Mutex<OrgWorkspace>>, CoreError> {
+    let sessions = workspace_sessions()
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace session 锁不可用".into()))?;
+    sessions
+        .sessions
+        .get(&handle)
+        .map(|session| Arc::clone(&session.workspace))
+        .ok_or(CoreError::InvalidInput("workspace handle 无效"))
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime, CoreError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| CoreError::Store(format!("无法创建 Harmony runtime: {error}")))
+}
+
+fn encode<T: Serialize>(value: &T) -> Result<String, CoreError> {
+    serde_json::to_string(value)
+        .map_err(|error| CoreError::Store(format!("无法编码 Harmony bridge 响应: {error}")))
+}
+
+fn workspace_snapshot(workspace: &OrgWorkspace) -> Result<HarmonyBridgeWorkspace, CoreError> {
+    let mut repos = Vec::with_capacity(workspace.repos().len());
+    for repository in workspace.repos() {
+        let mut files = Vec::with_capacity(repository.files().len());
+        for file in repository.files() {
+            files.push(HarmonyBridgeFile {
+                path: file.path.clone(),
+                source: std::str::from_utf8(file.source_bytes())
+                    .map_err(|_| CoreError::InvalidState("已加载 Org 文件不是 UTF-8"))?
+                    .into(),
+                byte_length: file.source_bytes().len(),
+            });
+        }
+        repos.push(HarmonyBridgeRepository {
+            id: repository.id.clone(),
+            files,
+        });
+    }
+    Ok(HarmonyBridgeWorkspace { repos })
 }
 
 fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreError> {
@@ -138,25 +312,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn load_request_returns_core_file_snapshot() {
+    fn workspace_session_returns_core_file_snapshot() {
         let root =
             std::env::temp_dir().join(format!("org-tasks-harmony-bridge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("inbox.org"), "* TODO bridge\n").unwrap();
 
-        let request = serde_json::json!({
-            "action": "load_repository",
-            "root_directory": root.to_string_lossy(),
-        });
-        let response = execute_json(&request.to_string()).unwrap();
+        let handle = open_workspace(root.to_string_lossy().into()).unwrap();
+        let response = workspace_snapshot_json(handle).unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(response["repository"]["files"][0]["path"], "inbox.org");
+        assert_eq!(response["repos"][0]["files"][0]["path"], "inbox.org");
         assert_eq!(
-            response["repository"]["files"][0]["source"],
+            response["repos"][0]["files"][0]["source"],
             "* TODO bridge\n"
         );
 
+        release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

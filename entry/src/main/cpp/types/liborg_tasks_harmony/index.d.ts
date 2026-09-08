@@ -8,4 +8,16 @@ export function recordSync(
   succeeded: boolean
 ): Promise<number>;
 
-export function executeCore(request: string): Promise<string>;
+export function openWorkspace(rootDirectory: string): Promise<Workspace>;
+
+export class Workspace {
+  repos(): Promise<Repo[]>;
+  snapshot(): Promise<string>;
+  search(expression: string): Promise<string>;
+  syncWebDav(webdavUrl: string, username: string, password: string): Promise<string>;
+}
+
+export class Repo {
+  id(): string;
+  snapshot(): Promise<string>;
+}
