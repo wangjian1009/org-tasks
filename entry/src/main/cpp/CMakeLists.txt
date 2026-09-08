@@ -8,12 +8,17 @@ find_program(CARGO_EXECUTABLE cargo REQUIRED)
 if(OHOS_ARCH STREQUAL "arm64-v8a")
   set(RUST_TARGET "aarch64-unknown-linux-ohos")
   set(RUST_LINKER "${OHOS_SDK_NATIVE}/llvm/bin/aarch64-unknown-linux-ohos-clang")
+  set(RUST_SYSROOT "${OHOS_SDK_NATIVE}/sysroot")
+  set(RUST_AR "${OHOS_SDK_NATIVE}/llvm/bin/llvm-ar")
+  set(RUST_RANLIB "${OHOS_SDK_NATIVE}/llvm/bin/llvm-ranlib")
+  set(RUST_TIME_SERVICE_LIB "${RUST_SYSROOT}/usr/lib/aarch64-linux-ohos/libtime_service_ndk.so")
 else()
   message(FATAL_ERROR "Rust Harmony bridge currently supports only arm64-v8a; received ${OHOS_ARCH}")
 endif()
 
 string(TOUPPER "${RUST_TARGET}" RUST_TARGET_ENV)
 string(REPLACE "-" "_" RUST_TARGET_ENV "${RUST_TARGET_ENV}")
+string(REPLACE "-" "_" RUST_TARGET_ENV_LOWER "${RUST_TARGET}")
 set(RUST_STATIC_LIBRARY "${RUST_WORKSPACE_ROOT}/target/${RUST_TARGET}/release/liborg_tasks_harmony.a")
 
 file(GLOB_RECURSE RUST_SOURCES CONFIGURE_DEPENDS
@@ -26,6 +31,10 @@ add_custom_command(
   OUTPUT "${RUST_STATIC_LIBRARY}"
   COMMAND ${CMAKE_COMMAND} -E env
     "CARGO_TARGET_${RUST_TARGET_ENV}_LINKER=${RUST_LINKER}"
+    "CC_${RUST_TARGET_ENV_LOWER}=${RUST_LINKER}"
+    "CFLAGS_${RUST_TARGET_ENV_LOWER}=--sysroot=${RUST_SYSROOT}"
+    "AR_${RUST_TARGET_ENV_LOWER}=${RUST_AR}"
+    "RANLIB_${RUST_TARGET_ENV_LOWER}=${RUST_RANLIB}"
     ${CARGO_EXECUTABLE} build --manifest-path "${RUST_MANIFEST}" --package org-tasks-harmony --target ${RUST_TARGET} --release
   WORKING_DIRECTORY "${RUST_WORKSPACE_ROOT}"
   DEPENDS ${RUST_SOURCES}
@@ -35,4 +44,4 @@ add_custom_target(org_tasks_rust_core DEPENDS "${RUST_STATIC_LIBRARY}")
 
 add_library(org_tasks_harmony SHARED napi_init.cpp)
 add_dependencies(org_tasks_harmony org_tasks_rust_core)
-target_link_libraries(org_tasks_harmony PRIVATE "${RUST_STATIC_LIBRARY}" libace_napi.z.so dl m)
+target_link_libraries(org_tasks_harmony PRIVATE "${RUST_STATIC_LIBRARY}" "${RUST_TIME_SERVICE_LIB}" libace_napi.z.so dl m)
