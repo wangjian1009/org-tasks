@@ -27,7 +27,7 @@ HAP_DIR := entry/build/default/outputs/default
 BUNDLE_NAME := com.example.orgtasks
 ABILITY_NAME := EntryAbility
 
-.PHONY: all clean install install-only run deploy log log-all deps check-sdk docs-export help
+.PHONY: all build release clean install install-only run deploy log log-all deps check-sdk docs-export help
 
 # 默认目标：编译
 all: build
@@ -49,19 +49,19 @@ check-sdk:
 # 编译 Debug 包
 build: deps check-sdk
 	@echo ">>> 编译 Debug 包..."
-	cd $(CURDIR) && $(HVIGORW) assembleHap --mode module -p product=default -p buildMode=debug -p debuggable=true --no-daemon
+	@"$(NODE_HOME)/bin/node" scripts/build-hap.cjs debug "$(DEVECO_HOME)"
 
 # 编译 Release 包
 release: deps check-sdk
 	@echo ">>> 编译 Release 包..."
-	cd $(CURDIR) && $(HVIGORW) assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+	@"$(NODE_HOME)/bin/node" scripts/build-hap.cjs release "$(DEVECO_HOME)"
 
 # 安装到设备
 install: build
 	@echo ">>> 检查设备连接..."
 	@$(HDC) list targets | grep -q . || { echo "未检测到设备，请连接 USB 并开启调试"; exit 1; }
 	@hap_file="$$(find "$(HAP_DIR)" -maxdepth 1 -type f -name '*-signed.hap' -print -quit)"; \
-		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先在 DevEco Studio 配置 default 调试签名。"; exit 1; }; \
+		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先执行 make build。"; exit 1; }; \
 		echo ">>> 安装应用: $$hap_file"; \
 		$(HDC_DEVICE) install -r "$$hap_file"
 
@@ -70,7 +70,7 @@ install-only:
 	@echo ">>> 检查设备连接..."
 	@$(HDC) list targets | grep -q . || { echo "未检测到设备"; exit 1; }
 	@hap_file="$$(find "$(HAP_DIR)" -maxdepth 1 -type f -name '*-signed.hap' -print -quit)"; \
-		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先在 DevEco Studio 配置 default 调试签名。"; exit 1; }; \
+		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先执行 make build。"; exit 1; }; \
 		echo ">>> 安装应用: $$hap_file"; \
 		$(HDC_DEVICE) install -r "$$hap_file"
 

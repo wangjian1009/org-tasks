@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "signing/OrgTasksDebug.cer",
+          "keyAlias": "orgTasksKey",
+          "keyPassword": "keychain://org-tasks-signing/development",
+          "profile": "signing/OrgTasksDebugProfileDebug.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "signing/org-tasks.p12",
+          "storePassword": "keychain://org-tasks-signing/development"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",

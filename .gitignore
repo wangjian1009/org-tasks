@@ -17,3 +17,15 @@ entry/.cxx/
 target/
 
 /output/
+
+# 本机签名密钥与证书申请材料
+.signing/
+
+# 仓库签名目录保存指定密钥库、证书、CSR 与调试 Profile，密码保存在 Keychain
+signing/*.p12
+!signing/org-tasks.p12
+signing/*.p7b
+!signing/OrgTasksDebugProfileDebug.p7b
+signing/keystore-password.txt
+signing/device-udid.txt
+signing/material/
