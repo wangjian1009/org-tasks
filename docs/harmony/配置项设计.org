@@ -22,7 +22,7 @@
 
 * 配置模型
 
-目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ 。当前单仓库页面只保存根目录与远端配置；首次加载根目录时由 ~OrgRepo.load~ 创建或读取 ~.sync/id~ ，扩展为 ~HarmonyAppConfig~ 前也不得复制该 ID。
+目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ ，并由工作区页面独立添加、配置和删除。首次加载根目录时由 ~OrgRepo.load~ 创建或读取 ~.sync/id~ 。当前版本不读取或迁移旧的单仓库 Preferences 字段。
 
 #+begin_src ts
 interface HarmonyAppConfig {
@@ -33,15 +33,11 @@ interface HarmonyAppConfig {
 }
 
 interface HarmonyOrgRepoConfig {
+  id: string
   rootDirectory: string
-  inboxFile: string
-  remote?: HarmonyWebDavConfig
-}
-
-interface HarmonyWebDavConfig {
-  kind: 'webdav'
-  baseUrl: string
-  username: string
+  webdavEnabled: boolean
+  webdavUrl: string
+  webdavUsername: string
 }
 #+end_src
 
@@ -50,12 +46,12 @@ interface HarmonyWebDavConfig {
 | 全局日历 | ~calendar.name~ | Preferences | 默认 ~Org Tasks~ ；只用于 Harmony CalendarKit。 |
 | 后台调度 | ~scheduler.intervalMinutes~ | Preferences | 默认 15 分钟；仅控制 WorkScheduler 唤醒，不保存同步结果。 |
 | 仓库根目录 | ~rootDirectory~ | Preferences | 非空目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
-| inbox 目标 | ~inboxFile~ | Preferences | 相对 ~rootDirectory~ 的 ~.org~ 路径；是 Harmony 产生写入意图的目标。 |
-| WebDAV 地址 | ~remote.baseUrl~ | Preferences | HTTPS 根目录 URL；由 ~core::webdav::WebDavSyncPolicy~ 使用，不进入核心数据模型。 |
-| WebDAV 用户名 | ~remote.username~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
+| inbox 目标 | ~inboxFile~ | Preferences | 应用级 ~.org~ 路径；任务创建功能接入前不产生写入。 |
+| WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | HTTPS 根目录 URL；由 ~core::webdav::WebDavSyncPolicy~ 使用，不进入核心数据模型。 |
+| WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
 | WebDAV 密码 | 不属于该结构 | Asset Store | 按 ~repoId~ 保存，永不序列化进 Preferences。 |
 
-删除远端配置等同于不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ 。不得用 ~webdavEnabled~ 之类与策略类型重复的布尔开关表示。
+关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ 。
 
 * 凭据与 Workspace 构造
 

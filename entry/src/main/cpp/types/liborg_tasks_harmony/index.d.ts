@@ -1,3 +1,7 @@
+export interface CoreError extends Error {
+  readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge';
+}
+
 export interface RepositoryFile {
   path: string;
   source: string;
@@ -51,13 +55,15 @@ export class WebDavSyncPolicy {
 export class Workspace {
   constructor();
   repos(): Promise<Repo[]>;
-  addRepo(rootDirectory: string): Promise<void>;
-  load(): Promise<void>;
+  addRepo(rootDirectory: string): Promise<Repo>;
+  removeRepo(rootDirectory: string): Promise<void>;
   search(expression: string): Promise<Task[]>;
 }
 
 export class Repo {
   id(): string;
+  rootDirectory(): string;
+  load(): Promise<void>;
   snapshot(): Promise<RepositorySnapshot>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor): Promise<SyncRecord>;
 }

@@ -256,7 +256,7 @@ pub fn release_workspace(handle: u64) {
     }
 }
 
-pub fn workspace_repo_ids(handle: u64) -> Result<Vec<String>, CoreError> {
+pub fn workspace_repo_roots(handle: u64) -> Result<Vec<String>, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let workspace = workspace
         .lock()
@@ -264,17 +264,17 @@ pub fn workspace_repo_ids(handle: u64) -> Result<Vec<String>, CoreError> {
     Ok(workspace
         .repos()
         .iter()
-        .map(|repo| repo.id.clone())
+        .map(|repo| repo.root_directory.clone())
         .collect())
 }
 
-pub fn workspace_load(handle: u64) -> Result<(), CoreError> {
+pub fn workspace_remove_repo(handle: u64, root_directory: String) -> Result<(), CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let mut workspace = workspace
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let runtime = runtime()?;
-    runtime.block_on(workspace.load::<WebDavSyncPolicy>())
+    workspace.remove_repo_by_root_directory(&root_directory)?;
+    Ok(())
 }
 
 pub fn workspace_add_repo(handle: u64, root_directory: String) -> Result<(), CoreError> {
@@ -284,6 +284,30 @@ pub fn workspace_add_repo(handle: u64, root_directory: String) -> Result<(), Cor
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     workspace.add_repo(repository)
+}
+
+pub fn repo_load(handle: u64, root_directory: String) -> Result<(), CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    Ok(())
+}
+
+pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    Ok(repository.id.clone())
 }
 
 pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, CoreError> {
@@ -296,7 +320,7 @@ pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, 
 
 pub fn repo_sync_json(
     workspace_handle: u64,
-    repo_id: String,
+    root_directory: String,
     webdav_url: String,
     username: String,
     password: String,
@@ -316,8 +340,8 @@ pub fn repo_sync_json(
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let repository = workspace
-        .repo_mut(&repo_id)
-        .ok_or(CoreError::InvalidInput("仓库 ID 不属于 workspace"))?;
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let runtime = runtime()?;
     let history = runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
     let record = runtime.block_on(repository.sync(
@@ -336,14 +360,14 @@ pub fn repo_sync_json(
     })
 }
 
-pub fn repo_snapshot_json(handle: u64, repo_id: String) -> Result<String, CoreError> {
+pub fn repo_snapshot_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let workspace = workspace
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let repository = workspace
-        .repo(&repo_id)
-        .ok_or(CoreError::InvalidInput("仓库 ID 不属于 workspace"))?;
+        .repo_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let mut files = Vec::with_capacity(repository.files().len());
     for file in repository.files() {
         files.push(HarmonyBridgeFile {
@@ -405,11 +429,11 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("inbox.org"), "* TODO bridge\n").unwrap();
 
+        let root_directory = root.to_string_lossy().into_owned();
         let handle = create_workspace().unwrap();
-        workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
-        workspace_load(handle).unwrap();
-        let repository_id = workspace_repo_ids(handle).unwrap().pop().unwrap();
-        let response = repo_snapshot_json(handle, repository_id).unwrap();
+        workspace_add_repo(handle, root_directory.clone()).unwrap();
+        repo_load(handle, root_directory.clone()).unwrap();
+        let response = repo_snapshot_json(handle, root_directory).unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["files"][0]["path"], "inbox.org");
         assert_eq!(response["files"][0]["source"], "* TODO bridge\n");

@@ -1,26 +1,25 @@
-// 设置页面
-// 配置 org 目录、inbox 文件、日历名称、同步间隔
-
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { preferences } from '@kit.ArkData'
-import { CredentialService } from '../services/CredentialService'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { CredentialService } from '../services/CredentialService'
 
-const PREF_NAME = 'org_tasks_config'
+interface RepoSettingsParams {
+  repoId?: string
+}
 
 @Entry
 @Component
 struct Settings {
+  @State config: AppConfig = DEFAULT_CONFIG
   @State repoId: string = ''
-  @State orgDir: string = DEFAULT_CONFIG.orgDir
+  @State rootDirectory: string = ''
+  @State webdavEnabled: boolean = false
+  @State webdavUrl: string = ''
+  @State webdavUsername: string = ''
+  @State webdavPassword: string = ''
   @State inboxFile: string = DEFAULT_CONFIG.inboxFile
   @State calendarName: string = DEFAULT_CONFIG.calendarName
   @State syncInterval: string = '15'
-  @State webdavEnabled: boolean = DEFAULT_CONFIG.webdavEnabled
-  @State webdavUrl: string = DEFAULT_CONFIG.webdavUrl
-  @State webdavUsername: string = DEFAULT_CONFIG.webdavUsername
-  @State webdavPassword: string = DEFAULT_CONFIG.webdavPassword
   @State saving: boolean = false
   @State message: string = ''
 
@@ -30,68 +29,82 @@ struct Settings {
 
   async loadConfig() {
     try {
-      const context = getContext(this)
-      const config = await AppConfigService.load(context)
-      this.repoId = config.repoId
-      this.orgDir = config.orgDir
+      const config = await AppConfigService.load(getContext(this))
+      const params = router.getParams() as RepoSettingsParams | undefined
+      const repository = config.repos.find((item: RepoConfig) => item.id === params?.repoId) || AppConfigService.newRepository()
+      this.config = config
+      this.repoId = repository.id
+      this.rootDirectory = repository.rootDirectory
+      this.webdavEnabled = repository.webdavEnabled
+      this.webdavUrl = repository.webdavUrl
+      this.webdavUsername = repository.webdavUsername
+      this.webdavPassword = repository.webdavPassword
       this.inboxFile = config.inboxFile
       this.calendarName = config.calendarName
       this.syncInterval = config.syncInterval.toString()
-      this.webdavEnabled = config.webdavEnabled
-      this.webdavUrl = config.webdavUrl
-      this.webdavUsername = config.webdavUsername
-      this.webdavPassword = config.webdavPassword
     } catch (e) {
-      console.error('加载配置失败:', JSON.stringify(e))
+      this.message = '读取仓库配置失败'
     }
   }
 
   async saveConfig() {
-    this.saving = true
-    this.message = ''
-
-    try {
-      const context = getContext(this)
-      await CredentialService.setWebDavPassword(this.repoId, this.webdavPassword)
-      const store = await preferences.getPreferences(context, PREF_NAME)
-      await store.put('repoId', this.repoId)
-      await store.put('orgDir', this.orgDir.trim())
-      await store.put('inboxFile', this.inboxFile.trim())
-      await store.put('calendarName', this.calendarName.trim())
-      await store.put('syncInterval', parseInt(this.syncInterval) || 15)
-      await store.put('webdavEnabled', this.webdavEnabled)
-      await store.put('webdavUrl', this.webdavUrl.trim())
-      await store.put('webdavUsername', this.webdavUsername.trim())
-      await store.delete('webdavPassword')
-      await store.flush()
-
-      this.message = '设置已保存'
-      setTimeout(() => {
-        router.back()
-      }, 1000)
-    } catch (e) {
-      this.message = '保存失败: ' + JSON.stringify(e)
+    if (!this.rootDirectory.trim()) {
+      this.message = '请输入 Org 文件目录'
+      return
     }
+    this.saving = true
+    try {
+      const repository: RepoConfig = {
+        id: this.repoId,
+        rootDirectory: this.rootDirectory.trim(),
+        webdavEnabled: this.webdavEnabled,
+        webdavUrl: this.webdavUrl.trim(),
+        webdavUsername: this.webdavUsername.trim(),
+        webdavPassword: this.webdavPassword
+      }
+      const repositories = this.config.repos.filter((item: RepoConfig) => item.id !== repository.id)
+      repositories.push(repository)
+      await AppConfigService.save(getContext(this), {
+        repos: repositories,
+        inboxFile: this.inboxFile,
+        calendarName: this.calendarName,
+        syncInterval: parseInt(this.syncInterval) || 15
+      })
+      this.message = '仓库配置已保存'
+      setTimeout(() => router.back(), 500)
+    } catch (e) {
+      this.message = '保存失败'
+    } finally {
+      this.saving = false
+    }
+  }
 
-    this.saving = false
+  async deleteRepository() {
+    if (!this.config.repos.some((item: RepoConfig) => item.id === this.repoId)) return
+    this.saving = true
+    try {
+      await CredentialService.clearWebDavPassword(this.repoId)
+      await AppConfigService.save(getContext(this), {
+        repos: this.config.repos.filter((item: RepoConfig) => item.id !== this.repoId),
+        inboxFile: this.inboxFile,
+        calendarName: this.calendarName,
+        syncInterval: parseInt(this.syncInterval) || 15
+      })
+      router.back()
+    } catch (e) {
+      this.message = '删除仓库失败'
+    } finally {
+      this.saving = false
+    }
   }
 
   build() {
     Column() {
       Row() {
-        Button('返回')
-          .fontSize(14)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#34423B')
-          .onClick(() => router.back())
+        Button('返回').fontSize(14).backgroundColor('#FFFFFF').fontColor('#34423B').onClick(() => router.back())
         Column() {
-          Text('设置')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-          Text('仓库、日历和后台同步')
-            .fontSize(12)
-            .fontColor('#65746B')
-            .margin({ top: 2 })
+          Text('仓库配置').fontSize(22).fontWeight(FontWeight.Medium)
+          Text('目录与 WebDAV 远端').fontSize(12).fontColor('#65746B')
         }
         .margin({ left: 12 })
       }
@@ -100,147 +113,60 @@ struct Settings {
 
       Scroll() {
         Column() {
+          Text('Org 文件目录').fontSize(14).fontColor('#4E5A53')
+          TextInput({ placeholder: '本地 org 文件目录路径', text: this.rootDirectory })
+            .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+            .onChange((value: string) => this.rootDirectory = value)
           Row() {
-            Text('使用 WebDAV 同步')
-              .fontSize(14)
-              .fontColor('#666')
+            Text('使用 WebDAV 远端').fontSize(14).fontColor('#4E5A53')
             Blank()
             Toggle({ type: ToggleType.Switch, isOn: this.webdavEnabled })
-              .onChange((enabled: boolean) => { this.webdavEnabled = enabled })
+              .onChange((enabled: boolean) => this.webdavEnabled = enabled)
           }
           .width('100%')
-
+          .margin({ top: 20 })
           if (this.webdavEnabled) {
-            Text('WebDAV 目录地址')
-              .fontSize(14)
-              .fontColor('#666')
-              .margin({ top: 16 })
+            Text('WebDAV 目录地址').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
             TextInput({ placeholder: 'https://dav.example.com/org-tasks/', text: this.webdavUrl })
-              .onChange((value: string) => { this.webdavUrl = value })
-              .margin({ top: 8 })
-              .height(44)
-            Text('填写包含 .org 文件的远端目录地址')
-              .fontSize(12)
-              .fontColor('#999')
-              .margin({ top: 4 })
-
-            Text('用户名')
-              .fontSize(14)
-              .fontColor('#666')
-              .margin({ top: 16 })
+              .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+              .onChange((value: string) => this.webdavUrl = value)
+            Text('用户名').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
             TextInput({ placeholder: 'WebDAV 用户名', text: this.webdavUsername })
-              .onChange((value: string) => { this.webdavUsername = value })
-              .margin({ top: 8 })
-              .height(44)
-
-            Text('密码或应用专用密码')
-              .fontSize(14)
-              .fontColor('#666')
-              .margin({ top: 16 })
+              .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+              .onChange((value: string) => this.webdavUsername = value)
+            Text('密码或应用专用密码').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
             TextInput({ placeholder: 'WebDAV 密码', text: this.webdavPassword })
-              .type(InputType.Password)
-              .onChange((value: string) => { this.webdavPassword = value })
-              .margin({ top: 8 })
-              .height(44)
-
-          } else {
-            Text('Org 文件目录')
-              .fontSize(14)
-              .fontColor('#666')
-              .margin({ top: 16 })
-            TextInput({ placeholder: '本地 org 文件目录路径', text: this.orgDir })
-              .onChange((value: string) => { this.orgDir = value })
-              .margin({ top: 8 })
-              .height(44)
-            Text('应用会直接读取此目录中的 org 文件')
-              .fontSize(12)
-              .fontColor('#999')
-              .margin({ top: 4 })
+              .type(InputType.Password).height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+              .onChange((value: string) => this.webdavPassword = value)
           }
-
-          // Inbox 文件
-          Text('新增任务文件')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
+          Text('新增任务文件').fontSize(14).fontColor('#4E5A53').margin({ top: 24 })
           TextInput({ placeholder: 'inbox.org', text: this.inboxFile })
-            .onChange((value: string) => { this.inboxFile = value })
-            .margin({ top: 8 })
-            .height(44)
-          Text('新增的任务会追加到此文件（相对于 Org 目录）')
-            .fontSize(12)
-            .fontColor('#999')
-            .margin({ top: 4 })
-
-          // 日历名称
-          Text('日历名称')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
+            .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+            .onChange((value: string) => this.inboxFile = value)
+          Text('日历名称').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
           TextInput({ placeholder: 'Org Tasks', text: this.calendarName })
-            .onChange((value: string) => { this.calendarName = value })
-            .margin({ top: 8 })
-            .height(44)
-          Text('系统日历中显示的日历名称')
-            .fontSize(12)
-            .fontColor('#999')
-            .margin({ top: 4 })
-
-          // 同步间隔
-          Text('自动同步间隔（分钟）')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
+            .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+            .onChange((value: string) => this.calendarName = value)
+          Text('自动同步间隔（分钟）').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
           TextInput({ placeholder: '15', text: this.syncInterval })
-            .type(InputType.Number)
-            .onChange((value: string) => { this.syncInterval = value })
-            .margin({ top: 8 })
-            .height(44)
-          Text('后台自动同步的间隔时间，建议 10-30 分钟')
-            .fontSize(12)
-            .fontColor('#999')
-            .margin({ top: 4 })
-
-          // 重置按钮
-          Button('恢复默认')
-            .type(ButtonType.Normal)
-            .fontSize(14)
-            .fontColor('#FF5722')
-            .margin({ top: 24 })
-            .onClick(() => {
-              this.orgDir = DEFAULT_CONFIG.orgDir
-              this.inboxFile = DEFAULT_CONFIG.inboxFile
-              this.calendarName = DEFAULT_CONFIG.calendarName
-              this.syncInterval = DEFAULT_CONFIG.syncInterval.toString()
-              this.webdavEnabled = DEFAULT_CONFIG.webdavEnabled
-              this.webdavUrl = DEFAULT_CONFIG.webdavUrl
-              this.webdavUsername = DEFAULT_CONFIG.webdavUsername
-              this.webdavPassword = DEFAULT_CONFIG.webdavPassword
-            })
+            .type(InputType.Number).height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
+            .onChange((value: string) => this.syncInterval = value)
+          if (this.config.repos.some((item: RepoConfig) => item.id === this.repoId)) {
+            Button('删除仓库').width('100%').height(44).fontColor('#B3261E').backgroundColor('#FFFFFF')
+              .margin({ top: 28 }).onClick(() => this.deleteRepository())
+          }
         }
         .width('100%')
-        .padding({ left: 20, right: 20 })
+        .padding({ left: 20, right: 20, bottom: 20 })
       }
       .layoutWeight(1)
-
-      // 消息
       if (this.message) {
-        Text(this.message)
-          .fontSize(14)
-        .fontColor(this.message.includes('失败') ? '#B3261E' : '#357A55')
-          .width('100%')
-          .padding({ left: 20, right: 20, bottom: 8 })
+        Text(this.message).fontSize(13).fontColor(this.message.includes('失败') ? '#B3261E' : '#357A55')
+          .width('100%').padding({ left: 20, right: 20, bottom: 8 })
       }
-
-      // 保存按钮
-      Button(this.saving ? '保存中...' : '保存设置')
-        .width('80%')
-        .height(48)
-        .fontSize(18)
-        .backgroundColor('#175C43')
-        .enabled(!this.saving)
-        .margin({ bottom: 40 })
-        .onClick(() => this.saveConfig())
+      Button(this.saving ? '保存中...' : '保存仓库')
+        .width('80%').height(48).backgroundColor('#175C43').enabled(!this.saving)
+        .margin({ bottom: 28 }).onClick(() => this.saveConfig())
     }
     .width('100%')
     .height('100%')

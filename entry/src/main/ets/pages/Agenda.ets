@@ -1,7 +1,7 @@
 import { router } from '@kit.ArkUI'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreTask, NativeCoreService } from '../services/NativeCoreService'
+import { coreErrorMessage, CoreBridgeError, CoreTask, NativeCoreService } from '../services/NativeCoreService'
 
 interface TaskRouteParams {
   task: CoreTask
@@ -28,11 +28,11 @@ struct Agenda {
         : this.filter === '截止'
           ? 'd.ge.-100y'
           : 's.ge.-100y or d.ge.-100y'
-      const response = await NativeCoreService.searchWorkspace(this.config.orgDir, expression)
+      const response = await NativeCoreService.searchWorkspace(this.config.repos, expression)
       this.tasks = response.tasks
       this.message = ''
     } catch (e) {
-      this.message = `读取日程失败: ${JSON.stringify(e)}`
+      this.message = `读取日程失败: ${coreErrorMessage(e as CoreBridgeError)}`
     }
   }
 
@@ -54,30 +54,42 @@ struct Agenda {
   build() {
     Column() {
       Row() {
-        Button('工作区')
-          .fontSize(14)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#34423B')
+        Button('☰')
+          .width(48)
+          .height(48)
+          .fontSize(26)
+          .backgroundColor('#00000000')
+          .fontColor('#26332D')
           .onClick(() => router.pushUrl({ url: 'pages/Workspace' }))
         Column() {
           Text('日程')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-          Text(`${this.tasks.length} 个有日期的任务`)
+            .fontSize(22)
+            .fontWeight(FontWeight.Medium)
+          Text(this.filter === '全部' ? '计划与截止任务' : `${this.filter}任务`)
             .fontSize(12)
-            .fontColor('#65746B')
-            .margin({ top: 2 })
+            .fontColor('#68726D')
+            .margin({ top: 1 })
         }
-        .margin({ left: 12 })
+        .margin({ left: 4 })
         .layoutWeight(1)
-        Button('刷新')
-          .fontSize(14)
-          .backgroundColor('#E6F1EC')
+        Button('⌕')
+          .width(44)
+          .height(48)
+          .fontSize(25)
+          .backgroundColor('#00000000')
+          .fontColor('#26332D')
+          .onClick(() => router.pushUrl({ url: 'pages/Search' }))
+        Button('↻')
+          .width(44)
+          .height(48)
+          .fontSize(24)
+          .backgroundColor('#00000000')
           .fontColor('#175C43')
           .onClick(() => this.loadTasks())
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 18, bottom: 14 })
+      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+      .border({ width: { bottom: 1 }, color: '#D8DCD9' })
 
       Row() {
         ForEach(['全部', '计划', '截止'], (item: string) => {
@@ -94,14 +106,15 @@ struct Agenda {
         })
       }
       .width('100%')
-      .padding({ left: 20, right: 20, bottom: 12 })
+      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+      .border({ width: { bottom: 1 }, color: '#E1E4E1' })
 
       if (this.message) {
         Text(this.message)
           .fontSize(13)
           .fontColor('#8A3D24')
           .width('100%')
-          .padding({ left: 20, right: 20, bottom: 12 })
+          .padding({ left: 20, right: 20, top: 12, bottom: 12 })
       }
 
       if (this.visibleTasks().length === 0 && !this.message) {
@@ -120,19 +133,18 @@ struct Agenda {
         List({ space: 1 }) {
           ForEach(this.visibleTasks(), (task: CoreTask) => {
             ListItem() {
-              Row() {
-                Text(task.todoState === 'DONE' ? '完成' : '待办')
-                  .fontSize(11)
-                  .fontColor(task.todoState === 'DONE' ? '#357A55' : '#1F5E8C')
-                  .backgroundColor(task.todoState === 'DONE' ? '#E6F1EC' : '#E6F0F8')
-                  .padding({ left: 7, right: 7, top: 3, bottom: 3 })
+              Row({ space: 12 }) {
+                Column()
+                  .width(3)
+                  .height(54)
+                  .backgroundColor(task.deadline.length > 0 ? '#B75A3A' : '#1F6B54')
                 Column() {
                   Text(task.heading)
                     .fontSize(16)
                     .fontWeight(FontWeight.Medium)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(this.taskDate(task))
+                  Text(`${task.todoState || '任务'} · ${this.taskDate(task)}`)
                     .fontSize(12)
                     .fontColor('#65746B')
                     .margin({ top: 5 })
@@ -142,11 +154,11 @@ struct Agenda {
                     .margin({ top: 3 })
                 }
                 .layoutWeight(1)
-                .margin({ left: 10 })
               }
               .width('100%')
-              .padding({ left: 20, right: 20, top: 14, bottom: 14 })
+              .padding({ left: 16, right: 16, top: 13, bottom: 13 })
               .backgroundColor('#FFFFFF')
+              .border({ width: { bottom: 1 }, color: '#E0E2E0' })
               .onClick(() => this.openTask(task))
             }
         }, (task: CoreTask) => task.id)
@@ -157,6 +169,6 @@ struct Agenda {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F7F8F7')
+    .backgroundColor('#F8F9F8')
   }
 }

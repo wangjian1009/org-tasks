@@ -12,11 +12,9 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
     console.info('后台同步任务开始')
     try {
       const config = await AppConfigService.load(this.context)
-      const workspace = config.webdavEnabled
-        ? await NativeCoreService.syncWorkspaceWebDav(
-            config.orgDir, config.webdavUrl, config.webdavUsername, config.webdavPassword
-          )
-        : await NativeCoreService.loadWorkspace(config.orgDir)
+      const workspace = config.repos.some((repository) => repository.webdavEnabled)
+        ? await NativeCoreService.syncWorkspaceWebDav(config.repos)
+        : await NativeCoreService.loadWorkspace(config.repos)
       console.info(`core workspace 提供 ${workspace.tasks.length} 个任务`)
 
       // 同步到日历

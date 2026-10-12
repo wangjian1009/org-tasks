@@ -32,7 +32,7 @@ struct Index {
       this.config = await AppConfigService.load(context)
       this.calendarSync = new CalendarSync(context, this.config.calendarName)
 
-      const workspace = await NativeCoreService.loadWorkspace(this.config.orgDir)
+      const workspace = await NativeCoreService.loadWorkspace(this.config.repos)
       this.taskCount = workspace.tasks.length
 
       if (lastSyncTime > 0) {
@@ -56,16 +56,11 @@ struct Index {
         return
       }
 
-      this.syncMessage = this.config.webdavEnabled ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载仓库...'
-      const workspace = this.config.webdavEnabled
-        ? await NativeCoreService.syncWorkspaceWebDav(
-            this.config.orgDir,
-            this.config.webdavUrl,
-            this.config.webdavUsername,
-            this.config.webdavPassword,
-            (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event)
-          )
-        : await NativeCoreService.loadWorkspace(this.config.orgDir)
+      const hasWebDav = this.config.repos.some((repository) => repository.webdavEnabled)
+      this.syncMessage = hasWebDav ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载仓库...'
+      const workspace = hasWebDav
+        ? await NativeCoreService.syncWorkspaceWebDav(this.config.repos, (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event))
+        : await NativeCoreService.loadWorkspace(this.config.repos)
       this.taskCount = workspace.tasks.length
 
       // 初始化日历
@@ -182,7 +177,7 @@ struct Index {
               .fontSize(22)
               .fontWeight(FontWeight.Medium)
               .margin({ top: 6 })
-            Text(this.config.webdavEnabled ? 'WebDAV 缓存将写入系统日历' : '本地 org 目录将写入系统日历')
+            Text(this.config.repos.some((repository) => repository.webdavEnabled) ? 'WebDAV 缓存将写入系统日历' : '本地仓库将写入系统日历')
               .fontSize(13)
               .fontColor('#65746B')
               .margin({ top: 8 })

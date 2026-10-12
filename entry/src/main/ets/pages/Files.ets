@@ -41,7 +41,7 @@ struct Files {
   }
 
   async loadWorkspace() {
-    const response = await NativeCoreService.loadWorkspace(this.config.orgDir)
+    const response = await NativeCoreService.loadWorkspace(this.config.repos)
     const rows: FileRow[] = []
     for (const repo of response.workspace.repos) {
       for (const file of repo.files) {
@@ -63,15 +63,10 @@ struct Files {
     if (this.refreshing) return
     this.refreshing = true
     try {
-      this.message = this.config.webdavEnabled ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载 workspace...'
-      if (this.config.webdavEnabled) {
-        await NativeCoreService.syncWorkspaceWebDav(
-          this.config.orgDir,
-          this.config.webdavUrl,
-          this.config.webdavUsername,
-          this.config.webdavPassword,
-          (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event)
-        )
+      const hasWebDav = this.config.repos.some((repository) => repository.webdavEnabled)
+      this.message = hasWebDav ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载 workspace...'
+      if (hasWebDav) {
+        await NativeCoreService.syncWorkspaceWebDav(this.config.repos, (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event))
       }
       await this.loadWorkspace()
     } catch (e) {

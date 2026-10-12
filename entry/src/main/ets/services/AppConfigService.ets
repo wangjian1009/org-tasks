@@ -2,41 +2,78 @@
 
 import { Context } from '@kit.AbilityKit'
 import { preferences } from '@kit.ArkData'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { CredentialService } from './CredentialService'
 
 export const APP_CONFIG_PREFERENCES = 'org_tasks_config'
-const REPO_ID_KEY = 'repoId'
+const REPOS_KEY = 'repos'
 
 export class AppConfigService {
   static async load(context: Context): Promise<AppConfig> {
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
-    let repoId = await store.get(REPO_ID_KEY, '') as string
-    if (!repoId.trim()) {
-      repoId = createRepoId()
-      await store.put(REPO_ID_KEY, repoId)
-      await store.flush()
-    }
-
-    const orgDir = await store.get('orgDir', DEFAULT_CONFIG.orgDir) as string
+    const repos = await AppConfigService.loadRepositories(store)
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
-    const webdavEnabled = await store.get('webdavEnabled', DEFAULT_CONFIG.webdavEnabled) as boolean
-    const webdavUrl = await store.get('webdavUrl', DEFAULT_CONFIG.webdavUrl) as string
-    const webdavUsername = await store.get('webdavUsername', DEFAULT_CONFIG.webdavUsername) as string
-    const webdavPassword = await CredentialService.getWebDavPassword(repoId)
     return {
-      repoId,
-      orgDir,
+      repos,
       inboxFile,
       calendarName,
-      syncInterval,
-      webdavEnabled,
-      webdavUrl,
-      webdavUsername,
-      webdavPassword
+      syncInterval
     }
+  }
+
+  static async save(context: Context, config: AppConfig): Promise<void> {
+    const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
+    const persisted: RepoConfig[] = []
+    for (const repository of config.repos) {
+      await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)
+      persisted.push({
+        id: repository.id,
+        rootDirectory: repository.rootDirectory.trim(),
+        webdavEnabled: repository.webdavEnabled,
+        webdavUrl: repository.webdavUrl.trim(),
+        webdavUsername: repository.webdavUsername.trim(),
+        webdavPassword: ''
+      })
+    }
+    await store.put(REPOS_KEY, JSON.stringify(persisted))
+    await store.put('inboxFile', config.inboxFile.trim())
+    await store.put('calendarName', config.calendarName.trim())
+    await store.put('syncInterval', config.syncInterval)
+    await store.flush()
+  }
+
+  static newRepository(rootDirectory: string = ''): RepoConfig {
+    return {
+      id: createRepoId(),
+      rootDirectory,
+      webdavEnabled: false,
+      webdavUrl: '',
+      webdavUsername: '',
+      webdavPassword: ''
+    }
+  }
+
+  private static async loadRepositories(store: preferences.Preferences): Promise<RepoConfig[]> {
+    const encoded = await store.get(REPOS_KEY, '') as string
+    if (encoded.length > 0) {
+      const persisted = JSON.parse(encoded) as RepoConfig[]
+      const repositories: RepoConfig[] = []
+      for (const repository of persisted) {
+        repositories.push({
+          id: repository.id,
+          rootDirectory: repository.rootDirectory,
+          webdavEnabled: repository.webdavEnabled,
+          webdavUrl: repository.webdavUrl,
+          webdavUsername: repository.webdavUsername,
+          webdavPassword: await CredentialService.getWebDavPassword(repository.id)
+        })
+      }
+      return repositories
+    }
+
+    return []
   }
 }
 

@@ -6,12 +6,15 @@
 #include "napi/native_api.h"
 
 extern "C" void org_tasks_harmony_free_string(char* value);
+extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
-extern "C" char* org_tasks_harmony_workspace_repo_ids(uint64_t handle);
-extern "C" int32_t org_tasks_harmony_workspace_load(uint64_t handle);
+extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
+extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
+extern "C" int32_t org_tasks_harmony_repo_load(uint64_t workspace_handle, const char* root_directory);
+extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
     const char* webdav_url, const char* username, const char* password, uint64_t monitor_handle,
@@ -25,7 +28,7 @@ struct WorkspaceWrap {
 
 struct RepoWrap {
     uint64_t workspace_handle = 0;
-    std::string id;
+    std::string root_directory;
 };
 
 struct WebDavSyncPolicyWrap {
@@ -38,13 +41,7 @@ struct WorkspaceStringWork {
     uint64_t handle = 0;
     std::string expression;
     std::string response;
-    napi_deferred deferred = nullptr;
-    napi_async_work work = nullptr;
-};
-
-struct WorkspaceLoadWork {
-    uint64_t handle = 0;
-    int32_t result = -1;
+    std::string error;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -53,26 +50,30 @@ struct WorkspaceAddRepoWork {
     uint64_t handle = 0;
     std::string root_directory;
     int32_t result = -1;
+    std::string error;
+    enum class Operation { Add, Remove } operation = Operation::Add;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
 
 struct WorkspaceReposWork {
     uint64_t handle = 0;
-    std::vector<std::string> ids;
+    std::vector<std::string> roots;
+    std::string error;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
 
 struct RepoSnapshotWork {
     uint64_t workspace_handle = 0;
-    std::string id;
+    std::string root_directory;
     std::string webdav_url;
     std::string username;
     std::string password;
     napi_threadsafe_function monitor = nullptr;
     std::string response;
-    enum class Operation { Snapshot, Sync } operation = Operation::Snapshot;
+    std::string error;
+    enum class Operation { Snapshot, Sync, Load } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -132,7 +133,7 @@ void FinalizeWebDavSyncPolicy(napi_env, void* data, void*)
     delete policy;
 }
 
-napi_value CreateRepoObject(napi_env env, uint64_t workspace_handle, const std::string& id)
+napi_value CreateRepoObject(napi_env env, uint64_t workspace_handle, const std::string& root_directory)
 {
     napi_value constructor;
     if (napi_get_reference_value(env, repo_constructor, &constructor) != napi_ok) {
@@ -140,7 +141,7 @@ napi_value CreateRepoObject(napi_env env, uint64_t workspace_handle, const std::
     }
     napi_value arguments[2];
     napi_create_double(env, static_cast<double>(workspace_handle), &arguments[0]);
-    napi_create_string_utf8(env, id.c_str(), id.size(), &arguments[1]);
+    napi_create_string_utf8(env, root_directory.c_str(), root_directory.size(), &arguments[1]);
     napi_value object;
     if (napi_new_instance(env, constructor, 2, arguments, &object) != napi_ok) {
         return nullptr;
@@ -158,6 +159,11 @@ std::string TakeRustString(char* value)
     return result;
 }
 
+std::string TakeRustError()
+{
+    return TakeRustString(org_tasks_harmony_last_error());
+}
+
 bool ParseJson(napi_env env, const std::string& source, napi_value* result)
 {
     napi_value input;
@@ -169,6 +175,30 @@ bool ParseJson(napi_env env, const std::string& source, napi_value* result)
         napi_get_named_property(env, global, "JSON", &json) == napi_ok &&
         napi_get_named_property(env, json, "parse", &parse) == napi_ok &&
         napi_call_function(env, json, parse, 1, &input, result) == napi_ok;
+}
+
+void RejectCoreError(napi_env env, napi_deferred deferred, const std::string& source, const char* fallback)
+{
+    std::string message = fallback;
+    std::string code = "bridge";
+    napi_value payload;
+    if (!source.empty() && ParseJson(env, source, &payload)) {
+        napi_value value;
+        if (napi_get_named_property(env, payload, "message", &value) == napi_ok) {
+            ReadString(env, value, &message);
+        }
+        if (napi_get_named_property(env, payload, "code", &value) == napi_ok) {
+            ReadString(env, value, &code);
+        }
+    }
+    napi_value text;
+    napi_create_string_utf8(env, message.c_str(), message.size(), &text);
+    napi_value error;
+    napi_create_error(env, nullptr, text, &error);
+    napi_value code_value;
+    napi_create_string_utf8(env, code.c_str(), code.size(), &code_value);
+    napi_set_named_property(env, error, "code", code_value);
+    napi_reject_deferred(env, deferred, error);
 }
 
 void CallWebDavSyncMonitor(napi_env env, napi_value callback, void*, void* data)
@@ -202,17 +232,14 @@ void ExecuteWorkspaceString(napi_env, void* data)
     auto* work = static_cast<WorkspaceStringWork*>(data);
     work->response = TakeRustString(org_tasks_harmony_workspace_search(
         work->handle, work->expression.c_str()));
+    if (work->response.empty()) work->error = TakeRustError();
 }
 
 void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
     if (status != napi_ok || work->response.empty()) {
-        napi_value text;
-        napi_create_string_utf8(env, "core workspace 操作失败", NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, work->deferred, error);
+        RejectCoreError(env, work->deferred, work->error, "core workspace 操作失败");
     } else {
         napi_value result;
         if (!ParseJson(env, work->response, &result)) {
@@ -229,49 +256,41 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
     delete work;
 }
 
-void ExecuteWorkspaceLoad(napi_env, void* data)
-{
-    auto* work = static_cast<WorkspaceLoadWork*>(data);
-    work->result = org_tasks_harmony_workspace_load(work->handle);
-}
-
-void CompleteWorkspaceLoad(napi_env env, napi_status status, void* data)
-{
-    auto* work = static_cast<WorkspaceLoadWork*>(data);
-    if (status != napi_ok || work->result != 0) {
-        napi_value text;
-        napi_create_string_utf8(env, "Workspace.load 失败", NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, work->deferred, error);
-    } else {
-        napi_value value;
-        napi_get_undefined(env, &value);
-        napi_resolve_deferred(env, work->deferred, value);
-    }
-    napi_delete_async_work(env, work->work);
-    delete work;
-}
-
 void ExecuteWorkspaceAddRepo(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceAddRepoWork*>(data);
-    work->result = org_tasks_harmony_workspace_add_repo(work->handle, work->root_directory.c_str());
+    work->result = work->operation == WorkspaceAddRepoWork::Operation::Add
+        ? org_tasks_harmony_workspace_add_repo(work->handle, work->root_directory.c_str())
+        : org_tasks_harmony_workspace_remove_repo(work->handle, work->root_directory.c_str());
+    if (work->result != 0) work->error = TakeRustError();
 }
 
 void CompleteWorkspaceAddRepo(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<WorkspaceAddRepoWork*>(data);
     if (status != napi_ok || work->result != 0) {
-        napi_value text;
-        napi_create_string_utf8(env, "Workspace.addRepo 失败", NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, work->deferred, error);
+        RejectCoreError(env, work->deferred, work->error,
+            work->operation == WorkspaceAddRepoWork::Operation::Add ? "Workspace.addRepo 失败" : "Workspace.removeRepo 失败");
     } else {
-        napi_value value;
-        napi_get_undefined(env, &value);
-        napi_resolve_deferred(env, work->deferred, value);
+        if (work->operation == WorkspaceAddRepoWork::Operation::Remove) {
+            napi_value value;
+            napi_get_undefined(env, &value);
+            napi_resolve_deferred(env, work->deferred, value);
+        } else if (!org_tasks_harmony_workspace_retain(work->handle)) {
+            RejectCoreError(env, work->deferred, TakeRustError(), "无法创建 Repo 对象");
+        } else {
+            napi_value repo = CreateRepoObject(env, work->handle, work->root_directory);
+            if (repo == nullptr) {
+                org_tasks_harmony_workspace_release(work->handle);
+                napi_value text;
+                napi_create_string_utf8(env, "无法创建 Repo 对象", NAPI_AUTO_LENGTH, &text);
+                napi_value error;
+                napi_create_error(env, nullptr, text, &error);
+                napi_reject_deferred(env, work->deferred, error);
+            } else {
+                napi_resolve_deferred(env, work->deferred, repo);
+            }
+        }
     }
     napi_delete_async_work(env, work->work);
     delete work;
@@ -280,13 +299,13 @@ void CompleteWorkspaceAddRepo(napi_env env, napi_status status, void* data)
 void ExecuteWorkspaceRepos(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceReposWork*>(data);
-    std::string ids = TakeRustString(org_tasks_harmony_workspace_repo_ids(work->handle));
+    std::string roots = TakeRustString(org_tasks_harmony_workspace_repo_roots(work->handle));
     size_t start = 0;
-    while (start < ids.size()) {
-        const size_t end = ids.find('\n', start);
-        const size_t length = (end == std::string::npos ? ids.size() : end) - start;
+    while (start < roots.size()) {
+        const size_t end = roots.find('\n', start);
+        const size_t length = (end == std::string::npos ? roots.size() : end) - start;
         if (length > 0) {
-            work->ids.push_back(ids.substr(start, length));
+            work->roots.push_back(roots.substr(start, length));
         }
         if (end == std::string::npos) break;
         start = end + 1;
@@ -296,20 +315,16 @@ void ExecuteWorkspaceRepos(napi_env, void* data)
 void CompleteWorkspaceRepos(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<WorkspaceReposWork*>(data);
-    if (status != napi_ok) {
-        napi_value text;
-        napi_create_string_utf8(env, "读取 workspace 仓库失败", NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, work->deferred, error);
+    if (status != napi_ok || !work->error.empty()) {
+        RejectCoreError(env, work->deferred, work->error, "读取 workspace 仓库失败");
     } else {
         napi_value result;
-        napi_create_array_with_length(env, work->ids.size(), &result);
-        for (size_t index = 0; index < work->ids.size(); ++index) {
+        napi_create_array_with_length(env, work->roots.size(), &result);
+        for (size_t index = 0; index < work->roots.size(); ++index) {
             if (!org_tasks_harmony_workspace_retain(work->handle)) {
                 continue;
             }
-            napi_value repo = CreateRepoObject(env, work->handle, work->ids[index]);
+            napi_value repo = CreateRepoObject(env, work->handle, work->roots[index]);
             if (repo == nullptr) {
                 org_tasks_harmony_workspace_release(work->handle);
                 continue;
@@ -328,32 +343,37 @@ void ExecuteRepoSnapshot(napi_env, void* data)
     switch (work->operation) {
         case RepoSnapshotWork::Operation::Snapshot:
             work->response = TakeRustString(org_tasks_harmony_repo_snapshot(
-                work->workspace_handle, work->id.c_str()));
+                work->workspace_handle, work->root_directory.c_str()));
             break;
         case RepoSnapshotWork::Operation::Sync:
             work->response = TakeRustString(org_tasks_harmony_repo_sync(work->workspace_handle,
-                work->id.c_str(), work->webdav_url.c_str(), work->username.c_str(), work->password.c_str(),
+                work->root_directory.c_str(), work->webdav_url.c_str(), work->username.c_str(), work->password.c_str(),
                 work->monitor == nullptr ? 0 : reinterpret_cast<uintptr_t>(work), static_cast<int64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count())));
             break;
+        case RepoSnapshotWork::Operation::Load:
+            if (org_tasks_harmony_repo_load(work->workspace_handle, work->root_directory.c_str()) == 0) {
+                work->response = "{}";
+            }
+            break;
     }
+    if (work->response.empty()) work->error = TakeRustError();
 }
 
 void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
     if (status != napi_ok || work->response.empty()) {
-        napi_value text;
-        napi_create_string_utf8(env,
-            work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" : "Repo 同步失败",
-            NAPI_AUTO_LENGTH, &text);
-        napi_value error;
-        napi_create_error(env, nullptr, text, &error);
-        napi_reject_deferred(env, work->deferred, error);
+        RejectCoreError(env, work->deferred, work->error,
+            work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
+            work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" : "Repo.load 失败");
     } else {
         napi_value result;
-        if (!ParseJson(env, work->response, &result)) {
+        if (work->operation == RepoSnapshotWork::Operation::Load) {
+            napi_get_undefined(env, &result);
+            napi_resolve_deferred(env, work->deferred, result);
+        } else if (!ParseJson(env, work->response, &result)) {
             napi_value text;
             napi_create_string_utf8(env, "Repo 响应格式无效", NAPI_AUTO_LENGTH, &text);
             napi_value error;
@@ -401,7 +421,7 @@ napi_value RepoConstructor(napi_env env, napi_callback_info info)
         return nullptr;
     }
     auto* repo = new RepoWrap();
-    if (!ReadHandle(env, args[0], &repo->workspace_handle) || !ReadString(env, args[1], &repo->id) ||
+    if (!ReadHandle(env, args[0], &repo->workspace_handle) || !ReadString(env, args[1], &repo->root_directory) ||
         napi_wrap(env, self, repo, FinalizeRepo, nullptr, nullptr) != napi_ok) {
         delete repo;
         napi_throw_error(env, nullptr, "Repo handle 无效");
@@ -508,31 +528,6 @@ napi_value WorkspaceSearch(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSearch");
 }
 
-napi_value WorkspaceLoad(napi_env env, napi_callback_info info)
-{
-    WorkspaceWrap* workspace = nullptr;
-    napi_value self;
-    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
-    auto* work = new WorkspaceLoadWork();
-    work->handle = workspace->handle;
-    napi_value promise;
-    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "无法创建 Workspace.load Promise");
-        return nullptr;
-    }
-    napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksWorkspaceLoad", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
-        napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceLoad, CompleteWorkspaceLoad, work, &work->work) != napi_ok ||
-        napi_queue_async_work(env, work->work) != napi_ok) {
-        if (work->work != nullptr) napi_delete_async_work(env, work->work);
-        delete work;
-        napi_throw_error(env, nullptr, "无法调度 Workspace.load 请求");
-        return nullptr;
-    }
-    return promise;
-}
-
 napi_value WorkspaceAddRepo(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
@@ -569,6 +564,43 @@ napi_value WorkspaceAddRepo(napi_env env, napi_callback_info info)
     return promise;
 }
 
+napi_value WorkspaceRemoveRepo(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace->handle == 0) {
+        napi_throw_error(env, nullptr, "Workspace.removeRepo 参数无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceAddRepoWork();
+    if (!ReadString(env, args[0], &work->root_directory)) {
+        delete work;
+        napi_throw_error(env, nullptr, "Workspace.removeRepo 路径无效");
+        return nullptr;
+    }
+    work->handle = workspace->handle;
+    work->operation = WorkspaceAddRepoWork::Operation::Remove;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Workspace.removeRepo Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksWorkspaceRemoveRepo", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceAddRepo, CompleteWorkspaceAddRepo, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Workspace.removeRepo 请求");
+        return nullptr;
+    }
+    return promise;
+}
+
 napi_value WorkspaceRepos(napi_env env, napi_callback_info info)
 {
     WorkspaceWrap* workspace = nullptr;
@@ -599,9 +631,21 @@ napi_value RepoId(napi_env env, napi_callback_info info)
     RepoWrap* repo = nullptr;
     napi_value self;
     if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
-    napi_value id;
-    napi_create_string_utf8(env, repo->id.c_str(), repo->id.size(), &id);
-    return id;
+    std::string id = TakeRustString(org_tasks_harmony_repo_id(
+        repo->workspace_handle, repo->root_directory.c_str()));
+    napi_value value;
+    napi_create_string_utf8(env, id.c_str(), id.size(), &value);
+    return value;
+}
+
+napi_value RepoRootDirectory(napi_env env, napi_callback_info info)
+{
+    RepoWrap* repo = nullptr;
+    napi_value self;
+    if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
+    napi_value value;
+    napi_create_string_utf8(env, repo->root_directory.c_str(), repo->root_directory.size(), &value);
+    return value;
 }
 
 napi_value RepoSnapshot(napi_env env, napi_callback_info info)
@@ -611,7 +655,7 @@ napi_value RepoSnapshot(napi_env env, napi_callback_info info)
     if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
     auto* work = new RepoSnapshotWork();
     work->workspace_handle = repo->workspace_handle;
-    work->id = repo->id;
+    work->root_directory = repo->root_directory;
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
         delete work;
@@ -625,6 +669,33 @@ napi_value RepoSnapshot(napi_env env, napi_callback_info info)
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
         napi_throw_error(env, nullptr, "无法调度 Repo.snapshot 请求");
+        return nullptr;
+    }
+    return promise;
+}
+
+napi_value RepoLoad(napi_env env, napi_callback_info info)
+{
+    RepoWrap* repo = nullptr;
+    napi_value self;
+    if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
+    auto* work = new RepoSnapshotWork();
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::Load;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Repo.load Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_string_utf8(env, "OrgTasksRepoLoad", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Repo.load 请求");
         return nullptr;
     }
     return promise;
@@ -645,7 +716,7 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
     }
     auto* work = new RepoSnapshotWork();
     work->workspace_handle = repo->workspace_handle;
-    work->id = repo->id;
+    work->root_directory = repo->root_directory;
     work->webdav_url = policy->webdav_url;
     work->username = policy->username;
     work->password = policy->password;
@@ -689,7 +760,7 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_property_descriptor workspace_descriptors[] = {
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"load", nullptr, WorkspaceLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"search", nullptr, WorkspaceSearch, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value workspace_class;
@@ -699,6 +770,8 @@ static napi_value Init(napi_env env, napi_value exports)
 
     napi_property_descriptor repo_descriptors[] = {
         {"id", nullptr, RepoId, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"rootDirectory", nullptr, RepoRootDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"snapshot", nullptr, RepoSnapshot, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

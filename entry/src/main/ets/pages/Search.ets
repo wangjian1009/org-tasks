@@ -21,8 +21,8 @@ struct TaskSearch {
   @State config: AppConfig = DEFAULT_CONFIG
 
   aboutToAppear() {
-    const params = router.getParams() as SearchRouteParams
-    this.query = params.query || ''
+    const params = router.getParams() as SearchRouteParams | undefined
+    this.query = params?.query || ''
     this.loadTasks()
   }
 
@@ -33,7 +33,7 @@ struct TaskSearch {
       let expression = this.query.trim()
       if (this.stateFilter === '未完成') expression = `${expression} .it.done`.trim()
       if (this.stateFilter === '已完成') expression = `${expression} it.done`.trim()
-      const response = await NativeCoreService.searchWorkspace(this.config.orgDir, expression)
+      const response = await NativeCoreService.searchWorkspace(this.config.repos, expression)
       this.tasks = response.tasks
       this.message = ''
     } catch (e) {

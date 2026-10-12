@@ -127,7 +127,7 @@ struct AddTask {
             .height(44)
 
           // 提示
-          Text(this.config.webdavEnabled ? `将同步到 WebDAV: ${this.config.inboxFile}` : `将写入: ${this.config.orgDir}/${this.config.inboxFile}`)
+          Text(this.config.repos.length > 0 ? `将写入已选仓库: ${this.config.inboxFile}` : '请先在工作区添加仓库')
             .fontSize(12)
             .fontColor('#999')
             .margin({ top: 24 })

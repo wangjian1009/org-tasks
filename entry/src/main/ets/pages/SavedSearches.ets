@@ -23,8 +23,8 @@ struct SavedSearches {
   @State message: string = ''
 
   aboutToAppear() {
-    const params = router.getParams() as SavedSearchParams
-    this.query = params.query || ''
+    const params = router.getParams() as SavedSearchParams | undefined
+    this.query = params?.query || ''
     this.loadSearches()
   }
 

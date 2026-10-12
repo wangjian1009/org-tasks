@@ -47,6 +47,10 @@ export class CredentialService {
       throw assetFailure('保存 WebDAV 密码失败', error)
     }
   }
+
+  static async clearWebDavPassword(repoId: string): Promise<void> {
+    await clearWebDavPassword(repoId)
+  }
 }
 
 async function clearWebDavPassword(repoId: string): Promise<void> {

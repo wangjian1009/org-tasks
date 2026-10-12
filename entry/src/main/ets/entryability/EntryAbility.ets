@@ -20,7 +20,7 @@ export default class EntryAbility extends UIAbility {
 
   async onWindowStageCreate(windowStage: window.WindowStage) {
     // 加载主页面
-    windowStage.loadContent('pages/Index', (err) => {
+      windowStage.loadContent('pages/Agenda', (err) => {
       if (err) {
         console.error('加载页面失败:', JSON.stringify(err))
       }

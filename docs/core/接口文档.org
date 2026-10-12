@@ -83,13 +83,13 @@ impl OrgWorkspace {
 
     pub fn add_repo(&mut self, repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError>;
 
-    pub async fn load<P: SyncPolicy>(&mut self) -> Result<(), CoreError>;
+    pub fn remove_repo_by_root_directory(&mut self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
     pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；调用 ~load::<P>~ 后才会读取或创建稳定 ID、扫描文件并再次校验 ID 唯一性。返回的集合不可由调用方原地修改。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。~load::<P>~ 重新扫描 workspace 中全部仓库，并按策略类型读取其同步记录；变更仓库集合仍应构造新的 workspace。~search~ 汇总全部仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。~search~ 汇总全部已加载仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 *** OrgRepo
 

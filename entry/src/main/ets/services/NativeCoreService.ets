@@ -1,5 +1,6 @@
 import {
   Repo as NativeRepo,
+  CoreError as NativeCoreError,
   RepositorySnapshot as NativeRepositorySnapshot,
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
@@ -8,6 +9,7 @@ import {
   WebDavSyncPolicy as NativeWebDavSyncPolicy,
   Workspace as NativeWorkspace
 } from 'liborg_tasks_harmony.so'
+import { RepoConfig } from '../models/OrgTask'
 
 export interface CoreRepositoryFile {
   path: string
@@ -55,6 +57,14 @@ export interface CoreBridgeResponse {
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
+export type CoreBridgeError = NativeCoreError
+
+export function coreErrorMessage(error: CoreBridgeError): string {
+  if (typeof error.message === 'string' && error.message.length > 0) {
+    return error.message
+  }
+  return 'core 调用失败'
+}
 
 export class CoreWebDavSyncPolicy {
   private readonly native: NativeWebDavSyncPolicy
@@ -79,6 +89,14 @@ export class CoreRepo {
     return this.native.id()
   }
 
+  rootDirectory(): string {
+    return this.native.rootDirectory()
+  }
+
+  async load(): Promise<void> {
+    await this.native.load()
+  }
+
   async snapshot(): Promise<CoreRepositorySnapshot> {
     return await this.native.snapshot() as NativeRepositorySnapshot
   }
@@ -100,12 +118,12 @@ export class CoreWorkspace {
     return repos.map((repo: NativeRepo) => new CoreRepo(repo))
   }
 
-  async addRepo(rootDirectory: string): Promise<void> {
-    await this.native.addRepo(rootDirectory)
+  async addRepo(rootDirectory: string): Promise<CoreRepo> {
+    return new CoreRepo(await this.native.addRepo(rootDirectory))
   }
 
-  async load(): Promise<void> {
-    await this.native.load()
+  async removeRepo(rootDirectory: string): Promise<void> {
+    await this.native.removeRepo(rootDirectory)
   }
 
   async search(expression: string): Promise<CoreTask[]> {
@@ -115,23 +133,29 @@ export class CoreWorkspace {
 }
 
 let activeWorkspace: CoreWorkspace | undefined = undefined
-let activeRootDirectory: string = ''
+let activeWorkspaceKey: string = ''
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
-  static async workspaceFor(rootDirectory: string): Promise<CoreWorkspace> {
-    if (activeWorkspace && activeRootDirectory === rootDirectory) {
+  static async workspaceFor(repositories: RepoConfig[]): Promise<CoreWorkspace> {
+    const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
+    if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
       return activeWorkspace
     }
     activeWorkspace = new CoreWorkspace(new NativeWorkspace())
-    await activeWorkspace.addRepo(rootDirectory)
-    activeRootDirectory = rootDirectory
+    for (const repository of repositories) {
+      await activeWorkspace.addRepo(repository.rootDirectory)
+    }
+    activeWorkspaceKey = workspaceKey
     return activeWorkspace
   }
 
-  static async loadWorkspace(rootDirectory: string): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(rootDirectory)
-    await workspace.load()
+  static async loadWorkspace(repositories: RepoConfig[]): Promise<CoreBridgeResponse> {
+    const workspace = await NativeCoreService.workspaceFor(repositories)
+    const repos = await workspace.repos()
+    for (const repo of repos) {
+      await repo.load()
+    }
     return {
       workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(''),
@@ -140,20 +164,20 @@ export class NativeCoreService {
   }
 
   static async syncWorkspaceWebDav(
-    rootDirectory: string,
-    webdavUrl: string,
-    username: string,
-    password: string,
+    repositories: RepoConfig[],
     monitor?: CoreWebDavSyncMonitor
   ): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(rootDirectory)
-    await workspace.load()
+    const workspace = await NativeCoreService.workspaceFor(repositories)
     const repos = await workspace.repos()
-    if (repos.length !== 1) {
-      throw new Error('当前 Harmony workspace 必须包含一个仓库')
+    let sync: CoreSyncSnapshot | null = null
+    for (const repo of repos) {
+      await repo.load()
+      const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory())
+      if (config?.webdavEnabled) {
+        const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
+        sync = await repo.sync(policy, monitor)
+      }
     }
-    const policy = new CoreWebDavSyncPolicy(webdavUrl, username, password)
-    const sync = await repos[0].sync(policy, monitor)
     return {
       workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(''),
@@ -161,9 +185,12 @@ export class NativeCoreService {
     }
   }
 
-  static async searchWorkspace(rootDirectory: string, expression: string): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(rootDirectory)
-    await workspace.load()
+  static async searchWorkspace(repositories: RepoConfig[], expression: string): Promise<CoreBridgeResponse> {
+    const workspace = await NativeCoreService.workspaceFor(repositories)
+    const repos = await workspace.repos()
+    for (const repo of repos) {
+      await repo.load()
+    }
     return {
       workspace: await NativeCoreService.workspaceSnapshot(workspace),
       tasks: await workspace.search(expression),

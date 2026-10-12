@@ -35,28 +35,27 @@ export interface OrgParseResult {
   files: number
 }
 
-// 应用配置
-export interface AppConfig {
-  repoId: string       // 仓库稳定标识；配置更新时保持不变
-  orgDir: string       // org 文件目录（坚果云同步路径）
-  inboxFile: string    // 新增任务写入的文件
-  calendarName: string // 日历名称
-  syncInterval: number // 同步间隔（分钟）
+export interface RepoConfig {
+  id: string
+  rootDirectory: string
   webdavEnabled: boolean
   webdavUrl: string
   webdavUsername: string
   webdavPassword: string
 }
 
+// 应用配置
+export interface AppConfig {
+  repos: RepoConfig[]
+  inboxFile: string    // 新增任务写入的文件
+  calendarName: string // 日历名称
+  syncInterval: number // 同步间隔（分钟）
+}
+
 // 默认配置
 export const DEFAULT_CONFIG: AppConfig = {
-  repoId: '',
-  orgDir: '/storage/Users/currentUser/CloudDrive/org-roam/tasks',
+  repos: [],
   inboxFile: 'inbox.org',
   calendarName: 'Org Tasks',
-  syncInterval: 15,
-  webdavEnabled: false,
-  webdavUrl: '',
-  webdavUsername: '',
-  webdavPassword: ''
+  syncInterval: 15
 }

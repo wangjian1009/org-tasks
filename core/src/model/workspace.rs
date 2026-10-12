@@ -1,7 +1,7 @@
 use crate::CoreError;
 use crate::filter::{Filter, FilterTask, tasks_from_repo};
 
-use super::{OrgRepo, OrgRepoId, SyncPolicy, validate_id};
+use super::{OrgRepo, OrgRepoId, validate_id};
 
 pub type OrgWorkspaceValidationError = CoreError;
 
@@ -28,6 +28,18 @@ impl OrgWorkspace {
         self.repos.iter_mut().find(|repo| &repo.id == repo_id)
     }
 
+    pub fn repo_by_root_directory(&self, root_directory: &str) -> Option<&OrgRepo> {
+        self.repos
+            .iter()
+            .find(|repo| repo.root_directory == root_directory)
+    }
+
+    pub fn repo_mut_by_root_directory(&mut self, root_directory: &str) -> Option<&mut OrgRepo> {
+        self.repos
+            .iter_mut()
+            .find(|repo| repo.root_directory == root_directory)
+    }
+
     pub fn add_repo(&mut self, repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError> {
         let mut repositories = self.repos.clone();
         repositories.push(repo.clone());
@@ -36,12 +48,16 @@ impl OrgWorkspace {
         Ok(())
     }
 
-    pub async fn load<P: SyncPolicy>(&mut self) -> Result<(), CoreError> {
-        for repo in &mut self.repos {
-            repo.load::<P>().await?;
-        }
-        validate_repositories(&self.repos)?;
-        Ok(())
+    pub fn remove_repo_by_root_directory(
+        &mut self,
+        root_directory: &str,
+    ) -> Result<OrgRepo, OrgWorkspaceValidationError> {
+        let index = self
+            .repos
+            .iter()
+            .position(|repo| repo.root_directory == root_directory)
+            .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+        Ok(self.repos.remove(index))
     }
 
     pub fn search(&self, filter: &Filter) -> Vec<FilterTask> {
@@ -152,5 +168,16 @@ mod tests {
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
 
         assert!(workspace.repos()[0].id.is_empty());
+    }
+
+    #[test]
+    fn removes_repository_by_root_directory() {
+        let mut workspace =
+            OrgWorkspace::new(vec![OrgRepo::new("/tmp/one".into()).unwrap()]).unwrap();
+
+        let removed = workspace.remove_repo_by_root_directory("/tmp/one").unwrap();
+
+        assert_eq!(removed.root_directory, "/tmp/one");
+        assert!(workspace.repos().is_empty());
     }
 }
