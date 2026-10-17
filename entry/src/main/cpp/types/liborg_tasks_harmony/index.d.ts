@@ -1,3 +1,11 @@
+export interface NewTask {
+  heading: string;
+  scheduled: string;
+  deadline: string;
+  tags: string[];
+  priority: string;
+}
+
 export interface CoreError extends Error {
   readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge';
 }
@@ -64,6 +72,7 @@ export class Repo {
   id(): string;
   rootDirectory(): string;
   load(): Promise<void>;
+  createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>;
   snapshot(): Promise<RepositorySnapshot>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor): Promise<SyncRecord>;
 }

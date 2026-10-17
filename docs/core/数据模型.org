@@ -16,9 +16,9 @@
 
 * 范围与状态
 
-本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~。仓库控制目录的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
 
-~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
+~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~NewTask~ 是运行时创建输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
 调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
 
@@ -60,6 +60,22 @@
   local\_version: Option\textless LocalFileVersion\textgreater
 }{}
 \end{umlpackage}
+
+\begin{umlpackage}[x=0,y=-9.3]{Editing}
+\umlclass[x=0,y=0]{NewTask}{
+  heading: String \\
+  scheduled: String \\
+  deadline: String \\
+  tags: Vec\textless String\textgreater \\
+  priority: String
+}{}
+\umlclass[x=8.5,y=0]{OrgRepoWriteIntent}{
+  relative\_path: String \\
+  content\_hash: String
+}{}
+\end{umlpackage}
+\umldep{OrgRepo}{NewTask}
+\umldep{OrgRepo}{OrgRepoWriteIntent}
 
 \umluniassoc[mult1=1,mult2=0..*]{OrgWorkspace}{OrgRepo}
 \umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
@@ -118,6 +134,27 @@ pub struct OrgRepo {
 
 上述规则适用于本地保存与上传前序列化。源字节快照仅在本次解析/编辑会话内保留；关闭会话后可从文件重新读取，持久化层仍只保存同步元数据。
 
+* 任务创建与写入意图
+
+~NewTask~ 仅作为 ~OrgRepo.create_task~ 的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、优先级、标签及计划日期转为 org 追加内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验。已存在文件的原始字节保持不变。
+
+~OrgRepoWriteIntent~ 只包含相对路径与保存后的内容哈希，按仓库写入 ~.sync/outbox/~ 。完整任务仍保存在用户 org 文件中；多个保存意图可指向同一个文件。WebDAV 使用原始文件的最新完整字节上传，成功同步记录落盘且本地版本一致后才确认消费。写入意图不增加 ~OrgRepo~ 的持久化文件快照字段。
+
+#+begin_src rust
+pub struct NewTask {
+    pub heading: String,
+    pub scheduled: String,
+    pub deadline: String,
+    pub tags: Vec<String>,
+    pub priority: String,
+}
+
+pub struct OrgRepoWriteIntent {
+    pub relative_path: String,
+    pub content_hash: String,
+}
+#+end_src
+
 * 仓库同步记录
 
 ~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它由 ~OrgRepo.load::<P>~ 返回或由同步策略产生，不作为 ~OrgRepo~ 的字段保存，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
@@ -159,4 +196,4 @@ pub struct LocalFileVersion {
 
 * 旧接口
 
-旧的任务记录、同步状态、outbox 与冲突记录不是当前核心数据结构。当前实现不读取、不转换这些数据；任务投影、队列与 UI 流程由宿主按当前仓库级接口重新建立。
+旧的任务记录、同步状态、完整内容 outbox 与冲突记录不是当前核心数据结构；当前 outbox 仅保存 ~OrgRepoWriteIntent~ 元数据。当前实现不读取、不转换这些数据；任务投影、队列与 UI 流程由宿主按当前仓库级接口重新建立。

@@ -2,8 +2,9 @@
 // 填写任务信息，写入 inbox.org
 
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { CoreBridgeError, CoreNewTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
@@ -14,6 +15,9 @@ struct AddTask {
   @State tags: string = ''
   @State priority: string = ''
   @State saving: boolean = false
+  @State selectedRepoId: string = ''
+  @State loading: boolean = true
+  @State saved: boolean = false
   @State message: string = ''
   @State config: AppConfig = DEFAULT_CONFIG
 
@@ -25,22 +29,46 @@ struct AddTask {
     try {
       const context = getContext(this)
       this.config = await AppConfigService.load(context)
+      if (this.config.repos.length > 0) this.selectedRepoId = this.config.repos[0].id
     } catch (e) {
-      console.error('加载配置失败:', JSON.stringify(e))
+      this.message = `加载配置失败: ${coreErrorMessage(e as CoreBridgeError)}`
+    } finally {
+      this.loading = false
     }
   }
 
   async saveTask() {
+    if (this.saving || this.saved || this.loading) return
     if (!this.heading.trim()) {
       this.message = '请输入任务标题'
+      return
+    }
+
+    const repository = this.config.repos.find((item: RepoConfig) => item.id === this.selectedRepoId)
+    if (!repository) {
+      this.message = '请先添加并选择仓库'
       return
     }
 
     this.saving = true
     this.message = ''
 
-    this.message = '新增任务需要 core editor 支持，当前未接入写入操作'
-    this.saving = false
+    const task: CoreNewTask = {
+      heading: this.heading.trim(),
+      scheduled: this.scheduled.trim(),
+      deadline: this.deadline.trim(),
+      tags: this.tags.split(/[,，\s]+/).filter((tag: string) => tag.length > 0),
+      priority: this.priority
+    }
+    try {
+      await NativeCoreService.createTask(this.config.repos, repository, this.config.inboxFile, task)
+      this.saved = true
+      this.message = repository.webdavEnabled ? '任务已保存到本地，将在后续同步时上传' : '任务已保存到本地'
+    } catch (e) {
+      this.message = `保存失败: ${coreErrorMessage(e as CoreBridgeError)}`
+    } finally {
+      this.saving = false
+    }
   }
 
   build() {
@@ -50,12 +78,13 @@ struct AddTask {
           .fontSize(14)
           .backgroundColor('#FFFFFF')
           .fontColor('#34423B')
+          .enabled(!this.saving)
           .onClick(() => router.back())
         Column() {
           Text('新增任务')
             .fontSize(24)
             .fontWeight(FontWeight.Bold)
-          Text('写入 inbox.org，保留 org 工作流')
+          Text(`写入 ${this.config.inboxFile}，保留 org 工作流`)
             .fontSize(12)
             .fontColor('#65746B')
             .margin({ top: 2 })
@@ -67,6 +96,17 @@ struct AddTask {
 
       Scroll() {
         Column() {
+          Text('目标仓库').fontSize(14).fontColor('#666')
+          ForEach(this.config.repos, (repository: RepoConfig) => {
+            Button(repository.rootDirectory)
+              .fontSize(13)
+              .backgroundColor(this.selectedRepoId === repository.id ? '#175C43' : '#FFFFFF')
+              .fontColor(this.selectedRepoId === repository.id ? '#FFFFFF' : '#34423B')
+              .enabled(!this.saving && !this.saved)
+              .margin({ top: 8 })
+              .onClick(() => { this.selectedRepoId = repository.id })
+          }, (repository: RepoConfig) => repository.id)
+
           // 任务标题
           Text('标题 *')
             .fontSize(14)
@@ -134,6 +174,7 @@ struct AddTask {
         }
         .width('100%')
         .padding({ left: 20, right: 20 })
+        .enabled(!this.saving && !this.saved)
       }
       .layoutWeight(1)
 
@@ -141,18 +182,18 @@ struct AddTask {
       if (this.message) {
         Text(this.message)
           .fontSize(14)
-        .fontColor(this.message.includes('失败') ? '#B3261E' : '#357A55')
+        .fontColor(this.saved ? '#357A55' : '#B3261E')
           .width('100%')
           .padding({ left: 20, right: 20, bottom: 8 })
       }
 
       // 保存按钮
-      Button(this.saving ? '保存中...' : '保存')
+      Button(this.saved ? '已保存' : this.saving ? '保存中...' : '保存')
         .width('80%')
         .height(48)
         .fontSize(17)
         .backgroundColor('#175C43')
-        .enabled(!this.saving)
+        .enabled(!this.saving && !this.saved && !this.loading && this.config.repos.length > 0)
         .margin({ bottom: 40 })
         .onClick(() => this.saveTask())
     }

@@ -68,3 +68,7 @@ make deploy        # 编译 + 安装 + 启动
 make log           # 查看应用日志
 make devices       # 查看已连接设备
 ```
+
+## 本地设置
+
+本机工具路径与环境变量见 `AGENTS.local.md`。

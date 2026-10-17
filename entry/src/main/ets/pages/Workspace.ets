@@ -16,6 +16,7 @@ struct Workspace {
   @State config: AppConfig = DEFAULT_CONFIG
   @State message: string = ''
   private items: WorkspaceItem[] = [
+    { title: '新增任务', description: '选择仓库并写入 inbox 文件', route: 'pages/AddTask', accent: '#175C43' },
     { title: '同步中心', description: '查看状态并同步到系统日历', route: 'pages/Index', accent: '#175C43' },
     { title: '日程', description: '按计划与截止时间查看任务', route: 'pages/Agenda', accent: '#1F5E8C' },
     { title: '笔记本', description: '浏览 org 文件与其中的任务', route: 'pages/Files', accent: '#7A4D16' },

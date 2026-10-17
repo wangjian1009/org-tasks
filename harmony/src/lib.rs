@@ -138,6 +138,33 @@ pub extern "C" fn org_tasks_harmony_repo_load(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_create_task(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+    path: *const c_char,
+    task_json: *const c_char,
+    queue_upload: bool,
+) -> i32 {
+    clear_last_error();
+    let result = read_c_string(root_directory).and_then(|root_directory| {
+        bridge::repo_create_task(
+            workspace_handle,
+            root_directory,
+            read_c_string(path)?,
+            read_c_string(task_json)?,
+            queue_upload,
+        )
+    });
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            remember_error(&error);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_id(
     workspace_handle: u64,
     root_directory: *const c_char,

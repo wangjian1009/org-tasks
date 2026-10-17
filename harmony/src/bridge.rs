@@ -6,8 +6,8 @@ use org_tasks_core::webdav::{
     WebDavEndpoint, WebDavSyncEvent, WebDavSyncMonitor, WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    CoreError, Filter, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace, SyncCancellation,
-    SyncProgressReporter, TimestampMs,
+    CoreError, Filter, FilterTask, NewTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
+    SyncCancellation, SyncProgressReporter, TimestampMs,
 };
 use serde::Serialize;
 
@@ -299,6 +299,27 @@ pub fn repo_load(handle: u64, root_directory: String) -> Result<(), CoreError> {
     Ok(())
 }
 
+pub fn repo_create_task(
+    handle: u64,
+    root_directory: String,
+    path: String,
+    task_json: String,
+    queue_upload: bool,
+) -> Result<(), CoreError> {
+    let task: NewTask = serde_json::from_str(&task_json)
+        .map_err(|_| CoreError::InvalidInput("任务创建参数无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    runtime.block_on(repository.create_task(&path, &task, queue_upload))
+}
+
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let workspace = workspace
@@ -433,10 +454,28 @@ mod tests {
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root_directory.clone()).unwrap();
         repo_load(handle, root_directory.clone()).unwrap();
+        repo_create_task(
+            handle,
+            root_directory.clone(),
+            "inbox.org".into(),
+            serde_json::to_string(&NewTask {
+                heading: "created from bridge".into(),
+                ..Default::default()
+            })
+            .unwrap(),
+            true,
+        )
+        .unwrap();
+        let tasks: serde_json::Value =
+            serde_json::from_str(&workspace_search_json(handle, "i.todo".into()).unwrap()).unwrap();
+        assert_eq!(tasks.as_array().unwrap().len(), 2);
         let response = repo_snapshot_json(handle, root_directory).unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["files"][0]["path"], "inbox.org");
-        assert_eq!(response["files"][0]["source"], "* TODO bridge\n");
+        assert_eq!(
+            response["files"][0]["source"],
+            "* TODO bridge\n* TODO created from bridge\n"
+        );
 
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();

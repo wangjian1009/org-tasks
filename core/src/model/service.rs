@@ -359,6 +359,7 @@ impl OrgRepo {
             }
             files.push(file);
         }
+        self.pending_writes().await?;
         self.files = files;
         Ok(history)
     }
@@ -411,6 +412,13 @@ impl OrgRepo {
             return Err(CoreError::InvalidState("同步记录 ID 已存在"));
         }
         persist_sync_record(Path::new(&self.root_directory), &record).await?;
+        for file in &record.files {
+            if file.state == super::OrgRepoSyncFileState::Synchronized
+                && let Some(version) = &file.local_version
+            {
+                self.acknowledge_write(&file.relative_path, version).await?;
+            }
+        }
         Ok(record)
     }
 }
@@ -570,7 +578,7 @@ where
     Ok(())
 }
 
-fn generate_repo_id() -> Result<OrgRepoId, CoreError> {
+pub(super) fn generate_repo_id() -> Result<OrgRepoId, CoreError> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| CoreError::Store("无法生成仓库 ID".into()))?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;

@@ -256,6 +256,7 @@ impl WebDavSyncPolicy {
             }
         }
 
+        let pending = repo.pending_writes().await?;
         let mut paths = repo
             .files
             .iter()
@@ -294,7 +295,8 @@ impl WebDavSyncPolicy {
                 (Some(local), None, Some(_)) => self.create_remote(repo, &local, progress).await,
                 (Some(local), Some(remote), Some(baseline)) => {
                     let local_version = local_version(&local);
-                    let local_changed = baseline.local_version.as_ref() != Some(&local_version);
+                    let local_changed = baseline.local_version.as_ref() != Some(&local_version)
+                        || pending.iter().any(|intent| intent.relative_path == path);
                     let remote_changed =
                         remote_version_for(&baseline).as_ref() != Some(&remote.version);
                     match (local_changed, remote_changed) {
@@ -313,7 +315,12 @@ impl WebDavSyncPolicy {
 
             match outcome {
                 Ok(file_record) => {
-                    failed |= file_record.state == OrgRepoSyncFileState::Failed;
+                    failed |= matches!(
+                        file_record.state,
+                        OrgRepoSyncFileState::Failed
+                            | OrgRepoSyncFileState::Conflict
+                            | OrgRepoSyncFileState::RemoteDeleted
+                    );
                     record.append_file(file_record.clone())?;
                     self.report(WebDavSyncEvent::FileProcessed {
                         record: file_record,
@@ -574,11 +581,11 @@ fn latest_file_record<'a>(
     history: &'a [OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>],
     path: &str,
 ) -> Option<&'a OrgRepoSyncFileRecord<WebDavSyncFileDetail>> {
-    history
-        .iter()
-        .rev()
-        .filter(|record| record.result == Some(OrgRepoSyncResult::Succeeded))
-        .find_map(|record| record.files.iter().find(|file| file.relative_path == path))
+    history.iter().rev().find_map(|record| {
+        record.files.iter().find(|file| {
+            file.relative_path == path && file.state == OrgRepoSyncFileState::Synchronized
+        })
+    })
 }
 
 fn remote_version_for(
@@ -592,12 +599,7 @@ fn remote_version_for(
 }
 
 fn local_version(file: &OrgFile) -> LocalFileVersion {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for byte in &file.source_bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    LocalFileVersion::new(format!("{hash:016x}")).expect("FNV-1a 哈希应有效")
+    LocalFileVersion::from_bytes(file.source_bytes())
 }
 
 fn validate_path(path: &str) -> Result<(), CoreError> {
@@ -643,6 +645,73 @@ mod tests {
     fn policy_rejects_empty_credentials() {
         let endpoint = WebDavEndpoint::new("https://dav.example.com/org/".into()).unwrap();
         assert!(WebDavSyncPolicy::new(endpoint, "".into(), "password".into()).is_err());
+    }
+
+    #[test]
+    fn baseline_ignores_conflicts_and_keeps_successful_files_from_failed_jobs() {
+        let mut initial = OrgRepoSyncRecord::new("initial".into(), 1).unwrap();
+        initial
+            .append_file(
+                OrgRepoSyncFileRecord::new(
+                    "inbox.org".into(),
+                    OrgRepoSyncFileAction::Created,
+                    OrgRepoSyncFileState::Synchronized,
+                )
+                .unwrap()
+                .with_local_version(Some(LocalFileVersion::from_bytes(b"old")))
+                .with_detail(WebDavSyncFileDetail {
+                    etag: Some("old".into()),
+                    modified_at: None,
+                    size: Some(3),
+                }),
+            )
+            .unwrap();
+        initial.finish(OrgRepoSyncResult::Succeeded, 2).unwrap();
+        let mut conflict = OrgRepoSyncRecord::new("conflict".into(), 3).unwrap();
+        conflict
+            .append_file(
+                OrgRepoSyncFileRecord::new(
+                    "inbox.org".into(),
+                    OrgRepoSyncFileAction::Conflicted,
+                    OrgRepoSyncFileState::Conflict,
+                )
+                .unwrap()
+                .with_detail(WebDavSyncFileDetail {
+                    etag: Some("new".into()),
+                    modified_at: None,
+                    size: Some(3),
+                }),
+            )
+            .unwrap();
+        // 兼容旧历史：旧代码可能将整体冲突错误地标成成功。
+        conflict.finish(OrgRepoSyncResult::Succeeded, 4).unwrap();
+        let history = vec![initial.clone(), conflict];
+        assert_eq!(
+            latest_file_record(&history, "inbox.org")
+                .unwrap()
+                .detail
+                .etag
+                .as_deref(),
+            Some("old")
+        );
+        let mut partial = OrgRepoSyncRecord::new("partial".into(), 5).unwrap();
+        partial
+            .append_file(initial.files[0].clone().with_detail(WebDavSyncFileDetail {
+                etag: Some("confirmed".into()),
+                modified_at: None,
+                size: Some(3),
+            }))
+            .unwrap();
+        partial.finish(OrgRepoSyncResult::Failed, 6).unwrap();
+        let history = vec![initial, partial];
+        assert_eq!(
+            latest_file_record(&history, "inbox.org")
+                .unwrap()
+                .detail
+                .etag
+                .as_deref(),
+            Some("confirmed")
+        );
     }
 
     #[derive(Clone)]
@@ -708,6 +777,241 @@ mod tests {
             }
         ));
         drop(events);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+    use crate::NewTask;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct Exchange {
+        method: &'static str,
+        condition: Option<&'static str>,
+        body: Option<Vec<u8>>,
+        status: u16,
+        response: String,
+    }
+
+    async fn server(exchanges: Vec<Exchange>) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/org/", listener.local_addr().unwrap());
+        let worker = tokio::spawn(async move {
+            for exchange in exchanges {
+                let (mut stream, _) =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                let header_end;
+                loop {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    if let Some(offset) =
+                        request.windows(4).position(|window| window == b"\r\n\r\n")
+                    {
+                        header_end = offset + 4;
+                        break;
+                    }
+                }
+                let headers = String::from_utf8(request[..header_end].to_vec())
+                    .unwrap()
+                    .to_lowercase();
+                assert!(headers.starts_with(&exchange.method.to_lowercase()));
+                if let Some(condition) = exchange.condition {
+                    assert!(headers.contains(condition));
+                }
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("content-length: ")
+                            .and_then(|value| value.parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                while request.len() < header_end + length {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                if let Some(body) = exchange.body {
+                    assert_eq!(&request[header_end..], &body);
+                }
+                let response = format!(
+                    "HTTP/1.1 {} Result\r\nContent-Length: {}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n{}",
+                    exchange.status,
+                    exchange.response.len(),
+                    exchange.response
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        (url, worker)
+    }
+
+    fn listing(etag: &str, size: usize) -> String {
+        format!(
+            "<multistatus xmlns=\"DAV:\"><response><href>/org/inbox.org</href><propstat><prop><getetag>{etag}</getetag><getcontentlength>{size}</getcontentlength></prop></propstat></response></multistatus>"
+        )
+    }
+
+    fn propfind(response: String) -> Exchange {
+        Exchange {
+            method: "PROPFIND",
+            condition: None,
+            body: None,
+            status: 207,
+            response,
+        }
+    }
+
+    fn put(body: &[u8], condition: &'static str, status: u16) -> Exchange {
+        Exchange {
+            method: "PUT",
+            condition: Some(condition),
+            body: Some(body.to_vec()),
+            status,
+            response: String::new(),
+        }
+    }
+
+    async fn repository() -> OrgRepo {
+        let root = std::env::temp_dir().join(format!(
+            "org-tasks-upload-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        tokio::fs::create_dir(&root).await.unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        repo.create_task(
+            "inbox.org",
+            &NewTask {
+                heading: "First".into(),
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        repo
+    }
+
+    async fn sync(
+        repo: &mut OrgRepo,
+        policy: &WebDavSyncPolicy,
+        time: i64,
+    ) -> OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> {
+        let history = repo.load::<WebDavSyncPolicy>().await.unwrap();
+        repo.sync(
+            policy,
+            &history,
+            time,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn offline_tasks_upload_with_conditions_and_retry_without_losing_intents() {
+        let first = b"* TODO First\n";
+        let second = b"* TODO First\n* TODO Second\n";
+        let (url, worker) = server(vec![
+            propfind("<multistatus xmlns=\"DAV:\"/>".into()),
+            put(first, "if-none-match: *", 201),
+            propfind(listing("\"v1\"", first.len())),
+            put(second, "if-match: \"v1\"", 412),
+            propfind(listing("\"v1\"", first.len())),
+            put(second, "if-match: \"v1\"", 204),
+        ])
+        .await;
+        let policy = WebDavSyncPolicy::new(
+            WebDavEndpoint::new(url).unwrap(),
+            "user".into(),
+            "secret".into(),
+        )
+        .unwrap();
+        let mut repo = repository().await;
+        let root = repo.root_directory.clone();
+        assert_eq!(
+            sync(&mut repo, &policy, 1).await.result,
+            Some(OrgRepoSyncResult::Succeeded)
+        );
+        assert!(repo.pending_writes().await.unwrap().is_empty());
+        repo.create_task(
+            "inbox.org",
+            &NewTask {
+                heading: "Second".into(),
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            sync(&mut repo, &policy, 2).await.result,
+            Some(OrgRepoSyncResult::Failed)
+        );
+        assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+        assert_eq!(repo.files[0].source_bytes(), second);
+        assert_eq!(
+            sync(&mut repo, &policy, 3).await.result,
+            Some(OrgRepoSyncResult::Succeeded)
+        );
+        assert!(repo.pending_writes().await.unwrap().is_empty());
+        worker.await.unwrap();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn repeated_remote_conflict_keeps_local_task_and_does_not_upload() {
+        let first = b"* TODO First\n";
+        let (url, worker) = server(vec![
+            propfind("<multistatus xmlns=\"DAV:\"/>".into()),
+            put(first, "if-none-match: *", 201),
+            propfind(listing("\"v2\"", first.len())),
+            propfind(listing("\"v2\"", first.len())),
+        ])
+        .await;
+        let policy = WebDavSyncPolicy::new(
+            WebDavEndpoint::new(url).unwrap(),
+            "user".into(),
+            "secret".into(),
+        )
+        .unwrap();
+        let mut repo = repository().await;
+        let root = repo.root_directory.clone();
+        sync(&mut repo, &policy, 1).await;
+        repo.create_task(
+            "inbox.org",
+            &NewTask {
+                heading: "Second".into(),
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        for time in [2, 3] {
+            let record = sync(&mut repo, &policy, time).await;
+            assert_eq!(record.result, Some(OrgRepoSyncResult::Failed));
+            assert_eq!(record.files[0].state, OrgRepoSyncFileState::Conflict);
+            assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+            assert_eq!(
+                repo.files[0].source_bytes(),
+                b"* TODO First\n* TODO Second\n"
+            );
+        }
+        worker.await.unwrap();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
 }

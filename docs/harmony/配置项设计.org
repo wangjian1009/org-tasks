@@ -46,7 +46,7 @@ interface HarmonyOrgRepoConfig {
 | 全局日历 | ~calendar.name~ | Preferences | 默认 ~Org Tasks~ ；只用于 Harmony CalendarKit。 |
 | 后台调度 | ~scheduler.intervalMinutes~ | Preferences | 默认 15 分钟；仅控制 WorkScheduler 唤醒，不保存同步结果。 |
 | 仓库根目录 | ~rootDirectory~ | Preferences | 非空目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
-| inbox 目标 | ~inboxFile~ | Preferences | 应用级 ~.org~ 路径；任务创建功能接入前不产生写入。 |
+| inbox 目标 | ~inboxFile~ | Preferences | 应用级安全相对 ~.org~ 路径；新增任务时相对于用户选择的仓库解析。 |
 | WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | HTTPS 根目录 URL；由 ~core::webdav::WebDavSyncPolicy~ 使用，不进入核心数据模型。 |
 | WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
 | WebDAV 密码 | 不属于该结构 | Asset Store | 按 ~repoId~ 保存，永不序列化进 Preferences。 |
@@ -67,7 +67,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoC
 |-
 | 用户配置 | Harmony | Preferences 的 ~org_tasks_config~ | ~HarmonyAppConfig~ ；不保存密码、同步历史或完整文件。 |
 | WebDAV 密码 | Harmony | Asset Store | 每个 ~repoId~ 独立秘密记录。 |
-| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 。不保存绝对路径、凭据或完整 org 内容。 |
+| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。不保存绝对路径、凭据或完整 org 内容。 |
 | 日历映射 | Harmony | Preferences 的 ~calendar_sync_state~ | entry ID、日历事件 ID 和指纹；不得与用户配置混写。 |
 | 已保存搜索 | Harmony | Preferences 的 ~org_tasks_saved_searches~ | 仅保存搜索名称与关键词；不保存完整任务、文件内容、绝对路径或凭据。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |

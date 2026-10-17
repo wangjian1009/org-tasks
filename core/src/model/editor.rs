@@ -110,7 +110,7 @@ fn validate_position(
     Ok(())
 }
 
-fn position_at(source: &[u8], byte_offset: usize) -> SourcePosition {
+pub(super) fn position_at(source: &[u8], byte_offset: usize) -> SourcePosition {
     let mut line = 1;
     let mut column = 0;
     for byte in &source[..byte_offset] {

@@ -1,5 +1,6 @@
 import {
   Repo as NativeRepo,
+  NewTask as NativeNewTask,
   CoreError as NativeCoreError,
   RepositorySnapshot as NativeRepositorySnapshot,
   SyncRecord as NativeSyncRecord,
@@ -55,6 +56,8 @@ export interface CoreBridgeResponse {
   sync: CoreSyncSnapshot | null
 }
 
+export type CoreNewTask = NativeNewTask
+
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
 export type CoreBridgeError = NativeCoreError
@@ -95,6 +98,10 @@ export class CoreRepo {
 
   async load(): Promise<void> {
     await this.native.load()
+  }
+
+  async createTask(path: string, task: CoreNewTask, queueUpload: boolean): Promise<void> {
+    await this.native.createTask(path, task, queueUpload)
   }
 
   async snapshot(): Promise<CoreRepositorySnapshot> {
@@ -150,6 +157,14 @@ export class NativeCoreService {
     return activeWorkspace
   }
 
+  static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask): Promise<void> {
+    const workspace = await NativeCoreService.workspaceFor(repositories)
+    const repos = await workspace.repos()
+    const repo = repos.find((item: CoreRepo) => item.rootDirectory() === repository.rootDirectory)
+    if (!repo) throw new Error('目标仓库不可用')
+    await repo.createTask(path, task, repository.webdavEnabled)
+  }
+
   static async loadWorkspace(repositories: RepoConfig[]): Promise<CoreBridgeResponse> {
     const workspace = await NativeCoreService.workspaceFor(repositories)
     const repos = await workspace.repos()
@@ -176,6 +191,9 @@ export class NativeCoreService {
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
         sync = await repo.sync(policy, monitor)
+        if (sync.result !== 'succeeded') {
+          throw new Error('WebDAV 同步未完成，请查看同步记录；待上传任务已保留')
+        }
       }
     }
     return {

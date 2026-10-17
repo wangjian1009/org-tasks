@@ -14,6 +14,8 @@ extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
 extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_repo_load(uint64_t workspace_handle, const char* root_directory);
+extern "C" int32_t org_tasks_harmony_repo_create_task(uint64_t workspace_handle, const char* root_directory,
+    const char* path, const char* task_json, bool queue_upload);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
@@ -73,7 +75,11 @@ struct RepoSnapshotWork {
     napi_threadsafe_function monitor = nullptr;
     std::string response;
     std::string error;
-    enum class Operation { Snapshot, Sync, Load } operation = Operation::Snapshot;
+    std::string task_path;
+    std::string task_json;
+    bool queue_upload = false;
+    napi_ref owner = nullptr;
+    enum class Operation { Snapshot, Sync, Load, CreateTask } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -352,6 +358,12 @@ void ExecuteRepoSnapshot(napi_env, void* data)
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count())));
             break;
+        case RepoSnapshotWork::Operation::CreateTask:
+            if (org_tasks_harmony_repo_create_task(work->workspace_handle, work->root_directory.c_str(),
+                work->task_path.c_str(), work->task_json.c_str(), work->queue_upload) == 0) {
+                work->response = "{}";
+            }
+            break;
         case RepoSnapshotWork::Operation::Load:
             if (org_tasks_harmony_repo_load(work->workspace_handle, work->root_directory.c_str()) == 0) {
                 work->response = "{}";
@@ -367,10 +379,12 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
     if (status != napi_ok || work->response.empty()) {
         RejectCoreError(env, work->deferred, work->error,
             work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
-            work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" : "Repo.load 失败");
+            work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
+            work->operation == RepoSnapshotWork::Operation::CreateTask ? "保存任务失败" : "Repo.load 失败");
     } else {
         napi_value result;
-        if (work->operation == RepoSnapshotWork::Operation::Load) {
+        if (work->operation == RepoSnapshotWork::Operation::Load ||
+            work->operation == RepoSnapshotWork::Operation::CreateTask) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!ParseJson(env, work->response, &result)) {
@@ -383,6 +397,7 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             napi_resolve_deferred(env, work->deferred, result);
         }
     }
+    if (work->owner != nullptr) napi_delete_reference(env, work->owner);
     if (work->monitor != nullptr) {
         napi_release_threadsafe_function(work->monitor, napi_tsfn_release);
     }
@@ -701,6 +716,53 @@ napi_value RepoLoad(napi_env env, napi_callback_info info)
     return promise;
 }
 
+napi_value RepoCreateTask(napi_env env, napi_callback_info info)
+{
+    size_t argc = 3;
+    napi_value args[3] = {nullptr, nullptr, nullptr};
+    napi_value self;
+    RepoWrap* repo = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 3 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr) {
+        napi_throw_error(env, nullptr, "Repo.createTask 参数无效");
+        return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    napi_value global, json, stringify, encoded;
+    if (!ReadString(env, args[0], &work->task_path) || work->task_path.find('\0') != std::string::npos ||
+        napi_get_value_bool(env, args[2], &work->queue_upload) != napi_ok ||
+        napi_get_global(env, &global) != napi_ok ||
+        napi_get_named_property(env, global, "JSON", &json) != napi_ok ||
+        napi_get_named_property(env, json, "stringify", &stringify) != napi_ok ||
+        napi_call_function(env, json, stringify, 1, &args[1], &encoded) != napi_ok ||
+        !ReadString(env, encoded, &work->task_json)) {
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.createTask 参数无效");
+        return nullptr;
+    }
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::CreateTask;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Repo.createTask Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoCreateTask", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Repo.createTask 请求");
+        return nullptr;
+    }
+    return promise;
+}
+
 napi_value RepoSync(napi_env env, napi_callback_info info)
 {
     size_t argc = 2;
@@ -773,6 +835,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"rootDirectory", nullptr, RepoRootDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"snapshot", nullptr, RepoSnapshot, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"createTask", nullptr, RepoCreateTask, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value repo_class;
