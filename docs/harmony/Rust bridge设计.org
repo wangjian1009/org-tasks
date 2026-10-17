@@ -67,3 +67,9 @@ class Repo {
 * 扩展规则
 
 新增查询、编辑或同步能力时，先在 core 定义可复用领域 API 和数据结构；再在 ~harmony/src/bridge.rs~ 添加对应 action；最后扩展 C++ 类型声明和 ~NativeCoreService~ 。不得在 ArkTS、C++ 或 bridge 重写 core 的 org 解析或同步规则。
+
+* 界面所需的来源与层级投影
+
+任务 DTO 的 ~repoId~ 直接来自 ~FilterTask.repo_id~ ， ~level~ 来自 core 投影的真实标题层级，不再固定返回 0。文件列表以仓库 ID 和相对路径联合关联任务；层级、折叠和面包屑仅是宿主显示，不产生新的 Org AST。 ~CoreRepositorySnapshot.rootDirectory~ 由 ArkTS wrapper 的既有 ~Repo.rootDirectory()~ 补齐，属于运行时显示信息，不写入 core 的持久化记录。
+
+存储库配置提交前，宿主用独立 workspace 调用既有 ~Repo.load~ 验证目录。该临时 workspace 不替换正在浏览或同步的活动 workspace；bridge 没有增加解析、扫描或同步算法。

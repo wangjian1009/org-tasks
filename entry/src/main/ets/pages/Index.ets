@@ -1,11 +1,14 @@
 // 主页面 - 同步按钮 + 状态显示
 
 import { router } from '@kit.ArkUI'
+import { AppShell } from '../components/AppShell'
+import { MessageBar, PreferenceRow } from '../components/Controls'
+import { UiColor } from '../ui/Theme'
 import { abilityAccessCtrl, Permissions } from '@kit.AbilityKit'
 import { CalendarSync } from '../services/CalendarSync'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { preferences } from '@kit.ArkData'
-import { CoreWebDavSyncEvent, NativeCoreService } from '../services/NativeCoreService'
+import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncEvent, NativeCoreService } from '../services/NativeCoreService'
 import { AppConfigService, APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
 
 @Entry
@@ -15,12 +18,16 @@ struct Index {
   @State lastSync: string = '尚未同步'
   @State taskCount: number = 0
   @State syncMessage: string = ''
+  @State drawerOpen: boolean = false
+  @State loading: boolean = true
   @State config: AppConfig = DEFAULT_CONFIG
 
   private calendarSync: CalendarSync | undefined = undefined
 
-  aboutToAppear() {
-    this.loadConfig()
+  onPageShow() { if (!this.syncing) this.loadConfig() }
+  onBackPress(): boolean {
+    if (this.drawerOpen) { this.drawerOpen = false; return true }
+    return this.syncing
   }
 
   async loadConfig() {
@@ -40,12 +47,15 @@ struct Index {
         this.lastSync = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`
       }
     } catch (e) {
-      console.error('加载配置失败:', JSON.stringify(e))
+      this.syncMessage = `加载配置失败：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally {
+      this.loading = false
     }
   }
 
   async doSync() {
-    if (this.syncing) return
+    if (this.syncing || this.loading) return
+    if (this.config.repos.length === 0) { this.syncMessage = '请先添加存储库'; return }
 
     this.syncing = true
     this.syncMessage = '正在同步...'
@@ -57,7 +67,7 @@ struct Index {
       }
 
       const hasWebDav = this.config.repos.some((repository) => repository.webdavEnabled)
-      this.syncMessage = hasWebDav ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载仓库...'
+      this.syncMessage = hasWebDav ? '正在同步 WebDAV…' : '正在读取本地文件…'
       const workspace = hasWebDav
         ? await NativeCoreService.syncWorkspaceWebDav(this.config.repos, (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event))
         : await NativeCoreService.loadWorkspace(this.config.repos)
@@ -86,14 +96,14 @@ struct Index {
       await store.flush()
       const now = new Date()
       this.lastSync = `${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`
-      const coreResult = workspace.sync ? ` · core ${workspace.sync.result}` : ''
-      this.syncMessage = `同步完成: ${result.synced}/${result.total} 个任务（新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}）${coreResult}`
+
+      this.syncMessage = `同步完成: ${result.synced}/${result.total} 个任务（新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}）`
 
       if (result.errors.length > 0) {
         this.syncMessage += `\n${result.errors.length} 个错误`
       }
     } catch (e) {
-      this.syncMessage = `同步失败: ${JSON.stringify(e)}`
+      this.syncMessage = `同步失败：${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
       this.syncing = false
     }
@@ -137,146 +147,44 @@ struct Index {
 
   build() {
     Column() {
-      Row() {
+      AppShell({ title: '同步', activeRoute: 'pages/Index', drawerOpen: $drawerOpen, busy: this.syncing,
+        actionIcon: $r('app.media.ui_settings'), actionLabel: '同步设置', action: (): void => { router.pushUrl({ url: 'pages/Settings' }) } }) {
         Column() {
-          Text('Org Tasks')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-          Text('任务同步工作台')
-            .fontSize(12)
-            .fontColor('#65746B')
-            .margin({ top: 2 })
-        }
-        .layoutWeight(1)
-        Button('工作区')
-          .fontSize(14)
-          .backgroundColor('#E6F1EC')
-          .fontColor('#175C43')
-          .onClick(() => {
-            router.pushUrl({ url: 'pages/Workspace' })
-          })
-        Button('设置')
-          .fontSize(14)
-          .margin({ left: 8 })
-          .backgroundColor('#F0F2F1')
-          .fontColor('#34423B')
-          .onClick(() => {
-            router.pushUrl({ url: 'pages/Settings' })
-          })
+          Scroll() {
+            Column({ space: 20 }) {
+              Column({ space: 10 }) {
+                Image($r('app.media.ui_sync')).width(36).height(36)
+                Text(this.syncing ? '正在同步' : this.lastSync === '尚未同步' ? '等待首次同步' : `上次同步 ${this.lastSync}`)
+                  .fontSize(24).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+                Text('Org 笔记本 → 系统日历').fontSize(14).fontColor(UiColor.secondary)
+                if (this.syncing) { LoadingProgress().width(28).height(28).color(UiColor.primary) }
+              }.width('100%').padding(24).borderRadius(20).backgroundColor(UiColor.container)
+              Row() {
+                Column({ space: 6 }) {
+                  Text(`${this.taskCount}`).fontSize(30).fontColor(UiColor.primary)
+                  Text('条笔记').fontSize(13).fontColor(UiColor.secondary)
+                }.layoutWeight(1)
+                Column({ space: 6 }) {
+                  Text(this.config.calendarName).fontSize(18).fontColor(UiColor.text).maxLines(1)
+                  Text('目标日历').fontSize(13).fontColor(UiColor.secondary)
+                }.layoutWeight(1)
+              }.width('100%')
+              MessageBar({ message: this.syncMessage, error: this.syncMessage.includes('失败') || this.syncMessage.includes('错误') })
+              Button(this.syncing ? '同步中…' : '同步到系统日历').width('100%').height(48).backgroundColor(UiColor.primary)
+                .enabled(!this.syncing && !this.loading && this.config.repos.length > 0).onClick((): void => { this.doSync() })
+              if (this.config.repos.length === 0 && !this.loading) {
+                Button('添加存储库').width('100%').height(48).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
+                  .onClick((): void => { router.pushUrl({ url: 'pages/Repositories' }) })
+              }
+              Divider().color(UiColor.outline)
+              PreferenceRow({ title: '存储库', detail: `${this.config.repos.length} 个本地或 WebDAV 存储库`, icon: $r('app.media.ui_cloud'),
+                action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
+              PreferenceRow({ title: '日程', detail: '查看有计划与截止时间的未完成笔记', icon: $r('app.media.ui_calendar'),
+                action: (): void => { router.replaceUrl({ url: 'pages/Agenda' }) } })
+            }.width('100%').padding(16).enabled(!this.syncing)
+          }.width('100%').height('100%').align(Alignment.TopStart)
+        }.width('100%').height('100%')
       }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 18, bottom: 18 })
-
-      Scroll() {
-        Column({ space: 20 }) {
-          Column() {
-            Text('同步状态')
-              .fontSize(14)
-              .fontColor('#65746B')
-            Text(this.lastSync === '尚未同步' ? '等待首次同步' : `上次同步 ${this.lastSync}`)
-              .fontSize(22)
-              .fontWeight(FontWeight.Medium)
-              .margin({ top: 6 })
-            Text(this.config.repos.some((repository) => repository.webdavEnabled) ? 'WebDAV 缓存将写入系统日历' : '本地仓库将写入系统日历')
-              .fontSize(13)
-              .fontColor('#65746B')
-              .margin({ top: 8 })
-          }
-          .width('100%')
-          .backgroundColor('#E6F1EC')
-          .padding(20)
-
-          Row() {
-            Column() {
-              Text(this.taskCount.toString())
-                .fontSize(28)
-                .fontWeight(FontWeight.Bold)
-                .fontColor('#175C43')
-              Text('已发现任务')
-                .fontSize(12)
-                .fontColor('#65746B')
-            }
-            .layoutWeight(1)
-            Column() {
-              Text(this.config.calendarName || 'Org Tasks')
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text('目标日历')
-                .fontSize(12)
-                .fontColor('#65746B')
-                .margin({ top: 4 })
-            }
-            .layoutWeight(1)
-          }
-          .width('100%')
-          .padding({ left: 4, right: 4 })
-
-          Text('快捷入口')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .width('100%')
-          Row() {
-            Button('日程')
-              .layoutWeight(1)
-              .height(44)
-              .backgroundColor('#FFFFFF')
-              .fontColor('#175C43')
-              .onClick(() => router.pushUrl({ url: 'pages/Agenda' }))
-            Button('笔记本')
-              .layoutWeight(1)
-              .height(44)
-              .margin({ left: 8 })
-              .backgroundColor('#FFFFFF')
-              .fontColor('#175C43')
-              .onClick(() => router.pushUrl({ url: 'pages/Files' }))
-            Button('搜索')
-              .layoutWeight(1)
-              .height(44)
-              .margin({ left: 8 })
-              .backgroundColor('#FFFFFF')
-              .fontColor('#175C43')
-              .onClick(() => router.pushUrl({ url: 'pages/Search' }))
-          }
-          .width('100%')
-
-          if (this.syncMessage) {
-            Text(this.syncMessage)
-              .fontSize(13)
-              .fontColor(this.syncMessage.includes('失败') ? '#B3261E' : '#175C43')
-              .width('100%')
-              .backgroundColor('#FFFFFF')
-              .padding(14)
-          }
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20, bottom: 18 })
-      }
-      .layoutWeight(1)
-
-      Row() {
-        Button('新增任务')
-          .layoutWeight(1)
-          .height(48)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#175C43')
-          .onClick(() => {
-            router.pushUrl({ url: 'pages/AddTask' })
-          })
-        Button(this.syncing ? '同步中...' : '同步到日历')
-          .layoutWeight(2)
-          .height(48)
-          .margin({ left: 10 })
-          .backgroundColor('#175C43')
-          .enabled(!this.syncing)
-          .onClick(() => this.doSync())
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, bottom: 24 })
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F7F8F7')
+    }.width('100%').height('100%')
   }
 }

@@ -2,9 +2,22 @@
 // 填写任务信息，写入 inbox.org
 
 import { router } from '@kit.ArkUI'
+import { AppShell } from '../components/AppShell'
+import { EmptyState, IconButton, MessageBar } from '../components/Controls'
+import { dateLabel, localDate, repositoryName, UiColor } from '../ui/Theme'
+
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreNewTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+
+interface AddTaskParams { rootDirectory?: string }
+interface EditableField {
+  icon: Resource
+  label: string
+  value: string
+  select: () => void
+  clear: () => void
+}
 
 @Entry
 @Component
@@ -19,17 +32,19 @@ struct AddTask {
   @State loading: boolean = true
   @State saved: boolean = false
   @State message: string = ''
+  @State drawerOpen: boolean = false
+  @State metadataExpanded: boolean = true
   @State config: AppConfig = DEFAULT_CONFIG
 
-  aboutToAppear() {
-    this.loadConfig()
-  }
+  onPageShow() { if (!this.saving && !this.saved) this.loadConfig() }
 
   async loadConfig() {
     try {
       const context = getContext(this)
       this.config = await AppConfigService.load(context)
-      if (this.config.repos.length > 0) this.selectedRepoId = this.config.repos[0].id
+      const params = router.getParams() as AddTaskParams | undefined
+      const selected = this.config.repos.find((repo: RepoConfig) => repo.rootDirectory === params?.rootDirectory)
+      if (this.config.repos.length > 0) this.selectedRepoId = selected ? selected.id : this.config.repos[0].id
     } catch (e) {
       this.message = `加载配置失败: ${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
@@ -71,134 +86,98 @@ struct AddTask {
     }
   }
 
+  onBackPress(): boolean { return this.saving }
+
+  chooseRepository() {
+    this.getUIContext().showActionSheet({ title: '目标存储库', message: '任务写入所选存储库的收集箱',
+      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryName(repo.rootDirectory), action: () => { this.selectedRepoId = repo.id } })) })
+  }
+
+  choosePriority() {
+    this.getUIContext().showActionSheet({ title: '优先级', message: '', sheets: [
+      { title: 'A · 高', action: () => { this.priority = 'A' } },
+      { title: 'B · 中', action: () => { this.priority = 'B' } },
+      { title: 'C · 低', action: () => { this.priority = 'C' } },
+      { title: '清除', action: () => { this.priority = '' } }
+    ] })
+  }
+
+  chooseDate(deadline: boolean) {
+    const value = deadline ? this.deadline : this.scheduled
+    this.getUIContext().showDatePickerDialog({ selected: value ? new Date(`${value}T12:00:00`) : new Date(),
+      onAccept: (result: DatePickerResult) => {
+        if (result.year !== undefined && result.month !== undefined && result.day !== undefined) {
+          const date = localDate(new Date(result.year, result.month, result.day, 12))
+          if (deadline) this.deadline = date; else this.scheduled = date
+        }
+      } })
+  }
+
+  @Builder
+  field($$: EditableField) {
+    Row({ space: 24 }) {
+      Image($$.icon).width(24).height(24)
+      Column({ space: 4 }) {
+        Text($$.label).fontSize(12).fontColor(UiColor.secondary).width('100%')
+        Text($$.value ? ($$.label === '优先级' ? `[#${$$.value}]` : dateLabel($$.value)) : '未设置').fontSize(16).fontColor($$.value ? UiColor.text : '#79747E').width('100%')
+      }.layoutWeight(1).onClick(() => $$.select())
+      if ($$.value) { IconButton({ icon: $r('app.media.ui_close'), label: `清除${$$.label}`, action: $$.clear }) }
+    }.width('100%').constraintSize({ minHeight: 64 }).padding({ left: 16, right: 4, top: 8, bottom: 8 })
+  }
+
   build() {
     Column() {
-      Row() {
-        Button('返回')
-          .fontSize(14)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#34423B')
-          .enabled(!this.saving)
-          .onClick(() => router.back())
+      AppShell({ title: '新增任务', back: true, drawerOpen: $drawerOpen, busy: this.saving,
+        actionIcon: $r('app.media.ui_done'), actionLabel: this.saved ? '' : '保存任务', action: (): void => { this.saveTask() } }) {
         Column() {
-          Text('新增任务')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-          Text(`写入 ${this.config.inboxFile}，保留 org 工作流`)
-            .fontSize(12)
-            .fontColor('#65746B')
-            .margin({ top: 2 })
-        }
-        .margin({ left: 12 })
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 16, bottom: 16 })
-
-      Scroll() {
-        Column() {
-          Text('目标仓库').fontSize(14).fontColor('#666')
-          ForEach(this.config.repos, (repository: RepoConfig) => {
-            Button(repository.rootDirectory)
-              .fontSize(13)
-              .backgroundColor(this.selectedRepoId === repository.id ? '#175C43' : '#FFFFFF')
-              .fontColor(this.selectedRepoId === repository.id ? '#FFFFFF' : '#34423B')
-              .enabled(!this.saving && !this.saved)
-              .margin({ top: 8 })
-              .onClick(() => { this.selectedRepoId = repository.id })
-          }, (repository: RepoConfig) => repository.id)
-
-          // 任务标题
-          Text('标题 *')
-            .fontSize(14)
-            .fontColor('#666')
-          TextInput({ placeholder: '任务标题', text: this.heading })
-            .onChange((value: string) => { this.heading = value })
-            .margin({ top: 8 })
-            .height(44)
-
-          // 优先级
-          Text('优先级')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
-          Row() {
-            ForEach(['A', 'B', 'C'], (p: string) => {
-              Button(`[#${p}]`)
-                .fontSize(14)
-                .height(36)
-                .backgroundColor(this.priority === p ? '#8A3D24' : '#FFFFFF')
-                .fontColor(this.priority === p ? '#FFF' : '#34423B')
-                .margin({ right: 8 })
-                .onClick(() => {
-                  this.priority = this.priority === p ? '' : p
-                })
-            })
+          if (this.loading) {
+            EmptyState({ title: '正在加载存储库', busy: true })
+          } else if (this.saved) {
+            EmptyState({ title: '任务已保存', detail: this.message, actionLabel: '返回', action: (): void => { router.back() } })
+          } else if (this.config.repos.length === 0) {
+            EmptyState({ title: '先添加一个存储库', detail: '选择本地 Org 文件目录，或配置 WebDAV 存储库。', actionLabel: '添加存储库',
+              action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
+          } else {
+            MessageBar({ message: this.message, error: true })
+            Scroll() {
+              Column() {
+                Row({ space: 16 }) {
+                  Image($r('app.media.ui_folder')).width(24).height(24)
+                  Text(`${repositoryName(this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId)?.rootDirectory || '')} / ${this.config.inboxFile}`)
+                    .fontSize(14).fontColor(UiColor.primary).layoutWeight(1).maxLines(2)
+                  Image($r('app.media.ui_down')).width(20).height(20)
+                }.width('100%').padding(16).onClick((): void => { this.chooseRepository() })
+                TextInput({ placeholder: '任务标题', text: this.heading }).fontSize(22).height(72).borderRadius(0)
+                  .backgroundColor(Color.Transparent).onChange((value: string) => { this.heading = value })
+                Divider().color(UiColor.outline)
+                Row({ space: 24 }) {
+                  Image($r('app.media.ui_info')).width(24).height(24)
+                  Text('元数据').fontSize(14).fontColor(UiColor.secondary).layoutWeight(1)
+                  Image(this.metadataExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down')).width(24).height(24)
+                }.width('100%').height(56).padding({ left: 16, right: 16 }).onClick(() => { this.metadataExpanded = !this.metadataExpanded })
+                if (this.metadataExpanded) {
+                  Row({ space: 24 }) {
+                    Image($r('app.media.ui_tags')).width(24).height(24)
+                    TextInput({ placeholder: '标签，用空格或逗号分隔', text: this.tags }).layoutWeight(1).height(56)
+                      .backgroundColor(Color.Transparent).onChange((value: string) => { this.tags = value })
+                  }.width('100%').padding({ left: 16, right: 16 })
+                  Row({ space: 24 }) {
+                    Image($r('app.media.ui_state')).width(24).height(24)
+                    Text('TODO').fontSize(16).fontColor(UiColor.error)
+                    Text('新任务状态').fontSize(12).fontColor(UiColor.secondary)
+                  }.width('100%').height(64).padding({ left: 16, right: 16 })
+                  this.field({ icon: $r('app.media.ui_priority'), label: '优先级', value: this.priority, select: (): void => { this.choosePriority() }, clear: () => { this.priority = '' } })
+                  this.field({ icon: $r('app.media.ui_calendar'), label: '计划日期', value: this.scheduled, select: (): void => { this.chooseDate(false) }, clear: () => { this.scheduled = '' } })
+                  this.field({ icon: $r('app.media.ui_deadline'), label: '截止日期', value: this.deadline, select: (): void => { this.chooseDate(true) }, clear: () => { this.deadline = '' } })
+                }
+                Divider().color(UiColor.outline)
+                Button(this.saving ? '保存中…' : '保存任务').width('90%').height(48).backgroundColor(UiColor.primary)
+                  .enabled(!this.saving).margin({ top: 24, bottom: 32 }).onClick((): void => { this.saveTask() })
+              }.width('100%').enabled(!this.saving)
+            }.width('100%').layoutWeight(1).align(Alignment.TopStart)
           }
-          .margin({ top: 8 })
-
-          // 计划日期
-          Text('计划日期')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
-          TextInput({ placeholder: 'YYYY-MM-DD', text: this.scheduled })
-            .onChange((value: string) => { this.scheduled = value })
-            .margin({ top: 8 })
-            .height(44)
-
-          // 截止日期
-          Text('截止日期')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
-          TextInput({ placeholder: 'YYYY-MM-DD', text: this.deadline })
-            .onChange((value: string) => { this.deadline = value })
-            .margin({ top: 8 })
-            .height(44)
-
-          // 标签
-          Text('标签')
-            .fontSize(14)
-            .fontColor('#666')
-            .margin({ top: 16 })
-          TextInput({ placeholder: '用逗号或空格分隔', text: this.tags })
-            .onChange((value: string) => { this.tags = value })
-            .margin({ top: 8 })
-            .height(44)
-
-          // 提示
-          Text(this.config.repos.length > 0 ? `将写入已选仓库: ${this.config.inboxFile}` : '请先在工作区添加仓库')
-            .fontSize(12)
-            .fontColor('#999')
-            .margin({ top: 24 })
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20 })
-        .enabled(!this.saving && !this.saved)
+        }.width('100%').height('100%')
       }
-      .layoutWeight(1)
-
-      // 消息
-      if (this.message) {
-        Text(this.message)
-          .fontSize(14)
-        .fontColor(this.saved ? '#357A55' : '#B3261E')
-          .width('100%')
-          .padding({ left: 20, right: 20, bottom: 8 })
-      }
-
-      // 保存按钮
-      Button(this.saved ? '已保存' : this.saving ? '保存中...' : '保存')
-        .width('80%')
-        .height(48)
-        .fontSize(17)
-        .backgroundColor('#175C43')
-        .enabled(!this.saving && !this.saved && !this.loading && this.config.repos.length > 0)
-        .margin({ bottom: 40 })
-        .onClick(() => this.saveTask())
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F7F8F7')
+    }.width('100%').height('100%')
   }
 }

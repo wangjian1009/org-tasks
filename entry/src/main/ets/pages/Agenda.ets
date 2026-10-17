@@ -1,174 +1,117 @@
 import { router } from '@kit.ArkUI'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { coreErrorMessage, CoreBridgeError, CoreTask, NativeCoreService } from '../services/NativeCoreService'
+import { CoreBridgeError, coreErrorMessage, CoreTask, NativeCoreService } from '../services/NativeCoreService'
+import { AppShell } from '../components/AppShell'
+import { EmptyState, TaskRow } from '../components/Controls'
+import { dateLabel, localDate, UiColor } from '../ui/Theme'
 
-interface TaskRouteParams {
-  task: CoreTask
+interface AgendaGroup {
+  key: string
+  title: string
+  tasks: CoreTask[]
 }
 
 @Entry
 @Component
 struct Agenda {
-  @State tasks: CoreTask[] = []
+  @State groups: AgendaGroup[] = []
   @State filter: string = '全部'
   @State message: string = ''
+  @State loading: boolean = true
+  @State drawerOpen: boolean = false
   @State config: AppConfig = DEFAULT_CONFIG
+  private requestId: number = 0
 
-  aboutToAppear() {
-    this.loadTasks()
+  onPageShow() { this.loadTasks() }
+  onBackPress(): boolean {
+    if (this.drawerOpen) { this.drawerOpen = false; return true }
+    return false
   }
 
   async loadTasks() {
+    const request = ++this.requestId
+    this.loading = true
+    this.message = ''
     try {
-      const context = getContext(this)
-      this.config = await AppConfigService.load(context)
-      const expression = this.filter === '计划'
-        ? 's.ge.-100y'
-        : this.filter === '截止'
-          ? 'd.ge.-100y'
-          : 's.ge.-100y or d.ge.-100y'
-      const response = await NativeCoreService.searchWorkspace(this.config.repos, expression)
-      this.tasks = response.tasks
-      this.message = ''
+      const config = await AppConfigService.load(getContext(this))
+      const condition = this.filter === '计划' ? 's.ge.-100y' : this.filter === '截止' ? 'd.ge.-100y' : '(s.ge.-100y or d.ge.-100y)'
+      const response = await NativeCoreService.searchWorkspace(config.repos, `.it.done ${condition}`)
+      if (request !== this.requestId) return
+      this.config = config
+      const tasks = response.tasks.slice().sort((a: CoreTask, b: CoreTask) => this.taskDate(a).localeCompare(this.taskDate(b)))
+      const groups: AgendaGroup[] = []
+      const today = localDate(new Date())
+      for (const task of tasks) {
+        const date = this.taskDate(task)
+        const key = date < today ? 'overdue' : date
+        let group = groups.find((item: AgendaGroup) => item.key === key)
+        if (!group) {
+          group = { key, title: key === 'overdue' ? '过期' : date === today ? `今天 · ${dateLabel(date)}` : dateLabel(date), tasks: [] }
+          groups.push(group)
+        }
+        group.tasks.push(task)
+      }
+      this.groups = groups
     } catch (e) {
-      this.message = `读取日程失败: ${coreErrorMessage(e as CoreBridgeError)}`
+      if (request === this.requestId) { this.groups = []; this.message = `读取日程失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } finally {
+      if (request === this.requestId) this.loading = false
     }
   }
 
-  visibleTasks(): CoreTask[] {
-    return this.tasks
-  }
-
   taskDate(task: CoreTask): string {
-    if (task.deadline.length > 0 && task.scheduled.length > 0) return `计划 ${task.scheduled} · 截止 ${task.deadline}`
-    if (task.deadline.length > 0) return `截止 ${task.deadline}`
-    return `计划 ${task.scheduled}`
-  }
-
-  openTask(task: CoreTask) {
-    const params: TaskRouteParams = { task }
-    router.pushUrl({ url: 'pages/TaskDetail', params })
+    if (this.filter === '计划') return task.scheduled
+    if (this.filter === '截止') return task.deadline
+    if (!task.scheduled) return task.deadline
+    if (!task.deadline) return task.scheduled
+    return task.scheduled < task.deadline ? task.scheduled : task.deadline
   }
 
   build() {
     Column() {
-      Row() {
-        Button('☰')
-          .width(48)
-          .height(48)
-          .fontSize(26)
-          .backgroundColor('#00000000')
-          .fontColor('#26332D')
-          .onClick(() => router.pushUrl({ url: 'pages/Workspace' }))
+      AppShell({ title: '日程', activeRoute: 'pages/Agenda', drawerOpen: $drawerOpen,
+      actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) },
+      extraIcon: $r('app.media.ui_sync'), extraLabel: '刷新日程', extraAction: (): void => { this.loadTasks() },
+      fabLabel: '新增任务', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
         Column() {
-          Text('日程')
-            .fontSize(22)
-            .fontWeight(FontWeight.Medium)
-          Text(this.filter === '全部' ? '计划与截止任务' : `${this.filter}任务`)
-            .fontSize(12)
-            .fontColor('#68726D')
-            .margin({ top: 1 })
-        }
-        .margin({ left: 4 })
-        .layoutWeight(1)
-        Button('⌕')
-          .width(44)
-          .height(48)
-          .fontSize(25)
-          .backgroundColor('#00000000')
-          .fontColor('#26332D')
-          .onClick(() => router.pushUrl({ url: 'pages/Search' }))
-        Button('↻')
-          .width(44)
-          .height(48)
-          .fontSize(24)
-          .backgroundColor('#00000000')
-          .fontColor('#175C43')
-          .onClick(() => this.loadTasks())
-      }
-      .width('100%')
-      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-      .border({ width: { bottom: 1 }, color: '#D8DCD9' })
-
-      Row() {
-        ForEach(['全部', '计划', '截止'], (item: string) => {
-          Button(item)
-            .fontSize(13)
-            .height(36)
-            .backgroundColor(this.filter === item ? '#175C43' : '#FFFFFF')
-            .fontColor(this.filter === item ? '#FFFFFF' : '#34423B')
-            .margin({ right: 8 })
-            .onClick(() => {
-              this.filter = item
-              this.loadTasks()
+          Row({ space: 8 }) {
+            ForEach(['全部', '计划', '截止'], (item: string) => {
+              Button(item).height(34).fontSize(13).backgroundColor(this.filter === item ? UiColor.selected : UiColor.surface)
+                .fontColor(this.filter === item ? UiColor.onSelected : UiColor.secondary)
+                .border({ width: 1, color: UiColor.outline }).onClick(() => { this.filter = item; this.loadTasks() })
             })
-        })
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-      .border({ width: { bottom: 1 }, color: '#E1E4E1' })
-
-      if (this.message) {
-        Text(this.message)
-          .fontSize(13)
-          .fontColor('#8A3D24')
-          .width('100%')
-          .padding({ left: 20, right: 20, top: 12, bottom: 12 })
-      }
-
-      if (this.visibleTasks().length === 0 && !this.message) {
-        Column() {
-          Text('没有待展示的日程')
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-          Text('为任务添加计划或截止时间后，它会显示在这里。')
-            .fontSize(13)
-            .fontColor('#65746B')
-            .margin({ top: 8 })
-        }
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else {
-        List({ space: 1 }) {
-          ForEach(this.visibleTasks(), (task: CoreTask) => {
-            ListItem() {
-              Row({ space: 12 }) {
-                Column()
-                  .width(3)
-                  .height(54)
-                  .backgroundColor(task.deadline.length > 0 ? '#B75A3A' : '#1F6B54')
-                Column() {
-                  Text(task.heading)
-                    .fontSize(16)
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(`${task.todoState || '任务'} · ${this.taskDate(task)}`)
-                    .fontSize(12)
-                    .fontColor('#65746B')
-                    .margin({ top: 5 })
-                  Text(task.fileName)
-                    .fontSize(12)
-                    .fontColor('#8B938E')
-                    .margin({ top: 3 })
+          }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
+          if (this.loading) {
+            EmptyState({ title: '正在读取日程', detail: '正在加载仓库中的计划与截止任务', busy: true })
+          } else if (this.message) {
+            EmptyState({ title: '日程读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
+          } else if (this.groups.length === 0) {
+            EmptyState({ title: '没有待安排的日程', detail: this.config.repos.length === 0 ? '先添加存储库，再查看计划与截止任务。' : '未完成笔记有计划或截止日期时，会按日期显示在这里。',
+              actionLabel: this.config.repos.length === 0 ? '添加存储库' : '新增任务',
+              action: (): void => { router.pushUrl({ url: this.config.repos.length === 0 ? 'pages/Repositories' : 'pages/AddTask' }) } })
+          } else {
+            List() {
+              ForEach(this.groups, (group: AgendaGroup) => {
+                ListItemGroup({ header: this.groupHeader(group.title) }) {
+                  ForEach(group.tasks, (task: CoreTask) => {
+                    ListItem() {
+                      TaskRow({ task, open: (): void => { router.pushUrl({ url: 'pages/TaskDetail', params: { task } }) } })
+                    }
+                  }, (task: CoreTask) => task.id)
                 }
-                .layoutWeight(1)
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 13, bottom: 13 })
-              .backgroundColor('#FFFFFF')
-              .border({ width: { bottom: 1 }, color: '#E0E2E0' })
-              .onClick(() => this.openTask(task))
-            }
-        }, (task: CoreTask) => task.id)
-        }
-        .width('100%')
-        .layoutWeight(1)
+              }, (group: AgendaGroup) => group.key)
+            }.width('100%').layoutWeight(1).padding({ bottom: 88 }).sticky(StickyStyle.Header)
+          }
+        }.width('100%').height('100%')
       }
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F8F9F8')
+    }.width('100%').height('100%')
+  }
+
+  @Builder
+  groupHeader(title: string) {
+    Text(title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary).width('100%')
+      .padding({ left: 16, right: 16, top: 16, bottom: 16 }).backgroundColor(UiColor.container)
+      .border({ width: { bottom: 0.5 }, color: UiColor.outline })
   }
 }

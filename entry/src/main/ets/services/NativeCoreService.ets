@@ -24,11 +24,13 @@ export interface CoreWorkspaceSnapshot {
 
 export interface CoreRepositorySnapshot {
   id: string
+  rootDirectory: string
   files: CoreRepositoryFile[]
 }
 
 export interface CoreTask {
   id: string
+  repoId: string
   heading: string
   todoState: string
   priority: string
@@ -66,7 +68,7 @@ export function coreErrorMessage(error: CoreBridgeError): string {
   if (typeof error.message === 'string' && error.message.length > 0) {
     return error.message
   }
-  return 'core 调用失败'
+  return '操作未完成，请重试'
 }
 
 export class CoreWebDavSyncPolicy {
@@ -105,7 +107,8 @@ export class CoreRepo {
   }
 
   async snapshot(): Promise<CoreRepositorySnapshot> {
-    return await this.native.snapshot() as NativeRepositorySnapshot
+    const snapshot = await this.native.snapshot() as NativeRepositorySnapshot
+    return { id: snapshot.id, rootDirectory: this.rootDirectory(), files: snapshot.files }
   }
 
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor): Promise<CoreSyncSnapshot> {
@@ -144,15 +147,22 @@ let activeWorkspaceKey: string = ''
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
+  static async validateRepository(rootDirectory: string): Promise<void> {
+    const workspace = new CoreWorkspace(new NativeWorkspace())
+    const repo = await workspace.addRepo(rootDirectory)
+    await repo.load()
+  }
+
   static async workspaceFor(repositories: RepoConfig[]): Promise<CoreWorkspace> {
     const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
     if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
       return activeWorkspace
     }
-    activeWorkspace = new CoreWorkspace(new NativeWorkspace())
+    const workspace = new CoreWorkspace(new NativeWorkspace())
     for (const repository of repositories) {
-      await activeWorkspace.addRepo(repository.rootDirectory)
+      await workspace.addRepo(repository.rootDirectory)
     }
+    activeWorkspace = workspace
     activeWorkspaceKey = workspaceKey
     return activeWorkspace
   }

@@ -1,175 +1,114 @@
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
-import { CredentialService } from '../services/CredentialService'
-
-interface RepoSettingsParams {
-  repoId?: string
-}
+import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { AppShell } from '../components/AppShell'
+import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
+import { UiColor } from '../ui/Theme'
 
 @Entry
 @Component
 struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
-  @State repoId: string = ''
-  @State rootDirectory: string = ''
-  @State webdavEnabled: boolean = false
-  @State webdavUrl: string = ''
-  @State webdavUsername: string = ''
-  @State webdavPassword: string = ''
-  @State inboxFile: string = DEFAULT_CONFIG.inboxFile
-  @State calendarName: string = DEFAULT_CONFIG.calendarName
-  @State syncInterval: string = '15'
+  @State section: string = ''
+  @State inboxFile: string = 'inbox.org'
+  @State calendarName: string = 'Org Tasks'
+  @State syncInterval: string = '20'
   @State saving: boolean = false
+  @State loaded: boolean = false
   @State message: string = ''
+  @State drawerOpen: boolean = false
 
-  aboutToAppear() {
-    this.loadConfig()
+  onPageShow() { this.load() }
+  onBackPress(): boolean {
+    if (this.saving) return true
+    if (this.drawerOpen) { this.drawerOpen = false; return true }
+    if (this.section) { this.section = ''; this.message = ''; return true }
+    return false
   }
 
-  async loadConfig() {
+  async load() {
     try {
-      const config = await AppConfigService.load(getContext(this))
-      const params = router.getParams() as RepoSettingsParams | undefined
-      const repository = config.repos.find((item: RepoConfig) => item.id === params?.repoId) || AppConfigService.newRepository()
-      this.config = config
-      this.repoId = repository.id
-      this.rootDirectory = repository.rootDirectory
-      this.webdavEnabled = repository.webdavEnabled
-      this.webdavUrl = repository.webdavUrl
-      this.webdavUsername = repository.webdavUsername
-      this.webdavPassword = repository.webdavPassword
-      this.inboxFile = config.inboxFile
-      this.calendarName = config.calendarName
-      this.syncInterval = config.syncInterval.toString()
-    } catch (e) {
-      this.message = '读取仓库配置失败'
-    }
+      this.config = await AppConfigService.load(getContext(this))
+      this.inboxFile = this.config.inboxFile
+      this.calendarName = this.config.calendarName
+      this.syncInterval = Math.max(20, this.config.syncInterval).toString()
+      this.loaded = true
+    } catch (e) { this.message = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
 
-  async saveConfig() {
-    if (!this.rootDirectory.trim()) {
-      this.message = '请输入 Org 文件目录'
-      return
+  async save() {
+    if (this.saving || !this.loaded) return
+    const interval = Number(this.syncInterval)
+    if (!this.inboxFile.trim() || !this.calendarName.trim() || !Number.isInteger(interval) || interval < 20) {
+      this.message = '请填写收集箱文件和日历名称，同步间隔应为至少 20 的整数'; return
+    }
+    const inbox = this.inboxFile.trim()
+    if (!inbox.endsWith('.org') || inbox.startsWith('/') || inbox.split('/').some((part: string) => part === '..' || part.length === 0)) {
+      this.message = '收集箱必须是存储库中的相对 .org 路径'; return
     }
     this.saving = true
     try {
-      const repository: RepoConfig = {
-        id: this.repoId,
-        rootDirectory: this.rootDirectory.trim(),
-        webdavEnabled: this.webdavEnabled,
-        webdavUrl: this.webdavUrl.trim(),
-        webdavUsername: this.webdavUsername.trim(),
-        webdavPassword: this.webdavPassword
-      }
-      const repositories = this.config.repos.filter((item: RepoConfig) => item.id !== repository.id)
-      repositories.push(repository)
-      await AppConfigService.save(getContext(this), {
-        repos: repositories,
-        inboxFile: this.inboxFile,
-        calendarName: this.calendarName,
-        syncInterval: parseInt(this.syncInterval) || 15
-      })
-      this.message = '仓库配置已保存'
-      setTimeout(() => router.back(), 500)
-    } catch (e) {
-      this.message = '保存失败'
-    } finally {
-      this.saving = false
-    }
-  }
-
-  async deleteRepository() {
-    if (!this.config.repos.some((item: RepoConfig) => item.id === this.repoId)) return
-    this.saving = true
-    try {
-      await CredentialService.clearWebDavPassword(this.repoId)
-      await AppConfigService.save(getContext(this), {
-        repos: this.config.repos.filter((item: RepoConfig) => item.id !== this.repoId),
-        inboxFile: this.inboxFile,
-        calendarName: this.calendarName,
-        syncInterval: parseInt(this.syncInterval) || 15
-      })
-      router.back()
-    } catch (e) {
-      this.message = '删除仓库失败'
-    } finally {
-      this.saving = false
-    }
+      const current = await AppConfigService.load(getContext(this))
+      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.inboxFile.trim(), calendarName: this.calendarName.trim(), syncInterval: interval })
+      this.message = '设置已保存'
+      try { await BackgroundSyncService.configure(interval) }
+      catch (e) { this.message = `设置已保存，后台调度更新失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = `保存设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    finally { this.saving = false }
   }
 
   build() {
     Column() {
-      Row() {
-        Button('返回').fontSize(14).backgroundColor('#FFFFFF').fontColor('#34423B').onClick(() => router.back())
+      AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
+        back: this.section.length > 0, busy: this.saving, backAction: () => { this.section = ''; this.message = '' },
+        actionIcon: $r('app.media.ui_done'), actionLabel: this.section === '同步' || this.section === '笔记与笔记本' ? '保存设置' : '', action: (): void => { this.save() } }) {
         Column() {
-          Text('仓库配置').fontSize(22).fontWeight(FontWeight.Medium)
-          Text('目录与 WebDAV 远端').fontSize(12).fontColor('#65746B')
-        }
-        .margin({ left: 12 })
+          MessageBar({ message: this.message, error: this.message !== '设置已保存' })
+          Scroll() {
+            Column() {
+              if (!this.section) {
+                PreferenceRow({ title: '笔记与笔记本', detail: '新增任务的收集箱文件', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
+                PreferenceRow({ title: '同步', detail: '存储库、系统日历与后台同步', icon: $r('app.media.ui_sync'), action: () => { this.section = '同步' } })
+                PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
+              } else if (this.section === '同步') {
+                PreferenceRow({ title: '存储库', detail: `${this.config.repos.length} 个本地或 WebDAV 存储库`, icon: $r('app.media.ui_cloud'), action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
+                Divider().color(UiColor.outline)
+                SectionHeading({ title: '系统日历' })
+                Column({ space: 12 }) {
+                  Text('日历名称').fontSize(14).fontColor(UiColor.secondary).width('100%')
+                  TextInput({ text: this.calendarName, placeholder: 'Org Tasks' }).height(56).backgroundColor(UiColor.field).borderRadius(6)
+                    .onChange((value: string) => { this.calendarName = value })
+                  Text('同步中心会将具有计划或截止时间的任务写入此日历。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
+                }.width('100%').padding({ left: 24, right: 24 })
+                SectionHeading({ title: '自动同步' })
+                Column({ space: 12 }) {
+                  Text('间隔（分钟）').fontSize(14).fontColor(UiColor.secondary).width('100%')
+                  TextInput({ text: this.syncInterval, placeholder: '20' }).type(InputType.Number).height(56).backgroundColor(UiColor.field).borderRadius(6)
+                    .onChange((value: string) => { this.syncInterval = value })
+                  Text('至少 20 分钟；保存后由系统后台任务调度，实际执行可能延后。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
+                }.width('100%').padding({ left: 24, right: 24 })
+                Button(this.saving ? '保存中…' : '保存设置').width('88%').height(48).backgroundColor(UiColor.primary).margin({ top: 32 })
+                  .enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
+              } else if (this.section === '笔记与笔记本') {
+                SectionHeading({ title: '收集箱' })
+                Column({ space: 16 }) {
+                  Text('新增任务文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
+                  TextInput({ text: this.inboxFile, placeholder: 'inbox.org' }).height(56).backgroundColor(UiColor.field).borderRadius(6)
+                    .onChange((value: string) => { this.inboxFile = value })
+                  Text('新增任务会写入所选存储库中的此文件，请使用相对 .org 路径。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Button('保存设置').width('100%').height(48).backgroundColor(UiColor.primary).enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
+                }.width('100%').padding(24)
+              } else {
+                SectionHeading({ title: 'Org Tasks' })
+                Text('浏览 Org 笔记本、按日期查看任务，并将任务同步到 HarmonyOS 系统日历。')
+                  .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(24)
+              }
+            }.width('100%').padding({ bottom: 32 }).enabled(!this.saving)
+          }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+        }.width('100%').height('100%')
       }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 16, bottom: 16 })
-
-      Scroll() {
-        Column() {
-          Text('Org 文件目录').fontSize(14).fontColor('#4E5A53')
-          TextInput({ placeholder: '本地 org 文件目录路径', text: this.rootDirectory })
-            .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-            .onChange((value: string) => this.rootDirectory = value)
-          Row() {
-            Text('使用 WebDAV 远端').fontSize(14).fontColor('#4E5A53')
-            Blank()
-            Toggle({ type: ToggleType.Switch, isOn: this.webdavEnabled })
-              .onChange((enabled: boolean) => this.webdavEnabled = enabled)
-          }
-          .width('100%')
-          .margin({ top: 20 })
-          if (this.webdavEnabled) {
-            Text('WebDAV 目录地址').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
-            TextInput({ placeholder: 'https://dav.example.com/org-tasks/', text: this.webdavUrl })
-              .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-              .onChange((value: string) => this.webdavUrl = value)
-            Text('用户名').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
-            TextInput({ placeholder: 'WebDAV 用户名', text: this.webdavUsername })
-              .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-              .onChange((value: string) => this.webdavUsername = value)
-            Text('密码或应用专用密码').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
-            TextInput({ placeholder: 'WebDAV 密码', text: this.webdavPassword })
-              .type(InputType.Password).height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-              .onChange((value: string) => this.webdavPassword = value)
-          }
-          Text('新增任务文件').fontSize(14).fontColor('#4E5A53').margin({ top: 24 })
-          TextInput({ placeholder: 'inbox.org', text: this.inboxFile })
-            .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-            .onChange((value: string) => this.inboxFile = value)
-          Text('日历名称').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
-          TextInput({ placeholder: 'Org Tasks', text: this.calendarName })
-            .height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-            .onChange((value: string) => this.calendarName = value)
-          Text('自动同步间隔（分钟）').fontSize(14).fontColor('#4E5A53').margin({ top: 16 })
-          TextInput({ placeholder: '15', text: this.syncInterval })
-            .type(InputType.Number).height(44).backgroundColor('#FFFFFF').margin({ top: 8 })
-            .onChange((value: string) => this.syncInterval = value)
-          if (this.config.repos.some((item: RepoConfig) => item.id === this.repoId)) {
-            Button('删除仓库').width('100%').height(44).fontColor('#B3261E').backgroundColor('#FFFFFF')
-              .margin({ top: 28 }).onClick(() => this.deleteRepository())
-          }
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20, bottom: 20 })
-      }
-      .layoutWeight(1)
-      if (this.message) {
-        Text(this.message).fontSize(13).fontColor(this.message.includes('失败') ? '#B3261E' : '#357A55')
-          .width('100%').padding({ left: 20, right: 20, bottom: 8 })
-      }
-      Button(this.saving ? '保存中...' : '保存仓库')
-        .width('80%').height(48).backgroundColor('#175C43').enabled(!this.saving)
-        .margin({ bottom: 28 }).onClick(() => this.saveConfig())
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F7F8F7')
+    }.width('100%').height('100%')
   }
 }

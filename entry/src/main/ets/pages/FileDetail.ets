@@ -1,168 +1,126 @@
 import { router } from '@kit.ArkUI'
-import { OrgTask } from '../models/OrgTask'
-import { CoreTask } from '../services/NativeCoreService'
+import { AppShell } from '../components/AppShell'
+import { EmptyState, TaskRow } from '../components/Controls'
+import { AppConfigService } from '../services/AppConfigService'
+import { NotebookService } from '../services/NotebookService'
+import { CoreBridgeError, coreErrorMessage, CoreTask } from '../services/NativeCoreService'
+import { UiColor } from '../ui/Theme'
 
-interface FileDetailParams {
-  path?: string
-  source?: string
-  tasks?: CoreTask[]
-}
-
-interface TaskRouteParams {
-  task: OrgTask
-}
+interface NotebookParams { repoId?: string; path?: string }
 
 @Entry
 @Component
 struct FileDetail {
   @State path: string = ''
+  @State repoId: string = ''
   @State content: string = ''
-  @State taskCount: number = 0
-  @State mtime: number = 0
+  @State tasks: CoreTask[] = []
+  @State collapsed: string[] = []
+  @State tab: string = '笔记'
+  @State loading: boolean = true
   @State message: string = ''
-  @State tasks: OrgTask[] = []
-  @State tab: string = '任务'
+  @State drawerOpen: boolean = false
+  @State rootDirectory: string = ''
 
-  aboutToAppear() {
-    this.loadFile()
+  onPageShow() { this.loadFile() }
+  onBackPress(): boolean {
+    if (this.drawerOpen) { this.drawerOpen = false; return true }
+    return false
   }
 
   async loadFile() {
-    const params = router.getParams() as FileDetailParams
-    this.path = params.path || ''
-    this.content = params.source || ''
-    this.tasks = (params.tasks || []) as OrgTask[]
-    this.taskCount = this.tasks.length
-    if (!this.path || !this.content) {
-      this.message = 'workspace 快照中未找到此文件'
+    this.loading = true
+    try {
+      const params = router.getParams() as NotebookParams
+      this.path = params.path || ''
+      this.repoId = params.repoId || ''
+      const config = await AppConfigService.load(getContext(this))
+      const notebooks = await NotebookService.load(config.repos)
+      const file = notebooks.find((item) => item.repoId === this.repoId && item.path === this.path)
+      if (!file) { this.message = '该笔记本已不存在，请返回笔记本列表。'; return }
+      this.tasks = file.tasks
+      this.content = file.source
+      this.rootDirectory = file.rootDirectory
+      this.message = ''
+    } catch (e) {
+      this.message = `读取笔记本失败：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally { this.loading = false }
+  }
+
+  hasChildren(task: CoreTask): boolean {
+    const index = this.tasks.findIndex((item: CoreTask) => item.id === task.id)
+    return index >= 0 && index + 1 < this.tasks.length && this.tasks[index + 1].level > task.level
+  }
+
+  visibleTasks(): CoreTask[] {
+    const visible: CoreTask[] = []
+    let hiddenLevel = 0
+    for (const task of this.tasks) {
+      if (hiddenLevel > 0 && task.level > hiddenLevel) continue
+      hiddenLevel = 0
+      visible.push(task)
+      if (this.collapsed.includes(task.id)) hiddenLevel = task.level
     }
+    return visible
   }
 
-  formatTime(timestamp: number): string {
-    if (timestamp <= 0) return '未知时间'
-    const date = new Date(timestamp)
-    return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
+  toggle(task: CoreTask) {
+    this.collapsed = this.collapsed.includes(task.id) ? this.collapsed.filter((id: string) => id !== task.id) : [...this.collapsed, task.id]
   }
 
-  openTask(task: OrgTask) {
-    const params: TaskRouteParams = { task }
-    router.pushUrl({ url: 'pages/TaskDetail', params })
+  openTask(task: CoreTask) {
+    const index = this.tasks.findIndex((item: CoreTask) => item.id === task.id)
+    const parents: CoreTask[] = []
+    let level = task.level
+    for (let i = index - 1; i >= 0; i--) {
+      if (this.tasks[i].level < level) { parents.unshift(this.tasks[i]); level = this.tasks[i].level }
+    }
+    router.pushUrl({ url: 'pages/TaskDetail', params: { task, parents: parents.map((item: CoreTask) => item.heading) } })
   }
 
   build() {
     Column() {
-      Row() {
-        Button('返回')
-          .fontSize(14)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#34423B')
-          .onClick(() => router.back())
-        Text(this.path || '文件详情')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ left: 12 })
-          .layoutWeight(1)
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 16, bottom: 12 })
-
-      if (this.message) {
-        Text(this.message)
-          .fontSize(14)
-          .fontColor('#C62828')
-          .width('100%')
-          .padding({ left: 20, right: 20, bottom: 12 })
-      } else {
-        Text(`${this.taskCount} 个任务 · core workspace 快照`)
-          .fontSize(13)
-          .fontColor('#666')
-          .width('100%')
-          .padding({ left: 20, right: 20, bottom: 12 })
-        Row() {
-          ForEach(['任务', '原文'], (item: string) => {
-            Button(item)
-              .fontSize(13)
-              .height(36)
-              .backgroundColor(this.tab === item ? '#7A4D16' : '#FFFFFF')
-              .fontColor(this.tab === item ? '#FFFFFF' : '#34423B')
-              .margin({ right: 8 })
-              .onClick(() => this.tab = item)
-          })
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20, bottom: 10 })
-
-        if (this.tab === '任务') {
-          if (this.tasks.length === 0) {
-            Column() {
-              Text('这个文件没有 TODO 任务')
-                .fontSize(17)
-                .fontWeight(FontWeight.Medium)
-              Text('切换到原文可查看完整 org 内容。')
-                .fontSize(13)
-                .fontColor('#65746B')
-                .margin({ top: 8 })
-            }
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
+      AppShell({ title: this.path || '笔记本', back: true, drawerOpen: $drawerOpen,
+      actionIcon: $r('app.media.ui_expand'), actionLabel: this.collapsed.length > 0 ? '展开全部' : '收起全部',
+      action: () => { this.collapsed = this.collapsed.length > 0 ? [] : this.tasks.filter((task: CoreTask) => this.hasChildren(task)).map((task: CoreTask) => task.id) },
+      extraIcon: $r('app.media.ui_search'), extraLabel: '搜索笔记', extraAction: (): void => { router.pushUrl({ url: 'pages/Search' }) },
+      fabLabel: '新增任务', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask', params: { rootDirectory: this.rootDirectory } }) } }) {
+        Column() {
+          if (this.loading) {
+            EmptyState({ title: '正在打开笔记本', busy: true })
+          } else if (this.message) {
+            EmptyState({ title: '无法打开笔记本', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile() } })
           } else {
-            List({ space: 1 }) {
-              ForEach(this.tasks, (task: OrgTask) => {
-                ListItem() {
-                  Column() {
-                    Row() {
-                      Text(task.todoState || '任务')
-                        .fontSize(11)
-                        .fontColor(task.todoState === 'DONE' ? '#357A55' : '#7A4D16')
-                      if (task.priority) {
-                        Text(`优先级 ${task.priority}`)
-                          .fontSize(12)
-                          .fontColor('#8A3D24')
-                          .margin({ left: 8 })
-                      }
-                    }
-                    .width('100%')
-                    Text(task.heading)
-                      .fontSize(16)
-                      .fontWeight(FontWeight.Medium)
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .margin({ top: 5 })
-                    if (task.scheduled || task.deadline) {
-                      Text(`${task.scheduled ? `计划 ${task.scheduled}` : ''}${task.scheduled && task.deadline ? ' · ' : ''}${task.deadline ? `截止 ${task.deadline}` : ''}`)
-                        .fontSize(12)
-                        .fontColor('#65746B')
-                        .margin({ top: 5 })
-                    }
+            Row({ space: 8 }) {
+              ForEach(['笔记', '原文'], (tab: string) => {
+                Button(tab).height(34).fontSize(13).fontColor(this.tab === tab ? UiColor.onSelected : UiColor.secondary)
+                  .backgroundColor(this.tab === tab ? UiColor.selected : Color.Transparent)
+                  .onClick(() => { this.tab = tab })
+              })
+              Blank()
+              Text(`${this.tasks.length} 条笔记`).fontSize(12).fontColor(UiColor.secondary)
+            }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
+            if (this.tab === '原文') {
+              Scroll() {
+                Text(this.content || '空白 org 文件').width('100%').fontSize(14).fontFamily('monospace')
+                  .fontColor(UiColor.text).copyOption(CopyOptions.LocalDevice).padding(16)
+              }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+            } else if (this.tasks.length === 0) {
+              EmptyState({ title: '这个笔记本还是空的', detail: '切换到原文查看文件，或新增任务写入收集箱。' })
+            } else {
+              List() {
+                ForEach(this.visibleTasks(), (task: CoreTask) => {
+                  ListItem() {
+                    TaskRow({ task, showSource: false, showBody: true, indent: Math.min(Math.max(task.level - 1, 0), 8) * 20,
+                      canFold: this.hasChildren(task), folded: this.collapsed.includes(task.id),
+                      fold: (): void => { this.toggle(task) }, open: (): void => { this.openTask(task) } })
                   }
-                  .width('100%')
-                  .padding({ left: 20, right: 20, top: 14, bottom: 14 })
-                  .backgroundColor('#FFFFFF')
-                  .onClick(() => this.openTask(task))
-                }
-              }, (task: OrgTask) => task.id)
+                }, (task: CoreTask) => task.id)
+              }.width('100%').layoutWeight(1).padding({ bottom: 88 })
             }
-            .width('100%')
-            .layoutWeight(1)
           }
-        } else {
-          Scroll() {
-            Text(this.content)
-              .fontSize(14)
-              .fontFamily('monospace')
-              .fontColor('#333')
-              .width('100%')
-              .padding(16)
-          }
-          .layoutWeight(1)
-          .backgroundColor('#FFFFFF')
-        }
+        }.width('100%').height('100%')
       }
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F7F8F7')
+    }.width('100%').height('100%')
   }
 }

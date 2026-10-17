@@ -23,6 +23,7 @@ export interface RepositorySnapshot {
 
 export interface Task {
   id: string;
+  repoId: string;
   heading: string;
   todoState: string;
   priority: string;

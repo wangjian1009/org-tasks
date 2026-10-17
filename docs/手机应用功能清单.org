@@ -20,17 +20,17 @@
 | ID | 功能 | 用户结果 | 状态 | 主要实现 | 验收要点 |
 |-
 | APP-001 | 本地目录同步 | 通过 core workspace 读取配置仓库中的 ~.org~ 文件并导入日历。 | 已实现 | ~Index.ets~ 、 ~SyncWorkExtension.ets~ 、 ~NativeCoreService.ets~ | core 成功加载仓库后才将其任务快照写入指定日历。 |
-| APP-002 | WebDAV 连接配置 | 为每个仓库配置 WebDAV 根目录、用户名和密码。 | 已实现 | ~Settings.ets~ 、 ~CredentialService.ets~ | 密码仅保存在 Asset Store；实际连接由下一次 core 同步验证。 |
+| APP-002 | WebDAV 连接配置 | 为每个仓库配置 WebDAV 根目录、用户名和密码。 | 已实现 | ~Repositories.ets~ 、 ~RepositorySettings.ets~ 、 ~CredentialService.ets~ | 存储库列表与连接表单分开；密码仅保存在 Asset Store；实际连接由同步中心验证。 |
 | APP-003 | WebDAV 仓库同步 | 由 core 的 ~WebDavSyncPolicy~ 列举、下载和条件写入远端 ~.org~ 文件。 | 已实现 | ~NativeCoreService.ets~ 、 ~harmony/src/bridge.rs~ | 同步结果和仓库快照均来自 core workspace。 |
 | APP-004 | 手动同步 | 从工作区进入同步中心，触发从本地目录或 WebDAV 缓存到系统日历的同步，并展示统计结果。 | 已实现 | ~Index.ets~ 、 ~CalendarSync.ets~ | 请求日历读写权限；展示新增、更新、删除和错误数量。 |
-| APP-005 | 后台定时同步 | 使用 WorkScheduler 按配置间隔执行同步。 | 已实现 | ~EntryAbility.ets~ 、 ~SyncWorkExtension.ets~ | 默认间隔为 15 分钟；后台失败不应删除既有日历事件。 |
+| APP-005 | 后台定时同步 | 使用 WorkScheduler 按配置间隔执行同步。 | 已实现 | ~EntryAbility.ets~ 、 ~SyncWorkExtension.ets~ | 默认间隔为 20 分钟（当前系统下限）；设置保存后更新系统作业；后台失败不应删除既有日历事件。 |
 | APP-006 | Org 任务解析 | 解析标题、TODO 状态、优先级、 ~SCHEDULED~ 、 ~DEADLINE~ 、标签、正文和进度。 | 已实现 | ~OrgParser.ets~ | 仅带 TODO 关键字的标题成为任务；解析或读取任一文件失败时取消本轮删除同步。 |
 | APP-007 | 日历增量同步 | 以任务 ID 映射系统日历事件，并创建、更新、跳过或删除事件。 | 已实现 | ~CalendarSync.ets~ | 无计划或截止时间的任务不创建事件；任务内容变化更新既有事件；源任务消失时删除对应事件。 |
-| APP-008 | 新增任务 | 从应用填写标题、日期、标签和优先级，写入 ~inbox.org~ 。 | 已实现 | ~AddTask.ets~ 、 ~OrgRepo.create_task~ | 选择目标仓库后追加任务；校验日期、标签和优先级，保留既有文件字节；保存期间及成功后阻止重复提交。 |
+| APP-008 | 新增任务 | 从应用填写标题、日期、标签和优先级，写入 ~inbox.org~ 。 | 已实现 | ~AddTask.ets~ 、 ~OrgRepo.create_task~ | 元数据表单可选择目标存储库、优先级和日期；校验日期、标签和优先级，保留既有文件字节；保存期间及成功后阻止重复提交。 |
 | APP-009 | WebDAV 待上传任务 | 离线新增任务先保存到本地，并登记 outbox，后续同步上传。 | 已实现 | ~OrgRepo.create_task~ 、 ~core::webdav~ | outbox 只保存相对路径和哈希；条件上传成功且历史落盘后确认消费；断网、冲突和失败保留本地任务及意图，不提供自动冲突合并。 |
-| APP-010 | 文件浏览 | 浏览 core workspace 中的 org 文件、原文和任务快照。 | 已实现 | ~Files.ets~ 、 ~FileDetail.ets~ 、 ~NativeCoreService.ets~ | 文件与任务信息必须来自同一 core workspace 快照。 |
-| APP-011 | 同步设置 | 配置仓库目录、inbox 文件、日历名称和后台同步间隔；每仓库密码独立安全存储。 | 已实现 | ~Settings.ets~ 、 ~CredentialService.ets~ | 密码不写入 Preferences；保存后后续同步使用新配置。 |
-| APP-012 | 工作区导航 | 从统一入口添加、配置、删除仓库，并进入新增任务、同步、日程、笔记本、搜索和已保存搜索。 | 已实现 | ~Workspace.ets~ | 仓库拥有独立目录和 WebDAV 远端；删除配置不删除仓库文件。 |
-| APP-013 | 日程视图 | 作为默认入口查看所有具有计划或截止时间的任务，并按时间类型筛选。 | 已实现 | ~Agenda.ets~ 、 ~NativeCoreService.ets~ | 本地或 WebDAV 缓存的 org 任务按计划、截止和全部三种视图展示。 |
-| APP-014 | 任务搜索与保存搜索 | 按标题、正文、标签、状态和文件名检索任务，并保存常用关键词。 | 已实现 | ~Search.ets~ 、 ~SavedSearches.ets~ | 搜索结果可打开任务详情；保存的搜索在重启后仍可打开或删除。 |
-| APP-015 | 任务详情 | 从日程、搜索或文件任务列表查看任务属性、正文和来源文件。 | 已实现 | ~TaskDetail.ets~ 、 ~FileDetail.ets~ | 显示 TODO 状态、优先级、计划、截止、标签、正文和来源；不改写 org 文件。 |
+| APP-010 | 文件浏览 | 以笔记本卡片浏览 org 文件，进入可折叠的标题层级列表或原文。 | 已实现 | ~Files.ets~ 、 ~FileDetail.ets~ 、 ~NativeCoreService.ets~ | 文件与笔记来自同一 core workspace；以仓库 ID 加相对路径隔离同名文件；按真实标题层级折叠，空文件可查看。 |
+| APP-011 | 同步设置 | 配置仓库目录、inbox 文件、日历名称和后台同步间隔；每仓库密码独立安全存储。 | 已实现 | ~Settings.ets~ 、 ~RepositorySettings.ets~ 、 ~CredentialService.ets~ | 全局与存储库配置分离；密码不写入 Preferences；日历、收集箱与后台间隔单独保存。 |
+| APP-012 | 抽屉导航与存储库管理 | 从抽屉进入搜索、日程、笔记本、存储库、设置与同步，动态访问笔记本和已保存搜索。 | 已实现 | ~AppShell.ets~ 、 ~Repositories.ets~ | 主入口切换不无限堆叠返回栈；删除配置先确认且不删除仓库文件；旧工作区入口转到存储库。 |
+| APP-013 | 日程视图 | 作为默认入口查看所有具有计划或截止时间的任务，并按时间类型筛选。 | 已实现 | ~Agenda.ets~ 、 ~NativeCoreService.ets~ | 未完成笔记按过期与日期分组，可筛选计划、截止和全部；同一笔记只列一次；不展开重复器。 |
+| APP-014 | 任务搜索与保存搜索 | 通过简单筛选或高级表达式查询笔记，并保存完整查询。 | 已实现 | ~Search.ets~ 、 ~SavedSearches.ets~ | 查询由 core 求值；结果可打开详情；已保存项显示名称与表达式，重启后可执行、编辑或确认删除。 |
+| APP-015 | 任务详情 | 从日程、搜索或文件任务列表查看任务属性、正文和来源文件。 | 已实现 | ~TaskDetail.ets~ 、 ~FileDetail.ets~ | 显示来源与父标题面包屑、状态、优先级、计划、截止、标签和正文；元数据与正文独立折叠；不改写 org 文件。 |

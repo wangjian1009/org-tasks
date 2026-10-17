@@ -22,7 +22,7 @@
 
 * 配置模型
 
-目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ ，并由工作区页面独立添加、配置和删除。首次加载根目录时由 ~OrgRepo.load~ 创建或读取 ~.sync/id~ 。当前版本不读取或迁移旧的单仓库 Preferences 字段。
+目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ ，并由存储库列表与配置表单独立添加、配置和删除。首次加载根目录时由 ~OrgRepo.load~ 创建或读取 ~.sync/id~ 。当前版本不读取或迁移旧的单仓库 Preferences 字段。
 
 #+begin_src ts
 interface HarmonyAppConfig {
@@ -44,7 +44,7 @@ interface HarmonyOrgRepoConfig {
 | 配置范围 | 字段 | 保存位置 | 约束 |
 |-
 | 全局日历 | ~calendar.name~ | Preferences | 默认 ~Org Tasks~ ；只用于 Harmony CalendarKit。 |
-| 后台调度 | ~scheduler.intervalMinutes~ | Preferences | 默认 15 分钟；仅控制 WorkScheduler 唤醒，不保存同步结果。 |
+| 后台调度 | ~scheduler.intervalMinutes~ | Preferences | 默认 20 分钟；仅控制 WorkScheduler 唤醒，不保存同步结果。 |
 | 仓库根目录 | ~rootDirectory~ | Preferences | 非空目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
 | inbox 目标 | ~inboxFile~ | Preferences | 应用级安全相对 ~.org~ 路径；新增任务时相对于用户选择的仓库解析。 |
 | WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | HTTPS 根目录 URL；由 ~core::webdav::WebDavSyncPolicy~ 使用，不进入核心数据模型。 |
@@ -69,7 +69,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoC
 | WebDAV 密码 | Harmony | Asset Store | 每个 ~repoId~ 独立秘密记录。 |
 | 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。不保存绝对路径、凭据或完整 org 内容。 |
 | 日历映射 | Harmony | Preferences 的 ~calendar_sync_state~ | entry ID、日历事件 ID 和指纹；不得与用户配置混写。 |
-| 已保存搜索 | Harmony | Preferences 的 ~org_tasks_saved_searches~ | 仅保存搜索名称与关键词；不保存完整任务、文件内容、绝对路径或凭据。 |
+| 已保存搜索 | Harmony | Preferences 的 ~org_tasks_saved_searches~ | 仅保存搜索 ID、名称与完整查询表达式；不保存完整任务、文件内容、绝对路径或凭据。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
 ~lastSyncTime~ 不是配置。首页和后台状态应从指定 ~repoId~ 的 ~OrgRepoSyncRecord~ 历史读取，而不是写入 Preferences。
@@ -91,3 +91,9 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoC
 - 重建 workspace 时，同一根目录的 ~.sync/id~ 能查询其历史；修改地址不会创建新的历史分区，更换根目录则使用该目录自己的历史。
 - 删除仓库不会影响其他仓库的凭据和记录。
 - 不存在旧配置、旧密码或旧同步状态到当前模型的自动迁移路径。
+
+* 界面配置入口
+
+本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收集箱、日历与后台间隔； ~Repositories.ets~ 管理列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
+
+后台间隔默认及输入下限均为 20 分钟，以匹配当前 HarmonyOS 的系统约束。低于下限的既有值在显示与调度时按 20 分钟处理。保存后由 ~BackgroundSyncService.configure~ 比较现有 WorkScheduler 作业，必要时替换同一作业。调度配置不进入 core 同步记录。

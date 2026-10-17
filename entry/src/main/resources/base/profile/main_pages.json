@@ -9,6 +9,8 @@
     "pages/FileDetail",
     "pages/TaskDetail",
     "pages/Settings",
-    "pages/AddTask"
+    "pages/AddTask",
+    "pages/Repositories",
+    "pages/RepositorySettings"
   ]
 }

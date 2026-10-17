@@ -57,5 +57,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   repos: [],
   inboxFile: 'inbox.org',
   calendarName: 'Org Tasks',
-  syncInterval: 15
+  syncInterval: 20
 }

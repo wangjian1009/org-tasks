@@ -45,6 +45,7 @@ pub struct HarmonyBridgeFile {
 #[serde(rename_all = "camelCase")]
 pub struct HarmonyBridgeTask {
     pub id: String,
+    pub repo_id: String,
     pub heading: String,
     pub todo_state: String,
     pub priority: String,
@@ -189,6 +190,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
     }
     HarmonyBridgeTask {
         id: format!("{}:{}:{}", task.repo_id, task.path, task.byte_offset),
+        repo_id: task.repo_id,
         heading: task.title,
         todo_state: task.state.unwrap_or_default(),
         priority: task.priority.unwrap_or_default(),
@@ -203,7 +205,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         tags,
         file_name: task.path.rsplit('/').next().unwrap_or(&task.path).into(),
         file_path: task.path,
-        level: 0,
+        level: task.level,
         body: task.body,
         progress: -1,
     }
@@ -469,6 +471,11 @@ mod tests {
         let tasks: serde_json::Value =
             serde_json::from_str(&workspace_search_json(handle, "i.todo".into()).unwrap()).unwrap();
         assert_eq!(tasks.as_array().unwrap().len(), 2);
+        assert_eq!(tasks[0]["level"], 1);
+        assert_eq!(
+            tasks[0]["repoId"],
+            repo_id(handle, root_directory.clone()).unwrap()
+        );
         let response = repo_snapshot_json(handle, root_directory).unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["files"][0]["path"], "inbox.org");
@@ -477,7 +484,32 @@ mod tests {
             "* TODO bridge\n* TODO created from bridge\n"
         );
 
+        let second_root = root.with_extension("second");
+        std::fs::create_dir_all(&second_root).unwrap();
+        std::fs::write(
+            second_root.join("inbox.org"),
+            "* TODO other\n** TODO child\n",
+        )
+        .unwrap();
+        let second_directory = second_root.to_string_lossy().into_owned();
+        workspace_add_repo(handle, second_directory.clone()).unwrap();
+        repo_load(handle, second_directory.clone()).unwrap();
+        let second_id = repo_id(handle, second_directory).unwrap();
+        let tasks: Vec<serde_json::Value> =
+            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+        let second_tasks = tasks
+            .iter()
+            .filter(|task| task["repoId"] == second_id)
+            .collect::<Vec<_>>();
+        assert_eq!(second_tasks.len(), 2);
+        assert_eq!(second_tasks[0]["filePath"], "inbox.org");
+        assert_eq!(second_tasks[0]["level"], 1);
+        assert_eq!(second_tasks[1]["level"], 2);
+        assert_eq!(second_tasks[1]["heading"], "child");
+        assert_eq!(tasks.len(), 4);
+
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(second_root).unwrap();
     }
 }

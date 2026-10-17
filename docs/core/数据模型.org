@@ -98,6 +98,33 @@
 | 源位置 | ~SourceRange~ 是引用 ~OrgFile.sourceBytes~ 的半开区间 ~[start, end)~ 。 ~SourcePosition~ 同时记录 1-based 行号、0-based UTF-8 字节列号与 0-based UTF-8 字节偏移；它仅在当前文件快照内有效，不能作为跨版本稳定 ID。 |
 | 内容与版本 | ~OrgFile.sourceBytes~ 保存当前解析/编辑会话的完整源字节，用于保真写回；它不写入 core 持久化状态或同步记录。内容树可由文件重新解析； ~LocalFileVersion~ 只保存内容哈希， 策略专属的文件 ~detail~ 保存远端 ETag、修改时间和大小等信息。 |
 
+* 查询投影中的标题层级
+
+~FilterTask~ 的 ~level: u32~ 是从 ~OrgFile~ 的 ~orgize~ 标题节点读取的真实星号层数，从 1 开始；它与 ~repo_id~ 、相对 ~path~ 、 ~byte_offset~ 一同保留当前快照中的来源和结构。该字段只用于运行时查询投影与宿主展示，不进入同步 CSV、历史或 outbox。宿主可据此折叠层级，不能重新解析原文推断标题结构。
+
+#+begin_src rust
+pub struct FilterTask {
+    pub repo_id: String,
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub byte_offset: u64,
+    pub level: u32,
+    pub state: Option<String>,
+    pub state_type: FilterStateType,
+    pub priority: Option<String>,
+    pub own_tags: Vec<String>,
+    pub inherited_tags: Vec<String>,
+    pub title: String,
+    pub body: String,
+    pub scheduled: Option<FilterDate>,
+    pub deadline: Option<FilterDate>,
+    pub closed: Option<FilterDate>,
+    pub created: Option<FilterDate>,
+    pub events: Vec<FilterDate>,
+}
+#+end_src
+
 * 工作空间与仓库
 
 ~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~Filter~ 搜索，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。

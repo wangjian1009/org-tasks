@@ -126,6 +126,7 @@ pub struct FilterTask {
     pub line: u32,
     pub column: u32,
     pub byte_offset: u64,
+    pub level: u32,
     pub state: Option<String>,
     pub state_type: FilterStateType,
     pub priority: Option<String>,
@@ -263,6 +264,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 line,
                 column,
                 byte_offset: offset as u64,
+                level: level as u32,
                 state: headline.todo_keyword().map(|value| value.to_string()),
                 state_type: match headline.todo_type() {
                     Some(TodoType::Done) => FilterStateType::Done,
@@ -934,6 +936,10 @@ mod tests {
         };
         let tasks = tasks_from_repo(&repository);
         assert_eq!(tasks.len(), 4);
+        assert_eq!(
+            tasks.iter().map(|task| task.level).collect::<Vec<_>>(),
+            vec![1, 2, 1, 1]
+        );
         let tag_filter = Filter::parse("t.work");
         assert_eq!(
             tasks

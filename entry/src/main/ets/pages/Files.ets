@@ -1,195 +1,76 @@
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { AppShell } from '../components/AppShell'
+import { EmptyState } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreTask, CoreWebDavSyncEvent, NativeCoreService } from '../services/NativeCoreService'
-
-interface FileRow {
-  relativePath: string
-  source: string
-  byteLength: number
-  taskCount: number
-  tasks: CoreTask[]
-}
-
-interface FileRouteParams {
-  path: string
-  source: string
-  tasks: CoreTask[]
-}
+import { Notebook, NotebookService } from '../services/NotebookService'
+import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { repositoryName, UiColor } from '../ui/Theme'
 
 @Entry
 @Component
 struct Files {
-  @State files: FileRow[] = []
-  @State filter: string = 'all'
-  @State refreshing: boolean = false
+  @State files: Notebook[] = []
+  @State loading: boolean = true
   @State message: string = ''
-  @State config: AppConfig = DEFAULT_CONFIG
+  @State drawerOpen: boolean = false
 
-  aboutToAppear() {
-    this.loadConfigAndFiles()
+  onPageShow() { this.loadFiles() }
+  onBackPress(): boolean {
+    if (this.drawerOpen) { this.drawerOpen = false; return true }
+    return false
   }
 
-  async loadConfigAndFiles() {
+  async loadFiles() {
+    this.loading = true
+    this.message = ''
     try {
-      const context = getContext(this)
-      this.config = await AppConfigService.load(context)
-      await this.loadWorkspace()
+      const config = await AppConfigService.load(getContext(this))
+      this.files = await NotebookService.load(config.repos)
     } catch (e) {
-      this.message = `读取文件列表失败: ${JSON.stringify(e)}`
-    }
-  }
-
-  async loadWorkspace() {
-    const response = await NativeCoreService.loadWorkspace(this.config.repos)
-    const rows: FileRow[] = []
-    for (const repo of response.workspace.repos) {
-      for (const file of repo.files) {
-        const tasks = response.tasks.filter((task: CoreTask) => task.filePath === file.path)
-        rows.push({
-          relativePath: file.path,
-          source: file.source,
-          byteLength: file.byte_length,
-          taskCount: tasks.length,
-          tasks
-        })
-      }
-    }
-    this.files = rows
-    this.message = rows.length > 0 ? '显示 core workspace 文件快照' : 'workspace 中未找到 org 文件'
-  }
-
-  async refresh() {
-    if (this.refreshing) return
-    this.refreshing = true
-    try {
-      const hasWebDav = this.config.repos.some((repository) => repository.webdavEnabled)
-      this.message = hasWebDav ? '正在通过 core 同步 WebDAV...' : '正在通过 core 加载 workspace...'
-      if (hasWebDav) {
-        await NativeCoreService.syncWorkspaceWebDav(this.config.repos, (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event))
-      }
-      await this.loadWorkspace()
-    } catch (e) {
-      this.message = `刷新失败: ${JSON.stringify(e)}`
-    } finally {
-      this.refreshing = false
-    }
-  }
-
-  visibleFiles(): FileRow[] {
-    return this.files
-  }
-
-  private updateWebDavProgress(event: CoreWebDavSyncEvent) {
-    switch (event.type) {
-      case 'listingStarted':
-        this.message = '正在读取 WebDAV 文件列表...'
-        break
-      case 'fileStarted':
-        this.message = `正在同步 ${event.index + 1}/${event.total}: ${event.path}`
-        break
-      case 'fileProcessed':
-        this.message = `已处理 ${event.path}`
-        break
-      case 'finished':
-        this.message = `WebDAV 同步${event.result === 'succeeded' ? '完成' : '结束'}，共 ${event.files} 个文件`
-        break
-    }
-  }
-
-  openFile(file: FileRow) {
-    const params: FileRouteParams = { path: file.relativePath, source: file.source, tasks: file.tasks }
-    router.pushUrl({ url: 'pages/FileDetail', params })
+      this.files = []
+      this.message = `读取笔记本失败：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally { this.loading = false }
   }
 
   build() {
     Column() {
-      Row() {
-        Button('工作区')
-          .fontSize(14)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#34423B')
-          .onClick(() => router.pushUrl({ url: 'pages/Workspace' }))
+      AppShell({ title: '笔记本', activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
+      actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) },
+      extraLabel: '笔记本操作', extraAction: (): void => { this.getUIContext().showActionSheet({ message: '',
+        title: '笔记本', sheets: [
+          { title: '刷新文件', action: (): void => { this.loadFiles() } },
+          { title: '同步', action: (): void => { router.pushUrl({ url: 'pages/Index' }) } },
+          { title: '存储库', action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } }
+        ] }) },
+      fabLabel: '新增任务', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
         Column() {
-          Text('笔记本')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-          Text('org 文件与任务层级')
-            .fontSize(12)
-            .fontColor('#65746B')
-            .margin({ top: 2 })
-        }
-        .margin({ left: 12 })
-        .layoutWeight(1)
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 16, bottom: 12 })
-
-      Text(`${this.files.length} 个文件 · core workspace`)
-        .fontSize(14)
-        .fontColor('#666')
-        .width('100%')
-        .padding({ left: 20, right: 20 })
-
-      Row() {
-        Button(this.refreshing ? '刷新中...' : '刷新文件')
-          .width('100%')
-          .height(40)
-          .margin({ left: 8 })
-          .backgroundColor('#FFF3E5')
-          .fontColor('#7A4D16')
-          .enabled(!this.refreshing)
-          .onClick(() => this.refresh())
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 12 })
-
-      Row() {
-        Button('全部').fontSize(13).backgroundColor(this.filter === 'all' ? '#7A4D16' : '#FFFFFF').fontColor(this.filter === 'all' ? '#FFFFFF' : '#34423B').onClick(() => this.filter = 'all')
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 12, bottom: 8 })
-
-      if (this.message) {
-        Text(this.message)
-          .fontSize(13)
-          .fontColor(this.message.includes('失败') ? '#C62828' : '#666')
-          .width('100%')
-          .padding({ left: 20, right: 20, bottom: 8 })
-      }
-
-      List({ space: 1 }) {
-        ForEach(this.visibleFiles(), (file: FileRow) => {
-          ListItem() {
-            Row() {
-              Column() {
-                Text(file.relativePath)
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Medium)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(`${file.taskCount} 个任务 · ${file.byteLength} 字节`)
-                  .fontSize(12)
-                  .fontColor('#777')
-                  .margin({ top: 4 })
-              }
-              .layoutWeight(1)
-              Text('已加载')
-                .fontSize(12)
-                .fontColor('#2E7D32')
-            }
-            .width('100%')
-            .padding({ left: 20, right: 20, top: 14, bottom: 14 })
-            .backgroundColor('#FFFFFF')
-            .onClick(() => this.openFile(file))
+          if (this.loading) {
+            EmptyState({ title: '正在读取笔记本', busy: true })
+          } else if (this.message) {
+            EmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
+          } else if (this.files.length === 0) {
+            EmptyState({ title: '还没有笔记本', detail: '添加本地目录或 WebDAV 存储库后，org 文件会显示在这里。',
+              actionLabel: '管理存储库', action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
+          } else {
+            List({ space: 12 }) {
+              ForEach(this.files, (file: Notebook) => {
+                ListItem() {
+                  Column({ space: 10 }) {
+                    Text(file.path).fontSize(22).fontColor(UiColor.text).width('100%').maxLines(2)
+                    Row({ space: 8 }) {
+                      Image($r('app.media.ui_folder')).width(15).height(15)
+                      Text(repositoryName(file.rootDirectory)).fontSize(13).fontColor(UiColor.secondary)
+                    }.width('100%')
+                    Text(`${file.tasks.length} 条笔记 · ${file.byteLength} 字节`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+                  }.width('100%').padding(16).backgroundColor(UiColor.container).borderRadius(16)
+                    .border({ width: 0.5, color: UiColor.outline })
+                    .onClick((): void => { router.pushUrl({ url: 'pages/FileDetail', params: { repoId: file.repoId, path: file.path } }) })
+                }
+              }, (file: Notebook) => file.id)
+            }.width('100%').height('100%').padding({ left: 16, right: 16, top: 16, bottom: 88 })
           }
-        }, (file: FileRow) => file.relativePath)
+        }.width('100%').height('100%')
       }
-      .width('100%')
-      .layoutWeight(1)
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F7F8F7')
+    }.width('100%').height('100%')
   }
 }
