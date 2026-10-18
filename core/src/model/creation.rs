@@ -598,7 +598,6 @@ mod tests {
         let progress = SyncProgressReporter::default();
         repo.sync(
             &ConfirmingPolicy { success: false },
-            &[],
             1,
             &cancellation,
             &progress,
@@ -610,7 +609,6 @@ mod tests {
         assert!(
             repo.sync(
                 &ConfirmingPolicy { success: true },
-                &[],
                 1,
                 &cancellation,
                 &progress
@@ -621,7 +619,6 @@ mod tests {
         assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
         repo.sync(
             &ConfirmingPolicy { success: true },
-            &[],
             2,
             &cancellation,
             &progress,

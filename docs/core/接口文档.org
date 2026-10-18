@@ -56,11 +56,13 @@ file_writer.write(&file.path, serialize_file(file))?;
 
 ** 同步一个仓库
 
-宿主在加载时指定同步策略类型，再将策略传入仓库。 ~OrgRepo.load::<P>~ 据此解析策略专属历史细节； ~OrgRepo.sync~ 构造 ~SyncContext~ 并只接受属于该仓库且已完成的记录。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
+宿主将同步策略传入仓库。 ~OrgRepo.sync~ 内部调用 ~load::<P>~ 恢复仓库身份、当前文件、outbox 和归属本仓库的完成历史，再构造 ~SyncContext~ 调用策略；调用方不传入历史，也不需要先加载旧快照。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
 
 #+begin_src rust
-let history = repo.load::<WebDavSyncPolicy>().await?;
-let record = repo.sync(&webdav_sync_policy, &history, started_at).await?;
+let record = repo.sync(
+    &webdav_sync_policy, started_at,
+    &SyncCancellation::default(), &SyncProgressReporter::default(),
+).await?;
 #+end_src
 
 * 接口定义
@@ -115,14 +117,15 @@ impl OrgRepo {
         -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError>;
 
     pub async fn sync<P>(&mut self, policy: &P,
-        history: &[OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>],
-        started_at: TimestampMs)
+        started_at: TimestampMs,
+        cancellation: &SyncCancellation,
+        progress: &SyncProgressReporter)
         -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where P: SyncPolicy;
 }
 #+end_src
 
-~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 先读取或创建 ~.sync/id~ ，再扫描根目录、跳过 ~.sync/~ 并解析 org 文件，最后替换仓库的完整文件快照；重复或越界路径必须失败。首次加载生成的 UUID 必须写入带换行的 ~.sync/id~ ，后续加载同一根目录必须复用该值。 ~sync~ 委托给策略执行同步，并只追加归属本仓库的完成记录。
+~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 先读取或创建 ~.sync/id~ ，再扫描根目录、跳过 ~.sync/~ 并解析 org 文件，最后替换仓库的完整文件快照；重复或越界路径必须失败。首次加载生成的 UUID 必须写入带换行的 ~.sync/id~ ，后续加载同一根目录必须复用该值。 ~sync~ 自行恢复最新文件与历史后委托策略执行同步，并只追加归属本仓库的完成记录；重复开始时间在调用策略前拒绝。
 
 *** OrgFile
 
@@ -269,7 +272,7 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 *** SyncPolicy 与本地同步历史
 
-~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史不保存在 ~OrgRepo~ 字段中，宿主应将 ~load~ 返回的历史传入同步控制器或 ~sync~。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
+~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理；~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。~SyncPolicy.synchronize~ 接收的是 ~OrgRepo.sync~ 内部恢复的历史快照。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
 #+begin_src rust
 pub trait SyncPolicy: Send + Sync {
@@ -315,8 +318,7 @@ pub trait SyncPolicy: Send + Sync {
 ~OrgRepoSyncController~ 在 core 内持有一个 ~OrgRepo~ 与启动时传入的 ~SyncPolicy~ 。它通过 Tokio task 执行一次同步，并以快照让 UI 宿主读取当前状态；HTTP、Harmony 等宿主不得自行维护同步状态或伪造完成记录。调用 ~start~ 的宿主必须运行在 Tokio runtime 中。
 
 #+begin_src rust
-let history = repo.load::<WebDavSyncPolicy>().await?;
-let controller = OrgRepoSyncController::new(repo, history, policy);
+let controller = OrgRepoSyncController::new(repo, policy);
 controller.start(started_at).await?;
 let snapshot = controller.snapshot();
 controller.cancel()?;
@@ -335,8 +337,10 @@ controller.cancel()?;
 #+begin_src rust
 let endpoint = WebDavEndpoint::new("https://dav.example.com/org/".into())?;
 let policy = WebDavSyncPolicy::new(endpoint, username, password)?;
-let history = repo.load::<WebDavSyncPolicy>().await?;
-let record = repo.sync(&policy, &history, started_at).await?;
+let record = repo.sync(
+    &policy, started_at,
+    &SyncCancellation::default(), &SyncProgressReporter::default(),
+).await?;
 
 pub trait WebDavSyncMonitor: Send + Sync {
     fn on_event(&self, event: WebDavSyncEvent);
@@ -391,3 +395,12 @@ pub struct WebDavMergeOutcome {
 所有文件通过预检后，先将本次同步的全部本地冲突文件备份到 ~.sync/backups/<started_at>/~ ，再逐文件执行条件上传与本地原子替换。已有远端文件必须使用 ~If-Match~ ，重新创建文件必须使用 ~If-None-Match: *~ 。保存失败、远端再次变化或 ~412~ 会成为该文件的失败记录，其他已完成文件保留成功结果，整体同步标为失败；不能跨多个远端文件承诺事务回滚。~OrgRepo.sync~ 统一追加一条合并作业记录，再确认成功文件的 outbox，已确认的本地删除也会在确认文件仍缺失后清理旧意图。
 
 冲突备份返回相对于仓库的路径，不包含凭据。元数据中不写入完整比较对象、任务正文或备份内容。一次 apply 结束后，旧对象因同步历史发生变化而失效；进程重启本身不会使未过期对象失效。同一仓库的调用仍需串行执行，跨进程外部编辑不能替代文件系统事务。
+
+
+* 同步历史回退与首次同步
+
+同步状态按文件从新到旧回溯，使用最近一条 ~Synchronized~ 文件记录作为本地哈希和远端版本基准。整体结果为失败、取消或中断的作业中，已成功文件的基准仍然有效；该文件更晚的冲突、失败或未出现记录不能遮住最近成功版本。读取到损坏历史时必须报错，不得跳过后猜测基准，也不新增独立状态文件。
+
+完全没有历史时，当前本地与远端路径的并集全部生成 ~Conflict~ 记录，不自动下载、上传或覆盖，包括仅一端存在以及两端内容相同的文件。用户通过一次同步的比较与 apply 显式建立基准；内容相同的任务自动保留，但文件仍需通过合并确认。空目录的同步可以成功生成空记录；仅列举失败或取消产生的空记录不能视为已经建立了基准。
+
+首次冲突记录生成后，后续普通同步仍保留这些无成功基准的待处理路径；不能因“历史现在非空”而绕过合并。后续已建立历史的新路径继续按既有新建/下载规则处理。合并接受本地缺失的远端文件时，比较对象以 ~localMissing~ 区分“文件不存在”和“空文件”；apply 保持版本校验并安全创建文件。只有存在本地原文件的路径才产生备份，不为远端独有文件伪造空备份。

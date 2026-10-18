@@ -48,6 +48,7 @@ pub struct WebDavFileMergePreview {
     pub path: String,
     pub remote_etag: Option<String>,
     pub remote_missing: bool,
+    pub local_missing: bool,
     pub plan: OrgMergePlan,
 }
 
@@ -69,6 +70,7 @@ pub enum WebDavMergeMode {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WebDavMergeFileRequest {
     pub path: String,
+    pub local_missing: bool,
     pub local_hash: String,
     pub remote_hash: String,
     pub remote_etag: Option<String>,
@@ -126,6 +128,7 @@ pub struct WebDavMergeFileVersion {
     pub remote_hash: String,
     pub remote_etag: Option<String>,
     pub remote_missing: bool,
+    pub local_missing: bool,
 }
 
 pub struct WebDavMergeOutcome {
@@ -157,11 +160,10 @@ impl WebDavSyncPolicy {
         history: &History,
     ) -> Result<MergeSource, CoreError> {
         validate_path(path)?;
-        let local = repo
-            .files
-            .iter()
-            .find(|file| file.path == path)
-            .ok_or(CoreError::InvalidInput("本地冲突文件不存在"))?;
+        let local = repo.files.iter().find(|file| file.path == path);
+        let local_missing = local.is_none();
+        let empty_local = repo.parse_file(path.into(), Vec::new())?;
+        let local = local.unwrap_or(&empty_local);
         let remote = runtime::list_remote(
             &self.client,
             &self.username,
@@ -202,6 +204,7 @@ impl WebDavSyncPolicy {
             path: path.into(),
             remote_etag: remote.as_ref().and_then(|file| file.version.etag.clone()),
             remote_missing: remote.is_none(),
+            local_missing,
             plan: compare_org_tasks(local, &remote_file, baseline),
         };
         Ok(MergeSource {
@@ -245,6 +248,7 @@ impl WebDavSyncPolicy {
                 remote_hash: file.plan.remote_hash.clone(),
                 remote_etag: file.remote_etag.clone(),
                 remote_missing: file.remote_missing,
+                local_missing: file.local_missing,
             });
             for item in &file.plan.items {
                 if item.change == crate::OrgMergeChange::Unchanged {
@@ -332,6 +336,7 @@ impl WebDavSyncPolicy {
             }
             files.push(WebDavMergeFileRequest {
                 path: file.path,
+                local_missing: file.local_missing,
                 local_hash: file.plan.local_hash,
                 remote_hash: file.plan.remote_hash,
                 remote_etag: file.remote_etag,
@@ -389,7 +394,6 @@ impl WebDavSyncPolicy {
         let record = repo
             .sync(
                 &resolution,
-                history,
                 started_at,
                 &SyncCancellation::default(),
                 &SyncProgressReporter::default(),
@@ -444,6 +448,7 @@ impl SyncPolicy for ResolutionPolicy<'_> {
             if source.preview.plan.local_hash != request.local_hash
                 || source.preview.plan.remote_hash != request.remote_hash
                 || source.preview.remote_etag != request.remote_etag
+                || source.preview.local_missing != request.local_missing
             {
                 return Err(CoreError::InvalidState(
                     "本地或远端已改变，请重新比较后确认",
@@ -470,6 +475,9 @@ impl SyncPolicy for ResolutionPolicy<'_> {
         }
         // 所有文件均已预检；先完成本次同步的全部备份，再开始覆盖或上传。
         for (request, _, _) in &prepared {
+            if request.local_missing {
+                continue;
+            }
             let backup_path = context
                 .repo
                 .backup_sync_conflict(&request.path, &request.local_hash, context.started_at)
@@ -572,7 +580,7 @@ impl WebDavSyncPolicy {
         let hash = LocalFileVersion::from_bytes(&merged);
         repo.replace_conflict_file(
             &request.path,
-            &request.local_hash,
+            (!request.local_missing).then_some(request.local_hash.as_str()),
             (!remove).then_some(merged),
         )
         .await
@@ -794,9 +802,11 @@ mod tests {
     }
 
     async fn repo() -> (OrgRepo, std::path::PathBuf) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "org-tasks-merge-sync-{}-{}",
+            "org-tasks-merge-sync-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -813,10 +823,8 @@ mod tests {
         policy: &WebDavSyncPolicy,
         time: i64,
     ) -> OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> {
-        let history = repo.load::<WebDavSyncPolicy>().await.unwrap();
         repo.sync(
             policy,
-            &history,
             time,
             &SyncCancellation::default(),
             &SyncProgressReporter::default(),
@@ -1069,6 +1077,231 @@ mod tests {
         );
         assert!(!root.join("inbox.org").exists());
         assert!(root.join(&result.backups[0].backup_path).is_file());
+        assert!(repo.pending_writes().await.unwrap().is_empty());
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+    #[tokio::test]
+    async fn first_sync_marks_local_remote_and_identical_files_as_conflicts_until_merge() {
+        let (mut repo, root) = repo().await;
+        tokio::fs::write(root.join("local.org"), b"* TODO Local\n")
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("same.org"), b"* TODO Same\n")
+            .await
+            .unwrap();
+        let (policy, state, worker) = server(&[
+            ("remote.org", b"* TODO Remote\r\n"),
+            ("same.org", b"* TODO Same\n"),
+        ])
+        .await;
+        let initial = sync(&mut repo, &policy, 1).await;
+        assert_eq!(initial.result, Some(OrgRepoSyncResult::Failed));
+        assert_eq!(initial.files.len(), 3);
+        assert!(
+            initial
+                .files
+                .iter()
+                .all(|file| file.state == OrgRepoSyncFileState::Conflict)
+        );
+        assert!(!root.join("remote.org").exists());
+        assert_eq!(state.lock().unwrap().files.len(), 2);
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .all(|request| request.starts_with("PROPFIND"))
+        );
+        // 记录首次冲突后，再次普通同步也不能绕过显式合并。
+        let repeated = sync(&mut repo, &policy, 2).await;
+        assert!(
+            repeated
+                .files
+                .iter()
+                .all(|file| file.state == OrgRepoSyncFileState::Conflict)
+        );
+        let mut comparison = policy.compare_merge(&mut repo, &repeated.id).await.unwrap();
+        assert_eq!(comparison.unchanged_count, 1);
+        assert!(
+            comparison
+                .files
+                .iter()
+                .find(|file| file.path == "remote.org")
+                .unwrap()
+                .local_missing
+        );
+        for change in &mut comparison.changes {
+            change.resolution = Some(if change.path == "local.org" {
+                WebDavMergeResolution::Local
+            } else {
+                WebDavMergeResolution::Remote
+            });
+        }
+        let result = policy
+            .apply_merge(&mut repo, &comparison, 100)
+            .await
+            .unwrap();
+        assert_eq!(result.record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(result.backups.len(), 2);
+        assert!(
+            result
+                .backups
+                .iter()
+                .all(|backup| backup.path != "remote.org")
+        );
+        assert_eq!(
+            tokio::fs::read(root.join("remote.org")).await.unwrap(),
+            b"* TODO Remote\r\n"
+        );
+        assert_eq!(
+            state.lock().unwrap().files["local.org"].data,
+            b"* TODO Local\n"
+        );
+        let next = sync(&mut repo, &policy, 101).await;
+        assert_eq!(next.result, Some(OrgRepoSyncResult::Succeeded));
+        assert!(
+            next.files
+                .iter()
+                .all(|file| file.action == OrgRepoSyncFileAction::Unchanged)
+        );
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sync_recovers_per_file_baselines_from_partial_success_and_skips_later_empty_records() {
+        let (mut repo, root) = repo().await;
+        offline(&mut repo, "a.org").await;
+        offline(&mut repo, "b.org").await;
+        let (policy, state, worker) = server(&[
+            ("a.org", b"* TODO Remote A\n"),
+            ("b.org", b"* TODO Remote B\n"),
+        ])
+        .await;
+        let failed = sync(&mut repo, &policy, 1).await;
+        let mut comparison = policy.compare_merge(&mut repo, &failed.id).await.unwrap();
+        for change in &mut comparison.changes {
+            change.resolution = Some(if change.path == "a.org" {
+                WebDavMergeResolution::Remote
+            } else {
+                WebDavMergeResolution::Local
+            });
+        }
+        state.lock().unwrap().reject.insert("b.org".into());
+        let partial = policy
+            .apply_merge(&mut repo, &comparison, 100)
+            .await
+            .unwrap();
+        assert_eq!(partial.record.result, Some(OrgRepoSyncResult::Failed));
+        assert_eq!(
+            partial
+                .record
+                .files
+                .iter()
+                .find(|file| file.relative_path == "a.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::Synchronized
+        );
+        offline(&mut repo, "a.org").await;
+        let retry = sync(&mut repo, &policy, 101).await;
+        assert_eq!(
+            retry
+                .files
+                .iter()
+                .find(|file| file.relative_path == "a.org")
+                .unwrap()
+                .action,
+            OrgRepoSyncFileAction::Uploaded
+        );
+        assert_eq!(
+            retry
+                .files
+                .iter()
+                .find(|file| file.relative_path == "b.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::Conflict
+        );
+        let cancellation = SyncCancellation::default();
+        cancellation.cancel();
+        let cancelled = repo
+            .sync(
+                &policy,
+                102,
+                &cancellation,
+                &SyncProgressReporter::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled.result, Some(OrgRepoSyncResult::Cancelled));
+        assert!(cancelled.files.is_empty());
+        let count = state.lock().unwrap().requests.len();
+        let restored = sync(&mut repo, &policy, 103).await;
+        assert_eq!(
+            restored
+                .files
+                .iter()
+                .find(|file| file.relative_path == "a.org")
+                .unwrap()
+                .action,
+            OrgRepoSyncFileAction::Unchanged
+        );
+        assert_eq!(
+            restored
+                .files
+                .iter()
+                .find(|file| file.relative_path == "b.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::Conflict
+        );
+        assert!(
+            state.lock().unwrap().requests[count..]
+                .iter()
+                .all(|request| request.starts_with("PROPFIND"))
+        );
+        assert_eq!(
+            repo.pending_writes()
+                .await
+                .unwrap()
+                .iter()
+                .map(|intent| intent.relative_path.as_str())
+                .collect::<Vec<_>>(),
+            ["b.org"]
+        );
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn first_sync_accept_remote_can_delete_local_only_and_create_remote_only_files() {
+        let (mut repo, root) = repo().await;
+        offline(&mut repo, "local.org").await;
+        let original = tokio::fs::read(root.join("local.org")).await.unwrap();
+        let (policy, _, worker) = server(&[("remote.org", b"* TODO Remote\n")]).await;
+        let first = sync(&mut repo, &policy, 1).await;
+        let mut comparison = policy.compare_merge(&mut repo, &first.id).await.unwrap();
+        comparison.mode = WebDavMergeMode::AcceptRemote;
+        let result = policy
+            .apply_merge(&mut repo, &comparison, 100)
+            .await
+            .unwrap();
+        assert_eq!(result.record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(result.backups.len(), 1);
+        assert_eq!(
+            tokio::fs::read(root.join(&result.backups[0].backup_path))
+                .await
+                .unwrap(),
+            original
+        );
+        assert!(!root.join("local.org").exists());
+        assert_eq!(
+            tokio::fs::read(root.join("remote.org")).await.unwrap(),
+            b"* TODO Remote\n"
+        );
         assert!(repo.pending_writes().await.unwrap().is_empty());
         worker.abort();
         tokio::fs::remove_dir_all(root).await.unwrap();

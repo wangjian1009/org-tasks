@@ -100,10 +100,11 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 
 * 文件决策
 
-策略仅加载 ~kind~ 等于自身 ~SyncPolicy::KIND~ 的历史记录。策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~WebDavSyncFileDetail~ 。不同仓库可以包含同名相对路径，彼此不相关。
+仓库的 ~OrgRepo.sync~ 负责加载并校验历史，只将 ~kind~ 等于 ~SyncPolicy::KIND~ 的记录交给策略，调用方不传入历史。策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~WebDavSyncFileDetail~ 。不同仓库可以包含同名相对路径，彼此不相关。
 
 | 自上次确认后本地状态 | 远端状态 | ~OrgRepoSyncFileRecord~ |
 |-
+| 仓库没有历史 | 任意本地/远端文件状态 | 全部生成 ~Conflict~ ，由显式合并建立基准，不自动传输。 |
 | 未变化 | 未变化 | action 为 ~Unchanged~ ，state 为 ~Synchronized~ 。 |
 | 未变化 | 已变化 | 下载；action 为 ~Downloaded~ 。 |
 | 已变化 | 未变化 | 条件上传；action 为 ~Uploaded~ 。 |
@@ -140,3 +141,17 @@ apply 前重新扫描并核对整个仓库版本，随后检查远端 ETag 与�
 全部本地冲突文件先按本次合并的开始时间集中备份到 ~.sync/backups/<started_at>/~ ，再执行条件写入或采用远端。成功文件写入新的 ~Synchronized~ 版本基准和可选任务指纹；部分失败仍追加包含每个文件结果的作业历史，失败项保留原冲突等待重新比较。~412~ 不覆盖远端，不消费未成功文件的 outbox。
 
 待处理冲突由历史重放得到：~Conflict~ 或 ~RemoteDeleted~ 设为待处理，后续 ~Synchronized~ 清除对应路径，普通失败不清除已有冲突。Harmony 只按该投影展示同步级入口，不自行推导文件或任务冲突。
+
+
+* CLI 冲突处理的边界
+
+命令行宿主与 Harmony 使用同一组 Rust core 接口：待处理文件由 ~conflict_syncs~ 按同步历史投影，比较由 ~WebDavSyncPolicy.compare_merge~ 生成，用户选择后的对象直接交给 ~apply_merge~ 。终端适配只负责展示两端原文、收集处理枚举和最终确认，不实现任务匹配、字节拼接、备份、条件写入或同步历史算法。
+
+比较对象在同一次命令运行期间保留于内存，不自动写入文件。用户逐项选择本地、远端或不保留，完成统一变化列表的选择后提交；未变化任务由 core 保留。取消、输入结束或无法完成终端输出时不调用 apply。选择期间仓库或远端变化，由 core 的现有校验拒绝；调用方需要重新比较。
+
+合并结果展示每个文件的处理状态、本次合并记录与相对备份路径；部分失败返回失败结果，同时保留已完成文件、全部已生成备份和剩余冲突。密码仅用于临时构造 policy，不进入比较输出、备份元数据或同步历史。命令使用方式以程序内置帮助为准。
+
+
+历史恢复由 ~OrgRepo.sync~ 封装，按各路径最近的 ~Synchronized~ 文件记录恢复基准，允许回退到更早的作业，也包括整体失败作业中成功的文件。控制器每次启动重新调用仓库接口，不缓存构造时的历史，连续多次同步能读取前一次实际提交结果。失败、取消或列举失败的空记录不能覆盖已有基准。
+
+无历史时不自动上传本地独有文件或下载远端独有文件，全部先标记为冲突。尚未通过 apply 建立成功基准的首次冲突持续保留；后续普通同步不能绕过它们。比较/合并支持本地缺失文件，由 ~local_missing~ 标记区分空文件，提交前校验其仍缺失；这类路径不生成本地空备份。~AcceptRemote~ 可明确删除本地独有文件；逐任务模式可选择重新创建远端或保留远端独有任务。

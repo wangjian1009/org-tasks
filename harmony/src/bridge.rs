@@ -368,10 +368,8 @@ pub fn repo_sync_json(
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let runtime = runtime()?;
-    let history = runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
     let record = runtime.block_on(repository.sync(
         &policy,
-        &history,
         started_at,
         &SyncCancellation::default(),
         &SyncProgressReporter::default(),

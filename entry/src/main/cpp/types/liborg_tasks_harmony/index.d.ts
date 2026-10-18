@@ -106,6 +106,7 @@ export interface MergeFileVersion {
   remoteHash: string;
   remoteEtag: string | null;
   remoteMissing: boolean;
+  localMissing: boolean;
 }
 export interface MergeComparison {
   syncId: string;

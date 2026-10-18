@@ -425,7 +425,7 @@ impl super::OrgRepo {
     pub async fn replace_conflict_file(
         &mut self,
         path: &str,
-        expected_hash: &str,
+        expected_hash: Option<&str>,
         content: Option<Vec<u8>>,
     ) -> Result<(), CoreError> {
         use super::creation::{read_optional, task_target, write_new};
@@ -437,10 +437,8 @@ impl super::OrgRepo {
             ));
         }
         let target = task_target(std::path::Path::new(&self.root_directory), path).await?;
-        let original = read_optional(&target)
-            .await?
-            .ok_or(CoreError::InvalidState("本地文件已删除，请重新比较"))?;
-        if content_hash(&original) != expected_hash {
+        let original = read_optional(&target).await?;
+        if original.as_deref().map(content_hash).as_deref() != expected_hash {
             return Err(CoreError::InvalidState("本地文件已改变，请重新比较"));
         }
         let file = content
@@ -451,14 +449,16 @@ impl super::OrgRepo {
         if let Some(file) = &file {
             write_new(&temporary, file.source_bytes()).await?;
         }
-        if read_optional(&target).await?.as_deref() != Some(original.as_slice()) {
+        if read_optional(&target).await? != original {
             let _ = fs::remove_file(&temporary).await;
             return Err(CoreError::InvalidState("本地文件已改变，请重新比较"));
         }
         let result = if file.is_some() {
             fs::rename(&temporary, &target).await
-        } else {
+        } else if original.is_some() {
             fs::remove_file(&target).await
+        } else {
+            Ok(())
         };
         if let Err(error) = result {
             let _ = fs::remove_file(&temporary).await;
@@ -714,7 +714,7 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            repo.replace_conflict_file("inbox.org", &hash, Some(b"* TODO Remote\n".to_vec()))
+            repo.replace_conflict_file("inbox.org", Some(&hash), Some(b"* TODO Remote\n".to_vec()))
                 .await
                 .is_err()
         );

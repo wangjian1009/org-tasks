@@ -55,7 +55,7 @@ class Repo {
 
 * 请求与响应
 
-~Workspace~ 当前提供 ~repos~ 、~addRepo~ 、~removeRepo~ 和 ~search~；~Repo~ 提供 ~id~ 、~rootDirectory~、异步 ~load~、~snapshot~ 和异步 ~sync~。ArkTS 必须按 ~new Workspace() -> addRepo() -> repo.load()~ 的顺序初始化每个仓库；~addRepo~ 仅在 core workspace 中保存仓库目录，~Repo.load~ 扫描对应仓库。~Repo.sync(policy, monitor)~ 在调用期间构造 ~WebDavSyncPolicy~，以原生 ~WebDavSyncMonitor~ 订阅脱敏进度事件，并调用对应仓库的 ~OrgRepo.load~ 和 ~OrgRepo.sync~；同步结束后策略随调用释放。C++ 通过 N-API thread-safe function 将事件投递回 ArkTS 回调；搜索调用 ~OrgWorkspace.search~。C++ N-API 解析 Rust DTO 后直接向 ArkTS 返回对象或数组，不把 JSON 字符串暴露给 ArkTS。这些调用序列属于 Harmony 宿主适配；~OrgRepo~ 、~OrgWorkspace~ 、~Filter~、~SyncPolicy~ 、WebDAV 传输和 org 解析算法仍只定义在 core。
+~Workspace~ 当前提供 ~repos~ 、~addRepo~ 、~removeRepo~ 和 ~search~；~Repo~ 提供 ~id~ 、~rootDirectory~、异步 ~load~、~snapshot~ 和异步 ~sync~。ArkTS 必须按 ~new Workspace() -> addRepo() -> repo.load()~ 的顺序初始化每个仓库；~addRepo~ 仅在 core workspace 中保存仓库目录，~Repo.load~ 扫描对应仓库。~Repo.sync(policy, monitor)~ 在调用期间构造 ~WebDavSyncPolicy~，以原生 ~WebDavSyncMonitor~ 订阅脱敏进度事件，并直接调用对应仓库的 ~OrgRepo.sync~，由其内部恢复当前文件和同步历史；同步结束后策略随调用释放。C++ 通过 N-API thread-safe function 将事件投递回 ArkTS 回调；搜索调用 ~OrgWorkspace.search~。C++ N-API 解析 Rust DTO 后直接向 ArkTS 返回对象或数组，不把 JSON 字符串暴露给 ArkTS。这些调用序列属于 Harmony 宿主适配；~OrgRepo~ 、~OrgWorkspace~ 、~Filter~、~SyncPolicy~ 、WebDAV 传输和 org 解析算法仍只定义在 core。
 
 响应包含仓库稳定 ID、相对 org 文件路径、原始 UTF-8 内容、字节长度，以及可选同步记录摘要。WebDAV 密码只作为同步请求输入，不能出现在响应、日志或同步记录中。
 
@@ -109,3 +109,10 @@ const outcome = await repo.apply(policy, comparison)
 C++ 复制输入对象与当前策略凭据，在 ~napi_create_async_work~ 工作线程通过 Rust ABI 调用 core。异步期间持有 native ~Repo~ 强引用，防止 workspace handle 被提前释放。返回普通结构化对象；Rust/FFI 字符串在 C++ 解析后释放。仓库锁继续串行保护加载、编辑、同步与合并调用。bridge 不实现比较算法、备份路径规则、ETag 决策或任务拼接。
 
 结果包含本次合并同步的 ~syncId~ 、 ~result~ 和逐文件相对备份路径。备份位于 ~.sync/backups/<本次合并开始时间>/~ ，文件名包含本地日期时间；元数据和正文不会写入 Preferences。部分失败仍返回同步结果和备份，失败项由下一次比较重新生成。仓库变化、远端变化、无效对象或备份失败会拒绝 Promise，界面提示重新比较。
+
+
+* 同步历史由仓库恢复
+
+Harmony 的 ~repo_sync_json~ 不再先读取历史或把历史传入同步接口，直接调用 ~OrgRepo.sync(policy, started_at, cancellation, progress)~ 。ArkTS 在启用 WebDAV 的仓库上也不再预先执行 ~Repo.load~ ；本地仓库浏览仍显式调用 load。历史回退、首次无历史时的全文件冲突和部分成功基准均由 Rust core 处理。
+
+比较对象的 ~files[].localMissing~ 指示本地缺失的远端文件，与空文件区分。界面原样传递该版本信息，apply 校验缺失状态后创建文件；仅已有本地文件被备份，返回的 ~backups~ 可以少于冲突文件数量。UI 不计算或补造版本基准。

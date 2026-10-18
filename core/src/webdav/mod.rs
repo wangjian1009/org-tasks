@@ -275,6 +275,14 @@ impl WebDavSyncPolicy {
         paths.extend(remote_by_path.keys().cloned());
         let mut failed = false;
 
+        // 空的失败/取消记录不代表已经建立过仓库基准。
+        let initial_sync = !history.iter().any(|record| {
+            record.result == Some(OrgRepoSyncResult::Succeeded) || !record.files.is_empty()
+        });
+        let unresolved_paths = conflict_syncs(history)
+            .into_iter()
+            .flat_map(|sync| sync.paths)
+            .collect::<BTreeSet<_>>();
         let total = paths.len();
         for (index, path) in paths.into_iter().enumerate() {
             if cancellation.is_cancelled() {
@@ -295,32 +303,46 @@ impl WebDavSyncPolicy {
             let local = repo.files.iter().find(|file| file.path == path).cloned();
             let remote = remote_by_path.get(&path).cloned();
             let baseline = latest_file_record(history, &path).cloned();
-            let outcome = match (local, remote, baseline) {
-                (Some(local), None, None) => self.create_remote(repo, &local, progress).await,
-                (Some(local), Some(remote), None) => Ok(conflict_record(repo, path, local, remote)),
-                (None, Some(remote), _) => self.download_remote(repo, remote, progress).await,
-                (Some(local), None, Some(baseline)) if remote_version_for(&baseline).is_some() => {
-                    Ok(remote_deleted_record(repo, path, local, baseline))
-                }
-                (Some(local), None, Some(_)) => self.create_remote(repo, &local, progress).await,
-                (Some(local), Some(remote), Some(baseline)) => {
-                    let local_version = local_version(&local);
-                    let local_changed = baseline.local_version.as_ref() != Some(&local_version)
-                        || pending.iter().any(|intent| intent.relative_path == path);
-                    let remote_changed =
-                        remote_version_for(&baseline).as_ref() != Some(&remote.version);
-                    match (local_changed, remote_changed) {
-                        (false, false) => {
-                            Ok(unchanged_record(repo, path, local_version, remote.version))
-                        }
-                        (false, true) => self.download_remote(repo, remote, progress).await,
-                        (true, false) => {
-                            self.replace_remote(repo, &local, baseline, progress).await
-                        }
-                        (true, true) => Ok(conflict_record(repo, path, local, remote)),
+            let unresolved_without_baseline =
+                baseline.is_none() && unresolved_paths.contains(&path);
+            let outcome = if initial_sync || unresolved_without_baseline {
+                Ok(conflict_record(repo, path, local, remote))
+            } else {
+                match (local, remote, baseline) {
+                    (Some(local), None, None) => self.create_remote(repo, &local, progress).await,
+                    (Some(local), Some(remote), None) => {
+                        Ok(conflict_record(repo, path, Some(local), Some(remote)))
                     }
+                    (None, Some(remote), _) => self.download_remote(repo, remote, progress).await,
+                    (Some(local), None, Some(baseline))
+                        if remote_version_for(&baseline).is_some() =>
+                    {
+                        Ok(remote_deleted_record(repo, path, local, baseline))
+                    }
+                    (Some(local), None, Some(_)) => {
+                        self.create_remote(repo, &local, progress).await
+                    }
+                    (Some(local), Some(remote), Some(baseline)) => {
+                        let local_version = local_version(&local);
+                        let local_changed = baseline.local_version.as_ref() != Some(&local_version)
+                            || pending.iter().any(|intent| intent.relative_path == path);
+                        let remote_changed =
+                            remote_version_for(&baseline).as_ref() != Some(&remote.version);
+                        match (local_changed, remote_changed) {
+                            (false, false) => {
+                                Ok(unchanged_record(repo, path, local_version, remote.version))
+                            }
+                            (false, true) => self.download_remote(repo, remote, progress).await,
+                            (true, false) => {
+                                self.replace_remote(repo, &local, baseline, progress).await
+                            }
+                            (true, true) => {
+                                Ok(conflict_record(repo, path, Some(local), Some(remote)))
+                            }
+                        }
+                    }
+                    (None, None, _) => continue,
                 }
-                (None, None, _) => continue,
             };
 
             match outcome {
@@ -552,8 +574,8 @@ fn unchanged_record(
 fn conflict_record(
     _repo: &OrgRepo,
     path: String,
-    local: OrgFile,
-    remote: WebDavRemoteFile,
+    local: Option<OrgFile>,
+    remote: Option<WebDavRemoteFile>,
 ) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
     OrgRepoSyncFileRecord::new(
         path,
@@ -561,8 +583,12 @@ fn conflict_record(
         OrgRepoSyncFileState::Conflict,
     )
     .expect("冲突文件记录应有效")
-    .with_local_version(Some(local_version(&local)))
-    .with_detail(WebDavSyncFileDetail::from(remote.version))
+    .with_local_version(local.as_ref().map(local_version))
+    .with_detail(
+        remote
+            .map(|file| WebDavSyncFileDetail::from(file.version))
+            .unwrap_or_default(),
+    )
     .with_error(WebDavError::Conflict("本地与远端均有未确认变更".into()).summary())
 }
 
@@ -762,7 +788,6 @@ mod tests {
         ));
         tokio::fs::create_dir_all(&root).await.unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        let history = repo.load::<WebDavSyncPolicy>().await.unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let monitor = RecordingMonitor {
             events: Arc::clone(&events),
@@ -778,7 +803,6 @@ mod tests {
         let record = repo
             .sync(
                 &policy,
-                &history,
                 1,
                 &SyncCancellation::default(),
                 &SyncProgressReporter::default(),
@@ -905,9 +929,11 @@ mod write_tests {
     }
 
     async fn repository() -> OrgRepo {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "org-tasks-upload-{}-{}",
+            "org-tasks-upload-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -916,16 +942,6 @@ mod write_tests {
         tokio::fs::create_dir(&root).await.unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<WebDavSyncPolicy>().await.unwrap();
-        repo.create_task(
-            "inbox.org",
-            &NewTask {
-                heading: "First".into(),
-                ..Default::default()
-            },
-            true,
-        )
-        .await
-        .unwrap();
         repo
     }
 
@@ -934,10 +950,8 @@ mod write_tests {
         policy: &WebDavSyncPolicy,
         time: i64,
     ) -> OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> {
-        let history = repo.load::<WebDavSyncPolicy>().await.unwrap();
         repo.sync(
             policy,
-            &history,
             time,
             &SyncCancellation::default(),
             &SyncProgressReporter::default(),
@@ -951,6 +965,7 @@ mod write_tests {
         let first = b"* TODO First\n";
         let second = b"* TODO First\n* TODO Second\n";
         let (url, worker) = server(vec![
+            propfind("<multistatus xmlns=\"DAV:\"/>".into()),
             propfind("<multistatus xmlns=\"DAV:\"/>".into()),
             put(first, "if-none-match: *", 201),
             propfind(listing("\"v1\"", first.len())),
@@ -967,6 +982,20 @@ mod write_tests {
         .unwrap();
         let mut repo = repository().await;
         let root = repo.root_directory.clone();
+        assert_eq!(
+            sync(&mut repo, &policy, 0).await.result,
+            Some(OrgRepoSyncResult::Succeeded)
+        );
+        repo.create_task(
+            "inbox.org",
+            &NewTask {
+                heading: "First".into(),
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             sync(&mut repo, &policy, 1).await.result,
             Some(OrgRepoSyncResult::Succeeded)
@@ -1002,6 +1031,7 @@ mod write_tests {
         let first = b"* TODO First\n";
         let (url, worker) = server(vec![
             propfind("<multistatus xmlns=\"DAV:\"/>".into()),
+            propfind("<multistatus xmlns=\"DAV:\"/>".into()),
             put(first, "if-none-match: *", 201),
             propfind(listing("\"v2\"", first.len())),
             propfind(listing("\"v2\"", first.len())),
@@ -1015,6 +1045,20 @@ mod write_tests {
         .unwrap();
         let mut repo = repository().await;
         let root = repo.root_directory.clone();
+        assert_eq!(
+            sync(&mut repo, &policy, 0).await.result,
+            Some(OrgRepoSyncResult::Succeeded)
+        );
+        repo.create_task(
+            "inbox.org",
+            &NewTask {
+                heading: "First".into(),
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
         sync(&mut repo, &policy, 1).await;
         repo.create_task(
             "inbox.org",

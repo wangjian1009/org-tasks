@@ -84,8 +84,8 @@ struct MergeConflict {
     if (this.loading || this.saving || this.completed || !this.comparison) return
     if (mode === CoreMergeMode.MergeTasks && !this.ready()) { this.message = '请先确认所有差异项'; return }
     this.getUIContext().showAlertDialog({ title: mode === CoreMergeMode.AcceptRemote ? '本次同步全部采用远端？' : '应用本次同步的合并？',
-      message: mode === CoreMergeMode.AcceptRemote ? `先备份 ${this.fileCount} 个本地冲突文件，再采用对应远端版本。`
-        : `保留未变化任务，按选择合并 ${this.fileCount} 个文件；其中 ${this.removed()} 项不保留。提交前会备份全部冲突文件。`,
+      message: mode === CoreMergeMode.AcceptRemote ? `先备份这 ${this.fileCount} 个冲突文件中已有的本地文件，再采用对应远端版本。`
+        : `保留未变化任务，按选择合并 ${this.fileCount} 个文件；其中 ${this.removed()} 项不保留。提交前会备份已有的本地冲突文件。`,
       primaryButton: { value: '取消', action: () => {} }, secondaryButton: {
         value: mode === CoreMergeMode.AcceptRemote ? '备份并采用远端' : '备份并合并', action: (): void => { this.apply(mode) }
       } })

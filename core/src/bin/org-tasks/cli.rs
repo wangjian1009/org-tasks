@@ -27,6 +27,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Sync(SyncCommand),
+    /// 查看并解决同步冲突
+    Conflict(crate::conflict::ConflictCommand),
     History(HistoryCommand),
     File(FileCommand),
     Task(TaskCommand),
@@ -95,13 +97,33 @@ struct TaskSearchArgs {
 }
 
 #[derive(Args)]
-struct WebDavArgs {
+pub(crate) struct WebDavConnectionArgs {
+    /// WebDAV 目录的 HTTPS 地址
     #[arg(long)]
     webdav_url: String,
+    /// WebDAV 用户名
     #[arg(long)]
     webdav_user: String,
+    /// WebDAV 密码或应用专用密码
     #[arg(long)]
     webdav_passwd: String,
+}
+
+impl WebDavConnectionArgs {
+    pub(crate) fn policy(self) -> Result<WebDavSyncPolicy, String> {
+        if !self.webdav_url.starts_with("https://") {
+            return Err("--webdav-url 必须使用 HTTPS".into());
+        }
+        let endpoint = WebDavEndpoint::new(self.webdav_url).map_err(|error| error.to_string())?;
+        WebDavSyncPolicy::new(endpoint, self.webdav_user, self.webdav_passwd)
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[derive(Args)]
+struct WebDavArgs {
+    #[command(flatten)]
+    connection: WebDavConnectionArgs,
     #[arg(long)]
     silent: bool,
     #[arg(short = 'v', action = ArgAction::Count)]
@@ -113,11 +135,19 @@ pub async fn run() -> Result<(), String> {
     let repo_dir = cli
         .repo_dir
         .ok_or_else(|| "--repo-dir 是必填参数".to_string())?;
-    let (repo, history_records) = load_repo(repo_dir).await?;
+    let mut repo = open_repo(repo_dir)?;
+    let history_records = if matches!(&cli.command, Command::Sync(_)) {
+        Vec::new()
+    } else {
+        repo.load::<WebDavSyncPolicy>()
+            .await
+            .map_err(|error| error.to_string())?
+    };
     match cli.command {
         Command::Sync(command) => match command.target {
-            SyncTarget::Webdav(args) => sync_webdav(repo, history_records, args).await,
+            SyncTarget::Webdav(args) => sync_webdav(repo, args).await,
         },
+        Command::Conflict(command) => crate::conflict::run(repo, history_records, command).await,
         Command::History(command) => history(history_records, command),
         Command::File(command) => file(repo, command).await,
         Command::Task(command) => task(repo, command),
@@ -231,15 +261,7 @@ fn format_system_time(time: SystemTime) -> String {
         .to_string()
 }
 
-async fn load_repo(
-    repo_dir: PathBuf,
-) -> Result<
-    (
-        OrgRepo,
-        Vec<org_tasks_core::OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>,
-    ),
-    String,
-> {
+fn open_repo(repo_dir: PathBuf) -> Result<OrgRepo, String> {
     if !repo_dir.is_dir() {
         return Err("--repo-dir 必须是已存在的目录".into());
     }
@@ -247,32 +269,18 @@ async fn load_repo(
         .to_str()
         .ok_or_else(|| "--repo-dir 必须是 UTF-8 路径".to_string())?
         .to_owned();
-    let mut repo = OrgRepo::new(root_directory).map_err(|error| error.to_string())?;
-    let history = repo
-        .load::<WebDavSyncPolicy>()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok((repo, history))
+    OrgRepo::new(root_directory).map_err(|error| error.to_string())
 }
 
-async fn sync_webdav(
-    repo: OrgRepo,
-    history: Vec<org_tasks_core::OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>,
-    args: WebDavArgs,
-) -> Result<(), String> {
-    if !args.webdav_url.starts_with("https://") {
-        return Err("--webdav-url 必须使用 HTTPS".into());
-    }
+async fn sync_webdav(repo: OrgRepo, args: WebDavArgs) -> Result<(), String> {
     let silent = args.silent;
     let verbose = args.verbose > 0;
-    let endpoint = WebDavEndpoint::new(args.webdav_url).map_err(|error| error.to_string())?;
-    let policy = WebDavSyncPolicy::new(endpoint, args.webdav_user, args.webdav_passwd)
-        .map_err(|error| error.to_string())?;
+    let policy = args.connection.policy()?;
     if !silent {
-        println!("同步开始: 本地文件={}。", repo.files().len());
+        println!("同步开始。");
     }
 
-    let controller = OrgRepoSyncController::new(repo, history, policy);
+    let controller = OrgRepoSyncController::new(repo, policy);
     controller
         .start(timestamp_ms()?)
         .await
@@ -358,7 +366,7 @@ fn history(
     }
 }
 
-fn timestamp_ms() -> Result<i64, String> {
+pub(crate) fn timestamp_ms() -> Result<i64, String> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "系统时间早于 Unix epoch".to_string())?;
@@ -476,7 +484,7 @@ fn print_progress(progress: &OrgRepoSyncProgress) {
     println!("{stage}: {}/{}{}", progress.completed, progress.total, path);
 }
 
-fn print_record(
+pub(crate) fn print_record(
     record: &OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
     verbose: bool,
 ) {

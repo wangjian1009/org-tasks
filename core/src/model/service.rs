@@ -197,7 +197,6 @@ impl<C: Default, F: Default> Default for OrgRepoSyncSnapshot<C, F> {
 /// core 持有仓库与 policy，并提供启动、停止和快照读取接口。
 pub struct OrgRepoSyncController<P: SyncPolicy> {
     repo: Arc<Mutex<OrgRepo>>,
-    history: Arc<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>>,
     policy: Arc<P>,
     snapshot: Arc<Mutex<OrgRepoSyncSnapshot<P::ContextDetail, P::FileDetail>>>,
     cancellation: Arc<Mutex<Option<SyncCancellation>>>,
@@ -207,14 +206,9 @@ impl<P> OrgRepoSyncController<P>
 where
     P: SyncPolicy + 'static,
 {
-    pub fn new(
-        repo: OrgRepo,
-        history: Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>,
-        policy: P,
-    ) -> Self {
+    pub fn new(repo: OrgRepo, policy: P) -> Self {
         Self {
             repo: Arc::new(Mutex::new(repo)),
-            history: Arc::new(history),
             policy: Arc::new(policy),
             snapshot: Arc::new(Mutex::new(OrgRepoSyncSnapshot::default())),
             cancellation: Arc::new(Mutex::new(None)),
@@ -249,19 +243,12 @@ where
             .clone();
         let repo = Arc::clone(&self.repo);
         let policy = Arc::clone(&self.policy);
-        let history = Arc::clone(&self.history);
         let state = Arc::clone(&self.snapshot);
         let active = Arc::clone(&self.cancellation);
         tokio::spawn(async move {
             let mut working_repo = initial_repo;
             let result = working_repo
-                .sync(
-                    policy.as_ref(),
-                    &history,
-                    started_at,
-                    &cancellation,
-                    &progress,
-                )
+                .sync(policy.as_ref(), started_at, &cancellation, &progress)
                 .await;
             if let Ok(mut stored_repo) = repo.lock() {
                 *stored_repo = working_repo;
@@ -378,11 +365,10 @@ impl OrgRepo {
         OrgFile::new(self.id.clone(), path, source_bytes)
     }
 
-    /// 执行同步策略，并将已完成的记录追加到仓库历史。
+    /// 自行恢复当前仓库与历史，执行策略并追加本次记录。
     pub async fn sync<P>(
         &mut self,
         policy: &P,
-        history: &[OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>],
         started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
@@ -390,12 +376,13 @@ impl OrgRepo {
     where
         P: SyncPolicy,
     {
-        if self.id.is_empty() {
-            return Err(CoreError::InvalidState("仓库尚未加载"));
+        let history = self.load::<P>().await?;
+        if history.iter().any(|record| record.started_at == started_at) {
+            return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
         let mut context = SyncContext::new(self, started_at);
         let mut record = policy
-            .synchronize(&mut context, history, cancellation, progress)
+            .synchronize(&mut context, &history, cancellation, progress)
             .await?;
         if record.kind.is_empty() {
             record.kind = P::KIND.into();
@@ -790,11 +777,9 @@ mod tests {
     async fn repo_sync_appends_completed_record() {
         let root = test_root("sync");
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        let history = repo.load::<CompletedSync>().await.unwrap();
         let record = repo
             .sync(
                 &CompletedSync,
-                &history,
                 10,
                 &SyncCancellation::default(),
                 &SyncProgressReporter::default(),
@@ -819,9 +804,8 @@ mod tests {
     #[tokio::test]
     async fn controller_exposes_completed_sync_snapshot() {
         let root = test_root("controller");
-        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        let history = repo.load::<CompletedSync>().await.unwrap();
-        let controller = OrgRepoSyncController::new(repo, history, CompletedSync);
+        let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        let controller = OrgRepoSyncController::new(repo, CompletedSync);
         controller.start(10).await.unwrap();
         for _ in 0..100 {
             let snapshot = controller.snapshot();
@@ -841,9 +825,8 @@ mod tests {
     #[tokio::test]
     async fn controller_exposes_failed_sync_snapshot() {
         let root = test_root("failed-controller");
-        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        let history = repo.load::<CompletedSync>().await.unwrap();
-        let controller = OrgRepoSyncController::new(repo, history, FailedSync);
+        let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        let controller = OrgRepoSyncController::new(repo, FailedSync);
         controller.start(10).await.unwrap();
         for _ in 0..100 {
             let snapshot = controller.snapshot();
@@ -896,5 +879,90 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+    struct HistoryReadingSync;
+
+    impl SyncPolicy for HistoryReadingSync {
+        const KIND: &'static str = "test";
+        type ContextDetail = serde_json::Value;
+        type FileDetail = serde_json::Value;
+
+        async fn synchronize(
+            &self,
+            context: &mut SyncContext<'_>,
+            history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
+            _: &SyncCancellation,
+            _: &SyncProgressReporter,
+        ) -> Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError> {
+            assert_eq!(history.len(), context.started_at as usize);
+            if context.started_at == 1 {
+                assert_eq!(
+                    context.repo.files[0].source_bytes(),
+                    b"* TODO External edit\n"
+                );
+                assert_eq!(history[0].id, "history-0");
+            }
+            let mut record = OrgRepoSyncRecord::new(
+                format!("history-{}", context.started_at),
+                context.started_at,
+            )?;
+            record.finish(OrgRepoSyncResult::Succeeded, context.started_at + 1)?;
+            Ok(record)
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_controller_syncs_restore_latest_history_and_external_file_edits_internally() {
+        let root = test_root("controller-history");
+        let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        let controller = OrgRepoSyncController::new(repo, HistoryReadingSync);
+        for time in [0, 1] {
+            if time == 1 {
+                tokio::fs::write(root.join("inbox.org"), b"* TODO External edit\n")
+                    .await
+                    .unwrap();
+            }
+            controller.start(time).await.unwrap();
+            let mut completed = false;
+            for _ in 0..100 {
+                let snapshot = controller.snapshot();
+                if snapshot.lifecycle == OrgRepoSyncLifecycle::Succeeded {
+                    assert_eq!(
+                        snapshot.latest_record.unwrap().id,
+                        format!("history-{time}")
+                    );
+                    completed = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            assert!(completed, "同步控制器没有使用正确历史完成同步");
+        }
+        let mut repo = controller.repo().unwrap();
+        assert_eq!(repo.load::<HistoryReadingSync>().await.unwrap().len(), 2);
+        assert!(
+            repo.sync(
+                &HistoryReadingSync,
+                1,
+                &SyncCancellation::default(),
+                &SyncProgressReporter::default()
+            )
+            .await
+            .is_err()
+        );
+        tokio::fs::write(root.join(".sync/history/2.json"), b"{")
+            .await
+            .unwrap();
+        assert!(
+            repo.sync(
+                &HistoryReadingSync,
+                2,
+                &SyncCancellation::default(),
+                &SyncProgressReporter::default()
+            )
+            .await
+            .is_err()
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

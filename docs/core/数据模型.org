@@ -37,7 +37,9 @@
   id: OrgRepoId \\
   root\_directory: String \\
   files: Vec\textless OrgFile\textgreater
-}{}
+}{
+  sync(policy, started\_at, cancellation, progress)
+}
 \umlclass[x=0,y=-6.0]{OrgFile}{
   repo\_id: OrgRepoId \\
   path: String \\
@@ -129,7 +131,7 @@ pub struct FilterTask {
 
 ~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~Filter~ 搜索，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
-~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史由 ~load::<P>~ 返回而不保存在仓库字段。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
+~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史属于仓库的本地控制数据，~load::<P>~ 可返回它供查询；~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，也不新增历史字段或单独状态文件。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
 远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不进入 ~OrgRepo~ 或任何其他 core 数据结构。
 
@@ -305,3 +307,21 @@ pub struct WebDavSyncFileDetail {
 \end{tikzpicture}%
 }
 \end{center}
+
+
+* 同步基准的仓库归属
+
+~OrgRepo.sync~ 内部恢复当前仓库目录中的已完成历史，并交给策略按文件回溯。每个文件最近成功记录即当前同步基准，作业整体失败不否定其中已成功文件；最新空记录、冲突与失败不能覆盖既有成功基准。控制器仅持有仓库、策略和运行进度，不保存或接收历史列表。
+
+无历史时，本地与远端的全部候选文件均进入合并确认。没有本地文件的差异使用空的比较来源投影，但 ~WebDavMergeFileVersion.local_missing~ 明确保留不存在状态，不将其视为已经存在的空文件；成功合并后才能生成版本基准。备份仍只保存真实存在的本地原始字节。
+
+#+begin_src rust
+pub struct WebDavMergeFileVersion {
+    pub path: String,
+    pub local_hash: String,
+    pub remote_hash: String,
+    pub remote_etag: Option<String>,
+    pub remote_missing: bool,
+    pub local_missing: bool,
+}
+#+end_src

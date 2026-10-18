@@ -248,7 +248,6 @@ export class NativeCoreService {
     const repos = await workspace.repos()
     let sync: CoreSyncSnapshot | null = null
     for (const repo of repos) {
-      await repo.load()
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory())
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
@@ -256,6 +255,8 @@ export class NativeCoreService {
         if (sync.result !== 'succeeded') {
           throw new Error('WebDAV 同步未完成，请查看同步记录；待上传任务已保留')
         }
+      } else {
+        await repo.load()
       }
     }
     return {
