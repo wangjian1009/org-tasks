@@ -2,7 +2,9 @@
 //!
 //! 模块实现同步决策、认证、条件写入与同步记录构造。
 
+mod merge;
 pub mod runtime;
+pub use merge::*;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -49,6 +51,8 @@ pub struct WebDavSyncFileDetail {
     pub etag: Option<String>,
     pub modified_at: Option<TimestampMs>,
     pub size: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_versions: Option<Vec<crate::OrgTaskFingerprint>>,
 }
 
 impl From<RemoteFileVersion> for WebDavSyncFileDetail {
@@ -57,6 +61,7 @@ impl From<RemoteFileVersion> for WebDavSyncFileDetail {
             etag: version.etag,
             modified_at: version.modified_at,
             size: version.size,
+            task_versions: None,
         }
     }
 }
@@ -195,6 +200,11 @@ impl WebDavSyncPolicy {
     {
         self.monitor = Arc::new(monitor);
         self
+    }
+
+    /// 只检查认证与目录访问，不加载本地仓库或执行同步。
+    pub async fn test_connection(&self) -> Result<(), WebDavError> {
+        runtime::test_connection(&self.client, &self.username, &self.password, &self.endpoint).await
     }
 
     fn report(&self, event: WebDavSyncEvent) {
@@ -496,27 +506,39 @@ impl SyncPolicy for WebDavSyncPolicy {
 }
 
 fn success_record(
-    _repo: &OrgRepo,
+    repo: &OrgRepo,
     path: String,
     action: OrgRepoSyncFileAction,
     local: LocalFileVersion,
     remote: RemoteFileVersion,
 ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
+    let mut detail = WebDavSyncFileDetail::from(remote);
+    detail.task_versions = repo
+        .files
+        .iter()
+        .find(|file| file.path == path)
+        .map(crate::task_fingerprints);
     Ok(OrgRepoSyncFileRecord::<WebDavSyncFileDetail>::new(
         path,
         action,
         OrgRepoSyncFileState::Synchronized,
     )?
     .with_local_version(Some(local))
-    .with_detail(WebDavSyncFileDetail::from(remote)))
+    .with_detail(detail))
 }
 
 fn unchanged_record(
-    _repo: &OrgRepo,
+    repo: &OrgRepo,
     path: String,
     local: LocalFileVersion,
     remote: RemoteFileVersion,
 ) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
+    let mut detail = WebDavSyncFileDetail::from(remote);
+    detail.task_versions = repo
+        .files
+        .iter()
+        .find(|file| file.path == path)
+        .map(crate::task_fingerprints);
     OrgRepoSyncFileRecord::new(
         path,
         OrgRepoSyncFileAction::Unchanged,
@@ -524,7 +546,7 @@ fn unchanged_record(
     )
     .expect("未变化文件记录应有效")
     .with_local_version(Some(local))
-    .with_detail(WebDavSyncFileDetail::from(remote))
+    .with_detail(detail)
 }
 
 fn conflict_record(
@@ -663,6 +685,7 @@ mod tests {
                     etag: Some("old".into()),
                     modified_at: None,
                     size: Some(3),
+                    task_versions: None,
                 }),
             )
             .unwrap();
@@ -680,6 +703,7 @@ mod tests {
                     etag: Some("new".into()),
                     modified_at: None,
                     size: Some(3),
+                    task_versions: None,
                 }),
             )
             .unwrap();
@@ -700,6 +724,7 @@ mod tests {
                 etag: Some("confirmed".into()),
                 modified_at: None,
                 size: Some(3),
+                task_versions: None,
             }))
             .unwrap();
         partial.finish(OrgRepoSyncResult::Failed, 6).unwrap();

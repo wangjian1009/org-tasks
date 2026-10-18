@@ -32,6 +32,7 @@ interface NewTask {
 
 class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string)
+  testConnection(): Promise<void>
 }
 
 class Workspace {
@@ -73,3 +74,38 @@ class Repo {
 任务 DTO 的 ~repoId~ 直接来自 ~FilterTask.repo_id~ ， ~level~ 来自 core 投影的真实标题层级，不再固定返回 0。文件列表以仓库 ID 和相对路径联合关联任务；层级、折叠和面包屑仅是宿主显示，不产生新的 Org AST。 ~CoreRepositorySnapshot.rootDirectory~ 由 ArkTS wrapper 的既有 ~Repo.rootDirectory()~ 补齐，属于运行时显示信息，不写入 core 的持久化记录。
 
 存储库配置提交前，宿主用独立 workspace 调用既有 ~Repo.load~ 验证目录。该临时 workspace 不替换正在浏览或同步的活动 workspace；bridge 没有增加解析、扫描或同步算法。
+
+* 无仓库的 WebDAV 连接测试
+
+原生 ~WebDavSyncPolicy.testConnection~ 由 C++ ~napi_create_async_work~ 在工作线程调用 ~org_tasks_harmony_webdav_test_connection~ 。worker 复制调用时的地址和凭据，不依赖 native 对象继续存活；完成时销毁请求副本并释放异步工作资源。该方法不持有 workspace handle，也不占用仓库 session 锁。
+
+Rust bridge 临时构造 core ~WebDavSyncPolicy~ ，在 Tokio runtime 中调用 ~test_connection~ 。认证/访问被拒绝映射为 ~invalidInput~ ，网络、超时、证书或协议/目录响应失败映射为 ~invalidState~ ，返回固定的脱敏中文说明。成功兑现 ~Promise<void>~ ，失败拒绝已有 ~CoreError~ 类型。协议请求和 XML 校验全部位于 core，ArkTS 与 C++ 不实现 WebDAV 算法。
+
+
+* 同步级合并比较与 apply
+
+原生 ~Repo.conflicts()~ 返回按同步记录分组的冲突路径，重放规则全部由 ~core::webdav::conflict_syncs~ 提供。~Repo.compareMerge(policy, syncId)~ 返回当前同步的比较对象，~Repo.apply(policy, comparison)~ 直接接收用户选择后的对象。没有准备会话、准备 ID 或 bridge 侧任务匹配表；重新比较和全仓库版本校验均在 core 执行。
+
+#+begin_src ts
+enum CoreMergeMode {
+  AcceptRemote = 'acceptRemote',
+  MergeTasks = 'mergeTasks'
+}
+enum CoreMergeResolution {
+  Local = 'local',
+  Remote = 'remote',
+  Remove = 'remove'
+}
+
+const comparison = await repo.compareMerge(policy, syncId)
+comparison.mode = CoreMergeMode.MergeTasks
+comparison.changes[0].resolution = CoreMergeResolution.Remote
+// 所有差异均选择后，将同一个比较对象直接提交。
+const outcome = await repo.apply(policy, comparison)
+#+end_src
+
+比较对象包含 ~syncId~ 、 ~repoId~ 、 ~repositoryVersion~ 、 ~endpointVersion~ 、逐文件版本、 ~unchangedCount~ 与统一 ~changes~ 。每项变化含临时 ~id~ 、 ~path~ 、新增/修改/删除类型、两端来源和可空的 ~resolution~ 。仅 ~mode~ 与 ~resolution~ 可修改；源正文、ID、类型与版本都由 core 重新核对。未变化项不出现在列表中。
+
+C++ 复制输入对象与当前策略凭据，在 ~napi_create_async_work~ 工作线程通过 Rust ABI 调用 core。异步期间持有 native ~Repo~ 强引用，防止 workspace handle 被提前释放。返回普通结构化对象；Rust/FFI 字符串在 C++ 解析后释放。仓库锁继续串行保护加载、编辑、同步与合并调用。bridge 不实现比较算法、备份路径规则、ETag 决策或任务拼接。
+
+结果包含本次合并同步的 ~syncId~ 、 ~result~ 和逐文件相对备份路径。备份位于 ~.sync/backups/<本次合并开始时间>/~ ，文件名包含本地日期时间；元数据和正文不会写入 Preferences。部分失败仍返回同步结果和备份，失败项由下一次比较重新生成。仓库变化、远端变化、无效对象或备份失败会拒绝 Promise，界面提示重新比较。

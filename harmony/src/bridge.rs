@@ -3,7 +3,8 @@ use std::ffi::CString;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use org_tasks_core::webdav::{
-    WebDavEndpoint, WebDavSyncEvent, WebDavSyncMonitor, WebDavSyncPolicy,
+    WebDavEndpoint, WebDavError, WebDavMergeComparison, WebDavSyncEvent, WebDavSyncMonitor,
+    WebDavSyncPolicy,
 };
 use org_tasks_core::{
     CoreError, Filter, FilterTask, NewTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
@@ -66,6 +67,7 @@ pub struct HarmonyBridgeSync {
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub files: usize,
+    pub conflicts: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -380,6 +382,18 @@ pub fn repo_sync_json(
         started_at: record.started_at,
         finished_at: record.finished_at,
         files: record.files.len(),
+        conflicts: record
+            .files
+            .iter()
+            .filter(|f| {
+                matches!(
+                    f.state,
+                    org_tasks_core::OrgRepoSyncFileState::Conflict
+                        | org_tasks_core::OrgRepoSyncFileState::RemoteDeleted
+                )
+            })
+            .map(|f| f.relative_path.clone())
+            .collect(),
     })
 }
 
@@ -423,6 +437,27 @@ fn runtime() -> Result<tokio::runtime::Runtime, CoreError> {
         .enable_all()
         .build()
         .map_err(|error| CoreError::Store(format!("无法创建 Harmony runtime: {error}")))
+}
+
+pub fn test_webdav_connection(
+    url: String,
+    username: String,
+    password: String,
+) -> Result<(), CoreError> {
+    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(url)?, username, password)?;
+    runtime()?
+        .block_on(policy.test_connection())
+        .map_err(|error| match error {
+            WebDavError::Authentication(_) => {
+                CoreError::InvalidInput("WebDAV 认证或访问被拒绝，请检查用户名、密码和目录权限")
+            }
+            WebDavError::Network(_) | WebDavError::Tls(_) => {
+                CoreError::InvalidState("WebDAV 连接失败或超时，请检查网络、地址和服务器证书")
+            }
+            WebDavError::Protocol(_) | WebDavError::Conflict(_) => {
+                CoreError::InvalidState("WebDAV 目录检查失败，请确认地址指向支持 WebDAV 的目录")
+            }
+        })
 }
 
 fn encode<T: Serialize>(value: &T) -> Result<String, CoreError> {
@@ -512,4 +547,55 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(second_root).unwrap();
     }
+}
+
+pub fn repo_conflicts_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let history = runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
+    encode(&org_tasks_core::webdav::conflict_syncs(&history))
+}
+
+pub fn repo_merge_json(
+    handle: u64,
+    root_directory: String,
+    webdav_url: String,
+    username: String,
+    password: String,
+    sync_id: String,
+    comparison_json: String,
+    started_at: TimestampMs,
+) -> Result<String, CoreError> {
+    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    if comparison_json.is_empty() {
+        return encode(&runtime.block_on(policy.compare_merge(repository, &sync_id))?);
+    }
+    let comparison: WebDavMergeComparison = serde_json::from_str(&comparison_json)
+        .map_err(|_| CoreError::InvalidInput("任务合并对象无效"))?;
+    let outcome = runtime.block_on(policy.apply_merge(repository, &comparison, started_at))?;
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ResultDto {
+        sync_id: String,
+        result: String,
+        backups: Vec<org_tasks_core::webdav::WebDavMergeBackup>,
+    }
+    encode(&ResultDto {
+        sync_id: outcome.record.id,
+        result: sync_result_label(outcome.record.result)?,
+        backups: outcome.backups,
+    })
 }

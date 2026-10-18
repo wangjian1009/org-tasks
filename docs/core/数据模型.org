@@ -224,3 +224,84 @@ pub struct LocalFileVersion {
 * 旧接口
 
 旧的任务记录、同步状态、完整内容 outbox 与冲突记录不是当前核心数据结构；当前 outbox 仅保存 ~OrgRepoWriteIntent~ 元数据。当前实现不读取、不转换这些数据；任务投影、队列与 UI 流程由宿主按当前仓库级接口重新建立。
+
+
+* 按同步比较与合并
+
+~WebDavMergeComparison~ 是一次仓库同步的运行时比较对象。它覆盖该同步仍未解决的全部冲突文件，保存仓库版本、远端配置指纹、逐文件版本，以及统一的变化列表；不需要准备会话 ID，也不写入 Preferences 或同步历史。~apply_merge~ 接受这个对象，只有 ~mode~ 与各变化项的 ~resolution~ 可以由调用方修改。
+
+#+begin_src rust
+pub enum WebDavMergeMode { AcceptRemote, MergeTasks }
+pub enum OrgMergeSide { Local, Remote, Remove }
+
+pub struct WebDavTaskMergeChange {
+    pub id: String,
+    pub path: String,
+    pub kind: OrgMergeChange,
+    pub local: Option<OrgMergeVersion>,
+    pub remote: Option<OrgMergeVersion>,
+    pub resolution: Option<OrgMergeSide>,
+}
+
+pub struct WebDavMergeComparison {
+    pub sync_id: String,
+    pub repo_id: String,
+    pub repository_version: String,
+    pub endpoint_version: String,
+    pub mode: WebDavMergeMode,
+    pub files: Vec<WebDavMergeFileVersion>,
+    pub unchanged_count: usize,
+    pub changes: Vec<WebDavTaskMergeChange>,
+}
+
+pub struct OrgTaskFingerprint {
+    pub key: String,
+    pub hash: String,
+}
+
+pub struct WebDavSyncFileDetail {
+    pub etag: Option<String>,
+    pub modified_at: Option<TimestampMs>,
+    pub size: Option<i64>,
+    pub task_versions: Option<Vec<OrgTaskFingerprint>>,
+}
+#+end_src
+
+变化的临时 ~id~ 只用于当前比较对象，不能跨比较或同步复用。~kind~ 按“当前本地内容采用远端内容”描述新增、修改与删除候选，不推断无共同基准时的历史操作。未变化任务不进入变化列表，由 core 保留；文件前言作为独立差异展示。文件列表、版本字段、临时 ID、来源内容和变化类型都必须与重新比较的结果一致，不能通过编辑对象正文向 core 注入新任务。
+
+任务匹配优先使用自身 Org ~ID~ 的指纹；没有 ~ID~ 时使用祖先身份路径与当前标题的指纹，重名项附带出现序号。无 ~ID~ 的标题改名会显示为删除和新增；重名项需要逐项核对。每个标题只比较自身标题行和 section，子标题独立比较。所有来源区间均来自 ~orgize~ CST，选择结果按原始字节组合，再验证完整 Org 结构；不能静默丢弃未选择的子任务或生成失效层级。
+
+成功文件的 ~WebDavSyncFileDetail.task_versions~ 可保存 ~OrgTaskFingerprint~ 列表，仅含身份指纹和内容指纹，不保存标题、正文、日期或解析任务。旧历史缺少该字段时按无共同任务基准处理，下一次成功同步补齐。完整冲突备份按显式确认的规则保存于 ~.sync/backups/<started_at>/~ ，这是控制目录中保存原始文件的唯一例外；历史与 outbox 仍只保存元数据。
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{WebDavMergeComparison}{
+  sync\_id: String \\
+  repository\_version: String \\
+  mode: WebDavMergeMode
+}{}
+\umlclass[x=7.2,y=0]{WebDavTaskMergeChange}{
+  id: String \\
+  kind: OrgMergeChange \\
+  resolution: Option\textless OrgMergeSide\textgreater
+}{}
+\umlclass[x=0,y=-3.4]{WebDavMergeFileVersion}{
+  path: String \\
+  local\_hash: String \\
+  remote\_hash: String \\
+  remote\_etag: Option\textless String\textgreater
+}{}
+\umlclass[x=7.2,y=-3.4]{OrgMergeVersion}{
+  title: String \\
+  source: String \\
+  parent: Option\textless String\textgreater \\
+  level: usize
+}{}
+\umluniassoc[mult1=1,mult2=0..*]{WebDavMergeComparison}{WebDavTaskMergeChange}
+\umluniassoc[mult1=1,mult2=1..*]{WebDavMergeComparison}{WebDavMergeFileVersion}
+\umluniassoc[mult1=1,mult2=0..2]{WebDavTaskMergeChange}{OrgMergeVersion}
+\end{tikzpicture}%
+}
+\end{center}

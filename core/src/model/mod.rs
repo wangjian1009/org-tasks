@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 
 mod creation;
 mod editor;
-mod service;
+mod merge;
+pub(crate) mod service;
 mod workspace;
 
 pub use creation::*;
 pub use editor::*;
+pub use merge::*;
 pub use service::*;
 pub use workspace::*;
 

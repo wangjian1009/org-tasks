@@ -343,8 +343,51 @@ pub trait WebDavSyncMonitor: Send + Sync {
 }
 #+end_src
 
+~WebDavSyncPolicy.test_connection~ 提供不依赖本地仓库的独立连接检查：
+
+#+begin_src rust
+impl WebDavSyncPolicy {
+    pub async fn test_connection(&self) -> Result<(), WebDavError>;
+}
+#+end_src
+
+该方法只请求配置目录的 ~PROPFIND~ ，使用 ~Depth: 0~ 查询 ~resourcetype~ ，要求 ~207 Multi-Status~ 和目标自身成功返回的 DAV collection 属性。空目录可以通过，普通网页、文件地址、认证拒绝、无效或不完整 XML 均不能报告成功。请求与响应正文读取共享 15 秒总超时。方法不接收 ~OrgRepo~ ，不读写本地文件、历史、outbox 或日历，不上传下载文件；成功只证明认证与目录访问，不证明写权限。
+
 策略内部的列举映射 ~PROPFIND~ ，下载映射 ~GET~ ，上传的 ~CreateOnly~ 映射 ~If-None-Match: *~ ， ~Match~ 映射 ~If-Match~ 。策略不得把认证材料放入领域记录。
 
 * 旧接口
 
 旧的全局作业接口已移除。宿主不读取、不转换也不写入旧作业状态；使用旧版本数据时，应清理数据后按当前接口重新配置和同步。
+
+
+* 按同步比较与应用合并
+
+比较对象可直接序列化、交给用户选择并回传，core 不持有准备会话或临时 ID 注册表。范围是一条仓库同步记录中尚未解决的全部冲突文件，不能加入其他同步的文件或遗漏待处理文件。
+
+#+begin_src rust
+impl WebDavSyncPolicy {
+    pub async fn compare_merge(
+        &self, repo: &mut OrgRepo, sync_id: &str,
+    ) -> Result<WebDavMergeComparison, CoreError>;
+
+    pub async fn apply_merge(
+        &self, repo: &mut OrgRepo, comparison: &WebDavMergeComparison,
+        started_at: TimestampMs,
+    ) -> Result<WebDavMergeOutcome, CoreError>;
+}
+
+pub struct WebDavMergeOutcome {
+    pub record: OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
+    pub backups: Vec<WebDavMergeBackup>,
+}
+#+end_src
+
+~compare_merge~ 自行加载仓库与历史，读取远端版本，返回统一的 ~changes~ 列表。每个差异带临时 ~id~ 、文件路径、新增/修改/删除候选、本地与远端版本，以及初始为空的 ~resolution~ 。未变化任务自动保留，不要求提交选择。差异来源是 Org 标题及自身 section，文件前言单独比较；无稳定 ID 的改名不能猜测为同一任务。
+
+调用方将 ~mode~ 设为 ~MergeTasks~ ，为每个变化选择 ~Local~ 、 ~Remote~ 或 ~Remove~ ，再将整个比较对象传给 ~apply_merge~ 。选择不存在的一端即确认不保留该项；~AcceptRemote~ 模式整份采用各文件的远端内容，包括确认远端已经删除的文件。来源、ID、类型、文件列表和版本字段都是只读数据，不可重写。
+
+~apply_merge~ 重新加载整个仓库，并比较身份、全部 Org 文件的路径与内容、同步历史和 outbox 的组合版本；任何变化都在网络写入和备份之前拒绝。远端配置指纹和每个冲突文件的 ETag、正文指纹也必须一致。新出现或已经解决的冲突、缺少选择、重复 ID、修改来源内容、无效层级和过期对象均不能提交；调用方应重新比较。
+
+所有文件通过预检后，先将本次同步的全部本地冲突文件备份到 ~.sync/backups/<started_at>/~ ，再逐文件执行条件上传与本地原子替换。已有远端文件必须使用 ~If-Match~ ，重新创建文件必须使用 ~If-None-Match: *~ 。保存失败、远端再次变化或 ~412~ 会成为该文件的失败记录，其他已完成文件保留成功结果，整体同步标为失败；不能跨多个远端文件承诺事务回滚。~OrgRepo.sync~ 统一追加一条合并作业记录，再确认成功文件的 outbox，已确认的本地删除也会在确认文件仍缺失后清理旧意图。
+
+冲突备份返回相对于仓库的路径，不包含凭据。元数据中不写入完整比较对象、任务正文或备份内容。一次 apply 结束后，旧对象因同步历史发生变化而失效；进程重启本身不会使未过期对象失效。同一仓库的调用仍需串行执行，跨进程外部编辑不能替代文件系统事务。

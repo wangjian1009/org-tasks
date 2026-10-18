@@ -414,6 +414,12 @@ impl OrgRepo {
         persist_sync_record(Path::new(&self.root_directory), &record).await?;
         for file in &record.files {
             if file.state == super::OrgRepoSyncFileState::Synchronized
+                && file.action == super::OrgRepoSyncFileAction::Deleted
+            {
+                self.acknowledge_deleted_write(&file.relative_path).await?;
+                continue;
+            }
+            if file.state == super::OrgRepoSyncFileState::Synchronized
                 && let Some(version) = &file.local_version
             {
                 self.acknowledge_write(&file.relative_path, version).await?;

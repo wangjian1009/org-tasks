@@ -1,4 +1,4 @@
-// 集中读取应用配置，并为新配置初始化稳定仓库标识。
+// 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
 import { Context } from '@kit.AbilityKit'
 import { preferences } from '@kit.ArkData'

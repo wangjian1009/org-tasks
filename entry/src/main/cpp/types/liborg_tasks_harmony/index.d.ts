@@ -43,6 +43,7 @@ export interface SyncRecord {
   started_at: number;
   finished_at: number | null;
   files: number;
+  conflicts: string[];
 }
 
 export type WebDavSyncEvent =
@@ -59,6 +60,7 @@ export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
+  testConnection(): Promise<void>;
 }
 
 export class Workspace {
@@ -74,6 +76,47 @@ export class Repo {
   rootDirectory(): string;
   load(): Promise<void>;
   createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>;
+  conflicts(): Promise<ConflictSync[]>;
+  compareMerge(policy: WebDavSyncPolicy, syncId: string): Promise<MergeComparison>;
+  apply(policy: WebDavSyncPolicy, comparison: MergeComparison): Promise<MergeOutcome>;
   snapshot(): Promise<RepositorySnapshot>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor): Promise<SyncRecord>;
 }
+
+
+export interface MergeVersion {
+  title: string;
+  source: string;
+  parent: string | null;
+  level: number;
+}
+export type MergeMode = 'acceptRemote' | 'mergeTasks';
+export type MergeResolution = 'local' | 'remote' | 'remove';
+export interface MergeChange {
+  id: string;
+  path: string;
+  kind: 'added' | 'modified' | 'deleted';
+  local: MergeVersion | null;
+  remote: MergeVersion | null;
+  resolution: MergeResolution | null;
+}
+export interface MergeFileVersion {
+  path: string;
+  localHash: string;
+  remoteHash: string;
+  remoteEtag: string | null;
+  remoteMissing: boolean;
+}
+export interface MergeComparison {
+  syncId: string;
+  repoId: string;
+  repositoryVersion: string;
+  endpointVersion: string;
+  mode: MergeMode;
+  files: MergeFileVersion[];
+  unchangedCount: number;
+  changes: MergeChange[];
+}
+export interface ConflictSync { syncId: string; paths: string[]; }
+export interface MergeBackup { path: string; backupPath: string; }
+export interface MergeOutcome { syncId: string; result: 'succeeded' | 'failed'; backups: MergeBackup[]; }

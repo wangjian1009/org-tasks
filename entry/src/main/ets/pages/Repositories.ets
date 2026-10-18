@@ -83,7 +83,7 @@ struct Repositories {
                       .enabled(!this.deleting).onClick((): void => { this.confirmDelete(repo) })
                   }.width('100%').padding(16).border({ width: { bottom: 0.5 }, color: UiColor.outline })
                 }
-              }, (repo: RepoConfig) => repo.id)
+              }, (repo: RepoConfig) => JSON.stringify([repo.id, repo.rootDirectory, repo.webdavEnabled, repo.webdavUrl]))
             }.width('100%').layoutWeight(1).padding({ bottom: 88 })
           }
         }.width('100%').height('100%')

@@ -18,6 +18,14 @@
 
 WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料由策略实例持有； ~core::webdav~ 实现 core 的 ~SyncPolicy~ ，直接执行远端列举、下载、上传、下载文件写回和同步记录生成。org 文件扫描与解析属于 ~core::model::OrgRepo~ ，HTTP 仅创建 policy 与同步控制器，不实现 WebDAV 请求、同步决策或状态存储。
 
+* 独立连接检查
+
+~WebDavSyncPolicy.test_connection~ 复用策略的 HTTP client、认证参数和 endpoint，发送只读 ~PROPFIND~ 请求。请求 ~Depth: 0~ ，正文只查询 ~DAV:resourcetype~ ，不列举子文件或探测写入。
+
+成功要求 HTTP ~207~ ，合法的 ~DAV:multistatus~ XML，以及与最终请求地址相同来源、相同目录路径的 ~response~ 。该 response 必须在成功的 ~propstat~ 中返回 ~DAV:collection~ 。不能将单独的 HTTP 成功、登录 HTML、其他目录、文件或权限失败当作目录访问成功。服务器重定向后按最终请求地址验证 href。
+
+网络请求和响应正文读取使用 15 秒总超时。失败沿用 ~WebDavError~ 分类，错误不包含认证参数、完整 URL 或响应正文。连接检查不创建 ~OrgRepoSyncRecord~ ，不发送同步生命周期事件，也不加载仓库、修改文件或消费 outbox；检查成功不保证条件写入权限。
+
 * Adapter 契约
 
 ~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 使用 Tokio runtime 上的异步 HTTP client 处理仓库文件，并在结束时返回带有全局 ~kind: "webdav"~ 和 ~WebDavSyncFileDetail~ 的完整 ~OrgRepoSyncRecord~ 。下载成功后，它调用 core 的 org 解析能力更新仓库快照，并负责将下载文件异步写回本地仓库。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
@@ -108,7 +116,7 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 
 * 宿主写入、进度与错误
 
-宿主通过 ~OrgRepo.create_task~ 请求追加 ~inbox.org~ 或其他目标文件；core 负责格式校验、保真追加、本地提交和可选 ~.sync/outbox/~ 意图登记。WebDAV 策略读取 outbox，将对应路径视为本地待上传内容；远端变化时报告冲突并保留本地文件，不自动合并。outbox 不保存 org 内容，重命名、删除及 UI 冲突解决暂未提供任务创建入口。
+宿主通过 ~OrgRepo.create_task~ 请求追加 ~inbox.org~ 或其他目标文件；core 负责格式校验、保真追加、本地提交和可选 ~.sync/outbox/~ 意图登记。WebDAV 策略读取 outbox，将对应路径视为本地待上传内容；远端变化时报告冲突并保留本地文件，不自动合并。outbox 不保存 org 内容；冲突通过独立的按同步比较与 apply 流程显式处理。
 
 每个路径的版本基准来自最近一条 ~Synchronized~ 文件记录，包括整体失败作业中已经成功的文件。冲突和失败文件不能成为新基准；包含失败、冲突或远端删除的作业以 ~Failed~ 结束。~OrgRepo.sync~ 在同步历史落盘后确认成功文件的写入意图；网络失败、~412~ 和取消不会消费尚未完成文件的意图。
 
@@ -121,3 +129,14 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 - 一个同步记录只归属一个 ~OrgRepoId~ ，其中每个文件记录只使用相对路径。
 - 策略返回的记录不包含配置凭据、绝对路径、远端完整 URL 或完整 org 内容。
 - 写入意图只在对应条件写入成功、历史落盘且本地版本仍一致后由 core 确认；失败与 ~412~ 不得丢弃意图。
+
+
+* 显式任务合并
+
+~compare_merge~ 和 ~apply_merge~ 以一条仓库同步记录为单位处理全部未解决冲突，接口见 [[file:接口文档.org][接口文档]]。比较只读取远端及本地来源，返回可直接回传的对象；新增、修改、删除按从本地采用远端的候选变化表达，每个差异使用当前对象内的临时 ID。未变化任务自动保留，不能通过选择列表删除。文件前言需要独立确认。
+
+apply 前重新扫描并核对整个仓库版本，随后检查远端 ETag 与字节指纹；任一比较依据变化即拒绝旧对象。任务来源由 ~orgize~ CST 的原始范围取得，标题自身内容与子标题分别选择；合并不能格式化其他范围，也不能在删除父标题时静默丢失未删除的子任务。
+
+全部本地冲突文件先按本次合并的开始时间集中备份到 ~.sync/backups/<started_at>/~ ，再执行条件写入或采用远端。成功文件写入新的 ~Synchronized~ 版本基准和可选任务指纹；部分失败仍追加包含每个文件结果的作业历史，失败项保留原冲突等待重新比较。~412~ 不覆盖远端，不消费未成功文件的 outbox。
+
+待处理冲突由历史重放得到：~Conflict~ 或 ~RemoteDeleted~ 设为待处理，后续 ~Synchronized~ 清除对应路径，普通失败不清除已有冲突。Harmony 只按该投影展示同步级入口，不自行推导文件或任务冲突。

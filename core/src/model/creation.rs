@@ -176,6 +176,22 @@ impl OrgRepo {
         Ok(())
     }
 
+    pub(crate) async fn acknowledge_deleted_write(&self, path: &str) -> Result<(), CoreError> {
+        validate_task_path(path)?;
+        if read_optional(&Path::new(&self.root_directory).join(path))
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+        for (intent_path, intent) in self.write_intent_files().await? {
+            if intent.relative_path == path {
+                fs::remove_file(intent_path).await.map_err(store_error)?;
+            }
+        }
+        Ok(())
+    }
+
     async fn write_intent_files(&self) -> Result<Vec<(PathBuf, OrgRepoWriteIntent)>, CoreError> {
         let directory = Path::new(&self.root_directory).join(".sync/outbox");
         let mut entries = match fs::read_dir(directory).await {
@@ -276,7 +292,7 @@ fn validate_task_path(path: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
+pub(super) async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
     let mut target = root.to_path_buf();
     let parts = path.split('/').collect::<Vec<_>>();
     for (index, part) in parts.iter().enumerate() {
@@ -303,7 +319,7 @@ async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
     Ok(target)
 }
 
-async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
+pub(super) async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
     match fs::read(path).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -311,7 +327,7 @@ async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
     }
 }
 
-async fn write_new(path: &Path, content: &[u8]) -> Result<(), CoreError> {
+pub(super) async fn write_new(path: &Path, content: &[u8]) -> Result<(), CoreError> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

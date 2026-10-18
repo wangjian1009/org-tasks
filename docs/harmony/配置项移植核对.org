@@ -1,0 +1,246 @@
+#+TITLE: 参考应用配置项移植核对
+#+DATE: 2026-10-18
+#+STARTUP: show2levels
+#+OPTIONS: author:nil toc:2
+#+LANGUAGE: zh-CN
+
+* 范围与结论
+
+核对依据为本地 Orgzly Revived 参考仓库的 ~app/src/main/res/xml/prefs*.xml~ 、仓库配置界面，以及 Harmony 设置入口、Preferences、Asset Store、WorkScheduler 和 core 调用。参考 XML 共 108 个叶项，其中包含按钮动作；分组和导航项不重复计数。存储库表单独立核对，不混入这 108 项。
+
+108 个参考叶项的对应结果为：已支持 2、固定行为 26、部分支持 4、未支持 76。这里“已支持 2”只统计参考 XML 的对应选项，当前 Harmony 的 8 类配置还包括单独核对的仓库表单及本应用新增配置，二者不是同一统计口径。
+
+当前 Harmony 提供 8 类用户可编辑配置，均有消费方；没有发现已显示且保存后完全不读取的用户配置字段。大量参考选项未移植；固定行为不能视为支持相应配置开关。下表“建议不纳入”是范围建议，确认前不代表永久取消；“未支持”仅陈述当前实现。
+
+本报告属于手机应用范围核对，功能交付状态仍以 [[file:../手机应用功能清单.org][手机应用功能清单]] 为准。现有参考截图与设计文件保留原貌，以便后续对照。
+
+* 当前支持并保留的配置
+
+| 配置 | 当前字段 | 保存位置 | 消费方与限制 |
+|-
+| 本地 Org 目录 | ~repos[].rootDirectory~ | Preferences | core 扫描与 WebDAV 本地文件；只能使用应用可访问的绝对目录。没有系统目录授权选择器。 |
+| WebDAV 启用 | ~repos[].webdavEnabled~ | Preferences | NativeCoreService 决定是否构造 WebDAV 策略；关闭后仍是本地仓库。 |
+| WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | WebDavSyncPolicy 使用；表单限定 HTTPS。 |
+| WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | WebDavSyncPolicy 认证参数。 |
+| WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store；内存中临时装配 | WebDavSyncPolicy 认证参数；Preferences 仅有同名空字符串占位。 |
+| 新增任务收集箱 | ~inboxFile~ | Preferences | AddTask 调用 core 在所选仓库内追加任务。它不等同于系统分享默认笔记本。 |
+| 日历名称 | ~calendarName~ | Preferences | 手动与后台 CalendarSync 创建/选择本地日历；颜色、提醒和筛选不可配置。 |
+| 后台同步间隔 | ~syncInterval~ | Preferences | BackgroundSyncService 注册/替换作业，至少 20 分钟；没有停用开关。 |
+
+存储库配置 ID、已保存查询 ID/名称/表达式、最后同步时间和日历事件映射分别是身份、查询或运行状态，不额外计为用户配置项。
+
+* 独立核对的仓库表单能力
+
+| 能力 | 当前支持情况 | 建议 |
+|-
+| 本地目录 / WebDAV | 已接入，创建应用管理的目录、保存配置并交给 core 校验 | 保留 |
+| WebDAV 独立测试连接 | 已接入：使用未保存的地址和凭据验证认证与目录访问，15 秒超时；不保存配置或执行文件同步 | 保留；写入权限由实际同步验证 |
+| 导入信任证书、自签名证书管理 | 没有证书输入或受信任证书配置 | 待定；不绕过现有 TLS 验证 |
+| 客户端证书、额外 HTTP 认证参数 | 没有配置与调用 | 待定 |
+| 目录浏览 / 持久授权 URI | 没有系统选择器；当前输入是绝对路径 | 待定，需要 Harmony 文件授权方案 |
+| Git、SSH 配置 | 没有 SyncPolicy、存储库类型及密钥配置 | 建议本版不纳入 |
+| Dropbox 配置 | 没有 SDK、授权及存储库类型；参考 F-Droid 版本身也隐藏该类型 | 建议本版不纳入 |
+
+* 未完成能力与实现偏差
+
+- 解析投影：现有笔记详情只读，正文为普通文本；日期投影只保留年月日；新建固定 TODO、尾部追加，A/B/C 为可选单次值。提醒、时间、重复器、富文本和默认值偏好不能据参考截图宣称支持。
+- 子目录：本地扫描递归目录并排除根目录 ~.sync~ ；WebDAV ~PROPFIND~ 使用 ~Depth: 1~ ，没有递归遍历。两者不能合并称为“支持仓库子目录开关”。
+- 日历：目前固定创建绿色日历，日历开启提醒；有截止日期时设置固定提醒值。没有提醒开关、提醒时间偏好、同步范围或日历停用开关，不等同于独立提醒服务。
+- 身份： ~RepoConfig.id~ 目前由宿主生成，用于配置项和 Asset Store；core 仓库身份另从 ~.sync/id~ 取得。两者尚未统一，不能在文档中写成已实现的单一 repoId。修复需要单独评估凭据重绑定。
+- 状态存储： ~lastSyncTime~ 和 ~calendar_sync_state~ 仍是 ~org_tasks_config~ 的键；设计要求的状态隔离尚未落地。它们不是未支持的配置，不应直接删除导致状态丢失。
+- 配置持久化：保存全局配置会遍历并写入所有仓库凭据，本地仓库加载也读取 Asset Store；文档所述仅按远端需求读写及失败回滚尚未全部实现。
+
+* 本次可直接清理的残留
+
+- 文档中不存在的 ~version: 3~ 、 ~calendar.name~ 、 ~scheduler.intervalMinutes~ 配置模型改为实际 ~AppConfig~ 字段，避免把规划结构列为已支持。
+- 移除无调用方的旧 ArkTS ~OrgParser~ 和 ~OrgParseResult~ ，清除其固定 TODO 列表、旧文本生成与正则解析；运行路径继续使用 core。
+- 修正功能清单中“OrgParser 负责解析”“已提取进度”等失实表述；当前 bridge 的结构化进度固定为 -1，原文仍完整保留。
+
+* 参考配置逐项核对
+
+状态定义：已支持表示存在对应设置及消费方；固定行为表示功能有默认实现但没有此配置项；部分支持表示仅覆盖部分流程；未支持表示没有配置或主流程。所有“待定”项均没有添加空入口。
+
+** 应用程序与维护动作
+
+参考文件： ~prefs_screen_app.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 导入“开始使用 Orgzly” | ~pref_key_reload_getting_started~ | 未支持 | 无参考示例笔记本导入动作。 | 建议本版不纳入 |
+| 导出应用程序设置 | ~pref_key_export_settings~ | 未支持 | 不导出设置或已保存查询 JSON。 | 待定 |
+| 导入应用程序设置 | ~pref_key_import_settings~ | 未支持 | 不导入参考应用或本应用的设置 JSON。 | 待定 |
+| 清除数据库 | ~pref_key_clear_database~ | 未支持 | 无参考应用 SQLite 数据库清空操作；不能对应删除仓库文件。 | 建议不纳入 |
+| 更新内容 | ~pref_key_version~ | 未支持 | 关于页只显示应用说明，不显示版本变更记录。 | 待定 |
+
+** 自动同步
+
+参考文件： ~prefs_screen_auto_sync.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 自动同步 | ~pref_key_auto_sync~ | 未支持 | 无自动同步总开关。 | 待定 |
+| 笔记已创建 | ~pref_key_auto_sync_on_note_create~ | 未支持 | 新增只登记本地写入；不会立即自动同步。 | 待定 |
+| 笔记已更新或已删除 | ~pref_key_auto_sync_on_note_update~ | 未支持 | 现有笔记编辑/删除没有手机入口，也无触发配置。 | 待定 |
+| 启动或返回应用程序 | ~pref_key_auto_sync_on_resume~ | 未支持 | 回到页面只加载本地数据，不触发 WebDAV 与日历同步。 | 待定 |
+| 挂起应用程序 | ~pref_key_auto_sync_on_suspend~ | 未支持 | 退到后台不主动发起同步。 | 待定 |
+| Periodically | ~pref_key_auto_sync_at_interval_enabled~ | 固定行为 | 定时同步始终注册；有间隔值，没有启用开关。 | 待定：是否增加开关 |
+| Interval in minutes (minimum: 15) | ~pref_key_auto_sync_interval_in_mins~ | 已支持 | syncInterval 驱动 WorkScheduler，至少 20 分钟。 | 保留 |
+| 存储库已修改（尚未实现） | ~pref_key_auto_sync_on_repo_change~ | 未支持 | 无远端变化监听；参考 XML 本身也标注尚未实现。 | 建议本版不纳入 |
+
+** 开发者选项
+
+参考文件： ~prefs_screen_developer.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| Git 仓库类型 | ~pref_key_git_is_enabled~ | 未支持 | 无 Git SyncPolicy 和 Git 存储库入口。 | 建议本版不纳入 |
+| 记录重要事件 | ~pref_key_log_major_events~ | 未支持 | 无用户可配置的重要事件日志开关。 | 建议本版不纳入 |
+| 日志 | ~pref_key_major_events_logs~ | 未支持 | 无应用内日志浏览入口。 | 建议本版不纳入 |
+| Git commit of app build | ~pref_key_git_commit~ | 未支持 | 无构建 commit 展示选项。 | 建议本版不纳入 |
+
+** 外观与感觉
+
+参考文件： ~prefs_screen_look_and_feel.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 主题 | ~pref_key_color_theme~ | 固定行为 | 固定 UiColor 浅色，不随系统切换，也无手动主题选项。 | 待定 |
+| 明亮配色方案 | ~pref_key_light_color_scheme~ | 固定行为 | 单一浅色方案，无动态色或浅色方案选择。 | 待定 |
+| 暗色方案 | ~pref_key_dark_color_scheme~ | 未支持 | 没有深色、纯黑和动态深色。 | 待定 |
+| Calendar Color | ~pref_key_calendar_color~ | 固定行为 | 创建日历时固定 #4CAF50；不是参考截图的 Calendar Color。 | 待定 |
+| 反转笔记点击动作 | ~pref_key_is_reverse_click_action~ | 未支持 | 点击打开笔记；无笔记多选和反转点击配置。 | 待定 |
+| 字体大小 | ~pref_key_font_size~ | 固定行为 | 界面字号由组件指定，没有应用级字号选项。 | 待定 |
+| 等宽字体 | ~pref_key_is_font_monospaced~ | 固定行为 | 原文视图固定等宽，正文无等宽开关。 | 待定 |
+| 样式文本 | ~pref_key_style_text~ | 未支持 | 正文用 Text 展示，不渲染 Org 富文本。 | 待定 |
+| 使用符号样式化文本 | ~pref_key_styled_text_with_marks~ | 未支持 | 无富文本显示/标记显示模式切换。 | 待定 |
+| 高亮正被编辑的富文本 | ~pref_key_highlight_edited_rich_text~ | 未支持 | 现有笔记只读，无富文本编辑高亮。 | 待定 |
+| 启用选项使屏幕保持常亮 | ~pref_key_keep_screen_on_menu_item~ | 未支持 | 无保持屏幕常亮菜单或配置。 | 待定 |
+| Use English language | ~pref_key_ignore_system_locale~ | 未支持 | 面向用户文案为中文，无强制英文选项。 | 待定 |
+| Default to advanced query editor | ~pref_key_default_advanced_search~ | 未支持 | 查询模式只有页面草稿，没有持久化默认模式。 | 待定 |
+| Hide empty days in agenda | ~pref_key_hide_empty_days_in_agenda~ | 固定行为 | 不生成空日期组，没有切换项；与完整 agenda 引擎不同。 | 待定 |
+| Don't show Scheduled tasks as overdue in agenda | ~pref_key_group_scheduled_with_today~ | 固定行为 | 早于今天的计划与截止都进入过期组，无合并今天选项。 | 待定 |
+
+** 笔记与笔记本
+
+参考文件： ~prefs_screen_notebooks.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 排序方式 | ~pref_key_notebooks_sort_order~ | 固定行为 | 沿用 core 的仓库和文件顺序，不提供排序选择。 | 待定 |
+| 详情 | ~pref_key_displayed_book_details~ | 固定行为 | 固定显示存储库、笔记数、字节数；无详情字段选择。 | 待定 |
+| 默认笔记本 | ~pref_key_share_notebook~ | 部分支持 | 有新增任务收集箱 inboxFile，但无系统分享接收及其默认笔记本。 | 待定：不把收集箱当作分享支持 |
+| 强制 UTF-8 编码 | ~pref_key_force_utf8~ | 固定行为 | core 接受 UTF-8，不提供编码检测/其他编码选项。 | 建议固定 UTF-8，不纳入开关 |
+| 展开已折叠 | ~pref_key_notebooks_start_folded~ | 固定行为 | 每次进入初始展开，可手动折叠；无默认折叠偏好。 | 待定 |
+| 密度 | ~pref_key_notes_list_density~ | 固定行为 | 列表间距固定，无紧凑/舒适密度切换。 | 待定 |
+| 显示规划时间 | ~pref_key_display_planning~ | 固定行为 | 有计划/截止日期就显示，无显示开关，也不投影 CLOSED。 | 待定 |
+| 搜索结果中的笔记本名称 | ~pref_key_book_name_in_search~ | 固定行为 | 搜索结果显示相对文件路径，无显示方式选择。 | 待定 |
+| 搜索结果中的被继承标签 | ~pref_key_display_inherited_tags_in_search_results~ | 固定行为 | bridge 合并自身与继承标签，始终展示，无开关。 | 待定 |
+| 显示内容 | ~pref_key_is_notes_content_displayed_in_list~ | 固定行为 | 层级列表固定展示最多两行正文摘要。 | 待定 |
+| 收起内容 | ~pref_key_is_notes_content_foldable~ | 部分支持 | 可折叠子树及详情正文；不能逐行折叠正文摘要。 | 待定 |
+| 在搜索中显示内容 | ~pref_key_is_notes_content_displayed_in_search~ | 固定行为 | 搜索结果固定展示最多两行正文摘要。 | 待定 |
+| Fold in search | ~pref_key_is_search_foldable~ | 未支持 | 搜索结果是平面列表，不提供搜索内折叠。 | 待定 |
+| 显示内容行数 | ~pref_key_content_line_count_displayed~ | 未支持 | 不展示正文总行数。 | 待定 |
+| 笔记本序言 | ~pref_key_preface_in_book~ | 部分支持 | 原文页可查看前言字节；无独立前言节点及显示偏好。 | 待定 |
+| 笔记本 | ~pref_key_note_popup_buttons_in_book_left~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
+| 笔记本 | ~pref_key_note_popup_buttons_in_book_right~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
+| 搜索结果 | ~pref_key_note_popup_buttons_in_query_left~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
+| 搜索结果 | ~pref_key_note_popup_buttons_in_query_right~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
+| 状态 | ~pref_key_states~ | 未支持 | 无应用级自定义 TODO 工作流配置；由 core 解析原文状态。 | 待定 |
+| 默认优先级 | ~pref_key_default_priority~ | 固定行为 | 新增默认无优先级，单次可选 A/B/C；无全局默认值。 | 待定 |
+| 最低优先级 | ~pref_key_min_priority~ | 固定行为 | 新增只接受 A/B/C，没有最低优先级配置。 | 待定 |
+| 元数据 | ~pref_key_selected_note_metadata~ | 固定行为 | 详情元数据字段固定，能整体折叠但不能选择字段集合。 | 待定 |
+| 收起抽屉 | ~pref_key_drawers_folded~ | 未支持 | Org drawer 作为原文内容，无独立 drawer 默认折叠配置。 | 待定 |
+| 在时间改变时记录到抽屉 | ~pref_key_log_on_time_shift~ | 未支持 | 不提供完成切换/重复器重排与相应 LOGBOOK 写入。 | 待定 |
+| 在时间改变时设定属性 | ~pref_key_set_last_repeat_on_time_shift~ | 未支持 | 不提供 LAST_REPEAT 写入。 | 待定 |
+| 琐碎目标 | ~pref_key_breadcrumbs_target~ | 固定行为 | 面包屑整体打开所属笔记本，无目标选择。 | 待定 |
+| 链接目标 | ~pref_key_link_target~ | 未支持 | 正文链接没有内部/外部打开策略配置。 | 待定 |
+| 绝对链接的根目录（例如：file:/readme.txt） | ~pref_key_file_absolute_root~ | 未支持 | 不解析/打开正文 file: 链接，无绝对链接根目录。 | 待定 |
+| 相对链接的根目录（例如：file:readme.txt） | ~pref_key_file_relative_root~ | 未支持 | 不解析/打开正文 file: 链接，无相对链接根目录。 | 待定 |
+| 状态 | ~pref_key_new_note_state~ | 固定行为 | 新建状态固定 TODO，无默认状态配置。 | 待定 |
+| 计划 | ~pref_key_is_new_note_scheduled~ | 固定行为 | 新建默认无计划日期，单次手选；无自动设为今天配置。 | 待定 |
+| 前缀 | ~pref_key_is_new_note_prepend~ | 固定行为 | core 在目标文件末尾追加，不提供默认前插。 | 待定 |
+| Add ID property | ~pref_key_new_note_add_id~ | 未支持 | 新建不添加 Org ID 属性。 | 待定 |
+| Placement of shared plain text | ~pref_key_shared_text_placement~ | 未支持 | 没有系统分享接收流程及插入位置配置。 | 待定 |
+| Create org links from shared links | ~pref_key_create_org_links_from_shared_links~ | 未支持 | 没有从分享链接生成 Org 链接的流程。 | 待定 |
+| Capture templates | ~prefs_screen_capture_templates~ | 未支持 | 没有捕获模板列表、模板配置及展开功能。 | 待定 |
+| 启用图片 | ~pref_key_images_enabled~ | 未支持 | 笔记正文不加载内嵌图片。 | 待定 |
+| 按比例缩小到一定宽度 | ~pref_key_images_scale_down_to_width~ | 未支持 | 无图片缩放选项。 | 待定 |
+| 宽度（以像素为单位） | ~pref_key_images_scale_down_to_width_value~ | 未支持 | 无图片宽度配置。 | 待定 |
+
+** 通知
+
+参考文件： ~prefs_screen_notifications.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 持续 | ~pref_key_ongoing_notification~ | 未支持 | 没有常驻通知、通知快捷新增或同步失败通知配置。 | 建议不移植 Android 通知配置；Harmony 通知另行评估 |
+| 持续优先级 | ~pref_key_ongoing_notification_priority~ | 未支持 | 没有常驻通知、通知快捷新增或同步失败通知配置。 | 建议不移植 Android 通知配置；Harmony 通知另行评估 |
+| 同步失败 | ~pref_key_show_sync_notifications~ | 未支持 | 没有常驻通知、通知快捷新增或同步失败通知配置。 | 建议不移植 Android 通知配置；Harmony 通知另行评估 |
+
+** Org 文件格式
+
+参考文件： ~prefs_screen_org_file_format.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 用空行分隔笔记 | ~pref_key_separate_notes_with_new_line~ | 未支持 | core 保留已有字节，只对新增内容使用固定格式，无全文件重排选项。 | 建议不纳入全文件重排配置 |
+| 分隔标题和内容 | ~pref_key_separate_header_and_content_with_new_line~ | 未支持 | core 保留已有字节，只对新增内容使用固定格式，无全文件重排选项。 | 建议不纳入全文件重排配置 |
+
+** 标签缩进
+
+参考文件： ~prefs_screen_org_mode_tags_indent.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 标签列 (org-tags-column) | ~pref_key_tags_column~ | 未支持 | core 保留已有字节，只对新增内容使用固定格式，无全文件重排选项。 | 建议不纳入全文件重排配置 |
+| 根据缩进模式调整 | ~pref_key_org_indent_mode~ | 未支持 | core 保留已有字节，只对新增内容使用固定格式，无全文件重排选项。 | 建议不纳入全文件重排配置 |
+| 每层级缩进量 | ~pref_key_org_indent_indentation_per_level~ | 未支持 | core 保留已有字节，只对新增内容使用固定格式，无全文件重排选项。 | 建议不纳入全文件重排配置 |
+
+** 提醒
+
+参考文件： ~prefs_screen_reminders.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 计划 | ~pref_key_use_reminders_for_scheduled_times~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 截止期限 | ~pref_key_use_reminders_for_deadline_times~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 事件 | ~pref_key_use_reminders_for_event_times~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 播放闹钟声音 | ~pref_key_reminders_alarm~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| Alarm tags | ~pref_key_reminders_alarm_tags~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 使用闹钟 | ~pref_key_reminders_use_alarm_clock_for_tod_reminders~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 每日提醒时间 | ~pref_key_daily_reminder_time~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 声音 | ~pref_key_reminders_sound~ | 未支持 | 不移植 Android LED/声音/振动偏好；Harmony 由系统管理通知设置。 | 建议不纳入原平台配置 |
+| 呼吸灯 | ~pref_key_reminders_led~ | 未支持 | 不移植 Android LED/声音/振动偏好；Harmony 由系统管理通知设置。 | 建议不纳入原平台配置 |
+| 振动 | ~pref_key_reminders_vibrate~ | 未支持 | 不移植 Android LED/声音/振动偏好；Harmony 由系统管理通知设置。 | 建议不纳入原平台配置 |
+| 推迟时间（分钟） | ~pref_key_snooze_time~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+| 推迟类型 | ~pref_key_snooze_type~ | 未支持 | 没有应用自身提醒/闹钟/稍后提醒服务；日历提醒为固定逻辑，不等价。 | 待定 |
+
+** 同步
+
+参考文件： ~prefs_screen_sync.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 存储库 | ~pref_key_repos~ | 已支持 | 本地目录与 WebDAV 独立配置，见 Repositories / RepositorySettings。 | 保留 |
+| 忽略模式文件名 | ~pref_key_orgzlyignore_file~ | 未支持 | 不读取 .orgzlyignore 或自定义忽略规则。 | 待定 |
+| Support repository subfolders | ~pref_key_enable_repo_subfolders~ | 部分支持 | 本地 core 扫描递归子目录；WebDAV 仅 Depth: 1 列举，不递归子目录；无开关。 | 待定：本地与远端需分别定义 |
+| Enable Calendar Sync | ~pref_key_calendar_sync_enable~ | 固定行为 | 手动文件同步与设置中的日历操作入口已拆分；后台仍同步日历，无启用开关。 | 入口已拆分；独立启停仍待定 |
+| Notes to sync | ~pref_key_calendar_sync_search~ | 未支持 | 日历只按是否有计划/截止日期筛选，未绑定已保存查询。 | 待定 |
+| SSH 密钥生成 | ~pref_key_ssh_keygen~ | 未支持 | 无 Git/SSH 密钥生成流程。 | 建议本版不纳入 |
+| 浏览生成的 SSH 公钥 | ~pref_key_ssh_show_public_key~ | 未支持 | 无 SSH 公钥查看流程。 | 建议本版不纳入 |
+| 为创建时间使用属性 | ~pref_key_is_created_at_added~ | 未支持 | 新建任务不添加创建时间属性。 | 待定 |
+| 创建属性 | ~pref_key_created_at_property~ | 未支持 | 没有创建时间属性名配置。 | 待定 |
+
+** 桌面小部件
+
+参考文件： ~prefs_screen_widget.xml~ 。
+
+| 参考选项 | 参考键 | 状态 | Harmony 当前行为 | 处理建议 |
+|-
+| 颜色主题 | ~pref_key_widget_color_scheme~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |
+| 背景不透明度 | ~pref_key_widget_opacity~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |
+| 字体大小 | ~pref_key_widget_font_size~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |
+| 显示选中标记 | ~pref_key_widget_display_checkmarks~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |
+| 显示笔记本名称 | ~pref_key_widget_display_book_name~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |
+| Capture template | ~pref_key_widget_capture_template~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |
+| 更新频率 | ~pref_key_widget_update_frequency~ | 未支持 | 未实现 Harmony FormExtensionAbility/桌面卡片；无对应配置。 | 建议不移植 Android 小部件配置 |

@@ -16,48 +16,53 @@
 
 本文定义 Harmony 宿主的配置、凭据与保存边界。Harmony 从 Preferences 与安全存储取得仓库根目录和远端配置，再调用 core 打开并维护本地 ~OrgRepo~ 。core 负责 org 文件扫描和解析； ~core::webdav~ 负责同步文件写回与同步记录生成。核心模型见 [[file:../core/数据模型.org][数据模型]]，仓库 API 见 [[file:../core/接口文档.org][接口文档]]，本地控制目录见 [[file:../core/目录结构设计.org][目录结构设计]]。
 
-配置、凭据与持久化状态必须分离。密码、令牌和客户端证书不能写入 Preferences、core 同步记录、HTTP 请求日志、进度事件或错误摘要。 ~repoId~ 由仓库根目录的 ~.sync/id~ 持久化，是连接 Harmony 凭据与 core 同步历史的唯一稳定标识；Preferences 不得复制保存该值。
+配置、凭据与持久化状态必须分离。密码、令牌和客户端证书不能写入 Preferences、core 同步记录、HTTP 请求日志、进度事件或错误摘要。core 的 ~repoId~ 由仓库根目录的 ~.sync/id~ 持久化；现有宿主另用配置 ID 定位秘密，身份统一尚未落地，差异见本文末尾。
 
 ~OrgWorkspace~ 是应用级核心结构；一个应用通常只构造一个。WorkScheduler 调度、CalendarKit 映射、N-API service 实例和活动同步任务都是 Harmony 运行时概念，不是 ~OrgWorkspace~ 或 ~OrgRepo~ 的字段。
 
 * 配置模型
 
-目标配置以一个带版本的 ~HarmonyAppConfig~ 保存于 Preferences。 ~repos~ 至少可为空；每个仓库映射到一个 core ~OrgRepo~ ，并由存储库列表与配置表单独立添加、配置和删除。首次加载根目录时由 ~OrgRepo.load~ 创建或读取 ~.sync/id~ 。当前版本不读取或迁移旧的单仓库 Preferences 字段。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~calendarName~ 和 ~syncInterval~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；存储库列表与表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
 
 #+begin_src ts
-interface HarmonyAppConfig {
-  version: 3
-  calendar: { name: string }
-  scheduler: { intervalMinutes: number }
-  repos: HarmonyOrgRepoConfig[]
+interface AppConfig {
+  repos: RepoConfig[]
+  inboxFile: string
+  calendarName: string
+  syncInterval: number
 }
 
-interface HarmonyOrgRepoConfig {
+interface RepoConfig {
   id: string
   rootDirectory: string
   webdavEnabled: boolean
   webdavUrl: string
   webdavUsername: string
+  webdavPassword: string
 }
 #+end_src
 
-| 配置范围 | 字段 | 保存位置 | 约束 |
+~RepoConfig.webdavPassword~ 是内存中的临时值，真实秘密保存在 Asset Store；序列化的 ~repos~ 中同名字段固定为空字符串。目前 ~RepoConfig.id~ 由宿主生成，与 core 目录的仓库身份并非同一值；后续统一身份前，不能混用两者。
+
+| 配置范围 | 当前字段 | 保存位置 | 约束 |
 |-
-| 全局日历 | ~calendar.name~ | Preferences | 默认 ~Org Tasks~ ；只用于 Harmony CalendarKit。 |
-| 后台调度 | ~scheduler.intervalMinutes~ | Preferences | 默认 20 分钟；仅控制 WorkScheduler 唤醒，不保存同步结果。 |
-| 仓库根目录 | ~rootDirectory~ | Preferences | 非空目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
+| 全局日历 | ~calendarName~ | Preferences | 默认 ~Org Tasks~ ；由 CalendarSync 创建/选择应用日历。 |
+| 后台调度 | ~syncInterval~ | Preferences | 默认 20 分钟；由 BackgroundSyncService 配置 WorkScheduler。 |
+| 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
+| 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
 | inbox 目标 | ~inboxFile~ | Preferences | 应用级安全相对 ~.org~ 路径；新增任务时相对于用户选择的仓库解析。 |
-| WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | HTTPS 根目录 URL；由 ~core::webdav::WebDavSyncPolicy~ 使用，不进入核心数据模型。 |
+| WebDAV 启用 | ~repos[].webdavEnabled~ | Preferences | 决定是否为该仓库构造 WebDAV 策略。 |
+| WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | 表单限定 HTTPS；由 WebDavSyncPolicy 使用，不进入核心数据模型。 |
 | WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
-| WebDAV 密码 | 不属于该结构 | Asset Store | 按 ~repoId~ 保存，永不序列化进 Preferences。 |
+| WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store | Preferences 只保留空值占位；运行时载入，不能写入日志和 core 记录。 |
 
 关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ 。
 
 * 凭据与 Workspace 构造
 
-每个 WebDAV 仓库的秘密以独立 Asset Store 记录保存，别名为 ~org-tasks.webdav.<repoId>.password.v1~ 。 ~repoId~ 必须先从 ~rootDirectory/.sync/id~ 读取或初始化后才能定位该别名。记录必须设置 ~DEVICE_FIRST_UNLOCKED~ 、持久化和覆盖语义，以支持已解锁后的后台同步。用户名、地址和密码更新时，密码先写入 Asset Store，再提交 Preferences 配置；若 Preferences 写入失败，宿主必须保留可重试的清理或恢复动作，不能把密码写回 Preferences。
+每个仓库的秘密以独立 Asset Store 记录保存，当前别名为 ~org-tasks.webdav.<configId>.password.v1~ ，其中 ~configId~ 是 ~RepoConfig.id~ ，不是 core 的目录 ID。记录设置 ~DEVICE_FIRST_UNLOCKED~ 、持久化和覆盖语义，以支持已解锁后的后台同步。保存时先写秘密再提交 Preferences；失败后的回滚/清理尚未实现，不能将其描述为已有能力。
 
-Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoConfig~ ，宿主把根目录交给 core 打开本地 ~OrgRepo~ ，由 core 读取或初始化 ~rootDirectory/.sync/id~ 并加载文件快照；存在 WebDAV 远端时再读取该 ~repoId~ 的凭据并创建 ~core::webdav::WebDavSyncPolicy~ 。无远端的仓库不读取 Asset Store。控制目录缺失时可初始化；ID 或布局格式无效时，构造对应仓库失败并返回可显示的本地存储错误，不触发网络同步。
+Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目录并读取或创建 ~.sync/id~ 。当前 AppConfigService 在读取配置时会为所有仓库查询 Asset Store，随后仅为启用 WebDAV 的仓库创建 ~core::webdav::WebDavSyncPolicy~ 。控制目录或布局无效时加载失败，不触发网络同步。
 
 根目录、WebDAV 地址、用户名和密码是宿主运行时输入，不能写入 core 的 ~OrgRepoSyncRecord~ 或 ~OrgRepoSyncFileRecord~ 。 ~OrgRepo~ 不承担远端地址或认证字段。
 
@@ -65,35 +70,52 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ 。对每个 ~HarmonyOrgRepoC
 
 | 数据 | 所有者 | 保存位置 | 内容与限制 |
 |-
-| 用户配置 | Harmony | Preferences 的 ~org_tasks_config~ | ~HarmonyAppConfig~ ；不保存密码、同步历史或完整文件。 |
-| WebDAV 密码 | Harmony | Asset Store | 每个 ~repoId~ 独立秘密记录。 |
-| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。不保存绝对路径、凭据或完整 org 内容。 |
-| 日历映射 | Harmony | Preferences 的 ~calendar_sync_state~ | entry ID、日历事件 ID 和指纹；不得与用户配置混写。 |
+| 用户配置 | Harmony | Preferences 的 ~org_tasks_config~ | ~AppConfig~ ；不保存真实密码、同步历史或完整文件；现有状态键混存问题见下文。 |
+| WebDAV 密码 | Harmony | Asset Store | 每个 ~RepoConfig.id~ 独立秘密记录。 |
+| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。元数据不保存绝对路径、凭据或完整 org 内容；确认后的原始冲突文件单独保存在 ~backups/~ 。 |
+| 日历映射 | Harmony | ~org_tasks_config~ 中的 ~calendar_sync_state~ 键 | 当前保存日历名称、任务 ID、事件 ID 和指纹；尚未按目标设计隔离到独立存储。 |
 | 已保存搜索 | Harmony | Preferences 的 ~org_tasks_saved_searches~ | 仅保存搜索 ID、名称与完整查询表达式；不保存完整任务、文件内容、绝对路径或凭据。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
-~lastSyncTime~ 不是配置。首页和后台状态应从指定 ~repoId~ 的 ~OrgRepoSyncRecord~ 历史读取，而不是写入 Preferences。
+~lastSyncTime~ 不是配置。当前手动与后台日历同步把完成时间写入 ~org_tasks_config~ ，设置中的日历同步页从该键读取；它不是按仓库的 core 同步历史。后续应隔离日历同步状态，并从 core 历史展示仓库同步状态，不能直接删除现有键。
 
 * 设置、更新与删除
 
-设置页面编辑 ~HarmonyAppConfig~ 草稿，不得在字段变化时直接重配已运行的 service。保存成功后，应用在下一次解析或同步前根据完整配置重建 workspace。活动同步的取消、等待或中断标记由 Harmony 运行时决定，不进入 core 数据结构。
+设置页面编辑 ~AppConfig~ 草稿，不在字段变化时直接重配 service。目录集合变化时 workspace 重建；目录不变时沿用 session，WebDAV 策略在下一次同步按新参数临时构造。活动同步控制由 Harmony 运行时负责，不进入 core 数据结构。
 
-新增仓库按以下顺序执行：校验根目录和远端地址、初始化或读取 ~rootDirectory/.sync/id~ 、写入可选秘密、写入 Preferences、在下一次构造注册仓库。更新远端地址时保留现有 ~repoId~ 。更换根目录会切换到其自身的 ~.sync/id~ 与同步历史，不能假定两者属于同一逻辑仓库。删除仓库时先阻止活动同步，再删除 Preferences 条目和对应 Asset Store 秘密；根目录内 ~.sync~ 历史保留或清除必须由用户明确选择，默认保留以便诊断。
+当前新建流程：校验表单、按需创建应用管理的目录、调用 core 验证目录并初始化其身份、写入凭据、写入 Preferences。配置 ID 在 core 验证前由宿主生成，不随目录 ID 变化。删除时经用户确认移除配置与密码，保留本地文件。
 
-* 配置初始化
+* 已有约束与待修复差异
 
-新配置创建时在仓库根目录创建或读取稳定的 ~.sync/id~ ，并从一开始使用别名 ~org-tasks.webdav.<repoId>.password.v1~ 保存密码。当前接口不读取、不转换旧 Preferences、旧密码别名、旧同步记录、缓存、待上传文件或 ~sync-state.json~ ；旧安装数据需要清理后按当前配置重新填写和同步。
+| 约束 | 当前实现差异 | 处理边界 |
+|-
+| core 仓库 ID 为稳定身份来源 | 配置 ID 与 core ID 分离，凭据仍绑定配置 ID | 需专门设计秘密重绑定；本次不修改或清空已有 ID。 |
+| 状态与配置分离 | 日历映射和最后日历同步时间混存在配置 Preferences | 需隔离状态存储；本次不删除事件映射。 |
+| 秘密写入失败恢复 | 写入所有仓库秘密后提交 Preferences，没有事务回滚 | 需单独修复凭据持久化流程。 |
+| 本地仓库无远端时不读取秘密 | 当前加载所有配置都会查询 Asset Store | 属于调用收敛问题，不是未支持的配置开关。 |
+| 删除配置前阻止活动同步 | 当前页面只能限制本页操作，没有全应用同步互斥控制 | 需补齐宿主活动任务控制，不能宣称已验收。 |
 
-* 验收标准
-
-- 两个仓库可拥有独立根目录、 ~.sync/id~ 、WebDAV 地址、用户名、密码与 core 同步历史。
-- Preferences 导出内容不包含密码、令牌、绝对 core 数据路径或同步结果。
-- 重建 workspace 时，同一根目录的 ~.sync/id~ 能查询其历史；修改地址不会创建新的历史分区，更换根目录则使用该目录自己的历史。
-- 删除仓库不会影响其他仓库的凭据和记录。
-- 不存在旧配置、旧密码或旧同步状态到当前模型的自动迁移路径。
+上述约束仍是改进方向，不应作为已交付功能写入清单。参考配置的保留/不纳入范围以核对表及用户确认结果为准。
 
 * 界面配置入口
 
 本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收集箱、日历与后台间隔； ~Repositories.ets~ 管理列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
 
+“设置 → 同步 → 同步到系统日历”打开独立的手动日历操作入口，使用已保存的日历名称与本地任务，不保存设置草稿或触发 WebDAV。抽屉与笔记本菜单的“同步”仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。后台作业仍先同步文件再写入日历。
+
 后台间隔默认及输入下限均为 20 分钟，以匹配当前 HarmonyOS 的系统约束。低于下限的既有值在显示与调度时按 20 分钟处理。保存后由 ~BackgroundSyncService.configure~ 比较现有 WorkScheduler 作业，必要时替换同一作业。调度配置不进入 core 同步记录。
+
+* 保存前连接测试
+
+WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和密码构造 ~CoreWebDavSyncPolicy~ ，调用原生 ~testConnection()~ 。该操作不要求配置已保存或本地目录存在，不访问 Preferences、Asset Store、活动 workspace、同步历史或日历，也不把测试结果持久化。
+
+测试仅验证认证与目标目录访问，最多等待 15 秒。成功不代表具有上传权限；实际条件写入仍在同步时验证。失败消息不包含密码、完整 URL 或响应正文。测试期间禁止修改字段、重复测试、保存和返回；完成后恢复。地址、用户名、密码或 WebDAV 启用状态变化时立即清除旧结果。保存仍是独立操作，不强制先测试，也不因测试成功自动提交配置。
+
+
+* 合并比较与冲突备份
+
+任务合并没有新增 Preferences 配置。比较结果是一次同步的运行时对象，可直接交给 core apply；其中的仓库与远端版本、临时变化 ID 和任务正文不持久化为配置。界面只填写处理枚举，保留未变化任务。
+
+按已确认的冲突处理规则，备份保存在所属仓库的 ~.sync/backups/<合并开始时间>/~ ，保留相对子目录，文件名附带本地日期时间与随机后缀。该目录是完整本地冲突文件的专用备份区，是控制目录不保存完整内容规则的明确例外；历史和 outbox 仍只保存元数据，备份不会被扫描、查询或上传。
+
+原有单文件备份留在应用私有目录中的副本不会自动删除；新合并统一使用按同步分组的目录。~WebDavSyncFileDetail.task_versions~ 是可选的身份/内容指纹元数据，不是任务快照；旧历史仍可读取。Core 不将比较对象、密码或绝对备份路径写入历史。

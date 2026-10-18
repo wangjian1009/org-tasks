@@ -11,6 +11,7 @@
     "pages/Settings",
     "pages/AddTask",
     "pages/Repositories",
-    "pages/RepositorySettings"
+    "pages/RepositorySettings",
+    "pages/MergeConflict"
   ]
 }

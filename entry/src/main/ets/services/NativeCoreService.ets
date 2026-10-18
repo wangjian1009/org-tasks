@@ -1,5 +1,9 @@
 import {
   Repo as NativeRepo,
+  ConflictSync as NativeConflictSync,
+  MergeComparison as NativeMergeComparison,
+  MergeChange as NativeMergeChange,
+  MergeOutcome as NativeMergeOutcome,
   NewTask as NativeNewTask,
   CoreError as NativeCoreError,
   RepositorySnapshot as NativeRepositorySnapshot,
@@ -50,6 +54,7 @@ export interface CoreSyncSnapshot {
   started_at: number
   finished_at: number | null
   files: number
+  conflicts: string[]
 }
 
 export interface CoreBridgeResponse {
@@ -57,6 +62,20 @@ export interface CoreBridgeResponse {
   tasks: CoreTask[]
   sync: CoreSyncSnapshot | null
 }
+
+export type CoreMergeComparison = NativeMergeComparison
+export type CoreMergeChange = NativeMergeChange
+export type CoreMergeOutcome = NativeMergeOutcome
+export enum CoreMergeMode {
+  AcceptRemote = 'acceptRemote',
+  MergeTasks = 'mergeTasks'
+}
+export enum CoreMergeResolution {
+  Local = 'local',
+  Remote = 'remote',
+  Remove = 'remove'
+}
+export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
 
 export type CoreNewTask = NativeNewTask
 
@@ -81,6 +100,10 @@ export class CoreWebDavSyncPolicy {
   nativePolicy(): NativeWebDavSyncPolicy {
     return this.native
   }
+
+  async testConnection(): Promise<void> {
+    await this.native.testConnection()
+  }
 }
 
 export class CoreRepo {
@@ -96,6 +119,16 @@ export class CoreRepo {
 
   rootDirectory(): string {
     return this.native.rootDirectory()
+  }
+
+  async conflicts(): Promise<NativeConflictSync[]> { return await this.native.conflicts() }
+
+  async compareMerge(policy: CoreWebDavSyncPolicy, syncId: string): Promise<CoreMergeComparison> {
+    return await this.native.compareMerge(policy.nativePolicy(), syncId)
+  }
+
+  async apply(policy: CoreWebDavSyncPolicy, comparison: CoreMergeComparison): Promise<CoreMergeOutcome> {
+    return await this.native.apply(policy.nativePolicy(), comparison)
   }
 
   async load(): Promise<void> {
@@ -147,6 +180,25 @@ let activeWorkspaceKey: string = ''
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
+  static async repository(repositories: RepoConfig[], repository: RepoConfig): Promise<CoreRepo> {
+    const workspace = await NativeCoreService.workspaceFor(repositories)
+    const repos = await workspace.repos()
+    const repo = repos.find((item: CoreRepo) => item.rootDirectory() === repository.rootDirectory)
+    if (!repo) throw new Error('目标仓库不可用')
+    return repo
+  }
+
+  static async conflicts(repositories: RepoConfig[]): Promise<CoreConflict[]> {
+    const result: CoreConflict[] = []
+    for (const repository of repositories) {
+      if (!repository.webdavEnabled) continue
+      const repo = await NativeCoreService.repository(repositories, repository)
+      const conflicts = await repo.conflicts()
+      for (const conflict of conflicts) result.push({ repoId: repository.id, syncId: conflict.syncId, paths: conflict.paths })
+    }
+    return result
+  }
+
   static async validateRepository(rootDirectory: string): Promise<void> {
     const workspace = new CoreWorkspace(new NativeWorkspace())
     const repo = await workspace.addRepo(rootDirectory)

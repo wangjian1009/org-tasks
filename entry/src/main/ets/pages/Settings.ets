@@ -76,11 +76,13 @@ struct Settings {
                 PreferenceRow({ title: '存储库', detail: `${this.config.repos.length} 个本地或 WebDAV 存储库`, icon: $r('app.media.ui_cloud'), action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
                 Divider().color(UiColor.outline)
                 SectionHeading({ title: '系统日历' })
+                PreferenceRow({ title: '同步到系统日历', detail: '将本地笔记中的计划与截止任务写入日历', icon: $r('app.media.ui_calendar'),
+                  action: (): void => { router.pushUrl({ url: 'pages/Index', params: { calendar: true } }) } })
                 Column({ space: 12 }) {
                   Text('日历名称').fontSize(14).fontColor(UiColor.secondary).width('100%')
                   TextInput({ text: this.calendarName, placeholder: 'Org Tasks' }).height(56).backgroundColor(UiColor.field).borderRadius(6)
                     .onChange((value: string) => { this.calendarName = value })
-                  Text('同步中心会将具有计划或截止时间的任务写入此日历。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
+                  Text('保存日历名称后，可从上方入口同步到此日历。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
                 }.width('100%').padding({ left: 24, right: 24 })
                 SectionHeading({ title: '自动同步' })
                 Column({ space: 12 }) {

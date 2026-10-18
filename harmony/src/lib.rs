@@ -186,6 +186,25 @@ pub extern "C" fn org_tasks_harmony_workspace_search(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_webdav_test_connection(
+    webdav_url: *const c_char,
+    username: *const c_char,
+    password: *const c_char,
+) -> i32 {
+    clear_last_error();
+    let result = read_c_string(webdav_url).and_then(|url| {
+        bridge::test_webdav_connection(url, read_c_string(username)?, read_c_string(password)?)
+    });
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            remember_error(&error);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_sync(
     workspace_handle: u64,
     root_directory: *const c_char,
@@ -265,4 +284,39 @@ mod tests {
                 .contains("仓库根目录不存在或不是目录")
         );
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_conflicts(
+    handle: u64,
+    root_directory: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(root_directory).and_then(|root| bridge::repo_conflicts_json(handle, root)),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_merge(
+    handle: u64,
+    root_directory: *const c_char,
+    webdav_url: *const c_char,
+    username: *const c_char,
+    password: *const c_char,
+    path: *const c_char,
+    request_json: *const c_char,
+    started_at: i64,
+) -> *mut c_char {
+    string_result(read_c_string(root_directory).and_then(|root| {
+        bridge::repo_merge_json(
+            handle,
+            root,
+            read_c_string(webdav_url)?,
+            read_c_string(username)?,
+            read_c_string(password)?,
+            read_c_string(path)?,
+            read_c_string(request_json)?,
+            started_at,
+        )
+    }))
 }
