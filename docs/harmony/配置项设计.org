@@ -22,7 +22,7 @@
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~calendarName~ 和 ~syncInterval~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；存储库列表与表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~calendarName~ 、 ~syncInterval~ 和 ~todoDefaults~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；存储库列表与表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
 
 #+begin_src ts
 interface AppConfig {
@@ -30,6 +30,7 @@ interface AppConfig {
   inboxFile: string
   calendarName: string
   syncInterval: number
+  todoDefaults: string
 }
 
 interface RepoConfig {
@@ -47,6 +48,7 @@ interface RepoConfig {
 | 配置范围 | 当前字段 | 保存位置 | 约束 |
 |-
 | 全局日历 | ~calendarName~ | Preferences | 默认 ~Org Tasks~ ；由 CalendarSync 创建/选择应用日历。 |
+| 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
 | 后台调度 | ~syncInterval~ | Preferences | 默认 20 分钟；由 BackgroundSyncService 配置 WorkScheduler。 |
 | 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
 | 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
@@ -119,3 +121,13 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 按已确认的冲突处理规则，备份保存在所属仓库的 ~.sync/backups/<合并开始时间>/~ ，保留相对子目录，文件名附带本地日期时间与随机后缀。该目录是完整本地冲突文件的专用备份区，是控制目录不保存完整内容规则的明确例外；历史和 outbox 仍只保存元数据，备份不会被扫描、查询或上传。
 
 原有单文件备份留在应用私有目录中的副本不会自动删除；新合并统一使用按同步分组的目录。~WebDavSyncFileDetail.task_versions~ 是可选的身份/内容指纹元数据，不是任务快照；旧历史仍可读取。Core 不将比较对象、密码或绝对备份路径写入历史。
+
+* TODO 全局默认与文件覆盖
+
+“设置 → 笔记与笔记本 → 默认 TODO 流程”编辑全局 Org 声明文本，由外部保存到 ~org_tasks_config.todoDefaults~ 。唯一缺省值来源是 Rust ~TodoConfig::default()~ ，Harmony 通过异步 ~defaultTodoSettings()~ 获取初始值或恢复编辑草稿；ArkTS 不维护另一套默认关键词。~DEFAULT_CONFIG.todoDefaults~ 的空值仅用于加载前占位，实际加载根据 Preferences 是否存在该键决定是否使用默认值。
+
+保存前通过 native ~Workspace.setTodoDefaults~ 调用 Rust 校验。其他配置页面保存时保留当前 ~todoDefaults~ ，同步设置页不覆盖未编辑的 TODO 设置。配置不写入 Org 文件、同步历史或 outbox，恢复默认也只修改编辑草稿，保存后才生效。
+
+每次取得 workspace 时由外部显式传入默认配置。目录不变时沿用 session；设置变化时更新同一 native workspace 并重解析文件。文件自己的声明整组覆盖全局值，查询、后台同步、日程、笔记本与新增任务共用相同配置。合并提交前重新读取外部配置，使旧对象受到 core 版本校验。
+
+空全局配置表示默认不识别 TODO；文件仍可用声明启用自己的流程。文件内空 ~#+TODO:~ 则清空该文件的状态。输入错误明确显示，不能静默改成固定 TODO/DONE。快捷键和日志标记只作为元信息返回，当前不自动写状态变更日志。

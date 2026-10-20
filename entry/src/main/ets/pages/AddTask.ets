@@ -27,6 +27,9 @@ struct AddTask {
   @State deadline: string = ''
   @State tags: string = ''
   @State priority: string = ''
+  @State initialState: string = ''
+  @State todoLoading: boolean = false
+  private todoRequest: number = 0
   @State saving: boolean = false
   @State selectedRepoId: string = ''
   @State loading: boolean = true
@@ -44,7 +47,10 @@ struct AddTask {
       this.config = await AppConfigService.load(context)
       const params = router.getParams() as AddTaskParams | undefined
       const selected = this.config.repos.find((repo: RepoConfig) => repo.rootDirectory === params?.rootDirectory)
-      if (this.config.repos.length > 0) this.selectedRepoId = selected ? selected.id : this.config.repos[0].id
+      if (this.config.repos.length > 0) {
+        this.selectedRepoId = selected ? selected.id : this.config.repos[0].id
+        await this.loadInitialState()
+      }
     } catch (e) {
       this.message = `加载配置失败: ${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
@@ -52,8 +58,27 @@ struct AddTask {
     }
   }
 
+  async loadInitialState() {
+    const request = ++this.todoRequest
+    this.todoLoading = true
+    this.initialState = ''
+    this.message = ''
+    try {
+      const repository = this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId)
+      if (!repository) return
+      const repo = await NativeCoreService.repository(this.config.repos, repository, this.config.todoDefaults)
+      const metadata = await repo.todoMetadata(this.config.inboxFile)
+      if (request !== this.todoRequest) return
+      this.initialState = metadata.initialState || ''
+      if (!this.initialState) this.message = '目标文件没有可用的未完成状态，请检查 TODO 设置'
+    } catch (e) {
+      if (request === this.todoRequest) this.message = `读取 TODO 设置失败：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally { if (request === this.todoRequest) this.todoLoading = false }
+  }
+
   async saveTask() {
-    if (this.saving || this.saved || this.loading) return
+    if (this.saving || this.saved || this.loading || this.todoLoading) return
+    if (!this.initialState) { this.message = '目标文件没有可用的未完成状态，请检查 TODO 设置'; return }
     if (!this.heading.trim()) {
       this.message = '请输入任务标题'
       return
@@ -76,7 +101,7 @@ struct AddTask {
       priority: this.priority
     }
     try {
-      await NativeCoreService.createTask(this.config.repos, repository, this.config.inboxFile, task)
+      await NativeCoreService.createTask(this.config.repos, repository, this.config.inboxFile, task, this.config.todoDefaults)
       this.saved = true
       this.message = repository.webdavEnabled ? '任务已保存到本地，将在后续同步时上传' : '任务已保存到本地'
     } catch (e) {
@@ -90,7 +115,7 @@ struct AddTask {
 
   chooseRepository() {
     this.getUIContext().showActionSheet({ title: '目标存储库', message: '任务写入所选存储库的收集箱',
-      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryName(repo.rootDirectory), action: () => { this.selectedRepoId = repo.id } })) })
+      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryName(repo.rootDirectory), action: () => { this.selectedRepoId = repo.id; this.loadInitialState() } })) })
   }
 
   choosePriority() {
@@ -163,7 +188,7 @@ struct AddTask {
                   }.width('100%').padding({ left: 16, right: 16 })
                   Row({ space: 24 }) {
                     Image($r('app.media.ui_state')).width(24).height(24)
-                    Text('TODO').fontSize(16).fontColor(UiColor.error)
+                    Text(this.todoLoading ? '读取中…' : this.initialState || '无可用状态').fontSize(16).fontColor(UiColor.error)
                     Text('新任务状态').fontSize(12).fontColor(UiColor.secondary)
                   }.width('100%').height(64).padding({ left: 16, right: 16 })
                   this.field({ icon: $r('app.media.ui_priority'), label: '优先级', value: this.priority, select: (): void => { this.choosePriority() }, clear: () => { this.priority = '' } })
@@ -172,7 +197,7 @@ struct AddTask {
                 }
                 Divider().color(UiColor.outline)
                 Button(this.saving ? '保存中…' : '保存任务').width('90%').height(48).backgroundColor(UiColor.primary)
-                  .enabled(!this.saving).margin({ top: 24, bottom: 32 }).onClick((): void => { this.saveTask() })
+                  .enabled(!this.saving && !this.todoLoading && this.initialState.length > 0).margin({ top: 24, bottom: 32 }).onClick((): void => { this.saveTask() })
               }.width('100%').enabled(!this.saving)
             }.width('100%').layoutWeight(1).align(Alignment.TopStart)
           }

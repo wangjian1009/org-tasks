@@ -25,7 +25,7 @@ struct Files {
     this.message = ''
     try {
       const config = await AppConfigService.load(getContext(this))
-      this.files = await NotebookService.load(config.repos)
+      this.files = await NotebookService.load(config.repos, config.todoDefaults)
     } catch (e) {
       this.files = []
       this.message = `读取笔记本失败：${coreErrorMessage(e as CoreBridgeError)}`

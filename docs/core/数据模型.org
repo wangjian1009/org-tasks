@@ -31,19 +31,22 @@
 
 \begin{umlpackage}{Workspace}
 \umlclass[x=0,y=0]{OrgWorkspace}{
-  repos: Vec\textless OrgRepo\textgreater
+  repos: Vec\textless OrgRepo\textgreater \\
+  todo\_defaults: TodoConfig
 }{}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
-  files: Vec\textless OrgFile\textgreater
+  files: Vec\textless OrgFile\textgreater \\
+  todo\_defaults: TodoConfig
 }{
   sync(policy, started\_at, cancellation, progress)
 }
 \umlclass[x=0,y=-6.0]{OrgFile}{
   repo\_id: OrgRepoId \\
   path: String \\
-  source\_bytes: Vec\textless u8\textgreater
+  source\_bytes: Vec\textless u8\textgreater \\
+  todo: TodoMetadata
 }{}
 \end{umlpackage}
 
@@ -138,12 +141,14 @@ pub struct FilterTask {
 #+begin_src rust
 pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
+    pub todo_defaults: TodoConfig,
 }
 
 pub struct OrgRepo {
     pub id: OrgRepoId,
     pub root_directory: String,
     pub files: Vec<OrgFile>,
+    pub todo_defaults: TodoConfig,
 }
 #+end_src
 
@@ -325,3 +330,83 @@ pub struct WebDavMergeFileVersion {
     pub local_missing: bool,
 }
 #+end_src
+
+* 文件 TODO 元信息与外部全局默认
+
+全局默认配置由宿主编辑、保存并在运行时传给 Rust；core 不读取 Preferences，也不向 ~.sync/~ 写入默认配置。Rust 的 ~TodoConfig::default()~ 是唯一缺省来源，~to_settings()~ 返回可编辑声明文本，初始为 ~#+TODO: TODO | DONE~ 。外部只有未保存配置时才获取默认值，已经保存的空配置表示禁用默认识别。
+
+~OrgWorkspace.todo_defaults~ 向新仓库传递默认配置，~OrgRepo.todo_defaults~ 用于扫描、下载、新增和合并。每个 ~OrgFile.todo~ 提供源字节与默认配置共同决定的有效元信息；文件保留运行时默认配置，以便克隆和局部编辑后重新解析。这些信息不是另一套 Org AST，不写入同步记录。
+
+#+begin_src rust
+pub enum TodoSource { GlobalDefault, InBuffer }
+pub enum TodoWorkflowKind { Sequence, Type }
+pub enum TodoStateKind { Pending, Done }
+pub enum TodoLogAction { Time, Note }
+
+pub struct TodoWorkflowSpec {
+    pub kind: TodoWorkflowKind,
+    pub keywords: Vec<String>,
+}
+pub struct TodoConfig {
+    pub workflows: Vec<TodoWorkflowSpec>,
+}
+pub struct TodoDeclaration {
+    pub keyword: String,
+    pub value: String,
+    pub range: SourceRange,
+}
+pub struct TodoStateMetadata {
+    pub name: String,
+    pub kind: TodoStateKind,
+    pub fast_key: Option<char>,
+    pub enter_log: Option<TodoLogAction>,
+    pub leave_log: Option<TodoLogAction>,
+}
+pub struct TodoWorkflow {
+    pub kind: TodoWorkflowKind,
+    pub states: Vec<TodoStateMetadata>,
+}
+pub struct TodoMetadata {
+    pub source: TodoSource,
+    pub declarations: Vec<TodoDeclaration>,
+    pub workflows: Vec<TodoWorkflow>,
+    pub pending_keywords: Vec<String>,
+    pub done_keywords: Vec<String>,
+    pub initial_state: Option<String>,
+}
+#+end_src
+
+~TodoWorkflowSpec.keywords~ 保留分隔符和括号后缀，如 ~WAIT(w@/!)~ 。元信息分解出名称、状态类型、显式快捷键、进入日志与离开日志要求，未指定值为 ~None~ 。当前只提供这些信息，不自动写入状态变更日志。
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{TodoConfig}{workflows: Vec\textless TodoWorkflowSpec\textgreater}{default() \\
+  to\_settings()}
+\umlclass[x=7.8,y=0]{TodoMetadata}{source: TodoSource \\
+  initial\_state: Option\textless String\textgreater}{}
+\umlclass[x=0,y=-3.2]{TodoWorkflow}{kind: TodoWorkflowKind}{}
+\umlclass[x=7.8,y=-3.2]{TodoStateMetadata}{name: String \\
+  kind: TodoStateKind \\
+  fast\_key: Option\textless char\textgreater \\
+  enter\_log: Option\textless TodoLogAction\textgreater \\
+  leave\_log: Option\textless TodoLogAction\textgreater}{}
+\umldep{TodoMetadata}{TodoConfig}
+\umluniassoc[mult1=1,mult2=0..*]{TodoMetadata}{TodoWorkflow}
+\umluniassoc[mult1=1,mult2=0..*]{TodoWorkflow}{TodoStateMetadata}
+\end{tikzpicture}%
+}
+\end{center}
+
+** 文内覆盖规则
+
+~#+TODO:~ 、 ~#+SEQ_TODO:~ 和 ~#+TYP_TODO:~ 多行共同组成文件配置，整组覆盖全局默认。前两者表示顺序流程，后者表示类型。与 Emacs 一致，混用时依次汇集 ~TYP_TODO~ 、 ~TODO~ 、 ~SEQ_TODO~ ，同类保持出现顺序。声明名不区分大小写，状态名区分大小写。
+
+~|~ 后为完成状态；无分隔符时，每套流程最后一个状态为完成状态。若全部流程都没有给出完成状态，则文件最后一个关键词作为完成状态。跨流程同名状态的完成归属以文件有效完成集合为准。空 ~#+TODO:~ 也是覆盖，表示清空文件 TODO 识别。
+
+设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。当前直接支持文件内三种声明，不展开 ~SETUPFILE~ 或执行 Emacs Lisp。
+
+非法配置报告错误，不静默回退全局值。未修改文件直接返回原始字节；编辑声明后重算元信息，重新解析失败时回滚此次局部编辑。新增任务使用 ~initial_state~ ，即有效配置首个未完成状态；文件尚不存在时使用外部默认。没有可用未完成状态则拒绝保存。
+
+~set_todo_defaults~ 校验并重解析内存文件，不改写原文；有文内覆盖的文件仍使用自身配置。运行时合并版本包含全局默认配置，有效配置变化后旧比较对象失效，必须重新比较。

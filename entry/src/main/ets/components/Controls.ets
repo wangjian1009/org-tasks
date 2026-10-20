@@ -93,7 +93,7 @@ export struct TaskRow {
         Row({ space: 6 }) {
           if (this.task.todoState.length > 0) {
             Text(this.task.todoState).fontSize(13).fontWeight(FontWeight.Medium)
-              .fontColor(this.task.todoState === 'DONE' || this.task.todoState === 'CNCL' ? UiColor.done : UiColor.error)
+              .fontColor(this.task.todoKind === 'done' ? UiColor.done : UiColor.error)
           }
           if (this.task.priority.length > 0) {
             Text(`[#${this.task.priority}]`).fontSize(13).fontColor(UiColor.secondary)

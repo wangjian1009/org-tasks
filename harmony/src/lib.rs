@@ -320,3 +320,40 @@ pub extern "C" fn org_tasks_harmony_repo_merge(
         )
     }))
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_set_todo_defaults(
+    handle: u64,
+    settings: *const c_char,
+) -> i32 {
+    clear_last_error();
+    match read_c_string(settings)
+        .and_then(|settings| bridge::workspace_set_todo_defaults(handle, settings))
+    {
+        Ok(()) => 0,
+        Err(error) => {
+            remember_error(&error);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_todo_metadata(
+    handle: u64,
+    root_directory: *const c_char,
+    path: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(root_directory)
+            .and_then(|root| bridge::repo_todo_metadata_json(handle, root, read_c_string(path)?)),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
+    string_result(
+        serde_json::to_string(&org_tasks_core::TodoConfig::default().to_settings())
+            .map_err(|_| CoreError::InvalidState("无法编码默认 TODO 设置")),
+    )
+}

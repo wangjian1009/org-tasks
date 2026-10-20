@@ -34,7 +34,7 @@ export struct AppShell {
     try {
       const config = await AppConfigService.load(getContext(this))
       this.searches = await SavedSearchService.load(getContext(this))
-      this.notebooks = await NotebookService.load(config.repos)
+      this.notebooks = await NotebookService.load(config.repos, config.todoDefaults)
     } catch (e) {
       this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
     }

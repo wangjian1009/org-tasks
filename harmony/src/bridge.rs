@@ -40,6 +40,7 @@ pub struct HarmonyBridgeFile {
     pub path: String,
     pub source: String,
     pub byte_length: usize,
+    pub todo: org_tasks_core::TodoMetadata,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +50,7 @@ pub struct HarmonyBridgeTask {
     pub repo_id: String,
     pub heading: String,
     pub todo_state: String,
+    pub todo_kind: Option<org_tasks_core::TodoStateKind>,
     pub priority: String,
     pub scheduled: String,
     pub deadline: String,
@@ -195,6 +197,11 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         repo_id: task.repo_id,
         heading: task.title,
         todo_state: task.state.unwrap_or_default(),
+        todo_kind: match task.state_type {
+            org_tasks_core::FilterStateType::Todo => Some(org_tasks_core::TodoStateKind::Pending),
+            org_tasks_core::FilterStateType::Done => Some(org_tasks_core::TodoStateKind::Done),
+            _ => None,
+        },
         priority: task.priority.unwrap_or_default(),
         scheduled: task
             .scheduled
@@ -411,6 +418,7 @@ pub fn repo_snapshot_json(handle: u64, root_directory: String) -> Result<String,
                 .map_err(|_| CoreError::InvalidState("已加载 Org 文件不是 UTF-8"))?
                 .into(),
             byte_length: file.source_bytes().len(),
+            todo: file.todo.clone(),
         });
     }
     encode(&HarmonyBridgeRepository {
@@ -596,4 +604,96 @@ pub fn repo_merge_json(
         result: sync_result_label(outcome.record.result)?,
         backups: outcome.backups,
     })
+}
+
+pub fn workspace_set_todo_defaults(handle: u64, settings: String) -> Result<(), CoreError> {
+    let defaults = org_tasks_core::TodoConfig::from_settings(&settings)?;
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    workspace.set_todo_defaults(defaults)
+}
+
+pub fn repo_todo_metadata_json(
+    handle: u64,
+    root_directory: String,
+    path: String,
+) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repo = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    runtime()?.block_on(repo.load::<WebDavSyncPolicy>())?;
+    if let Some(file) = repo.files.iter().find(|file| file.path == path) {
+        return encode(&file.todo);
+    }
+    let file = org_tasks_core::OrgFile::with_todo_defaults(
+        repo.id.clone(),
+        path,
+        Vec::new(),
+        repo.todo_defaults.clone(),
+    )?;
+    encode(&file.todo)
+}
+
+#[cfg(test)]
+mod todo_tests {
+    use super::*;
+
+    #[test]
+    fn external_defaults_and_per_file_metadata_are_projected_through_bridge() {
+        let root =
+            std::env::temp_dir().join(format!("org-tasks-harmony-todo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("global.org"), b"* OPEN Pending\n* FINISHED End\n").unwrap();
+        std::fs::write(
+            root.join("override.org"),
+            b"#+TODO: OWN | CLOSED\n* CLOSED Done\n",
+        )
+        .unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_set_todo_defaults(handle, "#+TODO: OPEN(o) | FINISHED(f!)".into()).unwrap();
+        let directory = root.to_string_lossy().to_string();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        repo_load(handle, directory.clone()).unwrap();
+        let snapshot: serde_json::Value =
+            serde_json::from_str(&repo_snapshot_json(handle, directory.clone()).unwrap()).unwrap();
+        let global = snapshot["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["path"] == "global.org")
+            .unwrap();
+        assert_eq!(global["todo"]["source"], "globalDefault");
+        assert_eq!(global["todo"]["doneKeywords"][0], "FINISHED");
+        let existing: serde_json::Value = serde_json::from_str(
+            &repo_todo_metadata_json(handle, directory.clone(), "override.org".into()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(existing["source"], "inBuffer");
+        assert_eq!(existing["initialState"], "OWN");
+        let missing: serde_json::Value = serde_json::from_str(
+            &repo_todo_metadata_json(handle, directory.clone(), "new.org".into()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(missing["initialState"], "OPEN");
+        let done: serde_json::Value =
+            serde_json::from_str(&workspace_search_json(handle, "it.done".into()).unwrap())
+                .unwrap();
+        assert_eq!(done.as_array().unwrap().len(), 2);
+        assert_eq!(done[0]["todoKind"], "done");
+        assert!(workspace_set_todo_defaults(handle, "invalid".into()).is_err());
+        workspace_set_todo_defaults(handle, "#+TODO: OTHER | END".into()).unwrap();
+        let done: serde_json::Value =
+            serde_json::from_str(&workspace_search_json(handle, "it.done".into()).unwrap())
+                .unwrap();
+        assert_eq!(done.as_array().unwrap().len(), 1);
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -5,12 +5,14 @@ mod creation;
 mod editor;
 mod merge;
 pub(crate) mod service;
+mod todo;
 mod workspace;
 
 pub use creation::*;
 pub use editor::*;
 pub use merge::*;
 pub use service::*;
+pub use todo::*;
 pub use workspace::*;
 
 pub type OrgRepoId = String;
@@ -27,6 +29,7 @@ pub struct OrgRepo {
     pub id: OrgRepoId,
     pub root_directory: String,
     pub files: Vec<OrgFile>,
+    pub todo_defaults: TodoConfig,
 }
 
 impl OrgRepo {
@@ -38,7 +41,27 @@ impl OrgRepo {
             id: String::new(),
             root_directory,
             files: Vec::new(),
+            todo_defaults: TodoConfig::default(),
         })
+    }
+
+    pub fn set_todo_defaults(&mut self, defaults: TodoConfig) -> Result<(), CoreError> {
+        defaults.validate()?;
+        let files = self
+            .files
+            .iter()
+            .map(|file| {
+                OrgFile::with_todo_defaults(
+                    file.repo_id.clone(),
+                    file.path.clone(),
+                    file.source_bytes.clone(),
+                    defaults.clone(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.todo_defaults = defaults;
+        self.files = files;
+        Ok(())
     }
 
     pub fn contains_path(&self, path: &str) -> bool {
@@ -55,6 +78,8 @@ pub struct OrgFile {
     pub repo_id: OrgRepoId,
     pub path: String,
     pub source_bytes: Vec<u8>,
+    pub todo: TodoMetadata,
+    todo_defaults: TodoConfig,
     syntax: orgize::Org,
 }
 
@@ -64,15 +89,28 @@ impl OrgFile {
         path: String,
         source_bytes: Vec<u8>,
     ) -> Result<Self, OrgFileValidationError> {
+        Self::with_todo_defaults(repo_id, path, source_bytes, TodoConfig::default())
+    }
+
+    pub fn with_todo_defaults(
+        repo_id: OrgRepoId,
+        path: String,
+        source_bytes: Vec<u8>,
+        defaults: TodoConfig,
+    ) -> Result<Self, OrgFileValidationError> {
         validate_id(&repo_id, "文件仓库 ID 不能为空")?;
         validate_relative_path(&path)?;
-        std::str::from_utf8(&source_bytes)
+        defaults.validate()?;
+        let source = std::str::from_utf8(&source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
+        let (todo, syntax) = TodoMetadata::parse(source, &defaults)?;
         Ok(Self {
             repo_id,
             path,
-            syntax: orgize::Org::parse(std::str::from_utf8(&source_bytes).expect("已验证 UTF-8")),
             source_bytes,
+            todo,
+            todo_defaults: defaults,
+            syntax,
         })
     }
 
@@ -87,17 +125,20 @@ impl OrgFile {
     pub(crate) fn reparse(&mut self) -> Result<(), CoreError> {
         let source = std::str::from_utf8(&self.source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
-        self.syntax = orgize::Org::parse(source);
+        let (todo, syntax) = TodoMetadata::parse(source, &self.todo_defaults)?;
+        self.todo = todo;
+        self.syntax = syntax;
         Ok(())
     }
 }
 
 impl Clone for OrgFile {
     fn clone(&self) -> Self {
-        Self::new(
+        Self::with_todo_defaults(
             self.repo_id.clone(),
             self.path.clone(),
             self.source_bytes.clone(),
+            self.todo_defaults.clone(),
         )
         .expect("已加载的 Org 文件必须可重新解析")
     }
@@ -108,6 +149,8 @@ impl PartialEq for OrgFile {
         self.repo_id == other.repo_id
             && self.path == other.path
             && self.source_bytes == other.source_bytes
+            && self.todo_defaults == other.todo_defaults
+            && self.todo == other.todo
     }
 }
 
@@ -351,6 +394,7 @@ mod tests {
         let repo = OrgRepo {
             id: "repo-1".into(),
             root_directory: "/data/org".into(),
+            todo_defaults: TodoConfig::default(),
             files: Vec::new(),
         };
         assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());

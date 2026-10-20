@@ -44,9 +44,9 @@ struct Index {
       const context = getContext(this)
       this.config = await AppConfigService.load(context)
 
-      const workspace = await NativeCoreService.loadWorkspace(this.config.repos)
+      const workspace = await NativeCoreService.loadWorkspace(this.config.repos, this.config.todoDefaults)
       this.taskCount = workspace.tasks.length
-      this.conflicts = this.calendarMode ? [] : await NativeCoreService.conflicts(this.config.repos)
+      this.conflicts = this.calendarMode ? [] : await NativeCoreService.conflicts(this.config.repos, this.config.todoDefaults)
 
       if (this.calendarMode) {
         this.calendarSync = new CalendarSync(context, this.config.calendarName)
@@ -80,8 +80,8 @@ struct Index {
       const hasWebDav = !this.calendarMode && this.config.repos.some((repository) => repository.webdavEnabled)
       this.syncMessage = hasWebDav ? '正在同步 WebDAV…' : '正在读取本地文件…'
       const workspace = hasWebDav
-        ? await NativeCoreService.syncWorkspaceWebDav(this.config.repos, (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event))
-        : await NativeCoreService.loadWorkspace(this.config.repos)
+        ? await NativeCoreService.syncWorkspaceWebDav(this.config.repos, (event: CoreWebDavSyncEvent) => this.updateWebDavProgress(event), this.config.todoDefaults)
+        : await NativeCoreService.loadWorkspace(this.config.repos, this.config.todoDefaults)
       this.taskCount = workspace.tasks.length
 
       if (!this.calendarMode) {
@@ -122,7 +122,7 @@ struct Index {
     } catch (e) {
       this.syncMessage = `同步失败：${coreErrorMessage(e as CoreBridgeError)}`
       if (!this.calendarMode) {
-        try { this.conflicts = await NativeCoreService.conflicts(this.config.repos) } catch (_) {}
+        try { this.conflicts = await NativeCoreService.conflicts(this.config.repos, this.config.todoDefaults) } catch (_) {}
       }
     } finally {
       this.syncing = false

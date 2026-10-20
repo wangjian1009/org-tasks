@@ -116,3 +116,11 @@ C++ 复制输入对象与当前策略凭据，在 ~napi_create_async_work~ 工�
 Harmony 的 ~repo_sync_json~ 不再先读取历史或把历史传入同步接口，直接调用 ~OrgRepo.sync(policy, started_at, cancellation, progress)~ 。ArkTS 在启用 WebDAV 的仓库上也不再预先执行 ~Repo.load~ ；本地仓库浏览仍显式调用 load。历史回退、首次无历史时的全文件冲突和部分成功基准均由 Rust core 处理。
 
 比较对象的 ~files[].localMissing~ 指示本地缺失的远端文件，与空文件区分。界面原样传递该版本信息，apply 校验缺失状态后创建文件；仅已有本地文件被备份，返回的 ~backups~ 可以少于冲突文件数量。UI 不计算或补造版本基准。
+
+* TODO 默认接口与文件投影
+
+~defaultTodoSettings(): Promise<string>~ 在工作线程调用 Rust ~TodoConfig::default().to_settings()~ ，无需 workspace、文件或 Preferences，也不持有实例引用。默认设置由外部保存，Rust 不读取宿主设置。~Workspace.setTodoDefaults(settings): Promise<void>~ 在 worker 中由 core 解析和校验外部文本，更新 workspace；异步期间保留 native 对象引用。
+
+~Repo.todoMetadata(path): Promise<TodoMetadata>~ 返回已有文件的有效元信息；文件不存在时使用外部默认值生成元信息，供新增任务显示初始状态，不创建空文件。~RepositoryFile.todo~ 在每个快照中返回来源、流程、待办/完成状态、显式快捷键和日志要求。任务 DTO 增加可空的 ~todoKind~ ，值为 ~pending~ 或 ~done~ ，由 Rust 的 ~FilterTask.state_type~ 投影。
+
+ArkTS 只传递设置并显示结果。C++ 负责参数编组、worker、结果投影和资源释放；文内声明收集、流程归属、覆盖规则、初始状态和旧比较对象校验均由 Rust 实现。全局配置变化时更新同一个 workspace；合并提交前刷新外部默认配置，避免使用旧解析规则。

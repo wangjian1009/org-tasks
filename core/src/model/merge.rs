@@ -45,6 +45,7 @@ pub struct OrgMergeItem {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgMergePlan {
+    pub todo_defaults: super::TodoConfig,
     pub local_hash: String,
     pub remote_hash: String,
     pub has_baseline: bool,
@@ -196,6 +197,7 @@ pub fn compare_org_tasks(
         })
         .collect();
     OrgMergePlan {
+        todo_defaults: local.todo_defaults.clone(),
         local_hash: content_hash(local.source_bytes()),
         remote_hash: content_hash(remote.source_bytes()),
         has_baseline: baseline.is_some(),
@@ -300,10 +302,11 @@ pub fn merge_org_tasks(
     if visited.len() != selected.len() {
         return Err(CoreError::InvalidInput("合并后的任务层级不完整"));
     }
-    let parsed = OrgFile::new(
+    let parsed = OrgFile::with_todo_defaults(
         "merge-validation".into(),
         "merge.org".into(),
         output.clone(),
+        plan.todo_defaults.clone(),
     )?;
     let actual = units(&parsed);
     // 祖先改名会改变无 ID 子标题的匹配键，验证来源与层级而非重新生成的身份键。

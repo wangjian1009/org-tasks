@@ -3,7 +3,8 @@
 export interface OrgTask {
   id: string           // core 仓库 ID + 相对路径 + 源字节偏移
   heading: string      // 任务标题
-  todoState: string    // TODO/NEXT/WAIT/DONE/CNCL
+  todoState: string    // 文件有效 TODO 关键词
+  todoKind: 'pending' | 'done' | null
   priority: string     // A/B/C 或空
   scheduled: string    // ISO 日期字符串 或空
   deadline: string     // ISO 日期字符串 或空
@@ -43,6 +44,7 @@ export interface AppConfig {
   inboxFile: string    // 新增任务写入的文件
   calendarName: string // 日历名称
   syncInterval: number // 同步间隔（分钟）
+  todoDefaults: string // 外部保存的全局默认声明，缺省值由 Rust 提供
 }
 
 // 默认配置
@@ -50,5 +52,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   repos: [],
   inboxFile: 'inbox.org',
   calendarName: 'Org Tasks',
-  syncInterval: 20
+  syncInterval: 20,
+  todoDefaults: '' // 配置加载前的占位，实际默认值从 Rust 获取
 }

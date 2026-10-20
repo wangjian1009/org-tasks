@@ -74,7 +74,7 @@ struct TaskSearch {
     this.showingResults = true
     try {
       const config = await AppConfigService.load(getContext(this))
-      const response = await NativeCoreService.searchWorkspace(config.repos, expression)
+      const response = await NativeCoreService.searchWorkspace(config.repos, expression, config.todoDefaults)
       if (request !== this.requestId) return
       this.tasks = response.tasks
       this.committedQuery = expression

@@ -1,5 +1,7 @@
 import {
   Repo as NativeRepo,
+  TodoMetadata as NativeTodoMetadata,
+  defaultTodoSettings,
   ConflictSync as NativeConflictSync,
   MergeComparison as NativeMergeComparison,
   MergeChange as NativeMergeChange,
@@ -20,6 +22,7 @@ export interface CoreRepositoryFile {
   path: string
   source: string
   byte_length: number
+  todo: NativeTodoMetadata
 }
 
 export interface CoreWorkspaceSnapshot {
@@ -37,6 +40,7 @@ export interface CoreTask {
   repoId: string
   heading: string
   todoState: string
+  todoKind: 'pending' | 'done' | null
   priority: string
   scheduled: string
   deadline: string
@@ -62,6 +66,8 @@ export interface CoreBridgeResponse {
   tasks: CoreTask[]
   sync: CoreSyncSnapshot | null
 }
+
+export type CoreTodoMetadata = NativeTodoMetadata
 
 export type CoreMergeComparison = NativeMergeComparison
 export type CoreMergeChange = NativeMergeChange
@@ -121,6 +127,8 @@ export class CoreRepo {
     return this.native.rootDirectory()
   }
 
+  async todoMetadata(path: string): Promise<CoreTodoMetadata> { return await this.native.todoMetadata(path) }
+
   async conflicts(): Promise<NativeConflictSync[]> { return await this.native.conflicts() }
 
   async compareMerge(policy: CoreWebDavSyncPolicy, syncId: string): Promise<CoreMergeComparison> {
@@ -156,6 +164,8 @@ export class CoreWorkspace {
     this.native = native
   }
 
+  async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
+
   async repos(): Promise<CoreRepo[]> {
     const repos = await this.native.repos()
     return repos.map((repo: NativeRepo) => new CoreRepo(repo))
@@ -177,22 +187,23 @@ export class CoreWorkspace {
 
 let activeWorkspace: CoreWorkspace | undefined = undefined
 let activeWorkspaceKey: string = ''
+let activeTodoDefaults: string | undefined = undefined
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
-  static async repository(repositories: RepoConfig[], repository: RepoConfig): Promise<CoreRepo> {
-    const workspace = await NativeCoreService.workspaceFor(repositories)
+  static async repository(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreRepo> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     const repo = repos.find((item: CoreRepo) => item.rootDirectory() === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     return repo
   }
 
-  static async conflicts(repositories: RepoConfig[]): Promise<CoreConflict[]> {
+  static async conflicts(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreConflict[]> {
     const result: CoreConflict[] = []
     for (const repository of repositories) {
       if (!repository.webdavEnabled) continue
-      const repo = await NativeCoreService.repository(repositories, repository)
+      const repo = await NativeCoreService.repository(repositories, repository, todoDefaults)
       const conflicts = await repo.conflicts()
       for (const conflict of conflicts) result.push({ repoId: repository.id, syncId: conflict.syncId, paths: conflict.paths })
     }
@@ -205,30 +216,37 @@ export class NativeCoreService {
     await repo.load()
   }
 
-  static async workspaceFor(repositories: RepoConfig[]): Promise<CoreWorkspace> {
+  static async workspaceFor(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreWorkspace> {
+    const settings = todoDefaults ?? await defaultTodoSettings()
     const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
     if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
+      if (activeTodoDefaults !== settings) {
+        await activeWorkspace.setTodoDefaults(settings)
+        activeTodoDefaults = settings
+      }
       return activeWorkspace
     }
     const workspace = new CoreWorkspace(new NativeWorkspace())
+    await workspace.setTodoDefaults(settings)
     for (const repository of repositories) {
       await workspace.addRepo(repository.rootDirectory)
     }
     activeWorkspace = workspace
     activeWorkspaceKey = workspaceKey
+    activeTodoDefaults = settings
     return activeWorkspace
   }
 
-  static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask): Promise<void> {
-    const workspace = await NativeCoreService.workspaceFor(repositories)
+  static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask, todoDefaults?: string): Promise<void> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     const repo = repos.find((item: CoreRepo) => item.rootDirectory() === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     await repo.createTask(path, task, repository.webdavEnabled)
   }
 
-  static async loadWorkspace(repositories: RepoConfig[]): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(repositories)
+  static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreBridgeResponse> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     for (const repo of repos) {
       await repo.load()
@@ -242,9 +260,10 @@ export class NativeCoreService {
 
   static async syncWorkspaceWebDav(
     repositories: RepoConfig[],
-    monitor?: CoreWebDavSyncMonitor
+    monitor?: CoreWebDavSyncMonitor,
+    todoDefaults?: string
   ): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(repositories)
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     let sync: CoreSyncSnapshot | null = null
     for (const repo of repos) {
@@ -266,8 +285,8 @@ export class NativeCoreService {
     }
   }
 
-  static async searchWorkspace(repositories: RepoConfig[], expression: string): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(repositories)
+  static async searchWorkspace(repositories: RepoConfig[], expression: string, todoDefaults?: string): Promise<CoreBridgeResponse> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     for (const repo of repos) {
       await repo.load()

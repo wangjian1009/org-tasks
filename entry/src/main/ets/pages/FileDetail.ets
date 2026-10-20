@@ -3,7 +3,7 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, coreErrorMessage, CoreTask } from '../services/NativeCoreService'
+import { CoreBridgeError, coreErrorMessage, CoreTask, CoreTodoMetadata } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
 interface NotebookParams { repoId?: string; path?: string }
@@ -14,6 +14,7 @@ struct FileDetail {
   @State path: string = ''
   @State repoId: string = ''
   @State content: string = ''
+  @State todo: CoreTodoMetadata | undefined = undefined
   @State tasks: CoreTask[] = []
   @State collapsed: string[] = []
   @State tab: string = '笔记'
@@ -35,9 +36,10 @@ struct FileDetail {
       this.path = params.path || ''
       this.repoId = params.repoId || ''
       const config = await AppConfigService.load(getContext(this))
-      const notebooks = await NotebookService.load(config.repos)
+      const notebooks = await NotebookService.load(config.repos, config.todoDefaults)
       const file = notebooks.find((item) => item.repoId === this.repoId && item.path === this.path)
       if (!file) { this.message = '该笔记本已不存在，请返回笔记本列表。'; return }
+      this.todo = file.todo
       this.tasks = file.tasks
       this.content = file.source
       this.rootDirectory = file.rootDirectory
@@ -100,6 +102,10 @@ struct FileDetail {
               Blank()
               Text(`${this.tasks.length} 条笔记`).fontSize(12).fontColor(UiColor.secondary)
             }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
+            if (this.todo) {
+              Text(`TODO 状态来自${this.todo.source === 'inBuffer' ? '本文件' : '全局默认'}：${this.todo.pendingKeywords.concat(this.todo.doneKeywords).join(' → ') || '未启用'}`)
+                .width('100%').padding({ left: 16, right: 16, bottom: 12 }).fontSize(12).fontColor(UiColor.secondary)
+            }
             if (this.tab === '原文') {
               Scroll() {
                 Text(this.content || '空白 org 文件').width('100%').fontSize(14).fontFamily('monospace')

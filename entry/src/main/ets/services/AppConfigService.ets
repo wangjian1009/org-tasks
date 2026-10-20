@@ -1,5 +1,6 @@
 // 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
+import { defaultTodoSettings, Workspace } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { preferences } from '@kit.ArkData'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
@@ -15,15 +16,19 @@ export class AppConfigService {
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
+    const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
     return {
       repos,
       inboxFile,
       calendarName,
-      syncInterval
+      syncInterval,
+      todoDefaults
     }
   }
 
   static async save(context: Context, config: AppConfig): Promise<void> {
+    const validation = new Workspace()
+    await validation.setTodoDefaults(config.todoDefaults)
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
@@ -41,6 +46,7 @@ export class AppConfigService {
     await store.put('inboxFile', config.inboxFile.trim())
     await store.put('calendarName', config.calendarName.trim())
     await store.put('syncInterval', config.syncInterval)
+    await store.put('todoDefaults', config.todoDefaults)
     await store.flush()
   }
 

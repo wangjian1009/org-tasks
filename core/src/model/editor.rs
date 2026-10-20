@@ -63,6 +63,13 @@ pub fn serialize_file(file: &OrgFile) -> &[u8] {
 }
 
 pub fn apply_edit(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFileEditError> {
+    let mut updated = file.clone();
+    apply_edit_inner(&mut updated, edit)?;
+    *file = updated;
+    Ok(())
+}
+
+fn apply_edit_inner(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFileEditError> {
     match edit {
         OrgFileEdit::ReplaceRange { target, content } => {
             validate_content(&content)?;

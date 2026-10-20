@@ -20,6 +20,9 @@ use orgize::rowan::ast::AstNode;
 struct Cli {
     #[arg(long, global = true)]
     repo_dir: Option<PathBuf>,
+    /// 全局默认 TODO 设置文本；文件中的声明覆盖它。省略时从 Rust Default 获取。
+    #[arg(long, global = true)]
+    todo_defaults: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -136,6 +139,15 @@ pub async fn run() -> Result<(), String> {
         .repo_dir
         .ok_or_else(|| "--repo-dir 是必填参数".to_string())?;
     let mut repo = open_repo(repo_dir)?;
+    let defaults = cli
+        .todo_defaults
+        .as_deref()
+        .map(org_tasks_core::TodoConfig::from_settings)
+        .transpose()
+        .map_err(|error| error.to_string())?
+        .unwrap_or_default();
+    repo.set_todo_defaults(defaults)
+        .map_err(|error| error.to_string())?;
     let history_records = if matches!(&cli.command, Command::Sync(_)) {
         Vec::new()
     } else {
@@ -210,7 +222,7 @@ async fn list_files(repo: &OrgRepo) -> Result<(), String> {
         println!("没有 Org 文件。");
         return Ok(());
     }
-    println!("文件  任务数  大小  MD5  最后修改时间");
+    println!("文件  任务数  大小  MD5  最后修改时间  TODO 来源与状态");
     for file in repo.files() {
         let metadata = tokio::fs::metadata(PathBuf::from(&repo.root_directory).join(&file.path))
             .await
@@ -219,12 +231,15 @@ async fn list_files(repo: &OrgRepo) -> Result<(), String> {
             .modified()
             .map_err(|error| format!("无法读取文件修改时间 {}: {error}", file.path))?;
         println!(
-            "{}  {}  {}  {}  {}",
+            "{}  {}  {}  {}  {}  {:?}: {} | {}",
             file.path,
             task_count(file),
             format_size(i64::try_from(file.source_bytes().len()).unwrap_or(i64::MAX)),
             md5_hex(file.source_bytes()),
             format_system_time(modified),
+            file.todo.source,
+            file.todo.pending_keywords.join(" "),
+            file.todo.done_keywords.join(" "),
         );
     }
     Ok(())
@@ -237,6 +252,10 @@ fn dump_file(repo: &OrgRepo, path: &str) -> Result<(), String> {
         .find(|file| file.path == path)
         .ok_or_else(|| format!("未找到 Org 文件: {path}"))?;
     println!("{}", file.path);
+    println!(
+        "TODO 元信息: {}",
+        serde_json::to_string_pretty(&file.todo).map_err(|_| "无法编码 TODO 元信息".to_string())?
+    );
     println!("{:#?}", file.syntax().document().syntax());
     Ok(())
 }
@@ -715,6 +734,7 @@ mod tests {
         let repo = OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/org".into(),
+            todo_defaults: org_tasks_core::TodoConfig::default(),
             files: vec![file],
         };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();

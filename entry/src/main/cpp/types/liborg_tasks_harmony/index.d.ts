@@ -14,6 +14,7 @@ export interface RepositoryFile {
   path: string;
   source: string;
   byte_length: number;
+  todo: TodoMetadata;
 }
 
 export interface RepositorySnapshot {
@@ -26,6 +27,7 @@ export interface Task {
   repoId: string;
   heading: string;
   todoState: string;
+  todoKind: 'pending' | 'done' | null;
   priority: string;
   scheduled: string;
   deadline: string;
@@ -65,6 +67,7 @@ export class WebDavSyncPolicy {
 
 export class Workspace {
   constructor();
+  setTodoDefaults(settings: string): Promise<void>;
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
@@ -72,6 +75,7 @@ export class Workspace {
 }
 
 export class Repo {
+  todoMetadata(path: string): Promise<TodoMetadata>;
   id(): string;
   rootDirectory(): string;
   load(): Promise<void>;
@@ -121,3 +125,26 @@ export interface MergeComparison {
 export interface ConflictSync { syncId: string; paths: string[]; }
 export interface MergeBackup { path: string; backupPath: string; }
 export interface MergeOutcome { syncId: string; result: 'succeeded' | 'failed'; backups: MergeBackup[]; }
+
+
+export interface SourcePosition { line: number; column: number; byte_offset: number; }
+export interface SourceRange { start: SourcePosition; end: SourcePosition; }
+export interface TodoDeclaration { keyword: string; value: string; range: SourceRange; }
+export interface TodoStateMetadata {
+  name: string;
+  kind: 'pending' | 'done';
+  fastKey: string | null;
+  enterLog: 'time' | 'note' | null;
+  leaveLog: 'time' | 'note' | null;
+}
+export interface TodoWorkflow { kind: 'sequence' | 'type'; states: TodoStateMetadata[]; }
+export interface TodoMetadata {
+  source: 'globalDefault' | 'inBuffer';
+  declarations: TodoDeclaration[];
+  workflows: TodoWorkflow[];
+  pendingKeywords: string[];
+  doneKeywords: string[];
+  initialState: string | null;
+}
+
+export function defaultTodoSettings(): Promise<string>;

@@ -8,6 +8,9 @@
 extern "C" void org_tasks_harmony_free_string(char* value);
 extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
+extern "C" char* org_tasks_harmony_default_todo_settings();
+extern "C" int32_t org_tasks_harmony_workspace_set_todo_defaults(uint64_t handle, const char* settings);
+extern "C" char* org_tasks_harmony_repo_todo_metadata(uint64_t handle, const char* root, const char* path);
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
@@ -56,6 +59,9 @@ struct WebDavConnectionWork {
 };
 
 struct WorkspaceStringWork {
+    bool todo_defaults = false;
+    bool default_todo_settings = false;
+    napi_ref owner = nullptr;
     uint64_t handle = 0;
     std::string expression;
     std::string response;
@@ -95,7 +101,7 @@ struct RepoSnapshotWork {
     std::string task_json;
     bool queue_upload = false;
     napi_ref owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply, TodoMetadata } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -252,8 +258,13 @@ extern "C" void org_tasks_harmony_webdav_sync_monitor_event(uint64_t monitor_han
 void ExecuteWorkspaceString(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
-    work->response = TakeRustString(org_tasks_harmony_workspace_search(
-        work->handle, work->expression.c_str()));
+    if (work->default_todo_settings) {
+        work->response = TakeRustString(org_tasks_harmony_default_todo_settings());
+    } else if (work->todo_defaults) {
+        if (org_tasks_harmony_workspace_set_todo_defaults(work->handle, work->expression.c_str()) == 0) work->response = "{}";
+    } else {
+        work->response = TakeRustString(org_tasks_harmony_workspace_search(work->handle, work->expression.c_str()));
+    }
     if (work->response.empty()) work->error = TakeRustError();
 }
 
@@ -264,7 +275,10 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         RejectCoreError(env, work->deferred, work->error, "core workspace 操作失败");
     } else {
         napi_value result;
-        if (!ParseJson(env, work->response, &result)) {
+        if (work->todo_defaults) {
+            napi_get_undefined(env, &result);
+            napi_resolve_deferred(env, work->deferred, result);
+        } else if (!ParseJson(env, work->response, &result)) {
             napi_value text;
             napi_create_string_utf8(env, "core workspace 响应格式无效", NAPI_AUTO_LENGTH, &text);
             napi_value error;
@@ -274,6 +288,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_resolve_deferred(env, work->deferred, result);
         }
     }
+    if (work->owner != nullptr) napi_delete_reference(env, work->owner);
     napi_delete_async_work(env, work->work);
     delete work;
 }
@@ -363,6 +378,10 @@ void ExecuteRepoSnapshot(napi_env, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
     switch (work->operation) {
+        case RepoSnapshotWork::Operation::TodoMetadata:
+            work->response = TakeRustString(org_tasks_harmony_repo_todo_metadata(work->workspace_handle,
+                work->root_directory.c_str(), work->task_path.c_str()));
+            break;
         case RepoSnapshotWork::Operation::Conflicts:
             work->response = TakeRustString(org_tasks_harmony_repo_conflicts(
                 work->workspace_handle, work->root_directory.c_str()));
@@ -583,7 +602,7 @@ napi_value WebDavTestConnection(napi_env env, napi_callback_info info)
     return promise;
 }
 
-napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const char* name)
+napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const char* name, napi_value self)
 {
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
@@ -592,9 +611,11 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
         return nullptr;
     }
     napi_value resource_name;
-    if (napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+    if ((!work->default_todo_settings && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
+        napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceString, CompleteWorkspaceString, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
         napi_throw_error(env, nullptr, "无法调度 Workspace 请求");
@@ -621,7 +642,31 @@ napi_value WorkspaceSearch(napi_env env, napi_callback_info info)
         return nullptr;
     }
     work->handle = workspace->handle;
-    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSearch");
+    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSearch", self);
+}
+
+napi_value DefaultTodoSettings(napi_env env, napi_callback_info info)
+{
+    napi_value self; size_t argc = 0;
+    if (napi_get_cb_info(env, info, &argc, nullptr, &self, nullptr) != napi_ok) return nullptr;
+    auto* work = new WorkspaceStringWork(); work->default_todo_settings = true;
+    return QueueWorkspaceString(env, work, "OrgTasksDefaultTodoSettings", self);
+}
+
+napi_value WorkspaceSetTodoDefaults(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1] = {nullptr}; napi_value self;
+    WorkspaceWrap* workspace = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr || workspace->handle == 0) {
+        napi_throw_error(env, nullptr, "Workspace.setTodoDefaults 参数无效"); return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    if (!ReadString(env, args[0], &work->expression) || work->expression.find('\0') != std::string::npos) {
+        delete work; napi_throw_error(env, nullptr, "TODO 默认设置必须是文本"); return nullptr;
+    }
+    work->todo_defaults = true; work->handle = workspace->handle;
+    return QueueWorkspaceString(env, work, "OrgTasksTodoDefaults", self);
 }
 
 napi_value WorkspaceAddRepo(napi_env env, napi_callback_info info)
@@ -914,6 +959,22 @@ napi_value QueueMergeWork(napi_env env, napi_value self, RepoSnapshotWork* work)
     return promise;
 }
 
+napi_value RepoTodoMetadata(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1] = {nullptr}; napi_value self; RepoWrap* repo = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr || repo->workspace_handle == 0) {
+        napi_throw_error(env, nullptr, "Repo.todoMetadata 参数无效"); return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    if (!ReadString(env, args[0], &work->task_path) || work->task_path.find('\0') != std::string::npos) {
+        delete work; napi_throw_error(env, nullptr, "Org 文件路径无效"); return nullptr;
+    }
+    work->workspace_handle = repo->workspace_handle; work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::TodoMetadata;
+    return QueueMergeWork(env, self, work);
+}
+
 napi_value RepoConflicts(napi_env env, napi_callback_info info)
 {
     RepoWrap* repo = nullptr;
@@ -973,7 +1034,11 @@ napi_value RepoApplyMerge(napi_env env, napi_callback_info info) { return RepoMe
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
+    napi_value default_todo_settings;
+    napi_create_function(env, "defaultTodoSettings", NAPI_AUTO_LENGTH, DefaultTodoSettings, nullptr, &default_todo_settings);
+    napi_set_named_property(env, exports, "defaultTodoSettings", default_todo_settings);
     napi_property_descriptor workspace_descriptors[] = {
+        {"setTodoDefaults", nullptr, WorkspaceSetTodoDefaults, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -985,6 +1050,7 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_set_named_property(env, exports, "Workspace", workspace_class);
 
     napi_property_descriptor repo_descriptors[] = {
+        {"todoMetadata", nullptr, RepoTodoMetadata, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"id", nullptr, RepoId, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"rootDirectory", nullptr, RepoRootDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},

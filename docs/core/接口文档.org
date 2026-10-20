@@ -149,7 +149,7 @@ impl OrgFile {
 
 ~NewTask~ 是任务创建的运行时输入，字段为 ~heading~ 、 ~scheduled~ 、 ~deadline~ 、 ~tags~ 与 ~priority~ 。日期为空或有效的 ~YYYY-MM-DD~ ，优先级为空或 ~A/B/C~ ，标题不能为空或包含控制字符，标签只允许字母、数字、中文及 ~_@#%~ 。标题中的隐式 Org 属性必须拒绝，避免与表单属性产生歧义。
 
-~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。它读取当前磁盘内容，在文件末尾通过 ~apply_edit~ 追加一级 ~TODO~ 标题和可选 planning 行，保留原有字节，并为新增内容采用原文件换行风格。追加后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加标题的文件会返回输入错误。
+~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。它读取当前磁盘内容，在文件末尾通过 ~apply_edit~ 追加使用目标文件有效初始状态的一级标题和可选 planning 行，保留原有字节，并为新增内容采用原文件换行风格。追加后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加标题的文件会返回输入错误。
 
 写入先在目标文件同级生成并刷新临时文件，提交前检查目标内容仍与读取时一致，再原子重命名并更新仓库快照。宿主必须串行调用同一仓库的编辑和同步；Harmony 通过 workspace 锁执行。该检查不能替代跨进程文件锁。
 
@@ -404,3 +404,23 @@ pub struct WebDavMergeOutcome {
 完全没有历史时，当前本地与远端路径的并集全部生成 ~Conflict~ 记录，不自动下载、上传或覆盖，包括仅一端存在以及两端内容相同的文件。用户通过一次同步的比较与 apply 显式建立基准；内容相同的任务自动保留，但文件仍需通过合并确认。空目录的同步可以成功生成空记录；仅列举失败或取消产生的空记录不能视为已经建立了基准。
 
 首次冲突记录生成后，后续普通同步仍保留这些无成功基准的待处理路径；不能因“历史现在非空”而绕过合并。后续已建立历史的新路径继续按既有新建/下载规则处理。合并接受本地缺失的远端文件时，比较对象以 ~localMissing~ 区分“文件不存在”和“空文件”；apply 保持版本校验并安全创建文件。只有存在本地原文件的路径才产生备份，不为远端独有文件伪造空备份。
+
+* TODO 默认配置与文件元信息接口
+
+默认值由 Rust ~Default~ 实现提供，外部负责保存自己的全局配置。配置可用结构化 ~TodoConfig~ 传入，或由原生 Org 声明文本经 ~from_settings~ 解析。空白设置文本表示空配置，不套用缺省值；配置只在运行时持有，不写入同步元数据。
+
+#+begin_src rust
+let defaults = TodoConfig::default();
+let editable_settings = defaults.to_settings();
+let configured = TodoConfig::from_settings(&editable_settings)?;
+workspace.set_todo_defaults(configured.clone())?;
+repo.set_todo_defaults(configured)?;
+let file = OrgFile::with_todo_defaults(repo_id, path, bytes, defaults)?;
+let metadata = &file.todo;
+#+end_src
+
+~OrgFile::new~ 使用 Rust 缺省配置，~with_todo_defaults~ 使用外部默认配置。~OrgRepo.parse_file~ 在扫描、下载、创建与合并时统一传递配置。~OrgWorkspace.set_todo_defaults~ 校验并更新全部仓库与已加载文件，~add_repo~ 将配置传给后续加入的仓库。配置更新失败时不产生部分重解析的状态。
+
+每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
+
+~create_task~ 从目标文件有效配置取得初始状态；文件尚不存在时使用外部默认。无可用未完成状态时拒绝写入。合并也使用相同配置验证输出，并把默认配置纳入运行时仓库版本，以拒绝配置变化后的旧比较对象。

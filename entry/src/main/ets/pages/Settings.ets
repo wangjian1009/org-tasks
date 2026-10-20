@@ -1,8 +1,9 @@
+import { defaultTodoSettings } from 'liborg_tasks_harmony.so'
 import { router } from '@kit.ArkUI'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, coreErrorMessage, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
 import { UiColor } from '../ui/Theme'
@@ -15,6 +16,7 @@ struct Settings {
   @State inboxFile: string = 'inbox.org'
   @State calendarName: string = 'Org Tasks'
   @State syncInterval: string = '20'
+  @State todoDefaults: string = ''
   @State saving: boolean = false
   @State loaded: boolean = false
   @State message: string = ''
@@ -32,6 +34,7 @@ struct Settings {
     try {
       this.config = await AppConfigService.load(getContext(this))
       this.inboxFile = this.config.inboxFile
+      this.todoDefaults = this.config.todoDefaults
       this.calendarName = this.config.calendarName
       this.syncInterval = Math.max(20, this.config.syncInterval).toString()
       this.loaded = true
@@ -51,7 +54,8 @@ struct Settings {
     this.saving = true
     try {
       const current = await AppConfigService.load(getContext(this))
-      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.inboxFile.trim(), calendarName: this.calendarName.trim(), syncInterval: interval })
+      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.inboxFile.trim(), calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults })
+      await NativeCoreService.workspaceFor(current.repos, this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults)
       this.message = '设置已保存'
       try { await BackgroundSyncService.configure(interval) }
       catch (e) { this.message = `设置已保存，后台调度更新失败：${coreErrorMessage(e as CoreBridgeError)}` }
@@ -69,7 +73,7 @@ struct Settings {
           Scroll() {
             Column() {
               if (!this.section) {
-                PreferenceRow({ title: '笔记与笔记本', detail: '新增任务的收集箱文件', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
+                PreferenceRow({ title: '笔记与笔记本', detail: '收集箱文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
                 PreferenceRow({ title: '同步', detail: '存储库、系统日历与后台同步', icon: $r('app.media.ui_sync'), action: () => { this.section = '同步' } })
                 PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
               } else if (this.section === '同步') {
@@ -94,6 +98,19 @@ struct Settings {
                 Button(this.saving ? '保存中…' : '保存设置').width('88%').height(48).backgroundColor(UiColor.primary).margin({ top: 32 })
                   .enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
               } else if (this.section === '笔记与笔记本') {
+                SectionHeading({ title: '默认 TODO 流程' })
+                Column({ space: 12 }) {
+                  TextArea({ text: this.todoDefaults, placeholder: '从 Rust 获取的默认设置，可按 Org 声明编辑' }).width('100%').height(180)
+                    .fontFamily('monospace').backgroundColor(UiColor.field).borderRadius(6)
+                    .onChange((value: string) => { this.todoDefaults = value })
+                  Text('使用 TODO、SEQ_TODO 或 TYP_TODO 声明，每行一套流程；| 后为完成状态。文件内声明会整体覆盖此默认值。留空表示默认不识别 TODO 状态。')
+                    .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Button('恢复默认 TODO 设置').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
+                    .onClick(async (): Promise<void> => {
+                      try { this.todoDefaults = await defaultTodoSettings() }
+                      catch (e) { this.message = `读取默认设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+                    })
+                }.width('100%').padding({ left: 24, right: 24 })
                 SectionHeading({ title: '收集箱' })
                 Column({ space: 16 }) {
                   Text('新增任务文件').fontSize(14).fontColor(UiColor.secondary).width('100%')

@@ -52,10 +52,17 @@ impl OrgRepo {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
         validate_task_path(path)?;
-        let content = task.render()?;
         let target = task_target(Path::new(&self.root_directory), path).await?;
         let original = read_optional(&target).await?;
         let mut file = self.parse_file(path.into(), original.clone().unwrap_or_default())?;
+        let initial_state = file
+            .todo
+            .initial_state
+            .clone()
+            .ok_or(CoreError::InvalidInput(
+                "目标文件没有可用的未完成状态，请检查 TODO 设置",
+            ))?;
+        let content = task.render(&initial_state)?;
         let newline = if file.source_bytes().windows(2).any(|pair| pair == b"\r\n") {
             "\r\n"
         } else {
@@ -80,11 +87,12 @@ impl OrgRepo {
             id: self.id.clone(),
             root_directory: self.root_directory.clone(),
             files: vec![file.clone()],
+            todo_defaults: self.todo_defaults.clone(),
         };
         if !tasks_from_repo(&projection).iter().any(|item| {
             item.byte_offset as usize == offset
                 && item.title == task.heading.trim()
-                && item.state.as_deref() == Some("TODO")
+                && item.state.as_deref() == Some(initial_state.as_str())
         }) {
             return Err(CoreError::InvalidInput(
                 "标题不能包含隐式 Org 属性，且目标文件末尾必须允许新增标题",
@@ -226,7 +234,7 @@ impl OrgRepo {
 }
 
 impl NewTask {
-    fn render(&self) -> Result<String, CoreError> {
+    fn render(&self, state: &str) -> Result<String, CoreError> {
         let heading = self.heading.trim();
         if heading.is_empty() || self.heading.chars().any(char::is_control) {
             return Err(CoreError::InvalidInput("任务标题不能为空或包含控制字符"));
@@ -267,7 +275,7 @@ impl NewTask {
         } else {
             format!(" :{}:", tags.join(":"))
         };
-        let mut content = format!("* TODO {priority}{heading}{tags}\n");
+        let mut content = format!("* {state} {priority}{heading}{tags}\n");
         let mut planning = Vec::new();
         if !self.scheduled.is_empty() {
             planning.push(format!("SCHEDULED: <{}>", self.scheduled));
@@ -650,6 +658,62 @@ mod tests {
             .is_err()
         );
         assert!(!root.join("actual/inbox.org").exists());
+        fs::remove_dir_all(root).await.unwrap();
+    }
+    #[tokio::test]
+    async fn creation_uses_external_defaults_then_file_override_without_rewriting_existing_bytes() {
+        let mut repo = repo().await;
+        let root = PathBuf::from(&repo.root_directory);
+        repo.set_todo_defaults(
+            crate::TodoConfig::from_settings("#+TODO: START(s) WAIT | FINISHED").unwrap(),
+        )
+        .unwrap();
+        let task = NewTask {
+            heading: "Global task".into(),
+            ..Default::default()
+        };
+        repo.create_task("new.org", &task, false).await.unwrap();
+        assert_eq!(
+            fs::read(root.join("new.org")).await.unwrap(),
+            b"* START Global task\n"
+        );
+        let original = b"#+TODO: OPEN | RESOLVED\r\n* OPEN Existing\r\n  body  ";
+        fs::write(root.join("inbox.org"), original).await.unwrap();
+        repo.create_task("inbox.org", &task, true).await.unwrap();
+        let bytes = fs::read(root.join("inbox.org")).await.unwrap();
+        assert!(bytes.starts_with(original));
+        assert!(bytes.ends_with(b"\r\n* OPEN Global task\r\n"));
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        assert_eq!(
+            repo.files
+                .iter()
+                .find(|file| file.path == "inbox.org")
+                .unwrap()
+                .todo
+                .initial_state
+                .as_deref(),
+            Some("OPEN")
+        );
+        assert_eq!(
+            repo.files
+                .iter()
+                .find(|file| file.path == "new.org")
+                .unwrap()
+                .todo
+                .initial_state
+                .as_deref(),
+            Some("START")
+        );
+        fs::write(root.join("disabled.org"), b"#+TODO:\n")
+            .await
+            .unwrap();
+        let pending = repo.pending_writes().await.unwrap();
+        assert!(repo.create_task("disabled.org", &task, true).await.is_err());
+        assert_eq!(
+            fs::read(root.join("disabled.org")).await.unwrap(),
+            b"#+TODO:\n"
+        );
+        assert_eq!(repo.pending_writes().await.unwrap(), pending);
         fs::remove_dir_all(root).await.unwrap();
     }
 }

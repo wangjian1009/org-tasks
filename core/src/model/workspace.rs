@@ -1,19 +1,34 @@
 use crate::CoreError;
 use crate::filter::{Filter, FilterTask, tasks_from_repo};
 
-use super::{OrgRepo, OrgRepoId, validate_id};
+use super::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
 
 pub type OrgWorkspaceValidationError = CoreError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
+    pub todo_defaults: TodoConfig,
 }
 
 impl OrgWorkspace {
     pub fn new(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError> {
         validate_repositories(&repos)?;
-        Ok(Self { repos })
+        Ok(Self {
+            repos,
+            todo_defaults: TodoConfig::default(),
+        })
+    }
+
+    pub fn set_todo_defaults(&mut self, defaults: TodoConfig) -> Result<(), CoreError> {
+        defaults.validate()?;
+        let mut repos = self.repos.clone();
+        for repo in &mut repos {
+            repo.set_todo_defaults(defaults.clone())?;
+        }
+        self.repos = repos;
+        self.todo_defaults = defaults;
+        Ok(())
     }
 
     pub fn repos(&self) -> &[OrgRepo] {
@@ -40,7 +55,8 @@ impl OrgWorkspace {
             .find(|repo| repo.root_directory == root_directory)
     }
 
-    pub fn add_repo(&mut self, repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError> {
+    pub fn add_repo(&mut self, mut repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError> {
+        repo.set_todo_defaults(self.todo_defaults.clone())?;
         let mut repositories = self.repos.clone();
         repositories.push(repo.clone());
         validate_repositories(&repositories)?;
@@ -102,6 +118,7 @@ mod tests {
         let first = OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
+            todo_defaults: crate::TodoConfig::default(),
             files: vec![
                 OrgFile::new(
                     "repo-1".into(),
@@ -114,6 +131,7 @@ mod tests {
         let second = OrgRepo {
             id: "repo-2".into(),
             root_directory: "/tmp/two".into(),
+            todo_defaults: crate::TodoConfig::default(),
             files: vec![
                 OrgFile::new(
                     "repo-2".into(),
@@ -136,6 +154,7 @@ mod tests {
         let mut workspace = OrgWorkspace::new(vec![OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
+            todo_defaults: crate::TodoConfig::default(),
             files: Vec::new(),
         }])
         .unwrap();
@@ -154,6 +173,7 @@ mod tests {
         let repo = OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
+            todo_defaults: crate::TodoConfig::default(),
             files: Vec::new(),
         };
         let mut workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
@@ -179,5 +199,35 @@ mod tests {
 
         assert_eq!(removed.root_directory, "/tmp/one");
         assert!(workspace.repos().is_empty());
+    }
+    #[test]
+    fn workspace_updates_external_defaults_for_loaded_and_new_repos() {
+        let mut repo = OrgRepo::new("/tmp/one".into()).unwrap();
+        repo.id = "repo".into();
+        repo.files.push(
+            OrgFile::new("repo".into(), "default.org".into(), b"* OPEN A\n".to_vec()).unwrap(),
+        );
+        repo.files.push(
+            OrgFile::new(
+                "repo".into(),
+                "override.org".into(),
+                b"#+TODO: OWN | CLOSED\n* OWN B\n".to_vec(),
+            )
+            .unwrap(),
+        );
+        let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        workspace
+            .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OPEN | END").unwrap())
+            .unwrap();
+        assert_eq!(workspace.search(&Filter::parse("it.todo")).len(), 2);
+        workspace
+            .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OTHER | END").unwrap())
+            .unwrap();
+        assert_eq!(workspace.search(&Filter::parse("it.todo")).len(), 1);
+        workspace
+            .add_repo(OrgRepo::new("/tmp/two".into()).unwrap())
+            .unwrap();
+        assert_eq!(workspace.repos[1].todo_defaults, workspace.todo_defaults);
+        assert_eq!(workspace.repos[0].files[0].source_bytes(), b"* OPEN A\n");
     }
 }

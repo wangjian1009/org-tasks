@@ -362,7 +362,12 @@ impl OrgRepo {
         if !self.contains_path(&path) {
             return Err(CoreError::InvalidInput("扫描结果包含非法文件路径"));
         }
-        OrgFile::new(self.id.clone(), path, source_bytes)
+        OrgFile::with_todo_defaults(
+            self.id.clone(),
+            path,
+            source_bytes,
+            self.todo_defaults.clone(),
+        )
     }
 
     /// 自行恢复当前仓库与历史，执行策略并追加本次记录。

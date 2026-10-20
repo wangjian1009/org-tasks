@@ -36,7 +36,7 @@ struct Agenda {
     try {
       const config = await AppConfigService.load(getContext(this))
       const condition = this.filter === '计划' ? 's.ge.-100y' : this.filter === '截止' ? 'd.ge.-100y' : '(s.ge.-100y or d.ge.-100y)'
-      const response = await NativeCoreService.searchWorkspace(config.repos, `.it.done ${condition}`)
+      const response = await NativeCoreService.searchWorkspace(config.repos, `.it.done ${condition}`, config.todoDefaults)
       if (request !== this.requestId) return
       this.config = config
       const tasks = response.tasks.slice().sort((a: CoreTask, b: CoreTask) => this.taskDate(a).localeCompare(this.taskDate(b)))

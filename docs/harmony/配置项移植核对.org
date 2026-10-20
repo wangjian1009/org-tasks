@@ -43,7 +43,7 @@
 
 * 未完成能力与实现偏差
 
-- 解析投影：现有笔记详情只读，正文为普通文本；日期投影只保留年月日；新建固定 TODO、尾部追加，A/B/C 为可选单次值。提醒、时间、重复器、富文本和默认值偏好不能据参考截图宣称支持。
+- 解析投影：现有笔记详情只读，正文为普通文本；日期投影只保留年月日；新建使用文件有效初始状态、尾部追加，A/B/C 为可选单次值。提醒、时间、重复器、富文本和默认值偏好不能据参考截图宣称支持。
 - 子目录：本地扫描递归目录并排除根目录 ~.sync~ ；WebDAV ~PROPFIND~ 使用 ~Depth: 1~ ，没有递归遍历。两者不能合并称为“支持仓库子目录开关”。
 - 日历：目前固定创建绿色日历，日历开启提醒；有截止日期时设置固定提醒值。没有提醒开关、提醒时间偏好、同步范围或日历停用开关，不等同于独立提醒服务。
 - 身份： ~RepoConfig.id~ 目前由宿主生成，用于配置项和 Asset Store；core 仓库身份另从 ~.sync/id~ 取得。两者尚未统一，不能在文档中写成已实现的单一 repoId。修复需要单独评估凭据重绑定。
@@ -145,7 +145,7 @@
 | 笔记本 | ~pref_key_note_popup_buttons_in_book_right~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
 | 搜索结果 | ~pref_key_note_popup_buttons_in_query_left~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
 | 搜索结果 | ~pref_key_note_popup_buttons_in_query_right~ | 未支持 | 现有笔记只读，没有滑动批量编辑操作或按钮定制。 | 待定 |
-| 状态 | ~pref_key_states~ | 未支持 | 无应用级自定义 TODO 工作流配置；由 core 解析原文状态。 | 待定 |
+| 状态 | ~pref_key_states~ | 已支持 | 外部保存全局默认声明，Rust 提供默认值并解析，文件文内声明整组覆盖。 | 保留 |
 | 默认优先级 | ~pref_key_default_priority~ | 固定行为 | 新增默认无优先级，单次可选 A/B/C；无全局默认值。 | 待定 |
 | 最低优先级 | ~pref_key_min_priority~ | 固定行为 | 新增只接受 A/B/C，没有最低优先级配置。 | 待定 |
 | 元数据 | ~pref_key_selected_note_metadata~ | 固定行为 | 详情元数据字段固定，能整体折叠但不能选择字段集合。 | 待定 |
@@ -156,7 +156,7 @@
 | 链接目标 | ~pref_key_link_target~ | 未支持 | 正文链接没有内部/外部打开策略配置。 | 待定 |
 | 绝对链接的根目录（例如：file:/readme.txt） | ~pref_key_file_absolute_root~ | 未支持 | 不解析/打开正文 file: 链接，无绝对链接根目录。 | 待定 |
 | 相对链接的根目录（例如：file:readme.txt） | ~pref_key_file_relative_root~ | 未支持 | 不解析/打开正文 file: 链接，无相对链接根目录。 | 待定 |
-| 状态 | ~pref_key_new_note_state~ | 固定行为 | 新建状态固定 TODO，无默认状态配置。 | 待定 |
+| 状态 | ~pref_key_new_note_state~ | 固定行为 | 新建使用文件有效配置的首个未完成状态；尚无独立的任意初始状态选择项。 | 待定 |
 | 计划 | ~pref_key_is_new_note_scheduled~ | 固定行为 | 新建默认无计划日期，单次手选；无自动设为今天配置。 | 待定 |
 | 前缀 | ~pref_key_is_new_note_prepend~ | 固定行为 | core 在目标文件末尾追加，不提供默认前插。 | 待定 |
 | Add ID property | ~pref_key_new_note_add_id~ | 未支持 | 新建不添加 Org ID 属性。 | 待定 |

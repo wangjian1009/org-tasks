@@ -932,6 +932,7 @@ mod tests {
         let repository = OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
+            todo_defaults: crate::TodoConfig::default(),
             files: vec![file],
         };
         let tasks = tasks_from_repo(&repository);
@@ -989,6 +990,7 @@ mod tests {
         let repository = OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
+            todo_defaults: crate::TodoConfig::default(),
             files: vec![file],
         };
         let task = tasks_from_repo(&repository).pop().unwrap();

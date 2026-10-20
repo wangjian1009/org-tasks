@@ -642,7 +642,7 @@ async fn repository_version(repo: &OrgRepo, history: &History) -> Result<String,
         .map(|intent| (intent.relative_path, intent.content_hash))
         .collect::<Vec<_>>();
     pending.sort();
-    let bytes = serde_json::to_vec(&(&repo.id, files, history, pending))
+    let bytes = serde_json::to_vec(&(&repo.id, &repo.todo_defaults, files, history, pending))
         .map_err(|_| CoreError::InvalidState("无法计算仓库版本"))?;
     Ok(LocalFileVersion::from_bytes(&bytes).content_hash)
 }
@@ -1303,6 +1303,57 @@ mod tests {
             b"* TODO Remote\n"
         );
         assert!(repo.pending_writes().await.unwrap().is_empty());
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+    #[tokio::test]
+    async fn external_todo_default_change_invalidates_pending_merge_without_writing() {
+        let (mut repo, root) = repo().await;
+        offline(&mut repo, "inbox.org").await;
+        let (policy, state, worker) = server(&[("inbox.org", b"* TODO Remote\n")]).await;
+        let first = sync(&mut repo, &policy, 1).await;
+        let comparison = policy.compare_merge(&mut repo, &first.id).await.unwrap();
+        let count = state.lock().unwrap().requests.len();
+        repo.set_todo_defaults(
+            crate::TodoConfig::from_settings("#+TODO: NEXT | FINISHED").unwrap(),
+        )
+        .unwrap();
+        assert!(
+            policy
+                .apply_merge(&mut repo, &comparison, 100)
+                .await
+                .is_err()
+        );
+        assert_eq!(state.lock().unwrap().requests.len(), count);
+        assert!(!root.join(".sync/backups").exists());
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn downloaded_file_todo_declarations_override_external_defaults_and_survive_reload() {
+        let (mut repo, root) = repo().await;
+        repo.set_todo_defaults(
+            crate::TodoConfig::from_settings("#+TODO: GLOBAL | CLOSED").unwrap(),
+        )
+        .unwrap();
+        let bytes = b"#+TODO: OPEN(o) | FINISHED(f!)\r\n* OPEN Pending\r\n* FINISHED Complete\r\n";
+        let (policy, _, worker) = server(&[("inbox.org", bytes)]).await;
+        let first = sync(&mut repo, &policy, 1).await;
+        let mut comparison = policy.compare_merge(&mut repo, &first.id).await.unwrap();
+        comparison.mode = WebDavMergeMode::AcceptRemote;
+        policy
+            .apply_merge(&mut repo, &comparison, 100)
+            .await
+            .unwrap();
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        let file = &repo.files[0];
+        assert_eq!(file.source_bytes(), bytes);
+        assert_eq!(file.todo.source, crate::TodoSource::InBuffer);
+        assert_eq!(file.todo.initial_state.as_deref(), Some("OPEN"));
+        assert_eq!(file.todo.done_keywords, ["FINISHED"]);
+        let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        assert_eq!(workspace.search(&crate::Filter::parse("it.done")).len(), 1);
         worker.abort();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
