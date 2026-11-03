@@ -1082,7 +1082,7 @@ mod tests {
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
     #[tokio::test]
-    async fn first_sync_marks_local_remote_and_identical_files_as_conflicts_until_merge() {
+    async fn first_sync_syncs_one_sided_files_and_keeps_two_sided_files_for_confirmation() {
         let (mut repo, root) = repo().await;
         tokio::fs::write(root.join("local.org"), b"* TODO Local\n")
             .await
@@ -1098,59 +1098,66 @@ mod tests {
         let initial = sync(&mut repo, &policy, 1).await;
         assert_eq!(initial.result, Some(OrgRepoSyncResult::Failed));
         assert_eq!(initial.files.len(), 3);
-        assert!(
+        assert_eq!(
             initial
                 .files
                 .iter()
-                .all(|file| file.state == OrgRepoSyncFileState::Conflict)
+                .find(|file| file.relative_path == "local.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::Synchronized
         );
-        assert!(!root.join("remote.org").exists());
-        assert_eq!(state.lock().unwrap().files.len(), 2);
+        assert_eq!(
+            initial
+                .files
+                .iter()
+                .find(|file| file.relative_path == "remote.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::Synchronized
+        );
+        assert_eq!(
+            initial
+                .files
+                .iter()
+                .find(|file| file.relative_path == "same.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::Conflict
+        );
+        assert!(root.join("remote.org").is_file());
+        assert_eq!(state.lock().unwrap().files.len(), 3);
         assert!(
             state
                 .lock()
                 .unwrap()
                 .requests
                 .iter()
-                .all(|request| request.starts_with("PROPFIND"))
+                .any(|request| request.starts_with("PUT") && request.contains("local.org"))
         );
-        // 记录首次冲突后，再次普通同步也不能绕过显式合并。
+        // 已建立基线的单端文件不再重复冲突，双方均存在的文件仍需显式确认。
         let repeated = sync(&mut repo, &policy, 2).await;
-        assert!(
+        assert_eq!(
             repeated
                 .files
                 .iter()
-                .all(|file| file.state == OrgRepoSyncFileState::Conflict)
+                .filter(|file| file.state == OrgRepoSyncFileState::Conflict)
+                .map(|file| file.relative_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["same.org"]
         );
         let mut comparison = policy.compare_merge(&mut repo, &repeated.id).await.unwrap();
         assert_eq!(comparison.unchanged_count, 1);
-        assert!(
-            comparison
-                .files
-                .iter()
-                .find(|file| file.path == "remote.org")
-                .unwrap()
-                .local_missing
-        );
         for change in &mut comparison.changes {
-            change.resolution = Some(if change.path == "local.org" {
-                WebDavMergeResolution::Local
-            } else {
-                WebDavMergeResolution::Remote
-            });
+            change.resolution = Some(WebDavMergeResolution::Remote);
         }
         let result = policy
             .apply_merge(&mut repo, &comparison, 100)
             .await
             .unwrap();
         assert_eq!(result.record.result, Some(OrgRepoSyncResult::Succeeded));
-        assert_eq!(result.backups.len(), 2);
-        assert!(
-            result
-                .backups
-                .iter()
-                .all(|backup| backup.path != "remote.org")
-        );
+        assert_eq!(result.backups.len(), 1);
+        assert_eq!(result.backups[0].path, "same.org");
         assert_eq!(
             tokio::fs::read(root.join("remote.org")).await.unwrap(),
             b"* TODO Remote\r\n"
@@ -1277,27 +1284,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_sync_accept_remote_can_delete_local_only_and_create_remote_only_files() {
+    async fn first_sync_uploads_local_only_and_downloads_remote_only_files() {
         let (mut repo, root) = repo().await;
         offline(&mut repo, "local.org").await;
         let original = tokio::fs::read(root.join("local.org")).await.unwrap();
         let (policy, _, worker) = server(&[("remote.org", b"* TODO Remote\n")]).await;
         let first = sync(&mut repo, &policy, 1).await;
-        let mut comparison = policy.compare_merge(&mut repo, &first.id).await.unwrap();
-        comparison.mode = WebDavMergeMode::AcceptRemote;
-        let result = policy
-            .apply_merge(&mut repo, &comparison, 100)
-            .await
-            .unwrap();
-        assert_eq!(result.record.result, Some(OrgRepoSyncResult::Succeeded));
-        assert_eq!(result.backups.len(), 1);
-        assert_eq!(
-            tokio::fs::read(root.join(&result.backups[0].backup_path))
-                .await
-                .unwrap(),
-            original
-        );
-        assert!(!root.join("local.org").exists());
+        assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(tokio::fs::read(root.join("local.org")).await.unwrap(), original);
         assert_eq!(
             tokio::fs::read(root.join("remote.org")).await.unwrap(),
             b"* TODO Remote\n"
@@ -1340,12 +1334,7 @@ mod tests {
         let bytes = b"#+TODO: OPEN(o) | FINISHED(f!)\r\n* OPEN Pending\r\n* FINISHED Complete\r\n";
         let (policy, _, worker) = server(&[("inbox.org", bytes)]).await;
         let first = sync(&mut repo, &policy, 1).await;
-        let mut comparison = policy.compare_merge(&mut repo, &first.id).await.unwrap();
-        comparison.mode = WebDavMergeMode::AcceptRemote;
-        policy
-            .apply_merge(&mut repo, &comparison, 100)
-            .await
-            .unwrap();
+        assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
         repo.load::<WebDavSyncPolicy>().await.unwrap();
         let file = &repo.files[0];
         assert_eq!(file.source_bytes(), bytes);

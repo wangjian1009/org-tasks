@@ -305,8 +305,19 @@ impl WebDavSyncPolicy {
             let baseline = latest_file_record(history, &path).cloned();
             let unresolved_without_baseline =
                 baseline.is_none() && unresolved_paths.contains(&path);
-            let outcome = if initial_sync || unresolved_without_baseline {
+            let outcome = if unresolved_without_baseline {
                 Ok(conflict_record(repo, path, local, remote))
+            } else if initial_sync {
+                // 首次同步没有可用基线。单端文件没有“双方都修改”的可能，
+                // 可以直接建立同步基线；只有两端都存在的文件需要用户确认。
+                match (local, remote) {
+                    (Some(local), None) => self.create_remote(repo, &local, progress).await,
+                    (None, Some(remote)) => self.download_remote(repo, remote, progress).await,
+                    (Some(local), Some(remote)) => {
+                        Ok(conflict_record(repo, path, Some(local), Some(remote)))
+                    }
+                    (None, None) => continue,
+                }
             } else {
                 match (local, remote, baseline) {
                     (Some(local), None, None) => self.create_remote(repo, &local, progress).await,
