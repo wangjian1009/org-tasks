@@ -1,3 +1,4 @@
+import { util } from '@kit.ArkTS'
 import { RepoConfig } from '../models/OrgTask'
 import { CoreTask, CoreTodoMetadata, NativeCoreService } from './NativeCoreService'
 
@@ -9,25 +10,63 @@ export interface Notebook {
   source: string
   byteLength: number
   todo: CoreTodoMetadata
+  category: string | null
   tasks: CoreTask[]
+}
+
+export interface NotebookCategory {
+  key: string
+  title: string
+  category: string | null
+  count: number
 }
 
 // 只组合 core 返回的快照；仓库身份参与文件和任务关联。
 export class NotebookService {
+  static categoryKey(category: string | null): string {
+    return category ? `category:${category}` : 'uncategorized'
+  }
+
+  static categories(notebooks: Notebook[]): NotebookCategory[] {
+    const categories: NotebookCategory[] = []
+    for (const notebook of notebooks) {
+      const category = notebook.category || null
+      const key = NotebookService.categoryKey(category)
+      const existing = categories.find((item: NotebookCategory) => item.key === key)
+      if (existing) {
+        existing.count++
+      } else {
+        categories.push({ key, title: category || '未分类', category, count: 1 })
+      }
+    }
+    return categories.sort((left: NotebookCategory, right: NotebookCategory) => {
+      if (left.category === null) return right.category === null ? 0 : 1
+      if (right.category === null) return -1
+      return left.title.localeCompare(right.title)
+    })
+  }
+
+  static inCategory(notebooks: Notebook[], category: string | null): Notebook[] {
+    const key = NotebookService.categoryKey(category)
+    return notebooks.filter((notebook: Notebook) => NotebookService.categoryKey(notebook.category) === key)
+  }
+
   static async load(repositories: RepoConfig[], todoDefaults?: string): Promise<Notebook[]> {
     const response = await NativeCoreService.loadWorkspace(repositories, todoDefaults)
     const notebooks: Notebook[] = []
-    for (const repo of response.workspace.repos) {
-      for (const file of repo.files) {
+    for (const repo of await response.workspace.repos()) {
+      for (const file of await repo.files()) {
+        const bytes = file.sourceBytes()
         notebooks.push({
           id: `${repo.id}:${file.path}`,
-          repoId: repo.id,
+          repoId: file.repoId,
           rootDirectory: repo.rootDirectory,
           path: file.path,
-          source: file.source,
-          byteLength: file.byte_length,
+          source: util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes),
+          byteLength: bytes.byteLength,
           todo: file.todo,
-          tasks: response.tasks.filter((task: CoreTask) => task.repoId === repo.id && task.filePath === file.path)
+          category: file.category(),
+          tasks: response.tasks.filter((task: CoreTask) => task.repoId === file.repoId && task.filePath === file.path)
         })
       }
     }

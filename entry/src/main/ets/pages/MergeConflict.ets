@@ -42,7 +42,7 @@ struct MergeConflict {
       if (!repository || !repository.webdavEnabled) throw new Error('WebDAV 存储库已移除或停用')
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
       const policy = new CoreWebDavSyncPolicy(repository.webdavUrl, repository.webdavUsername, repository.webdavPassword)
-      const comparison = await repo.compareMerge(policy, params.syncId)
+      const comparison = await policy.compareMerge(repo, params.syncId)
       this.repo = repo
       this.policy = policy
       this.comparison = comparison
@@ -107,7 +107,7 @@ struct MergeConflict {
       const selected: CoreMergeComparison = { syncId: comparison.syncId, repoId: comparison.repoId,
         repositoryVersion: comparison.repositoryVersion, endpointVersion: comparison.endpointVersion,
         mode, files: comparison.files, unchangedCount: comparison.unchangedCount, changes }
-      const result = await repo.apply(policy, selected)
+      const result = await policy.applyMerge(repo, selected)
       this.backups = result.backups.map((backup) => `${backup.path} → ${backup.backupPath}`)
       this.completed = result.result === 'succeeded'
       this.comparison = undefined

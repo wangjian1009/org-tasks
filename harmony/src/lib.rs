@@ -341,14 +341,14 @@ pub extern "C" fn org_tasks_harmony_workspace_set_todo_defaults(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_todo_metadata(
+pub extern "C" fn org_tasks_harmony_repo_file(
     handle: u64,
     root_directory: *const c_char,
     path: *const c_char,
 ) -> *mut c_char {
     string_result(
         read_c_string(root_directory)
-            .and_then(|root| bridge::repo_todo_metadata_json(handle, root, read_c_string(path)?)),
+            .and_then(|root| bridge::repo_file_json(handle, root, read_c_string(path)?)),
     )
 }
 

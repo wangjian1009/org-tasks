@@ -37,10 +37,13 @@ pub struct HarmonyBridgeRepository {
 
 #[derive(Debug, Serialize)]
 pub struct HarmonyBridgeFile {
+    #[serde(rename = "repoId")]
+    pub repo_id: String,
     pub path: String,
     pub source: String,
     pub byte_length: usize,
     pub todo: org_tasks_core::TodoMetadata,
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -420,18 +423,24 @@ pub fn repo_snapshot_json(handle: u64, root_directory: String) -> Result<String,
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let mut files = Vec::with_capacity(repository.files().len());
     for file in repository.files() {
-        files.push(HarmonyBridgeFile {
-            path: file.path.clone(),
-            source: std::str::from_utf8(file.source_bytes())
-                .map_err(|_| CoreError::InvalidState("已加载 Org 文件不是 UTF-8"))?
-                .into(),
-            byte_length: file.source_bytes().len(),
-            todo: file.todo.clone(),
-        });
+        files.push(file_snapshot(file)?);
     }
     encode(&HarmonyBridgeRepository {
         id: repository.id.clone(),
         files,
+    })
+}
+
+fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
+    Ok(HarmonyBridgeFile {
+        repo_id: file.repo_id.clone(),
+        path: file.path.clone(),
+        source: std::str::from_utf8(file.source_bytes())
+            .map_err(|_| CoreError::InvalidState("已加载 Org 文件不是 UTF-8"))?
+            .into(),
+        byte_length: file.source_bytes().len(),
+        todo: file.todo.clone(),
+        category: file.category(),
     })
 }
 
@@ -492,6 +501,56 @@ fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn category_is_nullable_in_file_snapshot_and_accessor() {
+        let root =
+            std::env::temp_dir().join(format!("org-tasks-harmony-category-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("work.org"), "#+CATEGORY: 工作\n* TODO Task\n").unwrap();
+        std::fs::write(root.join("empty.org"), "#+CATEGORY:\n").unwrap();
+        std::fs::write(root.join("missing-category.org"), "* Task\n").unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().to_string();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        for (path, expected) in [
+            ("work.org", serde_json::json!("工作")),
+            ("empty.org", serde_json::json!("")),
+            ("missing-category.org", serde_json::Value::Null),
+        ] {
+            let category: serde_json::Value = serde_json::from_str(
+                &repo_file_json(handle, directory.clone(), path.into()).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(category["category"], expected);
+            let snapshot: serde_json::Value =
+                serde_json::from_str(&repo_snapshot_json(handle, directory.clone()).unwrap())
+                    .unwrap();
+            let file = snapshot["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|file| file["path"] == path)
+                .unwrap();
+            assert_eq!(file["category"], expected);
+        }
+        std::fs::write(root.join("work.org"), "#+CATEGORY: Updated\n").unwrap();
+        let updated: serde_json::Value = serde_json::from_str(
+            &repo_file_json(handle, directory.clone(), "work.org".into()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(updated["category"], "Updated");
+        let absent: serde_json::Value = serde_json::from_str(
+            &repo_file_json(handle, directory.clone(), "absent.org".into()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(absent["source"], "");
+        assert!(absent["category"].is_null());
+        assert!(repo_file_json(handle, directory.clone(), "../work.org".into()).is_err());
+        assert!(!root.join("absent.org").exists());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn repository_object_returns_core_file_snapshot() {
@@ -623,7 +682,7 @@ pub fn workspace_set_todo_defaults(handle: u64, settings: String) -> Result<(), 
     workspace.set_todo_defaults(defaults)
 }
 
-pub fn repo_todo_metadata_json(
+pub fn repo_file_json(
     handle: u64,
     root_directory: String,
     path: String,
@@ -636,16 +695,7 @@ pub fn repo_todo_metadata_json(
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     runtime()?.block_on(repo.load::<WebDavSyncPolicy>())?;
-    if let Some(file) = repo.files.iter().find(|file| file.path == path) {
-        return encode(&file.todo);
-    }
-    let file = org_tasks_core::OrgFile::with_todo_defaults(
-        repo.id.clone(),
-        path,
-        Vec::new(),
-        repo.todo_defaults.clone(),
-    )?;
-    encode(&file.todo)
+    encode(&file_snapshot(&repo.file(&path)?)?)
 }
 
 #[cfg(test)]
@@ -680,16 +730,16 @@ mod todo_tests {
         assert_eq!(global["todo"]["source"], "globalDefault");
         assert_eq!(global["todo"]["doneKeywords"][0], "FINISHED");
         let existing: serde_json::Value = serde_json::from_str(
-            &repo_todo_metadata_json(handle, directory.clone(), "override.org".into()).unwrap(),
+            &repo_file_json(handle, directory.clone(), "override.org".into()).unwrap(),
         )
         .unwrap();
-        assert_eq!(existing["source"], "inBuffer");
-        assert_eq!(existing["initialState"], "OWN");
+        assert_eq!(existing["todo"]["source"], "inBuffer");
+        assert_eq!(existing["todo"]["initialState"], "OWN");
         let missing: serde_json::Value = serde_json::from_str(
-            &repo_todo_metadata_json(handle, directory.clone(), "new.org".into()).unwrap(),
+            &repo_file_json(handle, directory.clone(), "new.org".into()).unwrap(),
         )
         .unwrap();
-        assert_eq!(missing["initialState"], "OPEN");
+        assert_eq!(missing["todo"]["initialState"], "OPEN");
         let done: serde_json::Value =
             serde_json::from_str(&workspace_search_json(handle, "it.done".into()).unwrap())
                 .unwrap();

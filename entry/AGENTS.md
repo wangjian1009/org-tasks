@@ -34,6 +34,8 @@ entry/
 
 ArkUI 线程不得执行 core 请求。C++ N-API bridge 必须使用 `napi_create_async_work` 在工作线程调用 Rust；ArkTS 通过 `NativeCoreService` 打开并持有 native `Workspace` / `Repo` / `WebDavSyncPolicy` 对象。ArkTS 不得解析 org 内容或重写 core 同步规则。
 
+TS 领域接口必须遵循 `docs/harmony/Rust bridge设计.org` 中的“接口设计规范”和 Rust/TS 对照表：按 `Workspace -> Repo -> OrgFile` 访问对象，Rust 字段映射为属性，行为归属原领域对象，结构化参数直接使用 TS 对象，JSON 编组仅在 bridge 内部完成。新增或调整接口时同步更新该规范、N-API 声明、ArkTS wrapper 和全部调用方。
+
 新增 N-API 方法时必须同时更新：
 
 - `src/main/cpp/napi_init.cpp`

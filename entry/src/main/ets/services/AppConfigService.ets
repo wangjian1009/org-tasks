@@ -32,7 +32,7 @@ export class AppConfigService {
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
-      await normalizeSyncOptions(JSON.stringify({ excludedDirectories: repository.excludedDirectories } as SyncOptions))
+      await normalizeSyncOptions({ excludedDirectories: repository.excludedDirectories } as SyncOptions)
     }
     for (const repository of config.repos) {
       await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)

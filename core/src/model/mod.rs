@@ -72,6 +72,17 @@ impl OrgRepo {
     pub fn files(&self) -> &[OrgFile] {
         &self.files
     }
+
+    /// 返回当前文件的独立对象；不存在时构造未落盘的空文件供读取默认元信息。
+    pub fn file(&self, path: &str) -> Result<OrgFile, CoreError> {
+        if !self.contains_path(path) {
+            return Err(CoreError::InvalidInput("Org 文件路径无效"));
+        }
+        match self.files.iter().find(|file| file.path == path) {
+            Some(file) => Ok(file.clone()),
+            None => self.parse_file(path.into(), Vec::new()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -131,6 +142,15 @@ impl OrgFile {
         &self.source_bytes
     }
 
+    /// 读取文件头的 CATEGORY 声明；未声明时为空，不使用文件名兜底。
+    pub fn category(&self) -> Option<String> {
+        self.syntax
+            .document()
+            .keywords()
+            .find(|keyword| keyword.key().eq_ignore_ascii_case("CATEGORY"))
+            .map(|keyword| keyword.value().trim().to_owned())
+    }
+
     pub fn syntax(&self) -> &orgize::Org {
         &self.syntax
     }
@@ -138,11 +158,8 @@ impl OrgFile {
     pub(crate) fn reparse(&mut self) -> Result<(), CoreError> {
         let source = std::str::from_utf8(&self.source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
-        let (todo, syntax) = TodoMetadata::parse_with_setup(
-            source,
-            &self.todo_defaults,
-            &self.todo_setup,
-        )?;
+        let (todo, syntax) =
+            TodoMetadata::parse_with_setup(source, &self.todo_defaults, &self.todo_setup)?;
         self.todo = todo;
         self.syntax = syntax;
         Ok(())
@@ -426,6 +443,89 @@ mod tests {
         assert_eq!(file.source_bytes(), "* TODO 任务\n".as_bytes());
         assert_eq!(file.syntax().to_org().as_bytes(), file.source_bytes());
         assert!(OrgFile::new("repo-1".into(), "inbox.org".into(), vec![0xff]).is_err());
+    }
+
+    #[test]
+    fn category_reads_only_real_keywords_in_file_header() {
+        for (source, expected) in [
+            ("", None),
+            ("#+TITLE: 没有分类\n* TODO Task\n", None),
+            ("#+CATEGORY: 家庭事务\r\n* TODO Task\r\n", Some("家庭事务")),
+            (
+                "  #+category:  Work Projects  \n* Task\n",
+                Some("Work Projects"),
+            ),
+            ("#+CATEGORY:\n* Task\n", Some("")),
+            ("#+CATEGORY: First\n#+CATEGORY: Second\n", Some("First")),
+            ("#+CATEGORY: \n#+CATEGORY: Second\n", Some("")),
+            ("* Task\n#+CATEGORY: Heading category\n", None),
+            ("* Task\n:PROPERTIES:\n:CATEGORY: Property\n:END:\n", None),
+            ("#+begin_src org\n#+CATEGORY: Hidden\n#+end_src\n", None),
+            ("#+begin_example\n#+CATEGORY: Hidden\n#+end_example\n", None),
+            ("# #+CATEGORY: Comment\n", None),
+            (
+                ":PROPERTIES:\n:ID: header-id\n:END:\n#+CATEGORY: File\n* Task\n",
+                Some("File"),
+            ),
+        ] {
+            let file = OrgFile::new(
+                "repo".into(),
+                "inbox.org".into(),
+                source.as_bytes().to_vec(),
+            )
+            .unwrap();
+            assert_eq!(file.category().as_deref(), expected, "{source}");
+            assert_eq!(serialize_file(&file), source.as_bytes());
+        }
+    }
+
+    #[test]
+    fn category_tracks_edits_without_rewriting_unrelated_bytes() {
+        let source = "#+CATEGORY: Old\r\n* TODO Task\r\n  body  \r\n";
+        let mut file = OrgFile::new(
+            "repo".into(),
+            "inbox.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        apply_edit(
+            &mut file,
+            OrgFileEdit::ReplaceRange {
+                target: SourceRange::new(
+                    SourcePosition::new(1, 12, 12).unwrap(),
+                    SourcePosition::new(1, 15, 15).unwrap(),
+                )
+                .unwrap(),
+                content: b"New".to_vec(),
+            },
+        )
+        .unwrap();
+        assert_eq!(file.category().as_deref(), Some("New"));
+        assert_eq!(file.clone().category(), file.category());
+        assert_eq!(
+            serialize_file(&file),
+            source.replace("Old", "New").as_bytes()
+        );
+    }
+
+    #[test]
+    fn repository_file_objects_preserve_values_and_support_unsaved_targets() {
+        let mut repo = OrgRepo::new("/unused".into()).unwrap();
+        assert!(repo.file("new.org").is_err());
+        repo.id = "repo".into();
+        repo.set_todo_defaults(TodoConfig::from_settings("#+TODO: NEXT | CLOSED").unwrap()).unwrap();
+        repo.files.push(OrgFile::new("repo".into(), "work.org".into(), b"#+CATEGORY: Work\n".to_vec()).unwrap());
+        let file = repo.file("work.org").unwrap();
+        repo.files.clear();
+        assert_eq!(file.category().as_deref(), Some("Work"));
+        let draft = repo.file("new.org").unwrap();
+        assert_eq!(draft.repo_id, "repo");
+        assert_eq!(draft.path, "new.org");
+        assert!(draft.source_bytes().is_empty());
+        assert_eq!(draft.todo.initial_state.as_deref(), Some("NEXT"));
+        assert!(draft.category().is_none());
+        assert!(repo.files().is_empty());
+        assert!(repo.file("../work.org").is_err());
     }
 
     #[test]

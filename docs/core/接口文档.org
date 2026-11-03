@@ -105,6 +105,8 @@ impl OrgRepo {
 
     pub fn files(&self) -> &[OrgFile];
 
+    pub fn file(&self, path: &str) -> Result<OrgFile, CoreError>;
+
     pub async fn create_task(&mut self, path: &str, task: &NewTask,
         queue_upload: bool) -> Result<(), CoreError>;
 
@@ -135,6 +137,8 @@ impl OrgRepo {
 
 ~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 先读取或创建 ~.sync/id~ ，再扫描根目录、跳过 ~.sync/~ 并解析 org 文件，最后替换仓库的完整文件快照；重复或越界路径必须失败。首次加载生成的 UUID 必须写入带换行的 ~.sync/id~ ，后续加载同一根目录必须复用该值。 ~sync~ 自行恢复最新文件与历史后委托策略执行同步，并只追加归属本仓库的完成记录；重复开始时间在调用策略前拒绝。
 
+~file(path)~ 从当前已加载集合返回独立的 ~OrgFile~ 副本。路径尚不存在时构造未落盘的空文件，沿用该仓库的全局默认 TODO 配置；非法路径或仓库尚未加载时报错。该方法不读取磁盘、不修改仓库文件列表，也不写入 outbox。宿主需要最新内容时先加载仓库。
+
 *** OrgFile
 
 ~OrgFile~ 保存一次解析/编辑会话内的完整源字节，并在运行时缓存 ~orgize::Org~ 无损语法树。缓存不属于 core 持久化模型； ~sourceBytes~ 是保真序列化的唯一来源。
@@ -148,10 +152,14 @@ impl OrgFile {
     ) -> Result<Self, OrgFileValidationError>;
 
     pub fn source_bytes(&self) -> &[u8];
+
+    pub fn category(&self) -> Option<String>;
 }
 #+end_src
 
 ~new~ 必须验证 UTF-8 编码并构造 ~orgize~ 缓存，且不改变输入字节。未应用 ~OrgFileEdit~ 时， ~serialize_file~ 必须逐字节返回 ~source_bytes~ 。解析语义以 Emacs ~org-element.el~ 为准。
+
+~category()~ 从当前文件的无损语法树读取文件头（第一个标题之前）中的第一条 ~#+CATEGORY:~ 声明。关键字不区分大小写，值去除首尾空白并保留内部空格与中文。未声明时返回 ~None~ ，显式空声明返回 ~Some(String::new())~ ，不以文件名或父目录补齐；源码块、示例块、注释及标题内部的声明不属于文件头配置。本接口只读取当前文件的声明，不展开 ~SETUPFILE~ 或标题属性。编辑和重新加载后读取当前语法树，不另存分类缓存或修改原文。
 
 *** NewTask 与 OrgRepoWriteIntent
 

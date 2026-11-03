@@ -9,7 +9,7 @@ import {
   MergeOutcome as NativeMergeOutcome,
   NewTask as NativeNewTask,
   CoreError as NativeCoreError,
-  RepositorySnapshot as NativeRepositorySnapshot,
+  OrgFile as NativeOrgFile,
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
   WebDavSyncEvent as NativeWebDavSyncEvent,
@@ -19,22 +19,7 @@ import {
 } from 'liborg_tasks_harmony.so'
 import { RepoConfig, SyncOptions } from '../models/OrgTask'
 
-export interface CoreRepositoryFile {
-  path: string
-  source: string
-  byte_length: number
-  todo: NativeTodoMetadata
-}
-
-export interface CoreWorkspaceSnapshot {
-  repos: CoreRepositorySnapshot[]
-}
-
-export interface CoreRepositorySnapshot {
-  id: string
-  rootDirectory: string
-  files: CoreRepositoryFile[]
-}
+export type CoreOrgFile = NativeOrgFile
 
 export interface CoreTask {
   id: string
@@ -63,7 +48,7 @@ export interface CoreSyncSnapshot {
 }
 
 export interface CoreBridgeResponse {
-  workspace: CoreWorkspaceSnapshot
+  workspace: CoreWorkspace
   tasks: CoreTask[]
   sync: CoreSyncSnapshot | null
 }
@@ -111,6 +96,14 @@ export class CoreWebDavSyncPolicy {
   async testConnection(): Promise<void> {
     await this.native.testConnection()
   }
+
+  async compareMerge(repo: CoreRepo, syncId: string): Promise<CoreMergeComparison> {
+    return await this.native.compareMerge(repo.nativeRepo(), syncId)
+  }
+
+  async applyMerge(repo: CoreRepo, comparison: CoreMergeComparison): Promise<CoreMergeOutcome> {
+    return await this.native.applyMerge(repo.nativeRepo(), comparison)
+  }
 }
 
 export class CoreRepo {
@@ -120,25 +113,21 @@ export class CoreRepo {
     this.native = native
   }
 
-  id(): string {
-    return this.native.id()
+  get id(): string {
+    return this.native.id
   }
 
-  rootDirectory(): string {
-    return this.native.rootDirectory()
+  get rootDirectory(): string {
+    return this.native.rootDirectory
   }
 
-  async todoMetadata(path: string): Promise<CoreTodoMetadata> { return await this.native.todoMetadata(path) }
+  nativeRepo(): NativeRepo { return this.native }
+
+  async file(path: string): Promise<CoreOrgFile> { return await this.native.file(path) }
+
+  async files(): Promise<CoreOrgFile[]> { return await this.native.files() }
 
   async conflicts(): Promise<NativeConflictSync[]> { return await this.native.conflicts() }
-
-  async compareMerge(policy: CoreWebDavSyncPolicy, syncId: string): Promise<CoreMergeComparison> {
-    return await this.native.compareMerge(policy.nativePolicy(), syncId)
-  }
-
-  async apply(policy: CoreWebDavSyncPolicy, comparison: CoreMergeComparison): Promise<CoreMergeOutcome> {
-    return await this.native.apply(policy.nativePolicy(), comparison)
-  }
 
   async load(): Promise<void> {
     await this.native.load()
@@ -148,14 +137,9 @@ export class CoreRepo {
     await this.native.createTask(path, task, queueUpload)
   }
 
-  async snapshot(): Promise<CoreRepositorySnapshot> {
-    const snapshot = await this.native.snapshot() as NativeRepositorySnapshot
-    return { id: snapshot.id, rootDirectory: this.rootDirectory(), files: snapshot.files }
-  }
-
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {
     const effective = options ?? await defaultSyncOptions()
-    return await this.native.sync(policy.nativePolicy(), monitor, JSON.stringify(effective)) as NativeSyncRecord
+    return await this.native.sync(policy.nativePolicy(), monitor, effective) as NativeSyncRecord
   }
 }
 
@@ -196,7 +180,7 @@ export class NativeCoreService {
   static async repository(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreRepo> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
-    const repo = repos.find((item: CoreRepo) => item.rootDirectory() === repository.rootDirectory)
+    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     return repo
   }
@@ -242,7 +226,7 @@ export class NativeCoreService {
   static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask, todoDefaults?: string): Promise<void> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
-    const repo = repos.find((item: CoreRepo) => item.rootDirectory() === repository.rootDirectory)
+    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     await repo.createTask(path, task, repository.webdavEnabled)
   }
@@ -254,7 +238,7 @@ export class NativeCoreService {
       await repo.load()
     }
     return {
-      workspace: await NativeCoreService.workspaceSnapshot(workspace),
+      workspace,
       tasks: await workspace.search(''),
       sync: null
     }
@@ -269,7 +253,7 @@ export class NativeCoreService {
     const repos = await workspace.repos()
     let sync: CoreSyncSnapshot | null = null
     for (const repo of repos) {
-      const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory())
+      const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
         sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories })
@@ -281,7 +265,7 @@ export class NativeCoreService {
       }
     }
     return {
-      workspace: await NativeCoreService.workspaceSnapshot(workspace),
+      workspace,
       tasks: await workspace.search(''),
       sync
     }
@@ -294,14 +278,10 @@ export class NativeCoreService {
       await repo.load()
     }
     return {
-      workspace: await NativeCoreService.workspaceSnapshot(workspace),
+      workspace,
       tasks: await workspace.search(expression),
       sync: null
     }
   }
 
-  private static async workspaceSnapshot(workspace: CoreWorkspace): Promise<CoreWorkspaceSnapshot> {
-    const repos = await workspace.repos()
-    return { repos: await Promise.all(repos.map((repo: CoreRepo) => repo.snapshot())) }
-  }
 }

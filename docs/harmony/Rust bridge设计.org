@@ -3,40 +3,42 @@
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
 
-* 定位
+* 定位与对象职责
 
-Rust bridge 位于 ~harmony~ Cargo crate，与 ~http~ 同为 core 的宿主模块。它把 HarmonyOS 的 N-API 调用转换为 ~Workspace~ 和 ~Repo~ 对象方法，调用 core 已有 API，并把文件、任务和同步结果转换为 DTO；它不是 core 的领域子模块。
-
-* 分层
+Rust bridge 位于 ~harmony~ Cargo crate，与 ~http~ 同为 core 的宿主模块。TS 按 ~Workspace -> Repo -> OrgFile~ 访问领域对象；WebDAV 操作由 ~WebDavSyncPolicy~ 提供。ArkTS 不解析 Org、不推导任务状态，也不实现同步决策。
 
 #+begin_example
-ArkTS CoreWorkspace / CoreRepo / CoreWebDavSyncPolicy
-  -> C++ N-API Workspace / Repo / WebDavSyncPolicy class
-  -> harmony C ABI workspace handle
-  -> harmony bridge session
-  -> core OrgWorkspace / OrgRepo / WebDavSyncPolicy
+ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
+  -> C++ N-API Workspace / Repo / OrgFile / WebDavSyncPolicy
+  -> harmony C ABI 与工作线程
+  -> core OrgWorkspace / OrgRepo / OrgFile / WebDavSyncPolicy
 #+end_example
 
-~new Workspace()~ 创建空的 native ~Workspace~ 实例。~Workspace.addRepo(rootDirectory)~ 返回 native ~Repo~ 实例，~Workspace.removeRepo(rootDirectory)~ 仅将其从运行时 workspace 移除。~Repo.load()~ 扫描该仓库并生成稳定 ID；~Workspace.repos~ 返回全部已添加仓库，~Workspace.search~ 直接返回结构化任务数组。~WebDavSyncPolicy~ 是由 URL、用户名和密码构造的调用参数，不在 Rust bridge session 中持有；~Repo.sync~ 在 worker thread 中临时构造 core policy，并以该策略调用 ~OrgRepo.sync~。~Repo.snapshot~ 直接返回所属仓库的结构化文件快照。
+拥有行为和资源的对象使用 class，Rust 的结构体数据投影使用 interface；Rust 字段在 TS 中保留为属性，行为保留为方法，使用 camelCase 命名。涉及 core 锁、文件或网络 I/O 的操作返回 Promise；文件对象中的只读值可同步访问。JSON 只在 bridge 内部编组，不作为 TS 调用参数或公开的仓库/文件快照接口。
 
-~Workspace~ 与 ~Repo~ 分别持有同一个 opaque workspace handle 的引用。对象终结时 N-API finalizer 释放引用，最后一个引用释放后 Harmony session 才释放 core ~OrgWorkspace~ 。ArkTS 不解析 org AST、不计算同步决策，也不保存同步领域状态。C++ 只负责参数编组、worker thread、Promise、对象终结和字符串资源释放。
+* 接口设计规范
+
+本节是 Harmony TS 领域接口的固定约定。新增或修改接口时，必须同时检查 Rust 类型定义、N-API 声明、ArkTS wrapper、调用方及本文对照表，不能只调整 TS 类型声明。
+
+1. 对象层级必须与 Rust 的领域边界一致，以 ~Workspace -> Repo -> OrgFile~ 导航；文件行为通过文件对象调用，例如 ~file.category()~ ，不得退回 ~repo.category(path)~ 这种由上层对象代理文件行为的接口。
+2. Rust 公开字段映射为 TS 数据属性，读取身份和元信息时不使用无行为的 getter 方法，例如 ~repo.id~ 、 ~repo.rootDirectory~ 、 ~file.path~ 和 ~file.todo~ 。Rust 方法映射为 camelCase 方法，例如 ~source_bytes() -> sourceBytes()~ 。在 native class 上，身份和来源字段必须提供只读属性。
+3. 拥有行为或生命周期的领域类型使用 class；纯数据结构、调用参数、事件和结果使用 interface 或判别联合。不能为了统一外观把所有数据结构改为 class，也不能把领域对象退化为需要调用方解释的普通 JSON 快照。
+4. 方法必须归属于 Rust 中实际承担行为的对象；WebDAV 合并比较和提交分别使用 ~policy.compareMerge(repo, syncId)~ 与 ~policy.applyMerge(repo, comparison)~ ，不能反向挂到 Repo 上。
+5. 结构化 Rust 参数必须通过 TS 对象传入。禁止公开 ~optionsJson~ 、 ~requestJson~ 或要求调用方 ~JSON.stringify~ 的参数；序列化与反序列化只发生在 bridge 内部。查询表达式和 Org 设置文本是领域输入，不属于 JSON 编组参数。
+6. 访问 core、仓库锁、文件或网络的操作必须在 worker 中执行，并返回 Promise。已经返回的独立文件对象可同步读取属性、分类和原始字节；同步 getter 不得隐式重新加载仓库或发起网络请求。
+7. Rust 的 ~Option<T>~ 结果映射为 ~T | null~ ，不能用虚构默认值替代缺失值；显式空字符串与 ~null~ 必须区分。Rust 的 ~Result~ 失败通过 Promise 拒绝或同步接口异常表达，不能转换为空对象、空列表或成功结果。
+8. ~OrgFile~ 是取得时刻的独立值对象。源字节使用 ~Uint8Array~ ，每次返回副本；调用方修改返回数组不得改写内部数据。仓库刷新不改变已返回文件对象，读取新状态必须重新获取对象。
+9. 默认参数与领域校验由 Rust 提供。ArkTS 只保存外部配置、收集输入和显示结果，不另建解析器、状态分类、任务匹配或同步规则。
+10. 历史归 ~OrgRepo~ 内部管理，不作为 TS 同步入参，也不作为 ~SyncPolicy.synchronize~ 的显式入参。对象设计不能扩大同步记录的持久化范围。
+
+跨语言必需的适配必须在本文列明，包括 Promise、命名转换、查询/设置文本解析和面向手机的结果投影；适配不能成为随意改变行为归属的理由。修改既有接口时必须迁移全部调用方，并验证对象方法、空值、错误传播、字节保真和异步生命周期。
+
+* 公开接口
 
 #+begin_src ts
-interface NewTask {
-  heading: string
-  scheduled: string
-  deadline: string
-  tags: string[]
-  priority: string
-}
-
-class WebDavSyncPolicy {
-  constructor(webdavUrl: string, username: string, password: string)
-  testConnection(): Promise<void>
-}
-
 class Workspace {
   constructor()
+  setTodoDefaults(settings: string): Promise<void>
   repos(): Promise<Repo[]>
   addRepo(rootDirectory: string): Promise<Repo>
   removeRepo(rootDirectory: string): Promise<void>
@@ -44,89 +46,100 @@ class Workspace {
 }
 
 class Repo {
-  id(): string
-  rootDirectory(): string
+  private constructor()
+  readonly id: string
+  readonly rootDirectory: string
   load(): Promise<void>
+  files(): Promise<OrgFile[]>
+  file(path: string): Promise<OrgFile>
   createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>
-  snapshot(): Promise<RepositorySnapshot>
-  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, optionsJson?: string): Promise<SyncRecord>
+  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
+       options?: SyncOptions): Promise<SyncRecord>
+  conflicts(): Promise<ConflictSync[]>
 }
+
+class OrgFile {
+  private constructor()
+  readonly repoId: string
+  readonly path: string
+  readonly todo: TodoMetadata
+  category(): string | null
+  sourceBytes(): Uint8Array
+}
+
+class WebDavSyncPolicy {
+  constructor(webdavUrl: string, username: string, password: string)
+  testConnection(): Promise<void>
+  compareMerge(repo: Repo, syncId: string): Promise<MergeComparison>
+  applyMerge(repo: Repo, comparison: MergeComparison): Promise<MergeOutcome>
+}
+
+interface SyncOptions {
+  excludedDirectories: string[]
+}
+
+function defaultTodoSettings(): Promise<string>
+function defaultSyncOptions(): Promise<SyncOptions>
+function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 #+end_src
 
-* 请求与响应
+* Rust 与 TS 对照
 
-~Workspace~ 当前提供 ~repos~ 、 ~addRepo~ 、 ~removeRepo~ 和 ~search~ ； ~Repo~ 提供 ~id~ 、 ~rootDirectory~ 、异步 ~load~ 、 ~snapshot~ 和异步 ~sync~ 。ArkTS 必须按 ~new Workspace() -> addRepo() -> repo.load()~ 的顺序初始化每个仓库； ~addRepo~ 仅在 core workspace 中保存仓库目录， ~Repo.load~ 扫描对应仓库。 ~Repo.sync(policy, monitor, optionsJson)~ 在调用期间构造 ~WebDavSyncPolicy~ ，以原生 ~WebDavSyncMonitor~ 订阅脱敏进度事件，并将本次同步参数传给对应仓库的 ~OrgRepo.sync_with_options~ ；历史由仓库内部恢复，同步结束后策略随调用释放。C++ 通过 N-API thread-safe function 将事件投递回 ArkTS 回调；搜索调用 ~OrgWorkspace.search~ 。C++ N-API 解析 Rust DTO 后直接向 ArkTS 返回对象或数组，不把 JSON 字符串暴露给 ArkTS。这些调用序列属于 Harmony 宿主适配； ~OrgRepo~ 、 ~OrgWorkspace~ 、 ~Filter~ 、 ~SyncPolicy~ 、WebDAV 传输和 org 解析算法仍只定义在 core。
+| Rust | TS | 语义与适配边界 |
+|-
+| ~OrgWorkspace~ | ~Workspace~ | workspace 管理仓库集合；仓库通过 workspace 取得。 |
+| ~OrgWorkspace.repos()~ | ~await workspace.repos()~ | 返回仓库对象，不返回仓库 DTO。 |
+| ~OrgRepo.id~ 、 ~root_directory~ | ~repo.id~ 、 ~repo.rootDirectory~ | 只读属性；core 的 ID 来自本地 ~.sync/id~ 。 |
+| ~OrgRepo.files()~ | ~await repo.files()~ | 返回独立的 ~OrgFile~ 对象数组。 |
+| ~OrgRepo.file(path)~ | ~await repo.file(path)~ | 返回已有文件的副本；路径尚不存在时返回未落盘空文件。 |
+| ~OrgFile.repo_id~ 、 ~path~ 、 ~todo~ | ~file.repoId~ 、 ~file.path~ 、 ~file.todo~ | 属性承载数据，TODO 完成类型由 Rust 计算。 |
+| ~OrgFile.category()~ | ~file.category()~ | 未配置为 ~null~ ，显式空声明为空字符串。 |
+| ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
+| ~WebDavSyncPolicy.compare_merge(repo, sync_id)~ | ~policy.compareMerge(repo, syncId)~ | 合并比较属于策略对象。 |
+| ~WebDavSyncPolicy.apply_merge(repo, comparison)~ | ~policy.applyMerge(repo, comparison)~ | 直接回传用户选择后的比较对象。 |
+| ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
+| ~OrgWorkspace.search(&Filter)~ | ~workspace.search(expression)~ | 宿主传查询文本，由 Rust 解析为 ~Filter~ 。 |
+| ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
+| ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
+| ~OrgRepoSyncRecord~ 、 ~FilterTask~ | ~SyncRecord~ 、 ~Task~ | 按手机需求投影的结构化结果，不是 Rust 结构体的全部字段。 |
 
-响应包含仓库稳定 ID、相对 org 文件路径、原始 UTF-8 内容、字节长度，以及可选同步记录摘要。WebDAV 密码只作为同步请求输入，不能出现在响应、日志或同步记录中。
+这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
 
-异步方法失败时 Promise 拒绝 ~CoreError~ 对象，其 ~code~ 为 ~invalidInput~、~invalidState~、~store~ 或 ~bridge~，~message~ 保留 core 的中文错误说明。ArkTS 应读取 ~message~ 展示错误，不能以 ~JSON.stringify(error)~ 代替。
+* 文件对象与生命周期
 
-~Repo.createTask~ 接受结构化任务和相对目标路径。C++ 将输入编组为 JSON，并在 ~napi_create_async_work~ 工作线程调用 Rust；Rust 只反序列化 ~core::NewTask~ ，加载对应仓库并调用 ~OrgRepo.create_task~ 。保存期间保留 native ~Repo~ 引用；同一 workspace 的加载、编辑和同步由 bridge session 锁串行执行。成功返回空值，失败保留 core 的错误分类与中文消息。ArkTS 不生成 org 文本，不直接写文件或维护 outbox。
+~Workspace~ 与 ~Repo~ 持有同一个 opaque workspace handle 的引用；最后一个引用释放后，Harmony session 释放 core workspace。 ~Repo~ 从 workspace 取得，不能直接构造。
 
-手机从完整配置对应的 workspace 选择目标仓库，本地仓库只保存文件，WebDAV 仓库通过 ~queueUpload~ 登记意图。保存成功后阻止重复提交；后续手动或后台同步上传当前 org 文件。WebDAV 同步返回失败、冲突或取消时，应用显示未完成提示并保留待上传任务。
+~repo.load()~ 扫描本地仓库。 ~repo.files()~ 读取当前仓库文件集合； ~repo.file(path)~ 重新加载仓库后调用 core 的 ~OrgRepo.file~ 。路径不存在时，core 使用外部默认 TODO 配置构造未落盘的空文件，供新增任务读取 ~file.todo.initialState~ ，不创建空文件、不写入 outbox。非法路径使 Promise 拒绝。
 
-* 扩展规则
+~OrgFile~ 是取得时刻的独立文件值对象，保存 Rust 投影的元信息和源字节。 ~category()~ 只返回 Rust 的 ~OrgFile.category()~ 结果，不在 C++ 或 ArkTS 解析头部； ~sourceBytes()~ 每次返回独立副本，修改该数组不会改写文件对象或仓库文件。仓库重新加载、修改全局设置或移除仓库后，已取得对象仍保留原值；需要新值时重新获取文件对象。
 
-新增查询、编辑或同步能力时，先在 core 定义可复用领域 API 和数据结构；再在 ~harmony/src/bridge.rs~ 添加对应 action；最后扩展 C++ 类型声明和 ~NativeCoreService~ 。不得在 ArkTS、C++ 或 bridge 重写 core 的 org 解析或同步规则。
+文件对象不再持有 workspace 锁或 handle。C++ finalizer 释放其数据引用；异步仓库请求保留 ~Repo~ 强引用，策略比较与 apply 同时保留策略和仓库引用，防止执行期间被 GC 回收。对象创建失败必须拒绝 Promise，不能留下未完成请求。
 
-* 界面所需的来源与层级投影
+* 创建、同步与合并
 
-任务 DTO 的 ~repoId~ 直接来自 ~FilterTask.repo_id~ ， ~level~ 来自 core 投影的真实标题层级，不再固定返回 0。文件列表以仓库 ID 和相对路径联合关联任务；层级、折叠和面包屑仅是宿主显示，不产生新的 Org AST。 ~CoreRepositorySnapshot.rootDirectory~ 由 ArkTS wrapper 的既有 ~Repo.rootDirectory()~ 补齐，属于运行时显示信息，不写入 core 的持久化记录。
+~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径和 ~queueUpload~ ，Rust 负责校验、保真追加、提交与 outbox。ArkTS 只提交表单值，不生成 Org 正文。
 
-存储库配置提交前，宿主用独立 workspace 调用既有 ~Repo.load~ 验证目录。该临时 workspace 不替换正在浏览或同步的活动 workspace；bridge 没有增加解析、扫描或同步算法。
+~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
 
-* 无仓库的 WebDAV 连接测试
+~defaultSyncOptions~ 读取 Rust 默认配置； ~normalizeSyncOptions~ 接受数据对象，由 Rust 验证并返回规范化对象。Preferences 只保存外部配置，core 不读取宿主配置存储。
 
-原生 ~WebDavSyncPolicy.testConnection~ 由 C++ ~napi_create_async_work~ 在工作线程调用 ~org_tasks_harmony_webdav_test_connection~ 。worker 复制调用时的地址和凭据，不依赖 native 对象继续存活；完成时销毁请求副本并释放异步工作资源。该方法不持有 workspace handle，也不占用仓库 session 锁。
-
-Rust bridge 临时构造 core ~WebDavSyncPolicy~ ，在 Tokio runtime 中调用 ~test_connection~ 。认证/访问被拒绝映射为 ~invalidInput~ ，网络、超时、证书或协议/目录响应失败映射为 ~invalidState~ ，返回固定的脱敏中文说明。成功兑现 ~Promise<void>~ ，失败拒绝已有 ~CoreError~ 类型。协议请求和 XML 校验全部位于 core，ArkTS 与 C++ 不实现 WebDAV 算法。
-
-
-* 同步级合并比较与 apply
-
-原生 ~Repo.conflicts()~ 返回按同步记录分组的冲突路径，重放规则全部由 ~core::webdav::conflict_syncs~ 提供。~Repo.compareMerge(policy, syncId)~ 返回当前同步的比较对象，~Repo.apply(policy, comparison)~ 直接接收用户选择后的对象。没有准备会话、准备 ID 或 bridge 侧任务匹配表；重新比较和全仓库版本校验均在 core 执行。
+~Repo.conflicts~ 返回 core 按历史投影的待处理同步。 ~policy.compareMerge(repo, syncId)~ 只读生成比较对象；调用方仅修改 ~mode~ 和差异项 ~resolution~ ，然后交回同一 policy 的 ~applyMerge~ 。core 重新验证完整仓库版本、远端配置指纹、ETag 和正文哈希，先备份全部真实存在的本地冲突文件，再提交修改。备份集中保存在 ~.sync/backups/<started_at>/~ ，部分失败保留已完成结果和剩余冲突。
 
 #+begin_src ts
-enum CoreMergeMode {
-  AcceptRemote = 'acceptRemote',
-  MergeTasks = 'mergeTasks'
-}
-enum CoreMergeResolution {
-  Local = 'local',
-  Remote = 'remote',
-  Remove = 'remove'
-}
-
-const comparison = await repo.compareMerge(policy, syncId)
-comparison.mode = CoreMergeMode.MergeTasks
-comparison.changes[0].resolution = CoreMergeResolution.Remote
-// 所有差异均选择后，将同一个比较对象直接提交。
-const outcome = await repo.apply(policy, comparison)
+const comparison = await policy.compareMerge(repo, syncId)
+comparison.mode = 'mergeTasks'
+comparison.changes[0].resolution = 'remote'
+const outcome = await policy.applyMerge(repo, comparison)
 #+end_src
 
-比较对象包含 ~syncId~ 、 ~repoId~ 、 ~repositoryVersion~ 、 ~endpointVersion~ 、逐文件版本、 ~unchangedCount~ 与统一 ~changes~ 。每项变化含临时 ~id~ 、 ~path~ 、新增/修改/删除类型、两端来源和可空的 ~resolution~ 。仅 ~mode~ 与 ~resolution~ 可修改；源正文、ID、类型与版本都由 core 重新核对。未变化项不出现在列表中。
+* 默认 TODO、搜索与结果投影
 
-C++ 复制输入对象与当前策略凭据，在 ~napi_create_async_work~ 工作线程通过 Rust ABI 调用 core。异步期间持有 native ~Repo~ 强引用，防止 workspace handle 被提前释放。返回普通结构化对象；Rust/FFI 字符串在 C++ 解析后释放。仓库锁继续串行保护加载、编辑、同步与合并调用。bridge 不实现比较算法、备份路径规则、ETag 决策或任务拼接。
+~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并重算已加载文件；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
-结果包含本次合并同步的 ~syncId~ 、 ~result~ 和逐文件相对备份路径。备份位于 ~.sync/backups/<本次合并开始时间>/~ ，文件名包含本地日期时间；元数据和正文不会写入 Preferences。部分失败仍返回同步结果和备份，失败项由下一次比较重新生成。仓库变化、远端变化、无效对象或备份失败会拒绝 Promise，界面提示重新比较。
+~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 数据对象用于列表、日历和详情； ~repoId~ 、 ~filePath~ 与源字节偏移共同标识任务来源， ~level~ 保留真实标题层级。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
+* 错误与扩展
 
-* 同步历史由仓库恢复
+异步 core 操作失败时 Promise 拒绝 ~CoreError~ ，其 ~code~ 为 ~invalidInput~ 、 ~invalidState~ 、 ~store~ 或 ~bridge~ ，中文 ~message~ 保留 core 错误说明。 ~WebDavSyncPolicy.testConnection~ 不依赖仓库，在 worker 中执行独立目录访问检查；返回成功不保证写权限。
 
-Harmony 的 ~repo_sync_json~ 不再先读取历史或把历史传入同步接口，直接调用 ~OrgRepo.sync_with_options(policy, started_at, cancellation, progress, options)~ 。ArkTS 在启用 WebDAV 的仓库上也不再预先执行 ~Repo.load~ ；本地仓库浏览仍显式调用 load。历史回退、首次无历史时的全文件冲突、同步过滤目录和部分成功基准均由 Rust core 处理。
-
-比较对象的 ~files[].localMissing~ 指示本地缺失的远端文件，与空文件区分。界面原样传递该版本信息，apply 校验缺失状态后创建文件；仅已有本地文件被备份，返回的 ~backups~ 可以少于冲突文件数量。UI 不计算或补造版本基准。
-
-* TODO 默认接口与文件投影
-
-~defaultTodoSettings(): Promise<string>~ 在工作线程调用 Rust ~TodoConfig::default().to_settings()~ ，无需 workspace、文件或 Preferences，也不持有实例引用。默认设置由外部保存，Rust 不读取宿主设置。~Workspace.setTodoDefaults(settings): Promise<void>~ 在 worker 中由 core 解析和校验外部文本，更新 workspace；异步期间保留 native 对象引用。
-
-~Repo.todoMetadata(path): Promise<TodoMetadata>~ 返回已有文件的有效元信息；文件不存在时使用外部默认值生成元信息，供新增任务显示初始状态，不创建空文件。~RepositoryFile.todo~ 在每个快照中返回来源、流程、待办/完成状态、显式快捷键和日志要求。任务 DTO 增加可空的 ~todoKind~ ，值为 ~pending~ 或 ~done~ ，由 Rust 的 ~FilterTask.state_type~ 投影。
-
-ArkTS 只传递设置并显示结果。C++ 负责参数编组、worker、结果投影和资源释放；文内声明收集、流程归属、覆盖规则、初始状态和旧比较对象校验均由 Rust 实现。全局配置变化时更新同一个 workspace；合并提交前刷新外部默认配置，避免使用旧解析规则。
-
-* 同步参数与默认值
-
-~defaultSyncOptions(): Promise<SyncOptions>~ 在工作线程读取 Rust 默认值，直接返回结构化对象； ~normalizeSyncOptions(optionsJson): Promise<SyncOptions>~ 由 core 解析、验证并规范化输入。默认值不在 ArkTS 维护副本。省略参数使用 Rust 默认值，显式空目录列表保留为空。
-
-~Repo.sync(policy, monitor, optionsJson)~ 读取第三个参数，将 JSON 传至 Rust 的 ~SyncOptions~ 。 ~monitor~ 可省略，后台同步可以传 ~undefined~ 并继续传入第三个参数。异步调用保留 ~Repo~ 引用，完成后释放。无效目录在执行同步和持久化前返回 core 输入错误。
+新增能力先在 core 定义数据和行为，再由 Harmony 编组为相应对象方法或数据属性。C++ 只处理参数、worker、Promise、对象投影和资源释放；同步记录与 outbox 不写入绝对路径、密码、完整远端 URL 或文件正文。文件对象中供界面读取的原文只存在于内存。

@@ -10,16 +10,13 @@ export interface CoreError extends Error {
   readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge';
 }
 
-export interface RepositoryFile {
-  path: string;
-  source: string;
-  byte_length: number;
-  todo: TodoMetadata;
-}
-
-export interface RepositorySnapshot {
-  id: string;
-  files: RepositoryFile[];
+export class OrgFile {
+  private constructor();
+  readonly repoId: string;
+  readonly path: string;
+  readonly todo: TodoMetadata;
+  category(): string | null;
+  sourceBytes(): Uint8Array;
 }
 
 export interface Task {
@@ -65,6 +62,8 @@ export interface SyncOptions { excludedDirectories: string[]; }
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
   testConnection(): Promise<void>;
+  compareMerge(repo: Repo, syncId: string): Promise<MergeComparison>;
+  applyMerge(repo: Repo, comparison: MergeComparison): Promise<MergeOutcome>;
 }
 
 export class Workspace {
@@ -77,16 +76,15 @@ export class Workspace {
 }
 
 export class Repo {
-  todoMetadata(path: string): Promise<TodoMetadata>;
-  id(): string;
-  rootDirectory(): string;
+  private constructor();
+  file(path: string): Promise<OrgFile>;
+  files(): Promise<OrgFile[]>;
+  readonly id: string;
+  readonly rootDirectory: string;
   load(): Promise<void>;
   createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
-  compareMerge(policy: WebDavSyncPolicy, syncId: string): Promise<MergeComparison>;
-  apply(policy: WebDavSyncPolicy, comparison: MergeComparison): Promise<MergeOutcome>;
-  snapshot(): Promise<RepositorySnapshot>;
-  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, optionsJson?: string): Promise<SyncRecord>;
+  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }
 
 
@@ -151,4 +149,4 @@ export interface TodoMetadata {
 
 export function defaultTodoSettings(): Promise<string>;
 export function defaultSyncOptions(): Promise<SyncOptions>;
-export function normalizeSyncOptions(optionsJson: string): Promise<SyncOptions>;
+export function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>;

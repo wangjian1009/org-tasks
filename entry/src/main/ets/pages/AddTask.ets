@@ -67,7 +67,8 @@ struct AddTask {
       const repository = this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId)
       if (!repository) return
       const repo = await NativeCoreService.repository(this.config.repos, repository, this.config.todoDefaults)
-      const metadata = await repo.todoMetadata(this.config.inboxFile)
+      const file = await repo.file(this.config.inboxFile)
+      const metadata = file.todo
       if (request !== this.todoRequest) return
       this.initialState = metadata.initialState || ''
       if (!this.initialState) this.message = '目标文件没有可用的未完成状态，请检查 TODO 设置'

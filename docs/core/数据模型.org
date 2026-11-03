@@ -40,6 +40,7 @@
   files: Vec\textless OrgFile\textgreater \\
   todo\_defaults: TodoConfig
 }{
+  file(path): OrgFile \\
   sync(policy, started\_at, cancellation, progress) \\
   sync\_with\_options(policy, started\_at, cancellation, progress, options)
 }
@@ -48,7 +49,7 @@
   path: String \\
   source\_bytes: Vec\textless u8\textgreater \\
   todo: TodoMetadata
-}{}
+}{category(): Option\textless String\textgreater}
 \end{umlpackage}
 
 \begin{umlpackage}[x=8.5,y=-1.4]{Synchronization}
@@ -411,6 +412,10 @@ pub struct TodoMetadata {
 非法配置报告错误，不静默回退全局值。未修改文件直接返回原始字节；编辑声明后重算元信息，重新解析失败时回滚此次局部编辑。新增任务使用 ~initial_state~ ，即有效配置首个未完成状态；文件尚不存在时使用外部默认。没有可用未完成状态则拒绝保存。
 
 ~set_todo_defaults~ 校验并重解析内存文件，不改写原文；有文内覆盖的文件仍使用自身配置。运行时合并版本包含全局默认配置，有效配置变化后旧比较对象失效，必须重新比较。
+
+* 文件分类访问
+
+文件分类通过 ~OrgFile.category() -> Option<String>~ 读取，值来自文件头真实的 ~CATEGORY~ keyword 节点。分类是当前语法树的派生值，不新增持久化字段； ~None~ 表示未配置，空字符串表示显式空声明。读取只考虑第一个标题之前的第一条声明，忽略大小写并去除值的首尾空白，避免将块内示例或标题属性当作文件分类。接口的详细边界见 [[file:接口文档.org][接口文档]]。
 
 * 同步运行时参数
 

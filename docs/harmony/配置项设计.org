@@ -135,6 +135,6 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 
 * WebDAV 同步过滤目录
 
-每个存储库在 WebDAV 表单提供“同步过滤目录”输入行，以逗号分隔目录名。“恢复默认过滤目录”从 Rust 读取默认值，当前为 ~archive~ 。旧配置缺失 ~excludedDirectories~ 时从 Rust 补齐；已保存空列表时保持为空，表示不排除任何目录。保存前通过原生 ~normalizeSyncOptions~ 调用 core 验证目录名，校验失败不写入凭据和 Preferences。
+每个存储库在 WebDAV 表单提供“同步过滤目录”输入行，以逗号分隔目录名。“恢复默认过滤目录”从 Rust 读取默认值，当前为 ~archive~ 。旧配置缺失 ~excludedDirectories~ 时从 Rust 补齐；已保存空列表时保持为空，表示不排除任何目录。保存前通过原生 ~normalizeSyncOptions(options)~ 调用 core 验证目录名，校验失败不写入凭据和 Preferences。
 
 前台与后台同步从已保存配置构造 ~SyncOptions~ 并传入 ~Repo.sync~ ，不把规则存入凭据或 policy。规则仅影响 WebDAV 传输；已有本地文件及待上传意图保留。

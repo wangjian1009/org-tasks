@@ -2,7 +2,7 @@ import { router } from '@kit.ArkUI'
 import { UiColor } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { Notebook, NotebookService } from '../services/NotebookService'
+import { NotebookCategory, NotebookService } from '../services/NotebookService'
 import { BUILTIN_SEARCHES, SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 
@@ -10,6 +10,7 @@ import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService
 export struct AppShell {
   @Prop title: string = ''
   @Prop activeRoute: string = ''
+  @Prop activeCategoryKey: string = ''
   @Prop back: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_search')
   @Prop actionLabel: string = ''
@@ -24,17 +25,18 @@ export struct AppShell {
   extraAction: () => void = () => {}
   fabAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
-  @State notebooks: Notebook[] = []
+  @State categories: NotebookCategory[] = []
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
 
   async openDrawer() {
     this.drawerOpen = true
     this.navMessage = ''
+    this.categories = []
     try {
       const config = await AppConfigService.load(getContext(this))
       this.searches = await SavedSearchService.load(getContext(this))
-      this.notebooks = await NotebookService.load(config.repos, config.todoDefaults)
+      this.categories = NotebookService.categories(await NotebookService.load(config.repos, config.todoDefaults))
     } catch (e) {
       this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
     }
@@ -42,7 +44,16 @@ export struct AppShell {
 
   navigate(route: string) {
     this.drawerOpen = false
-    if (this.activeRoute !== route) router.replaceUrl({ url: route })
+    if (this.activeRoute !== route || route === 'pages/Files' && this.activeCategoryKey.length > 0) {
+      router.replaceUrl({ url: route })
+    }
+  }
+
+  openCategory(category: NotebookCategory) {
+    this.drawerOpen = false
+    if (this.activeRoute !== 'pages/Files' || this.activeCategoryKey !== category.key) {
+      router.replaceUrl({ url: 'pages/Files', params: { category: category.category } })
+    }
   }
 
   openSearch(search: SavedSearch) {
@@ -76,15 +87,18 @@ export struct AppShell {
               .onClick((): void => { this.openSearch(search) })
           }, (search: SavedSearch) => search.id)
           Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
-          this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')
-          ForEach(this.notebooks, (notebook: Notebook) => {
-            Text(notebook.path).fontSize(14).fontColor(UiColor.secondary).width('100%').maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 58, right: 16, top: 15, bottom: 15 })
-              .onClick(() => {
-                this.drawerOpen = false
-                router.pushUrl({ url: 'pages/FileDetail', params: { repoId: notebook.repoId, path: notebook.path } })
-              })
-          }, (notebook: Notebook) => notebook.id)
+          this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files' && !this.activeCategoryKey)
+          ForEach(this.categories, (category: NotebookCategory) => {
+            Row({ space: 12 }) {
+              Text(category.title).fontSize(14).fontColor(UiColor.secondary).layoutWeight(1).maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(`${category.count}`).fontSize(12).fontColor(UiColor.secondary)
+            }.width('100%').constraintSize({ minHeight: 48 }).borderRadius(24)
+              .padding({ left: 58, right: 16, top: 12, bottom: 12 })
+              .backgroundColor(this.activeRoute === 'pages/Files' && this.activeCategoryKey === category.key ? UiColor.selected : Color.Transparent)
+              .accessibilityText(`${category.title}，${category.count} 个文件`)
+              .onClick(() => { this.openCategory(category) })
+          }, (category: NotebookCategory) => category.key)
           Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
           this.navItem('存储库', $r('app.media.ui_cloud'), 'pages/Repositories', this.activeRoute === 'pages/Repositories')
           this.navItem('设置', $r('app.media.ui_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')

@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstring>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -12,7 +13,7 @@ extern "C" char* org_tasks_harmony_default_todo_settings();
 extern "C" char* org_tasks_harmony_default_sync_options();
 extern "C" char* org_tasks_harmony_normalize_sync_options(const char* options_json);
 extern "C" int32_t org_tasks_harmony_workspace_set_todo_defaults(uint64_t handle, const char* settings);
-extern "C" char* org_tasks_harmony_repo_todo_metadata(uint64_t handle, const char* root, const char* path);
+extern "C" char* org_tasks_harmony_repo_file(uint64_t handle, const char* root, const char* path);
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
@@ -42,6 +43,11 @@ struct WorkspaceWrap {
 struct RepoWrap {
     uint64_t workspace_handle = 0;
     std::string root_directory;
+};
+
+struct OrgFileWrap {
+    napi_ref data = nullptr;
+    std::string source;
 };
 
 struct WebDavSyncPolicyWrap {
@@ -106,12 +112,14 @@ struct RepoSnapshotWork {
     std::string task_json;
     bool queue_upload = false;
     napi_ref owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply, TodoMetadata } operation = Operation::Snapshot;
+    napi_ref related_owner = nullptr;
+    enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply, File } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
 
 napi_ref repo_constructor = nullptr;
+napi_ref file_constructor = nullptr;
 
 bool ReadString(napi_env env, napi_value value, std::string* result)
 {
@@ -208,6 +216,96 @@ bool ParseJson(napi_env env, const std::string& source, napi_value* result)
         napi_get_named_property(env, global, "JSON", &json) == napi_ok &&
         napi_get_named_property(env, json, "parse", &parse) == napi_ok &&
         napi_call_function(env, json, parse, 1, &input, result) == napi_ok;
+}
+
+bool EncodeJson(napi_env env, napi_value value, std::string* result)
+{
+    napi_value global, json, stringify, encoded;
+    return napi_get_global(env, &global) == napi_ok &&
+        napi_get_named_property(env, global, "JSON", &json) == napi_ok &&
+        napi_get_named_property(env, json, "stringify", &stringify) == napi_ok &&
+        napi_call_function(env, json, stringify, 1, &value, &encoded) == napi_ok &&
+        ReadString(env, encoded, result);
+}
+
+void FinalizeOrgFile(napi_env env, void* data, void*)
+{
+    auto* file = static_cast<OrgFileWrap*>(data);
+    if (file->data != nullptr) napi_delete_reference(env, file->data);
+    delete file;
+}
+
+napi_value OrgFileConstructor(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value self, source;
+    auto* file = new OrgFileWrap();
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_get_named_property(env, args[0], "source", &source) != napi_ok ||
+        !ReadString(env, source, &file->source) ||
+        napi_create_reference(env, args[0], 1, &file->data) != napi_ok ||
+        napi_wrap(env, self, file, FinalizeOrgFile, nullptr, nullptr) != napi_ok) {
+        if (file->data != nullptr) napi_delete_reference(env, file->data);
+        delete file;
+        napi_throw_error(env, nullptr, "无法创建 OrgFile 对象");
+        return nullptr;
+    }
+    return self;
+}
+
+napi_value OrgFileProperty(napi_env env, napi_callback_info info)
+{
+    napi_value self, data, value;
+    void* property = nullptr;
+    OrgFileWrap* file = nullptr;
+    if (napi_get_cb_info(env, info, nullptr, nullptr, &self, &property) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&file)) != napi_ok || file == nullptr ||
+        napi_get_reference_value(env, file->data, &data) != napi_ok ||
+        napi_get_named_property(env, data, static_cast<const char*>(property), &value) != napi_ok) {
+        napi_throw_error(env, nullptr, "无法读取 OrgFile 属性");
+        return nullptr;
+    }
+    return value;
+}
+
+napi_value OrgFileSourceBytes(napi_env env, napi_callback_info info)
+{
+    napi_value self, buffer, result;
+    OrgFileWrap* file = nullptr;
+    if (napi_get_cb_info(env, info, nullptr, nullptr, &self, nullptr) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&file)) != napi_ok || file == nullptr) {
+        napi_throw_error(env, nullptr, "OrgFile.sourceBytes 对象无效");
+        return nullptr;
+    }
+    void* bytes = nullptr;
+    if (napi_create_arraybuffer(env, file->source.size(), &bytes, &buffer) != napi_ok) return nullptr;
+    if (!file->source.empty()) std::memcpy(bytes, file->source.data(), file->source.size());
+    if (napi_create_typedarray(env, napi_uint8_array, file->source.size(), buffer, 0, &result) != napi_ok) return nullptr;
+    return result;
+}
+
+napi_value CreateOrgFileObject(napi_env env, napi_value data)
+{
+    napi_value constructor, result;
+    if (napi_get_reference_value(env, file_constructor, &constructor) != napi_ok ||
+        napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
+    return result;
+}
+
+void RejectFileProjection(napi_env env, napi_deferred deferred)
+{
+    bool pending = false;
+    napi_value error;
+    if (napi_is_exception_pending(env, &pending) == napi_ok && pending &&
+        napi_get_and_clear_last_exception(env, &error) == napi_ok) {
+        napi_reject_deferred(env, deferred, error);
+    } else {
+        napi_value message;
+        napi_create_string_utf8(env, "无法创建文件对象", NAPI_AUTO_LENGTH, &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, deferred, error);
+    }
 }
 
 void RejectCoreError(napi_env env, napi_deferred deferred, const std::string& source, const char* fallback)
@@ -387,8 +485,8 @@ void ExecuteRepoSnapshot(napi_env, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
     switch (work->operation) {
-        case RepoSnapshotWork::Operation::TodoMetadata:
-            work->response = TakeRustString(org_tasks_harmony_repo_todo_metadata(work->workspace_handle,
+        case RepoSnapshotWork::Operation::File:
+            work->response = TakeRustString(org_tasks_harmony_repo_file(work->workspace_handle,
                 work->root_directory.c_str(), work->task_path.c_str()));
             break;
         case RepoSnapshotWork::Operation::Conflicts:
@@ -451,11 +549,32 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
+        } else if (work->operation == RepoSnapshotWork::Operation::File) {
+            napi_value file = CreateOrgFileObject(env, result);
+            if (file != nullptr) napi_resolve_deferred(env, work->deferred, file);
+            else RejectFileProjection(env, work->deferred);
+        } else if (work->operation == RepoSnapshotWork::Operation::Snapshot) {
+            napi_value files, objects;
+            uint32_t length = 0;
+            if (napi_get_named_property(env, result, "files", &files) == napi_ok &&
+                napi_get_array_length(env, files, &length) == napi_ok &&
+                napi_create_array_with_length(env, length, &objects) == napi_ok) {
+                bool valid = true;
+                for (uint32_t index = 0; index < length; index++) {
+                    napi_value data;
+                    if (napi_get_element(env, files, index, &data) != napi_ok) { valid = false; break; }
+                    napi_value file = CreateOrgFileObject(env, data);
+                    if (file == nullptr || napi_set_element(env, objects, index, file) != napi_ok) { valid = false; break; }
+                }
+                if (valid) napi_resolve_deferred(env, work->deferred, objects);
+                else RejectFileProjection(env, work->deferred);
+            } else RejectFileProjection(env, work->deferred);
         } else {
             napi_resolve_deferred(env, work->deferred, result);
         }
     }
     if (work->owner != nullptr) napi_delete_reference(env, work->owner);
+    if (work->related_owner != nullptr) napi_delete_reference(env, work->related_owner);
     if (work->monitor != nullptr) {
         napi_release_threadsafe_function(work->monitor, napi_tsfn_release);
     }
@@ -682,7 +801,7 @@ napi_value NormalizeSyncOptions(napi_env env, napi_callback_info info)
     }
     auto* work = new WorkspaceStringWork();
     work->normalize_sync_options = true;
-    if (!ReadString(env, args[0], &work->expression)) {
+    if (!EncodeJson(env, args[0], &work->expression)) {
         delete work;
         napi_throw_error(env, nullptr, "同步参数无效");
         return nullptr;
@@ -826,7 +945,7 @@ napi_value RepoRootDirectory(napi_env env, napi_callback_info info)
     return value;
 }
 
-napi_value RepoSnapshot(napi_env env, napi_callback_info info)
+napi_value RepoFiles(napi_env env, napi_callback_info info)
 {
     RepoWrap* repo = nullptr;
     napi_value self;
@@ -837,16 +956,18 @@ napi_value RepoSnapshot(napi_env env, napi_callback_info info)
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
         delete work;
-        napi_throw_error(env, nullptr, "无法创建 Repo.snapshot Promise");
+        napi_throw_error(env, nullptr, "无法创建 Repo.files Promise");
         return nullptr;
     }
     napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksRepoSnapshot", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoSnapshot", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
-        napi_throw_error(env, nullptr, "无法调度 Repo.snapshot 请求");
+        napi_throw_error(env, nullptr, "无法调度 Repo.files 请求");
         return nullptr;
     }
     return promise;
@@ -868,9 +989,11 @@ napi_value RepoLoad(napi_env env, napi_callback_info info)
         return nullptr;
     }
     napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksRepoLoad", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoLoad", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
         napi_throw_error(env, nullptr, "无法调度 Repo.load 请求");
@@ -965,7 +1088,7 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
     }
     napi_valuetype options_type = napi_undefined;
     if (argc == 3 && (napi_typeof(env, args[2], &options_type) != napi_ok ||
-        (options_type != napi_undefined && !ReadString(env, args[2], &work->sync_options_json)))) {
+        (options_type != napi_undefined && !EncodeJson(env, args[2], &work->sync_options_json)))) {
         if (work->monitor != nullptr) napi_release_threadsafe_function(work->monitor, napi_tsfn_abort);
         delete work;
         napi_throw_error(env, nullptr, "Repo.sync 同步参数无效");
@@ -1003,6 +1126,7 @@ napi_value QueueMergeWork(napi_env env, napi_value self, RepoSnapshotWork* work)
         napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
         if (work->owner != nullptr) napi_delete_reference(env, work->owner);
+        if (work->related_owner != nullptr) napi_delete_reference(env, work->related_owner);
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
         napi_throw_error(env, nullptr, "无法调度任务冲突请求");
@@ -1011,19 +1135,26 @@ napi_value QueueMergeWork(napi_env env, napi_value self, RepoSnapshotWork* work)
     return promise;
 }
 
-napi_value RepoTodoMetadata(napi_env env, napi_callback_info info)
+napi_value RepoFile(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1; napi_value args[1] = {nullptr}; napi_value self; RepoWrap* repo = nullptr;
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value self;
+    RepoWrap* repo = nullptr;
     if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr || repo->workspace_handle == 0) {
-        napi_throw_error(env, nullptr, "Repo.todoMetadata 参数无效"); return nullptr;
+        napi_throw_error(env, nullptr, "Repo.file 参数无效");
+        return nullptr;
     }
     auto* work = new RepoSnapshotWork();
     if (!ReadString(env, args[0], &work->task_path) || work->task_path.find('\0') != std::string::npos) {
-        delete work; napi_throw_error(env, nullptr, "Org 文件路径无效"); return nullptr;
+        delete work;
+        napi_throw_error(env, nullptr, "Org 文件路径无效");
+        return nullptr;
     }
-    work->workspace_handle = repo->workspace_handle; work->root_directory = repo->root_directory;
-    work->operation = RepoSnapshotWork::Operation::TodoMetadata;
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::File;
     return QueueMergeWork(env, self, work);
 }
 
@@ -1039,32 +1170,31 @@ napi_value RepoConflicts(napi_env env, napi_callback_info info)
     return QueueMergeWork(env, self, work);
 }
 
-napi_value RepoMerge(napi_env env, napi_callback_info info, bool resolve)
+napi_value WebDavMerge(napi_env env, napi_callback_info info, bool resolve)
 {
     size_t argc = 2;
     napi_value args[2] = {nullptr, nullptr};
     napi_value self;
     RepoWrap* repo = nullptr;
+    napi_value repo_class;
+    bool is_repo = false;
     WebDavSyncPolicyWrap* policy = nullptr;
     if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 2 ||
-        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr ||
-        repo->workspace_handle == 0 || !UnwrapWebDavSyncPolicy(env, args[0], &policy)) {
-        napi_throw_error(env, nullptr, "Repo 合并参数无效");
+        napi_get_reference_value(env, repo_constructor, &repo_class) != napi_ok ||
+        napi_instanceof(env, args[0], repo_class, &is_repo) != napi_ok || !is_repo ||
+        napi_unwrap(env, args[0], reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr ||
+        repo->workspace_handle == 0 || !UnwrapWebDavSyncPolicy(env, self, &policy)) {
+        napi_throw_error(env, nullptr, "WebDavSyncPolicy 合并参数无效");
         return nullptr;
     }
     auto* work = new RepoSnapshotWork();
     bool valid;
     if (resolve) {
-        napi_value global, json, stringify, encoded;
-        valid = napi_get_global(env, &global) == napi_ok &&
-            napi_get_named_property(env, global, "JSON", &json) == napi_ok &&
-            napi_get_named_property(env, json, "stringify", &stringify) == napi_ok &&
-            napi_call_function(env, json, stringify, 1, &args[1], &encoded) == napi_ok &&
-            ReadString(env, encoded, &work->task_json);
+        valid = EncodeJson(env, args[1], &work->task_json);
     } else {
         valid = ReadString(env, args[1], &work->task_path) && work->task_path.find('\0') == std::string::npos;
     }
-    if (!valid) {
+    if (!valid || napi_create_reference(env, args[0], 1, &work->related_owner) != napi_ok) {
         delete work;
         napi_throw_error(env, nullptr, "任务合并参数无效");
         return nullptr;
@@ -1078,14 +1208,26 @@ napi_value RepoMerge(napi_env env, napi_callback_info info, bool resolve)
     return QueueMergeWork(env, self, work);
 }
 
-napi_value RepoCompareMerge(napi_env env, napi_callback_info info) { return RepoMerge(env, info, false); }
-napi_value RepoApplyMerge(napi_env env, napi_callback_info info) { return RepoMerge(env, info, true); }
+napi_value WebDavCompareMerge(napi_env env, napi_callback_info info) { return WebDavMerge(env, info, false); }
+napi_value WebDavApplyMerge(napi_env env, napi_callback_info info) { return WebDavMerge(env, info, true); }
 
 } // namespace
 
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
+    napi_property_descriptor file_descriptors[] = {
+        {"repoId", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("repoId")},
+        {"path", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("path")},
+        {"todo", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("todo")},
+        {"category", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("category")},
+        {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},
+    };
+    napi_value file_class;
+    napi_define_class(env, "OrgFile", NAPI_AUTO_LENGTH, OrgFileConstructor, nullptr,
+        sizeof(file_descriptors) / sizeof(file_descriptors[0]), file_descriptors, &file_class);
+    napi_create_reference(env, file_class, 1, &file_constructor);
+    napi_set_named_property(env, exports, "OrgFile", file_class);
     napi_value default_todo_settings;
     napi_create_function(env, "defaultTodoSettings", NAPI_AUTO_LENGTH, DefaultTodoSettings, nullptr, &default_todo_settings);
     napi_set_named_property(env, exports, "defaultTodoSettings", default_todo_settings);
@@ -1108,16 +1250,14 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_set_named_property(env, exports, "Workspace", workspace_class);
 
     napi_property_descriptor repo_descriptors[] = {
-        {"todoMetadata", nullptr, RepoTodoMetadata, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"id", nullptr, RepoId, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"rootDirectory", nullptr, RepoRootDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"file", nullptr, RepoFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"id", nullptr, nullptr, RepoId, nullptr, nullptr, napi_default, nullptr},
+        {"rootDirectory", nullptr, nullptr, RepoRootDirectory, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"snapshot", nullptr, RepoSnapshot, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"files", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"createTask", nullptr, RepoCreateTask, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"conflicts", nullptr, RepoConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"compareMerge", nullptr, RepoCompareMerge, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"apply", nullptr, RepoApplyMerge, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value repo_class;
     napi_define_class(env, "Repo", NAPI_AUTO_LENGTH, RepoConstructor, nullptr,
@@ -1128,6 +1268,8 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value webdav_sync_policy_class;
     napi_property_descriptor policy_descriptors[] = {
         {"testConnection", nullptr, WebDavTestConnection, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"compareMerge", nullptr, WebDavCompareMerge, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"applyMerge", nullptr, WebDavApplyMerge, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_class(env, "WebDavSyncPolicy", NAPI_AUTO_LENGTH, WebDavSyncPolicyConstructor, nullptr,
         sizeof(policy_descriptors) / sizeof(policy_descriptors[0]), policy_descriptors, &webdav_sync_policy_class);
