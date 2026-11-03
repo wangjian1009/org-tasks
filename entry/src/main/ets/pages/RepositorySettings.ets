@@ -1,6 +1,7 @@
 import { router } from '@kit.ArkUI'
 import { fileIo } from '@kit.CoreFileKit'
-import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { defaultSyncOptions } from 'liborg_tasks_harmony.so'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
@@ -19,6 +20,7 @@ struct RepositorySettings {
   @State webdavUrl: string = ''
   @State webdavUsername: string = ''
   @State webdavPassword: string = ''
+  @State excludedDirectoriesText: string = ''
   @State saving: boolean = false
   @State testing: boolean = false
   @State testMessage: string = ''
@@ -61,13 +63,19 @@ struct RepositorySettings {
     try {
       this.config = await AppConfigService.load(getContext(this))
       const params = router.getParams() as RepositoryParams | undefined
-      const repo = this.config.repos.find((item: RepoConfig) => item.id === params?.repoId) || AppConfigService.newRepository()
+      const existing = this.config.repos.find((item: RepoConfig) => item.id === params?.repoId)
+      const repo = existing || AppConfigService.newRepository()
       this.repoId = repo.id
       this.rootDirectory = repo.rootDirectory
       this.webdavEnabled = params?.repoId ? repo.webdavEnabled : params?.webdav || false
       this.webdavUrl = repo.webdavUrl
       this.webdavUsername = repo.webdavUsername
       this.webdavPassword = repo.webdavPassword
+      this.excludedDirectoriesText = repo.excludedDirectories.join(', ')
+      if (!existing && this.webdavEnabled) {
+        const defaults = await defaultSyncOptions()
+        this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
+      }
       if (!this.rootDirectory && this.webdavEnabled) this.rootDirectory = `${getContext(this).filesDir}/repositories/${repo.id}`
     } catch (e) { this.message = `读取配置失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.loading = false }
@@ -85,8 +93,9 @@ struct RepositorySettings {
       if (current.repos.some((repo: RepoConfig) => repo.id !== this.repoId && repo.rootDirectory === this.rootDirectory.trim())) {
         this.message = '此本地目录已属于另一个存储库'; return
       }
+      const excludedDirectories = this.excludedDirectoriesText.split(',').map((value: string) => value.trim()).filter((value: string) => value.length > 0)
       const repository: RepoConfig = { id: this.repoId, rootDirectory: this.rootDirectory.trim(), webdavEnabled: this.webdavEnabled,
-        webdavUrl: this.webdavUrl.trim(), webdavUsername: this.webdavUsername.trim(), webdavPassword: this.webdavPassword }
+        webdavUrl: this.webdavUrl.trim(), webdavUsername: this.webdavUsername.trim(), webdavPassword: this.webdavPassword, excludedDirectories }
       const managed = `${getContext(this).filesDir}/repositories/${this.repoId}`
       if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
       await NativeCoreService.validateRepository(repository.rootDirectory)
@@ -130,6 +139,16 @@ struct RepositorySettings {
                   Text(this.testMessage).width('100%').fontSize(13).lineHeight(21)
                     .fontColor(this.testing ? UiColor.secondary : this.testSucceeded ? UiColor.done : UiColor.error)
                 }
+                Text('同步过滤目录').fontSize(13).fontColor(UiColor.primary).width('100%')
+                TextInput({ text: this.excludedDirectoriesText, placeholder: '目录名，用逗号分隔' }).height(56).borderRadius(6)
+                  .backgroundColor(UiColor.field).onChange((value: string) => { this.excludedDirectoriesText = value })
+                Text('填写目录名，匹配任意层级的同名目录。目录中的文件不参与 WebDAV 同步；清空表示不过滤。已下载文件会保留。')
+                  .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
+                Button('恢复默认过滤目录').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
+                  .onClick(async (): Promise<void> => {
+                    const defaults = await defaultSyncOptions()
+                    this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
+                  })
               }
               Divider().color(UiColor.outline).margin({ top: 8 })
               Text(this.webdavEnabled ? '本地文件目录' : 'Org 文件目录').fontSize(13).fontColor(UiColor.primary).width('100%')

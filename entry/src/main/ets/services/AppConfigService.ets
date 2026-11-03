@@ -1,9 +1,9 @@
 // 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
-import { defaultTodoSettings, Workspace } from 'liborg_tasks_harmony.so'
+import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, Workspace } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { preferences } from '@kit.ArkData'
-import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
 import { CredentialService } from './CredentialService'
 
 export const APP_CONFIG_PREFERENCES = 'org_tasks_config'
@@ -32,6 +32,9 @@ export class AppConfigService {
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
+      await normalizeSyncOptions(JSON.stringify({ excludedDirectories: repository.excludedDirectories } as SyncOptions))
+    }
+    for (const repository of config.repos) {
       await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)
       persisted.push({
         id: repository.id,
@@ -39,7 +42,8 @@ export class AppConfigService {
         webdavEnabled: repository.webdavEnabled,
         webdavUrl: repository.webdavUrl.trim(),
         webdavUsername: repository.webdavUsername.trim(),
-        webdavPassword: ''
+        webdavPassword: '',
+        excludedDirectories: repository.excludedDirectories || []
       })
     }
     await store.put(REPOS_KEY, JSON.stringify(persisted))
@@ -57,7 +61,8 @@ export class AppConfigService {
       webdavEnabled: false,
       webdavUrl: '',
       webdavUsername: '',
-      webdavPassword: ''
+      webdavPassword: '',
+      excludedDirectories: []
     }
   }
 
@@ -66,6 +71,7 @@ export class AppConfigService {
     if (encoded.length > 0) {
       const persisted = JSON.parse(encoded) as RepoConfig[]
       const repositories: RepoConfig[] = []
+      const defaults = await defaultSyncOptions()
       for (const repository of persisted) {
         repositories.push({
           id: repository.id,
@@ -73,7 +79,8 @@ export class AppConfigService {
           webdavEnabled: repository.webdavEnabled,
           webdavUrl: repository.webdavUrl,
           webdavUsername: repository.webdavUsername,
-          webdavPassword: await CredentialService.getWebDavPassword(repository.id)
+          webdavPassword: await CredentialService.getWebDavPassword(repository.id),
+          excludedDirectories: repository.excludedDirectories ?? defaults.excludedDirectories.slice()
         })
       }
       return repositories

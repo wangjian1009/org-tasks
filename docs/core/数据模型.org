@@ -40,7 +40,8 @@
   files: Vec\textless OrgFile\textgreater \\
   todo\_defaults: TodoConfig
 }{
-  sync(policy, started\_at, cancellation, progress)
+  sync(policy, started\_at, cancellation, progress) \\
+  sync\_with\_options(policy, started\_at, cancellation, progress, options)
 }
 \umlclass[x=0,y=-6.0]{OrgFile}{
   repo\_id: OrgRepoId \\
@@ -405,8 +406,31 @@ pub struct TodoMetadata {
 
 ~|~ 后为完成状态；无分隔符时，每套流程最后一个状态为完成状态。若全部流程都没有给出完成状态，则文件最后一个关键词作为完成状态。跨流程同名状态的完成归属以文件有效完成集合为准。空 ~#+TODO:~ 也是覆盖，表示清空文件 TODO 识别。
 
-设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。文件未直接声明时，仓库加载会按相对路径展开仓库内的 ~SETUPFILE~，只提取其中的 TODO 声明作为该文件的有效设置；不执行 Emacs Lisp，也忽略仓库外或不存在的设置文件。
+设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。文件未直接声明时，仓库加载会按相对路径展开仓库内的 ~SETUPFILE~ ，只提取其中的 TODO 声明作为该文件的有效设置；不执行 Emacs Lisp，也忽略仓库外或不存在的设置文件。
 
 非法配置报告错误，不静默回退全局值。未修改文件直接返回原始字节；编辑声明后重算元信息，重新解析失败时回滚此次局部编辑。新增任务使用 ~initial_state~ ，即有效配置首个未完成状态；文件尚不存在时使用外部默认。没有可用未完成状态则拒绝保存。
 
 ~set_todo_defaults~ 校验并重解析内存文件，不改写原文；有文内覆盖的文件仍使用自身配置。运行时合并版本包含全局默认配置，有效配置变化后旧比较对象失效，必须重新比较。
+
+* 同步运行时参数
+
+~SyncOptions~ 由同步调用传入 ~SyncContext~ ，不保存在仓库实体、同步历史或 outbox 中。目录过滤是当前的同步规则，后续可扩展其他规则。Rust 默认排除 ~archive~ ，显式空列表表示不过滤。 ~excluded_directories~ 只接受单个目录名，匹配任意层级的目录路径组件。
+
+#+begin_src rust
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct SyncOptions {
+    pub excluded_directories: Vec<String>,
+}
+#+end_src
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{SyncContext}{repo: OrgRepo \\
+started\_at: TimestampMs \\
+base: PathBuf \\
+options: SyncOptions}{}
+\umlclass[x=7,y=0]{SyncOptions}{excluded\_directories: Vec\textless String\textgreater}{}
+\umluniassoc[mult1=1,mult2=1]{SyncContext}{SyncOptions}
+\end{tikzpicture}
+\end{center}

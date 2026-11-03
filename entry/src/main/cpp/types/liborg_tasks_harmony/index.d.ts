@@ -60,6 +60,8 @@ export type WebDavSyncEvent =
 
 export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
+export interface SyncOptions { excludedDirectories: string[]; }
+
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
   testConnection(): Promise<void>;
@@ -84,7 +86,7 @@ export class Repo {
   compareMerge(policy: WebDavSyncPolicy, syncId: string): Promise<MergeComparison>;
   apply(policy: WebDavSyncPolicy, comparison: MergeComparison): Promise<MergeOutcome>;
   snapshot(): Promise<RepositorySnapshot>;
-  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor): Promise<SyncRecord>;
+  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, optionsJson?: string): Promise<SyncRecord>;
 }
 
 
@@ -148,3 +150,5 @@ export interface TodoMetadata {
 }
 
 export function defaultTodoSettings(): Promise<string>;
+export function defaultSyncOptions(): Promise<SyncOptions>;
+export function normalizeSyncOptions(optionsJson: string): Promise<SyncOptions>;

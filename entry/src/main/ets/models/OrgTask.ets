@@ -36,6 +36,11 @@ export interface RepoConfig {
   webdavUrl: string
   webdavUsername: string
   webdavPassword: string
+  excludedDirectories: string[]
+}
+
+export interface SyncOptions {
+  excludedDirectories: string[]
 }
 
 // 应用配置

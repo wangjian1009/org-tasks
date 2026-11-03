@@ -214,11 +214,12 @@ impl WebDavSyncPolicy {
     async fn synchronize_repo(
         &self,
         repo: &mut OrgRepo,
-        history: &[OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>],
         started_at: TimestampMs,
+        options: &crate::SyncOptions,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>, CoreError> {
+        let history = repo.sync_history::<Self>().await?;
         let mut record =
             OrgRepoSyncRecord::new(format!("webdav-{}-{started_at}", repo.id), started_at)?
                 .with_kind(Self::KIND)
@@ -256,6 +257,10 @@ impl WebDavSyncPolicy {
                 return Ok(record);
             }
         };
+        let remote_files = remote_files
+            .into_iter()
+            .filter(|file| !options.excludes_path(&file.path))
+            .collect::<Vec<_>>();
         self.report(WebDavSyncEvent::Listed {
             files: remote_files.len(),
         });
@@ -270,6 +275,7 @@ impl WebDavSyncPolicy {
         let mut paths = repo
             .files
             .iter()
+            .filter(|file| !options.excludes_path(&file.path))
             .map(|file| file.path.clone())
             .collect::<BTreeSet<_>>();
         paths.extend(remote_by_path.keys().cloned());
@@ -279,7 +285,7 @@ impl WebDavSyncPolicy {
         let initial_sync = !history.iter().any(|record| {
             record.result == Some(OrgRepoSyncResult::Succeeded) || !record.files.is_empty()
         });
-        let unresolved_paths = conflict_syncs(history)
+        let unresolved_paths = conflict_syncs(&history)
             .into_iter()
             .flat_map(|sync| sync.paths)
             .collect::<BTreeSet<_>>();
@@ -302,7 +308,7 @@ impl WebDavSyncPolicy {
             });
             let local = repo.files.iter().find(|file| file.path == path).cloned();
             let remote = remote_by_path.get(&path).cloned();
-            let baseline = latest_file_record(history, &path).cloned();
+            let baseline = latest_file_record(&history, &path).cloned();
             let unresolved_without_baseline =
                 baseline.is_none() && unresolved_paths.contains(&path);
             let outcome = if unresolved_without_baseline {
@@ -522,7 +528,6 @@ impl SyncPolicy for WebDavSyncPolicy {
     fn synchronize(
         &self,
         context: &mut SyncContext<'_>,
-        history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> impl Future<
@@ -530,8 +535,8 @@ impl SyncPolicy for WebDavSyncPolicy {
     > + Send {
         self.synchronize_repo(
             context.repo,
-            history,
             context.started_at,
+            &context.options,
             cancellation,
             progress,
         )

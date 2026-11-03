@@ -8,7 +8,7 @@ use org_tasks_core::webdav::{
 };
 use org_tasks_core::{
     CoreError, Filter, FilterTask, NewTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
-    SyncCancellation, SyncProgressReporter, TimestampMs,
+    SyncCancellation, SyncOptions, SyncProgressReporter, TimestampMs,
 };
 use serde::Serialize;
 
@@ -356,6 +356,7 @@ pub fn repo_sync_json(
     webdav_url: String,
     username: String,
     password: String,
+    options_json: String,
     monitor_handle: u64,
     started_at: TimestampMs,
 ) -> Result<String, CoreError> {
@@ -375,11 +376,18 @@ pub fn repo_sync_json(
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let runtime = runtime()?;
-    let record = runtime.block_on(repository.sync(
+    let options = if options_json.trim().is_empty() {
+        SyncOptions::default()
+    } else {
+        serde_json::from_str::<SyncOptions>(&options_json)
+            .map_err(|_| CoreError::InvalidInput("同步参数无效"))?
+    };
+    let record = runtime.block_on(repository.sync_with_options(
         &policy,
         started_at,
         &SyncCancellation::default(),
         &SyncProgressReporter::default(),
+        options,
     ))?;
     encode(&HarmonyBridgeSync {
         id: record.id,

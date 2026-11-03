@@ -9,6 +9,8 @@ extern "C" void org_tasks_harmony_free_string(char* value);
 extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
 extern "C" char* org_tasks_harmony_default_todo_settings();
+extern "C" char* org_tasks_harmony_default_sync_options();
+extern "C" char* org_tasks_harmony_normalize_sync_options(const char* options_json);
 extern "C" int32_t org_tasks_harmony_workspace_set_todo_defaults(uint64_t handle, const char* settings);
 extern "C" char* org_tasks_harmony_repo_todo_metadata(uint64_t handle, const char* root, const char* path);
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
@@ -22,7 +24,7 @@ extern "C" int32_t org_tasks_harmony_repo_create_task(uint64_t workspace_handle,
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
-    const char* webdav_url, const char* username, const char* password, uint64_t monitor_handle,
+    const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
     int64_t started_at);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
 extern "C" int32_t org_tasks_harmony_webdav_test_connection(
@@ -61,6 +63,8 @@ struct WebDavConnectionWork {
 struct WorkspaceStringWork {
     bool todo_defaults = false;
     bool default_todo_settings = false;
+    bool default_sync_options = false;
+    bool normalize_sync_options = false;
     napi_ref owner = nullptr;
     uint64_t handle = 0;
     std::string expression;
@@ -94,6 +98,7 @@ struct RepoSnapshotWork {
     std::string webdav_url;
     std::string username;
     std::string password;
+    std::string sync_options_json;
     napi_threadsafe_function monitor = nullptr;
     std::string response;
     std::string error;
@@ -260,6 +265,10 @@ void ExecuteWorkspaceString(napi_env, void* data)
     auto* work = static_cast<WorkspaceStringWork*>(data);
     if (work->default_todo_settings) {
         work->response = TakeRustString(org_tasks_harmony_default_todo_settings());
+    } else if (work->default_sync_options) {
+        work->response = TakeRustString(org_tasks_harmony_default_sync_options());
+    } else if (work->normalize_sync_options) {
+        work->response = TakeRustString(org_tasks_harmony_normalize_sync_options(work->expression.c_str()));
     } else if (work->todo_defaults) {
         if (org_tasks_harmony_workspace_set_todo_defaults(work->handle, work->expression.c_str()) == 0) work->response = "{}";
     } else {
@@ -401,6 +410,7 @@ void ExecuteRepoSnapshot(napi_env, void* data)
         case RepoSnapshotWork::Operation::Sync:
             work->response = TakeRustString(org_tasks_harmony_repo_sync(work->workspace_handle,
                 work->root_directory.c_str(), work->webdav_url.c_str(), work->username.c_str(), work->password.c_str(),
+                work->sync_options_json.c_str(),
                 work->monitor == nullptr ? 0 : reinterpret_cast<uintptr_t>(work), static_cast<int64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count())));
@@ -611,7 +621,7 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
         return nullptr;
     }
     napi_value resource_name;
-    if ((!work->default_todo_settings && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
+    if ((!work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
         napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceString, CompleteWorkspaceString, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
@@ -651,6 +661,33 @@ napi_value DefaultTodoSettings(napi_env env, napi_callback_info info)
     if (napi_get_cb_info(env, info, &argc, nullptr, &self, nullptr) != napi_ok) return nullptr;
     auto* work = new WorkspaceStringWork(); work->default_todo_settings = true;
     return QueueWorkspaceString(env, work, "OrgTasksDefaultTodoSettings", self);
+}
+
+napi_value DefaultSyncOptions(napi_env env, napi_callback_info info)
+{
+    napi_value self; size_t argc = 0;
+    if (napi_get_cb_info(env, info, &argc, nullptr, &self, nullptr) != napi_ok) return nullptr;
+    auto* work = new WorkspaceStringWork(); work->default_sync_options = true;
+    return QueueWorkspaceString(env, work, "OrgTasksDefaultSyncOptions", self);
+}
+
+napi_value NormalizeSyncOptions(napi_env env, napi_callback_info info)
+{
+    napi_value self;
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1) {
+        napi_throw_error(env, nullptr, "同步参数无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->normalize_sync_options = true;
+    if (!ReadString(env, args[0], &work->expression)) {
+        delete work;
+        napi_throw_error(env, nullptr, "同步参数无效");
+        return nullptr;
+    }
+    return QueueWorkspaceString(env, work, "OrgTasksNormalizeSyncOptions", self);
 }
 
 napi_value WorkspaceSetTodoDefaults(napi_env env, napi_callback_info info)
@@ -891,13 +928,13 @@ napi_value RepoCreateTask(napi_env env, napi_callback_info info)
 
 napi_value RepoSync(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2] = {nullptr, nullptr};
+    size_t argc = 3;
+    napi_value args[3] = {nullptr, nullptr, nullptr};
     RepoWrap* repo = nullptr;
     WebDavSyncPolicyWrap* policy = nullptr;
     napi_value self;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 1 || argc > 2 ||
-        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo->workspace_handle == 0 ||
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 1 || argc > 3 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr || repo->workspace_handle == 0 ||
         !UnwrapWebDavSyncPolicy(env, args[0], &policy)) {
         napi_throw_error(env, nullptr, "Repo.sync 参数无效");
         return nullptr;
@@ -909,10 +946,15 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
     work->username = policy->username;
     work->password = policy->password;
     work->operation = RepoSnapshotWork::Operation::Sync;
-    if (argc == 2) {
-        napi_valuetype monitor_type;
+    napi_valuetype monitor_type = napi_undefined;
+    if (argc >= 2 && napi_typeof(env, args[1], &monitor_type) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.sync monitor 参数无效");
+        return nullptr;
+    }
+    if (monitor_type != napi_undefined) {
         napi_value resource_name;
-        if (napi_typeof(env, args[1], &monitor_type) != napi_ok || monitor_type != napi_function ||
+        if (monitor_type != napi_function ||
             napi_create_string_utf8(env, "OrgTasksWebDavSyncMonitor", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
             napi_create_threadsafe_function(env, args[1], nullptr, resource_name, 0, 1, nullptr, nullptr,
                 nullptr, CallWebDavSyncMonitor, &work->monitor) != napi_ok) {
@@ -920,6 +962,14 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
             napi_throw_error(env, nullptr, "Repo.sync monitor 参数无效");
             return nullptr;
         }
+    }
+    napi_valuetype options_type = napi_undefined;
+    if (argc == 3 && (napi_typeof(env, args[2], &options_type) != napi_ok ||
+        (options_type != napi_undefined && !ReadString(env, args[2], &work->sync_options_json)))) {
+        if (work->monitor != nullptr) napi_release_threadsafe_function(work->monitor, napi_tsfn_abort);
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.sync 同步参数无效");
+        return nullptr;
     }
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
@@ -929,9 +979,11 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
         return nullptr;
     }
     napi_value resource_name;
-    if (napi_create_string_utf8(env, "OrgTasksRepoSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoSync", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         if (work->monitor != nullptr) napi_release_threadsafe_function(work->monitor, napi_tsfn_abort);
         delete work;
@@ -1037,6 +1089,12 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value default_todo_settings;
     napi_create_function(env, "defaultTodoSettings", NAPI_AUTO_LENGTH, DefaultTodoSettings, nullptr, &default_todo_settings);
     napi_set_named_property(env, exports, "defaultTodoSettings", default_todo_settings);
+    napi_value default_sync_options;
+    napi_create_function(env, "defaultSyncOptions", NAPI_AUTO_LENGTH, DefaultSyncOptions, nullptr, &default_sync_options);
+    napi_set_named_property(env, exports, "defaultSyncOptions", default_sync_options);
+    napi_value normalize_sync_options;
+    napi_create_function(env, "normalizeSyncOptions", NAPI_AUTO_LENGTH, NormalizeSyncOptions, nullptr, &normalize_sync_options);
+    napi_set_named_property(env, exports, "normalizeSyncOptions", normalize_sync_options);
     napi_property_descriptor workspace_descriptors[] = {
         {"setTodoDefaults", nullptr, WorkspaceSetTodoDefaults, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},

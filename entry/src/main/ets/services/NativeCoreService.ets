@@ -1,6 +1,7 @@
 import {
   Repo as NativeRepo,
   TodoMetadata as NativeTodoMetadata,
+  defaultSyncOptions,
   defaultTodoSettings,
   ConflictSync as NativeConflictSync,
   MergeComparison as NativeMergeComparison,
@@ -16,7 +17,7 @@ import {
   WebDavSyncPolicy as NativeWebDavSyncPolicy,
   Workspace as NativeWorkspace
 } from 'liborg_tasks_harmony.so'
-import { RepoConfig } from '../models/OrgTask'
+import { RepoConfig, SyncOptions } from '../models/OrgTask'
 
 export interface CoreRepositoryFile {
   path: string
@@ -152,8 +153,9 @@ export class CoreRepo {
     return { id: snapshot.id, rootDirectory: this.rootDirectory(), files: snapshot.files }
   }
 
-  async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor): Promise<CoreSyncSnapshot> {
-    return await this.native.sync(policy.nativePolicy(), monitor) as NativeSyncRecord
+  async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {
+    const effective = options ?? await defaultSyncOptions()
+    return await this.native.sync(policy.nativePolicy(), monitor, JSON.stringify(effective)) as NativeSyncRecord
   }
 }
 
@@ -270,7 +272,7 @@ export class NativeCoreService {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory())
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
-        sync = await repo.sync(policy, monitor)
+        sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories })
         if (sync.result !== 'succeeded') {
           throw new Error('WebDAV 同步未完成，请查看同步记录；待上传任务已保留')
         }

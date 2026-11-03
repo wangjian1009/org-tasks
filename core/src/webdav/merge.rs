@@ -421,11 +421,11 @@ impl SyncPolicy for ResolutionPolicy<'_> {
     async fn synchronize(
         &self,
         context: &mut SyncContext<'_>,
-        history: &History,
         _cancellation: &SyncCancellation,
         _progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError> {
-        let paths = conflict_paths(history, &self.request.sync_id)?;
+        let history = context.repo.sync_history::<WebDavSyncPolicy>().await?;
+        let paths = conflict_paths(&history, &self.request.sync_id)?;
         let expected = self
             .request
             .files
@@ -443,7 +443,7 @@ impl SyncPolicy for ResolutionPolicy<'_> {
         for request in &self.request.files {
             let source = self
                 .policy
-                .merge_source(context.repo, &request.path, history)
+                .merge_source(context.repo, &request.path, &history)
                 .await?;
             if source.preview.plan.local_hash != request.local_hash
                 || source.preview.plan.remote_hash != request.remote_hash
@@ -1082,6 +1082,129 @@ mod tests {
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
     #[tokio::test]
+    async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() {
+        let (mut repo, root) = repo().await;
+        let original = b"* TODO Local archive\r\n";
+        tokio::fs::create_dir_all(root.join("archive"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("archive/local.org"), original)
+            .await
+            .unwrap();
+        let (policy, state, worker) = server(&[
+            ("archive/remote.org", b"* TODO Remote archive\n"),
+            ("nested/archive/remote.org", b"* TODO Nested archive\n"),
+            ("private/remote.org", b"* TODO Private\n"),
+            ("archives/keep.org", b"* TODO Keep similar name\n"),
+            ("keep.org", b"* TODO Keep\n"),
+        ])
+        .await;
+        let first = sync(&mut repo, &policy, 1).await;
+        assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(first.files.len(), 3);
+        assert!(!root.join("archive/remote.org").exists());
+        assert!(!root.join("nested/archive/remote.org").exists());
+        assert!(root.join("private/remote.org").is_file());
+        assert!(root.join("archives/keep.org").is_file());
+        assert_eq!(
+            tokio::fs::read(root.join("archive/local.org"))
+                .await
+                .unwrap(),
+            original
+        );
+        assert!(
+            !state
+                .lock()
+                .unwrap()
+                .files
+                .contains_key("archive/local.org")
+        );
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|r| !r.starts_with("PROPFIND"))
+                .all(|r| !r
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap()
+                    .split('/')
+                    .any(|part| part == "archive"))
+        );
+
+        // 自定义参数替换默认规则，仅对本次调用生效。
+        let second = repo
+            .sync_with_options(
+                &policy,
+                2,
+                &SyncCancellation::default(),
+                &SyncProgressReporter::default(),
+                crate::SyncOptions {
+                    excluded_directories: vec!["private".into()],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(second.files.len(), 5);
+        assert!(
+            second
+                .files
+                .iter()
+                .all(|file| !file.relative_path.starts_with("private/"))
+        );
+        assert!(root.join("archive/remote.org").is_file());
+        assert!(root.join("nested/archive/remote.org").is_file());
+        assert_eq!(
+            state.lock().unwrap().files["archive/local.org"].data,
+            original
+        );
+
+        // 已有基线和待上传意图的目录被排除后也不能发生传输或误报远端删除。
+        offline(&mut repo, "archive/local.org").await;
+        state.lock().unwrap().files.remove("archive/local.org");
+        let third = sync(&mut repo, &policy, 3).await;
+        assert_eq!(third.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(third.files.len(), 3);
+        assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+        assert!(
+            !state
+                .lock()
+                .unwrap()
+                .files
+                .contains_key("archive/local.org")
+        );
+
+        let fourth = repo
+            .sync_with_options(
+                &policy,
+                4,
+                &SyncCancellation::default(),
+                &SyncProgressReporter::default(),
+                crate::SyncOptions {
+                    excluded_directories: Vec::new(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(fourth.result, Some(OrgRepoSyncResult::Failed));
+        assert_eq!(fourth.files.len(), 6);
+        assert_eq!(
+            fourth
+                .files
+                .iter()
+                .find(|file| file.relative_path == "archive/local.org")
+                .unwrap()
+                .state,
+            OrgRepoSyncFileState::RemoteDeleted
+        );
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn first_sync_syncs_one_sided_files_and_keeps_two_sided_files_for_confirmation() {
         let (mut repo, root) = repo().await;
         tokio::fs::write(root.join("local.org"), b"* TODO Local\n")
@@ -1291,7 +1414,10 @@ mod tests {
         let (policy, _, worker) = server(&[("remote.org", b"* TODO Remote\n")]).await;
         let first = sync(&mut repo, &policy, 1).await;
         assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
-        assert_eq!(tokio::fs::read(root.join("local.org")).await.unwrap(), original);
+        assert_eq!(
+            tokio::fs::read(root.join("local.org")).await.unwrap(),
+            original
+        );
         assert_eq!(
             tokio::fs::read(root.join("remote.org")).await.unwrap(),
             b"* TODO Remote\n"

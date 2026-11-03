@@ -211,6 +211,7 @@ pub extern "C" fn org_tasks_harmony_repo_sync(
     webdav_url: *const c_char,
     username: *const c_char,
     password: *const c_char,
+    options_json: *const c_char,
     monitor_handle: u64,
     started_at: i64,
 ) -> *mut c_char {
@@ -221,6 +222,7 @@ pub extern "C" fn org_tasks_harmony_repo_sync(
             read_c_string(webdav_url)?,
             read_c_string(username)?,
             read_c_string(password)?,
+            read_c_string(options_json)?,
             monitor_handle,
             started_at,
         )
@@ -356,4 +358,24 @@ pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
         serde_json::to_string(&org_tasks_core::TodoConfig::default().to_settings())
             .map_err(|_| CoreError::InvalidState("无法编码默认 TODO 设置")),
     )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_default_sync_options() -> *mut c_char {
+    string_result(
+        serde_json::to_string(&org_tasks_core::default_sync_options())
+            .map_err(|_| CoreError::InvalidState("无法编码默认同步参数")),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_normalize_sync_options(
+    options_json: *const c_char,
+) -> *mut c_char {
+    string_result(read_c_string(options_json).and_then(|json| {
+        let options: org_tasks_core::SyncOptions =
+            serde_json::from_str(&json).map_err(|_| CoreError::InvalidInput("同步参数无效"))?;
+        serde_json::to_string(&options.normalized()?)
+            .map_err(|_| CoreError::InvalidState("无法编码同步参数"))
+    }))
 }

@@ -58,14 +58,123 @@ pub struct SyncContext<'a> {
     pub repo: &'a mut OrgRepo,
     pub started_at: TimestampMs,
     pub base: PathBuf,
+    pub options: SyncOptions,
 }
 
 impl<'a> SyncContext<'a> {
     pub fn new(repo: &'a mut OrgRepo, started_at: TimestampMs) -> Self {
+        Self::with_options(repo, started_at, SyncOptions::default())
+    }
+
+    pub fn with_options(
+        repo: &'a mut OrgRepo,
+        started_at: TimestampMs,
+        options: SyncOptions,
+    ) -> Self {
         Self {
             base: PathBuf::from(&repo.root_directory),
             repo,
             started_at,
+            options,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct SyncOptions {
+    pub excluded_directories: Vec<String>,
+}
+
+pub fn default_sync_options() -> SyncOptions {
+    SyncOptions::default()
+}
+
+impl Default for SyncOptions {
+    fn default() -> Self {
+        Self {
+            excluded_directories: vec!["archive".into()],
+        }
+    }
+}
+
+impl SyncOptions {
+    pub fn normalized(mut self) -> Result<Self, CoreError> {
+        self.excluded_directories = self
+            .excluded_directories
+            .into_iter()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .collect();
+        for value in &self.excluded_directories {
+            if value.contains('/')
+                || value.contains('\\')
+                || value == "."
+                || value == ".."
+                || value.chars().any(char::is_control)
+            {
+                return Err(CoreError::InvalidInput("过滤目录必须是单个相对目录名"));
+            }
+        }
+        self.excluded_directories.sort();
+        self.excluded_directories.dedup();
+        Ok(self)
+    }
+
+    pub fn excludes_path(&self, path: &str) -> bool {
+        path.rsplit_once('/').is_some_and(|(directories, _)| {
+            directories.split('/').any(|component| {
+                self.excluded_directories
+                    .iter()
+                    .any(|item| item == component)
+            })
+        })
+    }
+}
+
+#[cfg(test)]
+mod sync_options_tests {
+    use super::SyncOptions;
+
+    #[test]
+    fn default_and_directory_component_filtering() {
+        let options = SyncOptions::default();
+        assert!(options.excludes_path("archive/home.org"));
+        assert!(options.excludes_path("work/archive/old/home.org"));
+        assert!(!options.excludes_path("work/archive.org"));
+        assert!(!options.excludes_path("archive"));
+        assert!(!options.excludes_path("archives/home.org"));
+        assert!(!options.excludes_path("Archive/home.org"));
+        assert!(!options.excludes_path("home.org"));
+    }
+
+    #[test]
+    fn missing_options_use_defaults_but_empty_list_disables_filtering() {
+        assert_eq!(
+            serde_json::from_str::<SyncOptions>("{}").unwrap(),
+            SyncOptions::default()
+        );
+        let empty: SyncOptions = serde_json::from_str(r#"{"excludedDirectories":[]}"#).unwrap();
+        assert!(!empty.excludes_path("archive/home.org"));
+        let normalized = SyncOptions {
+            excluded_directories: vec![
+                " archive ".into(),
+                "".into(),
+                "archive".into(),
+                "私有".into(),
+            ],
+        }
+        .normalized()
+        .unwrap();
+        assert_eq!(normalized.excluded_directories, ["archive", "私有"]);
+        for value in ["/archive", "../archive", "a/b", "a\\b", ".", "..", "a\0b"] {
+            assert!(
+                SyncOptions {
+                    excluded_directories: vec![value.into()]
+                }
+                .normalized()
+                .is_err()
+            );
         }
     }
 }
@@ -80,7 +189,6 @@ pub trait SyncPolicy: Send + Sync {
     fn synchronize(
         &self,
         context: &mut SyncContext<'_>,
-        history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> impl Future<
@@ -328,6 +436,12 @@ pub trait OrgRepoSyncRecordStore: Send {
 }
 
 impl OrgRepo {
+    pub(crate) async fn sync_history<P: SyncPolicy>(
+        &self,
+    ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
+        load_sync_history::<P>(Path::new(&self.root_directory)).await
+    }
+
     /// 初始化仓库标识并扫描本地根目录，生成完整文件快照。
     pub async fn load<P: SyncPolicy>(
         &mut self,
@@ -397,13 +511,35 @@ impl OrgRepo {
     where
         P: SyncPolicy,
     {
+        self.sync_with_options(
+            policy,
+            started_at,
+            cancellation,
+            progress,
+            SyncOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn sync_with_options<P>(
+        &mut self,
+        policy: &P,
+        started_at: TimestampMs,
+        cancellation: &SyncCancellation,
+        progress: &SyncProgressReporter,
+        options: SyncOptions,
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
+    where
+        P: SyncPolicy,
+    {
+        let options = options.normalized()?;
         let history = self.load::<P>().await?;
         if history.iter().any(|record| record.started_at == started_at) {
             return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
-        let mut context = SyncContext::new(self, started_at);
+        let mut context = SyncContext::with_options(self, started_at, options);
         let mut record = policy
-            .synchronize(&mut context, &history, cancellation, progress)
+            .synchronize(&mut context, cancellation, progress)
             .await?;
         if record.kind.is_empty() {
             record.kind = P::KIND.into();
@@ -711,7 +847,9 @@ async fn load_setup_settings(
                 continue;
             }
             let setup_path = current_dir.join(relative);
-            let normalized = setup_path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
+            let normalized = setup_path
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
             if !visited.insert(normalized) {
                 continue;
             }
@@ -752,7 +890,6 @@ mod tests {
         fn synchronize(
             &self,
             context: &mut SyncContext<'_>,
-            _: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
             _: &SyncCancellation,
             _: &SyncProgressReporter,
         ) -> impl Future<
@@ -781,7 +918,6 @@ mod tests {
         fn synchronize(
             &self,
             context: &mut SyncContext<'_>,
-            _: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
             _: &SyncCancellation,
             _: &SyncProgressReporter,
         ) -> impl Future<
@@ -986,10 +1122,10 @@ mod tests {
         async fn synchronize(
             &self,
             context: &mut SyncContext<'_>,
-            history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
             _: &SyncCancellation,
             _: &SyncProgressReporter,
         ) -> Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError> {
+            let history = context.repo.sync_history::<Self>().await.unwrap();
             assert_eq!(history.len(), context.started_at as usize);
             if context.started_at == 1 {
                 assert_eq!(

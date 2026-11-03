@@ -122,6 +122,14 @@ impl OrgRepo {
         progress: &SyncProgressReporter)
         -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where P: SyncPolicy;
+
+    pub async fn sync_with_options<P>(&mut self, policy: &P,
+        started_at: TimestampMs,
+        cancellation: &SyncCancellation,
+        progress: &SyncProgressReporter,
+        options: SyncOptions)
+        -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
+    where P: SyncPolicy;
 }
 #+end_src
 
@@ -272,7 +280,7 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 *** SyncPolicy 与本地同步历史
 
-~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理；~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。~SyncPolicy.synchronize~ 接收的是 ~OrgRepo.sync~ 内部恢复的历史快照。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
+~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理； ~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。 ~SyncPolicy.synchronize~ 只接收 ~SyncContext~ 、取消信号和进度对象；策略需要历史时通过上下文仓库的内部历史接口读取。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
 #+begin_src rust
 pub trait SyncPolicy: Send + Sync {
@@ -284,7 +292,6 @@ pub trait SyncPolicy: Send + Sync {
     fn synchronize(
         &self,
         context: &mut SyncContext<'_>,
-        history: &[OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>],
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> impl Future<Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>> + Send;
@@ -296,14 +303,29 @@ pub trait SyncPolicy: Send + Sync {
 
 *** SyncContext 与策略细节
 
-~SyncContext~ 表达一次同步，持有可变 ~OrgRepo~ 、 ~started_at~ 和仓库根路径 ~base~ 。 ~SyncContextDetail~ 与 ~SyncFileDetail~ 约束策略专属且可序列化的历史细节；前者保存到记录的 ~context_detail~ ，后者保存到每个文件的 ~detail~ 。
+~SyncContext~ 表达一次同步，持有可变 ~OrgRepo~ 、 ~started_at~ 、仓库根路径 ~base~ 和本次调用的 ~SyncOptions~ 。历史仍由仓库内部管理，不作为策略接口参数。 ~SyncOptions~ 当前包含 ~excluded_directories~ ，默认由 Rust 提供为 ~["archive"]~ ，后续可扩展其他策略参数。 ~SyncContextDetail~ 与 ~SyncFileDetail~ 约束策略专属且可序列化的历史细节；前者保存到记录的 ~context_detail~ ，后者保存到每个文件的 ~detail~ 。
 
 #+begin_src rust
 pub struct SyncContext<'a> {
     pub repo: &'a mut OrgRepo,
     pub started_at: TimestampMs,
     pub base: PathBuf,
+    pub options: SyncOptions,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct SyncOptions {
+    pub excluded_directories: Vec<String>,
+}
+
+impl Default for SyncOptions {
+    fn default() -> Self {
+        Self { excluded_directories: vec!["archive".into()] }
+    }
+}
+
+pub fn default_sync_options() -> SyncOptions;
 
 pub trait SyncPolicy: Send + Sync {
     const KIND: &'static str;
@@ -312,6 +334,10 @@ pub trait SyncPolicy: Send + Sync {
     type FileDetail: SyncFileDetail;
 }
 #+end_src
+
+~sync~ 使用 Rust 默认值； ~sync_with_options~ 使用本次传入的值。缺失的 JSON 字段采用默认值，显式空列表表示不排除任何目录。目录名按大小写敏感的完整路径组件匹配，只匹配文件路径中的目录部分；例如 ~archive/a.org~ 与 ~work/archive/a.org~ 被默认排除，而 ~archives/a.org~ 与 ~work/archive.org~ 不被排除。输入去除首尾空白、忽略空项并去重，不接受绝对路径、多级路径或控制字符。
+
+过滤不删除已下载的本地文件，不改写历史或确认被过滤文件的 outbox；普通同步不为被过滤路径产生下载、上传、删除或冲突记录。规则只影响传输范围，本地浏览仍读取已有文件，已有冲突仍可从历史中查询。
 
 *** OrgRepoSyncController
 

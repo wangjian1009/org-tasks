@@ -49,13 +49,13 @@ class Repo {
   load(): Promise<void>
   createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>
   snapshot(): Promise<RepositorySnapshot>
-  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor): Promise<SyncRecord>
+  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, optionsJson?: string): Promise<SyncRecord>
 }
 #+end_src
 
 * 请求与响应
 
-~Workspace~ 当前提供 ~repos~ 、~addRepo~ 、~removeRepo~ 和 ~search~；~Repo~ 提供 ~id~ 、~rootDirectory~、异步 ~load~、~snapshot~ 和异步 ~sync~。ArkTS 必须按 ~new Workspace() -> addRepo() -> repo.load()~ 的顺序初始化每个仓库；~addRepo~ 仅在 core workspace 中保存仓库目录，~Repo.load~ 扫描对应仓库。~Repo.sync(policy, monitor)~ 在调用期间构造 ~WebDavSyncPolicy~，以原生 ~WebDavSyncMonitor~ 订阅脱敏进度事件，并直接调用对应仓库的 ~OrgRepo.sync~，由其内部恢复当前文件和同步历史；同步结束后策略随调用释放。C++ 通过 N-API thread-safe function 将事件投递回 ArkTS 回调；搜索调用 ~OrgWorkspace.search~。C++ N-API 解析 Rust DTO 后直接向 ArkTS 返回对象或数组，不把 JSON 字符串暴露给 ArkTS。这些调用序列属于 Harmony 宿主适配；~OrgRepo~ 、~OrgWorkspace~ 、~Filter~、~SyncPolicy~ 、WebDAV 传输和 org 解析算法仍只定义在 core。
+~Workspace~ 当前提供 ~repos~ 、 ~addRepo~ 、 ~removeRepo~ 和 ~search~ ； ~Repo~ 提供 ~id~ 、 ~rootDirectory~ 、异步 ~load~ 、 ~snapshot~ 和异步 ~sync~ 。ArkTS 必须按 ~new Workspace() -> addRepo() -> repo.load()~ 的顺序初始化每个仓库； ~addRepo~ 仅在 core workspace 中保存仓库目录， ~Repo.load~ 扫描对应仓库。 ~Repo.sync(policy, monitor, optionsJson)~ 在调用期间构造 ~WebDavSyncPolicy~ ，以原生 ~WebDavSyncMonitor~ 订阅脱敏进度事件，并将本次同步参数传给对应仓库的 ~OrgRepo.sync_with_options~ ；历史由仓库内部恢复，同步结束后策略随调用释放。C++ 通过 N-API thread-safe function 将事件投递回 ArkTS 回调；搜索调用 ~OrgWorkspace.search~ 。C++ N-API 解析 Rust DTO 后直接向 ArkTS 返回对象或数组，不把 JSON 字符串暴露给 ArkTS。这些调用序列属于 Harmony 宿主适配； ~OrgRepo~ 、 ~OrgWorkspace~ 、 ~Filter~ 、 ~SyncPolicy~ 、WebDAV 传输和 org 解析算法仍只定义在 core。
 
 响应包含仓库稳定 ID、相对 org 文件路径、原始 UTF-8 内容、字节长度，以及可选同步记录摘要。WebDAV 密码只作为同步请求输入，不能出现在响应、日志或同步记录中。
 
@@ -113,7 +113,7 @@ C++ 复制输入对象与当前策略凭据，在 ~napi_create_async_work~ 工�
 
 * 同步历史由仓库恢复
 
-Harmony 的 ~repo_sync_json~ 不再先读取历史或把历史传入同步接口，直接调用 ~OrgRepo.sync(policy, started_at, cancellation, progress)~ 。ArkTS 在启用 WebDAV 的仓库上也不再预先执行 ~Repo.load~ ；本地仓库浏览仍显式调用 load。历史回退、首次无历史时的全文件冲突和部分成功基准均由 Rust core 处理。
+Harmony 的 ~repo_sync_json~ 不再先读取历史或把历史传入同步接口，直接调用 ~OrgRepo.sync_with_options(policy, started_at, cancellation, progress, options)~ 。ArkTS 在启用 WebDAV 的仓库上也不再预先执行 ~Repo.load~ ；本地仓库浏览仍显式调用 load。历史回退、首次无历史时的全文件冲突、同步过滤目录和部分成功基准均由 Rust core 处理。
 
 比较对象的 ~files[].localMissing~ 指示本地缺失的远端文件，与空文件区分。界面原样传递该版本信息，apply 校验缺失状态后创建文件；仅已有本地文件被备份，返回的 ~backups~ 可以少于冲突文件数量。UI 不计算或补造版本基准。
 
@@ -124,3 +124,9 @@ Harmony 的 ~repo_sync_json~ 不再先读取历史或把历史传入同步接口
 ~Repo.todoMetadata(path): Promise<TodoMetadata>~ 返回已有文件的有效元信息；文件不存在时使用外部默认值生成元信息，供新增任务显示初始状态，不创建空文件。~RepositoryFile.todo~ 在每个快照中返回来源、流程、待办/完成状态、显式快捷键和日志要求。任务 DTO 增加可空的 ~todoKind~ ，值为 ~pending~ 或 ~done~ ，由 Rust 的 ~FilterTask.state_type~ 投影。
 
 ArkTS 只传递设置并显示结果。C++ 负责参数编组、worker、结果投影和资源释放；文内声明收集、流程归属、覆盖规则、初始状态和旧比较对象校验均由 Rust 实现。全局配置变化时更新同一个 workspace；合并提交前刷新外部默认配置，避免使用旧解析规则。
+
+* 同步参数与默认值
+
+~defaultSyncOptions(): Promise<SyncOptions>~ 在工作线程读取 Rust 默认值，直接返回结构化对象； ~normalizeSyncOptions(optionsJson): Promise<SyncOptions>~ 由 core 解析、验证并规范化输入。默认值不在 ArkTS 维护副本。省略参数使用 Rust 默认值，显式空目录列表保留为空。
+
+~Repo.sync(policy, monitor, optionsJson)~ 读取第三个参数，将 JSON 传至 Rust 的 ~SyncOptions~ 。 ~monitor~ 可省略，后台同步可以传 ~undefined~ 并继续传入第三个参数。异步调用保留 ~Repo~ 引用，完成后释放。无效目录在执行同步和持久化前返回 core 输入错误。

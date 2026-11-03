@@ -551,7 +551,6 @@ mod tests {
         async fn synchronize(
             &self,
             context: &mut super::super::SyncContext<'_>,
-            _history: &[super::super::OrgRepoSyncRecord],
             _cancellation: &super::super::SyncCancellation,
             _progress: &super::super::SyncProgressReporter,
         ) -> Result<super::super::OrgRepoSyncRecord, CoreError> {

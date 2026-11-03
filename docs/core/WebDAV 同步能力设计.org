@@ -100,7 +100,7 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 
 * 文件决策
 
-仓库的 ~OrgRepo.sync~ 负责加载并校验历史，只将 ~kind~ 等于 ~SyncPolicy::KIND~ 的记录交给策略，调用方不传入历史。策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~WebDavSyncFileDetail~ 。不同仓库可以包含同名相对路径，彼此不相关。
+仓库的 ~OrgRepo.sync~ 负责加载并校验历史，策略按需通过仓库内部历史接口读取 ~kind~ 等于 ~SyncPolicy::KIND~ 的记录，调用方不传入历史。策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~WebDavSyncFileDetail~ 。不同仓库可以包含同名相对路径，彼此不相关。
 
 | 自上次确认后本地状态 | 远端状态 | ~OrgRepoSyncFileRecord~ |
 |-
@@ -122,6 +122,12 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 每个路径的版本基准来自最近一条 ~Synchronized~ 文件记录，包括整体失败作业中已经成功的文件。冲突和失败文件不能成为新基准；包含失败、冲突或远端删除的作业以 ~Failed~ 结束。~OrgRepo.sync~ 在同步历史落盘后确认成功文件的写入意图；网络失败、~412~ 和取消不会消费尚未完成文件的意图。
 
 运行时可报告列举、下载、上传、解析和收尾进度，以及本轮完整的脱敏 HTTP 事件序列，但进度事件不写入 ~OrgRepoSyncRecord~ 的领域结构。错误至少区分网络、认证、TLS、校验、本地存储与冲突；错误摘要必须脱敏，是否重试由宿主决定。
+
+* 同步过滤目录
+
+本次同步参数通过 ~OrgRepo.sync_with_options~ 传入 ~SyncContext.options~ ，不保存在 ~WebDavSyncPolicy~ 或 ~OrgRepo~ 中。 ~SyncOptions::default()~ 默认排除 ~archive~ 目录；显式空列表关闭目录过滤。目录名按大小写敏感的路径组件匹配，可匹配任意层级的同名目录，文件名不参与匹配。
+
+WebDAV 在处理文件前同时过滤远端列举结果与本地候选路径，避免被排除文件的下载、上传、冲突和远端删除判断。过滤路径不生成本轮文件记录，不消费其 outbox，也不删除已有本地文件。过滤参数不会使当前的 ~Depth: 1~ 列举变为递归遍历。
 
 * 验收标准
 
