@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate};
-use orgize::ast::{Headline, Timestamp, TodoType};
+use orgize::ast::{Headline, Timestamp};
 use orgize::rowan::ast::AstNode;
 
 use crate::OrgRepo;
@@ -258,6 +258,19 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 .filter(|timestamp| timestamp.is_active())
                 .filter_map(timestamp_to_date)
                 .collect();
+            let state = headline.todo_keyword().map(|value| value.to_string());
+            let state_type = match state.as_deref() {
+                Some(value) if file.todo.done_keywords.iter().any(|keyword| keyword == value) => {
+                    FilterStateType::Done
+                }
+                Some(value)
+                    if file
+                        .todo
+                        .pending_keywords
+                        .iter()
+                        .any(|keyword| keyword == value) => FilterStateType::Todo,
+                _ => FilterStateType::None,
+            };
             tasks.push(FilterTask {
                 repo_id: repository.id.clone(),
                 path: file.path.clone(),
@@ -265,12 +278,8 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 column,
                 byte_offset: offset as u64,
                 level: level as u32,
-                state: headline.todo_keyword().map(|value| value.to_string()),
-                state_type: match headline.todo_type() {
-                    Some(TodoType::Done) => FilterStateType::Done,
-                    Some(TodoType::Todo) => FilterStateType::Todo,
-                    None => FilterStateType::None,
-                },
+                state,
+                state_type,
                 priority: headline.priority().map(|value| value.to_string()),
                 own_tags,
                 inherited_tags,
@@ -977,6 +986,26 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn file_level_cancel_state_is_done_in_task_projection() {
+        let file = OrgFile::with_todo_defaults(
+            "repo".into(),
+            "work.org".into(),
+            b"#+TODO: TODO | DONE CNCL\n* CNCL Cancelled\n".to_vec(),
+            crate::TodoConfig::default(),
+        )
+        .unwrap();
+        let repository = OrgRepo {
+            id: "repo".into(),
+            root_directory: "/tmp".into(),
+            todo_defaults: crate::TodoConfig::default(),
+            files: vec![file],
+        };
+        let task = tasks_from_repo(&repository).pop().unwrap();
+        assert_eq!(task.state.as_deref(), Some("CNCL"));
+        assert_eq!(task.state_type, FilterStateType::Done);
     }
 
     #[test]

@@ -337,7 +337,13 @@ impl OrgRepo {
         let sources = scan_org_files(Path::new(&self.root_directory)).await?;
         let mut files = Vec::with_capacity(sources.len());
         for source in sources {
-            let file = self.parse_file(source.path, source.source_bytes)?;
+            let setup = load_setup_settings(
+                Path::new(&self.root_directory),
+                &source.path,
+                &source.source_bytes,
+            )
+            .await?;
+            let file = self.parse_file_with_setup(source.path, source.source_bytes, setup)?;
             if files
                 .iter()
                 .any(|existing: &OrgFile| existing.path == file.path)
@@ -356,17 +362,27 @@ impl OrgRepo {
         path: String,
         source_bytes: Vec<u8>,
     ) -> Result<OrgFile, CoreError> {
+        self.parse_file_with_setup(path, source_bytes, String::new())
+    }
+
+    pub(crate) fn parse_file_with_setup(
+        &self,
+        path: String,
+        source_bytes: Vec<u8>,
+        setup_settings: String,
+    ) -> Result<OrgFile, CoreError> {
         if self.id.is_empty() {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
         if !self.contains_path(&path) {
             return Err(CoreError::InvalidInput("扫描结果包含非法文件路径"));
         }
-        OrgFile::with_todo_defaults(
+        OrgFile::with_todo_defaults_and_setup(
             self.id.clone(),
             path,
             source_bytes,
             self.todo_defaults.clone(),
+            setup_settings,
         )
     }
 
@@ -658,6 +674,57 @@ async fn scan_org_files(root: &Path) -> Result<Vec<OrgRepoSourceFile>, CoreError
     Ok(files)
 }
 
+async fn load_setup_settings(
+    root: &Path,
+    source_path: &str,
+    source_bytes: &[u8],
+) -> Result<String, CoreError> {
+    let mut settings = Vec::new();
+    let mut pending = vec![(PathBuf::from(source_path), source_bytes.to_vec())];
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some((current_path, current_bytes)) = pending.pop() {
+        let current_dir = current_path.parent().unwrap_or_else(|| Path::new(""));
+        for line in String::from_utf8_lossy(&current_bytes).lines() {
+            let trimmed = line.trim();
+            let lower = trimmed.to_ascii_lowercase();
+            if lower.starts_with("#+todo:")
+                || lower.starts_with("#+seq_todo:")
+                || lower.starts_with("#+typ_todo:")
+            {
+                settings.push(trimmed.to_owned());
+                continue;
+            }
+            let Some(value) = trimmed
+                .get(13..)
+                .filter(|_| lower.starts_with("#+setupfile:"))
+                .map(str::trim)
+            else {
+                continue;
+            };
+            let value = value.strip_prefix("file:").unwrap_or(value).trim();
+            let relative = Path::new(value);
+            if relative.is_absolute()
+                || relative
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                continue;
+            }
+            let setup_path = current_dir.join(relative);
+            let normalized = setup_path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
+            if !visited.insert(normalized) {
+                continue;
+            }
+            let absolute = root.join(&setup_path);
+            let Ok(bytes) = fs::read(&absolute).await else {
+                continue;
+            };
+            pending.push((setup_path, bytes));
+        }
+    }
+    Ok(settings.join("\n"))
+}
+
 fn relative_path(path: &Path) -> Result<String, CoreError> {
     let value = path
         .to_str()
@@ -752,6 +819,30 @@ mod tests {
             std::fs::read_to_string(root.join(".sync/id")).unwrap(),
             format!("{initial_id}\n")
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repo_loads_todo_states_from_setupfile_for_each_org_file() {
+        let root = std::env::temp_dir().join(format!("org-tasks-setupfile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join(".setup.org"),
+            b"#+TODO: TODO(t) NEXT(n) WAIT(w) | DONE(d!)\n#+TODO: | CNCL(c!)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("inbox.org"),
+            b"#+SETUPFILE: ./.setup.org\n* TODO Pending\n* CNCL Cancelled\n",
+        )
+        .unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        let tasks = crate::filter::tasks_from_repo(&repo);
+        assert_eq!(tasks[0].state_type, crate::filter::FilterStateType::Todo);
+        assert_eq!(tasks[1].state_type, crate::filter::FilterStateType::Done);
+        assert_eq!(repo.files()[0].todo.done_keywords, ["DONE", "CNCL"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 

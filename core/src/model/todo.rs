@@ -246,13 +246,16 @@ impl TodoConfig {
 }
 
 impl TodoMetadata {
-    pub(crate) fn parse(
+    pub(crate) fn parse_with_setup(
         source: &str,
         defaults: &TodoConfig,
+        setup_settings: &str,
     ) -> Result<(Self, orgize::Org), CoreError> {
         let initial = orgize::Org::parse(source);
         let declarations = declarations(source, &initial);
-        let metadata = if declarations.is_empty() {
+        let metadata = if declarations.is_empty() && !setup_settings.trim().is_empty() {
+            TodoConfig::from_settings(setup_settings)?.metadata(TodoSource::InBuffer, Vec::new())?
+        } else if declarations.is_empty() {
             defaults.metadata(TodoSource::GlobalDefault, declarations)?
         } else {
             TodoConfig {
@@ -399,6 +402,21 @@ mod tests {
         );
         assert_eq!(f.todo.done_keywords, ["DONE", "ACCEPTED", "CANCELED"]);
         assert_eq!(f.todo.pending_keywords, ["TODO", "REVIEW", "VERIFY"]);
+    }
+
+    #[test]
+    fn file_level_cancel_state_is_projected_as_done() {
+        let f = file("#+TODO: TODO | DONE CNCL\n* CNCL Cancelled\n");
+        let headline = f
+            .syntax()
+            .document()
+            .syntax()
+            .descendants()
+            .filter_map(orgize::ast::Headline::cast)
+            .next()
+            .unwrap();
+        assert_eq!(headline.todo_keyword().map(|value| value.to_string()), Some("CNCL".into()));
+        assert_eq!(headline.todo_type(), Some(orgize::ast::TodoType::Done));
     }
 
     #[test]

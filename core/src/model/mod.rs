@@ -51,11 +51,12 @@ impl OrgRepo {
             .files
             .iter()
             .map(|file| {
-                OrgFile::with_todo_defaults(
+                OrgFile::with_todo_defaults_and_setup(
                     file.repo_id.clone(),
                     file.path.clone(),
                     file.source_bytes.clone(),
                     defaults.clone(),
+                    file.todo_setup.clone(),
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -80,6 +81,7 @@ pub struct OrgFile {
     pub source_bytes: Vec<u8>,
     pub todo: TodoMetadata,
     todo_defaults: TodoConfig,
+    todo_setup: String,
     syntax: orgize::Org,
 }
 
@@ -98,18 +100,29 @@ impl OrgFile {
         source_bytes: Vec<u8>,
         defaults: TodoConfig,
     ) -> Result<Self, OrgFileValidationError> {
+        Self::with_todo_defaults_and_setup(repo_id, path, source_bytes, defaults, String::new())
+    }
+
+    pub(crate) fn with_todo_defaults_and_setup(
+        repo_id: OrgRepoId,
+        path: String,
+        source_bytes: Vec<u8>,
+        defaults: TodoConfig,
+        todo_setup: String,
+    ) -> Result<Self, OrgFileValidationError> {
         validate_id(&repo_id, "文件仓库 ID 不能为空")?;
         validate_relative_path(&path)?;
         defaults.validate()?;
         let source = std::str::from_utf8(&source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
-        let (todo, syntax) = TodoMetadata::parse(source, &defaults)?;
+        let (todo, syntax) = TodoMetadata::parse_with_setup(source, &defaults, &todo_setup)?;
         Ok(Self {
             repo_id,
             path,
             source_bytes,
             todo,
             todo_defaults: defaults,
+            todo_setup,
             syntax,
         })
     }
@@ -125,7 +138,11 @@ impl OrgFile {
     pub(crate) fn reparse(&mut self) -> Result<(), CoreError> {
         let source = std::str::from_utf8(&self.source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
-        let (todo, syntax) = TodoMetadata::parse(source, &self.todo_defaults)?;
+        let (todo, syntax) = TodoMetadata::parse_with_setup(
+            source,
+            &self.todo_defaults,
+            &self.todo_setup,
+        )?;
         self.todo = todo;
         self.syntax = syntax;
         Ok(())
@@ -134,11 +151,12 @@ impl OrgFile {
 
 impl Clone for OrgFile {
     fn clone(&self) -> Self {
-        Self::with_todo_defaults(
+        Self::with_todo_defaults_and_setup(
             self.repo_id.clone(),
             self.path.clone(),
             self.source_bytes.clone(),
             self.todo_defaults.clone(),
+            self.todo_setup.clone(),
         )
         .expect("已加载的 Org 文件必须可重新解析")
     }
