@@ -244,13 +244,14 @@ export struct AppShell {
           }
           Row({ space: 8 }) {
             if (this.titleIcon !== '') {
-              Image(this.titleIcon).width(26).height(26)
+              Image(this.titleIcon).width(26).height(26).enabled(!this.busy)
+                .accessibilityText(`打开导航，${this.title}`).onClick((): void => { this.openDrawer() })
             }
             Text(this.title).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
               .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              .accessibilityText(`打开导航，${this.title}`).enabled(!this.busy)
+              .onClick((): void => { this.openDrawer() })
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
-            .accessibilityText(`打开导航，${this.title}`).enabled(!this.busy)
-            .onClick((): void => { this.openDrawer() })
           if (this.actionLabel.length > 0) {
             IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
           }
