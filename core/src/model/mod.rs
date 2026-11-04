@@ -16,6 +16,7 @@ pub use creation::*;
 pub use editor::*;
 pub use merge::*;
 pub use query::*;
+pub use render::*;
 pub use service::*;
 pub use task_scan::*;
 pub use todo::*;

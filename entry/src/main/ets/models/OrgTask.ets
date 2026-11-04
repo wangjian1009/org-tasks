@@ -13,6 +13,8 @@ export interface OrgTask {
   fileName: string     // 所属文件名
   level: number        // core 投影的标题层级，从 1 开始
   body: string         // 正文内容
+  bodyHtml: string      // Core 渲染的正文，不包含 LOGBOOK
+  logbookHtml: string   // Core 提取并渲染的 LOGBOOK
   progress: number     // 预留投影字段；当前 bridge 固定返回 -1
 }
 
@@ -53,6 +55,7 @@ export interface AppConfig {
   calendarName: string // 日历名称
   syncInterval: number // 同步间隔（分钟）
   todoDefaults: string // 外部保存的全局默认声明，缺省值由 Rust 提供
+  fileDisplayMode: 'rendered' | 'source' // 文件展示方式
 }
 
 // 默认配置
@@ -63,5 +66,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   memoFile: '',
   calendarName: 'Org Tasks',
   syncInterval: 20,
-  todoDefaults: '' // 配置加载前的占位，实际默认值从 Rust 获取
+  todoDefaults: '', // 配置加载前的占位，实际默认值从 Rust 获取
+  fileDisplayMode: 'rendered'
 }

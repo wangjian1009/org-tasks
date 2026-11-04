@@ -66,6 +66,8 @@ pub struct HarmonyBridgeTask {
     pub file_name: String,
     pub level: u32,
     pub body: String,
+    pub body_html: String,
+    pub logbook_html: String,
     pub progress: i32,
 }
 
@@ -194,6 +196,7 @@ fn task_snapshot(
 
 fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
     let is_done = task.is_done();
+    let content = task.render_content();
     let mut tags = task.own_tags;
     for inherited in task.inherited_tags {
         if !tags.contains(&inherited) {
@@ -225,6 +228,8 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         file_path: task.path,
         level: task.level,
         body: task.body,
+        body_html: content.body_html,
+        logbook_html: content.logbook_html,
         progress: -1,
     }
 }

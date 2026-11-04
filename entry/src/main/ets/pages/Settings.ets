@@ -21,6 +21,7 @@ struct Settings {
   @State calendarName: string = 'Org Tasks'
   @State syncInterval: string = '20'
   @State todoDefaults: string = ''
+  @State fileDisplayMode: 'rendered' | 'source' = 'rendered'
   @State saving: boolean = false
   @State loaded: boolean = false
   @State message: string = ''
@@ -43,6 +44,7 @@ struct Settings {
       const params = router.getParams() as SettingsParams | undefined
       if (!this.loaded && params?.section) this.section = params.section
       this.todoDefaults = this.config.todoDefaults
+      this.fileDisplayMode = this.config.fileDisplayMode
       this.calendarName = this.config.calendarName
       this.syncInterval = Math.max(20, this.config.syncInterval).toString()
       this.loaded = true
@@ -58,7 +60,7 @@ struct Settings {
     this.saving = true
     try {
       const current = await AppConfigService.load(getContext(this))
-      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, memoFile: this.section === '笔记与笔记本' ? this.memoFile.trim() : current.memoFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults })
+      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, memoFile: this.section === '笔记与笔记本' ? this.memoFile.trim() : current.memoFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults, fileDisplayMode: this.section === '笔记与笔记本' ? this.fileDisplayMode : current.fileDisplayMode })
       await NativeCoreService.workspaceFor(current.repos, this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults)
       this.message = '设置已保存'
       try { await BackgroundSyncService.configure(interval) }
@@ -81,6 +83,14 @@ struct Settings {
                 PreferenceRow({ title: '笔记与笔记本', detail: '收件箱、某天、备忘文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
                 PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
               } else if (this.section === '笔记与笔记本') {
+                SectionHeading({ title: '文件展示' })
+                PreferenceRow({ title: '文件展示方式', detail: this.fileDisplayMode === 'source' ? '原文' : '渲染（默认）', icon: $r('app.media.ui_body'),
+                  action: (): void => {
+                    this.getUIContext().showActionSheet({ title: '文件展示方式', message: '选择打开文件时的展示方式，保存后生效。', sheets: [
+                      { title: '渲染（默认）', action: (): void => { this.fileDisplayMode = 'rendered' } },
+                      { title: '原文', action: (): void => { this.fileDisplayMode = 'source' } }
+                    ] })
+                  } })
                 SectionHeading({ title: '默认 TODO 流程' })
                 Column({ space: 12 }) {
                   TextArea({ text: this.todoDefaults, placeholder: '从 Rust 获取的默认设置，可按 Org 声明编辑' }).width('100%').height(180)

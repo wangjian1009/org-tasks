@@ -490,3 +490,16 @@ categories: Vec\textless TaskCategory\textgreater}{}
 * 只读展示投影
 
 OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件投影为安全 HTML 片段；不新增持久化字段、解析 AST 或同步记录。宿主负责主题、滚动和折叠交互，源字节仍是唯一保真序列化来源。
+
+** 任务正文展示投影
+
+RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，原始 body 及源字节不变。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{FilterTask}{body: String}{render\_content(): RenderedTaskContent}
+\umlclass[x=7,y=0]{RenderedTaskContent}{body\_html: String \\
+logbook\_html: String}{}
+\umldep{FilterTask}{RenderedTaskContent}
+\end{tikzpicture}
+\end{center}

@@ -1,24 +1,37 @@
 //! 基于现有 orgize 语法树的只读 HTML 投影；不改变源字节，不执行文内 HTML。
 use super::OrgFile;
+use crate::FilterTask;
 use orgize::export::{Container, Event, HtmlEscape, HtmlExport, TraversalContext, Traverser};
 use orgize::{SyntaxKind, rowan::ast::AstNode};
 
 impl OrgFile {
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new());
-        if let Some(title) = self.title().filter(|title| !title.is_empty()) {
-            view.0.push_str(format!(
-                "<h1 class=\"document-title\">{}</h1>",
-                HtmlEscape(title)
-            ));
-        }
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None);
         self.syntax().traverse(&mut view);
         view.0.finish()
     }
 }
 
-struct ReadingView(HtmlExport, Vec<bool>);
+/// 任务详情的运行时展示投影，原始 body 仍用于查询和其他宿主。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderedTaskContent {
+    pub body_html: String,
+    pub logbook_html: String,
+}
+
+impl FilterTask {
+    pub fn render_content(&self) -> RenderedTaskContent {
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), Some(String::new()));
+        orgize::Org::parse(&self.body).traverse(&mut view);
+        RenderedTaskContent {
+            body_html: view.0.finish(),
+            logbook_html: view.2.unwrap_or_default(),
+        }
+    }
+}
+
+struct ReadingView(HtmlExport, Vec<bool>, Option<String>);
 
 impl ReadingView {
     fn literal(&mut self, class: &str, text: impl AsRef<str>) {
@@ -30,6 +43,9 @@ impl ReadingView {
 impl Traverser for ReadingView {
     fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
         match event {
+            Event::Enter(Container::Document(_) | Container::Section(_))
+            | Event::Leave(Container::Document(_) | Container::Section(_))
+                if self.2.is_some() => {}
             Event::Enter(Container::Headline(headline)) => {
                 let level = headline.level().min(6);
                 self.0.push_str(format!("<details class=\"heading level-{level}\" open><summary><span role=\"heading\" aria-level=\"{level}\" class=\"heading-title\">"));
@@ -84,6 +100,20 @@ impl Traverser for ReadingView {
                 ctx.skip();
             }
             Event::Enter(Container::Drawer(drawer)) => {
+                if drawer.name().eq_ignore_ascii_case("LOGBOOK") && self.2.is_some() {
+                    let mut log = ReadingView(HtmlExport::default(), Vec::new(), None);
+                    for element in drawer
+                        .syntax()
+                        .children()
+                        .filter(|node| node.kind() == SyntaxKind::DRAWER_CONTENT)
+                        .flat_map(|node| node.children_with_tokens())
+                    {
+                        log.element(element, &mut TraversalContext::default());
+                    }
+                    self.2.as_mut().unwrap().push_str(&log.0.finish());
+                    ctx.skip();
+                    return;
+                }
                 self.0.push_str(format!(
                     "<details class=\"drawer\"><summary>{}</summary>",
                     HtmlEscape(drawer.name())
@@ -282,7 +312,6 @@ mod tests {
         let file = file(source);
         let html = file.render_html();
         for expected in [
-            "花园</h1>",
             "前言 <b>粗体</b>",
             "todo pending",
             "todo done",
@@ -303,6 +332,8 @@ mod tests {
         assert_eq!(html.matches("<details class=\"heading").count(), 3);
         assert_eq!(html.matches("</details>").count(), 4);
         assert_eq!(file.source_bytes(), source.as_bytes());
+        assert!(!html.contains("document-title"));
+        assert!(!html.contains("花园"));
     }
 
     #[test]
@@ -356,5 +387,41 @@ mod tests {
             html.contains("<tr><td>Last</td><td></td><td></td><td>tail</td></tr>"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn task_content_extracts_only_real_logbook_drawers() {
+        let source = "* TODO Task\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-05 Thu 10:00]\nCLOCK: [2026-11-05 Thu 09:00]--[2026-11-05 Thu 10:00] => 1:00\n:END:\n正文 *粗体* [[https://example.com][链接]]\n#+begin_src text\n:LOGBOOK:\n保留代码\n:END:\n#+end_src\n:OTHER:\n其他抽屉\n:END:\n:LOGBOOK:\n- 第二条记录\n:END:\n";
+        let file = file(source);
+        let mut repo = crate::OrgRepo::new("/tmp/render-only".into()).unwrap();
+        repo.id = "repo".into();
+        repo.files.push(file);
+        let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        let task = workspace.search(&crate::Filter::parse("")).remove(0);
+        let rendered = task.render_content();
+        assert!(rendered.body_html.contains("<b>粗体</b>"));
+        assert!(rendered.body_html.contains("链接</span>"));
+        assert!(rendered.body_html.contains("保留代码"));
+        assert!(rendered.body_html.contains("其他抽屉"));
+        assert!(!rendered.body_html.contains("CLOCK:"));
+        assert!(!rendered.body_html.contains("第二条记录"));
+        assert!(rendered.logbook_html.contains("CLOCK:"));
+        assert!(rendered.logbook_html.contains("第二条记录"));
+        assert!(task.body.contains(":LOGBOOK:"));
+        assert_eq!(
+            workspace.repos()[0].files()[0].source_bytes(),
+            source.as_bytes()
+        );
+    }
+
+    #[test]
+    fn logbook_only_task_has_empty_rendered_body() {
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), Some(String::new()));
+        orgize::Org::parse(
+            ":LOGBOOK:\nCLOCK: [2026-11-05 Thu 09:00]--[2026-11-05 Thu 10:00] => 1:00\n:END:\n",
+        )
+        .traverse(&mut view);
+        assert!(view.0.finish().is_empty());
+        assert!(view.2.unwrap().contains("CLOCK:"));
     }
 }

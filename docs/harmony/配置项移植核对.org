@@ -111,7 +111,7 @@
 | 反转笔记点击动作 | ~pref_key_is_reverse_click_action~ | 未支持 | 点击打开笔记；无笔记多选和反转点击配置。 | 待定 |
 | 字体大小 | ~pref_key_font_size~ | 固定行为 | 界面字号由组件指定，没有应用级字号选项。 | 待定 |
 | 等宽字体 | ~pref_key_is_font_monospaced~ | 固定行为 | 原文视图固定等宽，正文无等宽开关。 | 待定 |
-| 样式文本 | ~pref_key_style_text~ | 未支持 | 正文用 Text 展示，不渲染 Org 富文本。 | 待定 |
+| 样式文本 | ~pref_key_style_text~ | 部分支持 | 文件可配置为渲染（默认）或原文；任务详情正文和独立 LOGBOOK 日志渲染 Org 富文本，尚无编辑样式配置。 | 持续核对 |
 | 使用符号样式化文本 | ~pref_key_styled_text_with_marks~ | 未支持 | 无富文本显示/标记显示模式切换。 | 待定 |
 | 高亮正被编辑的富文本 | ~pref_key_highlight_edited_rich_text~ | 未支持 | 现有笔记只读，无富文本编辑高亮。 | 待定 |
 | 启用选项使屏幕保持常亮 | ~pref_key_keep_screen_on_menu_item~ | 未支持 | 无保持屏幕常亮菜单或配置。 | 待定 |

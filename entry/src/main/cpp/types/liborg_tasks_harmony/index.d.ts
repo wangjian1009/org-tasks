@@ -37,6 +37,8 @@ export class Task {
   readonly fileName: string;
   readonly level: number;
   readonly body: string;
+  readonly bodyHtml: string;
+  readonly logbookHtml: string;
   readonly progress: number;
 }
 

@@ -2,6 +2,7 @@ import { router } from '@kit.ArkUI'
 import { CoreTask } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
+import { OrgContentView } from '../components/OrgContentView'
 import { UiColor } from '../ui/Theme'
 
 interface TaskParams { task?: CoreTask; parents?: string[] }
@@ -13,6 +14,7 @@ struct TaskDetail {
   @State parents: string[] = []
   @State metadataExpanded: boolean = true
   @State bodyExpanded: boolean = true
+  @State logbookExpanded: boolean = false
   @State drawerOpen: boolean = false
 
   aboutToAppear() {
@@ -69,8 +71,24 @@ struct TaskDetail {
               }.width('100%').padding({ left: 16, right: 4 }).height(52)
                 .onClick(() => { this.bodyExpanded = !this.bodyExpanded })
               if (this.bodyExpanded) {
-                Text(this.task!.body.trim() || '没有正文内容').width('100%').fontSize(16).fontColor(UiColor.secondary).lineHeight(25)
-                  .padding({ left: 16, right: 16, top: 4, bottom: 24 }).copyOption(CopyOptions.LocalDevice)
+                if (this.task!.bodyHtml) {
+                  OrgContentView({ fragment: this.task!.bodyHtml, embedded: true }).width('100%')
+                } else {
+                  Text('没有正文内容').width('100%').fontSize(16).fontColor(UiColor.secondary)
+                    .padding({ left: 16, right: 16, top: 4, bottom: 24 })
+                }
+              }
+              if (this.task!.logbookHtml) {
+                Divider().color(UiColor.outline)
+                Row({ space: 24 }) {
+                  Image($r('app.media.ui_body')).width(24).height(24)
+                  Text('日志').fontSize(14).fontColor(UiColor.secondary).layoutWeight(1)
+                  Image(this.logbookExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down')).width(24).height(24).margin({ right: 16 })
+                }.width('100%').padding({ left: 16, right: 4 }).height(52)
+                  .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
+                if (this.logbookExpanded) {
+                  OrgContentView({ fragment: this.task!.logbookHtml, embedded: true }).width('100%')
+                }
               }
               Divider().color(UiColor.outline)
               Text('只读笔记').fontSize(12).fontColor(UiColor.secondary).width('100%').padding(16)

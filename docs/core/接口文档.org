@@ -505,6 +505,20 @@ pub struct OrgFileMetadata {
 
 * 整篇只读渲染
 
-OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主样式的 HTML 文档片段。它是运行时展示投影，不是新的解析模型，不修改 source_bytes，也不写入同步记录。标题层级及其子树、TODO 完成类型、优先级、标签、计划时间、属性抽屉、正文行内样式、链接文字、列表、表格及 TBLFM、代码块均按语法节点生成；没有标题的文件仍呈现文件前言。未专门排版的 HTML 导出块、snippet、LaTeX 等以转义后的字面文本呈现，不执行其内容。
+OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主样式的 HTML 文档片段。文件 TITLE 由宿主工具栏展示，片段不重复生成文件标题；真实标题节点照常保留。它是运行时展示投影，不是新的解析模型，不修改 source_bytes，也不写入同步记录。标题层级及其子树、TODO 完成类型、优先级、标签、计划时间、属性抽屉、正文行内样式、链接文字、列表、表格及 TBLFM、代码块均按语法节点生成；没有标题的文件仍呈现文件前言。未专门排版的 HTML 导出块、snippet、LaTeX 等以转义后的字面文本呈现，不执行其内容。
 
 标题使用嵌套 details，默认展开；drawer 默认收起，折叠只改变阅读状态。表格和代码块由宿主提供横向滚动容器，表格公式只展示、不求值。链接与图片引用以文字呈现，不加载远端资源或本地附件，也不提供状态修改或复选框写回行为。完整原文始终可从 source_bytes 获取。
+
+** 任务正文渲染与日志提取
+
+#+begin_src rust
+pub struct RenderedTaskContent {
+    pub body_html: String,
+    pub logbook_html: String,
+}
+impl FilterTask {
+    pub fn render_content(&self) -> RenderedTaskContent;
+}
+#+end_src
+
+render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 沿用折叠展示，日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。输出仅供运行时展示，不保存到同步记录或 outbox。

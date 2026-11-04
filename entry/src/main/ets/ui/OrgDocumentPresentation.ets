@@ -1,7 +1,7 @@
 import { UiColor } from './Theme'
 
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
-export function orgDocumentPage(fragment: string, empty: boolean): string {
+export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; base-uri 'none'; form-action 'none'">
@@ -11,7 +11,7 @@ export function orgDocumentPage(fragment: string, empty: boolean): string {
 body { margin: 0; padding: 18px 20px 40px; background: ${UiColor.surface}; color: ${UiColor.text}; font: 16px/1.65 sans-serif; overflow-wrap: anywhere; }
 main, section { min-width: 0; }
 p { margin: 8px 0 14px; white-space: pre-wrap; }
-.document-title { font-size: 29px; line-height: 1.3; margin: 0 0 18px; }
+.embedded { padding: 4px 16px 20px; }
 details.heading { margin: 18px 0 12px; }
 details.heading > summary { position: relative; list-style: none; padding-right: 28px; cursor: pointer; line-height: 1.35; }
 summary::-webkit-details-marker { display: none; }
@@ -50,5 +50,5 @@ blockquote { margin: 10px 0; padding: 2px 14px; border-left: 3px solid ${UiColor
 ul, ol { padding-left: 24px; } li > p { margin: 2px 0; } .checkbox { font-family: monospace; color: ${UiColor.primary}; }
 .verse { white-space: pre-wrap; } hr { border: 0; border-top: 1px solid ${UiColor.outline}; }
 .empty { padding-top: 64px; text-align: center; color: ${UiColor.secondary}; }
-</style></head><body>${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
+</style></head><body class="${embedded ? 'embedded' : ''}">${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
 }

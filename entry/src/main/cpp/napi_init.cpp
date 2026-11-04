@@ -348,7 +348,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // 页面路由传递任务时保留原有数据字段，行为在 native 对象上提供。
     for (const char* name : {"id", "repoId", "heading", "todoState", "todoKind", "priority", "scheduled",
-        "deadline", "tags", "filePath", "fileName", "level", "body", "progress"}) {
+        "deadline", "tags", "filePath", "fileName", "level", "body", "bodyHtml", "logbookHtml", "progress"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
         napi_property_descriptor property = {name, nullptr, nullptr, nullptr, nullptr, value, napi_enumerable, nullptr};

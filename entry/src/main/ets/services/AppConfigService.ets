@@ -19,6 +19,7 @@ export class AppConfigService {
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
+    const fileDisplayMode = await store.get('fileDisplayMode', DEFAULT_CONFIG.fileDisplayMode) as string
     return {
       repos,
       inboxFile,
@@ -26,7 +27,8 @@ export class AppConfigService {
       memoFile,
       calendarName,
       syncInterval,
-      todoDefaults
+      todoDefaults,
+      fileDisplayMode: fileDisplayMode === 'source' ? 'source' : 'rendered'
     }
   }
 
@@ -65,6 +67,7 @@ export class AppConfigService {
     await store.put('calendarName', config.calendarName.trim())
     await store.put('syncInterval', config.syncInterval)
     await store.put('todoDefaults', config.todoDefaults)
+    await store.put('fileDisplayMode', config.fileDisplayMode)
     await store.flush()
   }
 
@@ -73,7 +76,8 @@ export class AppConfigService {
     await AppConfigService.save(context, {
       repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
       inboxFile: current.inboxFile, somedayFile: current.somedayFile, memoFile: current.memoFile,
-      calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults
+      calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults,
+      fileDisplayMode: current.fileDisplayMode
     })
     await CredentialService.clearWebDavPassword(configId)
   }

@@ -22,7 +22,7 @@
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 和 ~todoDefaults~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
 
 #+begin_src ts
 interface AppConfig {
@@ -33,6 +33,7 @@ interface AppConfig {
   calendarName: string
   syncInterval: number
   todoDefaults: string
+  fileDisplayMode: 'rendered' | 'source'
 }
 
 interface RepoConfig {
@@ -53,6 +54,7 @@ interface RepoConfig {
 |-
 | 全局日历 | ~calendarName~ | Preferences | 默认 ~Org Tasks~ ；由 CalendarSync 创建/选择应用日历。 |
 | 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
+| 文件展示 | ~fileDisplayMode~ | Preferences | 默认 ~rendered~ ，可选 ~source~ ；旧配置缺失或值无效时使用渲染。 |
 | 后台调度 | ~syncInterval~ | Preferences | 默认 20 分钟；由 BackgroundSyncService 配置 WorkScheduler。 |
 | 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
 | 仓库显示名 | ~repos[].name~ | Preferences | 可为空，保存时去除首尾空白；旧配置缺失时按空值处理，显示时回退根目录末级名称，不改变仓库或凭据身份。 |
@@ -87,7 +89,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 | 已保存搜索 | Harmony | Preferences 的 ~org_tasks_saved_searches~ | 仅保存搜索 ID、名称与完整查询表达式；不保存完整任务、文件内容、绝对路径或凭据。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
-~lastSyncTime~ 不是配置。后台日历同步把完成时间写入 ~org_tasks_config~；当前不提供独立日历同步页面。它不是按仓库的 core 同步历史。后续应隔离日历同步状态，并从 core 历史展示仓库同步状态，不能直接删除现有键。
+~lastSyncTime~ 不是配置。后台日历同步把完成时间写入 ~org_tasks_config~ ；当前不提供独立日历同步页面。它不是按仓库的 core 同步历史。后续应隔离日历同步状态，并从 core 历史展示仓库同步状态，不能直接删除现有键。
 
 * 设置、更新与删除
 
@@ -111,7 +113,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 
 本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收件箱、某天、备忘文件、日历与后台间隔； ~Files.ets~ 管理存储库与文件列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
 
-当前不提供独立的手动日历操作入口。后台作业使用已保存的日历名称与本地任务，先同步文件再写入日历；今天页下拉仅执行存储库文件同步，不读取或更新 ~lastSyncTime~，也不请求日历权限。
+当前不提供独立的手动日历操作入口。后台作业使用已保存的日历名称与本地任务，先同步文件再写入日历；今天页下拉仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。
 
 后台间隔默认及输入下限均为 20 分钟，以匹配当前 HarmonyOS 的系统约束。低于下限的既有值在显示与调度时按 20 分钟处理。保存后由 ~BackgroundSyncService.configure~ 比较现有 WorkScheduler 作业，必要时替换同一作业。调度配置不进入 core 同步记录。
 
@@ -169,3 +171,9 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 存储库配置的删除入口仅位于已保存项目的配置页底部。 ~AppConfigService.removeRepository~ 重新读取设置，保存剔除目标 ID 的仓库集合并保留全部其他全局配置，再清除该 ID 对应的 Asset Store 密码。该过程不删除磁盘目录、Org 文件、 ~.sync~ 或远端数据；新建表单没有删除入口。文件清单中的空存储库与读取失败的存储库仍保留配置入口。
 
 存储库配置编辑后通过工具栏返回或系统返回保存，不再提供应用/保存按钮。加载时保留规范化草稿用于变更比较；未修改直接返回，新建未编辑草稿不落盘。保存前重新读取其他配置，防止覆盖全局设置；正在测试连接、保存或删除时阻止重复返回。保存失败不退出，可继续编辑或放弃修改。
+
+* 文件展示方式
+
+“设置 → 笔记与笔记本 → 文件展示 → 文件展示方式”提供“渲染（默认）”和“原文”，选择后沿用该页的“保存设置”统一提交。打开文件时读取已保存的 fileDisplayMode，rendered 显示整篇 Org 渲染内容，source 显示可复制的完整等宽原文；文件页不再显示阅读/原文切换或只读提示行。文件 TITLE 只在工具栏显示，正文不重复生成文件标题；真实 Org 标题仍正常显示。
+
+此设置仅控制文件详情，不影响任务详情的富文本正文和独立日志区域。旧用户没有该键时保持默认渲染。存储库增删改及其他设置保存必须保留当前展示方式，不能将其恢复为默认；该偏好只写入宿主 Preferences，不写入 Org、Core 同步记录或 outbox。重新进入文件或同步刷新后采用已保存值。

@@ -220,3 +220,9 @@ interface OrgFileMetadata {
 Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path) 与 repo.files() 在现有 N-API worker 内生成 renderedHtml 字符串，并与文件值对象快照一起返回；C++ 方法仅读取该快照，ArkTS 不解析 Org。已有对象的 HTML 与其源字节、TODO 配置一致，不随仓库后续刷新变化。轻量文件列表不生成或传递 HTML。
 
 文件详情通过 NotebookService.open 按仓库 ID 和相对路径取得目标文件；先校验文件清单，避免将 Core 为缺失路径提供的新增草稿误显示为空白文件。不再读取整个工作区的任务投影或在 UI 按文件过滤任务。Web 只加载内存文档，关闭网络、本地文件、数据库与 DOM storage 访问；CSP 禁止文内脚本及外部资源，固定的宿主 JavaScript 仅修改标题 details 的 open 状态，不注册写入接口。
+
+* 任务正文与 LOGBOOK 展示
+
+Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html 与 logbook_html 分别映射为 Task.bodyHtml、Task.logbookHtml；N-API 以只读、可枚举属性保留这两个字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。
+
+TaskDetail 直接显示 Core 的两段 HTML，不在 ArkTS 解析或删除 LOGBOOK。正文和日志共用 OrgContentView，初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务详情时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
