@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 mod creation;
 mod editor;
 mod merge;
+mod query;
 pub(crate) mod service;
 mod todo;
 mod workspace;
@@ -11,6 +12,7 @@ mod workspace;
 pub use creation::*;
 pub use editor::*;
 pub use merge::*;
+pub use query::*;
 pub use service::*;
 pub use todo::*;
 pub use workspace::*;
@@ -513,8 +515,16 @@ mod tests {
         let mut repo = OrgRepo::new("/unused".into()).unwrap();
         assert!(repo.file("new.org").is_err());
         repo.id = "repo".into();
-        repo.set_todo_defaults(TodoConfig::from_settings("#+TODO: NEXT | CLOSED").unwrap()).unwrap();
-        repo.files.push(OrgFile::new("repo".into(), "work.org".into(), b"#+CATEGORY: Work\n".to_vec()).unwrap());
+        repo.set_todo_defaults(TodoConfig::from_settings("#+TODO: NEXT | CLOSED").unwrap())
+            .unwrap();
+        repo.files.push(
+            OrgFile::new(
+                "repo".into(),
+                "work.org".into(),
+                b"#+CATEGORY: Work\n".to_vec(),
+            )
+            .unwrap(),
+        );
         let file = repo.file("work.org").unwrap();
         repo.files.clear();
         assert_eq!(file.category().as_deref(), Some("Work"));

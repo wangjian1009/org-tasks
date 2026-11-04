@@ -24,6 +24,7 @@ extern "C" int32_t org_tasks_harmony_repo_create_task(uint64_t workspace_handle,
     const char* path, const char* task_json, bool queue_upload);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
+extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
     int64_t started_at);
@@ -50,6 +51,11 @@ struct OrgFileWrap {
     std::string source;
 };
 
+struct TaskWrap {
+    napi_ref data = nullptr;
+    bool is_done = false;
+};
+
 struct WebDavSyncPolicyWrap {
     std::string webdav_url;
     std::string username;
@@ -67,6 +73,7 @@ struct WebDavConnectionWork {
 };
 
 struct WorkspaceStringWork {
+    bool task_query = false;
     bool todo_defaults = false;
     bool default_todo_settings = false;
     bool default_sync_options = false;
@@ -120,6 +127,7 @@ struct RepoSnapshotWork {
 
 napi_ref repo_constructor = nullptr;
 napi_ref file_constructor = nullptr;
+napi_ref task_constructor = nullptr;
 
 bool ReadString(napi_env env, napi_value value, std::string* result)
 {
@@ -293,6 +301,61 @@ napi_value CreateOrgFileObject(napi_env env, napi_value data)
     return result;
 }
 
+void FinalizeTask(napi_env env, void* data, void*)
+{
+    auto* task = static_cast<TaskWrap*>(data);
+    if (task->data != nullptr) napi_delete_reference(env, task->data);
+    delete task;
+}
+
+napi_value TaskConstructor(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value self, done;
+    auto* task = new TaskWrap();
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_get_named_property(env, args[0], "isDone", &done) != napi_ok ||
+        napi_get_value_bool(env, done, &task->is_done) != napi_ok ||
+        napi_create_reference(env, args[0], 1, &task->data) != napi_ok ||
+        napi_wrap(env, self, task, FinalizeTask, nullptr, nullptr) != napi_ok) {
+        if (task->data != nullptr) napi_delete_reference(env, task->data);
+        delete task;
+        napi_throw_error(env, nullptr, "无法创建 Task 对象");
+        return nullptr;
+    }
+    return self;
+}
+
+napi_value TaskIsDone(napi_env env, napi_callback_info info)
+{
+    napi_value self, result;
+    TaskWrap* task = nullptr;
+    if (napi_get_cb_info(env, info, nullptr, nullptr, &self, nullptr) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&task)) != napi_ok || task == nullptr) {
+        napi_throw_error(env, nullptr, "Task.isDone 对象无效");
+        return nullptr;
+    }
+    napi_get_boolean(env, task->is_done, &result);
+    return result;
+}
+
+napi_value CreateTaskObject(napi_env env, napi_value data)
+{
+    napi_value constructor, result;
+    if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
+        napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
+    // 页面路由传递任务时保留原有数据字段，行为在 native 对象上提供。
+    for (const char* name : {"id", "repoId", "heading", "todoState", "todoKind", "priority", "scheduled",
+        "deadline", "tags", "filePath", "fileName", "level", "body", "progress"}) {
+        napi_value value;
+        if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
+        napi_property_descriptor property = {name, nullptr, nullptr, nullptr, nullptr, value, napi_enumerable, nullptr};
+        if (napi_define_properties(env, result, 1, &property) != napi_ok) return nullptr;
+    }
+    return result;
+}
+
 void RejectFileProjection(napi_env env, napi_deferred deferred)
 {
     bool pending = false;
@@ -369,6 +432,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->response = TakeRustString(org_tasks_harmony_normalize_sync_options(work->expression.c_str()));
     } else if (work->todo_defaults) {
         if (org_tasks_harmony_workspace_set_todo_defaults(work->handle, work->expression.c_str()) == 0) work->response = "{}";
+    } else if (work->task_query) {
+        work->response = TakeRustString(org_tasks_harmony_workspace_query(work->handle, work->expression.c_str()));
     } else {
         work->response = TakeRustString(org_tasks_harmony_workspace_search(work->handle, work->expression.c_str()));
     }
@@ -391,6 +456,23 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
+        } else if (!work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
+            napi_value tasks;
+            napi_value source_tasks = result;
+            bool valid = !work->task_query || napi_get_named_property(env, result, "tasks", &source_tasks) == napi_ok;
+            uint32_t length = 0;
+            valid = valid && napi_get_array_length(env, source_tasks, &length) == napi_ok &&
+                napi_create_array_with_length(env, length, &tasks) == napi_ok;
+            for (uint32_t index = 0; valid && index < length; index++) {
+                napi_value source;
+                valid = napi_get_element(env, source_tasks, index, &source) == napi_ok;
+                if (!valid) break;
+                napi_value task = CreateTaskObject(env, source);
+                valid = task != nullptr && napi_set_element(env, tasks, index, task) == napi_ok;
+            }
+            if (valid && work->task_query) valid = napi_set_named_property(env, result, "tasks", tasks) == napi_ok;
+            if (valid) napi_resolve_deferred(env, work->deferred, work->task_query ? result : tasks);
+            else RejectFileProjection(env, work->deferred);
         } else {
             napi_resolve_deferred(env, work->deferred, result);
         }
@@ -772,6 +854,28 @@ napi_value WorkspaceSearch(napi_env env, napi_callback_info info)
     }
     work->handle = workspace->handle;
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSearch", self);
+}
+
+napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value self;
+    WorkspaceWrap* workspace = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr || workspace->handle == 0) {
+        napi_throw_error(env, nullptr, "Workspace.query 参数无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->task_query = true;
+    if (!EncodeJson(env, args[0], &work->expression)) {
+        delete work;
+        napi_throw_error(env, nullptr, "任务查询参数无效");
+        return nullptr;
+    }
+    work->handle = workspace->handle;
+    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceQuery", self);
 }
 
 napi_value DefaultTodoSettings(napi_env env, napi_callback_info info)
@@ -1216,6 +1320,14 @@ napi_value WebDavApplyMerge(napi_env env, napi_callback_info info) { return WebD
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
+    napi_property_descriptor task_descriptors[] = {
+        {"isDone", nullptr, TaskIsDone, nullptr, nullptr, nullptr, napi_default, nullptr},
+    };
+    napi_value task_class;
+    napi_define_class(env, "Task", NAPI_AUTO_LENGTH, TaskConstructor, nullptr,
+        sizeof(task_descriptors) / sizeof(task_descriptors[0]), task_descriptors, &task_class);
+    napi_create_reference(env, task_class, 1, &task_constructor);
+    napi_set_named_property(env, exports, "Task", task_class);
     napi_property_descriptor file_descriptors[] = {
         {"repoId", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("repoId")},
         {"path", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("path")},
@@ -1243,6 +1355,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"search", nullptr, WorkspaceSearch, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"query", nullptr, WorkspaceQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value workspace_class;
     napi_define_class(env, "Workspace", NAPI_AUTO_LENGTH, WorkspaceConstructor, nullptr,

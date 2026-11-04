@@ -52,6 +52,10 @@ TS 领域接口必须遵循 `docs/harmony/Rust bridge设计.org` 中的“接口
 
 Rust core 的 `OrgRepo`、`OrgWorkspace`、`Filter`、`SyncPolicy` 与 WebDAV 同步能力是领域接口；ArkTS 仅承担页面、日历、凭据和调度 I/O。跨越这些边界时不得把密码、绝对目录或完整 org 内容写入 Rust 同步记录。
 
+## 查询请求与过滤边界
+
+界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。ArkTS 页面和 service 只能维护选择状态、组装 `TaskQuery`、显示返回的 `tasks` 与计数；不得按完成、分类、文件或父子关系重新筛选结果。收件箱和分类页面差异通过请求参数表达，Core 不增加页面专属字段。详见 `docs/core/查询语言设计.org` 与 `docs/harmony/Rust bridge设计.org`。
+
 ## 配置与保存
 
 Harmony 的数据源配置、Preferences、Asset Store 凭据、core 状态与日历映射统一维护于 `docs/harmony/配置项设计.org`。修改配置项、保存位置或凭据处理方式时，必须同步更新该文档。

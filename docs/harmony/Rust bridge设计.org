@@ -22,7 +22,7 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 1. 对象层级必须与 Rust 的领域边界一致，以 ~Workspace -> Repo -> OrgFile~ 导航；文件行为通过文件对象调用，例如 ~file.category()~ ，不得退回 ~repo.category(path)~ 这种由上层对象代理文件行为的接口。
 2. Rust 公开字段映射为 TS 数据属性，读取身份和元信息时不使用无行为的 getter 方法，例如 ~repo.id~ 、 ~repo.rootDirectory~ 、 ~file.path~ 和 ~file.todo~ 。Rust 方法映射为 camelCase 方法，例如 ~source_bytes() -> sourceBytes()~ 。在 native class 上，身份和来源字段必须提供只读属性。
-3. 拥有行为或生命周期的领域类型使用 class；纯数据结构、调用参数、事件和结果使用 interface 或判别联合。不能为了统一外观把所有数据结构改为 class，也不能把领域对象退化为需要调用方解释的普通 JSON 快照。
+3. 拥有行为或生命周期的领域类型使用 class；纯数据结构、调用参数、事件和结果使用 interface 或判别联合；任务需要完成判断行为时使用 Task class。不能为了统一外观把所有数据结构改为 class，也不能把领域对象退化为需要调用方解释的普通 JSON 快照。
 4. 方法必须归属于 Rust 中实际承担行为的对象；WebDAV 合并比较和提交分别使用 ~policy.compareMerge(repo, syncId)~ 与 ~policy.applyMerge(repo, comparison)~ ，不能反向挂到 Repo 上。
 5. 结构化 Rust 参数必须通过 TS 对象传入。禁止公开 ~optionsJson~ 、 ~requestJson~ 或要求调用方 ~JSON.stringify~ 的参数；序列化与反序列化只发生在 bridge 内部。查询表达式和 Org 设置文本是领域输入，不属于 JSON 编组参数。
 6. 访问 core、仓库锁、文件或网络的操作必须在 worker 中执行，并返回 Promise。已经返回的独立文件对象可同步读取属性、分类和原始字节；同步 getter 不得隐式重新加载仓库或发起网络请求。
@@ -43,6 +43,7 @@ class Workspace {
   addRepo(rootDirectory: string): Promise<Repo>
   removeRepo(rootDirectory: string): Promise<void>
   search(expression: string): Promise<Task[]>
+  query(query: TaskQuery): Promise<TaskQueryResult>
 }
 
 class Repo {
@@ -101,7 +102,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgWorkspace.search(&Filter)~ | ~workspace.search(expression)~ | 宿主传查询文本，由 Rust 解析为 ~Filter~ 。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
-| ~OrgRepoSyncRecord~ 、 ~FilterTask~ | ~SyncRecord~ 、 ~Task~ | 按手机需求投影的结构化结果，不是 Rust 结构体的全部字段。 |
+| ~FilterTask.is_done()~ | ~task.isDone()~ | Rust 根据文件有效配置计算完成结果，native Task 方法原样返回。 |
+| ~OrgRepoSyncRecord~ 、 ~FilterTask~ | ~SyncRecord~ 、 ~Task~ | 同步记录为数据投影；任务为含只读字段和行为的对象，不是 Rust 结构体的全部字段。 |
 
 这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
 
@@ -136,10 +138,55 @@ const outcome = await policy.applyMerge(repo, comparison)
 
 ~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并重算已加载文件；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
-~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 数据对象用于列表、日历和详情； ~repoId~ 、 ~filePath~ 与源字节偏移共同标识任务来源， ~level~ 保留真实标题层级。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
+~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 对象用于列表、日历和详情； ~repoId~ 、 ~filePath~ 与源字节偏移共同标识任务来源， ~level~ 保留真实标题层级。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
 * 错误与扩展
 
 异步 core 操作失败时 Promise 拒绝 ~CoreError~ ，其 ~code~ 为 ~invalidInput~ 、 ~invalidState~ 、 ~store~ 或 ~bridge~ ，中文 ~message~ 保留 core 错误说明。 ~WebDavSyncPolicy.testConnection~ 不依赖仓库，在 worker 中执行独立目录访问检查；返回成功不保证写权限。
 
 新增能力先在 core 定义数据和行为，再由 Harmony 编组为相应对象方法或数据属性。C++ 只处理参数、worker、Promise、对象投影和资源释放；同步记录与 outbox 不写入绝对路径、密码、完整远端 URL 或文件正文。文件对象中供界面读取的原文只存在于内存。
+
+* 任务完成对象
+
+~Workspace.search~ 返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新搜索。
+
+#+begin_src ts
+class Task {
+  private constructor()
+  readonly id: string
+  readonly repoId: string
+  readonly heading: string
+  readonly todoState: string
+  readonly todoKind: 'pending' | 'done' | null
+  isDone(): boolean
+}
+#+end_src
+
+* 通用查询与 UI 职责边界（固定设计原则）
+
+界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。新增页面和调整交互时必须遵守该原则；分类计数可以由展示层计算或直接显示 core 摘要，但不能为任务列表在展示层复制过滤规则。
+
+~Workspace.query(query: TaskQuery): Promise<TaskQueryResult>~ 接受结构化 TS 对象，内部编组 JSON，在 worker 中加载仓库并调用 ~OrgWorkspace.query~ 。UI 维护多选切换状态，提交分类值和页面所需开关；完成、文件、分类并集和组合任务过滤均由 Core 执行。界面直接显示返回的 ~tasks~ 。
+
+#+begin_src ts
+interface TaskQuery {
+  expression?: string
+  categories?: (string | null)[]
+  excludedFiles?: string[]
+  includeDone?: boolean
+  includeComposeTasks?: boolean
+}
+interface TaskCategory {
+  key: string
+  category: string | null
+  count: number
+}
+interface TaskQueryResult {
+  tasks: Task[]
+  categories: TaskCategory[]
+}
+#+end_src
+
+Rust 默认不限制表达式、分类和文件，两个包含开关均为真。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。
+
+不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。

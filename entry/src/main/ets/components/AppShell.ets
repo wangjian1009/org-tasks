@@ -2,15 +2,18 @@ import { router } from '@kit.ArkUI'
 import { UiColor } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { TaskCategory, NotebookService } from '../services/NotebookService'
+import { categoryNavigationQuery, inboxRecordQuery } from '../services/TaskViewQueries'
 import { BUILTIN_SEARCHES, SavedSearch, SavedSearchService } from '../services/SavedSearchService'
-import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTaskCategory, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
 export struct AppShell {
   @Prop title: string = ''
   @Prop activeRoute: string = ''
-  @Prop activeCategoryKey: string = ''
+  @Prop activeCategoryValues: (string | null)[] = []
+  @Prop activeCategories: CoreTaskCategory[] = []
+  @Prop categoryBusy: boolean = false
+  categoryToggled: (category: string | null) => void = () => {}
   @Prop back: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_search')
   @Prop actionLabel: string = ''
@@ -19,26 +22,46 @@ export struct AppShell {
   @Prop fabLabel: string = ''
   @Prop fabIcon: Resource = $r('app.media.ui_add')
   @Prop busy: boolean = false
-  @Link drawerOpen: boolean
+  @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
   action: () => void = () => {}
   extraAction: () => void = () => {}
   fabAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
-  @State categories: TaskCategory[] = []
+  @State categories: CoreTaskCategory[] = []
+  @State inboxCount: number = 0
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
+  private navigationRequest: number = 0
 
-  async openDrawer() {
+  aboutToAppear() {
+    if (this.drawerOpen) this.loadNavigation()
+  }
+
+  openDrawer() {
     this.drawerOpen = true
+  }
+
+  drawerChanged() {
+    if (this.drawerOpen) this.loadNavigation()
+  }
+
+  async loadNavigation() {
+    const request = ++this.navigationRequest
     this.navMessage = ''
     this.categories = []
+    this.inboxCount = 0
     try {
       const config = await AppConfigService.load(getContext(this))
-      this.searches = await SavedSearchService.load(getContext(this))
-      this.categories = NotebookService.categories(await NotebookService.load(config.repos, config.todoDefaults))
+      const searches = await SavedSearchService.load(getContext(this))
+      const result = await NativeCoreService.queryTasks(config.repos, categoryNavigationQuery(config.inboxFile), config.todoDefaults)
+      const inbox = await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults)
+      if (request !== this.navigationRequest) return
+      this.searches = searches
+      this.categories = result.categories
+      this.inboxCount = inbox.tasks.length
     } catch (e) {
-      this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
+      if (request === this.navigationRequest) this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
     }
   }
 
@@ -49,10 +72,15 @@ export struct AppShell {
     }
   }
 
-  openCategory(category: TaskCategory) {
-    this.drawerOpen = false
-    if (this.activeRoute !== 'pages/CategoryTasks' || this.activeCategoryKey !== category.key) {
-      router.replaceUrl({ url: 'pages/CategoryTasks', params: { category: category.category } })
+  navigationCategories(): CoreTaskCategory[] {
+    return this.activeRoute === 'pages/CategoryTasks' ? this.activeCategories : this.categories
+  }
+
+  toggleCategory(category: CoreTaskCategory) {
+    if (this.activeRoute === 'pages/CategoryTasks') {
+      this.categoryToggled(category.category)
+    } else {
+      router.replaceUrl({ url: 'pages/CategoryTasks', params: { categories: [category.category], drawerOpen: true } })
     }
   }
 
@@ -62,10 +90,14 @@ export struct AppShell {
   }
 
   @Builder
-  navItem(title: string, icon: Resource, route: string, selected: boolean = false) {
+  navItem(title: string, icon: Resource, route: string, selected: boolean = false, count: number = -1) {
     Row({ space: 20 }) {
       Image(icon).width(22).height(22)
       Text(title).fontSize(15).fontColor(UiColor.text).fontWeight(selected ? FontWeight.Medium : FontWeight.Normal)
+        .layoutWeight(1)
+      if (count >= 0) {
+        Text(`${count}`).fontSize(12).fontColor(UiColor.secondary)
+      }
     }.width('100%').height(52).padding({ left: 16, right: 16 }).borderRadius(26)
       .backgroundColor(selected ? UiColor.selected : Color.Transparent)
       .onClick((): void => { this.navigate(route) })
@@ -87,6 +119,7 @@ export struct AppShell {
       }.width('100%').padding({ left: 20, right: 8, top: 8, bottom: 8 })
       Scroll() {
         Column({ space: 2 }) {
+          this.navItem('收件箱', $r('app.media.ui_body'), 'pages/Inbox', this.activeRoute === 'pages/Inbox', this.inboxCount)
           this.navItem('日程', $r('app.media.ui_calendar'), 'pages/Agenda', this.activeRoute === 'pages/Agenda')
           ForEach(BUILTIN_SEARCHES.concat(this.searches), (search: SavedSearch) => {
             Text(search.name).fontSize(14).fontColor(UiColor.secondary).width('100%').padding({ left: 58, right: 16, top: 15, bottom: 15 })
@@ -94,17 +127,20 @@ export struct AppShell {
           }, (search: SavedSearch) => search.id)
           Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
           Text('分类').fontSize(12).fontColor(UiColor.primary).width('100%').padding({ left: 16, top: 8, bottom: 8 })
-          ForEach(this.categories, (category: TaskCategory) => {
+          ForEach(this.navigationCategories(), (category: CoreTaskCategory) => {
             Row({ space: 12 }) {
-              Text(category.title).fontSize(14).fontColor(UiColor.secondary).layoutWeight(1).maxLines(1)
+              Text(this.activeCategoryValues.includes(category.category) ? '✓' : '').fontSize(14).fontColor(UiColor.primary)
+                .width(20).height(20).textAlign(TextAlign.Center).borderRadius(3)
+                .border({ width: 1, color: this.activeCategoryValues.includes(category.category) ? UiColor.primary : UiColor.outline })
+              Text(category.category || '未分类').fontSize(14).fontColor(UiColor.secondary).layoutWeight(1).maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(`${category.count}`).fontSize(12).fontColor(UiColor.secondary)
             }.width('100%').constraintSize({ minHeight: 48 }).borderRadius(24)
-              .padding({ left: 58, right: 16, top: 12, bottom: 12 })
-              .backgroundColor(this.activeRoute === 'pages/CategoryTasks' && this.activeCategoryKey === category.key ? UiColor.selected : Color.Transparent)
-              .accessibilityText(`${category.title}，${category.count} 个任务`)
-              .onClick(() => { this.openCategory(category) })
-          }, (category: TaskCategory) => category.key)
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+              .backgroundColor(this.activeCategoryValues.includes(category.category) ? UiColor.selected : Color.Transparent)
+              .accessibilityText(`${this.activeCategoryValues.includes(category.category) ? '已选择' : '未选择'}，${category.category || '未分类'}，${category.count} 个未完成任务`)
+              .enabled(!this.categoryBusy).onClick(() => { this.toggleCategory(category) })
+          }, (category: CoreTaskCategory) => category.key)
 
           Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
           this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')

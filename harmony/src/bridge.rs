@@ -54,6 +54,7 @@ pub struct HarmonyBridgeTask {
     pub heading: String,
     pub todo_state: String,
     pub todo_kind: Option<org_tasks_core::TodoStateKind>,
+    pub is_done: bool,
     pub priority: String,
     pub scheduled: String,
     pub deadline: String,
@@ -189,6 +190,7 @@ fn task_snapshot(
 }
 
 fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
+    let is_done = task.is_done();
     let mut tags = task.own_tags;
     for inherited in task.inherited_tags {
         if !tags.contains(&inherited) {
@@ -205,6 +207,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
             org_tasks_core::FilterStateType::Done => Some(org_tasks_core::TodoStateKind::Done),
             _ => None,
         },
+        is_done,
         priority: task.priority.unwrap_or_default(),
         scheduled: task
             .scheduled
@@ -351,6 +354,24 @@ pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, 
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     encode(&task_snapshot(&workspace, &Filter::parse(&expression))?)
+}
+
+pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, CoreError> {
+    let query: org_tasks_core::TaskQuery = serde_json::from_str(&query_json)
+        .map_err(|_| CoreError::InvalidInput("任务查询参数无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let runtime = runtime()?;
+    for repo in &mut workspace.repos {
+        runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
+    }
+    let result = workspace.query(&query)?;
+    encode(&serde_json::json!({
+        "tasks": result.tasks.into_iter().map(task_from_filter).collect::<Vec<_>>(),
+        "categories": result.categories,
+    }))
 }
 
 pub fn repo_sync_json(
@@ -745,12 +766,14 @@ mod todo_tests {
                 .unwrap();
         assert_eq!(done.as_array().unwrap().len(), 2);
         assert_eq!(done[0]["todoKind"], "done");
+        assert_eq!(done[0]["isDone"], true);
         assert!(workspace_set_todo_defaults(handle, "invalid".into()).is_err());
         workspace_set_todo_defaults(handle, "#+TODO: OTHER | END".into()).unwrap();
         let done: serde_json::Value =
             serde_json::from_str(&workspace_search_json(handle, "it.done".into()).unwrap())
                 .unwrap();
         assert_eq!(done.as_array().unwrap().len(), 1);
+        assert_eq!(done[0]["isDone"], true);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

@@ -19,21 +19,23 @@ export class OrgFile {
   sourceBytes(): Uint8Array;
 }
 
-export interface Task {
-  id: string;
-  repoId: string;
-  heading: string;
-  todoState: string;
-  todoKind: 'pending' | 'done' | null;
-  priority: string;
-  scheduled: string;
-  deadline: string;
-  tags: string[];
-  filePath: string;
-  fileName: string;
-  level: number;
-  body: string;
-  progress: number;
+export class Task {
+  private constructor();
+  isDone(): boolean;
+  readonly id: string;
+  readonly repoId: string;
+  readonly heading: string;
+  readonly todoState: string;
+  readonly todoKind: 'pending' | 'done' | null;
+  readonly priority: string;
+  readonly scheduled: string;
+  readonly deadline: string;
+  readonly tags: string[];
+  readonly filePath: string;
+  readonly fileName: string;
+  readonly level: number;
+  readonly body: string;
+  readonly progress: number;
 }
 
 export interface SyncRecord {
@@ -59,6 +61,25 @@ export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
 export interface SyncOptions { excludedDirectories: string[]; }
 
+export interface TaskQuery {
+  expression?: string;
+  categories?: (string | null)[];
+  excludedFiles?: string[];
+  includeDone?: boolean;
+  includeComposeTasks?: boolean;
+}
+
+export interface TaskCategory {
+  key: string;
+  category: string | null;
+  count: number;
+}
+
+export interface TaskQueryResult {
+  tasks: Task[];
+  categories: TaskCategory[];
+}
+
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
   testConnection(): Promise<void>;
@@ -73,6 +94,7 @@ export class Workspace {
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
   search(expression: string): Promise<Task[]>;
+  query(query: TaskQuery): Promise<TaskQueryResult>;
 }
 
 export class Repo {

@@ -55,3 +55,81 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 * 兼容性测试
 
 core 测试从参考项目移植了 tokenizer 的括号和引号场景、~AND~ / ~OR~ 优先级、带引号的笔记本名、interval 别名、排序、agenda、状态、继承标签和计划时间筛选。测试以 core 的内存仓库快照运行，避免依赖 Android 的数据库实现。
+
+* 任务完成判断
+
+~FilterTask.is_done() -> bool~ 根据任务投影的 ~state_type~ 判断是否完成。该类型在所属文件的有效 TODO 元信息中计算，受文件内 ~TODO~ 、 ~SEQ_TODO~ 、 ~TYP_TODO~ 声明及已加载的 ~SETUPFILE~ 影响；无文件覆盖时沿用全局默认。同一个 ~CNCL~ 在不同文件可分别为完成、待办或普通标题，接口不按字面名称推断。无 TODO 状态的标题返回 ~false~ 。重新加载或修改默认设置后取得的新任务使用新配置，已返回任务保留取得时的状态。
+
+#+begin_src rust
+impl FilterTask {
+    pub fn is_done(&self) -> bool {
+        self.state_type == FilterStateType::Done
+    }
+}
+#+end_src
+
+* 查询职责边界（固定设计原则）
+
+界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。这是所有任务查询入口的固定原则。
+
+UI 可以维护勾选和取消等交互状态、根据页面需求填写参数，并显示或汇总分类计数。UI 不得对 core 返回的任务列表再次按完成状态、分类、文件、日期、标签或父子关系做 ~filter~ 、剔除、交并集或其他查询求值。计数可以留在展示层，但不能为得到任务结果在展示层复制核心过滤规则。任务列表直接使用查询返回的 ~tasks~ 。
+
+Core 提供通用任务查询能力，不认识“收件箱页面”“分类多选控件”等界面概念。收件箱设置、多选切换和页面策略由 UI 转换成文件表达式、分类值、排除文件列表与两个包含开关。Core 对同一请求统一求值，确保前台、后台和其他宿主使用相同语义。
+
+* 结构化任务查询
+
+#+begin_src rust
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct TaskQuery {
+    pub expression: String,
+    pub categories: Vec<Option<String>>,
+    pub excluded_files: Vec<String>,
+    pub include_done: bool,
+    pub include_compose_tasks: bool,
+}
+
+impl Default for TaskQuery {
+    fn default() -> Self {
+        Self {
+            expression: String::new(),
+            categories: Vec::new(),
+            excluded_files: Vec::new(),
+            include_done: true,
+            include_compose_tasks: true,
+        }
+    }
+}
+
+pub struct TaskCategory {
+    pub key: String,
+    pub category: Option<String>,
+    pub count: usize,
+}
+
+pub struct TaskQueryResult {
+    pub tasks: Vec<FilterTask>,
+    pub categories: Vec<TaskCategory>,
+}
+
+impl OrgWorkspace {
+    pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
+    pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
+}
+#+end_src
+
+| 字段 | 语义 |
+|-
+| ~expression~ | 现有 dotted query；空字符串表示无表达式限制，排序沿用现有查询接口。 |
+| ~categories~ | 按文件有效 category 精确匹配，多项取并集；空列表不过滤分类。 ~None~ 表示缺失或空 category，与真实名称“未分类”不同；重复选项不重复任务。 |
+| ~excluded_files~ | 安全的仓库相对文件路径列表，精确排除所有存储库中对应路径；不隐含收件箱概念。 |
+| ~include_done~ | 为假时排除 ~FilterTask.is_done()~ 为真的任务，完成类型受文件有效 in-buffer 配置影响。 |
+| ~include_compose_tasks~ | 为假时排除有子标题的组合任务。父子关系以原始完整文件结构判断，不能因子任务未命中表达式、已完成或被其他条件过滤而把父任务变成叶任务。 |
+
+所有查询条件组合求值，任务按仓库 ID、相对路径和源字节偏移保持来源隔离。组合任务判断不得跨文件或跨存储库，即使两个仓库的文件名相同也不能相互影响。
+
+~categories~ 摘要在表达式、排除文件、完成和组合任务开关求值后生成，不受当前 ~categories~ 选项影响，便于多选控件维持可选项。 ~count~ 是该范围内相应分类的记录数；不设置完成开关或设置为真时也可以统计完成记录。零记录分类不返回，缺失分类置末。
+
+UI 的请求组装示例：分类导航请求设置 ~excluded_files = [配置的收件箱路径]~ 和 ~include_done = false~ ；有分类选择时任务列表发送相同排除文件和所选分类，无选择时可清空排除文件以显示包含收件箱的全部未完成任务。收件箱页面使用 ~b."配置路径"~ 表达式并将两个包含开关置真，以取得所有标题记录。路径的表达式转义由 UI 作为请求组装完成，解释和文件匹配由 Core 完成。
+
+~TaskQuery~ 不保存界面选择状态，没有 ~inbox_file~ 、 ~toggle_category~ 或专用视图枚举。 ~query~ 只读取已加载 workspace，不读宿主配置、不持久化 UI 会话。Harmony 在 worker 中加载当前仓库后调用该接口，结果任务包装为带 ~isDone()~ 的 Task 对象。

@@ -12,6 +12,9 @@ import {
   OrgFile as NativeOrgFile,
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
+  TaskQuery as NativeTaskQuery,
+  TaskCategory as NativeTaskCategory,
+  TaskQueryResult as NativeTaskQueryResult,
   WebDavSyncEvent as NativeWebDavSyncEvent,
   WebDavSyncMonitor as NativeWebDavSyncMonitor,
   WebDavSyncPolicy as NativeWebDavSyncPolicy,
@@ -21,22 +24,10 @@ import { RepoConfig, SyncOptions } from '../models/OrgTask'
 
 export type CoreOrgFile = NativeOrgFile
 
-export interface CoreTask {
-  id: string
-  repoId: string
-  heading: string
-  todoState: string
-  todoKind: 'pending' | 'done' | null
-  priority: string
-  scheduled: string
-  deadline: string
-  tags: string[]
-  filePath: string
-  fileName: string
-  level: number
-  body: string
-  progress: number
-}
+export type CoreTask = NativeTask
+export type CoreTaskQuery = NativeTaskQuery
+export type CoreTaskCategory = NativeTaskCategory
+export type CoreTaskQueryResult = NativeTaskQueryResult
 
 export interface CoreSyncSnapshot {
   id: string
@@ -169,6 +160,10 @@ export class CoreWorkspace {
     return await this.native.search(expression) as NativeTask[]
   }
 
+  async query(query: CoreTaskQuery): Promise<CoreTaskQueryResult> {
+    return await this.native.query(query)
+  }
+
 }
 
 let activeWorkspace: CoreWorkspace | undefined = undefined
@@ -177,6 +172,10 @@ let activeTodoDefaults: string | undefined = undefined
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
+  static async queryTasks(repositories: RepoConfig[], query: CoreTaskQuery, todoDefaults?: string): Promise<CoreTaskQueryResult> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    return await workspace.query(query)
+  }
   static async repository(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreRepo> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()

@@ -186,6 +186,16 @@ pub extern "C" fn org_tasks_harmony_workspace_search(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_query(
+    handle: u64,
+    query_json: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(query_json).and_then(|query| bridge::workspace_query_json(handle, query)),
+    )
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_webdav_test_connection(
     webdav_url: *const c_char,
     username: *const c_char,

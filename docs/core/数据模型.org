@@ -439,3 +439,31 @@ options: SyncOptions}{}
 \umluniassoc[mult1=1,mult2=1]{SyncContext}{SyncOptions}
 \end{tikzpicture}
 \end{center}
+
+* 通用任务查询模型
+
+~TaskQuery~ 为运行时请求，不属于同步历史或 outbox。UI 组装请求， ~OrgWorkspace.query~ 统一生成过滤后的 ~TaskQueryResult.tasks~ ；完成状态依据 ~FilterTask.is_done()~ ，组合任务依据完整文件的真实父子层级。 ~TaskQueryResult.categories~ 是相同基础范围的分类统计，不保存控件选中状态。详细契约见 [[file:查询语言设计.org][查询语言设计]]。
+
+#+begin_src rust
+pub struct TaskQuery {
+    pub expression: String,
+    pub categories: Vec<Option<String>>,
+    pub excluded_files: Vec<String>,
+    pub include_done: bool,
+    pub include_compose_tasks: bool,
+}
+#+end_src
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{TaskQuery}{expression: String \\
+categories: Vec\textless Option\textless String\textgreater\textgreater \\
+excluded\_files: Vec\textless String\textgreater \\
+include\_done: bool \\
+include\_compose\_tasks: bool}{}
+\umlclass[x=8,y=0]{TaskQueryResult}{tasks: Vec\textless FilterTask\textgreater \\
+categories: Vec\textless TaskCategory\textgreater}{}
+\umldep{TaskQueryResult}{TaskQuery}
+\end{tikzpicture}
+\end{center}

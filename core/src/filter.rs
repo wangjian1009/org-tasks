@@ -141,6 +141,13 @@ pub struct FilterTask {
     pub events: Vec<FilterDate>,
 }
 
+impl FilterTask {
+    /// 完成类型来自所属文件的有效 TODO 配置，不按状态名称推断。
+    pub fn is_done(&self) -> bool {
+        self.state_type == FilterStateType::Done
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FilterDate {
     pub date: NaiveDate,
@@ -260,7 +267,13 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 .collect();
             let state = headline.todo_keyword().map(|value| value.to_string());
             let state_type = match state.as_deref() {
-                Some(value) if file.todo.done_keywords.iter().any(|keyword| keyword == value) => {
+                Some(value)
+                    if file
+                        .todo
+                        .done_keywords
+                        .iter()
+                        .any(|keyword| keyword == value) =>
+                {
                     FilterStateType::Done
                 }
                 Some(value)
@@ -268,7 +281,10 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                         .todo
                         .pending_keywords
                         .iter()
-                        .any(|keyword| keyword == value) => FilterStateType::Todo,
+                        .any(|keyword| keyword == value) =>
+                {
+                    FilterStateType::Todo
+                }
                 _ => FilterStateType::None,
             };
             tasks.push(FilterTask {
@@ -1006,6 +1022,49 @@ mod tests {
         let task = tasks_from_repo(&repository).pop().unwrap();
         assert_eq!(task.state.as_deref(), Some("CNCL"));
         assert_eq!(task.state_type, FilterStateType::Done);
+    }
+
+    #[test]
+    fn is_done_follows_each_files_in_buffer_configuration() {
+        let defaults = crate::TodoConfig::from_settings("#+TODO: GLOBAL | CNCL").unwrap();
+        let sources = [
+            (
+                "cancelled.org",
+                "#+TODO: TODO | DONE\n#+TODO: | CNCL\n* CNCL Cancelled\n",
+                true,
+            ),
+            (
+                "pending.org",
+                "#+TODO: CNCL | FINISHED\n* CNCL Pending\n",
+                false,
+            ),
+            ("cleared.org", "#+TODO:\n* CNCL Plain\n", false),
+            ("global.org", "* CNCL Done by default\n", true),
+            ("plain.org", "* No state\n", false),
+        ];
+        let repository = OrgRepo {
+            id: "repo".into(),
+            root_directory: "/tmp".into(),
+            todo_defaults: defaults.clone(),
+            files: sources
+                .iter()
+                .map(|(path, source, _)| {
+                    OrgFile::with_todo_defaults(
+                        "repo".into(),
+                        (*path).into(),
+                        source.as_bytes().to_vec(),
+                        defaults.clone(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        };
+        let tasks = tasks_from_repo(&repository);
+        for (path, _, expected) in sources {
+            let task = tasks.iter().find(|task| task.path == path).unwrap();
+            assert_eq!(task.is_done(), expected, "{path}");
+            assert_eq!(Filter::parse("it.done").matches(task), task.is_done());
+        }
     }
 
     #[test]

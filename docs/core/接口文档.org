@@ -88,6 +88,8 @@ impl OrgWorkspace {
     pub fn remove_repo_by_root_directory(&mut self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
     pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
+
+    pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
 }
 #+end_src
 
@@ -458,3 +460,7 @@ let metadata = &file.todo;
 每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
 
 ~create_task~ 从目标文件有效配置取得初始状态；文件尚不存在时使用外部默认。无可用未完成状态时拒绝写入。合并也使用相同配置验证输出，并把默认配置纳入运行时仓库版本，以拒绝配置变化后的旧比较对象。
+
+* 通用结构化任务查询
+
+~OrgWorkspace.query(&TaskQuery)~ 返回 Core 过滤后的任务列表和分类摘要。请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
