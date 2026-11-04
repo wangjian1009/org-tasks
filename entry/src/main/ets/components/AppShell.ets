@@ -2,7 +2,7 @@ import { router } from '@kit.ArkUI'
 import { UiColor } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { NotebookCategory, NotebookService } from '../services/NotebookService'
+import { TaskCategory, NotebookService } from '../services/NotebookService'
 import { BUILTIN_SEARCHES, SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 
@@ -25,7 +25,7 @@ export struct AppShell {
   extraAction: () => void = () => {}
   fabAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
-  @State categories: NotebookCategory[] = []
+  @State categories: TaskCategory[] = []
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
 
@@ -44,15 +44,15 @@ export struct AppShell {
 
   navigate(route: string) {
     this.drawerOpen = false
-    if (this.activeRoute !== route || route === 'pages/Files' && this.activeCategoryKey.length > 0) {
+    if (this.activeRoute !== route) {
       router.replaceUrl({ url: route })
     }
   }
 
-  openCategory(category: NotebookCategory) {
+  openCategory(category: TaskCategory) {
     this.drawerOpen = false
-    if (this.activeRoute !== 'pages/Files' || this.activeCategoryKey !== category.key) {
-      router.replaceUrl({ url: 'pages/Files', params: { category: category.category } })
+    if (this.activeRoute !== 'pages/CategoryTasks' || this.activeCategoryKey !== category.key) {
+      router.replaceUrl({ url: 'pages/CategoryTasks', params: { category: category.category } })
     }
   }
 
@@ -75,31 +75,39 @@ export struct AppShell {
   drawer() {
     Column() {
       Row() {
-        Text('Org Tasks').fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.primary).layoutWeight(1)
+        Row({ space: 20 }) {
+          Image($r('app.media.ui_search')).width(22).height(22)
+          Text('搜索').fontSize(18).fontColor(UiColor.text)
+        }.layoutWeight(1).height(48).borderRadius(24).accessibilityText('搜索任务')
+          .onClick((): void => {
+            this.drawerOpen = false
+            router.replaceUrl({ url: 'pages/Search' })
+          })
         IconButton({ icon: $r('app.media.ui_close'), label: '关闭导航', action: () => { this.drawerOpen = false } })
       }.width('100%').padding({ left: 20, right: 8, top: 8, bottom: 8 })
       Scroll() {
         Column({ space: 2 }) {
-          this.navItem('搜索', $r('app.media.ui_search'), 'pages/SavedSearches', this.activeRoute === 'pages/SavedSearches')
           this.navItem('日程', $r('app.media.ui_calendar'), 'pages/Agenda', this.activeRoute === 'pages/Agenda')
           ForEach(BUILTIN_SEARCHES.concat(this.searches), (search: SavedSearch) => {
             Text(search.name).fontSize(14).fontColor(UiColor.secondary).width('100%').padding({ left: 58, right: 16, top: 15, bottom: 15 })
               .onClick((): void => { this.openSearch(search) })
           }, (search: SavedSearch) => search.id)
           Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
-          this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files' && !this.activeCategoryKey)
-          ForEach(this.categories, (category: NotebookCategory) => {
+          Text('分类').fontSize(12).fontColor(UiColor.primary).width('100%').padding({ left: 16, top: 8, bottom: 8 })
+          ForEach(this.categories, (category: TaskCategory) => {
             Row({ space: 12 }) {
               Text(category.title).fontSize(14).fontColor(UiColor.secondary).layoutWeight(1).maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(`${category.count}`).fontSize(12).fontColor(UiColor.secondary)
             }.width('100%').constraintSize({ minHeight: 48 }).borderRadius(24)
               .padding({ left: 58, right: 16, top: 12, bottom: 12 })
-              .backgroundColor(this.activeRoute === 'pages/Files' && this.activeCategoryKey === category.key ? UiColor.selected : Color.Transparent)
-              .accessibilityText(`${category.title}，${category.count} 个文件`)
+              .backgroundColor(this.activeRoute === 'pages/CategoryTasks' && this.activeCategoryKey === category.key ? UiColor.selected : Color.Transparent)
+              .accessibilityText(`${category.title}，${category.count} 个任务`)
               .onClick(() => { this.openCategory(category) })
-          }, (category: NotebookCategory) => category.key)
+          }, (category: TaskCategory) => category.key)
+
           Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
+          this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')
           this.navItem('存储库', $r('app.media.ui_cloud'), 'pages/Repositories', this.activeRoute === 'pages/Repositories')
           this.navItem('设置', $r('app.media.ui_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
           if (this.navMessage.length > 0) {

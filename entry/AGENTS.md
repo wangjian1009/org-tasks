@@ -58,6 +58,10 @@ Harmony 的数据源配置、Preferences、Asset Store 凭据、core 状态与�
 
 `repoId` 是同步记录与 WebDAV 凭据的稳定分区标识。修改目录或 WebDAV 地址时不得更改它。WebDAV 密码只能由 `CredentialService` 写入 Asset Store，不能放入 Preferences、日志或同步记录。
 
+## 布局与设计同步
+
+修改页面布局、侧边栏入口位置或交互范围时，必须同步更新 `design/Orgzly界面细节.fig` 中的当前 Harmony 画板、`docs/harmony/UI导航设计.org` 和手机应用功能清单；不能仅修改实现或仅添加说明。
+
 ## 构建与设备
 
 前提条件：安装 DevEco Studio（提供 SDK、hvigorw、hdc、ohpm）；设备开启开发者模式和 USB 调试，并通过 `make devices` 确认连接。

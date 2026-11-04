@@ -14,7 +14,7 @@ export interface Notebook {
   tasks: CoreTask[]
 }
 
-export interface NotebookCategory {
+export interface TaskCategory {
   key: string
   title: string
   category: string | null
@@ -27,28 +27,32 @@ export class NotebookService {
     return category ? `category:${category}` : 'uncategorized'
   }
 
-  static categories(notebooks: Notebook[]): NotebookCategory[] {
-    const categories: NotebookCategory[] = []
+  static categories(notebooks: Notebook[]): TaskCategory[] {
+    const categories: TaskCategory[] = []
     for (const notebook of notebooks) {
       const category = notebook.category || null
       const key = NotebookService.categoryKey(category)
-      const existing = categories.find((item: NotebookCategory) => item.key === key)
+      const existing = categories.find((item: TaskCategory) => item.key === key)
       if (existing) {
-        existing.count++
+        existing.count += notebook.tasks.length
       } else {
-        categories.push({ key, title: category || '未分类', category, count: 1 })
+        categories.push({ key, title: category || '未分类', category, count: notebook.tasks.length })
       }
     }
-    return categories.sort((left: NotebookCategory, right: NotebookCategory) => {
+    return categories.sort((left: TaskCategory, right: TaskCategory) => {
       if (left.category === null) return right.category === null ? 0 : 1
       if (right.category === null) return -1
       return left.title.localeCompare(right.title)
     })
   }
 
-  static inCategory(notebooks: Notebook[], category: string | null): Notebook[] {
+  static tasksInCategory(notebooks: Notebook[], category: string | null): CoreTask[] {
     const key = NotebookService.categoryKey(category)
-    return notebooks.filter((notebook: Notebook) => NotebookService.categoryKey(notebook.category) === key)
+    const tasks: CoreTask[] = []
+    for (const notebook of notebooks) {
+      if (NotebookService.categoryKey(notebook.category) === key) tasks.push(...notebook.tasks)
+    }
+    return tasks
   }
 
   static async load(repositories: RepoConfig[], todoDefaults?: string): Promise<Notebook[]> {

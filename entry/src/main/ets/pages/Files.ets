@@ -6,8 +6,6 @@ import { Notebook, NotebookService } from '../services/NotebookService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { repositoryName, UiColor } from '../ui/Theme'
 
-interface FileListParams { category?: string | null }
-
 @Entry
 @Component
 struct Files {
@@ -15,8 +13,6 @@ struct Files {
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
-  @State categoryFiltered: boolean = false
-  @State category: string | null = null
 
   onPageShow() { this.loadFiles() }
   onBackPress(): boolean {
@@ -27,13 +23,9 @@ struct Files {
   async loadFiles() {
     this.loading = true
     this.message = ''
-    const params = router.getParams() as FileListParams | undefined
-    this.categoryFiltered = params?.category !== undefined
-    this.category = params?.category || null
     try {
       const config = await AppConfigService.load(getContext(this))
-      const files = await NotebookService.load(config.repos, config.todoDefaults)
-      this.files = this.categoryFiltered ? NotebookService.inCategory(files, this.category) : files
+      this.files = await NotebookService.load(config.repos, config.todoDefaults)
     } catch (e) {
       this.files = []
       this.message = `读取笔记本失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -42,8 +34,7 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ title: this.categoryFiltered ? this.category || '未分类' : '笔记本', activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
-      activeCategoryKey: this.categoryFiltered ? NotebookService.categoryKey(this.category) : '',
+      AppShell({ title: '笔记本', activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
       actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) },
       extraLabel: '笔记本操作', extraAction: (): void => { this.getUIContext().showActionSheet({ message: '',
         title: '笔记本', sheets: [
@@ -58,12 +49,8 @@ struct Files {
           } else if (this.message) {
             EmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
           } else if (this.files.length === 0) {
-            EmptyState({ title: this.categoryFiltered ? '此分类下没有笔记本' : '还没有笔记本',
-              detail: this.categoryFiltered ? '文件可能已移除或分类已变更。可以返回查看全部笔记本。' : '添加本地目录或 WebDAV 存储库后，org 文件会显示在这里。',
-              actionLabel: this.categoryFiltered ? '全部笔记本' : '管理存储库', action: (): void => {
-                if (this.categoryFiltered) router.replaceUrl({ url: 'pages/Files' })
-                else router.pushUrl({ url: 'pages/Repositories' })
-              } })
+            EmptyState({ title: '还没有笔记本', detail: '添加本地目录或 WebDAV 存储库后，org 文件会显示在这里。',
+              actionLabel: '管理存储库', action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
           } else {
             List({ space: 12 }) {
               ForEach(this.files, (file: Notebook) => {

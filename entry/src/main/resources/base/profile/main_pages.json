@@ -6,6 +6,7 @@
     "pages/Search",
     "pages/SavedSearches",
     "pages/Files",
+    "pages/CategoryTasks",
     "pages/FileDetail",
     "pages/TaskDetail",
     "pages/Settings",
