@@ -17,6 +17,7 @@ struct Settings {
   @State section: string = ''
   @State inboxFile: string = ''
   @State somedayFile: string = ''
+  @State memoFile: string = ''
   @State calendarName: string = 'Org Tasks'
   @State syncInterval: string = '20'
   @State todoDefaults: string = ''
@@ -38,6 +39,7 @@ struct Settings {
       this.config = await AppConfigService.load(getContext(this))
       this.inboxFile = this.config.inboxFile
       this.somedayFile = this.config.somedayFile
+      this.memoFile = this.config.memoFile
       const params = router.getParams() as SettingsParams | undefined
       if (!this.loaded && params?.section) this.section = params.section
       this.todoDefaults = this.config.todoDefaults
@@ -56,7 +58,7 @@ struct Settings {
     this.saving = true
     try {
       const current = await AppConfigService.load(getContext(this))
-      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults })
+      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, memoFile: this.section === '笔记与笔记本' ? this.memoFile.trim() : current.memoFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults })
       await NativeCoreService.workspaceFor(current.repos, this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults)
       this.message = '设置已保存'
       try { await BackgroundSyncService.configure(interval) }
@@ -75,7 +77,7 @@ struct Settings {
           Scroll() {
             Column() {
               if (!this.section) {
-                PreferenceRow({ title: '笔记与笔记本', detail: '收件箱、某天文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
+                PreferenceRow({ title: '笔记与笔记本', detail: '收件箱、某天、备忘文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
                 PreferenceRow({ title: '同步', detail: '存储库、系统日历与后台同步', icon: $r('app.media.ui_sync'), action: () => { this.section = '同步' } })
                 PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
               } else if (this.section === '同步') {
@@ -113,7 +115,7 @@ struct Settings {
                       catch (e) { this.message = `读取默认设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
                     })
                 }.width('100%').padding({ left: 24, right: 24 })
-                SectionHeading({ title: '收件箱与某天' })
+                SectionHeading({ title: '文件入口' })
                 Column({ space: 16 }) {
                   Text('收件箱文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
                   TextInput({ text: this.inboxFile, placeholder: 'inbox.org' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
@@ -123,6 +125,12 @@ struct Settings {
                   TextInput({ text: this.somedayFile, placeholder: '例如 someday.org，可留空' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.somedayFile = value })
                   Text('“某天”展示此文件中的未完成任务；未配置时点击入口会提示设置。')
+                    .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Text('备忘文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
+                  TextInput({ text: this.memoFile, placeholder: '例如 memo.org，可留空' }).height(56)
+                    .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
+                    .onChange((value: string) => { this.memoFile = value })
+                  Text('“备忘”展示此文件中的全部标题记录，包含无任务状态和已完成记录；未配置时点击入口会提示设置。')
                     .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                   Button('保存设置').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
                 }.width('100%').padding(24)

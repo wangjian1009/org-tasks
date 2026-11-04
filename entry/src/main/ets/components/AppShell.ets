@@ -2,13 +2,14 @@ import { router } from '@kit.ArkUI'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { categoryNavigationQuery, inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, TaskOverview } from '../services/TaskViewQueries'
+import { categoryNavigationQuery, inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, CoreTaskCategory, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
 export struct AppShell {
   @Prop title: string = ''
+  @Prop titleIcon: ResourceStr = ''
   @Prop activeRoute: string = ''
   @Prop activeOverview: string = ''
   @Prop activeCategoryValues: (string | null)[] = []
@@ -36,6 +37,7 @@ export struct AppShell {
   @State plannedCount: number = -1
   @State anytimeCount: number = -1
   @State somedayCount: number = -1
+  @State memoCount: number = -1
   @State logbookCount: number = -1
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
@@ -68,6 +70,7 @@ export struct AppShell {
       const planned = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('planned'), config.todoDefaults)
       const anytime = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('anytime'), config.todoDefaults)
       const someday = config.somedayFile ? await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('someday', config.somedayFile), config.todoDefaults) : undefined
+      const memo = config.memoFile ? await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('memo', '', config.memoFile), config.todoDefaults) : undefined
       const logbook = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('logbook'), config.todoDefaults)
       if (request !== this.navigationRequest) return
       this.searches = searches
@@ -78,6 +81,7 @@ export struct AppShell {
       this.plannedCount = planned.tasks.length
       this.anytimeCount = anytime.tasks.length
       this.somedayCount = someday?.tasks.length ?? -1
+      this.memoCount = memo?.tasks.length ?? -1
       this.logbookCount = logbook.tasks.length
     } catch (e) {
       if (request === this.navigationRequest) this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -87,8 +91,8 @@ export struct AppShell {
   async openPrimary(view: TaskOverview | 'inbox') {
     try {
       const config = await AppConfigService.load(getContext(this))
-      if (view === 'inbox' && !config.inboxFile || view === 'someday' && !config.somedayFile) {
-        const title = view === 'inbox' ? '收件箱' : '某天'
+      if (view === 'inbox' && !config.inboxFile || view === 'someday' && !config.somedayFile || view === 'memo' && !config.memoFile) {
+        const title = view === 'inbox' ? '收件箱' : overviewTitle(view)
         this.getUIContext().showAlertDialog({ title: `尚未配置${title}`, message: `请在设置的“笔记与笔记本”中配置${title}文件。`,
           primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
             this.drawerOpen = false
@@ -136,6 +140,7 @@ export struct AppShell {
       case 'planned': return this.plannedCount
       case 'anytime': return this.anytimeCount
       case 'someday': return this.somedayCount
+      case 'memo': return this.memoCount
       case 'logbook': return this.logbookCount
     }
   }
@@ -197,6 +202,7 @@ export struct AppShell {
           this.primaryItem('计划', $r('app.media.nav_planned'), 'planned')
           this.primaryItem('随时', $r('app.media.nav_anytime'), 'anytime')
           this.primaryItem('某天', $r('app.media.nav_someday'), 'someday')
+          this.primaryItem('备忘', $r('app.media.nav_memo'), 'memo')
           Row().height(12)
           this.primaryItem('日志簿', $r('app.media.nav_logbook'), 'logbook')
           ForEach(this.searches, (search: SavedSearch) => {
@@ -242,8 +248,12 @@ export struct AppShell {
           IconButton({ icon: this.back ? $r('app.media.ui_back') : $r('app.media.ui_menu'),
             label: this.back ? '返回' : '打开导航', disabled: this.busy,
             action: () => { if (this.back) this.backAction(); else this.openDrawer() } })
+          if (this.titleIcon !== '') {
+            Image(this.titleIcon).width(26).height(26).margin({ left: 8, right: 8 })
+          }
           Text(this.title).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
-            .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ left: 8 })
+            .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ left: this.titleIcon === '' ? 8 : 0 })
           if (this.actionLabel.length > 0) {
             IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
           }

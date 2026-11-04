@@ -22,13 +22,14 @@
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~calendarName~ 、 ~syncInterval~ 和 ~todoDefaults~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；存储库列表与表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 和 ~todoDefaults~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；存储库列表与表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
 
 #+begin_src ts
 interface AppConfig {
   repos: RepoConfig[]
   inboxFile: string
   somedayFile: string
+  memoFile: string
   calendarName: string
   syncInterval: number
   todoDefaults: string
@@ -55,6 +56,7 @@ interface RepoConfig {
 | 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
 | 收件箱文件 | ~inboxFile~ | Preferences | 可为空的安全相对 ~.org~ 路径；新配置默认空，旧保存值继续沿用。新增任务相对于所选仓库解析。 |
 | 某天文件 | ~somedayFile~ | Preferences | 可为空的安全相对 ~.org~ 路径，默认空；某天入口查询此文件中的未完成记录。 |
+| 备忘文件 | ~memoFile~ | Preferences | 可为空的安全相对 ~.org~ 路径，默认空；备忘入口查询该文件中的全部标题记录。 |
 | WebDAV 启用 | ~repos[].webdavEnabled~ | Preferences | 决定是否为该仓库构造 WebDAV 策略。 |
 | WebDAV 地址 | ~repos[].webdavUrl~ | Preferences | 表单限定 HTTPS；由 WebDavSyncPolicy 使用，不进入核心数据模型。 |
 | WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
@@ -104,7 +106,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 
 * 界面配置入口
 
-本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收件箱、某天文件、日历与后台间隔； ~Repositories.ets~ 管理列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
+本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收件箱、某天、备忘文件、日历与后台间隔； ~Repositories.ets~ 管理列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
 
 “设置 → 同步 → 同步到系统日历”打开独立的手动日历操作入口，使用已保存的日历名称与本地任务，不保存设置草稿或触发 WebDAV。抽屉与笔记本菜单的“同步”仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。后台作业仍先同步文件再写入日历。
 
@@ -143,12 +145,18 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 
 * 顶部文件入口配置与缺失反馈
 
-~inboxFile~ 与 ~somedayFile~ 都保存到 ~org_tasks_config~ ，留空表示未配置；已有收件箱 Preferences 值不迁移或清空。新安装不以 ~inbox.org~ 自动代填，输入框中的示例不代表已保存配置。两个字段都使用安全相对 ~.org~ 路径，不接受绝对路径、目录回退、反斜杠或 ~.sync~ 控制目录。
+~inboxFile~ 、 ~somedayFile~ 与 ~memoFile~ 都保存到 ~org_tasks_config~ ，留空表示未配置；已有收件箱 Preferences 值不迁移或清空。新安装不以 ~inbox.org~ 自动代填，输入框中的示例不代表已保存配置。三个字段都使用安全相对 ~.org~ 路径，不接受绝对路径、目录回退、反斜杠或 ~.sync~ 控制目录。
 
-点击未配置的收件箱或某天时弹出中文提示，“前往设置”进入笔记与笔记本分组；取消后保留当前页面。空配置不执行空路径查询，也不创建文件。已配置但文件不存在时显示零记录。清空收件箱后新增任务显示需配置目标的消息并保持不可保存。
+点击未配置的收件箱、某天或备忘时弹出中文提示，“前往设置”进入笔记与笔记本分组；取消后保留当前页面。空配置不执行空路径查询，也不创建文件。已配置但文件不存在时显示零记录。清空收件箱后新增任务显示需配置目标的消息并保持不可保存。
 
-存储库增删改和其他设置分组保存时必须保留这两个字段，不能因为表单未编辑它们而写回默认空值。笔记与笔记本分组保存时允许同时配置或清空两个字段。收件箱记录包含完成记录；某天只显示未完成记录，差异由 UI 的通用查询请求表达，Core 不读取这些宿主设置。
+存储库增删改和其他设置分组保存时必须保留这三个字段，不能因为表单未编辑它们而写回默认空值。笔记与笔记本分组保存时允许同时配置或清空三个字段。收件箱记录包含完成记录；某天只显示未完成记录，差异由 UI 的通用查询请求表达，Core 不读取这些宿主设置。
 
 * 应用配色
 
 全 App 固定为与侧边栏一致的深色配色，不新增 Preferences 开关。启动时设置应用颜色模式为深色，系统状态栏、导航栏和启动背景使用 ~#2D2C2B~ ，弹窗和原生输入控件沿用深色模式。页面颜色从 ~UiColor~ 读取，具体色值见 [[file:UI导航设计.org][UI 导航设计]]。
+
+* 备忘文件入口
+
+“设置 → 笔记与笔记本 → 文件入口”新增 ~memoFile~ ，默认空字符串，使用与收件箱/某天相同的路径校验与保存方式。存储库增删改和其他设置页面保存时必须保留该字段。备忘请求通过 ~overviewTaskQuery('memo', ..., memoFile)~ 生成文件表达式，并设置 ~includeDone=true~ 、 ~includeComposeTasks=true~ ，由 Core 返回全部标题记录；UI 不自行过滤。
+
+备忘未配置时点击侧边栏入口显示“尚未配置备忘”并提供前往设置；清空后恢复该状态，不清理原文件或内容。

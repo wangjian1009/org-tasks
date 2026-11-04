@@ -15,6 +15,7 @@ export class AppConfigService {
     const repos = await AppConfigService.loadRepositories(store)
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
     const somedayFile = await store.get('somedayFile', DEFAULT_CONFIG.somedayFile) as string
+    const memoFile = await store.get('memoFile', DEFAULT_CONFIG.memoFile) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
@@ -22,6 +23,7 @@ export class AppConfigService {
       repos,
       inboxFile,
       somedayFile,
+      memoFile,
       calendarName,
       syncInterval,
       todoDefaults
@@ -29,11 +31,11 @@ export class AppConfigService {
   }
 
   static async save(context: Context, config: AppConfig): Promise<void> {
-    for (const file of [config.inboxFile.trim(), config.somedayFile.trim()]) {
+    for (const file of [config.inboxFile.trim(), config.somedayFile.trim(), config.memoFile.trim()]) {
       if (file && (!file.endsWith('.org') || file.startsWith('/') || file.includes('\\') ||
         file.split('/').some((part: string) => part === '..' || part === '.' || part.length === 0) ||
         file.split('/')[0] === '.sync' || /[\x00-\x1f\x7f]/.test(file))) {
-        throw new Error('收件箱和某天文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
+        throw new Error('收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
       }
     }
     const validation = new Workspace()
@@ -58,6 +60,7 @@ export class AppConfigService {
     await store.put(REPOS_KEY, JSON.stringify(persisted))
     await store.put('inboxFile', config.inboxFile.trim())
     await store.put('somedayFile', config.somedayFile.trim())
+    await store.put('memoFile', config.memoFile.trim())
     await store.put('calendarName', config.calendarName.trim())
     await store.put('syncInterval', config.syncInterval)
     await store.put('todoDefaults', config.todoDefaults)

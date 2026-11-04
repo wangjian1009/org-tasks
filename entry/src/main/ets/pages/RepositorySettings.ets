@@ -102,7 +102,7 @@ struct RepositorySettings {
       const repos = current.repos.slice()
       const index = repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
       if (index < 0) repos.push(repository); else repos[index] = repository
-      await AppConfigService.save(getContext(this), { repos, inboxFile: current.inboxFile, somedayFile: current.somedayFile, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults })
+      await AppConfigService.save(getContext(this), { repos, inboxFile: current.inboxFile, somedayFile: current.somedayFile, memoFile: current.memoFile, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults })
       router.back()
     } catch (e) { this.message = `保存失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.saving = false }

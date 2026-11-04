@@ -19,7 +19,7 @@ export function inboxRecordQuery(inboxFile: string): CoreTaskQuery {
   return { expression: `b."${path}"`, includeDone: true, includeComposeTasks: true }
 }
 
-export type TaskOverview = 'today' | 'planned' | 'anytime' | 'someday' | 'logbook'
+export type TaskOverview = 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook'
 
 export function overviewTitle(view: TaskOverview): string {
   switch (view) {
@@ -27,17 +27,19 @@ export function overviewTitle(view: TaskOverview): string {
     case 'planned': return '计划'
     case 'anytime': return '随时'
     case 'someday': return '某天'
+    case 'memo': return '备忘'
     case 'logbook': return '日志簿'
   }
 }
 
-export function overviewTaskQuery(view: TaskOverview, somedayFile: string = ''): CoreTaskQuery {
+export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', memoFile: string = ''): CoreTaskQuery {
   let expression = ''
   switch (view) {
     case 'today': expression = '(s.le.today or d.le.today)'; break
     case 'planned': expression = '(s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow)'; break
     case 'anytime': expression = 's.none d.none'; break
     case 'someday': return { expression: inboxRecordQuery(somedayFile).expression, includeDone: false, includeComposeTasks: true }
+    case 'memo': return inboxRecordQuery(memoFile)
     case 'logbook': expression = 'it.done'; break
   }
   return { expression, includeDone: view === 'logbook', includeComposeTasks: true }
