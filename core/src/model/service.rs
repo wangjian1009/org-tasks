@@ -448,6 +448,7 @@ impl OrgRepo {
     ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
         self.id = load_or_create_repo_id(Path::new(&self.root_directory)).await?;
         let history = load_sync_history::<P>(Path::new(&self.root_directory)).await?;
+        let task_scan_rules = super::TaskScanRules::load(Path::new(&self.root_directory)).await?;
         let sources = scan_org_files(Path::new(&self.root_directory)).await?;
         let mut files = Vec::with_capacity(sources.len());
         for source in sources {
@@ -468,6 +469,7 @@ impl OrgRepo {
         }
         self.pending_writes().await?;
         self.files = files;
+        self.task_scan_rules = task_scan_rules;
         Ok(history)
     }
 
@@ -980,6 +982,92 @@ mod tests {
         assert_eq!(tasks[1].state_type, crate::filter::FilterStateType::Done);
         assert_eq!(repo.files()[0].todo.done_keywords, ["DONE", "CNCL"]);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn task_ignore_is_repo_local_reloadable_and_keeps_complete_file_snapshots() {
+        let root =
+            std::env::temp_dir().join(format!("org-tasks-ignore-{}", generate_repo_id().unwrap()));
+        fs::create_dir_all(root.join("private")).await.unwrap();
+        for (path, source) in [
+            ("visible.org", "#+CATEGORY: Work\n* TODO Visible\n"),
+            (
+                "hidden.org",
+                "#+CATEGORY: Hidden\n* TODO Hidden\n** TODO Child\n",
+            ),
+            ("private/old.org", "* TODO Private\n"),
+            ("private/keep.org", "* TODO Keep\n"),
+        ] {
+            fs::write(root.join(path), source).await.unwrap();
+        }
+        fs::write(
+            root.join(".orgzlyignore"),
+            "hidden.org\nprivate/\n!private/keep.org\n",
+        )
+        .await
+        .unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        assert_eq!(repo.files().len(), 4);
+        assert!(
+            repo.file("hidden.org")
+                .unwrap()
+                .source_bytes()
+                .starts_with(b"#+CATEGORY")
+        );
+        let other_root = root.with_extension("other");
+        fs::create_dir(&other_root).await.unwrap();
+        fs::write(other_root.join("hidden.org"), "* TODO Other repository\n")
+            .await
+            .unwrap();
+        let mut other = OrgRepo::new(other_root.to_string_lossy().into()).unwrap();
+        other.load::<CompletedSync>().await.unwrap();
+        let mut workspace = crate::OrgWorkspace::new(vec![repo, other]).unwrap();
+        let result = workspace.query(&crate::TaskQuery::default()).unwrap();
+        assert_eq!(result.tasks.len(), 3);
+        assert!(
+            result
+                .tasks
+                .iter()
+                .all(|task| !["Hidden", "Child", "Private"].contains(&task.title.as_str()))
+        );
+        assert!(
+            result
+                .categories
+                .iter()
+                .all(|category| category.category.as_deref() != Some("Hidden"))
+        );
+        assert_eq!(workspace.search(&crate::Filter::parse("\"Hidden\"")), []);
+
+        // 规则变更与删除在下一次 load 生效；已有完整字节不受影响。
+        let repo = &mut workspace.repos[0];
+        let original = repo.file("hidden.org").unwrap().source_bytes().to_vec();
+        fs::write(root.join(".orgzlyignore"), "visible.org\n")
+            .await
+            .unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        assert!(
+            crate::filter::tasks_from_repo(repo)
+                .iter()
+                .all(|task| task.path != "visible.org")
+        );
+        assert!(
+            crate::filter::tasks_from_repo(repo)
+                .iter()
+                .any(|task| task.title == "Hidden")
+        );
+        fs::remove_file(root.join(".orgzlyignore")).await.unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        let count = crate::filter::tasks_from_repo(repo).len();
+        assert_eq!(count, 5);
+        assert_eq!(fs::read(root.join("hidden.org")).await.unwrap(), original);
+
+        // 无效配置明确失败，不能静默伪装为空任务集合。
+        fs::write(root.join(".orgzlyignore"), [0xff]).await.unwrap();
+        assert!(repo.load::<CompletedSync>().await.is_err());
+        assert_eq!(crate::filter::tasks_from_repo(repo).len(), count);
+        fs::remove_dir_all(root).await.unwrap();
+        fs::remove_dir_all(other_root).await.unwrap();
     }
 
     #[test]

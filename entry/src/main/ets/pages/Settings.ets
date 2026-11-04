@@ -85,7 +85,7 @@ struct Settings {
                 Divider().color(UiColor.outline)
                 SectionHeading({ title: '系统日历' })
                 PreferenceRow({ title: '同步到系统日历', detail: '将本地笔记中的计划与截止任务写入日历', icon: $r('app.media.ui_calendar'),
-                  action: (): void => { router.pushUrl({ url: 'pages/Index', params: { calendar: true } }) } })
+                  action: (): void => { router.pushUrl({ url: 'pages/CalendarSync' }) } })
                 Column({ space: 12 }) {
                   Text('日历名称').fontSize(14).fontColor(UiColor.secondary).width('100%')
                   TextInput({ text: this.calendarName, placeholder: 'Org Tasks' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)

@@ -82,7 +82,7 @@ struct FileDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.path || '笔记本', back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.path || '笔记本', synchronized: (): void => { this.loadFile() }, back: true, drawerOpen: $drawerOpen,
       actionIcon: $r('app.media.ui_expand'), actionLabel: this.collapsed.length > 0 ? '展开全部' : '收起全部',
       action: () => { this.collapsed = this.collapsed.length > 0 ? [] : this.tasks.filter((task: CoreTask) => this.hasChildren(task)).map((task: CoreTask) => task.id) },
       extraIcon: $r('app.media.ui_search'), extraLabel: '搜索笔记', extraAction: (): void => { router.pushUrl({ url: 'pages/Search' }) },

@@ -71,7 +71,7 @@ struct CategoryTasks {
 
   build() {
     Column() {
-      AppShell({ title: this.title(), activeRoute: 'pages/CategoryTasks',
+      AppShell({ title: this.title(), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/CategoryTasks',
         activeCategoryValues: this.categoryValues, activeCategories: this.categories, categoryBusy: this.loading,
         categoryToggled: (category: string | null): void => { this.toggleCategory(category) },
         drawerOpen: $drawerOpen,

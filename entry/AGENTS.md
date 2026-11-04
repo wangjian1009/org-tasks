@@ -23,7 +23,7 @@ entry/
         │   ├── EntryAbility.ets        # 应用入口与后台任务注册
         │   └── SyncWorkExtension.ets   # WorkScheduler 后台同步回调
         └── pages/
-            ├── Index.ets              # 主页与手动同步
+            ├── CalendarSync.ets       # 设置中的系统日历同步
             ├── AddTask.ets            # 新增任务
             ├── Files.ets              # 文件列表
             ├── FileDetail.ets         # 文件详情

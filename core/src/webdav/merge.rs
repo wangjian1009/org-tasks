@@ -1082,6 +1082,39 @@ mod tests {
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
     #[tokio::test]
+    async fn task_ignore_does_not_change_upload_download_or_write_acknowledgement() {
+        let (mut repo, root) = repo().await;
+        tokio::fs::write(root.join(".orgzlyignore"), "local.org\nremote.org\n")
+            .await
+            .unwrap();
+        offline(&mut repo, "local.org").await;
+        let local = tokio::fs::read(root.join("local.org")).await.unwrap();
+        let remote = b"* TODO Remote ignored task\r\n";
+        let (policy, state, worker) = server(&[("remote.org", remote)]).await;
+        let record = sync(&mut repo, &policy, 1).await;
+        assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(record.files.len(), 2);
+        assert_eq!(state.lock().unwrap().files["local.org"].data, local);
+        assert_eq!(
+            tokio::fs::read(root.join("remote.org")).await.unwrap(),
+            remote
+        );
+        assert_eq!(repo.files().len(), 2);
+        assert!(repo.pending_writes().await.unwrap().is_empty());
+        assert!(crate::filter::tasks_from_repo(&repo).is_empty());
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        assert_eq!(repo.files().len(), 2);
+        assert!(crate::filter::tasks_from_repo(&repo).is_empty());
+        tokio::fs::remove_file(root.join(".orgzlyignore"))
+            .await
+            .unwrap();
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        assert_eq!(crate::filter::tasks_from_repo(&repo).len(), 2);
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() {
         let (mut repo, root) = repo().await;
         let original = b"* TODO Local archive\r\n";

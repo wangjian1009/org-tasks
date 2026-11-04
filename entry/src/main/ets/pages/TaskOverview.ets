@@ -61,7 +61,7 @@ struct TaskOverview {
 
   build() {
     Column() {
-      AppShell({ title: overviewTitle(this.view), activeRoute: 'pages/TaskOverview', activeOverview: this.view,
+      AppShell({ title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
         titleIcon: this.view === 'today' ? $r('app.media.nav_today') : '',
         drawerOpen: $drawerOpen, actionIcon: $r('app.media.ui_sync'), actionLabel: '刷新任务',
         action: (): void => { this.loadTasks() }, fabLabel: this.view === 'memo' ? '' : '新增任务',

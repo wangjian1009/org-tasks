@@ -93,11 +93,11 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。~search~ 汇总全部已加载仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 ~search~ 汇总全部已加载仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 *** OrgRepo
 
-~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~，由 ~load::<P>~ 返回，不作为仓库字段保留。
+~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~ ，由 ~load::<P>~ 返回，不作为仓库字段保留。
 
 #+begin_src rust
 impl OrgRepo {
@@ -141,6 +141,19 @@ impl OrgRepo {
 
 ~file(path)~ 从当前已加载集合返回独立的 ~OrgFile~ 副本。路径尚不存在时构造未落盘的空文件，沿用该仓库的全局默认 TODO 配置；非法路径或仓库尚未加载时报错。该方法不读取磁盘、不修改仓库文件列表，也不写入 outbox。宿主需要最新内容时先加载仓库。
 
+*** TaskScanRules
+
+~OrgRepo.task_scan_rules~ 保存最近一次 ~load~ 从根目录 ~.orgzlyignore~ 加载的运行时规则；不改变 ~files()~ 和 ~file(path)~ 的完整文件访问，也不传入同步策略。 ~search~ 和 ~query~ 在 Core 生成任务记录时统一排除命中文件。
+
+#+begin_src rust
+impl TaskScanRules {
+    pub fn parse(source: &str) -> Result<Self, CoreError>;
+    pub fn excludes(&self, path: &str) -> bool;
+}
+#+end_src
+
+~Default~ 表示没有忽略规则。 ~path~ 使用仓库内安全相对路径；非法相对路径不匹配。修改文件后需重新调用 ~load~ ，规则格式和作用范围见 [[file:目录结构设计.org][目录结构设计]]。
+
 *** OrgFile
 
 ~OrgFile~ 保存一次解析/编辑会话内的完整源字节，并在运行时缓存 ~orgize::Org~ 无损语法树。缓存不属于 core 持久化模型； ~sourceBytes~ 是保真序列化的唯一来源。
@@ -173,11 +186,11 @@ impl OrgFile {
 
 ~queue_upload~ 为真时，提交目标文件前先持久化 ~OrgRepoWriteIntent { relative_path, content_hash }~ 到 ~.sync/outbox/~ 。为假时只保存本地任务。写入意图不保存标题、日期、标签、完整文件或绝对路径。重复保存生成独立意图；后续成功同步完整的当前文件后，可一起确认该路径的历史意图。
 
-~pending_writes~ 恢复并校验意图；损坏的 JSON 或不安全路径使加载失败。~acknowledge_write~ 只有在仓库快照和磁盘文件都匹配已同步 ~LocalFileVersion~ 时才清除该路径的意图。~OrgRepo.sync~ 先持久化完整同步记录，再确认其中 ~Synchronized~ 文件；失败或冲突的文件意图保留。
+~pending_writes~ 恢复并校验意图；损坏的 JSON 或不安全路径使加载失败。 ~acknowledge_write~ 只有在仓库快照和磁盘文件都匹配已同步 ~LocalFileVersion~ 时才清除该路径的意图。 ~OrgRepo.sync~ 先持久化完整同步记录，再确认其中 ~Synchronized~ 文件；失败或冲突的文件意图保留。
 
 *** SourcePosition 与 SourceRange
 
-~SourcePosition~ 同时保存行号、列号和 UTF-8 字节偏移； ~SourceRange~ 是对同一文件快照的半开区间 ~[start, end)~ 。它们与 ~OrgFileEdit~ 、~apply_edit~ 和 ~serialize_file~ 一同定义在 ~core::model::editor~ ，不属于 workspace 或查询响应。
+~SourcePosition~ 同时保存行号、列号和 UTF-8 字节偏移； ~SourceRange~ 是对同一文件快照的半开区间 ~[start, end)~ 。它们与 ~OrgFileEdit~ 、 ~apply_edit~ 和 ~serialize_file~ 一同定义在 ~core::model::editor~ ，不属于 workspace 或查询响应。
 
 #+begin_src rust
 impl SourcePosition {
@@ -360,7 +373,7 @@ let snapshot = controller.snapshot();
 controller.cancel()?;
 #+end_src
 
-~start~ 在已有同步运行时返回错误。 ~cancel~ 仅设置 ~SyncCancellation~ ，策略在列举和文件边界检查该信号后以 ~Cancelled~ 完成当前记录。 ~snapshot~ 返回 ~Idle~ 、~Running~ 、~Cancelling~ 、~Succeeded~ 、~Failed~ 或 ~Cancelled~ ，以及阶段、已完成数量、总数、当前文件和最近完成记录。进度和取消句柄是运行时数据，不属于持久化记录。
+~start~ 在已有同步运行时返回错误。 ~cancel~ 仅设置 ~SyncCancellation~ ，策略在列举和文件边界检查该信号后以 ~Cancelled~ 完成当前记录。 ~snapshot~ 返回 ~Idle~ 、 ~Running~ 、 ~Cancelling~ 、 ~Succeeded~ 、 ~Failed~ 或 ~Cancelled~ ，以及阶段、已完成数量、总数、当前文件和最近完成记录。进度和取消句柄是运行时数据，不属于持久化记录。
 
 进度快照可附带本轮按发生顺序排列的脱敏 HTTP 事件，内容仅包含请求方法、相对路径或根路径，以及“请求中”或响应状态码。它供宿主展示同步过程，不属于同步记录，也不得包含完整 URL、认证材料或传输正文。
 
@@ -424,11 +437,11 @@ pub struct WebDavMergeOutcome {
 
 ~compare_merge~ 自行加载仓库与历史，读取远端版本，返回统一的 ~changes~ 列表。每个差异带临时 ~id~ 、文件路径、新增/修改/删除候选、本地与远端版本，以及初始为空的 ~resolution~ 。未变化任务自动保留，不要求提交选择。差异来源是 Org 标题及自身 section，文件前言单独比较；无稳定 ID 的改名不能猜测为同一任务。
 
-调用方将 ~mode~ 设为 ~MergeTasks~ ，为每个变化选择 ~Local~ 、 ~Remote~ 或 ~Remove~ ，再将整个比较对象传给 ~apply_merge~ 。选择不存在的一端即确认不保留该项；~AcceptRemote~ 模式整份采用各文件的远端内容，包括确认远端已经删除的文件。来源、ID、类型、文件列表和版本字段都是只读数据，不可重写。
+调用方将 ~mode~ 设为 ~MergeTasks~ ，为每个变化选择 ~Local~ 、 ~Remote~ 或 ~Remove~ ，再将整个比较对象传给 ~apply_merge~ 。选择不存在的一端即确认不保留该项； ~AcceptRemote~ 模式整份采用各文件的远端内容，包括确认远端已经删除的文件。来源、ID、类型、文件列表和版本字段都是只读数据，不可重写。
 
 ~apply_merge~ 重新加载整个仓库，并比较身份、全部 Org 文件的路径与内容、同步历史和 outbox 的组合版本；任何变化都在网络写入和备份之前拒绝。远端配置指纹和每个冲突文件的 ETag、正文指纹也必须一致。新出现或已经解决的冲突、缺少选择、重复 ID、修改来源内容、无效层级和过期对象均不能提交；调用方应重新比较。
 
-所有文件通过预检后，先将本次同步的全部本地冲突文件备份到 ~.sync/backups/<started_at>/~ ，再逐文件执行条件上传与本地原子替换。已有远端文件必须使用 ~If-Match~ ，重新创建文件必须使用 ~If-None-Match: *~ 。保存失败、远端再次变化或 ~412~ 会成为该文件的失败记录，其他已完成文件保留成功结果，整体同步标为失败；不能跨多个远端文件承诺事务回滚。~OrgRepo.sync~ 统一追加一条合并作业记录，再确认成功文件的 outbox，已确认的本地删除也会在确认文件仍缺失后清理旧意图。
+所有文件通过预检后，先将本次同步的全部本地冲突文件备份到 ~.sync/backups/<started_at>/~ ，再逐文件执行条件上传与本地原子替换。已有远端文件必须使用 ~If-Match~ ，重新创建文件必须使用 ~If-None-Match: *~ 。保存失败、远端再次变化或 ~412~ 会成为该文件的失败记录，其他已完成文件保留成功结果，整体同步标为失败；不能跨多个远端文件承诺事务回滚。 ~OrgRepo.sync~ 统一追加一条合并作业记录，再确认成功文件的 outbox，已确认的本地删除也会在确认文件仍缺失后清理旧意图。
 
 冲突备份返回相对于仓库的路径，不包含凭据。元数据中不写入完整比较对象、任务正文或备份内容。一次 apply 结束后，旧对象因同步历史发生变化而失效；进程重启本身不会使未过期对象失效。同一仓库的调用仍需串行执行，跨进程外部编辑不能替代文件系统事务。
 
@@ -455,7 +468,7 @@ let file = OrgFile::with_todo_defaults(repo_id, path, bytes, defaults)?;
 let metadata = &file.todo;
 #+end_src
 
-~OrgFile::new~ 使用 Rust 缺省配置，~with_todo_defaults~ 使用外部默认配置。~OrgRepo.parse_file~ 在扫描、下载、创建与合并时统一传递配置。~OrgWorkspace.set_todo_defaults~ 校验并更新全部仓库与已加载文件，~add_repo~ 将配置传给后续加入的仓库。配置更新失败时不产生部分重解析的状态。
+~OrgFile::new~ 使用 Rust 缺省配置， ~with_todo_defaults~ 使用外部默认配置。 ~OrgRepo.parse_file~ 在扫描、下载、创建与合并时统一传递配置。 ~OrgWorkspace.set_todo_defaults~ 校验并更新全部仓库与已加载文件， ~add_repo~ 将配置传给后续加入的仓库。配置更新失败时不产生部分重解析的状态。
 
 每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
 

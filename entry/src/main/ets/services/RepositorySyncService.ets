@@ -1,0 +1,176 @@
+import { Context } from '@kit.AbilityKit'
+import { AppConfigService } from './AppConfigService'
+import { RepoConfig } from '../models/OrgTask'
+import { CoreBridgeError, CoreConflict, CoreWebDavSyncEvent, NativeCoreService, coreErrorMessage } from './NativeCoreService'
+
+export interface RepositorySyncState {
+  running: boolean
+  determinate: boolean
+  progress: number
+  message: string
+  error: boolean
+  needsRepository: boolean
+  conflicts: CoreConflict[]
+  revision: number
+}
+
+export function emptyRepositorySyncState(): RepositorySyncState {
+  return { running: false, determinate: false, progress: 0, message: '', error: false,
+    needsRepository: false, conflicts: [], revision: 0 }
+}
+
+// 前台同步会话独立于页面；这里只编排宿主调用并投影 Core 进度，不实现同步规则。
+export class RepositorySyncService {
+  private static state: RepositorySyncState = emptyRepositorySyncState()
+  private static restored: boolean = false
+  private static generation: number = 0
+  private static dismissTimer: number = -1
+  private static repositoryCount: number = 0
+  private static completedRepositories: number = 0
+  private static fileTotal: number = 0
+  private static processedFiles: number = 0
+
+  private static publish() {
+    const state = RepositorySyncService.state
+    AppStorage.setOrCreate<RepositorySyncState>('repositorySync', { running: state.running,
+      determinate: state.determinate, progress: state.progress, message: state.message, error: state.error,
+      needsRepository: state.needsRepository, conflicts: state.conflicts.slice(), revision: state.revision })
+  }
+
+  static async restoreConflicts(context: Context): Promise<void> {
+    if (RepositorySyncService.restored || RepositorySyncService.state.running) return
+    RepositorySyncService.restored = true
+    const generation = RepositorySyncService.generation
+    try {
+      const config = await AppConfigService.load(context)
+      const conflicts = await NativeCoreService.conflicts(config.repos, config.todoDefaults)
+      if (generation !== RepositorySyncService.generation) return
+      if (conflicts.length > 0) {
+        RepositorySyncService.state.conflicts = conflicts
+        RepositorySyncService.state.error = true
+        RepositorySyncService.state.message = '有未处理的同步冲突'
+        RepositorySyncService.publish()
+      }
+    } catch (_) { RepositorySyncService.restored = false }
+  }
+
+  static async start(context: Context): Promise<void> {
+    if (RepositorySyncService.state.running) return
+    clearTimeout(RepositorySyncService.dismissTimer)
+    ++RepositorySyncService.generation
+    const state = RepositorySyncService.state
+    state.running = true
+    state.determinate = false
+    state.progress = 0
+    state.message = '正在准备同步…'
+    state.error = false
+    state.needsRepository = false
+    state.conflicts = []
+    RepositorySyncService.publish()
+    let repos: RepoConfig[] = []
+    let todoDefaults: string = ''
+    let refresh: boolean = false
+    try {
+      const config = await AppConfigService.load(context)
+      repos = config.repos
+      todoDefaults = config.todoDefaults
+      if (repos.length === 0) {
+        state.error = true
+        state.needsRepository = true
+        state.message = '请先添加存储库'
+        return
+      }
+      refresh = true
+      RepositorySyncService.repositoryCount = repos.filter((repo: RepoConfig) => repo.webdavEnabled).length
+      RepositorySyncService.completedRepositories = 0
+      RepositorySyncService.fileTotal = 0
+      RepositorySyncService.processedFiles = 0
+      state.message = RepositorySyncService.repositoryCount > 0 ? '正在同步 WebDAV…' : '正在读取本地文件…'
+      RepositorySyncService.publish()
+      const result = RepositorySyncService.repositoryCount > 0
+        ? await NativeCoreService.syncWorkspaceWebDav(repos,
+          (event: CoreWebDavSyncEvent) => { RepositorySyncService.updateProgress(event) }, todoDefaults)
+        : await NativeCoreService.loadWorkspace(repos, todoDefaults)
+      state.progress = 100
+      state.determinate = true
+      state.message = `同步完成，已读取 ${result.tasks.length} 条笔记`
+    } catch (e) {
+      state.error = true
+      state.message = `同步失败：${coreErrorMessage(e as CoreBridgeError)}`
+      if (repos.length > 0) {
+        try {
+          state.conflicts = await NativeCoreService.conflicts(repos, todoDefaults)
+          if (state.conflicts.length > 0) state.message = '同步未完成，请处理同步冲突'
+        } catch (_) {}
+      }
+    } finally {
+      state.running = false
+      if (refresh) ++state.revision
+      RepositorySyncService.publish()
+      if (!state.error) {
+        RepositorySyncService.dismissTimer = setTimeout((): void => { RepositorySyncService.dismiss() }, 4000)
+      }
+    }
+  }
+
+  static dismiss() {
+    const state = RepositorySyncService.state
+    if (state.running || state.conflicts.length > 0) return
+    state.message = ''
+    RepositorySyncService.publish()
+  }
+
+  static async refreshConflicts(context: Context): Promise<void> {
+    if (RepositorySyncService.state.running) return
+    const generation = ++RepositorySyncService.generation
+    const config = await AppConfigService.load(context)
+    const conflicts = await NativeCoreService.conflicts(config.repos, config.todoDefaults)
+    if (generation !== RepositorySyncService.generation) return
+    const state = RepositorySyncService.state
+    state.conflicts = conflicts
+    state.error = conflicts.length > 0
+    state.message = conflicts.length > 0 ? '有未处理的同步冲突' : ''
+    ++state.revision
+    RepositorySyncService.publish()
+  }
+
+  private static updateProgress(event: CoreWebDavSyncEvent) {
+    const state = RepositorySyncService.state
+    if (!state.running) return
+    switch (event.type) {
+      case 'started':
+        RepositorySyncService.fileTotal = 0
+        RepositorySyncService.processedFiles = 0
+        state.determinate = false
+        state.message = '正在同步 WebDAV…'
+        break
+      case 'listingStarted':
+        state.message = '正在读取 WebDAV 文件列表…'
+        break
+      case 'listed':
+        state.message = `已发现 ${event.files} 个远端文件`
+        break
+      case 'fileStarted':
+        RepositorySyncService.fileTotal = event.total
+        RepositorySyncService.processedFiles = event.index
+        state.determinate = event.total > 0
+        state.message = `正在同步 ${event.index + 1}/${event.total}：${event.path}`
+        break
+      case 'fileProcessed':
+        ++RepositorySyncService.processedFiles
+        state.message = `已处理 ${event.path}`
+        break
+      case 'finished':
+        if (event.result === 'succeeded') ++RepositorySyncService.completedRepositories
+        state.message = '正在整理同步结果…'
+        break
+      default: return
+    }
+    const fraction = RepositorySyncService.fileTotal > 0
+      ? Math.min(1, RepositorySyncService.processedFiles / RepositorySyncService.fileTotal) : 0
+    const completed = RepositorySyncService.completedRepositories + (event.type === 'finished' ? 0 : fraction)
+    state.progress = Math.max(state.progress, Math.min(99,
+      Math.floor(completed / Math.max(1, RepositorySyncService.repositoryCount) * 100)))
+    RepositorySyncService.publish()
+  }
+}

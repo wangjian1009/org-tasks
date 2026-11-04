@@ -88,6 +88,7 @@ impl OrgRepo {
             root_directory: self.root_directory.clone(),
             files: vec![file.clone()],
             todo_defaults: self.todo_defaults.clone(),
+            task_scan_rules: Default::default(),
         };
         if !tasks_from_repo(&projection).iter().any(|item| {
             item.byte_offset as usize == offset

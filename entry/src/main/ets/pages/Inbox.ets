@@ -50,7 +50,7 @@ struct Inbox {
 
   build() {
     Column() {
-      AppShell({ title: '收件箱', activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
+      AppShell({ title: '收件箱', synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
         actionIcon: $r('app.media.ui_sync'), actionLabel: '刷新收件箱', action: (): void => { this.loadRecords() },
         fabLabel: '新增记录', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
         Column() {

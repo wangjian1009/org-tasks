@@ -38,7 +38,8 @@
   id: OrgRepoId \\
   root\_directory: String \\
   files: Vec\textless OrgFile\textgreater \\
-  todo\_defaults: TodoConfig
+  todo\_defaults: TodoConfig \\
+  task\_scan\_rules: TaskScanRules
 }{
   file(path): OrgFile \\
   sync(policy, started\_at, cancellation, progress) \\
@@ -136,7 +137,9 @@ pub struct FilterTask {
 
 ~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~Filter~ 搜索，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
-~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史属于仓库的本地控制数据，~load::<P>~ 可返回它供查询；~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，也不新增历史字段或单独状态文件。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
+~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史属于仓库的本地控制数据， ~load::<P>~ 可返回它供查询； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，也不新增历史字段或单独状态文件。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
+
+~task_scan_rules~ 是从仓库根目录 ~.orgzlyignore~ 加载的运行时任务扫描规则，默认为空。 ~files~ 仍保存全部已扫描 org 文件，规则仅在生成 ~FilterTask~ 时排除命中文件的全部标题及子标题。规则不改变同步候选、原始字节、写入意图或同步历史，也不序列化到 ~.sync/~ 。
 
 远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不进入 ~OrgRepo~ 或任何其他 core 数据结构。
 
@@ -151,6 +154,7 @@ pub struct OrgRepo {
     pub root_directory: String,
     pub files: Vec<OrgFile>,
     pub todo_defaults: TodoConfig,
+    pub task_scan_rules: TaskScanRules,
 }
 #+end_src
 
@@ -158,11 +162,11 @@ pub struct OrgRepo {
 
 ~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
 
-未修改时，~OrgFile~ 必须直接写回 ~sourceBytes~，不能经解析器重新序列化。局部编辑只替换明确的 ~SourceRange~ 或在明确 ~SourcePosition~ 插入字节；变更完成后重新构造 ~orgize::Org~ 缓存。因此空行、换行风格、缩进、行尾空格、未知语法和未改动区域保持原始字节。
+未修改时， ~OrgFile~ 必须直接写回 ~sourceBytes~ ，不能经解析器重新序列化。局部编辑只替换明确的 ~SourceRange~ 或在明确 ~SourcePosition~ 插入字节；变更完成后重新构造 ~orgize::Org~ 缓存。因此空行、换行风格、缩进、行尾空格、未知语法和未改动区域保持原始字节。
 
 ** 源码保真与最小差异写回
 
-~OrgFile.sourceBytes~ 是唯一写回基准。编辑范围使用 ~SourceRange~，插入位置使用 ~SourcePosition~；这些编辑结构与保真写回函数位于 ~core::model::editor~ 。行号从 1 开始，列号与字节偏移从 0 开始，区间采用 ~[start, end)~ 。行列仅用于诊断和定位展示，实际替换必须以 UTF-8 字节偏移执行，避免多字节字符导致偏移错误。
+~OrgFile.sourceBytes~ 是唯一写回基准。编辑范围使用 ~SourceRange~ ，插入位置使用 ~SourcePosition~ ；这些编辑结构与保真写回函数位于 ~core::model::editor~ 。行号从 1 开始，列号与字节偏移从 0 开始，区间采用 ~[start, end)~ 。行列仅用于诊断和定位展示，实际替换必须以 UTF-8 字节偏移执行，避免多字节字符导致偏移错误。
 
 - 未对文件应用编辑时，序列化必须直接返回读取时的 ~sourceBytes~ ，结果须与原文件逐字节一致。这包含编码字节、换行风格、末尾换行、空行、缩进、行尾空格、注释、drawer 顺序、未知语法和未建模内容。
 - 替换一个元素时，只能替换其 ~sourceRange~ 覆盖的字节；插入元素时，只能在明确的容器元素边界插入所需字节。写回不得格式化、重新缩进、对齐表格、规范化换行、重排元素，或重建未修改节点。
@@ -226,9 +230,9 @@ pub struct LocalFileVersion {
 
 * 持久化与运行时边界
 
-持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
+持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~ ；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
 
-~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和仓库快照更新；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
+~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。 ~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和仓库快照更新；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 
 * 旧接口
 
@@ -237,7 +241,7 @@ pub struct LocalFileVersion {
 
 * 按同步比较与合并
 
-~WebDavMergeComparison~ 是一次仓库同步的运行时比较对象。它覆盖该同步仍未解决的全部冲突文件，保存仓库版本、远端配置指纹、逐文件版本，以及统一的变化列表；不需要准备会话 ID，也不写入 Preferences 或同步历史。~apply_merge~ 接受这个对象，只有 ~mode~ 与各变化项的 ~resolution~ 可以由调用方修改。
+~WebDavMergeComparison~ 是一次仓库同步的运行时比较对象。它覆盖该同步仍未解决的全部冲突文件，保存仓库版本、远端配置指纹、逐文件版本，以及统一的变化列表；不需要准备会话 ID，也不写入 Preferences 或同步历史。 ~apply_merge~ 接受这个对象，只有 ~mode~ 与各变化项的 ~resolution~ 可以由调用方修改。
 
 #+begin_src rust
 pub enum WebDavMergeMode { AcceptRemote, MergeTasks }
@@ -276,7 +280,7 @@ pub struct WebDavSyncFileDetail {
 }
 #+end_src
 
-变化的临时 ~id~ 只用于当前比较对象，不能跨比较或同步复用。~kind~ 按“当前本地内容采用远端内容”描述新增、修改与删除候选，不推断无共同基准时的历史操作。未变化任务不进入变化列表，由 core 保留；文件前言作为独立差异展示。文件列表、版本字段、临时 ID、来源内容和变化类型都必须与重新比较的结果一致，不能通过编辑对象正文向 core 注入新任务。
+变化的临时 ~id~ 只用于当前比较对象，不能跨比较或同步复用。 ~kind~ 按“当前本地内容采用远端内容”描述新增、修改与删除候选，不推断无共同基准时的历史操作。未变化任务不进入变化列表，由 core 保留；文件前言作为独立差异展示。文件列表、版本字段、临时 ID、来源内容和变化类型都必须与重新比较的结果一致，不能通过编辑对象正文向 core 注入新任务。
 
 任务匹配优先使用自身 Org ~ID~ 的指纹；没有 ~ID~ 时使用祖先身份路径与当前标题的指纹，重名项附带出现序号。无 ~ID~ 的标题改名会显示为删除和新增；重名项需要逐项核对。每个标题只比较自身标题行和 section，子标题独立比较。所有来源区间均来自 ~orgize~ CST，选择结果按原始字节组合，再验证完整 Org 结构；不能静默丢弃未选择的子任务或生成失效层级。
 
@@ -335,9 +339,9 @@ pub struct WebDavMergeFileVersion {
 
 * 文件 TODO 元信息与外部全局默认
 
-全局默认配置由宿主编辑、保存并在运行时传给 Rust；core 不读取 Preferences，也不向 ~.sync/~ 写入默认配置。Rust 的 ~TodoConfig::default()~ 是唯一缺省来源，~to_settings()~ 返回可编辑声明文本，初始为 ~#+TODO: TODO | DONE~ 。外部只有未保存配置时才获取默认值，已经保存的空配置表示禁用默认识别。
+全局默认配置由宿主编辑、保存并在运行时传给 Rust；core 不读取 Preferences，也不向 ~.sync/~ 写入默认配置。Rust 的 ~TodoConfig::default()~ 是唯一缺省来源， ~to_settings()~ 返回可编辑声明文本，初始为 ~#+TODO: TODO | DONE~ 。外部只有未保存配置时才获取默认值，已经保存的空配置表示禁用默认识别。
 
-~OrgWorkspace.todo_defaults~ 向新仓库传递默认配置，~OrgRepo.todo_defaults~ 用于扫描、下载、新增和合并。每个 ~OrgFile.todo~ 提供源字节与默认配置共同决定的有效元信息；文件保留运行时默认配置，以便克隆和局部编辑后重新解析。这些信息不是另一套 Org AST，不写入同步记录。
+~OrgWorkspace.todo_defaults~ 向新仓库传递默认配置， ~OrgRepo.todo_defaults~ 用于扫描、下载、新增和合并。每个 ~OrgFile.todo~ 提供源字节与默认配置共同决定的有效元信息；文件保留运行时默认配置，以便克隆和局部编辑后重新解析。这些信息不是另一套 Org AST，不写入同步记录。
 
 #+begin_src rust
 pub enum TodoSource { GlobalDefault, InBuffer }

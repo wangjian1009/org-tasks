@@ -6,6 +6,7 @@ import { CoreBridgeError, CoreMergeChange, CoreMergeComparison, CoreMergeMode, C
 import { AppShell } from '../components/AppShell'
 import { EmptyState, MessageBar } from '../components/Controls'
 import { UiColor } from '../ui/Theme'
+import { RepositorySyncService } from '../services/RepositorySyncService'
 
 interface MergeParams { repoId: string; syncId: string }
 interface MergeRow { change: CoreMergeChange; choice: string; expanded: boolean }
@@ -113,6 +114,7 @@ struct MergeConflict {
       this.comparison = undefined
       this.message = this.completed ? '本次同步的冲突已处理。返回后可继续同步其余文件。'
         : '部分文件未完成，原始文件已备份。请重新比较剩余冲突。'
+      try { await RepositorySyncService.refreshConflicts(getContext(this)) } catch (_) {}
     } catch (e) {
       this.comparison = undefined
       this.message = `合并失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -168,7 +170,7 @@ struct MergeConflict {
                 Text(backup).fontSize(13).fontColor(UiColor.secondary).width('100%')
               })
               Text('备份按同步分组，不参与 WebDAV 传输。').fontSize(13).fontColor(UiColor.secondary).width('100%')
-              Button('返回同步').onClick((): void => { router.back() })
+              Button('返回列表').onClick((): void => { router.back() })
             }.width('100%').padding(24)
           } else if (this.comparison) {
             List({ space: 12 }) {

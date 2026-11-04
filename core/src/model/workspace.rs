@@ -119,6 +119,7 @@ mod tests {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: vec![
                 OrgFile::new(
                     "repo-1".into(),
@@ -132,6 +133,7 @@ mod tests {
             id: "repo-2".into(),
             root_directory: "/tmp/two".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: vec![
                 OrgFile::new(
                     "repo-2".into(),
@@ -155,6 +157,7 @@ mod tests {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: Vec::new(),
         }])
         .unwrap();
@@ -174,6 +177,7 @@ mod tests {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: Vec::new(),
         };
         let mut workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();

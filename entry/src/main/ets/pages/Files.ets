@@ -2,6 +2,7 @@ import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
+import { RepositorySyncService } from '../services/RepositorySyncService'
 import { Notebook, NotebookService } from '../services/NotebookService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { repositoryName, UiColor } from '../ui/Theme'
@@ -34,12 +35,12 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ title: '笔记本', activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
+      AppShell({ title: '笔记本', synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
       actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) },
       extraLabel: '笔记本操作', extraAction: (): void => { this.getUIContext().showActionSheet({ message: '',
         title: '笔记本', sheets: [
           { title: '刷新文件', action: (): void => { this.loadFiles() } },
-          { title: '同步', action: (): void => { router.pushUrl({ url: 'pages/Index' }) } },
+          { title: '同步', action: (): void => { RepositorySyncService.start(getContext(this)) } },
           { title: '存储库', action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } }
         ] }) },
       fabLabel: '新增任务', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {

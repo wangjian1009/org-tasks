@@ -735,6 +735,7 @@ mod tests {
             id: "repo-1".into(),
             root_directory: "/tmp/org".into(),
             todo_defaults: org_tasks_core::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: vec![file],
         };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();

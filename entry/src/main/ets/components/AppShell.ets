@@ -1,6 +1,8 @@
 import { router } from '@kit.ArkUI'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
+import { RepositorySyncBanner } from './RepositorySyncBanner'
+import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { AppConfigService } from '../services/AppConfigService'
 import { categoryNavigationQuery, inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
@@ -30,6 +32,10 @@ export struct AppShell {
   extraAction: () => void = () => {}
   fabAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
+  synchronized: () => void = () => {}
+  @StorageLink('repositorySync') @Watch('repositorySyncChanged') syncState: RepositorySyncState = emptyRepositorySyncState()
+  private syncRevision: number = 0
+  private pageIndex: number = 0
   @State categories: CoreTaskCategory[] = []
   @State inboxCount: number = -1
   @State todayCount: number = -1
@@ -44,7 +50,24 @@ export struct AppShell {
   private navigationRequest: number = 0
 
   aboutToAppear() {
+    this.syncRevision = this.syncState.revision
+    this.pageIndex = router.getState().index
+    RepositorySyncService.restoreConflicts(getContext(this))
     if (this.drawerOpen) this.loadNavigation()
+  }
+
+  repositorySyncChanged() {
+    if (this.syncRevision === this.syncState.revision) return
+    this.syncRevision = this.syncState.revision
+    if (router.getState().index !== this.pageIndex) return
+    this.synchronized()
+    if (this.drawerOpen) this.loadNavigation()
+  }
+
+  startSync() {
+    if (this.busy || this.syncState.running) return
+    this.drawerOpen = false
+    RepositorySyncService.start(getContext(this))
   }
 
   openDrawer() {
@@ -183,14 +206,7 @@ export struct AppShell {
   drawer() {
     Column() {
       Row() {
-        Row({ space: 12 }) {
-          Image($r('app.media.nav_search')).width(22).height(22)
-          Text('搜索').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText)
-        }.layoutWeight(1).height(UiSize.drawerRow).borderRadius(24).accessibilityText('搜索任务')
-          .onClick((): void => {
-            this.drawerOpen = false
-            router.replaceUrl({ url: 'pages/Search' })
-          })
+        Blank().layoutWeight(1)
         Button('×').width(48).height(UiSize.drawerRow).fontSize(26).fontColor(UiColor.drawerText)
           .backgroundColor(Color.Transparent).accessibilityText('关闭导航').onClick(() => { this.drawerOpen = false })
       }.width('100%').padding({ left: 16, right: 8, top: 4, bottom: 4 })
@@ -236,7 +252,13 @@ export struct AppShell {
         }.width('100%').padding({ left: 12, right: 12, bottom: 16 })
       }.layoutWeight(1).width('100%').align(Alignment.TopStart)
       Divider().color(UiColor.drawerOutline)
-      this.navItem('同步', $r('app.media.ui_sync'), 'pages/Index', this.activeRoute === 'pages/Index')
+      Row({ space: 12 }) {
+        Image($r('app.media.ui_sync')).width(UiSize.drawerIcon).height(UiSize.drawerIcon).fillColor(UiColor.drawerText)
+        Text(this.syncState.running ? '同步中…' : '同步').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText)
+          .layoutWeight(1)
+      }.width('100%').height(UiSize.drawerRow).padding({ left: 16, right: 16 })
+        .enabled(!this.busy && !this.syncState.running).accessibilityText(this.syncState.running ? '正在同步' : '同步存储库')
+        .onClick((): void => { this.startSync() })
     }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.drawer)
       .borderRadius({ topRight: 20, bottomRight: 20 })
   }
@@ -262,6 +284,7 @@ export struct AppShell {
           }
         }.width('100%').height(64).padding({ left: 4, right: 4 }).backgroundColor(UiColor.surface)
         Divider().color(UiColor.outline).strokeWidth(0.5)
+        RepositorySyncBanner()
         Stack({ alignContent: Alignment.BottomEnd }) {
           this.content()
           if (this.fabLabel.length > 0) {

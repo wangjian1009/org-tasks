@@ -227,6 +227,9 @@ impl FilterInterval {
 pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
     let mut tasks = Vec::new();
     for file in repository.files() {
+        if repository.task_scan_rules.excludes(&file.path) {
+            continue;
+        }
         let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
         for headline in file
             .syntax()
@@ -958,6 +961,7 @@ mod tests {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: vec![file],
         };
         let tasks = tasks_from_repo(&repository);
@@ -1017,6 +1021,7 @@ mod tests {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: vec![file],
         };
         let task = tasks_from_repo(&repository).pop().unwrap();
@@ -1046,6 +1051,7 @@ mod tests {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: defaults.clone(),
+            task_scan_rules: Default::default(),
             files: sources
                 .iter()
                 .map(|(path, source, _)| {
@@ -1079,6 +1085,7 @@ mod tests {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: vec![file],
         };
         let task = tasks_from_repo(&repository).pop().unwrap();

@@ -6,6 +6,7 @@ mod editor;
 mod merge;
 mod query;
 pub(crate) mod service;
+mod task_scan;
 mod todo;
 mod workspace;
 
@@ -14,6 +15,7 @@ pub use editor::*;
 pub use merge::*;
 pub use query::*;
 pub use service::*;
+pub use task_scan::*;
 pub use todo::*;
 pub use workspace::*;
 
@@ -32,6 +34,7 @@ pub struct OrgRepo {
     pub root_directory: String,
     pub files: Vec<OrgFile>,
     pub todo_defaults: TodoConfig,
+    pub task_scan_rules: TaskScanRules,
 }
 
 impl OrgRepo {
@@ -44,6 +47,7 @@ impl OrgRepo {
             root_directory,
             files: Vec::new(),
             todo_defaults: TodoConfig::default(),
+            task_scan_rules: TaskScanRules::default(),
         })
     }
 
@@ -432,6 +436,7 @@ mod tests {
             id: "repo-1".into(),
             root_directory: "/data/org".into(),
             todo_defaults: TodoConfig::default(),
+            task_scan_rules: Default::default(),
             files: Vec::new(),
         };
         assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
