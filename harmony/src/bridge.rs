@@ -44,6 +44,7 @@ pub struct HarmonyBridgeFile {
     pub byte_length: usize,
     pub todo: org_tasks_core::TodoMetadata,
     pub category: Option<String>,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -452,6 +453,18 @@ pub fn repo_snapshot_json(handle: u64, root_directory: String) -> Result<String,
     })
 }
 
+pub fn repo_file_metadata_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repo = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    runtime()?.block_on(repo.load::<WebDavSyncPolicy>())?;
+    encode(&repo.file_metadata())
+}
+
 fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
     Ok(HarmonyBridgeFile {
         repo_id: file.repo_id.clone(),
@@ -462,6 +475,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         byte_length: file.source_bytes().len(),
         todo: file.todo.clone(),
         category: file.category(),
+        title: file.title(),
     })
 }
 
@@ -522,6 +536,34 @@ fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lightweight_file_metadata_reloads_titles_without_full_content() {
+        let root = std::env::temp_dir().join(format!("org-tasks-metadata-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("work.org"), "#+TITLE: 工作计划\n* TODO Task\n").unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().to_string();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_str(&repo_file_metadata_json(handle, directory.clone()).unwrap())
+                .unwrap();
+        assert_eq!(metadata[0]["title"], "工作计划");
+        assert_eq!(metadata[0]["path"], "work.org");
+        assert!(metadata[0].get("source").is_none());
+        let full: serde_json::Value = serde_json::from_str(
+            &repo_file_json(handle, directory.clone(), "work.org".into()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(full["title"], metadata[0]["title"]);
+        std::fs::write(root.join("work.org"), "#+TITLE:\n").unwrap();
+        let changed: serde_json::Value =
+            serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
+        assert_eq!(changed[0]["title"], "");
+        assert_eq!(metadata[0]["title"], "工作计划");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn category_is_nullable_in_file_snapshot_and_accessor() {

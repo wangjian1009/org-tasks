@@ -1,6 +1,7 @@
 import { router } from '@kit.ArkUI'
 import { TodaySection, TodayTaskItem } from '../ui/TodayPresentation'
 import { UiColor } from '../ui/Theme'
+import { ListSectionHeader } from './Controls'
 
 @Component
 export struct TodayTaskList {
@@ -8,14 +9,7 @@ export struct TodayTaskList {
 
   @Builder
   sectionHeader(section: TodaySection) {
-    Column({ space: 10 }) {
-      Row({ space: 10 }) {
-        Image($r('app.media.ui_category')).width(22).height(22)
-        Text(section.category ?? '未分类').fontSize(18).fontWeight(FontWeight.Medium)
-          .fontColor(UiColor.text).layoutWeight(1)
-      }.width('100%')
-      Divider().color(UiColor.outline).strokeWidth(0.5)
-    }.width('100%').padding({ top: 24, bottom: 8 }).backgroundColor(UiColor.surface)
+    ListSectionHeader({ title: section.category ?? '未分类' })
   }
 
   build() {
@@ -40,5 +34,7 @@ export struct TodayTaskList {
         }
       }, (section: TodaySection) => section.key)
     }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 88 })
+      .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+      .edgeEffect(EdgeEffect.None)
   }
 }

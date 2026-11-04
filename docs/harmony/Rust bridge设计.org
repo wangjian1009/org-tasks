@@ -52,6 +52,7 @@ class Repo {
   readonly rootDirectory: string
   load(): Promise<void>
   files(): Promise<OrgFile[]>
+  fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
   createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
@@ -65,6 +66,7 @@ class OrgFile {
   readonly path: string
   readonly todo: TodoMetadata
   category(): string | null
+  title(): string | null
   sourceBytes(): Uint8Array
 }
 
@@ -94,6 +96,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgRepo.files()~ | ~await repo.files()~ | 返回独立的 ~OrgFile~ 对象数组。 |
 | ~OrgRepo.file(path)~ | ~await repo.file(path)~ | 返回已有文件的副本；路径尚不存在时返回未落盘空文件。 |
 | ~OrgFile.repo_id~ 、 ~path~ 、 ~todo~ | ~file.repoId~ 、 ~file.path~ 、 ~file.todo~ | 属性承载数据，TODO 完成类型由 Rust 计算。 |
+| ~OrgRepo.file_metadata()~ | ~await repo.fileMetadata()~ | 轻量文件数组，含文件标题、笔记数、字节数和本地修改时间，不复制正文或生成任务对象。 |
+| ~OrgFile.title()~ | ~file.title()~ | 文件头第一条 TITLE；未配置为 ~null~ ，显式空声明为空字符串。 |
 | ~OrgFile.category()~ | ~file.category()~ | 未配置为 ~null~ ，显式空声明为空字符串。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~WebDavSyncPolicy.compare_merge(repo, sync_id)~ | ~policy.compareMerge(repo, syncId)~ | 合并比较属于策略对象。 |
@@ -166,7 +170,7 @@ class Task {
 
 界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。新增页面和调整交互时必须遵守该原则；分类计数可以由展示层计算或直接显示 core 摘要，但不能为任务列表在展示层复制过滤规则。
 
-~Workspace.query(query: TaskQuery): Promise<TaskQueryResult>~ 接受结构化 TS 对象，内部编组 JSON，在 worker 中加载仓库并调用 ~OrgWorkspace.query~ 。UI 维护多选切换状态，提交分类值和页面所需开关；完成、文件、分类并集和组合任务过滤均由 Core 执行。界面直接显示返回的 ~tasks~ 。
+~Workspace.query(query: TaskQuery): Promise<TaskQueryResult>~ 接受结构化 TS 对象，内部编组 JSON，在 worker 中加载仓库并调用 ~OrgWorkspace.query~ 。UI 提交页面所需的通用查询参数；完成、文件、分类并集和组合任务过滤均由 Core 执行。界面直接显示返回的 ~tasks~ 。
 
 #+begin_src ts
 interface TaskQuery {
@@ -190,3 +194,22 @@ interface TaskQueryResult {
 Rust 默认不限制表达式、分类和文件，两个包含开关均为真。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。
 
 不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。
+
+* 轻量文件清单
+
+#+begin_src ts
+interface OrgFileMetadata {
+  readonly repoId: string
+  readonly path: string
+  readonly title: string | null
+  readonly taskCount: number
+  readonly byteLength: number
+  readonly modifiedAt: number | null
+}
+#+end_src
+
+~Repo.fileMetadata()~ 在 worker 中加载仓库，调用 Core 的 ~OrgRepo.file_metadata()~ ，只投影文件元信息；不调用任务查询，不传递 ~source~ 、 ~todo~ 或原始字节。完整文件继续通过 ~repo.file(path)~ 获取， ~file.title()~ 返回取得该对象时 Core 提取的标题，旧对象不随仓库刷新变化。两个接口都由 Core 读取文件头语法树，Bridge 和 ArkTS 不解析 TITLE。
+
+~OrgFileMetadata.taskCount~ 由 Core 对有效文件语法树统计标题数，沿用任务扫描忽略规则；不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
+
+当前手机侧边栏已移除分类过滤控件和分类结果页； ~TaskQuery.categories~ 仍是 Core 的通用查询参数，不依赖该 UI 入口。

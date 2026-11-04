@@ -49,6 +49,7 @@ export class AppConfigService {
       await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)
       persisted.push({
         id: repository.id,
+        name: (repository.name || '').trim(),
         rootDirectory: repository.rootDirectory.trim(),
         webdavEnabled: repository.webdavEnabled,
         webdavUrl: repository.webdavUrl.trim(),
@@ -67,9 +68,20 @@ export class AppConfigService {
     await store.flush()
   }
 
+  static async removeRepository(context: Context, configId: string): Promise<void> {
+    const current = await AppConfigService.load(context)
+    await AppConfigService.save(context, {
+      repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
+      inboxFile: current.inboxFile, somedayFile: current.somedayFile, memoFile: current.memoFile,
+      calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults
+    })
+    await CredentialService.clearWebDavPassword(configId)
+  }
+
   static newRepository(rootDirectory: string = ''): RepoConfig {
     return {
       id: createRepoId(),
+      name: '',
       rootDirectory,
       webdavEnabled: false,
       webdavUrl: '',
@@ -88,6 +100,7 @@ export class AppConfigService {
       for (const repository of persisted) {
         repositories.push({
           id: repository.id,
+          name: repository.name || '',
           rootDirectory: repository.rootDirectory,
           webdavEnabled: repository.webdavEnabled,
           webdavUrl: repository.webdavUrl,

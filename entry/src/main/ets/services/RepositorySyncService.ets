@@ -22,42 +22,36 @@ export function emptyRepositorySyncState(): RepositorySyncState {
 // 前台同步会话独立于页面；这里只编排宿主调用并投影 Core 进度，不实现同步规则。
 export class RepositorySyncService {
   private static state: RepositorySyncState = emptyRepositorySyncState()
-  private static restored: boolean = false
+  private static failurePending: boolean = false
   private static generation: number = 0
-  private static dismissTimer: number = -1
   private static repositoryCount: number = 0
   private static completedRepositories: number = 0
   private static fileTotal: number = 0
   private static processedFiles: number = 0
 
-  private static publish() {
+  private static snapshot(): RepositorySyncState {
     const state = RepositorySyncService.state
-    AppStorage.setOrCreate<RepositorySyncState>('repositorySync', { running: state.running,
-      determinate: state.determinate, progress: state.progress, message: state.message, error: state.error,
-      needsRepository: state.needsRepository, conflicts: state.conflicts.slice(), revision: state.revision })
+    return { running: state.running, determinate: state.determinate, progress: state.progress,
+      message: state.message, error: state.error, needsRepository: state.needsRepository,
+      conflicts: state.conflicts.slice(), revision: state.revision }
   }
 
-  static async restoreConflicts(context: Context): Promise<void> {
-    if (RepositorySyncService.restored || RepositorySyncService.state.running) return
-    RepositorySyncService.restored = true
-    const generation = RepositorySyncService.generation
-    try {
-      const config = await AppConfigService.load(context)
-      const conflicts = await NativeCoreService.conflicts(config.repos, config.todoDefaults)
-      if (generation !== RepositorySyncService.generation) return
-      if (conflicts.length > 0) {
-        RepositorySyncService.state.conflicts = conflicts
-        RepositorySyncService.state.error = true
-        RepositorySyncService.state.message = '有未处理的同步冲突'
-        RepositorySyncService.publish()
-      }
-    } catch (_) { RepositorySyncService.restored = false }
+  private static publish() {
+    AppStorage.setOrCreate<RepositorySyncState>('repositorySync', RepositorySyncService.snapshot())
+  }
+
+  // 由当前可见页面领取一次错误，避免共享会话在多页重复弹窗。
+  static takeFailure(): RepositorySyncState | undefined {
+    if (!RepositorySyncService.failurePending || RepositorySyncService.state.running || !RepositorySyncService.state.error) return undefined
+    RepositorySyncService.failurePending = false
+    return RepositorySyncService.snapshot()
   }
 
   static async start(context: Context): Promise<void> {
     if (RepositorySyncService.state.running) return
-    clearTimeout(RepositorySyncService.dismissTimer)
-    ++RepositorySyncService.generation
+    console.info('前台文件同步开始')
+    RepositorySyncService.failurePending = false
+    const generation = ++RepositorySyncService.generation
     const state = RepositorySyncService.state
     state.running = true
     state.determinate = false
@@ -87,13 +81,15 @@ export class RepositorySyncService {
       RepositorySyncService.processedFiles = 0
       state.message = RepositorySyncService.repositoryCount > 0 ? '正在同步 WebDAV…' : '正在读取本地文件…'
       RepositorySyncService.publish()
-      const result = RepositorySyncService.repositoryCount > 0
-        ? await NativeCoreService.syncWorkspaceWebDav(repos,
-          (event: CoreWebDavSyncEvent) => { RepositorySyncService.updateProgress(event) }, todoDefaults)
-        : await NativeCoreService.loadWorkspace(repos, todoDefaults)
+      await (RepositorySyncService.repositoryCount > 0
+        ? NativeCoreService.syncWorkspaceWebDav(repos,
+          (event: CoreWebDavSyncEvent) => {
+            if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
+          }, todoDefaults)
+        : NativeCoreService.loadWorkspace(repos, todoDefaults))
       state.progress = 100
       state.determinate = true
-      state.message = `同步完成，已读取 ${result.tasks.length} 条笔记`
+      state.message = ''
     } catch (e) {
       state.error = true
       state.message = `同步失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -105,19 +101,11 @@ export class RepositorySyncService {
       }
     } finally {
       state.running = false
+      console.info(state.error ? '前台文件同步失败' : '前台文件同步完成')
       if (refresh) ++state.revision
+      RepositorySyncService.failurePending = state.error
       RepositorySyncService.publish()
-      if (!state.error) {
-        RepositorySyncService.dismissTimer = setTimeout((): void => { RepositorySyncService.dismiss() }, 4000)
-      }
     }
-  }
-
-  static dismiss() {
-    const state = RepositorySyncService.state
-    if (state.running || state.conflicts.length > 0) return
-    state.message = ''
-    RepositorySyncService.publish()
   }
 
   static async refreshConflicts(context: Context): Promise<void> {
@@ -130,6 +118,7 @@ export class RepositorySyncService {
     state.conflicts = conflicts
     state.error = conflicts.length > 0
     state.message = conflicts.length > 0 ? '有未处理的同步冲突' : ''
+    RepositorySyncService.failurePending = false
     ++state.revision
     RepositorySyncService.publish()
   }

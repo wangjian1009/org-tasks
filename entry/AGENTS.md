@@ -25,7 +25,7 @@ entry/
         └── pages/
             ├── CalendarSync.ets       # 设置中的系统日历同步
             ├── AddTask.ets            # 新增任务
-            ├── Files.ets              # 文件列表
+            ├── Files.ets              # 存储库分区与文件列表
             ├── FileDetail.ets         # 文件详情
             └── Settings.ets           # 仓库、日历与 WebDAV 设置
 ```

@@ -4,6 +4,6 @@ import { router } from '@kit.ArkUI'
 @Entry
 @Component
 struct Workspace {
-  aboutToAppear() { router.replaceUrl({ url: 'pages/Repositories' }) }
+  aboutToAppear() { router.replaceUrl({ url: 'pages/Files' }) }
   build() { Column() {}.width('100%').height('100%') }
 }

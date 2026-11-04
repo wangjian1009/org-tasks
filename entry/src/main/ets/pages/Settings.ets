@@ -81,7 +81,7 @@ struct Settings {
                 PreferenceRow({ title: '同步', detail: '存储库、系统日历与后台同步', icon: $r('app.media.ui_sync'), action: () => { this.section = '同步' } })
                 PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
               } else if (this.section === '同步') {
-                PreferenceRow({ title: '存储库', detail: `${this.config.repos.length} 个本地或 WebDAV 存储库`, icon: $r('app.media.ui_cloud'), action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
+                PreferenceRow({ title: '存储库', detail: `${this.config.repos.length} 个本地或 WebDAV 存储库`, icon: $r('app.media.ui_cloud'), action: (): void => { router.pushUrl({ url: 'pages/Files' }) } })
                 Divider().color(UiColor.outline)
                 SectionHeading({ title: '系统日历' })
                 PreferenceRow({ title: '同步到系统日历', detail: '将本地笔记中的计划与截止任务写入日历', icon: $r('app.media.ui_calendar'),

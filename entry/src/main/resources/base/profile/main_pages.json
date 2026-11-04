@@ -6,14 +6,12 @@
     "pages/Search",
     "pages/SavedSearches",
     "pages/Files",
-    "pages/CategoryTasks",
     "pages/Inbox",
     "pages/TaskOverview",
     "pages/FileDetail",
     "pages/TaskDetail",
     "pages/Settings",
     "pages/AddTask",
-    "pages/Repositories",
     "pages/RepositorySettings",
     "pages/MergeConflict"
   ]

@@ -10,6 +10,7 @@ import {
   NewTask as NativeNewTask,
   CoreError as NativeCoreError,
   OrgFile as NativeOrgFile,
+  OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
   TaskQuery as NativeTaskQuery,
@@ -23,6 +24,7 @@ import {
 import { RepoConfig, SyncOptions } from '../models/OrgTask'
 
 export type CoreOrgFile = NativeOrgFile
+export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
 export type CoreTask = NativeTask
 export type CoreTaskQuery = NativeTaskQuery
@@ -117,6 +119,7 @@ export class CoreRepo {
   async file(path: string): Promise<CoreOrgFile> { return await this.native.file(path) }
 
   async files(): Promise<CoreOrgFile[]> { return await this.native.files() }
+  async fileMetadata(): Promise<CoreOrgFileMetadata[]> { return await this.native.fileMetadata() }
 
   async conflicts(): Promise<NativeConflictSync[]> { return await this.native.conflicts() }
 
@@ -257,7 +260,7 @@ export class NativeCoreService {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
         sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories })
         if (sync.result !== 'succeeded') {
-          throw new Error('WebDAV 同步未完成，请查看同步记录；待上传任务已保留')
+          throw new Error('WebDAV 同步未完成，请重试')
         }
       } else {
         await repo.load()

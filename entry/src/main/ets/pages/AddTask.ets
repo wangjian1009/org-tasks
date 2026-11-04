@@ -4,7 +4,7 @@
 import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, IconButton, MessageBar } from '../components/Controls'
-import { dateLabel, localDate, repositoryName, UiColor } from '../ui/Theme'
+import { dateLabel, localDate, repositoryLabel, UiColor } from '../ui/Theme'
 
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
@@ -117,7 +117,7 @@ struct AddTask {
 
   chooseRepository() {
     this.getUIContext().showActionSheet({ title: '目标存储库', message: '任务写入所选存储库的收集箱',
-      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryName(repo.rootDirectory), action: () => { this.selectedRepoId = repo.id; this.loadInitialState() } })) })
+      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryLabel(repo), action: () => { this.selectedRepoId = repo.id; this.loadInitialState() } })) })
   }
 
   choosePriority() {
@@ -163,14 +163,14 @@ struct AddTask {
             EmptyState({ title: '任务已保存', detail: this.message, actionLabel: '返回', action: (): void => { router.back() } })
           } else if (this.config.repos.length === 0) {
             EmptyState({ title: '先添加一个存储库', detail: '选择本地 Org 文件目录，或配置 WebDAV 存储库。', actionLabel: '添加存储库',
-              action: (): void => { router.pushUrl({ url: 'pages/Repositories' }) } })
+              action: (): void => { router.pushUrl({ url: 'pages/Files' }) } })
           } else {
             MessageBar({ message: this.message, error: true })
             Scroll() {
               Column() {
                 Row({ space: 16 }) {
                   Image($r('app.media.ui_folder')).width(24).height(24)
-                  Text(`${repositoryName(this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId)?.rootDirectory || '')} / ${this.config.inboxFile}`)
+                  Text(`${repositoryLabel(this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId))} / ${this.config.inboxFile}`)
                     .fontSize(14).fontColor(UiColor.primary).layoutWeight(1).maxLines(2)
                   Image($r('app.media.ui_down')).width(20).height(20)
                 }.width('100%').padding(16).onClick((): void => { this.chooseRepository() })

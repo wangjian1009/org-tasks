@@ -22,7 +22,7 @@
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 和 ~todoDefaults~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；存储库列表与表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 和 ~todoDefaults~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
 
 #+begin_src ts
 interface AppConfig {
@@ -37,11 +37,13 @@ interface AppConfig {
 
 interface RepoConfig {
   id: string
+  name: string
   rootDirectory: string
   webdavEnabled: boolean
   webdavUrl: string
   webdavUsername: string
   webdavPassword: string
+  excludedDirectories: string[]
 }
 #+end_src
 
@@ -53,6 +55,7 @@ interface RepoConfig {
 | 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
 | 后台调度 | ~syncInterval~ | Preferences | 默认 20 分钟；由 BackgroundSyncService 配置 WorkScheduler。 |
 | 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
+| 仓库显示名 | ~repos[].name~ | Preferences | 可为空，保存时去除首尾空白；旧配置缺失时按空值处理，显示时回退根目录末级名称，不改变仓库或凭据身份。 |
 | 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
 | 收件箱文件 | ~inboxFile~ | Preferences | 可为空的安全相对 ~.org~ 路径；新配置默认空，旧保存值继续沿用。新增任务相对于所选仓库解析。 |
 | 某天文件 | ~somedayFile~ | Preferences | 可为空的安全相对 ~.org~ 路径，默认空；某天入口查询此文件中的未完成记录。 |
@@ -106,9 +109,9 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 
 * 界面配置入口
 
-本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收件箱、某天、备忘文件、日历与后台间隔； ~Repositories.ets~ 管理列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
+本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收件箱、某天、备忘文件、日历与后台间隔； ~Files.ets~ 管理存储库与文件列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。表单保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
 
-“设置 → 同步 → 同步到系统日历”打开独立的手动日历操作入口，使用已保存的日历名称与本地任务，不保存设置草稿或触发 WebDAV。抽屉与笔记本菜单的“同步”仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。后台作业仍先同步文件再写入日历。
+“设置 → 同步 → 同步到系统日历”打开独立的手动日历操作入口，使用已保存的日历名称与本地任务，不保存设置草稿或触发 WebDAV。今天页下拉仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。后台作业仍先同步文件再写入日历。
 
 后台间隔默认及输入下限均为 20 分钟，以匹配当前 HarmonyOS 的系统约束。低于下限的既有值在显示与调度时按 20 分钟处理。保存后由 ~BackgroundSyncService.configure~ 比较现有 WorkScheduler 作业，必要时替换同一作业。调度配置不进入 core 同步记录。
 
@@ -125,11 +128,11 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 
 按已确认的冲突处理规则，备份保存在所属仓库的 ~.sync/backups/<合并开始时间>/~ ，保留相对子目录，文件名附带本地日期时间与随机后缀。该目录是完整本地冲突文件的专用备份区，是控制目录不保存完整内容规则的明确例外；历史和 outbox 仍只保存元数据，备份不会被扫描、查询或上传。
 
-原有单文件备份留在应用私有目录中的副本不会自动删除；新合并统一使用按同步分组的目录。~WebDavSyncFileDetail.task_versions~ 是可选的身份/内容指纹元数据，不是任务快照；旧历史仍可读取。Core 不将比较对象、密码或绝对备份路径写入历史。
+原有单文件备份留在应用私有目录中的副本不会自动删除；新合并统一使用按同步分组的目录。 ~WebDavSyncFileDetail.task_versions~ 是可选的身份/内容指纹元数据，不是任务快照；旧历史仍可读取。Core 不将比较对象、密码或绝对备份路径写入历史。
 
 * TODO 全局默认与文件覆盖
 
-“设置 → 笔记与笔记本 → 默认 TODO 流程”编辑全局 Org 声明文本，由外部保存到 ~org_tasks_config.todoDefaults~ 。唯一缺省值来源是 Rust ~TodoConfig::default()~ ，Harmony 通过异步 ~defaultTodoSettings()~ 获取初始值或恢复编辑草稿；ArkTS 不维护另一套默认关键词。~DEFAULT_CONFIG.todoDefaults~ 的空值仅用于加载前占位，实际加载根据 Preferences 是否存在该键决定是否使用默认值。
+“设置 → 笔记与笔记本 → 默认 TODO 流程”编辑全局 Org 声明文本，由外部保存到 ~org_tasks_config.todoDefaults~ 。唯一缺省值来源是 Rust ~TodoConfig::default()~ ，Harmony 通过异步 ~defaultTodoSettings()~ 获取初始值或恢复编辑草稿；ArkTS 不维护另一套默认关键词。 ~DEFAULT_CONFIG.todoDefaults~ 的空值仅用于加载前占位，实际加载根据 Preferences 是否存在该键决定是否使用默认值。
 
 保存前通过 native ~Workspace.setTodoDefaults~ 调用 Rust 校验。其他配置页面保存时保留当前 ~todoDefaults~ ，同步设置页不覆盖未编辑的 TODO 设置。配置不写入 Org 文件、同步历史或 outbox，恢复默认也只修改编辑草稿，保存后才生效。
 
@@ -160,3 +163,9 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 “设置 → 笔记与笔记本 → 文件入口”新增 ~memoFile~ ，默认空字符串，使用与收件箱/某天相同的路径校验与保存方式。存储库增删改和其他设置页面保存时必须保留该字段。备忘请求通过 ~overviewTaskQuery('memo', ..., memoFile)~ 生成文件表达式，并设置 ~includeDone=true~ 、 ~includeComposeTasks=true~ ，由 Core 返回全部标题记录；UI 不自行过滤。
 
 备忘未配置时点击侧边栏入口显示“尚未配置备忘”并提供前往设置；清空后恢复该状态，不清理原文件或内容。
+
+仓库设置页为本地与 WebDAV 仓库提供“名称”输入。清空后恢复当前仓库名作为默认显示值，不把该默认值固化为配置名称；因此目录变更后的缺省名称随新目录更新。只修改名称不更改配置 ID、Core 的 ~.sync/id~ 、根目录、远端配置或凭据别名。
+
+存储库配置的删除入口仅位于已保存项目的配置页底部。 ~AppConfigService.removeRepository~ 重新读取设置，保存剔除目标 ID 的仓库集合并保留全部其他全局配置，再清除该 ID 对应的 Asset Store 密码。该过程不删除磁盘目录、Org 文件、 ~.sync~ 或远端数据；新建表单没有删除入口。文件清单中的空存储库与读取失败的存储库仍保留配置入口。
+
+存储库配置编辑后通过工具栏返回或系统返回保存，不再提供应用/保存按钮。加载时保留规范化草稿用于变更比较；未修改直接返回，新建未编辑草稿不落盘。保存前重新读取其他配置，防止覆盖全局设置；正在测试连接、保存或删除时阻止重复返回。保存失败不退出，可继续编辑或放弃修改。

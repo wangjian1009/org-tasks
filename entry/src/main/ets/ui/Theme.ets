@@ -1,3 +1,5 @@
+import { RepoConfig } from '../models/OrgTask'
+
 // 与侧边栏统一的全局深色语义色。
 export class UiColor {
   static readonly drawer: string = '#2D2C2B'
@@ -40,4 +42,8 @@ export function localDate(date: Date): string {
 export function repositoryName(path: string): string {
   const parts = path.split('/').filter((part: string) => part.length > 0)
   return parts.length > 0 ? parts[parts.length - 1] : '未设置目录'
+}
+
+export function repositoryLabel(repo: RepoConfig | undefined): string {
+  return repo ? (repo.name || '').trim() || repositoryName(repo.rootDirectory) : '未设置目录'
 }

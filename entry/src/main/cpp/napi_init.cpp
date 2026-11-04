@@ -29,6 +29,7 @@ extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const ch
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
     int64_t started_at);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
+extern "C" char* org_tasks_harmony_repo_file_metadata(uint64_t workspace_handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_webdav_test_connection(
     const char* webdav_url, const char* username, const char* password);
 extern "C" char* org_tasks_harmony_repo_conflicts(uint64_t handle, const char* root_directory);
@@ -120,7 +121,7 @@ struct RepoSnapshotWork {
     bool queue_upload = false;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply, File } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -567,6 +568,10 @@ void ExecuteRepoSnapshot(napi_env, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
     switch (work->operation) {
+        case RepoSnapshotWork::Operation::FileMetadata:
+            work->response = TakeRustString(org_tasks_harmony_repo_file_metadata(
+                work->workspace_handle, work->root_directory.c_str()));
+            break;
         case RepoSnapshotWork::Operation::File:
             work->response = TakeRustString(org_tasks_harmony_repo_file(work->workspace_handle,
                 work->root_directory.c_str(), work->task_path.c_str()));
@@ -618,6 +623,7 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
             work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
             work->operation == RepoSnapshotWork::Operation::CreateTask ? "保存任务失败" :
+            work->operation == RepoSnapshotWork::Operation::FileMetadata ? "读取文件元信息失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" : "处理同步合并失败");
     } else {
         napi_value result;
@@ -1054,7 +1060,10 @@ napi_value RepoFiles(napi_env env, napi_callback_info info)
     RepoWrap* repo = nullptr;
     napi_value self;
     if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
+    void* metadata = nullptr;
+    napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &metadata);
     auto* work = new RepoSnapshotWork();
+    if (metadata != nullptr) work->operation = RepoSnapshotWork::Operation::FileMetadata;
     work->workspace_handle = repo->workspace_handle;
     work->root_directory = repo->root_directory;
     napi_value promise;
@@ -1333,6 +1342,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"path", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("path")},
         {"todo", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("todo")},
         {"category", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("category")},
+        {"title", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("title")},
         {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value file_class;
@@ -1368,6 +1378,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"rootDirectory", nullptr, nullptr, RepoRootDirectory, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"files", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"fileMetadata", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
         {"createTask", nullptr, RepoCreateTask, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"conflicts", nullptr, RepoConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},

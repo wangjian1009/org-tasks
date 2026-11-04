@@ -14,6 +14,7 @@ use crate::{CoreError, TimestampMs};
 struct OrgRepoSourceFile {
     pub path: String,
     pub source_bytes: Vec<u8>,
+    pub modified_at: Option<TimestampMs>,
 }
 
 impl OrgRepoSourceFile {
@@ -27,7 +28,11 @@ impl OrgRepoSourceFile {
         {
             return Err(CoreError::InvalidInput("文件路径必须是安全的相对路径"));
         }
-        Ok(Self { path, source_bytes })
+        Ok(Self {
+            path,
+            source_bytes,
+            modified_at: None,
+        })
     }
 }
 
@@ -458,7 +463,8 @@ impl OrgRepo {
                 &source.source_bytes,
             )
             .await?;
-            let file = self.parse_file_with_setup(source.path, source.source_bytes, setup)?;
+            let mut file = self.parse_file_with_setup(source.path, source.source_bytes, setup)?;
+            file.modified_at = source.modified_at;
             if files
                 .iter()
                 .any(|existing: &OrgFile| existing.path == file.path)
@@ -804,7 +810,12 @@ async fn scan_org_files(root: &Path) -> Result<Vec<OrgRepoSourceFile>, CoreError
                 let source_bytes = fs::read(entry.path())
                     .await
                     .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
-                files.push(OrgRepoSourceFile::new(path, source_bytes)?);
+                let mut file = OrgRepoSourceFile::new(path, source_bytes)?;
+                file.modified_at = metadata
+                    .modified()
+                    .ok()
+                    .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
+                files.push(file);
             }
         }
     }
@@ -958,6 +969,44 @@ mod tests {
             format!("{initial_id}\n")
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_metadata_contains_counts_bytes_and_disk_modification_time() {
+        let root = std::env::temp_dir().join(format!(
+            "org-tasks-file-info-{}",
+            generate_repo_id().unwrap()
+        ));
+        fs::create_dir(&root).await.unwrap();
+        let source = "#+TITLE: 文件信息\r\n* TODO Pending\r\n* DONE Completed\r\n* Plain\r\n";
+        let path = root.join("work.org");
+        fs::write(&path, source).await.unwrap();
+        let modified = std::time::UNIX_EPOCH + Duration::from_millis(1_700_000_000_123);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        let info = &repo.file_metadata()[0];
+        assert_eq!(info.task_count, 3);
+        assert_eq!(info.byte_length, source.len());
+        assert_eq!(info.modified_at, Some(1_700_000_000_123));
+        assert_eq!(repo.file("work.org").unwrap().modified_at, info.modified_at);
+        repo.set_todo_defaults(crate::TodoConfig::default())
+            .unwrap();
+        assert_eq!(repo.file_metadata()[0].modified_at, info.modified_at);
+        fs::write(root.join(".orgzlyignore"), "work.org\n")
+            .await
+            .unwrap();
+        repo.load::<CompletedSync>().await.unwrap();
+        let ignored = &repo.file_metadata()[0];
+        assert_eq!(ignored.task_count, 0);
+        assert_eq!(ignored.byte_length, source.len());
+        assert_eq!(ignored.modified_at, Some(1_700_000_000_123));
+        fs::remove_dir_all(root).await.unwrap();
     }
 
     #[tokio::test]

@@ -107,6 +107,8 @@ impl OrgRepo {
 
     pub fn files(&self) -> &[OrgFile];
 
+    pub fn file_metadata(&self) -> Vec<OrgFileMetadata>;
+
     pub fn file(&self, path: &str) -> Result<OrgFile, CoreError>;
 
     pub async fn create_task(&mut self, path: &str, task: &NewTask,
@@ -169,6 +171,8 @@ impl OrgFile {
     pub fn source_bytes(&self) -> &[u8];
 
     pub fn category(&self) -> Option<String>;
+
+    pub fn title(&self) -> Option<String>;
 }
 #+end_src
 
@@ -477,3 +481,22 @@ let metadata = &file.todo;
 * 通用结构化任务查询
 
 ~OrgWorkspace.query(&TaskQuery)~ 返回 Core 过滤后的任务列表和分类摘要。请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
+
+* 文件标题与轻量元信息
+
+#+begin_src rust
+pub struct OrgFileMetadata {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub title: Option<String>,
+    pub task_count: usize,
+    pub byte_length: usize,
+    pub modified_at: Option<TimestampMs>,
+}
+#+end_src
+
+~OrgRepo.file_metadata()~ 从当前完整文件快照返回轻量清单；提供仓库 ID、相对路径、标题、标题记录数、原始字节数和本地磁盘修改时间，不克隆源字节、不构建任务对象。需要磁盘新状态时先调用 ~load~ 。 ~OrgFile.title()~ 复用已解析的无损语法树，仅在文件头中查找首条大小写不敏感的 ~#+TITLE:~ ，命中立即返回去除首尾空白的值。缺少为 ~None~ ，显式空值为 ~Some(String::new())~ ，标题内声明、注释与源码块不作为文件标题。不限定前几行，不以文件名补齐领域值。
+
+当前轻量接口减少响应构建和跨层复制，首次加载仍需完整解析。后续若优化首次列表扫描，可评估由 Core 缓存文件版本与已解析元信息，或提供专门头部扫描；需要保持注释、块结构、第一条声明和文件头边界语义，并避免固定行数遗漏合法 TITLE。任何缓存都不得改变同步读取完整原始字节的要求。
+
+~task_count~ 统计当前文件语法树中的所有标题，包括已完成和无 TODO 的标题；命中 ~.orgzlyignore~ 时为零，语义与 Core 的任务扫描一致。 ~byte_length~ 来自源字节长度， ~modified_at~ 使用扫描目录时已有的文件属性，转换为 Unix 毫秒时间，无可用值时为 ~None~ 。读取轻量清单不重新 stat 文件；需要最新信息时先加载仓库。文件对象的克隆与默认 TODO 设置更新保留已读取的磁盘时间，内存中直接创建的文件时间为 ~None~ 。这些信息不写入同步历史，也不用于替代同步版本判断。

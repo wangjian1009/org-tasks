@@ -149,13 +149,13 @@ struct CalendarSyncPage {
                 }.layoutWeight(1)
               }.width('100%')
               MessageBar({ message: this.syncMessage, error: this.syncMessage.includes('失败') || this.syncMessage.includes('错误') })
-              Text('使用本地文件中的任务。需要获取远端更新时，请先从侧边栏点击“同步”。')
+              Text('使用本地文件中的任务。需要获取远端更新时，请先在“今天”页下拉同步。')
                 .width('100%').fontSize(13).lineHeight(21).fontColor(UiColor.secondary)
               Button(this.syncing ? '同步中…' : '同步到系统日历').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
                 .enabled(!this.syncing && !this.loading && this.config.repos.length > 0).onClick((): void => { this.doSync() })
               if (this.config.repos.length === 0 && !this.loading) {
                 Button('添加存储库').width('100%').height(48).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
-                  .onClick((): void => { router.pushUrl({ url: 'pages/Repositories' }) })
+                  .onClick((): void => { router.pushUrl({ url: 'pages/Files' }) })
               }
             }.width('100%').padding(16).enabled(!this.syncing)
           }.width('100%').height('100%').align(Alignment.TopStart)

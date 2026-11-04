@@ -4,9 +4,9 @@ import { IconButton } from './Controls'
 import { RepositorySyncBanner } from './RepositorySyncBanner'
 import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { AppConfigService } from '../services/AppConfigService'
-import { categoryNavigationQuery, inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
+import { inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
-import { CoreBridgeError, CoreTaskCategory, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreConflict, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
 export struct AppShell {
@@ -14,10 +14,6 @@ export struct AppShell {
   @Prop titleIcon: ResourceStr = ''
   @Prop activeRoute: string = ''
   @Prop activeOverview: string = ''
-  @Prop activeCategoryValues: (string | null)[] = []
-  @Prop activeCategories: CoreTaskCategory[] = []
-  @Prop categoryBusy: boolean = false
-  categoryToggled: (category: string | null) => void = () => {}
   @Prop back: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_search')
   @Prop actionLabel: string = ''
@@ -36,7 +32,6 @@ export struct AppShell {
   @StorageLink('repositorySync') @Watch('repositorySyncChanged') syncState: RepositorySyncState = emptyRepositorySyncState()
   private syncRevision: number = 0
   private pageIndex: number = 0
-  @State categories: CoreTaskCategory[] = []
   @State inboxCount: number = -1
   @State todayCount: number = -1
   @State overdueCount: number = 0
@@ -52,22 +47,41 @@ export struct AppShell {
   aboutToAppear() {
     this.syncRevision = this.syncState.revision
     this.pageIndex = router.getState().index
-    RepositorySyncService.restoreConflicts(getContext(this))
+    this.presentSyncFailure()
     if (this.drawerOpen) this.loadNavigation()
   }
 
   repositorySyncChanged() {
+    if (router.getState().index !== this.pageIndex) return
+    this.presentSyncFailure()
     if (this.syncRevision === this.syncState.revision) return
     this.syncRevision = this.syncState.revision
-    if (router.getState().index !== this.pageIndex) return
     this.synchronized()
     if (this.drawerOpen) this.loadNavigation()
   }
 
-  startSync() {
-    if (this.busy || this.syncState.running) return
-    this.drawerOpen = false
-    RepositorySyncService.start(getContext(this))
+  presentSyncFailure() {
+    if (router.getState().index !== this.pageIndex) return
+    const failure = RepositorySyncService.takeFailure()
+    if (!failure) return
+    this.getUIContext().showAlertDialog({ title: '同步失败', message: failure.message,
+      primaryButton: { value: '关闭', action: () => {} },
+      secondaryButton: {
+        value: failure.conflicts.length > 0 ? '处理冲突' : failure.needsRepository ? '添加存储库' : '重试',
+        action: (): void => {
+          if (failure.conflicts.length > 0) {
+            this.getUIContext().showActionSheet({ title: '同步冲突', message: '选择需要处理的同步作业',
+              sheets: failure.conflicts.map((conflict: CoreConflict): SheetInfo => ({
+                title: `${conflict.paths.length} 个文件：${conflict.paths.join('、')}`,
+                action: (): void => { router.pushUrl({ url: 'pages/MergeConflict', params: { repoId: conflict.repoId, syncId: conflict.syncId } }) }
+              })) })
+          } else if (failure.needsRepository) {
+            router.pushUrl({ url: 'pages/Files' })
+          } else {
+            RepositorySyncService.start(getContext(this))
+          }
+        }
+      } })
   }
 
   openDrawer() {
@@ -81,12 +95,10 @@ export struct AppShell {
   async loadNavigation() {
     const request = ++this.navigationRequest
     this.navMessage = ''
-    this.categories = []
     this.inboxCount = -1
     try {
       const config = await AppConfigService.load(getContext(this))
       const searches = await SavedSearchService.load(getContext(this))
-      const result = await NativeCoreService.queryTasks(config.repos, categoryNavigationQuery(config.inboxFile), config.todoDefaults)
       const inbox = config.inboxFile ? await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults) : undefined
       const today = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('today'), config.todoDefaults)
       const overdue = await NativeCoreService.queryTasks(config.repos, overdueTaskQuery(), config.todoDefaults)
@@ -97,7 +109,6 @@ export struct AppShell {
       const logbook = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('logbook'), config.todoDefaults)
       if (request !== this.navigationRequest) return
       this.searches = searches
-      this.categories = result.categories
       this.inboxCount = inbox?.tasks.length ?? -1
       this.todayCount = today.tasks.length
       this.overdueCount = overdue.tasks.length
@@ -112,6 +123,7 @@ export struct AppShell {
   }
 
   async openPrimary(view: TaskOverview | 'inbox') {
+    this.drawerOpen = false
     try {
       const config = await AppConfigService.load(getContext(this))
       if (view === 'inbox' && !config.inboxFile || view === 'someday' && !config.somedayFile || view === 'memo' && !config.memoFile) {
@@ -136,18 +148,6 @@ export struct AppShell {
     this.drawerOpen = false
     if (this.activeRoute !== route) {
       router.replaceUrl({ url: route })
-    }
-  }
-
-  navigationCategories(): CoreTaskCategory[] {
-    return this.activeRoute === 'pages/CategoryTasks' ? this.activeCategories : this.categories
-  }
-
-  toggleCategory(category: CoreTaskCategory) {
-    if (this.activeRoute === 'pages/CategoryTasks') {
-      this.categoryToggled(category.category)
-    } else {
-      router.replaceUrl({ url: 'pages/CategoryTasks', params: { categories: [category.category], drawerOpen: true } })
     }
   }
 
@@ -205,11 +205,6 @@ export struct AppShell {
   @Builder
   drawer() {
     Column() {
-      Row() {
-        Blank().layoutWeight(1)
-        Button('×').width(48).height(UiSize.drawerRow).fontSize(26).fontColor(UiColor.drawerText)
-          .backgroundColor(Color.Transparent).accessibilityText('关闭导航').onClick(() => { this.drawerOpen = false })
-      }.width('100%').padding({ left: 16, right: 8, top: 4, bottom: 4 })
       Scroll() {
         Column({ space: 2 }) {
           this.primaryItem('收件箱', $r('app.media.nav_inbox'), 'inbox')
@@ -226,41 +221,17 @@ export struct AppShell {
               .onClick((): void => { this.openSearch(search) })
           }, (search: SavedSearch) => search.id)
           Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
-          Text('分类').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary).width('100%').padding({ left: 16, top: 4, bottom: 4 })
-          ForEach(this.navigationCategories(), (category: CoreTaskCategory) => {
-            Row({ space: 12 }) {
-              Text(this.activeCategoryValues.includes(category.category) ? '✓' : '').fontSize(14).fontColor('#5AC4B9')
-                .width(20).height(20).textAlign(TextAlign.Center).borderRadius(3)
-                .border({ width: 1, color: this.activeCategoryValues.includes(category.category) ? '#5AC4B9' : UiColor.drawerSecondary })
-              Text(category.category || '未分类').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary).layoutWeight(1).maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(`${category.count}`).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary)
-            }.width('100%').constraintSize({ minHeight: UiSize.drawerRow }).borderRadius(12)
-              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-              .backgroundColor(this.activeCategoryValues.includes(category.category) ? UiColor.drawerSelected : Color.Transparent)
-              .accessibilityText(`${this.activeCategoryValues.includes(category.category) ? '已选择' : '未选择'}，${category.category || '未分类'}，${category.count} 个未完成任务`)
-              .enabled(!this.categoryBusy).onClick(() => { this.toggleCategory(category) })
-          }, (category: CoreTaskCategory) => category.key)
-
-          Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
-          this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')
-          this.navItem('存储库', $r('app.media.ui_cloud'), 'pages/Repositories', this.activeRoute === 'pages/Repositories')
-          this.navItem('设置', $r('app.media.ui_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
+          this.navItem('存储库', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')
           if (this.navMessage.length > 0) {
             Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)
           }
         }.width('100%').padding({ left: 12, right: 12, bottom: 16 })
-      }.layoutWeight(1).width('100%').align(Alignment.TopStart)
+      }.layoutWeight(1).width('100%').padding({ top: 16 }).align(Alignment.TopStart)
       Divider().color(UiColor.drawerOutline)
-      Row({ space: 12 }) {
-        Image($r('app.media.ui_sync')).width(UiSize.drawerIcon).height(UiSize.drawerIcon).fillColor(UiColor.drawerText)
-        Text(this.syncState.running ? '同步中…' : '同步').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText)
-          .layoutWeight(1)
-      }.width('100%').height(UiSize.drawerRow).padding({ left: 16, right: 16 })
-        .enabled(!this.busy && !this.syncState.running).accessibilityText(this.syncState.running ? '正在同步' : '同步存储库')
-        .onClick((): void => { this.startSync() })
+      this.navItem('设置', $r('app.media.ui_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
     }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.drawer)
       .borderRadius({ topRight: 20, bottomRight: 20 })
+      .onClick((): void => { this.drawerOpen = false })
   }
 
   build() {

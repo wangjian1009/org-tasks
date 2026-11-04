@@ -31,6 +31,7 @@ export interface SyncResult {
 
 export interface RepoConfig {
   id: string
+  name: string
   rootDirectory: string
   webdavEnabled: boolean
   webdavUrl: string

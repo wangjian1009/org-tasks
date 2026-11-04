@@ -1,4 +1,5 @@
 use crate::{CoreError, TimestampMs};
+use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
 mod creation;
@@ -37,6 +38,18 @@ pub struct OrgRepo {
     pub task_scan_rules: TaskScanRules,
 }
 
+/// 文件列表的轻量元信息，不携带正文、语法树或任务投影。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgFileMetadata {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub title: Option<String>,
+    pub task_count: usize,
+    pub byte_length: usize,
+    pub modified_at: Option<TimestampMs>,
+}
+
 impl OrgRepo {
     pub fn new(root_directory: String) -> Result<Self, OrgRepoValidationError> {
         if root_directory.trim().is_empty() {
@@ -57,13 +70,15 @@ impl OrgRepo {
             .files
             .iter()
             .map(|file| {
-                OrgFile::with_todo_defaults_and_setup(
+                let mut updated = OrgFile::with_todo_defaults_and_setup(
                     file.repo_id.clone(),
                     file.path.clone(),
                     file.source_bytes.clone(),
                     defaults.clone(),
                     file.todo_setup.clone(),
-                )
+                )?;
+                updated.modified_at = file.modified_at;
+                Ok(updated)
             })
             .collect::<Result<Vec<_>, _>>()?;
         self.todo_defaults = defaults;
@@ -77,6 +92,29 @@ impl OrgRepo {
 
     pub fn files(&self) -> &[OrgFile] {
         &self.files
+    }
+
+    pub fn file_metadata(&self) -> Vec<OrgFileMetadata> {
+        self.files
+            .iter()
+            .map(|file| OrgFileMetadata {
+                repo_id: file.repo_id.clone(),
+                path: file.path.clone(),
+                title: file.title(),
+                task_count: if self.task_scan_rules.excludes(&file.path) {
+                    0
+                } else {
+                    file.syntax()
+                        .document()
+                        .syntax()
+                        .descendants()
+                        .filter_map(orgize::ast::Headline::cast)
+                        .count()
+                },
+                byte_length: file.source_bytes().len(),
+                modified_at: file.modified_at,
+            })
+            .collect()
     }
 
     /// 返回当前文件的独立对象；不存在时构造未落盘的空文件供读取默认元信息。
@@ -99,6 +137,7 @@ pub struct OrgFile {
     pub todo: TodoMetadata,
     todo_defaults: TodoConfig,
     todo_setup: String,
+    pub(crate) modified_at: Option<TimestampMs>,
     syntax: orgize::Org,
 }
 
@@ -140,6 +179,7 @@ impl OrgFile {
             todo,
             todo_defaults: defaults,
             todo_setup,
+            modified_at: None,
             syntax,
         })
     }
@@ -154,6 +194,15 @@ impl OrgFile {
             .document()
             .keywords()
             .find(|keyword| keyword.key().eq_ignore_ascii_case("CATEGORY"))
+            .map(|keyword| keyword.value().trim().to_owned())
+    }
+
+    /// 复用已有语法树，仅遍历文件头关键字，找到第一条 TITLE 即返回。
+    pub fn title(&self) -> Option<String> {
+        self.syntax
+            .document()
+            .keywords()
+            .find(|keyword| keyword.key().eq_ignore_ascii_case("TITLE"))
             .map(|keyword| keyword.value().trim().to_owned())
     }
 
@@ -174,14 +223,16 @@ impl OrgFile {
 
 impl Clone for OrgFile {
     fn clone(&self) -> Self {
-        Self::with_todo_defaults_and_setup(
+        let mut file = Self::with_todo_defaults_and_setup(
             self.repo_id.clone(),
             self.path.clone(),
             self.source_bytes.clone(),
             self.todo_defaults.clone(),
             self.todo_setup.clone(),
         )
-        .expect("已加载的 Org 文件必须可重新解析")
+        .expect("已加载的 Org 文件必须可重新解析");
+        file.modified_at = self.modified_at;
+        file
     }
 }
 
@@ -484,6 +535,45 @@ mod tests {
             assert_eq!(file.category().as_deref(), expected, "{source}");
             assert_eq!(serialize_file(&file), source.as_bytes());
         }
+    }
+
+    #[test]
+    fn file_title_and_lightweight_metadata_follow_header_syntax_without_source_copy() {
+        for (source, expected) in [
+            ("", None),
+            ("#+TITLE: 工作计划\r\n* Task\r\n", Some("工作计划")),
+            ("  #+title:  Work Plan  \n", Some("Work Plan")),
+            ("#+TITLE:\n* Task\n", Some("")),
+            ("#+TITLE: First\n#+TITLE: Second\n", Some("First")),
+            ("* Task\n#+TITLE: Heading section\n", None),
+            ("#+begin_src org\n#+TITLE: Hidden\n#+end_src\n", None),
+            ("#+begin_example\n#+TITLE: Hidden\n#+end_example\n", None),
+            ("# #+TITLE: Comment\n", None),
+        ] {
+            let file =
+                OrgFile::new("repo".into(), "work.org".into(), source.as_bytes().to_vec()).unwrap();
+            assert_eq!(file.title().as_deref(), expected);
+            let mut repo = OrgRepo::new("/unused".into()).unwrap();
+            repo.files.push(file);
+            let metadata = repo.file_metadata();
+            assert_eq!(metadata[0].title.as_deref(), expected);
+            assert_eq!(metadata[0].path, "work.org");
+            assert_eq!(repo.files[0].source_bytes(), source.as_bytes());
+            let value = serde_json::to_value(&metadata[0]).unwrap();
+            assert_eq!(value.as_object().unwrap().len(), 6);
+            assert!(value.get("source").is_none());
+        }
+        let file = OrgFile::new(
+            "repo".into(),
+            "later.org".into(),
+            format!(
+                "{}#+TITLE: Later header title\n* Task\n",
+                "# comment\n".repeat(100)
+            )
+            .into_bytes(),
+        )
+        .unwrap();
+        assert_eq!(file.title().as_deref(), Some("Later header title"));
     }
 
     #[test]

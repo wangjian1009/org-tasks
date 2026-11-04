@@ -250,6 +250,17 @@ pub extern "C" fn org_tasks_harmony_repo_snapshot(
     )
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_file_metadata(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(root_directory)
+            .and_then(|root| bridge::repo_file_metadata_json(workspace_handle, root)),
+    )
+}
+
 fn string_result(result: Result<String, CoreError>) -> *mut c_char {
     clear_last_error();
     match result.and_then(|value| {

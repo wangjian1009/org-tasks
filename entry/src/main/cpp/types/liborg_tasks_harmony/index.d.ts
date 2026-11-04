@@ -16,6 +16,7 @@ export class OrgFile {
   readonly path: string;
   readonly todo: TodoMetadata;
   category(): string | null;
+  title(): string | null;
   sourceBytes(): Uint8Array;
 }
 
@@ -101,12 +102,22 @@ export class Repo {
   private constructor();
   file(path: string): Promise<OrgFile>;
   files(): Promise<OrgFile[]>;
+  fileMetadata(): Promise<OrgFileMetadata[]>;
   readonly id: string;
   readonly rootDirectory: string;
   load(): Promise<void>;
   createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
+}
+
+export interface OrgFileMetadata {
+  readonly repoId: string;
+  readonly path: string;
+  readonly title: string | null;
+  readonly taskCount: number;
+  readonly byteLength: number;
+  readonly modifiedAt: number | null;
 }
 
 

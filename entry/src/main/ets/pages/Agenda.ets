@@ -89,7 +89,7 @@ struct Agenda {
           } else if (this.groups.length === 0) {
             EmptyState({ title: '没有待安排的日程', detail: this.config.repos.length === 0 ? '先添加存储库，再查看计划与截止任务。' : '未完成笔记有计划或截止日期时，会按日期显示在这里。',
               actionLabel: this.config.repos.length === 0 ? '添加存储库' : '新增任务',
-              action: (): void => { router.pushUrl({ url: this.config.repos.length === 0 ? 'pages/Repositories' : 'pages/AddTask' }) } })
+              action: (): void => { router.pushUrl({ url: this.config.repos.length === 0 ? 'pages/Files' : 'pages/AddTask' }) } })
           } else {
             List() {
               ForEach(this.groups, (group: AgendaGroup) => {
