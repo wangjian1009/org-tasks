@@ -1343,6 +1343,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"todo", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("todo")},
         {"category", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("category")},
         {"title", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("title")},
+        {"renderHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("renderedHtml")},
         {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value file_class;

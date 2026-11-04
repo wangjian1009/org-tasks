@@ -154,7 +154,7 @@ struct AddTask {
 
   build() {
     Column() {
-      AppShell({ title: '新增任务', back: true, drawerOpen: $drawerOpen, busy: this.saving,
+      AppShell({ title: '新增任务', titleIcon: $r('app.media.ui_add'), back: true, drawerOpen: $drawerOpen, busy: this.saving,
         actionIcon: $r('app.media.ui_done'), actionLabel: this.saved ? '' : '保存任务', action: (): void => { this.saveTask() } }) {
         Column() {
           if (this.loading) {

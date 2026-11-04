@@ -18,6 +18,7 @@ export class OrgFile {
   category(): string | null;
   title(): string | null;
   sourceBytes(): Uint8Array;
+  renderHtml(): string;
 }
 
 export class Task {

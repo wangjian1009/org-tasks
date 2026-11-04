@@ -158,7 +158,7 @@ struct MergeConflict {
 
   build() {
     Column() {
-      AppShell({ title: '合并任务', back: true, drawerOpen: $drawerOpen, busy: this.saving }) {
+      AppShell({ title: '合并任务', titleIcon: $r('app.media.ui_sync'), back: true, drawerOpen: $drawerOpen, busy: this.saving }) {
         Column() {
           MessageBar({ message: this.message, error: !this.completed })
           if (this.loading) {

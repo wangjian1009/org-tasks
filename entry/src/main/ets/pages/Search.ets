@@ -127,7 +127,7 @@ struct TaskSearch {
 
   build() {
     Column() {
-      AppShell({ title: this.showingResults ? (this.name || '搜索结果') : '搜索', synchronized: (): void => { if (this.showingResults) this.search() }, activeRoute: 'pages/Search', back: !this.showingResults,
+      AppShell({ title: this.showingResults ? (this.name || '搜索结果') : '搜索', titleIcon: $r('app.media.nav_search'), synchronized: (): void => { if (this.showingResults) this.search() }, activeRoute: 'pages/Search', back: !this.showingResults,
       drawerOpen: $drawerOpen, actionIcon: this.showingResults ? $r('app.media.ui_edit') : $r('app.media.ui_folder'),
       actionLabel: this.showingResults ? '调整筛选' : '', action: () => { this.showingResults = false },
       extraIcon: $r('app.media.ui_done'), extraLabel: this.showingResults && !this.loading && !this.message ? '保存搜索' : '', extraAction: (): void => { this.saveSearch() },

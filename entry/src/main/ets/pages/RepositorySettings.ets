@@ -162,7 +162,7 @@ struct RepositorySettings {
 
   build() {
     Column() {
-      AppShell({ title: '仓库', back: true, drawerOpen: $drawerOpen, busy: this.saving || this.testing || this.deleting,
+      AppShell({ title: '仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen, busy: this.saving || this.testing || this.deleting,
         backAction: (): void => { this.save() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })

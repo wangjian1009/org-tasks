@@ -67,6 +67,18 @@ struct TaskOverview {
     if (this.view === 'today') await RepositorySyncService.start(getContext(this))
   }
 
+  overviewIcon(): Resource {
+    switch (this.view) {
+      case 'today': return $r('app.media.nav_today')
+      case 'planned': return $r('app.media.nav_planned')
+      case 'anytime': return $r('app.media.nav_anytime')
+      case 'someday': return $r('app.media.nav_someday')
+      case 'memo': return $r('app.media.nav_memo')
+      case 'logbook': return $r('app.media.nav_logbook')
+    }
+    return $r('app.media.nav_today')
+  }
+
   @Builder
   pullIndicator() {
     Row().width('100%').height(0)
@@ -112,7 +124,7 @@ struct TaskOverview {
   build() {
     Column() {
       AppShell({ title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
-        titleIcon: this.view === 'today' ? $r('app.media.nav_today') : '',
+        titleIcon: this.overviewIcon(),
         drawerOpen: $drawerOpen, actionIcon: $r('app.media.ui_sync'), actionLabel: this.view === 'today' ? '' : '刷新任务',
         action: (): void => { this.loadTasks() }, fabLabel: this.view === 'memo' ? '' : '新增任务',
         fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {

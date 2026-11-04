@@ -6,6 +6,7 @@ mod creation;
 mod editor;
 mod merge;
 mod query;
+mod render;
 pub(crate) mod service;
 mod task_scan;
 mod todo;

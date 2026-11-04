@@ -1,6 +1,5 @@
-import { util } from '@kit.ArkTS'
 import { RepoConfig } from '../models/OrgTask'
-import { CoreBridgeError, CoreOrgFileMetadata, CoreTask, CoreTodoMetadata, NativeCoreService, coreErrorMessage } from './NativeCoreService'
+import { CoreBridgeError, CoreOrgFile, CoreOrgFileMetadata, NativeCoreService, coreErrorMessage } from './NativeCoreService'
 import { repositoryLabel } from '../ui/Theme'
 
 export interface NotebookGroup {
@@ -12,19 +11,7 @@ export interface NotebookGroup {
   message: string
 }
 
-export interface Notebook {
-  id: string
-  repoId: string
-  rootDirectory: string
-  path: string
-  source: string
-  byteLength: number
-  todo: CoreTodoMetadata
-  category: string | null
-  tasks: CoreTask[]
-}
-
-// 只组合 core 返回的文件对象与任务投影，分类和记录选择通过 Workspace.query 处理。
+// 文件清单与完整内容均由 Core 提供，ArkTS 只组装页面请求。
 export class NotebookService {
   // 列表只取 Core 文件元信息，不解码原文或生成任务列表。
   static async list(repositories: RepoConfig[], todoDefaults?: string): Promise<NotebookGroup[]> {
@@ -41,25 +28,14 @@ export class NotebookService {
     return groups
   }
 
-  static async load(repositories: RepoConfig[], todoDefaults?: string): Promise<Notebook[]> {
-    const response = await NativeCoreService.loadWorkspace(repositories, todoDefaults)
-    const notebooks: Notebook[] = []
-    for (const repo of await response.workspace.repos()) {
-      for (const file of await repo.files()) {
-        const bytes = file.sourceBytes()
-        notebooks.push({
-          id: `${repo.id}:${file.path}`,
-          repoId: file.repoId,
-          rootDirectory: repo.rootDirectory,
-          path: file.path,
-          source: util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes),
-          byteLength: bytes.byteLength,
-          todo: file.todo,
-          category: file.category(),
-          tasks: response.tasks.filter((task: CoreTask) => task.repoId === file.repoId && task.filePath === file.path)
-        })
-      }
-    }
-    return notebooks
+  // 完整阅读只打开目标仓库和文件，不查询或过滤任务列表。
+  static async open(repositories: RepoConfig[], repoId: string, path: string,
+    todoDefaults?: string): Promise<CoreOrgFile | undefined> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    const repo = (await workspace.repos()).find((item) => item.id === repoId)
+    if (!repo) return undefined
+    const files = await repo.fileMetadata()
+    if (!files.some((file: CoreOrgFileMetadata) => file.path === path)) return undefined
+    return await repo.file(path)
   }
 }

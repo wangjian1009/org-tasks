@@ -71,36 +71,15 @@ struct Settings {
     Column() {
       AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
         back: this.section.length > 0, busy: this.saving, backAction: () => { this.section = ''; this.message = '' },
-        actionIcon: $r('app.media.ui_done'), actionLabel: this.section === '同步' || this.section === '笔记与笔记本' ? '保存设置' : '', action: (): void => { this.save() } }) {
+        titleIcon: $r('app.media.nav_settings'),
+        actionIcon: $r('app.media.ui_done'), actionLabel: this.section === '笔记与笔记本' ? '保存设置' : '', action: (): void => { this.save() } }) {
         Column() {
           MessageBar({ message: this.message, error: this.message !== '设置已保存' })
           Scroll() {
             Column() {
               if (!this.section) {
                 PreferenceRow({ title: '笔记与笔记本', detail: '收件箱、某天、备忘文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
-                PreferenceRow({ title: '同步', detail: '存储库、系统日历与后台同步', icon: $r('app.media.ui_sync'), action: () => { this.section = '同步' } })
                 PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
-              } else if (this.section === '同步') {
-                PreferenceRow({ title: '存储库', detail: `${this.config.repos.length} 个本地或 WebDAV 存储库`, icon: $r('app.media.ui_cloud'), action: (): void => { router.pushUrl({ url: 'pages/Files' }) } })
-                Divider().color(UiColor.outline)
-                SectionHeading({ title: '系统日历' })
-                PreferenceRow({ title: '同步到系统日历', detail: '将本地笔记中的计划与截止任务写入日历', icon: $r('app.media.ui_calendar'),
-                  action: (): void => { router.pushUrl({ url: 'pages/CalendarSync' }) } })
-                Column({ space: 12 }) {
-                  Text('日历名称').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.calendarName, placeholder: 'Org Tasks' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
-                    .onChange((value: string) => { this.calendarName = value })
-                  Text('保存日历名称后，可从上方入口同步到此日历。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
-                }.width('100%').padding({ left: 24, right: 24 })
-                SectionHeading({ title: '自动同步' })
-                Column({ space: 12 }) {
-                  Text('间隔（分钟）').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.syncInterval, placeholder: '20' }).type(InputType.Number).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
-                    .onChange((value: string) => { this.syncInterval = value })
-                  Text('至少 20 分钟；保存后由系统后台任务调度，实际执行可能延后。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
-                }.width('100%').padding({ left: 24, right: 24 })
-                Button(this.saving ? '保存中…' : '保存设置').width('88%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).margin({ top: 32 })
-                  .enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
               } else if (this.section === '笔记与笔记本') {
                 SectionHeading({ title: '默认 TODO 流程' })
                 Column({ space: 12 }) {

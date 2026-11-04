@@ -42,7 +42,7 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ title: '存储库', synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
+      AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'), synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
         actionIcon: $r('app.media.ui_add'), actionLabel: '新增存储库', action: (): void => { this.addRepository() } }) {
         Column() {
           if (this.loading) {

@@ -68,6 +68,7 @@ class OrgFile {
   category(): string | null
   title(): string | null
   sourceBytes(): Uint8Array
+  renderHtml(): string
 }
 
 class WebDavSyncPolicy {
@@ -213,3 +214,9 @@ interface OrgFileMetadata {
 ~OrgFileMetadata.taskCount~ 由 Core 对有效文件语法树统计标题数，沿用任务扫描忽略规则；不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
 
 当前手机侧边栏已移除分类过滤控件和分类结果页； ~TaskQuery.categories~ 仍是 Core 的通用查询参数，不依赖该 UI 入口。
+
+* 文件只读阅读投影
+
+Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path) 与 repo.files() 在现有 N-API worker 内生成 renderedHtml 字符串，并与文件值对象快照一起返回；C++ 方法仅读取该快照，ArkTS 不解析 Org。已有对象的 HTML 与其源字节、TODO 配置一致，不随仓库后续刷新变化。轻量文件列表不生成或传递 HTML。
+
+文件详情通过 NotebookService.open 按仓库 ID 和相对路径取得目标文件；先校验文件清单，避免将 Core 为缺失路径提供的新增草稿误显示为空白文件。不再读取整个工作区的任务投影或在 UI 按文件过滤任务。Web 只加载内存文档，关闭网络、本地文件、数据库与 DOM storage 访问；CSP 禁止文内脚本及外部资源，固定的宿主 JavaScript 仅修改标题 details 的 open 状态，不注册写入接口。

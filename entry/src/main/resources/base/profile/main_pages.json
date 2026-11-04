@@ -1,6 +1,5 @@
 {
   "src": [
-    "pages/CalendarSync",
     "pages/Workspace",
     "pages/Agenda",
     "pages/Search",

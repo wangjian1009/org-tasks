@@ -53,7 +53,8 @@
   todo: TodoMetadata
 }{
   category(): Option\textless String\textgreater \\
-  title(): Option\textless String\textgreater
+  title(): Option\textless String\textgreater \\
+  render\_html(): String
 }
 \end{umlpackage}
 
@@ -485,3 +486,7 @@ categories: Vec\textless TaskCategory\textgreater}{}
 \umldep{TaskQueryResult}{TaskQuery}
 \end{tikzpicture}
 \end{center}
+
+* 只读展示投影
+
+OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件投影为安全 HTML 片段；不新增持久化字段、解析 AST 或同步记录。宿主负责主题、滚动和折叠交互，源字节仍是唯一保真序列化来源。

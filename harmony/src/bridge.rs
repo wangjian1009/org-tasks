@@ -45,6 +45,8 @@ pub struct HarmonyBridgeFile {
     pub todo: org_tasks_core::TodoMetadata,
     pub category: Option<String>,
     pub title: Option<String>,
+    #[serde(rename = "renderedHtml")]
+    pub rendered_html: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -351,9 +353,13 @@ pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError>
 
 pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let workspace = workspace
+    let mut workspace = workspace
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let runtime = runtime()?;
+    for repo in &mut workspace.repos {
+        runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
+    }
     encode(&task_snapshot(&workspace, &Filter::parse(&expression))?)
 }
 
@@ -476,6 +482,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         todo: file.todo.clone(),
         category: file.category(),
         title: file.title(),
+        rendered_html: file.render_html(),
     })
 }
 
@@ -551,11 +558,13 @@ mod tests {
         assert_eq!(metadata[0]["title"], "工作计划");
         assert_eq!(metadata[0]["path"], "work.org");
         assert!(metadata[0].get("source").is_none());
+        assert!(metadata[0].get("renderedHtml").is_none());
         let full: serde_json::Value = serde_json::from_str(
             &repo_file_json(handle, directory.clone(), "work.org".into()).unwrap(),
         )
         .unwrap();
         assert_eq!(full["title"], metadata[0]["title"]);
+        assert!(full["renderedHtml"].as_str().unwrap().contains("todo pending"));
         std::fs::write(root.join("work.org"), "#+TITLE:\n").unwrap();
         let changed: serde_json::Value =
             serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
@@ -611,6 +620,25 @@ mod tests {
         assert!(absent["category"].is_null());
         assert!(repo_file_json(handle, directory.clone(), "../work.org".into()).is_err());
         assert!(!root.join("absent.org").exists());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_search_reloads_task_ignore_rules_before_projection() {
+        let root = std::env::temp_dir().join(format!("org-tasks-harmony-ignore-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("visible.org"), "* TODO Visible\n").unwrap();
+        std::fs::write(root.join("ann.org"), "* TODO Announcement\n").unwrap();
+        std::fs::write(root.join(".orgzlyignore"), "ann.org\n").unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().to_string();
+        workspace_add_repo(handle, directory).unwrap();
+        let tasks: serde_json::Value =
+            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+        assert_eq!(tasks.as_array().unwrap().len(), 1);
+        assert_eq!(tasks[0]["heading"], "Visible");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

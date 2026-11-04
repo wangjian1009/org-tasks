@@ -87,7 +87,7 @@ struct SavedSearches {
 
   build() {
     Column() {
-      AppShell({ title: this.editing ? '保存搜索' : '搜索', activeRoute: 'pages/SavedSearches', back: this.editing, drawerOpen: $drawerOpen,
+      AppShell({ title: this.editing ? '保存搜索' : '搜索', titleIcon: $r('app.media.nav_search'), activeRoute: 'pages/SavedSearches', back: this.editing, drawerOpen: $drawerOpen,
       busy: this.saving, backAction: () => { this.editing = false },
       actionIcon: this.editing ? $r('app.media.ui_done') : $r('app.media.ui_search'), actionLabel: this.editing ? '保存搜索' : '搜索笔记',
       action: () => { if (this.editing) this.saveSearch(); else router.pushUrl({ url: 'pages/Search' }) },

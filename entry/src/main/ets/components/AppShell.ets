@@ -191,7 +191,7 @@ export struct AppShell {
   @Builder
   navItem(title: string, icon: Resource, route: string, selected: boolean = false, count: number = -1) {
     Row({ space: 12 }) {
-      Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon).fillColor(UiColor.drawerText)
+      Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
       Text(title).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText).fontWeight(selected ? FontWeight.Medium : FontWeight.Normal)
         .layoutWeight(1)
       if (count >= 0) {
@@ -221,14 +221,14 @@ export struct AppShell {
               .onClick((): void => { this.openSearch(search) })
           }, (search: SavedSearch) => search.id)
           Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
-          this.navItem('存储库', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')
+          this.navItem('存储库', $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
           if (this.navMessage.length > 0) {
             Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)
           }
         }.width('100%').padding({ left: 12, right: 12, bottom: 16 })
       }.layoutWeight(1).width('100%').padding({ top: 16 }).align(Alignment.TopStart)
       Divider().color(UiColor.drawerOutline)
-      this.navItem('设置', $r('app.media.ui_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
+      this.navItem('设置', $r('app.media.nav_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
     }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.drawer)
       .borderRadius({ topRight: 20, bottomRight: 20 })
       .onClick((): void => { this.drawerOpen = false })
@@ -238,15 +238,19 @@ export struct AppShell {
     Stack({ alignContent: Alignment.TopStart }) {
       Column() {
         Row() {
-          IconButton({ icon: this.back ? $r('app.media.ui_back') : $r('app.media.ui_menu'),
-            label: this.back ? '返回' : '打开导航', disabled: this.busy,
-            action: () => { if (this.back) this.backAction(); else this.openDrawer() } })
-          if (this.titleIcon !== '') {
-            Image(this.titleIcon).width(26).height(26).margin({ left: 8, right: 8 })
+          if (this.back) {
+            IconButton({ icon: $r('app.media.ui_back'), label: '返回', disabled: this.busy,
+              action: () => { this.backAction() } })
           }
-          Text(this.title).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
-            .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            .margin({ left: this.titleIcon === '' ? 8 : 0 })
+          Row({ space: 8 }) {
+            if (this.titleIcon !== '') {
+              Image(this.titleIcon).width(26).height(26)
+            }
+            Text(this.title).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+              .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
+            .accessibilityText(`打开导航，${this.title}`).enabled(!this.busy)
+            .onClick((): void => { this.openDrawer() })
           if (this.actionLabel.length > 0) {
             IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
           }

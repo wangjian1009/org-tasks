@@ -70,7 +70,7 @@ struct Agenda {
 
   build() {
     Column() {
-      AppShell({ title: '日程', synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/Agenda', drawerOpen: $drawerOpen,
+      AppShell({ title: '日程', titleIcon: $r('app.media.nav_planned'), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/Agenda', drawerOpen: $drawerOpen,
       actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) },
       extraIcon: $r('app.media.ui_sync'), extraLabel: '刷新日程', extraAction: (): void => { this.loadTasks() },
       fabLabel: '新增任务', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {

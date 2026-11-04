@@ -24,7 +24,7 @@
 | WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | WebDavSyncPolicy 认证参数。 |
 | WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store；内存中临时装配 | WebDavSyncPolicy 认证参数；Preferences 仅有同名空字符串占位。 |
 | 新增任务收集箱 | ~inboxFile~ | Preferences | AddTask 调用 core 在所选仓库内追加任务。它不等同于系统分享默认笔记本。 |
-| 日历名称 | ~calendarName~ | Preferences | 手动与后台 CalendarSync 创建/选择本地日历；颜色、提醒和筛选不可配置。 |
+| 日历名称 | ~calendarName~ | Preferences | 后台 CalendarSync 创建/选择本地日历；不提供手动同步页面，颜色、提醒和筛选不可配置。 |
 | 后台同步间隔 | ~syncInterval~ | Preferences | BackgroundSyncService 注册/替换作业，至少 20 分钟；没有停用开关。 |
 
 存储库配置 ID、已保存查询 ID/名称/表达式、最后同步时间和日历事件映射分别是身份、查询或运行状态，不额外计为用户配置项。
