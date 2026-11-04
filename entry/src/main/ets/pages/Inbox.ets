@@ -13,6 +13,7 @@ struct Inbox {
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
+  @State needsConfiguration: boolean = false
   private requestId: number = 0
 
   onPageShow() { this.loadRecords() }
@@ -26,8 +27,14 @@ struct Inbox {
     const request = ++this.requestId
     this.loading = true
     this.message = ''
+    this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(getContext(this))
+      if (!config.inboxFile) {
+        this.needsConfiguration = true
+        this.records = []
+        return
+      }
       const result = await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults)
       if (request !== this.requestId) return
       this.records = result.tasks
@@ -49,6 +56,11 @@ struct Inbox {
         Column() {
           if (this.loading) {
             EmptyState({ title: '正在读取收件箱', busy: true })
+          } else if (this.needsConfiguration) {
+            EmptyState({ title: '尚未配置收件箱', detail: '请在设置的“笔记与笔记本”中配置收件箱文件。',
+              actionLabel: '前往设置', action: (): void => {
+                router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+              } })
           } else if (this.message) {
             EmptyState({ title: '收件箱读取失败', detail: this.message,
               actionLabel: '重试', action: (): void => { this.loadRecords() } })

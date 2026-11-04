@@ -47,6 +47,7 @@ export interface SyncOptions {
 export interface AppConfig {
   repos: RepoConfig[]
   inboxFile: string    // 新增任务写入的文件
+  somedayFile: string  // “某天”入口对应的相对文件路径，可为空
   calendarName: string // 日历名称
   syncInterval: number // 同步间隔（分钟）
   todoDefaults: string // 外部保存的全局默认声明，缺省值由 Rust 提供
@@ -55,7 +56,8 @@ export interface AppConfig {
 // 默认配置
 export const DEFAULT_CONFIG: AppConfig = {
   repos: [],
-  inboxFile: 'inbox.org',
+  inboxFile: '',
+  somedayFile: '',
   calendarName: 'Org Tasks',
   syncInterval: 20,
   todoDefaults: '' // 配置加载前的占位，实际默认值从 Rust 获取

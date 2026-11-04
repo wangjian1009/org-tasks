@@ -46,7 +46,7 @@ struct Repositories {
     try {
       const current = await AppConfigService.load(getContext(this))
       await AppConfigService.save(getContext(this), { repos: current.repos.filter((item: RepoConfig) => item.id !== repo.id),
-        inboxFile: current.inboxFile, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults })
+        inboxFile: current.inboxFile, somedayFile: current.somedayFile, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults })
       await CredentialService.clearWebDavPassword(repo.id)
       await this.load()
     } catch (e) { this.message = `删除存储库失败：${coreErrorMessage(e as CoreBridgeError)}` }

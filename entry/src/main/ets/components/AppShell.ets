@@ -1,15 +1,16 @@
 import { router } from '@kit.ArkUI'
-import { UiColor } from '../ui/Theme'
+import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { categoryNavigationQuery, inboxRecordQuery } from '../services/TaskViewQueries'
-import { BUILTIN_SEARCHES, SavedSearch, SavedSearchService } from '../services/SavedSearchService'
+import { categoryNavigationQuery, inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, TaskOverview } from '../services/TaskViewQueries'
+import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, CoreTaskCategory, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
 export struct AppShell {
   @Prop title: string = ''
   @Prop activeRoute: string = ''
+  @Prop activeOverview: string = ''
   @Prop activeCategoryValues: (string | null)[] = []
   @Prop activeCategories: CoreTaskCategory[] = []
   @Prop categoryBusy: boolean = false
@@ -29,7 +30,13 @@ export struct AppShell {
   fabAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
   @State categories: CoreTaskCategory[] = []
-  @State inboxCount: number = 0
+  @State inboxCount: number = -1
+  @State todayCount: number = -1
+  @State overdueCount: number = 0
+  @State plannedCount: number = -1
+  @State anytimeCount: number = -1
+  @State somedayCount: number = -1
+  @State logbookCount: number = -1
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
   private navigationRequest: number = 0
@@ -50,19 +57,52 @@ export struct AppShell {
     const request = ++this.navigationRequest
     this.navMessage = ''
     this.categories = []
-    this.inboxCount = 0
+    this.inboxCount = -1
     try {
       const config = await AppConfigService.load(getContext(this))
       const searches = await SavedSearchService.load(getContext(this))
       const result = await NativeCoreService.queryTasks(config.repos, categoryNavigationQuery(config.inboxFile), config.todoDefaults)
-      const inbox = await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults)
+      const inbox = config.inboxFile ? await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults) : undefined
+      const today = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('today'), config.todoDefaults)
+      const overdue = await NativeCoreService.queryTasks(config.repos, overdueTaskQuery(), config.todoDefaults)
+      const planned = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('planned'), config.todoDefaults)
+      const anytime = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('anytime'), config.todoDefaults)
+      const someday = config.somedayFile ? await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('someday', config.somedayFile), config.todoDefaults) : undefined
+      const logbook = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('logbook'), config.todoDefaults)
       if (request !== this.navigationRequest) return
       this.searches = searches
       this.categories = result.categories
-      this.inboxCount = inbox.tasks.length
+      this.inboxCount = inbox?.tasks.length ?? -1
+      this.todayCount = today.tasks.length
+      this.overdueCount = overdue.tasks.length
+      this.plannedCount = planned.tasks.length
+      this.anytimeCount = anytime.tasks.length
+      this.somedayCount = someday?.tasks.length ?? -1
+      this.logbookCount = logbook.tasks.length
     } catch (e) {
       if (request === this.navigationRequest) this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
     }
+  }
+
+  async openPrimary(view: TaskOverview | 'inbox') {
+    try {
+      const config = await AppConfigService.load(getContext(this))
+      if (view === 'inbox' && !config.inboxFile || view === 'someday' && !config.somedayFile) {
+        const title = view === 'inbox' ? '收件箱' : '某天'
+        this.getUIContext().showAlertDialog({ title: `尚未配置${title}`, message: `请在设置的“笔记与笔记本”中配置${title}文件。`,
+          primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
+            this.drawerOpen = false
+            router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+          } } })
+        return
+      }
+      this.drawerOpen = false
+      if (view === 'inbox') {
+        if (this.activeRoute !== 'pages/Inbox') router.replaceUrl({ url: 'pages/Inbox' })
+      } else if (this.activeRoute !== 'pages/TaskOverview' || this.activeOverview !== view) {
+        router.replaceUrl({ url: 'pages/TaskOverview', params: { view } })
+      }
+    } catch (e) { this.navMessage = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
 
   navigate(route: string) {
@@ -89,17 +129,48 @@ export struct AppShell {
     router.replaceUrl({ url: 'pages/Search', params: { query: search.query, name: search.name, run: true } })
   }
 
+  primaryCount(view: TaskOverview | 'inbox'): number {
+    switch (view) {
+      case 'inbox': return this.inboxCount
+      case 'today': return this.todayCount
+      case 'planned': return this.plannedCount
+      case 'anytime': return this.anytimeCount
+      case 'someday': return this.somedayCount
+      case 'logbook': return this.logbookCount
+    }
+  }
+
+  @Builder
+  primaryItem(title: string, icon: Resource, view: TaskOverview | 'inbox') {
+    Row({ space: 12 }) {
+      Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
+      Text(title).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium).fontColor(UiColor.drawerText).layoutWeight(1)
+      if (view === 'today' && this.overdueCount > 0) {
+        Text(`${this.overdueCount}`).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Bold).fontColor(Color.White)
+          .padding({ left: 8, right: 8 }).height(24).constraintSize({ minWidth: 26 })
+          .textAlign(TextAlign.Center).borderRadius(12).backgroundColor(UiColor.overdueBadge)
+      }
+      if (this.primaryCount(view) >= 0) {
+        Text(`${this.primaryCount(view)}`).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium).fontColor(UiColor.drawerSecondary)
+      }
+    }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)
+      .backgroundColor(view === 'inbox' ? (this.activeRoute === 'pages/Inbox' ? UiColor.drawerSelected : Color.Transparent)
+        : this.activeRoute === 'pages/TaskOverview' && this.activeOverview === view ? UiColor.drawerSelected : Color.Transparent)
+      .accessibilityText(`${title}${this.primaryCount(view) >= 0 ? `，${this.primaryCount(view)} 条` : ''}${view === 'today' && this.overdueCount > 0 ? `，过期 ${this.overdueCount} 个` : ''}`)
+      .onClick((): void => { this.openPrimary(view) })
+  }
+
   @Builder
   navItem(title: string, icon: Resource, route: string, selected: boolean = false, count: number = -1) {
-    Row({ space: 20 }) {
-      Image(icon).width(22).height(22)
-      Text(title).fontSize(15).fontColor(UiColor.text).fontWeight(selected ? FontWeight.Medium : FontWeight.Normal)
+    Row({ space: 12 }) {
+      Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon).fillColor(UiColor.drawerText)
+      Text(title).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText).fontWeight(selected ? FontWeight.Medium : FontWeight.Normal)
         .layoutWeight(1)
       if (count >= 0) {
-        Text(`${count}`).fontSize(12).fontColor(UiColor.secondary)
+        Text(`${count}`).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary)
       }
-    }.width('100%').height(52).padding({ left: 16, right: 16 }).borderRadius(26)
-      .backgroundColor(selected ? UiColor.selected : Color.Transparent)
+    }.width('100%').height(UiSize.drawerRow).padding({ left: 16, right: 16 }).borderRadius(12)
+      .backgroundColor(selected ? UiColor.drawerSelected : Color.Transparent)
       .onClick((): void => { this.navigate(route) })
   }
 
@@ -107,53 +178,60 @@ export struct AppShell {
   drawer() {
     Column() {
       Row() {
-        Row({ space: 20 }) {
-          Image($r('app.media.ui_search')).width(22).height(22)
-          Text('搜索').fontSize(18).fontColor(UiColor.text)
-        }.layoutWeight(1).height(48).borderRadius(24).accessibilityText('搜索任务')
+        Row({ space: 12 }) {
+          Image($r('app.media.nav_search')).width(22).height(22)
+          Text('搜索').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText)
+        }.layoutWeight(1).height(UiSize.drawerRow).borderRadius(24).accessibilityText('搜索任务')
           .onClick((): void => {
             this.drawerOpen = false
             router.replaceUrl({ url: 'pages/Search' })
           })
-        IconButton({ icon: $r('app.media.ui_close'), label: '关闭导航', action: () => { this.drawerOpen = false } })
-      }.width('100%').padding({ left: 20, right: 8, top: 8, bottom: 8 })
+        Button('×').width(48).height(UiSize.drawerRow).fontSize(26).fontColor(UiColor.drawerText)
+          .backgroundColor(Color.Transparent).accessibilityText('关闭导航').onClick(() => { this.drawerOpen = false })
+      }.width('100%').padding({ left: 16, right: 8, top: 4, bottom: 4 })
       Scroll() {
         Column({ space: 2 }) {
-          this.navItem('收件箱', $r('app.media.ui_body'), 'pages/Inbox', this.activeRoute === 'pages/Inbox', this.inboxCount)
-          this.navItem('日程', $r('app.media.ui_calendar'), 'pages/Agenda', this.activeRoute === 'pages/Agenda')
-          ForEach(BUILTIN_SEARCHES.concat(this.searches), (search: SavedSearch) => {
-            Text(search.name).fontSize(14).fontColor(UiColor.secondary).width('100%').padding({ left: 58, right: 16, top: 15, bottom: 15 })
+          this.primaryItem('收件箱', $r('app.media.nav_inbox'), 'inbox')
+          Row().height(6)
+          this.primaryItem('今天', $r('app.media.nav_today'), 'today')
+          this.primaryItem('计划', $r('app.media.nav_planned'), 'planned')
+          this.primaryItem('随时', $r('app.media.nav_anytime'), 'anytime')
+          this.primaryItem('某天', $r('app.media.nav_someday'), 'someday')
+          Row().height(12)
+          this.primaryItem('日志簿', $r('app.media.nav_logbook'), 'logbook')
+          ForEach(this.searches, (search: SavedSearch) => {
+            Text(search.name).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary).width('100%').padding({ left: 58, right: 16, top: 8, bottom: 8 })
               .onClick((): void => { this.openSearch(search) })
           }, (search: SavedSearch) => search.id)
-          Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
-          Text('分类').fontSize(12).fontColor(UiColor.primary).width('100%').padding({ left: 16, top: 8, bottom: 8 })
+          Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
+          Text('分类').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary).width('100%').padding({ left: 16, top: 4, bottom: 4 })
           ForEach(this.navigationCategories(), (category: CoreTaskCategory) => {
             Row({ space: 12 }) {
-              Text(this.activeCategoryValues.includes(category.category) ? '✓' : '').fontSize(14).fontColor(UiColor.primary)
+              Text(this.activeCategoryValues.includes(category.category) ? '✓' : '').fontSize(14).fontColor('#5AC4B9')
                 .width(20).height(20).textAlign(TextAlign.Center).borderRadius(3)
-                .border({ width: 1, color: this.activeCategoryValues.includes(category.category) ? UiColor.primary : UiColor.outline })
-              Text(category.category || '未分类').fontSize(14).fontColor(UiColor.secondary).layoutWeight(1).maxLines(1)
+                .border({ width: 1, color: this.activeCategoryValues.includes(category.category) ? '#5AC4B9' : UiColor.drawerSecondary })
+              Text(category.category || '未分类').fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary).layoutWeight(1).maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(`${category.count}`).fontSize(12).fontColor(UiColor.secondary)
-            }.width('100%').constraintSize({ minHeight: 48 }).borderRadius(24)
-              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-              .backgroundColor(this.activeCategoryValues.includes(category.category) ? UiColor.selected : Color.Transparent)
+              Text(`${category.count}`).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary)
+            }.width('100%').constraintSize({ minHeight: UiSize.drawerRow }).borderRadius(12)
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              .backgroundColor(this.activeCategoryValues.includes(category.category) ? UiColor.drawerSelected : Color.Transparent)
               .accessibilityText(`${this.activeCategoryValues.includes(category.category) ? '已选择' : '未选择'}，${category.category || '未分类'}，${category.count} 个未完成任务`)
               .enabled(!this.categoryBusy).onClick(() => { this.toggleCategory(category) })
           }, (category: CoreTaskCategory) => category.key)
 
-          Divider().color(UiColor.outline).margin({ top: 8, bottom: 8 })
+          Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
           this.navItem('笔记本', $r('app.media.ui_folder'), 'pages/Files', this.activeRoute === 'pages/Files')
           this.navItem('存储库', $r('app.media.ui_cloud'), 'pages/Repositories', this.activeRoute === 'pages/Repositories')
           this.navItem('设置', $r('app.media.ui_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
           if (this.navMessage.length > 0) {
-            Text(this.navMessage).fontSize(12).fontColor(UiColor.error).padding(16)
+            Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)
           }
         }.width('100%').padding({ left: 12, right: 12, bottom: 16 })
       }.layoutWeight(1).width('100%').align(Alignment.TopStart)
-      Divider().color(UiColor.outline)
+      Divider().color(UiColor.drawerOutline)
       this.navItem('同步', $r('app.media.ui_sync'), 'pages/Index', this.activeRoute === 'pages/Index')
-    }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.container)
+    }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.drawer)
       .borderRadius({ topRight: 20, bottomRight: 20 })
   }
 

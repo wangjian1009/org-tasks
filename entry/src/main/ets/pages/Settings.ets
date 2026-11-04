@@ -8,12 +8,15 @@ import { AppShell } from '../components/AppShell'
 import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
 import { UiColor } from '../ui/Theme'
 
+interface SettingsParams { section?: string }
+
 @Entry
 @Component
 struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
   @State section: string = ''
-  @State inboxFile: string = 'inbox.org'
+  @State inboxFile: string = ''
+  @State somedayFile: string = ''
   @State calendarName: string = 'Org Tasks'
   @State syncInterval: string = '20'
   @State todoDefaults: string = ''
@@ -34,6 +37,9 @@ struct Settings {
     try {
       this.config = await AppConfigService.load(getContext(this))
       this.inboxFile = this.config.inboxFile
+      this.somedayFile = this.config.somedayFile
+      const params = router.getParams() as SettingsParams | undefined
+      if (!this.loaded && params?.section) this.section = params.section
       this.todoDefaults = this.config.todoDefaults
       this.calendarName = this.config.calendarName
       this.syncInterval = Math.max(20, this.config.syncInterval).toString()
@@ -44,17 +50,13 @@ struct Settings {
   async save() {
     if (this.saving || !this.loaded) return
     const interval = Number(this.syncInterval)
-    if (!this.inboxFile.trim() || !this.calendarName.trim() || !Number.isInteger(interval) || interval < 20) {
-      this.message = '请填写收集箱文件和日历名称，同步间隔应为至少 20 的整数'; return
-    }
-    const inbox = this.inboxFile.trim()
-    if (!inbox.endsWith('.org') || inbox.startsWith('/') || inbox.split('/').some((part: string) => part === '..' || part.length === 0)) {
-      this.message = '收集箱必须是存储库中的相对 .org 路径'; return
+    if (!this.calendarName.trim() || !Number.isInteger(interval) || interval < 20) {
+      this.message = '请填写日历名称，同步间隔应为至少 20 的整数'; return
     }
     this.saving = true
     try {
       const current = await AppConfigService.load(getContext(this))
-      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.inboxFile.trim(), calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults })
+      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults })
       await NativeCoreService.workspaceFor(current.repos, this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults)
       this.message = '设置已保存'
       try { await BackgroundSyncService.configure(interval) }
@@ -73,7 +75,7 @@ struct Settings {
           Scroll() {
             Column() {
               if (!this.section) {
-                PreferenceRow({ title: '笔记与笔记本', detail: '收集箱文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
+                PreferenceRow({ title: '笔记与笔记本', detail: '收件箱、某天文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
                 PreferenceRow({ title: '同步', detail: '存储库、系统日历与后台同步', icon: $r('app.media.ui_sync'), action: () => { this.section = '同步' } })
                 PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
               } else if (this.section === '同步') {
@@ -84,24 +86,24 @@ struct Settings {
                   action: (): void => { router.pushUrl({ url: 'pages/Index', params: { calendar: true } }) } })
                 Column({ space: 12 }) {
                   Text('日历名称').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.calendarName, placeholder: 'Org Tasks' }).height(56).backgroundColor(UiColor.field).borderRadius(6)
+                  TextInput({ text: this.calendarName, placeholder: 'Org Tasks' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.calendarName = value })
                   Text('保存日历名称后，可从上方入口同步到此日历。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
                 }.width('100%').padding({ left: 24, right: 24 })
                 SectionHeading({ title: '自动同步' })
                 Column({ space: 12 }) {
                   Text('间隔（分钟）').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.syncInterval, placeholder: '20' }).type(InputType.Number).height(56).backgroundColor(UiColor.field).borderRadius(6)
+                  TextInput({ text: this.syncInterval, placeholder: '20' }).type(InputType.Number).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.syncInterval = value })
                   Text('至少 20 分钟；保存后由系统后台任务调度，实际执行可能延后。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
                 }.width('100%').padding({ left: 24, right: 24 })
-                Button(this.saving ? '保存中…' : '保存设置').width('88%').height(48).backgroundColor(UiColor.primary).margin({ top: 32 })
+                Button(this.saving ? '保存中…' : '保存设置').width('88%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).margin({ top: 32 })
                   .enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
               } else if (this.section === '笔记与笔记本') {
                 SectionHeading({ title: '默认 TODO 流程' })
                 Column({ space: 12 }) {
                   TextArea({ text: this.todoDefaults, placeholder: '从 Rust 获取的默认设置，可按 Org 声明编辑' }).width('100%').height(180)
-                    .fontFamily('monospace').backgroundColor(UiColor.field).borderRadius(6)
+                    .fontFamily('monospace').backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.todoDefaults = value })
                   Text('使用 TODO、SEQ_TODO 或 TYP_TODO 声明，每行一套流程；| 后为完成状态。文件内声明会整体覆盖此默认值。留空表示默认不识别 TODO 状态。')
                     .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
@@ -111,13 +113,18 @@ struct Settings {
                       catch (e) { this.message = `读取默认设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
                     })
                 }.width('100%').padding({ left: 24, right: 24 })
-                SectionHeading({ title: '收集箱' })
+                SectionHeading({ title: '收件箱与某天' })
                 Column({ space: 16 }) {
-                  Text('新增任务文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.inboxFile, placeholder: 'inbox.org' }).height(56).backgroundColor(UiColor.field).borderRadius(6)
+                  Text('收件箱文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
+                  TextInput({ text: this.inboxFile, placeholder: 'inbox.org' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.inboxFile = value })
-                  Text('新增任务会写入所选存储库中的此文件，请使用相对 .org 路径。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
-                  Button('保存设置').width('100%').height(48).backgroundColor(UiColor.primary).enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
+                  Text('新增任务写入此文件；留空时收件箱入口提示前往配置。使用相对 .org 路径。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Text('某天文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
+                  TextInput({ text: this.somedayFile, placeholder: '例如 someday.org，可留空' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
+                    .onChange((value: string) => { this.somedayFile = value })
+                  Text('“某天”展示此文件中的未完成任务；未配置时点击入口会提示设置。')
+                    .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Button('保存设置').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
                 }.width('100%').padding(24)
               } else {
                 SectionHeading({ title: 'Org Tasks' })

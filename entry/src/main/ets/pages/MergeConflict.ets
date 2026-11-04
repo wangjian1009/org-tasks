@@ -123,7 +123,7 @@ struct MergeConflict {
   choiceButton(row: MergeRow, label: string, choice: CoreMergeResolution) {
     Button(label).fontSize(13).height(38)
       .backgroundColor(row.choice === choice ? UiColor.primary : UiColor.selected)
-      .fontColor(row.choice === choice ? Color.White : UiColor.onSelected)
+      .fontColor(row.choice === choice ? UiColor.onPrimary : UiColor.onSelected)
       .onClick((): void => { this.choose(row.change.id, choice) })
   }
 
@@ -191,7 +191,7 @@ struct MergeConflict {
                 ListItem() { this.taskRow(row) }
               }, (row: MergeRow) => `${row.change.id}:${row.choice}:${row.expanded}`)
               ListItem() {
-                Button('应用本次选择并备份').width('100%').height(48).backgroundColor(UiColor.primary)
+                Button('应用本次选择并备份').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
                   .enabled(this.ready()).onClick((): void => { this.confirm(CoreMergeMode.MergeTasks) })
               }
             }.width('100%').layoutWeight(1).padding({ left: 16, right: 16, top: 16, bottom: 32 }).enabled(!this.saving)

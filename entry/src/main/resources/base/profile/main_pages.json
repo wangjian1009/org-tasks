@@ -8,6 +8,7 @@
     "pages/Files",
     "pages/CategoryTasks",
     "pages/Inbox",
+    "pages/TaskOverview",
     "pages/FileDetail",
     "pages/TaskDetail",
     "pages/Settings",

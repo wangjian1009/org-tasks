@@ -201,7 +201,7 @@ struct Index {
                 Text('使用本地文件中的任务。需要获取远端更新时，请先从导航中的“同步”同步存储库。')
                   .width('100%').fontSize(13).lineHeight(21).fontColor(UiColor.secondary)
               }
-              Button(this.syncing ? '同步中…' : this.calendarMode ? '同步到系统日历' : '立即同步').width('100%').height(48).backgroundColor(UiColor.primary)
+              Button(this.syncing ? '同步中…' : this.calendarMode ? '同步到系统日历' : '立即同步').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
                 .enabled(!this.syncing && !this.loading && this.config.repos.length > 0).onClick((): void => { this.doSync() })
               if (this.config.repos.length === 0 && !this.loading) {
                 Button('添加存储库').width('100%').height(48).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)

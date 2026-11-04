@@ -66,6 +66,7 @@ struct AddTask {
     try {
       const repository = this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId)
       if (!repository) return
+      if (!this.config.inboxFile) { this.message = '请先在设置中配置收件箱文件'; return }
       const repo = await NativeCoreService.repository(this.config.repos, repository, this.config.todoDefaults)
       const file = await repo.file(this.config.inboxFile)
       const metadata = file.todo
@@ -145,7 +146,7 @@ struct AddTask {
       Image($$.icon).width(24).height(24)
       Column({ space: 4 }) {
         Text($$.label).fontSize(12).fontColor(UiColor.secondary).width('100%')
-        Text($$.value ? ($$.label === '优先级' ? `[#${$$.value}]` : dateLabel($$.value)) : '未设置').fontSize(16).fontColor($$.value ? UiColor.text : '#79747E').width('100%')
+        Text($$.value ? ($$.label === '优先级' ? `[#${$$.value}]` : dateLabel($$.value)) : '未设置').fontSize(16).fontColor($$.value ? UiColor.text : UiColor.secondary).width('100%')
       }.layoutWeight(1).onClick(() => $$.select())
       if ($$.value) { IconButton({ icon: $r('app.media.ui_close'), label: `清除${$$.label}`, action: $$.clear }) }
     }.width('100%').constraintSize({ minHeight: 64 }).padding({ left: 16, right: 4, top: 8, bottom: 8 })
@@ -174,7 +175,7 @@ struct AddTask {
                   Image($r('app.media.ui_down')).width(20).height(20)
                 }.width('100%').padding(16).onClick((): void => { this.chooseRepository() })
                 TextInput({ placeholder: '任务标题', text: this.heading }).fontSize(22).height(72).borderRadius(0)
-                  .backgroundColor(Color.Transparent).onChange((value: string) => { this.heading = value })
+                  .backgroundColor(Color.Transparent).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.heading = value })
                 Divider().color(UiColor.outline)
                 Row({ space: 24 }) {
                   Image($r('app.media.ui_info')).width(24).height(24)
@@ -185,7 +186,7 @@ struct AddTask {
                   Row({ space: 24 }) {
                     Image($r('app.media.ui_tags')).width(24).height(24)
                     TextInput({ placeholder: '标签，用空格或逗号分隔', text: this.tags }).layoutWeight(1).height(56)
-                      .backgroundColor(Color.Transparent).onChange((value: string) => { this.tags = value })
+                      .backgroundColor(Color.Transparent).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.tags = value })
                   }.width('100%').padding({ left: 16, right: 16 })
                   Row({ space: 24 }) {
                     Image($r('app.media.ui_state')).width(24).height(24)
@@ -197,7 +198,7 @@ struct AddTask {
                   this.field({ icon: $r('app.media.ui_deadline'), label: '截止日期', value: this.deadline, select: (): void => { this.chooseDate(true) }, clear: () => { this.deadline = '' } })
                 }
                 Divider().color(UiColor.outline)
-                Button(this.saving ? '保存中…' : '保存任务').width('90%').height(48).backgroundColor(UiColor.primary)
+                Button(this.saving ? '保存中…' : '保存任务').width('90%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
                   .enabled(!this.saving && !this.todoLoading && this.initialState.length > 0).margin({ top: 24, bottom: 32 }).onClick((): void => { this.saveTask() })
               }.width('100%').enabled(!this.saving)
             }.width('100%').layoutWeight(1).align(Alignment.TopStart)

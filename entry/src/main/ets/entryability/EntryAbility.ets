@@ -1,16 +1,18 @@
 // 应用入口
 // 注册后台定时同步任务
 
-import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit'
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { preferences } from '@kit.ArkData'
+import { UiColor } from '../ui/Theme'
 
 const PREF_NAME = 'org_tasks_config'
 const DEFAULT_INTERVAL = 20 // 分钟
 
 export default class EntryAbility extends UIAbility {
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK)
     // 注册后台定时任务
     await this.registerBackgroundSync()
   }
@@ -18,13 +20,13 @@ export default class EntryAbility extends UIAbility {
   async onWindowStageCreate(windowStage: window.WindowStage) {
     const mainWindow = await windowStage.getMainWindow()
     await mainWindow.setWindowSystemBarProperties({
-      statusBarColor: '#FFF8FF',
-      navigationBarColor: '#FFF8FF',
-      statusBarContentColor: '#1D1B20',
-      navigationBarContentColor: '#1D1B20'
+      statusBarColor: UiColor.surface,
+      navigationBarColor: UiColor.surface,
+      statusBarContentColor: UiColor.text,
+      navigationBarContentColor: UiColor.text
     })
     // 加载主页面
-    windowStage.loadContent('pages/Agenda', (err) => {
+    windowStage.loadContent('pages/TaskOverview', (err) => {
       if (err) {
         console.error('加载页面失败:', JSON.stringify(err))
       }

@@ -27,7 +27,7 @@ struct TaskDetail {
       Image(icon).width(24).height(24)
       Column({ space: 4 }) {
         Text(label).fontSize(12).fontColor(UiColor.secondary).width('100%')
-        Text(value || '未设置').fontSize(16).fontColor(value ? UiColor.text : '#79747E').width('100%')
+        Text(value || '未设置').fontSize(16).fontColor(value ? UiColor.text : UiColor.secondary).width('100%')
           .copyOption(CopyOptions.LocalDevice)
       }.layoutWeight(1)
     }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 }).constraintSize({ minHeight: 64 })

@@ -102,7 +102,7 @@ struct RepositorySettings {
       const repos = current.repos.slice()
       const index = repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
       if (index < 0) repos.push(repository); else repos[index] = repository
-      await AppConfigService.save(getContext(this), { repos, inboxFile: current.inboxFile, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults })
+      await AppConfigService.save(getContext(this), { repos, inboxFile: current.inboxFile, somedayFile: current.somedayFile, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults })
       router.back()
     } catch (e) { this.message = `保存失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.saving = false }
@@ -125,13 +125,13 @@ struct RepositorySettings {
               if (this.webdavEnabled) {
                 Text('WebDAV 地址').fontSize(13).fontColor(UiColor.primary).width('100%')
                 TextInput({ text: this.webdavUrl, placeholder: 'https://dav.example.com/org/' }).height(56).borderRadius(6)
-                  .backgroundColor(UiColor.field).onChange((value: string) => { this.webdavUrl = value; this.clearTestResult() })
+                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.webdavUrl = value; this.clearTestResult() })
                 Text('用户名').fontSize(13).fontColor(UiColor.primary).width('100%')
                 TextInput({ text: this.webdavUsername, placeholder: 'WebDAV 用户名' }).height(56).borderRadius(6)
-                  .backgroundColor(UiColor.field).onChange((value: string) => { this.webdavUsername = value; this.clearTestResult() })
+                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.webdavUsername = value; this.clearTestResult() })
                 Text('密码或应用专用密码').fontSize(13).fontColor(UiColor.primary).width('100%')
                 TextInput({ text: this.webdavPassword, placeholder: 'WebDAV 密码' }).height(56).borderRadius(6).type(InputType.Password)
-                  .backgroundColor(UiColor.field).onChange((value: string) => { this.webdavPassword = value; this.clearTestResult() })
+                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.webdavPassword = value; this.clearTestResult() })
                 Button(this.testing ? '测试中…' : '测试连接').width('100%').height(48)
                   .backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
                   .onClick((): void => { this.testConnection() })
@@ -141,7 +141,7 @@ struct RepositorySettings {
                 }
                 Text('同步过滤目录').fontSize(13).fontColor(UiColor.primary).width('100%')
                 TextInput({ text: this.excludedDirectoriesText, placeholder: '目录名，用逗号分隔' }).height(56).borderRadius(6)
-                  .backgroundColor(UiColor.field).onChange((value: string) => { this.excludedDirectoriesText = value })
+                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.excludedDirectoriesText = value })
                 Text('填写目录名，匹配任意层级的同名目录。目录中的文件不参与 WebDAV 同步；清空表示不过滤。已下载文件会保留。')
                   .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
                 Button('恢复默认过滤目录').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
@@ -153,7 +153,7 @@ struct RepositorySettings {
               Divider().color(UiColor.outline).margin({ top: 8 })
               Text(this.webdavEnabled ? '本地文件目录' : 'Org 文件目录').fontSize(13).fontColor(UiColor.primary).width('100%')
               TextInput({ text: this.rootDirectory, placeholder: '本地目录的绝对路径' }).height(56).borderRadius(6)
-                .backgroundColor(UiColor.field).onChange((value: string) => { this.rootDirectory = value })
+                .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.rootDirectory = value })
               Text(this.webdavEnabled ? '可先测试远端连接，再保存配置。本地文件在离线时仍可浏览和新增任务。' : '应用将读取此目录中的 org 文件。请使用应用可访问的目录。')
                 .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
             }.width('100%').padding({ left: 24, right: 24, top: 16, bottom: 104 }).enabled(!this.saving && !this.testing && !this.loading)
