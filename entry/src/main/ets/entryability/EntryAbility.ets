@@ -4,6 +4,7 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
+import { emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { preferences } from '@kit.ArkData'
 import { UiColor } from '../ui/Theme'
 
@@ -13,6 +14,7 @@ const DEFAULT_INTERVAL = 20 // 分钟
 export default class EntryAbility extends UIAbility {
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK)
+    AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())
     // 注册后台定时任务
     await this.registerBackgroundSync()
   }
