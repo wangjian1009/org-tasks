@@ -1,0 +1,91 @@
+#+TITLE: 系统架构设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+
+* 范围与设计入口
+
+Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。本文定义模块职责、依赖方向、运行时与持久化边界；各级 AGENTS.md 仅保留核心约束和设计入口。具体类型、字段、协议与界面契约由下列专项文档维护，修改实现前必须查阅对应设计，并同步维护发生变化的约定。
+
+| 修改范围 | 专项设计 |
+|-
+| 核心 API 与数据结构 | [[file:core/接口文档.org][接口文档]]、[[file:core/数据模型.org][数据模型]] |
+| WebDAV 与同步扩展 | [[file:core/WebDAV 同步能力设计.org][WebDAV 同步能力设计]] |
+| 仓库身份、历史、outbox 与冲突备份 | [[file:core/目录结构设计.org][目录结构设计]] |
+| 通用查询与 UI 过滤边界 | [[file:core/查询语言设计.org][查询语言设计]] |
+| Rust、C++ 与 ArkTS 接口 | [[file:harmony/Rust bridge设计.org][Rust bridge 设计]] |
+| Preferences、Asset Store 与日历状态 | [[file:harmony/配置项设计.org][配置项设计]] |
+| 页面、交互与设计画板 | [[file:harmony/UI导航设计.org][UI 导航设计]] |
+| 手机功能状态与验收 | [[file:手机应用功能清单.org][手机应用功能清单]] |
+| HTTP 服务运行与访问边界 | [[file:http/服务命令行设计.org][服务命令行设计]] |
+
+* 模块与依赖方向
+
+仓库根目录是 Cargo workspace，成员为 ~core~ 、 ~harmony~ 与 ~http~ 。唯一允许的跨 crate 依赖方向是 ~harmony -> core~ 和 ~http -> core~ ；Core 不反向依赖宿主，Harmony 与 HTTP 适配层之间不互相依赖。
+
+| 目录或入口 | 职责 |
+|-
+| ~core::model~ | 本地 ~OrgRepo~ 目录扫描、Org 文件解析、保真编辑、任务查询与同步记录数据维护。 |
+| ~core::webdav~ | 实现 ~SyncPolicy~ ，执行 WebDAV 文件传输、下载写回、条件写入与同步记录生成。 |
+| ~core/src/bin/org-tasks/~ | 操作本地 ~OrgRepo~ 的命令行入口，使用 Tokio 运行时。 |
+| ~harmony/~ | Harmony 宿主的 Rust bridge，处理请求转换、跨语言参数编组、异步边界、结果投影与资源释放。 |
+| ~http/src/bin/~ | ~org-tasks-httpd~ Web App 宿主，提供页面与访问控制，调用 Core 操作本地仓库。 |
+| ~entry/~ | ArkUI 页面、系统日历、凭据、宿主配置、后台调度与 C++ N-API 接入。 |
+
+~SyncPolicy~ 是接入其他同步方式的扩展点。新增仓库、查询或同步能力时，先在 Core 定义领域规则与可复用数据结构，再由宿主接入。Bridge 不得重写 ~OrgRepo~ 、 ~SyncPolicy~ 、WebDAV 或 Org 解析算法；HTTP 不实现这些领域能力，也不另外生成同步记录。
+
+* Org 文件模型与保真边界
+
+~OrgFile~ 是单个完整 Org 文件的根模型，使用 ~orgize~ 提供无损运行时语法树。解析、编辑、序列化与展示的语义以 Emacs 自带 ~org-element.el~ 为准，不另建不兼容的项目解析 AST。
+
+未修改的文件直接写回读取时的原始字节。局部编辑只修改目标范围，不得改写未涉及的字节区间。宿主通过 Core 的文件对象与接口取得内容和语义，不在 ArkTS、C++ 或 HTTP 中再解析 Org。
+
+领域模型与持久化字段见 [[file:core/数据模型.org][数据模型]]；实体关系的 TikZ UML 源码内嵌维护于该文档。调整领域模型或同步记录持久化时，必须同步更新对应说明和源码块。
+
+* 异步运行时与调用边界
+
+~core::model~ 的仓库加载、同步控制器以及 ~core::webdav~ 的文件与 HTTP I/O 均运行于 Tokio。CLI 使用 Tokio 驱动 Core；HTTP 和 Harmony 只提供操作入口，不另建仓库加载或同步算法。
+
+ArkUI 线程不得执行 Core 请求。C++ N-API bridge 必须通过 ~napi_create_async_work~ 在工作线程调用 Rust；ArkTS 通过 ~NativeCoreService~ 打开并持有 native ~Workspace~ 、 ~Repo~ 与 ~WebDavSyncPolicy~ 对象。涉及仓库锁、文件或网络的操作返回 Promise，资源生命周期与释放规则遵循 [[file:harmony/Rust bridge设计.org][Rust bridge 设计]]。
+
+TS 领域接口按 ~Workspace -> Repo -> OrgFile~ 访问对象。Rust 字段映射为属性，方法与行为归属原领域对象；结构化参数直接使用 TS 对象，JSON 编组只发生在 bridge 内部。新增或修改接口时，同时更新 Rust 实现、C++ N-API 注册、类型声明、ArkTS wrapper、全部调用方及设计对照表。
+
+* 查询职责
+
+UI 负责组装请求、维护分类多选等交互状态、展示任务及汇总计数。UI 不得对 Core 返回的任务列表再次按完成状态、分类、文件、日期或父子关系筛选。
+
+Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，由 Core 求值；所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
+
+* 仓库身份、同步元数据与备份
+
+同步记录保存于 ~OrgRepo~ 根目录的 ~.sync/~ ，其中 ~id~ 文件是稳定的 Core 仓库标识来源。同步元数据、作业历史与 outbox 仅保存仓库内相对路径及变更检测信息，不保存绝对路径、完整文件或解析任务；凭据不得写入日志或同步记录。
+
+按用户确认的冲突处理规则，完整本地冲突文件仅可备份到 ~.sync/backups/<合并开始时间>/~ 。备份与同步记录分目录维护，不参与 Org 扫描或 WebDAV 传输。布局、恢复与隔离约束见 [[file:core/目录结构设计.org][目录结构设计]]。
+
+Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:harmony/配置项设计.org][配置项设计]] 使用，不能混用。修改目录或 WebDAV 地址不得随意重建已有身份或改变凭据分区；WebDAV 密码只由 ~CredentialService~ 写入 Asset Store，不放入 Preferences、日志或同步记录。
+
+* Harmony 工程与平台接入
+
+手机界面使用 ArkTS 与 ArkUI，领域核心使用 Rust，C++ 负责 N-API 接入。构建工具为 hvigorw 与 Makefile，IDE 为 DevEco Studio；实际 SDK 与目标版本以构建配置和本地环境为准。
+
+| entry 内的目录或文件 | 职责 |
+|-
+| ~oh-package.json5~ | Harmony 模块依赖。 |
+| ~src/main/cpp/napi_init.cpp~ | N-API 对象注册、参数与结果编组，链接 Rust 静态库。 |
+| ~src/main/cpp/types/liborg_tasks_harmony/index.d.ts~ | Native 接口类型声明。 |
+| ~src/main/module.json5~ | 模块清单、权限与后台任务注册。 |
+| ~src/main/resources/~ | 字符串、颜色、媒体与页面路由；图标资源放在 ~base/media/~ 。 |
+| ~src/main/ets/models/~ | ArkTS 宿主配置与数据投影。 |
+| ~src/main/ets/services/~ | ~NativeCoreService~ 调用封装、 ~AppConfigService~ 配置、 ~CredentialService~ 凭据与 ~CalendarSync~ 系统日历接入。 |
+| ~src/main/ets/entryability/~ | ~EntryAbility~ 应用入口与 ~SyncWorkExtension~ 后台作业。 |
+| ~src/main/ets/pages/~ 与 ~src/main/ets/components/~ | 页面与共用控件，只消费 Core 结果，不实现领域规则。 |
+
+文件同步由 Harmony 的 service 编排，经 C++ N-API 与 ~harmony~ bridge 调用 Core 的仓库和策略对象；系统日历映射由 Harmony 的 ~CalendarSync~ 接入。日历、凭据、调度和 SDK 生命周期属于平台能力，不进入 Core 领域模型。
+
+修改 ~calendarManager~ 接入前对照当前 SDK 签名。文件路径按设备实际可访问的同步目录处理；DevEco Studio 提供 SDK、hvigorw、hdc 与 ohpm。真机需开启开发者模式和 USB 调试，并通过 ~make devices~ 确认连接。Release 包需要华为开发者账号签名，根目录 Makefile 的 ~BUNDLE_NAME~ 必须与实际包名一致。
+
+* 设计与交付同步
+
+页面布局、侧边栏入口位置或交互范围变化，必须同时更新 ArkUI 实现、 ~design/Orgzly界面细节.fig~ 的当前 Harmony 画板、 [[file:harmony/UI导航设计.org][UI 导航设计]] 与 [[file:手机应用功能清单.org][手机应用功能清单]]。配置项、保存位置或凭据处理变化，同步更新 [[file:harmony/配置项设计.org][配置项设计]]。
+
+手机应用功能清单只记录手机用户可见的功能范围、实现状态与验收要点；Core、CLI、HTTP 与测试程序的能力不记录在其中。HTTP 宿主的命令行、监听、认证、数据目录和并发约束单独遵循 [[file:http/服务命令行设计.org][服务命令行设计]]。
