@@ -85,6 +85,7 @@ export struct AppShell {
   }
 
   openDrawer() {
+    if (this.back || this.busy) return
     this.drawerOpen = true
   }
 
@@ -245,11 +246,12 @@ export struct AppShell {
           Row({ space: 8 }) {
             if (this.titleIcon !== '') {
               Image(this.titleIcon).width(26).height(26).enabled(!this.busy)
-                .accessibilityText(`打开导航，${this.title}`).onClick((): void => { this.openDrawer() })
+                .accessibilityText(this.back ? this.title : `打开导航，${this.title}`)
+                .onClick((): void => { this.openDrawer() })
             }
             Text(this.title).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
-              .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              .accessibilityText(`打开导航，${this.title}`).enabled(!this.busy)
+              .flexShrink(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              .accessibilityText(this.back ? this.title : `打开导航，${this.title}`).enabled(!this.busy)
               .onClick((): void => { this.openDrawer() })
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
           if (this.actionLabel.length > 0) {
