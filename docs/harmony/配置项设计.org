@@ -22,7 +22,7 @@
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~captureRepoId~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~captureRepoId~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。手机用户可见配置与交付范围见 [[file:../手机应用功能清单.org][手机应用功能清单]]。
 
 #+begin_src ts
 interface AppConfig {
