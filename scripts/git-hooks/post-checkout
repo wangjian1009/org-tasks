@@ -1,0 +1,41 @@
+#!/bin/sh
+
+# 为 Git linked worktree 复用主工作树中的本地代理配置。
+# AGENTS.local.md 被全局 gitignore 忽略，因此必须在 checkout 后单独建立链接。
+
+set -eu
+
+worktree_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+repository_root=$(dirname "$common_dir")
+source_file="$repository_root/AGENTS.local.md"
+target_file="$worktree_root/AGENTS.local.md"
+
+# 主工作树已经拥有源文件，不需要把它链接回自身。
+[ "$worktree_root" = "$repository_root" ] && exit 0
+
+# 本地配置不存在时保持静默；目标已存在时也不覆盖用户文件。
+[ -f "$source_file" ] || exit 0
+[ -e "$target_file" ] || [ -L "$target_file" ] && exit 0
+
+# 计算从新 WorkTree 根目录指向主工作树根目录的相对路径，避免软链接
+# 把本机的绝对目录暴露给其他 clone，也便于整体移动仓库目录。
+common_root="$repository_root"
+while :; do
+    case "$worktree_root" in
+        "$common_root"|"$common_root"/*) break ;;
+    esac
+    parent=$(dirname "$common_root")
+    [ "$parent" = "$common_root" ] && exit 0
+    common_root="$parent"
+done
+
+relative_source=
+path="$worktree_root"
+while [ "$path" != "$common_root" ]; do
+    relative_source="../$relative_source"
+    path=$(dirname "$path")
+done
+
+source_suffix=${source_file#"$common_root"/}
+ln -s "${relative_source}${source_suffix}" "$target_file"
