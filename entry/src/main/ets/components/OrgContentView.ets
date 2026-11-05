@@ -1,4 +1,6 @@
 import { webview } from '@kit.ArkWeb'
+import { common } from '@kit.AbilityKit'
+import { ExternalLinkService } from '../services/ExternalLinkService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
@@ -18,6 +20,14 @@ export struct OrgContentView {
   private loaded: boolean = false
   private active: boolean = true
   private widthVp: number = 0
+
+  async openLink(href: string) {
+    try {
+      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href)
+    } catch (_) {
+      if (this.active) this.getUIContext().getPromptAction().showToast({ message: '无法打开链接，请确认已安装对应应用。' })
+    }
+  }
 
   aboutToDisappear() { this.active = false }
 
@@ -59,6 +69,12 @@ export struct OrgContentView {
       Web({ src: 'about:blank', controller: this.controller })
         .width('100%').height(this.embedded ? this.contentHeight : '100%').backgroundColor(UiColor.surface)
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
+        .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
+          const href = request.getRequestUrl()
+          if (href === 'about:blank' || href.startsWith('data:')) return false
+          if (this.active && request.isMainFrame() && request.isRequestGesture()) this.openLink(href)
+          return true
+        })
         .onControllerAttached(() => { this.active = true; this.loadRequested = false; this.loaded = false })
         .onPageEnd(() => { this.pageEnded() })
         .onAreaChange((oldArea: Area, newArea: Area) => {

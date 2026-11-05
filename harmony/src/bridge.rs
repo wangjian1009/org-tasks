@@ -45,6 +45,8 @@ pub struct HarmonyBridgeFile {
     pub todo: org_tasks_core::TodoMetadata,
     pub category: Option<String>,
     pub title: Option<String>,
+    #[serde(rename = "titleParts")]
+    pub title_parts: Vec<org_tasks_core::TitlePart>,
     #[serde(rename = "renderedHtml")]
     pub rendered_html: String,
 }
@@ -55,6 +57,7 @@ pub struct HarmonyBridgeTask {
     pub id: String,
     pub repo_id: String,
     pub heading: String,
+    pub heading_parts: Vec<org_tasks_core::TitlePart>,
     pub todo_state: String,
     pub todo_kind: Option<org_tasks_core::TodoStateKind>,
     pub is_done: bool,
@@ -196,6 +199,7 @@ fn task_snapshot(
 
 fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
     let is_done = task.is_done();
+    let heading_parts = task.title_parts();
     let content = task.render_content();
     let mut tags = task.own_tags;
     for inherited in task.inherited_tags {
@@ -207,6 +211,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         id: format!("{}:{}:{}", task.repo_id, task.path, task.byte_offset),
         repo_id: task.repo_id,
         heading: task.title,
+        heading_parts,
         todo_state: task.state.unwrap_or_default(),
         todo_kind: match task.state_type {
             org_tasks_core::FilterStateType::Todo => Some(org_tasks_core::TodoStateKind::Pending),
@@ -487,6 +492,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         todo: file.todo.clone(),
         category: file.category(),
         title: file.title(),
+        title_parts: file.title_parts(),
         rendered_html: file.render_html(),
     })
 }
@@ -569,7 +575,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(full["title"], metadata[0]["title"]);
-        assert!(full["renderedHtml"].as_str().unwrap().contains("todo pending"));
+        assert!(
+            full["renderedHtml"]
+                .as_str()
+                .unwrap()
+                .contains("todo pending")
+        );
         std::fs::write(root.join("work.org"), "#+TITLE:\n").unwrap();
         let changed: serde_json::Value =
             serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
@@ -631,7 +642,8 @@ mod tests {
 
     #[test]
     fn workspace_search_reloads_task_ignore_rules_before_projection() {
-        let root = std::env::temp_dir().join(format!("org-tasks-harmony-ignore-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("org-tasks-harmony-ignore-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("visible.org"), "* TODO Visible\n").unwrap();

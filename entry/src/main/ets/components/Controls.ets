@@ -1,3 +1,4 @@
+import { TitleText } from './TitleText'
 import { UiColor } from '../ui/Theme'
 import { CoreTask } from '../services/NativeCoreService'
 
@@ -114,7 +115,7 @@ export struct TaskRow {
           if (this.task.priority.length > 0) {
             Text(`[#${this.task.priority}]`).fontSize(13).fontColor(UiColor.secondary)
           }
-          Text(this.task.heading).fontSize(16).fontColor(UiColor.text).layoutWeight(1).maxLines(3)
+          TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3 }).layoutWeight(1)
         }.width('100%').alignItems(VerticalAlign.Top)
         if (this.showBody && this.task.body.trim().length > 0) {
           Text(this.task.body.trim()).fontSize(14).fontColor(UiColor.secondary).maxLines(2)

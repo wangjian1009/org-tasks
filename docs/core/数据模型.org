@@ -54,6 +54,7 @@
 }{
   category(): Option\textless String\textgreater \\
   title(): Option\textless String\textgreater \\
+  title\_parts(): Vec\textless TitlePart\textgreater \\
   render\_html(): String
 }
 \end{umlpackage}
@@ -62,6 +63,7 @@
   repo\_id: OrgRepoId \\
   path: String \\
   title: Option\textless String\textgreater \\
+  title\_parts: Vec\textless TitlePart\textgreater \\
   task\_count: usize \\
   byte\_length: usize \\
   modified\_at: Option\textless TimestampMs\textgreater
@@ -175,7 +177,7 @@ pub struct OrgRepo {
 
 * Org 解析与保真
 
-~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。文件头标题通过 ~title()~ 从已有语法树读取； ~OrgFileMetadata~ 包含仓库 ID、相对路径、可空标题、标题记录数、字节数与可空的本地修改时间，用于轻量列表，不保存正文或语法树。扫描读取的文件时间只保留在运行时，克隆文件或更新 TODO 默认设置时继续保留，不加入同步持久化数据。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
+~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。文件头标题通过 ~title()~ 从已有语法树读取； ~OrgFileMetadata~ 包含仓库 ID、相对路径、可空标题、标题行内片段、标题记录数、字节数与可空的本地修改时间，用于轻量列表，不保存正文或语法树。扫描读取的文件时间只保留在运行时，克隆文件或更新 TODO 默认设置时继续保留，不加入同步持久化数据。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
 
 未修改时， ~OrgFile~ 必须直接写回 ~sourceBytes~ ，不能经解析器重新序列化。局部编辑只替换明确的 ~SourceRange~ 或在明确 ~SourcePosition~ 插入字节；变更完成后重新构造 ~orgize::Org~ 缓存。因此空行、换行风格、缩进、行尾空格、未知语法和未改动区域保持原始字节。
 
@@ -501,5 +503,23 @@ RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包�
 \umlclass[x=7,y=0]{RenderedTaskContent}{body\_html: String \\
 logbook\_html: String}{}
 \umldep{FilterTask}{RenderedTaskContent}
+\end{tikzpicture}
+\end{center}
+
+** 标题行内投影
+
+~TitlePart~ 为标题渲染的运行时数据结构，字段是显示文字 ~text~ 、可选的外部链接 ~href~ 和来源是否为链接的 ~is_link~ 标记。 ~OrgFile.title_parts()~ 与 ~FilterTask.title_parts()~ 返回该结构的有序数组，文件元信息的 ~title_parts~ 复用文件标题结果。原始文件标题、任务标题、文件字节与查询语义不变；投影不进入同步历史、outbox 或其他持久化数据。链接描述由 Core 解析，宿主不再次解释 Org 源码。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TitlePart}{text: String \\
+  href: Option\textless String\textgreater \\
+  is\_link: bool}{}
+\umlclass[x=7,y=0]{FilterTask}{title: String}{title\_parts(): Vec\textless TitlePart\textgreater}
+\umlclass[x=0,y=-3]{OrgFile}{}{title\_parts(): Vec\textless TitlePart\textgreater}
+\umlclass[x=7,y=-3]{OrgFileMetadata}{title\_parts: Vec\textless TitlePart\textgreater}{}
+\umldep{FilterTask}{TitlePart}
+\umldep{OrgFile}{TitlePart}
+\umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TitlePart}
 \end{tikzpicture}
 \end{center}

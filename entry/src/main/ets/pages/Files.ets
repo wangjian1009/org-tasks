@@ -1,9 +1,10 @@
 import { router } from '@kit.ArkUI'
+import { TitleText } from '../components/TitleText'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, ListSectionHeader } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreOrgFileMetadata, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { fileSizeLabel, fileModifiedLabel } from '../ui/NotebookPresentation'
 
@@ -64,15 +65,14 @@ struct Files {
                   ForEach(group.files, (file: CoreOrgFileMetadata) => {
                     ListItem() {
                       Column({ space: 4 }) {
-                        Text(file.title || file.path).fontSize(16).fontColor(UiColor.text).width('100%')
-                          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                        TitleText({ text: file.title || file.path, parts: file.titleParts, lineLimit: 2 }).width('100%')
                         Text(file.path).fontSize(12).fontColor(UiColor.secondary).width('100%')
                           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                         Text(`${file.taskCount} 条笔记 · ${fileSizeLabel(file.byteLength)}`).fontSize(12)
                           .fontColor(UiColor.secondary).width('100%')
                         Text(fileModifiedLabel(file.modifiedAt)).fontSize(12).fontColor(UiColor.secondary).width('100%')
                       }.width('100%').constraintSize({ minHeight: 60 }).padding({ top: 10, bottom: 10 })
-                        .accessibilityGroup(true).accessibilityText(`${file.title || file.path}，文件 ${file.path}，${file.taskCount} 条笔记，${fileSizeLabel(file.byteLength)}，${fileModifiedLabel(file.modifiedAt)}`)
+                        .accessibilityGroup(true).accessibilityText(`${file.titleParts.length > 0 ? file.titleParts.map((part: CoreTitlePart) => part.text).join('') : file.path}，文件 ${file.path}，${file.taskCount} 条笔记，${fileSizeLabel(file.byteLength)}，${fileModifiedLabel(file.modifiedAt)}`)
                         .onClick((): void => { router.pushUrl({ url: 'pages/FileDetail', params: { repoId: file.repoId, path: file.path } }) })
                     }
                   }, (file: CoreOrgFileMetadata) => `${file.repoId}:${file.path}`)

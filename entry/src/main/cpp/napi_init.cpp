@@ -347,7 +347,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // 页面路由传递任务时保留原有数据字段，行为在 native 对象上提供。
-    for (const char* name : {"id", "repoId", "heading", "todoState", "todoKind", "priority", "scheduled",
+    for (const char* name : {"id", "repoId", "heading", "headingParts", "todoState", "todoKind", "priority", "scheduled",
         "deadline", "tags", "filePath", "fileName", "level", "body", "bodyHtml", "logbookHtml", "progress"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
@@ -1343,6 +1343,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"todo", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("todo")},
         {"category", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("category")},
         {"title", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("title")},
+        {"titleParts", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("titleParts")},
         {"renderHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("renderedHtml")},
         {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

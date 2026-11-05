@@ -31,6 +31,8 @@ details.heading[open] > summary::after { transform: rotate(45deg); }
 .tag { display: inline-block; margin: 4px 0 2px 7px; padding: 2px 9px; border-radius: 20px; background: #503548; color: #F2ABCC; font-size: 12px; vertical-align: middle; }
 .planning { font-size: 13px; line-height: 1.65; margin-top: 7px; color: ${UiColor.secondary}; }
 .timestamp, .link { color: #87B9EF; text-decoration: underline; text-underline-offset: 3px; }
+a.link { cursor: pointer; }
+.link.unsupported { color: ${UiColor.secondary}; text-decoration-style: dashed; cursor: default; }
 .drawer { color: ${UiColor.secondary}; font-size: 13px; margin: 8px 0 12px; }
 .drawer > summary { cursor: pointer; }
 dl { margin: 8px 0; } dt { font-weight: 600; } dd { margin: 0 0 6px 16px; white-space: pre-wrap; }

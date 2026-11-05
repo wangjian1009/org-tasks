@@ -13,6 +13,7 @@ import {
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
+  TitlePart as NativeTitlePart,
   TaskQuery as NativeTaskQuery,
   TaskCategory as NativeTaskCategory,
   TaskQueryResult as NativeTaskQueryResult,
@@ -27,6 +28,7 @@ export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
 export type CoreTask = NativeTask
+export type CoreTitlePart = NativeTitlePart
 export type CoreTaskQuery = NativeTaskQuery
 export type CoreTaskCategory = NativeTaskCategory
 export type CoreTaskQueryResult = NativeTaskQueryResult

@@ -1,3 +1,5 @@
+import { CoreTitlePart } from '../services/NativeCoreService'
+import { TitleText } from './TitleText'
 import { router } from '@kit.ArkUI'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
@@ -10,6 +12,7 @@ import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../service
 @Component
 export struct AppShell {
   @Prop title: string = ''
+  @Prop titleParts: CoreTitlePart[] = []
   @Prop titleIcon: ResourceStr = ''
   @Prop activeRoute: string = ''
   @Prop activeOverview: string = ''
@@ -34,6 +37,10 @@ export struct AppShell {
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
   private navigationRequest: number = 0
+
+  titleLabel(): string {
+    return this.titleParts.length > 0 ? this.titleParts.map((part: CoreTitlePart) => part.text).join('') : this.title
+  }
 
   aboutToAppear() {
     if (this.drawerOpen) this.loadNavigation()
@@ -206,12 +213,11 @@ export struct AppShell {
           Row({ space: 8 }) {
             if (this.titleIcon !== '') {
               Image(this.titleIcon).width(26).height(26).enabled(!this.busy)
-                .accessibilityText(this.back ? this.title : `打开导航，${this.title}`)
+                .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`)
                 .onClick((): void => { this.openDrawer() })
             }
-            Text(this.title).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
-              .flexShrink(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              .accessibilityText(this.back ? this.title : `打开导航，${this.title}`).enabled(!this.busy)
+            TitleText({ text: this.title, parts: this.titleParts, textSize: 22, weight: FontWeight.Medium, lineLimit: 1 }).flexShrink(1)
+              .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`).enabled(!this.busy)
               .onClick((): void => { this.openDrawer() })
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
           if (this.actionLabel.length > 0) {

@@ -3,8 +3,22 @@ use super::OrgFile;
 use crate::FilterTask;
 use orgize::export::{Container, Event, HtmlEscape, HtmlExport, TraversalContext, Traverser};
 use orgize::{SyntaxKind, rowan::ast::AstNode};
+use serde::Serialize;
+
+/// 标题的运行时行内投影；href 为空时只展示文字。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TitlePart {
+    pub text: String,
+    pub href: Option<String>,
+    pub is_link: bool,
+}
 
 impl OrgFile {
+    pub fn title_parts(&self) -> Vec<TitlePart> {
+        title_parts(&self.title().unwrap_or_default())
+    }
+
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
         let mut view = ReadingView(HtmlExport::default(), Vec::new(), None);
@@ -21,12 +35,84 @@ pub struct RenderedTaskContent {
 }
 
 impl FilterTask {
+    pub fn title_parts(&self) -> Vec<TitlePart> {
+        title_parts(&self.title)
+    }
+
     pub fn render_content(&self) -> RenderedTaskContent {
         let mut view = ReadingView(HtmlExport::default(), Vec::new(), Some(String::new()));
         orgize::Org::parse(&self.body).traverse(&mut view);
         RenderedTaskContent {
             body_html: view.0.finish(),
             logbook_html: view.2.unwrap_or_default(),
+        }
+    }
+}
+
+fn title_parts(source: &str) -> Vec<TitlePart> {
+    if source.is_empty() {
+        return Vec::new();
+    }
+    // 用普通段落承载行内语法，避免 TITLE 被识别为列表、标题或关键字。
+    let mut view = TitleView(Vec::new(), None, false);
+    orgize::Org::parse(&format!("x {source}")).traverse(&mut view);
+    if let Some(first) = view.0.first_mut() {
+        first.text.drain(..2);
+    }
+    view.0.retain(|part| !part.text.is_empty());
+    view.0
+}
+
+struct TitleView(Vec<TitlePart>, Option<String>, bool);
+
+impl TitleView {
+    fn push(&mut self, text: &str) {
+        if let Some(last) = self
+            .0
+            .last_mut()
+            .filter(|part| part.href == self.1 && part.is_link == self.2)
+        {
+            last.text.push_str(text);
+        } else {
+            self.0.push(TitlePart {
+                text: text.into(),
+                href: self.1.clone(),
+                is_link: self.2,
+            });
+        }
+    }
+}
+
+impl Traverser for TitleView {
+    fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
+        match event {
+            Event::Text(text) => self.push(text.as_ref()),
+            Event::Entity(entity) => self.push(entity.utf8()),
+            Event::Timestamp(value) => self.push(&value.raw()),
+            Event::Cookie(value) => self.push(&value.raw()),
+            Event::Macros(value) => self.push(&value.raw()),
+            Event::Snippet(value) => self.push(&value.raw()),
+            Event::InlineCall(value) => self.push(&value.raw()),
+            Event::InlineSrc(value) => self.push(&value.raw()),
+            Event::LatexFragment(value) => self.push(&value.raw()),
+            Event::LineBreak(_) => self.push("\n"),
+            Event::Enter(Container::Link(link)) => {
+                let previous = self.1.take();
+                let previous_is_link = self.2;
+                self.1 = external_link_href(link.path().as_ref());
+                self.2 = true;
+                if link.has_description() {
+                    for element in link.description() {
+                        self.element(element, &mut TraversalContext::default());
+                    }
+                } else {
+                    self.push(link.path().as_ref());
+                }
+                self.1 = previous;
+                self.2 = previous_is_link;
+                ctx.skip();
+            }
+            _ => {}
         }
     }
 }
@@ -189,11 +275,20 @@ impl Traverser for ReadingView {
                 ctx.skip();
             }
             Event::Enter(Container::Link(link)) => {
-                // 链接仅投影文本，图片也不触发本地文件或网络读取。
-                self.0.push_str(format!(
-                    "<span class=\"link\" title=\"{}\">",
-                    HtmlEscape(link.path())
-                ));
+                // 只生成链接目标，不下载图片或其他外部资源；打开动作由宿主承接。
+                let href = external_link_href(link.path().as_ref());
+                if let Some(href) = &href {
+                    self.0.push_str(format!(
+                        "<a class=\"link\" href=\"{}\" title=\"{}\">",
+                        HtmlEscape(href),
+                        HtmlEscape(link.path())
+                    ));
+                } else {
+                    self.0.push_str(format!(
+                        "<span class=\"link unsupported\" role=\"link\" aria-disabled=\"true\" title=\"{}\">",
+                        HtmlEscape(link.path())
+                    ));
+                }
                 if link.has_description() {
                     for element in link.description() {
                         self.element(element, &mut TraversalContext::default());
@@ -201,7 +296,8 @@ impl Traverser for ReadingView {
                 } else {
                     self.0.push_str(format!("{}", HtmlEscape(link.path())));
                 }
-                self.0.push_str("</span>");
+                self.0
+                    .push_str(if href.is_some() { "</a>" } else { "</span>" });
                 ctx.skip();
             }
             Event::Enter(Container::List(list)) => {
@@ -293,6 +389,18 @@ impl Traverser for ReadingView {
     }
 }
 
+fn external_link_href(path: &str) -> Option<String> {
+    if path.chars().any(char::is_control) {
+        return None;
+    }
+    let url = reqwest::Url::parse(path).ok()?;
+    match url.scheme() {
+        "http" | "https" if url.host_str().is_some() => Some(url.into()),
+        "mailto" | "tel" if !url.path().is_empty() => Some(url.into()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +412,82 @@ mod tests {
             source.as_bytes().to_vec(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn projects_title_links_without_exposing_org_markup_or_changing_source() {
+        let source = "#+TITLE: TODO [#A] [[https://example.com/?a=1&b=2][资料 *入口*]] 与 [[mailto:team@example.com]]\n* TODO 阅读 [[https://example.org][课程]] :reading:\n";
+        let file = file(source);
+        assert_eq!(
+            file.title_parts(),
+            vec![
+                TitlePart {
+                    text: "TODO [#A] ".into(),
+                    href: None,
+                    is_link: false
+                },
+                TitlePart {
+                    text: "资料 入口".into(),
+                    href: Some("https://example.com/?a=1&b=2".into()),
+                    is_link: true
+                },
+                TitlePart {
+                    text: " 与 ".into(),
+                    href: None,
+                    is_link: false
+                },
+                TitlePart {
+                    text: "mailto:team@example.com".into(),
+                    href: Some("mailto:team@example.com".into()),
+                    is_link: true
+                },
+            ]
+        );
+        let html = file.render_html();
+        assert!(html.contains("<a class=\"link\" href=\"https://example.org/\""));
+        assert!(html.contains("课程</a>"));
+        assert!(!html.contains("[[https://"));
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn title_projection_keeps_literal_targets_and_disallows_active_protocols() {
+        let parts = title_parts(
+            "[[javascript:alert(1)][脚本]] [[file:/secret.png][本地]] [[id:task-id][记录]]",
+        );
+        assert_eq!(
+            parts
+                .iter()
+                .map(|part| part.text.as_str())
+                .collect::<String>(),
+            "脚本 本地 记录"
+        );
+        assert!(parts.iter().all(|part| part.href.is_none()));
+        assert_eq!(
+            parts.iter().map(|part| part.is_link).collect::<Vec<_>>(),
+            vec![true, false, true, false, true]
+        );
+        let html = file("* 标题 [[id:task-id][内部引用]]\n").render_html();
+        assert!(html.contains("class=\"link unsupported\""));
+        assert!(html.contains("aria-disabled=\"true\""));
+        assert!(html.contains("内部引用</span>"));
+        assert!(!html.contains("href="));
+        assert_eq!(serde_json::to_value(&parts[0]).unwrap()["isLink"], true);
+        assert!(external_link_href("https://example.com/\nsecret").is_none());
+        assert!(external_link_href("data:text/html,hello").is_none());
+        assert_eq!(
+            external_link_href("TEL:12345").as_deref(),
+            Some("tel:12345")
+        );
+        assert_eq!(title_parts(""), Vec::new());
+        assert_eq!(
+            title_parts("=code= ~verbatim~ \\alpha"),
+            vec![TitlePart {
+                text: "code verbatim α".into(),
+                href: None,
+                is_link: false
+            }]
+        );
     }
 
     #[test]
@@ -320,7 +504,7 @@ mod tests {
             "10:00-13:00&gt;",
             "PROPERTIES",
             "garden</dd>",
-            "堆肥</span>",
+            "堆肥</a>",
             "<table>",
             "<td>木材",
             "#+TBLFM: $2=18",
@@ -400,7 +584,7 @@ mod tests {
         let task = workspace.search(&crate::Filter::parse("")).remove(0);
         let rendered = task.render_content();
         assert!(rendered.body_html.contains("<b>粗体</b>"));
-        assert!(rendered.body_html.contains("链接</span>"));
+        assert!(rendered.body_html.contains("链接</a>"));
         assert!(rendered.body_html.contains("保留代码"));
         assert!(rendered.body_html.contains("其他抽屉"));
         assert!(!rendered.body_html.contains("CLOCK:"));

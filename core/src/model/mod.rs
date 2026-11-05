@@ -47,6 +47,7 @@ pub struct OrgFileMetadata {
     pub repo_id: OrgRepoId,
     pub path: String,
     pub title: Option<String>,
+    pub title_parts: Vec<TitlePart>,
     pub task_count: usize,
     pub byte_length: usize,
     pub modified_at: Option<TimestampMs>,
@@ -103,6 +104,7 @@ impl OrgRepo {
                 repo_id: file.repo_id.clone(),
                 path: file.path.clone(),
                 title: file.title(),
+                title_parts: file.title_parts(),
                 task_count: if self.task_scan_rules.excludes(&file.path) {
                     0
                 } else {
@@ -562,7 +564,11 @@ mod tests {
             assert_eq!(metadata[0].path, "work.org");
             assert_eq!(repo.files[0].source_bytes(), source.as_bytes());
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 6);
+            assert_eq!(value.as_object().unwrap().len(), 7);
+            assert_eq!(
+                value["titleParts"],
+                serde_json::to_value(&metadata[0].title_parts).unwrap()
+            );
             assert!(value.get("source").is_none());
         }
         let file = OrgFile::new(

@@ -6,7 +6,7 @@ import { EmptyState } from '../components/Controls'
 import { OrgContentView } from '../components/OrgContentView'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
 interface NotebookParams { repoId?: string; path?: string }
@@ -16,6 +16,7 @@ interface NotebookParams { repoId?: string; path?: string }
 struct FileDetail {
   @State path: string = ''
   @State title: string = ''
+  @State titleParts: CoreTitlePart[] = []
   @State content: string = ''
   @State renderedHtml: string = ''
   @State displayMode: 'rendered' | 'source' = 'rendered'
@@ -47,6 +48,7 @@ struct FileDetail {
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }
       this.displayMode = config.fileDisplayMode
       this.title = file.title() || this.path
+      this.titleParts = file.titleParts()
       this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
       this.renderedHtml = file.renderHtml()
       this.message = ''
@@ -70,7 +72,7 @@ struct FileDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.title || this.path || '文件', titleIcon: $r('app.media.ui_folder'), synchronized: (): void => { this.loadFile() }, back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_folder'), synchronized: (): void => { this.loadFile() }, back: true, drawerOpen: $drawerOpen,
         actionIcon: $r('app.media.ui_expand'), actionLabel: this.displayMode === 'rendered' && this.renderReady ? (this.allCollapsed ? '展开全部' : '收起全部') : '',
         action: (): void => { this.toggleAll() } }) {
         Column() {

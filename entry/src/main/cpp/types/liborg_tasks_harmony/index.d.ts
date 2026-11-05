@@ -1,3 +1,9 @@
+export interface TitlePart {
+  readonly text: string;
+  readonly href: string | null;
+  readonly isLink: boolean;
+}
+
 export interface NewTask {
   heading: string;
   scheduled: string;
@@ -17,6 +23,7 @@ export class OrgFile {
   readonly todo: TodoMetadata;
   category(): string | null;
   title(): string | null;
+  titleParts(): TitlePart[];
   sourceBytes(): Uint8Array;
   renderHtml(): string;
 }
@@ -27,6 +34,7 @@ export class Task {
   readonly id: string;
   readonly repoId: string;
   readonly heading: string;
+  readonly headingParts: TitlePart[];
   readonly todoState: string;
   readonly todoKind: 'pending' | 'done' | null;
   readonly priority: string;
@@ -118,6 +126,7 @@ export interface OrgFileMetadata {
   readonly repoId: string;
   readonly path: string;
   readonly title: string | null;
+  readonly titleParts: TitlePart[];
   readonly taskCount: number;
   readonly byteLength: number;
   readonly modifiedAt: number | null;
