@@ -89,7 +89,7 @@ struct Agenda {
                 ListItemGroup({ header: this.groupHeader(group.title) }) {
                   ForEach(group.tasks, (task: CoreTask) => {
                     ListItem() {
-                      TaskRow({ task, open: (): void => { router.pushUrl({ url: 'pages/TaskDetail', params: { task } }) } })
+                      TaskRow({ task, open: (): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task } }) } })
                     }
                   }, (task: CoreTask) => task.id)
                 }

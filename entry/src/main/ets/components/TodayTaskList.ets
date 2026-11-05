@@ -28,7 +28,7 @@ export struct TodayTaskList {
               }.width('100%').constraintSize({ minHeight: 44 }).padding({ top: 10, bottom: 10 })
                 .accessibilityGroup(true)
                 .accessibilityText(`${item.task.heading}${item.overdueDays > 0 ? `，已过期 ${item.overdueDays} 天` : ''}`)
-                .onClick((): void => { router.pushUrl({ url: 'pages/TaskDetail', params: { task: item.task } }) })
+                .onClick((): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } }) })
             }
           }, (item: TodayTaskItem) => item.task.id)
         }

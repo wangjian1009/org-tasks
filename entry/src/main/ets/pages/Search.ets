@@ -141,7 +141,7 @@ struct TaskSearch {
             } else {
               List() {
                 ForEach(this.tasks, (task: CoreTask) => {
-                  ListItem() { TaskRow({ task, showBody: true, open: (): void => { router.pushUrl({ url: 'pages/TaskDetail', params: { task } }) } }) }
+                  ListItem() { TaskRow({ task, showBody: true, open: (): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task } }) } }) }
                 }, (task: CoreTask) => task.id)
               }.width('100%').layoutWeight(1).padding({ bottom: 16 })
                 .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })

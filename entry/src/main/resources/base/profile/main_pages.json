@@ -6,9 +6,11 @@
     "pages/SavedSearches",
     "pages/Files",
     "pages/Inbox",
+    "pages/InboxPlan",
     "pages/TaskOverview",
     "pages/FileDetail",
-    "pages/TaskDetail",
+    "pages/TaskEdit",
+    "pages/MemoEdit",
     "pages/Settings",
     "pages/RepositorySettings",
     "pages/MergeConflict"

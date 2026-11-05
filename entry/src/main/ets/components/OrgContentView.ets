@@ -3,7 +3,7 @@ import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService
 import { UiColor } from '../ui/Theme'
 import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
 
-// 复用只读文档的加载顺序；嵌入任务详情时按实际内容高度参与页面滚动。
+// 复用只读文档的加载顺序；嵌入编辑内容时按实际内容高度参与页面滚动。
 @Component
 export struct OrgContentView {
   @Prop fragment: string = ''

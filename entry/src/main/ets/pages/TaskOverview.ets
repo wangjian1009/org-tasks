@@ -22,6 +22,10 @@ struct TaskOverview {
   @State drawerOpen: boolean = false
   private requestId: number = 0
 
+  aboutToAppear() {
+    this.view = (router.getParams() as OverviewParams | undefined)?.view || 'today'
+  }
+
   onPageShow() { this.loadTasks() }
 
   onBackPress(): boolean {
@@ -31,7 +35,6 @@ struct TaskOverview {
 
   async loadTasks() {
     const request = ++this.requestId
-    this.view = (router.getParams() as OverviewParams | undefined)?.view || 'today'
     this.loading = this.tasks.length === 0
     this.message = ''
     this.needsConfiguration = false
@@ -99,7 +102,7 @@ struct TaskOverview {
             ForEach(this.tasks, (task: CoreTask) => {
               ListItem() {
                 TaskRow({ task, showBody: true, open: (): void => {
-                  router.pushUrl({ url: 'pages/TaskDetail', params: { task } })
+                  router.pushUrl({ url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit', params: { task } })
                 } })
               }
             }, (task: CoreTask) => task.id)

@@ -73,7 +73,7 @@ struct Inbox {
                 ForEach(this.records, (task: CoreTask) => {
                   ListItem() {
                     TaskRow({ task, showBody: true, open: (): void => {
-                      router.pushUrl({ url: 'pages/TaskDetail', params: { task } })
+                      router.pushUrl({ url: 'pages/InboxPlan', params: { task } })
                     } })
                   }
                 }, (task: CoreTask) => task.id)
