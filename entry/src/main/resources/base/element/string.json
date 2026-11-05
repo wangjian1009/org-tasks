@@ -1,10 +1,56 @@
 {
   "string": [
-    { "name": "module_desc", "value": "Org Tasks 日历同步" },
-    { "name": "EntryAbility_desc", "value": "Org Tasks" },
-    { "name": "EntryAbility_label", "value": "Org Tasks" },
-    { "name": "calendar_permission_reason", "value": "用于同步 org 任务到系统日历" },
-    { "name": "file_permission_reason", "value": "用于读取坚果云同步的 org 文件" },
-    { "name": "background_permission_reason", "value": "用于定时自动同步任务" }
+    {
+      "name": "module_desc",
+      "value": "小清单任务与日历同步"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "小清单"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "小清单"
+    },
+    {
+      "name": "calendar_permission_reason",
+      "value": "用于同步 org 任务到系统日历"
+    },
+    {
+      "name": "file_permission_reason",
+      "value": "用于读取坚果云同步的 org 文件"
+    },
+    {
+      "name": "background_permission_reason",
+      "value": "用于定时自动同步任务"
+    },
+    {
+      "name": "capture_label",
+      "value": "快速捕捉"
+    },
+    {
+      "name": "capture_description",
+      "value": "只需一个标题，保存到小清单收件箱"
+    },
+    {
+      "name": "capture_card_description",
+      "value": "快速记下标题，或用语音录入到收件箱"
+    },
+    {
+      "name": "capture_share_label",
+      "value": "记到收件箱"
+    },
+    {
+      "name": "capture_microphone_reason",
+      "value": "用于将说出的任务内容转换为标题"
+    },
+    {
+      "name": "capture_text_shortcut",
+      "value": "记一条"
+    },
+    {
+      "name": "capture_voice_shortcut",
+      "value": "说一句"
+    }
   ]
 }

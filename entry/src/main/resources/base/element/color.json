@@ -1,5 +1,12 @@
 {
   "color": [
-    { "name": "start_window_background", "value": "#2D2C2B" }
+    {
+      "name": "start_window_background",
+      "value": "#2D2C2B"
+    },
+    {
+      "name": "capture_start_background",
+      "value": "#00000000"
+    }
   ]
 }

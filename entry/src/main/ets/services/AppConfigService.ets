@@ -10,10 +10,11 @@ export const APP_CONFIG_PREFERENCES = 'org_tasks_config'
 const REPOS_KEY = 'repos'
 
 export class AppConfigService {
-  static async load(context: Context): Promise<AppConfig> {
+  static async load(context: Context, includeCredentials: boolean = true): Promise<AppConfig> {
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
-    const repos = await AppConfigService.loadRepositories(store)
+    const repos = await AppConfigService.loadRepositories(store, includeCredentials)
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
+    const captureRepoId = await store.get('captureRepoId', DEFAULT_CONFIG.captureRepoId) as string
     const somedayFile = await store.get('somedayFile', DEFAULT_CONFIG.somedayFile) as string
     const memoFile = await store.get('memoFile', DEFAULT_CONFIG.memoFile) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
@@ -23,6 +24,7 @@ export class AppConfigService {
     return {
       repos,
       inboxFile,
+      captureRepoId,
       somedayFile,
       memoFile,
       calendarName,
@@ -62,6 +64,7 @@ export class AppConfigService {
     }
     await store.put(REPOS_KEY, JSON.stringify(persisted))
     await store.put('inboxFile', config.inboxFile.trim())
+    await store.put('captureRepoId', config.captureRepoId)
     await store.put('somedayFile', config.somedayFile.trim())
     await store.put('memoFile', config.memoFile.trim())
     await store.put('calendarName', config.calendarName.trim())
@@ -75,6 +78,7 @@ export class AppConfigService {
     const current = await AppConfigService.load(context)
     await AppConfigService.save(context, {
       repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
+      captureRepoId: current.captureRepoId,
       inboxFile: current.inboxFile, somedayFile: current.somedayFile, memoFile: current.memoFile,
       calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults,
       fileDisplayMode: current.fileDisplayMode
@@ -95,7 +99,7 @@ export class AppConfigService {
     }
   }
 
-  private static async loadRepositories(store: preferences.Preferences): Promise<RepoConfig[]> {
+  private static async loadRepositories(store: preferences.Preferences, includeCredentials: boolean): Promise<RepoConfig[]> {
     const encoded = await store.get(REPOS_KEY, '') as string
     if (encoded.length > 0) {
       const persisted = JSON.parse(encoded) as RepoConfig[]
@@ -109,7 +113,7 @@ export class AppConfigService {
           webdavEnabled: repository.webdavEnabled,
           webdavUrl: repository.webdavUrl,
           webdavUsername: repository.webdavUsername,
-          webdavPassword: await CredentialService.getWebDavPassword(repository.id),
+          webdavPassword: includeCredentials ? await CredentialService.getWebDavPassword(repository.id) : '',
           excludedDirectories: repository.excludedDirectories ?? defaults.excludedDirectories.slice()
         })
       }

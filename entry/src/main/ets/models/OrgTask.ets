@@ -50,6 +50,7 @@ export interface SyncOptions {
 export interface AppConfig {
   repos: RepoConfig[]
   inboxFile: string    // 新增任务写入的文件
+  captureRepoId: string // 快速捕捉的默认配置 ID；空值仅在单仓库时自动选择
   somedayFile: string  // “某天”入口对应的相对文件路径，可为空
   memoFile: string     // “备忘”入口对应的相对文件路径，可为空
   calendarName: string // 日历名称
@@ -62,6 +63,7 @@ export interface AppConfig {
 export const DEFAULT_CONFIG: AppConfig = {
   repos: [],
   inboxFile: '',
+  captureRepoId: '',
   somedayFile: '',
   memoFile: '',
   calendarName: 'Org Tasks',

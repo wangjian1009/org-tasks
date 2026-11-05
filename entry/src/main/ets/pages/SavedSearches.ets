@@ -90,10 +90,10 @@ struct SavedSearches {
             Scroll() {
               Column({ space: 16 }) {
                 Text('名称').fontSize(13).fontColor(UiColor.primary).width('100%')
-                TextInput({ placeholder: '例如：本周重点', text: this.name }).height(56).borderRadius(6).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
+                TextInput({ placeholder: '例如：工作待办', text: this.name }).height(56).borderRadius(6).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
                   .onChange((value: string) => { this.name = value })
                 Text('查询表达式').fontSize(13).fontColor(UiColor.primary).width('100%')
-                TextArea({ placeholder: '例如：.it.done s.le.7d；留空显示全部笔记', text: this.query }).height(120)
+                TextArea({ placeholder: '例如：i.todo t.work；留空显示全部笔记', text: this.query }).height(120)
                   .borderRadius(6).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.query = value })
                 Button(this.saving ? '保存中…' : '保存').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
                   .enabled(!this.saving).onClick((): void => { this.saveSearch() })

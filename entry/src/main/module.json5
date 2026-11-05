@@ -4,7 +4,10 @@
     "type": "entry",
     "description": "$string:module_desc",
     "mainElement": "EntryAbility",
-    "deviceTypes": ["phone", "tablet"],
+    "deviceTypes": [
+      "phone",
+      "tablet"
+    ],
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
@@ -20,8 +23,47 @@
         "exported": true,
         "skills": [
           {
-            "entities": ["entity.system.home"],
-            "actions": ["action.system.home"]
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          }
+        ],
+        "metadata": [
+          {
+            "name": "ohos.ability.shortcuts",
+            "resource": "$profile:capture_shortcuts"
+          }
+        ]
+      },
+      {
+        "name": "CaptureAbility",
+        "srcEntry": "./ets/entryability/CaptureAbility.ets",
+        "description": "$string:capture_description",
+        "icon": "$media:app_icon",
+        "label": "$string:capture_label",
+        "startWindowIcon": "$media:capture_start_icon",
+        "startWindowBackground": "$color:capture_start_background",
+        "launchType": "singleton",
+        "exported": true,
+        "removeMissionAfterTerminate": true,
+        "excludeFromMissions": true,
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.browsable"
+            ],
+            "uris": [
+              {
+                "scheme": "orgtasks",
+                "host": "capture"
+              }
+            ]
           }
         ]
       }
@@ -32,6 +74,48 @@
         "srcEntry": "./ets/entryability/SyncWorkExtension.ets",
         "type": "workScheduler",
         "description": "后台定时同步 org 任务到日历"
+      },
+      {
+        "name": "CaptureFormExtension",
+        "srcEntry": "./ets/entryability/CaptureFormExtension.ets",
+        "type": "form",
+        "label": "$string:capture_label",
+        "description": "$string:capture_card_description",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:capture_forms"
+          }
+        ]
+      },
+      {
+        "name": "CaptureShareExtension",
+        "srcEntry": "./ets/entryability/CaptureShareExtension.ets",
+        "type": "share",
+        "label": "$string:capture_share_label",
+        "description": "$string:capture_description",
+        "icon": "$media:app_icon",
+        "exported": true,
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.sendData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "utd": "general.plain-text",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
+                "utd": "general.hyperlink",
+                "maxFileSupported": 1
+              }
+            ]
+          }
+        ]
       }
     ],
     "requestPermissions": [
@@ -44,27 +128,68 @@
       {
         "name": "ohos.permission.READ_CALENDAR",
         "reason": "$string:calendar_permission_reason",
-        "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
       },
       {
         "name": "ohos.permission.WRITE_CALENDAR",
         "reason": "$string:calendar_permission_reason",
-        "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
       },
       {
         "name": "ohos.permission.READ_MEDIA",
         "reason": "$string:file_permission_reason",
-        "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
       },
       {
         "name": "ohos.permission.WRITE_MEDIA",
         "reason": "$string:file_permission_reason",
-        "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
       },
       {
         "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
         "reason": "$string:background_permission_reason",
-        "usedScene": { "abilities": ["EntryAbility"], "when": "always" }
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "always"
+        }
+      },
+      {
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:capture_microphone_reason",
+        "usedScene": {
+          "abilities": [
+            "CaptureAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ],
+    "metadata": [
+      {
+        "name": "ohos.insightIntent",
+        "resource": "$profile:insight_intent"
       }
     ]
   }

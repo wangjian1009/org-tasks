@@ -228,7 +228,7 @@ Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path)
 
 Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html 与 logbook_html 分别映射为 Task.bodyHtml、Task.logbookHtml；N-API 以只读、可枚举属性保留这两个字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。
 
-TaskDetail 直接显示 Core 的两段 HTML，不在 ArkTS 解析或删除 LOGBOOK。正文和日志共用 OrgContentView，初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务详情时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
+TaskEditor 直接显示 Core 的两段 HTML，不在 ArkTS 解析或删除 LOGBOOK。正文和日志共用 OrgContentView，初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务编辑内容时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
 
 ** 标题链接接入
 
@@ -245,3 +245,8 @@ interface TitlePart {
 ~ExternalLinkService~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件与电话地址使用系统隐式 Want。 ~OrgContentView~ 拦截用户触发的主框架链接导航，交给同一 service 后阻止 Web 页面跳转；阅读页仍禁用网络资源、文件访问和文内脚本。打开失败只展示提示，保留文档与滚动位置。
 
 ~TitlePart.is_link~ 映射为 ~isLink~ ；该标记保留链接与普通文字的语义区别， ~href=null~ 的链接仍可显示为辅助文字色虚线下划线。普通文字没有下划线，只有非空 ~href~ 才绑定系统打开操作。
+* 快速捕捉复用
+
+快速捕捉复用 ~Repo.createTask~ ，只传 ~heading~ ，其余可选任务属性为空，不新增独立捕捉领域 API。所有入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
+
+捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Repo.createTask~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。

@@ -1,12 +1,12 @@
 import { defaultTodoSettings } from 'liborg_tasks_harmony.so'
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
-import { UiColor } from '../ui/Theme'
+import { UiColor, repositoryLabel } from '../ui/Theme'
 
 interface SettingsParams { section?: string }
 
@@ -16,6 +16,7 @@ struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
   @State section: string = ''
   @State inboxFile: string = ''
+  @State captureRepoId: string = ''
   @State somedayFile: string = ''
   @State memoFile: string = ''
   @State calendarName: string = 'Org Tasks'
@@ -39,6 +40,7 @@ struct Settings {
     try {
       this.config = await AppConfigService.load(getContext(this))
       this.inboxFile = this.config.inboxFile
+      this.captureRepoId = this.config.captureRepoId
       this.somedayFile = this.config.somedayFile
       this.memoFile = this.config.memoFile
       const params = router.getParams() as SettingsParams | undefined
@@ -60,7 +62,7 @@ struct Settings {
     this.saving = true
     try {
       const current = await AppConfigService.load(getContext(this))
-      await AppConfigService.save(getContext(this), { repos: current.repos, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, memoFile: this.section === '笔记与笔记本' ? this.memoFile.trim() : current.memoFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults, fileDisplayMode: this.section === '笔记与笔记本' ? this.fileDisplayMode : current.fileDisplayMode })
+      await AppConfigService.save(getContext(this), { repos: current.repos, captureRepoId: this.section === '笔记与笔记本' ? this.captureRepoId : current.captureRepoId, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, memoFile: this.section === '笔记与笔记本' ? this.memoFile.trim() : current.memoFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults, fileDisplayMode: this.section === '笔记与笔记本' ? this.fileDisplayMode : current.fileDisplayMode })
       await NativeCoreService.workspaceFor(current.repos, this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults)
       this.message = '设置已保存'
       try { await BackgroundSyncService.configure(interval) }
@@ -104,6 +106,15 @@ struct Settings {
                       catch (e) { this.message = `读取默认设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
                     })
                 }.width('100%').padding({ left: 24, right: 24 })
+                SectionHeading({ title: '快速捕捉' })
+                PreferenceRow({ title: '默认捕捉存储库',
+                  detail: this.captureRepoId ? (this.config.repos.some((repo: RepoConfig) => repo.id === this.captureRepoId) ?
+                    repositoryLabel(this.config.repos.find((repo: RepoConfig) => repo.id === this.captureRepoId)) : '目标已移除，请重新选择') : '单仓库自动选择，多仓库需指定',
+                  icon: $r('app.media.nav_inbox'), action: (): void => {
+                    this.getUIContext().showActionSheet({ title: '默认捕捉存储库', message: '快速捕捉只输入标题，直接写入所选存储库的收件箱。',
+                      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryLabel(repo),
+                        action: (): void => { this.captureRepoId = repo.id } })) })
+                  } })
                 SectionHeading({ title: '文件入口' })
                 Column({ space: 16 }) {
                   Text('收件箱文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
@@ -124,7 +135,7 @@ struct Settings {
                   Button('保存设置').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
                 }.width('100%').padding(24)
               } else {
-                SectionHeading({ title: 'Org Tasks' })
+                SectionHeading({ title: '小清单' })
                 Text('浏览 Org 笔记本、按日期查看任务，并将任务同步到 HarmonyOS 系统日历。')
                   .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(24)
               }

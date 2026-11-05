@@ -22,12 +22,13 @@
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、 ~inboxFile~ 、 ~captureRepoId~ 、 ~somedayFile~ 、 ~memoFile~ 、 ~calendarName~ 、 ~syncInterval~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个配置项对应一个本地仓库目录；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。完整参考选项核对见 [[file:配置项移植核对.org][配置项移植核对]]。
 
 #+begin_src ts
 interface AppConfig {
   repos: RepoConfig[]
   inboxFile: string
+  captureRepoId: string
   somedayFile: string
   memoFile: string
   calendarName: string
@@ -60,6 +61,7 @@ interface RepoConfig {
 | 仓库显示名 | ~repos[].name~ | Preferences | 可为空，保存时去除首尾空白；旧配置缺失时按空值处理，显示时回退根目录末级名称，不改变仓库或凭据身份。 |
 | 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
 | 收件箱文件 | ~inboxFile~ | Preferences | 可为空的安全相对 ~.org~ 路径；新配置默认空，旧保存值继续沿用。新增任务相对于所选仓库解析。 |
+| 快速捕捉目标 | ~captureRepoId~ | Preferences | 默认空；单仓库自动选择，多仓库需明确指定宿主配置 ID。失效的非空 ID 不回退到其他仓库。 |
 | 某天文件 | ~somedayFile~ | Preferences | 可为空的安全相对 ~.org~ 路径，默认空；某天入口查询此文件中的未完成记录。 |
 | 备忘文件 | ~memoFile~ | Preferences | 可为空的安全相对 ~.org~ 路径，默认空；备忘入口查询该文件中的全部标题记录。 |
 | WebDAV 启用 | ~repos[].webdavEnabled~ | Preferences | 决定是否为该仓库构造 WebDAV 策略。 |
@@ -74,7 +76,7 @@ interface RepoConfig {
 
 每个仓库的秘密以独立 Asset Store 记录保存，当前别名为 ~org-tasks.webdav.<configId>.password.v1~ ，其中 ~configId~ 是 ~RepoConfig.id~ ，不是 core 的目录 ID。记录设置 ~DEVICE_FIRST_UNLOCKED~ 、持久化和覆盖语义，以支持已解锁后的后台同步。保存时先写秘密再提交 Preferences；失败后的回滚/清理尚未实现，不能将其描述为已有能力。
 
-Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目录并读取或创建 ~.sync/id~ 。当前 AppConfigService 在读取配置时会为所有仓库查询 Asset Store，随后仅为启用 WebDAV 的仓库创建 ~core::webdav::WebDavSyncPolicy~ 。控制目录或布局无效时加载失败，不触发网络同步。
+Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目录并读取或创建 ~.sync/id~ 。AppConfigService 常规读取配置时为所有仓库查询 Asset Store；快速捕捉使用不含凭据的读取方式，仅取得本地写入配置。同步时仅为启用 WebDAV 的仓库创建 ~core::webdav::WebDavSyncPolicy~ 。控制目录或布局无效时加载失败，不触发网络同步。
 
 根目录、WebDAV 地址、用户名和密码是宿主运行时输入，不能写入 core 的 ~OrgRepoSyncRecord~ 或 ~OrgRepoSyncFileRecord~ 。 ~OrgRepo~ 不承担远端地址或认证字段。
 
@@ -86,6 +88,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 | WebDAV 密码 | Harmony | Asset Store | 每个 ~RepoConfig.id~ 独立秘密记录。 |
 | 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。元数据不保存绝对路径、凭据或完整 org 内容；确认后的原始冲突文件单独保存在 ~backups/~ 。 |
 | 日历映射 | Harmony | ~org_tasks_config~ 中的 ~calendar_sync_state~ 键 | 当前保存日历名称、任务 ID、事件 ID 和指纹；尚未按目标设计隔离到独立存储。 |
+| 捕捉草稿 | Harmony | Preferences 的 ~org_tasks_capture~ | ~drafts~ 仅保存草稿 ID 与未保存标题；独立于配置、凭据、Org 文件与同步记录；成功保存后移除对应草稿。 |
 | 已保存搜索 | Harmony | Preferences 的 ~org_tasks_saved_searches~ | 仅保存搜索 ID、名称与完整查询表达式；不保存完整任务、文件内容、绝对路径或凭据。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
@@ -177,3 +180,11 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 “设置 → 笔记与笔记本 → 文件展示 → 文件展示方式”提供“渲染（默认）”和“原文”，选择后沿用该页的“保存设置”统一提交。打开文件时读取已保存的 fileDisplayMode，rendered 显示整篇 Org 渲染内容，source 显示可复制的完整等宽原文；文件页不再显示阅读/原文切换或只读提示行。文件 TITLE 只在工具栏显示，正文不重复生成文件标题；真实 Org 标题仍正常显示。
 
 此设置仅控制文件详情，不影响任务详情的富文本正文和独立日志区域。旧用户没有该键时保持默认渲染。存储库增删改及其他设置保存必须保留当前展示方式，不能将其恢复为默认；该偏好只写入宿主 Preferences，不写入 Org、Core 同步记录或 outbox。重新进入文件或同步刷新后采用已保存值。
+
+* 快速捕捉目标与草稿
+
+“设置 → 笔记与笔记本 → 快速捕捉”维护 ~captureRepoId~ ，保存后生效。捕捉面板不提供目标切换，默认存储库统一在该设置分组保存。空值仅在恰好一个存储库时自动选择；多个存储库时必须明确指定，非空但已失效的 ID 一律要求重新选择。仓库删除仍保留失效 ID，避免错误回退到其他存储库。仓库表单、其他设置分组与删除操作均保留此字段。
+
+捕捉只提交标题，使用 ~inboxFile~ 指定的相对路径，目标文件初始状态与所有写入校验沿用 Core。外部入口不能指定绝对目录、其他文件或凭据。日期文字保留在标题中，不创建计划日期、截止日期、标签、优先级或正文。
+
+草稿保存在独立 Preferences 的 ~drafts~ 数组，每项只有 ~id~ 和 ~title~ 。输入更新、新请求接入与清理按顺序执行；外部新标题与旧草稿分别保留，不覆盖旧标题。保存成功后只删除已提交草稿，其他草稿在后续空白捕捉时按最近顺序自动恢复；面板不显示草稿选择器。语音录音只在内存中传给平台识别服务，不保存音频；标题与识别原文不进入日志。语音优先尝试离线引擎，离线引擎不可用时回退在线引擎；文字捕捉始终先写本地。

@@ -174,6 +174,7 @@ export class CoreWorkspace {
 let activeWorkspace: CoreWorkspace | undefined = undefined
 let activeWorkspaceKey: string = ''
 let activeTodoDefaults: string | undefined = undefined
+let workspaceQueue: Promise<void> = Promise.resolve()
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
@@ -207,24 +208,28 @@ export class NativeCoreService {
   }
 
   static async workspaceFor(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreWorkspace> {
-    const settings = todoDefaults ?? await defaultTodoSettings()
-    const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
-    if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
-      if (activeTodoDefaults !== settings) {
-        await activeWorkspace.setTodoDefaults(settings)
-        activeTodoDefaults = settings
+    const request = workspaceQueue.then(async (): Promise<CoreWorkspace> => {
+      const settings = todoDefaults ?? await defaultTodoSettings()
+      const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
+      if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
+        if (activeTodoDefaults !== settings) {
+          await activeWorkspace.setTodoDefaults(settings)
+          activeTodoDefaults = settings
+        }
+        return activeWorkspace
       }
+      const workspace = new CoreWorkspace(new NativeWorkspace())
+      await workspace.setTodoDefaults(settings)
+      for (const repository of repositories) {
+        await workspace.addRepo(repository.rootDirectory)
+      }
+      activeWorkspace = workspace
+      activeWorkspaceKey = workspaceKey
+      activeTodoDefaults = settings
       return activeWorkspace
-    }
-    const workspace = new CoreWorkspace(new NativeWorkspace())
-    await workspace.setTodoDefaults(settings)
-    for (const repository of repositories) {
-      await workspace.addRepo(repository.rootDirectory)
-    }
-    activeWorkspace = workspace
-    activeWorkspaceKey = workspaceKey
-    activeTodoDefaults = settings
-    return activeWorkspace
+    })
+    workspaceQueue = request.then((): void => {}, (): void => {})
+    return await request
   }
 
   static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask, todoDefaults?: string): Promise<void> {

@@ -90,7 +90,7 @@ struct TaskSearch {
     Scroll() {
       Column({ space: 16 }) {
         Text(this.advanced ? '查询表达式' : '搜索文字').fontSize(13).fontColor(UiColor.primary).width('100%')
-        TextInput({ placeholder: this.advanced ? '例如：.it.done s.le.7d' : '标题、正文或标签', text: this.advanced ? this.query : this.keyword })
+        TextInput({ placeholder: this.advanced ? '例如：i.todo t.work' : '标题、正文或标签', text: this.advanced ? this.query : this.keyword })
           .height(56).borderRadius(6).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).fontColor(UiColor.text)
           .enterKeyType(EnterKeyType.Search).onSubmit((): void => { this.search() })
           .onChange((value: string) => { if (this.advanced) this.query = value; else this.keyword = value })
@@ -113,7 +113,7 @@ struct TaskSearch {
           }.width('100%')
         } else {
           Text('可使用状态、标签、笔记本和日期条件组合查询。').fontSize(14).fontColor(UiColor.secondary).width('100%').lineHeight(22)
-          Text('i.todo  ·  t.work  ·  b.inbox  ·  s.le.7d').fontSize(14).fontColor(UiColor.primary).width('100%')
+          Text('i.todo  ·  t.work  ·  b.inbox  ·  s.le.today').fontSize(14).fontColor(UiColor.primary).width('100%')
         }
         Button('搜索').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
           .margin({ top: 24 }).onClick((): void => { this.search() })

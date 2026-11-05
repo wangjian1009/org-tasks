@@ -13,6 +13,8 @@
     "pages/MemoEdit",
     "pages/Settings",
     "pages/RepositorySettings",
-    "pages/MergeConflict"
+    "pages/MergeConflict",
+    "pages/Capture",
+    "pages/ShareCapture"
   ]
 }

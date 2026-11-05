@@ -1,0 +1,34 @@
+{
+  "shortcuts": [
+    {
+      "shortcutId": "capture_text",
+      "label": "$string:capture_text_shortcut",
+      "icon": "$media:app_icon",
+      "wants": [
+        {
+          "bundleName": "com.example.orgtasks",
+          "moduleName": "entry",
+          "abilityName": "CaptureAbility",
+          "parameters": {
+            "captureMode": "text"
+          }
+        }
+      ]
+    },
+    {
+      "shortcutId": "capture_voice",
+      "label": "$string:capture_voice_shortcut",
+      "icon": "$media:app_icon",
+      "wants": [
+        {
+          "bundleName": "com.example.orgtasks",
+          "moduleName": "entry",
+          "abilityName": "CaptureAbility",
+          "parameters": {
+            "captureMode": "voice"
+          }
+        }
+      ]
+    }
+  ]
+}
