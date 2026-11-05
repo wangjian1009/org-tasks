@@ -25,11 +25,12 @@ struct Inbox {
 
   async loadRecords() {
     const request = ++this.requestId
-    this.loading = true
+    this.loading = this.records.length === 0
     this.message = ''
     this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(getContext(this))
+      if (request !== this.requestId) return
       if (!config.inboxFile) {
         this.needsConfiguration = true
         this.records = []
@@ -50,9 +51,7 @@ struct Inbox {
 
   build() {
     Column() {
-      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
-        actionIcon: $r('app.media.ui_sync'), actionLabel: '刷新收件箱', action: (): void => { this.loadRecords() },
-        fabLabel: '新增记录', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
+      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
             EmptyState({ title: '正在读取收件箱', busy: true })
@@ -78,7 +77,9 @@ struct Inbox {
                     } })
                   }
                 }, (task: CoreTask) => task.id)
-              }.width('100%').layoutWeight(1).padding({ bottom: 88 })
+              }.width('100%').layoutWeight(1).padding({ bottom: 16 })
+                .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+                .edgeEffect(EdgeEffect.None)
             }
           }
         }.width('100%').height('100%')

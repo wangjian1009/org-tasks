@@ -33,7 +33,7 @@ export struct TodayTaskList {
           }, (item: TodayTaskItem) => item.task.id)
         }
       }, (section: TodaySection) => section.key)
-    }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 88 })
+    }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
       .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .edgeEffect(EdgeEffect.None)
   }

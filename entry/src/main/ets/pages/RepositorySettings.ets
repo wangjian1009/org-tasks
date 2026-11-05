@@ -210,7 +210,7 @@ struct RepositorySettings {
               Text(this.webdavEnabled ? '本地文件目录' : 'Org 文件目录').fontSize(13).fontColor(UiColor.primary).width('100%')
               TextInput({ text: this.rootDirectory, placeholder: '本地目录的绝对路径' }).height(56).borderRadius(6)
                 .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.rootDirectory = value })
-              Text(this.webdavEnabled ? '返回时自动保存修改。本地文件在离线时仍可浏览和新增任务。' : '返回时自动保存修改。请使用应用可访问的目录。')
+              Text(this.webdavEnabled ? '返回时自动保存修改。本地文件在离线时仍可浏览。' : '返回时自动保存修改。请使用应用可访问的目录。')
                 .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
               if (this.existing) {
                 Divider().color(UiColor.outline).margin({ top: 16 })

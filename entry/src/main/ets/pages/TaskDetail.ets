@@ -37,8 +37,7 @@ struct TaskDetail {
 
   build() {
     Column() {
-      AppShell({ title: '笔记', titleIcon: $r('app.media.ui_edit'), back: true, drawerOpen: $drawerOpen,
-      actionIcon: $r('app.media.ui_add'), actionLabel: '新增任务', action: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
+      AppShell({ title: '笔记', titleIcon: $r('app.media.ui_edit'), back: true, drawerOpen: $drawerOpen }) {
         if (!this.task) {
           EmptyState({ title: '无法打开此笔记', detail: '请从日程、搜索或笔记本进入。' })
         } else {

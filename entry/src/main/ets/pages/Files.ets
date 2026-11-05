@@ -14,6 +14,7 @@ struct Files {
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
+  private requestId: number = 0
 
   onPageShow() { this.loadFiles() }
   onBackPress(): boolean {
@@ -22,36 +23,34 @@ struct Files {
   }
 
   async loadFiles() {
-    this.loading = true
+    const request = ++this.requestId
+    this.loading = this.groups.length === 0
     this.message = ''
     try {
       const config = await AppConfigService.load(getContext(this))
-      this.groups = await NotebookService.list(config.repos, config.todoDefaults)
+      const groups = await NotebookService.list(config.repos, config.todoDefaults)
+      if (request !== this.requestId) return
+      this.groups = groups
     } catch (e) {
-      this.groups = []
-      this.message = `读取存储库失败：${coreErrorMessage(e as CoreBridgeError)}`
-    } finally { this.loading = false }
-  }
-
-  addRepository() {
-    this.getUIContext().showActionSheet({ title: '新增存储库', message: '选择 Org 文件的来源', sheets: [
-      { title: 'WebDAV', action: (): void => { router.pushUrl({ url: 'pages/RepositorySettings', params: { webdav: true } }) } },
-      { title: '本地目录', action: (): void => { router.pushUrl({ url: 'pages/RepositorySettings', params: { webdav: false } }) } }
-    ] })
+      if (request === this.requestId) {
+        this.groups = []
+        this.message = `读取存储库失败：${coreErrorMessage(e as CoreBridgeError)}`
+      }
+    } finally {
+      if (request === this.requestId) this.loading = false
+    }
   }
 
   build() {
     Column() {
-      AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'), synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen,
-        actionIcon: $r('app.media.ui_add'), actionLabel: '新增存储库', action: (): void => { this.addRepository() } }) {
+      AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'), synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
             EmptyState({ title: '正在读取存储库', busy: true })
           } else if (this.message) {
             EmptyState({ title: '存储库读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
           } else if (this.groups.length === 0) {
-            EmptyState({ title: '还没有存储库', detail: '添加本地目录或 WebDAV 存储库后，org 文件会显示在这里。',
-              actionLabel: '新增存储库', action: (): void => { this.addRepository() } })
+            EmptyState({ title: '还没有存储库', detail: '尚未配置可浏览的本地或 WebDAV 存储库。' })
           } else {
             List() {
               ForEach(this.groups, (group: NotebookGroup) => {
@@ -80,6 +79,8 @@ struct Files {
                 }
               }, (group: NotebookGroup) => `${group.configId}:${group.name}`)
             }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
+              .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+              .edgeEffect(EdgeEffect.None)
           }
         }.width('100%').height('100%')
       }

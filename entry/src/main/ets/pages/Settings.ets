@@ -109,7 +109,7 @@ struct Settings {
                   Text('收件箱文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
                   TextInput({ text: this.inboxFile, placeholder: 'inbox.org' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.inboxFile = value })
-                  Text('新增任务写入此文件；留空时收件箱入口提示前往配置。使用相对 .org 路径。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Text('收件箱展示此文件中的记录；留空时收件箱入口提示前往配置。使用相对 .org 路径。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                   Text('某天文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
                   TextInput({ text: this.somedayFile, placeholder: '例如 someday.org，可留空' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.somedayFile = value })

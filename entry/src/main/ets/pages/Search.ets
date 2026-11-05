@@ -85,10 +85,6 @@ struct TaskSearch {
     }
   }
 
-  saveSearch() {
-    router.pushUrl({ url: 'pages/SavedSearches', params: { query: this.committedQuery, create: true } })
-  }
-
   @Builder
   form() {
     Scroll() {
@@ -128,10 +124,8 @@ struct TaskSearch {
   build() {
     Column() {
       AppShell({ title: this.showingResults ? (this.name || '搜索结果') : '搜索', titleIcon: $r('app.media.nav_search'), synchronized: (): void => { if (this.showingResults) this.search() }, activeRoute: 'pages/Search', back: !this.showingResults,
-      drawerOpen: $drawerOpen, actionIcon: this.showingResults ? $r('app.media.ui_edit') : $r('app.media.ui_folder'),
-      actionLabel: this.showingResults ? '调整筛选' : '', action: () => { this.showingResults = false },
-      extraIcon: $r('app.media.ui_done'), extraLabel: this.showingResults && !this.loading && !this.message ? '保存搜索' : '', extraAction: (): void => { this.saveSearch() },
-      fabLabel: this.showingResults ? '新增任务' : '', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
+      drawerOpen: $drawerOpen, pullToSync: this.showingResults, actionIcon: this.showingResults ? $r('app.media.ui_edit') : $r('app.media.ui_folder'),
+      actionLabel: this.showingResults ? '调整筛选' : '', action: () => { this.showingResults = false } }) {
         Column() {
           if (!this.showingResults) {
             this.form()
@@ -149,7 +143,9 @@ struct TaskSearch {
                 ForEach(this.tasks, (task: CoreTask) => {
                   ListItem() { TaskRow({ task, showBody: true, open: (): void => { router.pushUrl({ url: 'pages/TaskDetail', params: { task } }) } }) }
                 }, (task: CoreTask) => task.id)
-              }.width('100%').layoutWeight(1).padding({ bottom: 88 })
+              }.width('100%').layoutWeight(1).padding({ bottom: 16 })
+                .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+                .edgeEffect(EdgeEffect.None)
             }
           }
         }.width('100%').height('100%')

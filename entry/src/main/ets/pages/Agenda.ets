@@ -1,5 +1,4 @@
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreTask, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
@@ -20,7 +19,6 @@ struct Agenda {
   @State message: string = ''
   @State loading: boolean = true
   @State drawerOpen: boolean = false
-  @State config: AppConfig = DEFAULT_CONFIG
   private requestId: number = 0
 
   onPageShow() { this.loadTasks() }
@@ -31,14 +29,13 @@ struct Agenda {
 
   async loadTasks() {
     const request = ++this.requestId
-    this.loading = true
+    this.loading = this.groups.length === 0
     this.message = ''
     try {
       const config = await AppConfigService.load(getContext(this))
       const condition = this.filter === '计划' ? 's.ge.-100y' : this.filter === '截止' ? 'd.ge.-100y' : '(s.ge.-100y or d.ge.-100y)'
       const response = await NativeCoreService.searchWorkspace(config.repos, `.it.done ${condition}`, config.todoDefaults)
       if (request !== this.requestId) return
-      this.config = config
       const tasks = response.tasks.slice().sort((a: CoreTask, b: CoreTask) => this.taskDate(a).localeCompare(this.taskDate(b)))
       const groups: AgendaGroup[] = []
       const today = localDate(new Date())
@@ -70,10 +67,8 @@ struct Agenda {
 
   build() {
     Column() {
-      AppShell({ title: '日程', titleIcon: $r('app.media.nav_planned'), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/Agenda', drawerOpen: $drawerOpen,
-      actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) },
-      extraIcon: $r('app.media.ui_sync'), extraLabel: '刷新日程', extraAction: (): void => { this.loadTasks() },
-      fabLabel: '新增任务', fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
+      AppShell({ title: '日程', titleIcon: $r('app.media.nav_planned'), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/Agenda', drawerOpen: $drawerOpen, pullToSync: true,
+      actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) } }) {
         Column() {
           Row({ space: 8 }) {
             ForEach(['全部', '计划', '截止'], (item: string) => {
@@ -87,9 +82,7 @@ struct Agenda {
           } else if (this.message) {
             EmptyState({ title: '日程读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
           } else if (this.groups.length === 0) {
-            EmptyState({ title: '没有待安排的日程', detail: this.config.repos.length === 0 ? '先添加存储库，再查看计划与截止任务。' : '未完成笔记有计划或截止日期时，会按日期显示在这里。',
-              actionLabel: this.config.repos.length === 0 ? '添加存储库' : '新增任务',
-              action: (): void => { router.pushUrl({ url: this.config.repos.length === 0 ? 'pages/Files' : 'pages/AddTask' }) } })
+            EmptyState({ title: '没有待安排的日程', detail: '未完成笔记有计划或截止日期时，会按日期显示在这里。' })
           } else {
             List() {
               ForEach(this.groups, (group: AgendaGroup) => {
@@ -101,7 +94,9 @@ struct Agenda {
                   }, (task: CoreTask) => task.id)
                 }
               }, (group: AgendaGroup) => group.key)
-            }.width('100%').layoutWeight(1).padding({ bottom: 88 }).sticky(StickyStyle.Header)
+            }.width('100%').layoutWeight(1).padding({ bottom: 16 }).sticky(StickyStyle.Header)
+              .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+              .edgeEffect(EdgeEffect.None)
           }
         }.width('100%').height('100%')
       }

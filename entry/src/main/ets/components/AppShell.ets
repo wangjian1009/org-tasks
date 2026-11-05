@@ -1,12 +1,11 @@
 import { router } from '@kit.ArkUI'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
-import { RepositorySyncBanner } from './RepositorySyncBanner'
-import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } from '../services/RepositorySyncService'
+import { RepositorySyncView } from './RepositorySyncView'
 import { AppConfigService } from '../services/AppConfigService'
 import { inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
-import { CoreBridgeError, CoreConflict, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
 export struct AppShell {
@@ -17,21 +16,13 @@ export struct AppShell {
   @Prop back: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_search')
   @Prop actionLabel: string = ''
-  @Prop extraIcon: Resource = $r('app.media.ui_more')
-  @Prop extraLabel: string = ''
-  @Prop fabLabel: string = ''
-  @Prop fabIcon: Resource = $r('app.media.ui_add')
   @Prop busy: boolean = false
+  @Prop pullToSync: boolean = false
   @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
   action: () => void = () => {}
-  extraAction: () => void = () => {}
-  fabAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
   synchronized: () => void = () => {}
-  @StorageLink('repositorySync') @Watch('repositorySyncChanged') syncState: RepositorySyncState = emptyRepositorySyncState()
-  private syncRevision: number = 0
-  private pageIndex: number = 0
   @State inboxCount: number = -1
   @State todayCount: number = -1
   @State overdueCount: number = 0
@@ -45,43 +36,12 @@ export struct AppShell {
   private navigationRequest: number = 0
 
   aboutToAppear() {
-    this.syncRevision = this.syncState.revision
-    this.pageIndex = router.getState().index
-    this.presentSyncFailure()
     if (this.drawerOpen) this.loadNavigation()
   }
 
-  repositorySyncChanged() {
-    if (router.getState().index !== this.pageIndex) return
-    this.presentSyncFailure()
-    if (this.syncRevision === this.syncState.revision) return
-    this.syncRevision = this.syncState.revision
+  repositoryDataInvalidated() {
     this.synchronized()
     if (this.drawerOpen) this.loadNavigation()
-  }
-
-  presentSyncFailure() {
-    if (router.getState().index !== this.pageIndex) return
-    const failure = RepositorySyncService.takeFailure()
-    if (!failure) return
-    this.getUIContext().showAlertDialog({ title: '同步失败', message: failure.message,
-      primaryButton: { value: '关闭', action: () => {} },
-      secondaryButton: {
-        value: failure.conflicts.length > 0 ? '处理冲突' : failure.needsRepository ? '添加存储库' : '重试',
-        action: (): void => {
-          if (failure.conflicts.length > 0) {
-            this.getUIContext().showActionSheet({ title: '同步冲突', message: '选择需要处理的同步作业',
-              sheets: failure.conflicts.map((conflict: CoreConflict): SheetInfo => ({
-                title: `${conflict.paths.length} 个文件：${conflict.paths.join('、')}`,
-                action: (): void => { router.pushUrl({ url: 'pages/MergeConflict', params: { repoId: conflict.repoId, syncId: conflict.syncId } }) }
-              })) })
-          } else if (failure.needsRepository) {
-            router.pushUrl({ url: 'pages/Files' })
-          } else {
-            RepositorySyncService.start(getContext(this))
-          }
-        }
-      } })
   }
 
   openDrawer() {
@@ -257,21 +217,12 @@ export struct AppShell {
           if (this.actionLabel.length > 0) {
             IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
           }
-          if (this.extraLabel.length > 0) {
-            IconButton({ icon: this.extraIcon, label: this.extraLabel, disabled: this.busy, action: this.extraAction })
-          }
         }.width('100%').height(64).padding({ left: 4, right: 4 }).backgroundColor(UiColor.surface)
         Divider().color(UiColor.outline).strokeWidth(0.5)
-        RepositorySyncBanner()
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          this.content()
-          if (this.fabLabel.length > 0) {
-            Button({ type: ButtonType.Normal }) {
-              Image(this.fabIcon).width(26).height(26)
-            }.width(56).height(56).borderRadius(16).backgroundColor(UiColor.selected)
-              .shadow({ radius: 6, color: '#22000000', offsetY: 2 })
-              .margin({ right: 16, bottom: 20 }).accessibilityText(this.fabLabel)
-              .enabled(!this.busy).onClick((): void => { this.fabAction() })
+        Column() {
+          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen,
+            onDataInvalidated: (): void => { this.repositoryDataInvalidated() } }) {
+            this.content()
           }
         }.width('100%').layoutWeight(1)
       }.width('100%').height('100%').backgroundColor(UiColor.surface)

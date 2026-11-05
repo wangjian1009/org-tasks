@@ -10,7 +10,6 @@
     "pages/FileDetail",
     "pages/TaskDetail",
     "pages/Settings",
-    "pages/AddTask",
     "pages/RepositorySettings",
     "pages/MergeConflict"
   ]

@@ -2,7 +2,6 @@ import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { TodayTaskList } from '../components/TodayTaskList'
-import { RepositorySyncService } from '../services/RepositorySyncService'
 import { AppConfigService } from '../services/AppConfigService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
@@ -21,7 +20,6 @@ struct TaskOverview {
   @State message: string = ''
   @State needsConfiguration: boolean = false
   @State drawerOpen: boolean = false
-  @State refreshing: boolean = false
   private requestId: number = 0
 
   onPageShow() { this.loadTasks() }
@@ -39,6 +37,7 @@ struct TaskOverview {
     this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(getContext(this))
+      if (request !== this.requestId) return
       if (this.view === 'someday' && !config.somedayFile || this.view === 'memo' && !config.memoFile) {
         this.needsConfiguration = true
         this.tasks = []
@@ -61,12 +60,6 @@ struct TaskOverview {
     }
   }
 
-  async syncFromPull() {
-    // 松手后内容复位；同步状态由标题下的共享进度线承载。
-    this.refreshing = false
-    if (this.view === 'today') await RepositorySyncService.start(getContext(this))
-  }
-
   overviewIcon(): Resource {
     switch (this.view) {
       case 'today': return $r('app.media.nav_today')
@@ -77,11 +70,6 @@ struct TaskOverview {
       case 'logbook': return $r('app.media.nav_logbook')
     }
     return $r('app.media.nav_today')
-  }
-
-  @Builder
-  pullIndicator() {
-    Row().width('100%').height(0)
   }
 
   @Builder
@@ -103,7 +91,7 @@ struct TaskOverview {
         }
         if (this.tasks.length === 0) {
           EmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
-            detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '新增任务或同步后可以刷新此列表。' })
+            detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
         } else if (this.view === 'today') {
           TodayTaskList({ sections: this.sections })
         } else {
@@ -115,7 +103,9 @@ struct TaskOverview {
                 } })
               }
             }, (task: CoreTask) => task.id)
-          }.width('100%').layoutWeight(1).padding({ bottom: 88 })
+          }.width('100%').layoutWeight(1).padding({ bottom: 16 })
+            .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+            .edgeEffect(EdgeEffect.None)
         }
       }
     }.width('100%').height('100%')
@@ -125,17 +115,8 @@ struct TaskOverview {
     Column() {
       AppShell({ title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
         titleIcon: this.overviewIcon(),
-        drawerOpen: $drawerOpen, actionIcon: $r('app.media.ui_sync'), actionLabel: this.view === 'today' ? '' : '刷新任务',
-        action: (): void => { this.loadTasks() }, fabLabel: this.view === 'memo' ? '' : '新增任务',
-        fabAction: (): void => { router.pushUrl({ url: 'pages/AddTask' }) } }) {
-        if (this.view === 'today') {
-          Refresh({ refreshing: $$this.refreshing, builder: this.pullIndicator }) {
-            this.overviewContent()
-          }.width('100%').height('100%').refreshOffset(64).pullDownRatio(0.4)
-            .onRefreshing((): void => { this.syncFromPull() })
-        } else {
-          this.overviewContent()
-        }
+        drawerOpen: $drawerOpen, pullToSync: true }) {
+        this.overviewContent()
       }
     }.width('100%').height('100%')
   }

@@ -5,8 +5,6 @@ import { BUILTIN_SEARCHES, SavedSearch, SavedSearchService } from '../services/S
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
-interface SavedSearchParams { query?: string; create?: boolean }
-
 @Entry
 @Component
 struct SavedSearches {
@@ -20,11 +18,6 @@ struct SavedSearches {
   @State message: string = ''
   @State drawerOpen: boolean = false
 
-  aboutToAppear() {
-    const params = router.getParams() as SavedSearchParams | undefined
-    this.query = params?.query || ''
-    this.editing = params?.create || false
-  }
   onPageShow() { this.loadSearches() }
   onBackPress(): boolean {
     if (this.saving) return true
@@ -40,11 +33,11 @@ struct SavedSearches {
   }
 
   async saveSearch() {
-    if (this.saving) return
+    if (this.saving || !this.editingId) return
     if (!this.name.trim()) { this.message = '请输入搜索名称'; return }
     this.saving = true
     try {
-      const search: SavedSearch = { id: this.editingId || `saved-${Date.now()}`, name: this.name.trim(), query: this.query.trim() }
+      const search: SavedSearch = { id: this.editingId, name: this.name.trim(), query: this.query.trim() }
       const updated = this.searches.filter((item: SavedSearch) => item.id !== search.id).concat([search])
       await SavedSearchService.save(getContext(this), updated)
       this.searches = updated
@@ -87,11 +80,10 @@ struct SavedSearches {
 
   build() {
     Column() {
-      AppShell({ title: this.editing ? '保存搜索' : '搜索', titleIcon: $r('app.media.nav_search'), activeRoute: 'pages/SavedSearches', back: this.editing, drawerOpen: $drawerOpen,
+      AppShell({ title: this.editing ? '编辑搜索' : '搜索', titleIcon: $r('app.media.nav_search'), activeRoute: 'pages/SavedSearches', back: this.editing, drawerOpen: $drawerOpen,
       busy: this.saving, backAction: () => { this.editing = false },
       actionIcon: this.editing ? $r('app.media.ui_done') : $r('app.media.ui_search'), actionLabel: this.editing ? '保存搜索' : '搜索笔记',
-      action: () => { if (this.editing) this.saveSearch(); else router.pushUrl({ url: 'pages/Search' }) },
-      fabLabel: this.editing ? '' : '新建搜索', fabAction: () => { this.editingId = ''; this.name = ''; this.query = ''; this.editing = true; this.message = '' } }) {
+      action: () => { if (this.editing) this.saveSearch(); else router.pushUrl({ url: 'pages/Search' }) } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           if (this.editing) {
@@ -115,11 +107,11 @@ struct SavedSearches {
               ForEach(BUILTIN_SEARCHES, (search: SavedSearch) => {
                 ListItem() { this.searchItem(search, false) }
               }, (search: SavedSearch) => `${search.id}:${search.name}:${search.query}`)
-              ListItem() { SectionHeading({ title: '已保存搜索', subtitle: this.searches.length === 0 ? '使用右下加号保存常用查询' : '长按可编辑或删除' }) }
+              ListItem() { SectionHeading({ title: '已保存搜索', subtitle: this.searches.length === 0 ? '暂无已保存搜索' : '长按可编辑或删除' }) }
               ForEach(this.searches, (search: SavedSearch) => {
                 ListItem() { this.searchItem(search, true) }
               }, (search: SavedSearch) => `${search.id}:${search.name}:${search.query}`)
-            }.width('100%').layoutWeight(1).align(Alignment.TopStart).padding({ bottom: 88 })
+            }.width('100%').layoutWeight(1).align(Alignment.TopStart).padding({ bottom: 16 })
           }
         }.width('100%').height('100%')
       }
