@@ -91,6 +91,7 @@ export struct ListSectionHeader {
 export struct TaskRow {
   @Prop task: CoreTask
   @Prop showSource: boolean = true
+  @Prop showFilePath: boolean = true
   @Prop showBody: boolean = false
   @Prop indent: number = 0
   @Prop canFold: boolean = false
@@ -121,7 +122,7 @@ export struct TaskRow {
           Text(this.task.body.trim()).fontSize(14).fontColor(UiColor.secondary).maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         }
-        if (this.showSource) {
+        if (this.showSource && this.showFilePath) {
           Row({ space: 6 }) {
             Image($r('app.media.ui_folder')).width(14).height(14)
             Text(this.task.filePath).fontSize(13).fontColor(UiColor.secondary).maxLines(1)

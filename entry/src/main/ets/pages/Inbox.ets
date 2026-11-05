@@ -4,7 +4,6 @@ import { EmptyState, TaskRow } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
 import { inboxRecordQuery } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
-import { UiColor } from '../ui/Theme'
 
 @Entry
 @Component
@@ -64,15 +63,13 @@ struct Inbox {
             EmptyState({ title: '收件箱读取失败', detail: this.message,
               actionLabel: '重试', action: (): void => { this.loadRecords() } })
           } else {
-            Text(`${this.records.length} 条记录`).fontSize(13).fontColor(UiColor.secondary)
-              .width('100%').padding(16).backgroundColor(UiColor.container)
             if (this.records.length === 0) {
               EmptyState({ title: '收件箱没有记录', detail: '收件箱中的所有标题记录都会显示在这里，包含没有任务状态和已完成的记录。' })
             } else {
               List() {
                 ForEach(this.records, (task: CoreTask) => {
                   ListItem() {
-                    TaskRow({ task, showBody: true, open: (): void => {
+                    TaskRow({ task, showFilePath: false, showBody: true, open: (): void => {
                       router.pushUrl({ url: 'pages/InboxPlan', params: { task } })
                     } })
                   }
