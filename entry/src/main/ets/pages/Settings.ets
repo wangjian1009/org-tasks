@@ -80,8 +80,8 @@ struct Settings {
           Scroll() {
             Column() {
               if (!this.section) {
-                PreferenceRow({ title: '笔记与笔记本', detail: '收件箱、某天、备忘文件与默认 TODO 流程', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
-                PreferenceRow({ title: '应用程序', detail: 'Org Tasks', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
+                PreferenceRow({ title: '笔记与笔记本', icon: $r('app.media.ui_folder'), action: () => { this.section = '笔记与笔记本' } })
+                PreferenceRow({ title: '应用程序', icon: $r('app.media.ui_info'), action: () => { this.section = '应用程序' } })
               } else if (this.section === '笔记与笔记本') {
                 SectionHeading({ title: '文件展示' })
                 PreferenceRow({ title: '文件展示方式', detail: this.fileDisplayMode === 'source' ? '原文' : '渲染（默认）', icon: $r('app.media.ui_body'),
