@@ -12,6 +12,7 @@
     "pages/TaskEdit",
     "pages/MemoEdit",
     "pages/Settings",
+    "pages/FileTargetPicker",
     "pages/RepositorySettings",
     "pages/MergeConflict",
     "pages/Capture",

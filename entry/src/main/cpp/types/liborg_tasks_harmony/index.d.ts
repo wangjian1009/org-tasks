@@ -117,7 +117,7 @@ export class Repo {
   readonly id: string;
   readonly rootDirectory: string;
   load(): Promise<void>;
-  createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>;
+  createTask(path: string, task: NewTask, queueUpload: boolean, insertAtTop?: boolean): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }
@@ -127,6 +127,7 @@ export interface OrgFileMetadata {
   readonly path: string;
   readonly title: string | null;
   readonly titleParts: TitlePart[];
+  readonly isIgnore: boolean;
   readonly taskCount: number;
   readonly byteLength: number;
   readonly modifiedAt: number | null;

@@ -992,6 +992,7 @@ mod tests {
         repo.load::<CompletedSync>().await.unwrap();
         let info = &repo.file_metadata()[0];
         assert_eq!(info.task_count, 3);
+        assert!(!info.is_ignore);
         assert_eq!(info.byte_length, source.len());
         assert_eq!(info.modified_at, Some(1_700_000_000_123));
         assert_eq!(repo.file("work.org").unwrap().modified_at, info.modified_at);
@@ -1004,6 +1005,7 @@ mod tests {
         repo.load::<CompletedSync>().await.unwrap();
         let ignored = &repo.file_metadata()[0];
         assert_eq!(ignored.task_count, 0);
+        assert!(ignored.is_ignore);
         assert_eq!(ignored.byte_length, source.len());
         assert_eq!(ignored.modified_at, Some(1_700_000_000_123));
         fs::remove_dir_all(root).await.unwrap();

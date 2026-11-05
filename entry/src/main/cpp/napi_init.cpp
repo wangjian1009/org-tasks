@@ -22,6 +22,8 @@ extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const c
 extern "C" int32_t org_tasks_harmony_repo_load(uint64_t workspace_handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_repo_create_task(uint64_t workspace_handle, const char* root_directory,
     const char* path, const char* task_json, bool queue_upload);
+extern "C" int32_t org_tasks_harmony_repo_create_task_at_top(uint64_t workspace_handle, const char* root_directory,
+    const char* path, const char* task_json, bool queue_upload);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
@@ -119,6 +121,7 @@ struct RepoSnapshotWork {
     std::string task_path;
     std::string task_json;
     bool queue_upload = false;
+    bool insert_at_top = false;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
     enum class Operation { Snapshot, Sync, Load, CreateTask, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
@@ -601,7 +604,9 @@ void ExecuteRepoSnapshot(napi_env, void* data)
                         std::chrono::system_clock::now().time_since_epoch()).count())));
             break;
         case RepoSnapshotWork::Operation::CreateTask:
-            if (org_tasks_harmony_repo_create_task(work->workspace_handle, work->root_directory.c_str(),
+            if ((work->insert_at_top
+                ? org_tasks_harmony_repo_create_task_at_top
+                : org_tasks_harmony_repo_create_task)(work->workspace_handle, work->root_directory.c_str(),
                 work->task_path.c_str(), work->task_json.c_str(), work->queue_upload) == 0) {
                 work->response = "{}";
             }
@@ -1117,16 +1122,21 @@ napi_value RepoLoad(napi_env env, napi_callback_info info)
 
 napi_value RepoCreateTask(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3] = {nullptr, nullptr, nullptr};
+    size_t argc = 4;
+    napi_value args[4] = {nullptr, nullptr, nullptr, nullptr};
     napi_value self;
     RepoWrap* repo = nullptr;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 3 ||
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || (argc != 3 && argc != 4) ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr) {
         napi_throw_error(env, nullptr, "Repo.createTask 参数无效");
         return nullptr;
     }
     auto* work = new RepoSnapshotWork();
+    if (argc == 4 && napi_get_value_bool(env, args[3], &work->insert_at_top) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.createTask 插入位置参数无效");
+        return nullptr;
+    }
     napi_value global, json, stringify, encoded;
     if (!ReadString(env, args[0], &work->task_path) || work->task_path.find('\0') != std::string::npos ||
         napi_get_value_bool(env, args[2], &work->queue_upload) != napi_ok ||

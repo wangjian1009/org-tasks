@@ -48,6 +48,28 @@ impl OrgRepo {
         task: &NewTask,
         queue_upload: bool,
     ) -> Result<(), CoreError> {
+        self.create_task_with_position(path, task, queue_upload, false)
+            .await
+    }
+
+    /// 在文件第一个标题之前插入任务；没有标题时沿用文件末尾追加。
+    pub async fn create_task_at_top(
+        &mut self,
+        path: &str,
+        task: &NewTask,
+        queue_upload: bool,
+    ) -> Result<(), CoreError> {
+        self.create_task_with_position(path, task, queue_upload, true)
+            .await
+    }
+
+    async fn create_task_with_position(
+        &mut self,
+        path: &str,
+        task: &NewTask,
+        queue_upload: bool,
+        insert_at_top: bool,
+    ) -> Result<(), CoreError> {
         if self.id.is_empty() {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
@@ -74,13 +96,30 @@ impl OrgRepo {
         } else {
             ""
         };
-        let offset = file.source_bytes().len() + separator.len();
-        let anchor = position_at(file.source_bytes(), file.source_bytes().len());
+        let offset = if insert_at_top {
+            first_headline_offset(file.source_bytes()).unwrap_or(file.source_bytes().len())
+        } else {
+            file.source_bytes().len() + separator.len()
+        };
+        let anchor = if insert_at_top {
+            position_at(file.source_bytes(), offset)
+        } else {
+            position_at(file.source_bytes(), file.source_bytes().len())
+        };
         apply_edit(
             &mut file,
             OrgFileEdit::InsertAt {
                 anchor,
-                content: format!("{separator}{}", content.replace('\n', newline)).into_bytes(),
+                content: if insert_at_top {
+                    format!(
+                        "{}{}",
+                        content.replace('\n', newline),
+                        if offset > 0 { newline } else { "" }
+                    )
+                    .into_bytes()
+                } else {
+                    format!("{separator}{}", content.replace('\n', newline)).into_bytes()
+                },
             },
         )?;
         let projection = OrgRepo {
@@ -232,6 +271,20 @@ impl OrgRepo {
         }
         Ok(intents)
     }
+}
+
+fn first_headline_offset(source: &[u8]) -> Option<usize> {
+    let mut offset = 0;
+    for line in source.split_inclusive(|byte| *byte == b'\n') {
+        let content = line.strip_suffix(b"\n").unwrap_or(line);
+        let content = content.strip_suffix(b"\r").unwrap_or(content);
+        let stars = content.iter().take_while(|byte| **byte == b'*').count();
+        if stars > 0 && content.get(stars) == Some(&b' ') {
+            return Some(offset);
+        }
+        offset += line.len();
+    }
+    None
 }
 
 impl NewTask {
@@ -407,6 +460,32 @@ mod tests {
         let intent_json = serde_json::to_string(&intent).unwrap();
         assert!(!intent_json.contains("处理事务"));
         assert!(!intent_json.contains(&repo.root_directory));
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn top_creation_inserts_after_preamble_before_existing_headlines() {
+        let mut repo = repo().await;
+        let root = PathBuf::from(&repo.root_directory);
+        let original = "#+TITLE: 收件箱\r\n#+TODO: NEXT | DONE\r\n\r\n* NEXT 旧记录\r\n旧正文\r\n";
+        fs::write(root.join("inbox.org"), original).await.unwrap();
+        repo.create_task_at_top(
+            "inbox.org",
+            &NewTask {
+                heading: "最新捕捉".into(),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+        let bytes = fs::read(root.join("inbox.org")).await.unwrap();
+        let source = String::from_utf8(bytes).unwrap();
+        let new_position = source.find("* NEXT 最新捕捉").unwrap();
+        let old_position = source.find("* NEXT 旧记录").unwrap();
+        assert!(new_position < old_position);
+        assert!(source.starts_with("#+TITLE: 收件箱\r\n#+TODO: NEXT | DONE\r\n\r\n"));
+        assert!(source.contains("* NEXT 最新捕捉\r\n\r\n* NEXT 旧记录"));
         fs::remove_dir_all(root).await.unwrap();
     }
 

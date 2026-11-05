@@ -5,7 +5,8 @@ import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { RepositorySyncView } from './RepositorySyncView'
 import { AppConfigService } from '../services/AppConfigService'
-import { inboxRecordQuery, overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
+import { FileTargetService } from '../services/FileTargetService'
+import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
@@ -67,13 +68,13 @@ export struct AppShell {
     try {
       const config = await AppConfigService.load(getContext(this))
       const searches = await SavedSearchService.load(getContext(this))
-      const inbox = config.inboxFile ? await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults) : undefined
+      const inbox = await FileTargetService.query(config, 'inbox')
       const today = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('today'), config.todoDefaults)
       const overdue = await NativeCoreService.queryTasks(config.repos, overdueTaskQuery(), config.todoDefaults)
       const planned = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('planned'), config.todoDefaults)
       const anytime = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('anytime'), config.todoDefaults)
-      const someday = config.somedayFile ? await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('someday', config.somedayFile), config.todoDefaults) : undefined
-      const memo = config.memoFile ? await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('memo', '', config.memoFile), config.todoDefaults) : undefined
+      const someday = await FileTargetService.query(config, 'someday')
+      const memo = await FileTargetService.query(config, 'memo')
       const logbook = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('logbook'), config.todoDefaults)
       if (request !== this.navigationRequest) return
       this.searches = searches
@@ -94,9 +95,9 @@ export struct AppShell {
     this.drawerOpen = false
     try {
       const config = await AppConfigService.load(getContext(this))
-      if (view === 'inbox' && !config.inboxFile || view === 'someday' && !config.somedayFile || view === 'memo' && !config.memoFile) {
+      if ((view === 'inbox' || view === 'someday' || view === 'memo') && !await FileTargetService.resolve(config, view)) {
         const title = view === 'inbox' ? '收件箱' : overviewTitle(view)
-        this.getUIContext().showAlertDialog({ title: `尚未配置${title}`, message: `请在设置的“笔记与笔记本”中配置${title}文件。`,
+        this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“笔记与笔记本”中重新选择${title}的仓库和文件。`,
           primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
             this.drawerOpen = false
             router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })

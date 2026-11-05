@@ -7,11 +7,15 @@ export default class CaptureAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK)
     AppStorage.setOrCreate('captureVisible', true)
-    AppStorage.setOrCreate('captureRequest', captureRequest(want))
+    const request = captureRequest(want)
+    console.info(`捕捉窗口收到启动参数，标题长度：${request.title.length}，语音：${request.voice}`)
+    AppStorage.setOrCreate('captureRequest', request)
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    AppStorage.setOrCreate('captureRequest', captureRequest(want))
+    const request = captureRequest(want)
+    console.info(`捕捉窗口收到热启动参数，标题长度：${request.title.length}，语音：${request.voice}`)
+    AppStorage.setOrCreate('captureRequest', request)
   }
 
   onForeground(): void { AppStorage.setOrCreate('captureVisible', true) }

@@ -48,6 +48,7 @@ pub struct OrgFileMetadata {
     pub path: String,
     pub title: Option<String>,
     pub title_parts: Vec<TitlePart>,
+    pub is_ignore: bool,
     pub task_count: usize,
     pub byte_length: usize,
     pub modified_at: Option<TimestampMs>,
@@ -105,6 +106,7 @@ impl OrgRepo {
                 path: file.path.clone(),
                 title: file.title(),
                 title_parts: file.title_parts(),
+                is_ignore: self.task_scan_rules.excludes(&file.path),
                 task_count: if self.task_scan_rules.excludes(&file.path) {
                     0
                 } else {

@@ -14,9 +14,11 @@ export class AppConfigService {
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
     const repos = await AppConfigService.loadRepositories(store, includeCredentials)
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
-    const captureRepoId = await store.get('captureRepoId', DEFAULT_CONFIG.captureRepoId) as string
+    const inboxRepoId = await store.get('inboxRepoId', DEFAULT_CONFIG.inboxRepoId) as string
     const somedayFile = await store.get('somedayFile', DEFAULT_CONFIG.somedayFile) as string
+    const somedayRepoId = await store.get('somedayRepoId', DEFAULT_CONFIG.somedayRepoId) as string
     const memoFile = await store.get('memoFile', DEFAULT_CONFIG.memoFile) as string
+    const memoRepoId = await store.get('memoRepoId', DEFAULT_CONFIG.memoRepoId) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
@@ -24,9 +26,11 @@ export class AppConfigService {
     return {
       repos,
       inboxFile,
-      captureRepoId,
+      inboxRepoId,
       somedayFile,
+      somedayRepoId,
       memoFile,
+      memoRepoId,
       calendarName,
       syncInterval,
       todoDefaults,
@@ -64,9 +68,11 @@ export class AppConfigService {
     }
     await store.put(REPOS_KEY, JSON.stringify(persisted))
     await store.put('inboxFile', config.inboxFile.trim())
-    await store.put('captureRepoId', config.captureRepoId)
+    await store.put('inboxRepoId', config.inboxRepoId)
     await store.put('somedayFile', config.somedayFile.trim())
+    await store.put('somedayRepoId', config.somedayRepoId)
     await store.put('memoFile', config.memoFile.trim())
+    await store.put('memoRepoId', config.memoRepoId)
     await store.put('calendarName', config.calendarName.trim())
     await store.put('syncInterval', config.syncInterval)
     await store.put('todoDefaults', config.todoDefaults)
@@ -78,8 +84,8 @@ export class AppConfigService {
     const current = await AppConfigService.load(context)
     await AppConfigService.save(context, {
       repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
-      captureRepoId: current.captureRepoId,
-      inboxFile: current.inboxFile, somedayFile: current.somedayFile, memoFile: current.memoFile,
+      inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile,
+      somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId,
       calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults,
       fileDisplayMode: current.fileDisplayMode
     })

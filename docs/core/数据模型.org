@@ -64,6 +64,7 @@
   path: String \\
   title: Option\textless String\textgreater \\
   title\_parts: Vec\textless TitlePart\textgreater \\
+  is\_ignore: bool \\
   task\_count: usize \\
   byte\_length: usize \\
   modified\_at: Option\textless TimestampMs\textgreater
@@ -177,7 +178,7 @@ pub struct OrgRepo {
 
 * Org 解析与保真
 
-~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。文件头标题通过 ~title()~ 从已有语法树读取； ~OrgFileMetadata~ 包含仓库 ID、相对路径、可空标题、标题行内片段、标题记录数、字节数与可空的本地修改时间，用于轻量列表，不保存正文或语法树。扫描读取的文件时间只保留在运行时，克隆文件或更新 TODO 默认设置时继续保留，不加入同步持久化数据。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
+~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。文件头标题通过 ~title()~ 从已有语法树读取； ~OrgFileMetadata~ 包含仓库 ID、相对路径、可空标题、标题行内片段、~is_ignore~ 、标题记录数、字节数与可空的本地修改时间，用于轻量列表，不保存正文或语法树。扫描读取的文件时间只保留在运行时，克隆文件或更新 TODO 默认设置时继续保留，不加入同步持久化数据。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
 
 未修改时， ~OrgFile~ 必须直接写回 ~sourceBytes~ ，不能经解析器重新序列化。局部编辑只替换明确的 ~SourceRange~ 或在明确 ~SourcePosition~ 插入字节；变更完成后重新构造 ~orgize::Org~ 缓存。因此空行、换行风格、缩进、行尾空格、未知语法和未改动区域保持原始字节。
 
@@ -193,7 +194,7 @@ pub struct OrgRepo {
 
 * 任务创建与写入意图
 
-~NewTask~ 仅作为 ~OrgRepo.create_task~ 的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、优先级、标签及计划日期转为 org 追加内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验。已存在文件的原始字节保持不变。
+~NewTask~ 仅作为 ~OrgRepo.create_task~ 与 ~OrgRepo.create_task_at_top~ 的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、优先级、标签及计划日期转为 org 内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验；默认新增任务追加到文件末尾，快速捕捉可请求在第一条标题之前插入。已存在文件的原始字节保持不变。
 
 ~OrgRepoWriteIntent~ 只包含相对路径与保存后的内容哈希，按仓库写入 ~.sync/outbox/~ 。完整任务仍保存在用户 org 文件中；多个保存意图可指向同一个文件。WebDAV 使用原始文件的最新完整字节上传，成功同步记录落盘且本地版本一致后才确认消费。写入意图不增加 ~OrgRepo~ 的持久化文件快照字段。
 
@@ -517,7 +518,7 @@ logbook\_html: String}{}
   is\_link: bool}{}
 \umlclass[x=7,y=0]{FilterTask}{title: String}{title\_parts(): Vec\textless TitlePart\textgreater}
 \umlclass[x=0,y=-3]{OrgFile}{}{title\_parts(): Vec\textless TitlePart\textgreater}
-\umlclass[x=7,y=-3]{OrgFileMetadata}{title\_parts: Vec\textless TitlePart\textgreater}{}
+\umlclass[x=7,y=-3]{OrgFileMetadata}{is\_ignore: bool\\title\_parts: Vec\textless TitlePart\textgreater}{}
 \umldep{FilterTask}{TitlePart}
 \umldep{OrgFile}{TitlePart}
 \umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TitlePart}

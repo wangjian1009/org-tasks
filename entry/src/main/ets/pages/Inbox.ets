@@ -2,8 +2,8 @@ import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
-import { inboxRecordQuery } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { FileTargetService } from '../services/FileTargetService'
+import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
@@ -29,14 +29,13 @@ struct Inbox {
     this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(getContext(this))
+      const result = await FileTargetService.query(config, 'inbox')
       if (request !== this.requestId) return
-      if (!config.inboxFile) {
+      if (!result) {
         this.needsConfiguration = true
         this.records = []
         return
       }
-      const result = await NativeCoreService.queryTasks(config.repos, inboxRecordQuery(config.inboxFile), config.todoDefaults)
-      if (request !== this.requestId) return
       this.records = result.tasks
     } catch (e) {
       if (request === this.requestId) {
@@ -55,7 +54,7 @@ struct Inbox {
           if (this.loading) {
             EmptyState({ title: '正在读取收件箱', busy: true })
           } else if (this.needsConfiguration) {
-            EmptyState({ title: '尚未配置收件箱', detail: '请在设置的“笔记与笔记本”中配置收件箱文件。',
+            EmptyState({ title: '收件箱文件未选择或已失效', detail: '请在设置的“笔记与笔记本”中重新选择仓库和文件。',
               actionLabel: '前往设置', action: (): void => {
                 router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
               } })

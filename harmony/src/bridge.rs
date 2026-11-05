@@ -350,6 +350,27 @@ pub fn repo_create_task(
     runtime.block_on(repository.create_task(&path, &task, queue_upload))
 }
 
+pub fn repo_create_task_at_top(
+    handle: u64,
+    root_directory: String,
+    path: String,
+    task_json: String,
+    queue_upload: bool,
+) -> Result<(), CoreError> {
+    let task: NewTask = serde_json::from_str(&task_json)
+        .map_err(|_| CoreError::InvalidInput("任务创建参数无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    runtime.block_on(repository.create_task_at_top(&path, &task, queue_upload))
+}
+
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let workspace = workspace
@@ -568,6 +589,7 @@ mod tests {
                 .unwrap();
         assert_eq!(metadata[0]["title"], "工作计划");
         assert_eq!(metadata[0]["path"], "work.org");
+        assert_eq!(metadata[0]["isIgnore"], false);
         assert!(metadata[0].get("source").is_none());
         assert!(metadata[0].get("renderedHtml").is_none());
         let full: serde_json::Value = serde_json::from_str(
@@ -585,6 +607,13 @@ mod tests {
         let changed: serde_json::Value =
             serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
         assert_eq!(changed[0]["title"], "");
+        std::fs::write(root.join(".orgzlyignore"), "work.org\n").unwrap();
+        let ignored: serde_json::Value = serde_json::from_str(
+            &repo_file_metadata_json(handle, root.to_string_lossy().into()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ignored[0]["isIgnore"], true);
+        assert_eq!(ignored[0]["taskCount"], 0);
         assert_eq!(metadata[0]["title"], "工作计划");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();

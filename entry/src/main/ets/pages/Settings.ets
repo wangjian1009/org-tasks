@@ -1,12 +1,13 @@
 import { defaultTodoSettings } from 'liborg_tasks_harmony.so'
 import { router } from '@kit.ArkUI'
-import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
 import { UiColor, repositoryLabel } from '../ui/Theme'
+import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
 
 interface SettingsParams { section?: string }
 
@@ -15,10 +16,6 @@ interface SettingsParams { section?: string }
 struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
   @State section: string = ''
-  @State inboxFile: string = ''
-  @State captureRepoId: string = ''
-  @State somedayFile: string = ''
-  @State memoFile: string = ''
   @State calendarName: string = 'Org Tasks'
   @State syncInterval: string = '20'
   @State todoDefaults: string = ''
@@ -39,18 +36,24 @@ struct Settings {
   async load() {
     try {
       this.config = await AppConfigService.load(getContext(this))
-      this.inboxFile = this.config.inboxFile
-      this.captureRepoId = this.config.captureRepoId
-      this.somedayFile = this.config.somedayFile
-      this.memoFile = this.config.memoFile
-      const params = router.getParams() as SettingsParams | undefined
-      if (!this.loaded && params?.section) this.section = params.section
-      this.todoDefaults = this.config.todoDefaults
-      this.fileDisplayMode = this.config.fileDisplayMode
-      this.calendarName = this.config.calendarName
-      this.syncInterval = Math.max(20, this.config.syncInterval).toString()
+      if (!this.loaded) {
+        const params = router.getParams() as SettingsParams | undefined
+        if (params?.section) this.section = params.section
+        this.todoDefaults = this.config.todoDefaults
+        this.fileDisplayMode = this.config.fileDisplayMode
+        this.calendarName = this.config.calendarName
+        this.syncInterval = Math.max(20, this.config.syncInterval).toString()
+      }
       this.loaded = true
     } catch (e) { this.message = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+  }
+
+  fileTargetDetail(kind: FileTargetKind): string {
+    const target = configuredFileTarget(this.config, kind)
+    if (!target.path) return '未选择'
+    const repository = this.config.repos.find(repo => repo.id === target.repoId)
+    if (!repository) return `需要重新选择 · ${target.path}`
+    return `${repositoryLabel(repository)} / ${target.path}`
   }
 
   async save() {
@@ -62,7 +65,13 @@ struct Settings {
     this.saving = true
     try {
       const current = await AppConfigService.load(getContext(this))
-      await AppConfigService.save(getContext(this), { repos: current.repos, captureRepoId: this.section === '笔记与笔记本' ? this.captureRepoId : current.captureRepoId, inboxFile: this.section === '笔记与笔记本' ? this.inboxFile.trim() : current.inboxFile, somedayFile: this.section === '笔记与笔记本' ? this.somedayFile.trim() : current.somedayFile, memoFile: this.section === '笔记与笔记本' ? this.memoFile.trim() : current.memoFile, calendarName: this.calendarName.trim(), syncInterval: interval, todoDefaults: this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults, fileDisplayMode: this.section === '笔记与笔记本' ? this.fileDisplayMode : current.fileDisplayMode })
+      current.calendarName = this.calendarName.trim()
+      current.syncInterval = interval
+      if (this.section === '笔记与笔记本') {
+        current.todoDefaults = this.todoDefaults
+        current.fileDisplayMode = this.fileDisplayMode
+      }
+      await AppConfigService.save(getContext(this), current)
       await NativeCoreService.workspaceFor(current.repos, this.section === '笔记与笔记本' ? this.todoDefaults : current.todoDefaults)
       this.message = '设置已保存'
       try { await BackgroundSyncService.configure(interval) }
@@ -106,32 +115,14 @@ struct Settings {
                       catch (e) { this.message = `读取默认设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
                     })
                 }.width('100%').padding({ left: 24, right: 24 })
-                SectionHeading({ title: '快速捕捉' })
-                PreferenceRow({ title: '默认捕捉存储库',
-                  detail: this.captureRepoId ? (this.config.repos.some((repo: RepoConfig) => repo.id === this.captureRepoId) ?
-                    repositoryLabel(this.config.repos.find((repo: RepoConfig) => repo.id === this.captureRepoId)) : '目标已移除，请重新选择') : '单仓库自动选择，多仓库需指定',
-                  icon: $r('app.media.nav_inbox'), action: (): void => {
-                    this.getUIContext().showActionSheet({ title: '默认捕捉存储库', message: '快速捕捉只输入标题，直接写入所选存储库的收件箱。',
-                      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryLabel(repo),
-                        action: (): void => { this.captureRepoId = repo.id } })) })
-                  } })
                 SectionHeading({ title: '文件入口' })
                 Column({ space: 16 }) {
-                  Text('收件箱文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.inboxFile, placeholder: 'inbox.org' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
-                    .onChange((value: string) => { this.inboxFile = value })
-                  Text('收件箱展示此文件中的记录；留空时收件箱入口提示前往配置。使用相对 .org 路径。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
-                  Text('某天文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.somedayFile, placeholder: '例如 someday.org，可留空' }).height(56).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
-                    .onChange((value: string) => { this.somedayFile = value })
-                  Text('“某天”展示此文件中的未完成任务；未配置时点击入口会提示设置。')
-                    .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
-                  Text('备忘文件').fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  TextInput({ text: this.memoFile, placeholder: '例如 memo.org，可留空' }).height(56)
-                    .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
-                    .onChange((value: string) => { this.memoFile = value })
-                  Text('“备忘”展示此文件中的全部标题记录，包含无任务状态和已完成记录；未配置时点击入口会提示设置。')
-                    .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  PreferenceRow({ title: '收件箱文件', detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { router.pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'inbox' } }) } })
+                  Text('收件箱展示所选仓库中的文件；未配置时点击入口提示设置。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  PreferenceRow({ title: '某天文件', detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { router.pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'someday' } }) } })
+                  Text('“某天”展示所选文件中的未完成任务。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  PreferenceRow({ title: '备忘文件', detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), action: (): void => { router.pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'memo' } }) } })
+                  Text('“备忘”展示所选文件中的全部标题记录。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                   Button('保存设置').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).enabled(!this.saving && this.loaded).onClick((): void => { this.save() })
                 }.width('100%').padding(24)
               } else {

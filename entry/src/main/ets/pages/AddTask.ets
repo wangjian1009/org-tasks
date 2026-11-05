@@ -8,9 +8,9 @@ import { dateLabel, localDate, repositoryLabel, UiColor } from '../ui/Theme'
 
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { FileTargetService } from '../services/FileTargetService'
 import { CoreBridgeError, CoreNewTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
-interface AddTaskParams { rootDirectory?: string }
 interface EditableField {
   icon: Resource
   label: string
@@ -45,12 +45,8 @@ struct AddTask {
     try {
       const context = getContext(this)
       this.config = await AppConfigService.load(context)
-      const params = router.getParams() as AddTaskParams | undefined
-      const selected = this.config.repos.find((repo: RepoConfig) => repo.rootDirectory === params?.rootDirectory)
-      if (this.config.repos.length > 0) {
-        this.selectedRepoId = selected ? selected.id : this.config.repos[0].id
-        await this.loadInitialState()
-      }
+      this.selectedRepoId = this.config.inboxRepoId
+      await this.loadInitialState()
     } catch (e) {
       this.message = `加载配置失败: ${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
@@ -64,11 +60,9 @@ struct AddTask {
     this.initialState = ''
     this.message = ''
     try {
-      const repository = this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId)
-      if (!repository) return
-      if (!this.config.inboxFile) { this.message = '请先在设置中配置收件箱文件'; return }
-      const repo = await NativeCoreService.repository(this.config.repos, repository, this.config.todoDefaults)
-      const file = await repo.file(this.config.inboxFile)
+      const target = await FileTargetService.resolve(this.config, 'inbox')
+      if (!target) { this.message = '收件箱文件未选择或已失效，请在设置中重新选择'; return }
+      const file = await target.repo.file(target.path)
       const metadata = file.todo
       if (request !== this.todoRequest) return
       this.initialState = metadata.initialState || ''
@@ -103,7 +97,9 @@ struct AddTask {
       priority: this.priority
     }
     try {
-      await NativeCoreService.createTask(this.config.repos, repository, this.config.inboxFile, task, this.config.todoDefaults)
+      const target = await FileTargetService.resolve(this.config, 'inbox')
+      if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
+      await target.repo.createTask(target.path, task, target.repository.webdavEnabled)
       this.saved = true
       this.message = repository.webdavEnabled ? '任务已保存到本地，将在后续同步时上传' : '任务已保存到本地'
     } catch (e) {
@@ -114,11 +110,6 @@ struct AddTask {
   }
 
   onBackPress(): boolean { return this.saving }
-
-  chooseRepository() {
-    this.getUIContext().showActionSheet({ title: '目标存储库', message: '任务写入所选存储库的收集箱',
-      sheets: this.config.repos.map((repo: RepoConfig): SheetInfo => ({ title: repositoryLabel(repo), action: () => { this.selectedRepoId = repo.id; this.loadInitialState() } })) })
-  }
 
   choosePriority() {
     this.getUIContext().showActionSheet({ title: '优先级', message: '', sheets: [
@@ -173,7 +164,7 @@ struct AddTask {
                   Text(`${repositoryLabel(this.config.repos.find((repo: RepoConfig) => repo.id === this.selectedRepoId))} / ${this.config.inboxFile}`)
                     .fontSize(14).fontColor(UiColor.primary).layoutWeight(1).maxLines(2)
                   Image($r('app.media.ui_down')).width(20).height(20)
-                }.width('100%').padding(16).onClick((): void => { this.chooseRepository() })
+                }.width('100%').padding(16)
                 TextInput({ placeholder: '任务标题', text: this.heading }).fontSize(22).height(72).borderRadius(0)
                   .backgroundColor(Color.Transparent).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.heading = value })
                 Divider().color(UiColor.outline)

@@ -129,8 +129,8 @@ export class CoreRepo {
     await this.native.load()
   }
 
-  async createTask(path: string, task: CoreNewTask, queueUpload: boolean): Promise<void> {
-    await this.native.createTask(path, task, queueUpload)
+  async createTask(path: string, task: CoreNewTask, queueUpload: boolean, insertAtTop: boolean = false): Promise<void> {
+    await this.native.createTask(path, task, queueUpload, insertAtTop)
   }
 
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {
@@ -232,12 +232,12 @@ export class NativeCoreService {
     return await request
   }
 
-  static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask, todoDefaults?: string): Promise<void> {
+  static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask, todoDefaults?: string, insertAtTop: boolean = false): Promise<void> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
-    await repo.createTask(path, task, repository.webdavEnabled)
+    await repo.createTask(path, task, repository.webdavEnabled, insertAtTop)
   }
 
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreBridgeResponse> {

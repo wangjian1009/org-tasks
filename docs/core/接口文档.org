@@ -188,7 +188,7 @@ impl OrgFile {
 
 ~NewTask~ 是任务创建的运行时输入，字段为 ~heading~ 、 ~scheduled~ 、 ~deadline~ 、 ~tags~ 与 ~priority~ 。日期为空或有效的 ~YYYY-MM-DD~ ，优先级为空或 ~A/B/C~ ，标题不能为空或包含控制字符，标签只允许字母、数字、中文及 ~_@#%~ 。标题中的隐式 Org 属性必须拒绝，避免与表单属性产生歧义。
 
-~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。它读取当前磁盘内容，在文件末尾通过 ~apply_edit~ 追加使用目标文件有效初始状态的一级标题和可选 planning 行，保留原有字节，并为新增内容采用原文件换行风格。追加后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加标题的文件会返回输入错误。
+~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。默认在文件末尾通过 ~apply_edit~ 追加使用目标文件有效初始状态的一级标题和可选 planning 行；~create_task_at_top~ 则在文件头配置与前言之后、第一条标题之前插入。两者均保留原有字节并沿用文件换行风格，写入后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加或插入标题的文件会返回输入错误。
 
 写入先在目标文件同级生成并刷新临时文件，提交前检查目标内容仍与读取时一致，再原子重命名并更新仓库快照。宿主必须串行调用同一仓库的编辑和同步；Harmony 通过 workspace 锁执行。该检查不能替代跨进程文件锁。
 
@@ -494,6 +494,7 @@ pub struct OrgFileMetadata {
     pub path: String,
     pub title: Option<String>,
     pub title_parts: Vec<TitlePart>,
+    pub is_ignore: bool,
     pub task_count: usize,
     pub byte_length: usize,
     pub modified_at: Option<TimestampMs>,
@@ -504,7 +505,7 @@ pub struct OrgFileMetadata {
 
 当前轻量接口减少响应构建和跨层复制，首次加载仍需完整解析。后续若优化首次列表扫描，可评估由 Core 缓存文件版本与已解析元信息，或提供专门头部扫描；需要保持注释、块结构、第一条声明和文件头边界语义，并避免固定行数遗漏合法 TITLE。任何缓存都不得改变同步读取完整原始字节的要求。
 
-~task_count~ 统计当前文件语法树中的所有标题，包括已完成和无 TODO 的标题；命中 ~.orgzlyignore~ 时为零，语义与 Core 的任务扫描一致。 ~byte_length~ 来自源字节长度， ~modified_at~ 使用扫描目录时已有的文件属性，转换为 Unix 毫秒时间，无可用值时为 ~None~ 。读取轻量清单不重新 stat 文件；需要最新信息时先加载仓库。文件对象的克隆与默认 TODO 设置更新保留已读取的磁盘时间，内存中直接创建的文件时间为 ~None~ 。这些信息不写入同步历史，也不用于替代同步版本判断。
+~is_ignore~ 表示相对路径是否命中 ~.orgzlyignore~ ，宿主文件选择列表必须过滤该项；~task_count~ 统计当前文件语法树中的所有标题，包括已完成和无 TODO 的标题；命中 ~.orgzlyignore~ 时为零，语义与 Core 的任务扫描一致。 ~byte_length~ 来自源字节长度， ~modified_at~ 使用扫描目录时已有的文件属性，转换为 Unix 毫秒时间，无可用值时为 ~None~ 。读取轻量清单不重新 stat 文件；需要最新信息时先加载仓库。文件对象的克隆与默认 TODO 设置更新保留已读取的磁盘时间，内存中直接创建的文件时间为 ~None~ 。这些信息不写入同步历史，也不用于替代同步版本判断。
 
 * 整篇只读渲染
 

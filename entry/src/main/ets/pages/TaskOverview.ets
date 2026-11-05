@@ -3,6 +3,7 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { AppConfigService } from '../services/AppConfigService'
+import { FileTargetService } from '../services/FileTargetService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
@@ -40,13 +41,15 @@ struct TaskOverview {
     this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(getContext(this))
+      const result = this.view === 'someday' || this.view === 'memo'
+        ? await FileTargetService.query(config, this.view)
+        : await NativeCoreService.queryTasks(config.repos, overviewTaskQuery(this.view), config.todoDefaults)
       if (request !== this.requestId) return
-      if (this.view === 'someday' && !config.somedayFile || this.view === 'memo' && !config.memoFile) {
+      if (!result) {
         this.needsConfiguration = true
         this.tasks = []
         return
       }
-      const result = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery(this.view, config.somedayFile, config.memoFile), config.todoDefaults)
       const sections = this.view === 'today'
         ? await todaySections(result.tasks, await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)) : []
       if (request !== this.requestId) return
@@ -81,7 +84,7 @@ struct TaskOverview {
       if (this.loading) {
         EmptyState({ title: '正在读取任务', busy: true })
       } else if (this.needsConfiguration) {
-        EmptyState({ title: `尚未配置${overviewTitle(this.view)}文件`, detail: `请在设置的“笔记与笔记本”中配置${overviewTitle(this.view)}文件。`,
+        EmptyState({ title: `${overviewTitle(this.view)}文件未选择或已失效`, detail: '请在设置的“笔记与笔记本”中重新选择仓库和文件。',
           actionLabel: '前往设置', action: (): void => {
             router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
           } })

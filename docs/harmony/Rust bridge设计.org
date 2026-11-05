@@ -54,7 +54,8 @@ class Repo {
   files(): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
-  createTask(path: string, task: NewTask, queueUpload: boolean): Promise<void>
+  createTask(path: string, task: NewTask, queueUpload: boolean,
+             insertAtTop?: boolean): Promise<void>
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
        options?: SyncOptions): Promise<SyncRecord>
   conflicts(): Promise<ConflictSync[]>
@@ -127,7 +128,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 创建、同步与合并
 
-~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径和 ~queueUpload~ ，Rust 负责校验、保真追加、提交与 outbox。ArkTS 只提交表单值，不生成 Org 正文。
+~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径、 ~queueUpload~ 和可选的 ~insertAtTop~ 位置标记；Rust 负责校验、保真追加或头部插入、提交与 outbox。省略 ~insertAtTop~ 或传 ~false~ 时保持文件末尾追加，快速捕捉传 ~true~ 在文件头配置与前言之后、第一条标题之前插入。ArkTS 只提交表单值，不生成 Org 正文。
 
 ~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
 
@@ -206,6 +207,8 @@ interface OrgFileMetadata {
   readonly repoId: string
   readonly path: string
   readonly title: string | null
+  readonly titleParts: TitlePart[]
+  readonly isIgnore: boolean
   readonly taskCount: number
   readonly byteLength: number
   readonly modifiedAt: number | null
@@ -215,6 +218,8 @@ interface OrgFileMetadata {
 ~Repo.fileMetadata()~ 在 worker 中加载仓库，调用 Core 的 ~OrgRepo.file_metadata()~ ，只投影文件元信息；不调用任务查询，不传递 ~source~ 、 ~todo~ 或原始字节。完整文件继续通过 ~repo.file(path)~ 获取， ~file.title()~ 返回取得该对象时 Core 提取的标题，旧对象不随仓库刷新变化。两个接口都由 Core 读取文件头语法树，Bridge 和 ArkTS 不解析 TITLE。
 
 ~OrgFileMetadata.taskCount~ 由 Core 对有效文件语法树统计标题数，沿用任务扫描忽略规则；不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
+
+Core 的 ~is_ignore~ 通过现有 Rust 元信息序列化、C++ worker 的结构化 JSON 投影映射为 ~isIgnore~ ，无需新增 native 方法或 getter。文件入口选择页据此排除忽略文件；常规存储库浏览仍取得完整元信息。选择提交、入口查询和捕捉写入前都重新取得 ~fileMetadata()~ ，拒绝已经不存在或被忽略的确切目标，不能根据同名路径重新选择仓库。
 
 当前手机侧边栏已移除分类过滤控件和分类结果页； ~TaskQuery.categories~ 仍是 Core 的通用查询参数，不依赖该 UI 入口。
 
@@ -247,6 +252,6 @@ interface TitlePart {
 ~TitlePart.is_link~ 映射为 ~isLink~ ；该标记保留链接与普通文字的语义区别， ~href=null~ 的链接仍可显示为辅助文字色虚线下划线。普通文字没有下划线，只有非空 ~href~ 才绑定系统打开操作。
 * 快速捕捉复用
 
-快速捕捉复用 ~Repo.createTask~ ，只传 ~heading~ ，其余可选任务属性为空，不新增独立捕捉领域 API。所有入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
+快速捕捉复用 ~Repo.createTask~ ，只传 ~heading~ ，其余可选任务属性为空，并请求 ~insertAtTop=true~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。所有入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
 
 捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Repo.createTask~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。

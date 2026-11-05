@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-capture.cjs\n验证捕捉输入、目标选择、草稿持久化和共享会话初始化。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-capture.cjs\n验证文件入口的仓库隔离、失效处理、配置保存，以及捕捉输入、草稿和共享会话初始化。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 
@@ -43,7 +43,11 @@ function repository(id) {
 function fixture() {
   const values = new Map();
   const calls = [];
-  const config = { repos: [repository('personal')], captureRepoId: '', inboxFile: 'inbox.org', todoDefaults: 'TODO | DONE' };
+  const config = { repos: [repository('personal')], inboxFile: 'inbox.org', inboxRepoId: 'personal',
+    somedayFile: '', somedayRepoId: '', memoFile: '', memoRepoId: '', todoDefaults: '#+TODO: TODO | DONE' };
+  const fileLists = new Map([['personal', [{ path: 'inbox.org', isIgnore: false }, { path: 'notes/inbox.org', isIgnore: false }]]]);
+  const queries = [];
+  let reads = 0;
   let failNextRead = false;
   const store = {
     async get(key, fallback) {
@@ -57,10 +61,26 @@ function fixture() {
   const load = etsLoader({
     '@kit.ArkData': { preferences: { async getPreferences() { return store; } } },
     '../services/AppConfigService': {},
-    './AppConfigService': { AppConfigService: { async load() { return config; }, async save(context, value) { Object.assign(config, value); } } },
-    './NativeCoreService': { NativeCoreService: { async createTask(...args) { calls.push(args); } } }
+    './AppConfigService': { AppConfigService: { async load() { return structuredClone(config); }, async save(context, value) { Object.assign(config, value); } } },
+    './NativeCoreService': { NativeCoreService: {
+      async repository(repos, selected) {
+        assert.deepEqual(repos.map(repo => repo.id), [selected.id]);
+        return {
+          async fileMetadata() { reads++; return fileLists.get(selected.id) || []; },
+          async createTask(file, task, queueUpload, insertAtTop) {
+            assert.equal(queueUpload, selected.webdavEnabled);
+            calls.push([config.repos, selected, file, task, config.todoDefaults, insertAtTop]);
+          }
+        };
+      },
+      async queryTasks(repos, query) {
+        queries.push({ repos, query });
+        return { tasks: repos.map(repo => ({ id: repo.id + ':inbox.org', heading: repo.name })), categories: [] };
+      }
+    } }
   });
-  return { ...load('services/CaptureService'), config, calls, values, failRead() { failNextRead = true; } };
+  return { ...load('services/CaptureService'), ...load('services/FileTargetService'), config, calls, queries, fileLists, values,
+    reads: () => reads, failRead() { failNextRead = true; } };
 }
 
 test('只把外部文字整理为标题，日期保留原话，URI 正确解码', () => {
@@ -77,15 +97,69 @@ test('只把外部文字整理为标题，日期保留原话，URI 正确解码'
   assert.equal(captureRequest({ parameters: { title: '明天交报告', file: '/tmp/other.org' } }).title, '明天交报告');
 });
 
-test('默认目标不把失效配置静默回退到其他存储库', () => {
+test('收件箱必须指定仓库，缺失或失效 ID 均不回退到首个仓库', async () => {
   const f = fixture();
   assert.equal(f.captureRepository(f.config).id, 'personal');
   f.config.repos.push(repository('work'));
-  assert.equal(f.captureRepository(f.config), undefined);
-  f.config.captureRepoId = 'work';
+  f.config.inboxRepoId = 'work';
   assert.equal(f.captureRepository(f.config).id, 'work');
-  f.config.repos.pop();
-  assert.equal(f.captureRepository(f.config), undefined);
+  for (const id of ['', 'removed']) {
+    f.config.inboxRepoId = id;
+    assert.equal(f.captureRepository(f.config), undefined);
+    assert.equal(await f.FileTargetService.query(f.config, 'inbox'), undefined);
+    await assert.rejects(f.CaptureService.save({}, '标题'), /重新选择/);
+  }
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.queries.length, 0);
+  assert.equal(f.reads(), 0);
+});
+
+test('同名文件只查询和写入选中的仓库，某天和备忘的完成规则分别传给 Core', async () => {
+  const f = fixture();
+  f.config.repos.push(repository('work'));
+  f.fileLists.set('work', [{ path: 'inbox.org', isIgnore: false }]);
+  f.config.inboxRepoId = 'work';
+  const result = await f.FileTargetService.query(f.config, 'inbox');
+  assert.deepEqual(result.tasks.map(task => task.heading), ['work']);
+  assert.deepEqual(f.queries[0].repos.map(repo => repo.id), ['work']);
+  assert.equal(f.queries[0].query.expression, 'b."inbox.org"');
+  await f.CaptureService.save({}, '标题');
+  assert.equal(f.calls[0][1].id, 'work');
+  await f.FileTargetService.select({}, 'someday', 'work', 'inbox.org');
+  await f.FileTargetService.query(f.config, 'someday');
+  assert.equal(f.queries[1].query.includeDone, false);
+  await f.FileTargetService.select({}, 'memo', 'personal', 'inbox.org');
+  await f.FileTargetService.query(f.config, 'memo');
+  assert.equal(f.queries[2].query.includeDone, true);
+});
+
+test('文件已删除或被忽略时不查询、不创建同名文件，保留原目标供重新选择', async () => {
+  const f = fixture();
+  for (const files of [[], [{ path: 'inbox.org', isIgnore: true }]]) {
+    f.fileLists.set('personal', files);
+    assert.equal(await f.FileTargetService.query(f.config, 'inbox'), undefined);
+    await assert.rejects(f.CaptureService.save({}, '标题'), /重新选择/);
+    await assert.rejects(f.FileTargetService.select({}, 'memo', 'personal', 'inbox.org'), /重新选择/);
+  }
+  assert.equal(f.config.inboxFile, 'inbox.org');
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.queries.length, 0);
+});
+
+test('选择与清除只修改对应文件入口，保留其他设置和新选中的目标', async () => {
+  const f = fixture();
+  f.config.calendarName = '刚修改的日历';
+  f.config.todoDefaults = '#+TODO: NEXT | FINISHED';
+  await f.FileTargetService.select({}, 'memo', 'personal', 'notes/inbox.org');
+  assert.equal(f.config.memoRepoId, 'personal');
+  assert.equal(f.config.memoFile, 'notes/inbox.org');
+  assert.equal(f.config.inboxFile, 'inbox.org');
+  assert.equal(f.config.calendarName, '刚修改的日历');
+  assert.equal(f.config.todoDefaults, '#+TODO: NEXT | FINISHED');
+  await f.FileTargetService.select({}, 'memo', '', '');
+  assert.equal(f.config.memoRepoId, '');
+  assert.equal(f.config.memoFile, '');
+  assert.equal(f.config.inboxRepoId, 'personal');
 });
 
 test('保存只提交标题和空元数据，使用配置 inbox 与既有上传规则', async () => {
@@ -97,7 +171,8 @@ test('保存只提交标题和空元数据，使用配置 inbox 与既有上传�
   assert.equal(f.calls[0][2], 'notes/inbox.org');
   assert.deepEqual(f.calls[0][3], { heading: '周五前交报销', scheduled: '', deadline: '', tags: [], priority: '' });
   assert.equal(f.calls[0][1].id, 'personal');
-  assert.equal(f.calls[0][4], 'TODO | DONE');
+  assert.equal(f.calls[0][4], '#+TODO: TODO | DONE');
+  assert.equal(f.calls[0][5], true, '快速捕捉必须请求文件顶部插入');
 });
 
 test('缺少标题、收件箱或明确目标时不调用写入', async () => {
@@ -107,8 +182,9 @@ test('缺少标题、收件箱或明确目标时不调用写入', async () => {
   await assert.rejects(f.CaptureService.save({}, '标题'));
   f.config.inboxFile = 'inbox.org';
   f.config.repos.push(repository('work'));
-  await assert.rejects(f.CaptureService.save({}, '标题'));
-  assert.equal(f.calls.length, 0);
+  await f.CaptureService.save({}, '标题');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0][1].id, 'personal');
 });
 
 test('多入口草稿并发更新保留不同标题，清理后不恢复已提交内容', async () => {
@@ -134,12 +210,45 @@ test('草稿存储失败会显式拒绝，后续写入仍可恢复', async () =>
   assert.deepEqual(await f.CaptureService.drafts({}), [{ id: 'draft', title: '恢复保存' }]);
 });
 
-test('选择默认目标后沿用稳定配置 ID，拒绝已移除目标', async () => {
-  const f = fixture();
-  await f.CaptureService.selectRepository({}, 'personal');
-  assert.equal(f.config.captureRepoId, 'personal');
-  await assert.rejects(f.CaptureService.selectRepository({}, 'removed'));
-  assert.equal(f.config.captureRepoId, 'personal');
+test('旧路径配置不猜测仓库，明确绑定能持久化，删除仓库后保持失效身份', async () => {
+  const values = new Map([
+    ['repos', JSON.stringify([repository('personal')])],
+    ['inboxFile', 'inbox.org'], ['memoFile', 'notes.org']
+  ]);
+  const load = etsLoader({
+    'liborg_tasks_harmony.so': {
+      Workspace: class { async setTodoDefaults() {} },
+      async defaultTodoSettings() { return '#+TODO: TODO | DONE'; },
+      async defaultSyncOptions() { return { excludedDirectories: [] }; },
+      async normalizeSyncOptions(value) { return value; }
+    },
+    '@kit.ArkData': { preferences: { async getPreferences() {
+      return { async get(key, fallback) { return values.has(key) ? values.get(key) : fallback; },
+        async put(key, value) { values.set(key, value); }, async flush() {} };
+    } } },
+    './CredentialService': { CredentialService: {
+      async getWebDavPassword() { return ''; }, async setWebDavPassword() {}, async clearWebDavPassword() {}
+    } },
+    './NativeCoreService': { NativeCoreService: {} }
+  });
+  const { AppConfigService } = load('services/AppConfigService');
+  const { fileTargetRepository } = load('services/FileTargetService');
+  const old = await AppConfigService.load({}, false);
+  assert.equal(old.inboxFile, 'inbox.org');
+  assert.equal(old.inboxRepoId, '');
+  assert.equal(fileTargetRepository(old, 'inbox'), undefined);
+  old.inboxRepoId = 'personal';
+  old.memoRepoId = 'personal';
+  await AppConfigService.save({}, old);
+  const restored = await AppConfigService.load({}, false);
+  assert.equal(restored.inboxRepoId, 'personal');
+  assert.equal(restored.memoFile, 'notes.org');
+  await AppConfigService.removeRepository({}, 'personal');
+  const removed = await AppConfigService.load({}, false);
+  assert.equal(removed.inboxRepoId, 'personal');
+  assert.equal(removed.inboxFile, 'inbox.org');
+  removed.repos.push(repository('replacement'));
+  assert.equal(fileTargetRepository(removed, 'inbox'), undefined);
 });
 
 test('两个窗口冷启动只创建一个共享 workspace，继续复用同一仓库对象', async () => {
@@ -150,7 +259,7 @@ test('两个窗口冷启动只创建一个共享 workspace，继续复用同一�
     async addRepo(rootDirectory) { const repo = { rootDirectory }; this.repositories.push(repo); return repo; }
     async repos() { return this.repositories; }
   }
-  const load = etsLoader({ 'liborg_tasks_harmony.so': { Workspace, async defaultTodoSettings() { return 'TODO | DONE'; } } });
+  const load = etsLoader({ 'liborg_tasks_harmony.so': { Workspace, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; } } });
   const { NativeCoreService } = load('services/NativeCoreService');
   const repos = [repository('personal')];
   const sessions = await Promise.all(Array.from({ length: 8 }, () => NativeCoreService.workspaceFor(repos)));
@@ -164,7 +273,7 @@ test('仅捕捉本地标题时不读取安全存储，常规配置读取仍保�
   repo.webdavEnabled = true;
   let credentialReads = 0;
   const load = etsLoader({
-    'liborg_tasks_harmony.so': { async defaultTodoSettings() { return 'TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
+    'liborg_tasks_harmony.so': { async defaultTodoSettings() { return '#+TODO: TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
     '@kit.ArkData': { preferences: { async getPreferences() { return { async get(key, fallback) { return key === 'repos' ? JSON.stringify([repo]) : fallback; } }; } } },
     './CredentialService': { CredentialService: { async getWebDavPassword() { credentialReads++; return 'test-password'; } } }
   });
