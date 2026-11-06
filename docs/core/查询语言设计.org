@@ -48,9 +48,11 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 * core 映射
 
-~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存仓库 ID、相对路径、源位置、标题层级、状态、优先级、自身标签、继承标签、标题、正文和规划时间。~OrgWorkspace.search~ 汇总各仓库任务后由核心过滤器统一求值；宿主和 CLI 不得重新解释 org AST 或绕过 workspace 实现搜索。
+~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存由 Core 生成的逻辑 ~id~ 、仓库 ID、相对路径、源位置、标题层级、状态、优先级、自身标签、继承标签、标题、正文和规划时间。~OrgWorkspace.search~ 汇总各仓库任务后由核心过滤器统一求值；宿主和 CLI 不得重新解释 org AST 或绕过 workspace 实现搜索。
 
 任务投影覆盖全部 headline，以保持 ~it.none~ 和 ~.it.done~ 的 headline 语义一致。参考应用还会为每个文件的前言创建无状态根笔记；core 不投影 ~#+TITLE~ 、文件属性或第一个 headline 前的文本，因此这些文件级前言不参与任务查询。~created~ 语法已由 ~Filter~ 表达，但当前 ~OrgFile~ 还未提供创建时间字段，因此该条件在任务搜索中不会匹配；新增创建时间模型时应补充投影，而不改变语法或 parser。
+
+任务 ID 在完整文件遍历时生成，独立于当前表达式、排序、分类及包含开关。归一化标题链、MD5 编码与重复项规则见 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]]；查询结果不会按逻辑标题合并记录，也不因身份计算去除原始标题中的进度文本。
 
 * 兼容性测试
 

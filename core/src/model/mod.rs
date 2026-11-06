@@ -8,6 +8,7 @@ mod merge;
 mod query;
 mod render;
 pub(crate) mod service;
+pub(crate) mod task_identity;
 mod task_scan;
 mod todo;
 mod workspace;

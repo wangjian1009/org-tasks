@@ -95,6 +95,10 @@ impl OrgWorkspace {
 
 ~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 ~search~ 汇总全部已加载仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
+*** 任务身份
+
+~OrgWorkspace.search~ 和 ~query~ 返回的每个 ~FilterTask~ 均包含只读语义的 ~id: String~ ：由 Core 对仓库根路径、文件相对路径和归一化任务标题链计算 MD5。算法、无状态记录与重名项规则以 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]] 为准。状态、首尾进度和源位置变化不改变逻辑 ID；调用方不得把 ~byte_offset~ 当成跨快照身份，也不得自行解析标题计算 ID。任务内容是取得时的快照，逻辑 ID 相同仍可能有不同状态、正文或时间，展示与路由需要采用新快照。
+
 *** OrgRepo
 
 ~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~ ，由 ~load::<P>~ 返回，不作为仓库字段保留。
@@ -262,7 +266,7 @@ impl OrgRepoSyncFileRecord {
 }
 #+end_src
 
-记录只保存相对路径、版本、action、state 和脱敏错误摘要；不得保存完整 org 内容、绝对路径、远端完整 URL 或凭据。
+记录保存相对路径、版本、action、state 和脱敏错误摘要；WebDAV 成功文件的 ~detail.synced_source~ 额外保存完整同步后内容作为共同基线。绝对路径、远端完整 URL、认证 header 与配置凭据不得进入记录。
 
 *** LocalFileVersion 与策略文件细节
 
@@ -330,7 +334,7 @@ pub trait SyncPolicy: Send + Sync {
 
 #+end_src
 
-策略不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整 org 文件内容写入同步记录或错误摘要。上传前必须使用 ~serialize_file~ 的完整字节，不能对未修改区域重新格式化。
+策略不得将密码、Authorization header、仓库绝对路径、远端完整 URL 或完整文件内容写入错误摘要。完整成功文件仅通过 ~detail.synced_source~ 保存于同步日志；上传和快照均使用 ~serialize_file~ 的完整字节，不格式化其他范围。
 
 *** SyncContext 与策略细节
 
@@ -443,9 +447,9 @@ pub struct WebDavMergeOutcome {
 }
 #+end_src
 
-~compare_merge~ 自行加载仓库与历史，读取远端版本，返回统一的 ~changes~ 列表。每个差异带临时 ~id~ 、文件路径、新增/修改/删除候选、本地与远端版本，以及初始为空的 ~resolution~ 。未变化任务自动保留，不要求提交选择。差异来源是 Org 标题及自身 section，文件前言单独比较；无稳定 ID 的改名不能猜测为同一任务。
+~compare_merge~ 自行加载仓库与历史，读取每个路径最近成功日志中的完整文件快照，先计算本地相对快照的任务变更，再与本次远端文件比较；没有完整快照时兼容旧任务指纹。返回的 ~changes~ 只包含需要决定的本地变更，以及保留本地变更所必需、已被远端删除或层级不兼容的祖先；远端独有变更直接保留。同一任务在两端已相同时无需决定。每项包含 ~id~ 、路径、相对远端的 ~kind~ 、 ~preamble~ 、 ~localChange~ 、 ~remoteChange~ 、两端版本和空 ~resolution~ 。
 
-调用方将 ~mode~ 设为 ~MergeTasks~ ，为每个变化选择 ~Local~ 、 ~Remote~ 或 ~Remove~ ，再将整个比较对象传给 ~apply_merge~ 。选择不存在的一端即确认不保留该项； ~AcceptRemote~ 模式整份采用各文件的远端内容，包括确认远端已经删除的文件。来源、ID、类型、文件列表和版本字段都是只读数据，不可重写。
+调用方将 ~mode~ 设为 ~MergeTasks~ 。以远端文件为基准，“接受”本地变更对应 ~Local~ ，“丢弃”对应 ~Remote~ ；选择不存在的一端即不保留该任务。远端删除、本地修改时，接受恢复本地任务、丢弃保留删除；本地删除、远端修改时，接受执行删除、丢弃保留远端修改。Core 仍兼容显式 ~Remove~ 枚举及 ~AcceptRemote~ 整次采用远端模式。来源、两端变更状态、ID、类型、文件列表与版本字段只读。
 
 ~apply_merge~ 重新加载整个仓库，并比较身份、全部 Org 文件的路径与内容、同步历史和 outbox 的组合版本；任何变化都在网络写入和备份之前拒绝。远端配置指纹和每个冲突文件的 ETag、正文指纹也必须一致。新出现或已经解决的冲突、缺少选择、重复 ID、修改来源内容、无效层级和过期对象均不能提交；调用方应重新比较。
 

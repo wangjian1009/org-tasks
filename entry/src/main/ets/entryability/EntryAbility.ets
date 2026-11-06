@@ -29,7 +29,7 @@ export default class EntryAbility extends UIAbility {
     })
     // 加载主页面
     windowStage.loadContent('pages/TaskOverview', (err) => {
-      if (err) {
+      if (err && err.code !== 0) {
         console.error('加载页面失败:', JSON.stringify(err))
       }
     })

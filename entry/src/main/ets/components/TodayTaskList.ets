@@ -1,3 +1,4 @@
+import { taskRenderKey } from '../ui/TaskPresentation'
 import { CoreTitlePart } from '../services/NativeCoreService'
 import { router } from '@kit.ArkUI'
 import { TodaySection, TodayTaskItem } from '../ui/TodayPresentation'
@@ -31,9 +32,9 @@ export struct TodayTaskList {
                 .accessibilityText(`${item.task.headingParts.map((part: CoreTitlePart) => part.text).join('')}${item.overdueDays > 0 ? `，已过期 ${item.overdueDays} 天` : ''}`)
                 .onClick((): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } }) })
             }
-          }, (item: TodayTaskItem) => item.task.id)
+          }, (item: TodayTaskItem) => taskRenderKey(item.task))
         }
-      }, (section: TodaySection) => section.key)
+      }, (section: TodaySection) => JSON.stringify(section))
     }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
       .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .edgeEffect(EdgeEffect.None)

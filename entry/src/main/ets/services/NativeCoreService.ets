@@ -6,6 +6,8 @@ import {
   ConflictSync as NativeConflictSync,
   MergeComparison as NativeMergeComparison,
   MergeChange as NativeMergeChange,
+  MergeChangeState as NativeMergeChangeState,
+  MergeFileVersion as NativeMergeFileVersion,
   MergeOutcome as NativeMergeOutcome,
   NewTask as NativeNewTask,
   CoreError as NativeCoreError,
@@ -27,6 +29,7 @@ import { RepoConfig, SyncOptions } from '../models/OrgTask'
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
+// 任务逻辑身份由 Core 生成，宿主不按源位置或标题重新计算。
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
 export type CoreTaskQuery = NativeTaskQuery
@@ -52,6 +55,8 @@ export type CoreTodoMetadata = NativeTodoMetadata
 
 export type CoreMergeComparison = NativeMergeComparison
 export type CoreMergeChange = NativeMergeChange
+export type CoreMergeChangeState = NativeMergeChangeState
+export type CoreMergeFileVersion = NativeMergeFileVersion
 export type CoreMergeOutcome = NativeMergeOutcome
 export enum CoreMergeMode {
   AcceptRemote = 'acceptRemote',

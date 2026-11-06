@@ -38,6 +38,8 @@ pub enum OrgMergeChange {
 pub struct OrgMergeItem {
     pub key: String,
     pub change: OrgMergeChange,
+    pub local_change: OrgMergeChange,
+    pub remote_change: OrgMergeChange,
     pub local: Option<OrgMergeVersion>,
     pub remote: Option<OrgMergeVersion>,
 }
@@ -171,6 +173,42 @@ pub fn compare_org_tasks(
         .iter()
         .map(|v| (v.key.as_str(), v.hash.as_str()))
         .collect::<BTreeMap<_, _>>();
+    let side_change = |key: &str, version: Option<&OrgMergeVersion>| {
+        if baseline.is_none() {
+            return OrgMergeChange::Unmatched;
+        }
+        match (base.get(key), version) {
+            (Some(hash), Some(version)) if **hash == version_hash(version) => {
+                OrgMergeChange::Unchanged
+            }
+            (Some(_), Some(_)) => OrgMergeChange::Modified,
+            (Some(_), None) => OrgMergeChange::Deleted,
+            (None, Some(_)) => OrgMergeChange::Added,
+            (None, None) => OrgMergeChange::Unchanged,
+        }
+    };
+    // 本地变更依赖的已删除祖先也必须可供选择，不能静默丢弃子任务。
+    let mut required_parents = BTreeSet::new();
+    for (key, version) in &local_units {
+        if side_change(key, Some(version)) == OrgMergeChange::Unchanged
+            || remote_by_key.get(key) == Some(version)
+        {
+            continue;
+        }
+        let mut parent = version.parent.as_deref();
+        let mut child_level = version.level;
+        while let Some(key) = parent {
+            if remote_by_key
+                .get(key)
+                .is_none_or(|version| version.level >= child_level)
+            {
+                required_parents.insert(key.to_string());
+            }
+            let local_parent = &local_by_key[key];
+            child_level = local_parent.level;
+            parent = local_parent.parent.as_deref();
+        }
+    }
     let mut seen = BTreeSet::new();
     let items = remote_units
         .iter()
@@ -181,16 +219,25 @@ pub fn compare_org_tasks(
             }
             let local = local_by_key.get(key).cloned();
             let remote = remote_by_key.get(key).cloned();
+            let local_change = side_change(key, local.as_ref());
+            let remote_change = side_change(key, remote.as_ref());
             let change = match (&local, &remote) {
                 (Some(a), Some(b)) if a == b => OrgMergeChange::Unchanged,
+                _ if local_change == OrgMergeChange::Unchanged
+                    && !required_parents.contains(key) =>
+                {
+                    OrgMergeChange::Unchanged
+                }
                 (Some(_), Some(_)) => OrgMergeChange::Modified,
                 _ if baseline.is_none() => OrgMergeChange::Unmatched,
-                _ if base.contains_key(key.as_str()) => OrgMergeChange::Deleted,
-                _ => OrgMergeChange::Added,
+                (Some(_), None) => OrgMergeChange::Added,
+                _ => OrgMergeChange::Deleted,
             };
             Some(OrgMergeItem {
                 key: key.clone(),
                 change,
+                local_change,
+                remote_change,
                 local,
                 remote,
             })
@@ -577,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn baseline_distinguishes_additions_and_deletions_without_storing_tasks() {
+    fn remote_only_changes_are_kept_and_legacy_fingerprints_still_work() {
         let base = file("* TODO A\n* TODO Deleted\n");
         let local = base.clone();
         let remote = file("* TODO A\n* TODO Added\n");
@@ -589,7 +636,7 @@ mod tests {
                 .find(|item| item.local.as_ref().is_some_and(|v| v.title == "Deleted"))
                 .unwrap()
                 .change,
-            OrgMergeChange::Deleted
+            OrgMergeChange::Unchanged
         );
         assert_eq!(
             plan.items
@@ -597,7 +644,7 @@ mod tests {
                 .find(|item| item.remote.as_ref().is_some_and(|v| v.title == "Added"))
                 .unwrap()
                 .change,
-            OrgMergeChange::Added
+            OrgMergeChange::Unchanged
         );
         assert_eq!(
             merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Remote)).unwrap(),
@@ -613,6 +660,156 @@ mod tests {
                 .filter(|item| item.change == OrgMergeChange::Unmatched)
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn local_changes_are_reviewed_against_remote_with_both_delete_modify_conflicts() {
+        fn task(body: Option<&str>) -> String {
+            body.map(|body| format!("* TODO Task\n:PROPERTIES:\n:ID: stable\n:END:\n{body}\n"))
+                .unwrap_or_default()
+        }
+        use OrgMergeChange::{Added, Deleted, Modified, Unchanged};
+        let cases = [
+            (
+                Some("base"),
+                Some("local"),
+                None,
+                Modified,
+                Deleted,
+                Some(Added),
+            ),
+            (
+                Some("base"),
+                None,
+                Some("remote"),
+                Deleted,
+                Modified,
+                Some(Deleted),
+            ),
+            (
+                Some("base"),
+                Some("local"),
+                Some("remote"),
+                Modified,
+                Modified,
+                Some(Modified),
+            ),
+            (
+                Some("base"),
+                None,
+                Some("base"),
+                Deleted,
+                Unchanged,
+                Some(Deleted),
+            ),
+            (
+                Some("base"),
+                Some("local"),
+                Some("base"),
+                Modified,
+                Unchanged,
+                Some(Modified),
+            ),
+            (None, Some("local"), None, Added, Unchanged, Some(Added)),
+            (None, None, Some("remote"), Unchanged, Added, None),
+            (
+                Some("base"),
+                Some("base"),
+                Some("remote"),
+                Unchanged,
+                Modified,
+                None,
+            ),
+            (Some("base"), Some("base"), None, Unchanged, Deleted, None),
+            (
+                Some("base"),
+                Some("same"),
+                Some("same"),
+                Modified,
+                Modified,
+                None,
+            ),
+        ];
+        for (base, local, remote, local_change, remote_change, expected) in cases {
+            let base = file(&task(base));
+            let local = file(&task(local));
+            let remote = file(&task(remote));
+            let baseline = task_fingerprints(&base);
+            let plan = compare_org_tasks(&local, &remote, Some(&baseline));
+            let reviewed = plan
+                .items
+                .iter()
+                .filter(|item| item.change != Unchanged)
+                .collect::<Vec<_>>();
+            assert_eq!(reviewed.len(), usize::from(expected.is_some()));
+            if let Some(kind) = expected {
+                assert_eq!(reviewed[0].change, kind);
+                assert_eq!(reviewed[0].local_change, local_change);
+                assert_eq!(reviewed[0].remote_change, remote_change);
+            }
+            assert_eq!(
+                merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Remote)).unwrap(),
+                remote.source_bytes()
+            );
+            let accepted = merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Local)).unwrap();
+            assert_eq!(
+                accepted,
+                if expected.is_some() {
+                    local.source_bytes()
+                } else {
+                    remote.source_bytes()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn deleted_parent_remains_reviewable_when_a_local_child_was_modified() {
+        let base = file("* Parent\n** Child\n:PROPERTIES:\n:ID: child\n:END:\nbase\n");
+        let local = file("* Parent\n** Child\n:PROPERTIES:\n:ID: child\n:END:\nlocal\n");
+        let baseline = task_fingerprints(&base);
+        let plan = compare_org_tasks(&local, &file(""), Some(&baseline));
+        assert_eq!(
+            plan.items
+                .iter()
+                .filter(|item| item.change != OrgMergeChange::Unchanged)
+                .count(),
+            2
+        );
+        assert_eq!(
+            merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Local)).unwrap(),
+            local.source_bytes()
+        );
+    }
+
+    #[test]
+    fn remote_parent_level_changes_can_be_rejected_to_keep_a_local_child() {
+        let base = file(
+            "* Parent\n:PROPERTIES:\n:ID: parent\n:END:\n** Child\n:PROPERTIES:\n:ID: child\n:END:\nbase\n",
+        );
+        let local = file(
+            "* Parent\n:PROPERTIES:\n:ID: parent\n:END:\n** Child\n:PROPERTIES:\n:ID: child\n:END:\nlocal\n",
+        );
+        let remote = file(
+            "** Parent\n:PROPERTIES:\n:ID: parent\n:END:\n*** Child\n:PROPERTIES:\n:ID: child\n:END:\nbase\n",
+        );
+        let baseline = task_fingerprints(&base);
+        let plan = compare_org_tasks(&local, &remote, Some(&baseline));
+        assert_eq!(
+            plan.items
+                .iter()
+                .filter(|item| item.change != OrgMergeChange::Unchanged)
+                .count(),
+            2
+        );
+        assert_eq!(
+            merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Local)).unwrap(),
+            local.source_bytes()
+        );
+        assert_eq!(
+            merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Remote)).unwrap(),
+            remote.source_bytes()
         );
     }
 

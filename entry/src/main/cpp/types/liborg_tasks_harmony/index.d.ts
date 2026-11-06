@@ -31,6 +31,7 @@ export class OrgFile {
 export class Task {
   private constructor();
   isDone(): boolean;
+  // Core 生成的逻辑路径 MD5，独立于源字节偏移、状态和首尾进度。
   readonly id: string;
   readonly repoId: string;
   readonly heading: string;
@@ -142,10 +143,14 @@ export interface MergeVersion {
 }
 export type MergeMode = 'acceptRemote' | 'mergeTasks';
 export type MergeResolution = 'local' | 'remote' | 'remove';
+export type MergeChangeState = 'unchanged' | 'added' | 'modified' | 'deleted' | 'unmatched';
 export interface MergeChange {
   id: string;
   path: string;
   kind: 'added' | 'modified' | 'deleted';
+  preamble: boolean;
+  localChange: MergeChangeState;
+  remoteChange: MergeChangeState;
   local: MergeVersion | null;
   remote: MergeVersion | null;
   resolution: MergeResolution | null;

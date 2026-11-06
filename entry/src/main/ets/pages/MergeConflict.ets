@@ -1,29 +1,29 @@
-import { LengthMetrics, router } from '@kit.ArkUI'
+import { router } from '@kit.ArkUI'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreBridgeError, CoreMergeChange, CoreMergeComparison, CoreMergeMode, CoreMergeResolution,
+import { CoreBridgeError, CoreMergeChange, CoreMergeComparison, CoreMergeFileVersion, CoreMergeMode, CoreMergeResolution,
   CoreRepo, CoreWebDavSyncPolicy, coreErrorMessage, NativeCoreService } from '../services/NativeCoreService'
+import { RepositorySyncService } from '../services/RepositorySyncService'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, MessageBar } from '../components/Controls'
+import { MergeTaskCard } from '../components/MergeTaskCard'
 import { UiColor } from '../ui/Theme'
-import { RepositorySyncService } from '../services/RepositorySyncService'
 
 interface MergeParams { repoId: string; syncId: string }
-interface MergeRow { change: CoreMergeChange; choice: string; expanded: boolean }
+interface MergeChoice { id: string; choice: string }
 
 @Entry
 @Component
 struct MergeConflict {
-  @State rows: MergeRow[] = []
-  @State fileCount: number = 0
-  @State unchangedCount: number = 0
+  @State comparison: CoreMergeComparison | undefined = undefined
+  @State choices: MergeChoice[] = []
+  @State generation: number = 0
   @State loading: boolean = true
   @State saving: boolean = false
   @State completed: boolean = false
   @State message: string = ''
   @State backups: string[] = []
   @State drawerOpen: boolean = false
-  private comparison: CoreMergeComparison | undefined = undefined
   private repo: CoreRepo | undefined = undefined
   private policy: CoreWebDavSyncPolicy | undefined = undefined
 
@@ -35,7 +35,8 @@ struct MergeConflict {
     this.loading = true
     this.message = ''
     this.comparison = undefined
-    this.rows = []
+    this.choices = []
+    this.backups = []
     try {
       const params = router.getParams() as MergeParams
       const config = await AppConfigService.load(getContext(this))
@@ -46,49 +47,58 @@ struct MergeConflict {
       const comparison = await policy.compareMerge(repo, params.syncId)
       this.repo = repo
       this.policy = policy
+      this.choices = comparison.changes.map((change: CoreMergeChange) => ({ id: change.id, choice: '' } as MergeChoice))
+      this.generation++
       this.comparison = comparison
-      this.fileCount = comparison.files.length
-      this.unchangedCount = comparison.unchangedCount
-      this.rows = comparison.changes.map((change: CoreMergeChange) => ({ change, choice: '', expanded: false } as MergeRow))
     } catch (e) { this.message = `比较失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.loading = false }
   }
 
-  label(change: CoreMergeChange): string {
-    switch (change.kind) {
-      case 'modified': return '修改 · 请选择保留版本'
-      case 'added': return '新增 · 远端独有项'
-      default: return '删除 · 本地独有项'
-    }
-  }
-
+  choiceFor(id: string): string { return this.choices.find((item: MergeChoice) => item.id === id)?.choice || '' }
   choose(id: string, choice: CoreMergeResolution) {
-    this.rows = this.rows.map((row: MergeRow) => ({ change: row.change, expanded: row.expanded,
-      choice: row.change.id === id ? choice : row.choice } as MergeRow))
+    if (this.saving || !this.comparison) return
+    this.choices = this.choices.map((item: MergeChoice) => ({ id: item.id, choice: item.id === id ? choice : item.choice } as MergeChoice))
   }
-
-  toggle(id: string) {
-    this.rows = this.rows.map((row: MergeRow) => ({ change: row.change, choice: row.choice,
-      expanded: row.change.id === id ? !row.expanded : row.expanded } as MergeRow))
+  remaining(): number { return this.choices.filter((item: MergeChoice) => !item.choice).length }
+  ready(): boolean { return this.choices.every((item: MergeChoice) => item.choice.length > 0) }
+  fileChanges(path: string): CoreMergeChange[] {
+    return this.comparison?.changes.filter((change: CoreMergeChange) => change.path === path) || []
   }
-
-  ready(): boolean { return this.rows.every((row: MergeRow) => row.choice.length > 0) }
-  remaining(): number { return this.rows.filter((row: MergeRow) => !row.choice).length }
-
+  taskChanges(path: string): CoreMergeChange[] { return this.fileChanges(path).filter((change: CoreMergeChange) => !change.preamble) }
+  preambleChanges(path: string): CoreMergeChange[] { return this.fileChanges(path).filter((change: CoreMergeChange) => change.preamble) }
+  fileSummary(path: string): string {
+    const tasks = this.taskChanges(path)
+    return `新增 ${tasks.filter((change: CoreMergeChange) => change.kind === 'added').length} · 修改 ${tasks.filter((change: CoreMergeChange) => change.kind === 'modified').length} · 删除 ${tasks.filter((change: CoreMergeChange) => change.kind === 'deleted').length}`
+  }
   removed(): number {
-    return this.rows.filter((row: MergeRow) => row.choice === CoreMergeResolution.Remove ||
-      row.choice === CoreMergeResolution.Local && !row.change.local ||
-      row.choice === CoreMergeResolution.Remote && !row.change.remote).length
+    return this.comparison?.changes.filter((change: CoreMergeChange) =>
+      this.choiceFor(change.id) === CoreMergeResolution.Local && !change.local ||
+      this.choiceFor(change.id) === CoreMergeResolution.Remote && !change.remote).length || 0
+  }
+
+  recompare() {
+    if (!this.choices.some((item: MergeChoice) => item.choice.length > 0)) { this.load(); return }
+    this.getUIContext().showAlertDialog({ title: '重新比较？', message: '本次尚未提交的接受与丢弃选择将清除。',
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '重新比较', action: (): void => { this.load() } } })
+  }
+
+  moreActions() {
+    if (this.loading || this.saving || this.completed || !this.comparison) return
+    this.getUIContext().showActionSheet({ title: '比较操作', message: '以远端文件为基准，逐项接受或丢弃本地变更', sheets: [
+      { title: '重新比较', action: (): void => { this.recompare() } },
+      { title: '全部丢弃本地变更…', action: (): void => { this.confirm(CoreMergeMode.AcceptRemote) } }
+    ] })
   }
 
   confirm(mode: CoreMergeMode) {
     if (this.loading || this.saving || this.completed || !this.comparison) return
-    if (mode === CoreMergeMode.MergeTasks && !this.ready()) { this.message = '请先确认所有差异项'; return }
-    this.getUIContext().showAlertDialog({ title: mode === CoreMergeMode.AcceptRemote ? '本次同步全部采用远端？' : '应用本次同步的合并？',
-      message: mode === CoreMergeMode.AcceptRemote ? `先备份这 ${this.fileCount} 个冲突文件中已有的本地文件，再采用对应远端版本。`
-        : `保留未变化任务，按选择合并 ${this.fileCount} 个文件；其中 ${this.removed()} 项不保留。提交前会备份已有的本地冲突文件。`,
+    if (mode === CoreMergeMode.MergeTasks && !this.ready()) return
+    this.getUIContext().showAlertDialog({ title: mode === CoreMergeMode.AcceptRemote ? '全部丢弃本地变更？' : '应用任务选择？',
+      message: mode === CoreMergeMode.AcceptRemote ? `备份已有的本地冲突文件后，完整采用这 ${this.comparison.files.length} 个文件的远端版本。`
+        : `以远端文件为基准，应用已接受的本地变更，丢弃其余本地变更；其中 ${this.removed()} 项不保留。提交前备份已有的本地冲突文件。`,
       primaryButton: { value: '取消', action: () => {} }, secondaryButton: {
-        value: mode === CoreMergeMode.AcceptRemote ? '备份并采用远端' : '备份并合并', action: (): void => { this.apply(mode) }
+        value: mode === CoreMergeMode.AcceptRemote ? '备份并全部丢弃' : '备份并应用', action: (): void => { this.apply(mode) }
       } })
   }
 
@@ -102,9 +112,10 @@ struct MergeConflict {
     try {
       const current = await AppConfigService.load(getContext(this))
       await NativeCoreService.workspaceFor(current.repos, current.todoDefaults)
-      const changes = this.rows.map((row: MergeRow) => ({ id: row.change.id, path: row.change.path, kind: row.change.kind,
-        local: row.change.local, remote: row.change.remote,
-        resolution: mode === CoreMergeMode.AcceptRemote ? null : row.choice as CoreMergeResolution } as CoreMergeChange))
+      const changes = comparison.changes.map((change: CoreMergeChange) => ({ id: change.id, path: change.path,
+        kind: change.kind, preamble: change.preamble, localChange: change.localChange, remoteChange: change.remoteChange,
+        local: change.local, remote: change.remote,
+        resolution: mode === CoreMergeMode.AcceptRemote ? null : this.choiceFor(change.id) as CoreMergeResolution } as CoreMergeChange))
       const selected: CoreMergeComparison = { syncId: comparison.syncId, repoId: comparison.repoId,
         repositoryVersion: comparison.repositoryVersion, endpointVersion: comparison.endpointVersion,
         mode, files: comparison.files, unchangedCount: comparison.unchangedCount, changes }
@@ -112,8 +123,8 @@ struct MergeConflict {
       this.backups = result.backups.map((backup) => `${backup.path} → ${backup.backupPath}`)
       this.completed = result.result === 'succeeded'
       this.comparison = undefined
-      this.message = this.completed ? '本次同步的冲突已处理。返回后可继续同步其余文件。'
-        : '部分文件未完成，原始文件已备份。请重新比较剩余冲突。'
+      this.message = this.completed ? '任务变更已处理，同步日志已保存新的文件快照。'
+        : '部分文件未完成，已保留备份。请重新比较剩余冲突。'
       try { await RepositorySyncService.refreshConflicts(getContext(this)) } catch (_) {}
     } catch (e) {
       this.comparison = undefined
@@ -122,83 +133,89 @@ struct MergeConflict {
   }
 
   @Builder
-  choiceButton(row: MergeRow, label: string, choice: CoreMergeResolution) {
-    Button(label).fontSize(13).height(38)
-      .backgroundColor(row.choice === choice ? UiColor.primary : UiColor.selected)
-      .fontColor(row.choice === choice ? UiColor.onPrimary : UiColor.onSelected)
-      .onClick((): void => { this.choose(row.change.id, choice) })
+  taskCard(change: CoreMergeChange) {
+    MergeTaskCard({ change, choice: this.choiceFor(change.id),
+      onChoose: (choice: CoreMergeResolution): void => { this.choose(change.id, choice) } })
   }
 
   @Builder
-  taskRow(row: MergeRow) {
-    Column({ space: 12 }) {
-      Text(row.change.path).fontSize(12).fontColor(UiColor.secondary).width('100%')
-      Text(this.label(row.change)).fontSize(13).fontColor(UiColor.primary).width('100%')
-      Text(row.change.remote?.title || row.change.local?.title || '文件前言').fontSize(17).fontWeight(FontWeight.Medium)
-        .fontColor(UiColor.text).width('100%')
-      if (row.change.local) {
-        Text('本地版本').fontSize(13).fontColor(UiColor.secondary).width('100%')
-        Text(row.change.local.source || '（空）').fontSize(13).lineHeight(20).fontColor(UiColor.text)
-          .width('100%').maxLines(row.expanded ? 10000 : 4).textOverflow({ overflow: TextOverflow.Ellipsis })
-      } else { Text('本地无此项').fontSize(13).fontColor(UiColor.secondary).width('100%') }
-      if (row.change.remote) {
-        Text('远端版本').fontSize(13).fontColor(UiColor.secondary).width('100%')
-        Text(row.change.remote.source || '（空）').fontSize(13).lineHeight(20).fontColor(UiColor.text)
-          .width('100%').maxLines(row.expanded ? 10000 : 4).textOverflow({ overflow: TextOverflow.Ellipsis })
-      } else { Text('远端无此项').fontSize(13).fontColor(UiColor.secondary).width('100%') }
-      Button(row.expanded ? '收起内容' : '展开内容').fontSize(12).height(32).backgroundColor(Color.Transparent)
-        .fontColor(UiColor.primary).onClick((): void => { this.toggle(row.change.id) })
-      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-        this.choiceButton(row, row.change.local ? '保留本地' : '不新增', CoreMergeResolution.Local)
-        this.choiceButton(row, row.change.remote ? '保留远端' : '确认删除', CoreMergeResolution.Remote)
-        if (row.change.local && row.change.remote) this.choiceButton(row, '不保留此项', CoreMergeResolution.Remove)
+  fileHeader(path: string) {
+    Column({ space: 6 }) {
+      Row() {
+        Row({ space: 6 }) {
+          Image($r('app.media.ui_folder')).width(18).height(18)
+          Text(path).fontSize(17).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+        }.layoutWeight(1)
+        Text(`${this.fileChanges(path).filter((change: CoreMergeChange) => !this.choiceFor(change.id)).length} 项待决定`)
+          .fontSize(12).fontColor(UiColor.primary)
       }.width('100%')
-    }.width('100%').padding(16).backgroundColor(UiColor.container).borderRadius(12)
+      Text(this.fileSummary(path)).fontSize(12).fontColor(UiColor.secondary).width('100%')
+    }.width('100%').padding({ top: 16, bottom: 10 })
+  }
+
+  @Builder
+  submitBar() {
+    Column({ space: 8 }) {
+      Row() {
+        Text(`已决定 ${this.choices.length - this.remaining()}/${this.choices.length} 项`).fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+        Text(`直接保留远端 ${this.comparison?.unchangedCount || 0} 个任务`).fontSize(12).fontColor(UiColor.secondary)
+      }.width('100%')
+      Button(this.saving ? '正在备份并应用…' : this.remaining() > 0 ? `还有 ${this.remaining()} 项待决定` : '备份并应用选择')
+        .width('100%').height(44).fontSize(15).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
+        .enabled(this.ready() && !this.saving).onClick((): void => { this.confirm(CoreMergeMode.MergeTasks) })
+    }.width('100%').padding({ left: 16, right: 16, top: 10, bottom: 12 }).backgroundColor(UiColor.container)
   }
 
   build() {
     Column() {
-      AppShell({ title: '合并任务', titleIcon: $r('app.media.ui_sync'), back: true, drawerOpen: $drawerOpen, busy: this.saving }) {
+      AppShell({ title: '解决冲突', titleIcon: $r('app.media.ui_sync'), back: true, drawerOpen: $drawerOpen, busy: this.saving,
+        actionIcon: $r('app.media.ui_more'), actionLabel: !this.loading && !this.completed && this.comparison ? '比较操作' : '',
+        action: (): void => { this.moreActions() } }) {
         Column() {
           MessageBar({ message: this.message, error: !this.completed })
           if (this.loading) {
-            EmptyState({ title: '正在比较本次同步的任务', busy: true })
+            EmptyState({ title: '正在分析任务变更', busy: true })
           } else if (this.completed) {
-            Column({ space: 20 }) {
-              Text('本次冲突已处理').fontSize(22).fontColor(UiColor.done)
-              ForEach(this.backups, (backup: string) => {
-                Text(backup).fontSize(13).fontColor(UiColor.secondary).width('100%')
-              })
-              Text('备份按同步分组，不参与 WebDAV 传输。').fontSize(13).fontColor(UiColor.secondary).width('100%')
-              Button('返回列表').onClick((): void => { router.back() })
-            }.width('100%').padding(24)
+            Scroll() {
+              Column({ space: 18 }) {
+                Text('本次冲突已处理').fontSize(22).fontColor(UiColor.done)
+                ForEach(this.backups, (backup: string) => {
+                  Text(backup).fontSize(13).fontColor(UiColor.secondary).width('100%')
+                })
+                Button('返回列表').backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { router.back() })
+              }.width('100%').padding(24)
+            }.width('100%').layoutWeight(1)
           } else if (this.comparison) {
-            List({ space: 12 }) {
-              ListItem() {
-                Column({ space: 12 }) {
-                  Text(`${this.fileCount} 个冲突文件`).fontSize(20).fontColor(UiColor.text).width('100%')
-                  Text(`自动保留 ${this.unchangedCount} 条未变化任务 · 待确认 ${this.remaining()} 项`)
-                    .fontSize(14).fontColor(UiColor.secondary).width('100%')
-                  Text('以下是从本地内容采用远端内容时的新增、修改和删除候选，请选择保留方式。文件前言的差异也需确认。')
-                    .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
-                  Text('同一任务优先按 Org ID 对应；没有 ID 时按标题层级对应。标题改名或重名时，请检查新增和删除项。')
-                    .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
-                  Button('本次同步全部采用远端并备份').fontSize(14).width('100%').backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
-                    .onClick((): void => { this.confirm(CoreMergeMode.AcceptRemote) })
-                  Button('重新比较').fontSize(14).width('100%').backgroundColor(Color.Transparent).fontColor(UiColor.primary)
-                    .onClick((): void => { this.load() })
-                }.width('100%').padding(8)
-              }
-              ForEach(this.rows, (row: MergeRow) => {
-                ListItem() { this.taskRow(row) }
-              }, (row: MergeRow) => `${row.change.id}:${row.choice}:${row.expanded}`)
-              ListItem() {
-                Button('应用本次选择并备份').width('100%').height(48).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
-                  .enabled(this.ready()).onClick((): void => { this.confirm(CoreMergeMode.MergeTasks) })
-              }
-            }.width('100%').layoutWeight(1).padding({ left: 16, right: 16, top: 16, bottom: 32 }).enabled(!this.saving)
+            Column() {
+              Text(`远端基准 · ${this.comparison.files.length} 个冲突文件`).fontSize(13).fontColor(UiColor.secondary)
+                .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 4 })
+              List({ space: 10 }) {
+                ForEach(this.comparison.files, (file: CoreMergeFileVersion) => {
+                  ListItem() { this.fileHeader(file.path) }
+                  ForEach(this.preambleChanges(file.path), (change: CoreMergeChange) => {
+                    ListItem() { this.taskCard(change) }
+                  }, (change: CoreMergeChange) => `${this.generation}:${change.id}`)
+                  ForEach(this.taskChanges(file.path), (change: CoreMergeChange) => {
+                    ListItem() { this.taskCard(change) }
+                  }, (change: CoreMergeChange) => `${this.generation}:${change.id}`)
+                  if (this.fileChanges(file.path).length === 0) {
+                    ListItem() {
+                      Text('该文件沿用远端内容，没有需要决定的本地变更。').fontSize(13).fontColor(UiColor.secondary).padding(12)
+                    }
+                  }
+                }, (file: CoreMergeFileVersion) => `${this.generation}:${file.path}`)
+              }.width('100%').layoutWeight(1).padding({ left: 16, right: 16, bottom: 16 })
+              this.submitBar()
+            }.width('100%').layoutWeight(1).enabled(!this.saving)
           } else {
-            Button('重新比较').margin(24).onClick((): void => { this.load() })
+            Scroll() {
+              Column({ space: 12 }) {
+                ForEach(this.backups, (backup: string) => {
+                  Text(backup).fontSize(13).fontColor(UiColor.secondary).width('100%')
+                })
+                Button('重新比较').backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { this.load() })
+              }.width('100%').padding(24)
+            }.width('100%').layoutWeight(1)
           }
         }.width('100%').height('100%')
       }

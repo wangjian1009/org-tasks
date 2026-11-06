@@ -53,6 +53,8 @@ pub struct WebDavSyncFileDetail {
     pub size: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_versions: Option<Vec<crate::OrgTaskFingerprint>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_source: Option<String>,
 }
 
 impl From<RemoteFileVersion> for WebDavSyncFileDetail {
@@ -62,6 +64,7 @@ impl From<RemoteFileVersion> for WebDavSyncFileDetail {
             modified_at: version.modified_at,
             size: version.size,
             task_versions: None,
+            synced_source: None,
         }
     }
 }
@@ -363,7 +366,7 @@ impl WebDavSyncPolicy {
             };
 
             match outcome {
-                Ok(file_record) => {
+                Ok(mut file_record) => {
                     failed |= matches!(
                         file_record.state,
                         OrgRepoSyncFileState::Failed
@@ -371,6 +374,8 @@ impl WebDavSyncPolicy {
                             | OrgRepoSyncFileState::RemoteDeleted
                     );
                     record.append_file(file_record.clone())?;
+                    // 完整文件仅保存到同步日志，不随进度事件传播。
+                    file_record.detail.synced_source = None;
                     self.report(WebDavSyncEvent::FileProcessed {
                         record: file_record,
                     });
@@ -551,11 +556,11 @@ fn success_record(
     remote: RemoteFileVersion,
 ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
     let mut detail = WebDavSyncFileDetail::from(remote);
-    detail.task_versions = repo
-        .files
-        .iter()
-        .find(|file| file.path == path)
-        .map(crate::task_fingerprints);
+    if let Some(file) = repo.files.iter().find(|file| file.path == path) {
+        detail.task_versions = Some(crate::task_fingerprints(file));
+        detail.synced_source =
+            Some(String::from_utf8(file.source_bytes().to_vec()).expect("Org 文件已验证 UTF-8"));
+    }
     Ok(OrgRepoSyncFileRecord::<WebDavSyncFileDetail>::new(
         path,
         action,
@@ -572,11 +577,11 @@ fn unchanged_record(
     remote: RemoteFileVersion,
 ) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
     let mut detail = WebDavSyncFileDetail::from(remote);
-    detail.task_versions = repo
-        .files
-        .iter()
-        .find(|file| file.path == path)
-        .map(crate::task_fingerprints);
+    if let Some(file) = repo.files.iter().find(|file| file.path == path) {
+        detail.task_versions = Some(crate::task_fingerprints(file));
+        detail.synced_source =
+            Some(String::from_utf8(file.source_bytes().to_vec()).expect("Org 文件已验证 UTF-8"));
+    }
     OrgRepoSyncFileRecord::new(
         path,
         OrgRepoSyncFileAction::Unchanged,
@@ -621,7 +626,10 @@ fn remote_deleted_record(
     )
     .expect("远端删除文件记录应有效")
     .with_local_version(Some(local_version(&local)))
-    .with_detail(baseline.detail)
+    .with_detail(WebDavSyncFileDetail {
+        synced_source: None,
+        ..baseline.detail
+    })
 }
 
 fn failed_record(
@@ -656,7 +664,11 @@ fn remote_version_for(
     file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
 ) -> Option<RemoteFileVersion> {
     if file.detail.etag.is_some() {
-        Some(RemoteFileVersion::from(file.detail.clone()))
+        Some(RemoteFileVersion {
+            etag: file.detail.etag.clone(),
+            modified_at: file.detail.modified_at,
+            size: file.detail.size,
+        })
     } else {
         None
     }
@@ -728,6 +740,7 @@ mod tests {
                     modified_at: None,
                     size: Some(3),
                     task_versions: None,
+                    synced_source: None,
                 }),
             )
             .unwrap();
@@ -746,6 +759,7 @@ mod tests {
                     modified_at: None,
                     size: Some(3),
                     task_versions: None,
+                    synced_source: None,
                 }),
             )
             .unwrap();
@@ -767,6 +781,7 @@ mod tests {
                 modified_at: None,
                 size: Some(3),
                 task_versions: None,
+                synced_source: None,
             }))
             .unwrap();
         partial.finish(OrgRepoSyncResult::Failed, 6).unwrap();

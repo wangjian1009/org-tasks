@@ -121,6 +121,8 @@ pub enum FilterSortField {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterTask {
+    /// Core 生成的逻辑路径 MD5，不随字节位置、任务状态或首尾进度变化。
+    pub id: String,
     pub repo_id: String,
     pub path: String,
     pub line: u32,
@@ -231,6 +233,8 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
             continue;
         }
         let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
+        let mut identities =
+            crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
         for headline in file
             .syntax()
             .document()
@@ -291,6 +295,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 _ => FilterStateType::None,
             };
             tasks.push(FilterTask {
+                id: identities.id_for(&headline, state_type != FilterStateType::None),
                 repo_id: repository.id.clone(),
                 path: file.path.clone(),
                 line,

@@ -130,6 +130,7 @@
 
 #+begin_src rust
 pub struct FilterTask {
+    pub id: String,
     pub repo_id: String,
     pub path: String,
     pub line: u32,
@@ -150,6 +151,48 @@ pub struct FilterTask {
     pub events: Vec<FilterDate>,
 }
 #+end_src
+
+* 任务逻辑身份
+
+~FilterTask.id~ 由 Core 在遍历文件完整标题树时生成，Harmony 的 ~Task.id~ 原样使用该值。逻辑输入为“仓库路径、文件名、任务标题祖先链、自身标题”；源行号、列号、字节偏移仍用于当前快照定位，不参与逻辑身份。
+
+| 输入 | 规则 |
+|-
+| 仓库路径 | 使用 ~OrgRepo.root_directory~ 的原始 UTF-8 字符串，不依赖磁盘 canonicalize；更换根路径会改变任务 ID，改仓库显示名或 WebDAV 地址不影响。 |
+| 文件名 | 使用含子目录的安全相对 ~OrgFile.path~ ，区分不同目录中的同名文件；改文件路径会改变 ID。 |
+| 任务标题树 | 按真实层级从根到当前标题遍历，祖先仅包含有效 TODO 配置判定的待办或已完成标题；跳过无状态分类/组织标题，不跳过其下的任务。查询筛选在生成身份之后执行。 |
+| 标题值 | 使用 ~orgize~ 已剥离状态、优先级和标签的标题节点；去掉首尾空白以及首尾直接出现的进度节点，如 ~[1/2]~ 、 ~[50%]~ 、 ~[/]~ 和 ~[%]~ ，支持连续多个。中间进度节点、链接或强调标记中的同类文字保留；大小写、内部空白和其余 Org 原文保持不变。 |
+| 无状态记录 | 查询仍返回全部 headline；当前记录始终保留自身归一化标题，以区分收件箱中的无 TODO 记录，但它不会成为后代任务身份链中的祖先。 |
+| 完全重名 | 同一文件中，相同归一化标题路径的第一次出现使用基础输入；第 2 次起追加该路径在完整文件中的 1-based 出现序号。无关任务的插入、删除或查询排序不影响该序号。 |
+
+哈希输入采用紧凑 JSON 明确分段，逻辑上的点分路径不直接用点号拼接，避免标题中的点号与层级边界混淆。基础输入为 ~[rootDirectory,relativeFilePath,[title1,title2,...]]~ 的 UTF-8 字节，重复路径从第 2 项起为 ~[rootDirectory,relativeFilePath,[title1,title2,...],occurrence]~ 。输出为标准 MD5 的 32 位小写十六进制字符串。
+
+#+begin_example
+仓库：/repo
+文件：inbox.org
+,* TODO [1/2] Project
+,** DONE Child [100%]
+
+子任务输入：["/repo","inbox.org",["Project","Child"]]
+子任务 ID：c9977ec1396cc0465b20fc09cb18600c
+#+end_example
+
+前面或无关兄弟任务的增删、重排、正文/规划时间/标签/优先级变化、待办与完成状态切换、首尾进度变化均保持 ID。自身或任务祖先改名、移动到不同任务父级、仓库或文件路径变化会改变 ID。完全同名同路径的重复项没有独立持久身份；删除或重排这些重复项时，其出现序号可能变化，不承诺区分它们的历史身份。文件中的 Org ~ID~ 属性不覆盖本规则；此处 MD5 用于身份摘要，不承担内容校验、认证或安全散列职责。
+
+计算只读取无损语法树，不重写标题或文件字节，不把绝对路径或哈希输入写入同步日志、outbox 或错误摘要。现有合并算法的三方匹配、Org ~ID~ 优先级和历史任务指纹保持独立，不能用列表逻辑 ID 替换合并的来源版本校验。
+
+Core 内部按文件建立 ~TaskIdentity::new(root, path)~ ，随后按原文顺序调用 ~id_for(headline, is_task)~ ，维护任务祖先栈与同路径出现次数；完成类型继续由有效 TODO 配置判断。公开接口只增加查询投影字段 ~FilterTask.id~ ，宿主不能传入自己计算的 ID 或重建标题树。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgRepo}{root\_directory: String}{}
+\umlclass[x=6,y=0]{OrgFile}{path: String \\ syntax: orgize CST}{}
+\umlclass[x=3,y=-3.2]{FilterTask}{id: String (MD5) \\ repo\_id: String \\ path: String \\ byte\_offset: u64 \\ title: String}{is\_done(): bool}
+\umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
+\umldep{FilterTask}{OrgRepo}
+\umldep{FilterTask}{OrgFile}
+\end{tikzpicture}
+\end{center}
 
 * 工作空间与仓库
 
@@ -217,7 +260,7 @@ pub struct OrgRepoWriteIntent {
 
 ~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它由 ~OrgRepo.load::<P>~ 返回或由同步策略产生，不作为 ~OrgRepo~ 的字段保存，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
 
-~OrgRepoSyncFileRecord~ 记录该次同步中一个相对路径的决策与结果。它不保存完整文件内容，也不把远端 URL、认证 header 或密码写入错误摘要。冲突、下载、上传、创建、删除和跳过均由 ~action~ 与 ~state~ 表达，不另建运行时执行权或 UI 事件实体。
+~OrgRepoSyncFileRecord~ 记录一次同步中一个相对路径的结果。WebDAV 成功文件在 ~detail.synced_source~ 中保存完整同步后文件快照；其他元数据、错误摘要与 outbox 不保存正文，所有记录均不保存绝对路径、远端 URL、认证 header 或配置凭据。
 
 #+begin_src rust
 pub struct OrgRepoSyncRecord<C, F> {
@@ -248,7 +291,7 @@ pub struct LocalFileVersion {
 
 * 持久化与运行时边界
 
-持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~ ；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、完整文件、远端完整 URL、凭据或运行时调度状态。
+持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~ ；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、远端完整 URL、配置凭据或运行时调度状态；完整内容仅作为成功文件快照和冲突备份保存。
 
 ~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。 ~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和仓库快照更新；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 
@@ -269,6 +312,9 @@ pub struct WebDavTaskMergeChange {
     pub id: String,
     pub path: String,
     pub kind: OrgMergeChange,
+    pub preamble: bool,
+    pub local_change: OrgMergeChange,
+    pub remote_change: OrgMergeChange,
     pub local: Option<OrgMergeVersion>,
     pub remote: Option<OrgMergeVersion>,
     pub resolution: Option<OrgMergeSide>,
@@ -295,14 +341,17 @@ pub struct WebDavSyncFileDetail {
     pub modified_at: Option<TimestampMs>,
     pub size: Option<i64>,
     pub task_versions: Option<Vec<OrgTaskFingerprint>>,
+    pub synced_source: Option<String>,
 }
 #+end_src
 
-变化的临时 ~id~ 只用于当前比较对象，不能跨比较或同步复用。 ~kind~ 按“当前本地内容采用远端内容”描述新增、修改与删除候选，不推断无共同基准时的历史操作。未变化任务不进入变化列表，由 core 保留；文件前言作为独立差异展示。文件列表、版本字段、临时 ID、来源内容和变化类型都必须与重新比较的结果一致，不能通过编辑对象正文向 core 注入新任务。
+变化的临时 ~id~ 仅用于当前比较。 ~kind~ 以远端文件为基准描述本地拟应用的新增、删除或修改； ~local_change~ 与 ~remote_change~ 表示相对最近成功文件快照的状态，取 ~Unchanged~ 、 ~Added~ 、 ~Modified~ 、 ~Deleted~ 或无基线时的 ~Unmatched~ 。本地未改的任务直接保留远端；两端内容一致也不进入列表。 ~preamble~ 标记文件前言，前言在文件级决定；其他每项对应一个标题及其自身 section。所有只读字段必须与重新比较一致。
+
+~unchanged_count~ 统计直接保留的远端现存任务，包括未变化任务和仅远端发生变化的任务；不计入文件前言或已由远端删除的任务。
 
 任务匹配优先使用自身 Org ~ID~ 的指纹；没有 ~ID~ 时使用祖先身份路径与当前标题的指纹，重名项附带出现序号。无 ~ID~ 的标题改名会显示为删除和新增；重名项需要逐项核对。每个标题只比较自身标题行和 section，子标题独立比较。所有来源区间均来自 ~orgize~ CST，选择结果按原始字节组合，再验证完整 Org 结构；不能静默丢弃未选择的子任务或生成失效层级。
 
-成功文件的 ~WebDavSyncFileDetail.task_versions~ 可保存 ~OrgTaskFingerprint~ 列表，仅含身份指纹和内容指纹，不保存标题、正文、日期或解析任务。旧历史缺少该字段时按无共同任务基准处理，下一次成功同步补齐。完整冲突备份按显式确认的规则保存于 ~.sync/backups/<started_at>/~ ，这是控制目录中保存原始文件的唯一例外；历史与 outbox 仍只保存元数据。
+成功文件的 ~WebDavSyncFileDetail.synced_source~ 保存完整 UTF-8 内容，包含原始换行、空白和正文，供后续重新解析共同任务基线；每次成功同步都写入该次日志，未变化文件也不例外。空文件保存空字符串，已确认文件删除由 ~local_version=None~ 表达。 ~task_versions~ 继续保存身份与内容指纹以兼容旧日志；有快照时先校验版本哈希并从快照重算指纹，无快照时回退旧指纹，两者皆无则不推断历史操作。错误摘要、凭据、绝对路径与 outbox 不保存文件内容；冲突备份仍单独保存于 ~.sync/backups/~ 。
 
 \begin{center}
 \resizebox{\textwidth}{!}{%
@@ -316,6 +365,9 @@ pub struct WebDavSyncFileDetail {
 \umlclass[x=7.2,y=0]{WebDavTaskMergeChange}{
   id: String \\
   kind: OrgMergeChange \\
+  preamble: bool \\
+  local\_change: OrgMergeChange \\
+  remote\_change: OrgMergeChange \\
   resolution: Option\textless OrgMergeSide\textgreater
 }{}
 \umlclass[x=0,y=-3.4]{WebDavMergeFileVersion}{
@@ -333,6 +385,11 @@ pub struct WebDavSyncFileDetail {
 \umluniassoc[mult1=1,mult2=0..*]{WebDavMergeComparison}{WebDavTaskMergeChange}
 \umluniassoc[mult1=1,mult2=1..*]{WebDavMergeComparison}{WebDavMergeFileVersion}
 \umluniassoc[mult1=1,mult2=0..2]{WebDavTaskMergeChange}{OrgMergeVersion}
+\umlclass[x=0,y=-7.5]{WebDavSyncFileDetail}{
+  synced\_source: Option\textless String\textgreater \\
+  task\_versions: Option\textless Vec\textless OrgTaskFingerprint\textgreater\textgreater
+}{}
+
 \end{tikzpicture}%
 }
 \end{center}

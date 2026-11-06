@@ -349,7 +349,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     napi_value constructor, result;
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
-    // 页面路由传递任务时保留原有数据字段，行为在 native 对象上提供。
+    // id 为 Core 生成的逻辑路径 MD5；字段原样透传，页面路由保留快照，行为在 native 对象上提供。
     for (const char* name : {"id", "repoId", "heading", "headingParts", "todoState", "todoKind", "priority", "scheduled",
         "deadline", "tags", "filePath", "fileName", "level", "body", "bodyHtml", "logbookHtml", "progress"}) {
         napi_value value;
@@ -1313,6 +1313,7 @@ napi_value WebDavMerge(napi_env env, napi_callback_info info, bool resolve)
     auto* work = new RepoSnapshotWork();
     bool valid;
     if (resolve) {
+        // 两端相对同步快照的状态与文件前言标记一并回传，由 Core 校验只读字段。
         valid = EncodeJson(env, args[1], &work->task_json);
     } else {
         valid = ReadString(env, args[1], &work->task_path) && work->task_path.find('\0') == std::string::npos;

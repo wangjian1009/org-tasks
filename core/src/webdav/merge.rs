@@ -101,6 +101,9 @@ pub struct WebDavTaskMergeChange {
     pub id: String,
     pub path: String,
     pub kind: crate::OrgMergeChange,
+    pub preamble: bool,
+    pub local_change: crate::OrgMergeChange,
+    pub remote_change: crate::OrgMergeChange,
     pub local: Option<crate::OrgMergeVersion>,
     pub remote: Option<crate::OrgMergeVersion>,
     pub resolution: Option<WebDavMergeResolution>,
@@ -199,13 +202,28 @@ impl WebDavSyncPolicy {
         };
         let remote_file = repo.parse_file(path.into(), bytes)?;
         let baseline = latest_file_record(history, path)
-            .and_then(|record| record.detail.task_versions.as_deref());
+            .map(|record| {
+                if let Some(source) = &record.detail.synced_source {
+                    let version = LocalFileVersion::from_bytes(source.as_bytes());
+                    if record.local_version.as_ref() != Some(&version) {
+                        return Err(CoreError::InvalidState("同步日志中的文件快照与版本不一致"));
+                    }
+                    let file = repo.parse_file(path.into(), source.as_bytes().to_vec())?;
+                    Ok(Some(crate::task_fingerprints(&file)))
+                } else if record.local_version.is_none() {
+                    Ok(Some(Vec::new()))
+                } else {
+                    Ok(record.detail.task_versions.clone())
+                }
+            })
+            .transpose()?
+            .flatten();
         let preview = WebDavFileMergePreview {
             path: path.into(),
             remote_etag: remote.as_ref().and_then(|file| file.version.etag.clone()),
             remote_missing: remote.is_none(),
             local_missing,
-            plan: compare_org_tasks(local, &remote_file, baseline),
+            plan: compare_org_tasks(local, &remote_file, baseline.as_deref()),
         };
         Ok(MergeSource {
             preview,
@@ -252,20 +270,23 @@ impl WebDavSyncPolicy {
             });
             for item in &file.plan.items {
                 if item.change == crate::OrgMergeChange::Unchanged {
-                    if item.key != "preamble" {
+                    if item.key != "preamble" && item.remote.is_some() {
                         unchanged_count += 1;
                     }
                     continue;
                 }
                 let kind = match (&item.local, &item.remote) {
                     (Some(_), Some(_)) => crate::OrgMergeChange::Modified,
-                    (Some(_), None) => crate::OrgMergeChange::Deleted,
-                    _ => crate::OrgMergeChange::Added,
+                    (Some(_), None) => crate::OrgMergeChange::Added,
+                    _ => crate::OrgMergeChange::Deleted,
                 };
                 changes.push(WebDavTaskMergeChange {
                     id: format!("change-{}", changes.len() + 1),
                     path: file.path.clone(),
                     kind,
+                    preamble: item.key == "preamble",
+                    local_change: item.local_change,
+                    remote_change: item.remote_change,
                     local: item.local.clone(),
                     remote: item.remote.clone(),
                     resolution: None,
@@ -658,6 +679,17 @@ mod tests {
         data: Vec<u8>,
         etag: String,
     }
+    struct SnapshotMonitor(Arc<Mutex<Vec<bool>>>);
+    impl WebDavSyncMonitor for SnapshotMonitor {
+        fn on_event(&self, event: WebDavSyncEvent) {
+            if let WebDavSyncEvent::FileProcessed { record } = event {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(record.detail.synced_source.is_some());
+            }
+        }
+    }
     struct Dav {
         files: BTreeMap<String, Remote>,
         reject: BTreeSet<String>,
@@ -847,6 +879,137 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn full_sync_snapshots_drive_three_way_task_review_and_preserve_remote_only_edits() {
+        fn task(id: &str, body: &str) -> String {
+            format!("* TODO {id}\n:PROPERTIES:\n:ID: {id}\n:END:\n{body}\n")
+        }
+        for accept in [false, true] {
+            let (mut repo, root) = repo().await;
+            let base = task("restore", "base") + &task("delete", "base") + &task("remote", "base");
+            tokio::fs::write(root.join("inbox.org"), &base)
+                .await
+                .unwrap();
+            let (policy, state, worker) = server(&[("inbox.org", base.as_bytes())]).await;
+            let progress_snapshots = Arc::new(Mutex::new(Vec::new()));
+            let policy = policy.with_monitor(SnapshotMonitor(progress_snapshots.clone()));
+            let first = sync(&mut repo, &policy, 1).await;
+            let mut initial = policy.compare_merge(&mut repo, &first.id).await.unwrap();
+            initial.mode = WebDavMergeMode::AcceptRemote;
+            policy.apply_merge(&mut repo, &initial, 2).await.unwrap();
+            // 只保留完整文件快照，确保不是依赖旧指纹字段完成三方比较。
+            let history_path = root.join(".sync/history/2.json");
+            let mut stored: serde_json::Value =
+                serde_json::from_slice(&tokio::fs::read(&history_path).await.unwrap()).unwrap();
+            assert_eq!(stored["files"][0]["detail"]["synced_source"], base);
+            stored["files"][0]["detail"]
+                .as_object_mut()
+                .unwrap()
+                .remove("task_versions");
+            tokio::fs::write(&history_path, serde_json::to_vec(&stored).unwrap())
+                .await
+                .unwrap();
+            let local =
+                task("restore", "local edit") + &task("remote", "base") + &task("new", "local new");
+            let remote = task("delete", "remote edit")
+                + &task("remote", "remote only edit")
+                + &task("added-remotely", "remote new");
+            tokio::fs::write(root.join("inbox.org"), &local)
+                .await
+                .unwrap();
+            state.lock().unwrap().files.insert(
+                "inbox.org".into(),
+                Remote {
+                    data: remote.as_bytes().to_vec(),
+                    etag: "\"v3\"".into(),
+                },
+            );
+            let conflict = sync(&mut repo, &policy, 3).await;
+            let mut comparison = policy.compare_merge(&mut repo, &conflict.id).await.unwrap();
+            assert_eq!(comparison.changes.len(), 3);
+            assert_eq!(comparison.unchanged_count, 2);
+            let restore = comparison
+                .changes
+                .iter()
+                .find(|change| {
+                    change
+                        .local
+                        .as_ref()
+                        .is_some_and(|version| version.title == "restore")
+                })
+                .unwrap();
+            assert_eq!(restore.kind, crate::OrgMergeChange::Added);
+            assert_eq!(restore.local_change, crate::OrgMergeChange::Modified);
+            assert_eq!(restore.remote_change, crate::OrgMergeChange::Deleted);
+            let delete = comparison
+                .changes
+                .iter()
+                .find(|change| {
+                    change
+                        .remote
+                        .as_ref()
+                        .is_some_and(|version| version.title == "delete")
+                })
+                .unwrap();
+            assert_eq!(delete.kind, crate::OrgMergeChange::Deleted);
+            assert_eq!(delete.local_change, crate::OrgMergeChange::Deleted);
+            assert_eq!(delete.remote_change, crate::OrgMergeChange::Modified);
+            let mut tampered = comparison.clone();
+            tampered.changes[0].local_change = crate::OrgMergeChange::Unchanged;
+            assert!(policy.apply_merge(&mut repo, &tampered, 4).await.is_err());
+            for change in &mut comparison.changes {
+                change.resolution = Some(if accept {
+                    crate::OrgMergeSide::Local
+                } else {
+                    crate::OrgMergeSide::Remote
+                });
+            }
+            let outcome = policy.apply_merge(&mut repo, &comparison, 5).await.unwrap();
+            assert_eq!(outcome.record.result, Some(OrgRepoSyncResult::Succeeded));
+            let expected = if accept {
+                task("remote", "remote only edit")
+                    + &task("added-remotely", "remote new")
+                    + &task("restore", "local edit")
+                    + &task("new", "local new")
+            } else {
+                remote
+            };
+            assert_eq!(
+                tokio::fs::read(root.join("inbox.org")).await.unwrap(),
+                expected.as_bytes()
+            );
+            assert_eq!(
+                state.lock().unwrap().files["inbox.org"].data,
+                expected.as_bytes()
+            );
+            assert_eq!(
+                outcome.record.files[0].detail.synced_source.as_deref(),
+                Some(expected.as_str())
+            );
+            assert_eq!(
+                tokio::fs::read(root.join(&outcome.backups[0].backup_path))
+                    .await
+                    .unwrap(),
+                local.as_bytes()
+            );
+            let unchanged = sync(&mut repo, &policy, 6).await;
+            assert_eq!(
+                unchanged.files[0].detail.synced_source.as_deref(),
+                Some(expected.as_str())
+            );
+            assert!(!progress_snapshots.lock().unwrap().is_empty());
+            assert!(
+                progress_snapshots
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|contains_source| !contains_source)
+            );
+            worker.abort();
+            tokio::fs::remove_dir_all(root).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn comparison_roundtrips_without_session_id_and_accept_remote_is_readonly_until_apply() {
         let (mut repo, root) = repo().await;
         offline(&mut repo, "inbox.org").await;
@@ -1014,9 +1177,10 @@ mod tests {
         let stored = tokio::fs::read_to_string(root.join(".sync/history/100.json"))
             .await
             .unwrap();
-        assert!(
-            !stored.contains("Offline") && !stored.contains("secret") && !stored.contains("source")
-        );
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(stored["files"][0]["detail"]["synced_source"], "* TODO A\n");
+        assert!(stored["files"][1]["detail"].get("synced_source").is_none());
+        assert!(!stored.to_string().contains("secret"));
         worker.abort();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }

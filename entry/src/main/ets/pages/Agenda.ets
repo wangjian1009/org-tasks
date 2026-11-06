@@ -1,3 +1,4 @@
+import { taskRenderKey } from '../ui/TaskPresentation'
 import { router } from '@kit.ArkUI'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreTask, NativeCoreService } from '../services/NativeCoreService'
@@ -91,9 +92,9 @@ struct Agenda {
                     ListItem() {
                       TaskRow({ task, open: (): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task } }) } })
                     }
-                  }, (task: CoreTask) => task.id)
+                  }, (task: CoreTask) => taskRenderKey(task))
                 }
-              }, (group: AgendaGroup) => group.key)
+              }, (group: AgendaGroup) => JSON.stringify(group))
             }.width('100%').layoutWeight(1).padding({ bottom: 16 }).sticky(StickyStyle.Header)
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)

@@ -134,7 +134,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 ~defaultSyncOptions~ 读取 Rust 默认配置； ~normalizeSyncOptions~ 接受数据对象，由 Rust 验证并返回规范化对象。Preferences 只保存外部配置，core 不读取宿主配置存储。
 
-~Repo.conflicts~ 返回 core 按历史投影的待处理同步。 ~policy.compareMerge(repo, syncId)~ 只读生成比较对象；调用方仅修改 ~mode~ 和差异项 ~resolution~ ，然后交回同一 policy 的 ~applyMerge~ 。core 重新验证完整仓库版本、远端配置指纹、ETag 和正文哈希，先备份全部真实存在的本地冲突文件，再提交修改。备份集中保存在 ~.sync/backups/<started_at>/~ ，部分失败保留已完成结果和剩余冲突。
+~Repo.conflicts~ 返回 Core 按历史投影的待处理同步。 ~policy.compareMerge~ 返回以远端为基准的任务变化，每项完整透传 ~preamble~ 、 ~kind~ 、 ~localChange~ 、 ~remoteChange~ 与两端原文；ArkTS 和 C++ 不重新计算任务或历史差异。界面的接受映射到 ~resolution=local~ ，丢弃映射到 ~resolution=remote~ 。只有 ~mode~ 与 ~resolution~ 可修改。Core 校验整个仓库、日志快照、远端配置、ETag 和正文，先备份本地原文再提交；成功结果的新完整快照仅由 Core 写入同步日志，不交由 Preferences 维护。
 
 #+begin_src ts
 const comparison = await policy.compareMerge(repo, syncId)
@@ -147,7 +147,7 @@ const outcome = await policy.applyMerge(repo, comparison)
 
 ~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并重算已加载文件；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
-~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 对象用于列表、日历和详情； ~repoId~ 、 ~filePath~ 与源字节偏移共同标识任务来源， ~level~ 保留真实标题层级。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
+~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 对象用于列表、日历和详情； ~Task.id~ 原样透传 Core 的 ~FilterTask.id~ ，为仓库路径、文件相对路径及归一化任务标题链的 MD5；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
 * 错误与扩展
 
@@ -157,7 +157,7 @@ const outcome = await policy.applyMerge(repo, comparison)
 
 * 任务完成对象
 
-~Workspace.search~ 返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新搜索。
+~Workspace.search~ 返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新搜索。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算 MD5，ArkTS 不按标题或位置重建任务身份。
 
 #+begin_src ts
 class Task {

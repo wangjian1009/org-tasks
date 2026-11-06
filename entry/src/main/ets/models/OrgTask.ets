@@ -1,7 +1,7 @@
 // Org 任务数据模型
 
 export interface OrgTask {
-  id: string           // core 仓库 ID + 相对路径 + 源字节偏移
+  id: string           // Core 根据仓库路径、文件路径和任务标题链生成的 MD5
   heading: string      // 任务标题
   todoState: string    // 文件有效 TODO 关键词
   todoKind: 'pending' | 'done' | null

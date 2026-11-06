@@ -139,14 +139,14 @@ fn review(
 ) -> Result<(), String> {
     writeln!(
         output,
-        "同步: {}\n冲突文件={}，自动保留未变化任务={}，差异项={}",
+        "同步: {}\n冲突文件={}，直接保留远端任务={}，差异项={}",
         visible(&comparison.sync_id),
         comparison.files.len(),
         comparison.unchanged_count,
         comparison.changes.len()
     )
     .map_err(output_error)?;
-    writeln!(output, "差异表示从本地采用远端的新增、修改和删除候选；无 ID 的改名可能显示为删除和新增，文件前言也需确认。").map_err(output_error)?;
+    writeln!(output, "差异以远端文件为基准，表示可接受或丢弃的本地任务变更；仅远端变化的任务直接保留，无 ID 的改名可能显示为删除和新增，文件前言单独决定。").map_err(output_error)?;
     for change in &mut comparison.changes {
         let kind = match change.kind {
             OrgMergeChange::Added => "新增",
@@ -506,7 +506,7 @@ mod tests {
             "修改",
             "删除",
             "change-1",
-            "自动保留未变化任务=1",
+            "直接保留远端任务=1",
             "请输入 l、r、d 或 q",
         ] {
             assert!(output.contains(text));

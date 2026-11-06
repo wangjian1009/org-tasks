@@ -208,7 +208,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         }
     }
     HarmonyBridgeTask {
-        id: format!("{}:{}:{}", task.repo_id, task.path, task.byte_offset),
+        id: task.id,
         repo_id: task.repo_id,
         heading: task.title,
         heading_parts,
@@ -690,6 +690,52 @@ mod tests {
     }
 
     #[test]
+    fn task_identity_survives_remote_deletions_and_passes_through_core() {
+        let root = std::env::temp_dir().join(format!(
+            "org-tasks-id-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("inbox.org");
+        std::fs::write(
+            &file,
+            "* TODO Alpha\n* TODO Bravo\n* TODO Charlie\n* TODO Delta\n",
+        )
+        .unwrap();
+        let root_directory = root.to_string_lossy().into_owned();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root_directory.clone()).unwrap();
+        let query = || -> serde_json::Value {
+            serde_json::from_str(
+                &workspace_query_json(handle, r#"{"expression":"b.\"inbox.org\""}"#.into())
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        let before = query();
+        std::fs::write(&file, "* DONE Charlie [1/1]\n新正文\n* TODO Delta\n").unwrap();
+        let after = query();
+        assert_eq!(after["tasks"].as_array().unwrap().len(), 2);
+        assert_eq!(before["tasks"][2]["id"], after["tasks"][0]["id"]);
+        assert_eq!(before["tasks"][3]["id"], after["tasks"][1]["id"]);
+        assert_ne!(before["tasks"][0]["id"], after["tasks"][0]["id"]);
+        assert_eq!(after["tasks"][0]["heading"], "Charlie [1/1]");
+        assert_eq!(after["tasks"][0]["todoKind"], "done");
+        assert_eq!(after["tasks"][0]["body"], "新正文\n");
+        assert_eq!(before["tasks"][2]["todoKind"], "pending");
+        let session = workspace_for_handle(handle).unwrap();
+        let core_tasks = session.lock().unwrap().search(&Filter::parse(""));
+        assert_eq!(after["tasks"][0]["id"], core_tasks[0].id);
+        assert_eq!(core_tasks[0].id.len(), 32);
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn repository_object_returns_core_file_snapshot() {
         let root =
             std::env::temp_dir().join(format!("org-tasks-harmony-bridge-{}", std::process::id()));
@@ -791,6 +837,7 @@ pub fn repo_merge_json(
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let runtime = runtime()?;
     if comparison_json.is_empty() {
+        // 保留 Core 的任务粒度及两端变更状态，宿主不从文件内容重算差异。
         return encode(&runtime.block_on(policy.compare_merge(repository, &sync_id))?);
     }
     let comparison: WebDavMergeComparison = serde_json::from_str(&comparison_json)
