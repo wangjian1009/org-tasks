@@ -49,6 +49,8 @@ export class Task {
   readonly bodyHtml: string;
   readonly logbookHtml: string;
   readonly progress: number;
+  readonly hasList: boolean;
+  readonly isRepeating: boolean;
 }
 
 export interface SyncRecord {

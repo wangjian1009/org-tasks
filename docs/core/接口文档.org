@@ -523,13 +523,14 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 pub struct RenderedTaskContent {
     pub body_html: String,
     pub logbook_html: String,
+    pub has_list: bool,
 }
 impl FilterTask {
     pub fn render_content(&self) -> RenderedTaskContent;
 }
 #+end_src
 
-render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 沿用折叠展示，日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。输出仅供运行时展示，不保存到同步记录或 outbox。
+render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 沿用折叠展示，日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。 ~has_list~ 在相同遍历中标记正文中的真实列表，排除日志及字面块，不在宿主通过原文或 HTML 推断。输出仅供运行时展示，不保存到同步记录或 outbox。
 
 ** 标题文字与外部链接投影
 
@@ -550,3 +551,7 @@ impl FilterTask {
 ~href~ 只对合法的 ~http~ 、 ~https~ 、 ~mailto~ 与 ~tel~ 地址提供值；其他类型保留可读文字且值为 ~None~ 。链接中不接受控制字符。完整文档、任务正文与日志中的同类链接生成经过 HTML 属性转义的 ~a.link~ ，其他类型为带 ~unsupported~ 类与禁用语义的 ~span.link~ ；不自动加载图片、附件或网页，不执行 Org 文内代码。宿主在用户点击时调用系统应用打开，阅读内容本身不导航到网页。
 
 ~TitlePart.is_link~ 区分普通文字和已经解析但目标尚不支持的链接；该字段在 JSON 中为 ~isLink~ 。 ~is_link=true~ 且 ~href=None~ 表示未支持链接，宿主可保留不同的链接样式，不把它与邻接普通文字合并。
+
+** 任务列表提示投影
+
+~FilterTask.is_repeating: bool~ 由 Core 读取当前标题的计划与截止时间重复器生成，不包含正文或子标题中的重复器，也不展开重复日期；与 ~RenderedTaskContent.has_list~ 一起提供只读展示提示。Harmony 映射为 ~Task.isRepeating~ 与 ~Task.hasList~ ，宿主不解析 Org。两个字段均不进入同步记录、outbox 或仓库身份。

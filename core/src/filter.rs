@@ -136,6 +136,8 @@ pub struct FilterTask {
     pub inherited_tags: Vec<String>,
     pub title: String,
     pub body: String,
+    /// 当前任务的计划或截止时间含重复器；不展开重复日期。
+    pub is_repeating: bool,
     pub scheduled: Option<FilterDate>,
     pub deadline: Option<FilterDate>,
     pub closed: Option<FilterDate>,
@@ -309,6 +311,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 inherited_tags,
                 title: headline.title_raw().trim_end().to_owned(),
                 body,
+                is_repeating: planning_repeats(&headline),
                 scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
                 deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
                 closed: planning_date(&headline, "CLOSED", headline.closed()),
@@ -335,6 +338,57 @@ fn timestamp_to_date(timestamp: Timestamp) -> Option<FilterDate> {
         date,
         active: timestamp.is_active(),
     })
+}
+
+// orgize 尚未识别的重复间隔写法沿用规划行的原文兜底，范围仅限标题后的规划行。
+fn planning_repeats(headline: &Headline) -> bool {
+    if [headline.scheduled(), headline.deadline()]
+        .into_iter()
+        .flatten()
+        .any(|timestamp| timestamp.repeater_type().is_some())
+    {
+        return true;
+    }
+    headline
+        .raw()
+        .lines()
+        .skip(1)
+        .take_while(|line| {
+            let line = line.trim_start();
+            ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+                .iter()
+                .any(|keyword| line.starts_with(keyword))
+        })
+        .any(|line| {
+            ["SCHEDULED:", "DEADLINE:"].iter().any(|keyword| {
+                let Some((_, value)) = line.split_once(keyword) else {
+                    return false;
+                };
+                let value = value.trim_start();
+                if !value.starts_with(['<', '[']) {
+                    return false;
+                }
+                let timestamp = value.split(['>', ']']).next().unwrap_or_default();
+                timestamp.split_whitespace().any(|part| {
+                    let Some(value) = part
+                        .strip_prefix(".+")
+                        .or_else(|| part.strip_prefix("++"))
+                        .or_else(|| part.strip_prefix('+'))
+                    else {
+                        return false;
+                    };
+                    let count = value.bytes().take_while(u8::is_ascii_digit).count();
+                    count > 0
+                        && value[..count].parse::<u32>().is_ok_and(|n| n > 0)
+                        && matches!(
+                            value.as_bytes().get(count),
+                            Some(b'h' | b'd' | b'w' | b'm' | b'y')
+                        )
+                        && (value.len() == count + 1
+                            || value.as_bytes().get(count + 1) == Some(&b'/'))
+                })
+            })
+        })
 }
 
 fn planning_date(

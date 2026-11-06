@@ -255,3 +255,9 @@ interface TitlePart {
 快速捕捉复用 ~Repo.createTask~ ，只传 ~heading~ ，其余可选任务属性为空，并请求 ~insertAtTop=true~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。所有入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
 
 捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Repo.createTask~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。
+
+** 任务列表项展示提示
+
+查询 worker 将 ~FilterTask.is_repeating~ 与 ~RenderedTaskContent.has_list~ 投影为 ~Task.isRepeating~ 与 ~Task.hasList~ 。C++ N-API 将两者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。ArkTS 只根据这些布尔值选择循环与列表图标，并以 ~bodyHtml~ 是否为空决定正文提示，不扫描 Org 或 HTML 推断领域结构。
+
+~TaskListItem~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。

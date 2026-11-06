@@ -144,6 +144,7 @@ pub struct FilterTask {
     pub inherited_tags: Vec<String>,
     pub title: String,
     pub body: String,
+    pub is_repeating: bool,
     pub scheduled: Option<FilterDate>,
     pub deadline: Option<FilterDate>,
     pub closed: Option<FilterDate>,
@@ -151,6 +152,8 @@ pub struct FilterTask {
     pub events: Vec<FilterDate>,
 }
 #+end_src
+
+~FilterTask.is_repeating~ 表示当前标题的计划或截止时间包含重复器，由 Core 从 ~orgize~ 时间戳取得；对解析器尚未识别的重复间隔写法仅在标题紧邻的规划行内兜底识别。正文、源码、日志和子标题中的重复器不使父任务成为循环任务。该字段只供运行时展示，不展开重复日期，不修改查询与持久化边界。
 
 * 任务逻辑身份
 
@@ -187,7 +190,7 @@ Core 内部按文件建立 ~TaskIdentity::new(root, path)~ ，随后按原文顺
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{OrgRepo}{root\_directory: String}{}
 \umlclass[x=6,y=0]{OrgFile}{path: String \\ syntax: orgize CST}{}
-\umlclass[x=3,y=-3.2]{FilterTask}{id: String (MD5) \\ repo\_id: String \\ path: String \\ byte\_offset: u64 \\ title: String}{is\_done(): bool}
+\umlclass[x=3,y=-3.2]{FilterTask}{id: String (MD5) \\ repo\_id: String \\ path: String \\ byte\_offset: u64 \\ title: String \\ is\_repeating: bool}{is\_done(): bool}
 \umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
 \umldep{FilterTask}{OrgRepo}
 \umldep{FilterTask}{OrgFile}
@@ -553,13 +556,14 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 
 ** 任务正文展示投影
 
-RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，原始 body 及源字节不变。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
+RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，原始 body 及源字节不变。新增 ~has_list: bool~ 表示正文中实际渲染的列表，不包含 LOGBOOK、源码、示例块及字面抽屉内容；在同一次语法树遍历中取得，不在宿主分析 HTML。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
 
 \begin{center}
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{body: String}{render\_content(): RenderedTaskContent}
 \umlclass[x=7,y=0]{RenderedTaskContent}{body\_html: String \\
-logbook\_html: String}{}
+logbook\_html: String \\
+  has\_list: bool}{}
 \umldep{FilterTask}{RenderedTaskContent}
 \end{tikzpicture}
 \end{center}

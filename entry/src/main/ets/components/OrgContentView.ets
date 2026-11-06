@@ -11,6 +11,8 @@ export struct OrgContentView {
   @Prop fragment: string = ''
   @Prop empty: boolean = false
   @Prop embedded: boolean = false
+  @Prop contentBackground: string = UiColor.surface
+  @Prop embeddedPadding: number = 16
   controller: webview.WebviewController = new webview.WebviewController()
   ready: () => void = () => {}
   failed: (message: string) => void = () => {}
@@ -58,7 +60,7 @@ export struct OrgContentView {
     this.loadRequested = true
     try {
       // 初始空白页结束后加载文档；URL 编码保留 CSS 中的 # 等字符。
-      this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded)), 'text/html', 'UTF-8')
+      this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded, this.contentBackground, this.embeddedPadding)), 'text/html', 'UTF-8')
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 
@@ -67,7 +69,7 @@ export struct OrgContentView {
       Text(this.error).width('100%').padding(16).fontSize(14).fontColor(UiColor.error)
     } else {
       Web({ src: 'about:blank', controller: this.controller })
-        .width('100%').height(this.embedded ? this.contentHeight : '100%').backgroundColor(UiColor.surface)
+        .width('100%').height(this.embedded ? this.contentHeight : '100%').backgroundColor(this.contentBackground)
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
           const href = request.getRequestUrl()

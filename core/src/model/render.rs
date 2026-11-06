@@ -21,7 +21,7 @@ impl OrgFile {
 
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None);
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false);
         self.syntax().traverse(&mut view);
         view.0.finish()
     }
@@ -32,6 +32,8 @@ impl OrgFile {
 pub struct RenderedTaskContent {
     pub body_html: String,
     pub logbook_html: String,
+    /// 正文中存在真实列表，不包含 LOGBOOK 或源码中的字面列表。
+    pub has_list: bool,
 }
 
 impl FilterTask {
@@ -40,11 +42,17 @@ impl FilterTask {
     }
 
     pub fn render_content(&self) -> RenderedTaskContent {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), Some(String::new()));
+        let mut view = ReadingView(
+            HtmlExport::default(),
+            Vec::new(),
+            Some(String::new()),
+            false,
+        );
         orgize::Org::parse(&self.body).traverse(&mut view);
         RenderedTaskContent {
             body_html: view.0.finish(),
             logbook_html: view.2.unwrap_or_default(),
+            has_list: view.3,
         }
     }
 }
@@ -117,7 +125,7 @@ impl Traverser for TitleView {
     }
 }
 
-struct ReadingView(HtmlExport, Vec<bool>, Option<String>);
+struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool);
 
 impl ReadingView {
     fn literal(&mut self, class: &str, text: impl AsRef<str>) {
@@ -187,7 +195,7 @@ impl Traverser for ReadingView {
             }
             Event::Enter(Container::Drawer(drawer)) => {
                 if drawer.name().eq_ignore_ascii_case("LOGBOOK") && self.2.is_some() {
-                    let mut log = ReadingView(HtmlExport::default(), Vec::new(), None);
+                    let mut log = ReadingView(HtmlExport::default(), Vec::new(), None, false);
                     for element in drawer
                         .syntax()
                         .children()
@@ -301,6 +309,7 @@ impl Traverser for ReadingView {
                 ctx.skip();
             }
             Event::Enter(Container::List(list)) => {
+                self.3 = true;
                 let descriptive = !list.is_ordered() && list.is_descriptive();
                 self.1.push(descriptive);
                 self.0.push_str(if list.is_ordered() {
@@ -600,7 +609,12 @@ mod tests {
 
     #[test]
     fn logbook_only_task_has_empty_rendered_body() {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), Some(String::new()));
+        let mut view = ReadingView(
+            HtmlExport::default(),
+            Vec::new(),
+            Some(String::new()),
+            false,
+        );
         orgize::Org::parse(
             ":LOGBOOK:\nCLOCK: [2026-11-05 Thu 09:00]--[2026-11-05 Thu 10:00] => 1:00\n:END:\n",
         )

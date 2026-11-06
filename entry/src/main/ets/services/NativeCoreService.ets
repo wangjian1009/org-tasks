@@ -29,7 +29,7 @@ import { RepoConfig, SyncOptions } from '../models/OrgTask'
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
-// 任务逻辑身份由 Core 生成，宿主不按源位置或标题重新计算。
+// 逻辑身份与 hasList、isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
 export type CoreTaskQuery = NativeTaskQuery

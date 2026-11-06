@@ -11,6 +11,7 @@ export struct TitleText {
   @Prop weight: FontWeight = FontWeight.Normal
   @Prop lineLimit: number = 0
   @Prop copyable: boolean = false
+  activate: (() => void) | undefined = undefined
 
   async openLink(href: string) {
     try {
@@ -42,6 +43,8 @@ export struct TitleText {
     }.fontSize(this.textSize).fontWeight(this.weight).fontColor(UiColor.text)
       .maxLines(this.lineLimit > 0 ? this.lineLimit : 2147483647)
       .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .wordBreak(WordBreak.BREAK_ALL)
       .copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
+      .onClick(this.activate)
   }
 }

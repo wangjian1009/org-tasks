@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容与点击参数更新。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示与单行宽度分配。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -74,4 +74,79 @@ test('计划、标签、链接及详情正文更新都能刷新点击参数，�
     const rows = refresh(refresh(new Map(), [before]), [after]);
     assert.equal([...rows.values()][0].open(), after);
   }
+});
+
+const presentationFile = path.resolve(__dirname, '../entry/src/main/ets/ui/TaskListPresentation.ets');
+const presentationCode = ts.transpileModule(fs.readFileSync(presentationFile, 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+});
+const presentation = {};
+const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+vm.runInThisContext('(function(exports,require){' + presentationCode.outputText + '\n})', { filename: presentationFile })(
+  presentation, name => { assert.equal(name, './Theme'); return { localDate }; });
+
+const { taskDurationDays, taskDateIsToday, taskDateText, taskRowLayout, taskIndicators, taskTitleText } = presentation;
+
+test('持续天数优先使用计划日期，无计划时回退截止日期；当天与未来不显示', () => {
+  const today = new Date(2026, 10, 6, 23, 59);
+  for (const [values, expected] of [
+    [{ scheduled: '2026-11-03', deadline: '2026-11-01' }, 3],
+    [{ scheduled: '2026-11-06', deadline: '2026-11-01' }, 0],
+    [{ scheduled: '2026-11-20' }, 0],
+    [{ deadline: '2026-11-03' }, 3],
+    [{ scheduled: '2026-02-30' }, 0],
+    [{ scheduled: '无效', deadline: '2026-11-03' }, 3],
+    [{}, 0]
+  ]) assert.equal(taskDurationDays(task('id', values), today), expected);
+});
+
+test('持续天数跨夏令时仍按设备本地自然日计算', () => {
+  const previous = process.env.TZ;
+  try {
+    process.env.TZ = 'America/New_York';
+    for (const [scheduled, year, month, day] of [['2026-03-07', 2026, 2, 9], ['2026-10-31', 2026, 10, 2]]) {
+      assert.equal(taskDurationDays(task('id', { scheduled }), new Date(year, month, day, 1)), 2);
+    }
+  } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous; }
+});
+
+test('计划与截止日期展示区分今天、紧凑日期、跨年日期与无效日期', () => {
+  const today = new Date(2026, 10, 6);
+  assert.equal(taskDateIsToday('2026-11-06', today), true);
+  assert.equal(taskDateText('2026-11-06', true, today), '今天');
+  assert.equal(taskDateText('2026-11-20', true, today), '11/20');
+  assert.equal(taskDateText('2026-11-20', false, today), '11月20日 周五');
+  assert.equal(taskDateText('2027-11-20', false, today), '2027年11月20日 周六');
+  assert.equal(taskDateText('2026-02-30', false, today), '日期不可用');
+});
+
+test('窄屏、多标签与多标志不会占用截止日期预留区，标题保持至少一半剩余宽度', () => {
+  for (const width of [180, 240, 280, 320, 350, 500, 800]) {
+    for (const tags of [0, 1, 20]) {
+      for (const indicators of [0, 1, 3]) {
+        for (const duration of [0, 3, 12345678]) {
+          for (const deadline of [false, true]) {
+            const layout = taskRowLayout(width, tags, indicators, duration, deadline);
+            assert.equal(layout.deadlineWidth, deadline ? 70 : 0);
+            const available = width - 26 - (deadline ? 78 : 0);
+            const sizes = [layout.tagWidth, layout.indicatorWidth, layout.durationWidth].filter(size => size > 0);
+            const used = sizes.reduce((sum, size) => sum + size + 6, 0);
+            assert.ok(used <= available * 0.45 + 0.001, JSON.stringify({ width, tags, indicators, duration, deadline, layout }));
+            assert.ok(layout.firstTagWidth >= 0);
+            if (layout.showMoreTags) assert.ok(layout.firstTagWidth + 26 === layout.tagWidth);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('标志直接采用 Core 投影，完整可读标题与新快照保持一致', () => {
+  const value = task('id', { heading: '原始链接标题', headingParts: [{ text: '参考资料', href: 'https://example.org', isLink: true }],
+    hasList: true, isRepeating: true });
+  assert.deepEqual(taskIndicators(value), ['body', 'list', 'repeat']);
+  assert.equal(taskTitleText(value), '参考资料');
+  assert.equal(taskTitleText(task('empty-parts', { heading: '普通标题' })), '普通标题');
+  const after = task('id', { hasList: false, isRepeating: false });
+  assert.notEqual(taskRenderKey(value), taskRenderKey(after));
 });

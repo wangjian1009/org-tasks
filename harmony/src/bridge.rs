@@ -72,6 +72,8 @@ pub struct HarmonyBridgeTask {
     pub body_html: String,
     pub logbook_html: String,
     pub progress: i32,
+    pub has_list: bool,
+    pub is_repeating: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -236,6 +238,8 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         body_html: content.body_html,
         logbook_html: content.logbook_html,
         progress: -1,
+        has_list: content.has_list,
+        is_repeating: task.is_repeating,
     }
 }
 
@@ -949,5 +953,26 @@ mod todo_tests {
         assert_eq!(done[0]["isDone"], true);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn task_list_display_hints_are_serialized_without_parsing_in_host() {
+        let mut repo = OrgRepo::new("/tmp/harmony-display-hints".into()).unwrap();
+        repo.id = "display".into();
+        repo.files.push(
+            org_tasks_core::OrgFile::new(
+                repo.id.clone(),
+                "tasks.org".into(),
+                b"* TODO Task :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n".to_vec(),
+            )
+            .unwrap(),
+        );
+        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let task = task_from_filter(workspace.search(&Filter::parse("")).remove(0));
+        let value = serde_json::to_value(task).unwrap();
+        assert_eq!(value["hasList"], true);
+        assert_eq!(value["isRepeating"], true);
+        assert_eq!(value["scheduled"], "2026-11-06");
+        assert!(value["bodyHtml"].as_str().unwrap().contains("<ul>"));
+        assert_eq!(value["tags"][0], "work");
     }
 }

@@ -18,6 +18,7 @@ struct TaskOverview {
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
   @State sections: TodaySection[] = []
+  @State referenceTime: number = Date.now()
   @State loading: boolean = true
   @State message: string = ''
   @State needsConfiguration: boolean = false
@@ -55,6 +56,7 @@ struct TaskOverview {
         ? await todaySections(result.tasks, await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)) : []
       if (request !== this.requestId) return
       this.tasks = result.tasks
+      this.referenceTime = Date.now()
       this.sections = sections
     } catch (e) {
       if (request === this.requestId) {
@@ -100,7 +102,7 @@ struct TaskOverview {
           EmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
             detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
         } else if (this.view === 'today') {
-          TodayTaskList({ sections: this.sections })
+          TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime })
         } else {
           List() {
             ForEach(this.tasks, (task: CoreTask) => {

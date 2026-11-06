@@ -1,17 +1,18 @@
 import { UiColor } from './Theme'
 
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
-export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false): string {
+export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false,
+  backgroundColor: string = UiColor.surface, embeddedPadding: number = 16): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; base-uri 'none'; form-action 'none'">
 <style>
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; padding: 18px 20px 40px; background: ${UiColor.surface}; color: ${UiColor.text}; font: 16px/1.65 sans-serif; overflow-wrap: anywhere; }
+body { margin: 0; padding: 18px 20px 40px; background: ${backgroundColor}; color: ${UiColor.text}; font: 16px/1.65 sans-serif; overflow-wrap: anywhere; }
 main, section { min-width: 0; }
 p { margin: 8px 0 14px; white-space: pre-wrap; }
-.embedded { padding: 4px 16px 20px; }
+.embedded { padding: 4px ${embeddedPadding}px 20px; }
 details.heading { margin: 18px 0 12px; }
 details.heading > summary { position: relative; list-style: none; padding-right: 28px; cursor: pointer; line-height: 1.35; }
 summary::-webkit-details-marker { display: none; }
