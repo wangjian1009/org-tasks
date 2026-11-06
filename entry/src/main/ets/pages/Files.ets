@@ -15,12 +15,21 @@ struct Files {
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
+  @State showIgnored: boolean = false
   private requestId: number = 0
 
   onPageShow() { this.loadFiles() }
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
+  }
+
+  toggleIgnored() {
+    this.showIgnored = !this.showIgnored
+  }
+
+  visibleFiles(group: NotebookGroup): CoreOrgFileMetadata[] {
+    return this.showIgnored ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
   }
 
   async loadFiles() {
@@ -44,7 +53,11 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'), synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
+      AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'),
+        actionIcon: this.showIgnored ? $r('app.media.ui_visibility') : $r('app.media.ui_visibility_off'),
+        actionLabel: this.showIgnored ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件',
+        action: (): void => { this.toggleIgnored() },
+        synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
             EmptyState({ title: '正在读取存储库', busy: true })
@@ -56,13 +69,14 @@ struct Files {
             List() {
               ForEach(this.groups, (group: NotebookGroup) => {
                 ListItemGroup({ header: this.repositoryHeader(group) }) {
-                  if (group.files.length === 0) {
+                  if (this.visibleFiles(group).length === 0) {
                     ListItem() {
-                      Text(group.message || '暂无 Org 文件').fontSize(13).fontColor(group.message ? UiColor.error : UiColor.secondary)
+                      Text(group.message || (group.files.length > 0 ? '暂无可见 Org 文件' : '暂无 Org 文件')).fontSize(13)
+                        .fontColor(group.message ? UiColor.error : UiColor.secondary)
                         .width('100%').padding({ top: 12, bottom: 16 })
                     }
                   }
-                  ForEach(group.files, (file: CoreOrgFileMetadata) => {
+                  ForEach(this.visibleFiles(group), (file: CoreOrgFileMetadata) => {
                     ListItem() {
                       Column({ space: 4 }) {
                         TitleText({ text: file.title || file.path, parts: file.titleParts, lineLimit: 2 }).width('100%')

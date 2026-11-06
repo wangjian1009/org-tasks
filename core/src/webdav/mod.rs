@@ -4,6 +4,7 @@
 
 mod merge;
 pub mod runtime;
+mod task_scan;
 pub use merge::*;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -282,6 +283,12 @@ impl WebDavSyncPolicy {
             .map(|file| file.path.clone())
             .collect::<BTreeSet<_>>();
         paths.extend(remote_by_path.keys().cloned());
+        // 远端删除已下载的规则后，也需要撤销此前采用的本地规则。
+        if latest_file_record(&history, crate::model::TASK_SCAN_RULES_PATH)
+            .is_some_and(|file| file.local_version.is_some())
+        {
+            paths.insert(crate::model::TASK_SCAN_RULES_PATH.into());
+        }
         let mut failed = false;
 
         // 空的失败/取消记录不代表已经建立过仓库基准。
@@ -292,6 +299,13 @@ impl WebDavSyncPolicy {
             .into_iter()
             .flat_map(|sync| sync.paths)
             .collect::<BTreeSet<_>>();
+        let mut paths = paths.into_iter().collect::<Vec<_>>();
+        if let Some(index) = paths
+            .iter()
+            .position(|path| path == crate::model::TASK_SCAN_RULES_PATH)
+        {
+            paths.swap(0, index);
+        }
         let total = paths.len();
         for (index, path) in paths.into_iter().enumerate() {
             if cancellation.is_cancelled() {
@@ -314,7 +328,10 @@ impl WebDavSyncPolicy {
             let baseline = latest_file_record(&history, &path).cloned();
             let unresolved_without_baseline =
                 baseline.is_none() && unresolved_paths.contains(&path);
-            let outcome = if unresolved_without_baseline {
+            let outcome = if path == crate::model::TASK_SCAN_RULES_PATH {
+                self.sync_task_scan_rules(repo, remote, baseline.as_ref(), started_at, progress)
+                    .await
+            } else if unresolved_without_baseline {
                 Ok(conflict_record(repo, path, local, remote))
             } else if initial_sync {
                 // 首次同步没有可用基线。单端文件没有“双方都修改”的可能，
@@ -493,6 +510,7 @@ impl WebDavSyncPolicy {
             &self.password,
             &self.endpoint,
             &remote.path,
+            None,
             progress,
             self.monitor.as_ref(),
         )

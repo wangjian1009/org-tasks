@@ -5,6 +5,8 @@ use tokio::fs;
 
 use crate::CoreError;
 
+pub(crate) const TASK_SCAN_RULES_PATH: &str = ".orgzlyignore";
+
 /// 仅用于任务投影的仓库忽略规则，不改变完整文件快照或同步范围。
 #[derive(Clone, Debug)]
 pub struct TaskScanRules {
@@ -56,7 +58,7 @@ impl TaskScanRules {
     }
 
     pub(crate) async fn load(root: &Path) -> Result<Self, CoreError> {
-        let path = root.join(".orgzlyignore");
+        let path = root.join(TASK_SCAN_RULES_PATH);
         match fs::symlink_metadata(&path).await {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::default());

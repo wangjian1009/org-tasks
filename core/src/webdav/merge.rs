@@ -1279,6 +1279,137 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
+        let (mut repo, root) = repo().await;
+        let (policy, state, worker) = server(&[
+            (".orgzlyignore", b"\xef\xbb\xbfann.org\r\n"),
+            ("nested/.orgzlyignore", b"visible.org\n"),
+            ("ann.org", b"* TODO Announcement\n"),
+            ("visible.org", b"* TODO Visible\n"),
+        ])
+        .await;
+        let record = sync(&mut repo, &policy, 1).await;
+        assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(repo.files().len(), 2);
+        assert!(!root.join("nested/.orgzlyignore").exists());
+        assert_eq!(
+            tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+            b"\xef\xbb\xbfann.org\r\n"
+        );
+        let query = crate::TaskQuery {
+            expression: "s.none d.none".into(),
+            include_done: false,
+            ..Default::default()
+        };
+        let result = crate::OrgWorkspace::new(vec![repo.clone()])
+            .unwrap()
+            .query(&query)
+            .unwrap();
+        assert_eq!(result.tasks.len(), 1);
+        assert_eq!(result.tasks[0].path, "visible.org");
+        assert!(
+            repo.file_metadata()
+                .iter()
+                .find(|file| file.path == "ann.org")
+                .unwrap()
+                .is_ignore
+        );
+        let rules = record
+            .files
+            .iter()
+            .find(|file| file.relative_path == ".orgzlyignore")
+            .unwrap();
+        assert!(rules.detail.task_versions.is_none());
+        assert_eq!(
+            rules.detail.synced_source.as_deref(),
+            Some("\u{feff}ann.org\r\n")
+        );
+        {
+            let mut dav = state.lock().unwrap();
+            let rules = dav.files.get_mut(".orgzlyignore").unwrap();
+            rules.data = b"visible.org\n".to_vec();
+            rules.etag = "\"v2\"".into();
+        }
+        assert_eq!(
+            sync(&mut repo, &policy, 2).await.result,
+            Some(OrgRepoSyncResult::Succeeded)
+        );
+        assert!(repo.task_scan_rules.excludes("visible.org"));
+        assert!(!repo.task_scan_rules.excludes("ann.org"));
+        state.lock().unwrap().files.remove(".orgzlyignore");
+        assert_eq!(
+            sync(&mut repo, &policy, 3).await.result,
+            Some(OrgRepoSyncResult::Succeeded)
+        );
+        assert!(!root.join(".orgzlyignore").exists());
+        assert!(!repo.task_scan_rules.excludes("visible.org"));
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .all(|request| !request.starts_with("PUT /org/.orgzlyignore"))
+        );
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sync_ignore_rules_preserves_local_edits_and_rejects_invalid_remote_content() {
+        let (mut repo, root) = repo().await;
+        let (policy, state, worker) = server(&[(".orgzlyignore", b"ann.org\n")]).await;
+        sync(&mut repo, &policy, 1).await;
+        tokio::fs::write(root.join(".orgzlyignore"), "local.org\n")
+            .await
+            .unwrap();
+        assert!(
+            repo.sync(
+                &policy,
+                2,
+                &SyncCancellation::default(),
+                &SyncProgressReporter::default()
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(
+            tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+            b"local.org\n"
+        );
+        assert!(repo.task_scan_rules.excludes("local.org"));
+        tokio::fs::write(root.join(".orgzlyignore"), "ann.org\n")
+            .await
+            .unwrap();
+        for invalid in [vec![0xff], b"[z-a]\n".to_vec()] {
+            state
+                .lock()
+                .unwrap()
+                .files
+                .get_mut(".orgzlyignore")
+                .unwrap()
+                .data = invalid;
+            assert!(
+                repo.sync(
+                    &policy,
+                    3,
+                    &SyncCancellation::default(),
+                    &SyncProgressReporter::default()
+                )
+                .await
+                .is_err()
+            );
+            assert_eq!(
+                tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+                b"ann.org\n"
+            );
+            assert!(repo.task_scan_rules.excludes("ann.org"));
+        }
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() {
         let (mut repo, root) = repo().await;
         let original = b"* TODO Local archive\r\n";

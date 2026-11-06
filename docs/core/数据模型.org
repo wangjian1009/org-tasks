@@ -200,7 +200,7 @@ Core 内部按文件建立 ~TaskIdentity::new(root, path)~ ，随后按原文顺
 
 ~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史属于仓库的本地控制数据， ~load::<P>~ 可返回它供查询； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，也不新增历史字段或单独状态文件。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
-~task_scan_rules~ 是从仓库根目录 ~.orgzlyignore~ 加载的运行时任务扫描规则，默认为空。 ~files~ 仍保存全部已扫描 org 文件，规则仅在生成 ~FilterTask~ 时排除命中文件的全部标题及子标题。规则不改变同步候选、原始字节、写入意图或同步历史，也不序列化到 ~.sync/~ 。
+~task_scan_rules~ 是从仓库根目录 ~.orgzlyignore~ 加载的运行时任务扫描规则，默认为空。 ~files~ 仍保存全部已扫描 org 文件，规则仅在生成 ~FilterTask~ 时排除命中文件的全部标题及子标题。规则匹配不改变 Org 文件同步候选、原始字节或写入意图；运行时 matcher 不序列化到 ~.sync/~ 。WebDAV 从远端下载的根目录配置单独保存普通文件同步记录与原始 UTF-8 快照，校验后同时更新本地配置和运行时规则；不加入 ~files~ ，也不生成 Org 任务指纹。
 
 远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不进入 ~OrgRepo~ 或任何其他 core 数据结构。
 

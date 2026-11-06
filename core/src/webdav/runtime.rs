@@ -228,6 +228,7 @@ pub(crate) async fn get_remote(
     password: &str,
     endpoint: &WebDavEndpoint,
     path: &str,
+    expected_etag: Option<&str>,
     progress: &SyncProgressReporter,
     monitor: &dyn WebDavSyncMonitor,
 ) -> Result<Vec<u8>, WebDavError> {
@@ -236,24 +237,29 @@ pub(crate) async fn get_remote(
         method: "GET".into(),
         path: path.into(),
     });
-    let response = request(
+    let mut download = request(
         client,
         username,
         password,
         Method::GET,
         file_url(endpoint, path)?,
-    )
-    .send()
-    .await
-    .map_err(|error| {
-        progress.report_http(format!("GET {path} -> 请求失败"));
-        monitor.on_event(WebDavSyncEvent::HttpResponse {
-            method: "GET".into(),
-            path: path.into(),
-            status: None,
-        });
-        request_error(error)
-    })?;
+    );
+    if let Some(etag) = expected_etag {
+        download = download.header("If-Match", etag);
+    }
+    let response = download
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|error| {
+            progress.report_http(format!("GET {path} -> 请求失败"));
+            monitor.on_event(WebDavSyncEvent::HttpResponse {
+                method: "GET".into(),
+                path: path.into(),
+                status: None,
+            });
+            request_error(error)
+        })?;
     progress.report_http(format!("GET {path} -> {}", response.status().as_u16()));
     monitor.on_event(WebDavSyncEvent::HttpResponse {
         method: "GET".into(),
@@ -262,6 +268,15 @@ pub(crate) async fn get_remote(
     });
     if response.status() != StatusCode::OK {
         return Err(status_error(response.status()));
+    }
+    if expected_etag.is_some_and(|expected| {
+        response
+            .headers()
+            .get("ETag")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|actual| actual != expected)
+    }) {
+        return Err(WebDavError::Conflict("远端已改变，请重新同步".into()));
     }
     response
         .bytes()
@@ -398,7 +413,10 @@ fn parse_multistatus(base_url: &str, source: &str) -> Result<Vec<WebDavRemoteFil
                     .as_deref()
                     .and_then(|value| relative_path(&base, value))
                 {
-                    if path.ends_with(".org") && !path.starts_with(".sync/") && path != ".sync" {
+                    if (path.ends_with(".org") || path == crate::model::TASK_SCAN_RULES_PATH)
+                        && !path.starts_with(".sync/")
+                        && path != ".sync"
+                    {
                         let version = RemoteFileVersion::new(etag.clone(), None, size)
                             .map_err(|_| WebDavError::Protocol("WebDAV 文件版本无效".into()))?;
                         files

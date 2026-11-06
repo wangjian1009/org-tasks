@@ -311,6 +311,38 @@ mod tests {
     }
 
     #[test]
+    fn anytime_query_excludes_files_from_task_ignore_rules() {
+        let mut repository = OrgRepo::new("/tmp/ignored-anytime".into()).unwrap();
+        repository.id = "repo".into();
+        repository.files = vec![
+            OrgFile::new(
+                "repo".into(),
+                "visible.org".into(),
+                b"* TODO Visible\n".to_vec(),
+            )
+            .unwrap(),
+            OrgFile::new(
+                "repo".into(),
+                "ann.org".into(),
+                b"* TODO Announcement\n".to_vec(),
+            )
+            .unwrap(),
+        ];
+        repository.task_scan_rules = crate::TaskScanRules::parse("ann.org\n").unwrap();
+        let workspace = OrgWorkspace::new(vec![repository]).unwrap();
+        let result = workspace
+            .query(&TaskQuery {
+                expression: "s.none d.none".into(),
+                include_done: false,
+                include_compose_tasks: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.tasks.len(), 1);
+        assert_eq!(result.tasks[0].path, "visible.org");
+    }
+
+    #[test]
     fn compose_tasks_are_detected_before_expression_filter_and_respect_file_boundaries() {
         let workspace = workspace();
         let query = TaskQuery {

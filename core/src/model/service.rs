@@ -565,6 +565,10 @@ impl OrgRepo {
         }
         persist_sync_record(Path::new(&self.root_directory), &record).await?;
         for file in &record.files {
+            // 忽略配置没有任务编辑产生的 outbox，也不属于 Org 文件快照。
+            if file.relative_path == super::TASK_SCAN_RULES_PATH {
+                continue;
+            }
             if file.state == super::OrgRepoSyncFileState::Synchronized
                 && file.action == super::OrgRepoSyncFileAction::Deleted
             {

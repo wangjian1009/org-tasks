@@ -149,7 +149,7 @@ impl OrgRepo {
 
 *** TaskScanRules
 
-~OrgRepo.task_scan_rules~ 保存最近一次 ~load~ 从根目录 ~.orgzlyignore~ 加载的运行时规则；不改变 ~files()~ 和 ~file(path)~ 的完整文件访问，也不传入同步策略。 ~search~ 和 ~query~ 在 Core 生成任务记录时统一排除命中文件。
+~OrgRepo.task_scan_rules~ 保存最近一次 ~load~ 从根目录 ~.orgzlyignore~ 加载的运行时规则；不改变 ~files()~ 和 ~file(path)~ 的完整文件访问，也不传入同步策略。 ~search~ 和 ~query~ 在 Core 生成任务记录时统一排除命中文件。 WebDAV 同步还会下载根目录忽略配置，并在校验和本地提交成功后立即更新该字段；配置不作为 Org 文件进入 ~files()~ ，其下载、删除和本地修改保护见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]。
 
 #+begin_src rust
 impl TaskScanRules {

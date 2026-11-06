@@ -685,6 +685,16 @@ mod tests {
             serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
         assert_eq!(tasks.as_array().unwrap().len(), 1);
         assert_eq!(tasks[0]["heading"], "Visible");
+        let query = serde_json::json!({
+            "expression": "s.none d.none",
+            "includeDone": false,
+            "includeComposeTasks": true
+        })
+        .to_string();
+        let queried: serde_json::Value =
+            serde_json::from_str(&workspace_query_json(handle, query).unwrap()).unwrap();
+        assert_eq!(queried["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(queried["tasks"][0]["heading"], "Visible");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
