@@ -1,10 +1,10 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
-import { common } from '@kit.AbilityKit'
-import { router } from '@kit.ArkUI'
+import { KeyboardAvoidMode, router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
+import { CaptureService } from '../services/CaptureService'
 import { FileTargetService } from '../services/FileTargetService'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 
@@ -16,28 +16,70 @@ struct Inbox {
   @State message: string = ''
   @State drawerOpen: boolean = false
   @State needsConfiguration: boolean = false
-  @State openingCapture: boolean = false
+  @State captureOpen: boolean = false
+  @State captureTitle: string = ''
+  @State captureSaving: boolean = false
+  @State captureMessage: string = ''
   private requestId: number = 0
+  private captureFocusTimer: number = -1
+  private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
   onPageShow() { this.loadRecords() }
+  aboutToDisappear() {
+    clearTimeout(this.captureFocusTimer)
+    if (this.captureOpen) this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
+  }
 
   onBackPress(): boolean {
+    if (this.captureOpen) { this.closeCapture(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
   }
 
-  async capture() {
-    if (this.openingCapture || this.drawerOpen) return
-    this.openingCapture = true
+  capture() {
+    if (this.captureOpen || this.drawerOpen) return
+    this.keyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+    this.captureMessage = ''
+    this.captureOpen = true
+  }
+
+  focusCapture() {
+    clearTimeout(this.captureFocusTimer)
+    this.captureFocusTimer = setTimeout((): void => {
+      if (this.captureOpen && !this.captureSaving) {
+        this.getUIContext().getFocusController().requestFocus('inbox_capture_title')
+      }
+    }, 150)
+  }
+
+  closeCapture() {
+    if (this.captureSaving) return
+    clearTimeout(this.captureFocusTimer)
+    this.captureOpen = false
+    this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
+  }
+
+  async saveCapture() {
+    if (this.captureSaving) return
+    const title = this.captureTitle.trim()
+    if (!title) {
+      this.captureMessage = '请输入标题'
+      return
+    }
+    this.captureSaving = true
+    this.captureMessage = ''
     try {
-      const context = getContext(this) as common.UIAbilityContext
-      await context.startAbilityForResult({ bundleName: context.abilityInfo.bundleName,
-        abilityName: 'CaptureAbility', parameters: { captureMode: 'text' } })
+      await CaptureService.save(getContext(this), title)
+      this.captureSaving = false
+      this.closeCapture()
+      this.captureTitle = ''
       await this.loadRecords()
     } catch (e) {
-      this.getUIContext().showAlertDialog({ title: '无法打开记一条', message: coreErrorMessage(e as CoreBridgeError),
-        confirm: { value: '知道了', action: () => {} } })
-    } finally { this.openingCapture = false }
+      this.captureMessage = `保存失败：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally {
+      this.captureSaving = false
+    }
   }
 
   async loadRecords() {
@@ -98,13 +140,35 @@ struct Inbox {
           }
         }.width('100%').height('100%')
       }
-      if (!this.drawerOpen) {
+      if (!this.drawerOpen && !this.captureOpen) {
         Button({ type: ButtonType.Circle }) {
           Image($r('app.media.ui_add_primary')).width(28).height(28)
         }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
           .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
-          .accessibilityText('记一条').enabled(!this.openingCapture)
+          .accessibilityText('记一条')
           .onClick((): void => { this.capture() })
+      }
+      if (this.captureOpen) {
+        Column().width('100%').height('100%').backgroundColor('#66000000')
+          .accessibilityText('关闭并保留草稿').onClick((): void => { this.closeCapture() })
+        Column({ space: 12 }) {
+          TextInput({ text: this.captureTitle, placeholder: '记下一件事…' }).id('inbox_capture_title').height(60)
+            .fontSize(20).fontColor(UiColor.text).placeholderColor(UiColor.secondary).backgroundColor(UiColor.field)
+            .borderRadius(12).enterKeyType(EnterKeyType.Done)
+            .enabled(!this.captureSaving)
+            .onAppear((): void => { this.focusCapture() })
+            .onChange((value: string): void => { this.captureTitle = value })
+            .onSubmit((): void => { this.saveCapture() })
+          if (this.captureMessage.length > 0) {
+            Text(this.captureMessage).width('100%').fontSize(13).fontColor(UiColor.error)
+          }
+          Button(this.captureSaving ? '保存中…' : '保存').id('inbox_capture_save')
+            .width('100%').height(48).fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary)
+            .enabled(!this.captureSaving && this.captureTitle.trim().length > 0)
+            .onClick((): void => { this.saveCapture() })
+        }.width('100%').constraintSize({ maxWidth: 560 }).padding(16)
+          .backgroundColor(UiColor.surface).borderRadius({ topLeft: 20, topRight: 20 })
+          .onClick((): void => {})
       }
     }.width('100%').height('100%')
   }
