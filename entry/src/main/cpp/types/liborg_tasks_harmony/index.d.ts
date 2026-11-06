@@ -1,7 +1,13 @@
+export interface TitleCount {
+  readonly completed: number | null;
+  readonly total: number | null;
+}
+
 export interface TitlePart {
   readonly text: string;
   readonly href: string | null;
   readonly isLink: boolean;
+  readonly count: TitleCount | null;
 }
 
 export interface NewTask {

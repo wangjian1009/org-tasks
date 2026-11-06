@@ -12,6 +12,76 @@ pub struct TitlePart {
     pub text: String,
     pub href: Option<String>,
     pub is_link: bool,
+    pub count: Option<TitleCount>,
+}
+
+/// 标题中的分数统计；空统计保留为空，不由展示层重新计算。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TitleCount {
+    pub completed: Option<u32>,
+    pub total: Option<u32>,
+}
+
+impl TitleCount {
+    fn from_cookie(cookie: &orgize::ast::Cookie) -> Option<Self> {
+        if cookie.syntax().ancestors().skip(1).any(|node| {
+            matches!(
+                node.kind(),
+                SyntaxKind::CODE | SyntaxKind::VERBATIM | SyntaxKind::LINK
+            )
+        }) {
+            return None;
+        }
+        Self::parse(&cookie.raw())
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        let (completed, total) = raw.strip_prefix('[')?.strip_suffix(']')?.split_once('/')?;
+        if completed.is_empty() && total.is_empty() {
+            return Some(Self {
+                completed: None,
+                total: None,
+            });
+        }
+        let completed: u32 = completed.parse().ok()?;
+        let total: u32 = total.parse().ok()?;
+        (completed <= total).then_some(Self {
+            completed: Some(completed),
+            total: Some(total),
+        })
+    }
+
+    fn label(&self) -> String {
+        match (self.completed, self.total) {
+            (Some(completed), Some(total)) => format!("{completed}/{total}"),
+            _ => "—/—".into(),
+        }
+    }
+
+    fn html(&self) -> String {
+        let (completed, total) = (self.completed.unwrap_or(0), self.total.unwrap_or(0));
+        let state = if total > 0 && completed == total {
+            "complete"
+        } else if completed > 0 {
+            "active"
+        } else {
+            "empty"
+        };
+        let turn = if total > 0 {
+            completed as f64 / total as f64
+        } else {
+            0.0
+        };
+        let description = if self.total.is_some() {
+            format!("已完成 {completed} 项，共 {total} 项")
+        } else {
+            "尚无有效计数".into()
+        };
+        format!(
+            "<span class=\"title-count {state}\" style=\"--count-turn:{turn}turn\" role=\"img\" aria-label=\"{description}\"><span class=\"count-ring\" aria-hidden=\"true\"></span><span>{}</span></span>",
+            self.label()
+        )
+    }
 }
 
 impl OrgFile {
@@ -21,7 +91,7 @@ impl OrgFile {
 
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false);
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false);
         self.syntax().traverse(&mut view);
         view.0.finish()
     }
@@ -46,6 +116,7 @@ impl FilterTask {
             HtmlExport::default(),
             Vec::new(),
             Some(String::new()),
+            false,
             false,
         );
         orgize::Org::parse(&self.body).traverse(&mut view);
@@ -78,7 +149,7 @@ impl TitleView {
         if let Some(last) = self
             .0
             .last_mut()
-            .filter(|part| part.href == self.1 && part.is_link == self.2)
+            .filter(|part| part.href == self.1 && part.is_link == self.2 && part.count.is_none())
         {
             last.text.push_str(text);
         } else {
@@ -86,6 +157,7 @@ impl TitleView {
                 text: text.into(),
                 href: self.1.clone(),
                 is_link: self.2,
+                count: None,
             });
         }
     }
@@ -97,7 +169,18 @@ impl Traverser for TitleView {
             Event::Text(text) => self.push(text.as_ref()),
             Event::Entity(entity) => self.push(entity.utf8()),
             Event::Timestamp(value) => self.push(&value.raw()),
-            Event::Cookie(value) => self.push(&value.raw()),
+            Event::Cookie(value) => {
+                if let Some(count) = TitleCount::from_cookie(&value).filter(|_| !self.2) {
+                    self.0.push(TitlePart {
+                        text: count.label(),
+                        href: None,
+                        is_link: false,
+                        count: Some(count),
+                    });
+                } else {
+                    self.push(&value.raw());
+                }
+            }
             Event::Macros(value) => self.push(&value.raw()),
             Event::Snippet(value) => self.push(&value.raw()),
             Event::InlineCall(value) => self.push(&value.raw()),
@@ -125,7 +208,7 @@ impl Traverser for TitleView {
     }
 }
 
-struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool);
+struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool);
 
 impl ReadingView {
     fn literal(&mut self, class: &str, text: impl AsRef<str>) {
@@ -137,6 +220,13 @@ impl ReadingView {
 impl Traverser for ReadingView {
     fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
         match event {
+            Event::Cookie(value) if self.4 => {
+                if let Some(count) = TitleCount::from_cookie(&value) {
+                    self.0.push_str(count.html());
+                } else {
+                    self.0.push_str(format!("{}", HtmlEscape(value.raw())));
+                }
+            }
             Event::Enter(Container::Document(_) | Container::Section(_))
             | Event::Leave(Container::Document(_) | Container::Section(_))
                 if self.2.is_some() => {}
@@ -160,9 +250,11 @@ impl Traverser for ReadingView {
                         HtmlEscape(priority)
                     ));
                 }
+                self.4 = true;
                 for element in headline.title() {
                     self.element(element, &mut TraversalContext::default());
                 }
+                self.4 = false;
                 self.0.push_str("</span><span class=\"tags\">");
                 for tag in headline.tags() {
                     self.0
@@ -195,7 +287,8 @@ impl Traverser for ReadingView {
             }
             Event::Enter(Container::Drawer(drawer)) => {
                 if drawer.name().eq_ignore_ascii_case("LOGBOOK") && self.2.is_some() {
-                    let mut log = ReadingView(HtmlExport::default(), Vec::new(), None, false);
+                    let mut log =
+                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false);
                     for element in drawer
                         .syntax()
                         .children()
@@ -297,6 +390,8 @@ impl Traverser for ReadingView {
                         HtmlEscape(link.path())
                     ));
                 }
+                let in_title = self.4;
+                self.4 = false;
                 if link.has_description() {
                     for element in link.description() {
                         self.element(element, &mut TraversalContext::default());
@@ -304,6 +399,7 @@ impl Traverser for ReadingView {
                 } else {
                     self.0.push_str(format!("{}", HtmlEscape(link.path())));
                 }
+                self.4 = in_title;
                 self.0
                     .push_str(if href.is_some() { "</a>" } else { "</span>" });
                 ctx.skip();
@@ -433,22 +529,26 @@ mod tests {
                 TitlePart {
                     text: "TODO [#A] ".into(),
                     href: None,
-                    is_link: false
+                    is_link: false,
+                    count: None
                 },
                 TitlePart {
                     text: "资料 入口".into(),
                     href: Some("https://example.com/?a=1&b=2".into()),
-                    is_link: true
+                    is_link: true,
+                    count: None
                 },
                 TitlePart {
                     text: " 与 ".into(),
                     href: None,
-                    is_link: false
+                    is_link: false,
+                    count: None
                 },
                 TitlePart {
                     text: "mailto:team@example.com".into(),
                     href: Some("mailto:team@example.com".into()),
-                    is_link: true
+                    is_link: true,
+                    count: None
                 },
             ]
         );
@@ -494,9 +594,73 @@ mod tests {
             vec![TitlePart {
                 text: "code verbatim α".into(),
                 href: None,
-                is_link: false
+                is_link: false,
+                count: None
             }]
         );
+    }
+
+    #[test]
+    fn projects_fraction_counts_and_preserves_literals_and_unsupported_values() {
+        let parts = title_parts(
+            "[1/2] 项目 [0/6] [2/2] [/] [0/0] [3/2] [50%] =字面[1/2]= ~[2/2]~ [[https://example.com][链接资料]] [4294967296/4294967296]",
+        );
+        let counts = parts
+            .iter()
+            .filter_map(|p| p.count.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(counts.len(), 5, "{parts:#?}");
+        assert_eq!(
+            counts[0],
+            &TitleCount {
+                completed: Some(1),
+                total: Some(2)
+            }
+        );
+        assert_eq!(
+            counts[3],
+            &TitleCount {
+                completed: None,
+                total: None
+            }
+        );
+        assert_eq!(counts[4].total, Some(0));
+        let text = parts.iter().map(|p| p.text.as_str()).collect::<String>();
+        for literal in [
+            "[3/2]",
+            "[50%]",
+            "字面[1/2]",
+            "[2/2]",
+            "链接资料",
+            "[4294967296/4294967296]",
+        ] {
+            assert!(text.contains(literal), "{literal}");
+        }
+        assert!(
+            parts
+                .iter()
+                .filter(|p| p.is_link)
+                .all(|p| p.count.is_none())
+        );
+        let value = serde_json::to_value(&parts).unwrap();
+        assert_eq!(value[0]["count"]["completed"], 1);
+    }
+
+    #[test]
+    fn renders_counts_only_in_headings_with_safe_ring_values_and_original_bytes() {
+        let source = "* TODO 项目 [1/2] [2/2] [/] [0/0] [3/2] [50%] =代码[1/2]= [[https://example.com][链接资料]]\r\n正文 [1/2]\r\n";
+        let file = file(source);
+        let html = file.render_html();
+        assert_eq!(html.matches("class=\"title-count ").count(), 4, "{html}");
+        assert!(html.contains("--count-turn:0.5turn"));
+        assert!(html.contains("--count-turn:1turn"));
+        assert!(html.contains("--count-turn:0turn"));
+        assert!(html.contains("aria-label=\"已完成 1 项，共 2 项\""));
+        assert!(html.contains("正文 [1/2]"));
+        assert!(html.contains("[3/2]"));
+        assert!(html.contains("[50%]"));
+        assert!(html.contains("链接资料</a>"));
+        assert_eq!(file.source_bytes(), source.as_bytes());
     }
 
     #[test]
@@ -613,6 +777,7 @@ mod tests {
             HtmlExport::default(),
             Vec::new(),
             Some(String::new()),
+            false,
             false,
         );
         orgize::Org::parse(

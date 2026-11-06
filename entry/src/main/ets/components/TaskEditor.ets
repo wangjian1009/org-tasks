@@ -2,6 +2,8 @@ import { router } from '@kit.ArkUI'
 import { CoreTask } from '../services/NativeCoreService'
 import { EmptyState } from './Controls'
 import { TitleText } from './TitleText'
+import { TitleCounts } from './TitleCounts'
+import { titleCounts } from '../ui/TitleCountPresentation'
 import { OrgContentView } from './OrgContentView'
 import { UiColor } from '../ui/Theme'
 
@@ -35,8 +37,11 @@ export struct TaskEditor {
           Text([this.task!.filePath, ...this.parents].join('  /  ')).fontSize(14).fontColor(UiColor.primary).width('100%')
             .padding({ left: 16, right: 16, top: 20, bottom: 12 })
             .onClick((): void => { router.pushUrl({ url: 'pages/FileDetail', params: { repoId: this.task!.repoId, path: this.task!.filePath } }) })
-          TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true })
+          TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false })
             .width('100%').padding({ left: 16, right: 16, top: 8, bottom: 20 })
+          if (titleCounts(this.task!.headingParts).length > 0) {
+            TitleCounts({ parts: this.task!.headingParts }).width('100%').padding({ left: 16, right: 16, bottom: 16 })
+          }
           Divider().color(UiColor.outline)
           Row({ space: 24 }) {
             Image($r('app.media.ui_info')).width(24).height(24)

@@ -570,13 +570,17 @@ logbook\_html: String \\
 
 ** 标题行内投影
 
-~TitlePart~ 为标题渲染的运行时数据结构，字段是显示文字 ~text~ 、可选的外部链接 ~href~ 和来源是否为链接的 ~is_link~ 标记。 ~OrgFile.title_parts()~ 与 ~FilterTask.title_parts()~ 返回该结构的有序数组，文件元信息的 ~title_parts~ 复用文件标题结果。原始文件标题、任务标题、文件字节与查询语义不变；投影不进入同步历史、outbox 或其他持久化数据。链接描述由 Core 解析，宿主不再次解释 Org 源码。
+~TitlePart~ 为标题渲染的运行时数据结构，字段是显示文字 ~text~ 、可选的外部链接 ~href~ 、来源是否为链接的 ~is_link~ 标记，以及可空的分数统计 ~count: Option<TitleCount>~ 。 ~TitleCount~ 的 ~completed~ 与 ~total~ 为可空的 ~u32~ ，仅空统计的两者均为空；有效分数保留文件记录的原始计数，零总数不作为已完成。异常分数与百分比保留普通文字，不新增持久化数据。 ~OrgFile.title_parts()~ 与 ~FilterTask.title_parts()~ 返回该结构的有序数组，文件元信息的 ~title_parts~ 复用文件标题结果。原始文件标题、任务标题、文件字节、逻辑 ID 与查询语义不变；投影不进入同步历史、outbox 或其他持久化数据。链接描述与统计节点均由 Core 解析，宿主不再次解释 Org 源码。
 
 \begin{center}
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TitlePart}{text: String \\
   href: Option\textless String\textgreater \\
-  is\_link: bool}{}
+  is\_link: bool \\
+  count: Option\textless TitleCount\textgreater}{}
+\umlclass[x=0,y=-6]{TitleCount}{completed: Option\textless u32\textgreater \\
+  total: Option\textless u32\textgreater}{}
+\umluniassoc[mult1=1,mult2=0..1]{TitlePart}{TitleCount}
 \umlclass[x=7,y=0]{FilterTask}{title: String}{title\_parts(): Vec\textless TitlePart\textgreater}
 \umlclass[x=0,y=-3]{OrgFile}{}{title\_parts(): Vec\textless TitlePart\textgreater}
 \umlclass[x=7,y=-3]{OrgFileMetadata}{is\_ignore: bool\\title\_parts: Vec\textless TitlePart\textgreater}{}

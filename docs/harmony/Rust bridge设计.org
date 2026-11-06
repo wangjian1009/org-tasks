@@ -242,6 +242,11 @@ interface TitlePart {
   readonly text: string
   readonly href: string | null
   readonly isLink: boolean
+  readonly count: TitleCount | null
+}
+interface TitleCount {
+  readonly completed: number | null
+  readonly total: number | null
 }
 #+end_src
 
@@ -250,6 +255,8 @@ interface TitlePart {
 ~ExternalLinkService~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件与电话地址使用系统隐式 Want。 ~OrgContentView~ 拦截用户触发的主框架链接导航，交给同一 service 后阻止 Web 页面跳转；阅读页仍禁用网络资源、文件访问和文内脚本。打开失败只展示提示，保留文档与滚动位置。
 
 ~TitlePart.is_link~ 映射为 ~isLink~ ；该标记保留链接与普通文字的语义区别， ~href=null~ 的链接仍可显示为辅助文字色虚线下划线。普通文字没有下划线，只有非空 ~href~ 才绑定系统打开操作。
+
+~TitlePart.count~ 与嵌套的 ~completed~ 、 ~total~ 由 Core 生成，经 Rust 序列化与 C++ JSON 编组原样透传，适用于文件元信息、文件标题与任务标题，不添加同步请求或原文解析。 ~NativeCoreService~ 导出 ~CoreTitleCount~ ，计数随标题片段进入任务快照渲染键。 ~TitleCountBadge~ 使用 ArkUI 的 ~ProgressType.Ring~ 在运行时按有效比例绘制； ~TitleCounts~ 管理多个计数的换行与窄屏图标回退。 ~TitleText~ 只组合普通文字、链接与计数标记；今天收起行单独为计数和日期保留宽度，展开、任务编辑与规划页共用同款标记，不重复“已完成”说明。文件阅读使用 Core 的安全标题 HTML 与宿主样式绘制同款圆环。
 * 快速捕捉复用
 
 快速捕捉复用 ~Repo.createTask~ ，只传 ~heading~ ，其余可选任务属性为空，并请求 ~insertAtTop=true~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。所有入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。

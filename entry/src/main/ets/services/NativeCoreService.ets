@@ -16,6 +16,7 @@ import {
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
   TitlePart as NativeTitlePart,
+  TitleCount as NativeTitleCount,
   TaskQuery as NativeTaskQuery,
   TaskCategory as NativeTaskCategory,
   TaskQueryResult as NativeTaskQueryResult,
@@ -32,6 +33,7 @@ export type CoreOrgFileMetadata = NativeOrgFileMetadata
 // 逻辑身份与 hasList、isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
+export type CoreTitleCount = NativeTitleCount
 export type CoreTaskQuery = NativeTaskQuery
 export type CoreTaskCategory = NativeTaskCategory
 export type CoreTaskQueryResult = NativeTaskQueryResult

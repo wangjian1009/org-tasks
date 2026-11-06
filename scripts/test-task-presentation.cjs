@@ -166,3 +166,43 @@ test('标志直接采用 Core 投影，完整可读标题与新快照保持一�
   const after = task('id', { hasList: false, isRepeating: false });
   assert.notEqual(taskRenderKey(value), taskRenderKey(after));
 });
+
+const countsFile = path.resolve(__dirname, '../entry/src/main/ets/ui/TitleCountPresentation.ets');
+const countsCode = ts.transpileModule(fs.readFileSync(countsFile, 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+});
+const countsView = {};
+vm.runInThisContext('(function(exports){' + countsCode.outputText + '\n})', { filename: countsFile })(countsView);
+
+test('计数投影区分空值、零总数与有效比例，不从普通标题猜测计数', () => {
+  const { titleCounts, titleCountLabel, titleCountValue } = countsView;
+  const parts = [{ text: '普通 [1/2]', count: null }, { text: '1/2', count: { completed: 1, total: 2 } }];
+  assert.deepEqual(titleCounts(parts), [{ completed: 1, total: 2 }]);
+  for (const [count, label, value] of [
+    [{ completed: null, total: null }, '—/—', 0],
+    [{ completed: 0, total: 0 }, '0/0', 0],
+    [{ completed: 0, total: 6 }, '0/6', 0],
+    [{ completed: 1, total: 2 }, '1/2', 50],
+    [{ completed: 2, total: 2 }, '2/2', 100]
+  ]) {
+    assert.equal(titleCountLabel(count), label);
+    assert.equal(titleCountValue(count), value);
+  }
+});
+
+test('窄屏与多个长计数退回图标，仍为日期和标题预留空间', () => {
+  const { titleCountsWidth } = countsView;
+  const parts = Array.from({ length: 3 }, () => ({ count: { completed: 123456, total: 123456 } }));
+  assert.equal(titleCountsWidth([], 100), 0);
+  assert.equal(titleCountsWidth(parts, 70), 14);
+  const short = [{ count: { completed: 1, total: 2 } }];
+  assert.ok(titleCountsWidth(short, 100) < 100);
+  for (const budget of [14, 70, 140]) {
+    const countWidth = titleCountsWidth(parts, budget);
+    const layout = taskRowLayout(350, 3, 3, 181, 54, countWidth);
+    const used = [layout.tagWidth, layout.indicatorWidth, layout.durationWidth]
+      .filter(width => width > 0).reduce((sum, width) => sum + width + 6, 0);
+    const available = 350 - 26 - 62 - countWidth - 6;
+    assert.ok(used <= available * 0.45 + 0.001);
+  }
+});

@@ -67,8 +67,8 @@ export function taskTagColor(tag: string): string {
 
 // 按截止日期实际测量宽度预留右侧空间，再分配标签、标志与持续天数；剩余空间全部交给标题。
 export function taskRowLayout(width: number, tagCount: number, indicatorCount: number,
-  duration: number, deadlineWidth: number): TaskRowLayout {
-  const available = Math.max(0, width - 26 - (deadlineWidth > 0 ? deadlineWidth + 8 : 0))
+  duration: number, deadlineWidth: number, countWidth: number = 0): TaskRowLayout {
+  const available = Math.max(0, width - 26 - (countWidth > 0 ? countWidth + 6 : 0) - (deadlineWidth > 0 ? deadlineWidth + 8 : 0))
   let remaining = Math.max(0, available * 0.45)
   const durationWidth = duration > 0 && remaining >= 26 ? Math.min(44, `${duration}`.length * 7 + 12, remaining - 6) : 0
   remaining = Math.max(0, remaining - (durationWidth > 0 ? durationWidth + 6 : 0))

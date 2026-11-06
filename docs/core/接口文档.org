@@ -540,6 +540,12 @@ pub struct TitlePart {
     pub text: String,
     pub href: Option<String>,
     pub is_link: bool,
+    pub count: Option<TitleCount>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TitleCount {
+    pub completed: Option<u32>,
+    pub total: Option<u32>,
 }
 impl FilterTask {
     pub fn title_parts(&self) -> Vec<TitlePart>;
@@ -551,6 +557,8 @@ impl FilterTask {
 ~href~ 只对合法的 ~http~ 、 ~https~ 、 ~mailto~ 与 ~tel~ 地址提供值；其他类型保留可读文字且值为 ~None~ 。链接中不接受控制字符。完整文档、任务正文与日志中的同类链接生成经过 HTML 属性转义的 ~a.link~ ，其他类型为带 ~unsupported~ 类与禁用语义的 ~span.link~ ；不自动加载图片、附件或网页，不执行 Org 文内代码。宿主在用户点击时调用系统应用打开，阅读内容本身不导航到网页。
 
 ~TitlePart.is_link~ 区分普通文字和已经解析但目标尚不支持的链接；该字段在 JSON 中为 ~isLink~ 。 ~is_link=true~ 且 ~href=None~ 表示未支持链接，宿主可保留不同的链接样式，不把它与邻接普通文字合并。
+
+~TitlePart.count~ 为可空的分数统计投影；普通文字、链接、代码与逐字文本的片段值为空。有效统计节点投影为 ~TitleCount~ ， ~text~ 为去掉方括号的显示值， ~href=None~ 且 ~is_link=false~ 。例如 ~[1/2]~ 得到 ~completed=Some(1)~ 与 ~total=Some(2)~ ， ~[/]~ 的两个字段均为空且显示为“—/—”； ~[0/0]~ 保留零值。分子大于分母、单边为空或超出 ~u32~ 范围时保留原文，不产生计数；百分比统计也保留原文。多个计数按出现顺序返回，不与邻接文字合并，不重新统计子任务或 checkbox。文档的真实标题同样生成 ~span.title-count~ ，携带安全的比例样式和无障碍说明；正文中的计数不转换为进度标记。所有投影均不影响原文、查询、逻辑 ID 或写入行为。
 
 ** 任务列表提示投影
 

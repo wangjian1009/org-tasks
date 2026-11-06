@@ -567,7 +567,7 @@ mod tests {
             assert_eq!(metadata[0].path, "work.org");
             assert_eq!(repo.files[0].source_bytes(), source.as_bytes());
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 7);
+            assert_eq!(value.as_object().unwrap().len(), 8);
             assert_eq!(
                 value["titleParts"],
                 serde_json::to_value(&metadata[0].title_parts).unwrap()

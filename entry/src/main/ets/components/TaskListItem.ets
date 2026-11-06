@@ -3,6 +3,8 @@ import { UiColor } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
+import { TitleCounts } from './TitleCounts'
+import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
 import { OrgContentView } from './OrgContentView'
 
 // 只维护展开状态与展示；任务快照只读，导航行为由调用方提供。
@@ -20,9 +22,14 @@ export struct TaskListItem {
 
   duration(): number { return taskDurationDays(this.task, new Date(this.referenceTime)) }
 
+  countBudget(): number {
+    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - 126))
+  }
+
   layout(): TaskRowLayout {
     return taskRowLayout(this.rowWidth - 16, this.task.tags.length, taskIndicators(this.task).length,
-      this.duration(), this.task.deadline.length > 0 ? this.deadlineWidth : 0)
+      this.duration(), this.task.deadline.length > 0 ? this.deadlineWidth : 0,
+      titleCountsWidth(this.task.headingParts, this.countBudget()))
   }
 
   titleWidth(): number { return Math.max(40, this.rowWidth - 88) }
@@ -95,10 +102,15 @@ export struct TaskListItem {
   compactTitle() {
     Row({ space: 6 }) {
       Row() {
-        TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1 })
+        TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1, showCounts: false })
           .layoutWeight(1).constraintSize({ minWidth: 0 })
       }.layoutWeight(1).height(44).alignItems(VerticalAlign.Center)
         .onClick((): void => { this.toggle() })
+      if (titleCounts(this.task.headingParts).length > 0) {
+        TitleCounts({ parts: this.task.headingParts, budget: this.countBudget() })
+          .width(titleCountsWidth(this.task.headingParts, this.countBudget())).flexShrink(0)
+          .onClick((): void => { this.toggle() })
+      }
       if (this.task.tags.length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
       if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
       if (this.layout().durationWidth > 0) {
@@ -113,8 +125,11 @@ export struct TaskListItem {
   @Builder
   expandedTitle() {
     Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
-      TitleText({ text: this.task.heading, parts: this.task.headingParts })
+      TitleText({ text: this.task.heading, parts: this.task.headingParts, showCounts: false })
         .constraintSize({ maxWidth: this.titleWidth() }).margin({ right: 8, bottom: 6 })
+      if (titleCounts(this.task.headingParts).length > 0) {
+        TitleCounts({ parts: this.task.headingParts }).width(this.titleWidth()).margin({ bottom: 6 })
+      }
       ForEach(this.task.tags, (tag: string) => {
         Text(tag).fontSize(13).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
           .padding({ left: 10, right: 10, top: 3, bottom: 3 }).backgroundColor(taskTagColor(tag)).borderRadius(13)

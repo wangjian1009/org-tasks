@@ -30,6 +30,9 @@ details.heading[open] > summary::after { transform: rotate(45deg); }
 .file-tags { margin: -6px 0 12px; }
 .file-tags .tag:first-child { margin-left: 0; }
 .tag { display: inline-block; margin: 4px 0 2px 7px; padding: 2px 9px; border-radius: 20px; background: #503548; color: #F2ABCC; font-size: 12px; vertical-align: middle; }
+.title-count { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; margin: 0 3px; border-radius: 7px; background: #393E3C; color: ${UiColor.secondary}; font: normal 12px/1.4 sans-serif; vertical-align: middle; white-space: nowrap; }
+.title-count.active { color: ${UiColor.primary}; } .title-count.complete { color: ${UiColor.done}; }
+.count-ring { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: conic-gradient(currentColor var(--count-turn), #686763 0); mask: radial-gradient(transparent 5px, black 5.5px); }
 .planning { font-size: 13px; line-height: 1.65; margin-top: 7px; color: ${UiColor.secondary}; }
 .timestamp, .link { color: #87B9EF; text-decoration: underline; text-underline-offset: 3px; }
 a.link { cursor: pointer; }

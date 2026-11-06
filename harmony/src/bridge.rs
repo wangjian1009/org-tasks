@@ -57,6 +57,7 @@ pub struct HarmonyBridgeTask {
     pub id: String,
     pub repo_id: String,
     pub heading: String,
+    // 包含 Core 生成的链接与分数计数；保留原始 heading 供复制、路由和查询。
     pub heading_parts: Vec<org_tasks_core::TitlePart>,
     pub todo_state: String,
     pub todo_kind: Option<org_tasks_core::TodoStateKind>,
@@ -962,13 +963,18 @@ mod todo_tests {
             org_tasks_core::OrgFile::new(
                 repo.id.clone(),
                 "tasks.org".into(),
-                b"* TODO Task :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n".to_vec(),
+                b"* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n"
+                    .to_vec(),
             )
             .unwrap(),
         );
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
         let task = task_from_filter(workspace.search(&Filter::parse("")).remove(0));
         let value = serde_json::to_value(task).unwrap();
+        assert_eq!(value["heading"], "Task [1/2]");
+        assert_eq!(value["headingParts"][1]["count"]["completed"], 1);
+        assert_eq!(value["headingParts"][1]["count"]["total"], 2);
+        assert_eq!(value["todoKind"], "pending");
         assert_eq!(value["hasList"], true);
         assert_eq!(value["isRepeating"], true);
         assert_eq!(value["scheduled"], "2026-11-06");
