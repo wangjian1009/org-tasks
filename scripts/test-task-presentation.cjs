@@ -85,7 +85,24 @@ const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).p
 vm.runInThisContext('(function(exports,require){' + presentationCode.outputText + '\n})', { filename: presentationFile })(
   presentation, name => { assert.equal(name, './Theme'); return { localDate }; });
 
-const { taskDurationDays, taskDateIsToday, taskDateText, taskRowLayout, taskIndicators, taskTitleText } = presentation;
+const { taskDurationDays, taskDateIsToday, taskDateText, taskRowLayout, taskIndicators, taskTitleText, taskTagColor } = presentation;
+
+test('标签按名称保持配色，不同常用标签可区分，浅色文字保持足够对比度', () => {
+  const tags = ['工作', '生活', '阅读', 'work', 'home', '项目_A'];
+  const colors = tags.map(taskTagColor);
+  assert.equal(new Set(colors).size, tags.length);
+  assert.deepEqual([...tags].reverse().map(taskTagColor).reverse(), colors);
+  function luminance(color) {
+    const channels = color.slice(1).match(/../g).map(value => parseInt(value, 16) / 255)
+      .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  }
+  for (let index = 0; index < 1000; index++) {
+    const color = taskTagColor(`标签_${index}`);
+    assert.match(color, /^#[0-9a-f]{6}$/);
+    assert.ok((luminance('#F5F5F5') + 0.05) / (luminance(color) + 0.05) >= 4.5, color);
+  }
+});
 
 test('持续天数优先使用计划日期，无计划时回退截止日期；当天与未来不显示', () => {
   const today = new Date(2026, 10, 6, 23, 59);
@@ -125,13 +142,12 @@ test('窄屏、多标签与多标志不会占用截止日期预留区，标题�
     for (const tags of [0, 1, 20]) {
       for (const indicators of [0, 1, 3]) {
         for (const duration of [0, 3, 12345678]) {
-          for (const deadline of [false, true]) {
-            const layout = taskRowLayout(width, tags, indicators, duration, deadline);
-            assert.equal(layout.deadlineWidth, deadline ? 70 : 0);
-            const available = width - 26 - (deadline ? 78 : 0);
+          for (const deadlineWidth of [0, 44, 50, 56, 80]) {
+            const layout = taskRowLayout(width, tags, indicators, duration, deadlineWidth);
+            const available = width - 26 - (deadlineWidth > 0 ? deadlineWidth + 8 : 0);
             const sizes = [layout.tagWidth, layout.indicatorWidth, layout.durationWidth].filter(size => size > 0);
             const used = sizes.reduce((sum, size) => sum + size + 6, 0);
-            assert.ok(used <= available * 0.45 + 0.001, JSON.stringify({ width, tags, indicators, duration, deadline, layout }));
+            assert.ok(used <= available * 0.45 + 0.001, JSON.stringify({ width, tags, indicators, duration, deadlineWidth, layout }));
             assert.ok(layout.firstTagWidth >= 0);
             if (layout.showMoreTags) assert.ok(layout.firstTagWidth + 26 === layout.tagWidth);
           }

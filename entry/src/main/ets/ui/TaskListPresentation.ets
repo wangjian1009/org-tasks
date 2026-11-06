@@ -8,7 +8,6 @@ export interface TaskRowLayout {
   indicatorWidth: number
   showAllIndicators: boolean
   durationWidth: number
-  deadlineWidth: number
 }
 
 // 这里只计算展示日期，不参与任务筛选；自然日序号避免跨夏令时产生误差。
@@ -53,11 +52,23 @@ export function taskIndicators(task: CoreTask): string[] {
   return result
 }
 
-// 为截止日期预留右侧宽度，再分配标签、标志与持续天数；剩余空间全部交给标题。
+// 标签名决定色相；固定深色亮度保证浅色文字可读，配色不随排序或展开状态变化。
+export function taskTagColor(tag: string): string {
+  let hash = 0
+  for (let index = 0; index < tag.length; index++) hash = (hash * 31 + tag.charCodeAt(index)) >>> 0
+  const hue = (hash % 360) / 30
+  const channels: number[] = [0, 8, 4]
+  return '#' + channels.map((offset: number): string => {
+    const position = (offset + hue) % 12
+    const value = 0.30 - 0.126 * Math.max(-1, Math.min(position - 3, 9 - position, 1))
+    return Math.round(value * 255).toString(16).padStart(2, '0')
+  }).join('')
+}
+
+// 按截止日期实际测量宽度预留右侧空间，再分配标签、标志与持续天数；剩余空间全部交给标题。
 export function taskRowLayout(width: number, tagCount: number, indicatorCount: number,
-  duration: number, hasDeadline: boolean): TaskRowLayout {
-  const deadlineWidth = hasDeadline ? 70 : 0
-  const available = Math.max(0, width - 26 - (hasDeadline ? deadlineWidth + 8 : 0))
+  duration: number, deadlineWidth: number): TaskRowLayout {
+  const available = Math.max(0, width - 26 - (deadlineWidth > 0 ? deadlineWidth + 8 : 0))
   let remaining = Math.max(0, available * 0.45)
   const durationWidth = duration > 0 && remaining >= 26 ? Math.min(44, `${duration}`.length * 7 + 12, remaining - 6) : 0
   remaining = Math.max(0, remaining - (durationWidth > 0 ? durationWidth + 6 : 0))
@@ -68,5 +79,5 @@ export function taskRowLayout(width: number, tagCount: number, indicatorCount: n
   const showMoreTags = tagCount > 1 && tagWidth >= 50
   return { tagWidth, firstTagWidth: tagWidth - (showMoreTags ? 26 : 0), showMoreTags,
     indicatorWidth, showAllIndicators: indicatorWidth >= fullIndicators,
-    durationWidth, deadlineWidth }
+    durationWidth }
 }

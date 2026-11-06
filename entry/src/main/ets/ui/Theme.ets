@@ -11,7 +11,6 @@ export class UiColor {
   static readonly surface: string = '#2D2C2B'
   static readonly taskCard: string = '#3A3938'
   static readonly deadline: string = '#FF3869'
-  static readonly taskTag: string = '#2D795F'
   static readonly container: string = '#343635'
   static readonly field: string = '#3A3E3F'
   static readonly primary: string = '#5AC4B9'

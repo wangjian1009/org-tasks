@@ -1,6 +1,6 @@
 import { CoreTask } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { taskDateIsToday, taskDateText, taskDurationDays, taskIndicators, taskRowLayout,
+import { taskDateIsToday, taskDateText, taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
 import { OrgContentView } from './OrgContentView'
@@ -14,6 +14,7 @@ export struct TaskListItem {
   @State contentMounted: boolean = false
   @State contentHeight: number = 0
   @State rowWidth: number = 366
+  @State deadlineWidth: number = 0
   @Prop referenceTime: number = Date.now()
   private measuredContentHeight: number = 0
 
@@ -21,7 +22,7 @@ export struct TaskListItem {
 
   layout(): TaskRowLayout {
     return taskRowLayout(this.rowWidth - 16, this.task.tags.length, taskIndicators(this.task).length,
-      this.duration(), this.task.deadline.length > 0)
+      this.duration(), this.task.deadline.length > 0 ? this.deadlineWidth : 0)
   }
 
   titleWidth(): number { return Math.max(40, this.rowWidth - 88) }
@@ -63,14 +64,15 @@ export struct TaskListItem {
   @Builder
   compactTags() {
     Row({ space: 4 }) {
-      Text(this.task.tags[0]).fontSize(11).fontColor(UiColor.secondary).maxLines(1)
+      Text(this.task.tags[0]).fontSize(11).fontColor('#F5F5F5').maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-        .border({ width: 1, color: '#686561' }).borderRadius(10).width(this.layout().firstTagWidth)
+        .backgroundColor(taskTagColor(this.task.tags[0])).borderRadius(10)
+        .constraintSize({ maxWidth: this.layout().firstTagWidth }).flexShrink(0)
       if (this.layout().showMoreTags) {
         Text('…').fontSize(12).fontColor(UiColor.secondary).width(22).height(21).textAlign(TextAlign.Center)
           .border({ width: 1, color: '#686561' }).borderRadius(10)
       }
-    }.width(this.layout().tagWidth).flexShrink(0).clip(true)
+    }.constraintSize({ maxWidth: this.layout().tagWidth }).alignItems(VerticalAlign.Center).flexShrink(0)
       .accessibilityText(`标签：${this.task.tags.join('、')}`)
       .onClick((): void => { this.toggle() })
   }
@@ -85,15 +87,18 @@ export struct TaskListItem {
       } else {
         Text('…').fontSize(13).fontColor(UiColor.secondary).width(14).maxLines(1)
       }
-    }.width(this.layout().indicatorWidth).flexShrink(0)
+    }.width(this.layout().indicatorWidth).alignItems(VerticalAlign.Center).flexShrink(0)
       .accessibilityText(`${this.task.bodyHtml ? '有正文；' : ''}${this.task.hasList ? '有列表；' : ''}${this.task.isRepeating ? '循环任务' : ''}`)
   }
 
   @Builder
   compactTitle() {
     Row({ space: 6 }) {
-      TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1, activate: (): void => { this.toggle() } })
-        .layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 44 })
+      Row() {
+        TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1 })
+          .layoutWeight(1).constraintSize({ minWidth: 0 })
+      }.layoutWeight(1).height(44).alignItems(VerticalAlign.Center)
+        .onClick((): void => { this.toggle() })
       if (this.task.tags.length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
       if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
       if (this.layout().durationWidth > 0) {
@@ -101,23 +106,24 @@ export struct TaskListItem {
           .width(this.layout().durationWidth).flexShrink(0).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           .accessibilityText(`持续 ${this.duration()} 天`)
       }
-    }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 44 })
+    }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 44 }).alignItems(VerticalAlign.Center)
       .accessibilityText(`${taskTitleText(this.task)}，点击展开`)
   }
 
   @Builder
   expandedTitle() {
     Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
-      TitleText({ text: this.task.heading, parts: this.task.headingParts, activate: (): void => { this.toggle() } })
+      TitleText({ text: this.task.heading, parts: this.task.headingParts })
         .constraintSize({ maxWidth: this.titleWidth() }).margin({ right: 8, bottom: 6 })
       ForEach(this.task.tags, (tag: string) => {
-        Text(tag).fontSize(13).fontColor('#E9F4EF').wordBreak(WordBreak.BREAK_ALL)
-          .padding({ left: 10, right: 10, top: 3, bottom: 3 }).backgroundColor(UiColor.taskTag).borderRadius(13)
+        Text(tag).fontSize(13).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
+          .padding({ left: 10, right: 10, top: 3, bottom: 3 }).backgroundColor(taskTagColor(tag)).borderRadius(13)
           .constraintSize({ maxWidth: this.titleWidth() }).margin({ right: 6, bottom: 6 })
           .onClick((): void => { this.toggle() })
       }, (tag: string) => tag)
     }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 32 })
       .accessibilityText(`${taskTitleText(this.task)}，点击收起`)
+      .onClick((): void => { this.toggle() })
   }
 
   @Builder
@@ -125,8 +131,12 @@ export struct TaskListItem {
     Row({ space: 4 }) {
       Image($r('app.media.ui_task_deadline')).width(16).height(16)
       Text(taskDateText(this.task.deadline, true, new Date(this.referenceTime))).fontSize(12).fontColor(UiColor.deadline)
-        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-    }.width(this.layout().deadlineWidth).flexShrink(0)
+        .maxLines(1).flexShrink(0)
+    }.alignItems(VerticalAlign.Center).flexShrink(0)
+      .onAreaChange((oldArea: Area, newArea: Area) => {
+        const width = parseFloat(newArea.width.toString())
+        if (Number.isFinite(width) && width > 0 && width !== this.deadlineWidth) this.deadlineWidth = width
+      })
       .accessibilityText(`截止日期：${taskDateText(this.task.deadline, false, new Date(this.referenceTime))}`)
   }
 
