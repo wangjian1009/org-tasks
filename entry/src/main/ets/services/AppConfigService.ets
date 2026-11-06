@@ -1,6 +1,6 @@
 // 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
-import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, Workspace } from 'liborg_tasks_harmony.so'
+import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, Workspace } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { preferences } from '@kit.ArkData'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
@@ -46,7 +46,7 @@ export class AppConfigService {
         throw new Error('收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
       }
     }
-    const validation = new Workspace()
+    const validation: Workspace = new Workspace()
     await validation.setTodoDefaults(config.todoDefaults)
     const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
@@ -110,7 +110,7 @@ export class AppConfigService {
     if (encoded.length > 0) {
       const persisted = JSON.parse(encoded) as RepoConfig[]
       const repositories: RepoConfig[] = []
-      const defaults = await defaultSyncOptions()
+      const defaults: NativeSyncOptions = await defaultSyncOptions()
       for (const repository of persisted) {
         repositories.push({
           id: repository.id,

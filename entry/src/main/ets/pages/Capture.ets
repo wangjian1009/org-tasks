@@ -19,6 +19,7 @@ struct Capture {
   @State listening: boolean = false
   @State message: string = ''
   @State speechMessage: string = ''
+  @State panelOffset: number = 100
   private draftId: string = ''
   private revision: number = 0
   private handledRequest: string = ''
@@ -33,6 +34,7 @@ struct Capture {
   private draftReady: Promise<void> = Promise.resolve()
   private backend: CaptureSaveSession | undefined = undefined
   private warmUpTimer: number = -1
+  private panelTimer: number = -1
 
   aboutToAppear() {
     this.visible = true
@@ -46,9 +48,17 @@ struct Capture {
     }, 16)
   }
 
-  onPageShow() { this.visible = true; this.resumeVoice(); if (!this.request.voice && !this.listening) this.focusTitle() }
-  onPageHide() { this.visible = false; this.stopSpeech(); this.persistTitle() }
-  aboutToDisappear() { this.departed = true; this.visible = false; clearTimeout(this.warmUpTimer); this.stopSpeech() }
+  onPageShow() {
+    this.visible = true
+    this.resumeVoice()
+    this.panelTimer = setTimeout((): void => {
+      if (!this.departed && this.visible) {
+        this.animatePanel(true).then((): void => { if (!this.request.voice && !this.listening) this.focusTitle() })
+      }
+    }, 16)
+  }
+  onPageHide() { this.visible = false; clearTimeout(this.panelTimer); this.stopSpeech(); this.persistTitle() }
+  aboutToDisappear() { this.departed = true; this.visible = false; clearTimeout(this.warmUpTimer); clearTimeout(this.panelTimer); this.stopSpeech() }
   onBackPress(): boolean { this.close(); return true }
 
   private context(): common.UIAbilityContext { return getContext(this) as common.UIAbilityContext }
@@ -103,10 +113,18 @@ struct Capture {
 
   private focusTitle() {
     setTimeout((): void => {
-      if (this.visible && !this.departed && !this.listening && !this.saving) {
+      if (this.visible && !this.departed && !this.listening && !this.saving && !this.closing && this.panelOffset === 0) {
         this.getUIContext().getFocusController().requestFocus('capture_title')
       }
     }, 150)
+  }
+
+  private animatePanel(show: boolean): Promise<void> {
+    if (this.panelOffset === (show ? 0 : 100)) return Promise.resolve()
+    return new Promise<void>((resolve): void => {
+      this.getUIContext().animateTo({ duration: show ? 260 : 200, curve: Curve.EaseOut, onFinish: (): void => { resolve() } },
+        (): void => { this.panelOffset = show ? 0 : 100 })
+    })
   }
 
   private async persistTitle(): Promise<boolean> {
@@ -145,12 +163,17 @@ struct Capture {
     if (this.saving || this.closing) return
     this.closing = true
     clearTimeout(this.warmUpTimer)
+    clearTimeout(this.panelTimer)
     try {
       await this.stopSpeech()
       if (this.saved) await CaptureDraftStore.removeDraft(this.context(), this.draftId)
-      else if (!await this.persistTitle()) return
+      else if (!await this.persistTitle()) { await this.animatePanel(true); return }
+      await this.animatePanel(false)
       await this.context().terminateSelf()
-    } catch (e) { this.message = this.saved ? '任务已保存，请再次点击面板外关闭' : '保留草稿失败，请重试关闭' }
+    } catch (e) {
+      this.message = this.saved ? '任务已保存，请再次点击面板外关闭' : '保留草稿失败，请重试关闭'
+      await this.animatePanel(true)
+    }
     finally { this.closing = false }
   }
 
@@ -198,12 +221,13 @@ struct Capture {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      Column().id('capture_backdrop').width('100%').height('100%').backgroundColor('#66000000')
+      // 捕捉窗口本身保持透明，只让底部录入面板覆盖来源界面。
+      Column().id('capture_backdrop').width('100%').height('100%').backgroundColor(Color.Transparent)
         .accessibilityText('关闭并保留草稿').onClick((): void => { this.close() })
       Column({ space: 12 }) {
         TextInput({ text: this.title, placeholder: '记下一件事…' }).id('capture_title').height(60)
           .fontSize(20).fontColor(UiColor.text).placeholderColor(UiColor.secondary).backgroundColor(UiColor.field)
-          .borderRadius(12).defaultFocus(!this.request.voice).enterKeyType(EnterKeyType.Done)
+          .borderRadius(12).enterKeyType(EnterKeyType.Done)
           .enabled(!this.saving && !this.saved && !this.closing && !this.listening)
           .onChange((value: string): void => { this.revision++; this.title = value; this.persistTitle() })
           .onSubmit((): void => { this.save() })
@@ -217,6 +241,7 @@ struct Capture {
           .onClick((): void => { this.save() })
       }.id('capture_panel').width('100%').constraintSize({ maxWidth: 560 }).padding(16)
         .backgroundColor(UiColor.surface).borderRadius({ topLeft: 20, topRight: 20 })
+        .translate({ y: `${this.panelOffset}%` })
         .onClick((): void => {})
     }.width('100%').height('100%').backgroundColor(Color.Transparent)
   }

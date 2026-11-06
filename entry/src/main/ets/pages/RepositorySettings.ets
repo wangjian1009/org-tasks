@@ -1,6 +1,6 @@
 import { router } from '@kit.ArkUI'
 import { fileIo } from '@kit.CoreFileKit'
-import { defaultSyncOptions } from 'liborg_tasks_harmony.so'
+import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreService } from '../services/NativeCoreService'
@@ -100,7 +100,7 @@ struct RepositorySettings {
       this.webdavPassword = repo.webdavPassword
       this.excludedDirectoriesText = repo.excludedDirectories.join(', ')
       if (!existing && this.webdavEnabled) {
-        const defaults = await defaultSyncOptions()
+        const defaults: NativeSyncOptions = await defaultSyncOptions()
         this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
       }
       if (!this.rootDirectory && this.webdavEnabled) this.rootDirectory = `${getContext(this).filesDir}/repositories/${repo.id}`
@@ -202,7 +202,7 @@ struct RepositorySettings {
                   .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
                 Button('恢复默认过滤目录').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
                   .onClick(async (): Promise<void> => {
-                    const defaults = await defaultSyncOptions()
+                    const defaults: NativeSyncOptions = await defaultSyncOptions()
                     this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
                   })
               }

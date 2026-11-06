@@ -72,7 +72,7 @@ struct Files {
                           .fontColor(UiColor.secondary).width('100%')
                         Text(fileModifiedLabel(file.modifiedAt)).fontSize(12).fontColor(UiColor.secondary).width('100%')
                       }.width('100%').constraintSize({ minHeight: 60 }).padding({ top: 10, bottom: 10 })
-                        .accessibilityGroup(true).accessibilityText(`${file.titleParts.length > 0 ? file.titleParts.map((part: CoreTitlePart) => part.text).join('') : file.path}，文件 ${file.path}，${file.taskCount} 条笔记，${fileSizeLabel(file.byteLength)}，${fileModifiedLabel(file.modifiedAt)}`)
+                        .accessibilityGroup(true).accessibilityText(`${file.titleParts.length > 0 ? file.titleParts.map((part: CoreTitlePart): string => part.text).join('') : file.path}，文件 ${file.path}，${file.taskCount} 条笔记，${fileSizeLabel(file.byteLength)}，${fileModifiedLabel(file.modifiedAt)}`)
                         .onClick((): void => { router.pushUrl({ url: 'pages/FileDetail', params: { repoId: file.repoId, path: file.path } }) })
                     }
                   }, (file: CoreOrgFileMetadata) => `${file.repoId}:${file.path}`)

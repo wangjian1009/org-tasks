@@ -13,9 +13,9 @@ export interface TodaySection {
 
 // 只计算展示数字，不据此选择任务；使用自然日序号避免夏令时影响。
 export function overdueDays(task: CoreTask, today: Date = new Date()): number {
-  const scheduled = task.scheduled.slice(0, 10)
-  const deadline = task.deadline.slice(0, 10)
-  const date = scheduled && deadline ? (scheduled < deadline ? scheduled : deadline) : scheduled || deadline
+  const scheduled: string = task.scheduled.slice(0, 10)
+  const deadline: string = task.deadline.slice(0, 10)
+  const date: string = scheduled && deadline ? (scheduled < deadline ? scheduled : deadline) : scheduled || deadline
   if (!date) return 0
   const time = new Date(`${date}T00:00:00Z`).getTime()
   if (isNaN(time)) return 0

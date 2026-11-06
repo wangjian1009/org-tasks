@@ -6,7 +6,7 @@ import { EmptyState } from '../components/Controls'
 import { OrgContentView } from '../components/OrgContentView'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreOrgFile, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
 interface NotebookParams { repoId?: string; path?: string }
@@ -43,7 +43,7 @@ struct FileDetail {
       const params = router.getParams() as NotebookParams
       this.path = params.path || ''
       const config = await AppConfigService.load(getContext(this))
-      const file = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
+      const file: CoreOrgFile | undefined = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
       if (revision !== this.loadRevision) return
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }
       this.displayMode = config.fileDisplayMode

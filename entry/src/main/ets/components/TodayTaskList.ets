@@ -29,7 +29,7 @@ export struct TodayTaskList {
                 }
               }.width('100%').constraintSize({ minHeight: 44 }).padding({ top: 10, bottom: 10 })
                 .accessibilityGroup(true)
-                .accessibilityText(`${item.task.headingParts.map((part: CoreTitlePart) => part.text).join('')}${item.overdueDays > 0 ? `，已过期 ${item.overdueDays} 天` : ''}`)
+                .accessibilityText(`${item.task.headingParts.map((part: CoreTitlePart): string => part.text).join('')}${item.overdueDays > 0 ? `，已过期 ${item.overdueDays} 天` : ''}`)
                 .onClick((): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } }) })
             }
           }, (item: TodayTaskItem) => taskRenderKey(item.task))
