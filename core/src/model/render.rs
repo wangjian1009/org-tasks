@@ -427,6 +427,7 @@ impl Traverser for ReadingView {
                 });
             }
             Event::Enter(Container::ListItem(item)) => {
+                let checkbox = item.checkbox();
                 if self.1.last() == Some(&true) {
                     self.0.push_str("<dt>");
                     for element in item.tag() {
@@ -434,9 +435,13 @@ impl Traverser for ReadingView {
                     }
                     self.0.push_str("</dt><dd>");
                 } else {
-                    self.0.push_str("<li>");
+                    self.0.push_str(if checkbox.is_some() {
+                        "<li class=\"checkbox-item\">"
+                    } else {
+                        "<li>"
+                    });
                 }
-                if let Some(checkbox) = item.checkbox() {
+                if let Some(checkbox) = checkbox {
                     let symbol = match checkbox.as_ref() {
                         "X" => "☑",
                         "-" => "◩",
@@ -719,6 +724,7 @@ mod tests {
             "☐</span>",
             "☑</span>",
             "◩</span>",
+            "checkbox-item",
             "<dl><dt>",
             "说明",
             "&lt;img src=x&gt;",

@@ -2,7 +2,8 @@ import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
 import { KeyboardAvoidMode, router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
-import { EmptyState, TaskRow } from '../components/Controls'
+import { EmptyState } from '../components/Controls'
+import { TaskListItem } from '../components/TaskListItem'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
 import { FileTargetService } from '../services/FileTargetService'
@@ -128,7 +129,7 @@ struct Inbox {
               List() {
                 ForEach(this.records, (task: CoreTask) => {
                   ListItem() {
-                    TaskRow({ task, showFilePath: false, showBody: true, open: (): void => {
+                    TaskListItem({ task, enableCompletionState: false, open: (): void => {
                       router.pushUrl({ url: 'pages/InboxPlan', params: { task } })
                     } })
                   }

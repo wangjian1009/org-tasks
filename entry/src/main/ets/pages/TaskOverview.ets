@@ -2,6 +2,7 @@ import { taskRenderKey } from '../ui/TaskPresentation'
 import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
+import { TaskListItem } from '../components/TaskListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
@@ -94,7 +95,7 @@ struct TaskOverview {
       } else if (this.message) {
         EmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
       } else {
-        if (this.view !== 'today') {
+        if (this.view === 'memo' || this.view === 'logbook') {
           Text(this.view === 'memo' ? `${this.tasks.length} 条备忘` : `${this.tasks.length} 个${this.view === 'logbook' ? '已完成' : '未完成'}任务`)
             .fontSize(13).fontColor(UiColor.secondary).width('100%').padding(16).backgroundColor(UiColor.container)
         }
@@ -107,9 +108,15 @@ struct TaskOverview {
           List() {
             ForEach(this.tasks, (task: CoreTask) => {
               ListItem() {
-                TaskRow({ task, showBody: true, open: (): void => {
-                  router.pushUrl({ url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit', params: { task } })
-                } })
+                if (this.view === 'planned' || this.view === 'anytime' || this.view === 'someday') {
+                  TaskListItem({ task, referenceTime: this.referenceTime, open: (): void => {
+                    router.pushUrl({ url: 'pages/TaskEdit', params: { task } })
+                  } })
+                } else {
+                  TaskRow({ task, showBody: true, open: (): void => {
+                    router.pushUrl({ url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit', params: { task } })
+                  } })
+                }
               }
             }, (task: CoreTask) => taskRenderKey(task))
           }.width('100%').layoutWeight(1).padding({ bottom: 16 })

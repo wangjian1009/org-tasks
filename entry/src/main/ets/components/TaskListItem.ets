@@ -11,6 +11,7 @@ import { OrgContentView } from './OrgContentView'
 @Component
 export struct TaskListItem {
   @Prop task: CoreTask
+  @Prop enableCompletionState: boolean = true
   open: () => void = () => {}
   @State expanded: boolean = false
   @State contentMounted: boolean = false
@@ -65,7 +66,19 @@ export struct TaskListItem {
     Text(this.task.todoKind === 'done' ? '✓' : '').width(18).height(18).fontSize(13)
       .textAlign(TextAlign.Center).fontColor(UiColor.done)
       .border({ width: 1.4, color: this.task.todoKind === 'done' ? UiColor.done : '#8B8986' }).borderRadius(4)
+      .enabled(this.enableCompletionState).opacity(this.enableCompletionState ? 1 : 0.55)
+      .onClick((): void => {})
       .accessibilityText(this.task.todoKind === 'done' ? '已完成，只读' : '未完成，只读')
+  }
+
+  @Builder
+  stateIndicator() {
+    if (this.task.todoKind === null) {
+      Image($r('app.media.ui_task_body')).width(18).height(18)
+        .accessibilityText('笔记，无任务状态')
+    } else {
+      this.completionState()
+    }
   }
 
   @Builder
@@ -217,7 +230,7 @@ export struct TaskListItem {
   build() {
     Column() {
       Row({ space: 8 }) {
-        this.completionState()
+        this.stateIndicator()
         if (this.expanded) {
           this.expandedTitle()
           Image($r('app.media.ui_up')).width(20).height(20).flexShrink(0)

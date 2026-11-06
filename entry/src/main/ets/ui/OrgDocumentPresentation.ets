@@ -53,7 +53,9 @@ pre { overflow-x: auto; font: 14px/1.65 monospace; margin: 8px 0 14px; }
 code { background: #3B3742; color: #DEC5F6; border-radius: 4px; padding: 1px 4px; font-family: monospace; }
 pre code { padding: 0; background: transparent; }
 blockquote { margin: 10px 0; padding: 2px 14px; border-left: 3px solid ${UiColor.primary}; color: ${UiColor.secondary}; }
-ul, ol { padding-left: 24px; } li > p { margin: 2px 0; } .checkbox { font-family: monospace; color: ${UiColor.primary}; }
+ul, ol { padding-left: 24px; } li > p { margin: 2px 0; }
+li.checkbox-item { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+li.checkbox-item .checkbox { display: inline-block; width: 1.4em; white-space: nowrap; font-family: monospace; color: ${UiColor.primary}; }
 .verse { white-space: pre-wrap; } hr { border: 0; border-top: 1px solid ${UiColor.outline}; }
 .empty { padding-top: 64px; text-align: center; color: ${UiColor.secondary}; }
 </style></head><body class="${embedded ? 'embedded' : ''}">${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
