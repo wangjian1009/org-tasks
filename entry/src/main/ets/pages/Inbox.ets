@@ -1,4 +1,6 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
+import { UiColor } from '../ui/Theme'
+import { common } from '@kit.AbilityKit'
 import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
@@ -14,6 +16,7 @@ struct Inbox {
   @State message: string = ''
   @State drawerOpen: boolean = false
   @State needsConfiguration: boolean = false
+  @State openingCapture: boolean = false
   private requestId: number = 0
 
   onPageShow() { this.loadRecords() }
@@ -21,6 +24,20 @@ struct Inbox {
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
+  }
+
+  async capture() {
+    if (this.openingCapture || this.drawerOpen) return
+    this.openingCapture = true
+    try {
+      const context = getContext(this) as common.UIAbilityContext
+      await context.startAbilityForResult({ bundleName: context.abilityInfo.bundleName,
+        abilityName: 'CaptureAbility', parameters: { captureMode: 'text' } })
+      await this.loadRecords()
+    } catch (e) {
+      this.getUIContext().showAlertDialog({ title: '无法打开记一条', message: coreErrorMessage(e as CoreBridgeError),
+        confirm: { value: '知道了', action: () => {} } })
+    } finally { this.openingCapture = false }
   }
 
   async loadRecords() {
@@ -49,7 +66,7 @@ struct Inbox {
   }
 
   build() {
-    Column() {
+    Stack({ alignContent: Alignment.Bottom }) {
       AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
@@ -74,12 +91,20 @@ struct Inbox {
                     } })
                   }
                 }, (task: CoreTask) => taskRenderKey(task))
-              }.width('100%').layoutWeight(1).padding({ bottom: 16 })
+              }.width('100%').layoutWeight(1).padding({ bottom: 104 })
                 .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
                 .edgeEffect(EdgeEffect.None)
             }
           }
         }.width('100%').height('100%')
+      }
+      if (!this.drawerOpen) {
+        Button({ type: ButtonType.Circle }) {
+          Image($r('app.media.ui_add_primary')).width(28).height(28)
+        }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
+          .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
+          .accessibilityText('记一条').enabled(!this.openingCapture)
+          .onClick((): void => { this.capture() })
       }
     }.width('100%').height('100%')
   }
