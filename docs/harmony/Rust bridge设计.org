@@ -201,7 +201,7 @@ interface TaskQueryResult {
 
 Rust 默认不限制表达式、分类和文件，两个包含开关均为真。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。
 
-不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。
+不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。今天、随时、某天的标签筛选条是明确的展示层例外，仅按已取得的 ~task.tags~ 控制本页任务可见性，不更改上述 bridge、查询参数或原始快照；不新增 Core 请求，不影响全局计数。
 
 * 轻量文件清单
 

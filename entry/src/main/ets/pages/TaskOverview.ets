@@ -5,6 +5,7 @@ import { EmptyState, TaskRow } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
+import { TaskTagFilter } from '../components/TaskTagFilter'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
@@ -12,6 +13,7 @@ import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups } from '../ui/PlannedPresentation'
+import { filterTasksByTags, reconcileTaskTags, taskTagOptions, TaskTagSelection } from '../ui/TaskTagFilterPresentation'
 
 interface OverviewParams { view?: OverviewKind }
 
@@ -20,6 +22,10 @@ interface OverviewParams { view?: OverviewKind }
 struct TaskOverview {
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
+  @State visibleTasks: CoreTask[] = []
+  @State tagOptions: string[] = []
+  @State selectedTags: string[] = []
+  @State includeUntagged: boolean = false
   @State sections: TodaySection[] = []
   @State planGroups: PlannedGroup[] = []
   @State referenceTime: number = Date.now()
@@ -49,6 +55,17 @@ struct TaskOverview {
     }
   }
 
+  supportsTagFilter(): boolean {
+    return this.view === 'today' || this.view === 'anytime' || this.view === 'someday'
+  }
+
+  applyTagFilter(selection: TaskTagSelection) {
+    this.selectedTags = selection.tags
+    this.includeUntagged = selection.includeUntagged
+    this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection) : this.tasks
+    this.sections = this.view === 'today' ? todaySections(this.visibleTasks) : []
+  }
+
   async loadTasks() {
     const request = ++this.requestId
     this.loading = this.tasks.length === 0
@@ -63,24 +80,26 @@ struct TaskOverview {
       if (!result) {
         this.needsConfiguration = true
         this.tasks = []
+        this.visibleTasks = []
+        this.tagOptions = []
         this.sections = []
         this.planGroups = []
         return
       }
-      let sections: TodaySection[] = []
       let planGroups: PlannedGroup[] = []
-      if (this.view === 'today' || this.view === 'planned') {
-        if (this.view === 'today') sections = todaySections(result.tasks)
-        if (this.view === 'planned') planGroups = plannedGroups(result.tasks)
-      }
+      if (this.view === 'planned') planGroups = plannedGroups(result.tasks)
       if (request !== this.requestId) return
       this.tasks = result.tasks
+      this.tagOptions = this.supportsTagFilter() ? taskTagOptions(result.tasks) : []
+      this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged },
+        this.tagOptions))
       this.referenceTime = Date.now()
-      this.sections = sections
       this.planGroups = planGroups
     } catch (e) {
       if (request === this.requestId) {
         this.tasks = []
+        this.visibleTasks = []
+        this.tagOptions = []
         this.sections = []
         this.planGroups = []
         this.message = `读取任务失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -115,6 +134,12 @@ struct TaskOverview {
       } else if (this.message) {
         EmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
       } else {
+        if (this.supportsTagFilter()) {
+          TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags,
+            includeUntagged: this.includeUntagged, changed: (selection: TaskTagSelection): void => {
+              this.applyTagFilter(selection)
+            } })
+        }
         if (this.view === 'memo' || this.view === 'logbook') {
           Text(this.view === 'memo' ? `${this.tasks.length} 条备忘` : `${this.tasks.length} 个${this.view === 'logbook' ? '已完成' : '未完成'}任务`)
             .fontSize(13).fontColor(UiColor.secondary).width('100%').padding(16).backgroundColor(UiColor.container)
@@ -122,13 +147,16 @@ struct TaskOverview {
         if (this.tasks.length === 0) {
           EmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
             detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
+        } else if (this.visibleTasks.length === 0) {
+          EmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
+            actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today') {
           TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime })
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
         } else {
           List() {
-            ForEach(this.tasks, (task: CoreTask) => {
+            ForEach(this.visibleTasks, (task: CoreTask) => {
               ListItem() {
                 if (this.view === 'anytime' || this.view === 'someday') {
                   TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })

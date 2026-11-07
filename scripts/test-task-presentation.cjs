@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示与单行宽度分配。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配和展示层标签筛选。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -275,4 +275,56 @@ test('计划按日期组织原任务快照，保留空日期、月分组与分�
     assert.equal(groups.find(group => group.key === key).items[0].task, task);
   }
   assert.equal(groups.flatMap(group => group.items).length, tasks.length);
+});
+
+const tagFilters = loadGrouping('TaskTagFilterPresentation', {});
+
+test('标签候选从完整任务快照去重，包含 Core 提供的继承标签且不随当前选择缩减', () => {
+  const tasks = [task('a', { tags: ['阅读', '技术'] }), task('b', { tags: ['外出', '阅读'] }), task('c')];
+  assert.deepEqual(tagFilters.taskTagOptions(tasks), ['外出', '技术', '阅读'].sort((a, b) => a.localeCompare(b)));
+  const selected = tagFilters.filterTasksByTags(tasks, { tags: ['技术'], includeUntagged: false });
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0], tasks[0]);
+  assert.deepEqual(tasks.map(value => value.tags), [['阅读', '技术'], ['外出', '阅读'], []]);
+});
+
+test('展示层标签多选按并集匹配，全部恢复原快照，无标签不匹配已有标签的任务', () => {
+  const tasks = [task('a', { tags: ['阅读', '技术'] }), task('b', { tags: ['外出'] }),
+    task('c'), task('d', { tags: ['等待'] })];
+  const all = { tags: [], includeUntagged: false };
+  assert.equal(tagFilters.filterTasksByTags(tasks, all), tasks);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['阅读', '外出'], includeUntagged: false }), tasks.slice(0, 2));
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: [], includeUntagged: true }), [tasks[2]]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['外出'], includeUntagged: true }), [tasks[1], tasks[2]]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['read'], includeUntagged: false }), []);
+});
+
+test('标签选择再次点击取消，不改写输入状态；刷新仅清理失效标签', () => {
+  const initial = { tags: ['阅读'], includeUntagged: true };
+  const added = tagFilters.toggleTaskTag(initial, '外出');
+  assert.deepEqual(added, { tags: ['阅读', '外出'], includeUntagged: true });
+  assert.deepEqual(initial, { tags: ['阅读'], includeUntagged: true });
+  assert.deepEqual(tagFilters.toggleTaskTag(added, '阅读'), { tags: ['外出'], includeUntagged: true });
+  assert.deepEqual(tagFilters.reconcileTaskTags(added, ['阅读']), initial);
+  const cleared = tagFilters.reconcileTaskTags({ tags: ['已消失'], includeUntagged: false }, ['阅读']);
+  assert.equal(tagFilters.allTaskTagsSelected(cleared), true);
+});
+
+test('今天先按标签筛选再按分类分区，隐藏空分类且不影响源任务与标签候选', () => {
+  const { todaySections } = loadGrouping('TodayPresentation', {});
+  const tasks = [task('a', { category: '工作', tags: ['技术'] }), task('b', { category: '生活', tags: ['外出'] })];
+  const visible = tagFilters.filterTasksByTags(tasks, { tags: ['外出'], includeUntagged: false });
+  const sections = todaySections(visible);
+  assert.deepEqual(sections.map(section => section.category), ['生活']);
+  assert.equal(sections[0].items[0].task, tasks[1]);
+  assert.equal(tasks.length, 2);
+  assert.equal(tagFilters.taskTagOptions(tasks).length, 2);
+});
+
+
+test('扁平标签完整匹配，不按名称前缀或分隔符推断级联关系', () => {
+  const tasks = [task('a', { tags: ['阅读'] }), task('b', { tags: ['阅读_技术'] }),
+    task('c', { tags: ['阅读', '技术'] })];
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['阅读'], includeUntagged: false }), [tasks[0], tasks[2]]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['技术'], includeUntagged: false }), [tasks[2]]);
 });
