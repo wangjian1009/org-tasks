@@ -20,11 +20,14 @@ export struct AppShell {
   @Prop back: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_search')
   @Prop actionLabel: string = ''
+  @Prop secondaryActionIcon: Resource = $r('app.media.ui_info')
+  @Prop secondaryActionLabel: string = ''
   @Prop busy: boolean = false
   @Prop pullToSync: boolean = false
   @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
   action: () => void = () => {}
+  secondaryAction: () => void = () => {}
   backAction: () => void = (): void => { router.back() }
   synchronized: () => void = () => {}
   @State inboxCount: number = -1
@@ -221,6 +224,9 @@ export struct AppShell {
               .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`).enabled(!this.busy)
               .onClick((): void => { this.openDrawer() })
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
+          if (this.secondaryActionLabel.length > 0) {
+            IconButton({ icon: this.secondaryActionIcon, label: this.secondaryActionLabel, disabled: this.busy, action: this.secondaryAction })
+          }
           if (this.actionLabel.length > 0) {
             IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
           }

@@ -5,6 +5,7 @@
     "pages/Search",
     "pages/SavedSearches",
     "pages/Files",
+    "pages/SyncLog",
     "pages/Inbox",
     "pages/InboxPlan",
     "pages/TaskOverview",

@@ -47,6 +47,8 @@ export interface CoreSyncSnapshot {
   conflicts: string[]
 }
 
+export type CoreSyncRecord = NativeSyncRecord
+
 export interface CoreBridgeResponse {
   workspace: CoreWorkspace
   tasks: CoreTask[]
@@ -136,6 +138,10 @@ export class CoreRepo {
     await this.native.load()
   }
 
+  async history(): Promise<CoreSyncRecord[]> {
+    return await this.native.history() as CoreSyncRecord[]
+  }
+
   async createTask(path: string, task: CoreNewTask, queueUpload: boolean, insertAtTop: boolean = false): Promise<void> {
     await this.native.createTask(path, task, queueUpload, insertAtTop)
   }
@@ -195,6 +201,11 @@ export class NativeCoreService {
     const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     return repo
+  }
+
+  static async repositoryHistory(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreSyncRecord[]> {
+    const repo = await NativeCoreService.repository(repositories, repository, todoDefaults)
+    return await repo.history()
   }
 
   static async conflicts(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreConflict[]> {

@@ -127,6 +127,7 @@ export class Repo {
   readonly id: string;
   readonly rootDirectory: string;
   load(): Promise<void>;
+  history(): Promise<SyncRecord[]>;
   createTask(path: string, task: NewTask, queueUpload: boolean, insertAtTop?: boolean): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;

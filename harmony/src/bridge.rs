@@ -336,6 +336,44 @@ pub fn repo_load(handle: u64, root_directory: String) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// 读取仓库已完成的同步记录。历史由 core 从 `.sync/history` 恢复，宿主只接收展示投影。
+pub fn repo_history_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let history = runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
+    encode(
+        &history
+            .into_iter()
+            .map(|record| {
+                Ok(HarmonyBridgeSync {
+                    id: record.id,
+                    result: sync_result_label(record.result)?,
+                    started_at: record.started_at,
+                    finished_at: record.finished_at,
+                    files: record.files.len(),
+                    conflicts: record
+                        .files
+                        .iter()
+                        .filter(|file| {
+                            matches!(
+                                file.state,
+                                org_tasks_core::OrgRepoSyncFileState::Conflict
+                                    | org_tasks_core::OrgRepoSyncFileState::RemoteDeleted
+                            )
+                        })
+                        .map(|file| file.relative_path.clone())
+                        .collect(),
+                })
+            })
+            .collect::<Result<Vec<_>, CoreError>>()?,
+    )
+}
+
 pub fn repo_create_task(
     handle: u64,
     root_directory: String,

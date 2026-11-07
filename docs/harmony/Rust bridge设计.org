@@ -51,6 +51,7 @@ class Repo {
   readonly id: string
   readonly rootDirectory: string
   load(): Promise<void>
+  history(): Promise<SyncRecord[]>
   files(): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
@@ -112,6 +113,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgWorkspace.search(&Filter)~ | ~workspace.search(expression)~ | 宿主传查询文本，由 Rust 解析为 ~Filter~ 。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
+| ~OrgRepo.load::<WebDavSyncPolicy>()~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录，bridge 只投影 ~SyncRecord~ 的结果、时间、文件数和冲突路径；ArkTS 不读取控制目录。 |
 | ~FilterTask.is_done()~ | ~task.isDone()~ | Rust 根据文件有效配置计算完成结果，native Task 方法原样返回。 |
 | ~OrgRepoSyncRecord~ 、 ~FilterTask~ | ~SyncRecord~ 、 ~Task~ | 同步记录为数据投影；任务为含只读字段和行为的对象，不是 Rust 结构体的全部字段。 |
 

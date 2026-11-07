@@ -138,6 +138,17 @@ pub extern "C" fn org_tasks_harmony_repo_load(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_history(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(root_directory)
+            .and_then(|root| bridge::repo_history_json(workspace_handle, root)),
+    )
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_create_task(
     workspace_handle: u64,
     root_directory: *const c_char,
