@@ -3,6 +3,7 @@ import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
+import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
@@ -158,7 +159,10 @@ struct TaskOverview {
           List() {
             ForEach(this.visibleTasks, (task: CoreTask) => {
               ListItem() {
-                if (this.view === 'anytime' || this.view === 'someday') {
+                if (this.view === 'memo') {
+                  MemoListItem({ task, open: this.openTask(task) })
+                    .margin({ left: 16, right: 16, bottom: 12 })
+                } else if (this.view === 'anytime' || this.view === 'someday') {
                   TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
                 } else {
                   TaskRow({ task, showBody: true, open: this.openTask(task) })
