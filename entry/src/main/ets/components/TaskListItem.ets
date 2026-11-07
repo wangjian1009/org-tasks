@@ -278,8 +278,10 @@ export struct TaskListItem {
         }
       }.width('100%').alignItems(this.expanded ? VerticalAlign.Top : VerticalAlign.Center)
       if (this.contentMounted) {
+        // 仅用于内容测量与动画裁切，纵向滚动交给外层列表。
         Scroll() { this.expandedContent() }.width('100%').height(this.contentHeight).clip(true)
           .scrollable(ScrollDirection.Vertical).enableScrollInteraction(false).scrollBar(BarState.Off)
+          .nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.PARENT_FIRST })
           .edgeEffect(EdgeEffect.None).align(Alignment.TopStart)
           .opacity(this.expanded ? 1 : 0)
           .transition(TransitionEffect.OPACITY.animation({ duration: 220 }))

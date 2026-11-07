@@ -79,6 +79,8 @@ export struct OrgContentView {
     } else {
       Web({ src: 'about:blank', controller: this.controller })
         .width('100%').height(this.embedded ? this.contentHeight : '100%').backgroundColor(this.contentBackground)
+        .nestedScroll({ scrollUp: this.embedded ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_ONLY,
+          scrollDown: this.embedded ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_ONLY })
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
           const href = request.getRequestUrl()
