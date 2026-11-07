@@ -1,11 +1,12 @@
 import { common } from '@kit.AbilityKit'
 import { UiColor } from '../ui/Theme'
 
-// 分享扩展只转交标题；所有仓库写入都在统一捕捉窗口执行。
+// 分享扩展只负责读取系统载荷；地点分享进入独立页面，不复用快速捕捉。
 @Entry({ useSharedStorage: true })
 @Component
 struct ShareCapture {
   @LocalStorageLink('sharedTitle') title: string = ''
+  @LocalStorageLink('sharedUrl') url: string = ''
   @LocalStorageLink('shareReady') @Watch('forward') ready: boolean = false
   @LocalStorageLink('shareError') error: string = ''
   @State forwarding: boolean = false
@@ -17,7 +18,8 @@ struct ShareCapture {
     this.forwarding = true
     const context = getContext(this) as common.UIExtensionContext
     try {
-      await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'CaptureAbility', parameters: { title: this.title } })
+      await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'ShareLocationAbility',
+        parameters: { title: this.title, url: this.url } })
       await context.terminateSelf()
     } catch (e) { this.error = '打开快速捕捉失败，请重试'; this.forwarding = false }
   }

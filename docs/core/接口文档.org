@@ -126,6 +126,9 @@ impl OrgRepo {
     pub async fn create_task(&mut self, path: &str, task: &NewTask,
         queue_upload: bool) -> Result<(), CoreError>;
 
+    pub async fn update_task_location(&mut self, path: &str, heading: &str,
+        new_uri: &str, queue_upload: bool) -> Result<(), CoreError>;
+
     pub async fn pending_writes(&self) -> Result<Vec<OrgRepoWriteIntent>, CoreError>;
 
     pub async fn acknowledge_write(&self, path: &str,
@@ -198,13 +201,13 @@ impl OrgFile {
 
 *** NewTask 与 OrgRepoWriteIntent
 
-~NewTask~ 是任务创建的运行时输入，字段为 ~heading~ 、 ~scheduled~ 、 ~deadline~ 、 ~tags~ 与 ~priority~ 。日期为空或有效的 ~YYYY-MM-DD~ ，优先级为空或 ~A/B/C~ ，标题不能为空或包含控制字符，标签只允许字母、数字、中文及 ~_@#%~ 。标题中的隐式 Org 属性必须拒绝，避免与表单属性产生歧义。
+~NewTask~ 是任务创建的运行时输入，字段为 ~heading~ 、 ~body~ 、 ~scheduled~ 、 ~deadline~ 、 ~tags~ 与 ~priority~ 。日期为空或有效的 ~YYYY-MM-DD~ ，优先级为空或 ~A/B/C~ ，标题不能为空或包含控制字符，标签只允许字母、数字、中文及 ~_@#%~ 。标题中的隐式 Org 属性必须拒绝，避免与表单属性产生歧义。
 
-~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。默认在文件末尾通过 ~apply_edit~ 追加使用目标文件有效初始状态的一级标题和可选 planning 行；~create_task_at_top~ 则在文件头配置与前言之后、第一条标题之前插入。两者均保留原有字节并沿用文件换行风格，写入后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加或插入标题的文件会返回输入错误。
+~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。默认在文件末尾通过 ~apply_edit~ 追加使用目标文件有效初始状态的一级标题和可选 planning 行和正文；~create_task_at_top~ 则在文件头配置与前言之后、第一条标题之前插入。两者均保留原有字节并沿用文件换行风格，写入后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加或插入标题的文件会返回输入错误。
 
 写入先在目标文件同级生成并刷新临时文件，提交前检查目标内容仍与读取时一致，再原子重命名并更新仓库快照。宿主必须串行调用同一仓库的编辑和同步；Harmony 通过 workspace 锁执行。该检查不能替代跨进程文件锁。
 
-~queue_upload~ 为真时，提交目标文件前先持久化 ~OrgRepoWriteIntent { relative_path, content_hash }~ 到 ~.sync/outbox/~ 。为假时只保存本地任务。写入意图不保存标题、日期、标签、完整文件或绝对路径。重复保存生成独立意图；后续成功同步完整的当前文件后，可一起确认该路径的历史意图。
+~queue_upload~ 为真时，提交目标文件前先持久化 ~OrgRepoWriteIntent { relative_path, content_hash }~ 到 ~.sync/outbox/~ 。为假时只保存本地任务。写入意图不保存标题、正文、日期、标签、完整文件或绝对路径。重复保存生成独立意图；后续成功同步完整的当前文件后，可一起确认该路径的历史意图。
 
 ~pending_writes~ 恢复并校验意图；损坏的 JSON 或不安全路径使加载失败。 ~acknowledge_write~ 只有在仓库快照和磁盘文件都匹配已同步 ~LocalFileVersion~ 时才清除该路径的意图。 ~OrgRepo.sync~ 先持久化完整同步记录，再确认其中 ~Synchronized~ 文件；失败或冲突的文件意图保留。
 
@@ -596,3 +599,7 @@ impl FilterTask {
 ** 任务列表提示投影
 
 ~FilterTask.is_repeating: bool~ 由 Core 读取当前标题的计划与截止时间重复器生成，不包含正文或子标题中的重复器，也不展开重复日期；与 ~RenderedTaskContent.has_list~ 一起提供只读展示提示。Harmony 映射为 ~Task.isRepeating~ 与 ~Task.hasList~ ，宿主不解析 Org。两个字段均不进入同步记录、outbox 或仓库身份。
+
+** 分享地点写入与地址替换
+
+~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交，~queue_upload~ 仍按当前文件快照登记 outbox。

@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use chrono::{Datelike, Duration, Local, Months, NaiveDate};
 use orgize::ast::{Headline, Timestamp};
 use orgize::rowan::ast::AstNode;
+use serde::Serialize;
 
 use crate::OrgRepo;
 
@@ -138,6 +139,7 @@ pub struct FilterTask {
     pub inherited_tags: Vec<String>,
     pub title: String,
     pub body: String,
+    pub address_links: Vec<AddressLink>,
     /// 当前任务的计划或截止时间含重复器；不展开重复日期。
     pub is_repeating: bool,
     pub scheduled: Option<FilterDate>,
@@ -145,6 +147,13 @@ pub struct FilterTask {
     pub closed: Option<FilterDate>,
     pub created: Option<FilterDate>,
     pub events: Vec<FilterDate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddressLink {
+    pub uri: String,
+    pub label: String,
 }
 
 impl FilterTask {
@@ -306,6 +315,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 }
                 _ => FilterStateType::None,
             };
+            let address_links = extract_address_links(&body);
             tasks.push(FilterTask {
                 id: identities.id_for(&headline, state_type != FilterStateType::None),
                 repo_id: repository.id.clone(),
@@ -322,6 +332,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 inherited_tags,
                 title: headline.title_raw().trim_end().to_owned(),
                 body,
+                address_links,
                 is_repeating: planning_repeats(&headline),
                 scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
                 deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
@@ -337,6 +348,24 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
             .then(left.byte_offset.cmp(&right.byte_offset))
     });
     tasks
+}
+
+fn extract_address_links(body: &str) -> Vec<AddressLink> {
+    let mut result = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(relative) = body[cursor..].find("[[") {
+        let start = cursor + relative + 2;
+        let Some(uri_end_relative) = body[start..].find(']') else { break };
+        let uri_end = start + uri_end_relative;
+        let uri = &body[start..uri_end];
+        if !(uri.starts_with("geo:") || uri.starts_with("addr:")) { cursor = uri_end + 1; continue; }
+        let label_start = uri_end + 2;
+        let Some(label_end_relative) = body[label_start..].find("]]" ) else { break };
+        let label_end = label_start + label_end_relative;
+        result.push(AddressLink { uri: uri.to_owned(), label: body[label_start..label_end].to_owned() });
+        cursor = label_end + 2;
+    }
+    result
 }
 
 fn timestamp_to_date(timestamp: Timestamp) -> Option<FilterDate> {

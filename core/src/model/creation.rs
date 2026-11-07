@@ -13,6 +13,8 @@ use crate::{CoreError, filter::tasks_from_repo};
 #[serde(deny_unknown_fields)]
 pub struct NewTask {
     pub heading: String,
+    #[serde(default)]
+    pub body: String,
     pub scheduled: String,
     pub deadline: String,
     pub tags: Vec<String>,
@@ -61,6 +63,56 @@ impl OrgRepo {
     ) -> Result<(), CoreError> {
         self.create_task_with_position(path, task, queue_upload, true)
             .await
+    }
+
+    /// 在任务子树中替换第一个地址链接的 URI，保留链接描述和其他源字节。
+    pub async fn update_task_location(
+        &mut self,
+        path: &str,
+        heading: &str,
+        old_uri: &str,
+        new_uri: &str,
+        queue_upload: bool,
+    ) -> Result<(), CoreError> {
+        if self.id.is_empty() { return Err(CoreError::InvalidState("仓库尚未加载")); }
+        validate_task_path(path)?;
+        if new_uri.is_empty() || new_uri.chars().any(char::is_control) {
+            return Err(CoreError::InvalidInput("地址链接无效"));
+        }
+        let target = task_target(Path::new(&self.root_directory), path).await?;
+        let original = read_optional(&target).await?;
+        let mut file = self.parse_file(path.into(), original.clone().unwrap_or_default())?;
+        let source = file.source_bytes().to_vec();
+        let (start, end) = task_link_uri_range(&source, heading, old_uri)?;
+        let start_position = position_at(&source, start);
+        let end_position = position_at(&source, end);
+        apply_edit(&mut file, OrgFileEdit::ReplaceRange {
+            target: super::editor::SourceRange::new(start_position, end_position)?,
+            content: new_uri.as_bytes().to_vec(),
+        })?;
+        let nonce = super::service::generate_repo_id()?;
+        let temporary = target.with_file_name(format!(".{nonce}.tmp"));
+        write_new(&temporary, file.source_bytes()).await?;
+        let intent_path = Path::new(&self.root_directory).join(".sync/outbox").join(format!("{nonce}.json"));
+        let intent_temporary = intent_path.with_extension("tmp");
+        let result = async {
+            if queue_upload {
+                let intent = OrgRepoWriteIntent { relative_path: path.into(), content_hash: LocalFileVersion::from_bytes(file.source_bytes()).content_hash };
+                fs::create_dir_all(intent_path.parent().unwrap()).await.map_err(store_error)?;
+                write_new(&intent_temporary, &serde_json::to_vec(&intent).map_err(|_| CoreError::InvalidState("无法序列化写入意图"))?).await?;
+                fs::rename(&intent_temporary, &intent_path).await.map_err(store_error)?;
+            }
+            if read_optional(&target).await? != original { return Err(CoreError::InvalidState("目标文件已发生变化，请重试保存")); }
+            fs::rename(&temporary, &target).await.map_err(store_error)?;
+            Ok(())
+        }.await;
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary).await;
+            if queue_upload { let _ = fs::remove_file(&intent_path).await; let _ = fs::remove_file(&intent_temporary).await; }
+            return Err(error);
+        }
+        if let Some(index) = self.files.iter().position(|item| item.path == path) { self.files[index] = file; }
+        Ok(())
     }
 
     async fn create_task_with_position(
@@ -340,8 +392,43 @@ impl NewTask {
         if !planning.is_empty() {
             content.push_str(&format!("{}\n", planning.join(" ")));
         }
+        if !self.body.trim().is_empty() {
+            if self.body.contains('\0') {
+                return Err(CoreError::InvalidInput("任务正文包含无效字符"));
+            }
+            content.push_str(self.body.trim_end_matches(['\r', '\n']));
+            content.push_str("\n");
+        }
         Ok(content)
     }
+}
+
+fn task_link_uri_range(source: &[u8], heading: &str, old_uri: &str) -> Result<(usize, usize), CoreError> {
+    let text = std::str::from_utf8(source).map_err(|_| CoreError::InvalidInput("Org 文件不是 UTF-8"))?;
+    let mut offset = 0usize;
+    let mut selected = false;
+    let mut level = 0usize;
+    let mut subtree_start = 0usize;
+    let mut subtree_end = source.len();
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        let stars = trimmed.chars().take_while(|c| *c == '*').count();
+        if stars > 0 && trimmed.as_bytes().get(stars) == Some(&b' ') {
+            let title = trimmed[stars + 1..].trim();
+            if !selected && title.contains(heading) { selected = true; level = stars; subtree_start = offset; }
+            else if selected && stars <= level { subtree_end = offset; break; }
+        }
+        offset += line.len();
+    }
+    if !selected { return Err(CoreError::InvalidInput("找不到要更新的任务")); }
+    let segment = &text[subtree_start..subtree_end];
+    let needle = format!("[[{old_uri}");
+    let relative = segment.find(&needle)
+        .ok_or(CoreError::InvalidInput("任务中没有指定地址链接"))?;
+    let uri_start = subtree_start + relative + 2;
+    let uri_end = text[uri_start..subtree_end].find(']').map(|value| uri_start + value)
+        .ok_or(CoreError::InvalidInput("地址链接格式无效"))?;
+    Ok((uri_start, uri_end))
 }
 
 fn validate_task_path(path: &str) -> Result<(), CoreError> {
@@ -435,6 +522,7 @@ mod tests {
         fs::write(root.join("inbox.org"), original).await.unwrap();
         let task = NewTask {
             heading: "处理事务".into(),
+            body: String::new(),
             scheduled: "2026-10-12".into(),
             deadline: "2026-10-15".into(),
             priority: "A".into(),
@@ -461,6 +549,19 @@ mod tests {
         assert!(!intent_json.contains("处理事务"));
         assert!(!intent_json.contains(&repo.root_directory));
         fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_location_replaces_only_the_first_task_link() {
+        let mut repo = repo().await;
+        let root = PathBuf::from(&repo.root_directory);
+        let source = b"* TODO Visit\nBody before\n[[addr:old-place][Old place]]\nBody after\n* TODO Other\n[[addr:keep][Keep]]\n";
+        fs::write(root.join("inbox.org"), source).await.unwrap();
+        repo.update_task_location("inbox.org", "Visit", "addr:old-place", "geo:39.9,116.4", false).await.unwrap();
+        let bytes = fs::read(root.join("inbox.org")).await.unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("Body before\n[[geo:39.9,116.4][Old place]]\nBody after"));
+        assert!(text.contains("[[addr:keep][Keep]]"));
     }
 
     #[tokio::test]

@@ -23,6 +23,7 @@ export class UiColor {
   static readonly divider: string = '#494B48'
   static readonly outline: string = '#4B4A48'
   static readonly error: string = '#FF7592'
+  static readonly warning: string = '#F2C96D'
   static readonly done: string = '#65CD7B'
 }
 

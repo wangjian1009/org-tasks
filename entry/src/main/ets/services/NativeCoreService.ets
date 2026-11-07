@@ -16,6 +16,7 @@ import {
   SyncRecord as NativeSyncRecord,
   Task as NativeTask,
   TitlePart as NativeTitlePart,
+  AddressLink as NativeAddressLink,
   TitleCount as NativeTitleCount,
   TaskQuery as NativeTaskQuery,
   TaskCategory as NativeTaskCategory,
@@ -33,6 +34,7 @@ export type CoreOrgFileMetadata = NativeOrgFileMetadata
 // 逻辑身份、category 与 hasList、isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
+export type CoreAddressLink = NativeAddressLink
 export type CoreTitleCount = NativeTitleCount
 export type CoreTaskQuery = NativeTaskQuery
 export type CoreTaskCategory = NativeTaskCategory
@@ -144,6 +146,10 @@ export class CoreRepo {
 
   async createTask(path: string, task: CoreNewTask, queueUpload: boolean, insertAtTop: boolean = false): Promise<void> {
     await this.native.createTask(path, task, queueUpload, insertAtTop)
+  }
+
+  async updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<void> {
+    await this.native.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)
   }
 
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {

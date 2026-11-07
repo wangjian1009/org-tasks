@@ -71,6 +71,8 @@ pub struct HarmonyBridgeTask {
     pub file_name: String,
     pub level: u32,
     pub body: String,
+    #[serde(rename = "addressLinks")]
+    pub address_links: Vec<org_tasks_core::filter::AddressLink>,
     pub body_html: String,
     pub logbook_html: String,
     pub progress: i32,
@@ -238,6 +240,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         file_path: task.path,
         level: task.level,
         body: task.body,
+        address_links: task.address_links,
         body_html: content.body_html,
         logbook_html: content.logbook_html,
         progress: -1,
@@ -414,6 +417,24 @@ pub fn repo_create_task_at_top(
     let runtime = runtime()?;
     runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
     runtime.block_on(repository.create_task_at_top(&path, &task, queue_upload))
+}
+
+pub fn repo_update_task_location(
+    handle: u64,
+    root_directory: String,
+    path: String,
+    heading: String,
+    old_uri: String,
+    new_uri: String,
+    queue_upload: bool,
+) -> Result<(), CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace.repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    runtime.block_on(repository.update_task_location(&path, &heading, &old_uri, &new_uri, queue_upload))
 }
 
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {

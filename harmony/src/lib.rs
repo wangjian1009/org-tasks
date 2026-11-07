@@ -203,6 +203,27 @@ pub extern "C" fn org_tasks_harmony_repo_create_task_at_top(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_update_task_location(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+    path: *const c_char,
+    heading: *const c_char,
+    old_uri: *const c_char,
+    new_uri: *const c_char,
+    queue_upload: bool,
+) -> i32 {
+    clear_last_error();
+    let result = read_c_string(root_directory).and_then(|root_directory| {
+        bridge::repo_update_task_location(workspace_handle, root_directory, read_c_string(path)?,
+            read_c_string(heading)?, read_c_string(old_uri)?, read_c_string(new_uri)?, queue_upload)
+    });
+    match result {
+        Ok(()) => 0,
+        Err(error) => { remember_error(&error); -1 }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_id(
     workspace_handle: u64,
     root_directory: *const c_char,

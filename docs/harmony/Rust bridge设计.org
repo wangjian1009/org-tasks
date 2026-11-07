@@ -57,6 +57,8 @@ class Repo {
   file(path: string): Promise<OrgFile>
   createTask(path: string, task: NewTask, queueUpload: boolean,
              insertAtTop?: boolean): Promise<void>
+  updateTaskLocation(path: string, heading: string, newUri: string,
+                     queueUpload: boolean): Promise<void>
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
        options?: SyncOptions): Promise<SyncRecord>
   conflicts(): Promise<ConflictSync[]>
@@ -131,7 +133,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 创建、同步与合并
 
-~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径、 ~queueUpload~ 和可选的 ~insertAtTop~ 位置标记；Rust 负责校验、保真追加或头部插入、提交与 outbox。省略 ~insertAtTop~ 或传 ~false~ 时保持文件末尾追加，快速捕捉传 ~true~ 在文件头配置与前言之后、第一条标题之前插入。ArkTS 只提交表单值，不生成 Org 正文。
+~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径、 ~queueUpload~ 和可选的 ~insertAtTop~ 位置标记；Rust 负责校验、保真追加或头部插入、提交与 outbox。省略 ~insertAtTop~ 或传 ~false~ 时保持文件末尾追加，快速捕捉传 ~true~ 在文件头配置与前言之后、第一条标题之前插入。ArkTS 只提交结构化表单值；分享地点的地址放在 ~NewTask.body~ ，由 Core 生成 Org 正文。
 
 ~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
 
@@ -273,3 +275,8 @@ interface TitleCount {
 查询 worker 将 ~FilterTask.is_repeating~ 与 ~RenderedTaskContent.has_list~ 投影为 ~Task.isRepeating~ 与 ~Task.hasList~ 。C++ N-API 将两者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。ArkTS 只根据这些布尔值选择循环与列表图标，并以 ~bodyHtml~ 是否为空决定正文提示，不扫描 Org 或 HTML 推断领域结构。
 
 ~TaskListItem~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
+
+
+* 独立分享捕捉
+
+~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Repo.createTask~ 写入正文链接，更新任务调用 ~Repo.updateTaskLocation~ 保留其他字节。解析失败只允许保存原始链接或返回地图。

@@ -17,6 +17,7 @@
     "pages/RepositorySettings",
     "pages/MergeConflict",
     "pages/Capture",
-    "pages/ShareCapture"
+    "pages/ShareCapture",
+    "pages/ShareLocation"
   ]
 }

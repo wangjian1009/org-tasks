@@ -66,6 +66,16 @@
             ]
           }
         ]
+      },
+      {
+        "name": "ShareLocationAbility",
+        "srcEntry": "./ets/entryability/ShareLocationAbility.ets",
+        "description": "从地图分享地点创建或更新任务",
+        "icon": "$media:app_icon",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "launchType": "singleton",
+        "exported": false
       }
     ],
     "extensionAbilities": [
@@ -93,7 +103,6 @@
         "name": "CaptureShareExtension",
         "srcEntry": "./ets/entryability/CaptureShareExtension.ets",
         "type": "share",
-        "label": "$string:capture_share_label",
         "description": "$string:capture_description",
         "icon": "$media:app_icon",
         "exported": true,

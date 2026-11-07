@@ -89,6 +89,7 @@
 \begin{umlpackage}[x=0,y=-9.3]{Editing}
 \umlclass[x=0,y=0]{NewTask}{
   heading: String \\
+  body: String \\
   scheduled: String \\
   deadline: String \\
   tags: Vec\textless String\textgreater \\
@@ -291,13 +292,14 @@ pub struct OrgRepo {
 
 * 任务创建与写入意图
 
-~NewTask~ 仅作为 ~OrgRepo.create_task~ 与 ~OrgRepo.create_task_at_top~ 的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、优先级、标签及计划日期转为 org 内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验；默认新增任务追加到文件末尾，快速捕捉可请求在第一条标题之前插入。已存在文件的原始字节保持不变。
+~NewTask~ 仅作为 ~OrgRepo.create_task~ 、 ~OrgRepo.create_task_at_top~ 与分享地点写入的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、正文、优先级、标签及计划日期转为 org 内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验；默认新增任务追加到文件末尾，快速捕捉可请求在第一条标题之前插入。已存在文件的原始字节保持不变。
 
 ~OrgRepoWriteIntent~ 只包含相对路径与保存后的内容哈希，按仓库写入 ~.sync/outbox/~ 。完整任务仍保存在用户 org 文件中；多个保存意图可指向同一个文件。WebDAV 使用原始文件的最新完整字节上传，成功同步记录落盘且本地版本一致后才确认消费。写入意图不增加 ~OrgRepo~ 的持久化文件快照字段。
 
 #+begin_src rust
 pub struct NewTask {
     pub heading: String,
+    pub body: String,
     pub scheduled: String,
     pub deadline: String,
     pub tags: Vec<String>,
