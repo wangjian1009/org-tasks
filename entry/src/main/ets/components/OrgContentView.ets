@@ -101,9 +101,10 @@ export struct OrgContentView {
           if (event.type === KeyType.Up && this.embedded) setTimeout(() => { this.measure() }, 100)
           return false
         })
-        .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false }), {
-          height: 220,
-          detents: [220],
+        .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
+          (message: string): void => { if (this.active) this.getUIContext().getPromptAction().showToast({ message }) }), {
+          height: 300,
+          detents: [300],
           preferType: SheetType.BOTTOM,
           backgroundColor: UiColor.surface,
           maskColor: Color.Transparent,

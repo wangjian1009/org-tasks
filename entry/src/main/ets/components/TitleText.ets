@@ -59,9 +59,10 @@ export struct TitleText {
       .wordBreak(WordBreak.BREAK_ALL)
       .copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
       .onClick(this.activate).flexShrink(1)
-      .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false }), {
-        height: 220,
-        detents: [220],
+      .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
+        (message: string): void => { this.getUIContext().getPromptAction().showToast({ message }) }), {
+        height: 300,
+        detents: [300],
         preferType: SheetType.BOTTOM,
         backgroundColor: UiColor.surface,
         maskColor: Color.Transparent,

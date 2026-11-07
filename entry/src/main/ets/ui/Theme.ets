@@ -19,6 +19,8 @@ export class UiColor {
   static readonly onSelected: string = '#E6E6E6'
   static readonly text: string = '#D8D8D8'
   static readonly secondary: string = '#AEACA9'
+  static readonly disabled: string = '#92938F'
+  static readonly divider: string = '#494B48'
   static readonly outline: string = '#4B4A48'
   static readonly error: string = '#FF7592'
   static readonly done: string = '#65CD7B'

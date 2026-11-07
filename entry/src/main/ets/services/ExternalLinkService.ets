@@ -3,7 +3,12 @@ import { petalMaps } from '@kit.MapKit'
 
 export interface MapAppChoice {
   title: string
+  icon: Resource
+  contextLabel: string
+  description: string
   installed: boolean
+  supported: boolean
+  unsupportedMessage?: string
   select: () => void
 }
 
@@ -43,12 +48,12 @@ export class ExternalLinkService {
 
 async function openMapChooser(context: common.UIAbilityContext, uri: string, chooser?: MapAppChooser): Promise<void> {
   const choices: MapAppChoice[] = [
-    mapChoice(context, '高德地图', 'com.amap.hmapp', uri),
-    mapChoice(context, '花瓣地图', 'com.huawei.hmos.maps.app', uri)
+    mapChoice(context, '高德地图', $r('app.media.map_app_amap'), 'com.amap.hmapp', uri),
+    mapChoice(context, '花瓣地图', $r('app.media.map_app_petal'), 'com.huawei.hmos.maps.app', uri)
   ]
   if (chooser) chooser(choices)
-  else if (choices.some((choice) => choice.installed)) {
-    const choice = choices.find((item) => item.installed)
+  else if (choices.some((choice) => choice.installed && choice.supported)) {
+    const choice = choices.find((item) => item.installed && item.supported)
     if (choice) choice.select()
   } else throw new Error('没有可用的地图应用')
 }
@@ -60,11 +65,20 @@ function geoIsZero(href: string): boolean {
   return /^0(?:\.0+)?\s*,\s*0(?:\.0+)?$/.test(coordinates)
 }
 
-function mapChoice(context: common.UIAbilityContext, title: string, bundleName: string, uri: string): MapAppChoice {
+function mapChoice(context: common.UIAbilityContext, title: string, icon: Resource, bundleName: string,
+  uri: string): MapAppChoice {
   const search = geoSearchAddress(uri)
+  const coordinates = geoCoordinates(uri)
+  const contextLabel = search ? `搜索：${search}` : coordinates ? `坐标：${coordinates.latitude}, ${coordinates.longitude}` : '地址'
+  const supported = !(bundleName === 'com.amap.hmapp' && Boolean(search))
   return {
     title,
+    icon,
+    contextLabel,
+    description: search ? (supported ? '在地图中搜索地址' : '暂不支持地址搜索') : '在地图中打开坐标',
     installed: true,
+    supported,
+    unsupportedMessage: supported ? undefined : '高德地图暂不支持地址搜索，请选择花瓣地图。',
     select: (): void => {
       if (bundleName === 'com.huawei.hmos.maps.app' && search) {
         petalMaps.openMapTextSearch(context, { destinationName: search }).catch(() => {})
