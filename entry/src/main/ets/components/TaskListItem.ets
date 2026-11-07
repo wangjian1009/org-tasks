@@ -1,6 +1,7 @@
 import { CoreTask } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { taskDateIsToday, taskDateText, taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
+import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
+  taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
 import { TitleCounts } from './TitleCounts'
@@ -12,6 +13,8 @@ import { OrgContentView } from './OrgContentView'
 export struct TaskListItem {
   @Prop task: CoreTask
   @Prop enableCompletionState: boolean = true
+  @Prop showDate: boolean = false
+  @Prop showCategory: boolean = false
   open: () => void = () => {}
   @State expanded: boolean = false
   @State contentMounted: boolean = false
@@ -23,12 +26,26 @@ export struct TaskListItem {
 
   duration(): number { return taskDurationDays(this.task, new Date(this.referenceTime)) }
 
+  leadingDate(): string { return taskDateText(taskDisplayDate(this.task), true, new Date(this.referenceTime)) }
+
+  leadingWidth(): number {
+    return (this.showDate && taskDisplayDate(this.task).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
+      + (this.task.isRepeating ? 28 : 0)
+  }
+
+  deadlineColor(): string { return taskDeadlineColor(this.task, new Date(this.referenceTime)) }
+
+  deadlineIcon(): Resource {
+    return this.deadlineColor() === UiColor.deadline
+      ? $r('app.media.ui_task_deadline') : $r('app.media.ui_task_deadline_neutral')
+  }
+
   countBudget(): number {
-    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - 126))
+    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - 126))
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16, this.task.tags.length, taskIndicators(this.task).length,
+    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth(), this.task.tags.length, taskIndicators(this.task).length,
       this.duration(), this.task.deadline.length > 0 ? this.deadlineWidth : 0,
       titleCountsWidth(this.task.headingParts, this.countBudget()))
   }
@@ -56,7 +73,6 @@ export struct TaskListItem {
   indicatorIcon(kind: string): Resource {
     switch (kind) {
       case 'list': return $r('app.media.ui_task_list')
-      case 'repeat': return $r('app.media.ui_task_repeat')
       default: return $r('app.media.ui_task_body')
     }
   }
@@ -108,16 +124,21 @@ export struct TaskListItem {
         Text('…').fontSize(13).fontColor(UiColor.secondary).width(14).maxLines(1)
       }
     }.width(this.layout().indicatorWidth).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`${this.task.bodyHtml ? '有正文；' : ''}${this.task.hasList ? '有列表；' : ''}${this.task.isRepeating ? '循环任务' : ''}`)
+      .accessibilityText(`${this.task.bodyHtml ? '有正文；' : ''}${this.task.hasList ? '有列表' : ''}`)
   }
 
   @Builder
   compactTitle() {
     Row({ space: 6 }) {
-      Row() {
+      Column({ space: 2 }) {
         TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1, showCounts: false })
-          .layoutWeight(1).constraintSize({ minWidth: 0 })
-      }.layoutWeight(1).height(44).alignItems(VerticalAlign.Center)
+          .width('100%').constraintSize({ minWidth: 0 })
+        if (this.showCategory && this.task.category) {
+          Text(this.task.category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        }
+      }.layoutWeight(1).constraintSize({ minHeight: 44 }).justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Start)
         .onClick((): void => { this.toggle() })
       if (titleCounts(this.task.headingParts).length > 0) {
         TitleCounts({ parts: this.task.headingParts, budget: this.countBudget() })
@@ -157,8 +178,8 @@ export struct TaskListItem {
   @Builder
   compactDeadline() {
     Row({ space: 4 }) {
-      Image($r('app.media.ui_task_deadline')).width(16).height(16)
-      Text(taskDateText(this.task.deadline, true, new Date(this.referenceTime))).fontSize(12).fontColor(UiColor.deadline)
+      Image(this.deadlineIcon()).width(16).height(16)
+      Text(taskDeadlineText(this.task, new Date(this.referenceTime))).fontSize(12).fontColor(this.deadlineColor())
         .maxLines(1).flexShrink(0)
     }.alignItems(VerticalAlign.Center).flexShrink(0)
       .onAreaChange((oldArea: Area, newArea: Area) => {
@@ -166,6 +187,20 @@ export struct TaskListItem {
         if (Number.isFinite(width) && width > 0 && width !== this.deadlineWidth) this.deadlineWidth = width
       })
       .accessibilityText(`截止日期：${taskDateText(this.task.deadline, false, new Date(this.referenceTime))}`)
+  }
+
+  @Builder
+  compactLeadingInfo() {
+    if (this.showDate && taskDisplayDate(this.task).length > 0) {
+      Text(this.leadingDate()).fontSize(11).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+        .backgroundColor('#5A5856').borderRadius(3).padding({ left: 5, right: 5, top: 2, bottom: 2 })
+        .maxLines(1).flexShrink(0)
+        .accessibilityText(`日期：${taskDateText(taskDisplayDate(this.task), false, new Date(this.referenceTime))}`)
+    }
+    if (this.task.isRepeating) {
+      Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0)
+        .accessibilityText('重复任务')
+    }
   }
 
   @Builder
@@ -210,10 +245,11 @@ export struct TaskListItem {
       }
       if (this.task.deadline.length > 0) {
         Row({ space: 6 }) {
-          Image($r('app.media.ui_task_deadline')).width(18).height(18).flexShrink(0).align(Alignment.Top)
+          Image(this.deadlineIcon()).width(18).height(18)
+            .flexShrink(0).align(Alignment.Top)
           Column({ space: 2 }) {
             Text(`截止日期：${taskDateText(this.task.deadline, false, new Date(this.referenceTime))}`)
-              .fontSize(14).fontColor(UiColor.deadline).width('100%').wordBreak(WordBreak.BREAK_ALL)
+              .fontSize(14).fontColor(this.deadlineColor()).width('100%').wordBreak(WordBreak.BREAK_ALL)
             if (taskDateIsToday(this.task.deadline, new Date(this.referenceTime))) {
               Text('今天').fontSize(12).fontColor(UiColor.secondary).width('100%')
             }
@@ -236,6 +272,7 @@ export struct TaskListItem {
           Image($r('app.media.ui_up')).width(20).height(20).flexShrink(0)
             .accessibilityText('收起任务').onClick((): void => { this.toggle() })
         } else {
+          this.compactLeadingInfo()
           this.compactTitle()
           if (this.task.deadline.length > 0) { this.compactDeadline() }
         }

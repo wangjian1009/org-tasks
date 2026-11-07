@@ -1,9 +1,9 @@
-import { CoreRepo, CoreTask, CoreWorkspace } from '../services/NativeCoreService'
+import { CoreTask } from '../services/NativeCoreService'
+import { taskDisplayDate } from './TaskListPresentation'
 import { localDate } from './Theme'
 
 export interface PlannedTaskItem {
   task: CoreTask
-  category: string | null
 }
 
 export type PlannedGroupKind = 'day' | 'range' | 'month' | 'year' | 'unknown'
@@ -69,28 +69,7 @@ function dateSubtitle(value: string, tomorrow: string): string {
 }
 
 export function plannedTaskDate(task: CoreTask): string {
-  const scheduled = dateValue(task.scheduled)
-  const deadline = dateValue(task.deadline)
-  if (Number.isFinite(scheduled) && Number.isFinite(deadline)) {
-    return scheduled <= deadline ? task.scheduled.slice(0, 10) : task.deadline.slice(0, 10)
-  }
-  if (Number.isFinite(scheduled)) return task.scheduled.slice(0, 10)
-  if (Number.isFinite(deadline)) return task.deadline.slice(0, 10)
-  return ''
-}
-
-async function taskCategories(tasks: CoreTask[], workspace: CoreWorkspace): Promise<Map<string, string | null>> {
-  const result = new Map<string, string | null>()
-  const repos = await workspace.repos()
-  for (const task of tasks) {
-    const key = `${task.repoId}:${task.filePath}`
-    if (result.has(key)) continue
-    const repo: CoreRepo | undefined = repos.find((item: CoreRepo) => item.id === task.repoId)
-    if (!repo) throw new Error('任务所属存储库不可用')
-    const category = await (await repo.file(task.filePath)).category()
-    result.set(key, category || null)
-  }
-  return result
+  return taskDisplayDate(task)
 }
 
 function groupFor(groups: PlannedGroup[], key: string, kind: PlannedGroupKind, date: string,
@@ -104,12 +83,11 @@ function groupFor(groups: PlannedGroup[], key: string, kind: PlannedGroupKind, d
 }
 
 // Core 已经完成计划查询；这里仅按自然日组织已返回任务，并补齐设计要求的空日期分组。
-export async function plannedGroups(tasks: CoreTask[], workspace: CoreWorkspace): Promise<PlannedGroup[]> {
+export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
   const today = localDate(new Date())
   const tomorrow = dayAfter(today, 1)
   const dailyEnd = dayAfter(today, 7)
   const recentEnd = dayAfter(today, 180)
-  const categories = await taskCategories(tasks, workspace)
   const groups: PlannedGroup[] = []
 
   for (let offset = 1; offset <= 7; offset++) {
@@ -138,7 +116,7 @@ export async function plannedGroups(tasks: CoreTask[], workspace: CoreWorkspace)
   })
   for (const task of byDate) {
     const date = plannedTaskDate(task)
-    const item: PlannedTaskItem = { task, category: categories.get(`${task.repoId}:${task.filePath}`) ?? null }
+    const item: PlannedTaskItem = { task }
     if (date.length === 0) {
       groupFor(groups, 'unknown', 'unknown', '', '日期不可用').items.push(item)
     } else if (dateValue(date) <= dateValue(dailyEnd)) {

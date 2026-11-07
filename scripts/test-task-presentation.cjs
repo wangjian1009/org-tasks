@@ -22,7 +22,7 @@ const { taskRenderKey } = exported;
 // 与 native Task 一样，数据字段只读且可枚举，行为位于原型上。
 function task(id, values = {}) {
   const result = Object.create({ isDone() { return this.todoKind === 'done'; } });
-  for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [],
+  for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
     todoState: 'TODO', todoKind: 'pending', priority: '', scheduled: '', deadline: '', tags: [],
     filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '', progress: -1, ...values })) {
     Object.defineProperty(result, key, { value, enumerable: true });
@@ -68,7 +68,7 @@ test('计划、标签、链接及详情正文更新都能刷新点击参数，�
   const before = task('same-id');
   assert.equal(taskRenderKey(before), taskRenderKey(task('same-id')));
   for (const changes of [{ scheduled: '2026-11-06' }, { deadline: '2026-11-07' }, { priority: 'A' },
-    { tags: ['work'] }, { headingParts: [{ text: '链接', href: 'https://example.org', isLink: true }] },
+    { tags: ['work'] }, { category: '生活' }, { headingParts: [{ text: '链接', href: 'https://example.org', isLink: true }] },
     { bodyHtml: '<p>新正文</p>' }, { logbookHtml: '<p>新日志</p>' }]) {
     const after = task('same-id', changes);
     const rows = refresh(refresh(new Map(), [before]), [after]);
@@ -83,7 +83,7 @@ const presentationCode = ts.transpileModule(fs.readFileSync(presentationFile, 'u
 const presentation = {};
 const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 vm.runInThisContext('(function(exports,require){' + presentationCode.outputText + '\n})', { filename: presentationFile })(
-  presentation, name => { assert.equal(name, './Theme'); return { localDate }; });
+  presentation, name => { assert.equal(name, './Theme'); return { localDate, UiColor: { secondary: '#AEACA9', deadline: '#FF3869' } }; });
 
 const { taskDurationDays, taskDateIsToday, taskDateText, taskRowLayout, taskIndicators, taskTitleText, taskTagColor } = presentation;
 
@@ -160,7 +160,7 @@ test('窄屏、多标签与多标志不会占用截止日期预留区，标题�
 test('标志直接采用 Core 投影，完整可读标题与新快照保持一致', () => {
   const value = task('id', { heading: '原始链接标题', headingParts: [{ text: '参考资料', href: 'https://example.org', isLink: true }],
     hasList: true, isRepeating: true });
-  assert.deepEqual(taskIndicators(value), ['body', 'list', 'repeat']);
+  assert.deepEqual(taskIndicators(value), ['body', 'list']);
   assert.equal(taskTitleText(value), '参考资料');
   assert.equal(taskTitleText(task('empty-parts', { heading: '普通标题' })), '普通标题');
   const after = task('id', { hasList: false, isRepeating: false });
@@ -205,4 +205,74 @@ test('窄屏与多个长计数退回图标，仍为日期和标题预留空间',
     const available = 350 - 26 - 62 - countWidth - 6;
     assert.ok(used <= available * 0.45 + 0.001);
   }
+});
+
+
+test('折叠日期与计划分组使用有效日期中较早的一天', () => {
+  for (const [values, expected] of [
+    [{ scheduled: '2026-11-12', deadline: '2026-11-18' }, '2026-11-12'],
+    [{ scheduled: '2026-11-18', deadline: '2026-11-12' }, '2026-11-12'],
+    [{ scheduled: '2026-02-30', deadline: '2026-11-12' }, '2026-11-12'],
+    [{ scheduled: '2026-11-12' }, '2026-11-12'],
+    [{ deadline: '2027-01-01' }, '2027-01-01'],
+    [{}, '']
+  ]) assert.equal(presentation.taskDisplayDate(task('id', values)), expected);
+});
+
+test('截止日期的未来、当天、逾期、已完成与无效状态使用一致文案和颜色', () => {
+  const today = new Date(2026, 10, 12, 23, 59);
+  for (const [values, label, color] of [
+    [{ deadline: '2026-11-18' }, '剩下 6 天', '#AEACA9'],
+    [{ deadline: '2026-11-12' }, '今天截止', '#FF3869'],
+    [{ deadline: '2026-11-06' }, '逾期 6 天', '#FF3869'],
+    [{ deadline: '2026-11-06', todoKind: 'done' }, '11/6', '#AEACA9'],
+    [{ deadline: '2026-02-30' }, '日期不可用', '#AEACA9'],
+    [{ deadline: '' }, '日期不可用', '#AEACA9']
+  ]) {
+    const value = task('id', values);
+    assert.equal(presentation.taskDeadlineText(value, today), label);
+    assert.equal(presentation.taskDeadlineColor(value, today), color);
+  }
+});
+
+function loadGrouping(name, dependencies) {
+  const filename = path.resolve(__dirname, `../entry/src/main/ets/ui/${name}.ets`);
+  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  });
+  const result = {};
+  class ReferenceDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [2026, 10, 7, 12])); }
+  }
+  vm.runInThisContext('(function(exports,require,Date){' + code.outputText + '\n})', { filename })(
+    result, name => { assert.ok(dependencies[name], name); return dependencies[name]; }, ReferenceDate);
+  return result;
+}
+
+test('今天从只读任务分类分区，跨仓库同名分类合并且保留每一条任务', () => {
+  const { todaySections } = loadGrouping('TodayPresentation', {});
+  const tasks = [task('a', { category: '生活' }), task('b', { repoId: 'another', category: '生活' }),
+    task('c', { category: null }), task('d', { category: '' })];
+  const sections = todaySections(tasks);
+  assert.deepEqual(sections.map(section => section.category), ['生活', null]);
+  assert.deepEqual(sections[0].items.map(item => item.task), tasks.slice(0, 2));
+  assert.deepEqual(sections[1].items.map(item => item.task), tasks.slice(2));
+});
+
+test('计划按日期组织原任务快照，保留空日期、月分组与分类数据', () => {
+  const { plannedGroups } = loadGrouping('PlannedPresentation', {
+    './Theme': { localDate }, './TaskListPresentation': presentation
+  });
+  const tasks = [task('day', { scheduled: '2026-11-08', category: '生活', isRepeating: true }),
+    task('range', { scheduled: '2026-11-16', deadline: '2026-11-15', category: '工作' }),
+    task('month', { deadline: '2026-12-01', category: '' }),
+    task('year', { scheduled: '2027-11-01', category: null })];
+  const groups = plannedGroups(tasks);
+  assert.equal(groups.filter(group => group.kind === 'day').length, 7);
+  assert.equal(groups.find(group => group.key === 'day:2026-11-09').items.length, 0);
+  for (const [key, task] of [['day:2026-11-08', tasks[0]], ['range:2026-11', tasks[1]],
+    ['month:2026-12', tasks[2]], ['year:2027', tasks[3]]]) {
+    assert.equal(groups.find(group => group.key === key).items[0].task, task);
+  }
+  assert.equal(groups.flatMap(group => group.items).length, tasks.length);
 });

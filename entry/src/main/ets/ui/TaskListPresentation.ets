@@ -1,5 +1,5 @@
 import { CoreTask, CoreTitlePart } from '../services/NativeCoreService'
-import { localDate } from './Theme'
+import { localDate, UiColor } from './Theme'
 
 export interface TaskRowLayout {
   tagWidth: number
@@ -28,6 +28,31 @@ export function taskDateIsToday(value: string, today: Date = new Date()): boolea
   return Number.isFinite(dayNumber(value)) && value.slice(0, 10) === localDate(today)
 }
 
+// 折叠态前部日期与计划分组共用较早日期，仅计算展示，不参与筛选。
+export function taskDisplayDate(task: CoreTask): string {
+  const scheduled = dayNumber(task.scheduled)
+  const deadline = dayNumber(task.deadline)
+  if (Number.isFinite(scheduled) && Number.isFinite(deadline)) {
+    return (scheduled <= deadline ? task.scheduled : task.deadline).slice(0, 10)
+  }
+  if (Number.isFinite(scheduled)) return task.scheduled.slice(0, 10)
+  return Number.isFinite(deadline) ? task.deadline.slice(0, 10) : ''
+}
+
+export function taskDeadlineColor(task: CoreTask, today: Date = new Date()): string {
+  const remaining = dayNumber(task.deadline) - dayNumber(localDate(today))
+  return task.todoKind !== 'done' && Number.isFinite(remaining) && remaining <= 0
+    ? UiColor.deadline : UiColor.secondary
+}
+
+export function taskDeadlineText(task: CoreTask, today: Date = new Date()): string {
+  const remaining = dayNumber(task.deadline) - dayNumber(localDate(today))
+  if (!Number.isFinite(remaining)) return '日期不可用'
+  if (task.todoKind === 'done') return taskDateText(task.deadline, true, today)
+  if (remaining > 0) return `剩下 ${remaining} 天`
+  return remaining === 0 ? '今天截止' : `逾期 ${-remaining} 天`
+}
+
 export function taskDateText(value: string, compact: boolean = false, today: Date = new Date()): string {
   if (!Number.isFinite(dayNumber(value))) return '日期不可用'
   if (compact && taskDateIsToday(value, today)) return '今天'
@@ -48,7 +73,6 @@ export function taskIndicators(task: CoreTask): string[] {
   const result: string[] = []
   if (task.bodyHtml.trim().length > 0) result.push('body')
   if (task.hasList) result.push('list')
-  if (task.isRepeating) result.push('repeat')
   return result
 }
 

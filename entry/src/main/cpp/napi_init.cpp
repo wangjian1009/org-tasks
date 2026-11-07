@@ -350,7 +350,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // id 为 Core 的逻辑路径 MD5；headingParts 含链接与可空 count，嵌套结构原样透传，不在 bridge 解析标题。
-    for (const char* name : {"id", "repoId", "heading", "headingParts", "todoState", "todoKind", "priority", "scheduled",
+    for (const char* name : {"id", "repoId", "heading", "category", "headingParts", "todoState", "todoKind", "priority", "scheduled",
         "deadline", "tags", "filePath", "fileName", "level", "body", "bodyHtml", "logbookHtml", "progress", "hasList", "isRepeating"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;

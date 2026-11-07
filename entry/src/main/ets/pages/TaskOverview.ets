@@ -70,9 +70,8 @@ struct TaskOverview {
       let sections: TodaySection[] = []
       let planGroups: PlannedGroup[] = []
       if (this.view === 'today' || this.view === 'planned') {
-        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-        if (this.view === 'today') sections = await todaySections(result.tasks, workspace)
-        if (this.view === 'planned') planGroups = await plannedGroups(result.tasks, workspace)
+        if (this.view === 'today') sections = todaySections(result.tasks)
+        if (this.view === 'planned') planGroups = plannedGroups(result.tasks)
       }
       if (request !== this.requestId) return
       this.tasks = result.tasks
@@ -131,7 +130,7 @@ struct TaskOverview {
           List() {
             ForEach(this.tasks, (task: CoreTask) => {
               ListItem() {
-                if (this.view === 'planned' || this.view === 'anytime' || this.view === 'someday') {
+                if (this.view === 'anytime' || this.view === 'someday') {
                   TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
                 } else {
                   TaskRow({ task, showBody: true, open: this.openTask(task) })

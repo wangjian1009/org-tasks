@@ -104,6 +104,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgFile.title_parts()~ | ~file.titleParts()~ | Core 解析文件标题中的文字与外部链接，返回有序 ~TitlePart[]~ 。 |
 | ~FilterTask.title_parts()~ | ~task.headingParts~ | bridge 在构造任务对象时投影，C++ 保留可枚举只读属性，路由传递不丢失链接。 |
 | ~OrgFile.category()~ | ~file.category()~ | 未配置为 ~null~ ，显式空声明为空字符串。 |
+| ~FilterTask.category~ 、 ~is_repeating~ | ~task.category~ 、 ~task.isRepeating~ | 只读、可枚举的查询快照；分类保留 ~null~ 与空字符串，重复标志来自 Core 的时间戳解析。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~WebDavSyncPolicy.compare_merge(repo, sync_id)~ | ~policy.compareMerge(repo, syncId)~ | 合并比较属于策略对象。 |
 | ~WebDavSyncPolicy.apply_merge(repo, comparison)~ | ~policy.applyMerge(repo, comparison)~ | 直接回传用户选择后的比较对象。 |
@@ -165,6 +166,8 @@ class Task {
   readonly id: string
   readonly repoId: string
   readonly heading: string
+  readonly category: string | null
+  readonly isRepeating: boolean
   readonly todoState: string
   readonly todoKind: 'pending' | 'done' | null
   isDone(): boolean

@@ -30,7 +30,7 @@ import { RepoConfig, SyncOptions } from '../models/OrgTask'
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
-// 逻辑身份与 hasList、isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
+// 逻辑身份、category 与 hasList、isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
 export type CoreTitleCount = NativeTitleCount

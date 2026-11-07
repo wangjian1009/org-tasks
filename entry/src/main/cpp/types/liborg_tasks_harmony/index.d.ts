@@ -41,6 +41,7 @@ export class Task {
   readonly id: string;
   readonly repoId: string;
   readonly heading: string;
+  readonly category: string | null;
   readonly headingParts: TitlePart[];
   readonly todoState: string;
   readonly todoKind: 'pending' | 'done' | null;

@@ -125,6 +125,8 @@ pub struct FilterTask {
     pub id: String,
     pub repo_id: String,
     pub path: String,
+    /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
+    pub category: Option<String>,
     pub line: u32,
     pub column: u32,
     pub byte_offset: u64,
@@ -234,6 +236,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
         if repository.task_scan_rules.excludes(&file.path) {
             continue;
         }
+        let category = file.category();
         let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
         let mut identities =
             crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
@@ -300,6 +303,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 id: identities.id_for(&headline, state_type != FilterStateType::None),
                 repo_id: repository.id.clone(),
                 path: file.path.clone(),
+                category: category.clone(),
                 line,
                 column,
                 byte_offset: offset as u64,

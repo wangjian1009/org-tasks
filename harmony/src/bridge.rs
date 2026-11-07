@@ -57,6 +57,7 @@ pub struct HarmonyBridgeTask {
     pub id: String,
     pub repo_id: String,
     pub heading: String,
+    pub category: Option<String>,
     // 包含 Core 生成的链接与分数计数；保留原始 heading 供复制、路由和查询。
     pub heading_parts: Vec<org_tasks_core::TitlePart>,
     pub todo_state: String,
@@ -214,6 +215,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         id: task.id,
         repo_id: task.repo_id,
         heading: task.title,
+        category: task.category,
         heading_parts,
         todo_state: task.state.unwrap_or_default(),
         todo_kind: match task.state_type {
@@ -963,7 +965,7 @@ mod todo_tests {
             org_tasks_core::OrgFile::new(
                 repo.id.clone(),
                 "tasks.org".into(),
-                b"* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n"
+                b"#+CATEGORY: Work\n* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n"
                     .to_vec(),
             )
             .unwrap(),
@@ -977,6 +979,7 @@ mod todo_tests {
         assert_eq!(value["todoKind"], "pending");
         assert_eq!(value["hasList"], true);
         assert_eq!(value["isRepeating"], true);
+        assert_eq!(value["category"], "Work");
         assert_eq!(value["scheduled"], "2026-11-06");
         assert!(value["bodyHtml"].as_str().unwrap().contains("<ul>"));
         assert_eq!(value["tags"][0], "work");

@@ -64,3 +64,20 @@ fn body_list_hint_excludes_logbook_and_literal_blocks() {
         assert_eq!(task.body, body);
     }
 }
+
+#[test]
+fn task_category_preserves_file_value_without_reading_headline_properties() {
+    for (header, expected) in [
+        ("#+CATEGORY: 生活\n", Some("生活")),
+        ("#+category: Work\n", Some("Work")),
+        ("#+CATEGORY:\n", Some("")),
+        ("", None),
+    ] {
+        let source = format!(
+            "{header}* TODO Parent\n:PROPERTIES:\n:CATEGORY: Other\n:END:\n** TODO Child\n"
+        );
+        for task in tasks(&source) {
+            assert_eq!(task.category.as_deref(), expected);
+        }
+    }
+}
