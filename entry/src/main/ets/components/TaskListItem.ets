@@ -74,7 +74,7 @@ export struct TaskListItem {
   @Builder
   stateIndicator() {
     if (this.task.todoKind === null) {
-      Image($r('app.media.ui_task_body')).width(18).height(18)
+      Image($r('app.media.ui_note')).width(18).height(18)
         .accessibilityText('笔记，无任务状态')
     } else {
       this.completionState()
