@@ -4,12 +4,14 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
+import { PlannedTaskList } from '../components/PlannedTaskList'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
+import { PlannedGroup, plannedGroups } from '../ui/PlannedPresentation'
 
 interface OverviewParams { view?: OverviewKind }
 
@@ -19,6 +21,7 @@ struct TaskOverview {
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
   @State sections: TodaySection[] = []
+  @State planGroups: PlannedGroup[] = []
   @State referenceTime: number = Date.now()
   @State loading: boolean = true
   @State message: string = ''
@@ -60,18 +63,27 @@ struct TaskOverview {
       if (!result) {
         this.needsConfiguration = true
         this.tasks = []
+        this.sections = []
+        this.planGroups = []
         return
       }
-      const sections = this.view === 'today'
-        ? await todaySections(result.tasks, await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)) : []
+      let sections: TodaySection[] = []
+      let planGroups: PlannedGroup[] = []
+      if (this.view === 'today' || this.view === 'planned') {
+        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+        if (this.view === 'today') sections = await todaySections(result.tasks, workspace)
+        if (this.view === 'planned') planGroups = await plannedGroups(result.tasks, workspace)
+      }
       if (request !== this.requestId) return
       this.tasks = result.tasks
       this.referenceTime = Date.now()
       this.sections = sections
+      this.planGroups = planGroups
     } catch (e) {
       if (request === this.requestId) {
         this.tasks = []
         this.sections = []
+        this.planGroups = []
         this.message = `读取任务失败：${coreErrorMessage(e as CoreBridgeError)}`
       }
     } finally {
@@ -113,6 +125,8 @@ struct TaskOverview {
             detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
         } else if (this.view === 'today') {
           TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime })
+        } else if (this.view === 'planned') {
+          PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
         } else {
           List() {
             ForEach(this.tasks, (task: CoreTask) => {
