@@ -37,6 +37,15 @@ struct TaskOverview {
     return false
   }
 
+  openTask(task: CoreTask): () => void {
+    return (): void => {
+      router.pushUrl({
+        url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit',
+        params: { task }
+      })
+    }
+  }
+
   async loadTasks() {
     const request = ++this.requestId
     this.loading = this.tasks.length === 0
@@ -109,13 +118,9 @@ struct TaskOverview {
             ForEach(this.tasks, (task: CoreTask) => {
               ListItem() {
                 if (this.view === 'planned' || this.view === 'anytime' || this.view === 'someday') {
-                  TaskListItem({ task, referenceTime: this.referenceTime, open: (): void => {
-                    router.pushUrl({ url: 'pages/TaskEdit', params: { task } })
-                  } })
+                  TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
                 } else {
-                  TaskRow({ task, showBody: true, open: (): void => {
-                    router.pushUrl({ url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit', params: { task } })
-                  } })
+                  TaskRow({ task, showBody: true, open: this.openTask(task) })
                 }
               }
             }, (task: CoreTask) => taskRenderKey(task))
