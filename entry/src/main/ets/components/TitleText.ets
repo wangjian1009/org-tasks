@@ -1,9 +1,9 @@
 import { common } from '@kit.AbilityKit'
-import { CoreTitlePart } from '../services/NativeCoreService'
-import { ExternalLinkService } from '../services/ExternalLinkService'
+import { CoreTitleCount, CoreTitlePart } from '../services/NativeCoreService'
+import { ExternalLinkService, MapAppChoice } from '../services/ExternalLinkService'
+import { MapAppSheet } from './MapAppSheet'
 import { TitleCountBadge } from './TitleCountBadge'
 import { titleCounts } from '../ui/TitleCountPresentation'
-import { CoreTitleCount } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
 @Component
@@ -16,13 +16,22 @@ export struct TitleText {
   @Prop copyable: boolean = false
   @Prop showCounts: boolean = true
   activate: (() => void) | undefined = undefined
+  @State chooserVisible: boolean = false
+  @State mapChoices: MapAppChoice[] = []
 
   async openLink(href: string) {
     try {
-      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href)
-    } catch (_) {
-      this.getUIContext().getPromptAction().showToast({ message: '无法打开链接，请确认已安装对应应用。' })
+      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href,
+        (choices: MapAppChoice[]): void => { this.chooseMapApp(choices) })
+    } catch (error) {
+      const message = (error as Error).message
+      this.getUIContext().getPromptAction().showToast({ message: message || '无法打开链接，请确认已安装对应应用。' })
     }
+  }
+
+  chooseMapApp(choices: MapAppChoice[]): void {
+    this.mapChoices = choices
+    this.chooserVisible = true
   }
 
   @Builder
@@ -35,9 +44,7 @@ export struct TitleText {
           if (part.count) {
           } else if (part.href) {
             Span(part.text).fontColor(UiColor.primary).decoration({ type: TextDecorationType.Underline })
-              .onClick((): void => {
-                this.openLink(part.href!)
-              })
+              .onClick((): void => { this.openLink(part.href!) })
           } else if (part.isLink) {
             Span(part.text).fontColor(UiColor.secondary)
               .decoration({ type: TextDecorationType.Underline, color: UiColor.secondary, style: TextDecorationStyle.DASHED })
@@ -52,6 +59,14 @@ export struct TitleText {
       .wordBreak(WordBreak.BREAK_ALL)
       .copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
       .onClick(this.activate).flexShrink(1)
+      .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false }), {
+        height: 220,
+        detents: [220],
+        preferType: SheetType.BOTTOM,
+        backgroundColor: UiColor.surface,
+        maskColor: Color.Transparent,
+        showClose: false
+      })
   }
 
   build() {
@@ -60,8 +75,7 @@ export struct TitleText {
         alignItems: ItemAlign.Center }) {
         this.titleContent()
         ForEach(titleCounts(this.parts), (count: CoreTitleCount) => {
-          TitleCountBadge({ count }).margin({ left: 6, top: 2, bottom: 2 })
-            .onClick(this.activate)
+          TitleCountBadge({ count }).margin({ left: 6, top: 2, bottom: 2 }).onClick(this.activate)
         })
       }
     } else {

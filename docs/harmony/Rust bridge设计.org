@@ -252,7 +252,7 @@ interface TitleCount {
 
 文件快照的 ~titleParts~ 由 Core 的 ~OrgFile.title_parts()~ 生成，native 文件对象通过 ~titleParts()~ 同步读取；文件列表元信息增加只读 ~titleParts~ 数组。任务快照的 ~headingParts~ 由 ~FilterTask.title_parts()~ 生成，与原始 ~heading~ 同时保留，C++ 为 native Task 定义可枚举只读属性，供列表、规划与编辑页跨路由使用。 ~NativeCoreService~ 导出对应 ~CoreTitlePart~ 类型，宿主只组合显示片段和调用系统打开链接，不解析 Org。
 
-~ExternalLinkService~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件与电话地址使用系统隐式 Want。 ~OrgContentView~ 拦截用户触发的主框架链接导航，交给同一 service 后阻止 Web 页面跳转；阅读页仍禁用网络资源、文件访问和文内脚本。打开失败只展示提示，保留文档与滚动位置。
+~ExternalLinkService~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件地址使用系统隐式 Want；坐标和文字地址查询已安装的高德地图与花瓣地图，并由宿主自定义底部选择器展示两项，未安装项保留显示但禁用点击。花瓣地图文字搜索使用 Map Kit；高德坐标使用官方 ~amapuri://route/plan~ 参数，高德文字搜索使用官方 ~https://uri.amap.com/search?keyword=...~ URI API（当前 HarmonyOS 文档未提供高德 App 的文字搜索 ~amapuri~ 入口）。选择已安装应用后以显式 ~viewData~ Want 启动它。 ~addr:~ 文字地址先转换为 ~geo:0,0?q=...~ 查询 URI； ~geo:0,0~ 缺少 ~q~ 时直接提示链接无效。坐标地址遵循 Org 外部链接形式，例如 ~[[geo:39.9042,116.4074][北京市]]~ ，文字地址例如 ~[[addr:北京市朝阳区][北京市朝阳区]]~ 。 ~OrgContentView~ 拦截用户触发的主框架链接导航，交给同一 service 后阻止 Web 页面跳转；阅读页仍禁用网络资源、文件访问和文内脚本。打开失败只展示提示，保留文档与滚动位置。
 
 ~TitlePart.is_link~ 映射为 ~isLink~ ；该标记保留链接与普通文字的语义区别， ~href=null~ 的链接仍可显示为辅助文字色虚线下划线。普通文字没有下划线，只有非空 ~href~ 才绑定系统打开操作。
 

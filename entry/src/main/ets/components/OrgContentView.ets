@@ -1,6 +1,7 @@
 import { webview } from '@kit.ArkWeb'
 import { common } from '@kit.AbilityKit'
-import { ExternalLinkService } from '../services/ExternalLinkService'
+import { ExternalLinkService, MapAppChoice } from '../services/ExternalLinkService'
+import { MapAppSheet } from './MapAppSheet'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
@@ -18,6 +19,8 @@ export struct OrgContentView {
   failed: (message: string) => void = () => {}
   @State contentHeight: number = 100
   @State error: string = ''
+  @State chooserVisible: boolean = false
+  @State mapChoices: MapAppChoice[] = []
   private loadRequested: boolean = false
   private loaded: boolean = false
   private active: boolean = true
@@ -25,10 +28,16 @@ export struct OrgContentView {
 
   async openLink(href: string) {
     try {
-      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href)
-    } catch (_) {
-      if (this.active) this.getUIContext().getPromptAction().showToast({ message: '无法打开链接，请确认已安装对应应用。' })
+      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href,
+        (choices: MapAppChoice[]): void => { this.chooseMapApp(choices) })
+    } catch (error) {
+      if (this.active) this.getUIContext().getPromptAction().showToast({ message: (error as Error).message || '无法打开链接，请确认已安装对应应用。' })
     }
+  }
+
+  chooseMapApp(choices: MapAppChoice[]): void {
+    this.mapChoices = choices
+    this.chooserVisible = true
   }
 
   aboutToDisappear() { this.active = false }
@@ -74,7 +83,7 @@ export struct OrgContentView {
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
           const href = request.getRequestUrl()
           if (href === 'about:blank' || href.startsWith('data:')) return false
-          if (this.active && request.isMainFrame() && request.isRequestGesture()) this.openLink(href)
+          if (this.active && request.isMainFrame()) this.openLink(href)
           return true
         })
         .onControllerAttached(() => { this.active = true; this.loadRequested = false; this.loaded = false })
@@ -89,6 +98,14 @@ export struct OrgContentView {
         .onKeyEvent((event: KeyEvent) => {
           if (event.type === KeyType.Up && this.embedded) setTimeout(() => { this.measure() }, 100)
           return false
+        })
+        .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false }), {
+          height: 220,
+          detents: [220],
+          preferType: SheetType.BOTTOM,
+          backgroundColor: UiColor.surface,
+          maskColor: Color.Transparent,
+          showClose: false
         })
     }
   }

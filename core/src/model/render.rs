@@ -507,6 +507,11 @@ fn external_link_href(path: &str) -> Option<String> {
     match url.scheme() {
         "http" | "https" if url.host_str().is_some() => Some(url.into()),
         "mailto" | "tel" if !url.path().is_empty() => Some(url.into()),
+        // Org-mode 使用 RFC 5870 的 geo URI 表示地址；系统地图应用通过
+        // viewData Want 接收该 URI。geo URI 没有 host，坐标或查询参数位于 path/query。
+        "geo" if !url.path().is_empty() => Some(url.into()),
+        // addr 是应用约定的文字地址协议；宿主点击时转换为地图搜索 URI。
+        "addr" if !url.path().is_empty() => Some(url.into()),
         _ => None,
     }
 }
@@ -593,6 +598,28 @@ mod tests {
             external_link_href("TEL:12345").as_deref(),
             Some("tel:12345")
         );
+        let address = title_parts("[[geo:39.9042,116.4074][北京市]]");
+        assert_eq!(address.len(), 1);
+        assert_eq!(address[0].text, "北京市");
+        assert_eq!(address[0].href.as_deref(), Some("geo:39.9042,116.4074"));
+        assert!(address[0].is_link);
+        let search_address = title_parts("[[geo:0,0?q=北京市][北京市]]");
+        assert_eq!(
+            search_address[0].href.as_deref(),
+            Some("geo:0,0?q=%E5%8C%97%E4%BA%AC%E5%B8%82")
+        );
+        assert!(external_link_href("geo:").is_none());
+        let named_address = title_parts("[[addr:北京市朝阳区][北京市朝阳区]]");
+        assert_eq!(named_address.len(), 1);
+        assert_eq!(named_address[0].text, "北京市朝阳区");
+        assert_eq!(
+            named_address[0].href.as_deref(),
+            Some("addr:%E5%8C%97%E4%BA%AC%E5%B8%82%E6%9C%9D%E9%98%B3%E5%8C%BA")
+        );
+        assert!(named_address[0].is_link);
+        assert!(external_link_href("addr:").is_none());
+        let address_html = file("* 地址 [[geo:39.9042,116.4074][北京市]]\n").render_html();
+        assert!(address_html.contains("<a class=\"link\" href=\"geo:39.9042,116.4074\""));
         assert_eq!(title_parts(""), Vec::new());
         assert_eq!(
             title_parts("=code= ~verbatim~ \\alpha"),
