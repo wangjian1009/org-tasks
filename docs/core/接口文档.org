@@ -90,6 +90,8 @@ impl OrgWorkspace {
     pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
 
     pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
+
+    pub fn refile_targets(&self) -> Vec<RefileTarget>;
 }
 #+end_src
 
@@ -116,6 +118,8 @@ impl OrgRepo {
     pub fn files(&self) -> &[OrgFile];
 
     pub fn file_metadata(&self) -> Vec<OrgFileMetadata>;
+
+    pub fn refile_targets(&self) -> Vec<RefileTarget>;
 
     pub fn file(&self, path: &str) -> Result<OrgFile, CoreError>;
 
@@ -493,6 +497,31 @@ let metadata = &file.todo;
 * 通用结构化任务查询
 
 ~OrgWorkspace.query(&TaskQuery)~ 返回 Core 过滤后的任务列表和分类摘要。请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
+
+~search~ 与 ~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 与 ~tn.REFILE~ 保留原有匹配语义；不隐藏带该标签的任务，不修改源文件。
+
+* 任务放置目标
+
+~REFILE~ 是大小写敏感的系统标签，表示该标题可以作为放置任务的位置。 ~OrgRepo.refile_targets()~ 返回当前仓库的目标， ~OrgWorkspace.refile_targets()~ 汇总全部已加载仓库；只读取现有无损语法树，不重新加载磁盘，也不修改文件或同步记录。
+
+#+begin_src rust
+pub struct RefileTarget {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub heading_path: Vec<String>,
+    pub position: SourcePosition,
+}
+
+impl RefileTarget {
+    pub fn display_path(&self) -> String;
+}
+#+end_src
+
+只返回标题自身显式带有 ~:REFILE:~ 的真实标题，祖先标签和文件头 ~FILETAGS~ 不把子标题隐式变成放置目标； ~refile~ 、 ~PREFILE~ 等仍是普通标签。无 TODO 状态、已完成及命中 ~.orgzlyignore~ 的文件中的显式目标均返回，因为这里枚举完整文件中的放置位置，不应用任务查询的过滤条件。
+
+~heading_path~ 按从外到内的顺序包含所有祖先标题及目标自身，不因祖先没有 TODO 状态而省略。每段保留标题的 Org 行内原文，去掉首尾空白，不包含星号、TODO 状态、优先级和标签。 ~path~ 是完整的仓库相对文件路径，不使用文件 ~TITLE~ 替换。 ~display_path()~ 将仓库 ID、文件路径及各级标题用 ~" / "~ 连接，例如“work / projects/tasks.org / 项目 / 研发”。Core 不持有宿主配置中的仓库显示名，宿主可根据 ~repo_id~ 替换首段的展示文字。
+
+结果按仓库 ID、相对文件路径和源字节偏移依次排序。相同标题链的多个目标不去重，由 ~repo_id~ 、 ~path~ 与 ~position~ 区分当前快照中的位置；展示字符串不能作为标识或反向解析的输入。文件编辑或重新加载后需重新获取目标，源位置不保证跨快照稳定。此接口只枚举放置位置，不执行任务移动。
 
 * 文件标题与轻量元信息
 

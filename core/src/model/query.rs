@@ -141,6 +141,9 @@ impl OrgWorkspace {
                 selected.contains(&category)
             });
         }
+        for task in &mut all {
+            task.exclude_refile_tag();
+        }
         Ok(TaskQueryResult {
             tasks: all,
             categories,

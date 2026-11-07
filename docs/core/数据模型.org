@@ -158,12 +158,51 @@ pub struct FilterTask {
 
 ~FilterTask.category~ 是查询时所属文件的 ~OrgFile.category()~ 快照，由 Core 每文件提取一次；未声明为 ~None~ ，显式空声明为 ~Some("")~ 。标题属性不覆盖这个文件分类。分类变化不改变任务逻辑 ID，但刷新后必须使用新任务快照。宿主通过只读数据控制分类展示，不再逐项获取文件，不额外传入分类文字。该投影不进入同步记录或 outbox。
 
+~FilterTask.own_tags~ 与 ~inherited_tags~ 在查询内部保留原始标签用于表达式求值； ~OrgWorkspace.search~ 和 ~query~ 返回前统一排除系统标签 ~REFILE~ 。其余标签的内容与顺序保持不变，大小写不同的 ~refile~ 不受影响。放置目标从 ~OrgFile~ 的标题自身标签读取，不依赖已去除系统标签的查询返回值。
+
 \begin{center}
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{OrgFile}{}{category(): Option\textless String\textgreater}
 \umlclass[x=7,y=0]{FilterTask}{category: Option\textless String\textgreater \\
   is\_repeating: bool}{}
 \umldep{FilterTask}{OrgFile}
+\end{tikzpicture}
+\end{center}
+
+* 任务放置目标
+
+~RefileTarget~ 定义于 ~core::model~ ，是从已加载文件无损语法树取得的运行时放置位置，不是持久化实体或新的解析 AST。 ~OrgRepo.refile_targets()~ 与 ~OrgWorkspace.refile_targets()~ 返回标题自身显式携带系统标签 ~REFILE~ 的目标；范围为完整文件快照，包括任务扫描忽略的文件，完成状态与普通任务查询条件不限制目标。
+
+#+begin_src rust
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefileTarget {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub heading_path: Vec<String>,
+    pub position: SourcePosition,
+}
+#+end_src
+
+~heading_path~ 保留从根祖先到自身的全部标题分段，包括无状态祖先；各段使用剥离状态、优先级及标签后的标题 Org 原文并去除首尾空白。标题中的斜杠属于标题文字，不拆分层级；相对文件路径同样独立保存。 ~display_path()~ 返回“仓库 ID / 文件相对路径 / 标题1 / 标题2”，仅供展示，宿主可将仓库 ID 映射为显示名。
+
+~position~ 复用 ~SourcePosition~ ，定位当前快照中的标题起点。相同仓库、文件及标题链可有多个目标，不能按展示路径去重，也不能将源位置作为跨编辑的稳定身份。结果按仓库 ID、文件路径和字节偏移排序；文件修改后重新遍历当前树，不维护目标缓存。标签必须精确为大写 ~REFILE~ ，标记不继承；目标不进入同步记录、outbox 或其他持久化状态。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{OrgWorkspace}{}{refile\_targets(): Vec\textless RefileTarget\textgreater}
+\umlclass[x=0,y=-3]{OrgRepo}{}{refile\_targets(): Vec\textless RefileTarget\textgreater}
+\umlclass[x=8,y=0]{RefileTarget}{repo\_id: OrgRepoId \\
+path: String \\
+heading\_path: Vec\textless String\textgreater \\
+position: SourcePosition}{display\_path(): String}
+\umlclass[x=8,y=-4]{SourcePosition}{line: u32 \\
+column: u32 \\
+byte\_offset: u64}{}
+\umldep{OrgWorkspace}{RefileTarget}
+\umldep{OrgRepo}{RefileTarget}
+\umluniassoc[mult1=1,mult2=1]{RefileTarget}{SourcePosition}
 \end{tikzpicture}
 \end{center}
 

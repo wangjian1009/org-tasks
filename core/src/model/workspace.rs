@@ -83,6 +83,9 @@ impl OrgWorkspace {
             .flat_map(tasks_from_repo)
             .collect::<Vec<_>>();
         filter.filter_tasks(&mut tasks);
+        for task in &mut tasks {
+            task.exclude_refile_tag();
+        }
         tasks
     }
 }

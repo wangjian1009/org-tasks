@@ -152,6 +152,13 @@ impl FilterTask {
     pub fn is_done(&self) -> bool {
         self.state_type == FilterStateType::Done
     }
+
+    /// 查询匹配结束后移除系统用途标签，保留其余标签的原始顺序。
+    pub(crate) fn exclude_refile_tag(&mut self) {
+        self.own_tags.retain(|tag| tag != crate::model::REFILE_TAG);
+        self.inherited_tags
+            .retain(|tag| tag != crate::model::REFILE_TAG);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
