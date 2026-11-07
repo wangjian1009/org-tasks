@@ -28,6 +28,13 @@ struct Files {
     this.showIgnored = !this.showIgnored
   }
 
+  openMore() {
+    this.getUIContext().showActionSheet({ title: '存储库', message: '选择操作', sheets: [
+      { title: '同步日志', action: (): void => { router.pushUrl({ url: 'pages/SyncLog' }) } },
+      { title: this.showIgnored ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件', action: (): void => { this.toggleIgnored() } }
+    ] })
+  }
+
   visibleFiles(group: NotebookGroup): CoreOrgFileMetadata[] {
     return this.showIgnored ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
   }
@@ -54,11 +61,8 @@ struct Files {
   build() {
     Column() {
       AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'),
-        actionIcon: $r('app.media.ui_sync'), actionLabel: '打开同步日志',
-        action: (): void => { router.pushUrl({ url: 'pages/SyncLog' }) },
-        secondaryActionIcon: this.showIgnored ? $r('app.media.ui_visibility') : $r('app.media.ui_visibility_off'),
-        secondaryActionLabel: this.showIgnored ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件',
-        secondaryAction: (): void => { this.toggleIgnored() },
+        actionIcon: $r('app.media.ui_more'), actionLabel: '更多',
+        action: (): void => { this.openMore() },
         synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
