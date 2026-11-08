@@ -603,4 +603,8 @@ impl FilterTask {
 
 ** 分享地点写入与地址替换
 
-~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交，~queue_upload~ 仍按当前文件快照登记 outbox。
+~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。
+
+~FilterTask.address_links: Vec<AddressLink>~ 包含当前标题和自身正文中的真实地址链接，字段为 ~uri: String~ 与 ~label: String~ 。Core 从已有语法树提取 ~geo:~ 、 ~addr:~ 链接，支持无描述形式，排除子标题、源码、示例、注释与行内字面文本，不修改原始字节。通用查询表达式 ~has.address~ 按该投影筛选，宿主直接使用查询结果，不再扫描正文或剔除记录。
+
+~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交，~queue_upload~ 仍按当前文件快照登记 outbox。

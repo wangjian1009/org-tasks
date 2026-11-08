@@ -146,6 +146,7 @@ pub struct FilterTask {
     pub inherited_tags: Vec<String>,
     pub title: String,
     pub body: String,
+    pub address_links: Vec<AddressLink>,
     pub is_repeating: bool,
     pub scheduled: Option<FilterDate>,
     pub deadline: Option<FilterDate>,
@@ -167,8 +168,10 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{OrgFile}{}{category(): Option\textless String\textgreater}
 \umlclass[x=7,y=0]{FilterTask}{category: Option\textless String\textgreater \\
-  is\_repeating: bool}{}
+  is\_repeating: bool \\ address\_links: Vec\textless AddressLink\textgreater}{}
+\umlclass[x=7,y=-3]{AddressLink}{uri: String \\ label: String}{}
 \umldep{FilterTask}{OrgFile}
+\umldep{FilterTask}{AddressLink}
 \end{tikzpicture}
 \end{center}
 

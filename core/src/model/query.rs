@@ -314,6 +314,79 @@ mod tests {
     }
 
     #[test]
+    fn address_query_uses_real_links_and_combines_state_and_configured_note_file() {
+        let mut repo = OrgRepo::new("/tmp/address-query".into()).unwrap();
+        repo.id = "repo".into();
+        repo.files = [
+            ("tasks.org", concat!(
+                "#+TODO: NEXT | FINISHED\n",
+                "* NEXT Coordinates\n[[geo:39.9,116.4][地点]]\n",
+                "* NEXT Address\n[[addr:北京市]]\n",
+                "* FINISHED Finished\n[[addr:已完成]]\n",
+                "* NEXT Without address\n普通正文 geo:39.9,116.4\n",
+                "* NEXT Web link\n[[https://example.org/geo:39.9][网页]]\n",
+                "* NEXT Literals\n#+begin_src org\n[[addr:源码]]\n#+end_src\n",
+                "#+begin_example\n[[geo:1,2]]\n#+end_example\n",
+                "~[[addr:行内字面文本]]~\n# [[addr:注释]]\n",
+                "* NEXT Parent without own address\n** NEXT Child\n[[addr:子任务]]\n",
+                "* NEXT Title [[addr:标题地址][地点]]\n",
+                "* Other note\n[[addr:不在配置备忘文件]]\n",
+                "* NEXT Empty URI\n[[addr:]]\n",
+            )),
+            ("notes.org", "* Note\n[[addr:备忘地点][备忘]]\n* DONE Finished note\n[[geo:1,2]]\n* No address\n正文\n"),
+        ].into_iter().map(|(path, source)| {
+            OrgFile::new("repo".into(), path.into(), source.as_bytes().to_vec()).unwrap()
+        }).collect();
+        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let query = TaskQuery {
+            expression: "has.address (it.todo or (b.notes.org it.none))".into(),
+            include_done: false,
+            ..Default::default()
+        };
+        let result = workspace.query(&query).unwrap();
+        let titles = result
+            .tasks
+            .iter()
+            .map(|task| task.title.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            titles,
+            [
+                "Note",
+                "Coordinates",
+                "Address",
+                "Child",
+                "Title [[addr:标题地址][地点]]"
+            ]
+        );
+        let address = result
+            .tasks
+            .iter()
+            .find(|task| task.title == "Address")
+            .unwrap();
+        assert_eq!(
+            address.address_links,
+            vec![crate::filter::AddressLink {
+                uri: "addr:北京市".into(),
+                label: String::new()
+            }]
+        );
+        let without = workspace
+            .query(&TaskQuery {
+                expression: ".has.address".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(
+            without
+                .tasks
+                .iter()
+                .all(|task| task.address_links.is_empty())
+        );
+        assert!(without.tasks.iter().any(|task| task.title == "Literals"));
+    }
+
+    #[test]
     fn anytime_query_excludes_files_from_task_ignore_rules() {
         let mut repository = OrgRepo::new("/tmp/ignored-anytime".into()).unwrap();
         repository.id = "repo".into();

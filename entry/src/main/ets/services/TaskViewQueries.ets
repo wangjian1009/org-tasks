@@ -6,6 +6,12 @@ export function inboxRecordQuery(inboxFile: string): CoreTaskQuery {
   return { expression: `b."${path}"`, includeDone: true, includeComposeTasks: true }
 }
 
+// TODO 来自所选仓库，note 仅来自配置的备忘文件；地址与完成状态由 Core 判断。
+export function shareLocationTaskQuery(memoFile: string = ''): CoreTaskQuery {
+  const scope = memoFile ? `(it.todo or (${inboxRecordQuery(memoFile).expression} it.none))` : 'it.todo'
+  return { expression: `has.address ${scope}`, includeDone: false, includeComposeTasks: true }
+}
+
 export type TaskOverview = 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook'
 
 export function overviewTitle(view: TaskOverview): string {

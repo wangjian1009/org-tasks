@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate};
-use orgize::ast::{Headline, TimeUnit, Timestamp};
+use orgize::ast::{Headline, Link, TimeUnit, Timestamp};
 use orgize::rowan::ast::AstNode;
 use serde::Serialize;
 
@@ -42,6 +42,9 @@ pub enum FilterExpression {
     },
     OwnTag {
         value: String,
+        negated: bool,
+    },
+    HasAddressLink {
         negated: bool,
     },
     Date {
@@ -318,7 +321,7 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 }
                 _ => FilterStateType::None,
             };
-            let address_links = extract_address_links(&body);
+            let address_links = extract_address_links(&headline);
             tasks.push(FilterTask {
                 id: identities.id_for(&headline, state_type != FilterStateType::None),
                 repo_id: repository.id.clone(),
@@ -355,22 +358,25 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
     tasks
 }
 
-fn extract_address_links(body: &str) -> Vec<AddressLink> {
-    let mut result = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(relative) = body[cursor..].find("[[") {
-        let start = cursor + relative + 2;
-        let Some(uri_end_relative) = body[start..].find(']') else { break };
-        let uri_end = start + uri_end_relative;
-        let uri = &body[start..uri_end];
-        if !(uri.starts_with("geo:") || uri.starts_with("addr:")) { cursor = uri_end + 1; continue; }
-        let label_start = uri_end + 2;
-        let Some(label_end_relative) = body[label_start..].find("]]" ) else { break };
-        let label_end = label_start + label_end_relative;
-        result.push(AddressLink { uri: uri.to_owned(), label: body[label_start..label_end].to_owned() });
-        cursor = label_end + 2;
-    }
-    result
+fn extract_address_links(headline: &Headline) -> Vec<AddressLink> {
+    // 使用真实链接节点，排除源码、示例和行内字面文本；子标题的地址只归属子标题。
+    headline
+        .syntax()
+        .children()
+        .filter(|node| !Headline::can_cast(node.kind()))
+        .flat_map(|node| node.descendants())
+        .filter_map(Link::cast)
+        .filter_map(|link| {
+            let uri = link.path().to_string();
+            (uri.strip_prefix("geo:")
+                .or_else(|| uri.strip_prefix("addr:"))
+                .is_some_and(|value| !value.is_empty()))
+            .then(|| AddressLink {
+                uri,
+                label: link.description_raw(),
+            })
+        })
+        .collect()
 }
 
 fn timestamp_to_date(timestamp: Timestamp) -> Option<FilterDate> {
@@ -617,6 +623,9 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             task.own_tags.iter().any(|tag| tag.contains(value)),
             *negated,
         ),
+        FilterExpression::HasAddressLink { negated } => {
+            apply_negation(!task.address_links.is_empty(), *negated)
+        }
         FilterExpression::Date {
             field,
             relation,
@@ -910,6 +919,9 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
     let (negated, token) = token
         .strip_prefix('.')
         .map_or((false, token), |value| (true, value));
+    if token == "has.address" {
+        return Some(FilterExpression::HasAddressLink { negated });
+    }
     for (prefix, constructor) in [
         ("it.", 0),
         ("ps.", 1),

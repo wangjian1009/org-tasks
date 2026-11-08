@@ -32,6 +32,7 @@ b."book(1) name"
 | ~ps.<letter>~ | 显式设置的优先级。 |
 | ~t.<tag>~ | 自身或祖先继承的标签。 |
 | ~tn.<tag>~ | 仅自身标签。 |
+| ~has.address~ / ~.has.address~ | 当前标题或自身正文包含／不包含真实的 ~geo:~ 或 ~addr:~ 链接；不包含子标题的链接。 |
 | ~e.<interval>~ | 正文中的活动 timestamp。 |
 | ~s.<interval>~ / ~d.<interval>~ / ~c.<interval>~ / ~cr.<interval>~ | 计划、截止、关闭、创建时间。 |
 | ~text~ / ~"text with spaces"~ | 在标题、正文和标签中匹配文本。 |
@@ -39,6 +40,8 @@ b."book(1) name"
 日期条件可以在字段与 interval 之间插入 ~eq~ 、~ne~ 、~lt~ 、~le~ 、~gt~ 或 ~ge~ ，例如 ~s.ge.3d~ 。缺省关系与参考实现相同：~e~ 和 ~c~ 为 ~eq~ ，其余日期字段为 ~le~ 。~s~ 与 ~d~ 只匹配活动 timestamp。查询 ~s.le.today~ 或 ~d.le.today~ 时，若活动规划时间带 Org-mode 预警配置（例如 ~-2d~ ），Core 从预警起始日开始命中；其他日期关系和 interval 仍按实际规划日期匹配，避免未来 deadline 被计入过期数量。
 
 interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~ / ~tom~ 、~yesterday~ ，以及带正负号的 ~<number><unit>~ 。unit 为 ~h~ 、~d~ 、~w~ 、~m~ 和 ~y~ 。日期比较以运行时本地日期的自然日边界进行。
+
+~has.address~ 为项目扩展条件，使用既有 ~orgize~ 语法树中的链接节点与 ~FilterTask.address_links~ 投影求值；源码、示例、注释和行内字面文本中的链接样式字符串不参与匹配。带描述和无描述的链接均识别，协议后的目标不能为空。它可与文件、状态及其他条件组合，也可前置点号取反；带双引号的 ~"has.address"~ 仍作为普通文本查询。
 
 * 排序与选项
 

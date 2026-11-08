@@ -279,4 +279,10 @@ interface TitleCount {
 
 * 独立分享捕捉
 
+候选任务由 UI 将仓库配置与备忘文件身份组装为通用查询：所有已配置仓库中的 ~it.todo~ ，加上配置备忘文件中的 ~it.none~ ，再与 ~has.address~ 组合并设置 ~includeDone=false~ 。未配置或失效的备忘文件不回退到其他文件。Core 返回的 ~address_links~ 原样映射到 ~Task.addressLinks~ ，宿主显示全部候选，不按条数截断、不解析正文。查询继续通过既有 ~expression~ 字段传入 worker，不新增 native 方法或界面专属查询字段。
+
+点击创建立即向已配置收件箱调用 ~createTask(..., insertAtTop=true)~ ，不打开创建表单。写入成功后查询该收件箱，取得位于首部的新任务快照，使用 ~TaskListItem~ 在当前页面默认展开；写入成功但回读失败时提示到收件箱查看，禁止重复创建。
+
+~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。 ~Repo.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)~ 的五个参数由 N-API 完整读取，再经工作线程交给 Rust；桥接层不解析链接或实施替换。
+
 ~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Repo.createTask~ 写入正文链接，更新任务调用 ~Repo.updateTaskLocation~ 保留其他字节。解析失败只允许保存原始链接或返回地图。
