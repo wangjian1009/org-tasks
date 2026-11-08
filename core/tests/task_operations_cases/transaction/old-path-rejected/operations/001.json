@@ -1,0 +1,43 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "A"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "B"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "A"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

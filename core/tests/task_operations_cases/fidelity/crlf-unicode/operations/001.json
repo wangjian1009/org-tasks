@@ -1,0 +1,24 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "旧标题"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "新标题"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

@@ -1,0 +1,18 @@
+{
+  "operations": [
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Last"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

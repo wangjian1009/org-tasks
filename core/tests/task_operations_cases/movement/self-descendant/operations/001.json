@@ -1,0 +1,30 @@
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "Item",
+              "Child"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

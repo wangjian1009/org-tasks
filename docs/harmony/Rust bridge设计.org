@@ -37,6 +37,7 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 #+begin_src ts
 class Workspace {
+  executeTaskOperations(group: TaskOperationGroup): Promise<TaskOperationResult>
   constructor()
   setTodoDefaults(settings: string): Promise<void>
   repos(): Promise<Repo[]>
@@ -56,15 +57,6 @@ class Repo {
   files(): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
-  createTask(path: string, task: NewTask, queueUpload: boolean,
-             insertAtTop?: boolean): Promise<void>
-  updateTaskLocation(path: string, heading: string, oldUri: string,
-                     newUri: string, queueUpload: boolean): Promise<Task>
-  updateTask(path: string, taskId: string, expectedBody: string,
-             heading: string, body: string,
-             queueUpload: boolean): Promise<{ id: string }>
-  deleteTask(path: string, taskId: string, expectedBody: string,
-             queueUpload: boolean): Promise<void>
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
        options?: SyncOptions): Promise<SyncRecord>
   conflicts(): Promise<ConflictSync[]>
@@ -144,9 +136,11 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 创建、同步与合并
 
-~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径、 ~queueUpload~ 和可选的 ~insertAtTop~ 位置标记；Rust 负责校验、保真追加或头部插入、提交与 outbox。省略 ~insertAtTop~ 或传 ~false~ 时保持文件末尾追加，快速捕捉传 ~true~ 在文件头配置与前言之后、第一条标题之前插入。 ~NewTask.recordCreated?: boolean~ 映射 Core 的 ~record_created~ ，省略时关闭；启用后由 Core 在保存时补齐 ~CREATED~ 非活动时间戳，C++ 与 ArkTS 不生成时间或拼接属性 drawer。ArkTS 只提交结构化表单值；分享地点的地址放在 ~NewTask.body~ ，由 Core 生成 Org 正文。
+~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功后返回每一步路径、回退组及最新原生 Task 投影，失败时保留 Core 错误类别。Rust workspace 自动保存成功操作历史；C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
 
-~Repo.updateTask~ 接收任务 ID、旧正文快照、新标题和正文；Core 只替换标题文字与正文，保留状态、优先级、标签及其他未编辑字节，并返回更新后的任务 ID。 ~Repo.deleteTask~ 接收任务 ID 和旧正文快照，删除目标标题及其子标题。两者都在 worker 中执行，提交前由 Core 校验文件快照， ~queueUpload~ 为真时登记当前完整文件的 outbox 意图；过期页面以 Promise 拒绝，不由 C++ 或 ArkTS 重建 Org 内容。
+创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，并传 ~recordCreated=true~ 由 Core 补齐 CREATED。备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。收件箱整理以字段清理和 Movement 组合为一个操作组。
+
+旧 Repo.createTask、Repo.updateTaskLocation、Repo.updateTask、Repo.deleteTask 与 Workspace.editTask 均已删除，native 导出、类型声明和宿主 wrapper 不保留兼容入口。
 
 ~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
 
@@ -165,7 +159,7 @@ const outcome = await policy.applyMerge(repo, comparison)
 
 ~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并重算已加载文件；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
-~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 对象用于列表、日历和详情； ~Task.id~ 原样透传 Core 的 ~FilterTask.id~ ，为仓库路径、文件相对路径及归一化任务标题链的 MD5；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
+~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 对象用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
 * 错误与扩展
 
@@ -175,7 +169,7 @@ const outcome = await policy.applyMerge(repo, comparison)
 
 * 任务完成对象
 
-~Workspace.search~ 返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新搜索。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算 MD5，ArkTS 不按标题或位置重建任务身份。
+~Workspace.search~ 返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新搜索。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
 
 #+begin_src ts
 class Task {
@@ -280,9 +274,9 @@ interface TitleCount {
 ~TitlePart.count~ 与嵌套的 ~completed~ 、 ~total~ 由 Core 生成，经 Rust 序列化与 C++ JSON 编组原样透传，适用于文件元信息、文件标题与任务标题，不添加同步请求或原文解析。 ~NativeCoreService~ 导出 ~CoreTitleCount~ ，计数随标题片段进入任务快照渲染键。 ~TitleCountBadge~ 使用 ArkUI 的 ~ProgressType.Ring~ 在运行时按有效比例绘制； ~TitleCounts~ 管理多个计数的换行与窄屏图标回退。 ~TitleText~ 只组合普通文字、链接与计数标记；今天收起行单独为计数和日期保留宽度，展开、任务编辑与规划页共用同款标记，不重复“已完成”说明。文件阅读使用 Core 的安全标题 HTML 与宿主样式绘制同款圆环。
 * 快速捕捉复用
 
-快速捕捉复用 ~Repo.createTask~ ，提交 ~heading~ 并启用 ~recordCreated=true~ ，其余任务表单属性为空，同时请求 ~insertAtTop=true~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
+快速捕捉复用 ~Workspace.executeTaskOperations~ ，提交 ~heading~ 并启用 ~recordCreated=true~ ，其余任务表单属性为空，同时请求 ~insertAtTop=true~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
 
-捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Repo.createTask~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。
+捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Workspace.executeTaskOperations~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。
 
 ** 任务列表项展示提示
 
@@ -297,19 +291,20 @@ interface TitleCount {
 
 地点与配置加载完成后自动发起候选查询，不等待用户展开，也不阻塞创建入口。页面按请求序号接收完整候选和对应仓库映射，旧请求不得覆盖新分享的结果；返回非空结果后才显示“更新地址”分区，查询中或空结果不显示分区及提交按钮。标题复用共享分区控件，候选卡片和地址选择仍只负责展示 Core 的结果。
 
-点击创建立即向已配置收件箱调用 ~createTask(..., insertAtTop=true)~ ，写入成功后以 ~page=inbox~ 启动或唤起 ~EntryAbility~ ，直接加载收件箱并关闭分享窗口；不查询新任务快照、不展示结果卡片或确认。导航失败保留写入成功状态，重试只打开收件箱，不重复创建。
+点击创建立即向已配置收件箱调用 Creation 操作组 ，写入成功后以 ~page=inbox~ 启动或唤起 ~EntryAbility~ ，直接加载收件箱并关闭分享窗口；不查询新任务快照、不展示结果卡片或确认。导航失败保留写入成功状态，重试只打开收件箱，不重复创建。
 
-~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。 ~Repo.updateTaskLocation(path, heading, oldUri, newUri, queueUpload): Promise<Task>~ 的五个参数由 N-API 完整读取，再经工作线程交给 Rust；Core 返回写入后的准确任务快照，Harmony 投影为带最新地址、正文 HTML 与完成行为的原生任务对象。FFI 返回由既有释放函数管理的任务 JSON 字符串，C++ 只编组，不解析链接或实施替换。
+~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。地址更新提交一个 Modification， ~path~ 使用 ~Task.fullPath~ ，字段为 ADDRESS_LINK。Core 返回操作后路径；ArkTS 从新投影中取得该路径对应任务，包含最新地址、正文 HTML 与完成行为。FFI 返回既有释放函数管理的 JSON 字符串，C++ 只编组与构造对象。
+
 
 更新成功后将该快照序列化为 Want 的 ~task~ 字符串参数，以 ~page=taskEdit~ 唤起 ~EntryAbility~ ，主窗口加载收件箱并通过该窗口的 ~LocalStorage~ 交接快照。收件箱在 ~onPageShow~ 中一次性领取并清除参数，等根页面就绪后通过原有路由打开 ~pages/TaskEdit~ ，随后关闭分享窗口；不在窗口内容加载回调中连续推入路由，避免页面初始化覆盖跳转。窗口之间不依赖各自 ArkUI 上下文中的 ~AppStorage~ 传递任务。任务编辑页继续只读取原有路由参数，其布局、元数据、正文和返回行为均不修改；返回进入收件箱。导航失败时保留已更新快照供重试，不再次替换链接。
 
-~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Repo.createTask~ 写入正文链接，更新任务调用 ~Repo.updateTaskLocation~ 保留其他字节。解析失败只允许保存原始链接或返回地图。
+~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Workspace.executeTaskOperations~ 写入正文链接，更新任务调用 ~Workspace.executeTaskOperations~ 保留其他字节。解析失败只允许保存原始链接或返回地图。
 
 * 收件箱目标与任务整理
 
-~Workspace.refileTargets(): Promise<RefileTarget[]>~ 在工作线程加载仓库后返回 Core 目标，增加 ~category~ 与 ~fileVersion~ ，供 UI 按文件 CATEGORY 分组及提交前校验。每个 ~Task~ 增加只读可枚举的 ~source: TaskSource~ ， ~OrgFile.fileVersion~ 提供普通文件目标的版本。 ~Workspace.editTask(edit: TaskEdit): Promise<void>~ 将结构化源、目标和 ~queueRepoIds~ 交给 Core；C++ 不解析 Org、不重排子树，也不根据屏幕位置推断任务。
+~Workspace.refileTargets(): Promise<RefileTarget[]>~ 继续返回 REFILE 目标，增加由 Core 生成的 ~fullPath~ ，保留 category 与 fileVersion。每个 Task 增加 ~taskId: string | null~ 、 ~fullPath: TaskPath~ 和 ~fileVersion~ ；仓库和文件也提供完整路径。新的 ~Workspace.executeTaskOperations(group)~ 是唯一任务写入入口。
 
-~InboxService~ 使用全部配置仓库加载目标，将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID；配置 ID 不作为写入身份。普通移动提交原始目标位置及版本，备忘使用已配置且未被忽略的备忘文件，目标 parent 为空并启用 ~clearTodo~ ，由 Core 清理根条目的状态、优先级及 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息；删除的 destination 为空。备忘与删除不绕过源快照校验；提交错误作为 Promise 拒绝保留到当前托盘。
+~InboxService~ 将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID。普通移动提交 Movement，目标 parent 使用放置目标 fullPath；备忘先以 Modification 清除 TODO、优先级、SCHEDULE、DEADLINE、CLOSED，再以 Movement 移入配置的备忘文件；删除提交 Deletion。源、目标可携带文件版本，失败保留当前托盘与用户选择。
 
 * Query 文件引用与创建日期扩展
 

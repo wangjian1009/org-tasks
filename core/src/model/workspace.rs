@@ -9,6 +9,7 @@ pub type OrgWorkspaceValidationError = CoreError;
 pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
     pub todo_defaults: TodoConfig,
+    pub task_operation_history: super::TaskOperationHistory,
 }
 
 impl OrgWorkspace {
@@ -17,6 +18,7 @@ impl OrgWorkspace {
         Ok(Self {
             repos,
             todo_defaults: TodoConfig::default(),
+            task_operation_history: Default::default(),
         })
     }
 

@@ -252,7 +252,7 @@ fn output_error(_: io::Error) -> String {
 mod tests {
     use super::*;
     use org_tasks_core::webdav::WebDavEndpoint;
-    use org_tasks_core::{NewTask, SyncCancellation, SyncProgressReporter};
+    use org_tasks_core::{SyncCancellation, SyncProgressReporter};
     use std::collections::BTreeMap;
     use std::io::{Cursor, Read};
     use std::path::PathBuf;
@@ -607,18 +607,12 @@ mod tests {
             &[("inbox.org", "* TODO Remote\n")],
         )
         .await;
-        fixture
-            .repo
-            .create_task(
-                "inbox.org",
-                &NewTask {
-                    heading: "Offline".into(),
-                    ..Default::default()
-                },
-                true,
-            )
-            .await
-            .unwrap();
+        let id=fixture.repo.id.clone();
+        let mut workspace=org_tasks_core::OrgWorkspace::new(vec![fixture.repo.clone()]).unwrap();
+        let group:org_tasks_core::TaskOperationGroup=serde_json::from_value(serde_json::json!({
+            "operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"}},"title":"Offline","state":"TODO"}}],"queueRepoIds":[id]})).unwrap();
+        workspace.execute_task_operations(&group).await.unwrap();
+        fixture.repo=workspace.repos.remove(0);
         let comparison = fixture
             .policy
             .compare_merge(&mut fixture.repo, &fixture.sync_id)

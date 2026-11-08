@@ -1,4 +1,4 @@
-import { CoreTask } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
 import { AppConfigService } from '../services/AppConfigService'
 import { MemoEditor } from '../components/MemoEditor'
 import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
@@ -50,8 +50,14 @@ struct MemoEdit {
       const coreRepository = (await workspace.repos()).find((repo) => repo.id === this.memo!.repoId)
       const repository = config.repos.find((repo) => repo.rootDirectory === coreRepository?.rootDirectory)
       if (!repository) throw new Error('目标仓库不可用')
-      await NativeCoreService.updateTask(config.repos, repository, this.memo!.filePath, this.memo!.id,
-        this.memo!.body, this.heading, this.body, config.todoDefaults)
+      const modifications: CoreTaskModification[] = []
+      if (this.heading !== this.memo!.heading) modifications.push({ field: 'TITLE', value: this.heading })
+      if (this.body !== this.memo!.body) modifications.push({ field: 'BODY', value: this.body })
+      await workspace.executeTaskOperations({
+        operations: [{ type: 'Modification', data: { path: this.memo!.fullPath, modifications } }],
+        queueRepoIds: repository.webdavEnabled ? [this.memo!.repoId] : [],
+        fileVersions: [{ repoId: this.memo!.repoId, file: this.memo!.filePath, version: this.memo!.fileVersion }]
+      })
       await this.getUIContext().getRouter().back()
     } catch (e) {
       this.message = `保存备忘失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -80,8 +86,11 @@ struct MemoEdit {
       const coreRepository = (await workspace.repos()).find((repo) => repo.id === this.memo!.repoId)
       const repository = config.repos.find((repo) => repo.rootDirectory === coreRepository?.rootDirectory)
       if (!repository) throw new Error('目标仓库不可用')
-      await NativeCoreService.deleteTask(config.repos, repository, this.memo!.filePath, this.memo!.id,
-        this.memo!.body, config.todoDefaults)
+      await workspace.executeTaskOperations({
+        operations: [{ type: 'Deletion', data: { path: this.memo!.fullPath } }],
+        queueRepoIds: repository.webdavEnabled ? [this.memo!.repoId] : [],
+        fileVersions: [{ repoId: this.memo!.repoId, file: this.memo!.filePath, version: this.memo!.fileVersion }]
+      })
       await this.getUIContext().getRouter().back()
     } catch (e) {
       this.message = `删除备忘失败：${coreErrorMessage(e as CoreBridgeError)}`

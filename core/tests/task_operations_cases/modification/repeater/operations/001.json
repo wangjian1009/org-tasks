@@ -1,0 +1,24 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "SCHEDULE",
+            "value": "<2026-11-09 Mon +1w -2d>"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

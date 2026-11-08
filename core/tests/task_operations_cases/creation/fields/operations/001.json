@@ -1,0 +1,29 @@
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New",
+        "state": "NEXT",
+        "priority": "B",
+        "tags": [
+          "工作",
+          "home"
+        ],
+        "scheduled": "<2026-11-09 Mon>",
+        "deadline": "<2026-11-10 Tue>",
+        "body": "Body"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

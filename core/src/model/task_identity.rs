@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use md5::{Digest, Md5};
 use orgize::{SyntaxKind, ast::Headline};
 
 /// 任务身份独立于源位置；无状态祖先不参与路径，自身标题始终保留。
@@ -44,12 +43,12 @@ impl<'a> TaskIdentity<'a> {
         *occurrence += 1;
         // JSON 保留路径分段边界，避免标题中的点号被误当作层级分隔符。
         let input = if *occurrence == 1 {
-            serde_json::to_vec(&(self.root, self.path, &titles))
+            serde_json::to_string(&(self.root, self.path, &titles))
         } else {
-            serde_json::to_vec(&(self.root, self.path, &titles, *occurrence))
+            serde_json::to_string(&(self.root, self.path, &titles, *occurrence))
         }
         .expect("字符串路径与出现序号可以序列化");
-        format!("{:x}", Md5::digest(input))
+        input
     }
 }
 

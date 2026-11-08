@@ -1,0 +1,62 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": null
+          },
+          {
+            "field": "PRIORITY",
+            "value": null
+          },
+          {
+            "field": "SCHEDULE",
+            "value": null
+          },
+          {
+            "field": "DEADLINE",
+            "value": null
+          },
+          {
+            "field": "CLOSED",
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "notes.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

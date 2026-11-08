@@ -1,0 +1,27 @@
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "One"
+            ],
+            "occurrence": 1
+          }
+        },
+        "title": "New"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

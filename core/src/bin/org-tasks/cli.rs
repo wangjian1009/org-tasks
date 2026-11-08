@@ -92,6 +92,20 @@ struct TaskCommand {
 enum TaskTarget {
     All,
     Search(TaskSearchArgs),
+    /// 输出所有仓库、文件与标题的完整路径和可空任务身份
+    Paths,
+    /// 执行 JSON 操作组，全部内存操作成功后统一保存
+    Apply(TaskApplyArgs),
+}
+
+#[derive(Args)]
+struct TaskApplyArgs {
+    /// TaskOperationGroup JSON 文件
+    #[arg(long)]
+    operations: PathBuf,
+    /// 额外仓库目录，支持跨仓库操作，可重复传入
+    #[arg(long)]
+    repository: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -162,19 +176,53 @@ pub async fn run() -> Result<(), String> {
         Command::Conflict(command) => crate::conflict::run(repo, history_records, command).await,
         Command::History(command) => history(history_records, command),
         Command::File(command) => file(repo, command).await,
-        Command::Task(command) => task(repo, command),
+        Command::Task(command) => task(repo, command).await,
     }
 }
 
-fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
-    let workspace = OrgWorkspace::new(vec![repo]).map_err(|error| error.to_string())?;
+async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
+    let mut workspace = OrgWorkspace::new(vec![repo]).map_err(|error| error.to_string())?;
     match command.target {
         TaskTarget::All => print_tasks(workspace.search(&Filter::parse(""))),
-        TaskTarget::Search(args) => {
-            let filter = Filter::parse(&args.expression);
-            print_tasks(workspace.search(&filter))
+        TaskTarget::Search(args) => print_tasks(workspace.search(&Filter::parse(&args.expression))),
+        TaskTarget::Paths => print_json(&task_nodes(&workspace)),
+        TaskTarget::Apply(args) => {
+            for directory in args.repository {
+                let mut repo = open_repo(directory)?;
+                repo.set_todo_defaults(workspace.repos()[0].todo_defaults.clone()).map_err(|e|e.to_string())?;
+                repo.load::<WebDavSyncPolicy>().await.map_err(|e|e.to_string())?;
+                workspace.add_repo(repo).map_err(|e|e.to_string())?;
+            }
+            let bytes = tokio::fs::read(args.operations).await.map_err(|e|format!("无法读取操作组: {e}"))?;
+            let group: org_tasks_core::TaskOperationGroup = serde_json::from_slice(&bytes).map_err(|e|format!("操作组格式无效: {e}"))?;
+            let result = workspace.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
+            print_json(&serde_json::json!({"fallback": result.fallback, "paths": result.paths,
+                "history": workspace.task_operation_history, "nodes": task_nodes(&workspace)}))
         }
     }
+}
+
+fn task_nodes(workspace: &OrgWorkspace) -> Vec<serde_json::Value> {
+    let mut nodes=Vec::new();
+    for repo in workspace.repos() {
+        nodes.push(serde_json::json!({"kind":"repository","fullPath":repo.full_path(),"taskId":null}));
+        let records=repo.nodes();
+        for file in repo.files() {
+            nodes.push(serde_json::json!({"kind":"file","fullPath":file.full_path(),"taskId":null,
+                "fileVersion":org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash}));
+            // 路径与身份均来自 Core 投影，CLI 不解析或重建标题树。
+            for task in records.iter().filter(|task| task.path==file.path) {
+                nodes.push(serde_json::json!({"kind":if task.task_id().is_some(){"task"}else{"heading"},
+                    "fullPath":task.full_path(),"taskId":task.task_id()}));
+            }
+        }
+    }
+    nodes
+}
+
+fn print_json(value: &impl serde::Serialize) -> Result<(), String> {
+    println!("{}",serde_json::to_string_pretty(value).map_err(|e|e.to_string())?);
+    Ok(())
 }
 
 fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {

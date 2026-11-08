@@ -417,7 +417,7 @@ impl super::OrgRepo {
         expected_hash: &str,
         timestamp: crate::TimestampMs,
     ) -> Result<String, CoreError> {
-        use super::creation::{read_optional, task_target, write_new};
+        use super::write_intent::{read_optional, task_target, write_new};
         use tokio::fs;
         super::validate_relative_path(path)?;
         if path.split('/').next() == Some(".sync") || !path.ends_with(".org") {
@@ -478,7 +478,7 @@ impl super::OrgRepo {
         expected_hash: Option<&str>,
         content: Option<Vec<u8>>,
     ) -> Result<(), CoreError> {
-        use super::creation::{read_optional, task_target, write_new};
+        use super::write_intent::{read_optional, task_target, write_new};
         use tokio::fs;
         super::validate_relative_path(path)?;
         if path.split('/').next() == Some(".sync") || !path.ends_with(".org") {

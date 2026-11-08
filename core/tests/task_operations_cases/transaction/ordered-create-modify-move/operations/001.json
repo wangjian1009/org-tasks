@@ -1,0 +1,77 @@
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New",
+        "state": "TODO"
+      }
+    },
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "New"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "Renamed"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Renamed"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Remove"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

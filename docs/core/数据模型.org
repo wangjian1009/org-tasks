@@ -18,7 +18,7 @@
 
 本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
 
-~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~NewTask~ 是运行时创建输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
+~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~TaskOperationGroup~ 是统一任务修改输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
 调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
 
@@ -32,8 +32,9 @@
 \begin{umlpackage}{Workspace}
 \umlclass[x=0,y=0]{OrgWorkspace}{
   repos: Vec\textless OrgRepo\textgreater \\
-  todo\_defaults: TodoConfig
-}{}
+  todo\_defaults: TodoConfig \\
+  task\_operation\_history: TaskOperationHistory
+}{execute\_task\_operations(group): TaskOperationResult}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
@@ -87,21 +88,14 @@
 \end{umlpackage}
 
 \begin{umlpackage}[x=0,y=-9.3]{Editing}
-\umlclass[x=0,y=0]{NewTask}{
-  heading: String \\
-  body: String \\
-  scheduled: String \\
-  deadline: String \\
-  tags: Vec\textless String\textgreater \\
-  priority: String \\
-  record\_created: bool
-}{}
+\umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\
+queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 \umlclass[x=8.5,y=0]{OrgRepoWriteIntent}{
   relative\_path: String \\
   content\_hash: String
 }{}
 \end{umlpackage}
-\umldep{OrgRepo}{NewTask}
+\umldep{OrgWorkspace}{TaskOperationGroup}
 \umldep{OrgRepo}{OrgRepoWriteIntent}
 
 \umluniassoc[mult1=1,mult2=0..*]{OrgWorkspace}{OrgRepo}
@@ -133,6 +127,7 @@
 #+begin_src rust
 pub struct FilterTask {
     pub id: String,
+    pub full_path: TaskPath,
     pub repo_id: String,
     pub path: String,
     pub category: Option<String>,
@@ -186,6 +181,7 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 #[serde(rename_all = "camelCase")]
 pub struct RefileTarget {
     pub repo_id: OrgRepoId,
+    pub full_path: TaskPath,
     pub path: String,
     pub heading_path: Vec<String>,
     pub position: SourcePosition,
@@ -220,43 +216,54 @@ byte\_offset: u64}{}
 
 * 任务逻辑身份
 
-~FilterTask.id~ 由 Core 在遍历文件完整标题树时生成，Harmony 的 ~Task.id~ 原样使用该值。逻辑输入为“仓库路径、文件名、任务标题祖先链、自身标题”；源行号、列号、字节偏移仍用于当前快照定位，不参与逻辑身份。
+~FilterTask.task_id() -> Option<&str>~ 仅对有效 TODO 配置识别的待办和已完成任务返回身份，非任务标题返回 ~None~ ，跨语言为 ~null~ 。原有 ~id~ 字段保留作查询记录的通用展示键，不用于新的写入定位；所有写操作使用 ~TaskPath~ 。
 
-| 输入 | 规则 |
-|-
-| 仓库路径 | 使用 ~OrgRepo.root_directory~ 的原始 UTF-8 字符串，不依赖磁盘 canonicalize；更换根路径会改变任务 ID，改仓库显示名或 WebDAV 地址不影响。 |
-| 文件名 | 使用含子目录的安全相对 ~OrgFile.path~ ，区分不同目录中的同名文件；改文件路径会改变 ID。 |
-| 任务标题树 | 按真实层级从根到当前标题遍历，祖先仅包含有效 TODO 配置判定的待办或已完成标题；跳过无状态分类/组织标题，不跳过其下的任务。查询筛选在生成身份之后执行。 |
-| 标题值 | 使用 ~orgize~ 已剥离状态、优先级和标签的标题节点；去掉首尾空白以及首尾直接出现的进度节点，如 ~[1/2]~ 、 ~[50%]~ 、 ~[/]~ 和 ~[%]~ ，支持连续多个。中间进度节点、链接或强调标记中的同类文字保留；大小写、内部空白和其余 Org 原文保持不变。 |
-| 无状态记录 | 查询仍返回全部 headline；当前记录始终保留自身归一化标题，以区分收件箱中的无 TODO 记录，但它不会成为后代任务身份链中的祖先。 |
-| 完全重名 | 同一文件中，相同归一化标题路径的第一次出现使用基础输入；第 2 次起追加该路径在完整文件中的 1-based 出现序号。无关任务的插入、删除或查询排序不影响该序号。 |
+逻辑结构保持原有规则：仓库使用 ~OrgRepo.root_directory~ 原始字符串，文件使用安全相对路径，祖先仅包含待办或已完成标题。标题值排除 TODO、优先级和标签，去除首尾空白和首尾连续进度节点，中间进度、链接与强调原文保留。无状态祖先不进入任务身份链，状态切换、无关任务增删和首尾进度变化不改变任务身份。
 
-哈希输入采用紧凑 JSON 明确分段，逻辑上的点分路径不直接用点号拼接，避免标题中的点号与层级边界混淆。基础输入为 ~[rootDirectory,relativeFilePath,[title1,title2,...]]~ 的 UTF-8 字节，重复路径从第 2 项起为 ~[rootDirectory,relativeFilePath,[title1,title2,...],occurrence]~ 。输出为标准 MD5 的 32 位小写十六进制字符串。
+身份直接返回紧凑 JSON 明文字符串，不再计算 MD5。基础形式为 ~[rootDirectory,relativeFilePath,[title1,title2,...]]~ ；同一逻辑路径从第 2 次起追加完整文件遍历中的 1-based 出现序号。分段 JSON 保留标题中的点号、斜杠、引号和 Unicode，避免字符串拼接歧义。重名项删除或重排后，出现序号可能变化；Org 的 ~ID~ 属性不覆盖本规则。改名或移动到其他任务父级、仓库、文件会改变身份。
 
 #+begin_example
 仓库：/repo
 文件：inbox.org
-,* TODO [1/2] Project
-,** DONE Child [100%]
+,* Group
+,** TODO [1/2] Project
+,*** DONE Child [100%]
 
-子任务输入：["/repo","inbox.org",["Project","Child"]]
-子任务 ID：c9977ec1396cc0465b20fc09cb18600c
+Child 的 taskId：["/repo","inbox.org",["Project","Child"]]
+Group 的 taskId：null
 #+end_example
 
-前面或无关兄弟任务的增删、重排、正文/规划时间/标签/优先级变化、待办与完成状态切换、首尾进度变化均保持 ID。自身或任务祖先改名、移动到不同任务父级、仓库或文件路径变化会改变 ID。完全同名同路径的重复项没有独立持久身份；删除或重排这些重复项时，其出现序号可能变化，不承诺区分它们的历史身份。文件中的 Org ~ID~ 属性不覆盖本规则；此处 MD5 用于身份摘要，不承担内容校验、认证或安全散列职责。
+明文身份仅用于运行时查询与宿主日历映射，不进入同步日志、outbox 或错误摘要。同步合并中的三方匹配、Org ID 优先级及历史指纹保持独立；不以任务身份替代内容版本校验。
 
-计算只读取无损语法树，不重写标题或文件字节，不把绝对路径或哈希输入写入同步日志、outbox 或错误摘要。现有合并算法的三方匹配、Org ~ID~ 优先级和历史任务指纹保持独立，不能用列表逻辑 ID 替换合并的来源版本校验。
+* 完整结构路径与插入位置
 
-Core 内部按文件建立 ~TaskIdentity::new(root, path)~ ，随后按原文顺序调用 ~id_for(headline, is_task)~ ，维护任务祖先栈与同路径出现次数；完成类型继续由有效 TODO 配置判断。公开接口只增加查询投影字段 ~FilterTask.id~ ，宿主不能传入自己计算的 ID 或重建标题树。
+~TaskPath~ 定义于 ~core::model~ ，形式为“仓库 + 文件 + title1 + title2”。仓库和文件通过各自的 ~full_path()~ 返回路径；每个标题投影通过 ~FilterTask.full_path()~ 返回路径，包括所有无状态标题。 ~OrgFile.node_paths()~ 遍历完整标题树， ~OrgRepo.nodes()~ 返回相同范围的标题投影，均不受任务查询和忽略规则影响。
+
+#+begin_src rust
+pub struct TaskPath {
+    pub repo_id: OrgRepoId,
+    pub file: Option<String>,
+    pub titles: Vec<String>,
+    pub occurrence: usize,
+}
+pub struct TaskPosition {
+    pub parent: TaskPath,
+    pub after: Option<TaskPath>,
+}
+#+end_src
+
+~file=None~ 且标题链为空表示仓库；有文件且标题链为空表示文件；有标题链表示真实标题节点。路径标题保留从根到自身的全部祖先，使用剥离状态、优先级和标签后的标题原文，仅去除尾部空白，不剥离进度节点。相同完整标题链以文件原文中的 ~occurrence~ 区分，默认从 1 开始。路径使用稳定的 Core 仓库 ID，不使用宿主配置 ID；不把包含分隔符的标题再次拆分为层级。
+
+~TaskPosition.parent~ 指向文件或标题，不能指向仓库节点。 ~after=None~ 表示插入为第一个子节点，位于 parent 自身正文之后；非空时 after 必须是 parent 的直属子节点，插入在其完整子树之后。文件作为 parent 时对应顶层标题。移动不能以自身或后代作为 parent 或 after；不要求目标带 REFILE 标签，展示层仍可从放置目标列表选择位置。
 
 \begin{center}
 \begin{tikzpicture}
-\umlclass[x=0,y=0]{OrgRepo}{root\_directory: String}{}
-\umlclass[x=6,y=0]{OrgFile}{path: String \\ syntax: orgize CST}{}
-\umlclass[x=3,y=-3.2]{FilterTask}{id: String (MD5) \\ repo\_id: String \\ path: String \\ byte\_offset: u64 \\ title: String \\ is\_repeating: bool}{is\_done(): bool}
-\umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
-\umldep{FilterTask}{OrgRepo}
-\umldep{FilterTask}{OrgFile}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{FilterTask}{id: String \\ full\_path: TaskPath}{task\_id(): Option\textless String\textgreater \\ full\_path(): TaskPath}
+\umlclass[x=7,y=0]{TaskPath}{repo\_id: OrgRepoId \\ file: Option\textless String\textgreater \\ titles: Vec\textless String\textgreater \\ occurrence: usize}{}
+\umlclass[x=0,y=-4]{TaskPosition}{parent: TaskPath \\ after: Option\textless TaskPath\textgreater}{}
+\umluniassoc{FilterTask}{TaskPath}
+\umluniassoc[mult2=1]{TaskPosition}{TaskPath}
 \end{tikzpicture}
 \end{center}
 
@@ -274,6 +281,7 @@ Core 内部按文件建立 ~TaskIdentity::new(root, path)~ ，随后按原文顺
 pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
     pub todo_defaults: TodoConfig,
+    pub task_operation_history: TaskOperationHistory,
 }
 
 pub struct OrgRepo {
@@ -299,32 +307,20 @@ pub struct OrgRepo {
 - 替换或删除一个元素时，只能处理其 ~sourceRange~ 覆盖的字节；插入元素时，只能在明确的容器元素边界插入所需字节。写回不得格式化、重新缩进、对齐表格、规范化换行、重排元素，或重建未修改节点。
 - 每次替换或插入后必须以更新后的 ~sourceBytes~ 更新受影响节点及其后续节点的 ~SourceRange~ 。跨行变更时必须从新缓冲区重新计算行号、列号和字节偏移，不能只对后续列号累加差值。
 
-上述规则适用于本地保存与上传前序列化。源字节快照仅在本次解析/编辑会话内保留；关闭会话后可从文件重新读取，持久化层仍只保存同步元数据。现有标题编辑以任务 ID 和正文快照校验页面版本，标题变化后由 Core 返回新的任务 ID；删除同样删除目标标题的完整子树。
+上述规则适用于本地保存与上传前序列化。源字节快照仅在本次解析/编辑会话内保留；关闭会话后可从文件重新读取，持久化层仍只保存同步元数据。标题编辑以 TaskPath 定位，可在操作组中提供文件版本校验；标题变化后返回新路径，任务身份按新标题投影。删除移除目标标题的完整子树。
 
-* 任务创建与写入意图
+* 任务写入意图
 
-~NewTask~ 仅作为 ~OrgRepo.create_task~ 、 ~OrgRepo.create_task_at_top~ 与分享地点写入的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、正文、优先级、标签及计划日期转为 org 内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验；默认新增任务追加到文件末尾，快速捕捉可请求在第一条标题之前插入。已存在文件的原始字节保持不变。
-
-~record_created~ 默认为 ~false~ ，序列化名称为 ~recordCreated~ 。启用时 Core 在保存新任务时按设备本地时间生成精确到分钟的非活动时间戳，将 ~CREATED~ 放入标题及可选 planning 行之后的 ~PROPERTIES~ drawer。新任务自带属性 drawer 时只补缺失的键，已有 ~CREATED~ 不区分大小写并保留原值。该时间是创建时的 Org 内容，不是计划日期、正文、草稿时间或同步状态；后续读取、编辑和同步不重新生成。
-
-~OrgRepoWriteIntent~ 只包含相对路径与保存后的内容哈希，按仓库写入 ~.sync/outbox/~ 。完整任务仍保存在用户 org 文件中；多个保存意图可指向同一个文件。WebDAV 使用原始文件的最新完整字节上传，成功同步记录落盘且本地版本一致后才确认消费。写入意图不增加 ~OrgRepo~ 的持久化文件快照字段。
+~OrgRepoWriteIntent~ 保存待上传文件的相对路径和最终内容哈希；原始内容只保存在用户 Org 文件、运行时回退快照及既有同步快照中。操作组仅为指定仓库的实际变更文件登记意图，同一文件在一组中多次修改只登记一个最终版本。
 
 #+begin_src rust
-pub struct NewTask {
-    pub heading: String,
-    pub body: String,
-    pub scheduled: String,
-    pub deadline: String,
-    pub tags: Vec<String>,
-    pub priority: String,
-    pub record_created: bool,
-}
-
 pub struct OrgRepoWriteIntent {
     pub relative_path: String,
     pub content_hash: String,
 }
 #+end_src
+
+本地保存不等于远端上传。后续同步沿用现有条件写入、历史提交和版本一致后确认 outbox 的规则；操作历史与同步历史分别管理。
 
 * 仓库同步记录
 
@@ -681,49 +677,208 @@ logbook\_html: String \\
 \end{tikzpicture}
 \end{center}
 
-* 任务整理输入
+* 统一任务操作模型
 
-~TaskSource~ 、 ~TaskDestination~ 和 ~TaskEdit~ 是调用期间使用的快照参数，不是持久化任务模型。源和目标的 ~file_version~ 使用 Core 文件内容哈希；JSON 使用 camelCase， ~SourcePosition~ 沿用其现有字段。 ~RefileTarget.category~ 来自目标所在文件的 ~OrgFile.category()~ ， ~file_version~ 与目标源位置来自同一文件快照。 ~TaskDestination.clear_todo~ 启用时将根条目整理为备忘，移除任务状态、优先级及开头的 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息；正文、标签、属性和子条目保持原样。
+以下类型均定义于 ~core::model~ 。 ~TaskOperationGroup~ 代表一次批量修改， ~operations~ 按列表顺序执行。四种操作分别拥有独立数据结构，不共享输入基类。JSON 操作以 ~type~ 区分 ~Creation~ 、 ~Modification~ 、 ~Movement~ 、 ~Deletion~ ，对应数据位于 ~data~ ；结构体字段使用 camelCase。
 
 #+begin_src rust
-pub struct TaskSource {
-    pub repo_id: OrgRepoId,
-    pub path: String,
-    pub task_id: String,
-    pub file_version: String,
+/// after 必须是 parent 的直属子节点；为空时插入到首个子节点之前。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskPosition {
+    pub parent: TaskPath,
+    #[serde(default)]
+    pub after: Option<TaskPath>,
 }
-pub struct TaskDestination {
-    pub repo_id: OrgRepoId,
-    pub path: String,
-    pub file_version: String,
-    pub parent: Option<SourcePosition>,
-    pub clear_todo: bool,
-}
-pub struct TaskEdit {
-    pub source: TaskSource,
-    pub destination: Option<TaskDestination>,
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskOperationGroup {
+    pub operations: Vec<TaskOperation>,
+    #[serde(default)]
     pub queue_repo_ids: Vec<OrgRepoId>,
+    #[serde(default)]
+    pub file_versions: Vec<TaskFileVersion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", deny_unknown_fields)]
+pub enum TaskOperation {
+    Creation(TaskCreation),
+    Modification(TaskModificationOperation),
+    Movement(TaskMovement),
+    Deletion(TaskDeletion),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileVersion { pub repo_id: OrgRepoId, pub file: String, pub version: String }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskAddressChange { pub old_uri: String, pub new_uri: String }
+
+/// 创建结构独立定义；state 为空创建无状态标题，显式状态按目标文件配置验证。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskCreation {
+    pub position: TaskPosition,
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub scheduled: Option<String>,
+    #[serde(default)]
+    pub deadline: Option<String>,
+    #[serde(default)]
+    pub closed: Option<String>,
+    #[serde(default)]
+    pub record_created: bool,
+}
+
+impl TaskCreation {
+    pub fn new(position: TaskPosition, title: String) -> Self {
+        Self {position,title,body:String::new(),state:None,priority:None,tags:Vec::new(),
+            scheduled:None,deadline:None,closed:None,record_created:false}
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskModificationOperation {
+    pub path: TaskPath,
+    pub modifications: Vec<TaskModification>,
+}
+
+/// 每项只修改一个字段；None 清除值，未列出的字段及其字节保持原样。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "field", content = "value", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+pub enum TaskModification {
+    Title(Option<String>),
+    Body(Option<String>),
+    Todo(Option<String>),
+    Priority(Option<String>),
+    Tags(Option<Vec<String>>),
+    Schedule(Option<String>),
+    Deadline(Option<String>),
+    Closed(Option<String>),
+    Created(Option<String>),
+    AddressLink(Option<TaskAddressChange>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskMovement {
+    pub path: TaskPath,
+    pub position: TaskPosition,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskDeletion { pub path: TaskPath }
+
+/// 保存准确原文而非反向重建语义字段，以便未来按字节恢复。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileFallback {
+    pub repo_id: OrgRepoId,
+    pub file: String,
+    pub before: Option<String>,
+    pub after: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFallbackGroup { pub files: Vec<TaskFileFallback> }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskOperationRecord {
+    pub operation_group: TaskOperationGroup,
+    pub fallback_group: TaskFallbackGroup,
+}
+
+/// workspace 生命周期内的成功操作历史，不与同步历史混用。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
+
+/// paths 与 operations 一一对应，记录每一步完成后的节点位置；删除为 None。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskOperationResult {
+    pub paths: Vec<Option<TaskPath>>,
+    pub fallback: TaskFallbackGroup,
 }
 #+end_src
 
+** 创建与字段修改
+
+创建显式指定标题、插入位置和可选状态；未提供状态时创建无状态标题。状态须属于目标文件有效 TODO 配置；宿主需要创建任务时从文件元信息取得初始状态。正文不允许引入额外标题。 ~record_created~ 启用时由 Core 生成本地非活动 CREATED 时间戳。
+
+~TaskModificationOperation.path~ 定位一个标题， ~modifications~ 顺序执行，每项只修改一个字段。字段类型由 ~TaskModification~ 枚举表示，JSON 中字段名为大写枚举值， ~value=null~ 清除值，未列出的字段保持原样。多项字段修改始终定位同一标题，不会因为前面改名而丢失后续字段操作。
+
+| 枚举 | 值与清理语义 |
+|-
+| ~TITLE~ | 字符串修改标题文字；空值清除文字，不改变 TODO、优先级或标签。 |
+| ~BODY~ | 字符串替换当前标题自身正文；空值清空。保留规划、属性 drawer 和子标题；拒绝正文引入额外标题。 |
+| ~TODO~ | 设置目标文件已配置状态；空值清除状态。 |
+| ~PRIORITY~ | 单个大写字母；空值清除优先级。 |
+| ~TAGS~ | 标签数组；空值或空数组清除自身标签，不修改继承来源。 |
+| ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ | 完整有效 Org 时间戳，保留重复器等表达式；空值清除对应规划项。 |
+| ~CREATED~ | 设置属性 drawer 中的 CREATED 时间戳；空值只清除此属性。 |
+| ~ADDRESS_LINK~ | 提交新旧 URI，仅替换子树中首个匹配的真实链接，保留描述及其他字节；空值拒绝，不把源码块中的伪链接当成真实链接。 |
+
+移动保留整棵子树，仅调整真实标题的星号层级；目标文件配置不能改变子树标题或 TODO 状态的解释。删除移除目标完整子树。备忘整理由清除 TODO、优先级、规划字段的 Modification 和随后的 Movement 组合完成，不在 Movement 中复制字段修改语义。
+
+** 顺序、提交与失败处理
+
+1. 根据操作组收集所需源文件、目标 parent 和 after 所在文件；验证安全路径、仓库归属和可选的 ~file_versions~ ，将原始内容加载到隔离内存快照。不存在的 Org 文件可由创建操作产生，移动目标须已存在于本组内存快照；父目录须已存在，加载阶段不创建目录，不跟随文件符号链接。
+2. 按 operations 顺序执行；后续操作使用前面步骤产生的新路径。组内改名、移动、重名项序号变化后，旧路径可能失效，Core 不猜测调用意图。每一步的结果路径由 ~TaskOperationResult.paths~ 按顺序返回，删除对应空值。
+3. 任一内存操作失败即丢弃全组，不修改用户文件、outbox、workspace 快照或操作历史。受影响但未修改的文件不重复写入。
+4. 所有内存操作完成后，准备完整临时文件、回退字节和最终 outbox；再次核对原始磁盘字节，统一进入提交。普通提交 I/O 失败时以已准备的原始字节回滚已替换文件，并清理本次临时文件和意图。
+5. 全部文件提交成功后才发布新 workspace 快照，将一次 ~TaskFallbackGroup~ 与原操作组一起追加到 ~TaskOperationHistory~ 。失败的组不形成成功历史。
+
+单文件替换采用同目录原子重命名。普通文件系统不提供跨文件、跨仓库的整体原子替换；进程崩溃、介质不可写或回滚期间的外部并发写入不能仅靠内存保证恢复。检测到回滚目标已被外部写入时保留回退文件并明确返回存储错误，不覆盖外部数据，也不将部分提交登记为成功。当前契约覆盖可正常完成回滚的执行错误，崩溃恢复与持久化事务日志另行设计。
+
+** 回退历史与未来撤销
+
+每个 ~TaskFileFallback~ 保存一个实际变更文件的完整修改前后 UTF-8 原文； ~before=None~ 区分原先不存在的文件与原先存在的空文件。恢复不依赖重建 TODO、属性、日志、换行或空白。 ~TaskOperationHistory~ 由 workspace 持有，包含成功操作组和一一对应的回退组；不写入 ~.sync/history~ 、outbox 或 WebDAV。
+
+本轮只定义并自动生成历史，尚未提供 undo、redo 执行入口；后续可基于 before、after 和版本校验恢复。进程重启后不恢复操作历史，不把当前内存历史误称为持久化撤销记录。
+
 \begin{center}
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{TaskEdit}{source: TaskSource \\
-destination: Option\textless TaskDestination\textgreater \\
-queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
-\umlclass[x=-4,y=-4]{TaskSource}{repo\_id: OrgRepoId \\
-path: String \\
-task\_id: String \\
-file\_version: String}{}
-\umlclass[x=4,y=-4]{TaskDestination}{repo\_id: OrgRepoId \\
-path: String \\
-file\_version: String \\
-parent: Option\textless SourcePosition\textgreater \\
-clear\_todo: bool}{}
-\umluniassoc{TaskEdit}{TaskSource}
-\umluniassoc{TaskEdit}{TaskDestination}
-\end{tikzpicture}
+\umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
+\umlclass[x=8,y=0,type=enumeration]{TaskOperation}{Creation \\ Modification \\ Movement \\ Deletion}{}
+\umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater}{}
+\umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
+\umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
+\umlclass[x=7,y=-8]{TaskDeletion}{path: TaskPath}{}
+\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / TODO \\ PRIORITY / TAGS \\ SCHEDULE / DEADLINE / CLOSED \\ CREATED / ADDRESS\_LINK}{}
+\umlclass[x=0,y=-12]{TaskOperationHistory}{entries: Vec\textless TaskOperationRecord\textgreater}{}
+\umlclass[x=8,y=-12]{TaskOperationRecord}{operation\_group: TaskOperationGroup \\ fallback\_group: TaskFallbackGroup}{}
+\umlclass[x=15,y=-12]{TaskFallbackGroup}{files: Vec\textless TaskFileFallback\textgreater}{}
+\umlclass[x=15,y=-16]{TaskFileFallback}{repo\_id: OrgRepoId \\ file: String \\ before: Option\textless String\textgreater \\ after: String}{}
+\umluniassoc[mult2=1..*]{TaskOperationGroup}{TaskOperation}
+\umldep{TaskOperation}{TaskCreation}
+\umldep{TaskOperation}{TaskModificationOperation}
+\umldep{TaskOperation}{TaskMovement}
+\umldep{TaskOperation}{TaskDeletion}
+\umluniassoc{TaskModificationOperation}{TaskModification}
+\umluniassoc[mult2=0..*]{TaskOperationHistory}{TaskOperationRecord}
+\umluniassoc{TaskOperationRecord}{TaskFallbackGroup}
+\umluniassoc[mult2=0..*]{TaskFallbackGroup}{TaskFileFallback}
+\end{tikzpicture}%
+}
 \end{center}
 
 * WebDAV 同步历史运行时摘要

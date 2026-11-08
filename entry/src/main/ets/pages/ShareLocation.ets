@@ -109,9 +109,14 @@ struct ShareLocation {
         if (!target) throw new Error('收件箱文件未选择或已失效，请先在设置中选择')
         const label = this.location.label || this.location.address || '分享地点'
         const body = `[[${this.location.uri}][${label}]]`
-        await target.repo.createTask(target.path, {
-          heading: `到${this.request.title || label}`, body, scheduled: '', deadline: '', tags: [], priority: ''
-        }, target.repository.webdavEnabled, true)
+        const file = await target.repo.file(target.path)
+        if (!file.todo.initialState) throw new Error('目标文件没有可用的未完成状态')
+        await NativeCoreService.executeTaskOperations(this.config.repos, {
+          operations: [{ type: 'Creation', data: { position: { parent: file.fullPath },
+            title: `到${this.request.title || label}`, body, state: file.todo.initialState } }],
+          queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
+          fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
+        }, this.config.todoDefaults)
         this.created = true
       }
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
@@ -132,8 +137,14 @@ struct ShareLocation {
     this.saving = true; this.message = ''
     try {
       if (!this.updatedTask) {
-        const repo = await NativeCoreService.repository([repository], repository, this.config.todoDefaults)
-        this.updatedTask = await repo.updateTaskLocation(task.filePath, task.heading, oldUri, uri, repository.webdavEnabled)
+        const result = await NativeCoreService.executeTaskOperations(this.config.repos, {
+          operations: [{ type: 'Modification', data: { path: task.fullPath,
+            modifications: [{ field: 'ADDRESS_LINK', value: { oldUri, newUri: uri } }] } }],
+          queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
+          fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
+        }, this.config.todoDefaults)
+        this.updatedTask = result.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(result.paths[0]))
+        if (!this.updatedTask) throw new Error('无法读取更新后的任务')
       }
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'EntryAbility',

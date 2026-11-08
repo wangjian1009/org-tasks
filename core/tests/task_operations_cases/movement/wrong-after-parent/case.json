@@ -1,0 +1,4 @@
+{
+  "purpose": "after 不属于 parent 时拒绝操作",
+  "error": "直属子节点"
+}

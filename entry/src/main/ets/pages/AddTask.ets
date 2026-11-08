@@ -8,7 +8,7 @@ import { dateLabel, localDate, repositoryLabel, UiColor } from '../ui/Theme'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
-import { CoreBridgeError, CoreNewTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTaskCreation, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 interface EditableField {
   icon: Resource
@@ -88,17 +88,25 @@ struct AddTask {
     this.saving = true
     this.message = ''
 
-    const task: CoreNewTask = {
-      heading: this.heading.trim(),
-      scheduled: this.scheduled.trim(),
-      deadline: this.deadline.trim(),
+    const task: CoreTaskCreation = {
+      position: { parent: { repoId: '', file: null, titles: [] } },
+      state: this.initialState,
+      title: this.heading.trim(),
+      scheduled: this.scheduled.trim() ? `<${this.scheduled.trim()}>` : null,
+      deadline: this.deadline.trim() ? `<${this.deadline.trim()}>` : null,
       tags: this.tags.split(/[,，\s]+/).filter((tag: string) => tag.length > 0),
-      priority: this.priority
+      priority: this.priority || null
     }
     try {
       const target = await FileTargetService.resolve(this.config, 'inbox')
       if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
-      await target.repo.createTask(target.path, task, target.repository.webdavEnabled)
+      const file = await target.repo.file(target.path)
+      task.position = { parent: file.fullPath, after: null }
+      // 新增页面当前不注册路由；保留调用时也只使用统一操作组。
+      await NativeCoreService.executeTaskOperations(this.config.repos, {
+        operations: [{ type: 'Creation', data: task }], queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
+        fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
+      }, this.config.todoDefaults)
       this.saved = true
       this.message = repository.webdavEnabled ? '任务已保存到本地，将在后续同步时上传' : '任务已保存到本地'
     } catch (e) {

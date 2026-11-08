@@ -1,5 +1,12 @@
 import {
   Repo as NativeRepo,
+  TaskPath as NativeTaskPath,
+  TaskFileVersion as NativeTaskFileVersion,
+  TaskOperation as NativeTaskOperation,
+  TaskOperationGroup as NativeTaskOperationGroup,
+  TaskOperationResult as NativeTaskOperationResult,
+  TaskModification as NativeTaskModification,
+  TaskCreation as NativeTaskCreation,
   TodoMetadata as NativeTodoMetadata,
   defaultSyncOptions,
   defaultTodoSettings,
@@ -9,10 +16,7 @@ import {
   MergeChangeState as NativeMergeChangeState,
   MergeFileVersion as NativeMergeFileVersion,
   MergeOutcome as NativeMergeOutcome,
-  NewTask as NativeNewTask,
   RefileTarget as NativeRefileTarget,
-  TaskEdit as NativeTaskEdit,
-  TaskDestination as NativeTaskDestination,
   CoreError as NativeCoreError,
   OrgFile as NativeOrgFile,
   OrgFileMetadata as NativeOrgFileMetadata,
@@ -83,12 +87,15 @@ export enum CoreMergeResolution {
   Remove = 'remove'
 }
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
-export interface CoreTaskUpdateResult { id: string }
 
 export type CoreRefileTarget = NativeRefileTarget
-export type CoreTaskEdit = NativeTaskEdit
-export type CoreTaskDestination = NativeTaskDestination
-export type CoreNewTask = NativeNewTask
+export type CoreTaskPath = NativeTaskPath
+export type CoreTaskFileVersion = NativeTaskFileVersion
+export type CoreTaskOperation = NativeTaskOperation
+export type CoreTaskOperationGroup = NativeTaskOperationGroup
+export type CoreTaskOperationResult = NativeTaskOperationResult
+export type CoreTaskModification = NativeTaskModification
+export type CoreTaskCreation = NativeTaskCreation
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
@@ -136,6 +143,8 @@ export class CoreRepo {
     return this.native.id
   }
 
+  get fullPath(): CoreTaskPath { return this.native.fullPath }
+
   get rootDirectory(): string {
     return this.native.rootDirectory
   }
@@ -162,23 +171,6 @@ export class CoreRepo {
     return await this.native.historyDetail(syncId)
   }
 
-  async createTask(path: string, task: CoreNewTask, queueUpload: boolean, insertAtTop: boolean = false): Promise<void> {
-    // recordCreated 随结构化参数透传，创建时间和 Org 属性均由 Core 生成。
-    await this.native.createTask(path, task, queueUpload, insertAtTop)
-  }
-
-  async updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<CoreTask> {
-    return await this.native.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)
-  }
-
-  async updateTask(path: string, taskId: string, expectedBody: string, heading: string, body: string, queueUpload: boolean): Promise<CoreTaskUpdateResult> {
-    return await this.native.updateTask(path, taskId, expectedBody, heading, body, queueUpload)
-  }
-
-  async deleteTask(path: string, taskId: string, expectedBody: string, queueUpload: boolean): Promise<void> {
-    await this.native.deleteTask(path, taskId, expectedBody, queueUpload)
-  }
-
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {
     const effective = options ?? await defaultSyncOptions()
     return await this.native.sync(policy.nativePolicy(), monitor, effective) as NativeSyncRecord
@@ -194,7 +186,7 @@ export class CoreWorkspace {
 
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
   async refileTargets(): Promise<CoreRefileTarget[]> { return await this.native.refileTargets() }
-  async editTask(edit: CoreTaskEdit): Promise<void> { await this.native.editTask(edit) }
+  async executeTaskOperations(group: CoreTaskOperationGroup): Promise<CoreTaskOperationResult> { return await this.native.executeTaskOperations(group) }
 
   async repos(): Promise<CoreRepo[]> {
     const repos = await this.native.repos()
@@ -285,34 +277,9 @@ export class NativeCoreService {
     return await request
   }
 
-  static async createTask(repositories: RepoConfig[], repository: RepoConfig, path: string, task: CoreNewTask, todoDefaults?: string, insertAtTop: boolean = false): Promise<void> {
+  static async executeTaskOperations(repositories: RepoConfig[], group: CoreTaskOperationGroup, todoDefaults?: string): Promise<CoreTaskOperationResult> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    const repos = await workspace.repos()
-    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
-    if (!repo) throw new Error('目标仓库不可用')
-    await repo.createTask(path, task, repository.webdavEnabled, insertAtTop)
-  }
-
-  static async updateTask(
-    repositories: RepoConfig[], repository: RepoConfig, path: string, taskId: string,
-    expectedBody: string, heading: string, body: string, todoDefaults?: string
-  ): Promise<CoreTaskUpdateResult> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    const repos = await workspace.repos()
-    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
-    if (!repo) throw new Error('目标仓库不可用')
-    return await repo.updateTask(path, taskId, expectedBody, heading, body, repository.webdavEnabled)
-  }
-
-  static async deleteTask(
-    repositories: RepoConfig[], repository: RepoConfig, path: string, taskId: string,
-    expectedBody: string, todoDefaults?: string
-  ): Promise<void> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    const repos = await workspace.repos()
-    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
-    if (!repo) throw new Error('目标仓库不可用')
-    await repo.deleteTask(path, taskId, expectedBody, repository.webdavEnabled)
+    return await workspace.executeTaskOperations(group)
   }
 
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreBridgeResponse> {

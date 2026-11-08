@@ -7,7 +7,7 @@ use org_tasks_core::webdav::{
     WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    CoreError, Filter, FilterTask, NewTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
+    CoreError, Filter, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
     SyncCancellation, SyncOptions, SyncProgressReporter, TimestampMs,
 };
 use serde::Serialize;
@@ -40,6 +40,8 @@ pub struct HarmonyBridgeFile {
     #[serde(rename = "repoId")]
     pub repo_id: String,
     pub path: String,
+    #[serde(rename = "fullPath")]
+    pub full_path: org_tasks_core::TaskPath,
     pub source: String,
     pub byte_length: usize,
     pub todo: org_tasks_core::TodoMetadata,
@@ -57,7 +59,9 @@ pub struct HarmonyBridgeFile {
 #[serde(rename_all = "camelCase")]
 pub struct HarmonyBridgeTask {
     pub id: String,
-    pub source: org_tasks_core::TaskSource,
+    pub full_path: org_tasks_core::TaskPath,
+    pub task_id: Option<String>,
+    pub file_version: String,
     pub repo_id: String,
     pub heading: String,
     pub category: Option<String>,
@@ -232,7 +236,10 @@ fn task_snapshot(
 }
 
 fn task_from_filter(task: FilterTask, workspace: &OrgWorkspace) -> Result<HarmonyBridgeTask, CoreError> {
-    let source = workspace.task_source_for(&task)?;
+    let file=workspace.repo(&task.repo_id).and_then(|repo|repo.files().iter().find(|file|file.path==task.path))
+        .ok_or(CoreError::InvalidState("任务文件不存在"))?;
+    let file_version=org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
+    let task_id=task.task_id().map(str::to_owned);
     let is_done = task.is_done();
     let is_cancelled = task.is_cancelled();
     let heading_parts = task.title_parts();
@@ -244,7 +251,9 @@ fn task_from_filter(task: FilterTask, workspace: &OrgWorkspace) -> Result<Harmon
         }
     }
     Ok(HarmonyBridgeTask {
-        source,
+        full_path: task.full_path,
+        task_id,
+        file_version,
         id: task.id,
         repo_id: task.repo_id,
         heading: task.title,
@@ -412,117 +421,11 @@ pub fn repo_history_detail_json(
     })
 }
 
-pub fn repo_create_task(
-    handle: u64,
-    root_directory: String,
-    path: String,
-    task_json: String,
-    queue_upload: bool,
-) -> Result<(), CoreError> {
-    let task: NewTask = serde_json::from_str(&task_json)
-        .map_err(|_| CoreError::InvalidInput("任务创建参数无效"))?;
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime()?;
-    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    runtime.block_on(repository.create_task(&path, &task, queue_upload))
-}
-
-pub fn repo_create_task_at_top(
-    handle: u64,
-    root_directory: String,
-    path: String,
-    task_json: String,
-    queue_upload: bool,
-) -> Result<(), CoreError> {
-    let task: NewTask = serde_json::from_str(&task_json)
-        .map_err(|_| CoreError::InvalidInput("任务创建参数无效"))?;
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime()?;
-    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    runtime.block_on(repository.create_task_at_top(&path, &task, queue_upload))
-}
-
-pub fn repo_update_task_location(
-    handle: u64,
-    root_directory: String,
-    path: String,
-    heading: String,
-    old_uri: String,
-    new_uri: String,
-    queue_upload: bool,
-) -> Result<String, CoreError> {
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace.repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime()?;
-    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    let task = runtime.block_on(repository.update_task_location(&path, &heading, &old_uri, &new_uri, queue_upload))?;
-    let task = task_from_filter(task, &workspace)?;
-    serde_json::to_string(&task)
-        .map_err(|_| CoreError::InvalidState("无法序列化更新后的任务"))
-}
-
-pub fn repo_update_task(
-    handle: u64,
-    root_directory: String,
-    path: String,
-    task_id: String,
-    expected_body: String,
-    heading: String,
-    body: String,
-    queue_upload: bool,
-) -> Result<String, CoreError> {
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime()?;
-    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    let id = runtime.block_on(repository.update_task(
-        &path,
-        &task_id,
-        &expected_body,
-        &heading,
-        &body,
-        queue_upload,
-    ))?;
-    Ok(serde_json::json!({ "id": id }).to_string())
-}
-
-pub fn repo_delete_task(
-    handle: u64,
-    root_directory: String,
-    path: String,
-    task_id: String,
-    expected_body: String,
-    queue_upload: bool,
-) -> Result<(), CoreError> {
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime()?;
-    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    runtime.block_on(repository.delete_task(&path, &task_id, &expected_body, queue_upload))
+pub fn repo_full_path_json(handle:u64,root_directory:String)->Result<String,CoreError>{
+    let session=workspace_for_handle(handle)?;
+    let workspace=session.lock().map_err(|_|CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repo=workspace.repo_by_root_directory(&root_directory).ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    encode(&repo.full_path())
 }
 
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
@@ -663,6 +566,7 @@ pub fn repo_file_metadata_json(handle: u64, root_directory: String) -> Result<St
 
 fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
     Ok(HarmonyBridgeFile {
+        full_path: file.full_path(),
         repo_id: file.repo_id.clone(),
         path: file.path.clone(),
         source: std::str::from_utf8(file.source_bytes())
@@ -951,8 +855,11 @@ mod tests {
         let directory = root.to_string_lossy().to_string();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, directory.clone()).unwrap();
-        let result = repo_update_task_location(handle, directory, "work.org".into(), "Visit".into(), "addr:old".into(), "geo:39.9,116.4".into(), false).unwrap();
-        let task: serde_json::Value = serde_json::from_str(&result).unwrap();
+        repo_load(handle,directory).unwrap();
+        let records:serde_json::Value=serde_json::from_str(&workspace_search_json(handle,"".into()).unwrap()).unwrap();
+        let result=workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Modification","data":{"path":records[0]["fullPath"],"modifications":[{"field":"ADDRESS_LINK","value":{"oldUri":"addr:old","newUri":"geo:39.9,116.4"}}]}}]}).to_string()).unwrap();
+        let response:serde_json::Value=serde_json::from_str(&result).unwrap();
+        let task=&response["tasks"][0];
         assert_eq!(task["heading"], "Visit");
         assert_eq!(task["addressLinks"][0]["uri"], "geo:39.9,116.4");
         assert!(task["bodyHtml"].as_str().unwrap().contains("geo:39.9,116.4"));
@@ -1002,7 +909,7 @@ mod tests {
         let session = workspace_for_handle(handle).unwrap();
         let core_tasks = session.lock().unwrap().search(&Filter::parse(""));
         assert_eq!(after["tasks"][0]["id"], core_tasks[0].id);
-        assert_eq!(core_tasks[0].id.len(), 32);
+        assert!(serde_json::from_str::<serde_json::Value>(&core_tasks[0].id).unwrap().is_array());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1064,11 +971,9 @@ mod tests {
             serde_json::from_str(&workspace_refile_targets_json(handle).unwrap()).unwrap();
         let target = &targets[0];
         assert_eq!(target["category"], "Work");
-        let request = serde_json::json!({ "source": task["source"], "destination": {
-            "repoId": target["repoId"], "path": target["path"], "fileVersion": target["fileVersion"],
-            "parent": target["position"], "clearTodo": false }, "queueRepoIds": [task["repoId"]] });
-        workspace_edit_task(handle, request.to_string()).unwrap();
-        assert!(workspace_edit_task(handle, request.to_string()).is_err());
+        let request=serde_json::json!({"operations":[{"type":"Movement","data":{"path":task["fullPath"],"position":{"parent":target["fullPath"]}}}],"queueRepoIds":[task["repoId"]]});
+        workspace_execute_task_operations(handle,request.to_string()).unwrap();
+        assert!(workspace_execute_task_operations(handle,request.to_string()).is_err());
         assert_eq!(std::fs::read_to_string(root.join("inbox.org")).unwrap(), "");
         let source = std::fs::read_to_string(root.join("targets.org")).unwrap();
         assert!(source.contains("* Parent :REFILE:\n** TODO Move me\n:PROPERTIES:\n"));
@@ -1087,8 +992,9 @@ mod tests {
         let directory = root.to_string_lossy().into_owned();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, directory.clone()).unwrap();
-        repo_create_task_at_top(handle, directory.clone(), "inbox.org".into(),
-            r#"{"heading":"Captured","scheduled":"","deadline":"","tags":[],"priority":"","recordCreated":true}"#.into(), true).unwrap();
+        repo_load(handle,directory.clone()).unwrap();
+        let id=repo_id(handle,directory.clone()).unwrap();
+        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"}},"title":"Captured","state":"TODO","recordCreated":true}}],"queueRepoIds":[id]}).to_string()).unwrap();
         let source = std::fs::read_to_string(root.join("inbox.org")).unwrap();
         assert!(source.starts_with("* TODO Captured\n:PROPERTIES:\n:CREATED: ["));
         assert!(source.ends_with(original));
@@ -1121,18 +1027,9 @@ mod tests {
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root_directory.clone()).unwrap();
         repo_load(handle, root_directory.clone()).unwrap();
-        repo_create_task(
-            handle,
-            root_directory.clone(),
-            "inbox.org".into(),
-            serde_json::to_string(&NewTask {
-                heading: "created from bridge".into(),
-                ..Default::default()
-            })
-            .unwrap(),
-            true,
-        )
-        .unwrap();
+        let id=repo_id(handle,root_directory.clone()).unwrap();
+        let records:serde_json::Value=serde_json::from_str(&workspace_search_json(handle,"".into()).unwrap()).unwrap();
+        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"},"after":records[0]["fullPath"]},"title":"created from bridge","state":"TODO"}}],"queueRepoIds":[id]}).to_string()).unwrap();
         let tasks: serde_json::Value =
             serde_json::from_str(&workspace_search_json(handle, "i.todo".into()).unwrap()).unwrap();
         assert_eq!(tasks.as_array().unwrap().len(), 2);
@@ -1353,10 +1250,12 @@ pub fn workspace_refile_targets_json(handle: u64) -> Result<String, CoreError> {
     encode(&workspace.refile_targets())
 }
 
-pub fn workspace_edit_task(handle: u64, request: String) -> Result<(), CoreError> {
-    let edit: org_tasks_core::TaskEdit = serde_json::from_str(&request)
-        .map_err(|_| CoreError::InvalidInput("任务整理参数无效"))?;
-    let session = workspace_for_handle(handle)?;
-    let mut workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    runtime()?.block_on(workspace.edit_task(&edit))
+pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<String,CoreError>{
+    let group:org_tasks_core::TaskOperationGroup=serde_json::from_str(&request)
+        .map_err(|_|CoreError::InvalidInput("任务操作组参数无效"))?;
+    let session=workspace_for_handle(handle)?;
+    let mut workspace=session.lock().map_err(|_|CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let result=runtime()?.block_on(workspace.execute_task_operations(&group))?;
+    let tasks=workspace.search(&Filter::parse("")).into_iter().map(|task|task_from_filter(task,&workspace)).collect::<Result<Vec<_>,_>>()?;
+    encode(&serde_json::json!({"paths":result.paths,"fallback":result.fallback,"tasks":tasks}))
 }

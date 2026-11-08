@@ -359,7 +359,7 @@ struct Inbox {
               .edgeEffect(EdgeEffect.None)
           }
           if (this.selected && !this.drawerOpen) {
-            InboxTargetTray({ sections: this.targetSections, selectionKey: this.selected ? JSON.stringify(this.selected.source) : '', loading: this.targetsLoading,
+            InboxTargetTray({ sections: this.targetSections, selectionKey: this.selected ? JSON.stringify(this.selected.fullPath) : '', loading: this.targetsLoading,
               busy: this.trayBusy || this.trayHeight === 0, message: this.trayMessage,
               choose: (target: CoreRefileTarget): void => { this.perform('move', target) },
               memo: (): void => { this.perform('memo') }, remove: (): void => { this.confirmDelete() },

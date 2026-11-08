@@ -2,7 +2,7 @@ use crate::{CoreError, TimestampMs};
 use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
-mod creation;
+mod write_intent;
 mod editor;
 mod merge;
 mod query;
@@ -11,11 +11,13 @@ mod render;
 pub(crate) mod service;
 pub(crate) mod task_identity;
 mod task_scan;
-mod task_edit;
+mod task_path;
+mod task_operation;
+mod task_operation_executor;
 mod todo;
 mod workspace;
 
-pub use creation::*;
+pub use write_intent::*;
 pub use editor::*;
 pub use merge::*;
 pub use query::*;
@@ -23,7 +25,8 @@ pub use refile::*;
 pub use render::*;
 pub use service::*;
 pub use task_scan::*;
-pub use task_edit::*;
+pub use task_path::*;
+pub use task_operation::*;
 pub use todo::*;
 pub use workspace::*;
 
@@ -698,3 +701,6 @@ mod tests {
         assert!(RemoteFileVersion::new(Some(String::new()), None, None).is_err());
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_support;

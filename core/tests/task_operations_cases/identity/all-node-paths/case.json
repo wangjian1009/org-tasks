@@ -1,0 +1,42 @@
+{
+  "purpose": "无状态祖先保留在完整路径，但不进入任务身份链",
+  "inspect": [
+    {
+      "titles": [
+        "Group"
+      ],
+      "task": false
+    },
+    {
+      "titles": [
+        "Group",
+        "Project"
+      ],
+      "task": true,
+      "identityTitles": [
+        "Project"
+      ]
+    },
+    {
+      "titles": [
+        "Group",
+        "Project",
+        "Notes"
+      ],
+      "task": false
+    },
+    {
+      "titles": [
+        "Group",
+        "Project",
+        "Notes",
+        "Child"
+      ],
+      "task": true,
+      "identityTitles": [
+        "Project",
+        "Child"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "Changed"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [],
+  "fileVersions": [
+    {
+      "repoId": "repo",
+      "file": "tasks.org",
+      "version": "0000000000000000"
+    }
+  ]
+}

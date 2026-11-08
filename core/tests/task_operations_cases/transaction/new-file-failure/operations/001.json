@@ -1,0 +1,35 @@
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "new.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New"
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Missing"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}

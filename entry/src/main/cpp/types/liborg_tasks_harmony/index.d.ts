@@ -15,34 +15,39 @@ export interface AddressLink {
   readonly label: string;
 }
 
-export interface NewTask {
-  heading: string;
-  body?: string;
-  scheduled: string;
-  deadline: string;
-  tags: string[];
-  priority: string;
-  recordCreated?: boolean;
-}
-
 export interface CoreError extends Error {
   readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge';
 }
 
-export interface TaskSource { repoId: string; path: string; taskId: string; fileVersion: string; }
+export interface TaskPath { repoId: string; file: string | null; titles: string[]; occurrence?: number; }
+export interface TaskPosition { parent: TaskPath; after?: TaskPath | null; }
+export interface TaskCreation {
+  position: TaskPosition; title: string; body?: string; state?: string | null; priority?: string | null;
+  tags?: string[]; scheduled?: string | null; deadline?: string | null; closed?: string | null; recordCreated?: boolean;
+}
+export interface TaskAddressChange { oldUri: string; newUri: string; }
+export type TaskModificationField = 'TITLE' | 'BODY' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'DEADLINE' | 'CLOSED' | 'CREATED' | 'ADDRESS_LINK';
+export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | null; }
+export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
+export interface TaskMovement { path: TaskPath; position: TaskPosition; }
+export interface TaskDeletion { path: TaskPath; }
+export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion';
+export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion; }
+export interface TaskFileVersion { repoId: string; file: string; version: string; }
+export interface TaskOperationGroup { operations: TaskOperation[]; queueRepoIds?: string[]; fileVersions?: TaskFileVersion[]; }
+export interface TaskFileFallback { repoId: string; file: string; before: string | null; after: string; }
+export interface TaskFallbackGroup { files: TaskFileFallback[]; }
+export interface TaskOperationResult { paths: (TaskPath | null)[]; fallback: TaskFallbackGroup; tasks: Task[]; }
+
 export interface RefileTarget {
-  repoId: string; path: string; headingPath: string[]; position: SourcePosition;
+  repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; fileVersion: string;
 }
-export interface TaskDestination {
-  repoId: string; path: string; fileVersion: string; parent: SourcePosition | null; clearTodo: boolean;
-}
-export interface TaskEdit { source: TaskSource; destination: TaskDestination | null; queueRepoIds: string[]; }
-
 export class OrgFile {
   private constructor();
   readonly repoId: string;
   readonly path: string;
+  readonly fullPath: TaskPath;
   readonly todo: TodoMetadata;
   readonly fileVersion: string;
   category(): string | null;
@@ -55,9 +60,11 @@ export class OrgFile {
 export class Task {
   private constructor();
   isDone(): boolean;
-  // Core 生成的逻辑路径 MD5，独立于源字节偏移、状态和首尾进度。
+  // Core 生成的明文逻辑路径，独立于源字节偏移、状态和首尾进度。
   readonly id: string;
-  readonly source: TaskSource;
+  readonly fullPath: TaskPath;
+  readonly taskId: string | null;
+  readonly fileVersion: string;
   readonly repoId: string;
   readonly heading: string;
   readonly category: string | null;
@@ -164,7 +171,7 @@ export class Workspace {
   search(expression: string): Promise<Task[]>;
   query(query: TaskQuery): Promise<TaskQueryResult>;
   refileTargets(): Promise<RefileTarget[]>;
-  editTask(edit: TaskEdit): Promise<void>;
+  executeTaskOperations(group: TaskOperationGroup): Promise<TaskOperationResult>;
 }
 
 export class Repo {
@@ -174,13 +181,10 @@ export class Repo {
   fileMetadata(): Promise<OrgFileMetadata[]>;
   readonly id: string;
   readonly rootDirectory: string;
+  readonly fullPath: TaskPath;
   load(): Promise<void>;
   history(): Promise<SyncRecord[]>;
   historyDetail(syncId: string): Promise<SyncRecordDetail>;
-  createTask(path: string, task: NewTask, queueUpload: boolean, insertAtTop?: boolean): Promise<void>;
-  updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<Task>;
-  updateTask(path: string, taskId: string, expectedBody: string, heading: string, body: string, queueUpload: boolean): Promise<{ id: string }>;
-  deleteTask(path: string, taskId: string, expectedBody: string, queueUpload: boolean): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }

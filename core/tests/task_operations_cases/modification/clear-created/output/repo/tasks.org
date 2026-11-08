@@ -1,0 +1,5 @@
+* Note
+:PROPERTIES:
+:ID: stable
+:END:
+Body

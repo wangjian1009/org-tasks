@@ -1,0 +1,26 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Keep"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TAGS",
+            "value": [
+              "bad-tag"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

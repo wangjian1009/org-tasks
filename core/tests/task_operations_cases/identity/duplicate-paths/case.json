@@ -1,0 +1,19 @@
+{
+  "purpose": "相同完整路径用出现序号区分，查询不会合并重名任务",
+  "inspect": [
+    {
+      "titles": [
+        "Repeat"
+      ],
+      "occurrence": 1,
+      "task": true
+    },
+    {
+      "titles": [
+        "Repeat"
+      ],
+      "occurrence": 2,
+      "task": true
+    }
+  ]
+}

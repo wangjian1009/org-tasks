@@ -1,4 +1,3 @@
-use orgize::{ast::Headline, rowan::ast::AstNode};
 use serde::Serialize;
 
 use super::{
@@ -13,6 +12,7 @@ pub(crate) const ARCHIVE_TAG: &str = "ARCHIVE";
 #[serde(rename_all = "camelCase")]
 pub struct RefileTarget {
     pub repo_id: OrgRepoId,
+    pub full_path: super::TaskPath,
     pub path: String,
     /// 包含所有祖先及目标自身，不包含 TODO、优先级和标签。
     pub heading_path: Vec<String>,
@@ -39,13 +39,7 @@ impl OrgRepo {
         let mut targets = Vec::new();
         for file in self.files() {
             let mut ancestors: Vec<(usize, String)> = Vec::new();
-            for headline in file
-                .syntax()
-                .document()
-                .syntax()
-                .descendants()
-                .filter_map(Headline::cast)
-            {
+            for (full_path, headline) in file.path_headlines() {
                 let level = headline.level();
                 while ancestors.last().is_some_and(|(depth, _)| *depth >= level) {
                     ancestors.pop();
@@ -55,6 +49,7 @@ impl OrgRepo {
                 if headline.tags().any(|tag| tag.as_ref() == REFILE_TAG) {
                     targets.push(RefileTarget {
                         repo_id: self.id.clone(),
+                        full_path,
                         category: file.category(),
                         file_version: LocalFileVersion::from_bytes(file.source_bytes())
                             .content_hash,

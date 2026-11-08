@@ -1,0 +1,44 @@
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "target.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Missing"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}

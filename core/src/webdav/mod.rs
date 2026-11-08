@@ -884,7 +884,6 @@ mod tests {
 #[cfg(test)]
 mod write_tests {
     use super::*;
-    use crate::NewTask;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     struct Exchange {
@@ -1037,14 +1036,7 @@ mod write_tests {
             sync(&mut repo, &policy, 0).await.result,
             Some(OrgRepoSyncResult::Succeeded)
         );
-        repo.create_task(
-            "inbox.org",
-            &NewTask {
-                heading: "First".into(),
-                ..Default::default()
-            },
-            true,
-        )
+        crate::model::test_support::append_fixture(&mut repo,"inbox.org","First")
         .await
         .unwrap();
         assert_eq!(
@@ -1052,14 +1044,7 @@ mod write_tests {
             Some(OrgRepoSyncResult::Succeeded)
         );
         assert!(repo.pending_writes().await.unwrap().is_empty());
-        repo.create_task(
-            "inbox.org",
-            &NewTask {
-                heading: "Second".into(),
-                ..Default::default()
-            },
-            true,
-        )
+        crate::model::test_support::append_fixture(&mut repo,"inbox.org","Second")
         .await
         .unwrap();
         assert_eq!(
@@ -1100,25 +1085,11 @@ mod write_tests {
             sync(&mut repo, &policy, 0).await.result,
             Some(OrgRepoSyncResult::Succeeded)
         );
-        repo.create_task(
-            "inbox.org",
-            &NewTask {
-                heading: "First".into(),
-                ..Default::default()
-            },
-            true,
-        )
+        crate::model::test_support::append_fixture(&mut repo,"inbox.org","First")
         .await
         .unwrap();
         sync(&mut repo, &policy, 1).await;
-        repo.create_task(
-            "inbox.org",
-            &NewTask {
-                heading: "Second".into(),
-                ..Default::default()
-            },
-            true,
-        )
+        crate::model::test_support::append_fixture(&mut repo,"inbox.org","Second")
         .await
         .unwrap();
         for time in [2, 3] {

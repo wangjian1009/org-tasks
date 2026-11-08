@@ -1,0 +1,5 @@
+#+TODO: NEXT | FINISHED
+* NEXT [#B] New :工作:home:
+SCHEDULED: <2026-11-09 Mon>
+DEADLINE: <2026-11-10 Tue>
+Body

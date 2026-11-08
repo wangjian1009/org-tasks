@@ -25,8 +25,13 @@ export class CaptureService {
     const config = await AppConfigService.load(context, false)
     const target = await FileTargetService.resolve(config, 'inbox')
     if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
-    await target.repo.createTask(target.path,
-      { heading: title.trim(), scheduled: '', deadline: '', tags: [], priority: '', recordCreated: true },
-      target.repository.webdavEnabled, true)
+    const file = await target.repo.file(target.path)
+    if (!file.todo.initialState) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
+    await NativeCoreService.executeTaskOperations(config.repos, {
+      operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: title.trim(),
+        state: file.todo.initialState, recordCreated: true } }],
+      queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
+      fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
+    }, config.todoDefaults)
   }
 }

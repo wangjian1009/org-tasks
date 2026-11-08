@@ -125,8 +125,9 @@ pub enum FilterSortField {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterTask {
-    /// Core 生成的逻辑路径 MD5，不随字节位置、任务状态或首尾进度变化。
+    /// 兼容既有调用方的明文逻辑身份；任务专属身份请使用 task_id()。
     pub id: String,
+    pub full_path: crate::TaskPath,
     pub repo_id: String,
     pub path: String,
     /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
@@ -164,6 +165,12 @@ pub struct AddressLink {
 }
 
 impl FilterTask {
+    pub fn task_id(&self) -> Option<&str> {
+        (self.state_type != FilterStateType::None).then_some(self.id.as_str())
+    }
+
+    pub fn full_path(&self) -> &crate::TaskPath { &self.full_path }
+
     /// 完成类型来自所属文件的有效 TODO 配置，不按状态名称推断。
     pub fn is_done(&self) -> bool {
         self.state_type == FilterStateType::Done
@@ -280,13 +287,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
     let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
     let mut identities =
         crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
-    for headline in file
-        .syntax()
-        .document()
-        .syntax()
-        .descendants()
-        .filter_map(Headline::cast)
-    {
+    for (full_path, headline) in file.path_headlines() {
         let level = headline.level();
         while ancestors
             .last()
@@ -342,6 +343,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         let address_links = extract_address_links(&headline);
         tasks.push(FilterTask {
             id: identities.id_for(&headline, state_type != FilterStateType::None),
+            full_path,
             repo_id: repository.id.clone(),
             path: file.path.clone(),
             category: category.clone(),

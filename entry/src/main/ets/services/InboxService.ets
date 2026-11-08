@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { configuredFileTarget } from './FileTargetService'
-import { CoreRefileTarget, CoreTask, CoreTaskDestination, CoreTaskQuery, NativeCoreService } from './NativeCoreService'
+import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, NativeCoreService } from './NativeCoreService'
 
 export type InboxAction = 'move' | 'memo' | 'delete'
 
@@ -38,11 +38,11 @@ export class InboxService {
       const settings = config.repos.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (settings?.webdavEnabled) queueRepoIds.push(repo.id)
     }
-    let destination: CoreTaskDestination | null = null
+    let parent: CoreTaskPath | undefined = undefined
+    const operations: CoreTaskOperation[] = []
     if (action === 'move') {
       if (!target) throw new Error('请选择任务目标')
-      destination = { repoId: target.repoId, path: target.path, fileVersion: target.fileVersion,
-        parent: target.position, clearTodo: false }
+      parent = target.fullPath
     } else if (action === 'memo') {
       const selected = configuredFileTarget(config, 'memo')
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
@@ -52,10 +52,16 @@ export class InboxService {
       if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
         throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
       }
-      const file = await repo.file(selected.path)
-      destination = { repoId: repo.id, path: selected.path, fileVersion: file.fileVersion,
-        parent: null, clearTodo: true }
+      parent = (await repo.file(selected.path)).fullPath
+      operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
+        { field: 'TODO', value: null }, { field: 'PRIORITY', value: null },
+        { field: 'SCHEDULE', value: null }, { field: 'DEADLINE', value: null }, { field: 'CLOSED', value: null }
+      ] } })
     }
-    await workspace.editTask({ source: task.source, destination, queueRepoIds })
+    operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
+      { type: 'Deletion', data: { path: task.fullPath } })
+    const fileVersions: CoreTaskFileVersion[] = [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
+    if (target && action === 'move') fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
+    await workspace.executeTaskOperations({ operations, queueRepoIds, fileVersions })
   }
 }

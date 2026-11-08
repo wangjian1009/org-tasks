@@ -1,0 +1,27 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Visit"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "ADDRESS_LINK",
+            "value": {
+              "oldUri": "addr:old",
+              "newUri": "geo:0,0][bad"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}

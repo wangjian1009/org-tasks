@@ -13,16 +13,10 @@ fn tasks(source: &str) -> Vec<FilterTask> {
 }
 
 #[test]
-fn md5_has_a_defined_encoding_and_keeps_title_path_boundaries() {
+fn plaintext_has_a_defined_encoding_and_keeps_title_path_boundaries() {
     let records = tasks("* TODO Project\n** TODO Child\n");
-    assert_eq!(records[1].id, "c9977ec1396cc0465b20fc09cb18600c");
-    assert!(records.iter().all(|task| {
-        task.id.len() == 32
-            && task
-                .id
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-    }));
+    assert_eq!(records[1].task_id(), Some(r#"["/repo","inbox.org",["Project","Child"]]"#));
+    assert!(records.iter().all(|task| task.id.starts_with('[')));
     assert_ne!(
         tasks("* TODO A.B\n** TODO C\n")[1].id,
         tasks("* TODO A\n** TODO B.C\n")[1].id

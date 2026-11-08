@@ -866,14 +866,7 @@ mod tests {
     }
 
     async fn offline(repo: &mut OrgRepo, path: &str) {
-        repo.create_task(
-            path,
-            &crate::NewTask {
-                heading: "Offline".into(),
-                ..Default::default()
-            },
-            true,
-        )
+        crate::model::test_support::append_fixture(repo,path,"Offline")
         .await
         .unwrap();
     }

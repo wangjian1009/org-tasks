@@ -1,0 +1,3868 @@
+#+TITLE: 统一任务操作测试用例集
+#+LANGUAGE: zh-CN
+#+OPTIONS: author:nil date:nil toc:2
+
+* 范围与约定
+
+每个用例是独立黑盒场景，按测试目的分组。对应目录为 ~core/tests/task_operations_cases/<组>/<用例>/~ ，输入、操作、预期输出分别保存在 ~input/~ 、 ~operations/~ 、 ~output/~ 子目录； ~case.json~ 记录目的、错误与附加断言。本文列出全部用例的实际定义，具体程序使用方式由程序帮助发现。
+
+操作中的仓库名称是用例占位身份，执行前绑定到该输入仓库的稳定 Core ID。成功时检查操作历史与回退快照、最终文件清单及每个字节；失败时比较初始化后的全部文件和控制目录，要求文件、outbox 与临时文件均无变化。文件清单中包含空文件，不以删除空文件代替删除节点。
+
+说明中的换行展示为 LF；涉及 CRLF 的文件会另行标注，磁盘样例才是逐字节比较依据。行尾空格以 ␠ 展示；源码块内逗号是 Org 引用转义，均不属于输入文件。
+
+* 身份与完整路径
+
+** all-node-paths
+
+目的：无状态祖先保留在完整路径，但不进入任务身份链。
+
+目录： ~core/tests/task_operations_cases/identity/all-node-paths~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Group
+,** TODO Project
+,*** Notes
+,**** DONE Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Group",
+            "Project"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "PRIORITY",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Group
+,** TODO Project
+,*** Notes
+,**** DONE Child
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Group"
+    ],
+    "task": false
+  },
+  {
+    "titles": [
+      "Group",
+      "Project"
+    ],
+    "task": true,
+    "identityTitles": [
+      "Project"
+    ]
+  },
+  {
+    "titles": [
+      "Group",
+      "Project",
+      "Notes"
+    ],
+    "task": false
+  },
+  {
+    "titles": [
+      "Group",
+      "Project",
+      "Notes",
+      "Child"
+    ],
+    "task": true,
+    "identityTitles": [
+      "Project",
+      "Child"
+    ]
+  }
+]
+#+end_example
+
+** duplicate-paths
+
+目的：相同完整路径用出现序号区分，查询不会合并重名任务。
+
+目录： ~core/tests/task_operations_cases/identity/duplicate-paths~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Repeat
+,* DONE Repeat
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Repeat"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "PRIORITY",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Repeat
+,* DONE Repeat
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Repeat"
+    ],
+    "occurrence": 1,
+    "task": true
+  },
+  {
+    "titles": [
+      "Repeat"
+    ],
+    "occurrence": 2,
+    "task": true
+  }
+]
+#+end_example
+
+* 创建与插入位置
+
+** after-subtree
+
+目的：插入在 after 整个子树之后。
+
+目录： ~core/tests/task_operations_cases/creation/after-subtree~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* One
+,** Child
+,* Two
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "One"
+            ],
+            "occurrence": 1
+          }
+        },
+        "title": "New"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* One
+,** Child
+,* New
+,* Two
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** body-heading
+
+目的：拒绝正文注入额外标题。
+
+目录： ~core/tests/task_operations_cases/creation/body-heading~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "Bad",
+        "body": "Body\n* Extra\n"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“正文不能引入标题”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** fields
+
+目的：创建时设置状态、优先级、标签与规划时间。
+
+目录： ~core/tests/task_operations_cases/creation/fields~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: NEXT | FINISHED
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New",
+        "state": "NEXT",
+        "priority": "B",
+        "tags": [
+          "工作",
+          "home"
+        ],
+        "scheduled": "<2026-11-09 Mon>",
+        "deadline": "<2026-11-10 Tue>",
+        "body": "Body"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: NEXT | FINISHED
+,* NEXT [#B] New :工作:home:
+SCHEDULED: <2026-11-09 Mon>
+DEADLINE: <2026-11-10 Tue>
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** first-child
+
+目的：新节点插入 parent 自身正文之后、首个子节点之前。
+
+目录： ~core/tests/task_operations_cases/creation/first-child~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: T
+,* Parent
+parent body
+,** Existing
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New",
+        "state": "TODO",
+        "body": "正文"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: T
+,* Parent
+parent body
+,** TODO New
+正文
+,** Existing
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** invalid-state
+
+目的：拒绝目标配置中不存在的状态。
+
+目录： ~core/tests/task_operations_cases/creation/invalid-state~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "Bad",
+        "state": "UNKNOWN"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“TODO 状态”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** invalid-title
+
+目的：拒绝空创建标题。
+
+目录： ~core/tests/task_operations_cases/creation/invalid-title~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": ""
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“标题不能为空”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** new-file
+
+目的：创建不存在的 Org 文件并保存可恢复的不存在快照。
+
+目录： ~core/tests/task_operations_cases/creation/new-file~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "new.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New",
+        "state": "TODO"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/new.org~ 。
+
+#+begin_example
+,* TODO New
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+* 单字段与组合修改
+
+** address-link
+
+目的：以 CST 替换首个指定链接 URI，保留描述和其他字节。
+
+目录： ~core/tests/task_operations_cases/modification/address-link~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Visit [[addr:old][Place]]
+[[addr:old][Keep]]
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Visit [[addr:old][Place]]"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "ADDRESS_LINK",
+            "value": {
+              "oldUri": "addr:old",
+              "newUri": "geo:39.9,116.4"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Visit [[geo:39.9,116.4][Place]]
+[[addr:old][Keep]]
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** address-link-literal
+
+目的：不替换源码块中的伪链接。
+
+目录： ~core/tests/task_operations_cases/modification/address-link-literal~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Visit
+,#+begin_src org
+[[addr:old][Literal]]
+,#+end_src
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Visit"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "ADDRESS_LINK",
+            "value": {
+              "oldUri": "addr:old",
+              "newUri": "geo:39.9,116.4"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Visit
+,#+begin_src org
+[[addr:old][Literal]]
+,#+end_src
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“没有指定地址链接”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** body-empty-with-children
+
+目的：无正文父标题插入正文时不得插入到子树后。
+
+目录： ~core/tests/task_operations_cases/modification/body-empty-with-children~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Parent
+,** Child
+Child body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Parent"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "BODY",
+            "value": "Parent body"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Parent
+Parent body
+,** Child
+Child body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** body-preserves-properties
+
+目的：更新正文保留规划、属性 drawer 与子标题。
+
+目录： ~core/tests/task_operations_cases/modification/body-preserves-properties~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+SCHEDULED: <2026-11-09 Mon>
+:PROPERTIES:
+:CREATED: [2026-11-08 Sun 09:00]
+:END:
+Old
+,** Child
+Child body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "BODY",
+            "value": "新正文\n第二行"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+SCHEDULED: <2026-11-09 Mon>
+:PROPERTIES:
+:CREATED: [2026-11-08 Sun 09:00]
+:END:
+新正文
+第二行
+,** Child
+Child body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** body-without-final-newline
+
+目的：无末尾换行的标题新增正文时补充分隔换行。
+
+目录： ~core/tests/task_operations_cases/modification/body-without-final-newline~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。 末尾没有换行。
+
+#+begin_example
+,* Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "BODY",
+            "value": "Body"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** clear-body
+
+目的：清空正文仍保留子标题。
+
+目录： ~core/tests/task_operations_cases/modification/clear-body~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+Old
+,** Child
+Child body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "BODY",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+,** Child
+Child body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** clear-created
+
+目的：清除 CREATED 仅删除该属性。
+
+目录： ~core/tests/task_operations_cases/modification/clear-created~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+:PROPERTIES:
+:CREATED: [2026-11-08 Sun 09:00]
+:ID: stable
+:END:
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "CREATED",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+:PROPERTIES:
+:ID: stable
+:END:
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** clear-duplicate-planning
+
+目的：清理连续规划行中的同名字段，保留正文同名文字。
+
+目录： ~core/tests/task_operations_cases/modification/clear-duplicate-planning~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+DEADLINE: <2026-11-09 Mon>
+DEADLINE: <2026-11-10 Tue>
+Body
+DEADLINE: ordinary text
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "DEADLINE",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+Body
+DEADLINE: ordinary text
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** clear-fields
+
+目的：null 清除状态、优先级、标签和全部规划值。
+
+目录： ~core/tests/task_operations_cases/modification/clear-fields~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO [#A] Note :tag:
+SCHEDULED: <2026-11-09 Mon> DEADLINE: <2026-11-10 Tue>
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": null
+          },
+          {
+            "field": "PRIORITY",
+            "value": null
+          },
+          {
+            "field": "TAGS",
+            "value": null
+          },
+          {
+            "field": "SCHEDULE",
+            "value": null
+          },
+          {
+            "field": "DEADLINE",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note␠
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** clear-title
+
+目的：清除标题文字后仍保留 TODO 状态和正文。
+
+目录： ~core/tests/task_operations_cases/modification/clear-title~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO␠
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** closed
+
+目的：设置并清除 CLOSED 不修改正文。
+
+目录： ~core/tests/task_operations_cases/modification/closed~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* DONE Note
+CLOSED: [2026-11-08 Sun 09:00]
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "CLOSED",
+            "value": null
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* DONE Note
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** created-property
+
+目的：设置 CREATED 属性保留其他属性和正文。
+
+目录： ~core/tests/task_operations_cases/modification/created-property~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+:PROPERTIES:
+:ID: stable
+:END:
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "CREATED",
+            "value": "[2026-11-08 Sun 09:00]"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+:PROPERTIES:
+:CREATED: [2026-11-08 Sun 09:00]
+:ID: stable
+:END:
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** invalid-date
+
+目的：拒绝非法日历日期，先前内存修改不落盘。
+
+目录： ~core/tests/task_operations_cases/modification/invalid-date~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "Changed"
+          },
+          {
+            "field": "DEADLINE",
+            "value": "<2026-02-30 Mon>"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“有效的完整 Org 时间戳”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** planning-next-line
+
+目的：修改第二行的规划字段，不新增重复字段。
+
+目录： ~core/tests/task_operations_cases/modification/planning-next-line~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+SCHEDULED: <2026-11-09 Mon>
+DEADLINE: <2026-11-10 Tue>
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "DEADLINE",
+            "value": "<2026-11-11 Wed>"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+SCHEDULED: <2026-11-09 Mon>
+DEADLINE: <2026-11-11 Wed>
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** repeater
+
+目的：规划字段保留重复器和预警表达式。
+
+目录： ~core/tests/task_operations_cases/modification/repeater~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "SCHEDULE",
+            "value": "<2026-11-09 Mon +1w -2d>"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+SCHEDULED: <2026-11-09 Mon +1w -2d>
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** set-fields
+
+目的：同一记录按顺序设置 TODO、优先级、标签和规划时间。
+
+目录： ~core/tests/task_operations_cases/modification/set-fields~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          },
+          {
+            "field": "PRIORITY",
+            "value": "C"
+          },
+          {
+            "field": "TAGS",
+            "value": [
+              "工作"
+            ]
+          },
+          {
+            "field": "SCHEDULE",
+            "value": "<2026-11-09 Mon>"
+          },
+          {
+            "field": "DEADLINE",
+            "value": "<2026-11-10 Tue>"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* DONE [#C] Note :工作:
+DEADLINE: <2026-11-10 Tue> SCHEDULED: <2026-11-09 Mon>
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** title-and-metadata
+
+目的：改名只修改标题文字，保留其他字节和子标题。
+
+目录： ~core/tests/task_operations_cases/modification/title-and-metadata~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO [#A] Old :tag:
+Body␠␠
+,** Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Old"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "新标题"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO [#A] 新标题 :tag:
+Body␠␠
+,** Child
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+* 子树移动与层级
+
+** after-sibling
+
+目的：同文件向后移动到指定兄弟子树之后。
+
+目录： ~core/tests/task_operations_cases/movement/after-sibling~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+,** Child
+,* B
+,* C
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "B"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "C"
+            ],
+            "occurrence": 1
+          }
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+,** Child
+,* C
+,* B
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** cross-file
+
+目的：跨文件移动保留源码块中的字面星号。
+
+目录： ~core/tests/task_operations_cases/movement/cross-file~ 。
+
+*** 输入文件
+
+文件： ~repo/target.org~ 。
+
+#+begin_example
+,#+TITLE: Target
+,* Existing
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Item
+,#+begin_src org
+,,** Literal
+,#+end_src
+,** Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "target.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/target.org~ 。
+
+#+begin_example
+,#+TITLE: Target
+,* TODO Item
+,#+begin_src org
+,,** Literal
+,#+end_src
+,** Child
+,* Existing
+#+end_example
+
+文件： ~repo/tasks.org~ 。 空文件。
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** cross-repo
+
+目的：跨仓库移动并为两个变更文件登记上传意图。
+
+目录： ~core/tests/task_operations_cases/movement/cross-repo~ 。
+
+*** 输入文件
+
+文件： ~other/tasks.org~ 。
+
+#+begin_example
+,* Parent
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Item
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "other",
+            "file": "tasks.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo",
+    "other"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~other/tasks.org~ 。
+
+#+begin_example
+,* Parent
+,** TODO Item
+Body
+#+end_example
+
+文件： ~repo/tasks.org~ 。 空文件。
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+上传意图数量：{"repo": 1, "other": 1}。
+
+** same-file
+
+目的：同文件移动保留子树并调整真实标题层级。
+
+目录： ~core/tests/task_operations_cases/movement/same-file~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Item
+body␠␠
+,*** Child
+child
+,* Parent
+,** Existing
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Parent
+,** TODO Item
+body␠␠
+,**** Child
+child
+,** Existing
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** self-descendant
+
+目的：拒绝移动到自身后代。
+
+目录： ~core/tests/task_operations_cases/movement/self-descendant~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Item
+,** Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "Item",
+              "Child"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Item
+,** Child
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“不能移动到自身”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** todo-mismatch
+
+目的：目标 TODO 配置不能改变移动任务的解释。
+
+目录： ~core/tests/task_operations_cases/movement/todo-mismatch~ 。
+
+*** 输入文件
+
+文件： ~repo/target.org~ 。
+
+#+begin_example
+,#+TODO: NEXT | END
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Item
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "target.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/target.org~ 。
+
+#+begin_example
+,#+TODO: NEXT | END
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Item
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“不能保留移动子树”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** wrong-after-parent
+
+目的：after 不属于 parent 时拒绝操作。
+
+目录： ~core/tests/task_operations_cases/movement/wrong-after-parent~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+,** Child
+,* B
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "B"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "A",
+              "Child"
+            ],
+            "occurrence": 1
+          }
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+,** Child
+,* B
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“直属子节点”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+* 节点与子树删除
+
+** duplicate
+
+目的：按 occurrence 删除重名记录中的第二项。
+
+目录： ~core/tests/task_operations_cases/deletion/duplicate~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Repeat
+first
+,* TODO Repeat
+second
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Repeat"
+          ],
+          "occurrence": 2
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Repeat
+first
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** last-node
+
+目的：删除最后节点后保留空文件。
+
+目录： ~core/tests/task_operations_cases/deletion/last-node~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Last
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Last"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。 空文件。
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** subtree
+
+目的：删除完整子树并逐字节保留其他记录。
+
+目录： ~core/tests/task_operations_cases/deletion/subtree~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: T
+,* Before
+,* TODO Delete
+body
+,** Child
+child
+,* After
+unchanged␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Delete"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: T
+,* Before
+,* After
+unchanged␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+* 顺序事务与失败隔离
+
+** coalesce-outbox
+
+目的：同组多次修改同一文件只登记最终快照的一个上传意图。
+
+目录： ~core/tests/task_operations_cases/transaction/coalesce-outbox~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "A"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "B"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "B"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "C"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* C
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+上传意图数量：{"repo": 1}。
+
+** cross-file-failure
+
+目的：跨文件移动后失败保持所有输入文件和上传意图不变。
+
+目录： ~core/tests/task_operations_cases/transaction/cross-file-failure~ 。
+
+*** 输入文件
+
+文件： ~repo/target.org~ 。
+
+#+begin_example
+,* Parent
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Item
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "target.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Missing"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/target.org~ 。
+
+#+begin_example
+,* Parent
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Item
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“标题路径不存在”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** late-failure
+
+目的：末尾操作失败时丢弃全部内存修改。
+
+目录： ~core/tests/task_operations_cases/transaction/late-failure~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New"
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Missing"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“标题路径不存在”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** memo-conversion
+
+目的：同组逐字段清除任务元数据再移动到备忘文件。
+
+目录： ~core/tests/task_operations_cases/transaction/memo-conversion~ 。
+
+*** 输入文件
+
+文件： ~repo/notes.org~ 。
+
+#+begin_example
+,#+TITLE: Notes
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO [#A] Item :tag:
+SCHEDULED: <2026-11-09 Mon>
+DEADLINE: <2026-11-10 Tue>
+Body
+,** Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": null
+          },
+          {
+            "field": "PRIORITY",
+            "value": null
+          },
+          {
+            "field": "SCHEDULE",
+            "value": null
+          },
+          {
+            "field": "DEADLINE",
+            "value": null
+          },
+          {
+            "field": "CLOSED",
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "notes.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/notes.org~ 。
+
+#+begin_example
+,#+TITLE: Notes
+,* Item :tag:
+Body
+,** Child
+#+end_example
+
+文件： ~repo/tasks.org~ 。 空文件。
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** new-file-failure
+
+目的：新文件在后续失败时也不能出现在磁盘。
+
+目录： ~core/tests/task_operations_cases/transaction/new-file-failure~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "new.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New"
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Missing"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“标题路径不存在”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** old-path-rejected
+
+目的：改名后继续使用旧路径必须整体失败。
+
+目录： ~core/tests/task_operations_cases/transaction/old-path-rejected~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "A"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "B"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "A"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* A
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“标题路径不存在”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** ordered-create-modify-move
+
+目的：同组创建、改名、移动、删除使用更新后的路径。
+
+目录： ~core/tests/task_operations_cases/transaction/ordered-create-modify-move~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Parent
+,* Remove
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "New",
+        "state": "TODO"
+      }
+    },
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "New"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "Renamed"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Renamed"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [
+              "Parent"
+            ],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    },
+    {
+      "type": "Deletion",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Remove"
+          ],
+          "occurrence": 1
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Parent
+,** TODO Renamed
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+* 输入与边界校验
+
+** address-bracket-injection
+
+目的：拒绝可破坏 Org 链接边界的新 URI。
+
+目录： ~core/tests/task_operations_cases/validation/address-bracket-injection~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Visit
+[[addr:old][Place]]
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Visit"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "ADDRESS_LINK",
+            "value": {
+              "oldUri": "addr:old",
+              "newUri": "geo:0,0][bad"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Visit
+[[addr:old][Place]]
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“地址链接无效”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** control-directory
+
+目的：拒绝操作同步控制目录。
+
+目录： ~core/tests/task_operations_cases/validation/control-directory~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": ".sync/secret.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "Bad"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“控制目录”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** creation-field-injection
+
+目的：创建标题不得隐式引入未提交的 TODO 状态。
+
+目录： ~core/tests/task_operations_cases/validation/creation-field-injection~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "TODO Other"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“不能被 Org 重新解释”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** empty-group
+
+目的：空操作组明确失败。
+
+目录： ~core/tests/task_operations_cases/validation/empty-group~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“操作组不能为空”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** invalid-tags
+
+目的：拒绝非法标签。
+
+目录： ~core/tests/task_operations_cases/validation/invalid-tags~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Keep"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TAGS",
+            "value": [
+              "bad-tag"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“标签包含无效字符”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** invalid-time
+
+目的：拒绝超出范围的时刻。
+
+目录： ~core/tests/task_operations_cases/validation/invalid-time~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "SCHEDULE",
+            "value": "<2026-11-09 Mon 25:99>"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“有效的完整 Org 时间戳”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** missing-move-target
+
+目的：移动不隐式创建缺失的目标文件。
+
+目录： ~core/tests/task_operations_cases/validation/missing-move-target~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Item
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Movement",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Item"
+          ],
+          "occurrence": 1
+        },
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "missing.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        }
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Item
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“移动目标文件不存在”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** stale-version
+
+目的：旧文件版本导致整组拒绝，磁盘保持不变。
+
+目录： ~core/tests/task_operations_cases/validation/stale-version~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "Changed"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [],
+  "fileVersions": [
+    {
+      "repoId": "repo",
+      "file": "tasks.org",
+      "version": "0000000000000000"
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“版本已变化”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** title-field-injection
+
+目的：标题值不得被重新解释为 TODO 状态。
+
+目录： ~core/tests/task_operations_cases/validation/title-field-injection~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "TODO Other"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Note
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“不能被 Org 重新解释”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** unknown-field
+
+目的：拒绝未知字段枚举，不进行任何写入。
+
+目录： ~core/tests/task_operations_cases/validation/unknown-field~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Keep"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "UNKNOWN",
+            "value": "value"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“操作组格式无效”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+** unsafe-path
+
+目的：拒绝逃逸仓库的相对路径。
+
+目录： ~core/tests/task_operations_cases/validation/unsafe-path~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "../escape.org",
+            "titles": [],
+            "occurrence": 1
+          },
+          "after": null
+        },
+        "title": "Bad"
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行失败，错误信息包含“相对路径”；所有输入文件和控制目录保持不变。
+
+不生成上传意图。
+
+* 原始字节保真
+
+** body-crlf
+
+目的：正文修改保留 CRLF、规划、属性与尾部空格。
+
+目录： ~core/tests/task_operations_cases/fidelity/body-crlf~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。 换行：CRLF。
+
+#+begin_example
+,* TODO Note
+:PROPERTIES:
+:ID: stable
+:END:
+Old
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "BODY",
+            "value": "新正文  \n第二行"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。 换行：CRLF。
+
+#+begin_example
+,* TODO Note
+:PROPERTIES:
+:ID: stable
+:END:
+新正文␠␠
+第二行
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** crlf-unicode
+
+目的：局部修改保留 CRLF、Unicode、空白、文件前言和子标题。
+
+目录： ~core/tests/task_operations_cases/fidelity/crlf-unicode~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。 换行：CRLF。
+
+#+begin_example
+,#+TITLE: 工作
+
+,* TODO 旧标题
+正文␠␠
+,** 子条目
+尾部
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "旧标题"
+          ],
+          "occurrence": 1
+        },
+        "modifications": [
+          {
+            "field": "TITLE",
+            "value": "新标题"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": []
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。 换行：CRLF。
+
+#+begin_example
+,#+TITLE: 工作
+
+,* TODO 新标题
+正文␠␠
+,** 子条目
+尾部
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+* Rust 层补充验证
+
+- 成功操作组连续追加准确 before、after；末尾操作失败不改变 workspace、历史或已有 outbox。
+- 可选文件版本拒绝过期请求；正确版本执行成功，操作历史可完整序列化往返。
+- 提交准备阶段遇到不可写 outbox 目标时，保留原文件、内存和历史。
+- Core 自动生成 CREATED，重新加载后仍能投影创建时间和任务身份。
+- 拒绝符号链接及不存在的父目录，不跟随链接或创建意外目录。
+- 在四个不同提交阶段注入 I/O 故障，逐一验证两个文件和上传意图全部恢复；故障注入仅在 Core 模块内部测试使用。
+
+* 交付记录
+
+当前目录用例总数：56。验证结果在实施计划中记录。
