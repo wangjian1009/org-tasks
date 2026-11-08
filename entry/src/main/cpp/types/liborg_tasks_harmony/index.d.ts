@@ -137,7 +137,7 @@ export class Repo {
   load(): Promise<void>;
   history(): Promise<SyncRecord[]>;
   createTask(path: string, task: NewTask, queueUpload: boolean, insertAtTop?: boolean): Promise<void>;
-  updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<void>;
+  updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<Task>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }

@@ -429,14 +429,16 @@ pub fn repo_update_task_location(
     old_uri: String,
     new_uri: String,
     queue_upload: bool,
-) -> Result<(), CoreError> {
+) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let mut workspace = workspace.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let repository = workspace.repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     let runtime = runtime()?;
     runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    runtime.block_on(repository.update_task_location(&path, &heading, &old_uri, &new_uri, queue_upload))
+    let task = runtime.block_on(repository.update_task_location(&path, &heading, &old_uri, &new_uri, queue_upload))?;
+    serde_json::to_string(&task_from_filter(task))
+        .map_err(|_| CoreError::InvalidState("无法序列化更新后的任务"))
 }
 
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
@@ -763,6 +765,24 @@ mod tests {
             serde_json::from_str(&workspace_query_json(handle, query).unwrap()).unwrap();
         assert_eq!(queried["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(queried["tasks"][0]["heading"], "Visible");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn location_update_returns_a_fresh_task_for_the_editor() {
+        let root = std::env::temp_dir().join(format!("org-tasks-location-editor-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("work.org"), "* TODO Visit\n[[addr:old][Place]]\n").unwrap();
+        let directory = root.to_string_lossy().to_string();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        let result = repo_update_task_location(handle, directory, "work.org".into(), "Visit".into(), "addr:old".into(), "geo:39.9,116.4".into(), false).unwrap();
+        let task: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(task["heading"], "Visit");
+        assert_eq!(task["addressLinks"][0]["uri"], "geo:39.9,116.4");
+        assert!(task["bodyHtml"].as_str().unwrap().contains("geo:39.9,116.4"));
+        assert_eq!(task["isDone"], false);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

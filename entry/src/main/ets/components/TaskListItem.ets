@@ -15,7 +15,6 @@ export struct TaskListItem {
   @Prop enableCompletionState: boolean = true
   @Prop showDate: boolean = false
   @Prop showCategory: boolean = false
-  @Prop initiallyExpanded: boolean = false
   open: () => void = () => {}
   @State expanded: boolean = false
   @State contentMounted: boolean = false
@@ -24,11 +23,6 @@ export struct TaskListItem {
   @State deadlineWidth: number = 0
   @Prop referenceTime: number = Date.now()
   private measuredContentHeight: number = 0
-
-  aboutToAppear() {
-    this.expanded = this.initiallyExpanded
-    this.contentMounted = this.initiallyExpanded
-  }
 
   duration(): number { return taskDurationDays(this.task, new Date(this.referenceTime)) }
 

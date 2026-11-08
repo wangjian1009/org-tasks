@@ -24,7 +24,8 @@ function task(id, values = {}) {
   const result = Object.create({ isDone() { return this.todoKind === 'done'; } });
   for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
     todoState: 'TODO', todoKind: 'pending', priority: '', scheduled: '', deadline: '', tags: [],
-    filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '', progress: -1, ...values })) {
+    filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '',
+    hasList: false, hasText: true, isRepeating: false, progress: -1, ...values })) {
     Object.defineProperty(result, key, { value, enumerable: true });
   }
   return result;
@@ -160,7 +161,9 @@ test('窄屏、多标签与多标志不会占用截止日期预留区，标题�
 test('标志直接采用 Core 投影，完整可读标题与新快照保持一致', () => {
   const value = task('id', { heading: '原始链接标题', headingParts: [{ text: '参考资料', href: 'https://example.org', isLink: true }],
     hasList: true, isRepeating: true });
-  assert.deepEqual(taskIndicators(value), ['body', 'list']);
+  assert.deepEqual(taskIndicators(value), ['list', 'body']);
+  assert.deepEqual(taskIndicators(task('list-only', { hasList: true, hasText: false, bodyHtml: '<ul><li>列表</li></ul>' })), ['list']);
+  assert.deepEqual(taskIndicators(task('no-hints', { hasText: false })), []);
   assert.equal(taskTitleText(value), '参考资料');
   assert.equal(taskTitleText(task('empty-parts', { heading: '普通标题' })), '普通标题');
   const after = task('id', { hasList: false, isRepeating: false });

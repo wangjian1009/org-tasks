@@ -253,108 +253,113 @@ impl FilterInterval {
 }
 
 pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
-    let mut tasks = Vec::new();
-    for file in repository.files() {
-        if repository.task_scan_rules.excludes(&file.path) {
-            continue;
-        }
-        let category = file.category();
-        let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
-        let mut identities =
-            crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
-        for headline in file
-            .syntax()
-            .document()
-            .syntax()
-            .descendants()
-            .filter_map(Headline::cast)
-        {
-            let level = headline.level();
-            while ancestors
-                .last()
-                .is_some_and(|(ancestor_level, _)| *ancestor_level >= level)
-            {
-                ancestors.pop();
-            }
-            let own_tags = headline
-                .tags()
-                .map(|tag| tag.to_string())
-                .collect::<Vec<_>>();
-            let inherited_tags = ancestors
-                .iter()
-                .flat_map(|(_, tags)| tags.iter().cloned())
-                .collect::<Vec<_>>();
-            ancestors.push((level, own_tags.clone()));
-
-            let offset = u32::from(headline.start()) as usize;
-            let (line, column) = source_position(file.source_bytes(), offset);
-            let body = headline
-                .section()
-                .map(|section| section.raw())
-                .unwrap_or_default();
-            let events = headline
-                .section()
-                .into_iter()
-                .flat_map(|section| section.syntax().descendants().filter_map(Timestamp::cast))
-                .filter(|timestamp| timestamp.is_active())
-                .filter_map(timestamp_to_date)
-                .collect();
-            let state = headline.todo_keyword().map(|value| value.to_string());
-            let state_type = match state.as_deref() {
-                Some(value)
-                    if file
-                        .todo
-                        .done_keywords
-                        .iter()
-                        .any(|keyword| keyword == value) =>
-                {
-                    FilterStateType::Done
-                }
-                Some(value)
-                    if file
-                        .todo
-                        .pending_keywords
-                        .iter()
-                        .any(|keyword| keyword == value) =>
-                {
-                    FilterStateType::Todo
-                }
-                _ => FilterStateType::None,
-            };
-            let address_links = extract_address_links(&headline);
-            tasks.push(FilterTask {
-                id: identities.id_for(&headline, state_type != FilterStateType::None),
-                repo_id: repository.id.clone(),
-                path: file.path.clone(),
-                category: category.clone(),
-                line,
-                column,
-                byte_offset: offset as u64,
-                level: level as u32,
-                state,
-                state_type,
-                priority: headline.priority().map(|value| value.to_string()),
-                own_tags,
-                inherited_tags,
-                title: headline.title_raw().trim_end().to_owned(),
-                body,
-                address_links,
-                is_repeating: planning_repeats(&headline),
-                scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
-                deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
-                scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
-                deadline_warning: planning_warning(&headline, "DEADLINE", headline.deadline()),
-                closed: planning_date(&headline, "CLOSED", headline.closed()),
-                created: None,
-                events,
-            });
-        }
-    }
+    let mut tasks = repository
+        .files()
+        .iter()
+        .filter(|file| !repository.task_scan_rules.excludes(&file.path))
+        .flat_map(|file| tasks_from_file(repository, file))
+        .collect::<Vec<_>>();
     tasks.sort_by(|left, right| {
         left.path
             .cmp(&right.path)
             .then(left.byte_offset.cmp(&right.byte_offset))
     });
+    tasks
+}
+
+pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Vec<FilterTask> {
+    let mut tasks = Vec::new();
+    let category = file.category();
+    let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut identities =
+        crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
+    for headline in file
+        .syntax()
+        .document()
+        .syntax()
+        .descendants()
+        .filter_map(Headline::cast)
+    {
+        let level = headline.level();
+        while ancestors
+            .last()
+            .is_some_and(|(ancestor_level, _)| *ancestor_level >= level)
+        {
+            ancestors.pop();
+        }
+        let own_tags = headline
+            .tags()
+            .map(|tag| tag.to_string())
+            .collect::<Vec<_>>();
+        let inherited_tags = ancestors
+            .iter()
+            .flat_map(|(_, tags)| tags.iter().cloned())
+            .collect::<Vec<_>>();
+        ancestors.push((level, own_tags.clone()));
+
+        let offset = u32::from(headline.start()) as usize;
+        let (line, column) = source_position(file.source_bytes(), offset);
+        let body = headline
+            .section()
+            .map(|section| section.raw())
+            .unwrap_or_default();
+        let events = headline
+            .section()
+            .into_iter()
+            .flat_map(|section| section.syntax().descendants().filter_map(Timestamp::cast))
+            .filter(|timestamp| timestamp.is_active())
+            .filter_map(timestamp_to_date)
+            .collect();
+        let state = headline.todo_keyword().map(|value| value.to_string());
+        let state_type = match state.as_deref() {
+            Some(value)
+                if file
+                    .todo
+                    .done_keywords
+                    .iter()
+                    .any(|keyword| keyword == value) =>
+            {
+                FilterStateType::Done
+            }
+            Some(value)
+                if file
+                    .todo
+                    .pending_keywords
+                    .iter()
+                    .any(|keyword| keyword == value) =>
+            {
+                FilterStateType::Todo
+            }
+            _ => FilterStateType::None,
+        };
+        let address_links = extract_address_links(&headline);
+        tasks.push(FilterTask {
+            id: identities.id_for(&headline, state_type != FilterStateType::None),
+            repo_id: repository.id.clone(),
+            path: file.path.clone(),
+            category: category.clone(),
+            line,
+            column,
+            byte_offset: offset as u64,
+            level: level as u32,
+            state,
+            state_type,
+            priority: headline.priority().map(|value| value.to_string()),
+            own_tags,
+            inherited_tags,
+            title: headline.title_raw().trim_end().to_owned(),
+            body,
+            address_links,
+            is_repeating: planning_repeats(&headline),
+            scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
+            deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
+            scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
+            deadline_warning: planning_warning(&headline, "DEADLINE", headline.deadline()),
+            closed: planning_date(&headline, "CLOSED", headline.closed()),
+            created: None,
+            events,
+        });
+    }
     tasks
 }
 

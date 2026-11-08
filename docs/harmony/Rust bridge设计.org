@@ -281,8 +281,12 @@ interface TitleCount {
 
 候选任务由 UI 将仓库配置与备忘文件身份组装为通用查询：所有已配置仓库中的 ~it.todo~ ，加上配置备忘文件中的 ~it.none~ ，再与 ~has.address~ 组合并设置 ~includeDone=false~ 。未配置或失效的备忘文件不回退到其他文件。Core 返回的 ~address_links~ 原样映射到 ~Task.addressLinks~ ，宿主显示全部候选，不按条数截断、不解析正文。查询继续通过既有 ~expression~ 字段传入 worker，不新增 native 方法或界面专属查询字段。
 
-点击创建立即向已配置收件箱调用 ~createTask(..., insertAtTop=true)~ ，不打开创建表单。写入成功后查询该收件箱，取得位于首部的新任务快照，使用 ~TaskListItem~ 在当前页面默认展开；写入成功但回读失败时提示到收件箱查看，禁止重复创建。
+地点与配置加载完成后自动发起候选查询，不等待用户展开，也不阻塞创建入口。页面按请求序号接收完整候选和对应仓库映射，旧请求不得覆盖新分享的结果；返回非空结果后才显示“更新地址”分区，查询中或空结果不显示分区及提交按钮。标题复用共享分区控件，候选卡片和地址选择仍只负责展示 Core 的结果。
 
-~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。 ~Repo.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)~ 的五个参数由 N-API 完整读取，再经工作线程交给 Rust；桥接层不解析链接或实施替换。
+点击创建立即向已配置收件箱调用 ~createTask(..., insertAtTop=true)~ ，写入成功后以 ~page=inbox~ 启动或唤起 ~EntryAbility~ ，直接加载收件箱并关闭分享窗口；不查询新任务快照、不展示结果卡片或确认。导航失败保留写入成功状态，重试只打开收件箱，不重复创建。
+
+~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。 ~Repo.updateTaskLocation(path, heading, oldUri, newUri, queueUpload): Promise<Task>~ 的五个参数由 N-API 完整读取，再经工作线程交给 Rust；Core 返回写入后的准确任务快照，Harmony 投影为带最新地址、正文 HTML 与完成行为的原生任务对象。FFI 返回由既有释放函数管理的任务 JSON 字符串，C++ 只编组，不解析链接或实施替换。
+
+更新成功后将该快照序列化为 Want 的 ~task~ 字符串参数，以 ~page=taskEdit~ 唤起 ~EntryAbility~ ，主窗口加载收件箱并通过该窗口的 ~LocalStorage~ 交接快照。收件箱在 ~onPageShow~ 中一次性领取并清除参数，等根页面就绪后通过原有路由打开 ~pages/TaskEdit~ ，随后关闭分享窗口；不在窗口内容加载回调中连续推入路由，避免页面初始化覆盖跳转。窗口之间不依赖各自 ArkUI 上下文中的 ~AppStorage~ 传递任务。任务编辑页继续只读取原有路由参数，其布局、元数据、正文和返回行为均不修改；返回进入收件箱。导航失败时保留已更新快照供重试，不再次替换链接。
 
 ~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Repo.createTask~ 写入正文链接，更新任务调用 ~Repo.updateTaskLocation~ 保留其他字节。解析失败只允许保存原始链接或返回地图。

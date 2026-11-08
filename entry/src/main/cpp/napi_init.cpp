@@ -25,7 +25,7 @@ extern "C" int32_t org_tasks_harmony_repo_create_task(uint64_t workspace_handle,
     const char* path, const char* task_json, bool queue_upload);
 extern "C" int32_t org_tasks_harmony_repo_create_task_at_top(uint64_t workspace_handle, const char* root_directory,
     const char* path, const char* task_json, bool queue_upload);
-extern "C" int32_t org_tasks_harmony_repo_update_task_location(uint64_t workspace_handle, const char* root_directory,
+extern "C" char* org_tasks_harmony_repo_update_task_location(uint64_t workspace_handle, const char* root_directory,
     const char* path, const char* heading, const char* old_uri, const char* new_uri, bool queue_upload);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
@@ -622,10 +622,8 @@ void ExecuteRepoSnapshot(napi_env, void* data)
             }
             break;
         case RepoSnapshotWork::Operation::UpdateTask:
-            if (org_tasks_harmony_repo_update_task_location(work->workspace_handle, work->root_directory.c_str(),
-                work->task_path.c_str(), work->task_heading.c_str(), work->task_old_uri.c_str(), work->task_uri.c_str(), work->queue_upload) == 0) {
-                work->response = "{}";
-            }
+            work->response = TakeRustString(org_tasks_harmony_repo_update_task_location(work->workspace_handle, work->root_directory.c_str(),
+                work->task_path.c_str(), work->task_heading.c_str(), work->task_old_uri.c_str(), work->task_uri.c_str(), work->queue_upload));
             break;
         case RepoSnapshotWork::Operation::Load:
             if (org_tasks_harmony_repo_load(work->workspace_handle, work->root_directory.c_str()) == 0) {
@@ -644,6 +642,7 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
             work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
             work->operation == RepoSnapshotWork::Operation::CreateTask ? "保存任务失败" :
+            work->operation == RepoSnapshotWork::Operation::UpdateTask ? "更新任务地址失败" :
             work->operation == RepoSnapshotWork::Operation::FileMetadata ? "读取文件元信息失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" :
             work->operation == RepoSnapshotWork::Operation::History ? "读取同步历史失败" : "处理同步合并失败");
@@ -659,6 +658,10 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
+        } else if (work->operation == RepoSnapshotWork::Operation::UpdateTask) {
+            napi_value task = CreateTaskObject(env, result);
+            if (task != nullptr) napi_resolve_deferred(env, work->deferred, task);
+            else RejectFileProjection(env, work->deferred);
         } else if (work->operation == RepoSnapshotWork::Operation::File) {
             napi_value file = CreateOrgFileObject(env, result);
             if (file != nullptr) napi_resolve_deferred(env, work->deferred, file);

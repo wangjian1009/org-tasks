@@ -73,7 +73,7 @@ impl OrgRepo {
         old_uri: &str,
         new_uri: &str,
         queue_upload: bool,
-    ) -> Result<(), CoreError> {
+    ) -> Result<crate::FilterTask, CoreError> {
         if self.id.is_empty() { return Err(CoreError::InvalidState("仓库尚未加载")); }
         validate_task_path(path)?;
         if new_uri.is_empty() || new_uri.chars().any(char::is_control) {
@@ -83,13 +83,17 @@ impl OrgRepo {
         let original = read_optional(&target).await?;
         let mut file = self.parse_file(path.into(), original.clone().unwrap_or_default())?;
         let source = file.source_bytes().to_vec();
-        let (start, end) = task_link_uri_range(&source, heading, old_uri)?;
+        let (task_offset, start, end) = task_link_uri_range(&source, heading, old_uri)?;
         let start_position = position_at(&source, start);
         let end_position = position_at(&source, end);
         apply_edit(&mut file, OrgFileEdit::ReplaceRange {
             target: super::editor::SourceRange::new(start_position, end_position)?,
             content: new_uri.as_bytes().to_vec(),
         })?;
+        let mut updated = crate::filter::tasks_from_file(self, &file).into_iter()
+            .find(|task| task.byte_offset == task_offset as u64)
+            .ok_or(CoreError::InvalidState("无法读取更新后的任务"))?;
+        updated.exclude_refile_tag();
         let nonce = super::service::generate_repo_id()?;
         let temporary = target.with_file_name(format!(".{nonce}.tmp"));
         write_new(&temporary, file.source_bytes()).await?;
@@ -112,7 +116,7 @@ impl OrgRepo {
             return Err(error);
         }
         if let Some(index) = self.files.iter().position(|item| item.path == path) { self.files[index] = file; }
-        Ok(())
+        Ok(updated)
     }
 
     async fn create_task_with_position(
@@ -403,7 +407,7 @@ impl NewTask {
     }
 }
 
-fn task_link_uri_range(source: &[u8], heading: &str, old_uri: &str) -> Result<(usize, usize), CoreError> {
+fn task_link_uri_range(source: &[u8], heading: &str, old_uri: &str) -> Result<(usize, usize, usize), CoreError> {
     let text = std::str::from_utf8(source).map_err(|_| CoreError::InvalidInput("Org 文件不是 UTF-8"))?;
     let mut offset = 0usize;
     let mut selected = false;
@@ -428,7 +432,7 @@ fn task_link_uri_range(source: &[u8], heading: &str, old_uri: &str) -> Result<(u
     let uri_start = subtree_start + relative + 2;
     let uri_end = text[uri_start..subtree_end].find(']').map(|value| uri_start + value)
         .ok_or(CoreError::InvalidInput("地址链接格式无效"))?;
-    Ok((uri_start, uri_end))
+    Ok((subtree_start, uri_start, uri_end))
 }
 
 fn validate_task_path(path: &str) -> Result<(), CoreError> {
@@ -557,11 +561,29 @@ mod tests {
         let root = PathBuf::from(&repo.root_directory);
         let source = b"* TODO Visit\nBody before\n[[addr:old-place][Old place]]\nBody after\n* TODO Other\n[[addr:keep][Keep]]\n";
         fs::write(root.join("inbox.org"), source).await.unwrap();
-        repo.update_task_location("inbox.org", "Visit", "addr:old-place", "geo:39.9,116.4", false).await.unwrap();
+        let updated = repo.update_task_location("inbox.org", "Visit", "addr:old-place", "geo:39.9,116.4", false).await.unwrap();
+        assert_eq!(updated.title, "Visit");
+        assert_eq!(updated.address_links[0].uri, "geo:39.9,116.4");
+        assert!(updated.body.contains("[[geo:39.9,116.4][Old place]]"));
         let bytes = fs::read(root.join("inbox.org")).await.unwrap();
         let text = String::from_utf8(bytes).unwrap();
         assert!(text.contains("Body before\n[[geo:39.9,116.4][Old place]]\nBody after"));
         assert!(text.contains("[[addr:keep][Keep]]"));
+    }
+
+    #[tokio::test]
+    async fn update_location_returns_the_edited_title_snapshot_even_when_identity_changes() {
+        let mut repo = repo().await;
+        let root = PathBuf::from(&repo.root_directory);
+        let source = "* TODO Visit [[addr:old][Place]] :REFILE:\nBody\n* TODO Other\n[[addr:keep]]\n";
+        fs::write(root.join("inbox.org"), source).await.unwrap();
+        let updated = repo.update_task_location("inbox.org", "Visit [[addr:old][Place]]", "addr:old", "geo:39.9,116.4", false).await.unwrap();
+        assert_eq!(updated.title, "Visit [[geo:39.9,116.4][Place]]");
+        assert_eq!(updated.address_links[0].uri, "geo:39.9,116.4");
+        assert_eq!(updated.body, "Body\n");
+        assert!(updated.own_tags.is_empty());
+        assert_eq!(fs::read(root.join("inbox.org")).await.unwrap(), source.replace("addr:old", "geo:39.9,116.4").as_bytes());
+        fs::remove_dir_all(root).await.unwrap();
     }
 
     #[tokio::test]

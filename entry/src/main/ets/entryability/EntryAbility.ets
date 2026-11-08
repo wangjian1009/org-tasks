@@ -7,12 +7,20 @@ import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { preferences } from '@kit.ArkData'
 import { UiColor } from '../ui/Theme'
+import { CoreTask } from '../services/NativeCoreService'
 
 const PREF_NAME = 'org_tasks_config'
 const DEFAULT_INTERVAL = 20 // 分钟
 
+interface MainPageStorage { entryTask?: CoreTask }
+
 export default class EntryAbility extends UIAbility {
+  private mainStage: window.WindowStage | undefined = undefined
+  private initialPage: string = 'pages/TaskOverview'
+  private taskToEdit: CoreTask | undefined = undefined
+
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }
     AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())
@@ -20,7 +28,37 @@ export default class EntryAbility extends UIAbility {
     await this.registerBackgroundSync()
   }
 
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    if (!this.readDestination(want) || !this.mainStage) return
+    this.loadMainPage(this.mainStage)
+  }
+
+  private readDestination(want: Want): boolean {
+    if (want.parameters?.page !== 'inbox' && want.parameters?.page !== 'taskEdit') return false
+    this.initialPage = 'pages/Inbox'
+    this.taskToEdit = undefined
+    if (want.parameters.page === 'taskEdit' && typeof want.parameters.task === 'string') {
+      try { this.taskToEdit = JSON.parse(want.parameters.task) as CoreTask }
+      catch (error) { console.error('读取任务编辑参数失败') }
+    }
+    return true
+  }
+
+  private loadMainPage(stage: window.WindowStage) {
+    const task = this.taskToEdit
+    this.taskToEdit = undefined
+    const data: MainPageStorage = {}
+    if (task) data.entryTask = task
+    const storage = new LocalStorage(data)
+    stage.loadContent(this.initialPage, storage, (err) => {
+      if (err && err.code !== 0) {
+        console.error('加载页面失败:', JSON.stringify(err))
+      }
+    })
+  }
+
   async onWindowStageCreate(windowStage: window.WindowStage) {
+    this.mainStage = windowStage
     try {
       const mainWindow = await windowStage.getMainWindow()
       await mainWindow.setWindowSystemBarProperties({
@@ -30,11 +68,7 @@ export default class EntryAbility extends UIAbility {
         navigationBarContentColor: UiColor.text
       })
       // 加载主页面
-      windowStage.loadContent('pages/TaskOverview', (err) => {
-        if (err && err.code !== 0) {
-          console.error('加载页面失败:', JSON.stringify(err))
-        }
-      })
+      this.loadMainPage(windowStage)
     } catch (error) { console.error('初始化应用窗口失败') }
   }
 

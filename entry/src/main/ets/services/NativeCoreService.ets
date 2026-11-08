@@ -148,8 +148,8 @@ export class CoreRepo {
     await this.native.createTask(path, task, queueUpload, insertAtTop)
   }
 
-  async updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<void> {
-    await this.native.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)
+  async updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<CoreTask> {
+    return await this.native.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)
   }
 
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {

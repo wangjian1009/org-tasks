@@ -9,9 +9,10 @@ import { CaptureService } from '../services/CaptureService'
 import { FileTargetService } from '../services/FileTargetService'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 
-@Entry
+@Entry({ useSharedStorage: true })
 @Component
 struct Inbox {
+  @LocalStorageLink('entryTask') entryTask: CoreTask | undefined = undefined
   @State records: CoreTask[] = []
   @State loading: boolean = true
   @State message: string = ''
@@ -25,7 +26,15 @@ struct Inbox {
   private captureFocusTimer: number = -1
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
-  onPageShow() { this.loadRecords() }
+  onPageShow() {
+    this.loadRecords()
+    if (this.entryTask) {
+      const task = this.entryTask
+      this.entryTask = undefined
+      this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
+        .catch((): void => { console.error('打开任务编辑失败') })
+    }
+  }
   aboutToDisappear() {
     clearTimeout(this.captureFocusTimer)
     if (this.captureOpen) this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)

@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-capture.cjs\n验证文件入口的仓库隔离、失效处理、配置保存，以及捕捉输入、草稿和共享会话初始化。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-capture.cjs\n验证文件入口的仓库隔离、失效处理、配置保存，以及捕捉输入、草稿、共享会话初始化和分享后的页面跳转。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 
@@ -15,7 +15,7 @@ const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Conte
 const ts = require(path.join(deveco, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const sourceRoot = path.resolve(__dirname, '../entry/src/main/ets');
 
-function etsLoader(mocks = {}) {
+function etsLoader(mocks = {}, globals = {}) {
   const modules = new Map();
   return function load(name) {
     const filename = path.resolve(sourceRoot, name + '.ets');
@@ -30,7 +30,7 @@ function etsLoader(mocks = {}) {
       if (dependency.startsWith('.')) return load(path.relative(sourceRoot, path.resolve(path.dirname(filename), dependency)));
       throw new Error('缺少平台替身: ' + dependency);
     };
-    vm.runInThisContext('(function(require,module,exports){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports);
+    vm.runInThisContext('(function(require,module,exports,LocalStorage){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage);
     return module.exports;
   };
 }
@@ -39,6 +39,36 @@ function repository(id) {
   return { id, name: id, rootDirectory: '/sandbox/' + id, webdavEnabled: false,
     webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] };
 }
+
+test('分享后的收件箱与任务编辑跳转使用 Want 参数，窗口之间不依赖共享 AppStorage', async () => {
+  const EntryAbility = etsLoader({
+    '@kit.AbilityKit': { UIAbility: class {} },
+    '@kit.ArkData': { preferences: {} },
+    '../services/BackgroundSyncService': { BackgroundSyncService: {} },
+    '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
+    '../ui/Theme': { UiColor: {} }
+  }, { LocalStorage: class { constructor(values) { this.values = values; } } })('entryability/EntryAbility').default;
+  const ability = new EntryAbility();
+  const pages = [], snapshots = [];
+  const mainWindow = { async setWindowSystemBarProperties() {}, getUIContext() {
+    assert.fail('主窗口应直接加载目标页面');
+  } };
+  const stage = { async getMainWindow() { return mainWindow; }, getMainWindowSync() { return mainWindow; },
+    loadContent(page, storage, callback) { pages.push(page); snapshots.push(storage.values.entryTask); callback({ code: 0 }); } };
+  const task = { id: 'updated', heading: '地址任务', body: '[[geo:31.4,120.8][新地址]]', bodyHtml: '<p>新地址</p>' };
+  ability.onNewWant({ parameters: { page: 'taskEdit', task: JSON.stringify(task) } }, {});
+  await ability.onWindowStageCreate(stage);
+  assert.deepEqual(pages, ['pages/Inbox']);
+  assert.deepEqual(snapshots[0], task);
+  ability.onNewWant({ parameters: { page: 'inbox' } }, {});
+  assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox']);
+  assert.equal(snapshots[1], undefined);
+  ability.onNewWant({ parameters: { page: 'taskEdit', task: JSON.stringify(task) } }, {});
+  assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox', 'pages/Inbox']);
+  assert.deepEqual(snapshots[2], task);
+  ability.onNewWant({}, {});
+  assert.equal(pages.length, 3);
+});
 
 function fixture() {
   const values = new Map();
