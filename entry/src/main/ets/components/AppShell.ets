@@ -9,6 +9,11 @@ import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from
 import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
+export interface AppMenuItem {
+  title: string
+  action: () => void
+}
+
 @Component
 export struct AppShell {
   @Prop title: string = ''
@@ -23,6 +28,7 @@ export struct AppShell {
   @Prop secondaryActionLabel: string = ''
   @Prop busy: boolean = false
   @Prop pullToSync: boolean = false
+  @Prop actionMenuItems: AppMenuItem[] = []
   @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
   action: () => void = () => {}
@@ -40,6 +46,15 @@ export struct AppShell {
   @State searches: SavedSearch[] = []
   @State navMessage: string = ''
   private navigationRequest: number = 0
+
+  @Builder
+  actionMenu() {
+    Menu() {
+      ForEach(this.actionMenuItems, (item: AppMenuItem) => {
+        MenuItem({ content: item.title }).onClick((): void => { item.action() })
+      }, (item: AppMenuItem) => item.title)
+    }.backgroundColor(UiColor.taskCard)
+  }
 
   titleLabel(): string {
     return this.titleParts.length > 0 ? this.titleParts.map((part: CoreTitlePart) => part.text).join('') : this.title
@@ -229,7 +244,14 @@ export struct AppShell {
             IconButton({ icon: this.secondaryActionIcon, label: this.secondaryActionLabel, disabled: this.busy, action: this.secondaryAction })
           }
           if (this.actionLabel.length > 0) {
-            IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
+            if (this.actionMenuItems.length > 0) {
+              Button({ type: ButtonType.Normal }) {
+                Image(this.actionIcon).width(24).height(24)
+              }.width(48).height(48).borderRadius(24).backgroundColor(Color.Transparent)
+                .accessibilityText(this.actionLabel).enabled(!this.busy).bindMenu(this.actionMenu)
+            } else {
+              IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
+            }
           }
         }.width('100%').height(64).padding({ left: 4, right: 4 }).backgroundColor(UiColor.surface)
         Divider().color(UiColor.outline).strokeWidth(0.5)
