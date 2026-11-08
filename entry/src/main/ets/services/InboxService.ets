@@ -2,16 +2,41 @@ import { Context } from '@kit.AbilityKit'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { configuredFileTarget } from './FileTargetService'
-import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, NativeCoreService } from './NativeCoreService'
+import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, CoreOrgFileRef, NativeCoreService } from './NativeCoreService'
 
-export type InboxAction = 'move' | 'memo' | 'delete'
+export type InboxAction = 'move' | 'memo' | 'delete' | 'someday'
+export interface InboxTargets { targets: CoreRefileTarget[]; somedayTarget: CoreRefileTarget | undefined; somedayHint: string }
 
 // 只编排配置与 Core 请求，不解析 Org 或在宿主实现任务移动。
 export class InboxService {
-  static async targets(context: Context): Promise<CoreRefileTarget[]> {
+  static async targets(context: Context): Promise<InboxTargets> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-    return await workspace.refileTargets()
+    const selected = configuredFileTarget(config, 'someday')
+    const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
+    const repos = await workspace.repos()
+    const someday = repos.find(repo => repo.rootDirectory === settings?.rootDirectory)
+    const excludedFiles: CoreOrgFileRef[] = []
+    for (const file of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday')]) {
+      const configured = config.repos.find((item: RepoConfig) => item.id === file.repoId)
+      const repo = repos.find(item => item.rootDirectory === configured?.rootDirectory)
+      if (repo && file.path) { await repo.load(); excludedFiles.push({ repoId: repo.id, path: file.path }) }
+    }
+    // 在 Core 读取 CATEGORY 之前排除特殊文件，宿主不再从返回结果移除目标。
+    const normal = await workspace.refileTargets({ excludedFiles })
+    let first: CoreRefileTarget | undefined = undefined
+    let hint = '请在设置中选择“某天”文件，作为将来，也许的目标'
+    if (someday && selected.path) {
+      const files = await someday.fileMetadata()
+      if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
+        first = undefined
+        hint = '将来，也许文件已失效，请在设置中重新选择'
+      } else {
+        first = (await workspace.refileTargets({ files: [{ repoId: someday.id, path: selected.path }] }))[0]
+        hint = first ? '' : '请在将来，也许文件中添加 REFILE 标题'
+      }
+    }
+    return { targets: normal, somedayTarget: first, somedayHint: hint }
   }
 
   static async recent(context: Context): Promise<CoreTask[]> {
@@ -43,6 +68,23 @@ export class InboxService {
     if (action === 'move') {
       if (!target) throw new Error('请选择任务目标')
       parent = target.fullPath
+    } else if (action === 'someday') {
+      const selected = configuredFileTarget(config, 'someday')
+      const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
+      const repo = repos.find(item => item.rootDirectory === settings?.rootDirectory)
+      if (!repo || !selected.path) throw new Error('请在设置中选择“某天”文件，作为将来，也许的目标')
+      const files = await repo.fileMetadata()
+      if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
+        throw new Error('将来，也许文件已失效，请在设置中重新选择')
+      }
+      const first = (await workspace.refileTargets({ files: [{ repoId: repo.id, path: selected.path }] }))[0]
+      if (!first) throw new Error('请在将来，也许文件中添加 REFILE 标题')
+      target = first
+      parent = first.fullPath
+      operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
+        { field: 'TODO', value: 'TODO' }, { field: 'SCHEDULE', value: null },
+        { field: 'DEADLINE', value: null }, { field: 'CLOSED', value: null }
+      ] } })
     } else if (action === 'memo') {
       const selected = configuredFileTarget(config, 'memo')
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
@@ -61,7 +103,7 @@ export class InboxService {
     operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
       { type: 'Deletion', data: { path: task.fullPath } })
     const fileVersions: CoreTaskFileVersion[] = [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
-    if (target && action === 'move') fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
+    if (target && (action === 'move' || action === 'someday')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
     await workspace.executeTaskOperations({ operations, queueRepoIds, fileVersions })
   }
 }

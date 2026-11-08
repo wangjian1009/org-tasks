@@ -166,3 +166,65 @@ async fn symlinks_and_missing_parent_directories_never_escape_or_create_director
         b"* Original\n"
     );
 }
+
+fn someday_group(workspace: &OrgWorkspace) -> TaskOperationGroup {
+    let source = workspace.repos()[0].file("tasks.org").unwrap();
+    let target = workspace.refile_targets()[0].clone();
+    let path = source.node_paths()[0].clone();
+    TaskOperationGroup {
+        operations: vec![
+            TaskOperation::Modification(TaskModificationOperation {
+                path: path.clone(),
+                modifications: vec![
+                    TaskModification::Todo(Some("TODO".into())),
+                    TaskModification::Schedule(None),
+                    TaskModification::Deadline(None),
+                    TaskModification::Closed(None),
+                ],
+            }),
+            TaskOperation::Movement(TaskMovement {
+                path,
+                position: TaskPosition { parent: target.full_path, after: None },
+            }),
+        ],
+        queue_repo_ids: vec![source.repo_id.clone()],
+        file_versions: vec![
+            TaskFileVersion {
+                repo_id: source.repo_id.clone(), file: source.path.clone(),
+                version: LocalFileVersion::from_bytes(source.source_bytes()).content_hash,
+            },
+            TaskFileVersion { repo_id: target.repo_id, file: target.path, version: target.file_version },
+        ],
+    }
+}
+
+#[tokio::test]
+async fn someday_group_cleans_only_root_planning_and_preserves_properties_children_and_priority() {
+    for state in ["DONE ", "", "TODO "] {
+        let original = format!("* {state}[#A] Item :work:\nSCHEDULED: <2026-11-08 Sun +1w> DEADLINE: <2026-11-09 Mon> CLOSED: [2026-11-07 Sat]\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\nBody  \n** TODO Child\nSCHEDULED: <2026-11-10 Tue>\n");
+        let mut f = Fixture::new(&original).await;
+        fs::write(f.root.join("someday.org"), "* Later :REFILE:\nParent body\n** Existing\n* Other :REFILE:\n").await.unwrap();
+        f.workspace.repos[0].load::<WebDavSyncPolicy>().await.unwrap();
+        let group = someday_group(&f.workspace);
+        f.workspace.execute_task_operations(&group).await.unwrap();
+        assert_eq!(fs::read_to_string(f.root.join("tasks.org")).await.unwrap(), "");
+        assert_eq!(fs::read_to_string(f.root.join("someday.org")).await.unwrap(),
+            "* Later :REFILE:\nParent body\n** TODO [#A] Item :work:\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\nBody  \n*** TODO Child\nSCHEDULED: <2026-11-10 Tue>\n** Existing\n* Other :REFILE:\n");
+    }
+}
+
+#[tokio::test]
+async fn someday_group_rejects_target_todo_mismatch_without_publishing_modifications() {
+    let original = "* DONE Item\nSCHEDULED: <2026-11-08 Sun +1w>\n";
+    let target = "#+TODO: NEXT | FINISHED\n* Later :REFILE:\n";
+    let mut f = Fixture::new(original).await;
+    fs::write(f.root.join("someday.org"), target).await.unwrap();
+    f.workspace.repos[0].load::<WebDavSyncPolicy>().await.unwrap();
+    let snapshot = f.workspace.clone();
+    let group = someday_group(&f.workspace);
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(f.workspace, snapshot);
+    assert_eq!(fs::read_to_string(f.root.join("tasks.org")).await.unwrap(), original);
+    assert_eq!(fs::read_to_string(f.root.join("someday.org")).await.unwrap(), target);
+    assert!(f.workspace.repos()[0].pending_writes().await.unwrap().is_empty());
+}

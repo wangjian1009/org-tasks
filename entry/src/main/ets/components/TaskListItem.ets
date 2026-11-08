@@ -1,5 +1,5 @@
 import { CoreTask } from '../services/NativeCoreService'
-import { UiColor } from '../ui/Theme'
+import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText } from '../ui/TaskListPresentation'
@@ -15,7 +15,9 @@ export struct TaskListItem {
   @Prop enableCompletionState: boolean = true
   @Prop showDate: boolean = false
   @Prop showCategory: boolean = false
+  @Prop enableSwipeActions: boolean = false
   open: () => void = () => {}
+  swipe: (left: boolean) => void = () => {}
   @State expanded: boolean = false
   @State contentMounted: boolean = false
   @State contentHeight: number = 0
@@ -140,7 +142,7 @@ export struct TaskListItem {
           Text(this.task.category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         }
-      }.layoutWeight(1).constraintSize({ minHeight: 44 }).justifyContent(FlexAlign.Center)
+      }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Start)
         .onClick((): void => { this.toggle() })
       if (titleCounts(this.task.headingParts).length > 0) {
@@ -155,7 +157,7 @@ export struct TaskListItem {
           .width(this.layout().durationWidth).flexShrink(0).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           .accessibilityText(`持续 ${this.duration()} 天`)
       }
-    }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 44 }).alignItems(VerticalAlign.Center)
+    }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
       .accessibilityText(`${taskTitleText(this.task)}，点击展开`)
   }
 
@@ -237,14 +239,15 @@ export struct TaskListItem {
       }
       if (this.task.bodyHtml.trim().length > 0) {
         OrgContentView({ fragment: this.task.bodyHtml, embedded: true,
-          contentBackground: UiColor.taskCard, embeddedPadding: 0 }).width('100%')
+          contentBackground: UiColor.taskCard, embeddedPadding: 0, horizontalParentFirst: this.enableSwipeActions,
+          horizontalSwipe: (left: boolean): void => { this.swipe(left) } }).width('100%')
       }
       if (this.task.scheduled.length > 0) {
         Row() {
           this.scheduledInfo()
           Blank().layoutWeight(1)
           if (this.task.deadline.length === 0) { this.detailsButton() }
-        }.width('100%').constraintSize({ minHeight: 44 })
+        }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
       }
       if (this.task.deadline.length > 0) {
         Row({ space: 6 }) {
@@ -258,7 +261,7 @@ export struct TaskListItem {
             }
           }.layoutWeight(1)
           this.detailsButton()
-        }.width('100%').constraintSize({ minHeight: 44 })
+        }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
       } else if (this.task.scheduled.length === 0) {
         Row() { Blank().layoutWeight(1); this.detailsButton() }.width('100%')
       }

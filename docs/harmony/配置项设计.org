@@ -203,3 +203,7 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 * 收件箱整理目标
 
 收件箱托盘的普通目标来自 Core REFILE 快照，分类来自所在文件 CATEGORY，不新增 Preferences 字段。托盘的“备忘”直接使用已配置的 ~memoRepoId~ 与 ~memoFile~ ，提交前检查仓库、路径和忽略状态；失效时提示重新选择，不回退到其他文件。成功移动到备忘文件顶部，并清除根条目的任务状态、优先级及 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息，保留正文、标签、 ~CREATED~ 等属性和子条目。托盘选中项、高度与目标列表只保存在当前页面内存中，不持久化。
+
+* 将来，也许快捷入口
+
+移动托盘的“将来，也许”复用现有 ~somedayRepoId~ 与 ~somedayFile~ ，不新增文件选择或 Preferences 字段。该文件与当前收件箱一起通过 ~RefileTargetQuery.excludedFiles~ 在 Core 生成 CATEGORY 前排除；其 REFILE 标题不形成普通 Tab。快捷入口使用 ~files~ 单独查询所选文件，移动到首个 REFILE 节点的第一个子节点，清除根任务规划信息并设置 TODO。配置失效或 TODO 不被目标文件接受时明确提示，不能回退到首个仓库或其他同名文件。

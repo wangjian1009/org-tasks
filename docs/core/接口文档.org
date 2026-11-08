@@ -653,3 +653,9 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 
 ~sync_history_detail(history, sync_id) -> Result<WebDavSyncRecordDetail, CoreError>~ 读取指定历史的统一同步详情，返回摘要、逐文件结果与已有错误信息。缺失的错误详情保持为空，找不到同步 ID 时返回错误。所有文件路径均相对仓库，不返回成功文件的源内容、ETag、版本哈希或凭据。接口只读取现有日志，不扩展持久化格式。
+
+* 放置目标的具体文件范围
+
+~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 读取已加载仓库的 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ 。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
+
+设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在源文件配置中验证，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。

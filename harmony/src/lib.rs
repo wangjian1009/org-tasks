@@ -397,8 +397,8 @@ pub extern "C" fn org_tasks_harmony_normalize_sync_options(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_refile_targets(handle: u64) -> *mut c_char {
-    string_result(bridge::workspace_refile_targets_json(handle))
+pub extern "C" fn org_tasks_harmony_workspace_refile_targets(handle: u64, query_json: *const c_char) -> *mut c_char {
+    string_result(read_c_string(query_json).and_then(|query| bridge::workspace_refile_targets_json(handle, query)))
 }
 
 #[unsafe(no_mangle)]

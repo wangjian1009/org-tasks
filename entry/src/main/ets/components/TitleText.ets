@@ -4,13 +4,13 @@ import { ExternalLinkService, MapAppChoice } from '../services/ExternalLinkServi
 import { MapAppSheet } from './MapAppSheet'
 import { TitleCountBadge } from './TitleCountBadge'
 import { titleCounts } from '../ui/TitleCountPresentation'
-import { UiColor } from '../ui/Theme'
+import { UiColor, UiSize } from '../ui/Theme'
 
 @Component
 export struct TitleText {
   @Prop text: string = ''
   @Prop parts: CoreTitlePart[] = []
-  @Prop textSize: number = 16
+  @Prop textSize: number = UiSize.taskFont
   @Prop weight: FontWeight = FontWeight.Normal
   @Prop lineLimit: number = 0
   @Prop cancelled: boolean = false

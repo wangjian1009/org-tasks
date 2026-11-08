@@ -302,9 +302,9 @@ interface TitleCount {
 
 * 收件箱目标与任务整理
 
-~Workspace.refileTargets(): Promise<RefileTarget[]>~ 继续返回 REFILE 目标，增加由 Core 生成的 ~fullPath~ ，保留 category 与 fileVersion。每个 Task 增加 ~taskId: string | null~ 、 ~fullPath: TaskPath~ 和 ~fileVersion~ ；仓库和文件也提供完整路径。新的 ~Workspace.executeTaskOperations(group)~ 是唯一任务写入入口。
+~Workspace.refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>~ 继续返回 REFILE 目标，增加由 Core 生成的 ~fullPath~ ，保留 category 与 fileVersion。每个 Task 增加 ~taskId: string | null~ 、 ~fullPath: TaskPath~ 和 ~fileVersion~ ；仓库和文件也提供完整路径。新的 ~Workspace.executeTaskOperations(group)~ 是唯一任务写入入口。
 
-~InboxService~ 将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID。普通移动提交 Movement，目标 parent 使用放置目标 fullPath；备忘先以 Modification 清除 TODO、优先级、SCHEDULE、DEADLINE、CLOSED，再以 Movement 移入配置的备忘文件；删除提交 Deletion。源、目标可携带文件版本，失败保留当前托盘与用户选择。
+~InboxService~ 将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID。普通移动提交 Movement，目标 parent 使用放置目标 fullPath；备忘先以 Modification 清除 TODO、优先级、SCHEDULE、DEADLINE、CLOSED，再以 Movement 移入配置的备忘文件；删除提交 Deletion。源、目标可携带文件版本，将来，也许先以 Modification 设置 TODO 并清除 SCHEDULE、DEADLINE、CLOSED，再以 Movement 移到所配置某天文件中的首个 REFILE 标题。源与所选放置目标携带文件版本；失败保留当前浮层与用户选择。
 
 * Query 文件引用与创建日期扩展
 
@@ -317,3 +317,9 @@ interface TitleCount {
 ~Repo.historyDetail(syncId)~ 在工作线程重新加载所选仓库的历史，返回 ~SyncRecordDetail~ 的 ~summary~ 、 ~files~ 和 ~errors~ 。 ~files~ 中每项仅含 ~path~ 和 ~outcome~ ；结果枚举为 ~unchanged~ 、 ~downloaded~ 、 ~uploaded~ 、 ~created~ 、 ~deleted~ 、 ~conflict~ 、 ~resolved~ 、 ~failed~ 或 ~skipped~ 。 ~errors~ 中每项只含关联的相对 ~path~ 与原记录已有的 ~message~ 。JSON 编组仍位于 bridge 内部，C++ 通过原有 async work 生命周期完整透传， ~CoreRepo.historyDetail~ 不解释文件状态。
 
 路由仅传配置仓库 ID 与同步 ID，详情页重新取得当前投影；不存在的仓库或历史应明确失败，不能退回其他记录。摘要不包含源内容快照，正常、冲突和失败记录均使用同一个同步详情接口。
+
+* 配置文件范围与将来，也许快捷移动
+
+~RefileTargetQuery~ 含 ~files?: OrgFileRef[]~ 与 ~excludedFiles?: OrgFileRef[]~ ，经 C++ 原有工作线程和 Rust bridge 透传 Core。普通目标请求在生成 CATEGORY 前排除已配置的收件箱与某天两个具体文件；将来，也许入口单独通过 ~files~ 查询某天文件，使用 Core 返回的第一个 REFILE 目标。配置仓库 ID 必须先映射到实际 Core 仓库 ID，不按路径跨仓库排除，也不在 ArkTS 过滤目标结果。
+
+快捷移动提交通用目标选项 ~todoState: 'TODO'~ 与 ~clearPlanning: true~ ，Core 验证目标状态并保真改写根标题、清理规划信息。目标文件未配置、失效、被忽略或没有 REFILE 时不回退到其他文件，不新建文件；缺少 TODO 状态时拒绝提交。备忘转换和普通移动沿用原有选项。

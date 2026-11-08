@@ -1,11 +1,34 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
-    LocalFileVersion, OrgRepo, OrgRepoId, OrgWorkspace, SourcePosition, editor::position_at,
+    LocalFileVersion, OrgFileRef, OrgRepo, OrgRepoId, OrgWorkspace, SourcePosition,
+    editor::position_at,
 };
 
 pub(crate) const REFILE_TAG: &str = "REFILE";
 pub(crate) const ARCHIVE_TAG: &str = "ARCHIVE";
+
+/// 文件范围在遍历目标与读取 CATEGORY 前求值。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct RefileTargetQuery {
+    pub files: Vec<OrgFileRef>,
+    pub excluded_files: Vec<OrgFileRef>,
+}
+
+impl RefileTargetQuery {
+    fn includes(&self, repo_id: &str, path: &str) -> bool {
+        (self.files.is_empty()
+            || self
+                .files
+                .iter()
+                .any(|file| file.repo_id == repo_id && file.path == path))
+            && !self
+                .excluded_files
+                .iter()
+                .any(|file| file.repo_id == repo_id && file.path == path)
+    }
+}
 
 /// 当前文件快照中显式标记为可放置任务的标题，不是持久化实体。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -36,8 +59,18 @@ impl RefileTarget {
 impl OrgRepo {
     /// 遍历完整已加载文件；任务查询条件及任务扫描忽略规则不限制放置目标。
     pub fn refile_targets(&self) -> Vec<RefileTarget> {
+        self.refile_targets_in(&RefileTargetQuery::default())
+    }
+
+    fn refile_targets_in(&self, query: &RefileTargetQuery) -> Vec<RefileTarget> {
         let mut targets = Vec::new();
-        for file in self.files() {
+        for file in self
+            .files()
+            .iter()
+            .filter(|file| query.includes(&self.id, &file.path))
+        {
+            let category = file.category();
+            let file_version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
             let mut ancestors: Vec<(usize, String)> = Vec::new();
             for (full_path, headline) in file.path_headlines() {
                 let level = headline.level();
@@ -50,9 +83,8 @@ impl OrgRepo {
                     targets.push(RefileTarget {
                         repo_id: self.id.clone(),
                         full_path,
-                        category: file.category(),
-                        file_version: LocalFileVersion::from_bytes(file.source_bytes())
-                            .content_hash,
+                        category: category.clone(),
+                        file_version: file_version.clone(),
                         path: file.path.clone(),
                         heading_path: ancestors.iter().map(|(_, title)| title.clone()).collect(),
                         position: position_at(
@@ -71,13 +103,27 @@ impl OrgRepo {
 impl OrgWorkspace {
     /// 汇总已加载仓库中的所有显式 REFILE 标题，不重新读取磁盘。
     pub fn refile_targets(&self) -> Vec<RefileTarget> {
+        self.query_refile_targets(&RefileTargetQuery::default())
+            .expect("默认目标范围有效")
+    }
+
+    pub fn query_refile_targets(
+        &self,
+        query: &RefileTargetQuery,
+    ) -> Result<Vec<RefileTarget>, crate::CoreError> {
+        for file in query.files.iter().chain(&query.excluded_files) {
+            super::validate_relative_path(&file.path)?;
+            if file.repo_id.is_empty() {
+                return Err(crate::CoreError::InvalidInput("目标文件的仓库 ID 不能为空"));
+            }
+        }
         let mut targets = self
             .repos()
             .iter()
-            .flat_map(OrgRepo::refile_targets)
+            .flat_map(|repo| repo.refile_targets_in(query))
             .collect::<Vec<_>>();
         sort_targets(&mut targets);
-        targets
+        Ok(targets)
     }
 }
 

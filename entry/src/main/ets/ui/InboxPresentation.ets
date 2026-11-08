@@ -1,4 +1,5 @@
 import { CoreRefileTarget, CoreTask } from '../services/NativeCoreService'
+import { UiSize } from './Theme'
 
 export interface RefileSection { category: string; targets: CoreRefileTarget[] }
 
@@ -44,4 +45,14 @@ export function recentDays(tasks: CoreTask[], reference: Date = new Date()): Rec
 
 export function unplannedSpacer(viewHeight: number, rowsHeight: number): number {
   return Math.max(48, viewHeight * 0.75 - rowsHeight)
+}
+
+// 以最多目标的分类计算高度，最多显示四行；小窗口为锚点和系统栏留出空间。
+export function targetPopupHeight(sections: RefileSection[], availableHeight: number,
+  loading: boolean = false, message: string = '', busy: boolean = false): number {
+  let count = 0
+  for (const section of sections) count = Math.max(count, section.targets.length)
+  const body = loading ? 64 : count > 0 ? 40 + 8 + Math.min(4, count) * UiSize.taskRow : 80
+  const height = 48 + 1 + 8 + body + (message ? 124 : 0) + (busy ? 40 : 0)
+  return Math.min(height, Math.max(160, availableHeight - 104))
 }

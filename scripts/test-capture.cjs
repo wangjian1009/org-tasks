@@ -97,11 +97,15 @@ function fixture() {
         assert.deepEqual(repos.map(repo => repo.id), [selected.id]);
         return {
           async fileMetadata() { reads++; return fileLists.get(selected.id) || []; },
-          async createTask(file, task, queueUpload, insertAtTop) {
-            assert.equal(queueUpload, selected.webdavEnabled);
-            calls.push([config.repos, selected, file, task, config.todoDefaults, insertAtTop]);
+          id: 'core-' + selected.id,
+          async file(path) {
+            return { fullPath: { repoId: 'core-' + selected.id, file: path, titles: [] },
+              fileVersion: 'version-' + selected.id, todo: { initialState: 'TODO' } };
           }
         };
+      },
+      async executeTaskOperations(repos, group, todoDefaults) {
+        calls.push({ repos, group, todoDefaults });
       },
       async queryTasks(repos, query) {
         queries.push({ repos, query });
@@ -154,7 +158,7 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   assert.deepEqual(f.queries[0].repos.map(repo => repo.id), ['work']);
   assert.equal(f.queries[0].query.expression, 'b."inbox.org"');
   await f.CaptureService.save({}, '标题');
-  assert.equal(f.calls[0][1].id, 'work');
+  assert.deepEqual(f.calls[0].group.operations[0].data.position.parent, { repoId: 'core-work', file: 'inbox.org', titles: [] });
   await f.FileTargetService.select({}, 'someday', 'work', 'inbox.org');
   await f.FileTargetService.query(f.config, 'someday');
   assert.equal(f.queries[1].query.includeDone, false);
@@ -198,11 +202,12 @@ test('保存提交标题并请求记录创建时间，使用配置 inbox 与既�
   f.config.inboxFile = 'notes/inbox.org';
   await f.CaptureService.save({}, '  周五前交报销  ');
   assert.equal(f.calls.length, 1);
-  assert.equal(f.calls[0][2], 'notes/inbox.org');
-  assert.deepEqual(f.calls[0][3], { heading: '周五前交报销', scheduled: '', deadline: '', tags: [], priority: '', recordCreated: true });
-  assert.equal(f.calls[0][1].id, 'personal');
-  assert.equal(f.calls[0][4], '#+TODO: TODO | DONE');
-  assert.equal(f.calls[0][5], true, '快速捕捉必须请求文件顶部插入');
+  assert.deepEqual(f.calls[0], { repos: f.config.repos, group: {
+    operations: [{ type: 'Creation', data: { position: { parent: { repoId: 'core-personal', file: 'notes/inbox.org', titles: [] } },
+      title: '周五前交报销', state: 'TODO', recordCreated: true } }],
+    queueRepoIds: ['core-personal'],
+    fileVersions: [{ repoId: 'core-personal', file: 'notes/inbox.org', version: 'version-personal' }]
+  }, todoDefaults: '#+TODO: TODO | DONE' });
 });
 
 test('缺少标题、收件箱或明确目标时不调用写入', async () => {
@@ -214,7 +219,7 @@ test('缺少标题、收件箱或明确目标时不调用写入', async () => {
   f.config.repos.push(repository('work'));
   await f.CaptureService.save({}, '标题');
   assert.equal(f.calls.length, 1);
-  assert.equal(f.calls[0][1].id, 'personal');
+  assert.equal(f.calls[0].group.operations[0].data.position.parent.repoId, 'core-personal');
 });
 
 test('多入口草稿并发更新保留不同标题，清理后不恢复已提交内容', async () => {

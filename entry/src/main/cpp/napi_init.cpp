@@ -26,7 +26,7 @@ extern "C" char* org_tasks_harmony_repo_full_path(uint64_t handle, const char* r
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
-extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle);
+extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle, const char* query_json);
 extern "C" char* org_tasks_harmony_workspace_execute_task_operations(uint64_t handle, const char* request);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
@@ -430,7 +430,7 @@ void ExecuteWorkspaceString(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
     if (work->refile_targets) {
-        work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle));
+        work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle, work->expression.c_str()));
     } else if (work->execute_operations) {
         work->response = TakeRustString(org_tasks_harmony_workspace_execute_task_operations(work->handle, work->expression.c_str()));
     } else if (work->default_todo_settings) {
@@ -932,9 +932,18 @@ napi_value NormalizeSyncOptions(napi_env env, napi_callback_info info)
 
 napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
 {
-    WorkspaceWrap* workspace = nullptr; napi_value self;
-    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
+    WorkspaceWrap* workspace = nullptr; napi_value self; size_t argc = 2; napi_value args[2] = {nullptr, nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc > 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "Workspace.refileTargets 参数无效"); return nullptr;
+    }
     auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->refile_targets = true;
+    work->expression = "{}";
+    napi_valuetype query_type = napi_undefined;
+    if (argc == 1 && (napi_typeof(env, args[0], &query_type) != napi_ok ||
+        (query_type != napi_undefined && !EncodeJson(env, args[0], &work->expression)))) {
+        delete work; napi_throw_error(env, nullptr, "放置目标查询参数无效"); return nullptr;
+    }
     return QueueWorkspaceString(env, work, "OrgTasksRefileTargets", self);
 }
 

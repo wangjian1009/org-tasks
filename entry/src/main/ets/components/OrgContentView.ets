@@ -12,10 +12,12 @@ export struct OrgContentView {
   @Prop fragment: string = ''
   @Prop empty: boolean = false
   @Prop embedded: boolean = false
+  @Prop horizontalParentFirst: boolean = false
   @Prop @Watch('backgroundChanged') contentBackground: string = UiColor.surface
   @Prop embeddedPadding: number = 16
   controller: webview.WebviewController = new webview.WebviewController()
   activate: (() => void) | undefined = undefined
+  horizontalSwipe: (left: boolean) => void = () => {}
   private tapX: number = 0
   private tapY: number = 0
   private tapTime: number = 0
@@ -104,7 +106,9 @@ export struct OrgContentView {
       Web({ src: 'about:blank', controller: this.controller })
         .width('100%').height(this.embedded ? this.contentHeight : '100%').backgroundColor(this.contentBackground)
         .nestedScroll({ scrollUp: this.embedded ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_ONLY,
-          scrollDown: this.embedded ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_ONLY })
+          scrollDown: this.embedded ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_ONLY,
+          scrollLeft: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST,
+          scrollRight: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST })
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
           const href = request.getRequestUrl()
@@ -124,6 +128,12 @@ export struct OrgContentView {
             this.tapX = point.x; this.tapY = point.y; this.tapTime = Date.now(); this.tapMoved = false
           }
           if (point && event.type === TouchType.Move && Math.abs(point.x - this.tapX) + Math.abs(point.y - this.tapY) > 10) this.tapMoved = true
+          if (event.type === TouchType.Up && point && this.horizontalParentFirst
+            && Math.abs(point.x - this.tapX) > 40
+            && Math.abs(point.x - this.tapX) > Math.abs(point.y - this.tapY) * 1.5) {
+            // Web 会消费横向手势；转交条目原生侧滑菜单，不把拖动当成链接点击。
+            this.horizontalSwipe(point.x < this.tapX)
+          }
           if (event.type === TouchType.Up && this.embedded) {
             setTimeout(() => { this.measure() }, 100)
             if (point && !this.tapMoved && Date.now() - this.tapTime < 500) this.activateAt(point.x, point.y)

@@ -939,3 +939,25 @@ pub struct TaskOperationResult {
 \end{tikzpicture}
 
 既有历史格式保持原样，包括值为 ~null~ 的 ~WebDavSyncContextDetail~ 。文件级错误消息缺失或列举失败没有文件记录时，摘要中的错误消息为空，宿主使用已有结果或错误分类生成合理标题，不补造数量与错误原因，不增加持久化字段或改写旧记录。
+
+* 放置目标查询范围
+
+~RefileTargetQuery~ 是运行时文件范围，使用与通用查询一致的 ~OrgFileRef~ 定位文件，不保存到配置或同步记录。 ~files~ 为空时读取所有文件，否则只读取指定集合； ~excluded_files~ 优先排除。 根任务的状态设置和规划信息清理通过 ~TaskModificationOperation~ 与 ~TaskMovement~ 组合，不持有某天页面的专属规则。
+
+#+begin_src rust
+pub struct RefileTargetQuery {
+    pub files: Vec<OrgFileRef>,
+    pub excluded_files: Vec<OrgFileRef>,
+}
+#+end_src
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{RefileTargetQuery}{files: Vec\textless OrgFileRef\textgreater \\
+excluded\_files: Vec\textless OrgFileRef\textgreater}{}
+\umlclass[x=7,y=0]{OrgFileRef}{repo\_id: OrgRepoId \\
+path: String}{}
+\umluniassoc{RefileTargetQuery}{OrgFileRef}
+\end{tikzpicture}
+\end{center}

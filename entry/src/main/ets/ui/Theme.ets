@@ -28,6 +28,8 @@ export class UiColor {
 }
 
 export class UiSize {
+  static readonly taskFont: number = 16
+  static readonly taskRow: number = 44
   static readonly drawerFont: number = 16
   static readonly drawerRow: number = 44
   static readonly drawerIcon: number = 22

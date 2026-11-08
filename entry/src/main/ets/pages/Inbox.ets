@@ -4,10 +4,10 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
-import { InboxTargetTray } from '../components/InboxTargetTray'
+import { InboxTargetPopup } from '../components/InboxTargetPopup'
+import { InboxSwipeActions } from '../components/InboxSwipeActions'
 import { InboxService, InboxAction } from '../services/InboxService'
-import { RefileSection, RecentDay, refileSections, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
-import { InboxListItem } from '../components/InboxListItem'
+import { RefileSection, RecentDay, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
 import { FileTargetService } from '../services/FileTargetService'
@@ -33,131 +33,147 @@ struct Inbox {
   @State selected: CoreTask | undefined = undefined
   @State targetSections: RefileSection[] = []
   @State targetsLoading: boolean = false
-  @State trayMessage: string = ''
-  @State trayBusy: boolean = false
-  @State trayHeight: number = 0
-  private contentHeight: number = 760
+  @State popupMessage: string = ''
+  @State actionBusy: boolean = false
+  @State popupWidth: number = 350
   @State listHeight: number = 0
   private refreshTimer: number = -1
   private visible: boolean = true
-  private expandedTray: boolean = false
   private targetRequest: number = 0
-  private trayGeneration: number = 0
-  private revealUntil: number = 0
-  private revealTimer: number = -1
-  private listScroller: Scroller = new Scroller()
+  private actionTimer: number = -1
+  private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()
   private requestId: number = 0
   private captureFocusTimer: number = -1
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
   onPageShow() { this.visible = true; this.loadRecords() }
-  onPageHide() { this.visible = false; clearTimeout(this.refreshTimer) }
+  onPageHide() { this.visible = false; clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); this.closeTargetPopup() }
   aboutToDisappear() {
     clearTimeout(this.captureFocusTimer)
+    clearTimeout(this.actionTimer)
     this.visible = false
     clearTimeout(this.refreshTimer)
-    clearTimeout(this.revealTimer)
     ++this.targetRequest
     if (this.captureOpen) this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
   }
 
   onBackPress(): boolean {
     if (this.captureOpen) { this.closeCapture(); return true }
-    if (this.selected) { this.closeTray(); return true }
+    if (this.selected) { this.closeTargetPopup(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
   }
 
-  drawerChanged() { if (this.drawerOpen) this.closeTray() }
-
-  revealSelected() {
-    if (!this.selected || Date.now() > this.revealUntil) return
-    clearTimeout(this.revealTimer)
-    this.revealTimer = setTimeout((): void => {
-      if (!this.selected) return
-      const index = this.records.findIndex((record: CoreTask) => record.id === this.selected?.id)
-      if (index < 0) return
-      const height = this.rowHeights.get(this.selected.id) || 80
-      this.listScroller.scrollToIndex(index, false, height > this.listHeight - 32 ? ScrollAlign.START : ScrollAlign.AUTO)
-    }, 0)
-  }
-
-  resizeTray(expanded: boolean) {
-    if (this.trayBusy) return
-    this.expandedTray = expanded
-    this.revealUntil = Date.now() + 800
-    const height = Math.max(160, Math.min(expanded ? 540 : 420, this.contentHeight - 176))
-    this.getUIContext().animateTo({ duration: 260, curve: Curve.EaseInOut }, (): void => { this.trayHeight = height })
-    this.revealSelected()
-  }
+  drawerChanged() { if (this.drawerOpen) this.closeTargetPopup() }
 
   selectRecord(record: CoreTask) {
-    if (this.trayBusy || this.drawerOpen || this.captureOpen) return
-    if (this.selected?.id === record.id && this.trayHeight > 0) return
-    ++this.trayGeneration
+    if (this.actionBusy || this.drawerOpen || this.captureOpen) return
     this.selected = record
-    this.trayMessage = ''
-    this.resizeTray(this.expandedTray)
+    this.popupMessage = ''
     this.loadTargets()
   }
 
-  closeTray() {
-    if (this.trayBusy) return
-    const generation = ++this.trayGeneration
+  closeTargetPopup() {
+    if (this.actionBusy) return
     ++this.targetRequest
-    this.revealUntil = 0
-    this.getUIContext().animateTo({ duration: 260, curve: Curve.EaseInOut,
-      onFinish: (): void => {
-        if (generation === this.trayGeneration) {
-          this.selected = undefined
-          this.targetSections = []
-          this.expandedTray = false
-        }
-      } }, (): void => { this.trayHeight = 0 })
+    this.selected = undefined
+    this.targetSections = []
+    this.popupMessage = ''
+    this.targetsLoading = false
+  }
+
+  swipeAction(record: CoreTask, action: InboxAction) {
+    if (this.actionBusy || this.drawerOpen || this.captureOpen) return
+    const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
+    if (node) ListItemSwipeActionManager.collapse(node)
+    this.listScroller.closeAllSwipeActions()
+    clearTimeout(this.actionTimer)
+    // 正文触发的程序化侧滑不会触发 ListScroller 的完成回调，待归位后再锚定浮层。
+    this.actionTimer = setTimeout((): void => {
+      if (!this.visible) return
+      if (action === 'move') this.selectRecord(record)
+      else if (action === 'delete') this.confirmDelete(record)
+      else this.perform(action, undefined, record)
+    }, 260)
+  }
+
+  swipeRecord(record: CoreTask, left: boolean) {
+    if (this.actionBusy || this.selected || this.drawerOpen || this.captureOpen) return
+    const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
+    if (!node) return
+    if (left) ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
+    else ListItemSwipeActionManager.collapse(node)
+  }
+
+  @Builder
+  swipeMenu(record: CoreTask) {
+    InboxSwipeActions({ busy: this.actionBusy,
+      move: (): void => { this.swipeAction(record, 'move') },
+      someday: (): void => { this.swipeAction(record, 'someday') },
+      memo: (): void => { this.swipeAction(record, 'memo') },
+      remove: (): void => { this.swipeAction(record, 'delete') } })
+  }
+
+  @Builder
+  targetPopup() {
+    InboxTargetPopup({ sections: this.targetSections,
+      selectionKey: this.selected ? JSON.stringify(this.selected.fullPath) : '',
+      loading: this.targetsLoading, busy: this.actionBusy, message: this.popupMessage,
+      choose: (target: CoreRefileTarget): void => { this.perform('move', target) },
+      retry: (): void => { this.loadRecords() } })
+      .width(this.popupWidth)
+      .height(targetPopupHeight(this.targetSections, this.listHeight, this.targetsLoading, this.popupMessage, this.actionBusy))
   }
 
   async loadTargets() {
-    if (!this.selected || this.trayBusy) return
+    if (!this.selected || this.actionBusy) return
     const request = ++this.targetRequest
     this.targetsLoading = true
-    this.trayMessage = ''
+    this.popupMessage = ''
     try {
       const targets = await InboxService.targets(this.getUIContext().getHostContext()!)
-      if (request === this.targetRequest) this.targetSections = refileSections(targets)
+      if (request === this.targetRequest) {
+        this.targetSections = refileSections(targets.targets)
+      }
     } catch (e) {
-      if (request === this.targetRequest) { this.targetSections = []; this.trayMessage = coreErrorMessage(e as CoreBridgeError) }
+      if (request === this.targetRequest) {
+        this.targetSections = []
+        this.popupMessage = coreErrorMessage(e as CoreBridgeError)
+      }
     } finally {
       if (request === this.targetRequest) this.targetsLoading = false
     }
   }
 
-  confirmDelete() {
-    if (!this.selected || this.trayBusy) return
-    this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${this.selected.heading}”及其子记录将从文件中删除。`,
+  confirmDelete(record: CoreTask) {
+    if (this.actionBusy) return
+    this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${record.heading}”及其子记录将从文件中删除。`,
       primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '删除', action: (): void => { this.perform('delete') } } })
+      secondaryButton: { value: '删除', action: (): void => { this.perform('delete', undefined, record) } } })
   }
 
-  async perform(action: InboxAction, target?: CoreRefileTarget) {
-    if (!this.selected || this.trayBusy || this.trayHeight <= 0) return
-    const selected = this.selected
-    this.trayBusy = true
-    this.trayMessage = ''
+  async perform(action: InboxAction, target?: CoreRefileTarget, record?: CoreTask) {
+    const selected = record || this.selected
+    if (!selected || this.actionBusy) return
+    this.actionBusy = true
+    this.popupMessage = ''
     ++this.targetRequest
     this.targetsLoading = false
     try {
       await InboxService.perform(this.getUIContext().getHostContext()!, selected, action, target)
-      this.trayBusy = false
-      this.closeTray()
+      this.actionBusy = false
+      this.closeTargetPopup()
       await this.loadRecords()
     } catch (e) {
-      this.trayMessage = coreErrorMessage(e as CoreBridgeError)
-    } finally { this.trayBusy = false }
+      const message = coreErrorMessage(e as CoreBridgeError)
+      if (this.selected) this.popupMessage = message
+      else this.getUIContext().getPromptAction().showToast({ message, duration: 3000 })
+    } finally { this.actionBusy = false }
   }
 
   capture() {
-    if (this.captureOpen || this.drawerOpen) return
+    if (this.captureOpen || this.drawerOpen || this.actionBusy) return
     this.keyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
     this.captureMessage = ''
@@ -254,21 +270,21 @@ struct Inbox {
       const result = await FileTargetService.query(config, 'inbox')
       if (request !== this.requestId) return
       if (!result) {
-        this.closeTray()
+        this.closeTargetPopup()
         this.needsConfiguration = true
         this.records = []
         return
       }
       this.records = result.tasks
       this.measureRows()
-      if (this.selected && this.trayHeight > 0) {
+      if (this.selected) {
         const selected = this.records.find((record: CoreTask) => record.id === this.selected?.id)
-        if (!selected) this.closeTray()
+        if (!selected) this.closeTargetPopup()
         else { this.selected = selected; this.loadTargets() }
       }
     } catch (e) {
       if (request === this.requestId) {
-        this.closeTray()
+        this.closeTargetPopup()
         this.records = []
         this.message = `读取收件箱失败：${coreErrorMessage(e as CoreBridgeError)}`
       }
@@ -282,7 +298,7 @@ struct Inbox {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, pullToSync: true, busy: this.trayBusy }) {
+      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, pullToSync: true, busy: this.actionBusy }) {
         Column() {
           if (this.loading && this.recentGroups.length === 0) {
             EmptyState({ title: '正在读取收件箱', busy: true })
@@ -307,15 +323,28 @@ struct Inbox {
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
                   Row() {
-                    InboxListItem({ record, selected: this.selected?.id === record.id,
-                      open: (): void => { this.selectRecord(record) } })
+                    TaskListItem({ task: record, enableSwipeActions: true,
+                      swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
+                      this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
+                    } })
                   }.width('100%').padding({ left: 12, right: 12 })
+                    .backgroundColor(this.selected?.id === record.id ? '#323D3A' : Color.Transparent)
+                    .borderRadius(12).border({ width: this.selected?.id === record.id ? 1 : 0, color: UiColor.primary })
+                    .bindPopup(this.selected?.id === record.id, {
+                      builder: this.targetPopup, placement: Placement.Bottom, targetSpace: 10,
+                      enableArrow: false, width: this.popupWidth, radius: 16,
+                      popupColor: '#363A38', backgroundBlurStyle: BlurStyle.NONE,
+                      mask: { color: '#2E000000' }, autoCancel: !this.actionBusy,
+                      onWillDismiss: !this.actionBusy, focusable: true,
+                      onStateChange: (event): void => {
+                        if (!event.isVisible && this.selected?.id === record.id) this.closeTargetPopup()
+                      }
+                    })
                     .onAreaChange((oldArea: Area, newArea: Area): void => {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
-                      if (this.selected?.id === record.id) this.revealSelected()
                     })
-                }
+                }.id(`inbox_record_${record.id}`).swipeAction({ end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None })
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
@@ -350,33 +379,16 @@ struct Inbox {
                     .onClick((): void => { this.loadRecords() })
                 }
               }
-              ListItem() { Column().height(this.selected ? 16 : 104) }
+              ListItem() { Column().height(104) }
             }.width('100%').layoutWeight(1)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
-                this.listHeight = parseFloat(newArea.height.toString()); this.revealSelected()
+                this.listHeight = parseFloat(newArea.height.toString())
+                this.popupWidth = Math.min(350, Math.max(0, parseFloat(newArea.width.toString()) - 40))
               })
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)
           }
-          if (this.selected && !this.drawerOpen) {
-            InboxTargetTray({ sections: this.targetSections, selectionKey: this.selected ? JSON.stringify(this.selected.fullPath) : '', loading: this.targetsLoading,
-              busy: this.trayBusy || this.trayHeight === 0, message: this.trayMessage,
-              choose: (target: CoreRefileTarget): void => { this.perform('move', target) },
-              memo: (): void => { this.perform('memo') }, remove: (): void => { this.confirmDelete() },
-              edit: (): void => {
-                if (!this.selected || this.trayBusy) return
-                const task = this.selected
-                this.closeTray()
-                this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
-              },
-              retry: (): void => { this.loadRecords() },
-              expand: (): void => { this.resizeTray(true) },
-              collapse: (): void => { if (this.expandedTray) this.resizeTray(false); else this.closeTray() } })
-              .height(this.trayHeight).width('100%').flexShrink(0).clip(true)
-          }
-        }.width('100%').height('100%').onAreaChange((oldArea: Area, newArea: Area): void => {
-          this.contentHeight = Number(newArea.height)
-        })
+        }.width('100%').height('100%')
       }
       if (!this.drawerOpen && !this.captureOpen && !this.selected) {
         Button({ type: ButtonType.Circle }) {

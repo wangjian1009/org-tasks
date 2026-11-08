@@ -197,3 +197,67 @@ fn targets_read_the_current_tree_after_edits_without_reusing_stale_positions() {
     assert!(current[1].position.byte_offset > old[0].position.byte_offset);
     assert_eq!(old[0].position.line, 1);
 }
+
+#[test]
+fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files() {
+    use org_tasks_core::RefileTargetQuery;
+    let source = "#+CATEGORY: Hidden\n* First :REFILE:\n* Second :REFILE:\n";
+    let w = OrgWorkspace::new(vec![
+        repo(
+            "a",
+            &[
+                ("inbox.org", source),
+                ("someday.org", source),
+                ("normal.org", "#+CATEGORY: Work\n* Normal :REFILE:\n"),
+            ],
+        ),
+        repo(
+            "b",
+            &[("someday.org", "#+CATEGORY: Peer\n* Peer :REFILE:\n")],
+        ),
+    ])
+    .unwrap();
+    let query = RefileTargetQuery {
+        files: vec![],
+        excluded_files: vec![
+            OrgFileRef {
+                repo_id: "a".into(),
+                path: "inbox.org".into(),
+            },
+            OrgFileRef {
+                repo_id: "a".into(),
+                path: "someday.org".into(),
+            },
+        ],
+    };
+    let targets = w.query_refile_targets(&query).unwrap();
+    assert_eq!(
+        targets
+            .iter()
+            .map(|target| target.category.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("Work"), Some("Peer")]
+    );
+    let shortcut = w
+        .query_refile_targets(&RefileTargetQuery {
+            files: vec![OrgFileRef {
+                repo_id: "a".into(),
+                path: "someday.org".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(shortcut.len(), 2);
+    assert_eq!(shortcut[0].heading_path, ["First"]);
+    assert!(shortcut[0].position.byte_offset < shortcut[1].position.byte_offset);
+    assert!(
+        w.query_refile_targets(&RefileTargetQuery {
+            excluded_files: vec![OrgFileRef {
+                repo_id: "a".into(),
+                path: "../escape.org".into()
+            }],
+            ..Default::default()
+        })
+        .is_err()
+    );
+}

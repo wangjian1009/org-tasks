@@ -944,6 +944,42 @@ mod tests {
     }
 
     #[test]
+    fn scoped_refile_query_and_someday_edit_options_cross_bridge() {
+        let root = std::env::temp_dir().join(format!("org-someday-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("inbox.org"), "#+CATEGORY: InboxOnly\n* DONE Move me\nSCHEDULED: <2026-11-08 Sun> DEADLINE: <2026-11-09 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\n* Inbox :REFILE:\n").unwrap();
+        std::fs::write(root.join("someday.org"), "#+CATEGORY: LaterOnly\n* First :REFILE:\n** Existing\n* Second :REFILE:\n").unwrap();
+        std::fs::write(root.join("normal.org"), "#+CATEGORY: Work\n* Work :REFILE:\n").unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let tasks: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, r#"{"expression":"b.inbox.org"}"#.into()).unwrap()).unwrap();
+        let task = tasks["tasks"].as_array().unwrap().iter().find(|task| task["heading"] == "Move me").unwrap();
+        let query = serde_json::json!({ "excludedFiles": [ {"repoId": task["repoId"], "path": "inbox.org"}, {"repoId":task["repoId"],"path":"someday.org"} ] });
+        let targets: serde_json::Value = serde_json::from_str(&workspace_refile_targets_json(handle, query.to_string()).unwrap()).unwrap();
+        assert_eq!(targets.as_array().unwrap().len(), 1);
+        assert_eq!(targets[0]["category"], "Work");
+        let query = serde_json::json!({ "files": [{"repoId":task["repoId"],"path":"someday.org"}] });
+        let targets: serde_json::Value = serde_json::from_str(&workspace_refile_targets_json(handle, query.to_string()).unwrap()).unwrap();
+        let target = &targets[0];
+        assert_eq!(target["headingPath"][0], "First");
+        let request = serde_json::json!({ "operations": [
+            {"type":"Modification", "data":{"path":task["fullPath"], "modifications":[
+                {"field":"TODO", "value":"TODO"}, {"field":"SCHEDULE", "value":null},
+                {"field":"DEADLINE", "value":null}, {"field":"CLOSED", "value":null}]}},
+            {"type":"Movement", "data":{"path":task["fullPath"], "position":{"parent":target["fullPath"]}}}
+        ], "fileVersions":[
+            {"repoId":task["repoId"], "file":task["filePath"], "version":task["fileVersion"]},
+            {"repoId":target["repoId"], "file":target["path"], "version":target["fileVersion"]}
+        ] });
+        workspace_execute_task_operations(handle, request.to_string()).unwrap();
+        let bytes = std::fs::read_to_string(root.join("someday.org")).unwrap();
+        assert!(bytes.contains("* First :REFILE:\n** TODO Move me\n:PROPERTIES:\n:CREATED:"));
+        assert!(!bytes.contains("SCHEDULED:") && !bytes.contains("DEADLINE:"));
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn refile_categories_and_versioned_task_edits_cross_bridge() {
         let root = std::env::temp_dir().join(format!("org-inbox-edit-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -968,7 +1004,7 @@ mod tests {
             .find(|task| task["heading"] == "Move me")
             .unwrap();
         let targets: serde_json::Value =
-            serde_json::from_str(&workspace_refile_targets_json(handle).unwrap()).unwrap();
+            serde_json::from_str(&workspace_refile_targets_json(handle, "{}".into()).unwrap()).unwrap();
         let target = &targets[0];
         assert_eq!(target["category"], "Work");
         let request=serde_json::json!({"operations":[{"type":"Movement","data":{"path":task["fullPath"],"position":{"parent":target["fullPath"]}}}],"queueRepoIds":[task["repoId"]]});
@@ -1242,12 +1278,14 @@ mod todo_tests {
 }
 
 /// 放置目标和任务整理均由 Core 求值，bridge 只持有会话锁并调度运行时。
-pub fn workspace_refile_targets_json(handle: u64) -> Result<String, CoreError> {
+pub fn workspace_refile_targets_json(handle: u64, query_json: String) -> Result<String, CoreError> {
+    let query: org_tasks_core::RefileTargetQuery = serde_json::from_str(&query_json)
+        .map_err(|_| CoreError::InvalidInput("放置目标查询参数无效"))?;
     let session = workspace_for_handle(handle)?;
     let mut workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let runtime = runtime()?;
     for repo in &mut workspace.repos { runtime.block_on(repo.load::<WebDavSyncPolicy>())?; }
-    encode(&workspace.refile_targets())
+    encode(&workspace.query_refile_targets(&query)?)
 }
 
 pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<String,CoreError>{

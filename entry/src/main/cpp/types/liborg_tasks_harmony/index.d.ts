@@ -39,6 +39,7 @@ export interface TaskFileFallback { repoId: string; file: string; before: string
 export interface TaskFallbackGroup { files: TaskFileFallback[]; }
 export interface TaskOperationResult { paths: (TaskPath | null)[]; fallback: TaskFallbackGroup; tasks: Task[]; }
 
+export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; }
 export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; fileVersion: string;
@@ -170,7 +171,7 @@ export class Workspace {
   removeRepo(rootDirectory: string): Promise<void>;
   search(expression: string): Promise<Task[]>;
   query(query: TaskQuery): Promise<TaskQueryResult>;
-  refileTargets(): Promise<RefileTarget[]>;
+  refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<TaskOperationResult>;
 }
 

@@ -17,6 +17,8 @@ import {
   MergeFileVersion as NativeMergeFileVersion,
   MergeOutcome as NativeMergeOutcome,
   RefileTarget as NativeRefileTarget,
+  RefileTargetQuery as NativeRefileTargetQuery,
+  OrgFileRef as NativeOrgFileRef,
   CoreError as NativeCoreError,
   OrgFile as NativeOrgFile,
   OrgFileMetadata as NativeOrgFileMetadata,
@@ -88,6 +90,8 @@ export enum CoreMergeResolution {
 }
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
 
+export type CoreOrgFileRef = NativeOrgFileRef
+export type CoreRefileTargetQuery = NativeRefileTargetQuery
 export type CoreRefileTarget = NativeRefileTarget
 export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion
@@ -185,7 +189,7 @@ export class CoreWorkspace {
   }
 
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
-  async refileTargets(): Promise<CoreRefileTarget[]> { return await this.native.refileTargets() }
+  async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<CoreTaskOperationResult> { return await this.native.executeTaskOperations(group) }
 
   async repos(): Promise<CoreRepo[]> {
