@@ -157,6 +157,8 @@ pub struct FilterTask {
 
 ~FilterTask.is_repeating~ 表示当前标题的计划或截止时间包含 Org-mode 重复器，由 Core 从 ~orgize~ 时间戳取得；对解析器尚未识别的写法仅在标题紧邻的规划行内兜底识别。重复器支持 ~+Nunit~ 、 ~++Nunit~ 和 ~.+Nunit~ ，其中 ~unit~ 为 ~h~ 、 ~d~ 、 ~w~ 、 ~m~ 或 ~y~ ，并支持可选的重复截止部分 ~/N~ 或 ~/Nunit~ 。正文、源码、日志和子标题中的重复器不使父任务成为循环任务。该字段只供运行时展示，不展开重复日期，不修改查询与持久化边界。
 
+Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划行中的 ~-Nunit~ 或 ~--Nunit~ 按 Org-mode 规则从实际日期向前计算；仅 ~s.le.today~ 与 ~d.le.today~ 使用该起始日匹配今天入口，任务投影中的 ~scheduled~ 与 ~deadline~ 仍保留实际日期供 UI 展示和其他关系查询。
+
 ~FilterTask.category~ 是查询时所属文件的 ~OrgFile.category()~ 快照，由 Core 每文件提取一次；未声明为 ~None~ ，显式空声明为 ~Some("")~ 。标题属性不覆盖这个文件分类。分类变化不改变任务逻辑 ID，但刷新后必须使用新任务快照。宿主通过只读数据控制分类展示，不再逐项获取文件，不额外传入分类文字。该投影不进入同步记录或 outbox。
 
 ~FilterTask.own_tags~ 与 ~inherited_tags~ 在查询内部保留原始标签用于表达式求值； ~OrgWorkspace.search~ 和 ~query~ 返回前统一排除系统标签 ~REFILE~ 。其余标签的内容与顺序保持不变，大小写不同的 ~refile~ 不受影响。放置目标从 ~OrgFile~ 的标题自身标签读取，不依赖已去除系统标签的查询返回值。

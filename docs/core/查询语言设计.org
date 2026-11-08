@@ -36,7 +36,7 @@ b."book(1) name"
 | ~s.<interval>~ / ~d.<interval>~ / ~c.<interval>~ / ~cr.<interval>~ | 计划、截止、关闭、创建时间。 |
 | ~text~ / ~"text with spaces"~ | 在标题、正文和标签中匹配文本。 |
 
-日期条件可以在字段与 interval 之间插入 ~eq~ 、~ne~ 、~lt~ 、~le~ 、~gt~ 或 ~ge~ ，例如 ~s.ge.3d~ 。缺省关系与参考实现相同：~e~ 和 ~c~ 为 ~eq~ ，其余日期字段为 ~le~ 。~s~ 与 ~d~ 只匹配活动 timestamp。
+日期条件可以在字段与 interval 之间插入 ~eq~ 、~ne~ 、~lt~ 、~le~ 、~gt~ 或 ~ge~ ，例如 ~s.ge.3d~ 。缺省关系与参考实现相同：~e~ 和 ~c~ 为 ~eq~ ，其余日期字段为 ~le~ 。~s~ 与 ~d~ 只匹配活动 timestamp。查询 ~s.le.today~ 或 ~d.le.today~ 时，若活动规划时间带 Org-mode 预警配置（例如 ~-2d~ ），Core 从预警起始日开始命中；其他日期关系和 interval 仍按实际规划日期匹配，避免未来 deadline 被计入过期数量。
 
 interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~ / ~tom~ 、~yesterday~ ，以及带正负号的 ~<number><unit>~ 。unit 为 ~h~ 、~d~ 、~w~ 、~m~ 和 ~y~ 。日期比较以运行时本地日期的自然日边界进行。
 

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate};
-use orgize::ast::{Headline, Timestamp};
+use orgize::ast::{Headline, TimeUnit, Timestamp};
 use orgize::rowan::ast::AstNode;
 use serde::Serialize;
 
@@ -144,6 +144,9 @@ pub struct FilterTask {
     pub is_repeating: bool,
     pub scheduled: Option<FilterDate>,
     pub deadline: Option<FilterDate>,
+    /// Org-mode 规划时间预警期的起始日期，仅供 Core 的 <= 日期查询使用。
+    pub(crate) scheduled_warning: Option<NaiveDate>,
+    pub(crate) deadline_warning: Option<NaiveDate>,
     pub closed: Option<FilterDate>,
     pub created: Option<FilterDate>,
     pub events: Vec<FilterDate>,
@@ -336,6 +339,8 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
                 is_repeating: planning_repeats(&headline),
                 scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
                 deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
+                scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
+                deadline_warning: planning_warning(&headline, "DEADLINE", headline.deadline()),
                 closed: planning_date(&headline, "CLOSED", headline.closed()),
                 created: None,
                 events,
@@ -470,6 +475,80 @@ fn planning_date(
     })
 }
 
+fn planning_warning(
+    headline: &Headline,
+    keyword: &str,
+    timestamp: Option<Timestamp>,
+) -> Option<NaiveDate> {
+    timestamp
+        .and_then(|timestamp| {
+            let value = timestamp.warning_value()?;
+            let unit = timestamp.warning_unit()?;
+            let date = timestamp_to_date(timestamp)?.date;
+            subtract_warning(date, value, unit)
+        })
+        .or_else(|| {
+            headline
+                .raw()
+                .lines()
+                .take_while(|line| {
+                    line.chars()
+                        .take_while(|character| *character == '*')
+                        .count()
+                        <= headline.level()
+                })
+                .find_map(|line| parse_planning_warning(line, keyword))
+        })
+}
+
+fn subtract_warning(date: NaiveDate, value: u32, unit: TimeUnit) -> Option<NaiveDate> {
+    match unit {
+        TimeUnit::Hour => Some(date),
+        TimeUnit::Day => date.checked_sub_signed(Duration::days(i64::from(value))),
+        TimeUnit::Week => date.checked_sub_signed(Duration::weeks(i64::from(value))),
+        TimeUnit::Month => date.checked_sub_months(Months::new(value)),
+        TimeUnit::Year => value
+            .checked_mul(12)
+            .and_then(|months| date.checked_sub_months(Months::new(months))),
+    }
+}
+
+fn parse_planning_warning(line: &str, keyword: &str) -> Option<NaiveDate> {
+    let value = line
+        .trim_start()
+        .strip_prefix(&format!("{keyword}:"))?
+        .trim_start();
+    let opener = value.chars().next()?;
+    if opener != '<' && opener != '[' {
+        return None;
+    }
+    let closer = if opener == '<' { '>' } else { ']' };
+    let end = value.find(closer)?;
+    let timestamp = &value[1..end];
+    let date = NaiveDate::parse_from_str(timestamp.get(..10)?, "%Y-%m-%d").ok()?;
+    timestamp
+        .split_whitespace()
+        .find_map(parse_warning_token)
+        .and_then(|(value, unit)| subtract_warning(date, value, unit))
+}
+
+fn parse_warning_token(token: &str) -> Option<(u32, TimeUnit)> {
+    let value = token.strip_prefix("--").or_else(|| token.strip_prefix('-'))?;
+    let digits = value.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    let unit = match value.as_bytes().get(digits)? {
+        b'h' => TimeUnit::Hour,
+        b'd' => TimeUnit::Day,
+        b'w' => TimeUnit::Week,
+        b'm' => TimeUnit::Month,
+        b'y' => TimeUnit::Year,
+        _ => return None,
+    };
+    Some((value[..digits].parse().ok()?, unit))
+}
+
 fn parse_planning_line(line: &str, keyword: &str) -> Option<FilterDate> {
     let value = line
         .trim_start()
@@ -543,7 +622,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             relation,
             interval,
         } => {
-            let dates = dates_for_field(task, *field);
+            let dates = dates_for_field(task, *field, *relation, *interval);
             if interval.unit == FilterIntervalUnit::None {
                 return dates.is_empty();
             }
@@ -579,14 +658,53 @@ fn apply_negation(value: bool, negated: bool) -> bool {
     if negated { !value } else { value }
 }
 
-fn dates_for_field(task: &FilterTask, field: FilterDateField) -> Vec<FilterDate> {
+fn dates_for_field(
+    task: &FilterTask,
+    field: FilterDateField,
+    relation: FilterRelation,
+    interval: FilterInterval,
+) -> Vec<FilterDate> {
     match field {
-        FilterDateField::Scheduled => task.scheduled.into_iter().collect(),
-        FilterDateField::Deadline => task.deadline.into_iter().collect(),
+        FilterDateField::Scheduled => adjusted_planning_date(
+            task.scheduled,
+            task.scheduled_warning,
+            relation,
+            interval,
+        )
+        .into_iter()
+        .collect(),
+        FilterDateField::Deadline => adjusted_planning_date(
+            task.deadline,
+            task.deadline_warning,
+            relation,
+            interval,
+        )
+        .into_iter()
+        .collect(),
         FilterDateField::Closed => task.closed.into_iter().collect(),
         FilterDateField::Created => task.created.into_iter().collect(),
         FilterDateField::Event => task.events.clone(),
     }
+}
+
+fn adjusted_planning_date(
+    date: Option<FilterDate>,
+    warning: Option<NaiveDate>,
+    relation: FilterRelation,
+    interval: FilterInterval,
+) -> Option<FilterDate> {
+    let mut date = date?;
+    let today_interval = matches!(interval.unit, FilterIntervalUnit::Now)
+        || (matches!(interval.unit, FilterIntervalUnit::Day) && interval.value == 0);
+    if today_interval
+        && matches!(relation, FilterRelation::Lt | FilterRelation::Le)
+        && date.active
+    {
+        if let Some(warning) = warning {
+            date.date = warning;
+        }
+    }
+    Some(date)
 }
 
 fn date_matches(
@@ -1215,5 +1333,40 @@ mod tests {
                 active: true,
             })
         );
+    }
+
+    #[test]
+    fn deadline_warning_period_matches_today_without_changing_display_date() {
+        let file = OrgFile::new(
+            "repo".into(),
+            "mortgage.org".into(),
+            "* TODO 中信银行-房贷（春风湖滨） 利率(2.90)\nDEADLINE: <2026-11-10 Mon -2d>\n".as_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        let repository = OrgRepo {
+            id: "repo".into(),
+            root_directory: "/tmp".into(),
+            todo_defaults: crate::TodoConfig::default(),
+            task_scan_rules: Default::default(),
+            files: vec![file],
+        };
+        let task = tasks_from_repo(&repository).pop().unwrap();
+        assert_eq!(
+            task.deadline.unwrap().date,
+            NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()
+        );
+        assert_eq!(
+            task.deadline_warning,
+            Some(NaiveDate::from_ymd_opt(2026, 11, 8).unwrap())
+        );
+        let today = NaiveDate::from_ymd_opt(2026, 11, 8).unwrap();
+        assert!(Filter::parse("d.le.today").matches_at(&task, today));
+        assert!(!Filter::parse("d.le.today").matches_at(
+            &task,
+            NaiveDate::from_ymd_opt(2026, 11, 7).unwrap()
+        ));
+        assert!(!Filter::parse("d.le.yesterday").matches_at(&task, today));
+        assert!(Filter::parse("d.ge.tomorrow").matches_at(&task, today));
     }
 }

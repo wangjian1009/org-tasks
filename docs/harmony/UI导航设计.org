@@ -161,7 +161,7 @@ WebDAV 密码由 ~CredentialService~ 保存到 Asset Store。已有待上传意�
 
 | 入口 | UI 组装的 Core 查询 | 显示含义 |
 |-
-| 今天 | ~(s.le.today or d.le.today)~ ， ~includeDone=false~ | 计划或截止任一日期为今天或更早即命中；包含当天与全部过期任务。 |
+| 今天 | ~(s.le.today or d.le.today)~ ， ~includeDone=false~ | 计划或截止任一实际日期已到、已过期或进入 Org-mode 预警期即命中；deadline 仍按实际日期展示。 |
 | 今天红色徽标 | ~(s.le.yesterday or d.le.yesterday)~ ， ~includeDone=false~ | 仅显示过期数量；旁边灰色数字为今天的总数，徽标零时隐藏。 |
 | 计划 | ~(s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow)~ ， ~includeDone=false~ | 有日期且最早的计划/截止日期从明天开始；与今天不重叠。 |
 | 随时 | ~s.none d.none~ ， ~includeDone=false~ | 计划日期和截止日期都没有安排。 |
