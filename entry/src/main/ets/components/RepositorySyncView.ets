@@ -1,7 +1,6 @@
 import { uiObserver } from '@kit.ArkUI'
 import { RepositorySyncBanner } from './RepositorySyncBanner'
 import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } from '../services/RepositorySyncService'
-import { CoreConflict } from '../services/NativeCoreService'
 
 // 统一文件同步交互；页面通过内容插槽和失效通知接入自己的查询。
 @Component
@@ -57,22 +56,12 @@ export struct RepositorySyncView {
     if (!this.pageVisible || this.getUIContext().getRouter().getState().index !== this.pageIndex) return
     const failure = RepositorySyncService.takeFailure()
     if (!failure) return
-    this.getUIContext().showAlertDialog({ title: '同步失败', message: failure.needsRepository ? '尚未配置可同步的存储库。' : failure.message,
-      primaryButton: { value: '关闭', action: () => {} },
-      secondaryButton: failure.needsRepository ? undefined : {
-        value: failure.conflicts.length > 0 ? '处理冲突' : '重试',
-        action: (): void => {
-          if (failure.conflicts.length > 0) {
-            this.getUIContext().showActionSheet({ title: '同步冲突', message: '选择需要处理的同步作业',
-              sheets: failure.conflicts.map((conflict: CoreConflict): SheetInfo => ({
-                title: `${conflict.paths.length} 个文件：${conflict.paths.join('、')}`,
-                action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/MergeConflict', params: { repoId: conflict.repoId, syncId: conflict.syncId } }) }
-              })) })
-          } else {
-            RepositorySyncService.start(this.getUIContext().getHostContext()!)
-          }
-        }
-      } })
+    const message = failure.needsRepository ? '尚未配置可同步的存储库。' : failure.message
+    try {
+      this.getUIContext().getPromptAction().showToast({ message })
+    } catch (_) {
+      console.error('显示同步失败提示失败')
+    }
   }
 
   syncFromPull() {

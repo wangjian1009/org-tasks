@@ -74,6 +74,13 @@ export class RepositorySyncService {
         state.message = '请先添加存储库'
         return
       }
+      const existingConflicts = await NativeCoreService.conflicts(repos, todoDefaults)
+      if (existingConflicts.length > 0) {
+        state.error = true
+        state.conflicts = existingConflicts
+        state.message = '存在未解决的同步冲突，请先处理后再同步'
+        return
+      }
       refresh = true
       RepositorySyncService.repositoryCount = repos.filter((repo: RepoConfig) => repo.webdavEnabled).length
       RepositorySyncService.completedRepositories = 0
