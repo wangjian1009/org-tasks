@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, ListSectionHeader } from '../components/Controls'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
@@ -28,9 +27,9 @@ struct FileTargetPicker {
     this.loading = true
     this.message = ''
     try {
-      const params = router.getParams() as PickerParams | undefined
+      const params = this.getUIContext().getRouter().getParams() as PickerParams | undefined
       if (params?.kind === 'someday' || params?.kind === 'memo') this.kind = params.kind
-      this.config = await AppConfigService.load(getContext(this))
+      this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       this.groups = await NotebookService.list(this.config.repos, this.config.todoDefaults)
       this.groups = this.groups.map((group: NotebookGroup): NotebookGroup => ({
         repoId: group.repoId, configId: group.configId, name: group.name, rootDirectory: group.rootDirectory,
@@ -60,8 +59,8 @@ struct FileTargetPicker {
     if (this.saving || this.loading) return
     this.saving = true
     try {
-      await FileTargetService.select(getContext(this), this.kind, repoId, path)
-      router.back()
+      await FileTargetService.select(this.getUIContext().getHostContext()!, this.kind, repoId, path)
+      this.getUIContext().getRouter().back()
     } catch (e) {
       this.message = `保存文件入口失败：${coreErrorMessage(e as CoreBridgeError)}`
     } finally { this.saving = false }
@@ -69,7 +68,7 @@ struct FileTargetPicker {
 
   build() {
     Column() {
-      AppShell({ title: this.title(), back: true, busy: this.saving, drawerOpen: $drawerOpen, backAction: (): void => { if (!this.saving) router.back() } }) {
+      AppShell({ title: this.title(), back: true, busy: this.saving, drawerOpen: $drawerOpen, backAction: (): void => { if (!this.saving) this.getUIContext().getRouter().back() } }) {
         Column() {
           if (this.loading) {
             EmptyState({ title: '正在读取文件', busy: true })

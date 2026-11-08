@@ -2,7 +2,7 @@
 
 import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, Workspace } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
-import { preferences } from '@kit.ArkData'
+import { PreferencesStore } from './PreferencesStore'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
 import { CredentialService } from './CredentialService'
 
@@ -11,7 +11,7 @@ const REPOS_KEY = 'repos'
 
 export class AppConfigService {
   static async load(context: Context, includeCredentials: boolean = true): Promise<AppConfig> {
-    const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
+    const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const repos = await AppConfigService.loadRepositories(store, includeCredentials)
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
     const inboxRepoId = await store.get('inboxRepoId', DEFAULT_CONFIG.inboxRepoId) as string
@@ -48,7 +48,7 @@ export class AppConfigService {
     }
     const validation: Workspace = new Workspace()
     await validation.setTodoDefaults(config.todoDefaults)
-    const store = await preferences.getPreferences(context, APP_CONFIG_PREFERENCES)
+    const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
       await normalizeSyncOptions({ excludedDirectories: repository.excludedDirectories } as SyncOptions)
@@ -105,7 +105,7 @@ export class AppConfigService {
     }
   }
 
-  private static async loadRepositories(store: preferences.Preferences, includeCredentials: boolean): Promise<RepoConfig[]> {
+  private static async loadRepositories(store: PreferencesStore, includeCredentials: boolean): Promise<RepoConfig[]> {
     const encoded = await store.get(REPOS_KEY, '') as string
     if (encoded.length > 0) {
       const persisted = JSON.parse(encoded) as RepoConfig[]

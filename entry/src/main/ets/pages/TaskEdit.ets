@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { CoreTask } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { TaskEditor } from '../components/TaskEditor'
@@ -13,7 +12,7 @@ struct TaskEdit {
   @State drawerOpen: boolean = false
 
   aboutToAppear() {
-    const params = router.getParams() as TaskParams | undefined
+    const params = this.getUIContext().getRouter().getParams() as TaskParams | undefined
     this.task = params?.task
     this.parents = params?.parents || []
   }

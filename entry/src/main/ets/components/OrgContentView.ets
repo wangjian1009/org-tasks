@@ -28,11 +28,16 @@ export struct OrgContentView {
 
   async openLink(href: string) {
     try {
-      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href,
+      await ExternalLinkService.open(this.getUIContext().getHostContext()! as common.UIAbilityContext, href,
         (choices: MapAppChoice[]): void => { this.chooseMapApp(choices) })
     } catch (error) {
-      if (this.active) this.getUIContext().getPromptAction().showToast({ message: (error as Error).message || '无法打开链接，请确认已安装对应应用。' })
+      if (this.active) this.showLinkError((error as Error).message || '无法打开链接，请确认已安装对应应用。')
     }
+  }
+
+  showLinkError(message: string): void {
+    try { this.getUIContext().getPromptAction().showToast({ message }) }
+    catch (error) { console.error('显示链接错误提示失败') }
   }
 
   chooseMapApp(choices: MapAppChoice[]): void {
@@ -102,7 +107,7 @@ export struct OrgContentView {
           return false
         })
         .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
-          (message: string): void => { if (this.active) this.getUIContext().getPromptAction().showToast({ message }) }), {
+          (message: string): void => { if (this.active) this.showLinkError(message) }), {
           height: 300,
           detents: [300],
           preferType: SheetType.BOTTOM,

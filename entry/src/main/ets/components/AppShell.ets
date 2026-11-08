@@ -1,6 +1,5 @@
 import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
-import { router } from '@kit.ArkUI'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { RepositorySyncView } from './RepositorySyncView'
@@ -28,7 +27,7 @@ export struct AppShell {
   @BuilderParam content: () => void
   action: () => void = () => {}
   secondaryAction: () => void = () => {}
-  backAction: () => void = (): void => { router.back() }
+  backAction: () => void = (): void => { this.getUIContext().getRouter().back() }
   synchronized: () => void = () => {}
   @State inboxCount: number = -1
   @State todayCount: number = -1
@@ -69,8 +68,8 @@ export struct AppShell {
     this.navMessage = ''
     this.inboxCount = -1
     try {
-      const config = await AppConfigService.load(getContext(this))
-      const searches = await SavedSearchService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
+      const searches = await SavedSearchService.load(this.getUIContext().getHostContext()!)
       const inbox = await FileTargetService.query(config, 'inbox')
       const today = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('today'), config.todoDefaults)
       const overdue = await NativeCoreService.queryTasks(config.repos, overdueTaskQuery(), config.todoDefaults)
@@ -97,35 +96,37 @@ export struct AppShell {
   async openPrimary(view: TaskOverview | 'inbox') {
     this.drawerOpen = false
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if ((view === 'inbox' || view === 'someday' || view === 'memo') && !await FileTargetService.resolve(config, view)) {
         const title = view === 'inbox' ? '收件箱' : overviewTitle(view)
         this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“笔记与笔记本”中重新选择${title}的仓库和文件。`,
           primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
             this.drawerOpen = false
-            router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+            this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
           } } })
         return
       }
       this.drawerOpen = false
       if (view === 'inbox') {
-        if (this.activeRoute !== 'pages/Inbox') router.replaceUrl({ url: 'pages/Inbox' })
+        if (this.activeRoute !== 'pages/Inbox') await this.getUIContext().getRouter().replaceUrl({ url: 'pages/Inbox' })
       } else if (this.activeRoute !== 'pages/TaskOverview' || this.activeOverview !== view) {
-        router.replaceUrl({ url: 'pages/TaskOverview', params: { view } })
+        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/TaskOverview', params: { view } })
       }
     } catch (e) { this.navMessage = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
 
-  navigate(route: string) {
+  async navigate(route: string) {
     this.drawerOpen = false
     if (this.activeRoute !== route) {
-      router.replaceUrl({ url: route })
+      try { await this.getUIContext().getRouter().replaceUrl({ url: route }) }
+      catch (error) { this.navMessage = '打开页面失败，请重试'; this.drawerOpen = true }
     }
   }
 
-  openSearch(search: SavedSearch) {
+  async openSearch(search: SavedSearch) {
     this.drawerOpen = false
-    router.replaceUrl({ url: 'pages/Search', params: { query: search.query, name: search.name, run: true } })
+    try { await this.getUIContext().getRouter().replaceUrl({ url: 'pages/Search', params: { query: search.query, name: search.name, run: true } }) }
+    catch (error) { this.navMessage = '打开查询页面失败，请重试'; this.drawerOpen = true }
   }
 
   primaryCount(view: TaskOverview | 'inbox'): number {

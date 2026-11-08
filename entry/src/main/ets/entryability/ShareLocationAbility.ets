@@ -4,7 +4,8 @@ import { ShareLocationRequest } from '../services/SharedLocationService'
 
 export default class ShareLocationAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK)
+    try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
+    catch (error) { console.error('设置应用深色模式失败') }
     const request: ShareLocationRequest = {
       title: typeof want.parameters?.title === 'string' ? want.parameters.title : '',
       url: typeof want.parameters?.url === 'string' ? want.parameters.url : ''
@@ -21,7 +22,9 @@ export default class ShareLocationAbility extends UIAbility {
   }
 
   async onWindowStageCreate(stage: window.WindowStage): Promise<void> {
-    await stage.loadContent('pages/ShareLocation')
-    stage.getMainWindowSync().setWindowBackgroundColor('#2D2C2B')
+    try {
+      await stage.loadContent('pages/ShareLocation')
+      stage.getMainWindowSync().setWindowBackgroundColor('#2D2C2B')
+    } catch (error) { console.error('初始化应用窗口失败') }
   }
 }

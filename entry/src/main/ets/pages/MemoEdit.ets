@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { CoreTask } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MemoEditor } from '../components/MemoEditor'
@@ -12,7 +11,7 @@ struct MemoEdit {
   @State drawerOpen: boolean = false
 
   aboutToAppear() {
-    const params = router.getParams() as MemoParams | undefined
+    const params = this.getUIContext().getRouter().getParams() as MemoParams | undefined
     this.memo = params?.task
   }
 

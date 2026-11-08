@@ -1,5 +1,4 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
-import { router } from '@kit.ArkUI'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreTask, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
@@ -33,7 +32,7 @@ struct Agenda {
     this.loading = this.groups.length === 0
     this.message = ''
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const condition = this.filter === '计划' ? 's.ge.-100y' : this.filter === '截止' ? 'd.ge.-100y' : '(s.ge.-100y or d.ge.-100y)'
       const response = await NativeCoreService.searchWorkspace(config.repos, `.it.done ${condition}`, config.todoDefaults)
       if (request !== this.requestId) return
@@ -69,7 +68,7 @@ struct Agenda {
   build() {
     Column() {
       AppShell({ title: '日程', titleIcon: $r('app.media.nav_planned'), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/Agenda', drawerOpen: $drawerOpen, pullToSync: true,
-      actionLabel: '搜索笔记', action: (): void => { router.pushUrl({ url: 'pages/Search' }) } }) {
+      actionLabel: '搜索笔记', action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/Search' }) } }) {
         Column() {
           Row({ space: 8 }) {
             ForEach(['全部', '计划', '截止'], (item: string) => {
@@ -90,7 +89,7 @@ struct Agenda {
                 ListItemGroup({ header: this.groupHeader(group.title) }) {
                   ForEach(group.tasks, (task: CoreTask) => {
                     ListItem() {
-                      TaskRow({ task, open: (): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task } }) } })
+                      TaskRow({ task, open: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } }) } })
                     }
                   }, (task: CoreTask) => taskRenderKey(task))
                 }

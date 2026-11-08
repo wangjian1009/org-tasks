@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { CoreTask } from '../services/NativeCoreService'
 import { EmptyState } from './Controls'
 import { TitleText } from './TitleText'
@@ -36,7 +35,7 @@ export struct TaskEditor {
         Column() {
           Text([this.task!.filePath, ...this.parents].join('  /  ')).fontSize(14).fontColor(UiColor.primary).width('100%')
             .padding({ left: 16, right: 16, top: 20, bottom: 12 })
-            .onClick((): void => { router.pushUrl({ url: 'pages/FileDetail', params: { repoId: this.task!.repoId, path: this.task!.filePath } }) })
+            .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail', params: { repoId: this.task!.repoId, path: this.task!.filePath } }) })
           TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false })
             .width('100%').padding({ left: 16, right: 16, top: 8, bottom: 20 })
           if (titleCounts(this.task!.headingParts).length > 0) {

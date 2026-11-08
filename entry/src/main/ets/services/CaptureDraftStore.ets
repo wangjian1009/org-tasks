@@ -1,5 +1,5 @@
 import { Context } from '@kit.AbilityKit'
-import { preferences } from '@kit.ArkData'
+import { PreferencesStore } from './PreferencesStore'
 
 export interface CaptureDraft { id: string; title: string }
 
@@ -13,7 +13,7 @@ export class CaptureDraftStore {
   }
 
   private static async read(context: Context): Promise<CaptureDraft[]> {
-    const store = await preferences.getPreferences(context, 'org_tasks_capture')
+    const store = await PreferencesStore.open(context, 'org_tasks_capture')
     return JSON.parse(await store.get('drafts', '[]') as string) as CaptureDraft[]
   }
 
@@ -30,7 +30,7 @@ export class CaptureDraftStore {
       const drafts = await CaptureDraftStore.read(context)
       const updated = drafts.filter((item: CaptureDraft) => item.id !== id)
       if (title.length > 0) updated.unshift({ id, title })
-      const store = await preferences.getPreferences(context, 'org_tasks_capture')
+      const store = await PreferencesStore.open(context, 'org_tasks_capture')
       await store.put('drafts', JSON.stringify(updated))
       await store.flush()
     })

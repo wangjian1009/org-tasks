@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, MessageBar, SectionHeading } from '../components/Controls'
 import { BUILTIN_SEARCHES, SavedSearch, SavedSearchService } from '../services/SavedSearchService'
@@ -27,7 +26,7 @@ struct SavedSearches {
   }
 
   async loadSearches() {
-    try { this.searches = await SavedSearchService.load(getContext(this)); this.message = '' }
+    try { this.searches = await SavedSearchService.load(this.getUIContext().getHostContext()!); this.message = '' }
     catch (e) { this.message = `读取搜索失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.loading = false }
   }
@@ -39,7 +38,7 @@ struct SavedSearches {
     try {
       const search: SavedSearch = { id: this.editingId, name: this.name.trim(), query: this.query.trim() }
       const updated = this.searches.filter((item: SavedSearch) => item.id !== search.id).concat([search])
-      await SavedSearchService.save(getContext(this), updated)
+      await SavedSearchService.save(this.getUIContext().getHostContext()!, updated)
       this.searches = updated
       this.editing = false
       this.message = ''
@@ -59,7 +58,7 @@ struct SavedSearches {
   async remove(search: SavedSearch) {
     try {
       const updated = this.searches.filter((item: SavedSearch) => item.id !== search.id)
-      await SavedSearchService.save(getContext(this), updated)
+      await SavedSearchService.save(this.getUIContext().getHostContext()!, updated)
       this.searches = updated
     } catch (e) { this.message = `删除搜索失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
@@ -70,7 +69,7 @@ struct SavedSearches {
       Text(search.name).fontSize(18).fontColor(UiColor.text).width('100%')
       Text(search.query || '全部笔记').fontSize(13).fontColor(UiColor.secondary).width('100%').maxLines(2)
     }.width('100%').padding(16).border({ width: { bottom: 0.5 }, color: UiColor.outline })
-      .onClick((): void => { router.pushUrl({ url: 'pages/Search', params: { query: search.query, name: search.name, run: true } }) })
+      .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/Search', params: { query: search.query, name: search.name, run: true } }) })
       .gesture(LongPressGesture().onAction(() => {
         if (editable) this.getUIContext().showActionSheet({ message: '', title: search.name, sheets: [
           { title: '编辑', action: (): void => { this.edit(search) } }, { title: '删除', action: (): void => { this.confirmDelete(search) } }
@@ -83,7 +82,7 @@ struct SavedSearches {
       AppShell({ title: this.editing ? '编辑搜索' : '搜索', titleIcon: $r('app.media.nav_search'), activeRoute: 'pages/SavedSearches', back: this.editing, drawerOpen: $drawerOpen,
       busy: this.saving, backAction: () => { this.editing = false },
       actionIcon: this.editing ? $r('app.media.ui_done') : $r('app.media.ui_search'), actionLabel: this.editing ? '保存搜索' : '搜索笔记',
-      action: () => { if (this.editing) this.saveSearch(); else router.pushUrl({ url: 'pages/Search' }) } }) {
+      action: () => { if (this.editing) this.saveSearch(); else this.getUIContext().getRouter().pushUrl({ url: 'pages/Search' }) } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           if (this.editing) {

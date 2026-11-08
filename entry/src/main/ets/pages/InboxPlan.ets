@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { CoreTask } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
@@ -18,7 +17,7 @@ struct InboxPlan {
   @State drawerOpen: boolean = false
 
   aboutToAppear() {
-    const params = router.getParams() as PlanParams | undefined
+    const params = this.getUIContext().getRouter().getParams() as PlanParams | undefined
     this.task = params?.task
     this.parents = params?.parents || []
   }

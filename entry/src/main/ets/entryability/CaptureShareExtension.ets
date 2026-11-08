@@ -7,7 +7,8 @@ interface ShareCaptureState { sharedTitle: string; sharedUrl: string; shareReady
 export default class CaptureShareExtension extends ShareExtensionAbility {
   onSessionCreate(want: Want, session: UIExtensionContentSession): void {
     const storage = new LocalStorage({ sharedTitle: '', sharedUrl: '', shareReady: false, shareError: '' } as ShareCaptureState)
-    session.loadContent('pages/ShareCapture', storage)
+    try { session.loadContent('pages/ShareCapture', storage) }
+    catch (error) { console.error('加载分享页面失败'); return }
     this.readTitle(want, storage)
   }
 

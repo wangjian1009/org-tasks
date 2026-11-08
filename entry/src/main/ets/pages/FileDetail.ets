@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { util } from '@kit.ArkTS'
 import { webview } from '@kit.ArkWeb'
 import { AppShell } from '../components/AppShell'
@@ -40,9 +39,9 @@ struct FileDetail {
     this.renderReady = false
     this.allCollapsed = false
     try {
-      const params = router.getParams() as NotebookParams
+      const params = this.getUIContext().getRouter().getParams() as NotebookParams
       this.path = params.path || ''
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const file: CoreOrgFile | undefined = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
       if (revision !== this.loadRevision) return
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }

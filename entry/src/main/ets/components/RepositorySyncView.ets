@@ -1,4 +1,4 @@
-import { router, uiObserver } from '@kit.ArkUI'
+import { uiObserver } from '@kit.ArkUI'
 import { RepositorySyncBanner } from './RepositorySyncBanner'
 import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { CoreConflict } from '../services/NativeCoreService'
@@ -27,7 +27,7 @@ export struct RepositorySyncView {
 
   aboutToAppear() {
     this.syncRevision = this.syncState.revision
-    this.pageIndex = router.getState().index
+    this.pageIndex = this.getUIContext().getRouter().getState().index
     this.pageVisible = true
     this.getUIContext().getUIObserver().on('routerPageUpdate', this.pageChanged)
     this.presentSyncFailure()
@@ -39,7 +39,7 @@ export struct RepositorySyncView {
   }
 
   repositorySyncChanged() {
-    if (!this.pageVisible || router.getState().index !== this.pageIndex) return
+    if (!this.pageVisible || this.getUIContext().getRouter().getState().index !== this.pageIndex) return
     this.presentSyncFailure()
     if (this.syncRevision === this.syncState.revision) return
     this.syncRevision = this.syncState.revision
@@ -48,7 +48,7 @@ export struct RepositorySyncView {
   }
 
   presentSyncFailure() {
-    if (!this.pageVisible || router.getState().index !== this.pageIndex) return
+    if (!this.pageVisible || this.getUIContext().getRouter().getState().index !== this.pageIndex) return
     const failure = RepositorySyncService.takeFailure()
     if (!failure) return
     this.getUIContext().showAlertDialog({ title: '同步失败', message: failure.needsRepository ? '尚未配置可同步的存储库。' : failure.message,
@@ -60,10 +60,10 @@ export struct RepositorySyncView {
             this.getUIContext().showActionSheet({ title: '同步冲突', message: '选择需要处理的同步作业',
               sheets: failure.conflicts.map((conflict: CoreConflict): SheetInfo => ({
                 title: `${conflict.paths.length} 个文件：${conflict.paths.join('、')}`,
-                action: (): void => { router.pushUrl({ url: 'pages/MergeConflict', params: { repoId: conflict.repoId, syncId: conflict.syncId } }) }
+                action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/MergeConflict', params: { repoId: conflict.repoId, syncId: conflict.syncId } }) }
               })) })
           } else {
-            RepositorySyncService.start(getContext(this))
+            RepositorySyncService.start(this.getUIContext().getHostContext()!)
           }
         }
       } })
@@ -72,8 +72,8 @@ export struct RepositorySyncView {
   syncFromPull() {
     // 松手后内容复位；持续进度由标题下的共享进度线展示。
     this.refreshing = false
-    if (!this.pullEnabled || this.disabled || !this.pageVisible || this.syncState.running || router.getState().index !== this.pageIndex) return
-    RepositorySyncService.start(getContext(this))
+    if (!this.pullEnabled || this.disabled || !this.pageVisible || this.syncState.running || this.getUIContext().getRouter().getState().index !== this.pageIndex) return
+    RepositorySyncService.start(this.getUIContext().getHostContext()!)
   }
 
   @Builder

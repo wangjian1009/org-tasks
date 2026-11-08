@@ -80,7 +80,7 @@ function passwordAlias(repoId: string): asset.AssetMap {
 }
 
 function toBytes(value: string): Uint8Array {
-  return util.TextEncoder.create().encode(value)
+  return util.TextEncoder.create().encodeInto(value)
 }
 
 function errorCode(error: Object): number {

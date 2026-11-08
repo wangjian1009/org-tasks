@@ -13,26 +13,29 @@ const DEFAULT_INTERVAL = 20 // 分钟
 
 export default class EntryAbility extends UIAbility {
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
-    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK)
+    try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
+    catch (error) { console.error('设置应用深色模式失败') }
     AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())
     // 注册后台定时任务
     await this.registerBackgroundSync()
   }
 
   async onWindowStageCreate(windowStage: window.WindowStage) {
-    const mainWindow = await windowStage.getMainWindow()
-    await mainWindow.setWindowSystemBarProperties({
-      statusBarColor: UiColor.surface,
-      navigationBarColor: UiColor.surface,
-      statusBarContentColor: UiColor.text,
-      navigationBarContentColor: UiColor.text
-    })
-    // 加载主页面
-    windowStage.loadContent('pages/TaskOverview', (err) => {
-      if (err && err.code !== 0) {
-        console.error('加载页面失败:', JSON.stringify(err))
-      }
-    })
+    try {
+      const mainWindow = await windowStage.getMainWindow()
+      await mainWindow.setWindowSystemBarProperties({
+        statusBarColor: UiColor.surface,
+        navigationBarColor: UiColor.surface,
+        statusBarContentColor: UiColor.text,
+        navigationBarContentColor: UiColor.text
+      })
+      // 加载主页面
+      windowStage.loadContent('pages/TaskOverview', (err) => {
+        if (err && err.code !== 0) {
+          console.error('加载页面失败:', JSON.stringify(err))
+        }
+      })
+    } catch (error) { console.error('初始化应用窗口失败') }
   }
 
   /**

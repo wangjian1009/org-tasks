@@ -26,7 +26,8 @@ export class ExternalLinkService {
     if (scheme === 'http' || scheme === 'https') {
       await context.openLink(href, { appLinkingOnly: false })
     } else if (scheme === 'mailto' || scheme === 'tel') {
-      await context.startAbility({ action: 'ohos.want.action.viewData', uri: href })
+      try { await context.startAbility({ action: 'ohos.want.action.viewData', uri: href }) }
+      catch (error) { throw new Error('无法打开链接，请确认已安装对应应用。') }
     } else if (scheme === 'geo') {
       const search = geoSearchAddress(href)
       if (search) {

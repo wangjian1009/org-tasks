@@ -1,6 +1,6 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
-import { KeyboardAvoidMode, router } from '@kit.ArkUI'
+import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
@@ -71,7 +71,7 @@ struct Inbox {
     this.captureSaving = true
     this.captureMessage = ''
     try {
-      await CaptureService.save(getContext(this), title)
+      await CaptureService.save(this.getUIContext().getHostContext()!, title)
       this.captureSaving = false
       this.closeCapture()
       this.captureTitle = ''
@@ -89,7 +89,7 @@ struct Inbox {
     this.message = ''
     this.needsConfiguration = false
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const result = await FileTargetService.query(config, 'inbox')
       if (request !== this.requestId) return
       if (!result) {
@@ -117,7 +117,7 @@ struct Inbox {
           } else if (this.needsConfiguration) {
             EmptyState({ title: '收件箱文件未选择或已失效', detail: '请在设置的“笔记与笔记本”中重新选择仓库和文件。',
               actionLabel: '前往设置', action: (): void => {
-                router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+                this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
               } })
           } else if (this.message) {
             EmptyState({ title: '收件箱读取失败', detail: this.message,
@@ -130,7 +130,7 @@ struct Inbox {
                 ForEach(this.records, (task: CoreTask) => {
                   ListItem() {
                     TaskListItem({ task, enableCompletionState: false, open: (): void => {
-                      router.pushUrl({ url: 'pages/InboxPlan', params: { task } })
+                      this.getUIContext().getRouter().pushUrl({ url: 'pages/InboxPlan', params: { task } })
                     } })
                   }
                 }, (task: CoreTask) => taskRenderKey(task))

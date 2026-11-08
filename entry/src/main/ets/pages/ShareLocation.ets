@@ -39,13 +39,16 @@ struct ShareLocation {
       let value = parseSharedLocation(this.request)
       if (value.kind === 'unknown' && value.source === 'amap') value = await resolveAmapShortUrl(value)
       this.location = value
-      this.config = await AppConfigService.load(getContext(this), false)
+      this.config = await AppConfigService.load(this.getUIContext().getHostContext()!, false)
     } catch (e) {
       this.message = '无法读取分享内容，请返回地图重新分享'
     } finally { this.loading = false }
   }
 
-  close() { (getContext(this) as common.UIAbilityContext).terminateSelf() }
+  async close(): Promise<void> {
+    try { await (this.getUIContext().getHostContext()! as common.UIAbilityContext).terminateSelf() }
+    catch (error) { this.message = '关闭分享窗口失败，请重试' }
+  }
 
   sourceName(): string {
     if (this.location?.source === 'amap') return '来自高德地图'

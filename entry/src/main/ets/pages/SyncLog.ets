@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
@@ -31,7 +30,7 @@ struct SyncLog {
     this.loading = this.items.length === 0
     this.message = ''
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const items: SyncLogItem[] = []
       for (const repository of config.repos) {
         const records = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults)
@@ -112,7 +111,7 @@ struct SyncLog {
 
   build() {
     Column() {
-      AppShell({ title: '同步日志', back: true, backAction: (): void => { router.back() },
+      AppShell({ title: '同步日志', back: true, backAction: (): void => { this.getUIContext().getRouter().back() },
         synchronized: (): void => { this.loadLogs() }, drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() { this.content() }.width('100%').height('100%')
       }

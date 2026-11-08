@@ -16,7 +16,7 @@ struct ShareCapture {
   async forward() {
     if (!this.ready || this.forwarding) return
     this.forwarding = true
-    const context = getContext(this) as common.UIExtensionContext
+    const context = this.getUIContext().getHostContext()! as common.UIExtensionContext
     try {
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'ShareLocationAbility',
         parameters: { title: this.title, url: this.url } })
@@ -29,7 +29,7 @@ struct ShareCapture {
       Text(this.error || '正在打开快速捕捉…').fontSize(18).fontColor(UiColor.text)
       if (this.error && this.ready) Button('重试').onClick((): void => { this.forward() })
       Button('关闭').backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
-        .onClick((): void => { (getContext(this) as common.UIExtensionContext).terminateSelf() })
+        .onClick((): void => { (this.getUIContext().getHostContext()! as common.UIExtensionContext).terminateSelf() })
     }.width('100%').height('100%').padding(24).justifyContent(FlexAlign.Center).backgroundColor(UiColor.surface)
   }
 }

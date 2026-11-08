@@ -3,7 +3,7 @@
 
 import { Context } from '@kit.AbilityKit'
 import { calendarManager } from '@kit.CalendarKit'
-import { preferences } from '@kit.ArkData'
+import { PreferencesStore } from './PreferencesStore'
 import { OrgTask, SyncResult } from '../models/OrgTask'
 
 const PREF_NAME = 'org_tasks_config'
@@ -195,7 +195,7 @@ export class CalendarSync {
 
   private async loadSyncRecords(): Promise<SyncEventRecord[]> {
     try {
-      const store = await preferences.getPreferences(this.context, PREF_NAME)
+      const store = await PreferencesStore.open(this.context, PREF_NAME)
       const rawState = await store.get(SYNC_STATE_KEY, '') as string
       if (!rawState) {
         return []
@@ -213,7 +213,7 @@ export class CalendarSync {
   }
 
   private async saveSyncRecords(records: SyncEventRecord[]): Promise<void> {
-    const store = await preferences.getPreferences(this.context, PREF_NAME)
+    const store = await PreferencesStore.open(this.context, PREF_NAME)
     const state: StoredSyncState = { calendarName: this.calendarName, records }
     await store.put(SYNC_STATE_KEY, JSON.stringify(state))
     await store.flush()

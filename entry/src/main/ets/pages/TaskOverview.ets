@@ -1,5 +1,4 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
-import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
@@ -37,7 +36,7 @@ struct TaskOverview {
   private requestId: number = 0
 
   aboutToAppear() {
-    this.view = (router.getParams() as OverviewParams | undefined)?.view || 'today'
+    this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view || 'today'
   }
 
   onPageShow() { this.loadTasks() }
@@ -49,7 +48,7 @@ struct TaskOverview {
 
   openTask(task: CoreTask): () => void {
     return (): void => {
-      router.pushUrl({
+      this.getUIContext().getRouter().pushUrl({
         url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit',
         params: { task }
       })
@@ -73,7 +72,7 @@ struct TaskOverview {
     this.message = ''
     this.needsConfiguration = false
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const result = this.view === 'someday' || this.view === 'memo'
         ? await FileTargetService.query(config, this.view)
         : await NativeCoreService.queryTasks(config.repos, overviewTaskQuery(this.view), config.todoDefaults)
@@ -130,7 +129,7 @@ struct TaskOverview {
       } else if (this.needsConfiguration) {
         EmptyState({ title: `${overviewTitle(this.view)}文件未选择或已失效`, detail: '请在设置的“笔记与笔记本”中重新选择仓库和文件。',
           actionLabel: '前往设置', action: (): void => {
-            router.pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+            this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
           } })
       } else if (this.message) {
         EmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })

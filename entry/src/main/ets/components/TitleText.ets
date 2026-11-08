@@ -21,12 +21,17 @@ export struct TitleText {
 
   async openLink(href: string) {
     try {
-      await ExternalLinkService.open(getContext(this) as common.UIAbilityContext, href,
+      await ExternalLinkService.open(this.getUIContext().getHostContext()! as common.UIAbilityContext, href,
         (choices: MapAppChoice[]): void => { this.chooseMapApp(choices) })
     } catch (error) {
       const message = (error as Error).message
-      this.getUIContext().getPromptAction().showToast({ message: message || '无法打开链接，请确认已安装对应应用。' })
+      this.showLinkError(message || '无法打开链接，请确认已安装对应应用。')
     }
+  }
+
+  showLinkError(message: string): void {
+    try { this.getUIContext().getPromptAction().showToast({ message }) }
+    catch (error) { console.error('显示链接错误提示失败') }
   }
 
   chooseMapApp(choices: MapAppChoice[]): void {
@@ -60,7 +65,7 @@ export struct TitleText {
       .copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
       .onClick(this.activate).flexShrink(1)
       .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
-        (message: string): void => { this.getUIContext().getPromptAction().showToast({ message }) }), {
+        (message: string): void => { this.showLinkError(message) }), {
         height: 300,
         detents: [300],
         preferType: SheetType.BOTTOM,

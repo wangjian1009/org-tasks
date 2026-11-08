@@ -61,7 +61,7 @@ struct Capture {
   aboutToDisappear() { this.departed = true; this.visible = false; clearTimeout(this.warmUpTimer); clearTimeout(this.panelTimer); this.stopSpeech() }
   onBackPress(): boolean { this.close(); return true }
 
-  private context(): common.UIAbilityContext { return getContext(this) as common.UIAbilityContext }
+  private context(): common.UIAbilityContext { return this.getUIContext().getHostContext()! as common.UIAbilityContext }
 
   private saveSession(): CaptureSaveSession {
     if (!this.backend) this.backend = new CaptureSaveSession(this.context())

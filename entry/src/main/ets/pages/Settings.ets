@@ -1,5 +1,4 @@
 import { defaultTodoSettings } from 'liborg_tasks_harmony.so'
-import { router } from '@kit.ArkUI'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
@@ -43,9 +42,9 @@ struct Settings {
 
   async load() {
     try {
-      this.config = await AppConfigService.load(getContext(this))
+      this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if (!this.loaded) {
-        const params = router.getParams() as SettingsParams | undefined
+        const params = this.getUIContext().getRouter().getParams() as SettingsParams | undefined
         if (params?.section) this.section = params.section
         this.todoDefaults = this.config.todoDefaults
         this.fileDisplayMode = this.config.fileDisplayMode
@@ -87,13 +86,13 @@ struct Settings {
           this.message = '请填写日历名称，同步间隔应为至少 20 的整数'
           break
         }
-        const current = await AppConfigService.load(getContext(this))
+        const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
         const todoChanged = current.todoDefaults !== this.todoDefaults
         current.calendarName = this.calendarName.trim()
         current.syncInterval = interval
         current.todoDefaults = this.todoDefaults
         current.fileDisplayMode = this.fileDisplayMode
-        await AppConfigService.save(getContext(this), current)
+        await AppConfigService.save(this.getUIContext().getHostContext()!, current)
         if (todoChanged) await NativeCoreService.workspaceFor(current.repos, this.todoDefaults)
         this.message = '设置已保存'
         try { await BackgroundSyncService.configure(interval) }
@@ -141,11 +140,11 @@ struct Settings {
                 }.width('100%').padding({ left: 24, right: 24 })
                 SectionHeading({ title: '文件入口' })
                 Column({ space: 16 }) {
-                  PreferenceRow({ title: '收件箱文件', detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { router.pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'inbox' } }) } })
+                  PreferenceRow({ title: '收件箱文件', detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'inbox' } }) } })
                   Text('收件箱展示所选仓库中的文件；未配置时点击入口提示设置。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
-                  PreferenceRow({ title: '某天文件', detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { router.pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'someday' } }) } })
+                  PreferenceRow({ title: '某天文件', detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'someday' } }) } })
                   Text('“某天”展示所选文件中的未完成任务。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
-                  PreferenceRow({ title: '备忘文件', detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), action: (): void => { router.pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'memo' } }) } })
+                  PreferenceRow({ title: '备忘文件', detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'memo' } }) } })
                   Text('“备忘”展示所选文件中的全部标题记录。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                 }.width('100%').padding(24)
               } else {

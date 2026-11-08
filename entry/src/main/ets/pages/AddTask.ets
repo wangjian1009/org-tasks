@@ -1,7 +1,6 @@
 // 新增任务页面
 // 填写任务信息，写入 inbox.org
 
-import { router } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, IconButton, MessageBar } from '../components/Controls'
 import { dateLabel, localDate, repositoryLabel, UiColor } from '../ui/Theme'
@@ -43,7 +42,7 @@ struct AddTask {
 
   async loadConfig() {
     try {
-      const context = getContext(this)
+      const context = this.getUIContext().getHostContext()!
       this.config = await AppConfigService.load(context)
       this.selectedRepoId = this.config.inboxRepoId
       await this.loadInitialState()
@@ -151,10 +150,10 @@ struct AddTask {
           if (this.loading) {
             EmptyState({ title: '正在加载存储库', busy: true })
           } else if (this.saved) {
-            EmptyState({ title: '任务已保存', detail: this.message, actionLabel: '返回', action: (): void => { router.back() } })
+            EmptyState({ title: '任务已保存', detail: this.message, actionLabel: '返回', action: (): void => { this.getUIContext().getRouter().back() } })
           } else if (this.config.repos.length === 0) {
             EmptyState({ title: '先添加一个存储库', detail: '选择本地 Org 文件目录，或配置 WebDAV 存储库。', actionLabel: '添加存储库',
-              action: (): void => { router.pushUrl({ url: 'pages/Files' }) } })
+              action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/Files' }) } })
           } else {
             MessageBar({ message: this.message, error: true })
             Scroll() {

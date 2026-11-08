@@ -79,7 +79,9 @@ async function main() {
   fs.chmodSync(buildProfile, 0o600);
   console.log('>>> 使用本地 p12、Keychain 密码和 signing 中的调试签名材料');
   const hvigor = path.join(deveco, 'tools/hvigor/bin/hvigorw');
-  const parameters = ['assembleHap', '--mode', 'module', '-p', 'product=default', '-p', `buildMode=${mode}`];
+  // 两个任务均依赖 PackageHap；保留打包检查和符号收集，签名由下方独立完成。
+  const parameters = ['default@PackingCheck', 'default@CollectDebugSymbol',
+    '--mode', 'module', '-p', 'module=entry@default', '-p', 'product=default', '-p', `buildMode=${mode}`];
   if (mode === 'debug') parameters.push('-p', 'debuggable=true');
   parameters.push('--no-daemon');
   const status = await new Promise((resolve, reject) => {

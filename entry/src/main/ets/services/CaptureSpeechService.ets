@@ -23,9 +23,13 @@ export class CaptureSpeechService implements CaptureSpeechControl {
   async start(context: common.UIAbilityContext, events: CaptureSpeechEvents): Promise<void> {
     await this.cancel()
     const generation = this.generation
-    const permission = await abilityAccessCtrl.createAtManager().requestPermissionsFromUser(context, ['ohos.permission.MICROPHONE'])
+    let authResults: number[]
+    try {
+      const permission = await abilityAccessCtrl.createAtManager().requestPermissionsFromUser(context, ['ohos.permission.MICROPHONE'])
+      authResults = permission.authResults
+    } catch (error) { throw new CaptureSpeechError('无法请求麦克风权限，可以继续输入标题') }
     if (generation !== this.generation) return
-    if (permission.authResults[0] !== 0) throw new CaptureSpeechError('未获得麦克风权限，可以继续输入标题')
+    if (authResults[0] !== 0) throw new CaptureSpeechError('未获得麦克风权限，可以继续输入标题')
     let engine: speechRecognizer.SpeechRecognitionEngine
     try { engine = await speechRecognizer.createEngine({ language: 'zh-CN', online: 1 }) }
     catch (e) {

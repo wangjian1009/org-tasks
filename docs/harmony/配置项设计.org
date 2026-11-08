@@ -18,6 +18,8 @@
 
 配置、凭据与持久化状态必须分离。密码、令牌和客户端证书不能写入 Preferences、core 同步记录、HTTP 请求日志、进度事件或错误摘要。core 的 ~repoId~ 由仓库根目录的 ~.sync/id~ 持久化；现有宿主另用配置 ID 定位秘密，身份统一尚未落地，差异见本文末尾。
 
+配置、已保存搜索、捕捉草稿和日历映射通过 ~PreferencesStore~ 处理 Preferences 的同步异常与异步失败。封装将读取、写入和刷新失败统一作为 Promise 拒绝交给调用方，不在存储层返回缺省值或报告保存成功；日历映射读取失败仍由原调用方决定恢复方式。错误摘要仅包含操作说明与平台错误码，不包含键值、文件路径或凭据；既有存储名称、字段和保存顺序保持原样。
+
 ~OrgWorkspace~ 是应用级核心结构；一个应用通常只构造一个。WorkScheduler 调度、CalendarKit 映射、N-API service 实例和活动同步任务都是 Harmony 运行时概念，不是 ~OrgWorkspace~ 或 ~OrgRepo~ 的字段。
 
 * 配置模型

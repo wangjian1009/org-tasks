@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreMergeChange, CoreMergeComparison, CoreMergeFileVersion, CoreMergeMode, CoreMergeResolution,
@@ -38,8 +37,8 @@ struct MergeConflict {
     this.choices = []
     this.backups = []
     try {
-      const params = router.getParams() as MergeParams
-      const config = await AppConfigService.load(getContext(this))
+      const params = this.getUIContext().getRouter().getParams() as MergeParams
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const repository = config.repos.find((repo: RepoConfig) => repo.id === params.repoId)
       if (!repository || !repository.webdavEnabled) throw new Error('WebDAV 存储库已移除或停用')
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
@@ -110,7 +109,7 @@ struct MergeConflict {
     this.saving = true
     this.message = ''
     try {
-      const current = await AppConfigService.load(getContext(this))
+      const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
       await NativeCoreService.workspaceFor(current.repos, current.todoDefaults)
       const changes = comparison.changes.map((change: CoreMergeChange) => ({ id: change.id, path: change.path,
         kind: change.kind, preamble: change.preamble, localChange: change.localChange, remoteChange: change.remoteChange,
@@ -125,7 +124,7 @@ struct MergeConflict {
       this.comparison = undefined
       this.message = this.completed ? '任务变更已处理，同步日志已保存新的文件快照。'
         : '部分文件未完成，已保留备份。请重新比较剩余冲突。'
-      try { await RepositorySyncService.refreshConflicts(getContext(this)) } catch (_) {}
+      try { await RepositorySyncService.refreshConflicts(this.getUIContext().getHostContext()!) } catch (_) {}
     } catch (e) {
       this.comparison = undefined
       this.message = `合并失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -182,7 +181,7 @@ struct MergeConflict {
                 ForEach(this.backups, (backup: string) => {
                   Text(backup).fontSize(13).fontColor(UiColor.secondary).width('100%')
                 })
-                Button('返回列表').backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { router.back() })
+                Button('返回列表').backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { this.getUIContext().getRouter().back() })
               }.width('100%').padding(24)
             }.width('100%').layoutWeight(1)
           } else if (this.comparison) {

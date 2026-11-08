@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedTaskItem } from '../ui/PlannedPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
@@ -37,7 +36,7 @@ export struct PlannedTaskList {
       ForEach(group.items, (item: PlannedTaskItem) => {
         TaskListItem({ task: item.task, showDate: group.kind !== 'day', showCategory: true,
           referenceTime: this.referenceTime, open: (): void => {
-            router.pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
+            this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
           } })
       }, (item: PlannedTaskItem) => taskRenderKey(item.task))
       if (group.kind === 'day' && group.items.length === 0) {

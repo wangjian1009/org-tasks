@@ -1,5 +1,5 @@
 import { Context } from '@kit.AbilityKit'
-import { preferences } from '@kit.ArkData'
+import { PreferencesStore } from './PreferencesStore'
 
 export interface SavedSearch {
   id: string
@@ -14,12 +14,12 @@ export const BUILTIN_SEARCHES: SavedSearch[] = [
 
 export class SavedSearchService {
   static async load(context: Context): Promise<SavedSearch[]> {
-    const store = await preferences.getPreferences(context, 'org_tasks_saved_searches')
+    const store = await PreferencesStore.open(context, 'org_tasks_saved_searches')
     return JSON.parse(await store.get('items', '[]') as string) as SavedSearch[]
   }
 
   static async save(context: Context, searches: SavedSearch[]): Promise<void> {
-    const store = await preferences.getPreferences(context, 'org_tasks_saved_searches')
+    const store = await PreferencesStore.open(context, 'org_tasks_saved_searches')
     await store.put('items', JSON.stringify(searches))
     await store.flush()
   }

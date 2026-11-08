@@ -8,17 +8,19 @@ export class BackgroundSyncService {
     let current: workScheduler.WorkInfo | undefined = undefined
     try { current = await workScheduler.getWorkStatus(1001) } catch (_) {}
     if (current?.repeatCycleTime === cycle) return
-    if (current) workScheduler.stopWork(current, true)
-    workScheduler.startWork({
-      workId: 1001,
-      bundleName: 'com.example.orgtasks',
-      abilityName: 'SyncWorkExtension',
-      isCharging: false,
-      isPersisted: true,
-      isRepeat: true,
-      repeatCycleTime: cycle,
-      isDeepIdle: true,
-      parameters: { 'action': 'sync' }
-    })
+    try {
+      if (current) workScheduler.stopWork(current, true)
+      workScheduler.startWork({
+        workId: 1001,
+        bundleName: 'com.example.orgtasks',
+        abilityName: 'SyncWorkExtension',
+        isCharging: false,
+        isPersisted: true,
+        isRepeat: true,
+        repeatCycleTime: cycle,
+        isDeepIdle: true,
+        parameters: { 'action': 'sync' }
+      })
+    } catch (error) { throw new Error('配置后台同步失败，请检查系统后台任务权限后重试') }
   }
 }

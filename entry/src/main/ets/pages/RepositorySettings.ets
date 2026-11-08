@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
@@ -53,7 +52,7 @@ struct RepositorySettings {
     this.message = message
     this.getUIContext().showAlertDialog({ title: '无法保存修改', message,
       primaryButton: { value: '继续编辑', action: () => {} },
-      secondaryButton: { value: '放弃修改并返回', action: (): void => { router.back() } } })
+      secondaryButton: { value: '放弃修改并返回', action: (): void => { this.getUIContext().getRouter().back() } } })
   }
 
   clearTestResult() {
@@ -85,8 +84,8 @@ struct RepositorySettings {
 
   async load() {
     try {
-      this.config = await AppConfigService.load(getContext(this))
-      const params = router.getParams() as RepositoryParams | undefined
+      this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
+      const params = this.getUIContext().getRouter().getParams() as RepositoryParams | undefined
       const existing = this.config.repos.find((item: RepoConfig) => item.id === params?.repoId)
       if (params?.repoId && !existing) throw new Error('此存储库已不存在，请返回存储库列表')
       this.existing = existing !== undefined
@@ -103,7 +102,7 @@ struct RepositorySettings {
         const defaults: NativeSyncOptions = await defaultSyncOptions()
         this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
       }
-      if (!this.rootDirectory && this.webdavEnabled) this.rootDirectory = `${getContext(this).filesDir}/repositories/${repo.id}`
+      if (!this.rootDirectory && this.webdavEnabled) this.rootDirectory = `${this.getUIContext().getHostContext()!.filesDir}/repositories/${repo.id}`
       this.originalDraft = JSON.stringify(this.draft())
       this.loaded = true
     } catch (e) { this.message = `读取配置失败：${coreErrorMessage(e as CoreBridgeError)}` }
@@ -112,14 +111,14 @@ struct RepositorySettings {
 
   async save() {
     if (this.saving || this.testing || this.deleting || this.loading) return
-    if (!this.loaded || JSON.stringify(this.draft()) === this.originalDraft) { router.back(); return }
+    if (!this.loaded || JSON.stringify(this.draft()) === this.originalDraft) { this.getUIContext().getRouter().back(); return }
     if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
     if (this.webdavEnabled && (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword)) {
       this.cannotSave('请填写 HTTPS WebDAV 地址、用户名和密码'); return
     }
     this.saving = true
     try {
-      const current = await AppConfigService.load(getContext(this))
+      const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if (current.repos.some((repo: RepoConfig) => repo.id !== this.repoId && repo.rootDirectory === this.rootDirectory.trim())) {
         this.cannotSave('此本地目录已属于另一个存储库'); return
       }
@@ -127,14 +126,14 @@ struct RepositorySettings {
         this.cannotSave('此存储库已不存在，请放弃修改并返回'); return
       }
       const repository = this.draft()
-      const managed = `${getContext(this).filesDir}/repositories/${this.repoId}`
+      const managed = `${this.getUIContext().getHostContext()!.filesDir}/repositories/${this.repoId}`
       if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
       await NativeCoreService.validateRepository(repository.rootDirectory)
       const repos = current.repos.slice()
       const index = repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
       if (index < 0) repos.push(repository); else repos[index] = repository
-      await AppConfigService.save(getContext(this), { repos, inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile, somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults, fileDisplayMode: current.fileDisplayMode })
-      router.back()
+      await AppConfigService.save(this.getUIContext().getHostContext()!, { repos, inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile, somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults, fileDisplayMode: current.fileDisplayMode })
+      this.getUIContext().getRouter().back()
     } catch (e) { this.cannotSave(`保存失败：${coreErrorMessage(e as CoreBridgeError)}`) }
     finally { this.saving = false }
   }
@@ -153,9 +152,9 @@ struct RepositorySettings {
     if (!this.existing || this.saving || this.testing || this.deleting || this.loading) return
     this.deleting = true
     try {
-      await AppConfigService.removeRepository(getContext(this), this.repoId)
-      try { await RepositorySyncService.refreshConflicts(getContext(this)) } catch (_) {}
-      router.back()
+      await AppConfigService.removeRepository(this.getUIContext().getHostContext()!, this.repoId)
+      try { await RepositorySyncService.refreshConflicts(this.getUIContext().getHostContext()!) } catch (_) {}
+      this.getUIContext().getRouter().back()
     } catch (e) { this.message = `删除存储库失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.deleting = false }
   }

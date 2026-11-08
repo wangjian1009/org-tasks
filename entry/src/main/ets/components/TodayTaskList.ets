@@ -1,5 +1,4 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
-import { router } from '@kit.ArkUI'
 import { TodaySection, TodayTaskItem } from '../ui/TodayPresentation'
 import { ListSectionHeader } from './Controls'
 import { TaskListItem } from './TaskListItem'
@@ -21,7 +20,7 @@ export struct TodayTaskList {
           ForEach(section.items, (item: TodayTaskItem) => {
             ListItem() {
               TaskListItem({ task: item.task, referenceTime: this.referenceTime, open: (): void => {
-                router.pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
+                this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
               } })
             }
           }, (item: TodayTaskItem) => taskRenderKey(item.task))

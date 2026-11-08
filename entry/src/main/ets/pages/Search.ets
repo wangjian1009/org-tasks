@@ -1,5 +1,4 @@
 import { taskRenderKey } from '../ui/TaskPresentation'
-import { router } from '@kit.ArkUI'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreTask, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
@@ -26,7 +25,7 @@ struct TaskSearch {
   private requestId: number = 0
 
   aboutToAppear() {
-    const params = router.getParams() as SearchParams | undefined
+    const params = this.getUIContext().getRouter().getParams() as SearchParams | undefined
     if (params?.query !== undefined) {
       this.query = params.query
       this.advanced = true
@@ -74,7 +73,7 @@ struct TaskSearch {
     this.message = ''
     this.showingResults = true
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const response = await NativeCoreService.searchWorkspace(config.repos, expression, config.todoDefaults)
       if (request !== this.requestId) return
       this.tasks = response.tasks
@@ -142,7 +141,7 @@ struct TaskSearch {
             } else {
               List() {
                 ForEach(this.tasks, (task: CoreTask) => {
-                  ListItem() { TaskRow({ task, showBody: true, open: (): void => { router.pushUrl({ url: 'pages/TaskEdit', params: { task } }) } }) }
+                  ListItem() { TaskRow({ task, showBody: true, open: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } }) } }) }
                 }, (task: CoreTask) => taskRenderKey(task))
               }.width('100%').layoutWeight(1).padding({ bottom: 16 })
                 .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })

@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI'
 import { TitleText } from '../components/TitleText'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, ListSectionHeader } from '../components/Controls'
@@ -30,7 +29,7 @@ struct Files {
 
   openMore() {
     this.getUIContext().showActionSheet({ title: '存储库', message: '选择操作', sheets: [
-      { title: '同步日志', action: (): void => { router.pushUrl({ url: 'pages/SyncLog' }) } },
+      { title: '同步日志', action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncLog' }) } },
       { title: this.showIgnored ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件', action: (): void => { this.toggleIgnored() } }
     ] })
   }
@@ -44,7 +43,7 @@ struct Files {
     this.loading = this.groups.length === 0
     this.message = ''
     try {
-      const config = await AppConfigService.load(getContext(this))
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const groups = await NotebookService.list(config.repos, config.todoDefaults)
       if (request !== this.requestId) return
       this.groups = groups
@@ -93,7 +92,7 @@ struct Files {
                         Text(fileModifiedLabel(file.modifiedAt)).fontSize(12).fontColor(UiColor.secondary).width('100%')
                       }.width('100%').constraintSize({ minHeight: 60 }).padding({ top: 10, bottom: 10 })
                         .accessibilityGroup(true).accessibilityText(`${file.titleParts.length > 0 ? file.titleParts.map((part: CoreTitlePart): string => part.text).join('') : file.path}，文件 ${file.path}，${file.taskCount} 条笔记，${fileSizeLabel(file.byteLength)}，${fileModifiedLabel(file.modifiedAt)}`)
-                        .onClick((): void => { router.pushUrl({ url: 'pages/FileDetail', params: { repoId: file.repoId, path: file.path } }) })
+                        .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail', params: { repoId: file.repoId, path: file.path } }) })
                     }
                   }, (file: CoreOrgFileMetadata) => `${file.repoId}:${file.path}`)
                 }
@@ -112,6 +111,6 @@ struct Files {
     ListSectionHeader({ title: group.name })
       .accessibilityText(`存储库 ${group.name}，点击打开存储库设置`)
       .enabled(group.configId.length > 0)
-      .onClick((): void => { router.pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
+      .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
   }
 }
