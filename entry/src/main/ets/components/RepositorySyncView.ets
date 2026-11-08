@@ -21,7 +21,13 @@ export struct RepositorySyncView {
       this.pageVisible = false
     } else if (info.state === uiObserver.RouterPageState.ON_PAGE_SHOW) {
       this.pageVisible = true
-      this.repositorySyncChanged()
+      // 页面事件先于路由状态切换完成时，getRouter().getState() 仍可能指向刚离开的页面。
+      // 这里直接按页面事件处理版本，避免错过冲突解决后对文件列表的失效通知。
+      this.presentSyncFailure()
+      if (this.syncRevision !== this.syncState.revision) {
+        this.syncRevision = this.syncState.revision
+        this.onDataInvalidated()
+      }
     }
   }
 
