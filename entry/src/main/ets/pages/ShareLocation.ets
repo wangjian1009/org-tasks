@@ -166,7 +166,7 @@ struct ShareLocation {
     Column({ space: 12 }) {
       ListSectionHeader({ title: '更新地址' })
       ForEach(this.tasks, (task: CoreTask) => {
-        Column({ space: 8 }) {
+        Column({ space: 6 }) {
           Column({ space: 3 }) {
             Text(task.heading).fontSize(16).fontColor(UiColor.text).maxLines(1).width('100%')
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -177,13 +177,14 @@ struct ShareLocation {
               Text(link.label || link.uri).fontSize(14).fontColor(UiColor.primary).maxLines(1).layoutWeight(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(this.selectedUri === link.uri && this.selectedTask?.id === task.id ? '✓' : '')
-                .fontSize(20).fontColor(UiColor.primary)
+                .fontSize(20).fontColor(UiColor.text).width(24).height(24).textAlign(TextAlign.Center)
             }.width('100%').padding({ right: 8, top: 6, bottom: 6 }).constraintSize({ minHeight: 36 })
               .backgroundColor(this.selectedUri === link.uri && this.selectedTask?.id === task.id ? '#3B5550' : Color.Transparent)
               .borderRadius(8).enabled(!this.saving && !this.updatedTask)
               .onClick(() => { this.selectedTask = task; this.selectedUri = link.uri })
           })
-        }.width('100%').padding(16).backgroundColor(UiColor.field).borderRadius(12)
+        }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
+          .backgroundColor(UiColor.field).borderRadius(12)
       })
       if (!this.loadingTasks && this.selectedTask) {
         Button(this.saving ? '保存中…' : this.updatedTask ? '打开任务编辑' : '更新选中的地址').width('100%').height(52).backgroundColor(UiColor.primary)
