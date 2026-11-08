@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{Local, NaiveDate};
+use orgize::{SyntaxKind, ast::Headline, rowan::ast::AstNode};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
-use super::{LocalFileVersion, OrgFileEdit, OrgRepo, apply_edit, editor::position_at};
+use super::{LocalFileVersion, OrgFile, OrgFileEdit, OrgRepo, apply_edit, editor::position_at};
 use crate::{CoreError, filter::tasks_from_repo};
 
 /// 宿主提交的任务创建参数，仅在调用期间使用。
@@ -120,6 +121,180 @@ impl OrgRepo {
         }
         if let Some(index) = self.files.iter().position(|item| item.path == path) { self.files[index] = file; }
         Ok(updated)
+    }
+
+    /// 更新指定标题的标题文字与所属正文，保留标题行中的状态、优先级、标签及其他字节。
+    /// 任务 ID 和正文快照同时用于防止过期页面覆盖外部修改。
+    pub async fn update_task(
+        &mut self,
+        path: &str,
+        task_id: &str,
+        expected_body: &str,
+        heading: &str,
+        body: &str,
+        queue_upload: bool,
+    ) -> Result<String, CoreError> {
+        if self.id.is_empty() {
+            return Err(CoreError::InvalidState("仓库尚未加载"));
+        }
+        validate_task_path(path)?;
+        validate_edit_text(heading, "标题")?;
+        validate_edit_text(body, "正文")?;
+        let target = task_target(Path::new(&self.root_directory), path).await?;
+        let original = read_optional(&target)
+            .await?
+            .ok_or(CoreError::InvalidInput("目标文件不存在"))?;
+        let mut file = self.parse_file(path.into(), original.clone())?;
+        let task = tasks_from_repo(self)
+            .into_iter()
+            .find(|task| task.path == path && task.id == task_id)
+            .ok_or(CoreError::InvalidInput("备忘已被修改或删除，请重新打开"))?;
+        if task.body != expected_body {
+            return Err(CoreError::InvalidState("备忘已发生变化，请重新打开后保存"));
+        }
+        let headline = headline_at(&file, task.byte_offset as usize)?;
+        let title_node = headline
+            .syntax()
+            .children()
+            .find(|node| node.kind() == SyntaxKind::HEADLINE_TITLE)
+            .ok_or(CoreError::InvalidInput("标题格式无效"))?;
+        let title_range = super::editor::SourceRange::new(
+            position_at(file.source_bytes(), u32::from(title_node.text_range().start()) as usize),
+            position_at(file.source_bytes(), u32::from(title_node.text_range().end()) as usize),
+        )?;
+        let section_range = headline.section().map(|section| {
+            super::editor::SourceRange::new(
+                position_at(file.source_bytes(), u32::from(section.start()) as usize),
+                position_at(file.source_bytes(), u32::from(section.end()) as usize),
+            )
+        }).transpose()?;
+        let body_anchor = position_at(file.source_bytes(), u32::from(headline.end()) as usize);
+        drop(headline);
+        if let Some(range) = section_range {
+            let content = normalize_body(body, &original);
+            if content.is_empty() {
+                apply_edit(&mut file, OrgFileEdit::DeleteRange { target: range })?;
+            } else {
+                apply_edit(
+                    &mut file,
+                    OrgFileEdit::ReplaceRange { target: range, content },
+                )?;
+            }
+        } else if !body.trim().is_empty() {
+            let content = normalize_body(body, &original);
+            apply_edit(&mut file, OrgFileEdit::InsertAt { anchor: body_anchor, content })?;
+        }
+        apply_edit(
+            &mut file,
+            OrgFileEdit::ReplaceRange {
+                target: title_range,
+                content: heading.trim().as_bytes().to_vec(),
+            },
+        )?;
+        self.commit_file_change(path, original, file, queue_upload).await?;
+        let updated = tasks_from_repo(self)
+            .into_iter()
+            .find(|item| item.path == path && item.byte_offset == task.byte_offset)
+            .ok_or(CoreError::InvalidState("保存后的备忘无法重新定位"))?;
+        Ok(updated.id)
+    }
+
+    /// 删除指定标题及其子标题，保留文件其他原始字节。
+    pub async fn delete_task(
+        &mut self,
+        path: &str,
+        task_id: &str,
+        expected_body: &str,
+        queue_upload: bool,
+    ) -> Result<(), CoreError> {
+        if self.id.is_empty() {
+            return Err(CoreError::InvalidState("仓库尚未加载"));
+        }
+        validate_task_path(path)?;
+        let target = task_target(Path::new(&self.root_directory), path).await?;
+        let original = read_optional(&target)
+            .await?
+            .ok_or(CoreError::InvalidInput("目标文件不存在"))?;
+        let mut file = self.parse_file(path.into(), original.clone())?;
+        let task = tasks_from_repo(self)
+            .into_iter()
+            .find(|task| task.path == path && task.id == task_id)
+            .ok_or(CoreError::InvalidInput("备忘已被修改或删除，请重新打开"))?;
+        if task.body != expected_body {
+            return Err(CoreError::InvalidState("备忘已发生变化，请重新打开后删除"));
+        }
+        let headline = headline_at(&file, task.byte_offset as usize)?;
+        let start = u32::from(headline.start()) as usize;
+        let end = file
+            .syntax()
+            .document()
+            .syntax()
+            .descendants()
+            .filter_map(Headline::cast)
+            .filter(|item| {
+                u32::from(item.start()) as usize > start && item.level() <= headline.level()
+            })
+            .map(|item| u32::from(item.start()) as usize)
+            .next()
+            .unwrap_or_else(|| file.source_bytes().len());
+        let target_range = super::editor::SourceRange::new(
+            position_at(file.source_bytes(), start),
+            position_at(file.source_bytes(), end),
+        )?;
+        apply_edit(&mut file, OrgFileEdit::DeleteRange { target: target_range })?;
+        self.commit_file_change(path, original, file, queue_upload).await
+    }
+
+    async fn commit_file_change(
+        &mut self,
+        path: &str,
+        original: Vec<u8>,
+        file: super::OrgFile,
+        queue_upload: bool,
+    ) -> Result<(), CoreError> {
+        let target = task_target(Path::new(&self.root_directory), path).await?;
+        let nonce = super::service::generate_repo_id()?;
+        let temporary = target.with_file_name(format!(".{nonce}.tmp"));
+        write_new(&temporary, file.source_bytes()).await?;
+        let intent_path = Path::new(&self.root_directory)
+            .join(".sync/outbox")
+            .join(format!("{nonce}.json"));
+        let intent_temporary = intent_path.with_extension("tmp");
+        let result = async {
+            if queue_upload {
+                let intent = OrgRepoWriteIntent {
+                    relative_path: path.into(),
+                    content_hash: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+                };
+                fs::create_dir_all(intent_path.parent().unwrap())
+                    .await
+                    .map_err(store_error)?;
+                let intent_bytes = serde_json::to_vec(&intent)
+                    .map_err(|_| CoreError::InvalidState("无法序列化写入意图"))?;
+                write_new(&intent_temporary, &intent_bytes).await?;
+                fs::rename(&intent_temporary, &intent_path)
+                    .await
+                    .map_err(store_error)?;
+            }
+            if read_optional(&target).await? != Some(original) {
+                return Err(CoreError::InvalidState("目标文件已发生变化，请重试保存"));
+            }
+            fs::rename(&temporary, &target).await.map_err(store_error)?;
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary).await;
+            if queue_upload {
+                let _ = fs::remove_file(&intent_path).await;
+                let _ = fs::remove_file(&intent_temporary).await;
+            }
+            return Err(error);
+        }
+        if let Some(index) = self.files.iter().position(|item| item.path == path) {
+            self.files[index] = file;
+        }
+        Ok(())
     }
 
     async fn create_task_with_position(
@@ -473,6 +648,44 @@ fn validate_task_path(path: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+fn validate_edit_text(value: &str, label: &str) -> Result<(), CoreError> {
+    if value.contains('\0') || (label == "标题" && value.chars().any(char::is_control)) {
+        return Err(CoreError::InvalidInput(if label == "标题" {
+            "标题包含无效控制字符"
+        } else {
+            "正文包含无效控制字符"
+        }));
+    }
+    Ok(())
+}
+
+fn normalize_body(body: &str, original: &[u8]) -> Vec<u8> {
+    let newline = if original.windows(2).any(|pair| pair == b"\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = normalized.replace('\n', newline);
+    if normalized.is_empty() {
+        Vec::new()
+    } else if normalized.ends_with(newline) {
+        normalized.into_bytes()
+    } else {
+        format!("{normalized}{newline}").into_bytes()
+    }
+}
+
+fn headline_at(file: &OrgFile, offset: usize) -> Result<Headline, CoreError> {
+    file.syntax()
+        .document()
+        .syntax()
+        .descendants()
+        .filter_map(Headline::cast)
+        .find(|headline| u32::from(headline.start()) as usize == offset)
+        .ok_or(CoreError::InvalidInput("任务标题位置已失效"))
+}
+
 pub(super) async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
     let mut target = root.to_path_buf();
     let parts = path.split('/').collect::<Vec<_>>();
@@ -612,6 +825,45 @@ mod tests {
         assert_eq!(updated.body, "Body\n");
         assert!(updated.own_tags.is_empty());
         assert_eq!(fs::read(root.join("inbox.org")).await.unwrap(), source.replace("addr:old", "geo:39.9,116.4").as_bytes());
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_task_replaces_title_and_body_and_returns_new_identity() {
+        let mut repo = repo().await;
+        let root = PathBuf::from(&repo.root_directory);
+        fs::write(root.join("notes.org"), "#+TITLE: Notes\r\n* 原标题\r\n原正文  \r\n* 其他\r\n".as_bytes())
+            .await
+            .unwrap();
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        let workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
+        let original = workspace.search(&Filter::parse(""))
+            .into_iter().find(|task| task.title == "原标题").unwrap();
+        let id = repo.update_task(
+            "notes.org", &original.id, &original.body, "新标题", "新正文\n第二行", true,
+        ).await.unwrap();
+        let source = String::from_utf8(fs::read(root.join("notes.org")).await.unwrap()).unwrap();
+        assert!(source.contains("* 新标题\r\n新正文\r\n第二行\r\n"));
+        assert!(source.contains("* 其他\r\n"));
+        assert_ne!(id, original.id);
+        assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_task_removes_subtree_and_rejects_stale_body() {
+        let mut repo = repo().await;
+        let root = PathBuf::from(&repo.root_directory);
+        fs::write(root.join("notes.org"), "* 保留\r\n* 删除\r\n正文\r\n** 子标题\r\n子正文\r\n* 后续\r\n".as_bytes())
+            .await
+            .unwrap();
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        let workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
+        let target = workspace.search(&Filter::parse(""))
+            .into_iter().find(|task| task.title == "删除").unwrap();
+        assert!(repo.delete_task("notes.org", &target.id, "过期正文", false).await.is_err());
+        repo.delete_task("notes.org", &target.id, &target.body, false).await.unwrap();
+        assert_eq!(fs::read(root.join("notes.org")).await.unwrap(), "* 保留\r\n* 后续\r\n".as_bytes());
         fs::remove_dir_all(root).await.unwrap();
     }
 

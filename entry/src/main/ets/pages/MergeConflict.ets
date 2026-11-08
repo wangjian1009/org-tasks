@@ -186,8 +186,6 @@ struct MergeConflict {
             }.width('100%').layoutWeight(1)
           } else if (this.comparison) {
             Column() {
-              Text(`远端基准 · ${this.comparison.files.length} 个冲突文件`).fontSize(13).fontColor(UiColor.secondary)
-                .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 4 })
               List({ space: 10 }) {
                 ForEach(this.comparison.files, (file: CoreMergeFileVersion) => {
                   ListItem() { this.fileHeader(file.path) }

@@ -34,7 +34,7 @@ let workspace = OrgWorkspace::new(vec![repo])?;
 
 ** 解析、编辑并写回 org 文件
 
-调用方通过 ~OrgRepo.load~ 扫描并解析目录中的 org 文件。随后用当前快照中的元素定位替换或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
+调用方通过 ~OrgRepo.load~ 扫描并解析目录中的 org 文件。随后用当前快照中的元素定位替换、删除或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
 
 #+begin_src rust
 let repo = workspace.repos.iter_mut().find(|repo| repo.id == repo_id)?;
@@ -131,7 +131,14 @@ impl OrgRepo {
         queue_upload: bool) -> Result<(), CoreError>;
 
     pub async fn update_task_location(&mut self, path: &str, heading: &str,
-        new_uri: &str, queue_upload: bool) -> Result<(), CoreError>;
+        old_uri: &str, new_uri: &str, queue_upload: bool) -> Result<FilterTask, CoreError>;
+
+    pub async fn update_task(&mut self, path: &str, task_id: &str,
+        expected_body: &str, heading: &str, body: &str,
+        queue_upload: bool) -> Result<String, CoreError>;
+
+    pub async fn delete_task(&mut self, path: &str, task_id: &str,
+        expected_body: &str, queue_upload: bool) -> Result<(), CoreError>;
 
     pub async fn pending_writes(&self) -> Result<Vec<OrgRepoWriteIntent>, CoreError>;
 
@@ -306,13 +313,16 @@ impl LocalFileVersion {
 
 *** OrgFileEdit 与保真序列化
 
-编辑接口以已解析的单个 ~OrgFile~ 为边界。它只可替换明确来源范围，或在明确来源位置插入内容；完成后重新构造 ~orgize~ 缓存。
+编辑接口以已解析的单个 ~OrgFile~ 为边界。它只可替换、删除明确来源范围，或在明确来源位置插入内容；完成后重新构造 ~orgize~ 缓存。
 
 #+begin_src rust
 pub enum OrgFileEdit {
     ReplaceRange {
         target: SourceRange,
         content: Vec<u8>,
+    },
+    DeleteRange {
+        target: SourceRange,
     },
     InsertAt {
         anchor: SourcePosition,
@@ -328,7 +338,7 @@ pub fn apply_edit(
 pub fn serialize_file(file: &OrgFile) -> &[u8];
 #+end_src
 
-~apply_edit~ 必须拒绝过期范围和越界锚点。它不得格式化、重新缩进、对齐表格、规范化换行或重建未修改节点；只允许对目标范围执行字节替换或在目标位置插入字节。未修改范围的字节必须保持不变。
+~apply_edit~ 必须拒绝过期范围和越界锚点。它不得格式化、重新缩进、对齐表格、规范化换行或重建未修改节点；只允许对目标范围执行字节替换、删除或在目标位置插入字节。未修改范围的字节必须保持不变。
 
 *** SyncPolicy 与本地同步历史
 
@@ -612,6 +622,10 @@ impl FilterTask {
 ** 分享地点写入与地址替换
 
 ~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。 ~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。 ~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交， ~queue_upload~ 仍按当前文件快照登记 outbox。
+
+** 备忘标题与正文编辑
+
+~OrgRepo.update_task~ 按当前 ~task_id~ 定位标题，只替换标题文字和正文，保留标题行中的状态、优先级、标签及其他字节；调用方同时提交旧正文快照，过期时拒绝覆盖。 ~OrgRepo.delete_task~ 删除标题及其子标题，并以旧正文快照检查过期页面。所有写入在文件内容未变化时原子提交， ~queue_upload~ 仍按当前文件快照登记 outbox。
 
 * 任务移动与删除
 

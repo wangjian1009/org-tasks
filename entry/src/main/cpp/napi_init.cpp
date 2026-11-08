@@ -28,6 +28,10 @@ extern "C" int32_t org_tasks_harmony_repo_create_task_at_top(uint64_t workspace_
     const char* path, const char* task_json, bool queue_upload);
 extern "C" char* org_tasks_harmony_repo_update_task_location(uint64_t workspace_handle, const char* root_directory,
     const char* path, const char* heading, const char* old_uri, const char* new_uri, bool queue_upload);
+extern "C" char* org_tasks_harmony_repo_update_task(uint64_t workspace_handle, const char* root_directory,
+    const char* path, const char* task_id, const char* expected_body, const char* heading, const char* body, bool queue_upload);
+extern "C" int32_t org_tasks_harmony_repo_delete_task(uint64_t workspace_handle, const char* root_directory,
+    const char* path, const char* task_id, const char* expected_body, bool queue_upload);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
@@ -129,13 +133,16 @@ struct RepoSnapshotWork {
     std::string task_path;
     std::string task_json;
     std::string task_heading;
+    std::string task_id;
+    std::string task_expected_body;
+    std::string task_body;
     std::string task_old_uri;
     std::string task_uri;
     bool queue_upload = false;
     bool insert_at_top = false;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, History, HistoryDetail, CreateTask, UpdateTask, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, History, HistoryDetail, CreateTask, UpdateTask, UpdateMemo, DeleteTask, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -639,6 +646,18 @@ void ExecuteRepoSnapshot(napi_env, void* data)
             work->response = TakeRustString(org_tasks_harmony_repo_update_task_location(work->workspace_handle, work->root_directory.c_str(),
                 work->task_path.c_str(), work->task_heading.c_str(), work->task_old_uri.c_str(), work->task_uri.c_str(), work->queue_upload));
             break;
+        case RepoSnapshotWork::Operation::UpdateMemo:
+            work->response = TakeRustString(org_tasks_harmony_repo_update_task(
+                work->workspace_handle, work->root_directory.c_str(), work->task_path.c_str(),
+                work->task_id.c_str(), work->task_expected_body.c_str(), work->task_heading.c_str(),
+                work->task_body.c_str(), work->queue_upload));
+            break;
+        case RepoSnapshotWork::Operation::DeleteTask:
+            if (org_tasks_harmony_repo_delete_task(work->workspace_handle, work->root_directory.c_str(),
+                work->task_path.c_str(), work->task_id.c_str(), work->task_expected_body.c_str(), work->queue_upload) == 0) {
+                work->response = "{}";
+            }
+            break;
         case RepoSnapshotWork::Operation::Load:
             if (org_tasks_harmony_repo_load(work->workspace_handle, work->root_directory.c_str()) == 0) {
                 work->response = "{}";
@@ -655,7 +674,9 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
         RejectCoreError(env, work->deferred, work->error,
             work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
             work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
-            work->operation == RepoSnapshotWork::Operation::CreateTask ? "保存任务失败" :
+            (work->operation == RepoSnapshotWork::Operation::CreateTask ||
+             work->operation == RepoSnapshotWork::Operation::UpdateMemo) ? "保存任务失败" :
+            work->operation == RepoSnapshotWork::Operation::DeleteTask ? "删除任务失败" :
             work->operation == RepoSnapshotWork::Operation::UpdateTask ? "更新任务地址失败" :
             work->operation == RepoSnapshotWork::Operation::FileMetadata ? "读取文件元信息失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" :
@@ -1306,6 +1327,91 @@ napi_value RepoUpdateTaskLocation(napi_env env, napi_callback_info info)
     return promise;
 }
 
+napi_value RepoUpdateMemo(napi_env env, napi_callback_info info)
+{
+    size_t argc = 6;
+    napi_value args[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+    napi_value self;
+    RepoWrap* repo = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 6 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr) {
+        napi_throw_error(env, nullptr, "Repo.updateTask 参数无效");
+        return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    if (!ReadString(env, args[0], &work->task_path) || !ReadString(env, args[1], &work->task_id) ||
+        !ReadString(env, args[2], &work->task_expected_body) || !ReadString(env, args[3], &work->task_heading) ||
+        !ReadString(env, args[4], &work->task_body) ||
+        napi_get_value_bool(env, args[5], &work->queue_upload) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.updateTask 参数无效");
+        return nullptr;
+    }
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::UpdateMemo;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Repo.updateTask Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoUpdateTask", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Repo.updateTask 请求");
+        return nullptr;
+    }
+    return promise;
+}
+
+napi_value RepoDeleteTask(napi_env env, napi_callback_info info)
+{
+    size_t argc = 4;
+    napi_value args[4] = {nullptr, nullptr, nullptr, nullptr};
+    napi_value self;
+    RepoWrap* repo = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 4 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr) {
+        napi_throw_error(env, nullptr, "Repo.deleteTask 参数无效");
+        return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    if (!ReadString(env, args[0], &work->task_path) || !ReadString(env, args[1], &work->task_id) ||
+        !ReadString(env, args[2], &work->task_expected_body) ||
+        napi_get_value_bool(env, args[3], &work->queue_upload) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.deleteTask 参数无效");
+        return nullptr;
+    }
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::DeleteTask;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Repo.deleteTask Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoDeleteTask", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Repo.deleteTask 请求");
+        return nullptr;
+    }
+    return promise;
+}
+
 napi_value RepoSync(napi_env env, napi_callback_info info)
 {
     size_t argc = 3;
@@ -1533,6 +1639,8 @@ static napi_value Init(napi_env env, napi_value exports)
         {"fileMetadata", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
         {"createTask", nullptr, RepoCreateTask, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"updateTaskLocation", nullptr, RepoUpdateTaskLocation, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"updateTask", nullptr, RepoUpdateMemo, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"deleteTask", nullptr, RepoDeleteTask, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"conflicts", nullptr, RepoConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

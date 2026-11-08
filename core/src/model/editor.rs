@@ -52,6 +52,9 @@ pub enum OrgFileEdit {
         target: SourceRange,
         content: Vec<u8>,
     },
+    DeleteRange {
+        target: SourceRange,
+    },
     InsertAt {
         anchor: SourcePosition,
         content: Vec<u8>,
@@ -81,6 +84,16 @@ fn apply_edit_inner(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFile
                 return Err(CoreError::InvalidInput("编辑范围起点不能位于终点之后"));
             }
             file.source_bytes.splice(start..end, content);
+        }
+        OrgFileEdit::DeleteRange { target } => {
+            let start = offset(target.start)?;
+            let end = offset(target.end)?;
+            validate_position(file.source_bytes(), start, target.start)?;
+            validate_position(file.source_bytes(), end, target.end)?;
+            if start >= end {
+                return Err(CoreError::InvalidInput("删除范围不能为空"));
+            }
+            file.source_bytes.splice(start..end, std::iter::empty());
         }
         OrgFileEdit::InsertAt { anchor, content } => {
             validate_content(&content)?;

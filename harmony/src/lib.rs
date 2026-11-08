@@ -230,6 +230,62 @@ pub extern "C" fn org_tasks_harmony_repo_update_task_location(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_update_task(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+    path: *const c_char,
+    task_id: *const c_char,
+    expected_body: *const c_char,
+    heading: *const c_char,
+    body: *const c_char,
+    queue_upload: bool,
+) -> *mut c_char {
+    string_result(
+        read_c_string(root_directory).and_then(|root_directory| {
+            bridge::repo_update_task(
+                workspace_handle,
+                root_directory,
+                read_c_string(path)?,
+                read_c_string(task_id)?,
+                read_c_string(expected_body)?,
+                read_c_string(heading)?,
+                read_c_string(body)?,
+                queue_upload,
+            )
+        }),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_delete_task(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+    path: *const c_char,
+    task_id: *const c_char,
+    expected_body: *const c_char,
+    queue_upload: bool,
+) -> i32 {
+    clear_last_error();
+    let result = read_c_string(root_directory).and_then(|root_directory| {
+        bridge::repo_delete_task(
+            workspace_handle,
+            root_directory,
+            read_c_string(path)?,
+            read_c_string(task_id)?,
+            read_c_string(expected_body)?,
+            queue_upload,
+        )
+    });
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            remember_error(&error);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_id(
     workspace_handle: u64,
     root_directory: *const c_char,

@@ -58,8 +58,13 @@ class Repo {
   file(path: string): Promise<OrgFile>
   createTask(path: string, task: NewTask, queueUpload: boolean,
              insertAtTop?: boolean): Promise<void>
-  updateTaskLocation(path: string, heading: string, newUri: string,
-                     queueUpload: boolean): Promise<void>
+  updateTaskLocation(path: string, heading: string, oldUri: string,
+                     newUri: string, queueUpload: boolean): Promise<Task>
+  updateTask(path: string, taskId: string, expectedBody: string,
+             heading: string, body: string,
+             queueUpload: boolean): Promise<{ id: string }>
+  deleteTask(path: string, taskId: string, expectedBody: string,
+             queueUpload: boolean): Promise<void>
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
        options?: SyncOptions): Promise<SyncRecord>
   conflicts(): Promise<ConflictSync[]>
@@ -140,6 +145,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 * 创建、同步与合并
 
 ~Repo.createTask~ 接受 ~NewTask~ 数据对象、目标路径、 ~queueUpload~ 和可选的 ~insertAtTop~ 位置标记；Rust 负责校验、保真追加或头部插入、提交与 outbox。省略 ~insertAtTop~ 或传 ~false~ 时保持文件末尾追加，快速捕捉传 ~true~ 在文件头配置与前言之后、第一条标题之前插入。 ~NewTask.recordCreated?: boolean~ 映射 Core 的 ~record_created~ ，省略时关闭；启用后由 Core 在保存时补齐 ~CREATED~ 非活动时间戳，C++ 与 ArkTS 不生成时间或拼接属性 drawer。ArkTS 只提交结构化表单值；分享地点的地址放在 ~NewTask.body~ ，由 Core 生成 Org 正文。
+
+~Repo.updateTask~ 接收任务 ID、旧正文快照、新标题和正文；Core 只替换标题文字与正文，保留状态、优先级、标签及其他未编辑字节，并返回更新后的任务 ID。 ~Repo.deleteTask~ 接收任务 ID 和旧正文快照，删除目标标题及其子标题。两者都在 worker 中执行，提交前由 Core 校验文件快照， ~queueUpload~ 为真时登记当前完整文件的 outbox 意图；过期页面以 Promise 拒绝，不由 C++ 或 ArkTS 重建 Org 内容。
 
 ~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
 

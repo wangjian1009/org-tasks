@@ -475,6 +475,56 @@ pub fn repo_update_task_location(
         .map_err(|_| CoreError::InvalidState("无法序列化更新后的任务"))
 }
 
+pub fn repo_update_task(
+    handle: u64,
+    root_directory: String,
+    path: String,
+    task_id: String,
+    expected_body: String,
+    heading: String,
+    body: String,
+    queue_upload: bool,
+) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    let id = runtime.block_on(repository.update_task(
+        &path,
+        &task_id,
+        &expected_body,
+        &heading,
+        &body,
+        queue_upload,
+    ))?;
+    Ok(serde_json::json!({ "id": id }).to_string())
+}
+
+pub fn repo_delete_task(
+    handle: u64,
+    root_directory: String,
+    path: String,
+    task_id: String,
+    expected_body: String,
+    queue_upload: bool,
+) -> Result<(), CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace
+        .repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
+    runtime.block_on(repository.delete_task(&path, &task_id, &expected_body, queue_upload))
+}
+
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let workspace = workspace

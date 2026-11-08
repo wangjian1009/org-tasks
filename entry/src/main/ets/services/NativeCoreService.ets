@@ -83,6 +83,7 @@ export enum CoreMergeResolution {
   Remove = 'remove'
 }
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
+export interface CoreTaskUpdateResult { id: string }
 
 export type CoreRefileTarget = NativeRefileTarget
 export type CoreTaskEdit = NativeTaskEdit
@@ -168,6 +169,14 @@ export class CoreRepo {
 
   async updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<CoreTask> {
     return await this.native.updateTaskLocation(path, heading, oldUri, newUri, queueUpload)
+  }
+
+  async updateTask(path: string, taskId: string, expectedBody: string, heading: string, body: string, queueUpload: boolean): Promise<CoreTaskUpdateResult> {
+    return await this.native.updateTask(path, taskId, expectedBody, heading, body, queueUpload)
+  }
+
+  async deleteTask(path: string, taskId: string, expectedBody: string, queueUpload: boolean): Promise<void> {
+    await this.native.deleteTask(path, taskId, expectedBody, queueUpload)
   }
 
   async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {
@@ -282,6 +291,28 @@ export class NativeCoreService {
     const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     await repo.createTask(path, task, repository.webdavEnabled, insertAtTop)
+  }
+
+  static async updateTask(
+    repositories: RepoConfig[], repository: RepoConfig, path: string, taskId: string,
+    expectedBody: string, heading: string, body: string, todoDefaults?: string
+  ): Promise<CoreTaskUpdateResult> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    const repos = await workspace.repos()
+    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
+    if (!repo) throw new Error('目标仓库不可用')
+    return await repo.updateTask(path, taskId, expectedBody, heading, body, repository.webdavEnabled)
+  }
+
+  static async deleteTask(
+    repositories: RepoConfig[], repository: RepoConfig, path: string, taskId: string,
+    expectedBody: string, todoDefaults?: string
+  ): Promise<void> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    const repos = await workspace.repos()
+    const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
+    if (!repo) throw new Error('目标仓库不可用')
+    await repo.deleteTask(path, taskId, expectedBody, repository.webdavEnabled)
   }
 
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreBridgeResponse> {
