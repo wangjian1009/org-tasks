@@ -21,6 +21,7 @@ extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, cons
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_repo_load(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_repo_history(uint64_t workspace_handle, const char* root_directory);
+extern "C" char* org_tasks_harmony_repo_history_detail(uint64_t workspace_handle, const char* root_directory, const char* sync_id);
 extern "C" int32_t org_tasks_harmony_repo_create_task(uint64_t workspace_handle, const char* root_directory,
     const char* path, const char* task_json, bool queue_upload);
 extern "C" int32_t org_tasks_harmony_repo_create_task_at_top(uint64_t workspace_handle, const char* root_directory,
@@ -134,7 +135,7 @@ struct RepoSnapshotWork {
     bool insert_at_top = false;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, History, CreateTask, UpdateTask, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, History, HistoryDetail, CreateTask, UpdateTask, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -610,8 +611,13 @@ void ExecuteRepoSnapshot(napi_env, void* data)
                 work->workspace_handle, work->root_directory.c_str()));
             break;
         case RepoSnapshotWork::Operation::History:
+            // 透传 Core 的执行结果、传输方向与冲突摘要，继续在 worker 内读取历史。
             work->response = TakeRustString(org_tasks_harmony_repo_history(
                 work->workspace_handle, work->root_directory.c_str()));
+            break;
+        case RepoSnapshotWork::Operation::HistoryDetail:
+            work->response = TakeRustString(org_tasks_harmony_repo_history_detail(
+                work->workspace_handle, work->root_directory.c_str(), work->task_path.c_str()));
             break;
         case RepoSnapshotWork::Operation::Sync:
             work->response = TakeRustString(org_tasks_harmony_repo_sync(work->workspace_handle,
@@ -653,7 +659,8 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             work->operation == RepoSnapshotWork::Operation::UpdateTask ? "更新任务地址失败" :
             work->operation == RepoSnapshotWork::Operation::FileMetadata ? "读取文件元信息失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" :
-            work->operation == RepoSnapshotWork::Operation::History ? "读取同步历史失败" : "处理同步合并失败");
+            work->operation == RepoSnapshotWork::Operation::History ? "读取同步历史失败" :
+            work->operation == RepoSnapshotWork::Operation::HistoryDetail ? "读取同步详情失败" : "处理同步合并失败");
     } else {
         napi_value result;
         if (work->operation == RepoSnapshotWork::Operation::Load ||
@@ -1182,6 +1189,27 @@ napi_value RepoHistory(napi_env env, napi_callback_info info)
     return QueueMergeWork(env, self, work);
 }
 
+napi_value RepoHistoryDetail(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value self;
+    RepoWrap* repo = nullptr;
+    std::string sync_id;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr ||
+        !ReadString(env, args[0], &sync_id)) {
+        napi_throw_error(env, nullptr, "Repo.historyDetail 需要同步记录 ID");
+        return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->task_path = sync_id;
+    work->operation = RepoSnapshotWork::Operation::HistoryDetail;
+    return QueueMergeWork(env, self, work);
+}
+
 napi_value RepoCreateTask(napi_env env, napi_callback_info info)
 {
     size_t argc = 5;
@@ -1500,6 +1528,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"rootDirectory", nullptr, nullptr, RepoRootDirectory, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"history", nullptr, RepoHistory, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"historyDetail", nullptr, RepoHistoryDetail, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"files", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"fileMetadata", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
         {"createTask", nullptr, RepoCreateTask, nullptr, nullptr, nullptr, napi_default, nullptr},

@@ -725,3 +725,62 @@ clear\_todo: bool}{}
 \umluniassoc{TaskEdit}{TaskDestination}
 \end{tikzpicture}
 \end{center}
+
+* WebDAV 同步历史运行时摘要
+
+~WebDavSyncRecordSummary~ 是读取历史时生成的只读投影，不是持久化记录。它保存原始 ~result~ ，并独立提供 ~execution_result~ 、 ~transfer~ 、冲突路径、待处理与已解决数量以及可空错误分类和错误消息。时间和文件总数来自原记录，下载与上传数量按已成功的文件动作分别计数；错误消息只使用原记录中已经保存的错误摘要。投影不包含文件正文、根目录或远端地址，不写入历史、outbox 或 Preferences。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{WebDavSyncRecordSummary}{
+  id: String \\
+  result: OrgRepoSyncResult \\
+  execution\_result: OrgRepoSyncResult \\
+  transfer: WebDavSyncTransfer \\
+  downloaded\_files: usize \\
+  uploaded\_files: usize \\
+  pending\_conflicts: usize \\
+  resolved\_conflicts: usize \\
+  error\_category: Option\textless OrgRepoSyncErrorCategory\textgreater \\
+  error\_message: Option\textless String\textgreater
+}{+ from\_record(record): Result}
+\umlclass[x=8,y=0]{WebDavSyncTransfer}{
+  Unchanged \\
+  Download \\
+  Upload \\
+  Bidirectional
+}{}
+\umldep{WebDavSyncRecordSummary}{WebDavSyncTransfer}
+\end{tikzpicture}
+
+~transfer~ 只根据最终为 ~Synchronized~ 的文件动作归类： ~Downloaded~ 与采用远端删除的 ~Deleted~ 计入下载方向， ~Uploaded~ 与远端创建的 ~Created~ 计入上传方向，两种方向同时出现即为 ~Bidirectional~ 。未变化、跳过、冲突及失败尝试本身不算成功传输；无传输时为 ~Unchanged~ ，不借文件总数判断变化。
+
+~execution_result~ 保留取消、中断与真实执行失败。兼容已有记录时，原结果为 ~Failed~ 、存在冲突而没有非冲突执行错误的记录，执行结果投影为 ~Succeeded~ ；原始记录不改写。文件状态 ~Conflict~ 、 ~RemoteDeleted~ 及错误分类 ~Conflict~ 均属于冲突。网络、认证、TLS、协议校验与本地存储错误继续作为执行失败；没有文件记录的失败不会推断为成功，错误分类可以为空。
+
+~sync_history_summaries~ 接受按开始时间升序恢复的完整历史，按原顺序返回摘要。某冲突路径后续出现 ~Synchronized~ 即计为该条历史的已解决路径；普通失败不能清除冲突，整体失败作业中已经成功的文件也有效。部分解决分别保留两种数量，由宿主优先展示待处理数量；已解决后的新冲突独立计算，不使旧冲突恢复为未解决。这些计数与执行结果均不修改追加式历史。
+
+
+** 按记录读取同步详情
+
+~WebDavSyncRecordDetail~ 包含一条摘要、文件结果列表和原记录已有的错误信息。 ~sync_history_detail(history, sync_id)~ 按仓库内同步 ID 精确定位，并使用完整历史计算每个冲突路径当前是否已解决；ID 不存在时返回错误。 ~WebDavSyncFileSummary~ 只提供相对路径和展示结果， ~WebDavSyncHistoryError~ 只提供关联的相对路径与已有脱敏消息；成功文件的正文快照、远端元数据和版本哈希不进入此投影。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{WebDavSyncRecordDetail}{
+  summary: WebDavSyncRecordSummary \\
+  files: Vec\textless WebDavSyncFileSummary\textgreater \\
+  errors: Vec\textless WebDavSyncHistoryError\textgreater
+}{}
+\umlclass[x=8,y=1.5]{WebDavSyncFileSummary}{
+  path: String \\
+  outcome: WebDavSyncFileOutcome
+}{}
+\umlclass[x=8,y=-2]{WebDavSyncHistoryError}{
+  path: Option\textless String\textgreater \\
+  message: String
+}{}
+\umluniassoc[mult1=1,mult2=0..*]{WebDavSyncRecordDetail}{WebDavSyncFileSummary}
+\umluniassoc[mult1=1,mult2=0..*]{WebDavSyncRecordDetail}{WebDavSyncHistoryError}
+\end{tikzpicture}
+
+既有历史格式保持原样，包括值为 ~null~ 的 ~WebDavSyncContextDetail~ 。文件级错误消息缺失或列举失败没有文件记录时，摘要中的错误消息为空，宿主使用已有结果或错误分类生成合理标题，不补造数量与错误原因，不增加持久化字段或改写旧记录。

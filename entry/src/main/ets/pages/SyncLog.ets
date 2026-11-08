@@ -1,21 +1,25 @@
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
+import { SyncLogItem } from '../components/SyncLogItem'
+import { syncLogRenderKey, visibleSyncLogs } from '../ui/SyncLogPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreSyncRecord, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
-import { UiColor, repositoryLabel } from '../ui/Theme'
+import { repositoryLabel } from '../ui/Theme'
 
-interface SyncLogItem {
-  repository: string
-  record: CoreSyncRecord
+interface SyncLogParams {
+  repoId: string
 }
 
 @Entry
 @Component
 struct SyncLog {
-  @State items: SyncLogItem[] = []
+  @State items: CoreSyncRecord[] = []
+  @State repositoryName: string = ''
+  @State repoId: string = ''
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
+  @State showUnchanged: boolean = false
   private requestId: number = 0
 
   onPageShow() { this.loadLogs() }
@@ -30,14 +34,17 @@ struct SyncLog {
     this.loading = this.items.length === 0
     this.message = ''
     try {
+      const params = this.getUIContext().getRouter().getParams() as SyncLogParams | undefined
+      const repoId = this.repoId || params?.repoId
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const items: SyncLogItem[] = []
-      for (const repository of config.repos) {
-        const records = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults)
-        for (const record of records) items.push({ repository: repositoryLabel(repository), record })
-      }
       if (request !== this.requestId) return
-      items.sort((left: SyncLogItem, right: SyncLogItem): number => right.record.started_at - left.record.started_at)
+      const repository = config.repos.find((repo) => repo.id === repoId)
+      if (!repository) throw new Error('此存储库已不存在，请返回存储库列表')
+      this.repositoryName = repositoryLabel(repository)
+      this.repoId = repository.id
+      const items = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults)
+      if (request !== this.requestId) return
+      items.sort((left: CoreSyncRecord, right: CoreSyncRecord): number => right.started_at - left.started_at)
       this.items = items
     } catch (e) {
       if (request === this.requestId) {
@@ -49,47 +56,7 @@ struct SyncLog {
     }
   }
 
-  timeLabel(timestamp: number): string {
-    const date = new Date(timestamp)
-    if (isNaN(date.getTime())) return '时间未知'
-    const pad = (value: number): string => value.toString().padStart(2, '0')
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-  }
-
-  resultLabel(result: string): string {
-    switch (result) {
-      case 'succeeded': return '同步成功'
-      case 'failed': return '同步失败'
-      case 'cancelled': return '已取消'
-      case 'interrupted': return '已中断'
-      default: return '同步完成'
-    }
-  }
-
-  resultColor(result: string): string {
-    return result === 'succeeded' ? UiColor.done : result === 'failed' ? UiColor.error : UiColor.secondary
-  }
-
-  @Builder
-  logItem(item: SyncLogItem) {
-    Column({ space: 8 }) {
-      Row() {
-        Text(this.resultLabel(item.record.result)).fontSize(16).fontWeight(FontWeight.Medium)
-          .fontColor(this.resultColor(item.record.result)).layoutWeight(1)
-        Text(this.timeLabel(item.record.started_at)).fontSize(13).fontColor(UiColor.secondary)
-      }.width('100%')
-      Text(item.repository).fontSize(14).fontColor(UiColor.text).width('100%')
-      Row({ space: 16 }) {
-        Text(`${item.record.files} 个文件`).fontSize(13).fontColor(UiColor.secondary)
-        if (item.record.conflicts.length > 0) {
-          Text(`${item.record.conflicts.length} 个冲突`).fontSize(13).fontColor(UiColor.error)
-        }
-      }.width('100%')
-    }.width('100%').padding({ left: 20, right: 20, top: 14, bottom: 14 })
-      .border({ width: { bottom: 0.5 }, color: UiColor.divider })
-      .accessibilityGroup(true)
-      .accessibilityText(`${this.resultLabel(item.record.result)}，${item.repository}，${this.timeLabel(item.record.started_at)}，${item.record.files} 个文件${item.record.conflicts.length > 0 ? `，${item.record.conflicts.length} 个冲突` : ''}`)
-  }
+  visibleItems(): CoreSyncRecord[] { return visibleSyncLogs(this.items, this.showUnchanged) }
 
   @Builder
   content() {
@@ -99,19 +66,26 @@ struct SyncLog {
       EmptyState({ title: '同步日志读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadLogs() } })
     } else if (this.items.length === 0) {
       EmptyState({ title: '暂无同步日志', detail: '完成一次文件同步后，记录会显示在这里。' })
+    } else if (this.visibleItems().length === 0) {
+      EmptyState({ title: '暂无上传或下载记录', detail: '点击右上角显示全部日志' })
     } else {
       List() {
-        ForEach(this.items, (item: SyncLogItem) => {
-          ListItem() { this.logItem(item) }
-        }, (item: SyncLogItem) => `${item.record.id}:${item.record.started_at}`)
-      }.width('100%').layoutWeight(1).edgeEffect(EdgeEffect.None)
+        ForEach(this.visibleItems(), (item: CoreSyncRecord) => {
+          ListItem() { SyncLogItem({ record: item, open: (): void => {
+            this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncDetail', params: { repoId: this.repoId, syncId: item.id } })
+          } }) }
+        }, (item: CoreSyncRecord) => syncLogRenderKey(item))
+      }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 }).edgeEffect(EdgeEffect.None)
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
     }
   }
 
   build() {
     Column() {
-      AppShell({ title: '同步日志', back: true, backAction: (): void => { this.getUIContext().getRouter().back() },
+      AppShell({ title: this.repositoryName ? `${this.repositoryName} · 同步日志` : '同步日志', back: true, backAction: (): void => { this.getUIContext().getRouter().back() },
+        actionIcon: this.showUnchanged ? $r('app.media.ui_visibility_selected') : $r('app.media.ui_visibility_off'),
+        actionLabel: this.showUnchanged ? '隐藏无变化日志' : '显示全部日志',
+        action: (): void => { this.showUnchanged = !this.showUnchanged },
         synchronized: (): void => { this.loadLogs() }, drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() { this.content() }.width('100%').height('100%')
       }

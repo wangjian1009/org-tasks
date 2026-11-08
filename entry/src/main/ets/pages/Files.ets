@@ -1,7 +1,7 @@
 import { NotebookFileRow } from '../components/NotebookFileRow'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { AppMenuItem, AppShell } from '../components/AppShell'
-import { EmptyState, ListSectionHeader } from '../components/Controls'
+import { AppShell } from '../components/AppShell'
+import { EmptyState, IconButton } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
 import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
@@ -15,7 +15,7 @@ struct Files {
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
-  @State showIgnored: boolean = false
+  @State showIgnoredRepoIds: string[] = []
   @State config: AppConfig = DEFAULT_CONFIG
   private requestId: number = 0
 
@@ -25,12 +25,14 @@ struct Files {
     return false
   }
 
-  toggleIgnored() {
-    this.showIgnored = !this.showIgnored
+  toggleIgnored(group: NotebookGroup) {
+    this.showIgnoredRepoIds = this.showIgnoredRepoIds.includes(group.repoId)
+      ? this.showIgnoredRepoIds.filter((id: string) => id !== group.repoId)
+      : this.showIgnoredRepoIds.concat(group.repoId)
   }
 
   visibleFiles(group: NotebookGroup): CoreOrgFileMetadata[] {
-    return this.showIgnored ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
+    return this.showIgnoredRepoIds.includes(group.repoId) ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
   }
 
   async loadFiles() {
@@ -56,11 +58,6 @@ struct Files {
   build() {
     Column() {
       AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'),
-        actionIcon: $r('app.media.ui_more'), actionLabel: '更多',
-        actionMenuItems: [
-          { title: '同步日志', action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncLog' }) } },
-          { title: this.showIgnored ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件', action: (): void => { this.toggleIgnored() } }
-        ] as AppMenuItem[],
         synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
@@ -98,9 +95,23 @@ struct Files {
 
   @Builder
   repositoryHeader(group: NotebookGroup) {
-    ListSectionHeader({ title: group.name }).padding({ left: 8, right: 8 })
-      .accessibilityText(`存储库 ${group.name}，点击打开存储库设置`)
-      .enabled(group.configId.length > 0)
-      .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
+    Column({ space: 10 }) {
+      Row() {
+        Row({ space: 10 }) {
+          Image($r('app.media.ui_category')).width(22).height(22)
+          Text(group.name).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+            .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.layoutWeight(1).height(48)
+          .accessibilityText(`存储库 ${group.name}，点击打开存储库设置`)
+          .enabled(group.configId.length > 0)
+          .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
+        IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
+          label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,
+          action: (): void => { this.toggleIgnored(group) } })
+        IconButton({ icon: $r('app.media.ui_sync_log'), label: `${group.name}：同步日志`, disabled: group.configId.length === 0,
+          action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncLog', params: { repoId: group.configId } }) } })
+      }.width('100%')
+      Divider().color(UiColor.outline).strokeWidth(0.5)
+    }.width('100%').padding({ left: 8, right: 8, top: 24, bottom: 8 }).backgroundColor(UiColor.surface)
   }
 }

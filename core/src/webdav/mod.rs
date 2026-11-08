@@ -2,9 +2,11 @@
 //!
 //! 模块实现同步决策、认证、条件写入与同步记录构造。
 
+mod history;
 mod merge;
 pub mod runtime;
 mod task_scan;
+pub use history::*;
 pub use merge::*;
 
 use std::collections::{BTreeMap, BTreeSet};

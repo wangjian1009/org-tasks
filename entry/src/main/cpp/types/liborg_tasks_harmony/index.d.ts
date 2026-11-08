@@ -89,7 +89,28 @@ export interface SyncRecord {
   started_at: number;
   finished_at: number | null;
   files: number;
+  downloadedFiles: number;
+  uploadedFiles: number;
   conflicts: string[];
+  executionResult: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+  transfer: 'unchanged' | 'download' | 'upload' | 'bidirectional';
+  pendingConflicts: number;
+  resolvedConflicts: number;
+  errorCategory: 'Network' | 'Authentication' | 'Tls' | 'Validation' | 'LocalStorage' | 'Conflict' | null;
+  errorMessage: string | null;
+}
+
+export interface SyncFileRecord {
+  path: string;
+  outcome: 'unchanged' | 'downloaded' | 'uploaded' | 'created' | 'deleted' | 'conflict' | 'resolved' | 'failed' | 'skipped';
+}
+
+export interface SyncHistoryError { path: string | null; message: string; }
+
+export interface SyncRecordDetail {
+  summary: SyncRecord;
+  files: SyncFileRecord[];
+  errors: SyncHistoryError[];
 }
 
 export type WebDavSyncEvent =
@@ -155,6 +176,7 @@ export class Repo {
   readonly rootDirectory: string;
   load(): Promise<void>;
   history(): Promise<SyncRecord[]>;
+  historyDetail(syncId: string): Promise<SyncRecordDetail>;
   createTask(path: string, task: NewTask, queueUpload: boolean, insertAtTop?: boolean): Promise<void>;
   updateTaskLocation(path: string, heading: string, oldUri: string, newUri: string, queueUpload: boolean): Promise<Task>;
   conflicts(): Promise<ConflictSync[]>;

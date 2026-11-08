@@ -17,6 +17,9 @@ import {
   OrgFile as NativeOrgFile,
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
+  SyncRecordDetail as NativeSyncRecordDetail,
+  SyncFileRecord as NativeSyncFileRecord,
+  SyncHistoryError as NativeSyncHistoryError,
   Task as NativeTask,
   TitlePart as NativeTitlePart,
   AddressLink as NativeAddressLink,
@@ -53,6 +56,9 @@ export interface CoreSyncSnapshot {
 }
 
 export type CoreSyncRecord = NativeSyncRecord
+export type CoreSyncRecordDetail = NativeSyncRecordDetail
+export type CoreSyncFileRecord = NativeSyncFileRecord
+export type CoreSyncHistoryError = NativeSyncHistoryError
 
 export interface CoreBridgeResponse {
   workspace: CoreWorkspace
@@ -147,7 +153,12 @@ export class CoreRepo {
   }
 
   async history(): Promise<CoreSyncRecord[]> {
-    return await this.native.history() as CoreSyncRecord[]
+    // Core 提供执行结果、传输方向与冲突解决摘要，宿主不重算历史。
+    return await this.native.history()
+  }
+
+  async historyDetail(syncId: string): Promise<CoreSyncRecordDetail> {
+    return await this.native.historyDetail(syncId)
   }
 
   async createTask(path: string, task: CoreNewTask, queueUpload: boolean, insertAtTop: boolean = false): Promise<void> {

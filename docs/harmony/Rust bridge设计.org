@@ -52,6 +52,7 @@ class Repo {
   readonly rootDirectory: string
   load(): Promise<void>
   history(): Promise<SyncRecord[]>
+  historyDetail(syncId: string): Promise<SyncRecordDetail>
   files(): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
@@ -115,11 +116,16 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgWorkspace.search(&Filter)~ | ~workspace.search(expression)~ | 宿主传查询文本，由 Rust 解析为 ~Filter~ 。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
-| ~OrgRepo.load::<WebDavSyncPolicy>()~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录，bridge 只投影 ~SyncRecord~ 的结果、时间、文件数和冲突路径；ArkTS 不读取控制目录。 |
+| ~OrgRepo.load::<WebDavSyncPolicy>()~ 与 ~sync_history_summaries~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录并生成执行结果、传输方向与冲突处理摘要；bridge 只编组字段，ArkTS 不读取控制目录。 |
+| ~sync_history_detail(history, sync_id)~ | ~await repo.historyDetail(syncId)~ | 按当前仓库的同步记录 ID 返回摘要、文件结果与已有错误消息；Core 计算冲突解决状态，不返回源内容快照。 |
 | ~FilterTask.is_done()~ | ~task.isDone()~ | Rust 根据文件有效配置计算完成结果，native Task 方法原样返回。 |
 | ~OrgRepoSyncRecord~ 、 ~FilterTask~ | ~SyncRecord~ 、 ~Task~ | 同步记录为数据投影；任务为含只读字段和行为的对象，不是 Rust 结构体的全部字段。 |
 
 这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
+
+同步记录保留原有 ~result~ 、 ~conflicts~ 、时间与文件数，另增 ~executionResult~ 、 ~transfer~ 、 ~downloadedFiles~ 、 ~uploadedFiles~ 、 ~pendingConflicts~ 、 ~resolvedConflicts~ 、 ~errorCategory~ 与 ~errorMessage~ 。 ~result~ 继续承载原始作业结果，避免改变现有同步编排；日志行按 ~executionResult~ 展示结果图标，只有冲突而无执行错误时为 ~succeeded~ 。 ~transfer~ 为 ~unchanged~ 、 ~download~ 、 ~upload~ 或 ~bidirectional~ ，只统计 Core 已确认成功的文件动作。冲突两种数量由 Core 对完整历史回放得到，UI 仅按待处理优先展示一个标签。
+
+~errorCategory~ 与 ~errorMessage~ 分别为既有文件记录的错误分类和消息，缺失时为 ~null~ 。ArkTS 优先显示已有错误消息，缺失时使用结果或分类生成标题；列举失败的空记录保留 ~failed~ ，没有已记录原因时显示“执行失败”。不扩展原始历史格式或补造旧错误。取消与中断保留原结果及独立的辅助色图标。实时 ~repo.sync()~ 复用相同摘要字段；当前记录尚无后续历史，因此该次返回的 ~resolvedConflicts~ 为零。C++ 在工作线程请求后完整透传摘要， ~NativeCoreService~ 不重复判断传输或冲突状态。
 
 * 文件对象与生命周期
 
@@ -303,3 +309,9 @@ interface TitleCount {
 ~TaskQuery.excludedFiles~ 统一改为 ~OrgFileRef[]~ ，元素使用 Core 仓库 ID 与文件相对路径；旧字符串数组输入拒绝，不保留平行的路径排除接口。 创建日期条件继续使用 ~expression~ ，最近三天请求为 ~cr.ge.-2d cr.le.today .o.created~ ，按今天及前两天三个本地自然日匹配。ArkTS wrapper 原样透传，C++ 通过既有 JSON 编组进入 Rust ~TaskQuery~ ，不实施过滤。查询得到的 ~Task.createdAt: number | null~ 和 ~Task.isCancelled: boolean~ 为只读可枚举属性，取消标记由 Core 根据实际识别的 ~CNCL~ 状态投影；它不改变文件 TODO 定义或 ~isDone()~ 结果。
 
 ~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeDone=true~ 和 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
+
+* 同步详情投影
+
+~Repo.historyDetail(syncId)~ 在工作线程重新加载所选仓库的历史，返回 ~SyncRecordDetail~ 的 ~summary~ 、 ~files~ 和 ~errors~ 。 ~files~ 中每项仅含 ~path~ 和 ~outcome~ ；结果枚举为 ~unchanged~ 、 ~downloaded~ 、 ~uploaded~ 、 ~created~ 、 ~deleted~ 、 ~conflict~ 、 ~resolved~ 、 ~failed~ 或 ~skipped~ 。 ~errors~ 中每项只含关联的相对 ~path~ 与原记录已有的 ~message~ 。JSON 编组仍位于 bridge 内部，C++ 通过原有 async work 生命周期完整透传， ~CoreRepo.historyDetail~ 不解释文件状态。
+
+路由仅传配置仓库 ID 与同步 ID，详情页重新取得当前投影；不存在的仓库或历史应明确失败，不能退回其他记录。摘要不包含源内容快照，正常、冲突和失败记录均使用同一个同步详情接口。

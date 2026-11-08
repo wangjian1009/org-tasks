@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配和展示层标签筛选。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选和同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -330,4 +330,55 @@ test('扁平标签完整匹配，不按名称前缀或分隔符推断级联关�
     task('c', { tags: ['阅读', '技术'] })];
   assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['阅读'], includeUntagged: false }), [tasks[0], tasks[2]]);
   assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['技术'], includeUntagged: false }), [tasks[2]]);
+});
+
+const syncLogs = loadGrouping('SyncLogPresentation', {});
+function syncRecord(values = {}) {
+  return { id: 'sync', started_at: 1, finished_at: 2, result: 'succeeded', executionResult: 'succeeded',
+    files: 2, downloadedFiles: 0, uploadedFiles: 0, errorMessage: null, conflicts: [], transfer: 'unchanged', pendingConflicts: 0, resolvedConflicts: 0,
+    errorCategory: null, ...values };
+}
+
+test('无变化筛选保留失败与待处理冲突，切换全部时恢复原顺序和快照', () => {
+  const records = [syncRecord(), syncRecord({ id: 'failure', executionResult: 'failed' }),
+    syncRecord({ id: 'conflict', pendingConflicts: 2 }), syncRecord({ id: 'transfer', transfer: 'download' })];
+  assert.deepEqual(syncLogs.visibleSyncLogs(records, false), records.slice(1));
+  assert.equal(syncLogs.visibleSyncLogs(records, true), records);
+  assert.equal(records.length, 4);
+});
+
+test('冲突与已解决互斥，同一次历史刷新后更新标签和行快照', () => {
+  const pending = syncRecord({ result: 'failed', pendingConflicts: 1, resolvedConflicts: 2 });
+  const resolved = syncRecord({ ...pending, pendingConflicts: 0, resolvedConflicts: 3 });
+  assert.equal(syncLogs.syncLogConflictLabel(pending), '冲突 1');
+  assert.equal(syncLogs.syncLogConflictLabel(resolved), '已解决 3');
+  assert.equal(syncLogs.syncLogConflictLabel(syncRecord()), '');
+  assert.equal(syncLogs.syncLogResultLabel(pending), '执行成功');
+  assert.equal(syncLogs.syncLogErrorLabel(pending), '');
+  assert.notEqual(syncLogs.syncLogRenderKey(pending), syncLogs.syncLogRenderKey(resolved));
+});
+
+test('方向与执行错误分别展示，网络失败不改写已完成的传输方向', () => {
+  const failed = syncRecord({ executionResult: 'failed', errorCategory: 'Network', transfer: 'upload', uploadedFiles: 2 });
+  assert.equal(syncLogs.syncLogTransferLabel(failed), '上传2个文件');
+  assert.equal(syncLogs.syncLogResultLabel(failed), '执行失败');
+  assert.equal(syncLogs.syncLogErrorLabel(failed), '网络失败');
+  assert.equal(syncLogs.syncLogTransferLabel(syncRecord({ transfer: 'bidirectional', downloadedFiles: 3, uploadedFiles: 2 })), '下载3/上传2');
+});
+
+
+test('单行标题包含两个方向的数量，具体错误优先且缺失数据不猜测', () => {
+  assert.equal(syncLogs.syncLogTitle(syncRecord({ transfer: 'download', downloadedFiles: 14 })), '下载14个文件');
+  assert.equal(syncLogs.syncLogTitle(syncRecord({ transfer: 'upload', uploadedFiles: 2 })), '上传2个文件');
+  assert.equal(syncLogs.syncLogTitle(syncRecord({ transfer: 'bidirectional', downloadedFiles: 3, uploadedFiles: 2 })), '下载3/上传2');
+  assert.equal(syncLogs.syncLogTitle(syncRecord({ transfer: 'upload', uploadedFiles: undefined })), '有上传');
+  const failure = syncRecord({ executionResult: 'failed', transfer: 'upload', uploadedFiles: 2, errorMessage: '连接被重置\n请重试' });
+  assert.equal(syncLogs.syncLogTitle(failure), '连接被重置 请重试 · 上传2个文件');
+  assert.equal(syncLogs.syncLogTitle(syncRecord({ executionResult: 'failed' })), '执行失败');
+});
+
+test('日期在列表中紧凑显示，详情使用完整日期时间', () => {
+  const timestamp = new Date(2026, 10, 8, 9, 4).getTime();
+  assert.equal(syncLogs.syncLogTimeLabel(timestamp, true), '11-08 09:04');
+  assert.equal(syncLogs.syncLogTimeLabel(timestamp), '2026-11-08 09:04');
 });

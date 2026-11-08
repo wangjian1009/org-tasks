@@ -239,7 +239,7 @@ impl SourceRange {
 
 *** OrgRepoSyncRecord
 
-~OrgRepoSyncRecord~ 描述一次仓库同步的整体结果及各文件记录。
+~OrgRepoSyncRecord~ 描述一次仓库同步的整体结果及各文件记录。面向历史浏览的执行结果、传输方向和冲突处理摘要由 ~core::webdav::sync_history_summaries~ 提供；原始记录及其既有结果不改写。
 
 #+begin_src rust
 impl OrgRepoSyncRecord {
@@ -611,7 +611,7 @@ impl FilterTask {
 
 ** 分享地点写入与地址替换
 
-~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交，~queue_upload~ 仍按当前文件快照登记 outbox。
+~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。 ~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。 ~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交， ~queue_upload~ 仍按当前文件快照登记 outbox。
 
 * 任务移动与删除
 
@@ -628,3 +628,14 @@ impl FilterTask {
 ~TaskQuery.excluded_files~ 类型为 ~Vec<OrgFileRef>~ ，每项包含 ~repo_id~ 与 ~path~ ，两者共同表示具体文件。仓库 ID 使用 Core 的稳定身份，路径是安全的仓库相对文件路径；空仓库 ID 或非法路径返回输入错误。一个排除对象仅影响所属仓库中的该文件，不影响其他仓库的同名文件。数组省略或为空表示不排除；接口不再接受裸路径字符串数组。JSON 对应 ~excludedFiles: [{ repoId, path }]~ 。
 
 创建日期筛选通过 ~TaskQuery.expression~ 表达，不新增时间范围字段。 ~FilterTask.created~ 与 ~created_at~ 从任务自身的 ~CREATED~ 属性投影；缺失或非法值不匹配 ~cr.ge.-2d cr.le.today~ 。该表达式覆盖今天及前两个本地自然日，而非滚动 72 小时。完整时刻排序通过 ~o.created~ 或 ~.o.created~ 取得；日内时间用于排序和展示投影，不改变自然日筛选边界。所有能力继续通过 ~OrgWorkspace.query~ 暴露。
+
+* WebDAV 同步历史摘要
+
+~core::webdav::sync_history_summaries(history) -> Result<Vec<WebDavSyncRecordSummary>, CoreError>~ 将按开始时间升序恢复的完整 WebDAV 历史投影为运行时摘要，顺序不变。单条实时结果可调用 ~WebDavSyncRecordSummary::from_record(record)~ ，没有后续历史时已解决数量为零；未完成记录返回错误。
+
+摘要保留原始作业结果，另行给出独立执行结果、四态传输方向、下载与上传各自成功的文件数、冲突路径、待处理与已解决数量，以及可空错误分类和原记录已有的错误消息。只有冲突而没有执行错误时，日志执行结果为成功；网络、认证及其他执行错误保持失败。仅统计已成功的文件动作，两种方向可以同时出现，失败尝试不虚构传输。后续任意作业中的成功文件解决对应旧冲突，普通失败不清除冲突；完整规则及运行时 TikZ UML 见 [[file:数据模型.org::*WebDAV 同步历史运行时摘要][同步历史运行时摘要]] 。
+
+接口不读取宿主配置、不新增持久化字段，不修改原始历史，也不替代同步编排继续使用的原结果。宿主将摘要映射为颜色、图标和标签，不重新实现历史回放。
+
+
+~sync_history_detail(history, sync_id) -> Result<WebDavSyncRecordDetail, CoreError>~ 读取指定历史的统一同步详情，返回摘要、逐文件结果与已有错误信息。缺失的错误详情保持为空，找不到同步 ID 时返回错误。所有文件路径均相对仓库，不返回成功文件的源内容、ETag、版本哈希或凭据。接口只读取现有日志，不扩展持久化格式。
