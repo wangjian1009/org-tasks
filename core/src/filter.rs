@@ -175,9 +175,11 @@ impl FilterTask {
 
     /// 查询匹配结束后移除系统用途标签，保留其余标签的原始顺序。
     pub(crate) fn exclude_refile_tag(&mut self) {
-        self.own_tags.retain(|tag| tag != crate::model::REFILE_TAG);
+        self.own_tags.retain(|tag| {
+            tag != crate::model::REFILE_TAG && tag != crate::model::ARCHIVE_TAG
+        });
         self.inherited_tags
-            .retain(|tag| tag != crate::model::REFILE_TAG);
+            .retain(|tag| tag != crate::model::REFILE_TAG && tag != crate::model::ARCHIVE_TAG);
     }
 }
 

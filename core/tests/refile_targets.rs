@@ -102,7 +102,7 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
 
 #[test]
 fn searches_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
-    let source = "* Parent :REFILE:work:REFILE:\n\
+    let source = "* Parent :REFILE:ARCHIVE:work:REFILE:\n\
 ** TODO Child :REFILE:home:refile:\n\
 *** TODO Grandchild :next:\n\
 * TODO Other :refile:\n";
@@ -128,7 +128,7 @@ fn searches_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
             task.own_tags
                 .iter()
                 .chain(&task.inherited_tags)
-                .all(|tag| tag != "REFILE")
+                .all(|tag| tag != "REFILE" && tag != "ARCHIVE")
         }));
     }
     let tasks = workspace.search(&Filter::parse(""));

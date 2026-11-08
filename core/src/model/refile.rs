@@ -6,6 +6,7 @@ use super::{
 };
 
 pub(crate) const REFILE_TAG: &str = "REFILE";
+pub(crate) const ARCHIVE_TAG: &str = "ARCHIVE";
 
 /// 当前文件快照中显式标记为可放置任务的标题，不是持久化实体。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

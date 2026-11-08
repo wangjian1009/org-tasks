@@ -61,7 +61,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 精确等于 ~REFILE~ 的标签表示可放置任务的标题，目标由 ~OrgWorkspace.refile_targets()~ 或 ~OrgRepo.refile_targets()~ 单独枚举，模型与层级路径见 [[file:数据模型.org::*任务放置目标][任务放置目标]] 。放置标记只认标题自身显式标签，不从祖先或文件标签继承。
 
-~search~ 和 ~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 时保留。带 ~REFILE~ 的标题仍属于正常任务查询结果，不因该标记被整体排除。
+~search~ 和 ~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ 与 ~ARCHIVE~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 或 ~archive~ 时保留。带这些系统标签的标题仍属于正常任务查询结果，不因标记被整体排除。
 
 ~t.REFILE~ 仍按既有标签匹配规则检索自身或祖先标签， ~tn.REFILE~ 仍只检索自身标签，否定及普通文本条件也在移除前求值。这些表达式的匹配范围与放置目标的精确标签识别不同；目标枚举不通过任务查询实现。源 Org 字节与原始标签均不修改。
 
