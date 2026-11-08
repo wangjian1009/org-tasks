@@ -1,6 +1,8 @@
-import { CoreTask } from '../services/NativeCoreService'
+import { CoreTask, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { NoteService } from '../services/NoteService'
 import { AppShell } from '../components/AppShell'
 import { TaskEditor } from '../components/TaskEditor'
+import { UiColor } from '../ui/Theme'
 
 interface TaskParams { task?: CoreTask; parents?: string[] }
 
@@ -10,17 +12,85 @@ struct TaskEdit {
   @State task: CoreTask | undefined = undefined
   @State parents: string[] = []
   @State drawerOpen: boolean = false
+  @State heading: string = ''
+  @State body: string = ''
+  @State editing: boolean = false
+  @State working: boolean = false
+  @State committed: boolean = false
+  @State message: string = ''
 
   aboutToAppear() {
     const params = this.getUIContext().getRouter().getParams() as TaskParams | undefined
     this.task = params?.task
     this.parents = params?.parents || []
+    this.heading = this.task?.heading || ''
+    this.body = this.task?.body || ''
+  }
+
+  onBackPress(): boolean {
+    this.saveAndBack()
+    return true
+  }
+
+  editOrSave() {
+    if (!this.task || this.working) return
+    if (this.editing || this.committed) { this.saveAndBack(); return }
+    this.editing = true
+  }
+
+  async saveAndBack() {
+    if (this.working) return
+    this.working = true
+    this.message = ''
+    try {
+      if (this.task && this.editing && !this.committed) {
+        await NoteService.update(this.getUIContext().getHostContext()!, this.task, this.heading, this.body)
+        this.committed = true
+      }
+      await this.getUIContext().getRouter().back()
+    } catch (e) {
+      this.message = `${this.committed ? '操作已完成，返回失败' : '保存失败'}：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally { this.working = false }
+  }
+
+  confirmDelete() {
+    if (!this.task || this.working || this.committed) return
+    this.getUIContext().showAlertDialog({ title: '删除这条记录？',
+      message: `“${this.task.heading}”及其子记录将从文件中删除。`,
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '删除', action: (): void => { this.deleteNote() } } })
+  }
+
+  async deleteNote() {
+    if (!this.task || this.working || this.committed) return
+    this.working = true
+    this.message = ''
+    try {
+      await NoteService.remove(this.getUIContext().getHostContext()!, this.task)
+      this.committed = true
+      await this.getUIContext().getRouter().back()
+    } catch (e) {
+      this.message = `${this.committed ? '记录已删除，返回失败' : '删除失败'}：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally { this.working = false }
   }
 
   build() {
     Column() {
-      AppShell({ title: '任务编辑', titleIcon: $r('app.media.ui_edit'), back: true, drawerOpen: $drawerOpen }) {
-        TaskEditor({ task: this.task, parents: this.parents })
+      AppShell({ title: '任务编辑', titleIcon: $r('app.media.ui_edit'), back: true, drawerOpen: $drawerOpen,
+        busy: this.working, backAction: (): void => { this.saveAndBack() },
+        actionIcon: this.editing ? $r('app.media.ui_done') : $r('app.media.ui_edit'),
+        actionLabel: this.task ? (this.editing ? '保存' : '编辑') : '', action: (): void => { this.editOrSave() },
+        secondaryActionIcon: $r('app.media.ui_delete'), secondaryActionLabel: this.task && !this.committed ? '删除' : '',
+        secondaryAction: (): void => { this.confirmDelete() } }) {
+        Column() {
+          if (this.message) {
+            Text(this.message).fontSize(13).fontColor(UiColor.error).padding(16).width('100%')
+          }
+          TaskEditor({ task: this.task, parents: this.parents, editable: this.editing,
+            disabled: this.working || this.committed, headingValue: this.heading, bodyValue: this.body,
+            headingChanged: (value: string): void => { this.heading = value },
+            bodyChanged: (value: string): void => { this.body = value } }).layoutWeight(1)
+        }.width('100%').height('100%')
       }
     }.width('100%').height('100%')
   }

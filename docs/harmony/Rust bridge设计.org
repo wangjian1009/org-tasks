@@ -138,7 +138,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 ~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功后返回每一步路径、回退组及最新原生 Task 投影，失败时保留 Core 错误类别。Rust workspace 自动保存成功操作历史；C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
 
-创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，并传 ~recordCreated=true~ 由 Core 补齐 CREATED。备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。收件箱整理以字段清理和 Movement 组合为一个操作组。
+创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，并传 ~recordCreated=true~ 由 Core 补齐 CREATED。任务与备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；备忘新增通过 Creation 创建无状态标题和正文，并启用 recordCreated。NoteService 只编排配置、Core 仓库身份与文件版本，不解析 Org；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。收件箱整理以字段清理和 Movement 组合为一个操作组。
 
 旧 Repo.createTask、Repo.updateTaskLocation、Repo.updateTask、Repo.deleteTask 与 Workspace.editTask 均已删除，native 导出、类型声明和宿主 wrapper 不保留兼容入口。
 

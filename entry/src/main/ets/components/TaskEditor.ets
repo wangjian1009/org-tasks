@@ -11,9 +11,19 @@ import { UiColor } from '../ui/Theme'
 export struct TaskEditor {
   @Prop task: CoreTask | undefined = undefined
   @Prop parents: string[] = []
+  @Prop @Watch('editingChanged') editable: boolean = false
+  @Prop disabled: boolean = false
+  @Prop headingValue: string = ''
+  @Prop bodyValue: string = ''
+  headingChanged: (value: string) => void = () => {}
+  bodyChanged: (value: string) => void = () => {}
   @State metadataExpanded: boolean = true
   @State bodyExpanded: boolean = true
   @State logbookExpanded: boolean = false
+
+  editingChanged() {
+    if (this.editable) this.bodyExpanded = true
+  }
 
   @Builder
   metadata(icon: Resource, label: string, value: string) {
@@ -35,10 +45,18 @@ export struct TaskEditor {
         Column() {
           Text([this.task!.filePath, ...this.parents].join('  /  ')).fontSize(14).fontColor(UiColor.primary).width('100%')
             .padding({ left: 16, right: 16, top: 20, bottom: 12 })
+            .enabled(!this.editable && !this.disabled)
             .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail', params: { repoId: this.task!.repoId, path: this.task!.filePath } }) })
-          TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false })
-            .width('100%').padding({ left: 16, right: 16, top: 8, bottom: 20 })
-          if (titleCounts(this.task!.headingParts).length > 0) {
+          if (this.editable) {
+            TextInput({ text: this.headingValue, placeholder: '标题' })
+              .width('100%').fontSize(24).fontColor(UiColor.text).backgroundColor(UiColor.field)
+              .margin({ bottom: 20 }).enabled(!this.disabled)
+              .onChange((value: string): void => { this.headingChanged(value) })
+          } else {
+            TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false })
+              .width('100%').padding({ left: 16, right: 16, top: 8, bottom: 20 })
+          }
+          if (!this.editable && titleCounts(this.task!.headingParts).length > 0) {
             TitleCounts({ parts: this.task!.headingParts }).width('100%').padding({ left: 16, right: 16, bottom: 16 })
           }
           Divider().color(UiColor.outline)
@@ -63,14 +81,19 @@ export struct TaskEditor {
           }.width('100%').padding({ left: 16, right: 4 }).height(52)
             .onClick(() => { this.bodyExpanded = !this.bodyExpanded })
           if (this.bodyExpanded) {
-            if (this.task!.bodyHtml) {
+            if (this.editable) {
+              TextArea({ text: this.bodyValue, placeholder: '正文（Org 原文）' })
+                .width('100%').constraintSize({ minHeight: 240 }).fontSize(16).fontColor(UiColor.text)
+                .backgroundColor(UiColor.field).enabled(!this.disabled)
+                .onChange((value: string): void => { this.bodyChanged(value) })
+            } else if (this.task!.bodyHtml) {
               OrgContentView({ fragment: this.task!.bodyHtml, embedded: true }).width('100%')
             } else {
               Text('没有正文内容').width('100%').fontSize(16).fontColor(UiColor.secondary)
                 .padding({ left: 16, right: 16, top: 4, bottom: 24 })
             }
           }
-          if (this.task!.logbookHtml) {
+          if (!this.editable && this.task!.logbookHtml) {
             Divider().color(UiColor.outline)
             Row({ space: 24 }) {
               Image($r('app.media.ui_body')).width(24).height(24)
@@ -83,7 +106,9 @@ export struct TaskEditor {
             }
           }
           Divider().color(UiColor.outline)
-          Text('只读任务').fontSize(12).fontColor(UiColor.secondary).width('100%').padding(16)
+          if (this.editable) {
+            Text('保存标题与正文，元数据保持原值。').fontSize(12).fontColor(UiColor.secondary).width('100%').padding(16)
+          }
         }.width('100%').padding({ bottom: 24 })
       }.width('100%').height('100%').align(Alignment.TopStart)
     }

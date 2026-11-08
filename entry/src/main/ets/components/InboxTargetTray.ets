@@ -16,6 +16,7 @@ export struct InboxTargetTray {
   choose: (target: CoreRefileTarget) => void = () => {}
   memo: () => void = () => {}
   remove: () => void = () => {}
+  edit: () => void = () => {}
   retry: () => void = () => {}
   expand: () => void = () => {}
   collapse: () => void = () => {}
@@ -90,6 +91,11 @@ export struct InboxTargetTray {
           Image($r('app.media.ui_move_to')).width(24).height(24).accessibilityLevel('no')
           Text('移动到').fontSize(18).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
         }.layoutWeight(1)
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.ui_edit')).width(24).height(24)
+        }.height(44).width(44).padding(0).backgroundColor(Color.Transparent)
+          .accessibilityText('编辑记录').enabled(!this.busy)
+          .onClick((): void => this.edit())
         Button({ type: ButtonType.Normal }) {
           Image($r('app.media.ui_convert_memo')).width(24).height(24)
         }.height(44).width(52).padding(0).borderRadius(10).backgroundColor('#454B47')

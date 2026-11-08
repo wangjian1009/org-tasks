@@ -363,6 +363,12 @@ struct Inbox {
               busy: this.trayBusy || this.trayHeight === 0, message: this.trayMessage,
               choose: (target: CoreRefileTarget): void => { this.perform('move', target) },
               memo: (): void => { this.perform('memo') }, remove: (): void => { this.confirmDelete() },
+              edit: (): void => {
+                if (!this.selected || this.trayBusy) return
+                const task = this.selected
+                this.closeTray()
+                this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
+              },
               retry: (): void => { this.loadRecords() },
               expand: (): void => { this.resizeTray(true) },
               collapse: (): void => { if (this.expandedTray) this.resizeTray(false); else this.closeTray() } })

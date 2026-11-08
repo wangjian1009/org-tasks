@@ -180,6 +180,8 @@ struct TaskOverview {
     Column() {
       AppShell({ title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
         titleIcon: this.overviewIcon(),
+        actionIcon: $r('app.media.ui_add'), actionLabel: this.view === 'memo' ? '新增备忘' : '',
+        action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } }) },
         drawerOpen: $drawerOpen, pullToSync: true }) {
         this.overviewContent()
       }

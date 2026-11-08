@@ -8,22 +8,23 @@ import { UiColor } from '../ui/Theme'
 export struct MemoEditor {
   @Prop task: CoreTask | undefined = undefined
   @Prop editable: boolean = false
+  @Prop disabled: boolean = false
   @Prop bodyValue: string = ''
   bodyChanged: (value: string) => void = () => {}
 
   build() {
-    if (!this.task) {
-      EmptyState({ title: '无法打开此备忘', detail: '请从备忘列表进入。' })
-    } else if (this.editable) {
+    if (this.editable) {
       Stack({ alignContent: Alignment.BottomEnd }) {
         TextArea({ text: this.bodyValue, placeholder: '正文' })
           .width('100%').height('100%').fontSize(19).lineHeight(28)
           .fontColor(UiColor.text).placeholderColor(UiColor.secondary)
           .backgroundColor(Color.Transparent).padding({ left: 28, right: 28, top: 20, bottom: 64 })
-          .onChange((value: string): void => { this.bodyChanged(value) })
+          .enabled(!this.disabled).onChange((value: string): void => { this.bodyChanged(value) })
         Text(`共 ${this.bodyValue.length} 字`).fontSize(16).fontColor(UiColor.secondary)
           .padding({ right: 28, bottom: 24 })
       }.width('100%').layoutWeight(1).alignContent(Alignment.BottomEnd)
+    } else if (!this.task) {
+      EmptyState({ title: '无法打开此备忘', detail: '请从备忘列表进入。' })
     } else {
       Scroll() {
         Column() {
