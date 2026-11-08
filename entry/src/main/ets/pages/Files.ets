@@ -1,11 +1,12 @@
-import { TitleText } from '../components/TitleText'
+import { NotebookFileRow } from '../components/NotebookFileRow'
+import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppMenuItem, AppShell } from '../components/AppShell'
 import { EmptyState, ListSectionHeader } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, CoreOrgFileMetadata, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { fileSizeLabel, fileModifiedLabel } from '../ui/NotebookPresentation'
+import { fileUsageKinds } from '../ui/NotebookPresentation'
 
 @Entry
 @Component
@@ -15,6 +16,7 @@ struct Files {
   @State message: string = ''
   @State drawerOpen: boolean = false
   @State showIgnored: boolean = false
+  @State config: AppConfig = DEFAULT_CONFIG
   private requestId: number = 0
 
   onPageShow() { this.loadFiles() }
@@ -39,6 +41,7 @@ struct Files {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const groups = await NotebookService.list(config.repos, config.todoDefaults)
       if (request !== this.requestId) return
+      this.config = config
       this.groups = groups
     } catch (e) {
       if (request === this.requestId) {
@@ -74,26 +77,17 @@ struct Files {
                     ListItem() {
                       Text(group.message || (group.files.length > 0 ? '暂无可见 Org 文件' : '暂无 Org 文件')).fontSize(13)
                         .fontColor(group.message ? UiColor.error : UiColor.secondary)
-                        .width('100%').padding({ top: 12, bottom: 16 })
+                        .width('100%').padding({ left: 8, right: 8, top: 12, bottom: 16 })
                     }
                   }
                   ForEach(this.visibleFiles(group), (file: CoreOrgFileMetadata) => {
                     ListItem() {
-                      Column({ space: 4 }) {
-                        TitleText({ text: file.title || file.path, parts: file.titleParts, lineLimit: 2 }).width('100%')
-                        Text(file.path).fontSize(12).fontColor(UiColor.secondary).width('100%')
-                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                        Text(`${file.taskCount} 条笔记 · ${fileSizeLabel(file.byteLength)}`).fontSize(12)
-                          .fontColor(UiColor.secondary).width('100%')
-                        Text(fileModifiedLabel(file.modifiedAt)).fontSize(12).fontColor(UiColor.secondary).width('100%')
-                      }.width('100%').constraintSize({ minHeight: 60 }).padding({ top: 10, bottom: 10 })
-                        .accessibilityGroup(true).accessibilityText(`${file.titleParts.length > 0 ? file.titleParts.map((part: CoreTitlePart): string => part.text).join('') : file.path}，文件 ${file.path}，${file.taskCount} 条笔记，${fileSizeLabel(file.byteLength)}，${fileModifiedLabel(file.modifiedAt)}`)
-                        .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail', params: { repoId: file.repoId, path: file.path } }) })
+                      NotebookFileRow({ file, usages: fileUsageKinds(this.config, group.configId, file.path) })
                     }
-                  }, (file: CoreOrgFileMetadata) => `${file.repoId}:${file.path}`)
+                  }, (file: CoreOrgFileMetadata) => JSON.stringify(file))
                 }
               }, (group: NotebookGroup) => `${group.configId}:${group.name}`)
-            }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
+            }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)
           }
@@ -104,7 +98,7 @@ struct Files {
 
   @Builder
   repositoryHeader(group: NotebookGroup) {
-    ListSectionHeader({ title: group.name })
+    ListSectionHeader({ title: group.name }).padding({ left: 8, right: 8 })
       .accessibilityText(`存储库 ${group.name}，点击打开存储库设置`)
       .enabled(group.configId.length > 0)
       .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
