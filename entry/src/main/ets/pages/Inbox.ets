@@ -306,9 +306,10 @@ struct Inbox {
               }
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
-                  InboxListItem({ record, selected: this.selected?.id === record.id,
-                    open: (): void => { this.selectRecord(record) } })
-                    .padding({ left: 12, right: 12 })
+                  Row() {
+                    InboxListItem({ record, selected: this.selected?.id === record.id,
+                      open: (): void => { this.selectRecord(record) } })
+                  }.width('100%').padding({ left: 12, right: 12 })
                     .onAreaChange((oldArea: Area, newArea: Area): void => {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
@@ -329,9 +330,11 @@ struct Inbox {
                   ListItemGroup({ header: this.recentHeader(day) }) {
                     ForEach(day.tasks, (task: CoreTask) => {
                       ListItem() {
-                        TaskListItem({ task, open: (): void => {
-                          this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
-                        } }).padding({ left: 12, right: 12 }).backgroundColor('#282C29')
+                        Row() {
+                          TaskListItem({ task, open: (): void => {
+                            this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
+                          } })
+                        }.width('100%').padding({ left: 12, right: 12 }).backgroundColor('#282C29')
                       }
                     }, (task: CoreTask) => taskRenderKey(task))
                     ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }
