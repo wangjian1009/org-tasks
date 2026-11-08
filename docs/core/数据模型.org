@@ -93,7 +93,8 @@
   scheduled: String \\
   deadline: String \\
   tags: Vec\textless String\textgreater \\
-  priority: String
+  priority: String \\
+  record\_created: bool
 }{}
 \umlclass[x=8.5,y=0]{OrgRepoWriteIntent}{
   relative\_path: String \\
@@ -152,6 +153,7 @@ pub struct FilterTask {
     pub deadline: Option<FilterDate>,
     pub closed: Option<FilterDate>,
     pub created: Option<FilterDate>,
+    pub created_at: Option<TimestampMs>,
     pub events: Vec<FilterDate>,
 }
 #+end_src
@@ -187,6 +189,8 @@ pub struct RefileTarget {
     pub path: String,
     pub heading_path: Vec<String>,
     pub position: SourcePosition,
+    pub category: Option<String>,
+    pub file_version: String,
 }
 #+end_src
 
@@ -202,7 +206,9 @@ pub struct RefileTarget {
 \umlclass[x=8,y=0]{RefileTarget}{repo\_id: OrgRepoId \\
 path: String \\
 heading\_path: Vec\textless String\textgreater \\
-position: SourcePosition}{display\_path(): String}
+position: SourcePosition \\
+category: Option\textless String\textgreater \\
+file\_version: String}{display\_path(): String}
 \umlclass[x=8,y=-4]{SourcePosition}{line: u32 \\
 column: u32 \\
 byte\_offset: u64}{}
@@ -299,6 +305,8 @@ pub struct OrgRepo {
 
 ~NewTask~ 仅作为 ~OrgRepo.create_task~ 、 ~OrgRepo.create_task_at_top~ 与分享地点写入的调用输入，不是新的解析 AST 或持久化任务模型。core 将标题、正文、优先级、标签及计划日期转为 org 内容，并复用 ~OrgFileEdit~ 与 ~orgize~ 检验；默认新增任务追加到文件末尾，快速捕捉可请求在第一条标题之前插入。已存在文件的原始字节保持不变。
 
+~record_created~ 默认为 ~false~ ，序列化名称为 ~recordCreated~ 。启用时 Core 在保存新任务时按设备本地时间生成精确到分钟的非活动时间戳，将 ~CREATED~ 放入标题及可选 planning 行之后的 ~PROPERTIES~ drawer。新任务自带属性 drawer 时只补缺失的键，已有 ~CREATED~ 不区分大小写并保留原值。该时间是创建时的 Org 内容，不是计划日期、正文、草稿时间或同步状态；后续读取、编辑和同步不重新生成。
+
 ~OrgRepoWriteIntent~ 只包含相对路径与保存后的内容哈希，按仓库写入 ~.sync/outbox/~ 。完整任务仍保存在用户 org 文件中；多个保存意图可指向同一个文件。WebDAV 使用原始文件的最新完整字节上传，成功同步记录落盘且本地版本一致后才确认消费。写入意图不增加 ~OrgRepo~ 的持久化文件快照字段。
 
 #+begin_src rust
@@ -309,6 +317,7 @@ pub struct NewTask {
     pub deadline: String,
     pub tags: Vec<String>,
     pub priority: String,
+    pub record_created: bool,
 }
 
 pub struct OrgRepoWriteIntent {
@@ -582,13 +591,13 @@ options: SyncOptions}{}
 
 * 通用任务查询模型
 
-~TaskQuery~ 为运行时请求，不属于同步历史或 outbox。UI 组装请求， ~OrgWorkspace.query~ 统一生成过滤后的 ~TaskQueryResult.tasks~ ；完成状态依据 ~FilterTask.is_done()~ ，组合任务依据完整文件的真实父子层级。 ~TaskQueryResult.categories~ 是相同基础范围的分类统计，不保存控件选中状态。详细契约见 [[file:查询语言设计.org][查询语言设计]]。
+~TaskQuery~ 为运行时请求，不属于同步历史或 outbox。UI 组装请求， ~OrgWorkspace.query~ 统一生成过滤后的 ~TaskQueryResult.tasks~ ；完成状态依据 ~FilterTask.is_done()~ ，组合任务依据完整文件的真实父子层级。 ~excluded_files~ 统一接收 ~OrgFileRef~ 数组，精确定位 Core 仓库与文件；创建日期条件由 ~expression~ 表达。 ~TaskQueryResult.categories~ 是相同基础范围的分类统计，不保存控件选中状态。详细契约见 [[file:查询语言设计.org][查询语言设计]]。
 
 #+begin_src rust
 pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
-    pub excluded_files: Vec<String>,
+    pub excluded_files: Vec<OrgFileRef>,
     pub include_done: bool,
     pub include_compose_tasks: bool,
 }
@@ -599,12 +608,33 @@ pub struct TaskQuery {
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{TaskQuery}{expression: String \\
 categories: Vec\textless Option\textless String\textgreater\textgreater \\
-excluded\_files: Vec\textless String\textgreater \\
+excluded\_files: Vec\textless OrgFileRef\textgreater \\
 include\_done: bool \\
 include\_compose\_tasks: bool}{}
 \umlclass[x=8,y=0]{TaskQueryResult}{tasks: Vec\textless FilterTask\textgreater \\
 categories: Vec\textless TaskCategory\textgreater}{}
 \umldep{TaskQueryResult}{TaskQuery}
+\end{tikzpicture}
+\end{center}
+
+具体文件使用运行时值对象定位，不保存到 Org 文件或同步状态；创建日期筛选仍使用现有表达式。
+
+#+begin_src rust
+pub struct OrgFileRef {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+}
+#+end_src
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{OrgFileRef}{repo\_id: OrgRepoId \\
+path: String}{}
+\umlclass[x=0,y=-4]{FilterTask}{created: Option\textless FilterDate\textgreater \\
+created\_at: Option\textless TimestampMs\textgreater}{is\_cancelled(): bool}
+\umlclass[x=7,y=-4]{TaskQuery}{excluded\_files: Vec\textless OrgFileRef\textgreater}{}
+\umluniassoc{TaskQuery}{OrgFileRef}
 \end{tikzpicture}
 \end{center}
 
@@ -648,5 +678,50 @@ logbook\_html: String \\
 \umldep{FilterTask}{TitlePart}
 \umldep{OrgFile}{TitlePart}
 \umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TitlePart}
+\end{tikzpicture}
+\end{center}
+
+* 任务整理输入
+
+~TaskSource~ 、 ~TaskDestination~ 和 ~TaskEdit~ 是调用期间使用的快照参数，不是持久化任务模型。源和目标的 ~file_version~ 使用 Core 文件内容哈希；JSON 使用 camelCase， ~SourcePosition~ 沿用其现有字段。 ~RefileTarget.category~ 来自目标所在文件的 ~OrgFile.category()~ ， ~file_version~ 与目标源位置来自同一文件快照。 ~TaskDestination.clear_todo~ 启用时将根条目整理为备忘，移除任务状态、优先级及开头的 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息；正文、标签、属性和子条目保持原样。
+
+#+begin_src rust
+pub struct TaskSource {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub task_id: String,
+    pub file_version: String,
+}
+pub struct TaskDestination {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub file_version: String,
+    pub parent: Option<SourcePosition>,
+    pub clear_todo: bool,
+}
+pub struct TaskEdit {
+    pub source: TaskSource,
+    pub destination: Option<TaskDestination>,
+    pub queue_repo_ids: Vec<OrgRepoId>,
+}
+#+end_src
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{TaskEdit}{source: TaskSource \\
+destination: Option\textless TaskDestination\textgreater \\
+queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
+\umlclass[x=-4,y=-4]{TaskSource}{repo\_id: OrgRepoId \\
+path: String \\
+task\_id: String \\
+file\_version: String}{}
+\umlclass[x=4,y=-4]{TaskDestination}{repo\_id: OrgRepoId \\
+path: String \\
+file\_version: String \\
+parent: Option\textless SourcePosition\textgreater \\
+clear\_todo: bool}{}
+\umluniassoc{TaskEdit}{TaskSource}
+\umluniassoc{TaskEdit}{TaskDestination}
 \end{tikzpicture}
 \end{center}

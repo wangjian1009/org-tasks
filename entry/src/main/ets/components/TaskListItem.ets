@@ -79,12 +79,15 @@ export struct TaskListItem {
 
   @Builder
   completionState() {
-    Text(this.task.todoKind === 'done' ? '✓' : '').width(18).height(18).fontSize(13)
-      .textAlign(TextAlign.Center).fontColor(UiColor.done)
-      .border({ width: 1.4, color: this.task.todoKind === 'done' ? UiColor.done : '#8B8986' }).borderRadius(4)
-      .enabled(this.enableCompletionState).opacity(this.enableCompletionState ? 1 : 0.55)
-      .onClick((): void => {})
-      .accessibilityText(this.task.todoKind === 'done' ? '已完成，只读' : '未完成，只读')
+    if (this.task.todoKind === 'done' && !this.task.isCancelled) {
+      Image($r('app.media.ui_task_done')).width(18).height(18)
+        .accessibilityText('已完成，只读')
+    } else {
+      Text(this.task.isCancelled ? '−' : '').width(18).height(18).fontSize(13)
+        .textAlign(TextAlign.Center).fontColor(UiColor.disabled)
+        .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+        .accessibilityText(this.task.isCancelled ? '已取消，只读' : '未完成，只读')
+    }
   }
 
   @Builder
@@ -131,7 +134,7 @@ export struct TaskListItem {
   compactTitle() {
     Row({ space: 6 }) {
       Column({ space: 2 }) {
-        TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1, showCounts: false })
+        TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1, showCounts: false, cancelled: this.task.isCancelled })
           .width('100%').constraintSize({ minWidth: 0 })
         if (this.showCategory && this.task.category) {
           Text(this.task.category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
@@ -159,7 +162,7 @@ export struct TaskListItem {
   @Builder
   expandedTitle() {
     Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
-      TitleText({ text: this.task.heading, parts: this.task.headingParts, showCounts: false })
+      TitleText({ text: this.task.heading, parts: this.task.headingParts, showCounts: false, cancelled: this.task.isCancelled })
         .constraintSize({ maxWidth: this.titleWidth() }).margin({ right: 8, bottom: 6 })
       if (titleCounts(this.task.headingParts).length > 0) {
         TitleCounts({ parts: this.task.headingParts }).width(this.titleWidth()).margin({ bottom: 6 })

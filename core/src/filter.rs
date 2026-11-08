@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use chrono::{Datelike, Duration, Local, Months, NaiveDate};
+use chrono::{Datelike, Duration, Local, Months, NaiveDate, TimeZone};
 use orgize::ast::{Headline, Link, TimeUnit, Timestamp};
 use orgize::rowan::ast::AstNode;
 use serde::Serialize;
@@ -152,6 +152,7 @@ pub struct FilterTask {
     pub(crate) deadline_warning: Option<NaiveDate>,
     pub closed: Option<FilterDate>,
     pub created: Option<FilterDate>,
+    pub created_at: Option<crate::TimestampMs>,
     pub events: Vec<FilterDate>,
 }
 
@@ -166,6 +167,10 @@ impl FilterTask {
     /// 完成类型来自所属文件的有效 TODO 配置，不按状态名称推断。
     pub fn is_done(&self) -> bool {
         self.state_type == FilterStateType::Done
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.state.as_deref() == Some("CNCL")
     }
 
     /// 查询匹配结束后移除系统用途标签，保留其余标签的原始顺序。
@@ -356,11 +361,32 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
             deadline_warning: planning_warning(&headline, "DEADLINE", headline.deadline()),
             closed: planning_date(&headline, "CLOSED", headline.closed()),
-            created: None,
+            created: creation_time(&headline).map(|value| value.0),
+            created_at: creation_time(&headline).map(|value| value.1),
             events,
         });
     }
     tasks
+}
+
+// CREATED 仅从当前标题自身的属性抽屉读取，不继承、不扫描正文或文件前言。
+fn creation_time(headline: &Headline) -> Option<(FilterDate, crate::TimestampMs)> {
+    let value = headline.properties()?.iter().find_map(|(key, value)| {
+        key.eq_ignore_ascii_case("CREATED").then(|| value.to_string())
+    })?;
+    let value = value.trim();
+    let timestamp = orgize::Org::parse(value).first_node::<Timestamp>()?;
+    if timestamp.raw() != value || timestamp.is_range() {
+        return None;
+    }
+    let date = timestamp_to_date(timestamp.clone())?;
+    let (hour, minute) = match (timestamp.hour_start(), timestamp.minute_start()) {
+        (None, None) => (0, 0),
+        (Some(hour), Some(minute)) => (hour.parse().ok()?, minute.parse().ok()?),
+        _ => return None,
+    };
+    let local = date.date.and_hms_opt(hour, minute, 0)?;
+    Some((date, Local.from_local_datetime(&local).earliest()?.timestamp_millis()))
 }
 
 fn extract_address_links(headline: &Headline) -> Vec<AddressLink> {
@@ -790,7 +816,7 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
         FilterSortField::Scheduled => left.scheduled.cmp(&right.scheduled),
         FilterSortField::Deadline => left.deadline.cmp(&right.deadline),
         FilterSortField::Closed => left.closed.cmp(&right.closed),
-        FilterSortField::Created => left.created.cmp(&right.created),
+        FilterSortField::Created => left.created_at.cmp(&right.created_at),
         FilterSortField::Event => left.events.first().cmp(&right.events.first()),
         FilterSortField::Position => left
             .path

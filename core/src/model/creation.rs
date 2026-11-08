@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use chrono::NaiveDate;
+use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
@@ -19,6 +19,9 @@ pub struct NewTask {
     pub deadline: String,
     pub tags: Vec<String>,
     pub priority: String,
+    /// 创建时补齐 CREATED 属性；时间由 Core 在保存时生成。
+    #[serde(default, rename = "recordCreated")]
+    pub record_created: bool,
 }
 
 /// 待上传文件的写入意图；任务正文只存在于原始 org 文件中。
@@ -396,12 +399,37 @@ impl NewTask {
         if !planning.is_empty() {
             content.push_str(&format!("{}\n", planning.join(" ")));
         }
+        let body_start = content.len();
         if !self.body.trim().is_empty() {
             if self.body.contains('\0') {
                 return Err(CoreError::InvalidInput("任务正文包含无效字符"));
             }
             content.push_str(self.body.trim_end_matches(['\r', '\n']));
             content.push_str("\n");
+        }
+        if self.record_created {
+            let properties = orgize::Org::parse(&content)
+                .first_node::<orgize::ast::Headline>()
+                .and_then(|headline| headline.properties());
+            if let Some(drawer) = &properties {
+                if drawer
+                    .iter()
+                    .any(|(key, _)| key.eq_ignore_ascii_case("CREATED"))
+                {
+                    return Ok(content);
+                }
+            }
+            let created = Local::now().format("[%Y-%m-%d %a %H:%M]").to_string();
+            if let Some(drawer) = properties {
+                let offset =
+                    u32::from(drawer.start()) as usize + drawer.raw().find('\n').unwrap() + 1;
+                content.insert_str(offset, &format!(":CREATED: {created}\n"));
+            } else {
+                content.insert_str(
+                    body_start,
+                    &format!(":PROPERTIES:\n:CREATED: {created}\n:END:\n"),
+                );
+            }
         }
         Ok(content)
     }
@@ -531,6 +559,7 @@ mod tests {
             deadline: "2026-10-15".into(),
             priority: "A".into(),
             tags: vec!["工作".into(), "home".into(), "工作".into()],
+            record_created: false,
         };
         repo.create_task("inbox.org", &task, true).await.unwrap();
         let bytes = fs::read(root.join("inbox.org")).await.unwrap();
@@ -610,6 +639,100 @@ mod tests {
         assert!(source.starts_with("#+TITLE: 收件箱\r\n#+TODO: NEXT | DONE\r\n\r\n"));
         assert!(source.contains("* NEXT 最新捕捉\r\n\r\n* NEXT 旧记录"));
         fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn creation_time_is_a_local_inactive_property_and_preserves_existing_records() {
+        for newline in ["\n", "\r\n"] {
+            let mut repo = repo().await;
+            let root = PathBuf::from(&repo.root_directory);
+            let preamble = format!("#+TITLE: 收件箱{newline}{newline}");
+            let existing =
+                "* TODO 旧记录\n:PROPERTIES:\n:CREATED: [2020-01-02 Thu 03:04]\n:END:\n原正文  \n"
+                    .replace('\n', newline);
+            fs::write(root.join("inbox.org"), format!("{preamble}{existing}"))
+                .await
+                .unwrap();
+            let before = Local::now().naive_local();
+            repo.create_task_at_top(
+                "inbox.org",
+                &NewTask {
+                    heading: "最新捕捉".into(),
+                    record_created: true,
+                    ..Default::default()
+                },
+                true,
+            )
+            .await
+            .unwrap();
+            let after = Local::now().naive_local();
+            let bytes = fs::read(root.join("inbox.org")).await.unwrap();
+            let source = std::str::from_utf8(&bytes).unwrap();
+            assert!(source.starts_with(&format!(
+                "{preamble}* TODO 最新捕捉{newline}:PROPERTIES:{newline}:CREATED: ["
+            )));
+            assert!(source.ends_with(&existing));
+            if newline == "\r\n" {
+                assert!(!source.replace("\r\n", "").contains('\n'));
+            }
+            let org = orgize::Org::parse(source);
+            let properties = org
+                .first_node::<orgize::ast::Headline>()
+                .unwrap()
+                .properties()
+                .unwrap();
+            assert_eq!(properties.iter().count(), 1);
+            let value = properties.get("CREATED").unwrap().to_string();
+            let created = chrono::NaiveDateTime::parse_from_str(&value, "[%Y-%m-%d %a %H:%M]").unwrap();
+            assert!(created > before - chrono::Duration::minutes(1));
+            assert!(created <= after);
+            repo.load::<WebDavSyncPolicy>().await.unwrap();
+            let tasks = tasks_from_repo(&repo);
+            let captured = tasks.iter().find(|task| task.title == "最新捕捉").unwrap();
+            assert!(captured.body.trim().is_empty());
+            assert!(captured.events.is_empty());
+            assert!(captured.scheduled.is_none());
+            assert!(captured.deadline.is_none());
+            assert_eq!(
+                repo.pending_writes().await.unwrap()[0].content_hash,
+                LocalFileVersion::from_bytes(&bytes).content_hash
+            );
+            fs::remove_dir_all(root).await.unwrap();
+        }
+    }
+
+    #[test]
+    fn creation_time_follows_planning_and_reuses_existing_property_drawers() {
+        let task = NewTask {
+            heading: "记录".into(),
+            scheduled: "2026-11-08".into(),
+            body: ":PROPERTIES:\n:ID: keep-id\n:END:\n正文\n".into(),
+            record_created: true,
+            ..Default::default()
+        };
+        let content = task.render("TODO").unwrap();
+        assert!(content.starts_with("* TODO 记录\nSCHEDULED: <2026-11-08>\n:PROPERTIES:\n:CREATED: ["));
+        assert!(content.ends_with(":ID: keep-id\n:END:\n正文\n"));
+        assert_eq!(content.matches(":PROPERTIES:").count(), 1);
+
+        let existing = NewTask {
+            body: ":PROPERTIES:\n:created: [2020-01-02 Thu 03:04]\n:END:\n正文\n".into(),
+            ..task
+        };
+        assert_eq!(
+            existing.render("TODO").unwrap(),
+            format!("* TODO 记录\nSCHEDULED: <2026-11-08>\n{}", existing.body)
+        );
+    }
+
+    #[test]
+    fn creation_time_is_opt_in_for_existing_creation_callers() {
+        let task: NewTask = serde_json::from_str(
+            r#"{"heading":"普通新增","scheduled":"","deadline":"","tags":[],"priority":""}"#,
+        )
+        .unwrap();
+        assert!(!task.record_created);
+        assert_eq!(task.render("TODO").unwrap(), "* TODO 普通新增\n");
     }
 
     #[tokio::test]

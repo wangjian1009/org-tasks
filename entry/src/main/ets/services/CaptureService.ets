@@ -26,6 +26,7 @@ export class CaptureService {
     const target = await FileTargetService.resolve(config, 'inbox')
     if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
     await target.repo.createTask(target.path,
-      { heading: title.trim(), scheduled: '', deadline: '', tags: [], priority: '' }, target.repository.webdavEnabled, true)
+      { heading: title.trim(), scheduled: '', deadline: '', tags: [], priority: '', recordCreated: true },
+      target.repository.webdavEnabled, true)
   }
 }

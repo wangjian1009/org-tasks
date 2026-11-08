@@ -22,17 +22,29 @@ export interface NewTask {
   deadline: string;
   tags: string[];
   priority: string;
+  recordCreated?: boolean;
 }
 
 export interface CoreError extends Error {
   readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge';
 }
 
+export interface TaskSource { repoId: string; path: string; taskId: string; fileVersion: string; }
+export interface RefileTarget {
+  repoId: string; path: string; headingPath: string[]; position: SourcePosition;
+  category: string | null; fileVersion: string;
+}
+export interface TaskDestination {
+  repoId: string; path: string; fileVersion: string; parent: SourcePosition | null; clearTodo: boolean;
+}
+export interface TaskEdit { source: TaskSource; destination: TaskDestination | null; queueRepoIds: string[]; }
+
 export class OrgFile {
   private constructor();
   readonly repoId: string;
   readonly path: string;
   readonly todo: TodoMetadata;
+  readonly fileVersion: string;
   category(): string | null;
   title(): string | null;
   titleParts(): TitlePart[];
@@ -45,11 +57,14 @@ export class Task {
   isDone(): boolean;
   // Core 生成的逻辑路径 MD5，独立于源字节偏移、状态和首尾进度。
   readonly id: string;
+  readonly source: TaskSource;
   readonly repoId: string;
   readonly heading: string;
   readonly category: string | null;
   readonly headingParts: TitlePart[];
   readonly todoState: string;
+  readonly isCancelled: boolean;
+  readonly createdAt: number | null;
   readonly todoKind: 'pending' | 'done' | null;
   readonly priority: string;
   readonly scheduled: string;
@@ -91,10 +106,12 @@ export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
 export interface SyncOptions { excludedDirectories: string[]; }
 
+export interface OrgFileRef { repoId: string; path: string; }
+
 export interface TaskQuery {
   expression?: string;
   categories?: (string | null)[];
-  excludedFiles?: string[];
+  excludedFiles?: OrgFileRef[];
   includeDone?: boolean;
   includeComposeTasks?: boolean;
 }
@@ -125,6 +142,8 @@ export class Workspace {
   removeRepo(rootDirectory: string): Promise<void>;
   search(expression: string): Promise<Task[]>;
   query(query: TaskQuery): Promise<TaskQueryResult>;
+  refileTargets(): Promise<RefileTarget[]>;
+  editTask(edit: TaskEdit): Promise<void>;
 }
 
 export class Repo {

@@ -10,6 +10,9 @@ import {
   MergeFileVersion as NativeMergeFileVersion,
   MergeOutcome as NativeMergeOutcome,
   NewTask as NativeNewTask,
+  RefileTarget as NativeRefileTarget,
+  TaskEdit as NativeTaskEdit,
+  TaskDestination as NativeTaskDestination,
   CoreError as NativeCoreError,
   OrgFile as NativeOrgFile,
   OrgFileMetadata as NativeOrgFileMetadata,
@@ -75,6 +78,9 @@ export enum CoreMergeResolution {
 }
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
 
+export type CoreRefileTarget = NativeRefileTarget
+export type CoreTaskEdit = NativeTaskEdit
+export type CoreTaskDestination = NativeTaskDestination
 export type CoreNewTask = NativeNewTask
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
@@ -145,6 +151,7 @@ export class CoreRepo {
   }
 
   async createTask(path: string, task: CoreNewTask, queueUpload: boolean, insertAtTop: boolean = false): Promise<void> {
+    // recordCreated 随结构化参数透传，创建时间和 Org 属性均由 Core 生成。
     await this.native.createTask(path, task, queueUpload, insertAtTop)
   }
 
@@ -166,6 +173,8 @@ export class CoreWorkspace {
   }
 
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
+  async refileTargets(): Promise<CoreRefileTarget[]> { return await this.native.refileTargets() }
+  async editTask(edit: CoreTaskEdit): Promise<void> { await this.native.editTask(edit) }
 
   async repos(): Promise<CoreRepo[]> {
     const repos = await this.native.repos()

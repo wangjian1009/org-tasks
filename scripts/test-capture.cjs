@@ -192,14 +192,14 @@ test('选择与清除只修改对应文件入口，保留其他设置和新选�
   assert.equal(f.config.inboxRepoId, 'personal');
 });
 
-test('保存只提交标题和空元数据，使用配置 inbox 与既有上传规则', async () => {
+test('保存提交标题并请求记录创建时间，使用配置 inbox 与既有上传规则', async () => {
   const f = fixture();
   f.config.repos[0].webdavEnabled = true;
   f.config.inboxFile = 'notes/inbox.org';
   await f.CaptureService.save({}, '  周五前交报销  ');
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0][2], 'notes/inbox.org');
-  assert.deepEqual(f.calls[0][3], { heading: '周五前交报销', scheduled: '', deadline: '', tags: [], priority: '' });
+  assert.deepEqual(f.calls[0][3], { heading: '周五前交报销', scheduled: '', deadline: '', tags: [], priority: '', recordCreated: true });
   assert.equal(f.calls[0][1].id, 'personal');
   assert.equal(f.calls[0][4], '#+TODO: TODO | DONE');
   assert.equal(f.calls[0][5], true, '快速捕捉必须请求文件顶部插入');

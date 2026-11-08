@@ -1,7 +1,9 @@
 use orgize::{ast::Headline, rowan::ast::AstNode};
 use serde::Serialize;
 
-use super::{OrgRepo, OrgRepoId, OrgWorkspace, SourcePosition, editor::position_at};
+use super::{
+    LocalFileVersion, OrgRepo, OrgRepoId, OrgWorkspace, SourcePosition, editor::position_at,
+};
 
 pub(crate) const REFILE_TAG: &str = "REFILE";
 
@@ -15,6 +17,8 @@ pub struct RefileTarget {
     pub heading_path: Vec<String>,
     /// 同名同路径的标题仍以当前快照的源位置区分。
     pub position: SourcePosition,
+    pub category: Option<String>,
+    pub file_version: String,
 }
 
 impl RefileTarget {
@@ -50,6 +54,9 @@ impl OrgRepo {
                 if headline.tags().any(|tag| tag.as_ref() == REFILE_TAG) {
                     targets.push(RefileTarget {
                         repo_id: self.id.clone(),
+                        category: file.category(),
+                        file_version: LocalFileVersion::from_bytes(file.source_bytes())
+                            .content_hash,
                         path: file.path.clone(),
                         heading_path: ancestors.iter().map(|(_, title)| title.clone()).collect(),
                         position: position_at(

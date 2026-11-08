@@ -53,7 +53,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 ~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存由 Core 生成的逻辑 ~id~ 、仓库 ID、相对路径、源位置、标题层级、状态、优先级、自身标签、继承标签、标题、正文和规划时间。~OrgWorkspace.search~ 汇总各仓库任务后由核心过滤器统一求值；宿主和 CLI 不得重新解释 org AST 或绕过 workspace 实现搜索。
 
-任务投影覆盖全部 headline，以保持 ~it.none~ 和 ~.it.done~ 的 headline 语义一致。参考应用还会为每个文件的前言创建无状态根笔记；core 不投影 ~#+TITLE~ 、文件属性或第一个 headline 前的文本，因此这些文件级前言不参与任务查询。~created~ 语法已由 ~Filter~ 表达，但当前 ~OrgFile~ 还未提供创建时间字段，因此该条件在任务搜索中不会匹配；新增创建时间模型时应补充投影，而不改变语法或 parser。
+任务投影覆盖全部 headline，以保持 ~it.none~ 和 ~.it.done~ 的 headline 语义一致。参考应用还会为每个文件的前言创建无状态根笔记；core 不投影 ~#+TITLE~ 、文件属性或第一个 headline 前的文本，因此这些文件级前言不参与任务查询。创建日期从当前标题自身属性 drawer 的 ~CREATED~ 读取，键不区分大小写，不继承祖先值；无效日期、时间或非时间戳值不投影。 ~FilterTask.created~ 保留日期，供既有 ~cr.*~ 自然日语法匹配； ~created_at~ 保留按设备本地时区解释的 Unix 毫秒时间。只有日期时按本地 00:00 解释，夏令时回拨重复时刻选较早值，不存在的本地时刻忽略。 ~.o.created~ 按完整创建时间倒序，同一天可按时刻排序。
 
 任务 ID 在完整文件遍历时生成，独立于当前表达式、排序、分类及包含开关。归一化标题链、MD5 编码与重复项规则见 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]]；查询结果不会按逻辑标题合并记录，也不因身份计算去除原始标题中的进度文本。
 
@@ -97,7 +97,7 @@ Core 提供通用任务查询能力，不认识“收件箱页面”“分类多
 pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
-    pub excluded_files: Vec<String>,
+    pub excluded_files: Vec<OrgFileRef>,
     pub include_done: bool,
     pub include_compose_tasks: bool,
 }
@@ -112,6 +112,11 @@ impl Default for TaskQuery {
             include_compose_tasks: true,
         }
     }
+}
+
+pub struct OrgFileRef {
+    pub repo_id: OrgRepoId,
+    pub path: String,
 }
 
 pub struct TaskCategory {
@@ -135,7 +140,7 @@ impl OrgWorkspace {
 |-
 | ~expression~ | 现有 dotted query；空字符串表示无表达式限制，排序沿用现有查询接口。 |
 | ~categories~ | 按文件有效 category 精确匹配，多项取并集；空列表不过滤分类。 ~None~ 表示缺失或空 category，与真实名称“未分类”不同；重复选项不重复任务。 |
-| ~excluded_files~ | 安全的仓库相对文件路径列表，精确排除所有存储库中对应路径；不隐含收件箱概念。 |
+| ~excluded_files~ | ~Vec<OrgFileRef>~ ，每项包含 Core 仓库 ID 与安全相对路径，仅两者同时匹配时排除；空数组不排除，不支持裸路径字符串或跨仓库同名路径通配。 |
 | ~include_done~ | 为假时排除 ~FilterTask.is_done()~ 为真的任务，完成类型受文件有效 in-buffer 配置影响。 |
 | ~include_compose_tasks~ | 为假时排除有子标题的组合任务。父子关系以原始完整文件结构判断，不能因子任务未命中表达式、已完成或被其他条件过滤而把父任务变成叶任务。 |
 
@@ -143,6 +148,14 @@ impl OrgWorkspace {
 
 ~categories~ 摘要在表达式、排除文件、完成和组合任务开关求值后生成，不受当前 ~categories~ 选项影响，便于多选控件维持可选项。 ~count~ 是该范围内相应分类的记录数；不设置完成开关或设置为真时也可以统计完成记录。零记录分类不返回，缺失分类置末。
 
-UI 的请求组装示例：分类导航请求设置 ~excluded_files = [配置的收件箱路径]~ 和 ~include_done = false~ ；有分类选择时任务列表发送相同排除文件和所选分类，无选择时可清空排除文件以显示包含收件箱的全部未完成任务。收件箱页面使用 ~b."配置路径"~ 表达式并将两个包含开关置真，以取得所有标题记录。路径的表达式转义由 UI 作为请求组装完成，解释和文件匹配由 Core 完成。
+UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRef { repo_id: 所选 Core 仓库 ID, path: 配置文件路径 }]~ 和 ~include_done = false~ ；有分类选择时任务列表发送相同排除文件和所选分类，无选择时可清空排除文件以显示包含收件箱的全部未完成任务。收件箱页面使用 ~b."配置路径"~ 表达式并将两个包含开关置真，以取得所有标题记录。路径的表达式转义由 UI 作为请求组装完成，解释和文件匹配由 Core 完成。
 
 ~TaskQuery~ 不保存界面选择状态，没有 ~inbox_file~ 、 ~toggle_category~ 或专用视图枚举。 ~query~ 只读取已加载 workspace，不读宿主配置、不持久化 UI 会话。Harmony 在 worker 中加载当前仓库后调用该接口，结果任务包装为带 ~isDone()~ 的 Task 对象。
+
+最近三天按今天、昨天和前天三个本地自然日解释，请求使用 ~cr.ge.-2d cr.le.today .o.created~ 。创建日期属于前天全天的记录均可匹配，今天晚些时候的创建时间同样属于今天；明天及更晚日期不匹配。时间条件统一由 ~expression~ 表达，不额外增加创建时间范围字段，也不扩展小时级筛选语义。
+
+* 分享地址候选查询排查与接入建议
+
+~ShareLocation.openUpdate~ 已通过 ~NativeCoreService.queryTasks -> Workspace.query -> OrgWorkspace.query~ 获得候选，目前逐仓库请求 ~includeDone=false~ 后合并。界面使用 ~tasks.slice(0, 8)~ 截断列表，且“搜索任务标题”输入框未绑定查询；当前过滤不要求存在地址链接，因此无可更新链接的无状态记录也可能出现在候选列表。
+
+建议确认后统一对全部仓库发起一次 ~Workspace.query~ ，保留任务投影中的 ~repoId~ 和 ~source~ 以定位更新对象，移除前八项截断，将搜索作为请求交给 Core。现有 ~expression~ 支持通用文字搜索，若产品严格要求仅标题匹配或只返回含地址链接的任务，可另行审定 ~title_contains: Option<String>~ 与 ~has_address_links: Option<bool>~ 两个通用条件；它们属于后续扩展建议，本轮 Query 定义尚未加入，也不在 UI 做地址或标题过滤。

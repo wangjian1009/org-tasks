@@ -1,6 +1,6 @@
 use org_tasks_core::{
-    Filter, OrgFile, OrgFileEdit, OrgRepo, OrgWorkspace, SourcePosition, TaskQuery, TaskScanRules,
-    apply_edit, serialize_file,
+    Filter, OrgFile, OrgFileEdit, OrgFileRef, OrgRepo, OrgWorkspace, SourcePosition, TaskQuery,
+    TaskScanRules, apply_edit, serialize_file,
 };
 
 fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
@@ -165,7 +165,10 @@ fn structured_query_flags_and_categories_still_apply_before_returning_tags() {
     assert!(
         workspace
             .query(&TaskQuery {
-                excluded_files: vec!["tasks.org".into()],
+                excluded_files: vec![OrgFileRef {
+                    repo_id: "r".into(),
+                    path: "tasks.org".into()
+                }],
                 ..query
             })
             .unwrap()

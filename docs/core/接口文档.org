@@ -92,6 +92,10 @@ impl OrgWorkspace {
     pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
 
     pub fn refile_targets(&self) -> Vec<RefileTarget>;
+
+    pub fn task_source(&self, task_id: &str) -> Result<TaskSource, CoreError>;
+
+    pub async fn edit_task(&mut self, edit: &TaskEdit) -> Result<(), CoreError>;
 }
 #+end_src
 
@@ -201,7 +205,9 @@ impl OrgFile {
 
 *** NewTask 与 OrgRepoWriteIntent
 
-~NewTask~ 是任务创建的运行时输入，字段为 ~heading~ 、 ~body~ 、 ~scheduled~ 、 ~deadline~ 、 ~tags~ 与 ~priority~ 。日期为空或有效的 ~YYYY-MM-DD~ ，优先级为空或 ~A/B/C~ ，标题不能为空或包含控制字符，标签只允许字母、数字、中文及 ~_@#%~ 。标题中的隐式 Org 属性必须拒绝，避免与表单属性产生歧义。
+~NewTask~ 是任务创建的运行时输入，字段为 ~heading~ 、 ~body~ 、 ~scheduled~ 、 ~deadline~ 、 ~tags~ 、 ~priority~ 与 ~record_created~ 。日期为空或有效的 ~YYYY-MM-DD~ ，优先级为空或 ~A/B/C~ ，标题不能为空或包含控制字符，标签只允许字母、数字、中文及 ~_@#%~ 。标题中的隐式 Org 属性必须拒绝，避免与表单属性产生歧义。
+
+~record_created~ 是可选的创建时间记录开关，JSON 名为 ~recordCreated~ ，省略时为 ~false~ 。启用时 Core 在实际保存时生成本地时间 ~[YYYY-MM-DD Ddd HH:MM]~ ，写入新任务的 ~:CREATED:~ 属性； ~PROPERTIES~ drawer 位于标题及可选 planning 行之后、正文之前。新任务内容已含属性 drawer 时沿用该 drawer，已有 ~CREATED~ 按大小写不敏感匹配并保留，不产生重复属性。该开关不回填已有任务、不修改草稿、不改变计划日期或截止日期。
 
 ~OrgRepo.create_task~ 要求仓库已加载，目标是控制目录外的安全相对 ~.org~ 路径，且路径中不得存在符号链接。默认在文件末尾通过 ~apply_edit~ 追加使用目标文件有效初始状态的一级标题和可选 planning 行和正文；~create_task_at_top~ 则在文件头配置与前言之后、第一条标题之前插入。两者均保留原有字节并沿用文件换行风格，写入后必须验证新标题可从 core 任务投影读取；未结束的源码块等不允许安全追加或插入标题的文件会返回输入错误。
 
@@ -513,6 +519,8 @@ pub struct RefileTarget {
     pub path: String,
     pub heading_path: Vec<String>,
     pub position: SourcePosition,
+    pub category: Option<String>,
+    pub file_version: String,
 }
 
 impl RefileTarget {
@@ -567,7 +575,7 @@ impl FilterTask {
 }
 #+end_src
 
-render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 沿用折叠展示，日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。 ~has_list~ 在相同遍历中标记正文中的真实列表，~has_text~ 标记列表之外的可读正文文字；两者均排除日志、drawer、源码和字面块，不在宿主通过原文或 HTML 推断。输出仅供运行时展示，不保存到同步记录或 outbox。
+render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 沿用折叠展示，日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。 ~has_list~ 标记真实列表，~has_text~ 标记列表之外的可读正文，二者均排除日志、drawer、源码和字面块，不在宿主通过原文或 HTML 推断。输出仅供运行时展示，不保存到同步记录或 outbox。
 
 ** 标题文字与外部链接投影
 
@@ -603,10 +611,20 @@ impl FilterTask {
 
 ** 分享地点写入与地址替换
 
-~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。
+~RenderedTaskContent.body_html~ 是任务正文的展示投影；标题开头的规划行由 Core 作为元数据单独展示，不重复出现在正文中，正文中后续出现的同名普通文本仍保留。~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交，~queue_upload~ 仍按当前文件快照登记 outbox。
 
-~FilterTask.address_links: Vec<AddressLink>~ 包含当前标题和自身正文中的真实地址链接，字段为 ~uri: String~ 与 ~label: String~ 。Core 从已有语法树提取 ~geo:~ 、 ~addr:~ 链接，支持无描述形式，排除子标题、源码、示例、注释与行内字面文本，不修改原始字节。通用查询表达式 ~has.address~ 按该投影筛选，宿主直接使用查询结果，不再扫描正文或剔除记录。
+* 任务移动与删除
 
-~NewTask.body~ 是可选的 Org 正文，创建任务时在 planning 行之后按原始换行风格写入。分享扩展把已识别的 ~geo:~ 或 ~addr:~ 链接放入正文，不拼接到标题。~OrgRepo.update_task_location~ 在指定任务子树中替换第一个地址链接的 URI，保留链接描述和其他字节；文件外部变化时拒绝提交，~queue_upload~ 仍按当前文件快照登记 outbox。
+~OrgWorkspace.edit_task~ 接受结构化 ~TaskEdit~ ，所有源与目标文件必须已存在于加载的仓库内。 ~source~ 包含 ~repo_id~ 、 ~path~ 、 ~task_id~ 与 ~file_version~ ；版本是 ~LocalFileVersion~ 的内容哈希。Core 重新读取磁盘并对比版本，再以逻辑 ID 定位真实标题，不能用旧字节位置操作另一条任务。
 
-~update_task_location(...) -> Result<FilterTask, CoreError>~ 在写入成功后返回此次修改任务的最新投影，复用文件任务投影与身份规则，并与查询返回值一样移除系统标签 ~REFILE~ 。快照在写入前由已编辑的语法树生成、写入成功后才返回；标题中的地址链接变化导致逻辑 ID 改变时，仍返回同一源标题位置的准确新任务。宿主无需根据旧标题、旧 ID 或列表下标猜测修改目标，即可直接打开编辑页并展示最新内容。
+~destination~ 为 ~None~ 时删除源任务的完整子树；有目标时保真移动。目标包含 ~repo_id~ 、 ~path~ 、 ~file_version~ 、可选 ~parent: SourcePosition~ 和 ~clear_todo~ 。有 parent 时提交前验证该位置仍是显式 REFILE 标题，并将任务放在目标自身内容之后、首个直属子节点之前；无 parent 时放在文件前言之后、第一条标题之前。目标不能为空或是源任务自身、后代；目标 TODO 配置不能改变移动任务的标题或原有状态解释。 ~clear_todo~ 用于备忘整理，清除根标题的 TODO 状态、优先级，以及紧随根标题的 ~SCHEDULED~ 、 ~DEADLINE~ 和 ~CLOSED~ 规划行（包括重复器）；连续规划行一并清除。正文、标签、属性 drawer（包括 ~CREATED~ ）、日志和子条目按原始字节保留，正文中的同名文字不作为规划信息删除。
+
+移动仅按无损语法树调整真实标题的星号层级，正文、属性、日志、代码块及已有 ~CREATED~ 原样保留；其他任务和文件前言未涉及的字节保持不变。同文件移动只提交一个新快照，跨文件或跨仓库移动先保存目标再移除源任务。源文件被清空时仍保留空 Org 文件。 ~queue_repo_ids~ 指定启用远端上传的 Core 仓库 ID，为其中每个实际变更文件登记 outbox。
+
+提交前将受影响文件备份到各自仓库的 ~.sync/backups/task-edit-<nonce>/<相对路径>~ ，准备临时文件和 outbox 后再次核对原始字节。普通写入失败会回滚已经替换且未被外部修改的文件，并清理本次临时文件及意图；备份保留。跨文件没有文件系统级整体原子性，进程在目标提交后、源提交前中断时可能留下重复任务，源数据和备份仍可恢复，不宣称跨文件事务已自动恢复。
+
+* 查询文件定位与创建日期条件
+
+~TaskQuery.excluded_files~ 类型为 ~Vec<OrgFileRef>~ ，每项包含 ~repo_id~ 与 ~path~ ，两者共同表示具体文件。仓库 ID 使用 Core 的稳定身份，路径是安全的仓库相对文件路径；空仓库 ID 或非法路径返回输入错误。一个排除对象仅影响所属仓库中的该文件，不影响其他仓库的同名文件。数组省略或为空表示不排除；接口不再接受裸路径字符串数组。JSON 对应 ~excludedFiles: [{ repoId, path }]~ 。
+
+创建日期筛选通过 ~TaskQuery.expression~ 表达，不新增时间范围字段。 ~FilterTask.created~ 与 ~created_at~ 从任务自身的 ~CREATED~ 属性投影；缺失或非法值不匹配 ~cr.ge.-2d cr.le.today~ 。该表达式覆盖今天及前两个本地自然日，而非滚动 72 小时。完整时刻排序通过 ~o.created~ 或 ~.o.created~ 取得；日内时间用于排序和展示投影，不改变自然日筛选边界。所有能力继续通过 ~OrgWorkspace.query~ 暴露。

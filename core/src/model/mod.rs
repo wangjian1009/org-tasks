@@ -11,6 +11,7 @@ mod render;
 pub(crate) mod service;
 pub(crate) mod task_identity;
 mod task_scan;
+mod task_edit;
 mod todo;
 mod workspace;
 
@@ -22,6 +23,7 @@ pub use refile::*;
 pub use render::*;
 pub use service::*;
 pub use task_scan::*;
+pub use task_edit::*;
 pub use todo::*;
 pub use workspace::*;
 

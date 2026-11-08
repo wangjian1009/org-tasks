@@ -13,7 +13,7 @@ fn include_by_default() -> bool {
 pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
-    pub excluded_files: Vec<String>,
+    pub excluded_files: Vec<OrgFileRef>,
     pub include_done: bool,
     pub include_compose_tasks: bool,
 }
@@ -28,6 +28,14 @@ impl Default for TaskQuery {
             include_compose_tasks: include_by_default(),
         }
     }
+}
+
+/// 精确到仓库与文件的查询排除对象。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OrgFileRef {
+    pub repo_id: super::OrgRepoId,
+    pub path: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -51,8 +59,11 @@ fn normalized_category(category: Option<String>) -> Option<String> {
 impl OrgWorkspace {
     /// UI 组装通用查询；任务过滤、文件关联及组合任务判断统一在 core 中执行。
     pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError> {
-        for path in &query.excluded_files {
-            super::validate_relative_path(path)?;
+        for source in &query.excluded_files {
+            super::validate_relative_path(&source.path)?;
+            if source.repo_id.is_empty() {
+                return Err(CoreError::InvalidInput("排除文件的仓库 ID 不能为空"));
+            }
         }
         let file_categories = self
             .repos()
@@ -90,7 +101,10 @@ impl OrgWorkspace {
         Filter::parse(&query.expression).filter_tasks(&mut all);
         all.retain(|task| {
             (query.include_done || !task.is_done())
-                && !query.excluded_files.contains(&task.path)
+                && !query
+                    .excluded_files
+                    .iter()
+                    .any(|source| source.repo_id == task.repo_id && source.path == task.path)
                 && (query.include_compose_tasks
                     || !parents.contains(&(
                         task.repo_id.clone(),
@@ -214,7 +228,16 @@ mod tests {
 
     fn category_query() -> TaskQuery {
         TaskQuery {
-            excluded_files: vec!["capture.org".into()],
+            excluded_files: vec![
+                OrgFileRef {
+                    repo_id: "r1".into(),
+                    path: "capture.org".into(),
+                },
+                OrgFileRef {
+                    repo_id: "r2".into(),
+                    path: "capture.org".into(),
+                },
+            ],
             include_done: false,
             ..Default::default()
         }
@@ -470,7 +493,10 @@ mod tests {
             assert!(
                 workspace
                     .query(&TaskQuery {
-                        excluded_files: vec![path.into()],
+                        excluded_files: vec![OrgFileRef {
+                            repo_id: "r1".into(),
+                            path: path.into()
+                        }],
                         ..Default::default()
                     })
                     .is_err()

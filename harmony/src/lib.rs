@@ -454,3 +454,17 @@ pub extern "C" fn org_tasks_harmony_normalize_sync_options(
             .map_err(|_| CoreError::InvalidState("无法编码同步参数"))
     }))
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_refile_targets(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_refile_targets_json(handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_edit_task(handle: u64, request: *const c_char) -> i32 {
+    clear_last_error();
+    match read_c_string(request).and_then(|request| bridge::workspace_edit_task(handle, request)) {
+        Ok(()) => 0,
+        Err(error) => { remember_error(&error); -1 }
+    }
+}

@@ -13,6 +13,7 @@ export struct TitleText {
   @Prop textSize: number = 16
   @Prop weight: FontWeight = FontWeight.Normal
   @Prop lineLimit: number = 0
+  @Prop cancelled: boolean = false
   @Prop copyable: boolean = false
   @Prop showCounts: boolean = true
   activate: (() => void) | undefined = undefined
@@ -43,18 +44,21 @@ export struct TitleText {
   titleContent() {
     Text() {
       if (this.parts.length === 0) {
-        Span(this.text)
+        Span(this.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
+          .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
       } else {
         ForEach(this.parts, (part: CoreTitlePart) => {
           if (part.count) {
           } else if (part.href) {
-            Span(part.text).fontColor(UiColor.primary).decoration({ type: TextDecorationType.Underline })
+            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.primary)
+              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline })
               .onClick((): void => { this.openLink(part.href!) })
           } else if (part.isLink) {
-            Span(part.text).fontColor(UiColor.secondary)
-              .decoration({ type: TextDecorationType.Underline, color: UiColor.secondary, style: TextDecorationStyle.DASHED })
+            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.secondary)
+              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline, color: UiColor.secondary, style: TextDecorationStyle.DASHED })
           } else {
-            Span(part.text)
+            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
+              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
           }
         })
       }

@@ -44,6 +44,8 @@ pub struct HarmonyBridgeFile {
     pub byte_length: usize,
     pub todo: org_tasks_core::TodoMetadata,
     pub category: Option<String>,
+    #[serde(rename = "fileVersion")]
+    pub file_version: String,
     pub title: Option<String>,
     #[serde(rename = "titleParts")]
     pub title_parts: Vec<org_tasks_core::TitlePart>,
@@ -55,6 +57,7 @@ pub struct HarmonyBridgeFile {
 #[serde(rename_all = "camelCase")]
 pub struct HarmonyBridgeTask {
     pub id: String,
+    pub source: org_tasks_core::TaskSource,
     pub repo_id: String,
     pub heading: String,
     pub category: Option<String>,
@@ -63,6 +66,8 @@ pub struct HarmonyBridgeTask {
     pub todo_state: String,
     pub todo_kind: Option<org_tasks_core::TodoStateKind>,
     pub is_done: bool,
+    pub is_cancelled: bool,
+    pub created_at: Option<TimestampMs>,
     pub priority: String,
     pub scheduled: String,
     pub deadline: String,
@@ -200,12 +205,14 @@ fn task_snapshot(
     Ok(workspace
         .search(filter)
         .into_iter()
-        .map(task_from_filter)
-        .collect())
+        .map(|task| task_from_filter(task, workspace))
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
+fn task_from_filter(task: FilterTask, workspace: &OrgWorkspace) -> Result<HarmonyBridgeTask, CoreError> {
+    let source = workspace.task_source_for(&task)?;
     let is_done = task.is_done();
+    let is_cancelled = task.is_cancelled();
     let heading_parts = task.title_parts();
     let content = task.render_content();
     let mut tags = task.own_tags;
@@ -214,7 +221,8 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
             tags.push(inherited);
         }
     }
-    HarmonyBridgeTask {
+    Ok(HarmonyBridgeTask {
+        source,
         id: task.id,
         repo_id: task.repo_id,
         heading: task.title,
@@ -227,6 +235,8 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
             _ => None,
         },
         is_done,
+        is_cancelled,
+        created_at: task.created_at,
         priority: task.priority.unwrap_or_default(),
         scheduled: task
             .scheduled
@@ -248,7 +258,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         has_list: content.has_list,
         has_text: content.has_text,
         is_repeating: task.is_repeating,
-    }
+    })
 }
 
 /// 创建持久的空 workspace session。仓库必须经 add_repo 后再 load。
@@ -437,7 +447,8 @@ pub fn repo_update_task_location(
     let runtime = runtime()?;
     runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
     let task = runtime.block_on(repository.update_task_location(&path, &heading, &old_uri, &new_uri, queue_upload))?;
-    serde_json::to_string(&task_from_filter(task))
+    let task = task_from_filter(task, &workspace)?;
+    serde_json::to_string(&task)
         .map_err(|_| CoreError::InvalidState("无法序列化更新后的任务"))
 }
 
@@ -477,7 +488,7 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
     }
     let result = workspace.query(&query)?;
     encode(&serde_json::json!({
-        "tasks": result.tasks.into_iter().map(task_from_filter).collect::<Vec<_>>(),
+        "tasks": result.tasks.into_iter().map(|task| task_from_filter(task, &workspace)).collect::<Result<Vec<_>, _>>()?,
         "categories": result.categories,
     }))
 }
@@ -580,6 +591,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
             .map_err(|_| CoreError::InvalidState("已加载 Org 文件不是 UTF-8"))?
             .into(),
         byte_length: file.source_bytes().len(),
+        file_version: org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         todo: file.todo.clone(),
         category: file.category(),
         title: file.title(),
@@ -834,6 +846,108 @@ mod tests {
     }
 
     #[test]
+    fn created_date_expression_and_cancelled_projection_cross_existing_query_bridge() {
+        let root = std::env::temp_dir().join(format!("org-created-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("tasks.org"), "#+TODO: TODO | DONE CNCL\n* CNCL Cancelled\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 10:00]\n:END:\n* DONE Finished\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n").unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let all: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, r#"{"expression":".o.created"}"#.into()).unwrap()).unwrap();
+        let tasks = all["tasks"].as_array().unwrap();
+        assert_eq!(tasks[0]["heading"], "Finished");
+        assert_eq!(tasks[1]["heading"], "Cancelled");
+        assert_eq!(tasks[0]["isCancelled"], false);
+        assert_eq!(tasks[1]["isCancelled"], true);
+        assert!(tasks[0]["createdAt"].as_i64().is_some());
+        let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created", "includeDone": true });
+        let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, query.to_string()).unwrap()).unwrap();
+        // 固定样例只在其创建日期落入最近三个自然日时匹配。
+        let projection = workspace_for_handle(handle).unwrap();
+        let expected = projection.lock().unwrap().query(&org_tasks_core::TaskQuery {
+            expression: "cr.ge.-2d cr.le.today .o.created".into(), ..Default::default()
+        }).unwrap().tasks.len();
+        assert_eq!(result["tasks"].as_array().unwrap().len(), expected);
+        let excluded = serde_json::json!({ "excludedFiles": [{ "repoId":tasks[0]["repoId"], "path":"tasks.org" }] });
+        let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, excluded.to_string()).unwrap()).unwrap();
+        assert!(result["tasks"].as_array().unwrap().is_empty());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn refile_categories_and_versioned_task_edits_cross_bridge() {
+        let root = std::env::temp_dir().join(format!("org-inbox-edit-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("inbox.org"),
+            "* TODO Move me\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("targets.org"),
+            "#+CATEGORY: Work\n* Parent :REFILE:\n** Existing\n",
+        )
+        .unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let tasks: serde_json::Value =
+            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+        let task = tasks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["heading"] == "Move me")
+            .unwrap();
+        let targets: serde_json::Value =
+            serde_json::from_str(&workspace_refile_targets_json(handle).unwrap()).unwrap();
+        let target = &targets[0];
+        assert_eq!(target["category"], "Work");
+        let request = serde_json::json!({ "source": task["source"], "destination": {
+            "repoId": target["repoId"], "path": target["path"], "fileVersion": target["fileVersion"],
+            "parent": target["position"], "clearTodo": false }, "queueRepoIds": [task["repoId"]] });
+        workspace_edit_task(handle, request.to_string()).unwrap();
+        assert!(workspace_edit_task(handle, request.to_string()).is_err());
+        assert_eq!(std::fs::read_to_string(root.join("inbox.org")).unwrap(), "");
+        let source = std::fs::read_to_string(root.join("targets.org")).unwrap();
+        assert!(source.contains("* Parent :REFILE:\n** TODO Move me\n:PROPERTIES:\n"));
+        assert!(source.ends_with(":END:\n** Existing\n"));
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn capture_creation_flag_reaches_core_and_survives_reload() {
+        let root =
+            std::env::temp_dir().join(format!("org-tasks-capture-created-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let original = "* TODO Existing\n:PROPERTIES:\n:CREATED: [2020-01-02 Thu 03:04]\n:END:\n";
+        std::fs::write(root.join("inbox.org"), original).unwrap();
+        let directory = root.to_string_lossy().into_owned();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        repo_create_task_at_top(handle, directory.clone(), "inbox.org".into(),
+            r#"{"heading":"Captured","scheduled":"","deadline":"","tags":[],"priority":"","recordCreated":true}"#.into(), true).unwrap();
+        let source = std::fs::read_to_string(root.join("inbox.org")).unwrap();
+        assert!(source.starts_with("* TODO Captured\n:PROPERTIES:\n:CREATED: ["));
+        assert!(source.ends_with(original));
+        repo_load(handle, directory.clone()).unwrap();
+        let snapshot: serde_json::Value =
+            serde_json::from_str(&repo_snapshot_json(handle, directory).unwrap()).unwrap();
+        assert_eq!(snapshot["files"][0]["source"], source);
+        let tasks: serde_json::Value =
+            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+        let captured = tasks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["heading"] == "Captured")
+            .unwrap();
+        assert_eq!(captured["bodyHtml"], "");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn repository_object_returns_core_file_snapshot() {
         let root =
             std::env::temp_dir().join(format!("org-tasks-harmony-bridge-{}", std::process::id()));
@@ -1052,7 +1166,7 @@ mod todo_tests {
             .unwrap(),
         );
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let task = task_from_filter(workspace.search(&Filter::parse("")).remove(0));
+        let task = task_from_filter(workspace.search(&Filter::parse("")).remove(0), &workspace).unwrap();
         let value = serde_json::to_value(task).unwrap();
         assert_eq!(value["heading"], "Task [1/2]");
         assert_eq!(value["headingParts"][1]["count"]["completed"], 1);
@@ -1066,4 +1180,21 @@ mod todo_tests {
         assert!(value["bodyHtml"].as_str().unwrap().contains("<ul>"));
         assert_eq!(value["tags"][0], "work");
     }
+}
+
+/// 放置目标和任务整理均由 Core 求值，bridge 只持有会话锁并调度运行时。
+pub fn workspace_refile_targets_json(handle: u64) -> Result<String, CoreError> {
+    let session = workspace_for_handle(handle)?;
+    let mut workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let runtime = runtime()?;
+    for repo in &mut workspace.repos { runtime.block_on(repo.load::<WebDavSyncPolicy>())?; }
+    encode(&workspace.refile_targets())
+}
+
+pub fn workspace_edit_task(handle: u64, request: String) -> Result<(), CoreError> {
+    let edit: org_tasks_core::TaskEdit = serde_json::from_str(&request)
+        .map_err(|_| CoreError::InvalidInput("任务整理参数无效"))?;
+    let session = workspace_for_handle(handle)?;
+    let mut workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    runtime()?.block_on(workspace.edit_task(&edit))
 }

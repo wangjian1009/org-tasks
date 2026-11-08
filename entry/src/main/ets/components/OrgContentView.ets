@@ -12,9 +12,14 @@ export struct OrgContentView {
   @Prop fragment: string = ''
   @Prop empty: boolean = false
   @Prop embedded: boolean = false
-  @Prop contentBackground: string = UiColor.surface
+  @Prop @Watch('backgroundChanged') contentBackground: string = UiColor.surface
   @Prop embeddedPadding: number = 16
   controller: webview.WebviewController = new webview.WebviewController()
+  activate: (() => void) | undefined = undefined
+  private tapX: number = 0
+  private tapY: number = 0
+  private tapTime: number = 0
+  private tapMoved: boolean = false
   ready: () => void = () => {}
   failed: (message: string) => void = () => {}
   @State contentHeight: number = 100
@@ -33,6 +38,20 @@ export struct OrgContentView {
     } catch (error) {
       if (this.active) this.showLinkError((error as Error).message || '无法打开链接，请确认已安装对应应用。')
     }
+  }
+
+  async backgroundChanged() {
+    if (!this.active || !this.loaded) return
+    try { await this.controller.runJavaScript(`document.body.style.backgroundColor = ${JSON.stringify(this.contentBackground)}`) }
+    catch (e) { /* 颜色变化不影响正文读取。 */ }
+  }
+
+  async activateAt(x: number, y: number) {
+    if (!this.activate || !this.loaded || !this.active || this.widthVp <= 0) return
+    try {
+      const result = await this.controller.runJavaScript(`Boolean(document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp})?.closest('a, summary'))`)
+      if (this.active && result === 'false') this.activate?.()
+    } catch (e) { /* 点击命中检查失败时保留阅读视图。 */ }
   }
 
   showLinkError(message: string): void {
@@ -100,7 +119,15 @@ export struct OrgContentView {
           if (width !== this.widthVp) { this.widthVp = width; this.measure() }
         })
         .onTouch((event: TouchEvent) => {
-          if (event.type === TouchType.Up && this.embedded) setTimeout(() => { this.measure() }, 100)
+          const point = event.changedTouches[0]
+          if (point && event.type === TouchType.Down) {
+            this.tapX = point.x; this.tapY = point.y; this.tapTime = Date.now(); this.tapMoved = false
+          }
+          if (point && event.type === TouchType.Move && Math.abs(point.x - this.tapX) + Math.abs(point.y - this.tapY) > 10) this.tapMoved = true
+          if (event.type === TouchType.Up && this.embedded) {
+            setTimeout(() => { this.measure() }, 100)
+            if (point && !this.tapMoved && Date.now() - this.tapTime < 500) this.activateAt(point.x, point.y)
+          }
         })
         .onKeyEvent((event: KeyEvent) => {
           if (event.type === KeyType.Up && this.embedded) setTimeout(() => { this.measure() }, 100)
