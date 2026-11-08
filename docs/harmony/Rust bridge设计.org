@@ -272,7 +272,7 @@ interface TitleCount {
 
 ** 任务列表项展示提示
 
-查询 worker 将 ~FilterTask.is_repeating~ 与 ~RenderedTaskContent.has_list~ 投影为 ~Task.isRepeating~ 与 ~Task.hasList~ 。C++ N-API 将两者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。ArkTS 只根据这些布尔值选择循环与列表图标，并以 ~bodyHtml~ 是否为空决定正文提示，不扫描 Org 或 HTML 推断领域结构。
+查询 worker 将 ~FilterTask.is_repeating~ 与 ~RenderedTaskContent.has_list~ 投影为 ~Task.isRepeating~ 与 ~Task.hasList~ 。C++ N-API 将两者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。重复器由 Core 按 Org-mode 的 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选 ~/N~ 或 ~/Nunit~ 规则解析，ArkTS 只根据布尔值选择循环图标；正文规划行同样由 Core 在 ~bodyHtml~ 投影阶段排除，宿主不扫描 Org 或 HTML 推断领域结构。
 
 ~TaskListItem~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
 

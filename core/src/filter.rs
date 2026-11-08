@@ -381,6 +381,8 @@ fn timestamp_to_date(timestamp: Timestamp) -> Option<FilterDate> {
 }
 
 // orgize 尚未识别的重复间隔写法沿用规划行的原文兜底，范围仅限标题后的规划行。
+// 语法与 Org-mode 的 timestamp repeater 一致：+Nunit、++Nunit、.+Nunit，
+// 以及可选的 /N 或 /Nunit 重复截止部分。
 fn planning_repeats(headline: &Headline) -> bool {
     if [headline.scheduled(), headline.deadline()]
         .into_iter()
@@ -409,26 +411,44 @@ fn planning_repeats(headline: &Headline) -> bool {
                     return false;
                 }
                 let timestamp = value.split(['>', ']']).next().unwrap_or_default();
-                timestamp.split_whitespace().any(|part| {
-                    let Some(value) = part
-                        .strip_prefix(".+")
-                        .or_else(|| part.strip_prefix("++"))
-                        .or_else(|| part.strip_prefix('+'))
-                    else {
-                        return false;
-                    };
-                    let count = value.bytes().take_while(u8::is_ascii_digit).count();
-                    count > 0
-                        && value[..count].parse::<u32>().is_ok_and(|n| n > 0)
-                        && matches!(
-                            value.as_bytes().get(count),
-                            Some(b'h' | b'd' | b'w' | b'm' | b'y')
-                        )
-                        && (value.len() == count + 1
-                            || value.as_bytes().get(count + 1) == Some(&b'/'))
-                })
+                timestamp.split_whitespace().any(has_org_repeater)
             })
         })
+}
+
+fn has_org_repeater(part: &str) -> bool {
+    let Some(value) = part
+        .strip_prefix(".+")
+        .or_else(|| part.strip_prefix("++"))
+        .or_else(|| part.strip_prefix('+'))
+    else {
+        return false;
+    };
+    let interval_digits = value.bytes().take_while(u8::is_ascii_digit).count();
+    if interval_digits == 0 {
+        return false;
+    }
+    let Some(interval_unit) = value.as_bytes().get(interval_digits) else {
+        return false;
+    };
+    if !matches!(interval_unit, b'h' | b'd' | b'w' | b'm' | b'y') {
+        return false;
+    }
+    let remainder = &value[interval_digits + 1..];
+    if remainder.is_empty() {
+        return true;
+    }
+    let Some(deadline) = remainder.strip_prefix('/') else {
+        return false;
+    };
+    let deadline_digits = deadline.bytes().take_while(u8::is_ascii_digit).count();
+    if deadline_digits == 0 {
+        return false;
+    }
+    let deadline_unit = &deadline[deadline_digits..];
+    deadline_unit.is_empty()
+        || (deadline_unit.len() == 1
+            && matches!(deadline_unit.as_bytes()[0], b'h' | b'd' | b'w' | b'm' | b'y'))
 }
 
 fn planning_date(

@@ -26,6 +26,8 @@ fn repetition_hint_uses_only_current_headline_planning() {
         ("SCHEDULED: <2026-11-06 Fri +1d>", true),
         ("DEADLINE: <2026-11-06 Fri ++2w>", true),
         ("SCHEDULED: <2026-11-06 Fri .+4w/5w>", true),
+        ("SCHEDULED: <2026-11-06 Fri +1d/3>", true),
+        ("SCHEDULED: <2026-11-06 Fri +0d>", true),
         (
             "SCHEDULED: <2026-11-06 Fri> DEADLINE: <2026-11-07 Sat +1m>",
             true,
@@ -44,6 +46,28 @@ fn repetition_hint_uses_only_current_headline_planning() {
         assert_eq!(tasks[0].is_repeating, expected, "{planning}");
         assert!(tasks[1].is_repeating);
     }
+}
+
+#[test]
+fn repetition_with_org_repeater_deadline_is_a_task_hint_and_not_body_text() {
+    let task = tasks(
+        "* TODO 阅读 RSS 和资料\nSCHEDULED: <2026-11-08 Sun .+1d/3d>\n:PROPERTIES:\n:END:\n正文\n",
+    )
+    .remove(0);
+    assert!(task.is_repeating);
+    let rendered = task.render_content();
+    assert!(rendered.body_html.contains("正文"), "{}", rendered.body_html);
+    assert!(!rendered.body_html.contains("SCHEDULED:"), "{}", rendered.body_html);
+    assert!(!rendered.body_html.contains(".+1d/3d"), "{}", rendered.body_html);
+}
+
+#[test]
+fn planning_text_after_body_content_is_not_removed_from_rendering() {
+    let task = tasks("* TODO 普通正文\n正文第一行\nSCHEDULED: <2026-11-08 Sun +1d>\n")
+        .remove(0);
+    let rendered = task.render_content();
+    assert!(rendered.body_html.contains("正文第一行"), "{}", rendered.body_html);
+    assert!(rendered.body_html.contains("SCHEDULED:"), "{}", rendered.body_html);
 }
 
 #[test]

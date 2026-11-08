@@ -1,6 +1,7 @@
 //! 基于现有 orgize 语法树的只读 HTML 投影；不改变源字节，不执行文内 HTML。
 use super::OrgFile;
 use crate::FilterTask;
+use chrono::NaiveDate;
 use orgize::export::{Container, Event, HtmlEscape, HtmlExport, TraversalContext, Traverser};
 use orgize::{SyntaxKind, rowan::ast::AstNode};
 use serde::Serialize;
@@ -112,6 +113,7 @@ impl FilterTask {
     }
 
     pub fn render_content(&self) -> RenderedTaskContent {
+        let body = body_without_planning(&self.body);
         let mut view = ReadingView(
             HtmlExport::default(),
             Vec::new(),
@@ -119,13 +121,54 @@ impl FilterTask {
             false,
             false,
         );
-        orgize::Org::parse(&self.body).traverse(&mut view);
+        orgize::Org::parse(&body).traverse(&mut view);
         RenderedTaskContent {
             body_html: view.0.finish(),
             logbook_html: view.2.unwrap_or_default(),
             has_list: view.3,
         }
     }
+}
+
+// 任务的规划行属于标题元数据，独立展示在任务字段区域，不重复塞进正文。
+// 只处理正文开头的规划行，避免误删用户正文中后续出现的同名普通文本。
+fn body_without_planning(body: &str) -> String {
+    let mut result = String::with_capacity(body.len());
+    let mut at_planning_start = true;
+    for line in body.split_inclusive('\n') {
+        let content = line.strip_suffix('\n').unwrap_or(line);
+        let content = content.strip_suffix('\r').unwrap_or(content);
+        if at_planning_start && is_planning_line(content) {
+            continue;
+        }
+        if !content.trim().is_empty() {
+            at_planning_start = false;
+        }
+        result.push_str(line);
+    }
+    result
+}
+
+fn is_planning_line(line: &str) -> bool {
+    ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+        .iter()
+        .any(|keyword| {
+            let Some(value) = line
+                .trim_start()
+                .strip_prefix(keyword)
+                .map(str::trim_start)
+            else {
+                return false;
+            };
+            let Some(opener) = value.chars().next() else {
+                return false;
+            };
+            (opener == '<' || opener == '[')
+                && value
+                    .get(1..11)
+                    .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+                    .is_some()
+        })
 }
 
 fn title_parts(source: &str) -> Vec<TitlePart> {

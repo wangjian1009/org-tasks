@@ -155,7 +155,7 @@ pub struct FilterTask {
 }
 #+end_src
 
-~FilterTask.is_repeating~ 表示当前标题的计划或截止时间包含重复器，由 Core 从 ~orgize~ 时间戳取得；对解析器尚未识别的重复间隔写法仅在标题紧邻的规划行内兜底识别。正文、源码、日志和子标题中的重复器不使父任务成为循环任务。该字段只供运行时展示，不展开重复日期，不修改查询与持久化边界。
+~FilterTask.is_repeating~ 表示当前标题的计划或截止时间包含 Org-mode 重复器，由 Core 从 ~orgize~ 时间戳取得；对解析器尚未识别的写法仅在标题紧邻的规划行内兜底识别。重复器支持 ~+Nunit~ 、 ~++Nunit~ 和 ~.+Nunit~ ，其中 ~unit~ 为 ~h~ 、 ~d~ 、 ~w~ 、 ~m~ 或 ~y~ ，并支持可选的重复截止部分 ~/N~ 或 ~/Nunit~ 。正文、源码、日志和子标题中的重复器不使父任务成为循环任务。该字段只供运行时展示，不展开重复日期，不修改查询与持久化边界。
 
 ~FilterTask.category~ 是查询时所属文件的 ~OrgFile.category()~ 快照，由 Core 每文件提取一次；未声明为 ~None~ ，显式空声明为 ~Some("")~ 。标题属性不覆盖这个文件分类。分类变化不改变任务逻辑 ID，但刷新后必须使用新任务快照。宿主通过只读数据控制分类展示，不再逐项获取文件，不额外传入分类文字。该投影不进入同步记录或 outbox。
 
@@ -609,7 +609,7 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 
 ** 任务正文展示投影
 
-RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，原始 body 及源字节不变。新增 ~has_list: bool~ 表示正文中实际渲染的列表，不包含 LOGBOOK、源码、示例块及字面抽屉内容；在同一次语法树遍历中取得，不在宿主分析 HTML。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
+RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，并从正文投影中移除标题开头的 SCHEDULED、DEADLINE 与 CLOSED 规划行；原始 body 及源字节不变。新增 ~has_list: bool~ 表示正文中实际渲染的列表，不包含 LOGBOOK、源码、示例块及字面抽屉内容；在同一次语法树遍历中取得，不在宿主分析 HTML。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
 
 \begin{center}
 \begin{tikzpicture}
