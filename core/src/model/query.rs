@@ -313,6 +313,25 @@ mod tests {
     }
 
     #[test]
+    fn archive_file_category_is_hidden_from_task_projection_and_summary() {
+        let mut repo = OrgRepo::new("/tmp/archive-category".into()).unwrap();
+        repo.id = "archive".into();
+        repo.files.push(
+            OrgFile::new(
+                repo.id.clone(),
+                "archive.org".into(),
+                b"#+CATEGORY: ARCHIVE\n* TODO Archived\n".to_vec(),
+            )
+            .unwrap(),
+        );
+        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let result = workspace.query(&TaskQuery::default()).unwrap();
+        assert_eq!(result.tasks[0].category, None);
+        assert_eq!(result.categories.len(), 1);
+        assert_eq!(result.categories[0].category, None);
+    }
+
+    #[test]
     fn ui_can_request_inbox_using_expression_and_include_all_record_types() {
         let workspace = workspace();
         let query = TaskQuery {

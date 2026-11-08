@@ -201,11 +201,13 @@ impl OrgFile {
 
     /// 读取文件头的 CATEGORY 声明；未声明时为空，不使用文件名兜底。
     pub fn category(&self) -> Option<String> {
-        self.syntax
+        let category = self
+            .syntax
             .document()
             .keywords()
             .find(|keyword| keyword.key().eq_ignore_ascii_case("CATEGORY"))
-            .map(|keyword| keyword.value().trim().to_owned())
+            .map(|keyword| keyword.value().trim().to_owned());
+        category.filter(|value| !value.eq_ignore_ascii_case("ARCHIVE"))
     }
 
     /// 复用已有语法树，仅遍历文件头关键字，找到第一条 TITLE 即返回。
@@ -526,6 +528,8 @@ mod tests {
             ),
             ("#+CATEGORY:\n* Task\n", Some("")),
             ("#+CATEGORY: First\n#+CATEGORY: Second\n", Some("First")),
+            ("#+CATEGORY: ARCHIVE\n* Task\n", None),
+            ("#+CATEGORY: archive\n* Task\n", None),
             ("#+CATEGORY: \n#+CATEGORY: Second\n", Some("")),
             ("* Task\n#+CATEGORY: Heading category\n", None),
             ("* Task\n:PROPERTIES:\n:CATEGORY: Property\n:END:\n", None),

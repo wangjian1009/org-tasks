@@ -139,7 +139,7 @@ impl OrgWorkspace {
 | 字段 | 语义 |
 |-
 | ~expression~ | 现有 dotted query；空字符串表示无表达式限制，排序沿用现有查询接口。 |
-| ~categories~ | 按文件有效 category 精确匹配，多项取并集；空列表不过滤分类。 ~None~ 表示缺失或空 category，与真实名称“未分类”不同；重复选项不重复任务。 |
+| ~categories~ | 按文件有效 category 精确匹配，多项取并集；空列表不过滤分类。 ~None~ 表示缺失、显式空值或特殊分类 ~ARCHIVE~ ，与真实名称“未分类”不同；重复选项不重复任务。 |
 | ~excluded_files~ | ~Vec<OrgFileRef>~ ，每项包含 Core 仓库 ID 与安全相对路径，仅两者同时匹配时排除；空数组不排除，不支持裸路径字符串或跨仓库同名路径通配。 |
 | ~include_done~ | 为假时排除 ~FilterTask.is_done()~ 为真的任务，完成类型受文件有效 in-buffer 配置影响。 |
 | ~include_compose_tasks~ | 为假时排除有子标题的组合任务。父子关系以原始完整文件结构判断，不能因子任务未命中表达式、已完成或被其他条件过滤而把父任务变成叶任务。 |
