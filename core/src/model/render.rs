@@ -92,7 +92,7 @@ impl OrgFile {
 
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false);
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
         self.syntax().traverse(&mut view);
         view.0.finish()
     }
@@ -105,6 +105,8 @@ pub struct RenderedTaskContent {
     pub logbook_html: String,
     /// 正文中存在真实列表，不包含 LOGBOOK 或源码中的字面列表。
     pub has_list: bool,
+    /// 正文中存在列表之外的可读文本，不包含规划、drawer、源码和日志。
+    pub has_text: bool,
 }
 
 impl FilterTask {
@@ -120,12 +122,14 @@ impl FilterTask {
             Some(String::new()),
             false,
             false,
+            false,
         );
         orgize::Org::parse(&body).traverse(&mut view);
         RenderedTaskContent {
             body_html: view.0.finish(),
             logbook_html: view.2.unwrap_or_default(),
             has_list: view.3,
+            has_text: view.5,
         }
     }
 }
@@ -251,7 +255,7 @@ impl Traverser for TitleView {
     }
 }
 
-struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool);
+struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool, bool);
 
 impl ReadingView {
     fn literal(&mut self, class: &str, text: impl AsRef<str>) {
@@ -331,7 +335,7 @@ impl Traverser for ReadingView {
             Event::Enter(Container::Drawer(drawer)) => {
                 if drawer.name().eq_ignore_ascii_case("LOGBOOK") && self.2.is_some() {
                     let mut log =
-                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false);
+                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
                     for element in drawer
                         .syntax()
                         .children()
@@ -505,6 +509,15 @@ impl Traverser for ReadingView {
                 "<span class=\"timestamp\">{}</span>",
                 HtmlEscape(timestamp.raw())
             )),
+            Event::Text(text)
+                if self.2.is_some()
+                    && !self.4
+                    && self.1.is_empty()
+                    && !text.as_ref().trim().is_empty() =>
+            {
+                self.5 = true;
+                self.0.event(Event::Text(text), ctx);
+            }
             Event::Enter(Container::ExportBlock(block)) => {
                 self.literal("literal", block.raw());
                 ctx.skip();
@@ -853,6 +866,7 @@ mod tests {
             HtmlExport::default(),
             Vec::new(),
             Some(String::new()),
+            false,
             false,
             false,
         );

@@ -611,14 +611,15 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 
 ** 任务正文展示投影
 
-RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，并从正文投影中移除标题开头的 SCHEDULED、DEADLINE 与 CLOSED 规划行；原始 body 及源字节不变。新增 ~has_list: bool~ 表示正文中实际渲染的列表，不包含 LOGBOOK、源码、示例块及字面抽屉内容；在同一次语法树遍历中取得，不在宿主分析 HTML。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
+RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，并从正文投影中移除标题开头的 SCHEDULED、DEADLINE 与 CLOSED 规划行；原始 body 及源字节不变。新增 ~has_list: bool~ 表示正文中实际渲染的列表，新增 ~has_text: bool~ 表示列表之外的可读正文文字；两者均不包含 LOGBOOK、drawer、源码、示例块及字面抽屉内容，在同一次语法树遍历中取得，不在宿主分析 HTML。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。
 
 \begin{center}
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{body: String}{render\_content(): RenderedTaskContent}
 \umlclass[x=7,y=0]{RenderedTaskContent}{body\_html: String \\
 logbook\_html: String \\
-  has\_list: bool}{}
+  has\_list: bool \\
+  has\_text: bool}{}
 \umldep{FilterTask}{RenderedTaskContent}
 \end{tikzpicture}
 \end{center}

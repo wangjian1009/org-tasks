@@ -124,7 +124,7 @@ export struct TaskListItem {
         Text('…').fontSize(13).fontColor(UiColor.secondary).width(14).maxLines(1)
       }
     }.width(this.layout().indicatorWidth).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`${this.task.bodyHtml ? '有正文；' : ''}${this.task.hasList ? '有列表' : ''}`)
+      .accessibilityText(`${this.task.hasText ? '有正文；' : ''}${this.task.hasList ? '有列表' : ''}`)
   }
 
   @Builder

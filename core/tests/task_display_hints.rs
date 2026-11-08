@@ -90,6 +90,17 @@ fn body_list_hint_excludes_logbook_and_literal_blocks() {
 }
 
 #[test]
+fn body_text_hint_excludes_list_item_text() {
+    let list = tasks("* TODO Task\n- [ ] 只有列表\n").remove(0).render_content();
+    assert!(list.has_list);
+    assert!(!list.has_text);
+
+    let mixed = tasks("* TODO Task\n普通正文\n- [ ] 列表\n").remove(0).render_content();
+    assert!(mixed.has_list);
+    assert!(mixed.has_text);
+}
+
+#[test]
 fn task_category_preserves_file_value_without_reading_headline_properties() {
     for (header, expected) in [
         ("#+CATEGORY: 生活\n", Some("生活")),

@@ -71,8 +71,8 @@ export function taskTitleText(task: CoreTask): string {
 
 export function taskIndicators(task: CoreTask): string[] {
   const result: string[] = []
-  if (task.bodyHtml.trim().length > 0) result.push('body')
   if (task.hasList) result.push('list')
+  if (task.hasText) result.push('body')
   return result
 }
 

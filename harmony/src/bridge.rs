@@ -77,6 +77,7 @@ pub struct HarmonyBridgeTask {
     pub logbook_html: String,
     pub progress: i32,
     pub has_list: bool,
+    pub has_text: bool,
     pub is_repeating: bool,
 }
 
@@ -245,6 +246,7 @@ fn task_from_filter(task: FilterTask) -> HarmonyBridgeTask {
         logbook_html: content.logbook_html,
         progress: -1,
         has_list: content.has_list,
+        has_text: content.has_text,
         is_repeating: task.is_repeating,
     }
 }
@@ -1037,6 +1039,7 @@ mod todo_tests {
         assert_eq!(value["headingParts"][1]["count"]["total"], 2);
         assert_eq!(value["todoKind"], "pending");
         assert_eq!(value["hasList"], true);
+        assert_eq!(value["hasText"], false);
         assert_eq!(value["isRepeating"], true);
         assert_eq!(value["category"], "Work");
         assert_eq!(value["scheduled"], "2026-11-06");

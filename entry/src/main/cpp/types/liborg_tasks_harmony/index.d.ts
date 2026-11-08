@@ -64,6 +64,7 @@ export class Task {
   readonly logbookHtml: string;
   readonly progress: number;
   readonly hasList: boolean;
+  readonly hasText: boolean;
   readonly isRepeating: boolean;
 }
 

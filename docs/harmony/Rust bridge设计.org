@@ -238,7 +238,7 @@ Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path)
 
 * 任务正文与 LOGBOOK 展示
 
-Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html 与 logbook_html 分别映射为 Task.bodyHtml、Task.logbookHtml；N-API 以只读、可枚举属性保留这两个字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。
+Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html、logbook_html、has_list 与 has_text 分别映射为 Task.bodyHtml、Task.logbookHtml、Task.hasList 与 Task.hasText；N-API 以只读、可枚举属性保留这些字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。
 
 TaskEditor 直接显示 Core 的两段 HTML，不在 ArkTS 解析或删除 LOGBOOK。正文和日志共用 OrgContentView，初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务编辑内容时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
 
@@ -272,7 +272,7 @@ interface TitleCount {
 
 ** 任务列表项展示提示
 
-查询 worker 将 ~FilterTask.is_repeating~ 与 ~RenderedTaskContent.has_list~ 投影为 ~Task.isRepeating~ 与 ~Task.hasList~ 。C++ N-API 将两者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。重复器由 Core 按 Org-mode 的 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选 ~/N~ 或 ~/Nunit~ 规则解析，ArkTS 只根据布尔值选择循环图标；正文规划行同样由 Core 在 ~bodyHtml~ 投影阶段排除，宿主不扫描 Org 或 HTML 推断领域结构。
+查询 worker 将 ~FilterTask.is_repeating~ 、~RenderedTaskContent.has_list~ 与 ~RenderedTaskContent.has_text~ 投影为 ~Task.isRepeating~ 、~Task.hasList~ 与 ~Task.hasText~ 。C++ N-API 将三者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。重复器由 Core 按 Org-mode 的 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选 ~/N~ 或 ~/Nunit~ 规则解析，ArkTS 只根据布尔值选择循环图标和正文／列表提示；正文规划行同样由 Core 在 ~bodyHtml~ 投影阶段排除，宿主不扫描 Org 或 HTML 推断领域结构。
 
 ~TaskListItem~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
 
