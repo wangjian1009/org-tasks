@@ -3,7 +3,7 @@ use std::ffi::CString;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use org_tasks_core::webdav::{
-    WebDavEndpoint, WebDavError, WebDavMergeComparison, WebDavSyncEvent, WebDavSyncMonitor,
+    WebDavEndpoint, WebDavError, WebDavSyncEvent, WebDavSyncMonitor,
     WebDavSyncPolicy,
 };
 use org_tasks_core::{
@@ -390,9 +390,9 @@ pub fn repo_history_json(handle: u64, root_directory: String) -> Result<String, 
     let repository = workspace
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let history = runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
+    runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
     encode(
-        &org_tasks_core::webdav::sync_history_summaries(&history)?
+        &runtime()?.block_on(repository.history_summaries())?
             .into_iter()
             .map(bridge_sync_summary)
             .collect::<Result<Vec<_>, CoreError>>()?,
@@ -411,8 +411,8 @@ pub fn repo_history_detail_json(
     let repository = workspace
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let history = runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    let detail = org_tasks_core::webdav::sync_history_detail(&history, &sync_id)?;
+    runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
+    let detail = runtime()?.block_on(repository.history_detail(&sync_id))?;
     encode(&HarmonyBridgeSyncDetail {
         summary: bridge_sync_summary(detail.summary)?,
         files: detail.files,
@@ -444,6 +444,31 @@ fn query_tasks_json(handle: u64, expression: String) -> Result<String, CoreError
     let response = workspace_query_json(handle, serde_json::json!({ "expression": expression }).to_string())?;
     let result: serde_json::Value = serde_json::from_str(&response).unwrap();
     encode(&result["tasks"])
+}
+
+pub fn workspace_notifications_json(handle: u64) -> Result<String, CoreError> {
+    let session = workspace_for_handle(handle)?;
+    let mut workspace = session
+        .lock()
+        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let runtime = runtime()?;
+    for repo in &mut workspace.repos {
+        if repo.id.is_empty() {
+            runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
+        }
+    }
+    // 冲突通知的宿主定位信息随通知一次返回，展示层无需额外查询仓库列表。
+    let notifications = runtime.block_on(workspace.notifications())?;
+    let mut values = Vec::new();
+    for notification in notifications {
+        let org_tasks_core::CoreNotification::SyncConflict(ref conflict) = notification;
+        let repo = workspace.repos().iter().find(|repo| repo.id == conflict.repo_id)
+            .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?;
+        let mut value = serde_json::to_value(&notification).map_err(|_| CoreError::InvalidState("无法编码通知"))?;
+        value["rootDirectory"] = repo.root_directory.clone().into();
+        values.push(value);
+    }
+    encode(&values)
 }
 
 pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, CoreError> {
@@ -636,6 +661,108 @@ mod tests {
     use super::*;
 
     #[test]
+    fn workspace_notifications_initialize_core_ids_and_refresh_conflicts_without_consuming_them() {
+        use org_tasks_core::webdav::{WebDavSyncContextDetail, WebDavSyncFileDetail};
+        use org_tasks_core::{
+            OrgRepoSyncFileAction, OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncRecord,
+        };
+        let root = std::env::temp_dir().join(format!(
+            "org-tasks-notifications-bridge-{}",
+            std::process::id()
+        ));
+        let first = root.join("one");
+        let second = root.join("two");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let handle = create_workspace().unwrap();
+        assert_eq!(workspace_notifications_json(handle).unwrap(), "[]");
+        for directory in [&first, &second] {
+            workspace_add_repo(handle, directory.to_string_lossy().into()).unwrap();
+        }
+        assert_eq!(workspace_notifications_json(handle).unwrap(), "[]");
+        for directory in [&first, &second] {
+            let mut record = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new(
+                "same-sync".into(),
+                1,
+            )
+            .unwrap()
+            .with_kind("webdav");
+            record
+                .append_file(
+                    OrgRepoSyncFileRecord::new(
+                        "same.org".into(),
+                        OrgRepoSyncFileAction::Conflicted,
+                        OrgRepoSyncFileState::Conflict,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let bytes=b"* TODO Backup\n";
+            let folder=directory.join(".sync/history/1/files/same.org");
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("same.org"),bytes).unwrap();
+            record.files[0].detail.archive=Some(org_tasks_core::webdav::WebDavFileArchive {
+                content_hash: org_tasks_core::LocalFileVersion::from_bytes(bytes).content_hash,
+            });
+            record.finish(OrgRepoSyncResult::Succeeded, 2).unwrap();
+            std::fs::write(
+                directory.join(".sync/history/1.json"),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+        }
+        let events = workspace_notifications_json(handle).unwrap();
+        assert_eq!(workspace_notifications_json(handle).unwrap(), events);
+        let value: serde_json::Value = serde_json::from_str(&events).unwrap();
+        assert_eq!(value.as_array().unwrap().len(), 2);
+        assert_eq!(value[0]["type"], "syncConflict");
+        assert_eq!(
+            value[0]["repoId"],
+            repo_id(handle, first.to_string_lossy().into()).unwrap()
+        );
+        assert_ne!(value[0]["repoId"], value[1]["repoId"]);
+        assert_eq!(value[0]["syncId"], "same-sync");
+        assert_eq!(value[0]["paths"][0], "same.org");
+        assert_eq!(value[0]["rootDirectory"],first.to_string_lossy().as_ref());
+        let mut resolved = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new(
+            "resolved".into(),
+            3,
+        )
+        .unwrap()
+        .with_kind("webdav");
+        resolved
+            .append_file(
+                OrgRepoSyncFileRecord::new(
+                    "same.org".into(),
+                    OrgRepoSyncFileAction::Downloaded,
+                    OrgRepoSyncFileState::Synchronized,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        resolved.finish(OrgRepoSyncResult::Succeeded, 4).unwrap();
+        std::fs::write(
+            first.join(".sync/history/3.json"),
+            serde_json::to_vec(&resolved).unwrap(),
+        )
+        .unwrap();
+        let result_dir = first.join(".sync/history/1/files/same.org");
+        std::fs::create_dir_all(&result_dir).unwrap();
+        std::fs::write(result_dir.join("same.resolved.org"), "* TODO Resolved\n").unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&workspace_notifications_json(handle).unwrap()).unwrap();
+        assert_eq!(value.as_array().unwrap().len(), 1);
+        assert_eq!(
+            value[0]["repoId"],
+            repo_id(handle, second.to_string_lossy().into()).unwrap()
+        );
+        std::fs::write(second.join(".sync/history/3.json"), b"broken history").unwrap();
+        assert!(workspace_notifications_json(handle).is_err());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn sync_history_projects_conflict_resolution_without_rewriting_original_results() {
         use org_tasks_core::webdav::{WebDavSyncContextDetail, WebDavSyncFileDetail};
         use org_tasks_core::{
@@ -691,6 +818,9 @@ mod tests {
             serde_json::to_vec(&resolved).unwrap(),
         )
         .unwrap();
+        let result_dir = root.join(".sync/history/10/files/a.org");
+        std::fs::create_dir_all(&result_dir).unwrap();
+        std::fs::write(result_dir.join("a.resolved.org"), "* TODO Done\n").unwrap();
         let history: serde_json::Value =
             serde_json::from_str(&repo_history_json(handle, directory.clone()).unwrap()).unwrap();
         assert_eq!(history[0]["result"], "failed");
@@ -1119,48 +1249,8 @@ pub fn repo_conflicts_json(handle: u64, root_directory: String) -> Result<String
     let repository = workspace
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let history = runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    encode(&org_tasks_core::webdav::conflict_syncs(&history))
-}
-
-pub fn repo_merge_json(
-    handle: u64,
-    root_directory: String,
-    webdav_url: String,
-    username: String,
-    password: String,
-    sync_id: String,
-    comparison_json: String,
-    started_at: TimestampMs,
-) -> Result<String, CoreError> {
-    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime()?;
-    if comparison_json.is_empty() {
-        // 保留 Core 的任务粒度及两端变更状态，宿主不从文件内容重算差异。
-        return encode(&runtime.block_on(policy.compare_merge(repository, &sync_id))?);
-    }
-    let comparison: WebDavMergeComparison = serde_json::from_str(&comparison_json)
-        .map_err(|_| CoreError::InvalidInput("任务合并对象无效"))?;
-    let outcome = runtime.block_on(policy.apply_merge(repository, &comparison, started_at))?;
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ResultDto {
-        sync_id: String,
-        result: String,
-        backups: Vec<org_tasks_core::webdav::WebDavMergeBackup>,
-    }
-    encode(&ResultDto {
-        sync_id: outcome.record.id,
-        result: sync_result_label(outcome.record.result)?,
-        backups: outcome.backups,
-    })
+    runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
+    encode(&runtime()?.block_on(repository.pending_sync_conflicts())?)
 }
 
 pub fn workspace_set_todo_defaults(handle: u64, settings: String) -> Result<(), CoreError> {
@@ -1296,4 +1386,130 @@ pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<Str
     let result=runtime()?.block_on(workspace.execute_task_operations(&group))?;
     let tasks=workspace.query(&org_tasks_core::TaskQuery::default())?.tasks.into_iter().map(|task|task_from_filter(task,&workspace)).collect::<Result<Vec<_>,_>>()?;
     encode(&serde_json::json!({"paths":result.paths,"fallback":result.fallback,"tasks":tasks}))
+}
+
+/// 公开对象方法在 ABI 内统一编组；操作及路径校验仍由 Core 完成。
+pub fn repo_history_operation(handle: u64, root: String, request: String) -> Result<String, CoreError> {
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "operation", rename_all = "camelCase")]
+    enum Request {
+        LastEffectSync,
+        #[serde(rename_all = "camelCase")]
+        File { sync_id: String, path: String, resolved: bool },
+        #[serde(rename_all = "camelCase")]
+        Compare { sync_id: String, path: String },
+        Resolve { comparison: org_tasks_core::webdav::SyncConflictComparison },
+    }
+    let request: Request = serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("历史文件参数无效"))?;
+    let session = workspace_for_handle(handle)?;
+    let mut workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repo = workspace.repo_mut_by_root_directory(&root).ok_or(CoreError::InvalidInput("仓库不属于 workspace"))?;
+    let runtime = runtime()?;
+    runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
+    match request {
+        Request::LastEffectSync => {
+            let current = runtime.block_on(repo.last_effect_sync())?;
+            let summary = current.map(|r| {
+                let mut summary = org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&r)?;
+                summary.resolved_conflicts = r.files.iter().filter(|f| f.detail.resolved).count();
+                summary.pending_conflicts -= summary.resolved_conflicts;
+                bridge_sync_summary(summary)
+            }).transpose()?;
+            encode(&summary)
+        },
+        Request::File { sync_id, path, resolved } => encode(&file_snapshot(&runtime.block_on(repo.history_file(&sync_id, &path, resolved))?)?),
+        Request::Compare { sync_id, path } => encode(&runtime.block_on(repo.compare_sync_conflict(&sync_id, &path))?),
+        Request::Resolve { comparison } => { runtime.block_on(repo.resolve_sync_conflict(&comparison))?; Ok("{}".into()) },
+    }
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+    #[test]
+    fn structured_history_file_comparison_and_resolution_roundtrip_without_policy() {
+        use org_tasks_core::webdav::{WebDavFileArchive, WebDavSyncContextDetail, WebDavSyncFileDetail};
+        use org_tasks_core::{LocalFileVersion, OrgRepoSyncRecord, OrgRepoSyncFileRecord, OrgRepoSyncFileAction, OrgRepoSyncFileState};
+        let root = std::env::temp_dir().join(format!("org-archive-bridge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().into_owned();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        repo_load(handle, directory.clone()).unwrap();
+        let bytes = b"#+TITLE: Backup\r\n* TODO Same\r\n";
+        std::fs::write(root.join("a.org"), bytes).unwrap();
+        let backup = root.join(".sync/history/1/files/a.org");
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("a.org"), bytes).unwrap();
+        let mut record = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new("one".into(),1).unwrap().with_kind("webdav");
+        record.append_file(OrgRepoSyncFileRecord::new("a.org".into(),OrgRepoSyncFileAction::Conflicted,OrgRepoSyncFileState::Conflict).unwrap()
+            .with_detail(WebDavSyncFileDetail { archive: Some(WebDavFileArchive { content_hash: LocalFileVersion::from_bytes(bytes).content_hash }), ..Default::default() })).unwrap();
+        record.finish(OrgRepoSyncResult::Succeeded,2).unwrap();
+        std::fs::write(root.join(".sync/history/1.json"),serde_json::to_vec(&record).unwrap()).unwrap();
+        let current: serde_json::Value=serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"lastEffectSync"}"#.into()).unwrap()).unwrap();
+        assert_eq!(current["id"],"one");
+        assert_eq!(current["pendingConflicts"],1);
+        let comparison: serde_json::Value = serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"compare","syncId":"one","path":"a.org"}"#.into()).unwrap()).unwrap();
+        assert!(comparison["changes"].as_array().unwrap().is_empty());
+        let result = repo_history_operation(handle,directory.clone(),serde_json::json!({"operation":"resolve","comparison":comparison}).to_string()).unwrap();
+        assert_eq!(result,"{}");
+        let file: serde_json::Value = serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"file","syncId":"one","path":"a.org","resolved":true}"#.into()).unwrap()).unwrap();
+        assert_eq!(file["path"],"a.resolved.org");
+        assert_eq!(file["source"],std::str::from_utf8(bytes).unwrap());
+        let detail: serde_json::Value = serde_json::from_str(&repo_history_detail_json(handle,directory.clone(),"one".into()).unwrap()).unwrap();
+        assert_eq!(detail["files"][0]["section"],"conflict");
+        assert_eq!(detail["files"][0]["backup"]["title"],"Backup");
+        assert_eq!(detail["files"][0]["outcome"],"resolved");
+        let current: serde_json::Value=serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"lastEffectSync"}"#.into()).unwrap()).unwrap();
+        assert_eq!(current["id"],"one");
+        assert_eq!(current["resolvedConflicts"],1);
+        assert_eq!(workspace_notifications_json(handle).unwrap(),"[]");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+static NOTIFICATION_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<u64, org_tasks_core::NotificationSubscription>>> = OnceLock::new();
+static NEXT_NOTIFICATION_SUBSCRIPTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+struct NotificationMonitor(u64);
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn org_tasks_harmony_notification_update(handle: u64, json: *const std::ffi::c_char);
+    fn org_tasks_harmony_notification_monitor_release(handle: u64);
+}
+impl Drop for NotificationMonitor {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        let _ = self.0;
+        #[cfg(not(test))]
+        unsafe { org_tasks_harmony_notification_monitor_release(self.0); }
+    }
+}
+pub fn workspace_watch_notifications(handle:u64, monitor:u64)->Result<u64,CoreError> {
+    let monitor=NotificationMonitor(monitor);
+    let session=workspace_for_handle(handle)?;
+    let workspace=session.lock().map_err(|_|CoreError::Store("workspace 锁不可用".into()))?;
+    let subscription=workspace.watch_notifications(move |event| {
+        let _keep_alive=&monitor;
+        if let Ok(json)=serde_json::to_string(&event).and_then(|s|CString::new(s).map_err(serde::ser::Error::custom)) {
+            #[cfg(not(test))]
+            unsafe {org_tasks_harmony_notification_update(monitor.0,json.as_ptr());}
+            #[cfg(test)]
+            let _=json;
+        }
+    });
+    let id=NEXT_NOTIFICATION_SUBSCRIPTION.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+    NOTIFICATION_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_|CoreError::Store("通知订阅锁不可用".into()))?.insert(id,subscription);
+    Ok(id)
+}
+pub fn workspace_unwatch_notifications(id:u64) {
+    // 在锁外销毁回调资源，避免释放宿主句柄时重入注册表。
+    let removed=NOTIFICATION_SUBSCRIPTIONS.get_or_init(Default::default).lock().ok().and_then(|mut map|map.remove(&id));
+    drop(removed);
+}
+pub fn workspace_reload(handle:u64)->Result<(),CoreError> {
+    let session=workspace_for_handle(handle)?;
+    let mut workspace=session.lock().map_err(|_|CoreError::Store("workspace 锁不可用".into()))?;
+    runtime()?.block_on(workspace.reload())
 }

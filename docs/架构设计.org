@@ -60,7 +60,7 @@ Core 不持有收件箱页面或控件专属语义。页面需求统一转换为
 
 同步记录保存于 ~OrgRepo~ 根目录的 ~.sync/~ ，其中 ~id~ 文件是稳定的 Core 仓库标识来源。每个成功同步的文件在作业历史的 ~detail.synced_source~ 中保存同步后完整 Org 内容，包括未变化文件，用于下一次三方任务比较；outbox 仍只保存相对路径与内容哈希。绝对路径、远端完整 URL 和配置凭据不进入同步记录。
 
-本地冲突原文件在提交前集中备份到 ~.sync/backups/<合并开始时间>/~ ，与历史中的成功文件快照分目录维护。快照和备份均不参与 Org 扫描或 WebDAV 传输；布局、恢复与隔离约束见 [[file:core/目录结构设计.org][目录结构设计]]。
+当前冲突远端原文保存于 ~.sync/history/<started-at>/files/<原相对路径>/<原文件名>~ ，解决后保存同目录的 ~<文件名>.resolved.org~ ；同步不覆盖冲突的当前本地文件。旧 CLI 的合并保护备份保留原有目录。快照和备份均不参与 Org 扫描或 WebDAV 传输；布局、恢复与隔离约束见 [[file:core/目录结构设计.org][目录结构设计]]。
 
 Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:harmony/配置项设计.org][配置项设计]] 使用，不能混用。修改目录或 WebDAV 地址不得随意重建已有身份或改变凭据分区；WebDAV 密码只由 ~CredentialService~ 写入 Asset Store，不放入 Preferences、日志或同步记录。
 

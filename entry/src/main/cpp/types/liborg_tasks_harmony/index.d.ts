@@ -112,6 +112,8 @@ export interface SyncRecord {
 export interface SyncFileRecord {
   path: string;
   outcome: 'unchanged' | 'downloaded' | 'uploaded' | 'created' | 'deleted' | 'conflict' | 'resolved' | 'failed' | 'skipped';
+  section: 'upload' | 'download' | 'conflict' | null;
+  backup: OrgFileMetadata | null;
 }
 
 export interface SyncHistoryError { path: string | null; message: string; }
@@ -160,9 +162,20 @@ export interface TaskQueryResult {
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
   testConnection(): Promise<void>;
-  compareMerge(repo: Repo, syncId: string): Promise<MergeComparison>;
-  applyMerge(repo: Repo, comparison: MergeComparison): Promise<MergeOutcome>;
 }
+
+export interface SyncConflictNotification {
+  type: 'syncConflict';
+  rootDirectory: string;
+  repoId: string;
+  syncId: string;
+  paths: string[];
+}
+
+export type CoreNotification = SyncConflictNotification;
+
+export interface NotificationUpdate { repoId: string; }
+export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
 export class Workspace {
   constructor();
@@ -173,6 +186,10 @@ export class Workspace {
   query(query: TaskQuery): Promise<TaskQueryResult>;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<TaskOperationResult>;
+  notifications(): Promise<CoreNotification[]>;
+  watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>;
+  stopWatchingNotifications(): void;
+  reload(): Promise<void>;
 }
 
 export class Repo {
@@ -186,6 +203,10 @@ export class Repo {
   load(): Promise<void>;
   history(): Promise<SyncRecord[]>;
   historyDetail(syncId: string): Promise<SyncRecordDetail>;
+  lastEffectSync(): Promise<SyncRecord | null>;
+  historyFile(target: HistoryFileTarget): Promise<OrgFile>;
+  compareConflict(target: ConflictFileTarget): Promise<SyncConflictComparison>;
+  resolveConflict(comparison: SyncConflictComparison): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }
@@ -208,7 +229,6 @@ export interface MergeVersion {
   parent: string | null;
   level: number;
 }
-export type MergeMode = 'acceptRemote' | 'mergeTasks';
 export type MergeResolution = 'local' | 'remote' | 'remove';
 export type MergeChangeState = 'unchanged' | 'added' | 'modified' | 'deleted' | 'unmatched';
 export interface MergeChange {
@@ -222,27 +242,7 @@ export interface MergeChange {
   remote: MergeVersion | null;
   resolution: MergeResolution | null;
 }
-export interface MergeFileVersion {
-  path: string;
-  localHash: string;
-  remoteHash: string;
-  remoteEtag: string | null;
-  remoteMissing: boolean;
-  localMissing: boolean;
-}
-export interface MergeComparison {
-  syncId: string;
-  repoId: string;
-  repositoryVersion: string;
-  endpointVersion: string;
-  mode: MergeMode;
-  files: MergeFileVersion[];
-  unchangedCount: number;
-  changes: MergeChange[];
-}
 export interface ConflictSync { syncId: string; paths: string[]; }
-export interface MergeBackup { path: string; backupPath: string; }
-export interface MergeOutcome { syncId: string; result: 'succeeded' | 'failed'; backups: MergeBackup[]; }
 
 
 export interface SourcePosition { line: number; column: number; byte_offset: number; }
@@ -268,3 +268,16 @@ export interface TodoMetadata {
 export function defaultTodoSettings(): Promise<string>;
 export function defaultSyncOptions(): Promise<SyncOptions>;
 export function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>;
+
+export interface ConflictFileTarget { syncId: string; path: string; }
+export interface HistoryFileTarget { syncId: string; path: string; resolved: boolean; }
+export interface SyncConflictComparison {
+  repoId: string;
+  syncId: string;
+  path: string;
+  localHash: string;
+  remoteHash: string;
+  localMissing: boolean;
+  unchangedCount: number;
+  changes: MergeChange[];
+}

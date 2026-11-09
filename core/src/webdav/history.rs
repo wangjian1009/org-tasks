@@ -28,7 +28,7 @@ pub struct WebDavSyncRecordSummary {
     pub error_message: Option<String>,
 }
 
-fn is_conflict(file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>) -> bool {
+pub(crate) fn is_conflict(file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>) -> bool {
     matches!(
         file.state,
         OrgRepoSyncFileState::Conflict | OrgRepoSyncFileState::RemoteDeleted
@@ -111,26 +111,21 @@ impl WebDavSyncRecordSummary {
     }
 }
 
-/// 历史按开始时间升序传入。后续成功的文件解决先前冲突，普通失败不清除冲突。
+/// 历史按开始时间升序传入；resolved 由仓库按该次日志的结果文件填入。
 pub fn sync_history_summaries(
     history: &[OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>],
 ) -> Result<Vec<WebDavSyncRecordSummary>, CoreError> {
-    let mut synchronized = BTreeSet::new();
     let mut summaries = Vec::with_capacity(history.len());
     for record in history.iter().rev() {
         let mut summary = WebDavSyncRecordSummary::from_record(record)?;
         summary.resolved_conflicts = summary
             .conflicts
             .iter()
-            .filter(|path| synchronized.contains(*path))
+            .filter(|path| record.files.iter().any(|f| &f.relative_path == *path && f.detail.resolved))
             .count();
         summary.pending_conflicts -= summary.resolved_conflicts;
         summaries.push(summary);
-        for file in &record.files {
-            if file.state == OrgRepoSyncFileState::Synchronized {
-                synchronized.insert(file.relative_path.clone());
-            }
-        }
+
     }
     summaries.reverse();
     Ok(summaries)
@@ -155,6 +150,8 @@ pub enum WebDavSyncFileOutcome {
 pub struct WebDavSyncFileSummary {
     pub path: String,
     pub outcome: WebDavSyncFileOutcome,
+    pub section: Option<String>,
+    pub backup: Option<crate::OrgFileMetadata>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -183,18 +180,12 @@ pub fn sync_history_detail(
         ))?;
     let summary = sync_history_summaries(history)?.swap_remove(index);
     let record = &history[index];
-    let synchronized: BTreeSet<_> = history[index + 1..]
-        .iter()
-        .flat_map(|record| &record.files)
-        .filter(|file| file.state == OrgRepoSyncFileState::Synchronized)
-        .map(|file| file.relative_path.as_str())
-        .collect();
     let files = record
         .files
         .iter()
         .map(|file| {
             let outcome = if is_conflict(file) {
-                if synchronized.contains(file.relative_path.as_str()) {
+                if file.detail.resolved {
                     WebDavSyncFileOutcome::Resolved
                 } else {
                     WebDavSyncFileOutcome::Conflict
@@ -215,6 +206,8 @@ pub fn sync_history_detail(
             WebDavSyncFileSummary {
                 path: file.relative_path.clone(),
                 outcome,
+                section: None,
+                backup: None,
             }
         })
         .collect();
@@ -383,8 +376,8 @@ mod tests {
             ),
         ];
         let summaries = sync_history_summaries(&history).unwrap();
-        assert_eq!(summaries[1].pending_conflicts, 1);
-        assert_eq!(summaries[1].resolved_conflicts, 1);
+        assert_eq!(summaries[1].pending_conflicts, 2);
+        assert_eq!(summaries[1].resolved_conflicts, 0);
         assert_eq!(summaries[4].pending_conflicts, 1);
         assert_eq!(summaries[4].resolved_conflicts, 0);
         assert_eq!(
@@ -437,8 +430,8 @@ mod tests {
             )],
         );
         let summaries = sync_history_summaries(&[conflict, resolved]).unwrap();
-        assert_eq!(summaries[0].pending_conflicts, 0);
-        assert_eq!(summaries[0].resolved_conflicts, 1);
+        assert_eq!(summaries[0].pending_conflicts, 1);
+        assert_eq!(summaries[0].resolved_conflicts, 0);
     }
 
     #[test]

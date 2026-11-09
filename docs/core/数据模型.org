@@ -114,7 +114,7 @@ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 |-
 | ~TimestampMs~ | Unix epoch 毫秒。 |
 | ~OrgRepoId~ | 非空 UUID 字符串；同一逻辑仓库重建 workspace 时必须保持不变。 |
-| ~OrgRepoSyncRecordId~ | 一次同步记录的非空 UUID 字符串。 |
+| ~OrgRepoSyncRecordId~ | 一次同步记录的非空字符串，在所属仓库内唯一；完整定位使用仓库 ID 与同步 ID。 |
 | ~OrgRepoSyncRecord.kind~ | 策略类型标识；必须与加载和执行该记录的 ~SyncPolicy::KIND~ 一致。 |
 | 相对路径 | ~relativePath~ 相对于所属 ~OrgRepo.rootDirectory~ ，不能是绝对路径或包含 ~..~ 。 |
 | 源位置 | ~SourceRange~ 是引用 ~OrgFile.sourceBytes~ 的半开区间 ~[start, end)~ 。 ~SourcePosition~ 同时记录 1-based 行号、0-based UTF-8 字节列号与 0-based UTF-8 字节偏移；它仅在当前文件快照内有效，不能作为跨版本稳定 ID。 |
@@ -405,7 +405,9 @@ pub struct LocalFileVersion {
 旧的任务记录、同步状态、完整内容 outbox 与冲突记录不是当前核心数据结构；当前 outbox 仅保存 ~OrgRepoWriteIntent~ 元数据。当前实现不读取、不转换这些数据；任务投影、队列与 UI 流程由宿主按当前仓库级接口重新建立。
 
 
-* 按同步比较与合并
+* 旧 CLI 的整作业比较与合并
+
+本节描述保留给既有 CLI 的策略接口。手机当前使用后文“日志文件备份与冲突比较模型”中的单文件离线结构，不通过本节接口访问实时远端。
 
 ~WebDavMergeComparison~ 是一次仓库同步的运行时比较对象。它覆盖该同步仍未解决的全部冲突文件，保存仓库版本、远端配置指纹、逐文件版本，以及统一的变化列表；不需要准备会话 ID，也不写入 Preferences 或同步历史。 ~apply_merge~ 接受这个对象，只有 ~mode~ 与各变化项的 ~resolution~ 可以由调用方修改。
 
@@ -447,6 +449,9 @@ pub struct WebDavSyncFileDetail {
     pub size: Option<i64>,
     pub task_versions: Option<Vec<OrgTaskFingerprint>>,
     pub synced_source: Option<String>,
+    pub archive: Option<WebDavFileArchive>,
+    // 仅运行时读取文件系统，Serde 跳过该字段。
+    pub resolved: bool,
 }
 #+end_src
 
@@ -957,12 +962,12 @@ pub struct TaskOperationResult {
 
 ~execution_result~ 保留取消、中断与真实执行失败。兼容已有记录时，原结果为 ~Failed~ 、存在冲突而没有非冲突执行错误的记录，执行结果投影为 ~Succeeded~ ；原始记录不改写。文件状态 ~Conflict~ 、 ~RemoteDeleted~ 及错误分类 ~Conflict~ 均属于冲突。网络、认证、TLS、协议校验与本地存储错误继续作为执行失败；没有文件记录的失败不会推断为成功，错误分类可以为空。
 
-~sync_history_summaries~ 接受按开始时间升序恢复的完整历史，按原顺序返回摘要。某冲突路径后续出现 ~Synchronized~ 即计为该条历史的已解决路径；普通失败不能清除冲突，整体失败作业中已经成功的文件也有效。部分解决分别保留两种数量，由宿主优先展示待处理数量；已解决后的新冲突独立计算，不使旧冲突恢复为未解决。这些计数与执行结果均不修改追加式历史。
+~sync_history_summaries~ 接受按开始时间升序恢复的完整历史，按原顺序返回摘要。冲突路径所属日志中的 resolved 文件存在才计为已解决；后续成功或失败记录都不能清除另一条日志的冲突。部分解决分别保留两种数量，由宿主优先展示待处理数量；已解决后的新冲突独立计算，不使旧冲突恢复为未解决。这些计数与执行结果均不修改追加式历史。
 
 
 ** 按记录读取同步详情
 
-~WebDavSyncRecordDetail~ 包含一条摘要、文件结果列表和原记录已有的错误信息。 ~sync_history_detail(history, sync_id)~ 按仓库内同步 ID 精确定位，并使用完整历史计算每个冲突路径当前是否已解决；ID 不存在时返回错误。 ~WebDavSyncFileSummary~ 只提供相对路径和展示结果， ~WebDavSyncHistoryError~ 只提供关联的相对路径与已有脱敏消息；成功文件的正文快照、远端元数据和版本哈希不进入此投影。
+~WebDavSyncRecordDetail~ 包含一条摘要、文件结果列表和原记录已有的错误信息。 ~sync_history_detail(history, sync_id)~ 按仓库内同步 ID 精确定位，并使用完整历史计算每个冲突路径当前是否已解决；ID 不存在时返回错误。 ~WebDavSyncFileSummary~ 提供原相对路径、展示结果、Core 分区及可空备份元信息， ~WebDavSyncHistoryError~ 只提供关联的相对路径与已有脱敏消息；成功文件的正文快照、远端元数据和版本哈希不进入此投影。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
@@ -973,7 +978,9 @@ pub struct TaskOperationResult {
 }{}
 \umlclass[x=8,y=1.5]{WebDavSyncFileSummary}{
   path: String \\
-  outcome: WebDavSyncFileOutcome
+  outcome: WebDavSyncFileOutcome \\
+  section: Option\textless String\textgreater \\
+  backup: Option\textless OrgFileMetadata\textgreater
 }{}
 \umlclass[x=8,y=-2]{WebDavSyncHistoryError}{
   path: Option\textless String\textgreater \\
@@ -983,7 +990,7 @@ pub struct TaskOperationResult {
 \umluniassoc[mult1=1,mult2=0..*]{WebDavSyncRecordDetail}{WebDavSyncHistoryError}
 \end{tikzpicture}
 
-既有历史格式保持原样，包括值为 ~null~ 的 ~WebDavSyncContextDetail~ 。文件级错误消息缺失或列举失败没有文件记录时，摘要中的错误消息为空，宿主使用已有结果或错误分类生成合理标题，不补造数量与错误原因，不增加持久化字段或改写旧记录。
+既有历史格式保持原样，包括值为 ~null~ 的 ~WebDavSyncContextDetail~ 。文件级错误消息缺失或列举失败没有文件记录时，摘要中的错误消息为空，宿主使用已有结果或错误分类生成合理标题，不补造数量与错误原因，不改写旧记录。新日志仅按备份模型追加可选 archive 信息。
 
 * 放置目标查询范围
 
@@ -1006,3 +1013,76 @@ path: String}{}
 \umluniassoc{RefileTargetQuery}{OrgFileRef}
 \end{tikzpicture}
 \end{center}
+
+* 待关注事件
+
+~CoreNotification~ 是 Core 判断的当前待关注事件的运行时数据结构。它不保存到仓库、同步历史或通知队列，不增加已读、已发送或确认字段；宿主只决定如何展示和处理。 ~OrgRepo.notifications~ 读取单仓库快照， ~OrgWorkspace.notifications~ 汇总当前工作区。工作区中的仓库必须已经加载并具有稳定 Core ID，读取错误沿原有 ~CoreError~ 返回。
+
+#+begin_src rust
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CoreNotification {
+    SyncConflict(SyncConflictNotification),
+}
+
+#[serde(rename_all = "camelCase")]
+pub struct SyncConflictNotification {
+    pub repo_id: OrgRepoId,
+    pub sync_id: OrgRepoSyncRecordId,
+    pub paths: Vec<String>,
+}
+#+end_src
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{CoreNotification}{SyncConflict(SyncConflictNotification)}{}
+\umlclass[x=0,y=-4]{SyncConflictNotification}{
+  repo\_id: OrgRepoId \\
+  sync\_id: OrgRepoSyncRecordId \\
+  paths: Vec\textless String\textgreater
+}{}
+\umluniassoc{CoreNotification}{SyncConflictNotification}
+\end{tikzpicture}
+
+当前仅有 ~SyncConflict~ 这一种事件类型，可有零到多个实例。每个事件归属一个 Core 仓库及一条仍有未解决文件的同步记录，文件路径均相对仓库；重复查询不消费事件，部分解决缩小路径列表，全部解决后事件自然消失。通知由 ~last_effect_sync~ 取得最近成功同步后，只按该记录内的 resolved 文件存在性判定，遗留冲突不参与，不因作业整体失败而清除冲突，也不把纯网络失败当作冲突。模型不包含配置仓库 ID、页面路由、凭据或完整远端 URL。
+
+
+每个通知变体有独立结构；除枚举辨别标记外没有公共数据基类。冲突结构中的 ~repo_id~ 、 ~sync_id~ 与 ~paths~ 仅属于冲突通知。 ~sync_id~ 来自既有同步历史的 ~id~ ，按 Core 仓库及同步 ID 共同定位；读取和追加历史已校验仓库内同步 ID 唯一。
+
+* 日志文件备份与冲突比较模型
+
+~WebDavFileArchive~ 是文件记录的可选持久化信息，只保存当次备份的 ~content_hash~ 。目录由记录开始时间、原相对路径与规定的文件别名确定，不存绝对路径。旧日志缺少 ~archive~ 可正常读取。 ~WebDavSyncFileDetail.resolved~ 仅为运行时状态，使用 ~serde(skip)~ ，由仓库历史读取根据普通 resolved 文件存在性填入；不通过修改原日志记已解决。
+
+~SyncConflictComparison~ 是一个文件的内存比较对象，包含 ~repo_id~ 、 ~sync_id~ 、 ~path~ 、 ~local_hash~ 、 ~remote_hash~ 、 ~local_missing~ 、 ~unchanged_count~ 和 ~Vec<WebDavTaskMergeChange>~ 。来源为该次远端备份与打开比较时最新本地文件，只有变化项的 ~resolution~ 可修改。不同日志中的同名文件独立处理，保存后只完成当前日志的解决结果。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{WebDavFileArchive}{content\_hash: String}{}
+\umlclass[x=0,y=-3]{WebDavSyncFileDetail}{archive: Option\textless WebDavFileArchive\textgreater \\
+resolved: bool (runtime)}{}
+\umlclass[x=8,y=0]{SyncConflictComparison}{repo\_id: String \\
+sync\_id: String \\
+path: String \\
+local\_hash: String \\
+remote\_hash: String \\
+local\_missing: bool \\
+unchanged\_count: usize}{}
+\umlclass[x=8,y=-5]{WebDavTaskMergeChange}{resolution: Option\textless OrgMergeSide\textgreater}{}
+\umluniassoc{WebDavSyncFileDetail}{WebDavFileArchive}
+\umluniassoc[mult1=1,mult2=0..*]{SyncConflictComparison}{WebDavTaskMergeChange}
+\end{tikzpicture}
+
+* 通知更新订阅模型
+
+~NotificationUpdate { repo_id }~ 与 ~CoreNotification~ 注意事项枚举分离，是运行时数据失效信号，不持久化，不为注意事项增加公共字段。 ~NotificationSubscription~ 持有通知模块向同步提交端口注册的订阅；销毁后解除。注册表按进程维护，按仓库根目录过滤，跨页面共用，回调不持有 UI 或凭据。外部进程修改仍在页面重新可见时通过读取最新快照确认。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{NotificationSubscription}{sync\_subscription: SyncSubscription}{}
+\umlclass[x=7,y=0]{NotificationUpdate}{repo\_id: OrgRepoId}{}
+\umlclass[x=0,y=-3]{SyncCommitted}{root\_directory: String \\
+repo\_id: OrgRepoId}{}
+\umluniassoc{NotificationSubscription}{SyncCommitted}
+\umldep{NotificationSubscription}{NotificationUpdate}
+\end{tikzpicture}
+
+~SyncContext.local_changes~ 为仅运行时的本地变更暂存，包含原路径、旧字节与待应用字节，不保存到日志 JSON。仅成功同步提交此集合；失败或取消丢弃。 ~last_effect_sync~ 直接选择最近的 ~Succeeded~ 记录，不按冲突、备份或解决状态过滤。

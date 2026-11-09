@@ -45,6 +45,38 @@ impl Drop for Fixture {
 }
 
 #[tokio::test]
+async fn task_operations_notify_only_after_changed_files_are_committed() {
+    let mut f = Fixture::new("* TODO Original\n").await;
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events = observed.clone();
+    let file = f.root.join("tasks.org");
+    let repo_id = f.workspace.repos()[0].id.clone();
+    let _subscription = f.workspace.watch_notifications(move |update| {
+        events.lock().unwrap().push((
+            update.repo_id,
+            std::fs::read_to_string(&file).unwrap(),
+        ));
+    });
+
+    let changed = f.group("Updated");
+    f.workspace.execute_task_operations(&changed).await.unwrap();
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![(repo_id, "* TODO Updated\n".into())]
+    );
+
+    let unchanged = f.group("Updated");
+    f.workspace.execute_task_operations(&unchanged).await.unwrap();
+    let invalid = f.group("Invalid\nHeading");
+    assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
+    assert_eq!(observed.lock().unwrap().len(), 1);
+    assert_eq!(
+        std::fs::read_to_string(f.root.join("tasks.org")).unwrap(),
+        "* TODO Updated\n"
+    );
+}
+
+#[tokio::test]
 async fn successful_groups_accumulate_exact_fallbacks_and_failed_group_does_not_publish() {
     let source = "* TODO Original\r\nBody  \r\n";
     let mut f = Fixture::new(source).await;

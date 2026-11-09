@@ -6,7 +6,7 @@ import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreServ
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/Controls'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
-import { RepositorySyncService } from '../services/RepositorySyncService'
+import { CoreNotificationService } from '../services/CoreNotificationService'
 
 interface RepositoryParams { repoId?: string; webdav?: boolean }
 
@@ -153,7 +153,7 @@ struct RepositorySettings {
     this.deleting = true
     try {
       await AppConfigService.removeRepository(this.getUIContext().getHostContext()!, this.repoId)
-      try { await RepositorySyncService.refreshConflicts(this.getUIContext().getHostContext()!) } catch (_) {}
+      try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) } catch (_) {}
       this.getUIContext().getRouter().back()
     } catch (e) { this.message = `删除存储库失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.deleting = false }

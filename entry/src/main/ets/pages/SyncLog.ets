@@ -1,3 +1,6 @@
+import { NotificationEmptyState } from '../components/NotificationEmptyState'
+import { CoreNotificationsView } from '../components/CoreNotificationsView'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { SyncLogItem } from '../components/SyncLogItem'
@@ -13,6 +16,7 @@ interface SyncLogParams {
 @Entry
 @Component
 struct SyncLog {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State items: CoreSyncRecord[] = []
   @State repositoryName: string = ''
   @State repoId: string = ''
@@ -61,15 +65,18 @@ struct SyncLog {
   @Builder
   content() {
     if (this.loading) {
-      EmptyState({ title: '正在读取同步日志', busy: true })
+      NotificationEmptyState({ title: '正在读取同步日志', busy: true })
     } else if (this.message) {
-      EmptyState({ title: '同步日志读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadLogs() } })
+      NotificationEmptyState({ title: '同步日志读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadLogs() } })
     } else if (this.items.length === 0) {
-      EmptyState({ title: '暂无同步日志', detail: '完成一次文件同步后，记录会显示在这里。' })
+      NotificationEmptyState({ title: '暂无同步日志', detail: '完成一次文件同步后，记录会显示在这里。' })
     } else if (this.visibleItems().length === 0) {
-      EmptyState({ title: '暂无上传或下载记录', detail: '点击右上角显示全部日志' })
+      NotificationEmptyState({ title: '暂无上传或下载记录', detail: '点击右上角显示全部日志' })
     } else {
       List() {
+              if (this.notificationState.notifications.length > 0) {
+                ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
+              }
         ForEach(this.visibleItems(), (item: CoreSyncRecord) => {
           ListItem() { SyncLogItem({ record: item, open: (): void => {
             this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncDetail', params: { repoId: this.repoId, syncId: item.id } })

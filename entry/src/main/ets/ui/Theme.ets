@@ -10,6 +10,7 @@ export class UiColor {
   static readonly overdueBadge: string = '#E73157'
   static readonly surface: string = '#2D2C2B'
   static readonly taskCard: string = '#3A3938'
+  static readonly notificationCard: string = '#373635'
   static readonly deadline: string = '#FF3869'
   static readonly container: string = '#343635'
   static readonly field: string = '#3A3E3F'

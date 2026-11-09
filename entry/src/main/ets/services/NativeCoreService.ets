@@ -10,12 +10,16 @@ import {
   defaultSyncOptions,
   defaultTodoSettings,
   ConflictSync as NativeConflictSync,
-  MergeComparison as NativeMergeComparison,
-  MergeOutcome as NativeMergeOutcome,
+  MergeChange as NativeMergeChange,
+  MergeChangeState as NativeMergeChangeState,
   RefileTarget as NativeRefileTarget,
   RefileTargetQuery as NativeRefileTargetQuery,
   OrgFileRef as NativeOrgFileRef,
   CoreError as NativeCoreError,
+  NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
+  SyncConflictComparison as NativeSyncConflictComparison,
+  CoreNotification as NativeCoreNotification,
+  SyncConflictNotification as NativeSyncConflictNotification,
   OrgFile as NativeOrgFile,
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
@@ -57,13 +61,20 @@ export interface CoreSyncSnapshot {
 
 export type CoreSyncRecord = NativeSyncRecord
 export type CoreSyncRecordDetail = NativeSyncRecordDetail
+export type CoreNotificationUpdateMonitor = NativeNotificationUpdateMonitor
+export type CoreSyncConflictComparison = NativeSyncConflictComparison
 export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
 export type CoreTodoMetadata = NativeTodoMetadata
 
-export type CoreMergeComparison = NativeMergeComparison
-export type CoreMergeOutcome = NativeMergeOutcome
+export type CoreMergeChange = NativeMergeChange
+export type CoreMergeChangeState = NativeMergeChangeState
+export enum CoreMergeResolution {
+  Local = 'local',
+  Remote = 'remote',
+  Remove = 'remove'
+}
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
 
 export type CoreOrgFileRef = NativeOrgFileRef
@@ -79,6 +90,8 @@ export type CoreTaskModification = NativeTaskModification
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
 export type CoreBridgeError = NativeCoreError
+export type CoreNotification = NativeCoreNotification
+export type CoreSyncConflictNotification = NativeSyncConflictNotification
 
 export function coreErrorMessage(error: CoreBridgeError): string {
   if (typeof error.message === 'string' && error.message.length > 0) {
@@ -102,13 +115,7 @@ export class CoreWebDavSyncPolicy {
     await this.native.testConnection()
   }
 
-  async compareMerge(repo: CoreRepo, syncId: string): Promise<CoreMergeComparison> {
-    return await this.native.compareMerge(repo.nativeRepo(), syncId)
-  }
 
-  async applyMerge(repo: CoreRepo, comparison: CoreMergeComparison): Promise<CoreMergeOutcome> {
-    return await this.native.applyMerge(repo.nativeRepo(), comparison)
-  }
 }
 
 export class CoreRepo {
@@ -146,6 +153,20 @@ export class CoreRepo {
     return await this.native.history()
   }
 
+  async lastEffectSync(): Promise<CoreSyncRecord | null> { return await this.native.lastEffectSync() }
+
+  async historyFile(syncId: string, path: string, resolved: boolean): Promise<CoreOrgFile> {
+    return await this.native.historyFile({ syncId, path, resolved })
+  }
+
+  async compareConflict(syncId: string, path: string): Promise<CoreSyncConflictComparison> {
+    return await this.native.compareConflict({ syncId, path })
+  }
+
+  async resolveConflict(comparison: CoreSyncConflictComparison): Promise<void> {
+    await this.native.resolveConflict(comparison)
+  }
+
   async historyDetail(syncId: string): Promise<CoreSyncRecordDetail> {
     return await this.native.historyDetail(syncId)
   }
@@ -166,6 +187,10 @@ export class CoreWorkspace {
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<CoreTaskOperationResult> { return await this.native.executeTaskOperations(group) }
+  async notifications(): Promise<CoreNotification[]> { return await this.native.notifications() }
+  async watchNotifications(monitor: CoreNotificationUpdateMonitor): Promise<void> { await this.native.watchNotifications(monitor) }
+  stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
+  async reload(): Promise<void> { await this.native.reload() }
 
   async repos(): Promise<CoreRepo[]> {
     const repos = await this.native.repos()
@@ -193,6 +218,11 @@ let workspaceQueue: Promise<void> = Promise.resolve()
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
+  static async notifications(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreNotification[]> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    return await workspace.notifications()
+  }
+
   static async queryTasks(repositories: RepoConfig[], query: CoreTaskQuery, todoDefaults?: string): Promise<CoreTaskQueryResult> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     return await workspace.query(query)
@@ -259,10 +289,7 @@ export class NativeCoreService {
 
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    const repos = await workspace.repos()
-    for (const repo of repos) {
-      await repo.load()
-    }
+    await workspace.reload()
     return (await workspace.query({})).tasks
   }
 

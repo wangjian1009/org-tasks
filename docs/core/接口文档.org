@@ -95,6 +95,7 @@ impl OrgWorkspace {
         &mut self, group: &TaskOperationGroup,
     ) -> Result<TaskOperationResult, CoreError>;
 
+    pub async fn notifications(&self) -> Result<Vec<CoreNotification>, CoreError>;
 }
 #+end_src
 
@@ -115,6 +116,8 @@ impl OrgWorkspace {
 *** OrgRepo
 
 ~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~ ，由 ~load::<P>~ 返回，不作为仓库字段保留。
+
+~OrgRepo.notifications().await~ 返回当前仓库的待关注事件；仓库应先通过 ~load::<WebDavSyncPolicy>~ 取得稳定 Core ID。 ~OrgWorkspace.notifications().await~ 汇总已加载仓库的事件。完整契约见本文“待关注事件”一节。
 
 #+begin_src rust
 impl OrgRepo {
@@ -677,15 +680,65 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 ~core::webdav::sync_history_summaries(history) -> Result<Vec<WebDavSyncRecordSummary>, CoreError>~ 将按开始时间升序恢复的完整 WebDAV 历史投影为运行时摘要，顺序不变。单条实时结果可调用 ~WebDavSyncRecordSummary::from_record(record)~ ，没有后续历史时已解决数量为零；未完成记录返回错误。
 
-摘要保留原始作业结果，另行给出独立执行结果、四态传输方向、下载与上传各自成功的文件数、冲突路径、待处理与已解决数量，以及可空错误分类和原记录已有的错误消息。只有冲突而没有执行错误时，日志执行结果为成功；网络、认证及其他执行错误保持失败。仅统计已成功的文件动作，两种方向可以同时出现，失败尝试不虚构传输。后续任意作业中的成功文件解决对应旧冲突，普通失败不清除冲突；完整规则及运行时 TikZ UML 见 [[file:数据模型.org::*WebDAV 同步历史运行时摘要][同步历史运行时摘要]] 。
+摘要保留原始作业结果，另行给出独立执行结果、四态传输方向、下载与上传各自成功的文件数、冲突路径、待处理与已解决数量，以及可空错误分类和原记录已有的错误消息。只有冲突而没有执行错误时，日志执行结果为成功；网络、认证及其他执行错误保持失败。仅统计已成功的文件动作，两种方向可以同时出现，失败尝试不虚构传输。各条日志的冲突仅由自己目录内的 resolved 文件判定已解决，后续成功作业不清除其他日志的冲突；完整规则及运行时 TikZ UML 见 [[file:数据模型.org::*WebDAV 同步历史运行时摘要][同步历史运行时摘要]] 。
 
-接口不读取宿主配置、不新增持久化字段，不修改原始历史，也不替代同步编排继续使用的原结果。宿主将摘要映射为颜色、图标和标签，不重新实现历史回放。
+摘要投影不读取宿主配置、不修改原始历史，也不替代同步编排继续使用的原结果。宿主将摘要映射为颜色、图标和标签，不重新实现历史回放。
 
 
-~sync_history_detail(history, sync_id) -> Result<WebDavSyncRecordDetail, CoreError>~ 读取指定历史的统一同步详情，返回摘要、逐文件结果与已有错误信息。缺失的错误详情保持为空，找不到同步 ID 时返回错误。所有文件路径均相对仓库，不返回成功文件的源内容、ETag、版本哈希或凭据。接口只读取现有日志，不扩展持久化格式。
+~sync_history_detail(history, sync_id) -> Result<WebDavSyncRecordDetail, CoreError>~ 读取指定历史的统一同步详情，返回摘要、逐文件结果与已有错误信息。缺失的错误详情保持为空，找不到同步 ID 时返回错误。所有文件路径均相对仓库，不返回成功文件的源内容、ETag、版本哈希或凭据。纯投影接口只读取传入日志；宿主需要文件系统中的 resolved 状态及备份元信息时调用下文的仓库异步历史接口。
+
+* 待关注事件
+
+~OrgRepo.notifications()~ 与 ~OrgWorkspace.notifications()~ 均为异步接口，返回 ~Result<Vec<CoreNotification>, CoreError>~ 。它们读取调用时本地同步历史，提供 Core 判断的当前待关注事件快照；查询不消费事件，不维护已读状态，不访问远端，也不依赖页面、控件或宿主通知系统。空工作区或没有待处理事件时返回空数组，未加载仓库或历史读取失败时返回错误，不伪装为空结果。
+
+目前唯一的事件类型为 ~CoreNotification::SyncConflict(SyncConflictNotification)~ ，表示该次同步仍有冲突需要解决。 ~repo_id~ 是 Core 仓库 ID， ~sync_id~ 是对应的同步记录 ID， ~paths~ 为仍待处理文件的相对路径；事件不包含凭据、根目录或远端地址。工作区保持仓库顺序，单仓库最多返回一条来自最近成功同步的通知，原文件顺序不变；更早记录只供历史浏览。同名文件、相同同步 ID 出现在不同仓库时仍是独立事件，身份以仓库和同步 ID 共同定位。
+
+通知先调用 ~last_effect_sync~ 取得最近成功同步，只对其中 ~Conflict~ 、旧 ~RemoteDeleted~ 或条件冲突错误且缺少对应 resolved 文件的路径生成事件。部分解决缩小路径列表，全部解决、没有成功同步或最近成功同步没有冲突时不生成通知；旧记录的遗留冲突不参与判断。缺少备份仍计为该次同步的未解决冲突，读取历史文件时明确报错。当前只提供 WebDAV 同步历史中的冲突事件，不为网络失败、取消或中断额外生成通知。
+
+#+begin_src rust
+let events = workspace.notifications().await?;
+for event in events {
+    match event {
+        CoreNotification::SyncConflict(conflict) => {
+            // conflict.repo_id 与 conflict.sync_id 定位历史，展示方式由宿主决定。
+        }
+    }
+}
+#+end_src
+
+Serde 表示使用带 ~type~ 的事件对象，冲突类型为 ~syncConflict~ ，字段为 ~repoId~ 、 ~syncId~ 与 ~paths~ 。应用层应直接消费事件，不重放历史或将通用失败猜测为待处理冲突。数据结构及内嵌 UML 见 [[file:数据模型.org::*待关注事件][待关注事件模型]] 。
+
+
+~CoreNotification~ 的每个变体持有自己独立定义的结构，当前为 ~SyncConflict(SyncConflictNotification)~ 。除辨别通知类型的 ~type~ 外，不定义公共 ID、仓库、标题、消息或时间字段；后续通知不继承冲突通知的数据。 ~SyncConflictNotification.sync_id~ 直接引用已有 ~OrgRepoSyncRecord.id~ ，完整定位使用 ~repo_id + sync_id~ ，不新增历史标识，不按时间戳或列表位置补造标识。
+
+* 日志备份与单文件本地解决
+
+~OrgRepo.webdav_history()~ 读取本仓库历史，并校验每条冲突的 resolved 文件存在性，写入仅限本次运行时的 ~detail.resolved~ 字段，不改写 JSON。 ~history_summaries()~ 与 ~history_detail(sync_id)~ 在此基础上提供当前摘要、分区和备份文件元信息；宿主历史浏览必须使用这些仓库方法，而不是仅对裸 JSON 调用纯投影函数。
+
+~history_file(sync_id, path, resolved)~ 按记录 ID 与原路径定位该次保存的内容， ~resolved=false~ 读取原始传输／远端备份， ~true~ 读取解决结果，返回独立只读的 ~OrgFile~ 。缺少备份返回错误，不回退工作文件；校验记录归属、路径、备份内容哈希和符号链接边界。 ~history_detail~ 返回的 ~WebDavSyncFileSummary.section~ 为 ~upload~ 、 ~download~ 、 ~conflict~ 或空， ~backup~ 为相应备份的 ~OrgFileMetadata~ 或空；采用远端删除的文件没有正文备份，错误由 ~errors~ 独立提供。
+
+~compare_sync_conflict(sync_id, path)~ 只比较选中日志的远端备份和当前本地文件，返回 ~SyncConflictComparison~ 。除每项 ~resolution~ 外字段只读，返回内容可完全放在页面内存，不持有远端策略或会话。 ~resolve_sync_conflict(comparison)~ 重新读取并校验比较、所有必要选择与本地版本，按 Core 合并结果写回本地、登记 outbox，最后独占提交 resolved 文件；不访问网络、不新增同步作业。文件已解决、来源被修改、选择不全或本地过期时拒绝；零选择允许显式保存。
+
+后续同步以解决时备份的远端版本为条件基准，读取实际待上传本地内容；远端有新变化时生成新的独立冲突。远端已删除直接删除本地，即使本地已修改；本地删除而远端存在时下载恢复。上传或下载在修改另一端之前保存本次内容，备份失败不继续该文件写入，并保留已完成文件记录及错误。旧日志没有备份时保持状态，只在点击时返回明确错误。
+
+* 最近有效同步与通知更新监控
+
+~OrgRepo.last_effect_sync() -> Result<Option<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>, CoreError>~ 按开始时间从新到旧寻找 ~result=Succeeded~ 的第一条记录。较新的失败、取消、中断记录跳过；是否包含冲突、是否有备份、冲突是否已解决均不影响定位。选中记录的 ~resolved~ 由对应结果文件存在性填入，全部已解决仍返回该记录；没有成功记录返回 ~None~ 。Harmony 对应 ~Repo.lastEffectSync(): Promise<SyncRecord | null>~ 。
+
+通知判断只在 Rust 中执行： ~Workspace.notifications -> OrgRepo.notifications -> last_effect_sync~ 。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
+
+~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 是通知更新接口。通知模块向 Core 的同步提交回调端口注册订阅，按所属仓库根目录过滤并转发 ~NotificationUpdate { repo_id }~ 。成功或失败的同步日志提交完成、冲突结果保存完成以及显式 ~OrgWorkspace.reload()~ 后产生更新；普通只读查询不产生更新。回调只表示需要重新查询，不携带注意事项快照或替代 ~notifications~ 的领域判断。
+
+订阅对象销毁即解除，回调在注册表锁外执行；回调不能重入调用时仍持有的仓库锁，宿主通过线程安全队列转到 UI 后再查询通知。页面只监听通知模块发布的数据版本；同步控件只负责发起同步和展示进度，不在 Promise 完成后直接刷新正文。
+
+* 失败同步的本地提交边界
+
+下载、远端删除及任务扫描规则先在 Core 暂存。整轮传输成功后，Core 准备所有临时文件并验证原版本，再提交本地文件和历史；传输失败、取消或中断时放弃本地变化，保留已取得的日志备份，不更新仓库正文或规则。应用本地变更失败会撤回已应用且未被外部修改的本轮变更；历史持久化失败也执行撤回。失败下载不作为已同步基线，已有远端上传结果仍如实记录。多文件最终提交受文件系统限制，不承诺进程崩溃时跨文件原子事务。
 
 * 放置目标的具体文件范围
 
 ~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 读取已加载仓库的 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ 。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
 
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在源文件配置中验证，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
+
+统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~NotificationUpdate~ 对应的数据失效事件；失败或无实际文件变化不发布。回调只用于安排异步重查，不能重入当前 workspace 锁。

@@ -3,6 +3,8 @@ import { TitleText } from './TitleText'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { RepositorySyncView } from './RepositorySyncView'
+import { uiObserver } from '@kit.ArkUI'
+import { CoreNotificationService, CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
@@ -43,7 +45,20 @@ export struct AppShell {
   @State memoCount: number = -1
   @State logbookCount: number = -1
   @State navMessage: string = ''
+  @StorageLink('coreNotifications') @Watch('notificationUpdated') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   private navigationRequest: number = 0
+  private notificationRevision: number = 0
+  private pageIndex: number = 0
+  private pageVisible: boolean = true
+  private pageChanged = (info: uiObserver.RouterPageInfo): void => {
+    if (info.index !== this.pageIndex) return
+    if (info.state === uiObserver.RouterPageState.ON_PAGE_HIDE) this.pageVisible = false
+    else if (info.state === uiObserver.RouterPageState.ON_PAGE_SHOW) {
+      this.pageVisible = true
+      this.notificationUpdated()
+      this.refreshNotifications()
+    }
+  }
 
   @Builder
   actionMenu() {
@@ -59,7 +74,31 @@ export struct AppShell {
   }
 
   aboutToAppear() {
+    this.pageIndex = this.getUIContext().getRouter().getState().index
+    this.pageVisible = true
+    this.notificationRevision = this.notificationState.revision
+    this.getUIContext().getUIObserver().on('routerPageUpdate', this.pageChanged)
+    this.refreshNotifications()
     if (this.drawerOpen) this.loadNavigation()
+  }
+
+  aboutToDisappear() {
+    this.pageVisible = false
+    this.getUIContext().getUIObserver().off('routerPageUpdate', this.pageChanged)
+  }
+
+  notificationUpdated() {
+    if (!this.pageVisible || this.notificationRevision === this.notificationState.revision) return
+    this.notificationRevision = this.notificationState.revision
+    this.repositoryDataInvalidated()
+  }
+
+  async refreshNotifications() {
+    try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) }
+    catch (e) {
+      if (!this.pageVisible) return
+      try { this.getUIContext().getPromptAction().showToast({ message: `读取通知失败：${coreErrorMessage(e as CoreBridgeError)}` }) } catch (_) {}
+    }
   }
 
   repositoryDataInvalidated() {
@@ -241,10 +280,11 @@ export struct AppShell {
             }
           }
         }.width('100%').height(64).padding({ left: 4, right: 4 }).backgroundColor(UiColor.surface)
-        Divider().color(UiColor.outline).strokeWidth(0.5)
+        if (!this.pullToSync || this.notificationState.notifications.length === 0) {
+          Divider().color(UiColor.outline).strokeWidth(0.5)
+        }
         Column() {
-          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen,
-            onDataInvalidated: (): void => { this.repositoryDataInvalidated() } }) {
+          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen }) {
             this.content()
           }
         }.width('100%').layoutWeight(1)

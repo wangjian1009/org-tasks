@@ -1,3 +1,5 @@
+import { CoreNotificationsView } from './CoreNotificationsView'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TodaySection, TodayTaskItem } from '../ui/TodayPresentation'
 import { ListSectionHeader } from './Controls'
@@ -5,6 +7,7 @@ import { TaskListItem } from './TaskListItem'
 
 @Component
 export struct TodayTaskList {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop sections: TodaySection[] = []
   @Prop referenceTime: number = Date.now()
 
@@ -15,6 +18,9 @@ export struct TodayTaskList {
 
   build() {
     List() {
+              if (this.notificationState.notifications.length > 0) {
+                ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
+              }
       ForEach(this.sections, (section: TodaySection) => {
         ListItemGroup({ header: this.sectionHeader(section) }) {
           ForEach(section.items, (item: TodayTaskItem) => {

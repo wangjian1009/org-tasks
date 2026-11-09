@@ -64,6 +64,7 @@ pub struct SyncContext<'a> {
     pub started_at: TimestampMs,
     pub base: PathBuf,
     pub options: SyncOptions,
+    pub(crate) local_changes: Vec<crate::webdav::local_commit::LocalSyncChange>,
 }
 
 impl<'a> SyncContext<'a> {
@@ -81,6 +82,7 @@ impl<'a> SyncContext<'a> {
             repo,
             started_at,
             options,
+            local_changes: Vec::new(),
         }
     }
 }
@@ -549,6 +551,8 @@ impl OrgRepo {
         let mut record = policy
             .synchronize(&mut context, cancellation, progress)
             .await?;
+        let local_changes = std::mem::take(&mut context.local_changes);
+        drop(context);
         if record.kind.is_empty() {
             record.kind = P::KIND.into();
         }
@@ -563,7 +567,28 @@ impl OrgRepo {
         if history.iter().any(|existing| existing.id == record.id) {
             return Err(CoreError::InvalidState("同步记录 ID 已存在"));
         }
-        persist_sync_record(Path::new(&self.root_directory), &record).await?;
+        let root = Path::new(&self.root_directory);
+        let mut committed = false;
+        if !local_changes.is_empty() {
+            match crate::webdav::local_commit::commit_local(root, &local_changes).await {
+                Ok(()) => committed = true,
+                Err(error) => {
+                    record.result = Some(super::OrgRepoSyncResult::Failed);
+                    for file in &mut record.files {
+                        if local_changes.iter().any(|change| change.path == file.relative_path) {
+                            file.state = super::OrgRepoSyncFileState::Failed;
+                            file.error = Some(super::OrgRepoSyncErrorSummary::new(super::OrgRepoSyncErrorCategory::LocalStorage, false, error.to_string())?);
+                        }
+                    }
+                }
+            }
+        }
+        if let Err(error) = persist_sync_record(root, &record).await {
+            if committed { crate::webdav::local_commit::rollback_local(root, &local_changes).await?; }
+            return Err(error);
+        }
+        if committed { self.load::<P>().await?; }
+        super::sync_events::publish(self);
         for file in &record.files {
             // 忽略配置没有任务编辑产生的 outbox，也不属于 Org 文件快照。
             if file.relative_path == super::TASK_SCAN_RULES_PATH {
@@ -740,7 +765,7 @@ where
     Ok(())
 }
 
-pub(super) fn generate_repo_id() -> Result<OrgRepoId, CoreError> {
+pub(crate) fn generate_repo_id() -> Result<OrgRepoId, CoreError> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| CoreError::Store("无法生成仓库 ID".into()))?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;

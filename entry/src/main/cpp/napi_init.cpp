@@ -17,10 +17,16 @@ extern "C" char* org_tasks_harmony_repo_file(uint64_t handle, const char* root, 
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
+extern "C" char* org_tasks_harmony_workspace_notifications(uint64_t handle);
+extern "C" uint64_t org_tasks_harmony_workspace_watch_notifications(uint64_t handle, uint64_t monitor);
+extern "C" void org_tasks_harmony_workspace_unwatch_notifications(uint64_t subscription);
+extern "C" int32_t org_tasks_harmony_workspace_reload(uint64_t handle);
+extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t monitor);
 extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_repo_load(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_repo_history(uint64_t workspace_handle, const char* root_directory);
+extern "C" char* org_tasks_harmony_repo_history_operation(uint64_t handle, const char* root, const char* request);
 extern "C" char* org_tasks_harmony_repo_history_detail(uint64_t workspace_handle, const char* root_directory, const char* sync_id);
 extern "C" char* org_tasks_harmony_repo_full_path(uint64_t handle, const char* root);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
@@ -35,13 +41,13 @@ extern "C" char* org_tasks_harmony_repo_file_metadata(uint64_t workspace_handle,
 extern "C" int32_t org_tasks_harmony_webdav_test_connection(
     const char* webdav_url, const char* username, const char* password);
 extern "C" char* org_tasks_harmony_repo_conflicts(uint64_t handle, const char* root_directory);
-extern "C" char* org_tasks_harmony_repo_merge(uint64_t handle, const char* root_directory,
-    const char* webdav_url, const char* username, const char* password, const char* path,
-    const char* request_json, int64_t started_at);
+
 
 namespace {
 struct WorkspaceWrap {
     uint64_t handle = 0;
+    uint64_t notification_subscription = 0;
+    uint64_t notification_generation = 0;
 };
 
 struct RepoWrap {
@@ -76,6 +82,13 @@ struct WebDavConnectionWork {
 };
 
 struct WorkspaceStringWork {
+    bool notifications = false;
+    bool watch_notifications = false;
+    bool reload = false;
+    uint64_t monitor_handle = 0;
+    uint64_t subscription_id = 0;
+    uint64_t subscription_generation = 0;
+    ~WorkspaceStringWork() { if (monitor_handle != 0) org_tasks_harmony_notification_monitor_release(monitor_handle); }
     bool refile_targets = false;
     bool execute_operations = false;
     bool todo_defaults = false;
@@ -123,7 +136,7 @@ struct RepoSnapshotWork {
     std::string task_json;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, History, HistoryDetail, Conflicts, MergeCompare, MergeApply, File, FileMetadata } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, History, HistoryDetail, Conflicts, File, FileMetadata, HistoryFile, ConflictCompare, ConflictResolve, LastEffectSync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -164,6 +177,7 @@ bool ReadHandle(napi_env env, napi_value value, uint64_t* handle)
 void FinalizeWorkspace(napi_env, void* data, void*)
 {
     auto* workspace = static_cast<WorkspaceWrap*>(data);
+    org_tasks_harmony_workspace_unwatch_notifications(workspace->notification_subscription);
     if (workspace->handle != 0) {
         org_tasks_harmony_workspace_release(workspace->handle);
     }
@@ -424,10 +438,33 @@ extern "C" void org_tasks_harmony_webdav_sync_monitor_event(uint64_t monitor_han
     }
 }
 
+struct NotificationWatch { napi_threadsafe_function function = nullptr; };
+void FinalizeNotificationWatch(napi_env, void* data, void*) { delete static_cast<NotificationWatch*>(data); }
+extern "C" void org_tasks_harmony_notification_update(uint64_t handle, const char* json)
+{
+    auto* watch = reinterpret_cast<NotificationWatch*>(static_cast<uintptr_t>(handle));
+    auto* data = new std::string(json);
+    if (napi_call_threadsafe_function(watch->function, data, napi_tsfn_nonblocking) != napi_ok) delete data;
+}
+extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t handle)
+{
+    auto* watch = reinterpret_cast<NotificationWatch*>(static_cast<uintptr_t>(handle));
+    if (watch != nullptr) napi_release_threadsafe_function(watch->function, napi_tsfn_release);
+}
+
 void ExecuteWorkspaceString(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
-    if (work->refile_targets) {
+    if (work->watch_notifications) {
+        uint64_t monitor = work->monitor_handle;
+        work->monitor_handle = 0; // Rust 接管，即使注册失败也负责释放。
+        work->subscription_id = org_tasks_harmony_workspace_watch_notifications(work->handle, monitor);
+        if (work->subscription_id != 0) work->response = "{}";
+    } else if (work->reload) {
+        if (org_tasks_harmony_workspace_reload(work->handle) == 0) work->response = "{}";
+    } else if (work->notifications) {
+        work->response = TakeRustString(org_tasks_harmony_workspace_notifications(work->handle));
+    } else if (work->refile_targets) {
         work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle, work->expression.c_str()));
     } else if (work->execute_operations) {
         work->response = TakeRustString(org_tasks_harmony_workspace_execute_task_operations(work->handle, work->expression.c_str()));
@@ -452,7 +489,19 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         RejectCoreError(env, work->deferred, work->error, "core workspace 操作失败");
     } else {
         napi_value result;
-        if (work->todo_defaults) {
+        if (work->watch_notifications) {
+            napi_value owner;
+            WorkspaceWrap* workspace = nullptr;
+            if (napi_get_reference_value(env, work->owner, &owner) == napi_ok &&
+                napi_unwrap(env, owner, reinterpret_cast<void**>(&workspace)) == napi_ok &&
+                workspace != nullptr && workspace->notification_generation == work->subscription_generation) {
+                org_tasks_harmony_workspace_unwatch_notifications(workspace->notification_subscription);
+                workspace->notification_subscription = work->subscription_id;
+                work->subscription_id = 0;
+            }
+            napi_get_undefined(env, &result);
+            napi_resolve_deferred(env, work->deferred, result);
+        } else if (work->todo_defaults || work->reload) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!ParseJson(env, work->response, &result)) {
@@ -461,7 +510,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
-        } else if (!work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
+        } else if (!work->notifications && !work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
             napi_value tasks;
             napi_value source_tasks = result;
             bool valid = napi_get_named_property(env, result, "tasks", &source_tasks) == napi_ok;
@@ -482,6 +531,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_resolve_deferred(env, work->deferred, result);
         }
     }
+    if (work->subscription_id != 0) org_tasks_harmony_workspace_unwatch_notifications(work->subscription_id);
     if (work->owner != nullptr) napi_delete_reference(env, work->owner);
     napi_delete_async_work(env, work->work);
     delete work;
@@ -572,6 +622,13 @@ void ExecuteRepoSnapshot(napi_env, void* data)
 {
     auto* work = static_cast<RepoSnapshotWork*>(data);
     switch (work->operation) {
+        case RepoSnapshotWork::Operation::LastEffectSync:
+        case RepoSnapshotWork::Operation::HistoryFile:
+        case RepoSnapshotWork::Operation::ConflictCompare:
+        case RepoSnapshotWork::Operation::ConflictResolve:
+            work->response = TakeRustString(org_tasks_harmony_repo_history_operation(work->workspace_handle,
+                work->root_directory.c_str(), work->task_json.c_str()));
+            break;
         case RepoSnapshotWork::Operation::FileMetadata:
             work->response = TakeRustString(org_tasks_harmony_repo_file_metadata(
                 work->workspace_handle, work->root_directory.c_str()));
@@ -583,14 +640,6 @@ void ExecuteRepoSnapshot(napi_env, void* data)
         case RepoSnapshotWork::Operation::Conflicts:
             work->response = TakeRustString(org_tasks_harmony_repo_conflicts(
                 work->workspace_handle, work->root_directory.c_str()));
-            break;
-        case RepoSnapshotWork::Operation::MergeCompare:
-        case RepoSnapshotWork::Operation::MergeApply:
-            work->response = TakeRustString(org_tasks_harmony_repo_merge(work->workspace_handle,
-                work->root_directory.c_str(), work->webdav_url.c_str(), work->username.c_str(),
-                work->password.c_str(), work->task_path.c_str(), work->task_json.c_str(),
-                static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count())));
             break;
         case RepoSnapshotWork::Operation::Snapshot:
             work->response = TakeRustString(org_tasks_harmony_repo_snapshot(
@@ -635,7 +684,8 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             work->operation == RepoSnapshotWork::Operation::HistoryDetail ? "读取同步详情失败" : "处理同步合并失败");
     } else {
         napi_value result;
-        if (work->operation == RepoSnapshotWork::Operation::Load) {
+        if (work->operation == RepoSnapshotWork::Operation::Load ||
+            work->operation == RepoSnapshotWork::Operation::ConflictResolve) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!ParseJson(env, work->response, &result)) {
@@ -644,7 +694,7 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
-        } else if (work->operation == RepoSnapshotWork::Operation::File) {
+        } else if (work->operation == RepoSnapshotWork::Operation::File || work->operation == RepoSnapshotWork::Operation::HistoryFile) {
             napi_value file = CreateOrgFileObject(env, result);
             if (file != nullptr) napi_resolve_deferred(env, work->deferred, file);
             else RejectFileProjection(env, work->deferred);
@@ -905,6 +955,61 @@ napi_value NormalizeSyncOptions(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksNormalizeSyncOptions", self);
 }
 
+napi_value WorkspaceWatchNotifications(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1], self, name;
+    WorkspaceWrap* workspace = nullptr;
+    napi_valuetype type;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_typeof(env, args[0], &type) != napi_ok || type != napi_function ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "通知监控需要回调函数"); return nullptr;
+    }
+    auto* watch = new NotificationWatch();
+    if (napi_create_string_utf8(env, "OrgTasksNotificationMonitor", NAPI_AUTO_LENGTH, &name) != napi_ok ||
+        napi_create_threadsafe_function(env, args[0], nullptr, name, 0, 1, watch, FinalizeNotificationWatch,
+            nullptr, CallWebDavSyncMonitor, &watch->function) != napi_ok) {
+        delete watch; napi_throw_error(env, nullptr, "无法创建通知监控"); return nullptr;
+    }
+    napi_unref_threadsafe_function(env, watch->function);
+    auto* work = new WorkspaceStringWork();
+    work->handle = workspace->handle;
+    work->watch_notifications = true;
+    work->monitor_handle = reinterpret_cast<uintptr_t>(watch);
+    work->subscription_generation = ++workspace->notification_generation;
+    return QueueWorkspaceString(env, work, "OrgTasksWatchNotifications", self);
+}
+napi_value WorkspaceStopWatchingNotifications(napi_env env, napi_callback_info info)
+{
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self, result;
+    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
+    ++workspace->notification_generation;
+    org_tasks_harmony_workspace_unwatch_notifications(workspace->notification_subscription);
+    workspace->notification_subscription = 0;
+    napi_get_undefined(env, &result); return result;
+}
+napi_value WorkspaceReload(napi_env env, napi_callback_info info)
+{
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self;
+    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
+    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->reload = true;
+    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceReload", self);
+}
+
+napi_value WorkspaceNotifications(napi_env env, napi_callback_info info)
+{
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self;
+    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
+    auto* work = new WorkspaceStringWork();
+    work->handle = workspace->handle;
+    work->notifications = true;
+    return QueueWorkspaceString(env, work, "OrgTasksNotifications", self);
+}
+
 napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
 {
     WorkspaceWrap* workspace = nullptr; napi_value self; size_t argc = 2; napi_value args[2] = {nullptr, nullptr};
@@ -1153,6 +1258,44 @@ napi_value RepoHistory(napi_env env, napi_callback_info info)
     return QueueMergeWork(env, self, work);
 }
 
+napi_value RepoHistoryOperation(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value self;
+    void* method = nullptr;
+    RepoWrap* repo = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, &method) != napi_ok ||
+        (argc != 1 && (method == nullptr || std::strcmp(static_cast<const char*>(method), "lastEffectSync") != 0)) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr) {
+        napi_throw_error(env, nullptr, "历史文件参数无效"); return nullptr;
+    }
+    const char* operation = static_cast<const char*>(method);
+    napi_value request, value;
+    napi_create_object(env, &request);
+    napi_create_string_utf8(env, operation, NAPI_AUTO_LENGTH, &value);
+    napi_set_named_property(env, request, "operation", value);
+    if (std::strcmp(operation, "resolve") == 0) {
+        napi_set_named_property(env, request, "comparison", args[0]);
+    } else if (std::strcmp(operation, "lastEffectSync") != 0) {
+        for (const char* key : {"syncId", "path"}) {
+            if (napi_get_named_property(env, args[0], key, &value) != napi_ok) return nullptr;
+            napi_set_named_property(env, request, key, value);
+        }
+        if (std::strcmp(operation, "file") == 0) {
+            napi_get_named_property(env, args[0], "resolved", &value);
+            napi_set_named_property(env, request, "resolved", value);
+        }
+    }
+    auto* work = new RepoSnapshotWork();
+    if (!EncodeJson(env, request, &work->task_json)) { delete work; napi_throw_error(env, nullptr, "历史文件参数无法编组"); return nullptr; }
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = std::strcmp(operation, "file") == 0 ? RepoSnapshotWork::Operation::HistoryFile
+        : std::strcmp(operation, "compare") == 0 ? RepoSnapshotWork::Operation::ConflictCompare : std::strcmp(operation, "lastEffectSync") == 0 ? RepoSnapshotWork::Operation::LastEffectSync : RepoSnapshotWork::Operation::ConflictResolve;
+    return QueueMergeWork(env, self, work);
+}
+
 napi_value RepoHistoryDetail(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
@@ -1295,48 +1438,6 @@ napi_value RepoConflicts(napi_env env, napi_callback_info info)
     return QueueMergeWork(env, self, work);
 }
 
-napi_value WebDavMerge(napi_env env, napi_callback_info info, bool resolve)
-{
-    size_t argc = 2;
-    napi_value args[2] = {nullptr, nullptr};
-    napi_value self;
-    RepoWrap* repo = nullptr;
-    napi_value repo_class;
-    bool is_repo = false;
-    WebDavSyncPolicyWrap* policy = nullptr;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 2 ||
-        napi_get_reference_value(env, repo_constructor, &repo_class) != napi_ok ||
-        napi_instanceof(env, args[0], repo_class, &is_repo) != napi_ok || !is_repo ||
-        napi_unwrap(env, args[0], reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr ||
-        repo->workspace_handle == 0 || !UnwrapWebDavSyncPolicy(env, self, &policy)) {
-        napi_throw_error(env, nullptr, "WebDavSyncPolicy 合并参数无效");
-        return nullptr;
-    }
-    auto* work = new RepoSnapshotWork();
-    bool valid;
-    if (resolve) {
-        // 两端相对同步快照的状态与文件前言标记一并回传，由 Core 校验只读字段。
-        valid = EncodeJson(env, args[1], &work->task_json);
-    } else {
-        valid = ReadString(env, args[1], &work->task_path) && work->task_path.find('\0') == std::string::npos;
-    }
-    if (!valid || napi_create_reference(env, args[0], 1, &work->related_owner) != napi_ok) {
-        delete work;
-        napi_throw_error(env, nullptr, "任务合并参数无效");
-        return nullptr;
-    }
-    work->workspace_handle = repo->workspace_handle;
-    work->root_directory = repo->root_directory;
-    work->webdav_url = policy->webdav_url;
-    work->username = policy->username;
-    work->password = policy->password;
-    work->operation = resolve ? RepoSnapshotWork::Operation::MergeApply : RepoSnapshotWork::Operation::MergeCompare;
-    return QueueMergeWork(env, self, work);
-}
-
-napi_value WebDavCompareMerge(napi_env env, napi_callback_info info) { return WebDavMerge(env, info, false); }
-napi_value WebDavApplyMerge(napi_env env, napi_callback_info info) { return WebDavMerge(env, info, true); }
-
 } // namespace
 
 EXTERN_C_START
@@ -1384,6 +1485,10 @@ static napi_value Init(napi_env env, napi_value exports)
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"query", nullptr, WorkspaceQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"watchNotifications", nullptr, WorkspaceWatchNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"stopWatchingNotifications", nullptr, WorkspaceStopWatchingNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"reload", nullptr, WorkspaceReload, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"notifications", nullptr, WorkspaceNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value workspace_class;
     napi_define_class(env, "Workspace", NAPI_AUTO_LENGTH, WorkspaceConstructor, nullptr,
@@ -1397,6 +1502,10 @@ static napi_value Init(napi_env env, napi_value exports)
         {"rootDirectory", nullptr, nullptr, RepoRootDirectory, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"history", nullptr, RepoHistory, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"lastEffectSync", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("lastEffectSync")},
+        {"historyFile", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},
+        {"compareConflict", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("compare")},
+        {"resolveConflict", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("resolve")},
         {"historyDetail", nullptr, RepoHistoryDetail, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"files", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"fileMetadata", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
@@ -1412,8 +1521,6 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value webdav_sync_policy_class;
     napi_property_descriptor policy_descriptors[] = {
         {"testConnection", nullptr, WebDavTestConnection, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"compareMerge", nullptr, WebDavCompareMerge, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"applyMerge", nullptr, WebDavApplyMerge, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_class(env, "WebDavSyncPolicy", NAPI_AUTO_LENGTH, WebDavSyncPolicyConstructor, nullptr,
         sizeof(policy_descriptors) / sizeof(policy_descriptors[0]), policy_descriptors, &webdav_sync_policy_class);

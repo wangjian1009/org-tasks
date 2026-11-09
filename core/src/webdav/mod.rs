@@ -3,14 +3,17 @@
 //! 模块实现同步决策、认证、条件写入与同步记录构造。
 
 mod history;
+mod archive;
+pub(crate) mod local_commit;
+pub use archive::*;
 mod merge;
 pub mod runtime;
 mod task_scan;
 pub use history::*;
+pub(crate) use history::is_conflict as history_is_conflict;
 pub use merge::*;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::future::Future;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -58,6 +61,10 @@ pub struct WebDavSyncFileDetail {
     pub task_versions: Option<Vec<crate::OrgTaskFingerprint>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synced_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<WebDavFileArchive>,
+    #[serde(skip)]
+    pub resolved: bool,
 }
 
 impl From<RemoteFileVersion> for WebDavSyncFileDetail {
@@ -68,6 +75,8 @@ impl From<RemoteFileVersion> for WebDavSyncFileDetail {
             size: version.size,
             task_versions: None,
             synced_source: None,
+            archive: None,
+            resolved: false,
         }
     }
 }
@@ -225,7 +234,7 @@ impl WebDavSyncPolicy {
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>, CoreError> {
-        let history = repo.sync_history::<Self>().await?;
+        let history = repo.webdav_history().await?;
         let mut record =
             OrgRepoSyncRecord::new(format!("webdav-{}-{started_at}", repo.id), started_at)?
                 .with_kind(Self::KIND)
@@ -297,10 +306,8 @@ impl WebDavSyncPolicy {
         let initial_sync = !history.iter().any(|record| {
             record.result == Some(OrgRepoSyncResult::Succeeded) || !record.files.is_empty()
         });
-        let unresolved_paths = conflict_syncs(&history)
-            .into_iter()
-            .flat_map(|sync| sync.paths)
-            .collect::<BTreeSet<_>>();
+        let unresolved_paths = repo.pending_sync_conflicts().await?.into_iter()
+            .flat_map(|sync| sync.paths).collect::<BTreeSet<_>>();
         let mut paths = paths.into_iter().collect::<Vec<_>>();
         if let Some(index) = paths
             .iter()
@@ -327,39 +334,44 @@ impl WebDavSyncPolicy {
             });
             let local = repo.files.iter().find(|file| file.path == path).cloned();
             let remote = remote_by_path.get(&path).cloned();
-            let baseline = latest_file_record(&history, &path).cloned();
+            let baseline = repo.resolved_baseline(&history, &path).await?;
             let unresolved_without_baseline =
                 baseline.is_none() && unresolved_paths.contains(&path);
+            let current_path = path.clone();
+            let prior_local_version = local.as_ref().map(local_version).unwrap_or(LocalFileVersion::from_bytes(&[]));
             let outcome = if path == crate::model::TASK_SCAN_RULES_PATH {
                 self.sync_task_scan_rules(repo, remote, baseline.as_ref(), started_at, progress)
                     .await
             } else if unresolved_without_baseline {
-                Ok(conflict_record(repo, path, local, remote))
+                self.archive_conflict(repo, path, local, remote, started_at, progress).await
             } else if initial_sync {
                 // 首次同步没有可用基线。单端文件没有“双方都修改”的可能，
                 // 可以直接建立同步基线；只有两端都存在的文件需要用户确认。
                 match (local, remote) {
-                    (Some(local), None) => self.create_remote(repo, &local, progress).await,
-                    (None, Some(remote)) => self.download_remote(repo, remote, progress).await,
+                    (Some(local), None) => self.create_remote(repo, &local, started_at, progress).await,
+                    (None, Some(remote)) => self.download_remote(repo, remote, started_at, progress).await,
                     (Some(local), Some(remote)) => {
-                        Ok(conflict_record(repo, path, Some(local), Some(remote)))
+                        self.archive_conflict(repo, path, Some(local), Some(remote), started_at, progress).await
                     }
                     (None, None) => continue,
                 }
             } else {
                 match (local, remote, baseline) {
-                    (Some(local), None, None) => self.create_remote(repo, &local, progress).await,
+                    (Some(local), None, None) => self.create_remote(repo, &local, started_at, progress).await,
                     (Some(local), Some(remote), None) => {
-                        Ok(conflict_record(repo, path, Some(local), Some(remote)))
+                        self.archive_conflict(repo, path, Some(local), Some(remote), started_at, progress).await
                     }
-                    (None, Some(remote), _) => self.download_remote(repo, remote, progress).await,
+                    (None, Some(remote), _) => self.download_remote(repo, remote, started_at, progress).await,
                     (Some(local), None, Some(baseline))
                         if remote_version_for(&baseline).is_some() =>
                     {
-                        Ok(remote_deleted_record(repo, path, local, baseline))
+                        {
+                        repo.files.retain(|file| file.path != path);
+                        Ok(OrgRepoSyncFileRecord::new(path, OrgRepoSyncFileAction::Deleted, OrgRepoSyncFileState::Synchronized)?.with_detail(WebDavSyncFileDetail::default()))
+                        }
                     }
                     (Some(local), None, Some(_)) => {
-                        self.create_remote(repo, &local, progress).await
+                        self.create_remote(repo, &local, started_at, progress).await
                     }
                     (Some(local), Some(remote), Some(baseline)) => {
                         let local_version = local_version(&local);
@@ -371,12 +383,12 @@ impl WebDavSyncPolicy {
                             (false, false) => {
                                 Ok(unchanged_record(repo, path, local_version, remote.version))
                             }
-                            (false, true) => self.download_remote(repo, remote, progress).await,
+                            (false, true) => self.download_remote(repo, remote, started_at, progress).await,
                             (true, false) => {
-                                self.replace_remote(repo, &local, baseline, progress).await
+                                self.replace_remote(repo, &local, baseline, started_at, progress).await
                             }
                             (true, true) => {
-                                Ok(conflict_record(repo, path, Some(local), Some(remote)))
+                                self.archive_conflict(repo, path, Some(local), Some(remote), started_at, progress).await
                             }
                         }
                     }
@@ -384,13 +396,16 @@ impl WebDavSyncPolicy {
                 }
             };
 
-            match outcome {
-                Ok(mut file_record) => {
+            let outcome = if current_path == crate::model::TASK_SCAN_RULES_PATH { Ok(outcome?) } else { outcome };
+            let file_record = outcome.unwrap_or_else(|error| {
+                let category = if matches!(error, CoreError::Store(_)) { OrgRepoSyncErrorCategory::LocalStorage } else { OrgRepoSyncErrorCategory::Validation };
+                failed_record(repo, current_path, prior_local_version, OrgRepoSyncErrorSummary::new(category, false, error.to_string()).unwrap())
+            });
+            {
+                let mut file_record = file_record;
                     failed |= matches!(
                         file_record.state,
                         OrgRepoSyncFileState::Failed
-                            | OrgRepoSyncFileState::Conflict
-                            | OrgRepoSyncFileState::RemoteDeleted
                     );
                     record.append_file(file_record.clone())?;
                     // 完整文件仅保存到同步日志，不随进度事件传播。
@@ -398,8 +413,6 @@ impl WebDavSyncPolicy {
                     self.report(WebDavSyncEvent::FileProcessed {
                         record: file_record,
                     });
-                }
-                Err(error) => return Err(error),
             }
         }
         let result = if failed {
@@ -416,13 +429,35 @@ impl WebDavSyncPolicy {
         Ok(record)
     }
 
+    async fn archive_conflict(&self, repo: &OrgRepo, path: String, local: Option<OrgFile>, remote: Option<WebDavRemoteFile>, time: TimestampMs, progress: &SyncProgressReporter) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
+        let Some(remote_file) = &remote else { return Ok(conflict_record(repo, path, local, remote)); };
+        if remote_file.version.etag.is_none() {
+            return Err(CoreError::InvalidState("远端未提供 ETag，无法保存可校验的冲突备份"));
+        }
+        let bytes = runtime::get_remote(&self.client, &self.username, &self.password, &self.endpoint, &path,
+            remote_file.version.etag.as_deref(), progress, self.monitor.as_ref()).await;
+        match bytes {
+            Ok(bytes) => {
+                repo.parse_file(path.clone(), bytes.clone())?;
+                let archive = save_archive(repo, time, &path, &bytes).await?;
+                let mut file = conflict_record(repo, path, local, remote);
+                file.detail.archive = Some(archive);
+                Ok(file)
+            },
+            Err(error) => Ok(failed_record(repo, path, local.as_ref().map(local_version)
+                .unwrap_or(LocalFileVersion::from_bytes(&[])), error.summary())),
+        }
+    }
+
     async fn create_remote(
         &self,
         repo: &OrgRepo,
         local: &OrgFile,
+        started_at: TimestampMs,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
         let local_version = local_version(local);
+        let archive = save_archive(repo, started_at, &local.path, local.source_bytes()).await?;
         match runtime::put_remote(
             &self.client,
             &self.username,
@@ -436,19 +471,26 @@ impl WebDavSyncPolicy {
         )
         .await
         {
-            Ok(remote_version) => success_record(
+            Ok(remote_version) => archived_success_record(
+                archive,
                 repo,
                 local.path.clone(),
                 OrgRepoSyncFileAction::Created,
                 local_version,
                 remote_version,
             ),
-            Err(error) => Ok(failed_record(
-                repo,
-                local.path.clone(),
-                local_version,
-                error.summary(),
-            )),
+            Err(WebDavError::Conflict(_)) => {
+                archive::discard_upload_archive(repo, started_at, &local.path, local.source_bytes()).await?;
+                let remotes = runtime::list_remote(&self.client, &self.username, &self.password, &self.endpoint, progress, self.monitor.as_ref()).await
+                    .map_err(|_| CoreError::InvalidState("条件上传冲突，无法读取新的远端版本"))?;
+                let remote = remotes.into_iter().find(|f| f.path == local.path);
+                self.archive_conflict(repo, local.path.clone(), Some(local.clone()), remote, started_at, progress).await
+            },
+            Err(error) => {
+                let mut file = failed_record(repo, local.path.clone(), local_version, error.summary());
+                file.detail.archive = Some(archive);
+                Ok(file)
+            },
         }
     }
 
@@ -457,9 +499,11 @@ impl WebDavSyncPolicy {
         repo: &OrgRepo,
         local: &OrgFile,
         baseline: OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
+        started_at: TimestampMs,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
         let local_version = local_version(local);
+        let archive = save_archive(repo, started_at, &local.path, local.source_bytes()).await?;
         let Some(etag) = remote_version_for(&baseline)
             .as_ref()
             .and_then(|version| version.etag.clone())
@@ -484,19 +528,26 @@ impl WebDavSyncPolicy {
         )
         .await
         {
-            Ok(remote_version) => success_record(
+            Ok(remote_version) => archived_success_record(
+                archive,
                 repo,
                 local.path.clone(),
                 OrgRepoSyncFileAction::Uploaded,
                 local_version,
                 remote_version,
             ),
-            Err(error) => Ok(failed_record(
-                repo,
-                local.path.clone(),
-                local_version,
-                error.summary(),
-            )),
+            Err(WebDavError::Conflict(_)) => {
+                archive::discard_upload_archive(repo, started_at, &local.path, local.source_bytes()).await?;
+                let remotes = runtime::list_remote(&self.client, &self.username, &self.password, &self.endpoint, progress, self.monitor.as_ref()).await
+                    .map_err(|_| CoreError::InvalidState("条件上传冲突，无法读取新的远端版本"))?;
+                let remote = remotes.into_iter().find(|f| f.path == local.path);
+                self.archive_conflict(repo, local.path.clone(), Some(local.clone()), remote, started_at, progress).await
+            },
+            Err(error) => {
+                let mut file = failed_record(repo, local.path.clone(), local_version, error.summary());
+                file.detail.archive = Some(archive);
+                Ok(file)
+            },
         }
     }
 
@@ -504,6 +555,7 @@ impl WebDavSyncPolicy {
         &self,
         repo: &mut OrgRepo,
         remote: WebDavRemoteFile,
+        started_at: TimestampMs,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
         match runtime::get_remote(
@@ -512,7 +564,7 @@ impl WebDavSyncPolicy {
             &self.password,
             &self.endpoint,
             &remote.path,
-            None,
+            remote.version.etag.as_deref(),
             progress,
             self.monitor.as_ref(),
         )
@@ -520,14 +572,15 @@ impl WebDavSyncPolicy {
         {
             Ok(source_bytes) => {
                 let file = repo.parse_file(remote.path.clone(), source_bytes)?;
-                runtime::write_downloaded_file(repo, &file.path, &file.source_bytes).await?;
+                let archive = save_archive(repo, started_at, &file.path, file.source_bytes()).await?;
                 let local_version = local_version(&file);
                 if let Some(index) = repo.files.iter().position(|item| item.path == file.path) {
                     repo.files[index] = file;
                 } else {
                     repo.files.push(file);
                 }
-                success_record(
+                archived_success_record(
+                    archive,
                     repo,
                     remote.path,
                     OrgRepoSyncFileAction::Downloaded,
@@ -550,22 +603,46 @@ impl SyncPolicy for WebDavSyncPolicy {
     type ContextDetail = WebDavSyncContextDetail;
     type FileDetail = WebDavSyncFileDetail;
 
-    fn synchronize(
+    async fn synchronize(
         &self,
         context: &mut SyncContext<'_>,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-    ) -> impl Future<
-        Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>,
-    > + Send {
-        self.synchronize_repo(
-            context.repo,
-            context.started_at,
-            &context.options,
-            cancellation,
-            progress,
-        )
+    ) -> Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError> {
+        let original = context.repo.clone();
+        let root = std::path::Path::new(&original.root_directory);
+        let original_rules = local_commit::read_local(root, crate::model::TASK_SCAN_RULES_PATH).await?;
+        let mut staged = original.clone();
+        let mut record = self.synchronize_repo(&mut staged, context.started_at, &context.options, cancellation, progress).await?;
+        if record.result != Some(OrgRepoSyncResult::Succeeded) {
+            for file in &mut record.files {
+                if matches!(file.action, OrgRepoSyncFileAction::Downloaded | OrgRepoSyncFileAction::Deleted) && file.state == OrgRepoSyncFileState::Synchronized {
+                    file.state = OrgRepoSyncFileState::Failed;
+                    file.detail.synced_source = None;
+                    file.error = Some(OrgRepoSyncErrorSummary::new(OrgRepoSyncErrorCategory::LocalStorage, false,
+                        "本次同步未成功，未更新本地仓库文件".into())?);
+                }
+            }
+            return Ok(record);
+        }
+        for file in &record.files {
+            if !matches!(file.action, OrgRepoSyncFileAction::Downloaded | OrgRepoSyncFileAction::Deleted) || file.state != OrgRepoSyncFileState::Synchronized { continue; }
+            let before = if file.relative_path == crate::model::TASK_SCAN_RULES_PATH { original_rules.clone() }
+                else { original.files.iter().find(|f| f.path == file.relative_path).map(|f| f.source_bytes().to_vec()) };
+            let after = if file.action == OrgRepoSyncFileAction::Deleted { None }
+                else if file.relative_path == crate::model::TASK_SCAN_RULES_PATH { file.detail.synced_source.as_ref().map(|s| s.as_bytes().to_vec()) }
+                else { staged.files.iter().find(|f| f.path == file.relative_path).map(|f| f.source_bytes().to_vec()) };
+            context.local_changes.push(local_commit::LocalSyncChange { path: file.relative_path.clone(), before, after });
+        }
+        Ok(record)
     }
+
+}
+
+fn archived_success_record(archive: WebDavFileArchive, repo: &OrgRepo, path: String, action: OrgRepoSyncFileAction, local: LocalFileVersion, remote: RemoteFileVersion) -> Result<OrgRepoSyncFileRecord<WebDavSyncFileDetail>, CoreError> {
+    let mut record = success_record(repo, path, action, local, remote)?;
+    record.detail.archive = Some(archive);
+    Ok(record)
 }
 
 fn success_record(
@@ -631,25 +708,6 @@ fn conflict_record(
             .unwrap_or_default(),
     )
     .with_error(WebDavError::Conflict("本地与远端均有未确认变更".into()).summary())
-}
-
-fn remote_deleted_record(
-    _repo: &OrgRepo,
-    path: String,
-    local: OrgFile,
-    baseline: OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
-) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
-    OrgRepoSyncFileRecord::new(
-        path,
-        OrgRepoSyncFileAction::Skipped,
-        OrgRepoSyncFileState::RemoteDeleted,
-    )
-    .expect("远端删除文件记录应有效")
-    .with_local_version(Some(local_version(&local)))
-    .with_detail(WebDavSyncFileDetail {
-        synced_source: None,
-        ..baseline.detail
-    })
 }
 
 fn failed_record(
@@ -761,6 +819,7 @@ mod tests {
                     size: Some(3),
                     task_versions: None,
                     synced_source: None,
+                    ..Default::default()
                 }),
             )
             .unwrap();
@@ -780,6 +839,7 @@ mod tests {
                     size: Some(3),
                     task_versions: None,
                     synced_source: None,
+                    ..Default::default()
                 }),
             )
             .unwrap();
@@ -802,6 +862,7 @@ mod tests {
                 size: Some(3),
                 task_versions: None,
                 synced_source: None,
+                ..Default::default()
             }))
             .unwrap();
         partial.finish(OrgRepoSyncResult::Failed, 6).unwrap();
@@ -941,9 +1002,10 @@ mod write_tests {
                     assert_eq!(&request[header_end..], &body);
                 }
                 let response = format!(
-                    "HTTP/1.1 {} Result\r\nContent-Length: {}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n{}",
+                    "HTTP/1.1 {} Result\r\nContent-Length: {}\r\nETag: {}\r\nConnection: close\r\n\r\n{}",
                     exchange.status,
                     exchange.response.len(),
+                    if exchange.method == "GET" { exchange.condition.and_then(|c| c.strip_prefix("if-match: ")).unwrap_or("\"v1\"") } else { "\"v1\"" },
                     exchange.response
                 );
                 stream.write_all(response.as_bytes()).await.unwrap();
@@ -1019,7 +1081,7 @@ mod write_tests {
             propfind("<multistatus xmlns=\"DAV:\"/>".into()),
             put(first, "if-none-match: *", 201),
             propfind(listing("\"v1\"", first.len())),
-            put(second, "if-match: \"v1\"", 412),
+            put(second, "if-match: \"v1\"", 500),
             propfind(listing("\"v1\"", first.len())),
             put(second, "if-match: \"v1\"", 204),
         ])
@@ -1070,7 +1132,9 @@ mod write_tests {
             propfind("<multistatus xmlns=\"DAV:\"/>".into()),
             put(first, "if-none-match: *", 201),
             propfind(listing("\"v2\"", first.len())),
+            Exchange { method: "GET", condition: Some("if-match: \"v2\""), body: None, status: 200, response: String::from_utf8(first.to_vec()).unwrap() },
             propfind(listing("\"v2\"", first.len())),
+            Exchange { method: "GET", condition: Some("if-match: \"v2\""), body: None, status: 200, response: String::from_utf8(first.to_vec()).unwrap() },
         ])
         .await;
         let policy = WebDavSyncPolicy::new(
@@ -1094,7 +1158,7 @@ mod write_tests {
         .unwrap();
         for time in [2, 3] {
             let record = sync(&mut repo, &policy, time).await;
-            assert_eq!(record.result, Some(OrgRepoSyncResult::Failed));
+            assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
             assert_eq!(record.files[0].state, OrgRepoSyncFileState::Conflict);
             assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
             assert_eq!(

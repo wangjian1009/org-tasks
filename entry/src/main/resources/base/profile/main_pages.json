@@ -11,6 +11,7 @@
     "pages/Settings",
     "pages/FileTargetPicker",
     "pages/RepositorySettings",
+    "pages/ConflictFile",
     "pages/Capture",
     "pages/ShareCapture",
     "pages/ShareLocation"

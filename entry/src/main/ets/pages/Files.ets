@@ -1,3 +1,6 @@
+import { NotificationEmptyState } from '../components/NotificationEmptyState'
+import { CoreNotificationsView } from '../components/CoreNotificationsView'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { NotebookFileRow } from '../components/NotebookFileRow'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppShell } from '../components/AppShell'
@@ -11,6 +14,7 @@ import { fileUsageKinds } from '../ui/NotebookPresentation'
 @Entry
 @Component
 struct Files {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State groups: NotebookGroup[] = []
   @State loading: boolean = true
   @State message: string = ''
@@ -61,13 +65,16 @@ struct Files {
         synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
-            EmptyState({ title: '正在读取存储库', busy: true })
+            NotificationEmptyState({ title: '正在读取存储库', busy: true })
           } else if (this.message) {
-            EmptyState({ title: '存储库读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
+            NotificationEmptyState({ title: '存储库读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
           } else if (this.groups.length === 0) {
-            EmptyState({ title: '还没有存储库', detail: '尚未配置可浏览的本地或 WebDAV 存储库。' })
+            NotificationEmptyState({ title: '还没有存储库', detail: '尚未配置可浏览的本地或 WebDAV 存储库。' })
           } else {
             List() {
+              if (this.notificationState.notifications.length > 0) {
+                ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
+              }
               ForEach(this.groups, (group: NotebookGroup) => {
                 ListItemGroup({ header: this.repositoryHeader(group) }) {
                   if (this.visibleFiles(group).length === 0) {
@@ -83,7 +90,7 @@ struct Files {
                     }
                   }, (file: CoreOrgFileMetadata) => JSON.stringify(file))
                 }
-              }, (group: NotebookGroup) => `${group.configId}:${group.name}`)
+              }, (group: NotebookGroup) => JSON.stringify(group))
             }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)
@@ -106,9 +113,11 @@ struct Files {
           .enabled(group.configId.length > 0)
           .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
         IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
+          iconSize: 20, buttonWidth: 40,
           label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,
           action: (): void => { this.toggleIgnored(group) } })
         IconButton({ icon: $r('app.media.ui_sync_log'), label: `${group.name}：同步日志`, disabled: group.configId.length === 0,
+          iconSize: 20, buttonWidth: 40,
           action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncLog', params: { repoId: group.configId } }) } })
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)

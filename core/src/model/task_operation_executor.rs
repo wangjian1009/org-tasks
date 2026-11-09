@@ -71,6 +71,14 @@ impl OrgWorkspace {
                 operation_group: group.clone(),
                 fallback_group: fallback.clone(),
             });
+        let updated_repositories = fallback
+            .files
+            .iter()
+            .map(|file| &file.repo_id)
+            .collect::<BTreeSet<_>>();
+        for repo_id in updated_repositories {
+            super::sync_events::publish(self.repo(repo_id).expect("已验证仓库"));
+        }
         Ok(TaskOperationResult { paths, fallback })
     }
 }

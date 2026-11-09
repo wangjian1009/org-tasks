@@ -389,7 +389,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(record.result, Some(OrgRepoSyncResult::Failed));
+        assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
         Fixture {
             repo,
             policy,

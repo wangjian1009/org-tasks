@@ -87,6 +87,11 @@ pub extern "C" fn org_tasks_harmony_workspace_repo_roots(handle: u64) -> *mut c_
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_notifications(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_notifications_json(handle))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_remove_repo(
     handle: u64,
     root_directory: *const c_char,
@@ -277,6 +282,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ffi_notifications_uses_existing_string_lifetime_and_error_contract() {
+        let handle = org_tasks_harmony_workspace_create();
+        let value = org_tasks_harmony_workspace_notifications(handle);
+        assert!(!value.is_null());
+        assert_eq!(unsafe { CStr::from_ptr(value) }.to_str().unwrap(), "[]");
+        org_tasks_harmony_free_string(value);
+        org_tasks_harmony_workspace_release(handle);
+        assert!(org_tasks_harmony_workspace_notifications(u64::MAX).is_null());
+        let error = org_tasks_harmony_last_error();
+        let json: serde_json::Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(error) }.to_str().unwrap()).unwrap();
+        assert_eq!(json["code"], "invalidInput");
+        org_tasks_harmony_free_string(error);
+    }
+
+    #[test]
     fn ffi_error_retains_core_category_and_message() {
         let value = string_result(Err(CoreError::Store("仓库根目录不存在或不是目录".into())));
         assert!(value.is_null());
@@ -304,30 +325,6 @@ pub extern "C" fn org_tasks_harmony_repo_conflicts(
     )
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_merge(
-    handle: u64,
-    root_directory: *const c_char,
-    webdav_url: *const c_char,
-    username: *const c_char,
-    password: *const c_char,
-    path: *const c_char,
-    request_json: *const c_char,
-    started_at: i64,
-) -> *mut c_char {
-    string_result(read_c_string(root_directory).and_then(|root| {
-        bridge::repo_merge_json(
-            handle,
-            root,
-            read_c_string(webdav_url)?,
-            read_c_string(username)?,
-            read_c_string(password)?,
-            read_c_string(path)?,
-            read_c_string(request_json)?,
-            started_at,
-        )
-    }))
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_set_todo_defaults(
@@ -399,4 +396,22 @@ pub extern "C" fn org_tasks_harmony_workspace_execute_task_operations(handle:u64
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_full_path(handle:u64,root:*const c_char)->*mut c_char{
     string_result(read_c_string(root).and_then(|root|bridge::repo_full_path_json(handle,root)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_history_operation(handle: u64, root: *const c_char, request: *const c_char) -> *mut c_char {
+    string_result(read_c_string(root).and_then(|root| bridge::repo_history_operation(handle, root, read_c_string(request)?)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_watch_notifications(handle:u64, monitor:u64)->u64 {
+    clear_last_error();
+    match bridge::workspace_watch_notifications(handle,monitor) {Ok(id)=>id,Err(e)=>{remember_error(&e);0}}
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_unwatch_notifications(id:u64) {bridge::workspace_unwatch_notifications(id);}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_reload(handle:u64)->i32 {
+    clear_last_error();
+    match bridge::workspace_reload(handle) {Ok(())=>0,Err(e)=>{remember_error(&e);-1}}
 }

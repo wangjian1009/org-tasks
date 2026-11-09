@@ -1,8 +1,7 @@
 //! 下载仓库根目录的任务扫描配置；规则不参与 Org 任务解析或上传。
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use tokio::fs::{self, OpenOptions};
-use tokio::io::AsyncWriteExt;
+use tokio::fs;
 
 use super::*;
 use crate::TaskScanRules;
@@ -55,7 +54,7 @@ impl WebDavSyncPolicy {
         let action = if original == bytes {
             OrgRepoSyncFileAction::Unchanged
         } else if let Some(bytes) = &bytes {
-            replace_rules(&target, &original, bytes, started_at).await?;
+            let _ = (bytes, started_at); // 整次同步成功后统一提交规则文件。
             OrgRepoSyncFileAction::Downloaded
         } else {
             if read_rules(&target).await? != original {
@@ -63,7 +62,7 @@ impl WebDavSyncPolicy {
                     "本地 .orgzlyignore 已改变，请重新同步".into(),
                 ));
             }
-            fs::remove_file(&target).await.map_err(store_error)?;
+
             OrgRepoSyncFileAction::Deleted
         };
         repo.task_scan_rules = rules;
@@ -89,37 +88,6 @@ async fn read_rules(target: &Path) -> Result<Option<Vec<u8>>, CoreError> {
         }
         Ok(_) => fs::read(target).await.map(Some).map_err(store_error),
     }
-}
-
-async fn replace_rules(
-    target: &Path,
-    original: &Option<Vec<u8>>,
-    bytes: &[u8],
-    started_at: TimestampMs,
-) -> Result<(), CoreError> {
-    let temporary: PathBuf = target.with_file_name(format!(".orgzlyignore-{started_at}.tmp"));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .await
-        .map_err(store_error)?;
-    let result = async {
-        file.write_all(bytes).await.map_err(store_error)?;
-        file.sync_all().await.map_err(store_error)?;
-        drop(file);
-        if &read_rules(target).await? != original {
-            return Err(CoreError::Store(
-                "本地 .orgzlyignore 已改变，请重新同步".into(),
-            ));
-        }
-        fs::rename(&temporary, target).await.map_err(store_error)
-    }
-    .await;
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary).await;
-    }
-    result
 }
 
 fn store_error(error: std::io::Error) -> CoreError {

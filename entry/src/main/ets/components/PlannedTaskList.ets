@@ -1,3 +1,5 @@
+import { CoreNotificationsView } from './CoreNotificationsView'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedTaskItem } from '../ui/PlannedPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
@@ -5,6 +7,7 @@ import { TaskListItem } from './TaskListItem'
 
 @Component
 export struct PlannedTaskList {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop groups: PlannedGroup[] = []
   @Prop referenceTime: number = Date.now()
 
@@ -47,9 +50,12 @@ export struct PlannedTaskList {
 
   build() {
     List() {
+              if (this.notificationState.notifications.length > 0) {
+                ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
+              }
       ForEach(this.groups, (group: PlannedGroup) => {
         ListItem() { this.groupContent(group) }
-      }, (group: PlannedGroup) => group.key)
+      }, (group: PlannedGroup) => JSON.stringify(group))
     }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
       .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .edgeEffect(EdgeEffect.None)

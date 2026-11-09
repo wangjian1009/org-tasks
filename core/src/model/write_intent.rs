@@ -124,7 +124,7 @@ fn validate_task_path(path: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-pub(super) async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
+pub(crate) async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
     let mut target = root.to_path_buf();
     let parts = path.split('/').collect::<Vec<_>>();
     for (index, part) in parts.iter().enumerate() {
@@ -151,7 +151,7 @@ pub(super) async fn task_target(root: &Path, path: &str) -> Result<PathBuf, Core
     Ok(target)
 }
 
-pub(super) async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
+pub(crate) async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
     match fs::read(path).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -159,7 +159,7 @@ pub(super) async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreEr
     }
 }
 
-pub(super) async fn write_new(path: &Path, content: &[u8]) -> Result<(), CoreError> {
+pub(crate) async fn write_new(path: &Path, content: &[u8]) -> Result<(), CoreError> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

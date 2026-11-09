@@ -5,15 +5,17 @@ import { EmptyState } from '../components/Controls'
 import { OrgContentView } from '../components/OrgContentView'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, CoreOrgFile, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreOrgFile, CoreTitlePart, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { syncLogTimeLabel } from '../ui/SyncLogPresentation'
 import { UiColor } from '../ui/Theme'
 
-interface NotebookParams { repoId?: string; path?: string }
+interface NotebookParams { repoId?: string; path?: string; syncId?: string; resolved?: boolean; repositoryName?: string; backupTime?: number; backupPath?: string }
 
 @Entry
 @Component
 struct FileDetail {
   @State path: string = ''
+  @State historyLabel: string = ''
   @State title: string = ''
   @State titleParts: CoreTitlePart[] = []
   @State content: string = ''
@@ -42,7 +44,17 @@ struct FileDetail {
       const params = this.getUIContext().getRouter().getParams() as NotebookParams
       this.path = params.path || ''
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const file: CoreOrgFile | undefined = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
+      let file: CoreOrgFile | undefined = undefined
+      if (params.syncId) {
+        const repository = config.repos.find((item) => item.id === params.repoId)
+        if (!repository) throw new Error('此存储库已不存在')
+        const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+        file = await repo.historyFile(params.syncId, this.path, params.resolved === true)
+        this.historyLabel = `历史备份${params.resolved ? ' · 已解决' : ''} · ${params.backupPath || this.path}\n${params.repositoryName || ''}${params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''}`
+      } else {
+        file = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
+        this.historyLabel = ''
+      }
       if (revision !== this.loadRevision) return
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }
       this.displayMode = config.fileDisplayMode
@@ -80,6 +92,9 @@ struct FileDetail {
           } else if (this.message) {
             EmptyState({ title: '无法打开文件', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile() } })
           } else {
+            if (this.historyLabel.length > 0) {
+              Text(this.historyLabel).fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ left: 20, right: 20, top: 8, bottom: 8 })
+            }
             if (this.displayMode === 'source') {
               Scroll() {
                 Text(this.content || '空白 Org 文件').width('100%').fontSize(14).fontFamily('monospace')

@@ -1,10 +1,11 @@
 import { AppShell } from '../components/AppShell'
+import { FileItem } from '../components/FileItem'
 import { EmptyState } from '../components/Controls'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreSyncFileRecord, CoreSyncHistoryError, CoreSyncRecord, CoreSyncRecordDetail,
   NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
-import { syncLogConflictLabel, syncLogErrorLabel, syncLogFileOutcomeLabel, syncLogResultLabel,
-  syncLogTimeLabel, syncLogTransferLabel } from '../ui/SyncLogPresentation'
+import { syncLogConflictLabel, syncLogErrorLabel, syncLogResultLabel,
+  syncLogTimeLabel } from '../ui/SyncLogPresentation'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 
 interface SyncDetailParams {
@@ -53,11 +54,23 @@ struct SyncDetail {
     }
   }
 
-  resultIcon(record: CoreSyncRecord): Resource {
-    switch (record.executionResult) {
-      case 'succeeded': return $r('app.media.ui_sync_succeeded')
-      case 'failed': return $r('app.media.ui_sync_failed')
-      default: return $r('app.media.ui_sync_stopped')
+  sectionFiles(section: string): CoreSyncFileRecord[] {
+    return this.detail?.files.filter((file: CoreSyncFileRecord) => file.section === section) || []
+  }
+
+  async openFile(file: CoreSyncFileRecord) {
+    try {
+      if (!file.backup) throw new Error('该日志未保存文件备份，无法打开历史内容')
+      if (file.outcome === 'conflict') {
+        await this.getUIContext().getRouter().pushUrl({ url: 'pages/ConflictFile',
+          params: { repoId: this.repoId, syncId: this.syncId, path: file.path } })
+      } else {
+        await this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail',
+          params: { repoId: this.repoId, syncId: this.syncId, path: file.path, resolved: file.outcome === 'resolved', repositoryName: this.repositoryName,
+            backupTime: file.backup.modifiedAt, backupPath: file.backup.path } })
+      }
+    } catch (e) {
+      try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError) }) } catch (_) {}
     }
   }
 
@@ -65,15 +78,43 @@ struct SyncDetail {
     return record.executionResult === 'succeeded' ? UiColor.done : record.executionResult === 'failed' ? UiColor.error : UiColor.secondary
   }
 
-  fileColor(file: CoreSyncFileRecord): string {
-    switch (file.outcome) {
-      case 'conflict':
-      case 'failed': return UiColor.error
-      case 'uploaded':
-      case 'created':
-      case 'resolved': return UiColor.done
-      case 'downloaded': return UiColor.primary
-      default: return UiColor.secondary
+  resultBackground(record: CoreSyncRecord): string {
+    return record.executionResult === 'succeeded' ? '#315C4B' : record.executionResult === 'failed' ? '#7F3548' : UiColor.field
+  }
+
+  @Builder
+  fileSection(label: string, section: string, color: string) {
+    if (this.sectionFiles(section).length > 0) {
+      Column() {
+        Row() {
+          Image(section === 'upload' ? $r('app.media.ui_sync_upload') : section === 'download' ? $r('app.media.ui_sync_download') : $r('app.media.ui_notification_conflict')).width(18).height(18).margin({ right: 8 })
+          Text(label).fontSize(15).fontWeight(FontWeight.Medium).fontColor(color).layoutWeight(1)
+          Text(`${this.sectionFiles(section).length}`).fontSize(13).fontColor(UiColor.secondary)
+        }.width('100%').height(32).padding({ left: 8, right: 8 })
+        Divider().color(UiColor.outline).strokeWidth(0.5).margin({ left: 8, right: 8 })
+        ForEach(this.sectionFiles(section), (file: CoreSyncFileRecord) => {
+          if (file.backup) {
+            FileItem({ file: file.backup,
+              statusColor: file.outcome === 'resolved' ? UiColor.done : UiColor.error,
+              open: (): void => { this.openFile(file) } })
+          } else {
+            Column({ space: 2 }) {
+              Row({ space: 6 }) {
+                Text(file.path).fontSize(16).fontColor(UiColor.text).layoutWeight(1).maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                if (file.outcome !== 'deleted') {
+                  Text('未备份').fontSize(11).fontColor(UiColor.warning)
+                    .padding({ left: 6, right: 6, top: 2, bottom: 2 }).borderRadius(6).backgroundColor(UiColor.container)
+                }
+              }.width('100%')
+              if (file.outcome === 'deleted') {
+                Text('远端已删除').fontSize(12).fontColor(UiColor.secondary).width('100%')
+              }
+            }.width('100%').height(56).padding({ left: 8, right: 8 }).justifyContent(FlexAlign.Center)
+              .onClick((): void => { if (file.outcome !== 'deleted') this.openFile(file) })
+          }
+        }, (file: CoreSyncFileRecord) => JSON.stringify(file))
+      }.width('100%')
     }
   }
 
@@ -81,33 +122,22 @@ struct SyncDetail {
   detailContent(detail: CoreSyncRecordDetail) {
     Scroll() {
       Column({ space: 20 }) {
-        Text(this.repositoryName).fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%')
-        Text(syncLogTimeLabel(detail.summary.started_at)).fontSize(13).fontColor(UiColor.secondary).width('100%')
-        Row({ space: 10 }) {
-          Image(this.resultIcon(detail.summary)).width(18).height(18)
-          Text(syncLogResultLabel(detail.summary)).fontSize(16).fontColor(this.resultColor(detail.summary))
+        Text(this.repositoryName).fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%').padding({ left: 8, right: 8 })
+        Text(syncLogTimeLabel(detail.summary.started_at)).fontSize(13).fontColor(UiColor.secondary).width('100%').padding({ left: 8, right: 8 })
+        Row() {
+          Text(syncLogResultLabel(detail.summary)).fontSize(12)
+            .fontColor(this.resultColor(detail.summary))
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 }).borderRadius(6)
+            .backgroundColor(this.resultBackground(detail.summary))
           if (syncLogConflictLabel(detail.summary).length > 0) {
             Text(syncLogConflictLabel(detail.summary)).fontSize(11).fontColor('#F5F5F5')
-              .padding({ left: 6, right: 6, top: 2, bottom: 2 }).borderRadius(10)
-              .backgroundColor(detail.summary.pendingConflicts > 0 ? '#7F3548' : '#315C4B')
+              .padding({ left: 6, right: 6, top: 3, bottom: 3 }).borderRadius(6)
+              .backgroundColor(detail.summary.pendingConflicts > 0 ? '#7F3548' : '#315C4B').margin({ left: 8 })
           }
-        }.width('100%')
-        Text(syncLogTransferLabel(detail.summary)).fontSize(16).fontColor(UiColor.text).width('100%')
-        Divider().color(UiColor.outline).strokeWidth(0.5)
-        Text('文件记录').fontSize(15).fontColor(UiColor.primary).width('100%')
-        if (detail.files.length === 0) {
-          Text('本次同步未生成文件记录').fontSize(14).fontColor(UiColor.secondary).width('100%')
-        } else {
-          Column() {
-            ForEach(detail.files, (file: CoreSyncFileRecord) => {
-              Row({ space: 12 }) {
-                Text(file.path).fontSize(16).fontColor(UiColor.text).layoutWeight(1)
-                Text(syncLogFileOutcomeLabel(file)).fontSize(14).fontColor(this.fileColor(file)).flexShrink(0)
-              }.width('100%').constraintSize({ minHeight: 48 }).padding({ top: 8, bottom: 8 })
-                .accessibilityGroup(true).accessibilityText(`${file.path}，${syncLogFileOutcomeLabel(file)}`)
-            }, (file: CoreSyncFileRecord) => JSON.stringify(file))
-          }.width('100%')
-        }
+        }.width('100%').padding({ left: 8, right: 8 })
+        this.fileSection('上传', 'upload', UiColor.done)
+        this.fileSection('下载', 'download', UiColor.primary)
+        this.fileSection('冲突', 'conflict', UiColor.error)
         if (detail.errors.length > 0) {
           Text('错误信息').fontSize(15).fontColor(UiColor.primary).width('100%')
           ForEach(detail.errors, (error: CoreSyncHistoryError, index: number) => {
@@ -120,7 +150,7 @@ struct SyncDetail {
           Text('错误信息').fontSize(15).fontColor(UiColor.primary).width('100%')
           Text(syncLogErrorLabel(detail.summary)).fontSize(16).lineHeight(24).fontColor(UiColor.error).width('100%')
         }
-      }.width('100%').padding({ left: 20, right: 20, top: 20, bottom: 32 }).alignItems(HorizontalAlign.Start)
+      }.width('100%').padding({ left: 12, right: 12, top: 20, bottom: 32 }).alignItems(HorizontalAlign.Start)
     }.width('100%').layoutWeight(1).align(Alignment.TopStart).edgeEffect(EdgeEffect.None)
   }
 

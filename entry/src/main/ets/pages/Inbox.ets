@@ -1,3 +1,6 @@
+import { NotificationEmptyState } from '../components/NotificationEmptyState'
+import { CoreNotificationsView } from '../components/CoreNotificationsView'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
@@ -16,6 +19,7 @@ import { CoreBridgeError, CoreTask, CoreRefileTarget, coreErrorMessage } from '.
 @Entry
 @Component
 struct Inbox {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State records: CoreTask[] = []
   @State recentGroups: RecentDay[] = []
   @State recentLoading: boolean = true
@@ -301,9 +305,12 @@ struct Inbox {
       AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, pullToSync: true, busy: this.actionBusy }) {
         Column() {
           if (this.loading && this.recentGroups.length === 0) {
-            EmptyState({ title: '正在读取收件箱', busy: true })
+            NotificationEmptyState({ title: '正在读取收件箱', busy: true })
           } else {
             List({ scroller: this.listScroller }) {
+              if (this.notificationState.notifications.length > 0) {
+                ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
+              }
               if (this.records.length === 0) {
                 ListItem() {
                   Column({ space: 8 }) {

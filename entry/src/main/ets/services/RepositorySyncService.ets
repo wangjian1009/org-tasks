@@ -1,7 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { RepoConfig } from '../models/OrgTask'
-import { CoreBridgeError, CoreConflict, CoreWebDavSyncEvent, NativeCoreService, coreErrorMessage } from './NativeCoreService'
+import { CoreBridgeError, CoreWebDavSyncEvent, NativeCoreService, coreErrorMessage } from './NativeCoreService'
 
 export interface RepositorySyncState {
   running: boolean
@@ -10,13 +10,11 @@ export interface RepositorySyncState {
   message: string
   error: boolean
   needsRepository: boolean
-  conflicts: CoreConflict[]
-  revision: number
 }
 
 export function emptyRepositorySyncState(): RepositorySyncState {
   return { running: false, determinate: false, progress: 0, message: '', error: false,
-    needsRepository: false, conflicts: [], revision: 0 }
+    needsRepository: false }
 }
 
 // 前台同步会话独立于页面；这里只编排宿主调用并投影 Core 进度，不实现同步规则。
@@ -32,8 +30,7 @@ export class RepositorySyncService {
   private static snapshot(): RepositorySyncState {
     const state = RepositorySyncService.state
     return { running: state.running, determinate: state.determinate, progress: state.progress,
-      message: state.message, error: state.error, needsRepository: state.needsRepository,
-      conflicts: state.conflicts.slice(), revision: state.revision }
+      message: state.message, error: state.error, needsRepository: state.needsRepository }
   }
 
   private static publish() {
@@ -59,11 +56,9 @@ export class RepositorySyncService {
     state.message = '正在准备同步…'
     state.error = false
     state.needsRepository = false
-    state.conflicts = []
     RepositorySyncService.publish()
     let repos: RepoConfig[] = []
     let todoDefaults: string = ''
-    let refresh: boolean = false
     try {
       const config = await AppConfigService.load(context)
       repos = config.repos
@@ -74,14 +69,6 @@ export class RepositorySyncService {
         state.message = '请先添加存储库'
         return
       }
-      const existingConflicts = await NativeCoreService.conflicts(repos, todoDefaults)
-      if (existingConflicts.length > 0) {
-        state.error = true
-        state.conflicts = existingConflicts
-        state.message = '存在未解决的同步冲突，请先处理后再同步'
-        return
-      }
-      refresh = true
       RepositorySyncService.repositoryCount = repos.filter((repo: RepoConfig) => repo.webdavEnabled).length
       RepositorySyncService.completedRepositories = 0
       RepositorySyncService.fileTotal = 0
@@ -100,34 +87,13 @@ export class RepositorySyncService {
     } catch (e) {
       state.error = true
       state.message = `同步失败：${coreErrorMessage(e as CoreBridgeError)}`
-      if (repos.length > 0) {
-        try {
-          state.conflicts = await NativeCoreService.conflicts(repos, todoDefaults)
-          if (state.conflicts.length > 0) state.message = '同步未完成，请处理同步冲突'
-        } catch (_) {}
-      }
+
     } finally {
       state.running = false
       console.info(state.error ? '前台文件同步失败' : '前台文件同步完成')
-      if (refresh) ++state.revision
       RepositorySyncService.failurePending = state.error
       RepositorySyncService.publish()
     }
-  }
-
-  static async refreshConflicts(context: Context): Promise<void> {
-    if (RepositorySyncService.state.running) return
-    const generation = ++RepositorySyncService.generation
-    const config = await AppConfigService.load(context)
-    const conflicts = await NativeCoreService.conflicts(config.repos, config.todoDefaults)
-    if (generation !== RepositorySyncService.generation) return
-    const state = RepositorySyncService.state
-    state.conflicts = conflicts
-    state.error = conflicts.length > 0
-    state.message = conflicts.length > 0 ? '有未处理的同步冲突' : ''
-    RepositorySyncService.failurePending = false
-    ++state.revision
-    RepositorySyncService.publish()
   }
 
   private static updateProgress(event: CoreWebDavSyncEvent) {

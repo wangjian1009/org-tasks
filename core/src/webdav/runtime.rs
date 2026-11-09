@@ -1,15 +1,13 @@
 //! WebDAV 策略的内置网络与本地仓库运行时实现。
 
-use std::path::{Path, PathBuf};
 
 use quick_xml::events::Event;
 use quick_xml::name::ResolveResult;
 use quick_xml::{NsReader, Reader};
 use reqwest::Client;
 use reqwest::{Method, StatusCode, Url};
-use tokio::fs;
 
-use crate::{CoreError, OrgRepo, RemoteFileVersion, SyncProgressReporter};
+use crate::{RemoteFileVersion, SyncProgressReporter};
 
 use super::{
     WebDavEndpoint, WebDavError, WebDavPutCondition, WebDavRemoteFile, WebDavSyncEvent,
@@ -356,26 +354,6 @@ fn request(
         .basic_auth(username, Some(password))
 }
 
-/// 将一个下载文件写入本地仓库。
-pub(crate) async fn write_downloaded_file(
-    repo: &OrgRepo,
-    path: &str,
-    source_bytes: &[u8],
-) -> Result<(), CoreError> {
-    let target =
-        safe_local_path(Path::new(&repo.root_directory), path).map_err(CoreError::Store)?;
-    let parent = target
-        .parent()
-        .ok_or(CoreError::InvalidState("下载文件缺少父目录"))?;
-    fs::create_dir_all(parent)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法创建下载目录: {error}")))?;
-    fs::write(target, source_bytes)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法写入下载文件: {error}")))?;
-    Ok(())
-}
-
 fn parse_multistatus(base_url: &str, source: &str) -> Result<Vec<WebDavRemoteFile>, WebDavError> {
     let base =
         Url::parse(base_url).map_err(|_| WebDavError::Protocol("WebDAV 地址格式无效".into()))?;
@@ -466,18 +444,6 @@ fn file_url(endpoint: &WebDavEndpoint, path: &str) -> Result<Url, WebDavError> {
     Url::parse(&base)
         .and_then(|url| url.join(path))
         .map_err(|_| WebDavError::Protocol("WebDAV 文件地址无效".into()))
-}
-
-fn safe_local_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
-    if relative.is_empty()
-        || relative.starts_with('/')
-        || relative
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == ".." || part == ".sync")
-    {
-        return Err("下载文件路径无效".into());
-    }
-    Ok(root.join(relative))
 }
 
 fn tag(name: &[u8], expected: &[u8]) -> bool {

@@ -1,3 +1,6 @@
+import { NotificationEmptyState } from '../components/NotificationEmptyState'
+import { CoreNotificationsView } from '../components/CoreNotificationsView'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState, TaskRow } from '../components/Controls'
@@ -20,6 +23,7 @@ interface OverviewParams { view?: OverviewKind }
 @Entry
 @Component
 struct TaskOverview {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
   @State visibleTasks: CoreTask[] = []
@@ -125,14 +129,14 @@ struct TaskOverview {
   overviewContent() {
     Column() {
       if (this.loading) {
-        EmptyState({ title: '正在读取任务', busy: true })
+        NotificationEmptyState({ title: '正在读取任务', busy: true })
       } else if (this.needsConfiguration) {
-        EmptyState({ title: `${overviewTitle(this.view)}文件未选择或已失效`, detail: '请在设置的“笔记与笔记本”中重新选择仓库和文件。',
+        NotificationEmptyState({ title: `${overviewTitle(this.view)}文件未选择或已失效`, detail: '请在设置的“笔记与笔记本”中重新选择仓库和文件。',
           actionLabel: '前往设置', action: (): void => {
             this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
           } })
       } else if (this.message) {
-        EmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
+        NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
       } else {
         if (this.supportsTagFilter()) {
           TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags,
@@ -145,10 +149,10 @@ struct TaskOverview {
             .fontSize(13).fontColor(UiColor.secondary).width('100%').padding(16).backgroundColor(UiColor.container)
         }
         if (this.tasks.length === 0) {
-          EmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
+          NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
             detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
         } else if (this.visibleTasks.length === 0) {
-          EmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
+          NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today') {
           TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime })
@@ -156,6 +160,9 @@ struct TaskOverview {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
         } else {
           List() {
+              if (this.notificationState.notifications.length > 0) {
+                ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
+              }
             ForEach(this.visibleTasks, (task: CoreTask) => {
               ListItem() {
                 if (this.view === 'memo') {
