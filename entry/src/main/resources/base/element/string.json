@@ -37,6 +37,14 @@
       "value": "快速记下标题，或用语音录入到收件箱"
     },
     {
+      "name": "memo_card_label",
+      "value": "备忘录"
+    },
+    {
+      "name": "memo_card_description",
+      "value": "在桌面查看最近的备忘记录"
+    },
+    {
       "name": "capture_share_label",
       "value": "记到收件箱"
     },

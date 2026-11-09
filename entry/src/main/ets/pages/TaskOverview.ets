@@ -24,6 +24,7 @@ interface OverviewParams { view?: OverviewKind }
 @Entry
 @Component
 struct TaskOverview {
+  @LocalStorageProp('entryView') entryView: string = ''
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
@@ -43,7 +44,8 @@ struct TaskOverview {
   private requestId: number = 0
 
   aboutToAppear() {
-    this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view || 'today'
+    this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view ||
+      (this.entryView === 'memo' ? 'memo' : 'today')
   }
 
   onPageShow() { this.loadTasks() }

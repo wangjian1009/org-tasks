@@ -100,6 +100,20 @@
         ]
       },
       {
+        "name": "MemoFormExtension",
+        "srcEntry": "./ets/entryability/MemoFormExtension.ets",
+        "type": "form",
+        "label": "$string:memo_card_label",
+        "description": "$string:memo_card_description",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:memo_forms"
+          }
+        ]
+      },
+      {
         "name": "CaptureShareExtension",
         "srcEntry": "./ets/entryability/CaptureShareExtension.ets",
         "type": "share",

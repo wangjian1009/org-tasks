@@ -12,11 +12,12 @@ import { CoreTask } from '../services/NativeCoreService'
 const PREF_NAME = 'org_tasks_config'
 const DEFAULT_INTERVAL = 20 // 分钟
 
-interface MainPageStorage { entryTask?: CoreTask }
+interface MainPageStorage { entryTask?: CoreTask; entryView?: string }
 
 export default class EntryAbility extends UIAbility {
   private mainStage: window.WindowStage | undefined = undefined
   private initialPage: string = 'pages/TaskOverview'
+  private initialView: string | undefined = undefined
   private taskToEdit: CoreTask | undefined = undefined
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
@@ -34,8 +35,9 @@ export default class EntryAbility extends UIAbility {
   }
 
   private readDestination(want: Want): boolean {
-    if (want.parameters?.page !== 'inbox' && want.parameters?.page !== 'taskEdit') return false
-    this.initialPage = 'pages/Inbox'
+    if (want.parameters?.page !== 'inbox' && want.parameters?.page !== 'taskEdit' && want.parameters?.page !== 'memo') return false
+    this.initialPage = want.parameters?.page === 'memo' ? 'pages/TaskOverview' : 'pages/Inbox'
+    this.initialView = want.parameters?.page === 'memo' ? 'memo' : undefined
     this.taskToEdit = undefined
     if (want.parameters.page === 'taskEdit' && typeof want.parameters.task === 'string') {
       try { this.taskToEdit = JSON.parse(want.parameters.task) as CoreTask }
@@ -49,6 +51,7 @@ export default class EntryAbility extends UIAbility {
     this.taskToEdit = undefined
     const data: MainPageStorage = {}
     if (task) data.entryTask = task
+    if (this.initialView) data.entryView = this.initialView
     const storage = new LocalStorage(data)
     stage.loadContent(this.initialPage, storage, (err) => {
       if (err && err.code !== 0) {
