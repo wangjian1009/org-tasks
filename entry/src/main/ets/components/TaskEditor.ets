@@ -6,7 +6,7 @@ import { titleCounts } from '../ui/TitleCountPresentation'
 import { OrgContentView } from './OrgContentView'
 import { UiColor } from '../ui/Theme'
 
-// 任务编辑内容独立于路由页面，规划页与任务编辑页共用。
+// 任务内容独立于路由页面，由任务编辑页展示。
 @Component
 export struct TaskEditor {
   @Prop task: CoreTask | undefined = undefined

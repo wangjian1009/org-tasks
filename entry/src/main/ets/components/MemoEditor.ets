@@ -3,7 +3,7 @@ import { EmptyState } from './Controls'
 import { OrgContentView } from './OrgContentView'
 import { UiColor } from '../ui/Theme'
 
-// 备忘正文组件；规划页使用只读模式，独立编辑页使用多行文本模式。
+// 备忘正文组件；备忘编辑页使用多行文本模式。
 @Component
 export struct MemoEditor {
   @Prop task: CoreTask | undefined = undefined

@@ -1,14 +1,10 @@
 {
   "src": [
-    "pages/Workspace",
-    "pages/Agenda",
     "pages/Search",
-    "pages/SavedSearches",
     "pages/Files",
     "pages/SyncLog",
     "pages/SyncDetail",
     "pages/Inbox",
-    "pages/InboxPlan",
     "pages/TaskOverview",
     "pages/FileDetail",
     "pages/TaskEdit",
@@ -16,7 +12,6 @@
     "pages/Settings",
     "pages/FileTargetPicker",
     "pages/RepositorySettings",
-    "pages/MergeConflict",
     "pages/Capture",
     "pages/ShareCapture",
     "pages/ShareLocation"
