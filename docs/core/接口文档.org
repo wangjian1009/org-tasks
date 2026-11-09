@@ -746,3 +746,9 @@ Serde 表示使用带 ~type~ 的事件对象，冲突类型为 ~syncConflict~ �
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在源文件配置中验证，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 
 统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~NotificationUpdate~ 对应的数据失效事件；失败或无实际文件变化不发布。回调只用于安排异步重查，不能重入当前 workspace 锁。
+
+* 未解决冲突阻止同步
+
+WebDAV 同步开始前由 Core 的 ~WebDavSyncPolicy.synchronize~ 统一查询 ~OrgRepo.pending_sync_conflicts~ ，使用 ~last_effect_sync~ 最近成功同步中的未解决路径判断。仍有任一路径未解决时返回 ~CoreError::InvalidState~ ，提示“存在未解决的同步冲突，请先解决后再同步”；缺少备份但未解决的路径同样阻止，过滤目录不能绕过检查。
+
+检查在网络请求、同步进度事件、传输备份和工作文件写入前执行；被拒绝的尝试不新增同步记录、不改动本地内容或 outbox，也不发送数据更新通知。前台、后台、CLI 与直接调用 Core 的普通 WebDAV 同步均走同一入口，宿主不另行实现领域预检查。冲突比较与解决接口继续允许调用；部分解决仍阻止，全部解决后可恢复同步。更早日志的遗留冲突不参与，最近成功同步没有冲突时正常允许。

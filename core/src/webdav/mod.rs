@@ -609,6 +609,12 @@ impl SyncPolicy for WebDavSyncPolicy {
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError> {
+        // 所有 WebDAV 同步入口共用此检查；不能由宿主预检查代替。
+        if !context.repo.pending_sync_conflicts().await?.is_empty() {
+            return Err(CoreError::InvalidState(
+                "存在未解决的同步冲突，请先解决后再同步",
+            ));
+        }
         let original = context.repo.clone();
         let root = std::path::Path::new(&original.root_directory);
         let original_rules = local_commit::read_local(root, crate::model::TASK_SCAN_RULES_PATH).await?;
@@ -1133,8 +1139,6 @@ mod write_tests {
             put(first, "if-none-match: *", 201),
             propfind(listing("\"v2\"", first.len())),
             Exchange { method: "GET", condition: Some("if-match: \"v2\""), body: None, status: 200, response: String::from_utf8(first.to_vec()).unwrap() },
-            propfind(listing("\"v2\"", first.len())),
-            Exchange { method: "GET", condition: Some("if-match: \"v2\""), body: None, status: 200, response: String::from_utf8(first.to_vec()).unwrap() },
         ])
         .await;
         let policy = WebDavSyncPolicy::new(
@@ -1156,16 +1160,14 @@ mod write_tests {
         crate::model::test_support::append_fixture(&mut repo,"inbox.org","Second")
         .await
         .unwrap();
-        for time in [2, 3] {
-            let record = sync(&mut repo, &policy, time).await;
-            assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
-            assert_eq!(record.files[0].state, OrgRepoSyncFileState::Conflict);
-            assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
-            assert_eq!(
-                repo.files[0].source_bytes(),
-                b"* TODO First\n* TODO Second\n"
-            );
-        }
+        let record = sync(&mut repo, &policy, 2).await;
+        assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(record.files[0].state, OrgRepoSyncFileState::Conflict);
+        let rejected = repo.sync(&policy, 3, &SyncCancellation::default(), &SyncProgressReporter::default()).await;
+        assert!(matches!(rejected, Err(CoreError::InvalidState(_))));
+        assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+        assert_eq!(repo.files[0].source_bytes(), b"* TODO First\n* TODO Second\n");
+        assert!(!std::path::Path::new(&root).join(".sync/history/3.json").exists());
         worker.await.unwrap();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
