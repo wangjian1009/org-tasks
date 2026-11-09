@@ -1,11 +1,10 @@
-import { CoreMergeChange, CoreMergeChangeState, CoreMergeResolution } from '../services/NativeCoreService'
+import { CoreMergeChange, CoreMergeResolution } from '../services/NativeCoreService'
 import { MergeDiffLine, mergeDiffText, mergeLineDiff } from '../ui/MergeDiff'
 import { UiColor } from '../ui/Theme'
 
 @Component
 export struct MergeTaskCard {
-  @Prop change: CoreMergeChange = { id: '', path: '', kind: 'modified', preamble: false,
-    localChange: 'unmatched', remoteChange: 'unmatched', local: null, remote: null, resolution: null }
+  @Prop change: CoreMergeChange = { key: '', kind: 'modified', preamble: false, local: null, remote: null }
   @Prop choice: string = ''
   onChoose: (choice: CoreMergeResolution) => void = () => {}
   @State expanded: boolean = false
@@ -29,14 +28,8 @@ export struct MergeTaskCard {
     return this.change.kind === 'added' ? UiColor.done : this.change.kind === 'deleted' ? UiColor.error : UiColor.primary
   }
 
-  stateLabel(side: string, state: CoreMergeChangeState, exists: boolean): string {
-    switch (state) {
-      case 'added': return `${side}新增`
-      case 'deleted': return `${side}已删除`
-      case 'modified': return `${side}已修改`
-      case 'unchanged': return `${side}未改`
-      default: return `${side}${exists ? '存在' : '不存在'}`
-    }
+  stateLabel(side: string, exists: boolean): string {
+    return `${side}${exists ? '存在' : '不存在'}`
   }
 
   choiceLabel(): string {
@@ -60,8 +53,7 @@ export struct MergeTaskCard {
   emptyLabel(remote: boolean): string {
     const version = remote ? this.change.remote : this.change.local
     if (version) return '（空内容）'
-    const state = remote ? this.change.remoteChange : this.change.localChange
-    return `${remote ? '远端' : '本地'}${state === 'deleted' ? '已删除此任务' : '无此任务'}`
+    return `${remote ? '远端' : '本地'}无此任务`
   }
 
   showSide(index: number) {
@@ -144,11 +136,11 @@ export struct MergeTaskCard {
         Column({ space: 4 }) {
           Row({ space: 4 }) {
             Image(this.stateIcon(false)).width(14).height(14)
-            Text(this.stateLabel('本地', this.change.localChange, this.change.local !== null)).fontSize(12).fontColor(UiColor.secondary)
+            Text(this.stateLabel('本地', this.change.local !== null)).fontSize(12).fontColor(UiColor.secondary)
           }.width('100%')
           Row({ space: 4 }) {
             Image(this.stateIcon(true)).width(14).height(14)
-            Text(this.stateLabel('远端', this.change.remoteChange, this.change.remote !== null)).fontSize(12).fontColor(UiColor.secondary)
+            Text(this.stateLabel('远端', this.change.remote !== null)).fontSize(12).fontColor(UiColor.secondary)
           }.width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           .onClick((): void => { this.expanded = !this.expanded })

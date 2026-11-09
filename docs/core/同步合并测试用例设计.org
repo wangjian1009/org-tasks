@@ -1,0 +1,131 @@
+#+TITLE: 同步合并测试用例设计
+#+LANGUAGE: zh-CN
+#+OPTIONS: author:nil date:nil toc:2
+
+* 范围
+
+内容用例直接验证纯函数 ~org_tasks_core::merge(base_data, local_data, remote_data)~ ，三份输入和输出均为完整 Org 文件内容。B 表示基线，L 表示本地，R 表示远端；被测函数在同一文件内将 B 到 L 的操作重放到 R。
+
+内容合并不需要仓库、身份目录、基线索引、网络、异步运行时或服务器。预期文件由用例作者独立编写，不通过被测算法生成。接口及解析上下文边界见 [[file:接口文档.org::*单文件内容合并][单文件内容合并接口]]。
+
+整文件是否存在、远端版本条件、缓存、基线提交、outbox、网络失败与事务恢复不属于内容合并函数；这些规则继续由已有同步层与事务测试验证。空内容是零字节 Org 文件，不能替代“文件不存在”。内容中的所有节点被删，与远端整文件删除采用不同的验收规则。
+
+* 数据目录
+
+每例位于 ~core/tests/sync_merge_cases/<组>/<用例>/~ ，单文件场景的标准材料如下：
+
+#+begin_example
+<组>/<用例>/
+├── case.json
+├── base.org
+├── local.org
+├── remote.org
+├── expected.org
+└── source.org       # 可选，候选的完整来源子树
+#+end_example
+
+输入路径必须指向存在的普通文件。零字节输入保存为真实空文件；路径缺失是无效用例，不能自动解释为空内容。不允许符号链接或越界路径。
+
+每次调用仅处理一个文件。原先包含多个仓库文件的独立新增场景按文件拆成多轮独立调用；原路径例如 ~/path/to/A.org~ 只作为用例说明，不传入合并函数，不参与匹配或冲突身份。
+
+CRLF、尾随空格、Unicode、源码块和无末尾换行均以磁盘字节为准。输入均不写回，结果与输入分别保存。
+
+* 清单与连续合并
+
+~case.json~ 的 ~formatVersion~ 为 2，未知字段必须报错。每个 ~rounds~ 元素描述一次函数调用； ~label~ 只用于说明该次调用的业务目的。
+
+#+begin_src json
+{
+  "formatVersion": 2,
+  "purpose": "保留同字段竞争，重复重放不新增候选",
+  "rounds": [
+    {
+      "label": "首次内容合并",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": { "content": "expected.org" },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "modify",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "AfterOriginSubtree",
+          "parentTitles": ["Project"],
+          "originTitles": ["Project", "A"],
+          "source": "source.org"
+        }
+      ]
+    },
+    {
+      "label": "以首次结果作为新的远端再次重放",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": { "round": 1 }
+      },
+      "expected": { "sameBytesAsRound": 1 }
+    }
+  ]
+}
+#+end_src
+
+输入为文件路径或 ~{ "round": N }~ ，后者使用前面第 N 次成功调用的原始输出。引用必须早于当前调用，不能引用预期失败的轮次。重试继续保留原 B 与 L，把前一次结果作为新的 R，因此能够检测相同变化重复重放产生的重复候选。
+
+~expected~ 三选一： ~content~ 指定手写可读预期， ~sameBytesAsRound~ 要求原始输出逐字节相同， ~error~ 指定预期错误摘要。错误用例不携带输出结构断言。
+
+* 字节与结构断言
+
+冲突结果必须包含文件头 ~#+CONFLICT: true~ ，完整解决后移除该标志；可读预期不会隐藏文件头状态。
+
+无冲突结果逐字节比较，不重新排版，不统一换行，不裁剪空白。冲突结果采用可读预期与内部来源断言共同校验：
+
+- 只将候选子树中的生成 ID 按出现顺序绑定为 ~<generated-1>~ 等占位符，原节点 ID 保持原样。
+- 可读视图只隐藏明确的内部属性 ~CONFLICT_ID~ 、 ~CONFLICT_ORIGIN~ 、 ~CONFLICT_SOURCE~ 、 ~CONFLICT_PARENT~ 与 ~CONFLICT_PATH~ ，保留 ~CONFLICT_OPERATION~ 和用户属性。同前缀的自定义属性不隐藏。
+- 通过 Org CST 的属性节点定位，不能用正则清理整份原文；源码块中的属性状文字必须保持不变。
+- 候选来源原文与独立的来源文件逐字节一致，原路径与操作类型准确；候选 ID 不与原节点或其他候选碰撞。
+- 候选根包含大写 ~CONFLICT~ 自有标签与约定的标题后缀，子节点不新增该自有标签。用户标签、正文与子树层级保留。
+- 存在原节点时，候选位于原节点整个子树之后并处于同一层级。原节点缺失时，按最近存活兄弟、父节点、祖先与文件末尾逐级退化，使用固定路径与前后锚点断言。
+- 重复重放比较未经规范化的原始输出，不能通过隐藏生成属性掩盖重复候选或不稳定身份。
+
+* 当前场景
+
+内容用例共 56 个，包括 19 个新增组合。原有网络故障与整文件删除的目录用例已从内容用例集中移除，对应行为仍由同步层测试承担。
+
+| 分组 | 验收内容 |
+|-
+| 基础变化 | 三方不变、本地单改、远端单改、两端相同修改 |
+| 独立字段 | 状态与正文、标题与标签、正文不同行、文件内 TODO 配置 |
+| 内容保真 | CRLF、空内容、无末尾换行、属性状源码、用户自定义属性 |
+| 身份 | 稳定 ID、无 ID 的 note path、各文件独立输入 |
+| 空基线 | 一端为空、两端相同或不同内容 |
+| 节点删除 | 本地删且远端改、远端内容清空且本地改、本地清空且远端改 |
+| 候选位置 | 原节点存在、改名、前兄弟、后兄弟、父节点、祖先、无锚点 |
+| 输入校验 | B、L、R 各自含非法 UTF-8，即使其他两份相同也必须失败 |
+| 外部引用 | SETUPFILE 行原样保留，不读取指向的文件 |
+| 标签 | 仅候选根新增大写系统标签，小写 conflict 保留为用户标签 |
+
+** 新增操作组合
+
+下列名称相对于 ~core/tests/sync_merge_cases/creation/~ ：
+
+| 业务组合 | 用例 |
+|-
+| 本地新增子树，远端修改已有节点 | ~subtree~ |
+| 远端新增完整子树，本地不变 | ~remote-subtree~ |
+| 本地、远端各自新增文件的内容 | ~local-file~ 、 ~remote-file~ |
+| 不同文件、同路径文件内不同任务的独立内容调用 | ~both-different-files~ 、 ~both-same-file-different-nodes~ |
+| 同文件不同节点；相同父节点、不同父节点 | ~both-different-nodes~ 、 ~both-same-parent~ 、 ~both-different-parents~ |
+| 相同 ID 相同内容；相同 ID 不同内容 | ~both-identical-task~ 、 ~both-same-id-different-content~ |
+| 标题相同但 ID 不同 | ~both-distinct-id-same-title~ |
+| 无 ID 的 task 同 path，相同与不同内容 | ~both-identical-task-path~ 、 ~both-different-task-path~ |
+| note 同 path，相同与不同内容 | ~both-identical-note~ 、 ~both-different-note~ |
+| 两端新增相同父任务，各自添加不同子节点 | ~both-new-parent~ |
+| 本地新增子节点，父节点被远端删除 | ~parent-removed-remotely~ |
+| 远端新增子节点，父节点被本地删除 | ~parent-removed-locally~ |
+
+相同身份且相同内容只保留一份；没有共同祖先的同身份内容竞争保留远端与本地候选；不同身份的新增全部保留。以上行为均由同一个公开内容合并接口验证。

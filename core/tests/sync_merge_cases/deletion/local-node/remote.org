@@ -1,0 +1,7 @@
+* TODO A
+:PROPERTIES:
+:ID: task-a
+:END:
+base
+* Note
+remote note

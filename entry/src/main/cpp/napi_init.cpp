@@ -25,6 +25,7 @@ extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t monitor)
 extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_repo_load(uint64_t workspace_handle, const char* root_directory);
+extern "C" int32_t org_tasks_harmony_repo_reset(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_repo_history(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_repo_history_operation(uint64_t handle, const char* root, const char* request);
 extern "C" char* org_tasks_harmony_repo_history_detail(uint64_t workspace_handle, const char* root_directory, const char* sync_id);
@@ -136,7 +137,7 @@ struct RepoSnapshotWork {
     std::string task_json;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, History, HistoryDetail, Conflicts, File, FileMetadata, HistoryFile, ConflictCompare, ConflictResolve, LastEffectSync } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, Reset, History, HistoryDetail, Conflicts, File, FileMetadata, HistoryFile, ConflictCompare, ConflictResolve, LastEffectSync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -662,6 +663,11 @@ void ExecuteRepoSnapshot(napi_env, void* data)
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count())));
             break;
+        case RepoSnapshotWork::Operation::Reset:
+            if (org_tasks_harmony_repo_reset(work->workspace_handle, work->root_directory.c_str()) == 0) {
+                work->response = "{}";
+            }
+            break;
         case RepoSnapshotWork::Operation::Load:
             if (org_tasks_harmony_repo_load(work->workspace_handle, work->root_directory.c_str()) == 0) {
                 work->response = "{}";
@@ -680,11 +686,13 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
             work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
             work->operation == RepoSnapshotWork::Operation::FileMetadata ? "读取文件元信息失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" :
+            work->operation == RepoSnapshotWork::Operation::Reset ? "Repo.reset 失败" :
             work->operation == RepoSnapshotWork::Operation::History ? "读取同步历史失败" :
             work->operation == RepoSnapshotWork::Operation::HistoryDetail ? "读取同步详情失败" : "处理同步合并失败");
     } else {
         napi_value result;
         if (work->operation == RepoSnapshotWork::Operation::Load ||
+            work->operation == RepoSnapshotWork::Operation::Reset ||
             work->operation == RepoSnapshotWork::Operation::ConflictResolve) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
@@ -1243,6 +1251,34 @@ napi_value RepoLoad(napi_env env, napi_callback_info info)
     }
     return promise;
 }
+napi_value RepoReset(napi_env env, napi_callback_info info)
+{
+    RepoWrap* repo = nullptr;
+    napi_value self;
+    if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
+    auto* work = new RepoSnapshotWork();
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->operation = RepoSnapshotWork::Operation::Reset;
+    napi_value promise;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        delete work;
+        napi_throw_error(env, nullptr, "无法创建 Repo.reset Promise");
+        return nullptr;
+    }
+    napi_value resource_name;
+    if (napi_create_reference(env, self, 1, &work->owner) != napi_ok ||
+        napi_create_string_utf8(env, "OrgTasksRepoReset", NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
+        napi_create_async_work(env, nullptr, resource_name, ExecuteRepoSnapshot, CompleteRepoSnapshot, work, &work->work) != napi_ok ||
+        napi_queue_async_work(env, work->work) != napi_ok) {
+        if (work->owner != nullptr) napi_delete_reference(env, work->owner);
+        if (work->work != nullptr) napi_delete_async_work(env, work->work);
+        delete work;
+        napi_throw_error(env, nullptr, "无法调度 Repo.reset 请求");
+        return nullptr;
+    }
+    return promise;
+}
 
 napi_value QueueMergeWork(napi_env env, napi_value self, RepoSnapshotWork* work);
 
@@ -1276,7 +1312,7 @@ napi_value RepoHistoryOperation(napi_env env, napi_callback_info info)
     napi_create_string_utf8(env, operation, NAPI_AUTO_LENGTH, &value);
     napi_set_named_property(env, request, "operation", value);
     if (std::strcmp(operation, "resolve") == 0) {
-        napi_set_named_property(env, request, "comparison", args[0]);
+        napi_set_named_property(env, request, "request", args[0]);
     } else if (std::strcmp(operation, "lastEffectSync") != 0) {
         for (const char* key : {"syncId", "path"}) {
             if (napi_get_named_property(env, args[0], key, &value) != napi_ok) return nullptr;
@@ -1460,6 +1496,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"category", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("category")},
         {"title", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("title")},
         {"titleParts", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("titleParts")},
+        {"hasConflict", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("hasConflict")},
         {"renderHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("renderedHtml")},
         {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
@@ -1501,6 +1538,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"fullPath", nullptr, nullptr, RepoFullPath, nullptr, nullptr, napi_default, nullptr},
         {"rootDirectory", nullptr, nullptr, RepoRootDirectory, nullptr, nullptr, napi_default, nullptr},
         {"load", nullptr, RepoLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"reset", nullptr, RepoReset, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"history", nullptr, RepoHistory, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"lastEffectSync", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("lastEffectSync")},
         {"historyFile", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},

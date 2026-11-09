@@ -1,9 +1,16 @@
-//! 当次同步文件备份、只读历史文件与本地冲突解决；不访问远端。
+//! 日志中的固定远端冲突原文、只读历史和单文件本地解决；不访问远端。
 use super::*;
 use crate::{OrgFileMetadata, OrgMergeChange, OrgMergeChoice, OrgRepoWriteIntent};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebDavConflictSync {
+    pub sync_id: String,
+    pub paths: Vec<String>,
+}
 
 type Record = OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>;
 
@@ -12,17 +19,43 @@ pub struct WebDavFileArchive {
     pub content_hash: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SyncConflictTarget {
+    pub sync_id: String,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SyncConflictChange {
+    pub key: String,
+    pub kind: OrgMergeChange,
+    pub preamble: bool,
+    pub local: Option<crate::OrgMergeVersion>,
+    pub remote: Option<crate::OrgMergeVersion>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SyncConflictComparison {
     pub repo_id: String,
-    pub sync_id: String,
-    pub path: String,
+    pub target: SyncConflictTarget,
     pub local_hash: String,
     pub remote_hash: String,
     pub local_missing: bool,
-    pub changes: Vec<WebDavTaskMergeChange>,
+    pub changes: Vec<SyncConflictChange>,
     pub unchanged_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SyncConflictResolution {
+    pub target: SyncConflictTarget,
+    pub expected_local_hash: String,
+    pub expected_remote_hash: String,
+    pub expected_local_missing: bool,
+    pub choices: Vec<OrgMergeChoice>,
 }
 
 pub(crate) fn archive_name(path: &str, resolved: bool) -> Result<String, CoreError> {
@@ -31,31 +64,28 @@ pub(crate) fn archive_name(path: &str, resolved: bool) -> Result<String, CoreErr
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or(CoreError::InvalidInput("备份文件名无效"))?;
-    Ok(if resolved {
-        format!(
+    if resolved {
+        Ok(format!(
             "{}.resolved.org",
             filename
                 .strip_suffix(".org")
                 .ok_or(CoreError::InvalidInput("解决结果必须是 Org 文件"))?
-        )
+        ))
     } else {
-        filename.into()
-    })
+        Ok(filename.into())
+    }
 }
 
-// 所有路径组件逐一校验，备份读取也不允许跟随符号链接。
-async fn archive_path(
+async fn safe_directory(
     repo: &OrgRepo,
-    time: TimestampMs,
-    path: &str,
-    resolved: bool,
+    relative: &str,
     create: bool,
 ) -> Result<PathBuf, CoreError> {
-    let name = archive_name(path, resolved)?;
+    crate::model::validate_relative_path(relative)?;
     let mut target = fs::canonicalize(&repo.root_directory)
         .await
         .map_err(archive_io)?;
-    for part in format!(".sync/history/{time}/files/{path}").split('/') {
+    for part in relative.split('/') {
         target.push(part);
         match fs::symlink_metadata(&target).await {
             Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
@@ -70,8 +100,11 @@ async fn archive_path(
             Err(e) => return Err(archive_io(e)),
         }
     }
-    target.push(name);
-    match fs::symlink_metadata(&target).await {
+    Ok(target)
+}
+
+async fn checked_file(path: PathBuf) -> Result<PathBuf, CoreError> {
+    match fs::symlink_metadata(&path).await {
         Ok(m) if m.file_type().is_symlink() || !m.is_file() => {
             return Err(CoreError::Store("日志备份不是普通文件".into()));
         }
@@ -79,7 +112,29 @@ async fn archive_path(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(archive_io(e)),
     }
-    Ok(target)
+    Ok(path)
+}
+
+// 读取保留旧 files/ 布局；新写入只能使用 conflicts/。
+async fn archive_path(
+    repo: &OrgRepo,
+    time: TimestampMs,
+    path: &str,
+    resolved: bool,
+) -> Result<PathBuf, CoreError> {
+    let name = archive_name(path, resolved)?;
+    let directory = safe_directory(
+        repo,
+        &format!(".sync/history/{time}/conflicts/{path}"),
+        false,
+    )
+    .await?;
+    let directory = if fs::try_exists(&directory).await.map_err(archive_io)? {
+        directory
+    } else {
+        safe_directory(repo, &format!(".sync/history/{time}/files/{path}"), false).await?
+    };
+    checked_file(directory.join(name)).await
 }
 
 async fn optional_bytes(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
@@ -90,53 +145,135 @@ async fn optional_bytes(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn save_archive(
     repo: &OrgRepo,
     time: TimestampMs,
     path: &str,
     bytes: &[u8],
 ) -> Result<WebDavFileArchive, CoreError> {
-    let target = archive_path(repo, time, path, false, true).await?;
-    crate::model::write_intent::write_new(&target, bytes).await?;
+    let name = archive_name(path, false)?;
+    let log_directory = safe_directory(repo, &format!(".sync/history/{time}"), true).await?;
+    let temporary_name = format!(
+        ".conflicts-{}.tmp",
+        crate::model::service::generate_repo_id()?
+    );
+    let temporary = log_directory.join(&temporary_name);
+    fs::create_dir(&temporary).await.map_err(archive_io)?;
+    let result = async {
+        // 首个冲突连同完整目录一次发布，保存失败不留下可被误认的 conflicts/ 标记。
+        let staged = safe_directory(
+            repo,
+            &format!(".sync/history/{time}/{temporary_name}/{path}"),
+            true,
+        )
+        .await?;
+        crate::model::write_intent::write_new(&staged.join(name), bytes).await?;
+        let conflicts =
+            safe_directory(repo, &format!(".sync/history/{time}/conflicts"), false).await?;
+        if fs::try_exists(&conflicts).await.map_err(archive_io)? {
+            let destination = safe_directory(
+                repo,
+                &format!(".sync/history/{time}/conflicts/{path}"),
+                false,
+            )
+            .await?;
+            if fs::symlink_metadata(&destination).await.is_ok() {
+                return Err(CoreError::InvalidState("冲突备份已经存在"));
+            }
+            let relative = Path::new(path).parent().unwrap();
+            if !relative.as_os_str().is_empty() {
+                safe_directory(
+                    repo,
+                    &format!(".sync/history/{time}/conflicts/{}", relative.display()),
+                    true,
+                )
+                .await?;
+            }
+            fs::rename(&staged, &destination).await.map_err(archive_io)
+        } else {
+            fs::rename(&temporary, &conflicts).await.map_err(archive_io)
+        }
+    }
+    .await;
+    // 正式发布之后临时目录已移动；追加到已有冲突目录时清理暂存的空父目录。
+    let _ = fs::remove_dir_all(&temporary).await;
+    result?;
     Ok(WebDavFileArchive {
         content_hash: LocalFileVersion::from_bytes(bytes).content_hash,
     })
 }
 
-pub(crate) async fn discard_upload_archive(
-    repo: &OrgRepo,
-    time: TimestampMs,
-    path: &str,
-    expected: &[u8],
-) -> Result<(), CoreError> {
-    let target = archive_path(repo, time, path, false, false).await?;
-    if optional_bytes(&target).await?.as_deref() != Some(expected) {
-        return Err(CoreError::InvalidState("本次上传备份已改变"));
-    }
-    fs::remove_file(target).await.map_err(archive_io)
-}
-
 impl OrgRepo {
-    pub async fn webdav_history(&self) -> Result<Vec<Record>, CoreError> {
-        let mut history = self.sync_history::<WebDavSyncPolicy>().await?;
-        for record in &mut history {
+    async fn project_conflict_state(&self, record: &mut Record) -> Result<(), CoreError> {
+        if record.context_detail.format_version > 4 {
+            return Err(CoreError::InvalidState("不支持的同步历史版本"));
+        }
+        if record.context_detail.format_version >= 4 {
             for file in &mut record.files {
-                if super::history::is_conflict(file) {
-                    let target =
-                        archive_path(self, record.started_at, &file.relative_path, true, false)
-                            .await?;
-                    file.detail.resolved = fs::try_exists(target).await.map_err(archive_io)?;
+                if !super::history::is_conflict(file) {
+                    continue;
+                }
+                let source = file
+                    .detail
+                    .synced_source
+                    .as_ref()
+                    .ok_or(CoreError::InvalidState("任务冲突历史缺少已上传快照"))?;
+                let historical =
+                    self.parse_file(file.relative_path.clone(), source.as_bytes().to_vec())?;
+                let ids = crate::merge::conflict_ids(&historical);
+                let current =
+                    super::transaction::read(Path::new(&self.root_directory), &file.relative_path)
+                        .await?;
+                let current = current
+                    .map(|bytes| self.parse_file(file.relative_path.clone(), bytes))
+                    .transpose()?;
+                file.detail.resolved = current
+                    .as_ref()
+                    .is_none_or(|current| crate::merge::conflict_ids(current).is_disjoint(&ids));
+            }
+            return Ok(());
+        }
+        for file in &mut record.files {
+            if record.context_detail.format_version >= 2 && file.relative_path.ends_with(".org") {
+                let directory = safe_directory(
+                    self,
+                    &format!(
+                        ".sync/history/{}/conflicts/{}",
+                        record.started_at, file.relative_path
+                    ),
+                    false,
+                )
+                .await?;
+                if fs::try_exists(directory).await.map_err(archive_io)? {
+                    file.state = OrgRepoSyncFileState::Conflict;
                 }
             }
+            if super::history::is_conflict(file) {
+                let target =
+                    archive_path(self, record.started_at, &file.relative_path, true).await?;
+                file.detail.resolved = fs::try_exists(target).await.map_err(archive_io)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn webdav_history(&self) -> Result<Vec<Record>, CoreError> {
+        let _guard = super::transaction::lock(Path::new(&self.root_directory)).await?;
+        super::transaction::recover(Path::new(&self.root_directory)).await?;
+        let mut history = self.sync_history::<WebDavSyncPolicy>().await?;
+        for record in &mut history {
+            self.project_conflict_state(record).await?;
         }
         Ok(history)
     }
 
-    /// 最近一次成功同步；无冲突、已解决和缺少备份均不影响该次记录的定位。
     pub async fn last_effect_sync(&self) -> Result<Option<Record>, CoreError> {
         if self.id.is_empty() {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
+        let _guard = super::transaction::lock(Path::new(&self.root_directory)).await?;
+        super::transaction::recover(Path::new(&self.root_directory)).await?;
         let history = self.sync_history::<WebDavSyncPolicy>().await?;
         let Some(mut record) = history
             .into_iter()
@@ -145,18 +282,10 @@ impl OrgRepo {
         else {
             return Ok(None);
         };
-        for file in &mut record.files {
-            if !super::history::is_conflict(file) {
-                continue;
-            }
-            let resolved =
-                archive_path(self, record.started_at, &file.relative_path, true, false).await?;
-            file.detail.resolved = fs::try_exists(resolved).await.map_err(archive_io)?;
-        }
+        self.project_conflict_state(&mut record).await?;
         Ok(Some(record))
     }
 
-    /// 当前冲突仅来自最近成功同步，更早遗留冲突不参与通知或同步判断。
     pub async fn pending_sync_conflicts(&self) -> Result<Vec<WebDavConflictSync>, CoreError> {
         let Some(record) = self.last_effect_sync().await? else {
             return Ok(Vec::new());
@@ -199,27 +328,31 @@ impl OrgRepo {
                 _ => None,
             };
             if item.section.is_some() && item.outcome != WebDavSyncFileOutcome::Deleted {
-                // 旧日志没有备份时仍提供状态；只有点击读取正文时才提示缺失。
                 if let Some(bytes) = self
                     .archive_bytes(record, file, file.detail.resolved)
                     .await?
                 {
-                    let name = archive_name(&file.relative_path, file.detail.resolved)?;
-                    let mut snapshot = self.parse_file(name, bytes)?;
-                    let target = archive_path(
-                        self,
-                        record.started_at,
-                        &file.relative_path,
-                        file.detail.resolved,
-                        false,
-                    )
-                    .await?;
-                    snapshot.modified_at = fs::metadata(target)
-                        .await
-                        .ok()
-                        .and_then(|m| m.modified().ok())
-                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| d.as_millis() as i64);
+                    let mut snapshot = self.parse_file(
+                        archive_name(&file.relative_path, file.detail.resolved)?,
+                        bytes,
+                    )?;
+                    snapshot.modified_at = if file.detail.archive.is_some() {
+                        let target = archive_path(
+                            self,
+                            record.started_at,
+                            &file.relative_path,
+                            file.detail.resolved,
+                        )
+                        .await?;
+                        fs::metadata(target)
+                            .await
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                            .map(|d| d.as_millis() as i64)
+                    } else {
+                        record.finished_at
+                    };
                     item.backup = Some(snapshot_metadata(&snapshot));
                 }
             }
@@ -233,24 +366,45 @@ impl OrgRepo {
         file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>,
         resolved: bool,
     ) -> Result<Option<Vec<u8>>, CoreError> {
-        let Some(archive) = &file.detail.archive else {
-            return Ok(None);
-        };
-        let target = archive_path(
-            self,
-            record.started_at,
-            &file.relative_path,
-            resolved,
-            false,
-        )
-        .await?;
-        let bytes = optional_bytes(&target).await?;
-        if !resolved && let Some(bytes) = &bytes {
-            if LocalFileVersion::from_bytes(bytes).content_hash != archive.content_hash {
-                return Err(CoreError::Store("历史备份内容与记录版本不一致".into()));
+        if resolved && record.context_detail.format_version >= 4 {
+            if let Some(bytes) = optional_bytes(
+                &archive_path(self, record.started_at, &file.relative_path, true).await?,
+            )
+            .await?
+            {
+                return Ok(Some(bytes));
             }
         }
-        Ok(bytes)
+        if let Some(archive) = &file.detail.archive {
+            let target =
+                archive_path(self, record.started_at, &file.relative_path, resolved).await?;
+            let bytes = optional_bytes(&target).await?;
+            if !resolved
+                && bytes.as_deref().is_some_and(|b| {
+                    LocalFileVersion::from_bytes(b).content_hash != archive.content_hash
+                })
+            {
+                return Err(CoreError::Store("历史备份内容与记录版本不一致".into()));
+            }
+            return Ok(bytes);
+        }
+        if (record.context_detail.format_version >= 4
+            && record.result == Some(OrgRepoSyncResult::Succeeded))
+            || (!resolved
+                && record.context_detail.format_version >= 2
+                && !super::history::is_conflict(file)
+                && file.state == OrgRepoSyncFileState::Synchronized)
+        {
+            if let Some(source) = &file.detail.synced_source {
+                if file.local_version.as_ref()
+                    != Some(&LocalFileVersion::from_bytes(source.as_bytes()))
+                {
+                    return Err(CoreError::Store("历史快照与记录版本不一致".into()));
+                }
+                return Ok(Some(source.as_bytes().to_vec()));
+            }
+        }
+        Ok(None)
     }
 
     pub async fn history_file(
@@ -259,6 +413,7 @@ impl OrgRepo {
         path: &str,
         resolved: bool,
     ) -> Result<OrgFile, CoreError> {
+        validate_path(path)?;
         let history = self.webdav_history().await?;
         let record = history
             .iter()
@@ -281,130 +436,198 @@ impl OrgRepo {
         self.parse_file(archive_name(path, resolved)?, bytes)
     }
 
-    pub async fn compare_sync_conflict(
+    pub async fn compare_conflict(
         &mut self,
-        sync_id: &str,
-        path: &str,
+        target: &SyncConflictTarget,
     ) -> Result<SyncConflictComparison, CoreError> {
         self.load::<WebDavSyncPolicy>().await?;
         let history = self.webdav_history().await?;
         let record = history
             .iter()
-            .find(|r| r.id == sync_id)
+            .find(|r| r.id == target.sync_id)
             .ok_or(CoreError::InvalidInput("同步记录不存在"))?;
         let file = record
             .files
             .iter()
-            .find(|f| f.relative_path == path && super::history::is_conflict(f))
+            .find(|f| f.relative_path == target.path && super::history::is_conflict(f))
             .ok_or(CoreError::InvalidInput("该文件不是冲突记录"))?;
         if file.detail.resolved {
             return Err(CoreError::InvalidState("该文件已解决，请刷新后查看结果"));
         }
-        let remote = self.history_file(sync_id, path, false).await?;
-        let local = self.file(path)?;
-        let before = history
-            .iter()
-            .filter(|r| r.started_at < record.started_at)
-            .cloned()
-            .collect::<Vec<_>>();
-        let baseline =
-            latest_file_record(&before, path).and_then(|f| f.detail.task_versions.as_deref());
-        let plan = crate::compare_org_tasks(&local, &remote, baseline);
-        let mut unchanged_count = 0;
+        if record.context_detail.format_version >= 4 {
+            let current = self.file(&target.path)?;
+            let changes = crate::merge::versions(&current)?
+                .into_iter()
+                .map(|v| SyncConflictChange {
+                    key: v.key,
+                    kind: match (&v.local, &v.remote) {
+                        (Some(_), Some(_)) => OrgMergeChange::Modified,
+                        (Some(_), None) => OrgMergeChange::Added,
+                        _ => OrgMergeChange::Deleted,
+                    },
+                    preamble: v.preamble,
+                    local: v.local,
+                    remote: v.remote,
+                })
+                .collect::<Vec<_>>();
+            let remote = file
+                .detail
+                .synced_source
+                .as_ref()
+                .ok_or(CoreError::InvalidState("任务冲突历史缺少已上传快照"))?;
+            return Ok(SyncConflictComparison {
+                repo_id: self.id.clone(),
+                target: target.clone(),
+                local_hash: LocalFileVersion::from_bytes(current.source_bytes()).content_hash,
+                remote_hash: LocalFileVersion::from_bytes(remote.as_bytes()).content_hash,
+                local_missing: false,
+                unchanged_count: current.node_paths().len().saturating_sub(changes.len()),
+                changes,
+            });
+        }
+        let remote = self
+            .history_file(&target.sync_id, &target.path, false)
+            .await?;
+        let local = self.file(&target.path)?;
+        let plan = crate::compare_org_tasks(&local, &remote, None);
         let mut changes = Vec::new();
+        let mut unchanged_count = 0;
         for item in &plan.items {
             if item.change == OrgMergeChange::Unchanged {
                 if item.key != "preamble" && item.remote.is_some() {
                     unchanged_count += 1;
                 }
-                continue;
+            } else {
+                changes.push(SyncConflictChange {
+                    key: item.key.clone(),
+                    kind: match (&item.local, &item.remote) {
+                        (Some(_), Some(_)) => OrgMergeChange::Modified,
+                        (Some(_), None) => OrgMergeChange::Added,
+                        _ => OrgMergeChange::Deleted,
+                    },
+                    preamble: item.key == "preamble",
+                    local: item.local.clone(),
+                    remote: item.remote.clone(),
+                });
             }
-            changes.push(WebDavTaskMergeChange {
-                id: item.key.clone(),
-                path: path.into(),
-                kind: match (&item.local, &item.remote) {
-                    (Some(_), Some(_)) => OrgMergeChange::Modified,
-                    (Some(_), None) => OrgMergeChange::Added,
-                    _ => OrgMergeChange::Deleted,
-                },
-                preamble: item.key == "preamble",
-                local_change: item.local_change,
-                remote_change: item.remote_change,
-                local: item.local.clone(),
-                remote: item.remote.clone(),
-                resolution: None,
-            });
         }
         Ok(SyncConflictComparison {
             repo_id: self.id.clone(),
-            sync_id: sync_id.into(),
-            path: path.into(),
+            target: target.clone(),
             local_hash: plan.local_hash,
             remote_hash: plan.remote_hash,
-            local_missing: !self.files.iter().any(|f| f.path == path),
+            local_missing: !self.files.iter().any(|f| f.path == target.path),
             changes,
             unchanged_count,
         })
     }
 
-    pub async fn resolve_sync_conflict(
+    pub async fn resolve_conflict(
         &mut self,
-        comparison: &SyncConflictComparison,
+        request: &SyncConflictResolution,
     ) -> Result<(), CoreError> {
-        let fresh = self
-            .compare_sync_conflict(&comparison.sync_id, &comparison.path)
-            .await?;
-        let mut immutable = comparison.clone();
-        for c in &mut immutable.changes {
-            c.resolution = None;
-        }
-        if serde_json::to_value(&immutable).unwrap() != serde_json::to_value(&fresh).unwrap() {
+        let fresh = self.compare_conflict(&request.target).await?;
+        if request.expected_local_hash != fresh.local_hash
+            || request.expected_remote_hash != fresh.remote_hash
+            || request.expected_local_missing != fresh.local_missing
+        {
             return Err(CoreError::InvalidState(
                 "本地文件或比较内容已改变，请重新比较",
             ));
         }
-        let choices = comparison
-            .changes
-            .iter()
-            .map(|c| {
-                Ok(OrgMergeChoice {
-                    key: c.id.clone(),
-                    side: c
-                        .resolution
-                        .ok_or(CoreError::InvalidInput("请完成全部选择后保存"))?,
-                })
-            })
-            .collect::<Result<Vec<_>, CoreError>>()?;
-        let local = self.file(&comparison.path)?;
-        let remote = self
-            .history_file(&comparison.sync_id, &comparison.path, false)
-            .await?;
         let history = self.webdav_history().await?;
-        let record = history.iter().find(|r| r.id == comparison.sync_id).unwrap();
-        let before = history
+        let record = history
             .iter()
-            .filter(|r| r.started_at < record.started_at)
-            .cloned()
-            .collect::<Vec<_>>();
-        let baseline = latest_file_record(&before, &comparison.path)
-            .and_then(|f| f.detail.task_versions.as_deref());
-        let plan = crate::compare_org_tasks(&local, &remote, baseline);
-        let result = crate::merge_org_tasks(&plan, &choices)?;
-        let target = archive_path(self, record.started_at, &comparison.path, true, true).await?;
+            .find(|r| r.id == request.target.sync_id)
+            .ok_or(CoreError::InvalidInput("同步记录不存在"))?;
+        if record.context_detail.format_version >= 4 {
+            let root = Path::new(&self.root_directory);
+            let _guard = super::transaction::lock(root).await?;
+            let current = super::transaction::read(root, &request.target.path)
+                .await?
+                .ok_or(CoreError::InvalidState("本地文件已删除，请重新读取"))?;
+            if LocalFileVersion::from_bytes(&current).content_hash != request.expected_local_hash {
+                return Err(CoreError::InvalidState("本地文件再次改变，请重新比较"));
+            }
+            let parsed = self.parse_file(request.target.path.clone(), current.clone())?;
+            let result = crate::merge::resolve(&parsed, &request.choices)?;
+            let mut file = self.parse_file(request.target.path.clone(), result.clone())?;
+            let mut plan = super::transaction::Plan::default();
+            plan.set(root, request.target.path.clone(), Some(result.clone()))
+                .await?;
+            let result_path = format!(
+                ".sync/history/{}/conflicts/{}/{}",
+                record.started_at,
+                request.target.path,
+                archive_name(&request.target.path, true)?
+            );
+            plan.set(root, result_path, Some(result.clone())).await?;
+            if result != current {
+                let intent = OrgRepoWriteIntent {
+                    relative_path: request.target.path.clone(),
+                    content_hash: LocalFileVersion::from_bytes(&result).content_hash,
+                };
+                plan.set(
+                    root,
+                    format!(
+                        ".sync/outbox/{}.json",
+                        crate::model::service::generate_repo_id()?
+                    ),
+                    Some(serde_json::to_vec(&intent).unwrap()),
+                )
+                .await?;
+            }
+            plan.commit(root).await?;
+            file.modified_at = fs::metadata(root.join(&request.target.path))
+                .await
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).timestamp_millis());
+            self.files.retain(|f| f.path != request.target.path);
+            self.files.push(file);
+            drop(_guard);
+            if result != current {
+                crate::model::notification::require_sync(&self.id);
+            }
+            crate::model::sync_events::publish(self);
+            return Ok(());
+        }
+        let local = self.file(&request.target.path)?;
+        let remote = self
+            .history_file(&request.target.sync_id, &request.target.path, false)
+            .await?;
+        let result = crate::merge_org_tasks(
+            &crate::compare_org_tasks(&local, &remote, None),
+            &request.choices,
+        )?;
+        let history = self.webdav_history().await?;
+        let record = history
+            .iter()
+            .find(|r| r.id == request.target.sync_id)
+            .unwrap();
+        let target = archive_path(self, record.started_at, &request.target.path, true).await?;
         if fs::try_exists(&target).await.map_err(archive_io)? {
             return Err(CoreError::InvalidState("解决结果已经存在"));
         }
-        // 逐项决定均完成后才写回本地；resolved 最后提交。
+        let needs_upload = result != remote.source_bytes();
         self.replace_conflict_file(
-            &comparison.path,
-            (!comparison.local_missing).then_some(comparison.local_hash.as_str()),
+            &request.target.path,
+            (!fresh.local_missing).then_some(fresh.local_hash.as_str()),
             Some(result.clone()),
         )
         .await?;
-        self.queue_sync_upload(&comparison.path, &result).await?;
-        let actual =
-            crate::model::write_intent::task_target(Path::new(&self.root_directory), &comparison.path)
+        if needs_upload {
+            self.queue_sync_upload(&request.target.path, &result)
                 .await?;
+        } else {
+            self.acknowledge_write(&request.target.path, &LocalFileVersion::from_bytes(&result))
+                .await?;
+        }
+        let actual = crate::model::write_intent::task_target(
+            Path::new(&self.root_directory),
+            &request.target.path,
+        )
+        .await?;
         if fs::read(&actual).await.map_err(archive_io)? != result {
             return Err(CoreError::InvalidState("本地文件再次改变，请重新比较"));
         }
@@ -413,16 +636,24 @@ impl OrgRepo {
             crate::model::service::generate_repo_id()?
         ));
         crate::model::write_intent::write_new(&temporary, &result).await?;
-        if fs::read(&actual).await.map_err(archive_io)? != result {
-            let _ = fs::remove_file(&temporary).await;
-            return Err(CoreError::InvalidState("本地文件再次改变，请重新比较"));
+        let commit = async {
+            if fs::read(&actual).await.map_err(archive_io)? != result {
+                return Err(CoreError::InvalidState("本地文件再次改变，请重新比较"));
+            }
+            if fs::symlink_metadata(&target).await.is_ok() {
+                return Err(CoreError::InvalidState("解决结果已存在，请刷新"));
+            }
+            fs::rename(&temporary, &target).await.map_err(archive_io)
         }
-        // HarmonyOS 应用目录不允许硬链接；同仓库调用由宿主串行化，结果最后原子提交。
-        if fs::symlink_metadata(&target).await.is_ok() {
+        .await;
+        if commit.is_err() {
             let _ = fs::remove_file(&temporary).await;
-            return Err(CoreError::InvalidState("解决结果已存在，请刷新"));
         }
-        fs::rename(&temporary, &target).await.map_err(archive_io)?;
+        commit?;
+        // 已解决与需同步是两个独立事实；只有完整结果提交后才能提示同步。
+        if needs_upload {
+            crate::model::notification::require_sync(&self.id);
+        }
         crate::model::sync_events::publish(self);
         Ok(())
     }
@@ -461,31 +692,6 @@ impl OrgRepo {
             .await
             .map_err(archive_io)
     }
-
-    pub(crate) async fn resolved_baseline(
-        &self,
-        history: &[Record],
-        path: &str,
-    ) -> Result<Option<OrgRepoSyncFileRecord<WebDavSyncFileDetail>>, CoreError> {
-        for record in history.iter().rev() {
-            if let Some(file) = record.files.iter().find(|f| f.relative_path == path) {
-                if file.state == OrgRepoSyncFileState::Synchronized {
-                    return Ok(Some(file.clone()));
-                }
-                if file.detail.resolved {
-                    let result = self
-                        .archive_bytes(record, file, true)
-                        .await?
-                        .ok_or(CoreError::InvalidState("解决结果丢失"))?;
-                    let mut baseline = file.clone();
-                    baseline.state = OrgRepoSyncFileState::Synchronized;
-                    baseline.local_version = Some(LocalFileVersion::from_bytes(&result));
-                    return Ok(Some(baseline));
-                }
-            }
-        }
-        Ok(None)
-    }
 }
 
 fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {
@@ -497,6 +703,7 @@ fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {
         title_parts: file.title_parts(),
         tag_options: file.tag_options(),
         tag_groups: file.tag_groups(),
+        has_conflict: file.has_conflict(),
         is_ignore: false,
         task_count: file
             .syntax()
@@ -516,6 +723,26 @@ fn archive_io(e: std::io::Error) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn choose_all(
+        comparison: &SyncConflictComparison,
+        side: crate::OrgMergeSide,
+    ) -> SyncConflictResolution {
+        SyncConflictResolution {
+            target: comparison.target.clone(),
+            expected_local_hash: comparison.local_hash.clone(),
+            expected_remote_hash: comparison.remote_hash.clone(),
+            expected_local_missing: comparison.local_missing,
+            choices: comparison
+                .changes
+                .iter()
+                .map(|c| crate::OrgMergeChoice {
+                    key: c.key.clone(),
+                    side,
+                })
+                .collect(),
+        }
+    }
+
     struct Fixture {
         repo: OrgRepo,
         root: PathBuf,
@@ -582,35 +809,50 @@ mod tests {
         // 用户同步之后、打开比较之前的编辑必须参与选择。
         let edited = b"#+TITLE: Latest\r\n* TODO Original\r\n* TODO Added after sync\r\n";
         fs::write(f.root.join("a.org"), edited).await.unwrap();
-        let mut comparison = f.repo.compare_sync_conflict(&first, "a.org").await.unwrap();
+        let comparison = f
+            .repo
+            .compare_conflict(&SyncConflictTarget {
+                sync_id: first.clone(),
+                path: "a.org".into(),
+            })
+            .await
+            .unwrap();
         assert!(comparison.changes.iter().any(|c| {
             c.local
                 .as_ref()
                 .is_some_and(|v| v.source.contains("Added after sync"))
         }));
-        assert!(f.repo.resolve_sync_conflict(&comparison).await.is_err());
+        let mut incomplete = choose_all(&comparison, crate::OrgMergeSide::Remote);
+        incomplete.choices.clear();
+        assert!(f.repo.resolve_conflict(&incomplete).await.is_err());
         assert_eq!(fs::read(f.root.join("a.org")).await.unwrap(), edited);
         assert!(
             !f.root
-                .join(".sync/history/10/files/a.org/a.resolved.org")
+                .join(".sync/history/10/conflicts/a.org/a.resolved.org")
                 .exists()
         );
-        for change in &mut comparison.changes {
-            change.resolution = Some(WebDavMergeResolution::Local);
-        }
+        let request_comparison = choose_all(&comparison, crate::OrgMergeSide::Local);
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured = events.clone();
         let workspace = crate::OrgWorkspace::new(vec![f.repo.clone()]).unwrap();
         let subscription = workspace.watch_notifications(move |event| {
             captured.lock().unwrap().push(event);
         });
-        f.repo.resolve_sync_conflict(&comparison).await.unwrap();
+        f.repo.resolve_conflict(&request_comparison).await.unwrap();
         assert_eq!(
-            events.lock().unwrap().len(),
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e, crate::NotificationUpdate::RepositoryChanged { .. }))
+                .count(),
             1,
             "resolved提交后经通知监控转发更新"
         );
-        assert_eq!(events.lock().unwrap()[0].repo_id, f.repo.id);
+        assert!(events.lock().unwrap().iter().any(|e| *e
+            == crate::NotificationUpdate::RepositoryChanged {
+                repo_id: f.repo.id.clone()
+            }));
         drop(subscription);
         assert_eq!(fs::read(f.root.join("a.org")).await.unwrap(), edited);
         assert_eq!(
@@ -670,22 +912,35 @@ mod tests {
         fs::write(f.root.join("a.org"), b"* TODO Local\n")
             .await
             .unwrap();
-        let mut comparison = f.repo.compare_sync_conflict(&id, "a.org").await.unwrap();
-        for change in &mut comparison.changes {
-            change.resolution = Some(WebDavMergeResolution::Local);
-        }
+        let comparison = f
+            .repo
+            .compare_conflict(&SyncConflictTarget {
+                sync_id: id.clone(),
+                path: "a.org".into(),
+            })
+            .await
+            .unwrap();
+        let request_comparison = choose_all(&comparison, crate::OrgMergeSide::Local);
         fs::write(f.root.join("a.org"), b"* TODO Newest\n")
             .await
             .unwrap();
-        assert!(f.repo.resolve_sync_conflict(&comparison).await.is_err());
+        assert!(f.repo.resolve_conflict(&request_comparison).await.is_err());
         assert_eq!(
             fs::read(f.root.join("a.org")).await.unwrap(),
             b"* TODO Newest\n"
         );
         assert!(f.repo.pending_writes().await.unwrap().is_empty());
-        let mut tampered = f.repo.compare_sync_conflict(&id, "a.org").await.unwrap();
-        tampered.remote_hash = "fake".into();
-        assert!(f.repo.resolve_sync_conflict(&tampered).await.is_err());
+        let tampered = f
+            .repo
+            .compare_conflict(&SyncConflictTarget {
+                sync_id: id.clone(),
+                path: "a.org".into(),
+            })
+            .await
+            .unwrap();
+        let mut request = choose_all(&tampered, crate::OrgMergeSide::Local);
+        request.expected_remote_hash = "fake".into();
+        assert!(f.repo.resolve_conflict(&request).await.is_err());
     }
 
     #[tokio::test]
@@ -694,10 +949,20 @@ mod tests {
         let bytes = b"* TODO Same\r\n";
         let id = f.conflict(1, "same.org", Some(bytes)).await;
         fs::write(f.root.join("same.org"), bytes).await.unwrap();
-        let comparison = f.repo.compare_sync_conflict(&id, "same.org").await.unwrap();
+        let comparison = f
+            .repo
+            .compare_conflict(&SyncConflictTarget {
+                sync_id: id.clone(),
+                path: "same.org".into(),
+            })
+            .await
+            .unwrap();
         assert!(comparison.changes.is_empty());
         assert_eq!(f.repo.pending_sync_conflicts().await.unwrap().len(), 1);
-        f.repo.resolve_sync_conflict(&comparison).await.unwrap();
+        f.repo
+            .resolve_conflict(&choose_all(&comparison, crate::OrgMergeSide::Remote))
+            .await
+            .unwrap();
         assert!(f.repo.pending_sync_conflicts().await.unwrap().is_empty());
         assert_eq!(
             f.repo
@@ -716,7 +981,15 @@ mod tests {
         fs::write(f.root.join("a.org"), b"* TODO Current is not history\n")
             .await
             .unwrap();
-        assert!(f.repo.compare_sync_conflict(&id, "a.org").await.is_err());
+        assert!(
+            f.repo
+                .compare_conflict(&SyncConflictTarget {
+                    sync_id: id.clone(),
+                    path: "a.org".into()
+                })
+                .await
+                .is_err()
+        );
         assert!(f.repo.history_file(&id, "a.org", false).await.is_err());
         let detail = f.repo.history_detail(&id).await.unwrap();
         assert!(detail.files[0].backup.is_none());
@@ -739,10 +1012,16 @@ mod tests {
             .unwrap();
         let comparison = f
             .repo
-            .compare_sync_conflict(&current, "a.org")
+            .compare_conflict(&SyncConflictTarget {
+                sync_id: current.clone(),
+                path: "a.org".into(),
+            })
             .await
             .unwrap();
-        f.repo.resolve_sync_conflict(&comparison).await.unwrap();
+        f.repo
+            .resolve_conflict(&choose_all(&comparison, crate::OrgMergeSide::Remote))
+            .await
+            .unwrap();
         let record = f.repo.last_effect_sync().await.unwrap().unwrap();
         assert_eq!(record.id, current);
         assert!(record.files[0].detail.resolved);
@@ -812,7 +1091,9 @@ mod tests {
         assert_eq!(f.repo.last_effect_sync().await.unwrap().unwrap().id, id);
         let notifications = f.repo.notifications().await.unwrap();
         assert_eq!(notifications.len(), 1);
-        let crate::CoreNotification::SyncConflict(event) = &notifications[0];
+        let crate::CoreNotification::SyncConflict(event) = &notifications[0] else {
+            panic!("应为冲突通知")
+        };
         assert_eq!(event.paths, vec!["a.org", "missing.org"]);
         assert_eq!(
             f.repo
@@ -842,7 +1123,9 @@ mod tests {
             b"* TODO A\n"
         );
         assert!(f.repo.history_file(&a, "../A.org", false).await.is_err());
-        let target = f.root.join(".sync/history/1/files/A.org/A.resolved.org");
+        let target = f
+            .root
+            .join(".sync/history/1/conflicts/A.org/A.resolved.org");
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(f.root.join("A.org"), &target).unwrap();

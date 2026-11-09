@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "空标题的标签变化与远端正文变化可独立合并",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

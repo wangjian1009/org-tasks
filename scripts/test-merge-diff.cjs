@@ -80,11 +80,11 @@ function reviewFixture() {
   });
   const calls = [];
   let backs = 0, failure;
-  const comparison = { syncId: 'sync', repoId: 'repo', path: 'a.org', localHash: 'local-v1', remoteHash: 'remote-v1',
+  const comparison = { target: { syncId: 'sync', path: 'a.org' }, repoId: 'repo', localHash: 'local-v1', remoteHash: 'remote-v1',
     localMissing: false, unchangedCount: 2, changes: [
-      { id: 'task', path: 'a.org', kind: 'modified', preamble: false, localChange: 'modified', remoteChange: 'modified',
+      { key: 'task', kind: 'modified', preamble: false,
         local: { title: '任务', source: '* TODO 本地\n' }, remote: { title: '任务', source: '* TODO 远端\n' } },
-      { id: 'preamble', path: 'a.org', kind: 'modified', preamble: true, localChange: 'modified', remoteChange: 'unchanged',
+      { key: 'preamble', kind: 'modified', preamble: true,
         local: { title: '前言', source: '#+TITLE: 本地\n' }, remote: { title: '前言', source: '#+TITLE: 远端\n' } }
     ] };
   const repo = { async compareConflict() { return structuredClone(comparison); }, async resolveConflict(value) {
@@ -111,7 +111,7 @@ function reviewFixture() {
   page.comparison = comparison;
   page.repo = repo;
   page.loading = false;
-  page.choices = comparison.changes.map(change => ({ id: change.id, side: '' }));
+  page.choices = comparison.changes.map(change => ({ id: change.key, side: '' }));
   return { page, comparison, calls, backs: () => backs, fail(message) { failure = message; } };
 }
 
@@ -127,7 +127,7 @@ test('文件任务与前言均需要选择，逐项选择不触发任何写入',
   assert.equal(calls.length, 0);
 });
 
-test('保存传递完整来源与逐项选择，保存期间阻止返回和重复提交', async () => {
+test('保存只传递版本与逐项选择，保存期间阻止返回和重复提交', async () => {
   const { page, comparison, calls, backs } = reviewFixture();
   page.choose('task', 'local'); page.choose('preamble', 'remote');
   const saving = page.save();
@@ -135,12 +135,11 @@ test('保存传递完整来源与逐项选择，保存期间阻止返回和重�
   await page.save(); await saving;
   assert.equal(calls.length, 1);
   const selected = calls[0];
-  assert.equal(selected.localHash, comparison.localHash);
-  assert.equal(selected.remoteHash, comparison.remoteHash);
-  assert.equal(selected.syncId, comparison.syncId);
-  assert.deepEqual(selected.changes.map(c => c.resolution), ['local', 'remote']);
-  assert.equal(selected.changes[1].preamble, true);
-  assert.equal(selected.changes[0].local, comparison.changes[0].local);
+  assert.equal(selected.expectedLocalHash, comparison.localHash);
+  assert.equal(selected.expectedRemoteHash, comparison.remoteHash);
+  assert.deepEqual(selected.target, comparison.target);
+  assert.deepEqual(selected.choices, [{ key: 'task', side: 'local' }, { key: 'preamble', side: 'remote' }]);
+  assert.equal(selected.changes, undefined);
   assert.equal(backs(), 1);
 });
 
@@ -175,6 +174,20 @@ test('零待选择项允许显式保存，比较本身不提交', async () => {
   assert.equal(page.ready(), true);
   assert.equal(calls.length, 0);
   await page.save();
-  assert.deepEqual(calls[0].changes, []);
+  assert.deepEqual(calls[0].choices, []);
   assert.equal(backs(), 1);
+});
+
+test('存储库冲突入口只展示文件信息，不比较或提交历史冲突', async () => {
+  const { page, calls } = reviewFixture();
+  page.repo.compareConflict = async () => { throw new Error('不应生成比较'); };
+  page.getUIContext = () => ({ getRouter: () => ({ getParams: () => ({ repoId: 'core-id', path: 'A.org' }) }) });
+  await page.load();
+  assert.equal(page.pendingPath, 'A.org');
+  assert.equal(page.loading, false);
+  assert.equal(page.comparison, undefined);
+  assert.equal(page.ready(), false);
+  assert.equal(page.message, '');
+  await page.save();
+  assert.equal(calls.length, 0);
 });

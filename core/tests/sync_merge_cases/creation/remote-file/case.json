@@ -1,0 +1,28 @@
+{
+  "formatVersion": 2,
+  "purpose": "远端新增文件，与本地修改旧文件并存",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "files/01/base.org",
+        "local": "files/01/local.org",
+        "remote": "files/01/remote.org"
+      },
+      "expected": {
+        "content": "files/01/expected.org"
+      }
+    },
+    {
+      "label": "path/to/B.org",
+      "input": {
+        "base": "files/02/base.org",
+        "local": "files/02/local.org",
+        "remote": "files/02/remote.org"
+      },
+      "expected": {
+        "content": "files/02/expected.org"
+      }
+    }
+  ]
+}

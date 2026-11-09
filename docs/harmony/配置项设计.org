@@ -91,7 +91,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 |-
 | 用户配置 | Harmony | Preferences 的 ~org_tasks_config~ | ~AppConfig~ ；不保存真实密码、同步历史或完整文件；现有状态键混存问题见下文。 |
 | WebDAV 密码 | Harmony | Asset Store | 每个 ~RepoConfig.id~ 独立秘密记录。 |
-| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。元数据不保存绝对路径、凭据或完整 org 内容；确认后的原始冲突文件单独保存在 ~backups/~ 。 |
+| 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。不保存凭据或绝对路径；实际远端基线、历史正文与冲突快照由 Core 按统一同步设计保存。 |
 | 日历映射 | Harmony | ~org_tasks_config~ 中的 ~calendar_sync_state~ 键 | 当前保存日历名称、任务 ID、事件 ID 和指纹；尚未按目标设计隔离到独立存储。 |
 | 捕捉草稿 | Harmony | Preferences 的 ~org_tasks_capture~ | ~drafts~ 仅保存草稿 ID 与未保存标题；独立于配置、凭据、Org 文件与同步记录；成功保存后移除对应草稿。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
@@ -208,3 +208,7 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 * 将来，也许快捷入口
 
 移动托盘的“将来，也许”复用现有 ~somedayRepoId~ 与 ~somedayFile~ ，不新增文件选择或 Preferences 字段。该文件与当前收件箱一起通过 ~RefileTargetQuery.excludedFiles~ 在 Core 生成 CATEGORY 前排除；其 REFILE 标题不形成普通 Tab。快捷入口使用 ~files~ 单独查询所选文件，移动到首个 REFILE 节点的第一个子节点，清除根任务规划信息并设置 TODO。配置失效或 TODO 不被目标文件接受时明确提示，不能回退到首个仓库或其他同名文件。
+
+* 重置本地目录的配置边界
+
+仓库重置只调用 ~Repo.reset~ ，保留 ~RepoConfig~ 、Asset Store 密码、入口文件绑定与原 Core 仓库 ID。它与“删除存储库”不同，不移除配置或凭据；绑定的文件重置后暂不存在，相关入口沿用已有缺失提示。确认目标使用保存配置中的根目录，未保存的目录草稿不得用于重置。重置不访问远端，下次同步重新建立本地基线。

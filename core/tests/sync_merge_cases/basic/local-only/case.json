@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "仅本地修改，重放本地修改",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

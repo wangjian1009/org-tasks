@@ -1,0 +1,7 @@
+* Left
+* Right
+** TODO Remote
+:PROPERTIES:
+:ID: remote-task
+:END:
+remote

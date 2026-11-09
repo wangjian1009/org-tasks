@@ -1,0 +1,28 @@
+{
+  "formatVersion": 2,
+  "purpose": "两端新增相同路径文件，内部不同任务合并",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "files/01/base.org",
+        "local": "files/01/local.org",
+        "remote": "files/01/remote.org"
+      },
+      "expected": {
+        "content": "files/01/expected.org"
+      }
+    },
+    {
+      "label": "path/to/B.org",
+      "input": {
+        "base": "files/02/base.org",
+        "local": "files/02/local.org",
+        "remote": "files/02/remote.org"
+      },
+      "expected": {
+        "content": "files/02/expected.org"
+      }
+    }
+  ]
+}

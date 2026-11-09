@@ -59,6 +59,7 @@ export class OrgFile {
   titleParts(): TitlePart[];
   sourceBytes(): Uint8Array;
   renderHtml(): string;
+  readonly hasConflict: boolean;
 }
 
 export class Task {
@@ -179,9 +180,12 @@ export interface SyncConflictNotification {
   paths: string[];
 }
 
-export type CoreNotification = SyncConflictNotification;
+export interface SyncRequiredNotification { type: 'syncRequired'; }
+export type CoreNotification = SyncConflictNotification | SyncRequiredNotification;
 
-export interface NotificationUpdate { repoId: string; }
+export type NotificationUpdate =
+  | { type: 'repositoryChanged'; repoId: string }
+  | { type: 'globalNotificationsChanged' };
 export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
 export class Workspace {
@@ -208,12 +212,13 @@ export class Repo {
   readonly rootDirectory: string;
   readonly fullPath: TaskPath;
   load(): Promise<void>;
+  reset(): Promise<void>;
   history(): Promise<SyncRecord[]>;
   historyDetail(syncId: string): Promise<SyncRecordDetail>;
   lastEffectSync(): Promise<SyncRecord | null>;
   historyFile(target: HistoryFileTarget): Promise<OrgFile>;
   compareConflict(target: ConflictFileTarget): Promise<SyncConflictComparison>;
-  resolveConflict(comparison: SyncConflictComparison): Promise<void>;
+  resolveConflict(request: SyncConflictResolution): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }
@@ -226,6 +231,7 @@ export interface OrgFileMetadata {
   readonly tagOptions: string[];
   readonly tagGroups: string[][];
   readonly isIgnore: boolean;
+  readonly hasConflict: boolean;
   readonly taskCount: number;
   readonly byteLength: number;
   readonly modifiedAt: number | null;
@@ -240,16 +246,12 @@ export interface MergeVersion {
 }
 export type MergeResolution = 'local' | 'remote' | 'remove';
 export type MergeChangeState = 'unchanged' | 'added' | 'modified' | 'deleted' | 'unmatched';
-export interface MergeChange {
-  id: string;
-  path: string;
+export interface SyncConflictChange {
+  key: string;
   kind: 'added' | 'modified' | 'deleted';
   preamble: boolean;
-  localChange: MergeChangeState;
-  remoteChange: MergeChangeState;
   local: MergeVersion | null;
   remote: MergeVersion | null;
-  resolution: MergeResolution | null;
 }
 export interface ConflictSync { syncId: string; paths: string[]; }
 
@@ -282,11 +284,19 @@ export interface ConflictFileTarget { syncId: string; path: string; }
 export interface HistoryFileTarget { syncId: string; path: string; resolved: boolean; }
 export interface SyncConflictComparison {
   repoId: string;
-  syncId: string;
-  path: string;
+  target: ConflictFileTarget;
   localHash: string;
   remoteHash: string;
   localMissing: boolean;
   unchangedCount: number;
-  changes: MergeChange[];
+  changes: SyncConflictChange[];
+}
+
+export interface SyncConflictChoice { key: string; side: MergeResolution; }
+export interface SyncConflictResolution {
+  target: ConflictFileTarget;
+  expectedLocalHash: string;
+  expectedRemoteHash: string;
+  expectedLocalMissing: boolean;
+  choices: SyncConflictChoice[];
 }

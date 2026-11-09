@@ -2,26 +2,26 @@ use crate::{CoreError, TimestampMs};
 use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
-pub(crate) mod write_intent;
 mod editor;
 mod merge;
-mod notification;
-pub(crate) mod sync_events;
+pub(crate) mod notification;
 mod query;
 mod refile;
 mod render;
+pub(crate) mod reset;
 pub(crate) mod service;
-pub(crate) mod task_identity;
-mod task_scan;
+pub(crate) mod sync_events;
 mod tags;
-mod task_path;
+pub(crate) mod task_identity;
 mod task_inline;
 mod task_operation;
 mod task_operation_executor;
+mod task_path;
+mod task_scan;
 mod todo;
 mod workspace;
+pub(crate) mod write_intent;
 
-pub use write_intent::*;
 pub use editor::*;
 pub use merge::*;
 pub use notification::*;
@@ -29,12 +29,13 @@ pub use query::*;
 pub use refile::*;
 pub use render::*;
 pub use service::*;
-pub use task_scan::*;
-pub use task_path::*;
 pub use task_inline::*;
 pub use task_operation::*;
+pub use task_path::*;
+pub use task_scan::*;
 pub use todo::*;
 pub use workspace::*;
+pub use write_intent::*;
 
 pub type OrgRepoId = String;
 pub type OrgRepoSyncRecordId = String;
@@ -64,6 +65,7 @@ pub struct OrgFileMetadata {
     pub title_parts: Vec<TitlePart>,
     pub tag_options: Vec<String>,
     pub tag_groups: Vec<Vec<String>>,
+    pub has_conflict: bool,
     pub is_ignore: bool,
     pub task_count: usize,
     pub byte_length: usize,
@@ -117,26 +119,30 @@ impl OrgRepo {
     pub fn file_metadata(&self) -> Vec<OrgFileMetadata> {
         self.files
             .iter()
-            .map(|file| OrgFileMetadata {
-                repo_id: file.repo_id.clone(),
-                path: file.path.clone(),
-                title: file.title(),
-                title_parts: file.title_parts(),
-                tag_options: file.tag_options(),
-                tag_groups: file.tag_groups(),
-                is_ignore: self.task_scan_rules.excludes(&file.path),
-                task_count: if self.task_scan_rules.excludes(&file.path) {
-                    0
-                } else {
-                    file.syntax()
-                        .document()
-                        .syntax()
-                        .descendants()
-                        .filter_map(orgize::ast::Headline::cast)
-                        .count()
-                },
-                byte_length: file.source_bytes().len(),
-                modified_at: file.modified_at,
+            .map(|file| {
+                let (title, has_conflict) = file.header_metadata();
+                OrgFileMetadata {
+                    repo_id: file.repo_id.clone(),
+                    path: file.path.clone(),
+                    title,
+                    has_conflict,
+                    title_parts: file.title_parts(),
+                    tag_options: file.tag_options(),
+                    tag_groups: file.tag_groups(),
+                    is_ignore: self.task_scan_rules.excludes(&file.path),
+                    task_count: if self.task_scan_rules.excludes(&file.path) {
+                        0
+                    } else {
+                        file.syntax()
+                            .document()
+                            .syntax()
+                            .descendants()
+                            .filter_map(orgize::ast::Headline::cast)
+                            .count()
+                    },
+                    byte_length: file.source_bytes().len(),
+                    modified_at: file.modified_at,
+                }
             })
             .collect()
     }
@@ -159,8 +165,8 @@ pub struct OrgFile {
     pub path: String,
     pub source_bytes: Vec<u8>,
     pub todo: TodoMetadata,
-    todo_defaults: TodoConfig,
-    todo_setup: String,
+    pub(crate) todo_defaults: TodoConfig,
+    pub(crate) todo_setup: String,
     pub(crate) modified_at: Option<TimestampMs>,
     syntax: orgize::Org,
 }
@@ -225,11 +231,25 @@ impl OrgFile {
 
     /// 复用已有语法树，仅遍历文件头关键字，找到第一条 TITLE 即返回。
     pub fn title(&self) -> Option<String> {
-        self.syntax
-            .document()
-            .keywords()
-            .find(|keyword| keyword.key().eq_ignore_ascii_case("TITLE"))
-            .map(|keyword| keyword.value().trim().to_owned())
+        self.header_metadata().0
+    }
+
+    /// 与 TITLE 共用文件头扫描，不读取子树或源码块中的同名文本。
+    pub fn has_conflict(&self) -> bool {
+        self.header_metadata().1
+    }
+
+    pub(crate) fn header_metadata(&self) -> (Option<String>, bool) {
+        let mut title = None;
+        let mut conflict = None;
+        for keyword in self.syntax.document().keywords() {
+            if title.is_none() && keyword.key().eq_ignore_ascii_case("TITLE") {
+                title = Some(keyword.value().trim().to_owned());
+            } else if conflict.is_none() && keyword.key().eq_ignore_ascii_case("CONFLICT") {
+                conflict = Some(keyword.value().trim().eq_ignore_ascii_case("true"));
+            }
+        }
+        (title, conflict.unwrap_or(false))
     }
 
     pub fn syntax(&self) -> &orgize::Org {
@@ -490,7 +510,7 @@ fn validate_id(value: &str, message: &'static str) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn validate_relative_path(value: &str) -> Result<(), CoreError> {
+pub(crate) fn validate_relative_path(value: &str) -> Result<(), CoreError> {
     if value.trim().is_empty()
         || value.starts_with('/')
         || value.contains('\\')
@@ -588,9 +608,10 @@ mod tests {
             assert_eq!(metadata[0].path, "work.org");
             assert_eq!(repo.files[0].source_bytes(), source.as_bytes());
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 10);
+            assert_eq!(value.as_object().unwrap().len(), 11);
             assert_eq!(value["tagOptions"], serde_json::json!([]));
             assert_eq!(value["tagGroups"], serde_json::json!([]));
+            assert_eq!(value["hasConflict"], false);
             assert_eq!(
                 value["titleParts"],
                 serde_json::to_value(&metadata[0].title_parts).unwrap()

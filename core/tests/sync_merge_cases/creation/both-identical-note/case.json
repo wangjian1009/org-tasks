@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "无 ID 节点同 path 同内容的两端新增只保留一份",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

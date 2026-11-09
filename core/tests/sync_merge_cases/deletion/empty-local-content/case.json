@@ -1,0 +1,32 @@
+{
+  "formatVersion": 2,
+  "purpose": "零字节输入表示内容中没有节点，不代表远端或本地文件不存在",
+  "rounds": [
+    {
+      "label": "空内容的节点删除竞争",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "delete",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "Anchored",
+          "parentTitles": [],
+          "originTitles": [
+            "A"
+          ],
+          "source": "remote.org"
+        }
+      ]
+    }
+  ]
+}

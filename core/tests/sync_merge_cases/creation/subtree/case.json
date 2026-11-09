@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "本地新增子树与远端修改另一节点同时保留",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

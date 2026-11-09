@@ -1,0 +1,28 @@
+{
+  "formatVersion": 2,
+  "purpose": "本地新增文件，合并本地新增内容",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "files/01/base.org",
+        "local": "files/01/local.org",
+        "remote": "files/01/remote.org"
+      },
+      "expected": {
+        "content": "files/01/expected.org"
+      }
+    },
+    {
+      "label": "path/to/B.org",
+      "input": {
+        "base": "files/02/base.org",
+        "local": "files/02/local.org",
+        "remote": "files/02/remote.org"
+      },
+      "expected": {
+        "content": "files/02/expected.org"
+      }
+    }
+  ]
+}

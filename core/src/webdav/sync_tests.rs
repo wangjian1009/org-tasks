@@ -1,0 +1,1380 @@
+use super::*;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+
+struct Remote {
+    data: Vec<u8>,
+    etag: String,
+}
+struct Dav {
+    files: BTreeMap<String, Remote>,
+    reject: BTreeSet<String>,
+    reject_get: BTreeSet<String>,
+    requests: Vec<String>,
+    hierarchical: bool,
+    invalid_listing: bool,
+}
+
+async fn server(
+    files: &[(&str, &[u8])],
+) -> (
+    WebDavSyncPolicy,
+    Arc<Mutex<Dav>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let state = Arc::new(Mutex::new(Dav {
+        files: files
+            .iter()
+            .map(|(path, data)| {
+                (
+                    path.to_string(),
+                    Remote {
+                        data: data.to_vec(),
+                        etag: "\"v1\"".into(),
+                    },
+                )
+            })
+            .collect(),
+        reject: BTreeSet::new(),
+        reject_get: BTreeSet::new(),
+        requests: Vec::new(),
+        hierarchical: false,
+        invalid_listing: false,
+    }));
+    let shared = state.clone();
+    let endpoint =
+        WebDavEndpoint::new(format!("http://{}/org/", listener.local_addr().unwrap())).unwrap();
+    let worker = tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                break;
+            };
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 4096];
+            let end = loop {
+                let n = stream.read(&mut buffer).await.unwrap();
+                if n == 0 {
+                    return;
+                }
+                bytes.extend_from_slice(&buffer[..n]);
+                if let Some(offset) = bytes.windows(4).position(|p| p == b"\r\n\r\n") {
+                    break offset + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_string();
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            while bytes.len() < end + length {
+                let n = stream.read(&mut buffer).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&buffer[..n]);
+            }
+            let mut request = headers.split_whitespace();
+            let method = request.next().unwrap();
+            let path = request
+                .next()
+                .unwrap()
+                .trim_start_matches("/org/")
+                .to_string();
+            let (status, body, etag) = {
+                let mut dav = shared.lock().unwrap();
+                dav.requests.push(headers.clone());
+                match method {
+                    "PROPFIND" => {
+                        let mut directories = BTreeSet::new();
+                        let mut entries = String::new();
+                        for (filename, file) in &dav.files {
+                            if dav.hierarchical {
+                                let Some(rest) = filename.strip_prefix(&path) else {
+                                    continue;
+                                };
+                                if let Some((child, _)) = rest.split_once('/') {
+                                    directories.insert(format!("{path}{child}/"));
+                                    continue;
+                                }
+                            }
+                            entries.push_str(&format!("<d:response><d:href>/org/{filename}</d:href><d:propstat><d:prop><d:getetag>{}</d:getetag><d:getcontentlength>{}</d:getcontentlength></d:prop></d:propstat></d:response>",file.etag,file.data.len()));
+                        }
+                        for directory in directories {
+                            entries.push_str(&format!("<d:response><d:href>/org/{directory}</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>"));
+                        }
+                        if dav.invalid_listing {
+                            entries.push_str("<d:response>");
+                        }
+                        (
+                            207,
+                            format!("<d:multistatus xmlns:d=\"DAV:\">{entries}</d:multistatus>")
+                                .into_bytes(),
+                            None,
+                        )
+                    }
+                    "GET" if dav.reject_get.contains(&path) => (412, Vec::new(), None),
+                    "GET" => match dav.files.get(&path) {
+                        Some(file)
+                            if headers.contains(&format!("if-match: {}", file.etag))
+                                || !headers.contains("if-match:") =>
+                        {
+                            (200, file.data.clone(), Some(file.etag.clone()))
+                        }
+                        Some(_) => (412, Vec::new(), None),
+                        None => (404, Vec::new(), None),
+                    },
+                    "DELETE" => {
+                        let valid = dav
+                            .files
+                            .get(&path)
+                            .is_some_and(|f| headers.contains(&format!("if-match: {}", f.etag)));
+                        if !valid || dav.reject.contains(&path) {
+                            (412, Vec::new(), None)
+                        } else {
+                            dav.files.remove(&path);
+                            (204, Vec::new(), None)
+                        }
+                    }
+                    "PUT" => {
+                        let valid = if let Some(file) = dav.files.get(&path) {
+                            headers.contains(&format!("if-match: {}", file.etag))
+                        } else {
+                            headers.contains("if-none-match: *")
+                        };
+                        if dav.reject.contains(&path) || !valid {
+                            (412, Vec::new(), None)
+                        } else {
+                            let next_etag = format!("\"v{}\"", dav.requests.len());
+                            dav.files.insert(
+                                path.clone(),
+                                Remote {
+                                    data: bytes[end..end + length].to_vec(),
+                                    etag: next_etag.clone(),
+                                },
+                            );
+                            (204, Vec::new(), Some(next_etag))
+                        }
+                    }
+                    _ => (500, Vec::new(), None),
+                }
+            };
+            let etag = etag.map(|e| format!("ETag: {e}\r\n")).unwrap_or_default();
+            stream.write_all(format!("HTTP/1.1 {status} Result\r\nContent-Length: {}\r\n{etag}Connection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+            stream.write_all(&body).await.unwrap();
+        }
+    });
+    (
+        WebDavSyncPolicy::new(endpoint, "user".into(), "secret".into()).unwrap(),
+        state,
+        worker,
+    )
+}
+
+async fn repo() -> (OrgRepo, std::path::PathBuf) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "org-tasks-merge-sync-{}-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+    repo.load::<WebDavSyncPolicy>().await.unwrap();
+    (repo, root)
+}
+
+async fn sync(
+    repo: &mut OrgRepo,
+    policy: &WebDavSyncPolicy,
+    time: i64,
+) -> OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> {
+    repo.sync(
+        policy,
+        time,
+        &SyncCancellation::default(),
+        &SyncProgressReporter::default(),
+    )
+    .await
+    .unwrap()
+}
+
+async fn offline(repo: &mut OrgRepo, path: &str) {
+    crate::model::test_support::append_fixture(repo, path, "Offline")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn remote_deletion_directly_removes_modified_local_file_and_consumes_intents() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("inbox.org", b"* TODO Original\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    offline(&mut repo, "inbox.org").await;
+    state.lock().unwrap().files.clear();
+    let result = sync(&mut repo, &policy, 2).await;
+    assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(result.files[0].action, OrgRepoSyncFileAction::Deleted);
+    assert!(!root.join("inbox.org").exists());
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+#[tokio::test]
+async fn task_ignore_does_not_change_upload_download_or_write_acknowledgement() {
+    let (mut repo, root) = repo().await;
+    tokio::fs::write(root.join(".orgzlyignore"), "local.org\nremote.org\n")
+        .await
+        .unwrap();
+    offline(&mut repo, "local.org").await;
+    let local = tokio::fs::read(root.join("local.org")).await.unwrap();
+    let remote = b"* TODO Remote ignored task\r\n";
+    let (policy, state, worker) = server(&[("remote.org", remote)]).await;
+    let record = sync(&mut repo, &policy, 1).await;
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(record.files.len(), 2);
+    assert_eq!(state.lock().unwrap().files["local.org"].data, local);
+    assert_eq!(
+        tokio::fs::read(root.join("remote.org")).await.unwrap(),
+        remote
+    );
+    assert_eq!(repo.files().len(), 2);
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    assert!(crate::filter::tasks_from_repo(&repo).is_empty());
+    repo.load::<WebDavSyncPolicy>().await.unwrap();
+    assert_eq!(repo.files().len(), 2);
+    assert!(crate::filter::tasks_from_repo(&repo).is_empty());
+    tokio::fs::remove_file(root.join(".orgzlyignore"))
+        .await
+        .unwrap();
+    repo.load::<WebDavSyncPolicy>().await.unwrap();
+    assert_eq!(crate::filter::tasks_from_repo(&repo).len(), 2);
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[
+        (".orgzlyignore", b"\xef\xbb\xbfann.org\r\n"),
+        ("nested/.orgzlyignore", b"visible.org\n"),
+        ("ann.org", b"* TODO Announcement\n"),
+        ("visible.org", b"* TODO Visible\n"),
+    ])
+    .await;
+    let record = sync(&mut repo, &policy, 1).await;
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(repo.files().len(), 2);
+    assert!(!root.join("nested/.orgzlyignore").exists());
+    assert_eq!(
+        tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+        b"\xef\xbb\xbfann.org\r\n"
+    );
+    let query = crate::TaskQuery {
+        expression: "s.none d.none".into(),
+        include_done: false,
+        ..Default::default()
+    };
+    let result = crate::OrgWorkspace::new(vec![repo.clone()])
+        .unwrap()
+        .query(&query)
+        .unwrap();
+    assert_eq!(result.tasks.len(), 1);
+    assert_eq!(result.tasks[0].path, "visible.org");
+    assert!(
+        repo.file_metadata()
+            .iter()
+            .find(|file| file.path == "ann.org")
+            .unwrap()
+            .is_ignore
+    );
+    let rules = record
+        .files
+        .iter()
+        .find(|file| file.relative_path == ".orgzlyignore")
+        .unwrap();
+    assert!(rules.detail.task_versions.is_none());
+    assert_eq!(
+        rules.detail.synced_source.as_deref(),
+        Some("\u{feff}ann.org\r\n")
+    );
+    {
+        let mut dav = state.lock().unwrap();
+        let rules = dav.files.get_mut(".orgzlyignore").unwrap();
+        rules.data = b"visible.org\n".to_vec();
+        rules.etag = "\"v2\"".into();
+    }
+    assert_eq!(
+        sync(&mut repo, &policy, 2).await.result,
+        Some(OrgRepoSyncResult::Succeeded)
+    );
+    assert!(repo.task_scan_rules.excludes("visible.org"));
+    assert!(!repo.task_scan_rules.excludes("ann.org"));
+    state.lock().unwrap().files.remove(".orgzlyignore");
+    assert_eq!(
+        sync(&mut repo, &policy, 3).await.result,
+        Some(OrgRepoSyncResult::Succeeded)
+    );
+    assert!(!root.join(".orgzlyignore").exists());
+    assert!(!repo.task_scan_rules.excludes("visible.org"));
+    assert!(
+        state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .all(|request| !request.starts_with("PUT /org/.orgzlyignore"))
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn sync_ignore_rules_preserves_local_edits_and_rejects_invalid_remote_content() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[(".orgzlyignore", b"ann.org\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(root.join(".orgzlyignore"), "local.org\n")
+        .await
+        .unwrap();
+    assert!(
+        repo.sync(
+            &policy,
+            2,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default()
+        )
+        .await
+        .unwrap()
+        .result
+            == Some(OrgRepoSyncResult::Failed)
+    );
+    assert_eq!(
+        tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+        b"local.org\n"
+    );
+    assert!(repo.task_scan_rules.excludes("local.org"));
+    tokio::fs::write(root.join(".orgzlyignore"), "ann.org\n")
+        .await
+        .unwrap();
+    for (index, invalid) in [vec![0xff], b"[z-a]\n".to_vec()].into_iter().enumerate() {
+        state
+            .lock()
+            .unwrap()
+            .files
+            .get_mut(".orgzlyignore")
+            .unwrap()
+            .data = invalid;
+        assert!(
+            repo.sync(
+                &policy,
+                3 + index as i64,
+                &SyncCancellation::default(),
+                &SyncProgressReporter::default()
+            )
+            .await
+            .unwrap()
+            .result
+                == Some(OrgRepoSyncResult::Failed)
+        );
+        assert_eq!(
+            tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+            b"ann.org\n"
+        );
+        assert!(repo.task_scan_rules.excludes("ann.org"));
+    }
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() {
+    let (mut repo, root) = repo().await;
+    let original = b"* TODO Local archive\r\n";
+    tokio::fs::create_dir_all(root.join("archive"))
+        .await
+        .unwrap();
+    tokio::fs::write(root.join("archive/local.org"), original)
+        .await
+        .unwrap();
+    let (policy, state, worker) = server(&[
+        ("archive/remote.org", b"* TODO Remote archive\n"),
+        ("nested/archive/remote.org", b"* TODO Nested archive\n"),
+        ("private/remote.org", b"* TODO Private\n"),
+        ("archives/keep.org", b"* TODO Keep similar name\n"),
+        ("keep.org", b"* TODO Keep\n"),
+    ])
+    .await;
+    let first = sync(&mut repo, &policy, 1).await;
+    assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(first.files.len(), 3);
+    assert!(!root.join("archive/remote.org").exists());
+    assert!(!root.join("nested/archive/remote.org").exists());
+    assert!(root.join("private/remote.org").is_file());
+    assert!(root.join("archives/keep.org").is_file());
+    assert_eq!(
+        tokio::fs::read(root.join("archive/local.org"))
+            .await
+            .unwrap(),
+        original
+    );
+    assert!(
+        !state
+            .lock()
+            .unwrap()
+            .files
+            .contains_key("archive/local.org")
+    );
+    assert!(
+        state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|r| !r.starts_with("PROPFIND"))
+            .all(|r| !r
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .split('/')
+                .any(|part| part == "archive"))
+    );
+
+    // 自定义参数替换默认规则，仅对本次调用生效。
+    let second = repo
+        .sync_with_options(
+            &policy,
+            2,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default(),
+            crate::SyncOptions {
+                excluded_directories: vec!["private".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(second.files.len(), 5);
+    assert!(
+        second
+            .files
+            .iter()
+            .all(|file| !file.relative_path.starts_with("private/"))
+    );
+    assert!(root.join("archive/remote.org").is_file());
+    assert!(root.join("nested/archive/remote.org").is_file());
+    assert_eq!(
+        state.lock().unwrap().files["archive/local.org"].data,
+        original
+    );
+
+    // 已有基线和待上传意图的目录被排除后也不能发生传输或误报远端删除。
+    offline(&mut repo, "archive/local.org").await;
+    state.lock().unwrap().files.remove("archive/local.org");
+    let third = sync(&mut repo, &policy, 3).await;
+    assert_eq!(third.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(third.files.len(), 3);
+    assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+    assert!(
+        !state
+            .lock()
+            .unwrap()
+            .files
+            .contains_key("archive/local.org")
+    );
+
+    let fourth = repo
+        .sync_with_options(
+            &policy,
+            4,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default(),
+            crate::SyncOptions {
+                excluded_directories: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(fourth.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(fourth.files.len(), 6);
+    assert_eq!(
+        fourth
+            .files
+            .iter()
+            .find(|file| file.relative_path == "archive/local.org")
+            .unwrap()
+            .state,
+        OrgRepoSyncFileState::Synchronized
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn first_sync_merges_existing_files_and_commits_one_sided_files_without_manual_file_conflicts()
+ {
+    let (mut repo, root) = repo().await;
+    tokio::fs::write(root.join("local.org"), b"* TODO Local\n")
+        .await
+        .unwrap();
+    tokio::fs::write(root.join("same.org"), b"* TODO Same\r\n")
+        .await
+        .unwrap();
+    let (policy, state, worker) = server(&[
+        ("remote.org", b"* TODO Remote\r\n"),
+        ("same.org", b"* TODO Same\r\n"),
+    ])
+    .await;
+    let first = sync(&mut repo, &policy, 1).await;
+    assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(
+        first
+            .files
+            .iter()
+            .all(|f| f.state == OrgRepoSyncFileState::Synchronized)
+    );
+    assert!(root.join("remote.org").is_file());
+    assert!(root.join(".sync/remote_base/current.json").is_file());
+    assert_eq!(
+        state.lock().unwrap().files["local.org"].data,
+        b"* TODO Local\n"
+    );
+    let count = state.lock().unwrap().requests.len();
+    sync(&mut repo, &policy, 2).await;
+    assert!(
+        state.lock().unwrap().requests[count..]
+            .iter()
+            .all(|r| !r.starts_with("GET") && !r.starts_with("PUT"))
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn first_sync_uploads_local_only_and_downloads_remote_only_files() {
+    let (mut repo, root) = repo().await;
+    offline(&mut repo, "local.org").await;
+    let original = tokio::fs::read(root.join("local.org")).await.unwrap();
+    let (policy, _, worker) = server(&[("remote.org", b"* TODO Remote\n")]).await;
+    let first = sync(&mut repo, &policy, 1).await;
+    assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(
+        tokio::fs::read(root.join("local.org")).await.unwrap(),
+        original
+    );
+    assert_eq!(
+        tokio::fs::read(root.join("remote.org")).await.unwrap(),
+        b"* TODO Remote\n"
+    );
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    assert!(repo.file("remote.org").unwrap().modified_at.is_some());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+#[tokio::test]
+async fn downloaded_file_todo_declarations_override_external_defaults_and_survive_reload() {
+    let (mut repo, root) = repo().await;
+    repo.set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: GLOBAL | CLOSED").unwrap())
+        .unwrap();
+    let bytes = b"#+TODO: OPEN(o) | FINISHED(f!)\r\n* OPEN Pending\r\n* FINISHED Complete\r\n";
+    let (policy, _, worker) = server(&[("inbox.org", bytes)]).await;
+    let first = sync(&mut repo, &policy, 1).await;
+    assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
+    repo.load::<WebDavSyncPolicy>().await.unwrap();
+    let file = &repo.files[0];
+    assert_eq!(file.source_bytes(), bytes);
+    assert_eq!(file.todo.source, crate::TodoSource::InBuffer);
+    assert_eq!(file.todo.initial_state.as_deref(), Some("OPEN"));
+    assert_eq!(file.todo.done_keywords, ["FINISHED"]);
+    let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+    assert_eq!(
+        workspace
+            .query(&crate::TaskQuery {
+                expression: "it.done".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .tasks
+            .len(),
+        1
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+#[tokio::test]
+async fn file_local_operations_replay_over_remote_and_only_modified_remote_files_download() {
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Work\r\n:PROPERTIES:\r\n:ID: stable\r\n:END:\r\nbase body\r\n";
+    let (policy, state, worker) = server(&[("a.org", base), ("b.org", b"* Cached\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    let local = String::from_utf8(base.to_vec())
+        .unwrap()
+        .replace("TODO", "DONE");
+    let remote = String::from_utf8(base.to_vec())
+        .unwrap()
+        .replace("base body", "remote body");
+    tokio::fs::write(root.join("a.org"), &local).await.unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.insert(
+            "a.org".into(),
+            Remote {
+                data: remote.into_bytes(),
+                etag: "\"changed\"".into(),
+            },
+        );
+    }
+    let count = state.lock().unwrap().requests.len();
+    let second = sync(&mut repo, &policy, 2).await;
+    assert_eq!(second.result, Some(OrgRepoSyncResult::Succeeded));
+    let expected = local.replace("base body", "remote body").into_bytes();
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), expected);
+    assert_eq!(state.lock().unwrap().files["a.org"].data, expected);
+    let dav = state.lock().unwrap();
+    let requests = &dav.requests[count..];
+    assert_eq!(requests.iter().filter(|r| r.starts_with("GET")).count(), 1);
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.starts_with("PUT") && r.contains("if-match: \"changed\""))
+    );
+    drop(dav);
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn task_conflict_uploads_both_versions_remains_readable_and_does_not_block_new_sync() {
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Work\n:PROPERTIES:\n:ID: stable\n:END:\nbase\n";
+    let (policy, state, worker) = server(&[("a.org", base)]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(
+        root.join("a.org"),
+        String::from_utf8(base.to_vec())
+            .unwrap()
+            .replace("base", "local"),
+    )
+    .await
+    .unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.insert(
+            "a.org".into(),
+            Remote {
+                data: String::from_utf8(base.to_vec())
+                    .unwrap()
+                    .replace("base", "remote")
+                    .into_bytes(),
+                etag: "\"remote\"".into(),
+            },
+        );
+    }
+    let conflict = sync(&mut repo, &policy, 2).await;
+    assert_eq!(conflict.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(conflict.files[0].state, OrgRepoSyncFileState::Conflict);
+    let merged = tokio::fs::read(root.join("a.org")).await.unwrap();
+    let text = String::from_utf8(merged.clone()).unwrap();
+    assert!(text.contains("local"));
+    assert!(text.contains("remote"));
+    assert!(text.contains("(conflict)"));
+    assert_eq!(state.lock().unwrap().files["a.org"].data, merged);
+    let archived = root.join(".sync/history/2/conflicts/a.org/a.org");
+    assert_eq!(tokio::fs::read(&archived).await.unwrap(), merged);
+    let detail = repo.history_detail(&conflict.id).await.unwrap();
+    assert_eq!(detail.summary.pending_conflicts, 1);
+    assert!(detail.files[0].backup.is_some());
+    assert_eq!(
+        repo.history_file(&conflict.id, "a.org", false)
+            .await
+            .unwrap()
+            .source_bytes(),
+        merged
+    );
+    let count = state.lock().unwrap().requests.len();
+    let next = sync(&mut repo, &policy, 3).await;
+    assert_eq!(next.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), merged);
+    assert!(
+        state.lock().unwrap().requests[count..]
+            .iter()
+            .all(|r| !r.starts_with("PUT"))
+    );
+    assert_eq!(repo.notifications().await.unwrap().len(), 1);
+    // 普通任务编辑去掉标记即解决任务冲突，下一次同步照常上传本地修改。
+    tokio::fs::write(root.join("a.org"), text.replace(":CONFLICT:", ""))
+        .await
+        .unwrap();
+    assert!(repo.notifications().await.unwrap().is_empty());
+    sync(&mut repo, &policy, 4).await;
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    assert_eq!(tokio::fs::read(archived).await.unwrap(), merged);
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn ordinary_upload_needs_no_archive_and_remote_modification_overrides_local_deletion() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Remote\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(root.join("a.org"), b"* TODO Local\n")
+        .await
+        .unwrap();
+    tokio::fs::write(root.join(".sync/history/2"), b"not a directory")
+        .await
+        .unwrap();
+    let count = state.lock().unwrap().requests.len();
+    let upload = sync(&mut repo, &policy, 2).await;
+    assert_eq!(upload.files[0].state, OrgRepoSyncFileState::Synchronized);
+    assert!(
+        state.lock().unwrap().requests[count..]
+            .iter()
+            .any(|r| r.starts_with("PUT"))
+    );
+    tokio::fs::remove_file(root.join(".sync/history/2"))
+        .await
+        .unwrap();
+    tokio::fs::remove_file(root.join("a.org")).await.unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.insert(
+            "a.org".into(),
+            Remote {
+                data: b"* TODO Changed remote\n".to_vec(),
+                etag: "\"changed\"".into(),
+            },
+        );
+    }
+    let downloaded = sync(&mut repo, &policy, 3).await;
+    assert_eq!(
+        downloaded.files[0].action,
+        OrgRepoSyncFileAction::Downloaded
+    );
+    assert_eq!(
+        tokio::fs::read(root.join("a.org")).await.unwrap(),
+        b"* TODO Changed remote\n"
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_sync_discards_all_downloads_deletions_rules_and_base_updates() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[
+        (".orgzlyignore", b"old.org\n"),
+        ("a.org", b"* TODO Old A\n"),
+        ("b.org", b"* TODO Old B\n"),
+        ("z.org", b"* TODO Old Z\n"),
+    ])
+    .await;
+    let first = sync(&mut repo, &policy, 1).await;
+    offline(&mut repo, "b.org").await;
+    let before_b = tokio::fs::read(root.join("b.org")).await.unwrap();
+    let before_base = tokio::fs::read(root.join(".sync/remote_base/current.json"))
+        .await
+        .unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.get_mut("a.org").unwrap().data = b"* TODO New A\n".to_vec();
+        dav.files.get_mut("a.org").unwrap().etag = "\"a-new\"".into();
+        dav.files.remove("b.org");
+        dav.files.get_mut(".orgzlyignore").unwrap().data = b"new.org\n".to_vec();
+        dav.files.get_mut(".orgzlyignore").unwrap().etag = "\"rules-new\"".into();
+        dav.files.get_mut("z.org").unwrap().data = vec![0xff];
+        dav.files.get_mut("z.org").unwrap().etag = "\"z-bad\"".into();
+    }
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let workspace = crate::OrgWorkspace::new(vec![repo.clone()]).unwrap();
+    let subscription = workspace.watch_notifications(move |event| {
+        if matches!(event, crate::NotificationUpdate::RepositoryChanged { .. }) {
+            captured.lock().unwrap().push(event);
+        }
+    });
+    let failed = sync(&mut repo, &policy, 2).await;
+    assert_eq!(
+        events.lock().unwrap().len(),
+        1,
+        "失败日志提交也应广播通知更新"
+    );
+    drop(subscription);
+    assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
+    assert_eq!(
+        tokio::fs::read(root.join("a.org")).await.unwrap(),
+        b"* TODO Old A\n"
+    );
+    assert_eq!(tokio::fs::read(root.join("b.org")).await.unwrap(), before_b);
+    assert_eq!(
+        tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+        b"old.org\n"
+    );
+    assert!(repo.task_scan_rules.excludes("old.org"));
+    assert!(!repo.task_scan_rules.excludes("new.org"));
+    assert_eq!(repo.last_effect_sync().await.unwrap().unwrap().id, first.id);
+    assert!(repo.history_file(&failed.id, "a.org", false).await.is_err());
+    assert_eq!(
+        tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+        before_base
+    );
+    assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.get_mut("z.org").unwrap().data = b"* TODO Fixed\n".to_vec();
+        dav.files.get_mut("z.org").unwrap().etag = "\"z-good\"".into();
+    }
+    let success = sync(&mut repo, &policy, 3).await;
+    assert_eq!(success.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(
+        tokio::fs::read(root.join("a.org")).await.unwrap(),
+        b"* TODO New A\n"
+    );
+    assert!(!root.join("b.org").exists());
+    assert_eq!(
+        tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
+        b"new.org\n"
+    );
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn history_persist_failure_never_commits_local_files_or_remote_base() {
+    struct RejectHistory {
+        target: std::path::PathBuf,
+    }
+    impl WebDavSyncMonitor for RejectHistory {
+        fn on_event(&self, event: WebDavSyncEvent) {
+            if matches!(
+                event,
+                WebDavSyncEvent::Finished {
+                    result: OrgRepoSyncResult::Succeeded,
+                    ..
+                }
+            ) {
+                std::fs::write(&self.target, b"occupied").unwrap();
+            }
+        }
+    }
+    let (mut repo, root) = repo().await;
+    let (policy, _, worker) = server(&[("a.org", b"* TODO Download\n")]).await;
+    let policy = policy.with_monitor(RejectHistory {
+        target: root.join(".sync/history/1.json"),
+    });
+    let result = repo
+        .sync(
+            &policy,
+            1,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default(),
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(!root.join("a.org").exists());
+    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert!(!root.join(".sync/history/1").exists());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_sync_discards_completed_downloads() {
+    struct CancelAfterDownload {
+        token: SyncCancellation,
+    }
+    impl WebDavSyncMonitor for CancelAfterDownload {
+        fn on_event(&self, event: WebDavSyncEvent) {
+            if matches!(event, WebDavSyncEvent::FileProcessed { .. }) {
+                self.token.cancel();
+            }
+        }
+    }
+    let (mut repo, root) = repo().await;
+    let (policy, _, worker) = server(&[("a.org", b"* TODO A\n"), ("b.org", b"* TODO B\n")]).await;
+    let token = SyncCancellation::default();
+    let policy = policy.with_monitor(CancelAfterDownload {
+        token: token.clone(),
+    });
+    let record = repo
+        .sync(&policy, 1, &token, &SyncProgressReporter::default())
+        .await
+        .unwrap();
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Cancelled));
+    assert!(!root.join("a.org").exists());
+    assert!(!root.join("b.org").exists());
+    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert!(repo.last_effect_sync().await.unwrap().is_none());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn executing_a_stale_snapshot_never_overwrites_an_external_local_edit() {
+    struct EditAfterNetwork {
+        path: std::path::PathBuf,
+    }
+    impl WebDavSyncMonitor for EditAfterNetwork {
+        fn on_event(&self, event: WebDavSyncEvent) {
+            if matches!(event, WebDavSyncEvent::FileProcessed { .. }) {
+                std::fs::write(&self.path, b"* External edit\n").unwrap();
+            }
+        }
+    }
+    let (mut repo, root) = repo().await;
+    let (policy, _, worker) = server(&[("a.org", b"* Download\n")]).await;
+    let policy = policy.with_monitor(EditAfterNetwork {
+        path: root.join("a.org"),
+    });
+    assert!(
+        repo.sync(
+            &policy,
+            1,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        tokio::fs::read(root.join("a.org")).await.unwrap(),
+        b"* External edit\n"
+    );
+    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert!(!root.join(".sync/history/1.json").exists());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_remote_write_never_consumes_outbox_or_changes_remote_base() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[]).await;
+    offline(&mut repo, "a.org").await;
+    sync(&mut repo, &policy, 1).await;
+    let baseline = tokio::fs::read(root.join(".sync/remote_base/current.json"))
+        .await
+        .unwrap();
+    offline(&mut repo, "a.org").await;
+    let local = tokio::fs::read(root.join("a.org")).await.unwrap();
+    let intents = repo.pending_writes().await.unwrap();
+    state.lock().unwrap().reject.insert("a.org".into());
+    let failed = sync(&mut repo, &policy, 2).await;
+    assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), local);
+    assert_eq!(repo.pending_writes().await.unwrap(), intents);
+    assert_eq!(
+        tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+        baseline
+    );
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    state.lock().unwrap().reject.clear();
+    let retry = sync(&mut repo, &policy, 3).await;
+    assert_eq!(retry.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn changed_remote_during_backup_is_retryable_without_an_unresolvable_conflict() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Base\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(root.join("a.org"), b"* TODO Local\n")
+        .await
+        .unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.insert(
+            "a.org".into(),
+            Remote {
+                data: b"* TODO Remote\n".to_vec(),
+                etag: "\"new\"".into(),
+            },
+        );
+        dav.reject_get.insert("a.org".into());
+    }
+    let failed = sync(&mut repo, &policy, 2).await;
+    assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
+    assert!(!history_is_conflict(&failed.files[0]));
+    assert!(failed.files[0].error.as_ref().unwrap().retryable);
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    assert!(!root.join(".sync/history/2/conflicts").exists());
+    assert_eq!(
+        tokio::fs::read(root.join("a.org")).await.unwrap(),
+        b"* TODO Local\n"
+    );
+    state.lock().unwrap().reject_get.clear();
+    let retried = sync(&mut repo, &policy, 3).await;
+    assert_eq!(retried.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(
+        String::from_utf8_lossy(&tokio::fs::read(root.join("a.org")).await.unwrap())
+            .contains("Local")
+    );
+    assert!(
+        String::from_utf8_lossy(&tokio::fs::read(root.join("a.org")).await.unwrap())
+            .contains("Remote")
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn remote_base_is_bound_to_remote_origin_and_detects_missing_cached_content() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* Base\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    let (other, _, second_worker) = server(&[("a.org", b"* Other\n")]).await;
+    let before = tokio::fs::read(root.join("a.org")).await.unwrap();
+    assert!(
+        repo.sync(
+            &other,
+            2,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), before);
+    let index: serde_json::Value = serde_json::from_slice(
+        &tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let revision = index["entries"]["a.org"]["revision"].as_str().unwrap();
+    tokio::fs::remove_file(root.join(format!(".sync/remote_base/files/a.org/{revision}/a.org")))
+        .await
+        .unwrap();
+    let count = state.lock().unwrap().requests.len();
+    assert!(
+        repo.sync(
+            &policy,
+            3,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default()
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        state.lock().unwrap().requests[count..]
+            .iter()
+            .all(|r| !r.starts_with("PUT") && !r.starts_with("DELETE"))
+    );
+    worker.abort();
+    second_worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn complete_recursive_listing_preserves_nested_files_and_skips_filtered_directories() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[
+        ("root.org", b"* Root\n"),
+        ("nested/a.org", b"* Nested\n"),
+        ("nested/deep/b.org", b"* Deep\n"),
+        ("archive/c.org", b"* Filtered\n"),
+        (".sync/private.org", b"* Control\n"),
+    ])
+    .await;
+    state.lock().unwrap().hierarchical = true;
+    let record = sync(&mut repo, &policy, 1).await;
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(root.join("nested/a.org").is_file());
+    assert!(root.join("nested/deep/b.org").is_file());
+    assert!(!root.join("archive/c.org").exists());
+    let dav = state.lock().unwrap();
+    assert!(
+        dav.requests
+            .iter()
+            .any(|r| r.starts_with("PROPFIND /org/nested/ "))
+    );
+    assert!(
+        dav.requests
+            .iter()
+            .any(|r| r.starts_with("PROPFIND /org/nested/deep/ "))
+    );
+    assert!(
+        dav.requests
+            .iter()
+            .all(|r| !r.contains("/org/archive/") && !r.contains("/org/.sync/"))
+    );
+    drop(dav);
+    tokio::fs::write(root.join("nested/a.org"), b"* Local edit\n")
+        .await
+        .unwrap();
+    // 列举不完整不能把原远端误判为删除；整仓库没有后续提交。
+    let baseline = tokio::fs::read(root.join(".sync/remote_base/current.json"))
+        .await
+        .unwrap();
+    state.lock().unwrap().invalid_listing = true;
+    assert_eq!(
+        sync(&mut repo, &policy, 2).await.result,
+        Some(OrgRepoSyncResult::Failed)
+    );
+    assert_eq!(
+        tokio::fs::read(root.join("nested/a.org")).await.unwrap(),
+        b"* Local edit\n"
+    );
+    assert_eq!(
+        tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+        baseline
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn successful_remote_write_before_a_later_failure_is_reconciled_on_retry() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[]).await;
+    offline(&mut repo, "a.org").await;
+    offline(&mut repo, "z.org").await;
+    let intents = repo.pending_writes().await.unwrap();
+    state.lock().unwrap().reject.insert("z.org".into());
+    let failed = sync(&mut repo, &policy, 1).await;
+    assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
+    assert!(state.lock().unwrap().files.contains_key("a.org"));
+    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert_eq!(repo.pending_writes().await.unwrap(), intents);
+    state.lock().unwrap().reject.clear();
+    let count = state.lock().unwrap().requests.len();
+    let retry = sync(&mut repo, &policy, 2).await;
+    assert_eq!(retry.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(
+        state.lock().unwrap().requests[count..]
+            .iter()
+            .all(|r| !r.starts_with("PUT /org/a.org "))
+    );
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    assert_eq!(
+        state.lock().unwrap().files["a.org"].data,
+        tokio::fs::read(root.join("a.org")).await.unwrap()
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn only_local_file_deletion_is_conditional_and_both_missing_updates_the_tombstone() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* Base\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::remove_file(root.join("a.org")).await.unwrap();
+    let record = sync(&mut repo, &policy, 2).await;
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(!state.lock().unwrap().files.contains_key("a.org"));
+    assert!(
+        state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|r| r.starts_with("DELETE") && r.contains("if-match: \"v1\""))
+    );
+    let index: serde_json::Value = serde_json::from_slice(
+        &tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(index["entries"]["a.org"]["hash"].is_null());
+    assert_eq!(
+        sync(&mut repo, &policy, 3).await.result,
+        Some(OrgRepoSyncResult::Succeeded)
+    );
+    // 基线中的路径即使两端都缺失也继续被正确确认，不重新创建空文件。
+    assert!(!root.join("a.org").exists());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn missing_or_weak_etags_block_mutation_before_any_remote_upload() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* Base\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(root.join("a.org"), b"* Local\n")
+        .await
+        .unwrap();
+    state.lock().unwrap().files.get_mut("a.org").unwrap().etag = "W/\"same\"".into();
+    let baseline = tokio::fs::read(root.join(".sync/remote_base/current.json"))
+        .await
+        .unwrap();
+    let count = state.lock().unwrap().requests.len();
+    let failed = sync(&mut repo, &policy, 2).await;
+    assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
+    assert!(
+        state.lock().unwrap().requests[count..]
+            .iter()
+            .all(|r| !r.starts_with("PUT") && !r.starts_with("DELETE"))
+    );
+    assert_eq!(
+        tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+        baseline
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn existing_compare_and_resolve_interfaces_handle_task_candidates_without_new_dtos() {
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Work\n:PROPERTIES:\n:ID: stable\n:END:\nbase\n";
+    let (policy, state, worker) = server(&[("a.org", base)]).await;
+    sync(&mut repo, &policy, 1).await;
+    let local = String::from_utf8(base.to_vec())
+        .unwrap()
+        .replace("base", "local");
+    tokio::fs::write(root.join("a.org"), &local).await.unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.insert(
+            "a.org".into(),
+            Remote {
+                data: String::from_utf8(base.to_vec())
+                    .unwrap()
+                    .replace("base", "remote")
+                    .into_bytes(),
+                etag: "\"remote\"".into(),
+            },
+        );
+    }
+    let conflict = sync(&mut repo, &policy, 2).await;
+    let baseline = tokio::fs::read(root.join(".sync/remote_base/current.json"))
+        .await
+        .unwrap();
+    let comparison = repo
+        .compare_conflict(&SyncConflictTarget {
+            sync_id: conflict.id.clone(),
+            path: "a.org".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(comparison.changes.len(), 1);
+    assert!(
+        comparison.changes[0]
+            .local
+            .as_ref()
+            .unwrap()
+            .source
+            .contains("local")
+    );
+    assert!(
+        comparison.changes[0]
+            .remote
+            .as_ref()
+            .unwrap()
+            .source
+            .contains("remote")
+    );
+    let choices = comparison
+        .changes
+        .iter()
+        .map(|c| crate::OrgMergeChoice {
+            key: c.key.clone(),
+            side: crate::OrgMergeSide::Local,
+        })
+        .collect();
+    let request = SyncConflictResolution {
+        target: comparison.target,
+        expected_local_hash: comparison.local_hash,
+        expected_remote_hash: comparison.remote_hash,
+        expected_local_missing: comparison.local_missing,
+        choices,
+    };
+    let count = state.lock().unwrap().requests.len();
+    repo.resolve_conflict(&request).await.unwrap();
+    assert_eq!(state.lock().unwrap().requests.len(), count);
+    assert_eq!(
+        tokio::fs::read(root.join("a.org")).await.unwrap(),
+        local.as_bytes()
+    );
+    assert_eq!(
+        tokio::fs::read(root.join(".sync/remote_base/current.json"))
+            .await
+            .unwrap(),
+        baseline
+    );
+    assert_eq!(
+        repo.history_file(&conflict.id, "a.org", true)
+            .await
+            .unwrap()
+            .source_bytes(),
+        local.as_bytes()
+    );
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+    let next = sync(&mut repo, &policy, 3).await;
+    assert_eq!(next.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(state.lock().unwrap().files["a.org"].data, local.as_bytes());
+    assert!(repo.pending_writes().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn setupfile_todo_context_is_read_from_snapshots_without_temporary_repository_writes() {
+    let (mut repo, root) = repo().await;
+    let task=b"#+SETUPFILE: ./.setup.org\r\n* OPEN Work\r\n:PROPERTIES:\r\n:ID: stable\r\n:END:\r\nbase\r\n";
+    let (policy, state, worker) = server(&[
+        (".setup.org", b"#+TODO: OPEN | FINISHED\n"),
+        ("a.org", task),
+    ])
+    .await;
+    sync(&mut repo, &policy, 1).await;
+    let local = String::from_utf8(task.to_vec())
+        .unwrap()
+        .replace("* OPEN", "* FINISHED");
+    tokio::fs::write(root.join("a.org"), &local).await.unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.insert(
+            "a.org".into(),
+            Remote {
+                data: String::from_utf8(task.to_vec())
+                    .unwrap()
+                    .replace("base", "remote")
+                    .into_bytes(),
+                etag: "\"changed\"".into(),
+            },
+        );
+    }
+    let record = sync(&mut repo, &policy, 2).await;
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(
+        repo.file("a.org").unwrap().source_bytes(),
+        local.replace("base", "remote").as_bytes()
+    );
+    assert_eq!(
+        repo.file("a.org").unwrap().todo.done_keywords,
+        vec!["FINISHED"]
+    );
+    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}

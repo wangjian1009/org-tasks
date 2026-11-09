@@ -7,6 +7,7 @@ use super::{
 
 pub(crate) const REFILE_TAG: &str = "REFILE";
 pub(crate) const ARCHIVE_TAG: &str = "ARCHIVE";
+pub(crate) const CONFLICT_TAG: &str = "CONFLICT";
 
 /// 文件范围在遍历目标与读取 CATEGORY 前求值。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

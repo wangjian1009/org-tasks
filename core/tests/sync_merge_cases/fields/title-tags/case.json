@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "本地标题与远端用户标签独立合并",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+* Project
+** TODO Local
+:PROPERTIES:
+:ID: local-task
+:END:
+local

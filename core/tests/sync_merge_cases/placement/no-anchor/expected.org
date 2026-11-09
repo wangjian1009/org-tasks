@@ -1,0 +1,8 @@
+#+CONFLICT: true
+* Unrelated
+* TODO A (conflict) :CONFLICT:
+:PROPERTIES:
+:ID: <generated-1>
+:CONFLICT_OPERATION: modify-missing
+:END:
+local

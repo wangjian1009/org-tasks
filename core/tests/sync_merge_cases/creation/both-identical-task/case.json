@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "两端新增相同 ID 相同内容任务，只保留一份",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

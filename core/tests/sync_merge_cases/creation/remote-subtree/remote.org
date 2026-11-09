@@ -1,0 +1,12 @@
+* Existing
+base
+* TODO Remote
+:PROPERTIES:
+:ID: remote-task
+:END:
+remote
+** TODO Child
+:PROPERTIES:
+:ID: remote-child
+:END:
+child

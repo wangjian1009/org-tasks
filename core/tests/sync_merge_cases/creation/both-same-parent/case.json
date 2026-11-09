@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "同父节点下两端各增一个不同任务",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

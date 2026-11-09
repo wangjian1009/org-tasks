@@ -4,9 +4,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SyncCommitted {
-    pub root_directory: String,
-    pub repo_id: String,
+pub(crate) enum SyncCommitted {
+    Repository {
+        root_directory: String,
+        repo_id: String,
+    },
+    GlobalNotificationsChanged,
 }
 type Callback = Arc<dyn Fn(&SyncCommitted) + Send + Sync>;
 static OBSERVERS: OnceLock<Mutex<BTreeMap<u64, Callback>>> = OnceLock::new();
@@ -32,16 +35,21 @@ pub(crate) fn subscribe(callback: Callback) -> SyncSubscription {
     SyncSubscription(id)
 }
 pub(crate) fn publish(repo: &super::OrgRepo) {
+    publish_event(SyncCommitted::Repository {
+        root_directory: repo.root_directory.clone(),
+        repo_id: repo.id.clone(),
+    });
+}
+pub(crate) fn publish_global() {
+    publish_event(SyncCommitted::GlobalNotificationsChanged);
+}
+fn publish_event(event: SyncCommitted) {
     let callbacks = observers()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .values()
         .cloned()
         .collect::<Vec<_>>();
-    let event = SyncCommitted {
-        root_directory: repo.root_directory.clone(),
-        repo_id: repo.id.clone(),
-    };
     for callback in callbacks {
         callback(&event);
     }

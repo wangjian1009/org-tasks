@@ -67,6 +67,24 @@ let record = repo.sync(
 
 * 接口定义
 
+** 单文件内容合并
+
+Core 根模块公开纯函数 ~org_tasks_core::merge~ ，将同一 Org 文件从基线到本地的变化应用到远端内容：
+
+#+begin_src rust
+pub fn merge(
+    base_data: &[u8],
+    local_data: &[u8],
+    remote_data: &[u8],
+) -> Result<Vec<u8>, CoreError>;
+#+end_src
+
+三份输入均为完整 UTF-8 Org 原文，输出为合并后的完整原文字节。函数是同步的，不访问文件系统、网络、仓库、历史或运行时配置；相同输入产生相同输出。未涉及区域保留原始字节，内容竞争通过根节点带 ~CONFLICT~ 的候选子树表达，不作为接口错误；非法 UTF-8 或不能完成的解析、来源校验返回 ~CoreError~ 。内部任务身份与位置只作用于同一份文件内容，不需要传入仓库 ID、文件路径或远端版本。
+
+每份内容按默认 TODO 规则和自身的 ~#+TODO~ 声明解析。 ~#+SETUPFILE~ 行作为原文保留，纯函数不读取其指向的文件。已有仓库同步先解析仓库默认值与对应快照的 SETUPFILE 上下文，再通过私有入口复用同一个合并算法，保持原有同步解析语义；不存在第二套合并规则。
+
+空切片表示存在的零字节 Org 内容，不能表达“文件不存在”。整文件删除优先级、首次同步的文件集合、条件传输、 ~remote_base~ 、outbox 与仓库事务均由同步层在调用内容合并前后处理，不进入该函数。详见 [[file:同步合并测试用例设计.org][内容合并用例约定]]。
+
 ** 核心数据
 
 *** OrgWorkspace
@@ -122,6 +140,8 @@ impl OrgWorkspace {
 #+begin_src rust
 impl OrgRepo {
     pub fn new(root_directory: String) -> Result<Self, OrgRepoValidationError>;
+
+    pub async fn reset(&mut self) -> Result<(), CoreError>;
 
     pub fn contains_path(&self, path: &str) -> bool;
 
@@ -489,46 +509,11 @@ impl WebDavSyncPolicy {
 旧的全局作业接口已移除。宿主不读取、不转换也不写入旧作业状态；使用旧版本数据时，应清理数据后按当前接口重新配置和同步。
 
 
-* 按同步比较与应用合并
+* 冲突接口与版本恢复
 
-比较对象可直接序列化、交给用户选择并回传，core 不持有准备会话或临时 ID 注册表。范围是一条仓库同步记录中尚未解决的全部冲突文件，不能加入其他同步的文件或遗漏待处理文件。
+冲突处理统一使用 ~OrgRepo.compare_conflict(&SyncConflictTarget)~ 和 ~OrgRepo.resolve_conflict(&SyncConflictResolution)~ 。旧的整作业 ~compare_merge/apply_merge~ 及回传完整比较对象的接口已移除。字段、目录、双向比较、首次同步、版本基准恢复和提交失败边界见 [[file:同步核心设计.org][同步核心设计]]。
 
-#+begin_src rust
-impl WebDavSyncPolicy {
-    pub async fn compare_merge(
-        &self, repo: &mut OrgRepo, sync_id: &str,
-    ) -> Result<WebDavMergeComparison, CoreError>;
-
-    pub async fn apply_merge(
-        &self, repo: &mut OrgRepo, comparison: &WebDavMergeComparison,
-        started_at: TimestampMs,
-    ) -> Result<WebDavMergeOutcome, CoreError>;
-}
-
-pub struct WebDavMergeOutcome {
-    pub record: OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
-    pub backups: Vec<WebDavMergeBackup>,
-}
-#+end_src
-
-~compare_merge~ 自行加载仓库与历史，读取每个路径最近成功日志中的完整文件快照，先计算本地相对快照的任务变更，再与本次远端文件比较；没有完整快照时兼容旧任务指纹。返回的 ~changes~ 只包含需要决定的本地变更，以及保留本地变更所必需、已被远端删除或层级不兼容的祖先；远端独有变更直接保留。同一任务在两端已相同时无需决定。每项包含 ~id~ 、路径、相对远端的 ~kind~ 、 ~preamble~ 、 ~localChange~ 、 ~remoteChange~ 、两端版本和空 ~resolution~ 。
-
-调用方将 ~mode~ 设为 ~MergeTasks~ 。以远端文件为基准，“接受”本地变更对应 ~Local~ ，“丢弃”对应 ~Remote~ ；选择不存在的一端即不保留该任务。远端删除、本地修改时，接受恢复本地任务、丢弃保留删除；本地删除、远端修改时，接受执行删除、丢弃保留远端修改。Core 仍兼容显式 ~Remove~ 枚举及 ~AcceptRemote~ 整次采用远端模式。来源、两端变更状态、ID、类型、文件列表与版本字段只读。
-
-~apply_merge~ 重新加载整个仓库，并比较身份、全部 Org 文件的路径与内容、同步历史和 outbox 的组合版本；任何变化都在网络写入和备份之前拒绝。远端配置指纹和每个冲突文件的 ETag、正文指纹也必须一致。新出现或已经解决的冲突、缺少选择、重复 ID、修改来源内容、无效层级和过期对象均不能提交；调用方应重新比较。
-
-所有文件通过预检后，先将本次同步的全部本地冲突文件备份到 ~.sync/backups/<started_at>/~ ，再逐文件执行条件上传与本地原子替换。已有远端文件必须使用 ~If-Match~ ，重新创建文件必须使用 ~If-None-Match: *~ 。保存失败、远端再次变化或 ~412~ 会成为该文件的失败记录，其他已完成文件保留成功结果，整体同步标为失败；不能跨多个远端文件承诺事务回滚。 ~OrgRepo.sync~ 统一追加一条合并作业记录，再确认成功文件的 outbox，已确认的本地删除也会在确认文件仍缺失后清理旧意图。
-
-冲突备份返回相对于仓库的路径，不包含凭据。元数据中不写入完整比较对象、任务正文或备份内容。一次 apply 结束后，旧对象因同步历史发生变化而失效；进程重启本身不会使未过期对象失效。同一仓库的调用仍需串行执行，跨进程外部编辑不能替代文件系统事务。
-
-
-* 同步历史回退与首次同步
-
-同步状态按文件从新到旧回溯，使用最近一条 ~Synchronized~ 文件记录作为本地哈希和远端版本基准。整体结果为失败、取消或中断的作业中，已成功文件的基准仍然有效；该文件更晚的冲突、失败或未出现记录不能遮住最近成功版本。读取到损坏历史时必须报错，不得跳过后猜测基准，也不新增独立状态文件。
-
-完全没有历史时，本地独有文件使用条件创建直接上传，远端独有文件直接下载；两端都存在但没有历史基线的文件生成 ~Conflict~ 记录，避免覆盖无法确认来源的内容。空目录因此可以正常接收远端文件；两端内容相同但没有基线时仍需合并确认。空目录的同步可以成功生成空记录；仅列举失败或取消产生的空记录不能视为已经建立了基准。
-
-首次冲突记录生成后，后续普通同步仍保留这些无成功基准的待处理路径；不能因“历史现在非空”而绕过合并。后续已建立历史的新路径继续按既有新建/下载规则处理。合并接受本地缺失的远端文件时，比较对象以 ~localMissing~ 区分“文件不存在”和“空文件”；apply 保持版本校验并安全创建文件。只有存在本地原文件的路径才产生备份，不为远端独有文件伪造空备份。
+比较和解决均离线执行。请求只包含指定目标、两端 hash、原本地缺失状态及全部 ~OrgMergeChoice~ ，不含来源正文或可修改的比较对象；Core 保存时重新比较并验证完整选择。当前本地文件变化时拒绝旧请求，退出页面不保存选择。
 
 * TODO 默认配置与文件元信息接口
 
@@ -548,7 +533,7 @@ let metadata = &file.todo;
 
 每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type()~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
 
-Creation 的显式状态按目标文件有效配置验证；文件尚不存在时使用外部默认。调用方需要创建任务时从文件元信息取得初始状态，无状态标题则不传状态。合并也使用相同配置验证输出，并把默认配置纳入运行时仓库版本，以拒绝配置变化后的旧比较对象。
+Creation 的显式状态按目标文件有效配置验证；文件尚不存在时使用外部默认。调用方需要创建任务时从文件元信息取得初始状态，无状态标题则不传状态。冲突重组也使用当前配置重新解析并验证输出，来源正文和层级校验均由 Core 执行。
 
 * 通用结构化任务查询
 
@@ -697,27 +682,18 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 待关注事件
 
-~OrgRepo.notifications()~ 与 ~OrgWorkspace.notifications()~ 均为异步接口，返回 ~Result<Vec<CoreNotification>, CoreError>~ 。它们读取调用时本地同步历史，提供 Core 判断的当前待关注事件快照；查询不消费事件，不维护已读状态，不访问远端，也不依赖页面、控件或宿主通知系统。空工作区或没有待处理事件时返回空数组，未加载仓库或历史读取失败时返回错误，不伪装为空结果。
+~OrgRepo.notifications()~ 与 ~OrgWorkspace.notifications()~ 返回 ~Result<Vec<CoreNotification>, CoreError>~ 。仓库接口投影本仓库的冲突通知；工作区接口汇总冲突通知，并加入进程内至多一个同步提示。查询不消费通知、不访问远端，读取失败返回错误，不能伪装为空快照。
 
-目前唯一的事件类型为 ~CoreNotification::SyncConflict(SyncConflictNotification)~ ，表示该次同步仍有冲突需要解决。 ~repo_id~ 是 Core 仓库 ID， ~sync_id~ 是对应的同步记录 ID， ~paths~ 为仍待处理文件的相对路径；事件不包含凭据、根目录或远端地址。工作区保持仓库顺序，单仓库最多返回一条来自最近成功同步的通知，原文件顺序不变；更早记录只供历史浏览。同名文件、相同同步 ID 出现在不同仓库时仍是独立事件，身份以仓库和同步 ID 共同定位。
+| 通知类型 | Serde 类型 | 内容与操作 | 状态 |
+|-
+| ~SyncConflict(SyncConflictNotification)~ | ~syncConflict~ | 含 Core ~repoId~ 、原始 ~syncId~ 、 ~paths~ ，点击进入指定日志解决冲突 | 已有 |
+| ~SyncRequired~ | ~syncRequired~ | 无其他字段，点击复用当前配置全部仓库的普通同步 | 已实现 |
 
-通知先调用 ~last_effect_sync~ 取得最近成功同步，只对其中 ~Conflict~ 、旧 ~RemoteDeleted~ 或条件冲突错误且缺少对应 resolved 文件的路径生成事件。部分解决缩小路径列表，全部解决、没有成功同步或最近成功同步没有冲突时不生成通知；旧记录的遗留冲突不参与判断。缺少备份仍计为该次同步的未解决冲突，读取历史文件时明确报错。当前只提供 WebDAV 同步历史中的冲突事件，不为网络失败、取消或中断额外生成通知。
+冲突通知保留最近成功同步的选择范围。同步提示在完整解决已提交、结果与固定远端备份不一致后由 Core 尝试产生；进程中已有该类型时直接丢弃后来通知，多个仓库和 workspace 不增加实例，不覆盖已有提示。
 
-#+begin_src rust
-let events = workspace.notifications().await?;
-for event in events {
-    match event {
-        CoreNotification::SyncConflict(conflict) => {
-            // conflict.repo_id 与 conflict.sync_id 定位历史，展示方式由宿主决定。
-        }
-    }
-}
-#+end_src
+~SyncRequired~ 不持久化，不在启动时扫描历史或 outbox 重新生成。页面查询、切换和同进程 workspace 重建不丢失；应用进程重启后为空。点击本身不直接清除：普通同步成功确认待上传结果后清除，被拒绝、失败或取消时保留。完整生命周期和清除规则仅由 [[file:同步核心设计.org::*解决后的同步提示通知][同步核心设计]] 定义。
 
-Serde 表示使用带 ~type~ 的事件对象，冲突类型为 ~syncConflict~ ，字段为 ~repoId~ 、 ~syncId~ 与 ~paths~ 。应用层应直接消费事件，不重放历史或将通用失败猜测为待处理冲突。数据结构及内嵌 UML 见 [[file:数据模型.org::*待关注事件][待关注事件模型]] 。
-
-
-~CoreNotification~ 的每个变体持有自己独立定义的结构，当前为 ~SyncConflict(SyncConflictNotification)~ 。除辨别通知类型的 ~type~ 外，不定义公共 ID、仓库、标题、消息或时间字段；后续通知不继承冲突通知的数据。 ~SyncConflictNotification.sync_id~ 直接引用已有 ~OrgRepoSyncRecord.id~ ，完整定位使用 ~repo_id + sync_id~ ，不新增历史标识，不按时间戳或列表位置补造标识。
+每种通知变体只携带自身需要的数据，不增加公共通知 ID、标题、时间或仓库字段。新增 ~SyncRequired~ 是无载荷变体，Serde 形状为 ~{ "type": "syncRequired" }~ ；不能为它补造 ~repoId~ 或 ~syncId~ 。模型及内嵌 UML 见 [[file:数据模型.org::*待关注事件][待关注事件模型]]。
 
 * 日志备份与单文件本地解决
 
@@ -725,23 +701,23 @@ Serde 表示使用带 ~type~ 的事件对象，冲突类型为 ~syncConflict~ �
 
 ~history_file(sync_id, path, resolved)~ 按记录 ID 与原路径定位该次保存的内容， ~resolved=false~ 读取原始传输／远端备份， ~true~ 读取解决结果，返回独立只读的 ~OrgFile~ 。缺少备份返回错误，不回退工作文件；校验记录归属、路径、备份内容哈希和符号链接边界。 ~history_detail~ 返回的 ~WebDavSyncFileSummary.section~ 为 ~upload~ 、 ~download~ 、 ~conflict~ 或空， ~backup~ 为相应备份的 ~OrgFileMetadata~ 或空；采用远端删除的文件没有正文备份，错误由 ~errors~ 独立提供。
 
-~compare_sync_conflict(sync_id, path)~ 只比较选中日志的远端备份和当前本地文件，返回 ~SyncConflictComparison~ 。除每项 ~resolution~ 外字段只读，返回内容可完全放在页面内存，不持有远端策略或会话。 ~resolve_sync_conflict(comparison)~ 重新读取并校验比较、所有必要选择与本地版本，按 Core 合并结果写回本地、登记 outbox，最后独占提交 resolved 文件；不访问网络、不新增同步作业。文件已解决、来源被修改、选择不全或本地过期时拒绝；零选择允许显式保存。
-
-后续同步以解决时备份的远端版本为条件基准，读取实际待上传本地内容；远端有新变化时生成新的独立冲突。远端已删除直接删除本地，即使本地已修改；本地删除而远端存在时下载恢复。上传或下载在修改另一端之前保存本次内容，备份失败不继续该文件写入，并保留已完成文件记录及错误。旧日志没有备份时保持状态，只在点击时返回明确错误。
+~compare_conflict(target)~ 返回 ~SyncConflictComparison~ ，两份来源均按点击时实际读取； ~resolve_conflict(request)~ 验证版本及完整选择，保存本地结果和 resolved 副本，需要上传时登记意图及尝试产生同步提示。目录命名、再次同步和失败行为统一遵循 [[file:同步核心设计.org][同步核心设计]]。
 
 * 最近有效同步与通知更新监控
 
 ~OrgRepo.last_effect_sync() -> Result<Option<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>>, CoreError>~ 按开始时间从新到旧寻找 ~result=Succeeded~ 的第一条记录。较新的失败、取消、中断记录跳过；是否包含冲突、是否有备份、冲突是否已解决均不影响定位。选中记录的 ~resolved~ 由对应结果文件存在性填入，全部已解决仍返回该记录；没有成功记录返回 ~None~ 。Harmony 对应 ~Repo.lastEffectSync(): Promise<SyncRecord | null>~ 。
 
-通知判断只在 Rust 中执行： ~Workspace.notifications -> OrgRepo.notifications -> last_effect_sync~ 。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
+冲突通知判断只在 Rust 中执行： ~Workspace.notifications -> OrgRepo.notifications -> last_effect_sync~ 。新增同步提示取进程内状态，不能从 ~last_effect_sync~ 重建。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 
-~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 是通知更新接口。通知模块向 Core 的同步提交回调端口注册订阅，按所属仓库根目录过滤并转发 ~NotificationUpdate { repo_id }~ 。成功或失败的同步日志提交完成、冲突结果保存完成以及显式 ~OrgWorkspace.reload()~ 后产生更新；普通只读查询不产生更新。回调只表示需要重新查询，不携带注意事项快照或替代 ~notifications~ 的领域判断。
+~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 是通知更新接口。通知模块向 Core 的同步提交回调端口注册订阅，按所属仓库根目录过滤并转发 ~NotificationUpdate::RepositoryChanged { repo_id }~ 。成功或失败的同步日志提交完成、冲突结果保存完成以及显式 ~OrgWorkspace.reload()~ 后产生更新；普通只读查询不产生更新。回调只表示需要重新查询，不携带注意事项快照或替代 ~notifications~ 的领域判断。
+
+全局同步提示产生或清除使用 ~NotificationUpdate::GlobalNotificationsChanged~ ，不虚构仓库 ID，完整契约见 [[file:同步核心设计.org::*通知更新、模型与职责][同步核心设计]]。
 
 订阅对象销毁即解除，回调在注册表锁外执行；回调不能重入调用时仍持有的仓库锁，宿主通过线程安全队列转到 UI 后再查询通知。页面只监听通知模块发布的数据版本；同步控件只负责发起同步和展示进度，不在 Promise 完成后直接刷新正文。
 
 * 失败同步的本地提交边界
 
-下载、远端删除及任务扫描规则先在 Core 暂存。整轮传输成功后，Core 准备所有临时文件并验证原版本，再提交本地文件和历史；传输失败、取消或中断时放弃本地变化，保留已取得的日志备份，不更新仓库正文或规则。应用本地变更失败会撤回已应用且未被外部修改的本轮变更；历史持久化失败也执行撤回。失败下载不作为已同步基线，已有远端上传结果仍如实记录。多文件最终提交受文件系统限制，不承诺进程崩溃时跨文件原子事务。
+单个仓库整轮同步通过可恢复本地事务提交工作文件、实际远端基线、成功历史及 outbox 确认。执行错误或取消不推进这些本地状态，已成功的远端请求不保证回滚；任务内容冲突不是执行错误。完整边界见 [[file:同步核心设计.org::*同步提交与失败边界][同步核心设计]]。
 
 * 放置目标的具体文件范围
 
@@ -751,11 +727,19 @@ Serde 表示使用带 ~type~ 的事件对象，冲突类型为 ~syncConflict~ �
 
 统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~NotificationUpdate~ 对应的数据失效事件；失败或无实际文件变化不发布。回调只用于安排异步重查，不能重入当前 workspace 锁。
 
-* 未解决冲突阻止同步
+* 任务冲突与普通同步
 
-WebDAV 同步开始前由 Core 的 ~WebDavSyncPolicy.synchronize~ 统一查询 ~OrgRepo.pending_sync_conflicts~ ，使用 ~last_effect_sync~ 最近成功同步中的未解决路径判断。仍有任一路径未解决时返回 ~CoreError::InvalidState~ ，提示“存在未解决的同步冲突，请先解决后再同步”；缺少备份但未解决的路径同样阻止，过滤目录不能绕过检查。
+版本 4 的任务候选已随合并结果上传；尚有候选的仓库允许继续同步。 ~pending_sync_conflicts~ 继续返回最近成功同步关联的待处理文件，供已有通知与界面展示，不作为同步前置阻止条件。旧历史保留兼容阅读，不能恢复旧的整文件冲突阻塞规则。
 
-检查在网络请求、同步进度事件、传输备份和工作文件写入前执行；被拒绝的尝试不新增同步记录、不改动本地内容或 outbox，也不发送数据更新通知。前台、后台、CLI 与直接调用 Core 的普通 WebDAV 同步均走同一入口，宿主不另行实现领域预检查。冲突比较与解决接口继续允许调用；部分解决仍阻止，全部解决后可恢复同步。更早日志的遗留冲突不参与，最近成功同步没有冲突时正常允许。
+~compare_conflict~ 与 ~resolve_conflict~ 保持原有签名。版本 4 的比较从最新本地原文读取候选及其内嵌来源； ~remote_hash~ 保护该次实际上传的历史快照。保存时重新核对版本、完整选择与当前候选，在同一可恢复事务中提交工作文件、 ~A.resolved.org~ 与 outbox，离线解决不改写实际远端基线。详细状态、历史阅读及通知统一见 [[file:同步核心设计.org][同步核心设计]]。
+
+* 仓库重置与文件冲突标志
+
+~OrgRepo.reset().await~ 清空本地目录内的文件、历史、基线、冲突快照、忽略规则与 outbox，保留 ~.sync/id~ 原字节和根目录。Core 负责仓库锁、暂存、恢复和更新发布；不访问远端，也不修改宿主配置。句柄身份过期时拒绝执行。完整故障边界见 [[file:同步核心设计.org::*仓库重置][同步核心设计]]。
+
+~OrgFile.has_conflict() -> bool~ 与 ~OrgFileMetadata.has_conflict~ 从文件头 ~#+CONFLICT: true~ 读取，Serde 字段为 ~hasConflict~ 。与 TITLE 共用文件头语法扫描，缺失或不是 true 时为假；子树、属性抽屉和源码块中的同名文本不参与。合并与显式解决维护该头字段，宿主仅消费结果。
+
+版本 4 的任务冲突额外在日志 conflicts 目录保存实际处理后带候选的完整文件，该快照与成功历史、基线同事务提交，全部解决后仍保留；不能把目录存在当作当前待解决的唯一依据。
 
 * 任务卡片编辑
 

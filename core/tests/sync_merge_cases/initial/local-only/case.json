@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "空基线时本地文件合并本地新增内容",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

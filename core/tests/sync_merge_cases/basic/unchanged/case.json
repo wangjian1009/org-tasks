@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "三方不变，内容不变",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

@@ -157,7 +157,7 @@ impl OrgWorkspace {
             });
         }
         for task in &mut all {
-            task.exclude_refile_tag();
+            task.exclude_system_tags();
         }
         Ok(TaskQueryResult {
             tasks: all,

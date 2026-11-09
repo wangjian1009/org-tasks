@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "空基线时相同内容不产生候选",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

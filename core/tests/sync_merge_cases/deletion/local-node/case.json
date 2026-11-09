@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "本地仅删除节点时保留其他远端修改",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

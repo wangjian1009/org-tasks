@@ -1,0 +1,33 @@
+{
+  "formatVersion": 2,
+  "purpose": "失去原父节点时退化至最近祖先或文件末尾",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "modify-missing",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "Anchored",
+          "parentTitles": [],
+          "originTitles": [
+            "Parent",
+            "A"
+          ],
+          "source": "source.org"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "formatVersion": 2,
+  "purpose": "本地新增节点的父节点被远端删除，保留新增子树为冲突候选",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "missing-parent",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "Anchored",
+          "parentTitles": [],
+          "originTitles": [
+            "Parent",
+            "A"
+          ],
+          "source": "source.org"
+        }
+      ]
+    },
+    {
+      "label": "path/to/A.org 重试",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    }
+  ]
+}

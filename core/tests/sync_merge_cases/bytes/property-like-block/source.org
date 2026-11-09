@@ -1,0 +1,10 @@
+* TODO A
+:PROPERTIES:
+:ID: task-a
+:CONFLICT_COMMENT: user property
+:END:
+local
+#+begin_src text
+:CONFLICT_SOURCE: keep this text
+:ID: do-not-normalize
+#+end_src

@@ -1,0 +1,17 @@
+#+CONFLICT: true
+* TODO A
+:PROPERTIES:
+:ID: task-a
+:END:
+remote
+* TODO A (conflict) :CONFLICT:
+:PROPERTIES:
+:ID: <generated-1>
+:CONFLICT_COMMENT: user property
+:CONFLICT_OPERATION: modify
+:END:
+local
+#+begin_src text
+:CONFLICT_SOURCE: keep this text
+:ID: do-not-normalize
+#+end_src

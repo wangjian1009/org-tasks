@@ -2,11 +2,11 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { MergeTaskCard } from '../components/MergeTaskCard'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreBridgeError, CoreMergeChange, CoreMergeResolution, CoreRepo, CoreSyncConflictComparison,
+import { CoreBridgeError, CoreMergeChange, CoreMergeResolution, CoreRepo, CoreSyncConflictComparison, CoreSyncConflictResolution, CoreSyncConflictChoice,
   NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
-interface ConflictParams { repoId: string; syncId: string; path: string }
+interface ConflictParams { repoId: string; syncId?: string; path: string }
 interface ConflictChoice { id: string; side: string }
 
 // 一次只处理被点击日志中的一个文件；逐项选择不触发文件或网络写入。
@@ -18,6 +18,7 @@ struct ConflictFile {
   @State loading: boolean = true
   @State saving: boolean = false
   @State message: string = ''
+  @State pendingPath: string = ''
   @State drawerOpen: boolean = false
   @State generation: number = 0
   private repo: CoreRepo | undefined = undefined
@@ -35,6 +36,11 @@ struct ConflictFile {
     this.comparison = undefined
     try {
       const params = this.getUIContext().getRouter().getParams() as ConflictParams
+      if (!params.syncId) {
+        this.pendingPath = params.path
+        return
+      }
+      this.pendingPath = ''
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!, false)
       const repository = config.repos.find((item) => item.id === params.repoId)
       if (!repository) throw new Error('此存储库已不存在')
@@ -42,7 +48,7 @@ struct ConflictFile {
       const comparison = await repo.compareConflict(params.syncId, params.path)
       if (request !== this.requestId) return
       this.repo = repo
-      this.choices = comparison.changes.map((change: CoreMergeChange) => ({ id: change.id, side: '' } as ConflictChoice))
+      this.choices = comparison.changes.map((change: CoreMergeChange) => ({ id: change.key, side: '' } as ConflictChoice))
       this.generation++
       this.comparison = comparison
     } catch (e) {
@@ -66,13 +72,12 @@ struct ConflictFile {
     this.saving = true
     this.message = ''
     try {
-      const changes = comparison.changes.map((change: CoreMergeChange) => ({ id: change.id, path: change.path,
-        kind: change.kind, preamble: change.preamble, localChange: change.localChange, remoteChange: change.remoteChange,
-        local: change.local, remote: change.remote, resolution: this.choice(change.id) as CoreMergeResolution } as CoreMergeChange))
-      const selected: CoreSyncConflictComparison = { repoId: comparison.repoId, syncId: comparison.syncId, path: comparison.path,
-        localHash: comparison.localHash, remoteHash: comparison.remoteHash, localMissing: comparison.localMissing,
-        unchangedCount: comparison.unchangedCount, changes }
-      await repo.resolveConflict(selected)
+      const request: CoreSyncConflictResolution = { target: comparison.target,
+        expectedLocalHash: comparison.localHash, expectedRemoteHash: comparison.remoteHash,
+        expectedLocalMissing: comparison.localMissing,
+        choices: comparison.changes.map((change: CoreMergeChange) => ({ key: change.key,
+          side: this.choice(change.key) as CoreMergeResolution } as CoreSyncConflictChoice)) }
+      await repo.resolveConflict(request)
       this.getUIContext().getRouter().back()
     } catch (e) {
       this.message = `保存失败：${coreErrorMessage(e as CoreBridgeError)}。请重新比较。`
@@ -87,18 +92,22 @@ struct ConflictFile {
         Column() {
           if (this.loading) {
             EmptyState({ title: '正在比较远端备份与本地文件', busy: true })
+          } else if (this.pendingPath) {
+            Text(this.pendingPath).fontSize(18).fontColor(UiColor.text).width('100%')
+              .padding({ left: 20, right: 20, top: 20, bottom: 12 })
+            EmptyState({ title: '此文件包含待处理的同步冲突' })
           } else if (this.comparison) {
-            Text(this.comparison.path).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+            Text(this.comparison.target.path).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
               .width('100%').padding({ left: 20, right: 20, top: 16, bottom: 8 })
             Text('远端：该次日志备份 · 本地：当前仓库文件\n返回将放弃本轮选择').fontSize(12).lineHeight(20).fontColor(UiColor.secondary)
               .width('100%').padding({ left: 20, right: 20, bottom: 12 })
             List({ space: 10 }) {
               ForEach(this.comparison.changes, (change: CoreMergeChange) => {
                 ListItem() {
-                  MergeTaskCard({ change, choice: this.choice(change.id),
-                    onChoose: (side: CoreMergeResolution): void => { this.choose(change.id, side) } })
+                  MergeTaskCard({ change, choice: this.choice(change.key),
+                    onChoose: (side: CoreMergeResolution): void => { this.choose(change.key, side) } })
                 }
-              }, (change: CoreMergeChange) => `${this.generation}:${change.id}`)
+              }, (change: CoreMergeChange) => `${this.generation}:${change.key}`)
               if (this.comparison.changes.length === 0) {
                 ListItem() { Text('没有待选择项，可直接保存并解决。').fontSize(14).fontColor(UiColor.secondary).padding(12) }
               }

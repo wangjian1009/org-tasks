@@ -45,6 +45,8 @@ pub struct HarmonyBridgeFile {
     pub source: String,
     pub byte_length: usize,
     pub todo: org_tasks_core::TodoMetadata,
+    #[serde(rename = "hasConflict")]
+    pub has_conflict: bool,
     pub category: Option<String>,
     #[serde(rename = "fileVersion")]
     pub file_version: String,
@@ -390,6 +392,18 @@ pub fn repo_load(handle: u64, root_directory: String) -> Result<(), CoreError> {
     Ok(())
 }
 
+pub fn repo_reset(handle: u64, root_directory: String) -> Result<(), CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let mut workspace = workspace.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let repository = workspace.repo_mut_by_root_directory(&root_directory)
+        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    runtime()?.block_on(repository.reset())?;
+    let repo_id = repository.id.clone();
+    // 重置后不保留这个仓库的旧操作回退原文。
+    workspace.task_operation_history.entries.retain(|entry| !entry.fallback_group.files.iter().any(|file| file.repo_id == repo_id));
+    Ok(())
+}
+
 /// 读取仓库已完成的同步记录。历史由 core 从 `.sync/history` 恢复，宿主只接收展示投影。
 pub fn repo_history_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
@@ -470,11 +484,12 @@ pub fn workspace_notifications_json(handle: u64) -> Result<String, CoreError> {
     let notifications = runtime.block_on(workspace.notifications())?;
     let mut values = Vec::new();
     for notification in notifications {
-        let org_tasks_core::CoreNotification::SyncConflict(ref conflict) = notification;
-        let repo = workspace.repos().iter().find(|repo| repo.id == conflict.repo_id)
-            .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?;
         let mut value = serde_json::to_value(&notification).map_err(|_| CoreError::InvalidState("无法编码通知"))?;
-        value["rootDirectory"] = repo.root_directory.clone().into();
+        if let org_tasks_core::CoreNotification::SyncConflict(ref conflict) = notification {
+            let repo = workspace.repos().iter().find(|repo| repo.id == conflict.repo_id)
+                .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?;
+            value["rootDirectory"] = repo.root_directory.clone().into();
+        }
         values.push(value);
     }
     encode(&values)
@@ -604,6 +619,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         byte_length: file.source_bytes().len(),
         file_version: org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         todo: file.todo.clone(),
+        has_conflict: file.has_conflict(),
         category: file.category(),
         title: file.title(),
         title_parts: file.title_parts(),
@@ -1435,7 +1451,7 @@ pub fn repo_history_operation(handle: u64, root: String, request: String) -> Res
         File { sync_id: String, path: String, resolved: bool },
         #[serde(rename_all = "camelCase")]
         Compare { sync_id: String, path: String },
-        Resolve { comparison: org_tasks_core::webdav::SyncConflictComparison },
+        Resolve { request: org_tasks_core::webdav::SyncConflictResolution },
     }
     let request: Request = serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("历史文件参数无效"))?;
     let session = workspace_for_handle(handle)?;
@@ -1455,8 +1471,8 @@ pub fn repo_history_operation(handle: u64, root: String, request: String) -> Res
             encode(&summary)
         },
         Request::File { sync_id, path, resolved } => encode(&file_snapshot(&runtime.block_on(repo.history_file(&sync_id, &path, resolved))?)?),
-        Request::Compare { sync_id, path } => encode(&runtime.block_on(repo.compare_sync_conflict(&sync_id, &path))?),
-        Request::Resolve { comparison } => { runtime.block_on(repo.resolve_sync_conflict(&comparison))?; Ok("{}".into()) },
+        Request::Compare { sync_id, path } => encode(&runtime.block_on(repo.compare_conflict(&org_tasks_core::webdav::SyncConflictTarget { sync_id, path }))?),
+        Request::Resolve { request } => { runtime.block_on(repo.resolve_conflict(&request))?; Ok("{}".into()) },
     }
 }
 
@@ -1489,7 +1505,10 @@ mod archive_tests {
         assert_eq!(current["pendingConflicts"],1);
         let comparison: serde_json::Value = serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"compare","syncId":"one","path":"a.org"}"#.into()).unwrap()).unwrap();
         assert!(comparison["changes"].as_array().unwrap().is_empty());
-        let result = repo_history_operation(handle,directory.clone(),serde_json::json!({"operation":"resolve","comparison":comparison}).to_string()).unwrap();
+        let result = repo_history_operation(handle,directory.clone(),serde_json::json!({"operation":"resolve","request": {
+            "target": comparison["target"], "expectedLocalHash": comparison["localHash"],
+            "expectedRemoteHash": comparison["remoteHash"], "expectedLocalMissing": comparison["localMissing"], "choices": []
+        }}).to_string()).unwrap();
         assert_eq!(result,"{}");
         let file: serde_json::Value = serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"file","syncId":"one","path":"a.org","resolved":true}"#.into()).unwrap()).unwrap();
         assert_eq!(file["path"],"a.resolved.org");
@@ -1549,4 +1568,34 @@ pub fn workspace_reload(handle:u64)->Result<(),CoreError> {
     let session=workspace_for_handle(handle)?;
     let mut workspace=session.lock().map_err(|_|CoreError::Store("workspace 锁不可用".into()))?;
     runtime()?.block_on(workspace.reload())
+}
+
+#[cfg(test)]
+mod reset_bridge_tests {
+    use super::*;
+
+    #[test]
+    fn reset_keeps_id_and_exposes_file_conflict_metadata_before_clearing() {
+        let root = std::env::temp_dir().join(format!("org-reset-bridge-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("A.org"), "#+TITLE: A\n#+CONFLICT: true\n* TODO A\n").unwrap();
+        let path = root.to_string_lossy().into_owned();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, path.clone()).unwrap();
+        repo_load(handle, path.clone()).unwrap();
+        let id = repo_id(handle, path.clone()).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&repo_file_metadata_json(handle, path.clone()).unwrap()).unwrap();
+        assert_eq!(metadata[0]["hasConflict"], true);
+        let snapshot: serde_json::Value = serde_json::from_str(&repo_snapshot_json(handle, path.clone()).unwrap()).unwrap();
+        assert_eq!(snapshot["files"][0]["hasConflict"], true);
+        std::fs::create_dir_all(root.join(".sync/history")).unwrap();
+        std::fs::write(root.join(".sync/history/broken.json"), "bad").unwrap();
+        repo_reset(handle, path.clone()).unwrap();
+        assert_eq!(repo_id(handle, path.clone()).unwrap(), id);
+        assert!(!root.join("A.org").exists());
+        assert_eq!(repo_file_metadata_json(handle, path.clone()).unwrap(), "[]");
+        assert_eq!(repo_history_json(handle, path).unwrap(), "[]");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

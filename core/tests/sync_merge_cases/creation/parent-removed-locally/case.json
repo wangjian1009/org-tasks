@@ -1,0 +1,44 @@
+{
+  "formatVersion": 2,
+  "purpose": "本地删除父节点时远端新增子节点，以删除候选保留竞争",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "candidateAlias": "candidate-parent",
+          "operation": "delete",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "Anchored",
+          "parentTitles": [],
+          "originTitles": [
+            "Parent"
+          ],
+          "source": "source.org"
+        }
+      ]
+    },
+    {
+      "label": "path/to/A.org 重试",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    }
+  ]
+}

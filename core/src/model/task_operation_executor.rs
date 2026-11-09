@@ -31,6 +31,51 @@ impl OrgWorkspace {
                 return Err(CoreError::InvalidInput("上传意图仓库不属于 workspace"));
             }
         }
+        let mut touched = BTreeSet::new();
+        for operation in &group.operations {
+            match operation {
+                TaskOperation::Creation(data) => {
+                    touched.insert(data.position.parent.repo_id.clone());
+                    if let Some(after) = &data.position.after {
+                        touched.insert(after.repo_id.clone());
+                    }
+                }
+                TaskOperation::Modification(data) => {
+                    touched.insert(data.path.repo_id.clone());
+                }
+                TaskOperation::Deletion(data) => {
+                    touched.insert(data.path.repo_id.clone());
+                }
+                TaskOperation::Movement(data) => {
+                    touched.insert(data.path.repo_id.clone());
+                    touched.insert(data.position.parent.repo_id.clone());
+                    if let Some(after) = &data.position.after {
+                        touched.insert(after.repo_id.clone());
+                    }
+                }
+            }
+        }
+        touched.extend(group.file_versions.iter().map(|v| v.repo_id.clone()));
+        let mut roots = Vec::new();
+        for id in touched {
+            let repo = self
+                .repo(&id)
+                .ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
+            roots.push(
+                tokio::fs::canonicalize(&repo.root_directory)
+                    .await
+                    .map_err(|_| CoreError::Store("操作仓库目录不可读取".into()))?
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
+        roots.sort();
+        roots.dedup();
+        let mut guards = Vec::new();
+        for root in &roots {
+            guards.push(crate::webdav::transaction::lock(Path::new(root)).await?);
+            crate::webdav::transaction::recover(Path::new(root)).await?;
+        }
         let mut files = load_files(self, group).await?;
         let mut paths = Vec::new();
         for operation in &group.operations {
@@ -72,6 +117,7 @@ impl OrgWorkspace {
             .iter()
             .map(|file| &file.repo_id)
             .collect::<BTreeSet<_>>();
+        drop(guards);
         for repo_id in updated_repositories {
             super::sync_events::publish(self.repo(repo_id).expect("已验证仓库"));
         }

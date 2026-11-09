@@ -1,0 +1,32 @@
+{
+  "formatVersion": 2,
+  "purpose": "空基线时两端同身份不同内容保留任务候选",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "create",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "AfterOriginSubtree",
+          "parentTitles": [],
+          "originTitles": [
+            "A"
+          ],
+          "source": "source.org"
+        }
+      ]
+    }
+  ]
+}

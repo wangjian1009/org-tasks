@@ -12,7 +12,7 @@ import {
   defaultSyncOptions,
   defaultTodoSettings,
   ConflictSync as NativeConflictSync,
-  MergeChange as NativeMergeChange,
+  SyncConflictChange as NativeMergeChange,
   MergeChangeState as NativeMergeChangeState,
   RefileTarget as NativeRefileTarget,
   RefileTargetQuery as NativeRefileTargetQuery,
@@ -20,6 +20,9 @@ import {
   CoreError as NativeCoreError,
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
   SyncConflictComparison as NativeSyncConflictComparison,
+  SyncConflictResolution as NativeSyncConflictResolution,
+  SyncConflictChoice as NativeSyncConflictChoice,
+  SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
   OrgFile as NativeOrgFile,
@@ -67,6 +70,9 @@ export type CoreSyncRecord = NativeSyncRecord
 export type CoreSyncRecordDetail = NativeSyncRecordDetail
 export type CoreNotificationUpdateMonitor = NativeNotificationUpdateMonitor
 export type CoreSyncConflictComparison = NativeSyncConflictComparison
+export type CoreSyncConflictResolution = NativeSyncConflictResolution
+export type CoreSyncConflictChoice = NativeSyncConflictChoice
+export type CoreSyncRequiredNotification = NativeSyncRequiredNotification
 export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
@@ -152,6 +158,8 @@ export class CoreRepo {
     await this.native.load()
   }
 
+  async reset(): Promise<void> { await this.native.reset() }
+
   async history(): Promise<CoreSyncRecord[]> {
     // Core 提供执行结果、传输方向与冲突解决摘要，宿主不重算历史。
     return await this.native.history()
@@ -167,8 +175,8 @@ export class CoreRepo {
     return await this.native.compareConflict({ syncId, path })
   }
 
-  async resolveConflict(comparison: CoreSyncConflictComparison): Promise<void> {
-    await this.native.resolveConflict(comparison)
+  async resolveConflict(request: CoreSyncConflictResolution): Promise<void> {
+    await this.native.resolveConflict(request)
   }
 
   async historyDetail(syncId: string): Promise<CoreSyncRecordDetail> {

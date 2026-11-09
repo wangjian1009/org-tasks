@@ -117,3 +117,41 @@ test('只有通知更新回调提高数据版本，空通知也触发页面数�
   await f.CoreNotificationService.refresh(f.context);
   assert.equal(f.writes.at(-1).revision,1,'手动读取通知不伪造数据更新事件');
 });
+
+test('全局同步提示无需仓库或日志身份，重新读取不在宿主生成或消费通知', async () => {
+  const f = fixture();
+  const events = [{ type: 'syncRequired' }, conflict()];
+  f.setEvents(events);
+  await f.CoreNotificationService.refresh(f.context);
+  await f.CoreNotificationService.refresh(f.context);
+  assert.deepEqual(f.writes.at(-1).notifications, events);
+  assert.equal(f.writes.at(-1).repositories.length, 1);
+  assert.deepEqual(f.writes.at(-1).notifications[0], { type: 'syncRequired' });
+});
+
+test('点击同步提示调用共享同步 service，忙碌或连续点击不会并发，也不在页面清除提示', async () => {
+  const filename = path.resolve('entry/src/main/ets/components/SyncRequiredNotificationView.ets');
+  const source = fs.readFileSync(filename, 'utf8').split('  build()')[0]
+    .replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) /g, '')
+    .replace('export struct SyncRequiredNotificationView', 'export class SyncRequiredNotificationView') + '}';
+  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const module = { exports: {} };
+  const pending = deferred();
+  let calls = 0;
+  const context = {};
+  vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename })(() => ({
+    emptyRepositorySyncState: () => ({ running: false }),
+    RepositorySyncService: { async start(actual) { assert.equal(actual, context); calls++; await pending.promise; } }
+  }), module, module.exports);
+  const view = new module.exports.SyncRequiredNotificationView();
+  view.getUIContext = () => ({ getHostContext: () => context });
+  const first = view.synchronize();
+  await view.synchronize();
+  assert.equal(calls, 1);
+  pending.resolve(); await first;
+  assert.equal(view.starting, false);
+  view.syncState.running = true;
+  await view.synchronize();
+  assert.equal(calls, 1);
+  assert.equal(view.syncState.running, true);
+});

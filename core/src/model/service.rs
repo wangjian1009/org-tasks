@@ -64,7 +64,6 @@ pub struct SyncContext<'a> {
     pub started_at: TimestampMs,
     pub base: PathBuf,
     pub options: SyncOptions,
-    pub(crate) local_changes: Vec<crate::webdav::local_commit::LocalSyncChange>,
 }
 
 impl<'a> SyncContext<'a> {
@@ -82,7 +81,6 @@ impl<'a> SyncContext<'a> {
             repo,
             started_at,
             options,
-            local_changes: Vec::new(),
         }
     }
 }
@@ -453,7 +451,16 @@ impl OrgRepo {
     pub async fn load<P: SyncPolicy>(
         &mut self,
     ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
+        let _guard = crate::webdav::transaction::lock(Path::new(&self.root_directory)).await?;
+        self.load_unlocked::<P>().await
+    }
+
+    async fn load_unlocked<P: SyncPolicy>(
+        &mut self,
+    ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
         self.id = load_or_create_repo_id(Path::new(&self.root_directory)).await?;
+        super::reset::recover(Path::new(&self.root_directory)).await?;
+        crate::webdav::transaction::recover(Path::new(&self.root_directory)).await?;
         let history = load_sync_history::<P>(Path::new(&self.root_directory)).await?;
         let task_scan_rules = super::TaskScanRules::load(Path::new(&self.root_directory)).await?;
         let sources = scan_org_files(Path::new(&self.root_directory)).await?;
@@ -543,16 +550,23 @@ impl OrgRepo {
         P: SyncPolicy,
     {
         let options = options.normalized()?;
-        let history = self.load::<P>().await?;
+        let guard = crate::webdav::transaction::lock(Path::new(&self.root_directory)).await?;
+        let history = self.load_unlocked::<P>().await?;
         if history.iter().any(|record| record.started_at == started_at) {
             return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
+        let notification_version = super::notification::sync_required_version(&self.id);
+        let slot = crate::webdav::transaction::CommitSlot::new(
+            Path::new(&self.root_directory),
+            started_at,
+        );
         let mut context = SyncContext::with_options(self, started_at, options);
         let mut record = policy
             .synchronize(&mut context, cancellation, progress)
             .await?;
-        let local_changes = std::mem::take(&mut context.local_changes);
         drop(context);
+        let pending_commit = slot.take();
+        drop(slot);
         if record.kind.is_empty() {
             record.kind = P::KIND.into();
         }
@@ -568,28 +582,47 @@ impl OrgRepo {
             return Err(CoreError::InvalidState("同步记录 ID 已存在"));
         }
         let root = Path::new(&self.root_directory);
-        let mut committed = false;
-        if !local_changes.is_empty() {
-            match crate::webdav::local_commit::commit_local(root, &local_changes).await {
-                Ok(()) => committed = true,
-                Err(error) => {
-                    record.result = Some(super::OrgRepoSyncResult::Failed);
-                    for file in &mut record.files {
-                        if local_changes.iter().any(|change| change.path == file.relative_path) {
-                            file.state = super::OrgRepoSyncFileState::Failed;
-                            file.error = Some(super::OrgRepoSyncErrorSummary::new(super::OrgRepoSyncErrorCategory::LocalStorage, false, error.to_string())?);
-                        }
-                    }
-                }
+        let committed_transaction = pending_commit.is_some();
+        if let Some(mut plan) = pending_commit {
+            if record.result != Some(super::OrgRepoSyncResult::Succeeded) {
+                return Err(CoreError::InvalidState("失败同步不能包含本地提交"));
             }
+            let history_path = format!(".sync/history/{}.json", record.started_at);
+            if crate::webdav::transaction::read(root, &history_path)
+                .await?
+                .is_some()
+            {
+                return Err(CoreError::InvalidState("同步历史开始时间已存在"));
+            }
+            plan.set(
+                root,
+                history_path,
+                Some(
+                    serde_json::to_vec(&record)
+                        .map_err(|_| CoreError::InvalidState("无法编码同步记录"))?,
+                ),
+            )
+            .await?;
+            let snapshot = plan.snapshot.take();
+            plan.commit(root).await?;
+            if let Some(snapshot) = snapshot {
+                *self = snapshot;
+            }
+            // 正式提交后仅尽力刷新元信息，不因清理／重新读取失败推翻已生效事务。
+            for file in &mut self.files {
+                file.modified_at = fs::metadata(Path::new(&self.root_directory).join(&file.path))
+                    .await
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).timestamp_millis());
+            }
+        } else {
+            persist_sync_record(root, &record).await?;
         }
-        if let Err(error) = persist_sync_record(root, &record).await {
-            if committed { crate::webdav::local_commit::rollback_local(root, &local_changes).await?; }
-            return Err(error);
-        }
-        if committed { self.load::<P>().await?; }
-        super::sync_events::publish(self);
         for file in &record.files {
+            if committed_transaction {
+                break;
+            }
             // 忽略配置没有任务编辑产生的 outbox，也不属于 Org 文件快照。
             if file.relative_path == super::TASK_SCAN_RULES_PATH {
                 continue;
@@ -605,6 +638,23 @@ impl OrgRepo {
             {
                 self.acknowledge_write(&file.relative_path, version).await?;
             }
+        }
+        drop(guard);
+        super::sync_events::publish(self);
+        if notification_version.is_some()
+            && P::KIND == "webdav"
+            && record.result == Some(super::OrgRepoSyncResult::Succeeded)
+            && self
+                .pending_writes()
+                .await
+                .is_ok_and(|writes| writes.is_empty())
+            && (committed_transaction
+                || self
+                    .pending_sync_conflicts()
+                    .await
+                    .is_ok_and(|conflicts| conflicts.is_empty()))
+        {
+            super::notification::confirm_required_sync(&self.id, notification_version);
         }
         Ok(record)
     }
@@ -649,7 +699,7 @@ async fn load_or_create_repo_id(root: &Path) -> Result<OrgRepoId, CoreError> {
     }
 }
 
-async fn read_repo_id(path: &Path) -> Result<OrgRepoId, std::io::Error> {
+pub(crate) async fn read_repo_id(path: &Path) -> Result<OrgRepoId, std::io::Error> {
     let contents = fs::read_to_string(path).await?;
     let Some(id) = contents.strip_suffix('\n') else {
         return Err(std::io::Error::new(
@@ -1117,7 +1167,16 @@ mod tests {
                 .iter()
                 .all(|category| category.category.as_deref() != Some("Hidden"))
         );
-        assert_eq!(workspace.query(&crate::TaskQuery { expression: "\"Hidden\"".into(), ..Default::default() }).unwrap().tasks, []);
+        assert_eq!(
+            workspace
+                .query(&crate::TaskQuery {
+                    expression: "\"Hidden\"".into(),
+                    ..Default::default()
+                })
+                .unwrap()
+                .tasks,
+            []
+        );
 
         // 规则变更与删除在下一次 load 生效；已有完整字节不受影响。
         let repo = &mut workspace.repos[0];

@@ -1,0 +1,3 @@
+#+SETUPFILE: missing-settings.org
+* TODO A
+local

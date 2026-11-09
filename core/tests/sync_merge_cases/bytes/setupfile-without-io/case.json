@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "SETUPFILE 原文保留，纯合并不读取指定文件",
+  "rounds": [
+    {
+      "label": "单文件内容",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

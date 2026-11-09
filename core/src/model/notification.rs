@@ -3,6 +3,61 @@ use serde::{Deserialize, Serialize};
 
 use super::{OrgRepo, OrgRepoId, OrgRepoSyncRecordId, OrgWorkspace};
 use crate::CoreError;
+use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
+
+/// 单一通知之外仅跟踪仓库确认代次，防止多仓库或并发解决提前清除提示；不保存路径或正文。
+#[derive(Default)]
+struct RequiredSyncState {
+    generation: u64,
+    repositories: BTreeMap<String, u64>,
+}
+impl RequiredSyncState {
+    fn insert(&mut self, repo_id: &str) -> bool {
+        let first = self.repositories.is_empty();
+        self.generation += 1;
+        self.repositories.insert(repo_id.into(), self.generation);
+        first
+    }
+    fn confirm(&mut self, repo_id: &str, version: Option<u64>) -> bool {
+        if version.is_none() || self.repositories.get(repo_id).copied() != version {
+            return false;
+        }
+        self.repositories.remove(repo_id);
+        self.repositories.is_empty()
+    }
+}
+fn required_state() -> &'static Mutex<RequiredSyncState> {
+    static STATE: OnceLock<Mutex<RequiredSyncState>> = OnceLock::new();
+    STATE.get_or_init(Default::default)
+}
+pub(crate) fn require_sync(repo_id: &str) {
+    let changed = required_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(repo_id);
+    if changed {
+        super::sync_events::publish_global();
+    }
+}
+pub(crate) fn sync_required_version(repo_id: &str) -> Option<u64> {
+    required_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .repositories
+        .get(repo_id)
+        .copied()
+}
+pub(crate) fn confirm_required_sync(repo_id: &str, version: Option<u64>) {
+    let changed = required_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .confirm(repo_id, version);
+    if changed {
+        super::sync_events::publish_global();
+    }
+}
+
 #[cfg(test)]
 use crate::webdav::WebDavSyncPolicy;
 
@@ -10,6 +65,7 @@ use crate::webdav::WebDavSyncPolicy;
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreNotification {
     SyncConflict(SyncConflictNotification),
+    SyncRequired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,9 +78,13 @@ pub struct SyncConflictNotification {
 
 /// 更新事件只表示需要重新查询；注意事项仍由 notifications 接口独立提供。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotificationUpdate {
-    pub repo_id: OrgRepoId,
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum NotificationUpdate {
+    RepositoryChanged {
+        #[serde(rename = "repoId")]
+        repo_id: OrgRepoId,
+    },
+    GlobalNotificationsChanged,
 }
 
 pub struct NotificationSubscription {
@@ -70,13 +130,21 @@ impl OrgWorkspace {
             .iter()
             .map(|repo| repo.root_directory.clone())
             .collect::<Vec<_>>();
-        let subscription = super::sync_events::subscribe(std::sync::Arc::new(move |event| {
-            if roots.contains(&event.root_directory) {
-                callback(NotificationUpdate {
-                    repo_id: event.repo_id.clone(),
-                });
-            }
-        }));
+        let subscription =
+            super::sync_events::subscribe(std::sync::Arc::new(move |event| match event {
+                super::sync_events::SyncCommitted::Repository {
+                    root_directory,
+                    repo_id,
+                } if roots.contains(root_directory) => {
+                    callback(NotificationUpdate::RepositoryChanged {
+                        repo_id: repo_id.clone(),
+                    })
+                }
+                super::sync_events::SyncCommitted::GlobalNotificationsChanged => {
+                    callback(NotificationUpdate::GlobalNotificationsChanged)
+                }
+                _ => {}
+            }));
         NotificationSubscription {
             _sync_subscription: subscription,
         }
@@ -97,6 +165,14 @@ impl OrgWorkspace {
         for repo in self.repos() {
             notifications.extend(repo.notifications().await?);
         }
+        if !required_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .repositories
+            .is_empty()
+        {
+            notifications.push(CoreNotification::SyncRequired);
+        }
         Ok(notifications)
     }
 }
@@ -111,6 +187,21 @@ mod tests {
     };
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn duplicate_notifications_and_stale_sync_confirmations_do_not_lose_new_resolutions() {
+        let mut state = RequiredSyncState::default();
+        assert!(state.insert("a"));
+        let first = state.repositories.get("a").copied();
+        assert!(!state.insert("a"));
+        assert!(!state.confirm("a", first));
+        assert!(state.repositories.contains_key("a"));
+        assert!(!state.insert("b"));
+        assert!(!state.confirm("a", state.repositories.get("a").copied()));
+        assert!(state.confirm("b", state.repositories.get("b").copied()));
+        assert!(state.repositories.is_empty());
+        assert!(state.insert("c"));
+    }
 
     struct Fixture {
         repo: OrgRepo,
@@ -144,7 +235,8 @@ mod tests {
                     time,
                 )
                 .unwrap()
-                .with_kind("webdav");
+                .with_kind("webdav")
+                .with_context_detail(WebDavSyncContextDetail { format_version: 1 });
             for (path, state) in states {
                 let action = match state {
                     OrgRepoSyncFileState::Synchronized => OrgRepoSyncFileAction::Uploaded,
@@ -201,7 +293,8 @@ mod tests {
                 .notifications()
                 .await
                 .unwrap()
-                .is_empty()
+                .iter()
+                .all(|n| !matches!(n, CoreNotification::SyncConflict(_)))
         );
         let fixture = Fixture::new().await;
         assert!(fixture.repo.notifications().await.unwrap().is_empty());
@@ -254,7 +347,9 @@ mod tests {
             .await;
         let notifications = fixture.repo.notifications().await.unwrap();
         assert_eq!(notifications.len(), 1);
-        let CoreNotification::SyncConflict(notification) = &notifications[0];
+        let CoreNotification::SyncConflict(notification) = &notifications[0] else {
+            panic!("应为冲突通知")
+        };
         assert_eq!(notification.sync_id, "second");
         assert_eq!(notification.paths, vec!["a.org"]);
         fixture
@@ -307,7 +402,13 @@ mod tests {
                 .await;
         }
         let workspace = OrgWorkspace::new(vec![first.repo.clone(), second.repo.clone()]).unwrap();
-        let events = workspace.notifications().await.unwrap();
+        let events = workspace
+            .notifications()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|e| matches!(e, CoreNotification::SyncConflict(_)))
+            .collect::<Vec<_>>();
         assert_eq!(events.len(), 2);
         let value = serde_json::to_value(&events).unwrap();
         assert_eq!(value[0]["type"], "syncConflict");
@@ -317,7 +418,9 @@ mod tests {
         assert_eq!(value[0]["paths"][0], "same.org");
         let round_trip: Vec<CoreNotification> = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(round_trip, events);
-        let CoreNotification::SyncConflict(conflict) = &events[0];
+        let CoreNotification::SyncConflict(conflict) = &events[0] else {
+            panic!("应为冲突通知")
+        };
         assert_eq!(conflict.repo_id, first.repo.id);
         assert_eq!(value[0].as_object().unwrap().len(), 4);
         assert!(!value.to_string().contains(first.root.to_str().unwrap()));
@@ -349,13 +452,20 @@ mod tests {
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured = events.clone();
         let subscription = watched.watch_notifications(move |event| {
-            captured.lock().unwrap().push(event);
+            if matches!(event, NotificationUpdate::RepositoryChanged { .. }) {
+                captured.lock().unwrap().push(event);
+            }
         });
         unrelated.reload().await.unwrap();
         assert!(events.lock().unwrap().is_empty());
         watched.reload().await.unwrap();
         assert_eq!(events.lock().unwrap().len(), 1);
-        assert_eq!(events.lock().unwrap()[0].repo_id, first.repo.id);
+        assert_eq!(
+            events.lock().unwrap()[0],
+            NotificationUpdate::RepositoryChanged {
+                repo_id: first.repo.id.clone()
+            }
+        );
         drop(subscription);
         watched.reload().await.unwrap();
         assert_eq!(events.lock().unwrap().len(), 1);

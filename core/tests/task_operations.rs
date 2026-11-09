@@ -9,9 +9,11 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(source: &str) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "org-operations-{}-{}",
+            "org-operations-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -52,10 +54,9 @@ async fn task_operations_notify_only_after_changed_files_are_committed() {
     let file = f.root.join("tasks.org");
     let repo_id = f.workspace.repos()[0].id.clone();
     let _subscription = f.workspace.watch_notifications(move |update| {
-        events.lock().unwrap().push((
-            update.repo_id,
-            std::fs::read_to_string(&file).unwrap(),
-        ));
+        if let org_tasks_core::NotificationUpdate::RepositoryChanged { repo_id } = update {
+            events.lock().unwrap().push((repo_id, std::fs::read_to_string(&file).unwrap()));
+        }
     });
 
     let changed = f.group("Updated");

@@ -1,0 +1,35 @@
+{
+  "formatVersion": 2,
+  "purpose": "远端原节点改名后仍按身份紧邻定位",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "modify",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "AfterOriginSubtree",
+          "parentTitles": [
+            "Project"
+          ],
+          "originTitles": [
+            "Project",
+            "A"
+          ],
+          "source": "source.org"
+        }
+      ]
+    }
+  ]
+}

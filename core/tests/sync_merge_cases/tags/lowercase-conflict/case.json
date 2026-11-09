@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "小写 conflict 是普通用户标签，原样保留",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

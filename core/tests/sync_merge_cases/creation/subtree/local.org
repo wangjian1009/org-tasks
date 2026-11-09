@@ -1,0 +1,12 @@
+* Existing
+base
+* TODO A
+:PROPERTIES:
+:ID: task-a
+:END:
+base
+** TODO Child
+:PROPERTIES:
+:ID: child
+:END:
+child

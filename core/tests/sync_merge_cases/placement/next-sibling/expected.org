@@ -1,0 +1,18 @@
+#+CONFLICT: true
+* Project
+** TODO A (conflict) :CONFLICT:
+:PROPERTIES:
+:ID: <generated-1>
+:CONFLICT_OPERATION: modify-missing
+:END:
+local
+*** TODO Child :work:
+:PROPERTIES:
+:ID: <generated-2>
+:END:
+child body
+** TODO Next
+:PROPERTIES:
+:ID: next
+:END:
+next

@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "相同标题但 ID 不同的两份新增任务不能互相覆盖",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

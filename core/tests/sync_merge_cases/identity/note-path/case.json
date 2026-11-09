@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "无状态 note 按文件内 path 合并不同行",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

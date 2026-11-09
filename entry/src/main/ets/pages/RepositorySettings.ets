@@ -24,6 +24,7 @@ struct RepositorySettings {
   @State excludedDirectoriesText: string = ''
   @State saving: boolean = false
   @State deleting: boolean = false
+  @State resetting: boolean = false
   @State existing: boolean = false
   @State testing: boolean = false
   @State testMessage: string = ''
@@ -36,7 +37,7 @@ struct RepositorySettings {
 
   aboutToAppear() { this.load() }
   onBackPress(): boolean {
-    if (!this.saving && !this.testing && !this.deleting) this.save()
+    if (!this.saving && !this.testing && !this.deleting && !this.resetting) this.save()
     return true
   }
 
@@ -110,7 +111,7 @@ struct RepositorySettings {
   }
 
   async save() {
-    if (this.saving || this.testing || this.deleting || this.loading) return
+    if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     if (!this.loaded || JSON.stringify(this.draft()) === this.originalDraft) { this.getUIContext().getRouter().back(); return }
     if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
     if (this.webdavEnabled && (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword)) {
@@ -139,7 +140,7 @@ struct RepositorySettings {
   }
 
   confirmDelete() {
-    if (!this.existing || this.saving || this.testing || this.deleting || this.loading) return
+    if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
     this.getUIContext().showAlertDialog({ title: '删除存储库？',
@@ -149,7 +150,7 @@ struct RepositorySettings {
   }
 
   async removeRepository() {
-    if (!this.existing || this.saving || this.testing || this.deleting || this.loading) return
+    if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     this.deleting = true
     try {
       await AppConfigService.removeRepository(this.getUIContext().getHostContext()!, this.repoId)
@@ -159,9 +160,39 @@ struct RepositorySettings {
     finally { this.deleting = false }
   }
 
+  confirmReset() {
+    if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
+    const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
+    if (!repo) return
+    if (this.rootDirectory.trim() !== repo.rootDirectory) {
+      this.message = '本地目录已修改，请先返回保存后再重置'
+      return
+    }
+    this.getUIContext().showAlertDialog({ title: '重置本地目录？',
+      message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。仓库身份、配置及远端文件保留。此操作无法撤销。\n${repo.rootDirectory}`,
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '重置', action: (): void => { this.resetRepository(repo.rootDirectory) } } })
+  }
+
+  async resetRepository(expectedRoot: string) {
+    if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
+    this.resetting = true
+    this.message = ''
+    try {
+      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
+      const repository = config.repos.find((item: RepoConfig) => item.id === this.repoId)
+      if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+      await repo.reset()
+      try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) } catch (_) {}
+      this.getUIContext().getPromptAction().showToast({ message: '本地目录已重置' })
+    } catch (e) { this.message = `重置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    finally { this.resetting = false }
+  }
+
   build() {
     Column() {
-      AppShell({ title: '仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen, busy: this.saving || this.testing || this.deleting,
+      AppShell({ title: '仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen, busy: this.saving || this.testing || this.deleting || this.resetting,
         backAction: (): void => { this.save() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
@@ -213,11 +244,14 @@ struct RepositorySettings {
                 .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
               if (this.existing) {
                 Divider().color(UiColor.outline).margin({ top: 16 })
+                Button(this.resetting ? '重置中…' : '重置本地目录').width('100%').height(48)
+                  .backgroundColor(UiColor.container).fontColor(UiColor.error)
+                  .onClick((): void => { this.confirmReset() })
                 Button(this.deleting ? '删除中…' : '删除存储库').width('100%').height(48)
                   .backgroundColor(UiColor.container).fontColor(UiColor.error)
                   .onClick((): void => { this.confirmDelete() })
               }
-            }.width('100%').padding({ left: 24, right: 24, top: 16, bottom: 104 }).enabled(!this.saving && !this.testing && !this.deleting && !this.loading)
+            }.width('100%').padding({ left: 24, right: 24, top: 16, bottom: 104 }).enabled(!this.saving && !this.testing && !this.deleting && !this.resetting && !this.loading)
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
         }.width('100%').height('100%')
       }

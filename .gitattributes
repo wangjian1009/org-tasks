@@ -1,0 +1,4 @@
+# Org 合并样例保留原始字节，CRLF 与尾随空格是验收数据。
+core/tests/sync_merge_cases/**/*.org -text
+core/tests/sync_merge_cases/bytes/crlf/*.org whitespace=-blank-at-eol,cr-at-eol
+core/tests/sync_merge_cases/fields/in-buffer-todo/*.org whitespace=cr-at-eol

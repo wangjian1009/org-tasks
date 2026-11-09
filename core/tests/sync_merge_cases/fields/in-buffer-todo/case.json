@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "每份输入自行声明 TODO 配置，无需仓库或外部环境",
+  "rounds": [
+    {
+      "label": "单文件内容",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

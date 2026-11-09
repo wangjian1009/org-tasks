@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "远端新增完整子树，本地不变时原样保留",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

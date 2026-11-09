@@ -1,0 +1,45 @@
+{
+  "formatVersion": 2,
+  "purpose": "两端新增相同 ID 不同内容生成 create 候选",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "create",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "AfterOriginSubtree",
+          "parentTitles": [],
+          "originTitles": [
+            "A"
+          ],
+          "source": "source.org"
+        }
+      ]
+    },
+    {
+      "label": "path/to/A.org 重试",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    }
+  ]
+}

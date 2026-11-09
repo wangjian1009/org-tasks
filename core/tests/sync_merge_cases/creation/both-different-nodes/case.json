@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "两端在同文件各自新增不同任务，完整保留两份",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

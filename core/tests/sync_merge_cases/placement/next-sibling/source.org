@@ -1,0 +1,10 @@
+** TODO A
+:PROPERTIES:
+:ID: task-a
+:END:
+local
+*** TODO Child :work:
+:PROPERTIES:
+:ID: child
+:END:
+child body

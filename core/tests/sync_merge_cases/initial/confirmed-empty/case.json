@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "已确认的空基线下合并本地新增内容本地新增文件",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

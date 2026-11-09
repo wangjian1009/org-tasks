@@ -25,8 +25,10 @@ impl Display for CoreError {
 impl std::error::Error for CoreError {}
 
 mod filter;
+mod merge;
 pub mod model;
 pub mod webdav;
 
 pub use filter::{AddressLink, FilterDate, FilterStateType, FilterTask};
+pub use merge::merge;
 pub use model::*;

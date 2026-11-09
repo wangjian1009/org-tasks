@@ -12,6 +12,11 @@ path = "src/lib.rs"
 name = "org-tasks"
 path = "src/bin/org-tasks/main.rs"
 
+[[test]]
+name = "sync_merge_cases"
+path = "tests/sync_merge_cases.rs"
+harness = false
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4.5", features = ["derive"] }
@@ -23,4 +28,4 @@ quick-xml = "0.37"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "time", "sync"] }

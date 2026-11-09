@@ -52,7 +52,11 @@ impl WebDavSyncRecordSummary {
         let mut error_category = None;
         let mut error_message = None;
         for file in &record.files {
-            if file.state == OrgRepoSyncFileState::Synchronized {
+            if file.state == OrgRepoSyncFileState::Synchronized
+                || (record.context_detail.format_version >= 4
+                    && record.result == Some(OrgRepoSyncResult::Succeeded)
+                    && file.state == OrgRepoSyncFileState::Conflict)
+            {
                 // Created 表示远端创建；Deleted 表示采用远端删除并移除本地文件。
                 downloaded_files += usize::from(matches!(
                     file.action,
@@ -121,11 +125,15 @@ pub fn sync_history_summaries(
         summary.resolved_conflicts = summary
             .conflicts
             .iter()
-            .filter(|path| record.files.iter().any(|f| &f.relative_path == *path && f.detail.resolved))
+            .filter(|path| {
+                record
+                    .files
+                    .iter()
+                    .any(|f| &f.relative_path == *path && f.detail.resolved)
+            })
             .count();
         summary.pending_conflicts -= summary.resolved_conflicts;
         summaries.push(summary);
-
     }
     summaries.reverse();
     Ok(summaries)
@@ -476,8 +484,9 @@ mod tests {
     #[test]
     fn legacy_null_context_and_empty_failures_remain_readable() {
         let record = make_record("listing", OrgRepoSyncResult::Failed, vec![]);
-        let encoded = serde_json::to_string(&record).unwrap();
-        assert!(encoded.contains("\"context_detail\":null"));
+        let mut legacy = serde_json::to_value(record).unwrap();
+        legacy["context_detail"] = serde_json::Value::Null;
+        let encoded = serde_json::to_string(&legacy).unwrap();
         let decoded = serde_json::from_str(&encoded).unwrap();
         let detail = sync_history_detail(&[decoded], "listing").unwrap();
         assert!(detail.files.is_empty());

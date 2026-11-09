@@ -14,9 +14,9 @@
 
 * 范围
 
-本文定义 ~core::webdav~ 的 WebDAV 同步语义，以及将协议结果转换为 ~OrgRepoSyncRecord~ 和 ~OrgRepoSyncFileRecord~ 的运行时契约。内容与同步结构见 [[file:数据模型.org][数据模型]]，仓库级 API 见 [[file:接口文档.org][接口文档]]，Harmony 的配置、凭据和保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
+本文定义 ~core::webdav~ 的 WebDAV 协议接入，以及将协议结果转换为 ~OrgRepoSyncRecord~ 和 ~OrgRepoSyncFileRecord~ 的运行时契约。通用同步行为与目录历史统一见 [[file:同步核心设计.org][同步核心设计]]。内容与同步结构见 [[file:数据模型.org][数据模型]]，仓库级 API 见 [[file:接口文档.org][接口文档]]，Harmony 的配置、凭据和保存方式见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料由策略实例持有； ~core::webdav~ 实现 core 的 ~SyncPolicy~ ，直接执行远端列举、下载、上传、下载文件写回和同步记录生成。org 文件扫描与解析属于 ~core::model::OrgRepo~ ，HTTP 仅创建 policy 与同步控制器，不实现 WebDAV 请求、同步决策或状态存储。
+WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料由策略实例持有； ~core::webdav~ 实现 core 的 ~SyncPolicy~ ，执行远端列举、下载和条件上传，由 Core 的统一同步流程管理本地提交与完成记录。org 文件扫描与解析属于 ~core::model::OrgRepo~ ，HTTP 仅创建 policy 与同步控制器，不实现 WebDAV 请求、同步决策或状态存储。
 
 * 独立连接检查
 
@@ -28,7 +28,7 @@ WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料
 
 * Adapter 契约
 
-~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 使用 Tokio runtime 上的异步 HTTP client 处理仓库文件，并在结束时返回带有全局 ~kind: "webdav"~ 和 ~WebDavSyncFileDetail~ 的完整 ~OrgRepoSyncRecord~ 。下载成功后，它调用 core 的 org 解析能力更新仓库快照，并负责将下载文件异步写回本地仓库。该记录只含版本元数据、每个文件的 action/state 与脱敏错误摘要。
+~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 使用 Tokio runtime 上的异步 HTTP client 处理仓库文件，并在结束时返回带有全局 ~kind: "webdav"~ 和 ~WebDavSyncFileDetail~ 的完整 ~OrgRepoSyncRecord~ 。取得正文后使用 Core 的 Org 解析与统一提交能力，不自行规定历史目录或冲突状态。协议细节包含远端版本，每个文件的 action/state 和脱敏错误由同步记录表达；成功内容按统一历史契约保存。
 
 ** Monitor
 
@@ -51,39 +51,6 @@ let policy = WebDavSyncPolicy::new(endpoint, username, password)?
 
 策略不得直接修改同步记录存储、日历投影或 UI 状态。 ~OrgRepoSyncController~ 在 core 内负责取消与进度快照；CLI 和 HTTP 等宿主只读取这些快照。 ~WebDavSyncPolicy~ 负责实际 HTTP、认证与 TLS；策略不得返回密码、Authorization header、仓库绝对路径或远端完整 URL；完整 Org 正文仅作为成功文件的 ~synced_source~ 随同步记录返回，供 Core 持久化，不进入进度事件或错误摘要。
 
-* 验证 CLI
-
-core crate 显式注册 ~org-tasks~ binary，其命令入口位于 ~core/src/bin/org-tasks/~ ，不位于 ~core::webdav~ 模块。当前提供以下可重复执行的验证命令：
-
-#+begin_src sh
-cargo run -p org-tasks-core --bin org-tasks -- \
-  --repo-dir ./org \
-  sync webdav \
-  --webdav-url https://dav.example.com/org/ \
-  --webdav-user alice \
-  --webdav-passwd "$WEBDAV_PASSWORD" \
-  -v
-#+end_src
-
-命令的 Tokio ~main~ 用参数构造 policy、异步加载本地仓库后启动 core 控制器，持续输出其状态、阶段、已完成数量、总数和当前路径。屏幕输出仅属于 CLI； ~core::webdav~ 不依赖命令行解析或输出 API。
-
-~--repo-dir~ 是 CLI 的全局仓库参数，所有子命令均使用它初始化 ~OrgRepo~ 。WebDAV 地址、用户名和密码只属于 ~sync webdav~ ，历史查询不会读取这些参数。
-
-#+begin_src sh
-org-tasks --repo-dir ./org history list
-org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
-#+end_src
-
-~history list~ 输出每条记录的 ID、本地格式的开始时间、耗时、结果，以及新增、修改、删除、不变、冲突和失败文件数。下载或创建计为新增，上传计为修改，删除或远端删除计为删除，~Unchanged~ 计为不变。 ~history show <id>~ 在这些摘要之外输出指定记录的逐文件 action、state、变化、大小、版本与脱敏错误摘要；不存在的 ID 必须以错误退出。
-
-** 终端输出
-
-默认输出面向一次同步的核心判断：同步阶段、已完成数量、当前文件、最终结果，以及每个文件的成功、失败或冲突状态。每个文件行必须显示相对路径、action、state、是否变化和远端大小；失败或冲突时还显示 core 返回的脱敏错误摘要。
-
-~--silent~ 关闭全部正常终端输出，仅以退出码表达结果。 ~-v~ 显示默认输出之外的详细信息，包括本地内容哈希、远端 ETag、修改时间和文件大小，以及每个 ~PROPFIND~ 、 ~GET~ 、 ~PUT~ 的请求发出和响应状态的有序事件。详细模式不得输出密码、Authorization header、请求或响应正文、完整远端 URL 或绝对本地路径。
-
-对由内容编辑产生的上传，宿主必须先按 ~OrgFile.sourceBytes~ 执行保真序列化，再将所得完整字节作为 ~PUT~ 请求体。未编辑文件的上传内容必须与读取内容逐字节一致；编辑文件不得因同步流程格式化、重排或改写未修改区域。
-
 * 协议能力
 
 | 同步意图 | WebDAV 请求 | 成功条件 | 对同步文件记录的结果 |
@@ -91,43 +58,28 @@ org-tasks --repo-dir ./org history show webdav-<repo-id>-<started-at>
 | 列举目录 | ~PROPFIND~ ， ~Depth: 1~ | ~207 Multi-Status~ | 发现相对路径和 ~WebDavSyncFileDetail~ ；列举失败时不报告远端删除。 |
 | 下载文件 | ~GET~ | ~200 OK~ | action 为 ~Downloaded~ ，写入新的本地版本。 |
 | 创建远端文件 | ~PUT~ + ~If-None-Match: *~ | ~201~ 、 ~200~ 或 ~204~ | action 为 ~Created~ ，确认远端版本。 |
-| 更新远端文件 | ~PUT~ + ~If-Match: <etag>~ | ~200~ 或 ~204~ | action 为 ~Uploaded~ ，确认远端版本； ~412~ 为冲突。 |
+| 更新远端文件 | ~PUT~ + ~If-Match: <etag>~ | ~200~ 或 ~204~ | action 为 ~Uploaded~ ，确认远端版本； ~412~ 表示执行时版本失效，按统一失败边界处理。 |
 | 创建目录 | ~MKCOL~ | ~201~ 或已存在 | 仅为上传缺失父目录服务。 |
 | 重命名 | ~MOVE~ + ~Destination~ + ~Overwrite: F~ | ~201~ 或 ~204~ | 为旧路径和新路径分别产生文件记录。 |
-| 显式删除 | ~DELETE~ | ~204~ | action 为 ~Deleted~ ；只接受宿主显式给出的删除意图。 |
+| 显式删除 | ~DELETE~ | ~204~ | action 为 ~Deleted~ ；只执行 Core 判定的条件删除意图。 |
 
 已知远端版本的写入必须使用条件 ~PUT~ 。远端不提供 ETag 时，adapter 不得无条件更新已有文件，而应以 ~OrgRepoSyncFileState::Conflict~ 或可见失败结果结束该文件记录。
 
-* 文件决策
+* Core 同步设计入口
 
-仓库的 ~OrgRepo.sync~ 负责加载并校验历史，策略按需通过仓库内部历史接口读取 ~kind~ 等于 ~SyncPolicy::KIND~ 的记录，调用方不传入历史。策略在同一 ~OrgRepoId~ 范围内，按 ~OrgFile.path~ 比较 ~LocalFileVersion.contentHash~ 与 ~WebDavSyncFileDetail~ 。不同仓库可以包含同名相对路径，彼此不相关。
+同步目录、历史格式与恢复、文件提交与失败边界、首次同步和删除决策、冲突比较与解决接口，以及通知类型和生命周期，统一见 [[file:同步核心设计.org][同步核心设计]]。本文件不定义控制目录布局、差异持久化、resolved 命名、冲突解决状态或通知规则。
 
-| 自上次确认后本地状态 | 远端状态 | ~OrgRepoSyncFileRecord~ |
-|-
-| 仓库没有历史 | 本地独有／远端独有／两端均存在 | 单端直接上传或下载；两端均存在时保存远端备份并进入 ~Conflict~ 。 |
-| 未变化 | 未变化 | action 为 ~Unchanged~ ，state 为 ~Synchronized~ 。 |
-| 未变化 | 已变化 | 下载；action 为 ~Downloaded~ 。 |
-| 已变化 | 未变化 | 条件上传；action 为 ~Uploaded~ 。 |
-| 已变化 | 已变化 | action 为 ~Conflicted~ ，state 为 ~Conflict~ ，保留双方内容。 |
-| 存在 | 已确认删除 | 即使本地已修改也删除本地文件，记录 ~Deleted / Synchronized~ ，不进入冲突。 |
-| 缺失 | 存在 | 下载；action 为 ~Downloaded~ 。 |
-| 缺失 | 缺失 | 不生成虚构文件或空备份。 |
+WebDAV 只将列举与条件传输的结果交给 Core。 ~412~ 或列举确认的版本变化由 Core 按统一流程处理；保存冲突远端正文时必须确认读取对应版本，不能把更新的正文标记成旧 ETag。目录过滤不能绕过 Core 的既有冲突检查。
 
-一次同步完成时， ~OrgRepoSyncRecord.files~ 必须包含所有已作出决策的路径。列举、传输或本地解析失败时，记录应为 ~Failed~ 或 ~Interrupted~ ，已完成文件的记录仍可保留；失败不能伪装为“仓库没有文件”。
+* 协议进度与错误
 
-* 宿主写入、进度与错误
-
-宿主通过 ~OrgWorkspace.execute_task_operations~ 请求追加 ~inbox.org~ 或其他目标文件；core 负责格式校验、保真追加、本地提交和可选 ~.sync/outbox/~ 意图登记。WebDAV 策略读取 outbox，将对应路径视为本地待上传内容；远端变化时报告冲突并保留本地文件，不自动合并。outbox 不保存 org 内容；冲突通过独立的按同步比较与 apply 流程显式处理。
-
-每个路径的版本基准来自最近一条 ~Synchronized~ 文件记录，包括整体失败作业中已经成功的文件。普通冲突和失败文件不成为新基准；本地解决结果以日志内保存的远端版本作为下一次上传的条件依据。仅执行失败使作业以 ~Failed~ 结束，单纯内容冲突不算执行失败。~OrgRepo.sync~ 在同步历史落盘后确认成功文件的写入意图；网络失败、~412~ 和取消不会消费尚未完成文件的意图。
-
-运行时可报告列举、下载、上传、解析和收尾进度，以及本轮完整的脱敏 HTTP 事件序列，但进度事件不写入 ~OrgRepoSyncRecord~ 的领域结构。错误至少区分网络、认证、TLS、校验、本地存储与冲突；错误摘要必须脱敏，是否重试由宿主决定。
+WebDAV 报告列举、下载、上传和请求响应的脱敏进度，不将运行时进度保存成历史。错误区分网络、认证、TLS、协议校验和条件冲突；本地存储失败由 Core 表达。完整正文不进入进度或错误摘要，是否重试由宿主决定。
 
 * 同步过滤目录
 
 本次同步参数通过 ~OrgRepo.sync_with_options~ 传入 ~SyncContext.options~ ，不保存在 ~WebDavSyncPolicy~ 或 ~OrgRepo~ 中。 ~SyncOptions::default()~ 默认排除 ~archive~ 目录；显式空列表关闭目录过滤。目录名按大小写敏感的路径组件匹配，可匹配任意层级的同名目录，文件名不参与匹配。
 
-WebDAV 在处理文件前同时过滤远端列举结果与本地候选路径，避免被排除文件的下载、上传、冲突和远端删除判断。过滤路径不生成本轮文件记录，不消费其 outbox，也不删除已有本地文件。过滤参数不会使当前的 ~Depth: 1~ 列举变为递归遍历。
+WebDAV 在处理文件前同时过滤远端列举结果与本地候选路径，避免被排除文件的下载、上传、冲突和远端删除判断。过滤路径不生成本轮文件记录，不消费其 outbox，也不删除已有本地文件。远端目录以 ~Depth: 1~ 逐层校验并递归列举，路径范围与删除决策统一由 Core 管理。
 
 * 远端任务扫描配置
 
@@ -140,70 +92,11 @@ WebDAV 在处理文件前同时过滤远端列举结果与本地候选路径，�
 - ~PROPFIND~ 解析、条件 ~PUT~ 与 ~412~ 冲突均能映射为仓库同步文件记录的版本、action 和 state。
 - 本地仓库不会调用 WebDAV；WebDAV 策略只使用其自身的远端配置。
 - 一个同步记录只归属一个 ~OrgRepoId~ ，其中每个文件记录只使用相对路径。
-- 策略返回的记录不包含配置凭据、绝对路径、远端完整 URL 或完整 org 内容。
+- 策略返回的记录不包含配置凭据、绝对路径或远端完整 URL；正文保存边界遵循统一同步设计。
 - 写入意图只在对应条件写入成功、历史落盘且本地版本仍一致后由 core 确认；失败与 ~412~ 不得丢弃意图。
 
 
-* 旧 CLI 的整作业网络合并
 
-本节保留 CLI 使用的原有整作业接口，不是手机当前的日志备份解决流程；手机使用本文末尾及目录结构设计定义的仓库单文件离线接口。
+* 通用设计引用
 
-~compare_merge~ 和 ~apply_merge~ 以一条仓库同步记录为单位处理全部未解决冲突。每个成功文件在该次同步日志的 ~detail.synced_source~ 中保存同步后完整内容，包括未变化文件。Core 按路径取最近成功快照，解析为任务基线，与当前本地及新读取的远端做三方比较；旧记录兼容任务指纹，无共同基线时要求人工决定而不猜测删除。
-
-比较以远端文件为合并基准：本地未改的任务直接采用远端，本地与远端相同的任务也无需决定；其他本地变更按相对远端的新增、删除、修改列入比较。 ~localChange~ 与 ~remoteChange~ 分别表达相对成功快照的状态，可以明确识别远端删除而本地修改、本地删除而远端修改。接受使用本地版本，丢弃使用远端版本；缺席版本代表删除。文件前言独立比较，保留本地子任务所需的已删除或层级不兼容祖先也进入决定列表。apply 前核对整个仓库版本、远端 ETag 与字节指纹，任一依据变化即拒绝旧对象。
-
-全部真实存在的本地冲突文件先按合并开始时间集中备份到 ~.sync/backups/<started_at>/~ ，再执行条件写入或采用远端。成功文件记录新的 ~Synchronized~ 版本、完整 ~synced_source~ 和兼容任务指纹；部分失败仍保存逐文件结果，失败项保留原冲突，不形成新基线。 ~412~ 不覆盖远端，不消费未成功文件的 outbox。
-
-旧整作业接口中的历史回放仅供既有 CLI 使用；Harmony 的通知和文件分区使用 ~OrgRepo.pending_sync_conflicts~ ，每条冲突日志按自己的 resolved 文件独立判断。
-
-
-* CLI 冲突处理的边界
-
-命令行宿主与 Harmony 使用同一组 Rust core 接口：待处理文件由 ~conflict_syncs~ 按同步历史投影，比较由 ~WebDavSyncPolicy.compare_merge~ 生成，用户选择后的对象直接交给 ~apply_merge~ 。终端适配只负责展示两端原文、收集处理枚举和最终确认，不实现任务匹配、字节拼接、备份、条件写入或同步历史算法。
-
-比较对象在同一次命令运行期间保留于内存，不自动写入文件。用户逐项选择本地、远端或不保留，完成统一变化列表的选择后提交；未变化任务由 core 保留。取消、输入结束或无法完成终端输出时不调用 apply。选择期间仓库或远端变化，由 core 的现有校验拒绝；调用方需要重新比较。
-
-合并结果展示每个文件的处理状态、本次合并记录与相对备份路径；部分失败返回失败结果，同时保留已完成文件、全部已生成备份和剩余冲突。密码仅用于临时构造 policy，不进入比较输出、备份元数据或同步历史。命令使用方式以程序内置帮助为准。
-
-
-历史恢复由 ~OrgRepo.sync~ 封装，按各路径最近的 ~Synchronized~ 文件记录恢复基准，允许回退到更早的作业，也包括整体失败作业中成功的文件。控制器每次启动重新调用仓库接口，不缓存构造时的历史，连续多次同步能读取前一次实际提交结果。失败、取消或列举失败的空记录不能覆盖已有基准。
-
-无历史时，本地独有文件使用条件创建直接上传，远端独有文件直接下载并建立基线；两端都存在但没有历史基线的文件仍标记为冲突，避免覆盖无法确认来源的内容。尚未通过 apply 建立成功基准的首次冲突持续保留；后续普通同步不能绕过它们。比较/合并支持本地缺失文件，由 ~local_missing~ 标记区分空文件，提交前校验其仍缺失；这类路径不生成本地空备份。~AcceptRemote~ 可明确删除本地独有文件；逐任务模式可选择重新创建远端或保留远端独有任务。
-
-* 历史浏览与执行结果
-
-历史浏览通过 ~sync_history_summaries~ 生成运行时摘要。四态方向只统计已经成功同步的下载、上传、创建和采用远端删除，冲突不等于执行失败；原始作业结果保留给既有编排，独立执行结果供日志展示。空失败记录继续视为执行失败，不因没有文件级错误而变成成功。
-
-待处理和已解决数量按每条日志对应原路径的 resolved 文件存在性计算，后续成功记录不会替其他日志解决冲突。摘要不改写历史或新建状态文件；详见 [[file:数据模型.org::*WebDAV 同步历史运行时摘要][同步历史运行时摘要]] 。
-
-* 待关注冲突事件
-
-~OrgRepo.notifications~ 读取当前 WebDAV 本地历史并复用 ~conflict_syncs~ ，将待处理同步转换为 ~CoreNotification::SyncConflict~ 事件； ~OrgWorkspace.notifications~ 汇总各仓库事件。每项携带稳定 Core 仓库 ID、同步 ID 与尚待处理的相对文件路径，不触发 WebDAV 请求或重写同步记录。
-
-事件是当前状态的快照，唯一来源为 ~last_effect_sync~ 的最近成功同步；只返回其中未解决路径，忽略更早遗留冲突。最近成功同步没有冲突或全部已解决时不产生通知，备份缺失不隐去其详情中的冲突状态。接口不引入通知持久化、消费或确认流程；具体契约见 [[file:接口文档.org::*待关注事件][待关注事件接口]] 。
-
-* 日志备份流程中的远端删除规则
-
-新日志备份与冲突流程中，已确认远端删除时直接删除对应本地文件，即使本地内容已有修改，也不再生成 ~RemoteDeleted~ 待解决冲突。识别必须基于该路径已有远端版本及完整远端列举；没有远端历史的本地独有新文件仍正常上传。删除成功使用 ~Deleted / Synchronized~ 记录，日志提交后确认该路径的待上传意图；删除失败保留本地文件并记录存储错误。
-
-此分支不需要远端正文、内存选择或 ~A.resolved.org~ ，不生成空备份；详情作为采用远端删除的下载记录展示。尚存的两端文件内容冲突继续按 [[file:目录结构设计.org::*日志文件备份与冲突解决][日志文件备份设计]] 处理。本节由当前 WebDAV 同步实现执行。
-
-* 日志备份流程中的解决与再次同步
-
-解决比较使用该次日志固定的远端备份与当前仓库本地文件，选择仅保存在内存；完整选择提交后写回本地、保存 ~A.resolved.org~ 并登记待上传，不立即上传。零待选择项允许直接保存。未保存退出丢弃选择，保存前发现本地再次变化则拒绝旧提交。
-
-后续同步按备份对应远端版本执行校验与条件上传；远端再次变化时产生新的冲突，不覆盖远端新内容。本地删除、远端修改时直接下载恢复。各条历史日志的备份独立保留，但当前冲突与通知只检查最近成功同步，旧遗留冲突不参与。
-
-旧日志缺少备份时点击报错并保留原有冲突与通知，不补建备份或自动清除状态。以上边界由当前实现执行，具体契约见 [[file:目录结构设计.org::*日志文件备份与冲突解决][日志文件备份设计]] 。
-
-* 通知更新回调与本地提交
-
-Core 的同步提交端口在日志和文件完成提交后广播，通知模块注册回调并转发 ~NotificationUpdate~ ，宿主通过 ~Workspace.watchNotifications~ 接收更新后重新查询 ~Workspace.notifications~ 。注意事项是否存在仍由 Rust 的 ~last_effect_sync~ 决定，进度和完成事件不由 UI 转换为冲突通知或页面刷新命令。
-
-下载、远端删除和规则更新先暂存，整次传输成功才应用本地仓库。失败、取消、中断时丢弃本地暂存并保留备份；日志保存失败时撤回本轮本地更新。同步失败日志提交也会广播更新，使历史页面能显示结果，而不改变仓库正文。
-
-* 未解决冲突阻止同步
-
-WebDAV 同步开始前由 Core 的 ~WebDavSyncPolicy.synchronize~ 统一查询 ~OrgRepo.pending_sync_conflicts~ ，使用 ~last_effect_sync~ 最近成功同步中的未解决路径判断。仍有任一路径未解决时返回 ~CoreError::InvalidState~ ，提示“存在未解决的同步冲突，请先解决后再同步”；缺少备份但未解决的路径同样阻止，过滤目录不能绕过检查。
-
-检查在网络请求、同步进度事件、传输备份和工作文件写入前执行；被拒绝的尝试不新增同步记录、不改动本地内容或 outbox，也不发送数据更新通知。前台、后台、CLI 与直接调用 Core 的普通 WebDAV 同步均走同一入口，宿主不另行实现领域预检查。冲突比较与解决接口继续允许调用；部分解决仍阻止，全部解决后可恢复同步。更早日志的遗留冲突不参与，最近成功同步没有冲突时正常允许。
+冲突文件布局、历史阅读、离线比较、完整解决、同步提示通知、更新回调及后续同步，均查看 [[file:同步核心设计.org][同步核心设计]]。WebDAV 不保留另一套整作业网络合并或本地备份规范；现有旧接口在重构期间的实现状态见统一文件的“范围与状态”。

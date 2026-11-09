@@ -1,0 +1,14 @@
+#+CONFLICT: true
+* Existing
+base
+* TODO A
+:PROPERTIES:
+:ID: task-a
+:END:
+remote
+* TODO A (conflict) :CONFLICT:
+:PROPERTIES:
+:ID: <generated-1>
+:CONFLICT_OPERATION: create
+:END:
+local

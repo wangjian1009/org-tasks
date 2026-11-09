@@ -1,0 +1,49 @@
+{
+  "formatVersion": 2,
+  "purpose": "原节点存在时紧随整个子树，只标记候选根",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "modify",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "AfterOriginSubtree",
+          "parentTitles": [
+            "Project"
+          ],
+          "originTitles": [
+            "Project",
+            "A"
+          ],
+          "source": "source.org",
+          "beforeId": "next"
+        }
+      ]
+    },
+    {
+      "label": "path/to/A.org 重试",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    }
+  ]
+}

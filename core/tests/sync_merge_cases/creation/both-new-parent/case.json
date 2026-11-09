@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "两端新增相同父任务，各自新增不同子任务，合并成同一棵树",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

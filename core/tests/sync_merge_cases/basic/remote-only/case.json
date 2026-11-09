@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "仅远端修改，采用远端修改",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

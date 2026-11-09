@@ -1,0 +1,50 @@
+{
+  "formatVersion": 2,
+  "purpose": "目标删除后靠近前兄弟，并位于后兄弟之前",
+  "rounds": [
+    {
+      "label": "path/to/A.org",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      },
+      "inspect": [
+        {
+          "type": "ConflictSubtree",
+          "originId": "task-a",
+          "candidateAlias": "candidate-a",
+          "operation": "modify-missing",
+          "rootOnlyTag": "CONFLICT",
+          "placement": "Anchored",
+          "parentTitles": [
+            "Project"
+          ],
+          "originTitles": [
+            "Project",
+            "A"
+          ],
+          "source": "source.org",
+          "afterId": "prev",
+          "beforeId": "next"
+        }
+      ]
+    },
+    {
+      "label": "path/to/A.org 重试",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    }
+  ]
+}

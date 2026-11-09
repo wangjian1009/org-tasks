@@ -1,0 +1,21 @@
+* Project
+** TODO Prev
+:PROPERTIES:
+:ID: prev
+:END:
+previous
+** TODO Renamed
+:PROPERTIES:
+:ID: task-a
+:END:
+remote
+*** TODO Child :work:
+:PROPERTIES:
+:ID: child
+:END:
+child body
+** TODO Next
+:PROPERTIES:
+:ID: next
+:END:
+next

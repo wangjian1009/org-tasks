@@ -55,12 +55,13 @@ class Repo {
   readonly id: string
   readonly rootDirectory: string
   load(): Promise<void>
+  reset(): Promise<void>
   history(): Promise<SyncRecord[]>
   lastEffectSync(): Promise<SyncRecord | null>
   historyDetail(syncId: string): Promise<SyncRecordDetail>
   historyFile(target: HistoryFileTarget): Promise<OrgFile>
   compareConflict(target: ConflictFileTarget): Promise<SyncConflictComparison>
-  resolveConflict(comparison: SyncConflictComparison): Promise<void>
+  resolveConflict(request: SyncConflictResolution): Promise<void>
   files(): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
@@ -74,6 +75,7 @@ class OrgFile {
   readonly repoId: string
   readonly path: string
   readonly todo: TodoMetadata
+  readonly hasConflict: boolean
   category(): string | null
   title(): string | null
   titleParts(): TitlePart[]
@@ -345,20 +347,20 @@ interface TitleCount {
 C ABI 为 ~org_tasks_harmony_workspace_notifications~ ，复用现有字符串释放与错误契约。C++ 复用 workspace async work、持有调用对象直到完成，并直接解析事件数组；不执行 Task 对象构造。现有 ~Repo.conflicts~ 保持原有调用边界，此接口供应用层读取 Core 通用待关注事件。
 
 
-通知在 Rust 中使用 ~CoreNotification~ 枚举，各变体持有独立结构，当前为 ~SyncConflictNotification~ 。TS 使用独立 ~SyncConflictNotification~ 接口及带类型辨别字段的 ~CoreNotification~ 联合类型；除 ~type~ 外不建立公共通知数据基类。当前 JSON 形状不变，冲突通知的仓库、同步记录和文件路径字段不要求其他通知拥有。统一 UI 仅按类型分发到专属组件，通知点击行为读取具体通知结构。
+通知在 Rust 中使用 ~CoreNotification~ 枚举，各变体独立。当前已实现带 ~SyncConflictNotification~ 结构的 ~SyncConflict~ ；新增无载荷的 ~SyncRequired~ 已接入。TS 使用独立 ~SyncConflictNotification~ 接口及带类型辨别字段的 ~CoreNotification~ 联合类型；除 ~type~ 外不建立公共通知数据基类。当前 JSON 形状不变，冲突通知的仓库、同步记录和文件路径字段不要求其他通知拥有。统一 UI 仅按类型分发到专属组件，冲突类型点击进入日志； ~syncRequired~ 类型不携带仓库身份，点击直接调用当前配置全部仓库的普通同步，不拼接日志路由。
 
 
 共享事件展示通过 ~CoreNotificationService~ 读取 ~Workspace.notifications~ ，并将宿主仓库名称与配置 ID 作为独立展示上下文维护；Core 通知结构不增加公共 UI 字段。已确认的界面层级由外层 ~AppShell~ 平级放置上方的 ~CoreNotificationsView~ 事件区和下方的 ~RepositorySyncView~ 同步区，通知展示与刷新不归属同步控件；冲突通知交给 ~SyncConflictNotificationView~ 。点击通知整行时重新校验当前仓库 Core ID，路由仅携带配置仓库 ID 和原始同步 ID，进入统一同步详情。展示和导航不消费事件，不改变 Core 的冲突判断或历史格式。
 
 * 日志文件读取与离线冲突处理
 
-日志文件方法与 ~lastEffectSync~ 经 ~org_tasks_harmony_repo_history_operation~ 统一 ABI 编组，以 ~file~ 、 ~compare~ 、 ~resolve~ 、 ~lastEffectSync~ 分发。对外 TS 参数保持结构化对象，JSON 只在 C++ 与 Rust bridge 之间使用。所有操作在原有 async worker 中执行，并持有 Repo 至完成； ~file~ 返回值通过已有 ~OrgFile~ 构造器投影， ~compare~ 返回普通比较对象， ~resolve~ 成功返回空值。
+日志文件方法与 ~lastEffectSync~ 经 ~org_tasks_harmony_repo_history_operation~ 统一 ABI 编组，以 ~file~ 、 ~compare~ 、 ~resolve~ 、 ~lastEffectSync~ 分发。对外 TS 参数保持结构化对象，JSON 只在 C++ 与 Rust bridge 之间使用。所有操作在原有 async worker 中执行，并持有 Repo 至完成； ~file~ 返回值通过已有 ~OrgFile~ 构造器投影， ~compare~ 返回普通比较对象， ~resolve~ 只接收 ~SyncConflictResolution~ 版本依据与全部选择并在成功时返回空值；不回传来源正文。
 
 ~HistoryFileTarget~ 包含 ~syncId~ 、原 ~path~ 与 ~resolved~ ， ~ConflictFileTarget~ 包含 ~syncId~ 和原 ~path~ 。路由可额外携带配置仓库 ID，但不能由宿主拼接控制目录或把当前文件冒充备份。旧日志缺少备份时 Promise 拒绝，通知与冲突状态保留。所有新判断来自 Core，Harmony 不扫描目录判断是否已解决。
 
 * 通知更新监控与生命周期
 
-~Workspace.watchNotifications(monitor): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications~ 。回调通过独立 TSFN 转发 ~NotificationUpdate { repoId }~ ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
+~Workspace.watchNotifications(monitor): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications~ 。回调通过独立 TSFN 转发 ~NotificationUpdate~ 联合类型 ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
 
 ~CoreNotificationService~ 统一持有当前 workspace 的通知订阅，更新回调提升 ~coreNotifications.revision~ 并重新查询 ~notifications~ 。 ~AppShell~ 只按通知模块的数据版本使当前可见页面重新查询；隐藏页面恢复时检查遗漏版本。同步区域不再持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面；解决结果保存后同样由 Core 通知触发。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。
 
@@ -385,3 +387,23 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 标签候选合并当前文件的 ~tagOptions~ 、当前任务标签与 workspace 已用标签，不合并其他文件未使用的候选。新建标签通过赋给当前任务落盘，不创建独立标签配置。
 
 编辑会话由 ~TaskInlineSession~ 管理，同一窗口只展开一个任务；Core 通知照常更新，列表重查询推迟至会话结束，避免响应本次保存时重建输入控件。切换任务前先完成失焦保存，失败阻止切换；收件箱定时重新读取在编辑期间暂停，结束后使用既有通知刷新。
+
+* 同步提示通知接入
+
+同步目录、历史与新增通知的全部领域规则统一见 [[file:../core/同步核心设计.org][同步核心设计]]，bridge 不扫描目录比较 resolved 与远端文件，也不在 ArkTS 去重或持久化提示。
+
+TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复用 ~Workspace.notifications~ 读取。一个应用进程最多一条，后来同类通知由 Rust 丢弃；不因多仓库、重复读取或 workspace 重建增加实例，应用重启不恢复。
+
+通知组件点击后复用 ~RepositorySyncService~ 发起当前配置全部仓库的普通同步；已有会话不并发重启，错误走现有反馈。Core 在成功确认待上传结果后清除提示，失败或取消时保留。C++ 和 ArkTS 不提前删除本地展示来模拟消费。
+
+通知更新联合类型增加全局变体，匹配 Core 的 ~RepositoryChanged { repo_id }~ 与 ~GlobalNotificationsChanged~ ：前者沿仓库身份过滤，后者让所有订阅重新查询，不虚构 Core 仓库 ID。Rust、C ABI 编组、C++ TSFN、TS 类型、wrapper 与展示调用方保持同一联合类型。
+
+* 内容合并的 Core 边界
+
+现有 UI 同步调用经原有 Repo 同步入口进入 Core，复用文件内三方合并。 ~org_tasks_core::merge~ 是直接接收 Org 原文的 Rust 纯函数，不新增 C ABI、C++ N-API 或 ArkTS 方法。逐项解决继续使用现有 ~compareConflict~ 与 ~resolveConflict~ ；任务候选不阻止后续同步。完整目录与基线语义见 [[file:../core/同步核心设计.org][同步核心设计]]。
+
+* 仓库重置与冲突展示
+
+~Repo.reset(): Promise<void>~ 经 ~org_tasks_harmony_repo_reset~ 在既有 N-API async worker 调用 Core。worker 持有 Repo 至完成，异常拒绝 Promise；Rust bridge 成功后移除该仓库的内存操作回退快照。仓库 ID、配置 ID、凭据和远端保持不变，ArkTS 不删除文件或清理同步状态。
+
+文件元信息增加 ~hasConflict: boolean~ ，文件对象提供同名只读属性。Rust bridge 直接投影 ~OrgFile.has_conflict()~ ，N-API 与 ArkTS 不解析文件头。存储库据此显示冲突状态并导航现有 ~ConflictFile~ 页；没有 syncId 的文件入口只显示文件信息，内部处理交互待定，已有同步详情入口仍使用原比较与解决接口。

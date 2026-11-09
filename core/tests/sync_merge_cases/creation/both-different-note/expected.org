@@ -1,0 +1,11 @@
+#+CONFLICT: true
+* Existing
+base
+* A
+remote
+* A (conflict) :CONFLICT:
+:PROPERTIES:
+:ID: <generated-1>
+:CONFLICT_OPERATION: create
+:END:
+local

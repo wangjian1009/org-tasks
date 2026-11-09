@@ -101,9 +101,9 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
 }
 
 #[test]
-fn queries_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
-    let source = "* Parent :REFILE:ARCHIVE:work:REFILE:\n\
-** TODO Child :REFILE:home:refile:\n\
+fn queries_match_original_tags_but_hide_system_own_and_inherited_tags() {
+    let source = "* Parent :REFILE:ARCHIVE:CONFLICT:work:REFILE:\n\
+** TODO Child :REFILE:CONFLICT:home:refile:\n\
 *** TODO Grandchild :next:\n\
 * TODO Other :refile:\n";
     let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
@@ -114,6 +114,9 @@ fn queries_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
         (".t.REFILE", 1),
         ("REFILE", 4),
         ("t.home", 2),
+        ("t.CONFLICT", 3),
+        ("tn.CONFLICT", 2),
+        (".t.CONFLICT", 1),
     ] {
         let queried = workspace
             .query(&TaskQuery {
@@ -126,7 +129,7 @@ fn queries_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
             task.own_tags()
                 .iter()
                 .chain(task.inherited_tags().iter())
-                .all(|tag| tag != "REFILE" && tag != "ARCHIVE")
+                .all(|tag| tag != "REFILE" && tag != "ARCHIVE" && tag != "CONFLICT")
         }));
     }
     let tasks = workspace.query(&TaskQuery::default()).unwrap().tasks;

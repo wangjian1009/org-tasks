@@ -16,7 +16,7 @@
 
 * 范围与状态
 
-本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局见 [[file:目录结构设计.org][目录结构设计]]。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局和本次重构目标见 [[file:同步核心设计.org][同步核心设计]]。
 
 ~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~TaskOperationGroup~ 是统一任务修改输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
@@ -42,6 +42,7 @@
   todo\_defaults: TodoConfig \\
   task\_scan\_rules: TaskScanRules
 }{
+  reset(): Result \\
   file(path): OrgFile \\
   file\_metadata(): Vec\textless OrgFileMetadata\textgreater \\
   sync(policy, started\_at, cancellation, progress) \\
@@ -55,6 +56,7 @@
 }{
   category(): Option\textless String\textgreater \\
   title(): Option\textless String\textgreater \\
+  has\_conflict(): bool \\
   title\_parts(): Vec\textless TitlePart\textgreater \\
   render\_html(): String
 }
@@ -68,6 +70,7 @@
   tag\_options: Vec\textless String\textgreater \\
   tag\_groups: Vec\textless Vec\textless String\textgreater\textgreater \\
   is\_ignore: bool \\
+  has\_conflict: bool \\
   task\_count: usize \\
   byte\_length: usize \\
   modified\_at: Option\textless TimestampMs\textgreater
@@ -286,7 +289,7 @@ Child 的 taskId：["/repo","inbox.org",["Project","Child"]]
 Group 的 taskId：null
 #+end_example
 
-明文身份仅用于运行时查询与宿主日历映射，不进入同步日志、outbox 或错误摘要。同步合并中的三方匹配、Org ID 优先级及历史指纹保持独立；不以任务身份替代内容版本校验。
+明文身份仅用于运行时查询与宿主日历映射，不进入同步日志、outbox 或错误摘要。冲突比较中的 Org ID 优先级与原文单元 key 保持独立；不以任务身份替代内容版本校验。
 
 * 完整结构路径与插入位置
 
@@ -350,7 +353,7 @@ pub struct OrgRepo {
 
 * Org 解析与保真
 
-~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。文件头标题通过 ~title()~ 从已有语法树读取； ~OrgFileMetadata~ 包含仓库 ID、相对路径、可空标题、标题行内片段、~is_ignore~ 、标题记录数、字节数与可空的本地修改时间，用于轻量列表，不保存正文或语法树。扫描读取的文件时间只保留在运行时，克隆文件或更新 TODO 默认设置时继续保留，不加入同步持久化数据。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
+~OrgFile~ 是仓库中的完整 org 文件，保存仓库标识、相对路径与读取到的原始字节。文件头标题通过 ~title()~ 从已有语法树读取； ~OrgFileMetadata~ 包含仓库 ID、相对路径、可空标题、标题行内片段、 ~has_conflict~ 、 ~is_ignore~ 、标题记录数、字节数与可空的本地修改时间，用于轻量列表，不保存正文或语法树。扫描读取的文件时间只保留在运行时，克隆文件或更新 TODO 默认设置时继续保留，不加入同步持久化数据。它在运行时使用 ~orgize::Org~ 生成无损语法树；该缓存不属于 core 的持久化模型，也不向其他模块暴露为项目自定义 AST。解析、编辑和展示的语义以 Emacs ~org-element.el~ 为准。
 
 未修改时， ~OrgFile~ 必须直接写回 ~sourceBytes~ ，不能经解析器重新序列化。局部编辑只替换明确的 ~SourceRange~ 或在明确 ~SourcePosition~ 插入字节；变更完成后重新构造 ~orgize::Org~ 缓存。因此空行、换行风格、缩进、行尾空格、未知语法和未改动区域保持原始字节。
 
@@ -421,44 +424,12 @@ pub struct LocalFileVersion {
 旧的任务记录、同步状态、完整内容 outbox 与冲突记录不是当前核心数据结构；当前 outbox 仅保存 ~OrgRepoWriteIntent~ 元数据。当前实现不读取、不转换这些数据；任务投影、队列与 UI 流程由宿主按当前仓库级接口重新建立。
 
 
-* 旧 CLI 的整作业比较与合并
+* 同步文件版本与原文
 
-本节描述保留给既有 CLI 的策略接口。手机当前使用后文“日志文件备份与冲突比较模型”中的单文件离线结构，不通过本节接口访问实时远端。
-
-~WebDavMergeComparison~ 是一次仓库同步的运行时比较对象。它覆盖该同步仍未解决的全部冲突文件，保存仓库版本、远端配置指纹、逐文件版本，以及统一的变化列表；不需要准备会话 ID，也不写入 Preferences 或同步历史。 ~apply_merge~ 接受这个对象，只有 ~mode~ 与各变化项的 ~resolution~ 可以由调用方修改。
+~WebDavSyncContextDetail.format_version~ 为历史布局版本；当前同步写入 ~4~ ，默认 DTO 仍保留版本 2 的兼容构造，旧单元结构的 ~null~ 兼容解码为 ~0~ ，旧布局对象沿原有路径读取。未知版本拒绝同步，详细恢复规则统一见 [[file:同步核心设计.org][同步核心设计]]。
 
 #+begin_src rust
-pub enum WebDavMergeMode { AcceptRemote, MergeTasks }
-pub enum OrgMergeSide { Local, Remote, Remove }
-
-pub struct WebDavTaskMergeChange {
-    pub id: String,
-    pub path: String,
-    pub kind: OrgMergeChange,
-    pub preamble: bool,
-    pub local_change: OrgMergeChange,
-    pub remote_change: OrgMergeChange,
-    pub local: Option<OrgMergeVersion>,
-    pub remote: Option<OrgMergeVersion>,
-    pub resolution: Option<OrgMergeSide>,
-}
-
-pub struct WebDavMergeComparison {
-    pub sync_id: String,
-    pub repo_id: String,
-    pub repository_version: String,
-    pub endpoint_version: String,
-    pub mode: WebDavMergeMode,
-    pub files: Vec<WebDavMergeFileVersion>,
-    pub unchanged_count: usize,
-    pub changes: Vec<WebDavTaskMergeChange>,
-}
-
-pub struct OrgTaskFingerprint {
-    pub key: String,
-    pub hash: String,
-}
-
+pub struct WebDavSyncContextDetail { pub format_version: u32 }
 pub struct WebDavSyncFileDetail {
     pub etag: Option<String>,
     pub modified_at: Option<TimestampMs>,
@@ -466,77 +437,29 @@ pub struct WebDavSyncFileDetail {
     pub task_versions: Option<Vec<OrgTaskFingerprint>>,
     pub synced_source: Option<String>,
     pub archive: Option<WebDavFileArchive>,
-    // 仅运行时读取文件系统，Serde 跳过该字段。
+    #[serde(skip)]
     pub resolved: bool,
 }
 #+end_src
 
-变化的临时 ~id~ 仅用于当前比较。 ~kind~ 以远端文件为基准描述本地拟应用的新增、删除或修改； ~local_change~ 与 ~remote_change~ 表示相对最近成功文件快照的状态，取 ~Unchanged~ 、 ~Added~ 、 ~Modified~ 、 ~Deleted~ 或无基线时的 ~Unmatched~ 。本地未改的任务直接保留远端；两端内容一致也不进入列表。 ~preamble~ 标记文件前言，前言在文件级决定；其他每项对应一个标题及其自身 section。所有只读字段必须与重新比较一致。
+~synced_source~ 保存成功文件实际确认的完整 UTF-8 内容； ~archive~ 只保存独立冲突远端文件的 hash。 ~resolved~ 仅由文件系统派生，不写日志； ~task_versions~ 保留兼容字段，不用于当前双向冲突差异判断。版本 4 中含任务候选的文件也已经成功上传，完整结果用于历史阅读；当前变化判断使用独立的 ~remote_base~ ，失败记录不推进基线。 ~resolved~ 按历史候选身份与当前文件是否相交派生，旧版本仍兼容结果文件判断。
 
-~unchanged_count~ 统计直接保留的远端现存任务，包括未变化任务和仅远端发生变化的任务；不计入文件前言或已由远端删除的任务。
-
-任务匹配优先使用自身 Org ~ID~ 的指纹；没有 ~ID~ 时使用祖先身份路径与当前标题的指纹，重名项附带出现序号。无 ~ID~ 的标题改名会显示为删除和新增；重名项需要逐项核对。每个标题只比较自身标题行和 section，子标题独立比较。所有来源区间均来自 ~orgize~ CST，选择结果按原始字节组合，再验证完整 Org 结构；不能静默丢弃未选择的子任务或生成失效层级。
-
-成功文件的 ~WebDavSyncFileDetail.synced_source~ 保存完整 UTF-8 内容，包含原始换行、空白和正文，供后续重新解析共同任务基线；每次成功同步都写入该次日志，未变化文件也不例外。空文件保存空字符串，已确认文件删除由 ~local_version=None~ 表达。 ~task_versions~ 继续保存身份与内容指纹以兼容旧日志；有快照时先校验版本哈希并从快照重算指纹，无快照时回退旧指纹，两者皆无则不推断历史操作。错误摘要、凭据、绝对路径与 outbox 不保存文件内容；冲突备份仍单独保存于 ~.sync/backups/~ 。
-
-\begin{center}
-\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}
-\renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{WebDavMergeComparison}{
-  sync\_id: String \\
-  repository\_version: String \\
-  mode: WebDavMergeMode
-}{}
-\umlclass[x=7.2,y=0]{WebDavTaskMergeChange}{
-  id: String \\
-  kind: OrgMergeChange \\
-  preamble: bool \\
-  local\_change: OrgMergeChange \\
-  remote\_change: OrgMergeChange \\
-  resolution: Option\textless OrgMergeSide\textgreater
-}{}
-\umlclass[x=0,y=-3.4]{WebDavMergeFileVersion}{
-  path: String \\
-  local\_hash: String \\
-  remote\_hash: String \\
-  remote\_etag: Option\textless String\textgreater
-}{}
-\umlclass[x=7.2,y=-3.4]{OrgMergeVersion}{
-  title: String \\
-  source: String \\
-  parent: Option\textless String\textgreater \\
-  level: usize
-}{}
-\umluniassoc[mult1=1,mult2=0..*]{WebDavMergeComparison}{WebDavTaskMergeChange}
-\umluniassoc[mult1=1,mult2=1..*]{WebDavMergeComparison}{WebDavMergeFileVersion}
-\umluniassoc[mult1=1,mult2=0..2]{WebDavTaskMergeChange}{OrgMergeVersion}
-\umlclass[x=0,y=-7.5]{WebDavSyncFileDetail}{
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{WebDavSyncContextDetail}{format\_version: u32}{}
+\umlclass[x=7,y=0]{WebDavSyncFileDetail}{
+  etag: Option\textless String\textgreater \\
   synced\_source: Option\textless String\textgreater \\
-  task\_versions: Option\textless Vec\textless OrgTaskFingerprint\textgreater\textgreater
+  archive: Option\textless WebDavFileArchive\textgreater \\
+  resolved: bool (runtime)
 }{}
-
-\end{tikzpicture}%
-}
-\end{center}
-
+\umlclass[x=7,y=-4]{WebDavFileArchive}{content\_hash: String}{}
+\umluniassoc{WebDavSyncFileDetail}{WebDavFileArchive}
+\end{tikzpicture}
 
 * 同步基准的仓库归属
 
-~OrgRepo.sync~ 内部恢复当前仓库目录中的已完成历史，并交给策略按文件回溯。每个文件最近成功记录即当前同步基准，作业整体失败不否定其中已成功文件；最新空记录、冲突与失败不能覆盖既有成功基准。控制器仅持有仓库、策略和运行进度，不保存或接收历史列表。
-
-无历史时，本地与远端的全部候选文件均进入合并确认。没有本地文件的差异使用空的比较来源投影，但 ~WebDavMergeFileVersion.local_missing~ 明确保留不存在状态，不将其视为已经存在的空文件；成功合并后才能生成版本基准。备份仍只保存真实存在的本地原始字节。
-
-#+begin_src rust
-pub struct WebDavMergeFileVersion {
-    pub path: String,
-    pub local_hash: String,
-    pub remote_hash: String,
-    pub remote_etag: Option<String>,
-    pub remote_missing: bool,
-    pub local_missing: bool,
-}
-#+end_src
+每个仓库自行恢复历史，按原相对路径回溯最近 ~Synchronized~ 文件记录；整体失败中的成功文件依然有效。无历史时单端文件直接传输，两端均存在时保存固定远端并等待显式解决。解决时的本地缺失状态独立于空内容，持久化位置和完整恢复规则见 [[file:同步核心设计.org][同步核心设计]]。
 
 * 文件 TODO 元信息与外部全局默认
 
@@ -1046,12 +969,15 @@ path: String}{}
 
 * 待关注事件
 
-~CoreNotification~ 是 Core 判断的当前待关注事件的运行时数据结构。它不保存到仓库、同步历史或通知队列，不增加已读、已发送或确认字段；宿主只决定如何展示和处理。 ~OrgRepo.notifications~ 读取单仓库快照， ~OrgWorkspace.notifications~ 汇总当前工作区。工作区中的仓库必须已经加载并具有稳定 Core ID，读取错误沿原有 ~CoreError~ 返回。
+~CoreNotification~ 是 Core 的运行时待关注事件。冲突通知从历史状态派生；新增同步提示从进程内状态读取。查询不消费通知，Core 不调用平台通知 API，不把注意事项或选择写入仓库和同步历史。
+
+当前枚举及 UML 包含 ~SyncConflict~ 和无载荷 ~SyncRequired~ ，完整生成、去重和清除规范见 [[file:同步核心设计.org::*解决后的同步提示通知][同步核心设计]]。
 
 #+begin_src rust
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreNotification {
     SyncConflict(SyncConflictNotification),
+    SyncRequired,
 }
 
 #[serde(rename_all = "camelCase")]
@@ -1064,58 +990,139 @@ pub struct SyncConflictNotification {
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
-\umlclass[x=0,y=0]{CoreNotification}{SyncConflict(SyncConflictNotification)}{}
+\umlclass[x=0,y=0]{CoreNotification}{
+  SyncConflict(SyncConflictNotification) \\
+  SyncRequired
+}{}
 \umlclass[x=0,y=-4]{SyncConflictNotification}{
   repo\_id: OrgRepoId \\
   sync\_id: OrgRepoSyncRecordId \\
   paths: Vec\textless String\textgreater
 }{}
+\umlclass[x=8,y=0]{RequiredSyncState}{generation: u64 \\
+repositories: Map\textless OrgRepoId, u64\textgreater}{
+  insert(repo\_id) \\
+  confirm(repo\_id, version)
+}
 \umluniassoc{CoreNotification}{SyncConflictNotification}
+\umldep{RequiredSyncState}{CoreNotification}
 \end{tikzpicture}
 
-当前仅有 ~SyncConflict~ 这一种事件类型，可有零到多个实例。每个事件归属一个 Core 仓库及一条仍有未解决文件的同步记录，文件路径均相对仓库；重复查询不消费事件，部分解决缩小路径列表，全部解决后事件自然消失。通知由 ~last_effect_sync~ 取得最近成功同步后，只按该记录内的 resolved 文件存在性判定，遗留冲突不参与，不因作业整体失败而清除冲突，也不把纯网络失败当作冲突。模型不包含配置仓库 ID、页面路由、凭据或完整远端 URL。
+~SyncConflict~ 具有仓库和日志身份， ~paths~ 均为相对路径，重复查询不消费；当前冲突范围仍由最近成功同步确定，每条历史中原路径的远端目录和解决结果独立保留。
 
+~SyncRequired~ 为无载荷变体，Serde 为 ~{ "type": "syncRequired" }~ 。它不包含 ~repo_id~ 、 ~sync_id~ 、路径、计数、标题或时间；宿主点击后执行现有全部仓库同步，因此后来的不同仓库提示也可丢弃，不会局限到首次触发仓库。
 
-每个通知变体有独立结构；除枚举辨别标记外没有公共数据基类。冲突结构中的 ~repo_id~ 、 ~sync_id~ 与 ~paths~ 仅属于冲突通知。 ~sync_id~ 来自既有同步历史的 ~id~ ，按 Core 仓库及同步 ID 共同定位；读取和追加历史已校验仓库内同步 ID 唯一。
+~RequiredSyncState~ 是进程级逻辑状态，仓库确认集合非空时仅投影一个同步提示，不是持久化领域实体，也不为每个仓库或 workspace 复制；内部以稳定仓库 ID 和代次跟踪确认，不保存文件路径。完整解决后结果字节不同于固定远端备份才尝试置位；已置位则丢弃后来通知。查询和页面切换不清除，成功同步确认待上传结果后清除，进程退出时自然销毁，启动不从历史恢复。
+
+两个变体没有共同数据基类。全局标志产生或清除时通知所有相关订阅重新查询；原有冲突通知继续按仓库数据更新。事件流不保存通知正文或逐个待发送的提示。
 
 * 日志文件备份与冲突比较模型
 
-~WebDavFileArchive~ 是文件记录的可选持久化信息，只保存当次备份的 ~content_hash~ 。目录由记录开始时间、原相对路径与规定的文件别名确定，不存绝对路径。旧日志缺少 ~archive~ 可正常读取。 ~WebDavSyncFileDetail.resolved~ 仅为运行时状态，使用 ~serde(skip)~ ，由仓库历史读取根据普通 resolved 文件存在性填入；不通过修改原日志记已解决。
+目录、文件命名和兼容读取统一见 [[file:同步核心设计.org][同步核心设计]]；本文仅维护接口模型。 ~WebDavFileArchive~ 的 ~content_hash~ 对应固定远端原文，当前本地来源每次从仓库重新读取，不保存差异。
 
-~SyncConflictComparison~ 是一个文件的内存比较对象，包含 ~repo_id~ 、 ~sync_id~ 、 ~path~ 、 ~local_hash~ 、 ~remote_hash~ 、 ~local_missing~ 、 ~unchanged_count~ 和 ~Vec<WebDavTaskMergeChange>~ 。来源为该次远端备份与打开比较时最新本地文件，只有变化项的 ~resolution~ 可修改。不同日志中的同名文件独立处理，保存后只完成当前日志的解决结果。
+** 单文件比较与解决请求
+
+比较对象只在页面内存中使用，含仓库身份、 ~SyncConflictTarget~ 、两端 hash、 ~local_missing~ 、差异列表和未变化数量。差异单元 ~SyncConflictChange~ 使用本次比较的 key 标识，携带新增／删除／修改类型、是否前言及两端可选原文，不持久化。
+
+提交 ~SyncConflictResolution~ 仅携带相同目标、 ~expected_local_hash~ 、 ~expected_remote_hash~ 、 ~expected_local_missing~ 和 ~Vec<OrgMergeChoice>~ 。选择只含单元 key 与采用侧；Core 保存时重新比较、验证完整选择并重组文件，不信任宿主提供的来源正文，不保存服务端比较会话。具体字段和执行顺序见 [[file:同步核心设计.org::*冲突接口][同步核心设计]]。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
-\umlclass[x=0,y=0]{WebDavFileArchive}{content\_hash: String}{}
-\umlclass[x=0,y=-3]{WebDavSyncFileDetail}{archive: Option\textless WebDavFileArchive\textgreater \\
-resolved: bool (runtime)}{}
-\umlclass[x=8,y=0]{SyncConflictComparison}{repo\_id: String \\
-sync\_id: String \\
-path: String \\
+\umlclass[x=0,y=0]{SyncConflictTarget}{sync\_id: String \\
+path: String}{}
+\umlclass[x=8,y=0]{SyncConflictChange}{key: String \\
+kind: Added / Modified / Deleted \\
+preamble: bool \\
+local: Option\textless OrgMergeVersion\textgreater \\
+remote: Option\textless OrgMergeVersion\textgreater}{}
+\umlclass[x=0,y=-5]{SyncConflictComparison}{repo\_id: OrgRepoId \\
 local\_hash: String \\
 remote\_hash: String \\
 local\_missing: bool \\
 unchanged\_count: usize}{}
-\umlclass[x=8,y=-5]{WebDavTaskMergeChange}{resolution: Option\textless OrgMergeSide\textgreater}{}
-\umluniassoc{WebDavSyncFileDetail}{WebDavFileArchive}
-\umluniassoc[mult1=1,mult2=0..*]{SyncConflictComparison}{WebDavTaskMergeChange}
+\umlclass[x=8,y=-5]{SyncConflictResolution}{expected\_local\_hash: String \\
+expected\_remote\_hash: String \\
+expected\_local\_missing: bool \\
+choices: Vec\textless OrgMergeChoice\textgreater}{}
+\umluniassoc{SyncConflictComparison}{SyncConflictTarget}
+\umluniassoc[mult2=0..*]{SyncConflictComparison}{SyncConflictChange}
+\umluniassoc{SyncConflictResolution}{SyncConflictTarget}
 \end{tikzpicture}
 
 * 通知更新订阅模型
 
-~NotificationUpdate { repo_id }~ 与 ~CoreNotification~ 注意事项枚举分离，是运行时数据失效信号，不持久化，不为注意事项增加公共字段。 ~NotificationSubscription~ 持有通知模块向同步提交端口注册的订阅；销毁后解除。注册表按进程维护，按仓库根目录过滤，跨页面共用，回调不持有 UI 或凭据。外部进程修改仍在页面重新可见时通过读取最新快照确认。
+通知更新与注意事项快照分开。 ~RepositoryChanged~ 表示指定仓库的数据已提交，按订阅根目录过滤； ~GlobalNotificationsChanged~ 表示进程内唯一同步提示产生或清除，转发所有订阅，不虚构仓库身份。两者均不持久化，回调在注册表锁外执行，订阅销毁解除。
+
+#+begin_src rust
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum NotificationUpdate {
+    RepositoryChanged { #[serde(rename = "repoId")] repo_id: OrgRepoId },
+    GlobalNotificationsChanged,
+}
+#+end_src
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
-\umlclass[x=0,y=0]{NotificationSubscription}{sync\_subscription: SyncSubscription}{}
-\umlclass[x=7,y=0]{NotificationUpdate}{repo\_id: OrgRepoId}{}
-\umlclass[x=0,y=-3]{SyncCommitted}{root\_directory: String \\
-repo\_id: OrgRepoId}{}
+\umlclass[x=0,y=0]{NotificationUpdate}{
+  RepositoryChanged(repo\_id: OrgRepoId) \\
+  GlobalNotificationsChanged
+}{}
+\umlclass[x=8,y=0]{NotificationSubscription}{sync\_subscription: SyncSubscription}{}
+\umlclass[x=8,y=-4]{SyncCommitted}{
+  Repository(root\_directory, repo\_id) \\
+  GlobalNotificationsChanged
+}{}
 \umluniassoc{NotificationSubscription}{SyncCommitted}
 \umldep{NotificationSubscription}{NotificationUpdate}
 \end{tikzpicture}
 
-~SyncContext.local_changes~ 为仅运行时的本地变更暂存，包含原路径、旧字节与待应用字节，不保存到日志 JSON。仅成功同步提交此集合；失败或取消丢弃。 ~last_effect_sync~ 直接选择最近的 ~Succeeded~ 记录，不按冲突、备份或解决状态过滤。
+~SyncContext~ 的公开字段保持不变；同步计划通过私有提交槽交回 ~OrgRepo~ ，在可恢复的仓库事务中统一提交内容、基线、成功历史与 outbox。传输和存储失败边界见 [[file:同步核心设计.org::*同步提交与失败边界][同步核心设计]]。
+
+* remote_base 与仓库事务模型
+
+以下均为 Core 私有持久化结构，不增加宿主 DTO。 ~remote_base/current.json~ 保存版本 1 索引： ~version~ 、远端地址与用户名的绑定 hash ~origin~ ，以及按相对路径组织的 ~entries~ 。每个条目包含 ~revision~ 、 ~version: RemoteFileVersion~ 、 ~hash: Option<String>~ 和来源 ~sync_id~ 。 ~hash~ 存在时引用完整原文，为空时引用空删除标记；没有条目表示未建立。空文件内容具有正常 hash，不等于删除。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{RemoteBaseIndex}{version: u32 \\
+origin: String \\
+entries: Map}{ }
+\umlclass[x=8,y=0]{RemoteBaseEntry}{revision: String \\
+version: RemoteFileVersion \\
+hash: Option\textless String\textgreater \\
+sync\_id: String}{}
+\umluniaggreg{RemoteBaseIndex}{RemoteBaseEntry}
+\end{tikzpicture}
+
+同步成功统一提交实际接受的远端状态，包括已上传的任务候选；离线解决不更新基线。索引与不可变正文的物理位置、远端绑定和兼容迁移见 [[file:同步核心设计.org][同步核心设计]]。
+
+事务 ~Journal~ 包含 ~version~ 、 ~changes~ 和 ~created_dirs~ 。每项 ~Change~ 包含相对路径 ~path~ 、旧字节 ~before~ 和新字节 ~after~ ，空值表示不存在。 ~Plan~ 额外保存准备时读取的版本保护和待发布内存快照，不向宿主暴露。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{Journal}{version: u32 \\
+created\_dirs: Vec\textless String\textgreater}{}
+\umlclass[x=8,y=0]{Change}{path: String \\
+before: Option\textless Bytes\textgreater \\
+after: Option\textless Bytes\textgreater}{}
+\umluniaggreg{Journal}{Change}
+\end{tikzpicture}
+
+完成标记之前失败恢复旧状态，之后只清理。正常编辑与恢复共享仓库锁，外部文件版本不符时保留恢复材料并报错。事务不提供远端跨文件原子性，也不记录凭据。
+
+* 文件头冲突与重置恢复模型
+
+~OrgFileMetadata.has_conflict: bool~ 是文件头 ~#+CONFLICT: true~ 的只读投影，向宿主序列化为 ~hasConflict~ 。它与 TITLE 共同从现有语法树读取，不包含候选列表或正文。合并产生候选时写入头字段，显式解决后按剩余候选更新；系统标签与文件头状态分别承担任务识别和文件列表展示。
+
+重置恢复日志是独立的私有结构，版本为 1，包含按顺序保存的相对入口路径 ~entries~ 。对应内容通过同文件系统 rename 移至 ~.sync/reset/items/<index>~ ，不在日志中复制大文件正文；完成标记决定还原还是清理。仓库身份与锁不在入口集合中。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{ResetJournal}{version: u32 \\
+entries: Vec\textless String\textgreater}{}
+\umlclass[x=8,y=0]{OrgRepo}{}{reset(): Result}
+\umldep{OrgRepo}{ResetJournal}
+\end{tikzpicture}
 
 * 卡片编辑正文与检查清单
 

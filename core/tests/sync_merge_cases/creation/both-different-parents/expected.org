@@ -1,0 +1,12 @@
+* Left
+** TODO Local
+:PROPERTIES:
+:ID: local-task
+:END:
+local
+* Right
+** TODO Remote
+:PROPERTIES:
+:ID: remote-task
+:END:
+remote

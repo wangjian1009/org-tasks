@@ -11,7 +11,8 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 |-
 | 核心 API 与数据结构 | [[file:core/接口文档.org][接口文档]]、[[file:core/数据模型.org][数据模型]] |
 | WebDAV 与同步扩展 | [[file:core/WebDAV 同步能力设计.org][WebDAV 同步能力设计]] |
-| 仓库身份、历史、outbox 与冲突备份 | [[file:core/目录结构设计.org][目录结构设计]] |
+| 同步目录、历史、冲突解决与通知 | [[file:core/同步核心设计.org][同步核心设计]] |
+| 普通仓库目录与任务扫描 | [[file:core/目录结构设计.org][目录结构设计]] |
 | 通用查询与 UI 过滤边界 | [[file:core/查询语言设计.org][查询语言设计]] |
 | Rust、C++ 与 ArkTS 接口 | [[file:harmony/Rust bridge设计.org][Rust bridge 设计]] |
 | Preferences、Asset Store 与日历状态 | [[file:harmony/配置项设计.org][配置项设计]] |
@@ -25,6 +26,7 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 
 | 目录或入口 | 职责 |
 |-
+| ~org_tasks_core::merge~ | 单文件原文三方合并的同步纯函数；私有解析入口供仓库同步复用，不读网络、目录或历史。 |
 | ~core::model~ | 本地 ~OrgRepo~ 目录扫描、Org 文件解析、保真编辑、任务查询与同步记录数据维护。 |
 | ~core::webdav~ | 实现 ~SyncPolicy~ ，执行 WebDAV 文件传输、下载写回、条件写入与同步记录生成。 |
 | ~core/src/bin/org-tasks/~ | 操作本地 ~OrgRepo~ 的命令行入口，使用 Tokio 运行时。 |
@@ -58,9 +60,7 @@ Core 不持有收件箱页面或控件专属语义。页面需求统一转换为
 
 * 仓库身份、同步元数据与备份
 
-同步记录保存于 ~OrgRepo~ 根目录的 ~.sync/~ ，其中 ~id~ 文件是稳定的 Core 仓库标识来源。每个成功同步的文件在作业历史的 ~detail.synced_source~ 中保存同步后完整 Org 内容，包括未变化文件，用于下一次三方任务比较；outbox 仍只保存相对路径与内容哈希。绝对路径、远端完整 URL 和配置凭据不进入同步记录。
-
-当前冲突远端原文保存于 ~.sync/history/<started-at>/files/<原相对路径>/<原文件名>~ ，解决后保存同目录的 ~<文件名>.resolved.org~ ；同步不覆盖冲突的当前本地文件。旧 CLI 的合并保护备份保留原有目录。快照和备份均不参与 Org 扫描或 WebDAV 传输；布局、恢复与隔离约束见 [[file:core/目录结构设计.org][目录结构设计]]。
+同步目录、稳定 Core 仓库身份、历史、版本基准、outbox、冲突备份和解决后通知统一见 [[file:core/同步核心设计.org][同步核心设计]]。该文档明确区分本次重构目标和现有实现，其他模块不得另建目录、历史或冲突规则。 ~.sync/~ 全部内容不参与普通 Org 扫描或远端传输；绝对路径、完整远端 URL 和配置凭据不进入同步记录。
 
 Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:harmony/配置项设计.org][配置项设计]] 使用，不能混用。修改目录或 WebDAV 地址不得随意重建已有身份或改变凭据分区；WebDAV 密码只由 ~CredentialService~ 写入 Asset Store，不放入 Preferences、日志或同步记录。
 

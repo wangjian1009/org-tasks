@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "purpose": "三份零字节文件合并为空内容",
+  "rounds": [
+    {
+      "label": "单文件内容",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    }
+  ]
+}

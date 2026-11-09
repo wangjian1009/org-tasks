@@ -143,6 +143,23 @@ pub extern "C" fn org_tasks_harmony_repo_load(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_reset(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+) -> i32 {
+    clear_last_error();
+    match read_c_string(root_directory)
+        .and_then(|root_directory| bridge::repo_reset(workspace_handle, root_directory))
+    {
+        Ok(()) => 0,
+        Err(error) => {
+            remember_error(&error);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_history(
     workspace_handle: u64,
     root_directory: *const c_char,
