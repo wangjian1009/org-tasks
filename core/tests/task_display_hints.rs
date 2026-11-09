@@ -43,8 +43,8 @@ fn repetition_hint_uses_only_current_headline_planning() {
         let source =
             format!("* TODO Parent\n{planning}\n** TODO Child\nSCHEDULED: <2026-11-06 Fri +1d>\n");
         let tasks = tasks(&source);
-        assert_eq!(tasks[0].is_repeating, expected, "{planning}");
-        assert!(tasks[1].is_repeating);
+        assert_eq!(tasks[0].is_repeating(), expected, "{planning}");
+        assert!(tasks[1].is_repeating());
     }
 }
 
@@ -54,7 +54,7 @@ fn repetition_with_org_repeater_deadline_is_a_task_hint_and_not_body_text() {
         "* TODO 阅读 RSS 和资料\nSCHEDULED: <2026-11-08 Sun .+1d/3d>\n:PROPERTIES:\n:END:\n正文\n",
     )
     .remove(0);
-    assert!(task.is_repeating);
+    assert!(task.is_repeating());
     let rendered = task.render_content();
     assert!(rendered.body_html.contains("正文"), "{}", rendered.body_html);
     assert!(!rendered.body_html.contains("SCHEDULED:"), "{}", rendered.body_html);
@@ -85,7 +85,7 @@ fn body_list_hint_excludes_logbook_and_literal_blocks() {
         let task = tasks(&format!("* TODO Task\n{body}")).remove(0);
         let rendered = task.render_content();
         assert_eq!(rendered.has_list, expected, "{body}");
-        assert_eq!(task.body, body);
+        assert_eq!(task.body(), body);
     }
 }
 
@@ -112,7 +112,7 @@ fn task_category_preserves_file_value_without_reading_headline_properties() {
             "{header}* TODO Parent\n:PROPERTIES:\n:CATEGORY: Other\n:END:\n** TODO Child\n"
         );
         for task in tasks(&source) {
-            assert_eq!(task.category.as_deref(), expected);
+            assert_eq!(task.category(), expected);
         }
     }
 }

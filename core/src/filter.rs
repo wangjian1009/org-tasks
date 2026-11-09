@@ -126,35 +126,36 @@ pub enum FilterSortField {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterTask {
     /// 兼容既有调用方的明文逻辑身份；任务专属身份请使用 task_id()。
-    pub id: String,
-    pub full_path: crate::TaskPath,
-    pub repo_id: String,
-    pub path: String,
+    pub(crate) id: String,
+    pub(crate) full_path: crate::TaskPath,
+    pub(crate) repo_id: String,
+    pub(crate) path: String,
     /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
-    pub category: Option<String>,
-    pub line: u32,
-    pub column: u32,
-    pub byte_offset: u64,
-    pub level: u32,
-    pub state: Option<String>,
-    pub state_type: FilterStateType,
-    pub priority: Option<String>,
-    pub own_tags: Vec<String>,
-    pub inherited_tags: Vec<String>,
-    pub title: String,
-    pub body: String,
-    pub address_links: Vec<AddressLink>,
+    pub(crate) category: Option<String>,
+    pub(crate) line: u32,
+    pub(crate) column: u32,
+    pub(crate) byte_offset: u64,
+    pub(crate) level: u32,
+    pub(crate) state: Option<String>,
+    pub(crate) state_type: FilterStateType,
+    pub(crate) priority: Option<String>,
+    pub(crate) own_tags: Vec<String>,
+    pub(crate) inherited_tags: Vec<String>,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) address_links: Vec<AddressLink>,
     /// 当前任务的计划或截止时间含重复器；不展开重复日期。
-    pub is_repeating: bool,
-    pub scheduled: Option<FilterDate>,
-    pub deadline: Option<FilterDate>,
+    pub(crate) is_repeating: bool,
+    pub(crate) scheduled: Option<FilterDate>,
+    pub(crate) deadline: Option<FilterDate>,
     /// Org-mode 规划时间预警期的起始日期，仅供 Core 的 <= 日期查询使用。
     pub(crate) scheduled_warning: Option<NaiveDate>,
     pub(crate) deadline_warning: Option<NaiveDate>,
-    pub closed: Option<FilterDate>,
-    pub created: Option<FilterDate>,
-    pub created_at: Option<crate::TimestampMs>,
-    pub events: Vec<FilterDate>,
+    pub(crate) closed: Option<FilterDate>,
+    pub(crate) created: Option<FilterDate>,
+    pub(crate) created_at: Option<crate::TimestampMs>,
+    pub(crate) modified_at: Option<crate::TimestampMs>,
+    pub(crate) events: Vec<FilterDate>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -165,11 +166,110 @@ pub struct AddressLink {
 }
 
 impl FilterTask {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     pub fn task_id(&self) -> Option<&str> {
         (self.state_type != FilterStateType::None).then_some(self.id.as_str())
     }
 
-    pub fn full_path(&self) -> &crate::TaskPath { &self.full_path }
+    pub fn full_path(&self) -> &crate::TaskPath {
+        &self.full_path
+    }
+
+    pub fn repo_id(&self) -> &str {
+        &self.repo_id
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub fn category(&self) -> Option<&str> {
+        self.category.as_deref()
+    }
+
+    pub fn line(&self) -> u32 {
+        self.line
+    }
+
+    pub fn column(&self) -> u32 {
+        self.column
+    }
+
+    pub fn byte_offset(&self) -> u64 {
+        self.byte_offset
+    }
+
+    pub fn level(&self) -> u32 {
+        self.level
+    }
+
+    pub fn state(&self) -> Option<&str> {
+        self.state.as_deref()
+    }
+
+    pub fn state_type(&self) -> FilterStateType {
+        self.state_type
+    }
+
+    pub fn priority(&self) -> Option<&str> {
+        self.priority.as_deref()
+    }
+
+    pub fn own_tags(&self) -> &[String] {
+        &self.own_tags
+    }
+
+    pub fn inherited_tags(&self) -> &[String] {
+        &self.inherited_tags
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+
+    pub fn address_links(&self) -> &[AddressLink] {
+        &self.address_links
+    }
+
+    pub fn is_repeating(&self) -> bool {
+        self.is_repeating
+    }
+
+    pub fn scheduled(&self) -> Option<FilterDate> {
+        self.scheduled
+    }
+
+    pub fn deadline(&self) -> Option<FilterDate> {
+        self.deadline
+    }
+
+    pub fn closed(&self) -> Option<FilterDate> {
+        self.closed
+    }
+
+    pub fn created(&self) -> Option<FilterDate> {
+        self.created
+    }
+
+    pub fn created_at(&self) -> Option<crate::TimestampMs> {
+        self.created_at
+    }
+
+    /// 所属文件在 Core 扫描时取得的本地磁盘修改时间。
+    pub fn modified_at(&self) -> Option<crate::TimestampMs> {
+        self.modified_at
+    }
+
+    pub fn events(&self) -> &[FilterDate] {
+        &self.events
+    }
 
     /// 完成类型来自所属文件的有效 TODO 配置，不按状态名称推断。
     pub fn is_done(&self) -> bool {
@@ -192,8 +292,18 @@ impl FilterTask {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FilterDate {
-    pub date: NaiveDate,
-    pub active: bool,
+    pub(crate) date: NaiveDate,
+    pub(crate) active: bool,
+}
+
+impl FilterDate {
+    pub fn date(&self) -> NaiveDate {
+        self.date
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
 }
 
 impl Filter {
@@ -367,6 +477,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             closed: planning_date(&headline, "CLOSED", headline.closed()),
             created: creation_time(&headline).map(|value| value.0),
             created_at: creation_time(&headline).map(|value| value.1),
+            modified_at: file.modified_at,
             events,
         });
     }

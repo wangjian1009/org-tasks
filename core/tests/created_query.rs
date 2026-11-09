@@ -27,14 +27,14 @@ fn created_properties_project_own_valid_dates_times_and_sort_by_time() {
     let tasks = w.search(&Filter::parse(".o.created"));
     let valid = tasks
         .iter()
-        .filter(|task| task.created_at.is_some())
+        .filter(|task| task.created_at().is_some())
         .collect::<Vec<_>>();
     assert_eq!(
-        valid.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(),
+        valid.iter().map(|t| t.title()).collect::<Vec<_>>(),
         ["Noon", "Parent", "Morning", "Note"]
     );
-    assert_eq!(valid[0].created_at, Some(local("2026-11-08 12:00")));
-    assert_eq!(valid[3].created_at, Some(local("2026-11-08 00:00")));
+    assert_eq!(valid[0].created_at(), Some(local("2026-11-08 12:00")));
+    assert_eq!(valid[3].created_at(), Some(local("2026-11-08 00:00")));
     let filter = Filter::parse("cr.ge.-2d cr.le.today");
     assert!(filter.matches_at(valid[0], NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()));
     assert!(!filter.matches_at(valid[0], NaiveDate::from_ymd_opt(2026, 11, 11).unwrap()));
@@ -42,9 +42,9 @@ fn created_properties_project_own_valid_dates_times_and_sort_by_time() {
         assert!(
             tasks
                 .iter()
-                .find(|t| t.title == title)
+                .find(|t| t.title() == title)
                 .unwrap()
-                .created_at
+                .created_at()
                 .is_none(),
             "{title}"
         );
@@ -72,13 +72,13 @@ fn three_calendar_days_include_full_dates_done_memo_and_cancelled() {
     assert_eq!(
         tasks
             .iter()
-            .map(|task| task.title.as_str())
+            .map(|task| task.title())
             .collect::<Vec<_>>(),
         ["Memo", "Cancelled", "Done", "Boundary"]
     );
     assert!(tasks[1].is_cancelled());
     assert!(tasks[2].is_done());
-    assert!(tasks[0].state.is_none());
+    assert!(tasks[0].state().is_none());
     assert!(!tasks[2].is_cancelled());
     let json = serde_json::to_value(&query).unwrap();
     assert!(json.get("createdRange").is_none());
@@ -105,7 +105,7 @@ fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_reject
     };
     let tasks = w.query(&q).unwrap().tasks;
     assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].repo_id, "b");
+    assert_eq!(tasks[0].repo_id(), "b");
     assert!(
         w.query(&TaskQuery {
             excluded_files: vec![

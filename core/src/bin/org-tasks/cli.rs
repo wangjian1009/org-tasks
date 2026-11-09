@@ -211,7 +211,7 @@ fn task_nodes(workspace: &OrgWorkspace) -> Vec<serde_json::Value> {
             nodes.push(serde_json::json!({"kind":"file","fullPath":file.full_path(),"taskId":null,
                 "fileVersion":org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash}));
             // 路径与身份均来自 Core 投影，CLI 不解析或重建标题树。
-            for task in records.iter().filter(|task| task.path==file.path) {
+            for task in records.iter().filter(|task| task.path() == file.path) {
                 nodes.push(serde_json::json!({"kind":if task.task_id().is_some(){"task"}else{"heading"},
                     "fullPath":task.full_path(),"taskId":task.task_id()}));
             }
@@ -229,14 +229,14 @@ fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {
     println!("文件:位置\t状态\t优先级\t标题\t标签");
     for task in tasks {
         let priority = task
-            .priority
+            .priority()
             .as_deref()
             .map(|value| format!("[#{value}]"))
             .unwrap_or_else(|| "-".into());
         let tags = task
-            .own_tags
+            .own_tags()
             .iter()
-            .chain(&task.inherited_tags)
+            .chain(task.inherited_tags())
             .cloned()
             .collect::<Vec<_>>();
         let tags = if tags.is_empty() {
@@ -246,12 +246,12 @@ fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {
         };
         println!(
             "{}:{}:{}\t{}\t{}\t{}\t{}",
-            task.path,
-            task.line,
-            task.column,
-            task.state.as_deref().unwrap_or("-"),
+            task.path(),
+            task.line(),
+            task.column(),
+            task.state().unwrap_or("-"),
             priority,
-            task.title,
+            task.title(),
             tags,
         );
     }
@@ -789,11 +789,11 @@ mod tests {
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
         let tasks = workspace.search(&Filter::parse(""));
         assert_eq!(tasks.len(), 2);
-        assert_eq!(tasks[0].state.as_deref(), Some("TODO"));
-        assert_eq!(tasks[0].priority.as_deref(), Some("A"));
-        assert_eq!(tasks[0].own_tags, vec!["work"]);
-        assert_eq!(tasks[1].state.as_deref(), Some("DONE"));
-        assert_eq!(tasks[1].inherited_tags, vec!["work"]);
+        assert_eq!(tasks[0].state(), Some("TODO"));
+        assert_eq!(tasks[0].priority(), Some("A"));
+        assert_eq!(tasks[0].own_tags(), ["work"]);
+        assert_eq!(tasks[1].state(), Some("DONE"));
+        assert_eq!(tasks[1].inherited_tags(), ["work"]);
     }
 
     #[test]

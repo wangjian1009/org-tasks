@@ -104,11 +104,13 @@ impl OrgWorkspace {
 
 *** 任务展示数据
 
-~FilterTask.category: Option<String>~ 由查询过程直接从所属文件的 ~OrgFile.category()~ 提取，缺失与显式空声明分别保留为空值和空字符串。任务的 ~is_repeating~ 继续由 Core 解析当前标题的计划或截止时间重复器；宿主直接消费这些只读快照，不解析 Org、不额外提供显示文字。分类变化后重新查询取得新快照，身份算法保持不变。
+~FilterTask.category() -> Option<&str>~ 由查询过程直接从所属文件的 ~OrgFile.category()~ 提取，缺失与显式空声明分别保留为空值和空字符串。任务的 ~is_repeating()~ 继续由 Core 解析当前标题的计划或截止时间重复器；宿主直接消费这些只读快照，不解析 Org、不额外提供显示文字。分类变化后重新查询取得新快照，身份算法保持不变。
 
 *** 任务身份与完整路径
 
 ~FilterTask.task_id()~ 对待办和已完成任务返回可空明文身份，非任务标题返回 ~None~ 。逻辑路径规则保持不变，采用紧凑 JSON 字符串直接编码，不再使用 MD5。 ~full_path()~ 对仓库、文件及所有标题节点返回 ~TaskPath~ ，标题链保留无状态祖先；身份与完整结构定位各自独立，具体定义见 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]] 和 [[file:数据模型.org::*完整结构路径与插入位置][完整结构路径与插入位置]] 。
+
+~FilterTask~ 的字段不作为跨 crate 访问契约公开。宿主使用 ~id()~ 、 ~repo_id()~ 、 ~path()~ 、 ~title()~ 、 ~body()~ 、 ~state()~ 、 ~priority()~ 、 ~category()~ 、 ~own_tags()~ 、 ~inherited_tags()~ 、 ~scheduled()~ 、 ~deadline()~ 、 ~closed()~ 、 ~created()~ 与 ~address_links()~ 等方法读取查询快照；缺失的状态、优先级、分类、规划日期和地址均通过可空返回值表达。 ~created_at()~ 和 ~modified_at()~ 均返回 ~Option<TimestampMs>~ ，前者来自标题自身的 ~CREATED~ 属性，后者来自 Core 扫描所属文件时取得的本地磁盘修改时间；任务操作成功提交后，Core 会重新取得受影响文件的修改时间。
 
 *** OrgRepo
 
@@ -209,8 +211,36 @@ impl OrgWorkspace {
     ) -> Result<TaskOperationResult, CoreError>;
 }
 impl FilterTask {
+    pub fn id(&self) -> &str;
     pub fn task_id(&self) -> Option<&str>;
     pub fn full_path(&self) -> &TaskPath;
+    pub fn repo_id(&self) -> &str;
+    pub fn path(&self) -> &str;
+    pub fn category(&self) -> Option<&str>;
+    pub fn line(&self) -> u32;
+    pub fn column(&self) -> u32;
+    pub fn byte_offset(&self) -> u64;
+    pub fn level(&self) -> u32;
+    pub fn state(&self) -> Option<&str>;
+    pub fn state_type(&self) -> FilterStateType;
+    pub fn priority(&self) -> Option<&str>;
+    pub fn own_tags(&self) -> &[String];
+    pub fn inherited_tags(&self) -> &[String];
+    pub fn title(&self) -> &str;
+    pub fn body(&self) -> &str;
+    pub fn address_links(&self) -> &[AddressLink];
+    pub fn is_repeating(&self) -> bool;
+    pub fn scheduled(&self) -> Option<FilterDate>;
+    pub fn deadline(&self) -> Option<FilterDate>;
+    pub fn closed(&self) -> Option<FilterDate>;
+    pub fn created(&self) -> Option<FilterDate>;
+    pub fn created_at(&self) -> Option<TimestampMs>;
+    pub fn modified_at(&self) -> Option<TimestampMs>;
+    pub fn events(&self) -> &[FilterDate];
+}
+impl FilterDate {
+    pub fn date(&self) -> NaiveDate;
+    pub fn is_active(&self) -> bool;
 }
 impl OrgRepo {
     pub fn full_path(&self) -> TaskPath;
@@ -513,7 +543,7 @@ let metadata = &file.todo;
 
 ~OrgFile::new~ 使用 Rust 缺省配置， ~with_todo_defaults~ 使用外部默认配置。 ~OrgRepo.parse_file~ 在扫描、下载、创建与合并时统一传递配置。 ~OrgWorkspace.set_todo_defaults~ 校验并更新全部仓库与已加载文件， ~add_repo~ 将配置传给后续加入的仓库。配置更新失败时不产生部分重解析的状态。
 
-每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
+每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type()~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
 
 Creation 的显式状态按目标文件有效配置验证；文件尚不存在时使用外部默认。调用方需要创建任务时从文件元信息取得初始状态，无状态标题则不传状态。合并也使用相同配置验证输出，并把默认配置纳入运行时仓库版本，以拒绝配置变化后的旧比较对象。
 
@@ -621,7 +651,7 @@ impl FilterTask {
 
 ** 任务列表提示投影
 
-~FilterTask.is_repeating: bool~ 由 Core 读取当前标题的计划与截止时间重复器生成，不包含正文或子标题中的重复器，也不展开重复日期。重复器遵循 Org-mode timestamp 规则，识别 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选的重复截止 ~/N~ 或 ~/Nunit~ （~unit~ 为 ~h~ 、 ~d~ 、 ~w~ 、 ~m~ 、 ~y~）；解析器未识别的合法规划行由 Core 在标题范围内兜底。与 ~RenderedTaskContent.has_list~ 、~has_text~ 一起提供只读展示提示。Harmony 映射为 ~Task.isRepeating~ 、~Task.hasList~ 与 ~Task.hasText~ ，宿主不解析 Org。三个字段均不进入同步记录、outbox 或仓库身份。
+~FilterTask.is_repeating() -> bool~ 由 Core 读取当前标题的计划与截止时间重复器生成，不包含正文或子标题中的重复器，也不展开重复日期。重复器遵循 Org-mode timestamp 规则，识别 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选的重复截止 ~/N~ 或 ~/Nunit~ （~unit~ 为 ~h~ 、 ~d~ 、 ~w~ 、 ~m~ 、 ~y~）；解析器未识别的合法规划行由 Core 在标题范围内兜底。与 ~RenderedTaskContent.has_list~ 、 ~has_text~ 一起提供只读展示提示。Harmony 映射为 ~Task.isRepeating~ 、 ~Task.hasList~ 与 ~Task.hasText~ ，宿主不解析 Org。三个字段均不进入同步记录、outbox 或仓库身份。
 
 ** 分享地点写入与地址替换
 
@@ -641,7 +671,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 ~TaskQuery.excluded_files~ 类型为 ~Vec<OrgFileRef>~ ，每项包含 ~repo_id~ 与 ~path~ ，两者共同表示具体文件。仓库 ID 使用 Core 的稳定身份，路径是安全的仓库相对文件路径；空仓库 ID 或非法路径返回输入错误。一个排除对象仅影响所属仓库中的该文件，不影响其他仓库的同名文件。数组省略或为空表示不排除；接口不再接受裸路径字符串数组。JSON 对应 ~excludedFiles: [{ repoId, path }]~ 。
 
-创建日期筛选通过 ~TaskQuery.expression~ 表达，不新增时间范围字段。 ~FilterTask.created~ 与 ~created_at~ 从任务自身的 ~CREATED~ 属性投影；缺失或非法值不匹配 ~cr.ge.-2d cr.le.today~ 。该表达式覆盖今天及前两个本地自然日，而非滚动 72 小时。完整时刻排序通过 ~o.created~ 或 ~.o.created~ 取得；日内时间用于排序和展示投影，不改变自然日筛选边界。所有能力继续通过 ~OrgWorkspace.query~ 暴露。
+创建日期筛选通过 ~TaskQuery.expression~ 表达，不新增时间范围字段。 ~FilterTask.created()~ 与 ~created_at()~ 从任务自身的 ~CREATED~ 属性投影；缺失或非法值不匹配 ~cr.ge.-2d cr.le.today~ 。该表达式覆盖今天及前两个本地自然日，而非滚动 72 小时。完整时刻排序通过 ~o.created~ 或 ~.o.created~ 取得；日内时间用于排序和展示投影，不改变自然日筛选边界。所有能力继续通过 ~OrgWorkspace.query~ 暴露。
 
 * WebDAV 同步历史摘要
 

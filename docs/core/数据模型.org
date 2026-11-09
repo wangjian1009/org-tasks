@@ -126,30 +126,67 @@ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 
 #+begin_src rust
 pub struct FilterTask {
-    pub id: String,
-    pub full_path: TaskPath,
-    pub repo_id: String,
-    pub path: String,
-    pub category: Option<String>,
-    pub line: u32,
-    pub column: u32,
-    pub byte_offset: u64,
-    pub level: u32,
-    pub state: Option<String>,
-    pub state_type: FilterStateType,
-    pub priority: Option<String>,
-    pub own_tags: Vec<String>,
-    pub inherited_tags: Vec<String>,
-    pub title: String,
-    pub body: String,
-    pub address_links: Vec<AddressLink>,
-    pub is_repeating: bool,
-    pub scheduled: Option<FilterDate>,
-    pub deadline: Option<FilterDate>,
-    pub closed: Option<FilterDate>,
-    pub created: Option<FilterDate>,
-    pub created_at: Option<TimestampMs>,
-    pub events: Vec<FilterDate>,
+    id: String,
+    full_path: TaskPath,
+    repo_id: String,
+    path: String,
+    category: Option<String>,
+    line: u32,
+    column: u32,
+    byte_offset: u64,
+    level: u32,
+    state: Option<String>,
+    state_type: FilterStateType,
+    priority: Option<String>,
+    own_tags: Vec<String>,
+    inherited_tags: Vec<String>,
+    title: String,
+    body: String,
+    address_links: Vec<AddressLink>,
+    is_repeating: bool,
+    scheduled: Option<FilterDate>,
+    deadline: Option<FilterDate>,
+    closed: Option<FilterDate>,
+    created: Option<FilterDate>,
+    created_at: Option<TimestampMs>,
+    modified_at: Option<TimestampMs>,
+    events: Vec<FilterDate>,
+}
+#+end_src
+
+~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值：~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 是 Core 扫描所属文件时取得的本地磁盘修改时间。两者缺失、不可解析或不可取得时均返回 ~None~ 。
+
+#+begin_src rust
+impl FilterTask {
+    pub fn id(&self) -> &str;
+    pub fn full_path(&self) -> &TaskPath;
+    pub fn repo_id(&self) -> &str;
+    pub fn path(&self) -> &str;
+    pub fn category(&self) -> Option<&str>;
+    pub fn line(&self) -> u32;
+    pub fn column(&self) -> u32;
+    pub fn byte_offset(&self) -> u64;
+    pub fn level(&self) -> u32;
+    pub fn state(&self) -> Option<&str>;
+    pub fn state_type(&self) -> FilterStateType;
+    pub fn priority(&self) -> Option<&str>;
+    pub fn own_tags(&self) -> &[String];
+    pub fn inherited_tags(&self) -> &[String];
+    pub fn title(&self) -> &str;
+    pub fn body(&self) -> &str;
+    pub fn address_links(&self) -> &[AddressLink];
+    pub fn is_repeating(&self) -> bool;
+    pub fn scheduled(&self) -> Option<FilterDate>;
+    pub fn deadline(&self) -> Option<FilterDate>;
+    pub fn closed(&self) -> Option<FilterDate>;
+    pub fn created(&self) -> Option<FilterDate>;
+    pub fn created_at(&self) -> Option<TimestampMs>;
+    pub fn modified_at(&self) -> Option<TimestampMs>;
+    pub fn events(&self) -> &[FilterDate];
+}
+impl FilterDate {
+    pub fn date(&self) -> NaiveDate;
+    pub fn is_active(&self) -> bool;
 }
 #+end_src
 
@@ -628,7 +665,10 @@ pub struct OrgFileRef {
 \umlclass[x=0,y=0]{OrgFileRef}{repo\_id: OrgRepoId \\
 path: String}{}
 \umlclass[x=0,y=-4]{FilterTask}{created: Option\textless FilterDate\textgreater \\
-created\_at: Option\textless TimestampMs\textgreater}{is\_cancelled(): bool}
+created\_at: Option\textless TimestampMs\textgreater \\
+modified\_at: Option\textless TimestampMs\textgreater}{created\_at(): Option\textless TimestampMs\textgreater \\
+modified\_at(): Option\textless TimestampMs\textgreater \\
+is\_cancelled(): bool}
 \umlclass[x=7,y=-4]{TaskQuery}{excluded\_files: Vec\textless OrgFileRef\textgreater}{}
 \umluniassoc{TaskQuery}{OrgFileRef}
 \end{tikzpicture}

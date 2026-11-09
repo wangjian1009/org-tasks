@@ -73,6 +73,7 @@ export class Task {
   readonly todoState: string;
   readonly isCancelled: boolean;
   readonly createdAt: number | null;
+  readonly modifiedAt: number | null;
   readonly todoKind: 'pending' | 'done' | null;
   readonly priority: string;
   readonly scheduled: string;

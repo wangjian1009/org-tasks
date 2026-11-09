@@ -125,18 +125,18 @@ fn searches_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
         assert_eq!(searched.len(), expected, "{expression}");
         assert_eq!(searched, queried.tasks, "{expression}");
         assert!(searched.iter().all(|task| {
-            task.own_tags
+            task.own_tags()
                 .iter()
-                .chain(&task.inherited_tags)
+                .chain(task.inherited_tags().iter())
                 .all(|tag| tag != "REFILE" && tag != "ARCHIVE")
         }));
     }
     let tasks = workspace.search(&Filter::parse(""));
-    assert_eq!(tasks[0].own_tags, ["work"]);
-    assert_eq!(tasks[1].own_tags, ["home", "refile"]);
-    assert_eq!(tasks[1].inherited_tags, ["work"]);
-    assert_eq!(tasks[2].inherited_tags, ["work", "home", "refile"]);
-    assert_eq!(tasks[3].own_tags, ["refile"]);
+    assert_eq!(tasks[0].own_tags(), ["work"]);
+    assert_eq!(tasks[1].own_tags(), ["home", "refile"]);
+    assert_eq!(tasks[1].inherited_tags(), ["work"]);
+    assert_eq!(tasks[2].inherited_tags(), ["work", "home", "refile"]);
+    assert_eq!(tasks[3].own_tags(), ["refile"]);
     assert_eq!(workspace.refile_targets().len(), 2);
     assert_eq!(
         serialize_file(&workspace.repos[0].files[0]),
@@ -157,9 +157,9 @@ fn structured_query_flags_and_categories_still_apply_before_returning_tags() {
     };
     let result = workspace.query(&query).unwrap();
     assert_eq!(result.tasks.len(), 1);
-    assert_eq!(result.tasks[0].title, "Child");
-    assert_eq!(result.tasks[0].own_tags, ["home"]);
-    assert_eq!(result.tasks[0].inherited_tags, ["work"]);
+    assert_eq!(result.tasks[0].title(), "Child");
+    assert_eq!(result.tasks[0].own_tags(), ["home"]);
+    assert_eq!(result.tasks[0].inherited_tags(), ["work"]);
     assert_eq!(result.categories[0].count, 1);
     assert_eq!(workspace.refile_targets()[0].heading_path, ["Parent"]);
     assert!(

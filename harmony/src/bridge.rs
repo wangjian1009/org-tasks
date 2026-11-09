@@ -72,6 +72,7 @@ pub struct HarmonyBridgeTask {
     pub is_done: bool,
     pub is_cancelled: bool,
     pub created_at: Option<TimestampMs>,
+    pub modified_at: Option<TimestampMs>,
     pub priority: String,
     pub scheduled: String,
     pub deadline: String,
@@ -235,60 +236,69 @@ fn task_snapshot(
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn task_from_filter(task: FilterTask, workspace: &OrgWorkspace) -> Result<HarmonyBridgeTask, CoreError> {
-    let file=workspace.repo(&task.repo_id).and_then(|repo|repo.files().iter().find(|file|file.path==task.path))
+fn task_from_filter(
+    task: FilterTask,
+    workspace: &OrgWorkspace,
+) -> Result<HarmonyBridgeTask, CoreError> {
+    let repo_id = task.repo_id().to_owned();
+    let path = task.path().to_owned();
+    let file = workspace
+        .repo(&repo_id)
+        .and_then(|repo| repo.files().iter().find(|file| file.path == path))
         .ok_or(CoreError::InvalidState("任务文件不存在"))?;
-    let file_version=org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
-    let task_id=task.task_id().map(str::to_owned);
+    let file_version =
+        org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
+    let task_id = task.task_id().map(str::to_owned);
     let is_done = task.is_done();
     let is_cancelled = task.is_cancelled();
     let heading_parts = task.title_parts();
     let content = task.render_content();
-    let mut tags = task.own_tags;
-    for inherited in task.inherited_tags {
-        if !tags.contains(&inherited) {
-            tags.push(inherited);
+    let mut tags = task.own_tags().to_vec();
+    for inherited in task.inherited_tags() {
+        if !tags.contains(inherited) {
+            tags.push(inherited.clone());
         }
     }
     Ok(HarmonyBridgeTask {
-        full_path: task.full_path,
+        full_path: task.full_path().clone(),
         task_id,
         file_version,
-        id: task.id,
-        repo_id: task.repo_id,
-        heading: task.title,
-        category: task.category,
+        id: task.id().to_owned(),
+        repo_id,
+        heading: task.title().to_owned(),
+        category: task.category().map(str::to_owned),
         heading_parts,
-        todo_state: task.state.unwrap_or_default(),
-        todo_kind: match task.state_type {
+        todo_state: task.state().unwrap_or_default().to_owned(),
+        todo_kind: match task.state_type() {
             org_tasks_core::FilterStateType::Todo => Some(org_tasks_core::TodoStateKind::Pending),
             org_tasks_core::FilterStateType::Done => Some(org_tasks_core::TodoStateKind::Done),
             _ => None,
         },
         is_done,
         is_cancelled,
-        created_at: task.created_at,
-        priority: task.priority.unwrap_or_default(),
+        created_at: task.created_at(),
+        modified_at: task.modified_at(),
+        priority: task.priority().unwrap_or_default().to_owned(),
         scheduled: task
-            .scheduled
-            .map(|date| date.date.to_string())
+            .scheduled()
+            .map(|date| date.date().to_string())
             .unwrap_or_default(),
         deadline: task
-            .deadline
-            .map(|date| date.date.to_string())
+            .deadline()
+            .map(|date| date.date().to_string())
             .unwrap_or_default(),
         tags,
-        file_name: task.path.rsplit('/').next().unwrap_or(&task.path).into(),
-        file_path: task.path,
-        level: task.level,
-        body: task.body,
-        address_links: task.address_links,
+        file_name: path.rsplit('/').next().unwrap_or(&path).into(),
+        file_path: path,
+        level: task.level(),
+        body: task.body().to_owned(),
+        address_links: task.address_links().to_vec(),
         body_html: content.body_html,
         logbook_html: content.logbook_html,
         progress: -1,
         has_list: content.has_list,
         has_text: content.has_text,
-        is_repeating: task.is_repeating,
+        is_repeating: task.is_repeating(),
     })
 }
 
@@ -864,6 +874,7 @@ mod tests {
         assert_eq!(task["addressLinks"][0]["uri"], "geo:39.9,116.4");
         assert!(task["bodyHtml"].as_str().unwrap().contains("geo:39.9,116.4"));
         assert_eq!(task["isDone"], false);
+        assert!(task["modifiedAt"].as_i64().is_some());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -908,8 +919,10 @@ mod tests {
         assert_eq!(before["tasks"][2]["todoKind"], "pending");
         let session = workspace_for_handle(handle).unwrap();
         let core_tasks = session.lock().unwrap().search(&Filter::parse(""));
-        assert_eq!(after["tasks"][0]["id"], core_tasks[0].id);
-        assert!(serde_json::from_str::<serde_json::Value>(&core_tasks[0].id).unwrap().is_array());
+        assert_eq!(after["tasks"][0]["id"], core_tasks[0].id());
+        assert!(serde_json::from_str::<serde_json::Value>(core_tasks[0].id())
+            .unwrap()
+            .is_array());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -928,6 +941,7 @@ mod tests {
         assert_eq!(tasks[0]["isCancelled"], false);
         assert_eq!(tasks[1]["isCancelled"], true);
         assert!(tasks[0]["createdAt"].as_i64().is_some());
+        assert!(tasks[0]["modifiedAt"].as_i64().is_some());
         let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created", "includeDone": true });
         let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, query.to_string()).unwrap()).unwrap();
         // 固定样例只在其创建日期落入最近三个自然日时匹配。
@@ -1272,6 +1286,7 @@ mod todo_tests {
         assert_eq!(value["isRepeating"], true);
         assert_eq!(value["category"], "Work");
         assert_eq!(value["scheduled"], "2026-11-06");
+        assert!(value["modifiedAt"].is_null());
         assert!(value["bodyHtml"].as_str().unwrap().contains("<ul>"));
         assert_eq!(value["tags"][0], "work");
     }

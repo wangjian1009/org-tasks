@@ -105,7 +105,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgFile.title_parts()~ | ~file.titleParts()~ | Core 解析文件标题中的文字与外部链接，返回有序 ~TitlePart[]~ 。 |
 | ~FilterTask.title_parts()~ | ~task.headingParts~ | bridge 在构造任务对象时投影，C++ 保留可枚举只读属性，路由传递不丢失链接。 |
 | ~OrgFile.category()~ | ~file.category()~ | 未配置或文件分类为 ~ARCHIVE~ 时为 ~null~ ，显式空声明为空字符串。 |
-| ~FilterTask.category~ 、 ~is_repeating~ | ~task.category~ 、 ~task.isRepeating~ | 只读、可枚举的查询快照；分类保留 ~null~ 与空字符串，重复标志来自 Core 的时间戳解析。 |
+| ~FilterTask.category()~ 、 ~is_repeating()~ | ~task.category~ 、 ~task.isRepeating~ | 只读、可枚举的查询快照；分类保留 ~null~ 与空字符串，重复标志来自 Core 的时间戳解析。 |
+| ~FilterTask.created_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，修改时间来自 Core 扫描所属文件时取得的本地磁盘修改时间。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~WebDavSyncPolicy.compare_merge(repo, sync_id)~ | ~policy.compareMerge(repo, syncId)~ | 合并比较属于策略对象。 |
 | ~WebDavSyncPolicy.apply_merge(repo, comparison)~ | ~policy.applyMerge(repo, comparison)~ | 直接回传用户选择后的比较对象。 |
@@ -181,6 +182,8 @@ class Task {
   readonly isRepeating: boolean
   readonly todoState: string
   readonly todoKind: 'pending' | 'done' | null
+  readonly createdAt: number | null
+  readonly modifiedAt: number | null
   isDone(): boolean
 }
 #+end_src
@@ -280,7 +283,7 @@ interface TitleCount {
 
 ** 任务列表项展示提示
 
-查询 worker 将 ~FilterTask.is_repeating~ 、~RenderedTaskContent.has_list~ 与 ~RenderedTaskContent.has_text~ 投影为 ~Task.isRepeating~ 、~Task.hasList~ 与 ~Task.hasText~ 。C++ N-API 将三者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。重复器由 Core 按 Org-mode 的 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选 ~/N~ 或 ~/Nunit~ 规则解析，ArkTS 只根据布尔值选择循环图标和正文／列表提示；正文规划行同样由 Core 在 ~bodyHtml~ 投影阶段排除，宿主不扫描 Org 或 HTML 推断领域结构。
+查询 worker 将 ~FilterTask.is_repeating()~ 、 ~RenderedTaskContent.has_list~ 与 ~RenderedTaskContent.has_text~ 投影为 ~Task.isRepeating~ 、 ~Task.hasList~ 与 ~Task.hasText~ 。C++ N-API 将三者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。重复器由 Core 按 Org-mode 的 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选 ~/N~ 或 ~/Nunit~ 规则解析，ArkTS 只根据布尔值选择循环图标和正文／列表提示；正文规划行同样由 Core 在 ~bodyHtml~ 投影阶段排除，宿主不扫描 Org 或 HTML 推断领域结构。
 
 ~TaskListItem~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
 
@@ -308,7 +311,7 @@ interface TitleCount {
 
 * Query 文件引用与创建日期扩展
 
-~TaskQuery.excludedFiles~ 统一改为 ~OrgFileRef[]~ ，元素使用 Core 仓库 ID 与文件相对路径；旧字符串数组输入拒绝，不保留平行的路径排除接口。 创建日期条件继续使用 ~expression~ ，最近三天请求为 ~cr.ge.-2d cr.le.today .o.created~ ，按今天及前两天三个本地自然日匹配。ArkTS wrapper 原样透传，C++ 通过既有 JSON 编组进入 Rust ~TaskQuery~ ，不实施过滤。查询得到的 ~Task.createdAt: number | null~ 和 ~Task.isCancelled: boolean~ 为只读可枚举属性，取消标记由 Core 根据实际识别的 ~CNCL~ 状态投影；它不改变文件 TODO 定义或 ~isDone()~ 结果。
+~TaskQuery.excludedFiles~ 统一改为 ~OrgFileRef[]~ ，元素使用 Core 仓库 ID 与文件相对路径；旧字符串数组输入拒绝，不保留平行的路径排除接口。 创建日期条件继续使用 ~expression~ ，最近三天请求为 ~cr.ge.-2d cr.le.today .o.created~ ，按今天及前两天三个本地自然日匹配。ArkTS wrapper 原样透传，C++ 通过既有 JSON 编组进入 Rust ~TaskQuery~ ，不实施过滤。查询得到的 ~Task.createdAt: number | null~ 、 ~Task.modifiedAt: number | null~ 和 ~Task.isCancelled: boolean~ 为只读可枚举属性，分别由 Core 的 ~FilterTask.created_at()~ 、 ~FilterTask.modified_at()~ 和 ~FilterTask.is_cancelled()~ 投影；时间值缺失时保留 ~null~ 。取消标记由 Core 根据实际识别的 ~CNCL~ 状态投影；它不改变文件 TODO 定义或 ~isDone()~ 结果。
 
 ~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeDone=true~ 和 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 
