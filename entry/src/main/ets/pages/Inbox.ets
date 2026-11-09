@@ -367,10 +367,10 @@ struct Inbox {
                     ForEach(day.tasks, (task: CoreTask) => {
                       ListItem() {
                         Row() {
-                          TaskListItem({ task, open: (): void => {
+                          TaskListItem({ task, showDate: true, showCategory: true, open: (): void => {
                             this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
                           } })
-                        }.width('100%').padding({ left: 12, right: 12 }).backgroundColor('#282C29')
+                        }.width('100%').padding({ left: 20, right: 20 }).backgroundColor('#282C29')
                       }
                     }, (task: CoreTask) => taskRenderKey(task))
                     ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }
