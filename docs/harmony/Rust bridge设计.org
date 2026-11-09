@@ -283,7 +283,7 @@ interface TitleCount {
 ~TitlePart.count~ 与嵌套的 ~completed~ 、 ~total~ 由 Core 生成，经 Rust 序列化与 C++ JSON 编组原样透传，适用于文件元信息、文件标题与任务标题，不添加同步请求或原文解析。 ~NativeCoreService~ 导出 ~CoreTitleCount~ ，计数随标题片段进入任务快照渲染键。 ~TitleCountBadge~ 使用 ArkUI 的 ~ProgressType.Ring~ 在运行时按有效比例绘制； ~TitleCounts~ 管理多个计数的换行与窄屏图标回退。 ~TitleText~ 只组合普通文字、链接与计数标记；今天收起行单独为计数和日期保留宽度，展开与任务编辑共用同款标记，不重复“已完成”说明。文件阅读使用 Core 的安全标题 HTML 与宿主样式绘制同款圆环。
 * 快速捕捉复用
 
-快速捕捉复用 ~Workspace.executeTaskOperations~ ，提交 ~heading~ 并启用 ~recordCreated=true~ ，其余任务表单属性为空，同时请求 ~insertAtTop=true~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
+快速捕捉复用 ~Workspace.executeTaskOperations~ 的 ~Creation~ ，提交 ~title~ 并启用 ~recordCreated=true~ ，以文件根节点作为 ~position.parent~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。保存时由 Harmony 的 ~CaptureEntityService~ 调用华为 Natural Language Kit 识别地址和时间；完整输入保留为 ~title~ ，地址链接通过已有 ~body~ 字段传递，归一化时间转换为完整 Org 时间戳后通过已有 ~scheduled~ 字段传递。识别失败时正文为空、计划时间为空，不改动 bridge 类型或复制 Core 的写入校验、Org 解析与同步规则。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
 
 捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Workspace.executeTaskOperations~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。
 

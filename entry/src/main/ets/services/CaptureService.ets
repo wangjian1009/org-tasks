@@ -3,6 +3,7 @@ import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { NativeCoreService } from './NativeCoreService'
 import { FileTargetService, fileTargetRepository } from './FileTargetService'
+import { CaptureEntityService } from './CaptureEntityService'
 
 import { CaptureDraft, CaptureDraftStore } from './CaptureDraftStore'
 
@@ -22,14 +23,16 @@ export class CaptureService {
 
   static async save(context: Context, title: string): Promise<void> {
     if (!title.trim()) throw new Error('请输入标题')
+    const normalizedTitle = title.trim()
+    const entities = await CaptureEntityService.recognize(normalizedTitle)
     const config = await AppConfigService.load(context, false)
     const target = await FileTargetService.resolve(config, 'inbox')
     if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
     const file = await target.repo.file(target.path)
     if (!file.todo.initialState) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
     await NativeCoreService.executeTaskOperations(config.repos, {
-      operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: title.trim(),
-        state: file.todo.initialState, recordCreated: true } }],
+      operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: normalizedTitle,
+        body: entities.body, scheduled: entities.scheduled, state: file.todo.initialState, recordCreated: true } }],
       queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
     }, config.todoDefaults)

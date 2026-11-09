@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-capture.cjs\n验证文件入口的仓库隔离、失效处理、配置保存，以及捕捉输入、草稿、共享会话初始化和分享后的页面跳转。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-capture.cjs\n验证文件入口、捕捉输入与实体识别、草稿、共享会话初始化和分享后的页面跳转。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 
@@ -30,7 +30,7 @@ function etsLoader(mocks = {}, globals = {}) {
       if (dependency.startsWith('.')) return load(path.relative(sourceRoot, path.resolve(path.dirname(filename), dependency)));
       throw new Error('缺少平台替身: ' + dependency);
     };
-    vm.runInThisContext('(function(require,module,exports,LocalStorage){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage);
+    vm.runInThisContext('(function(require,module,exports,LocalStorage,canIUse){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage, globals.canIUse || (() => true));
     return module.exports;
   };
 }
@@ -79,6 +79,9 @@ function fixture() {
   const queries = [];
   let reads = 0;
   let failNextRead = false;
+  let entityResults = [], entityError, releaseError, supported = true;
+  const recognitionCalls = [];
+  let releases = 0;
   const store = {
     async get(key, fallback) {
       if (failNextRead) { failNextRead = false; throw new Error('临时读取失败'); }
@@ -89,6 +92,14 @@ function fixture() {
     async flush() {}
   };
   const load = etsLoader({
+    '@kit.NaturalLanguageKit': { EntityType: { LOCATION: 'location', DATETIME: 'datetime' }, textProcessing: {
+      async getEntity(title, options) {
+        recognitionCalls.push({ title, options });
+        if (entityError) throw entityError;
+        return structuredClone(entityResults);
+      },
+      async release() { releases++; if (releaseError) throw releaseError; return true; }
+    } },
     '@kit.ArkData': { preferences: { async getPreferences() { return store; } } },
     '../services/AppConfigService': {},
     './AppConfigService': { AppConfigService: { async load() { return structuredClone(config); }, async save(context, value) { Object.assign(config, value); } } },
@@ -112,9 +123,14 @@ function fixture() {
         return { tasks: repos.map(repo => ({ id: repo.id + ':inbox.org', heading: repo.name })), categories: [] };
       }
     } }
-  });
+  }, { canIUse: capability => {
+    assert.equal(capability, 'SystemCapability.AI.NaturalLanguage.TextProcessing');
+    return supported;
+  } });
   return { ...load('services/CaptureService'), ...load('services/FileTargetService'), config, calls, queries, fileLists, values,
-    reads: () => reads, failRead() { failNextRead = true; } };
+    reads: () => reads, failRead() { failNextRead = true; }, recognitionCalls, releases: () => releases,
+    entities(value) { entityResults = value; }, failRecognition(error) { entityError = error; },
+    failRelease(error) { releaseError = error; }, unsupported() { supported = false; } };
 }
 
 test('只把外部文字整理为标题，日期保留原话，URI 正确解码', () => {
@@ -205,10 +221,148 @@ test('保存提交标题并请求记录创建时间，使用配置 inbox 与既�
   assert.equal(f.calls.length, 1);
   assert.deepEqual(f.calls[0], { repos: f.config.repos, group: {
     operations: [{ type: 'Creation', data: { position: { parent: { repoId: 'core-personal', file: 'notes/inbox.org', titles: [] } },
-      title: '周五前交报销', state: 'TODO', recordCreated: true } }],
+      title: '周五前交报销', body: '', scheduled: null, state: 'TODO', recordCreated: true } }],
     queueRepoIds: ['core-personal'],
     fileVersions: [{ repoId: 'core-personal', file: 'notes/inbox.org', version: 'version-personal' }]
   }, todoDefaults: '#+TODO: TODO | DONE' });
+});
+
+function timeEntity(charOffset, ...time) {
+  return { type: 'datetime', text: '时间', charOffset, jsonObject: JSON.stringify({ time }) };
+}
+
+function addressEntity(text, charOffset) {
+  return { type: 'location', text, charOffset, jsonObject: '{}' };
+}
+
+test('真机的扁平时间对象可识别“明天晚上和老婆宝吃完饭”，并将明天写入计划日期', async () => {
+  const f = fixture();
+  const title = '明天晚上和老婆宝吃完饭';
+  f.entities([{ type: 'datetime', text: '明天晚上', charOffset: 0, jsonObject: JSON.stringify({
+    containFuzzySection: 'E', inferType: 'RELATIVE_DAY', isChangedIllegal: false, isContainFuzzyTime: true,
+    isIllegal: false, maxSection: 'Y', minSection: 'E', rangeDecoration: 'POINT',
+    start: '2026-11-10TE', suggestStart: '2026-11-10TE', timestampZone: 'Asia/Shanghai'
+  }) }]);
+  await f.CaptureService.save({}, title);
+  const created = f.calls[0].group.operations[0].data;
+  assert.equal(created.title, title);
+  assert.equal(created.scheduled, '<2026-11-10>');
+  assert.equal(created.body, '');
+});
+
+test('扁平时间对象保留精确分钟，非法时间不影响后续有效时间与地址', async () => {
+  const f = fixture();
+  f.entities([{ type: 'datetime', text: '非法日期', charOffset: 0,
+    jsonObject: JSON.stringify({ start: '2026-02-28', isIllegal: true }) },
+    { type: 'datetime', text: '精确时间', charOffset: 8,
+      jsonObject: JSON.stringify({ start: '2026-11-10T19:30:00', suggestStart: '2026-11-10T19:30:00', isContainFuzzyTime: false }) },
+    addressEntity('西湖', 15)]);
+  await f.CaptureService.save({}, '原始输入');
+  assert.equal(f.calls[0].group.operations[0].data.scheduled, '<2026-11-10 19:30>');
+  assert.match(f.calls[0].group.operations[0].data.body, /西湖/);
+});
+
+test('捕捉保留完整标题，将去重地址链接与首个有效时间随创建操作一次写入', async () => {
+  const f = fixture();
+  const title = '明天下午三点去杭州市西湖区文三路开会，然后到西湖';
+  f.entities([timeEntity(30, { start: '2026-11-12T08:00:00' }),
+    addressEntity('西湖', 29), addressEntity('杭州市西湖区文三路', 10),
+    timeEntity(0, { start: '2026-11-10T15:00:00', suggestStart: '2026-11-10T15:00:00' }),
+    addressEntity('西湖', 31)]);
+  await f.CaptureService.save({}, title);
+  assert.deepEqual(f.recognitionCalls, [{ title, options: { entityTypes: ['location', 'datetime'] } }]);
+  assert.equal(f.calls.length, 1);
+  const created = f.calls[0].group.operations[0].data;
+  assert.equal(created.title, title);
+  assert.equal(created.scheduled, '<2026-11-10 15:00>');
+  assert.equal(created.body, ['杭州市西湖区文三路', '西湖'].map(address => `[[addr:${encodeURIComponent(address)}][${address}]]`).join('\n'));
+  assert.equal(created.recordCreated, true);
+  assert.equal(f.releases(), 1);
+});
+
+test('平台日期、精确时间与模糊时间按返回的本地年月日转换，不自行推理日期或重复器', async () => {
+  for (const [time, scheduled] of [
+    [{ start: '2026-11-10T08:30:45' }, '<2026-11-10 08:30>'],
+    [{ start: '2026-11-10' }, '<2026-11-10>'],
+    [{ start: '2026-11-10TM', isContainFuzzyTime: true }, '<2026-11-10>'],
+    [{ start: '2026-11-10TA', suggestStart: '2026-11-10T15:00:00', isContainFuzzyTime: true }, '<2026-11-10>'],
+    [{ start: '2026-12', suggestStart: '2026-12-01' }, '<2026-12-01>'],
+    [{ start: '2028-02-29T00:00:00' }, '<2028-02-29 00:00>'],
+    [{ start: 'T08:00:00', repeat: '每天' }, null],
+    [{ start: '2026-02-30', isIllegal: true }, null],
+    [{ start: '2026-02-28', isChangedIllegal: true }, null],
+    [{ start: '2026-02-29' }, null],
+    [{ start: '2026-13-01' }, null],
+    [{ start: '2026-11-10T24:00:00' }, null],
+    [{ start: '2026-11-10T08:60:00' }, null],
+    [{ start: '2026-11-10T08:30:60' }, null],
+    [{ start: '<2026-11-10>\n* TODO 额外标题' }, null]
+  ]) {
+    const f = fixture(); f.entities([timeEntity(0, time)]);
+    await f.CaptureService.save({}, '保留原话');
+    assert.equal(f.calls[0].group.operations[0].data.scheduled, scheduled, JSON.stringify(time));
+  }
+});
+
+test('单个损坏或非法时间不影响地址与后续有效时间，地址中的换行与括号不会破坏链接', async () => {
+  const f = fixture();
+  f.entities([{ type: 'datetime', text: '损坏时间', charOffset: 0, jsonObject: '{' },
+    timeEntity(1, { start: '2026-02-30' }),
+    { type: 'datetime', text: '错误类型', charOffset: 2, jsonObject: '{"time":{}}' },
+    timeEntity(3, { start: '2026-11-11T09:00:00' }), addressEntity(' 杭州[西湖]\n北门 ', 8)]);
+  await f.CaptureService.save({}, '输入');
+  const created = f.calls[0].group.operations[0].data;
+  assert.equal(created.scheduled, '<2026-11-11 09:00>');
+  assert.equal(created.body, `[[addr:${encodeURIComponent('杭州[西湖] 北门')}][杭州［西湖］ 北门]]`);
+});
+
+test('实体服务异常或超时仍保存标题，下一次捕捉可以重新识别；释放失败保留已识别字段', async () => {
+  const f = fixture();
+  for (const code of [200, 1011200002]) {
+    f.failRecognition(Object.assign(new Error('平台异常'), { code }));
+    await f.CaptureService.save({}, '明天到西湖');
+    const created = f.calls.at(-1).group.operations[0].data;
+    assert.equal(created.title, '明天到西湖');
+    assert.equal(created.body, ''); assert.equal(created.scheduled, null);
+  }
+  f.failRecognition(undefined); f.failRelease(new Error('释放失败'));
+  f.entities([addressEntity('西湖', 3), timeEntity(0, { start: '2026-11-10' })]);
+  await f.CaptureService.save({}, '明天到西湖');
+  assert.equal(f.calls.at(-1).group.operations[0].data.scheduled, '<2026-11-10>');
+  assert.match(f.calls.at(-1).group.operations[0].data.body, /西湖/);
+  assert.equal(f.releases(), 3);
+});
+
+test('设备不支持或输入超过平台长度限制时跳过实体识别，完整保留标题', async () => {
+  for (const unsupported of [true, false]) {
+    const f = fixture(); if (unsupported) f.unsupported();
+    const title = unsupported ? '明天到西湖' : '长'.repeat(1001);
+    await f.CaptureService.save({}, title);
+    assert.equal(f.recognitionCalls.length, 0);
+    assert.equal(f.releases(), 0);
+    assert.equal(f.calls[0].group.operations[0].data.title, title);
+  }
+});
+
+test('同进程并发捕捉串行调用实体识别并等待引擎释放，结果对应各自输入', async () => {
+  let active = false; const events = [];
+  const load = etsLoader({ '@kit.NaturalLanguageKit': {
+    EntityType: { LOCATION: 'location', DATETIME: 'datetime' }, textProcessing: {
+      async getEntity(title) {
+        assert.equal(active, false); active = true; events.push('识别:' + title);
+        await new Promise(resolve => setImmediate(resolve));
+        return [addressEntity(title, 0)];
+      },
+      async release() {
+        await new Promise(resolve => setImmediate(resolve));
+        events.push('释放'); active = false;
+      }
+    }
+  } });
+  const { CaptureEntityService } = load('services/CaptureEntityService');
+  const result = await Promise.all(['西湖', '故宫'].map(title => CaptureEntityService.recognize(title)));
+  assert.deepEqual(events, ['识别:西湖', '释放', '识别:故宫', '释放']);
+  assert.match(result[0].body, /西湖/); assert.match(result[1].body, /故宫/);
 });
 
 test('缺少标题、收件箱或明确目标时不调用写入', async () => {
