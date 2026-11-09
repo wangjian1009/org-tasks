@@ -11,6 +11,7 @@ import { PlannedTaskList } from '../components/PlannedTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
+import { NoteService } from '../services/NoteService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
@@ -37,6 +38,7 @@ struct TaskOverview {
   @State message: string = ''
   @State needsConfiguration: boolean = false
   @State drawerOpen: boolean = false
+  @State deletingMemo: boolean = false
   private requestId: number = 0
 
   aboutToAppear() {
@@ -61,6 +63,36 @@ struct TaskOverview {
 
   supportsTagFilter(): boolean {
     return this.view === 'today' || this.view === 'anytime' || this.view === 'someday'
+  }
+
+  confirmDeleteMemo(task: CoreTask) {
+    if (this.deletingMemo) return
+    this.getUIContext().showAlertDialog({ title: '删除这条备忘？', message: `“${task.heading}”及其子记录将从文件中删除。`,
+      primaryButton: { value: '取消', action: (): void => {} },
+      secondaryButton: { value: '删除', action: (): void => { this.deleteMemo(task) } } })
+  }
+
+  async deleteMemo(task: CoreTask) {
+    if (this.deletingMemo) return
+    this.deletingMemo = true
+    try {
+      await NoteService.remove(this.getUIContext().getHostContext()!, task)
+      await this.loadTasks()
+    } catch (e) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+      } catch (error) { console.error('显示备忘删除错误提示失败') }
+    } finally { this.deletingMemo = false }
+  }
+
+  @Builder
+  memoDeleteAction(task: CoreTask) {
+    Row() {
+      Button({ type: ButtonType.Circle }) {
+        Image($r('app.media.ui_delete_record')).width(24).height(24)
+      }.width(44).height(44).padding(0).backgroundColor('#513A40').enabled(!this.deletingMemo)
+        .accessibilityText('删除备忘').onClick((): void => { this.confirmDeleteMemo(task) })
+    }.height('100%').padding({ left: 8, right: 16 })
   }
 
   applyTagFilter(selection: TaskTagSelection) {
@@ -144,8 +176,8 @@ struct TaskOverview {
               this.applyTagFilter(selection)
             } })
         }
-        if (this.view === 'memo' || this.view === 'logbook') {
-          Text(this.view === 'memo' ? `${this.tasks.length} 条备忘` : `${this.tasks.length} 个${this.view === 'logbook' ? '已完成' : '未完成'}任务`)
+        if (this.view === 'logbook') {
+          Text(`${this.tasks.length} 个已完成任务`)
             .fontSize(13).fontColor(UiColor.secondary).width('100%').padding(16).backgroundColor(UiColor.container)
         }
         if (this.tasks.length === 0) {
@@ -164,18 +196,26 @@ struct TaskOverview {
                 ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
               }
             ForEach(this.visibleTasks, (task: CoreTask) => {
-              ListItem() {
-                if (this.view === 'memo') {
-                  MemoListItem({ task, open: this.openTask(task) })
-                    .margin({ left: 16, right: 16, bottom: 12 })
-                } else if (this.view === 'anytime' || this.view === 'someday') {
-                  TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
-                } else {
-                  TaskRow({ task, showBody: true, open: this.openTask(task) })
+              if (this.view === 'memo') {
+                ListItem() {
+                  MemoListItem({ task, busy: this.deletingMemo, open: this.openTask(task) })
+                    .margin({ left: 16, right: 16 })
+                }.margin({ bottom: 12 })
+                  .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
+              } else {
+                ListItem() {
+                  if (this.view === 'anytime' || this.view === 'someday') {
+                    TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
+                  } else {
+                    TaskRow({ task, showBody: true, open: this.openTask(task) })
+                  }
                 }
               }
             }, (task: CoreTask) => taskRenderKey(task))
-          }.width('100%').layoutWeight(1).padding({ bottom: 16 })
+            if (this.view === 'memo') {
+              ListItem() { Column().height(104) }
+            }
+          }.width('100%').layoutWeight(1).padding({ bottom: this.view === 'memo' ? 0 : 16 })
             .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
             .edgeEffect(EdgeEffect.None)
         }
@@ -184,13 +224,22 @@ struct TaskOverview {
   }
 
   build() {
-    Column() {
+    Stack({ alignContent: Alignment.Bottom }) {
       AppShell({ title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
         titleIcon: this.overviewIcon(),
-        actionIcon: $r('app.media.ui_add'), actionLabel: this.view === 'memo' ? '新增备忘' : '',
-        action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } }) },
-        drawerOpen: $drawerOpen, pullToSync: true }) {
+        drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo }) {
         this.overviewContent()
+      }
+      if (this.view === 'memo' && !this.drawerOpen) {
+        Button({ type: ButtonType.Circle }) {
+          Image($r('app.media.ui_add_primary')).width(28).height(28)
+        }.id('memo_create').width(56).height(56).backgroundColor(UiColor.primary)
+          .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
+          .accessibilityText('新增备忘')
+          .enabled(!this.deletingMemo)
+          .onClick((): void => {
+            this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } })
+          })
       }
     }.width('100%').height('100%')
   }

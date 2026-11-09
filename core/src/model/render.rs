@@ -110,6 +110,37 @@ pub struct RenderedTaskContent {
 }
 
 impl FilterTask {
+    /// 正文首个非空段落的第一行，不包含规划、属性、drawer 或子标题。
+    pub fn body_first_line(&self) -> Option<String> {
+        struct FirstLine(Option<String>);
+        impl Traverser for FirstLine {
+            fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
+                match event {
+                    Event::Enter(
+                        Container::PropertyDrawer(_) | Container::Drawer(_)
+                        | Container::Comment(_) | Container::CommentBlock(_),
+                    ) => ctx.skip(),
+                    Event::Enter(Container::Paragraph(paragraph)) => {
+                        if let Some(line) = paragraph.raw().lines().find(|line| !line.trim().is_empty()) {
+                            let text = title_parts(line.trim())
+                                .into_iter()
+                                .map(|part| part.text)
+                                .collect::<String>();
+                            if !text.trim().is_empty() {
+                                self.0 = Some(text);
+                                ctx.stop();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut preview = FirstLine(None);
+        orgize::Org::parse(&body_without_planning(&self.body)).traverse(&mut preview);
+        preview.0
+    }
+
     pub fn title_parts(&self) -> Vec<TitlePart> {
         title_parts(&self.title)
     }

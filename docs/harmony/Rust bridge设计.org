@@ -112,7 +112,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~FilterTask.title_parts()~ | ~task.headingParts~ | bridge 在构造任务对象时投影，C++ 保留可枚举只读属性，路由传递不丢失链接。 |
 | ~OrgFile.category()~ | ~file.category()~ | 未配置或文件分类为 ~ARCHIVE~ 时为 ~null~ ，显式空声明为空字符串。 |
 | ~FilterTask.category()~ 、 ~is_repeating()~ | ~task.category~ 、 ~task.isRepeating~ | 只读、可枚举的查询快照；分类保留 ~null~ 与空字符串，重复标志来自 Core 的时间戳解析。 |
-| ~FilterTask.created_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，修改时间来自 Core 扫描所属文件时取得的本地磁盘修改时间。 |
+| ~FilterTask.created_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
 | ~OrgWorkspace.query(&TaskQuery)~ | ~workspace.query(query)~ | 结构化请求在 worker 中透传 Core，返回任务及分类统计。 |
@@ -361,3 +361,9 @@ C ABI 为 ~org_tasks_harmony_workspace_notifications~ ，复用现有字符串�
 ~CoreNotificationService~ 统一持有当前 workspace 的通知订阅，更新回调提升 ~coreNotifications.revision~ 并重新查询 ~notifications~ 。 ~AppShell~ 只按通知模块的数据版本使当前可见页面重新查询；隐藏页面恢复时检查遗漏版本。同步区域不再持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面；解决结果保存后同样由 Core 通知触发。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。
 
 ~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源仍是 ~notifications~ 。
+
+* 正文首行与修改时间排序
+
+~FilterTask.body_first_line()~ 在 Rust 查询投影时映射为只读、可枚举的 ~Task.bodyFirstLine: string | null~ ，C++、ArkTS wrapper 与路由完整透传，空正文保留 ~null~ 。任务 ~modifiedAt~ 通过 Core 的 ~modified_at()~ 获取，Core 仅解释标题自身的 ~LAST_MODIFIED~ 属性；属性缺失时为 ~null~ 。备忘摘要只组合 ~modifiedAt ?? createdAt~ 的本地日期、有效 ~tags~ 与 ~bodyFirstLine~ ，不从原始正文或 HTML 推断第一行。
+
+~FileTargetService.query~ 的备忘文件请求使用 ~b."路径" .o.modified~ ，完成与组合标题开关均开启。排序与缺失值置末由 Core 统一处理；宿主沿用返回顺序。固定卡片点击进入既有 ~MemoEdit~ ，左滑删除继续通过 ~NoteService.remove~ 提交带完整路径和文件版本的 Deletion。

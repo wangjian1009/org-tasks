@@ -22,6 +22,16 @@ fn tasks(source: &str) -> Vec<FilterTask> {
 }
 
 #[test]
+fn body_first_line_ignores_leading_blank_lines_and_metadata() {
+    let source = "* Note\r\n:PROPERTIES:\r\n:CREATED: [2026-11-08 Sun]\r\n:END:\r\n\r\n  \r\n*正文* [[https://example.org][链接]]\r\n第二行\r\n** Child\r\n子标题正文\r\n";
+    let records = tasks(source);
+    assert_eq!(records[0].body_first_line().as_deref(), Some("正文 链接"));
+    assert_eq!(records[1].body_first_line().as_deref(), Some("子标题正文"));
+    let empty = tasks("* Note\n:PROPERTIES:\n:ID: id\n:END:\n\n:LOGBOOK:\n- 日志内容\n:END:\n** Child\n子标题正文\n");
+    assert_eq!(empty[0].body_first_line(), None);
+}
+
+#[test]
 fn repetition_hint_uses_only_current_headline_planning() {
     for (planning, expected) in [
         ("SCHEDULED: <2026-11-06 Fri +1d>", true),

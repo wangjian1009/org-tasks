@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { CoreRepo, CoreTaskQueryResult, NativeCoreService } from './NativeCoreService'
-import { inboxRecordQuery } from './TaskViewQueries'
+import { inboxRecordQuery, memoRecordQuery } from './TaskViewQueries'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }
@@ -39,7 +39,7 @@ export class FileTargetService {
   static async query(config: AppConfig, kind: FileTargetKind): Promise<CoreTaskQueryResult | undefined> {
     const target = await FileTargetService.resolve(config, kind)
     if (!target) return undefined
-    const query = inboxRecordQuery(target.path)
+    const query = kind === 'memo' ? memoRecordQuery(target.path) : inboxRecordQuery(target.path)
     query.includeDone = kind !== 'someday'
     return await NativeCoreService.queryTasks([target.repository], query, config.todoDefaults)
   }

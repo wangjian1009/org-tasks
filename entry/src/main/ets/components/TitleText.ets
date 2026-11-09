@@ -16,6 +16,7 @@ export struct TitleText {
   @Prop cancelled: boolean = false
   @Prop copyable: boolean = false
   @Prop showCounts: boolean = true
+  @Prop openLinks: boolean = true
   activate: (() => void) | undefined = undefined
   @State chooserVisible: boolean = false
   @State mapChoices: MapAppChoice[] = []
@@ -49,11 +50,11 @@ export struct TitleText {
       } else {
         ForEach(this.parts, (part: CoreTitlePart) => {
           if (part.count) {
-          } else if (part.href) {
+          } else if (part.href && this.openLinks) {
             Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.primary)
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline })
               .onClick((): void => { this.openLink(part.href!) })
-          } else if (part.isLink) {
+          } else if (part.isLink && this.openLinks) {
             Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.secondary)
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline, color: UiColor.secondary, style: TextDecorationStyle.DASHED })
           } else {

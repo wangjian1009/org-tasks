@@ -154,7 +154,7 @@ pub struct FilterTask {
 }
 #+end_src
 
-~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值：~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 是 Core 扫描所属文件时取得的本地磁盘修改时间。两者缺失、不可解析或不可取得时均返回 ~None~ 。
+~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值：~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 仅从当前标题自身的 ~LAST_MODIFIED~ 属性解析 Unix 毫秒时间，属性名不区分大小写，不继承、不扫描正文或文件前言。两者缺失或不可解析时均返回 ~None~ ，任务修改时间不读取文件 mtime，也不使用创建时间补齐；读取不生成或回填属性。
 
 #+begin_src rust
 impl FilterTask {
@@ -700,6 +700,16 @@ logbook\_html: String \\
   has\_list: bool \\
   has\_text: bool}{}
 \umldep{FilterTask}{RenderedTaskContent}
+\end{tikzpicture}
+\end{center}
+
+** 正文首行投影
+
+~FilterTask.body_first_line()~ 使用 ~orgize~ 从当前标题正文中提取首个非空段落的第一行，返回 ~Option<String>~ ；跳过开头空行、规划、属性与 drawer，不包含子标题正文，并将行内样式和链接转为可读文字。无可读段落时返回 ~None~ 。结果只用于展示，不进入持久化或更改源字节。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{FilterTask}{body: String}{body\_first\_line(): Option\textless String\textgreater}
 \end{tikzpicture}
 \end{center}
 

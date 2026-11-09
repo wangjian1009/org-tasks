@@ -45,7 +45,9 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 * 排序与选项
 
-排序 token 为 ~o.<field>~ ；在前面增加点号表示降序。field 可为 ~book~ / ~b~ 、~title~ / ~t~ 、~scheduled~ / ~s~ 、~deadline~ / ~d~ 、~event~ / ~e~ 、~closed~ / ~c~ 、~created~ / ~cr~ 、~priority~ / ~p~ 、~state~ / ~st~ 和 ~position~ / ~pos~ 。未指定排序时，任务按相对文件路径与源字节位置排序。
+排序 token 为 ~o.<field>~ ；在前面增加点号表示降序。field 可为 ~book~ / ~b~ 、~title~ / ~t~ 、~scheduled~ / ~s~ 、~deadline~ / ~d~ 、~event~ / ~e~ 、~closed~ / ~c~ 、~created~ / ~cr~ 、 ~modified~ 、~priority~ / ~p~ 、~state~ / ~st~ 和 ~position~ / ~pos~ 。未指定排序时，任务按相对文件路径与源字节位置排序。
+
+~o.modified~ 与 ~.o.modified~ 按任务的 ~modified_at()~ 分别升序和降序排列；缺失修改时间的记录在两种方向下均置末，不使用创建时间替代。相同时间继续按文件与源位置排序。
 
 ~ad.<positive-integer>~ 设置 agenda 天数，不参与匹配。多个排序项按出现顺序依次比较。
 
@@ -53,7 +55,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 ~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存由 Core 生成的逻辑 ~id~ 、仓库 ID、相对路径、源位置、标题层级、状态、优先级、自身标签、继承标签、标题、正文和规划时间。~OrgWorkspace.query~ 汇总各仓库任务后由核心过滤器统一求值；宿主和 CLI 不得重新解释 org AST 或绕过 workspace 实现搜索。
 
-任务投影覆盖全部 headline，以保持 ~it.none~ 和 ~.it.done~ 的 headline 语义一致。参考应用还会为每个文件的前言创建无状态根笔记；core 不投影 ~#+TITLE~ 、文件属性或第一个 headline 前的文本，因此这些文件级前言不参与任务查询。创建日期从当前标题自身属性 drawer 的 ~CREATED~ 读取，键不区分大小写，不继承祖先值；无效日期、时间或非时间戳值不投影。 ~FilterTask.created~ 保留日期，供既有 ~cr.*~ 自然日语法匹配； ~created_at()~ 保留按设备本地时区解释的 Unix 毫秒时间，缺失或无效时返回 ~None~ 。 ~modified_at()~ 返回所属文件由 Core 扫描时取得的本地磁盘修改时间；内存中构造的文件或不可取得文件属性时返回 ~None~ 。只有日期时按本地 00:00 解释，夏令时回拨重复时刻选较早值，不存在的本地时刻忽略。 ~.o.created~ 按完整创建时间倒序，同一天可按时刻排序。
+任务投影覆盖全部 headline，以保持 ~it.none~ 和 ~.it.done~ 的 headline 语义一致。参考应用还会为每个文件的前言创建无状态根笔记；core 不投影 ~#+TITLE~ 、文件属性或第一个 headline 前的文本，因此这些文件级前言不参与任务查询。创建日期从当前标题自身属性 drawer 的 ~CREATED~ 读取，键不区分大小写，不继承祖先值；无效日期、时间或非时间戳值不投影。 ~FilterTask.created~ 保留日期，供既有 ~cr.*~ 自然日语法匹配； ~created_at()~ 保留按设备本地时区解释的 Unix 毫秒时间，缺失或无效时返回 ~None~ 。 ~modified_at()~ 仅从当前标题自身的 ~LAST_MODIFIED~ 属性解析，键不区分大小写，不继承祖先或文件级值；缺失、无效或非时间戳值返回 ~None~ ，不使用文件 mtime 或创建时间补齐。该属性与创建时间使用相同的本地时区解释规则，查询不生成或回填修改时间。只有日期时按本地 00:00 解释，夏令时回拨重复时刻选较早值，不存在的本地时刻忽略。 ~.o.created~ 按完整创建时间倒序，同一天可按时刻排序。
 
 任务 ID 在完整文件遍历时生成，独立于当前表达式、排序、分类及包含开关。归一化标题链、明文 JSON 编码与重复项规则见 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]]；查询结果不会按逻辑标题合并记录，也不因身份计算去除原始标题中的进度文本。
 

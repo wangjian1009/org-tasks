@@ -165,6 +165,7 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   await f.FileTargetService.select({}, 'memo', 'personal', 'inbox.org');
   await f.FileTargetService.query(f.config, 'memo');
   assert.equal(f.queries[2].query.includeDone, true);
+  assert.equal(f.queries[2].query.expression, 'b."inbox.org" .o.modified');
 });
 
 test('文件已删除或被忽略时不查询、不创建同名文件，保留原目标供重新选择', async () => {

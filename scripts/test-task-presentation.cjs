@@ -382,3 +382,21 @@ test('日期在列表中紧凑显示，详情使用完整日期时间', () => {
   assert.equal(syncLogs.syncLogTimeLabel(timestamp, true), '11-08 09:04');
   assert.equal(syncLogs.syncLogTimeLabel(timestamp), '2026-11-08 09:04');
 });
+
+const memoFile = path.resolve(__dirname, '../entry/src/main/ets/ui/MemoListPresentation.ets');
+const memoCode = ts.transpileModule(fs.readFileSync(memoFile, 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+});
+const memoPresentation = {};
+vm.runInThisContext('(function(exports){' + memoCode.outputText + '\n})', { filename: memoFile })(memoPresentation);
+
+test('备忘摘要优先修改日期，回退创建日期，按日期、标签、Core 首行正文拼接', () => {
+  const note = task('memo', { modifiedAt: new Date(2026, 10, 9, 12).getTime(),
+    createdAt: new Date(2026, 9, 1, 12).getTime(), tags: ['家居', '装修'],
+    body: '\n\n正文第一行\n第二行', bodyFirstLine: '正文第一行', scheduled: '2030-01-01' });
+  assert.equal(memoPresentation.memoSummaryText(note), '11月9日  #家居 #装修  正文第一行');
+  assert.equal(memoPresentation.memoSummaryText(task('memo', { modifiedAt: null,
+    createdAt: new Date(2026, 9, 1, 12).getTime(), tags: [], bodyFirstLine: '只有正文' })), '10月1日  只有正文');
+  assert.equal(memoPresentation.memoSummaryText(task('memo', { modifiedAt: null, createdAt: null,
+    tags: [], bodyFirstLine: null })), '');
+});

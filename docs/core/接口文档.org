@@ -111,7 +111,7 @@ impl OrgWorkspace {
 
 ~FilterTask.task_id()~ 对待办和已完成任务返回可空明文身份，非任务标题返回 ~None~ 。逻辑路径规则保持不变，采用紧凑 JSON 字符串直接编码，不再使用 MD5。 ~full_path()~ 对仓库、文件及所有标题节点返回 ~TaskPath~ ，标题链保留无状态祖先；身份与完整结构定位各自独立，具体定义见 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]] 和 [[file:数据模型.org::*完整结构路径与插入位置][完整结构路径与插入位置]] 。
 
-~FilterTask~ 的字段不作为跨 crate 访问契约公开。宿主使用 ~id()~ 、 ~repo_id()~ 、 ~path()~ 、 ~title()~ 、 ~body()~ 、 ~state()~ 、 ~priority()~ 、 ~category()~ 、 ~own_tags()~ 、 ~inherited_tags()~ 、 ~scheduled()~ 、 ~deadline()~ 、 ~closed()~ 、 ~created()~ 与 ~address_links()~ 等方法读取查询快照；缺失的状态、优先级、分类、规划日期和地址均通过可空返回值表达。 ~created_at()~ 和 ~modified_at()~ 均返回 ~Option<TimestampMs>~ ，前者来自标题自身的 ~CREATED~ 属性，后者来自 Core 扫描所属文件时取得的本地磁盘修改时间；任务操作成功提交后，Core 会重新取得受影响文件的修改时间。
+~FilterTask~ 的字段不作为跨 crate 访问契约公开。宿主使用 ~id()~ 、 ~repo_id()~ 、 ~path()~ 、 ~title()~ 、 ~body()~ 、 ~state()~ 、 ~priority()~ 、 ~category()~ 、 ~own_tags()~ 、 ~inherited_tags()~ 、 ~scheduled()~ 、 ~deadline()~ 、 ~closed()~ 、 ~created()~ 与 ~address_links()~ 等方法读取查询快照；缺失的状态、优先级、分类、规划日期和地址均通过可空返回值表达。 ~created_at()~ 和 ~modified_at()~ 均返回 ~Option<TimestampMs>~ ，前者来自标题自身的 ~CREATED~ 属性，后者仅来自当前标题自身属性 drawer 中的 ~LAST_MODIFIED~ 。属性名不区分大小写，不继承父标题或文件级值；缺失或无效时返回 ~None~ ，不使用文件 mtime、创建时间或当前时间补齐。任务查询只读该属性，不自动生成或回填修改时间。
 
 *** OrgRepo
 
@@ -623,6 +623,10 @@ impl FilterTask {
 #+end_src
 
 render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 沿用折叠展示，日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。 ~has_list~ 标记真实列表，~has_text~ 标记列表之外的可读正文，二者均排除日志、drawer、源码和字面块，不在宿主通过原文或 HTML 推断。输出仅供运行时展示，不保存到同步记录或 outbox。
+
+** 正文首行投影
+
+~FilterTask.body_first_line() -> Option<String>~ 返回当前标题正文首个非空段落的第一行，跳过开头空行、规划、属性 drawer、日志及其他 drawer，不包含子标题正文；Org 行内样式、链接和实体转为可读文字。没有可读段落时返回 ~None~ ，源字节不变。该通用只读接口不持有备忘页面语义。
 
 ** 标题文字与外部链接投影
 

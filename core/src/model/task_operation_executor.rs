@@ -55,14 +55,10 @@ impl OrgWorkspace {
         commit(self, group, &files).await?;
         for ((id, path), item) in files {
             let repo = self.repo_mut(&id).expect("已验证仓库");
-            let mut file = item.file;
-            if item.original.as_deref() != Some(file.source_bytes()) {
-                file.modified_at = file_modified_at(&item.disk).await;
-            }
             if let Some(previous) = repo.files.iter_mut().find(|file| file.path == path) {
-                *previous = file;
+                *previous = item.file;
             } else {
-                repo.files.push(file);
+                repo.files.push(item.file);
             }
         }
         self.task_operation_history
@@ -81,11 +77,6 @@ impl OrgWorkspace {
         }
         Ok(TaskOperationResult { paths, fallback })
     }
-}
-
-async fn file_modified_at(path: &Path) -> Option<crate::TimestampMs> {
-    let modified = fs::metadata(path).await.ok()?.modified().ok()?;
-    Some(chrono::DateTime::<chrono::Utc>::from(modified).timestamp_millis())
 }
 
 fn key(path: &TaskPath) -> Result<FileKey, CoreError> {

@@ -81,6 +81,7 @@ pub struct HarmonyBridgeTask {
     pub file_name: String,
     pub level: u32,
     pub body: String,
+    pub body_first_line: Option<String>,
     #[serde(rename = "addressLinks")]
     pub address_links: Vec<org_tasks_core::AddressLink>,
     pub body_html: String,
@@ -281,6 +282,7 @@ fn task_from_filter(
         file_path: path,
         level: task.level(),
         body: task.body().to_owned(),
+        body_first_line: task.body_first_line(),
         address_links: task.address_links().to_vec(),
         body_html: content.body_html,
         logbook_html: content.logbook_html,
@@ -989,7 +991,7 @@ mod tests {
         assert_eq!(task["addressLinks"][0]["uri"], "geo:39.9,116.4");
         assert!(task["bodyHtml"].as_str().unwrap().contains("geo:39.9,116.4"));
         assert_eq!(task["isDone"], false);
-        assert!(task["modifiedAt"].as_i64().is_some());
+        assert!(task["modifiedAt"].is_null());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1056,7 +1058,7 @@ mod tests {
         assert_eq!(tasks[0]["isCancelled"], false);
         assert_eq!(tasks[1]["isCancelled"], true);
         assert!(tasks[0]["createdAt"].as_i64().is_some());
-        assert!(tasks[0]["modifiedAt"].as_i64().is_some());
+        assert!(tasks[0]["modifiedAt"].is_null());
         let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created", "includeDone": true });
         let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, query.to_string()).unwrap()).unwrap();
         // 固定样例只在其创建日期落入最近三个自然日时匹配。
@@ -1068,6 +1070,27 @@ mod tests {
         let excluded = serde_json::json!({ "excludedFiles": [{ "repoId":tasks[0]["repoId"], "path":"tasks.org" }] });
         let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, excluded.to_string()).unwrap()).unwrap();
         assert!(result["tasks"].as_array().unwrap().is_empty());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_modified_time_projects_own_property_and_keeps_disk_only_time_null() {
+        let root = std::env::temp_dir().join(format!("org-task-modified-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "* Missing\n:PROPERTIES:\n:CREATED: [2030-01-01 Tue 12:00]\n:END:\n* Old\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 09:00]\n:END:\n* New\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-09 Mon 10:00]\n:END:\n";
+        std::fs::write(root.join("notes.org"), source).unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let result: serde_json::Value = serde_json::from_str(
+            &workspace_query_json(handle, r#"{"expression":".o.modified"}"#.into()).unwrap(),
+        ).unwrap();
+        let tasks = result["tasks"].as_array().unwrap();
+        assert_eq!(tasks.iter().map(|task| task["heading"].as_str().unwrap()).collect::<Vec<_>>(), ["New", "Old", "Missing"]);
+        assert!(tasks[0]["modifiedAt"].as_i64().unwrap() > tasks[1]["modifiedAt"].as_i64().unwrap());
+        assert!(tasks[2]["modifiedAt"].is_null());
+        assert!(tasks[2]["createdAt"].as_i64().is_some());
+        assert_eq!(std::fs::read_to_string(root.join("notes.org")).unwrap(), source);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1363,6 +1386,7 @@ mod todo_tests {
         assert_eq!(value["scheduled"], "2026-11-06");
         assert!(value["modifiedAt"].is_null());
         assert!(value["bodyHtml"].as_str().unwrap().contains("<ul>"));
+        assert_eq!(value["bodyFirstLine"], "First");
         assert_eq!(value["tags"][0], "work");
     }
 }

@@ -9,6 +9,21 @@ fn local(value: &str) -> i64 {
         .unwrap()
         .timestamp_millis()
 }
+
+#[test]
+fn modified_time_uses_only_own_valid_last_modified_property() {
+    let source = "#+PROPERTY: LAST_MODIFIED [2026-11-09 Mon 12:00]\n* Parent\n:PROPERTIES:\n:last_modified: [2026-11-08 Sun 09:30]\n:END:\n** Child\nBody [2026-11-09 Mon 12:00]\n* DateOnly\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-07 Sat]\n:END:\n* CreatedOnly\n:PROPERTIES:\n:CREATED: [2026-11-09 Mon 10:00]\n:END:\n* BadDate\n:PROPERTIES:\n:LAST_MODIFIED: [2026-02-30 Mon 12:00]\n:END:\n* BadTime\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 25:00]\n:END:\n* Text\n:PROPERTIES:\n:LAST_MODIFIED: prefix [2026-11-08 Sun 12:00]\n:END:\n* Range\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun]--[2026-11-09 Mon]\n:END:\n* Literal\n#+begin_src org\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 12:00]\n:END:\n#+end_src\n";
+    let workspace = OrgWorkspace::new(vec![repo("a", &[("notes.org", source)])]).unwrap();
+    let tasks = workspace.query(&TaskQuery { expression: ".o.modified".into(), ..Default::default() }).unwrap().tasks;
+    assert_eq!(tasks[0].title(), "Parent");
+    assert_eq!(tasks[0].modified_at(), Some(local("2026-11-08 09:30")));
+    assert_eq!(tasks[1].title(), "DateOnly");
+    assert_eq!(tasks[1].modified_at(), Some(local("2026-11-07 00:00")));
+    for task in &tasks[2..] {
+        assert!(task.modified_at().is_none(), "{}", task.title());
+    }
+    assert_eq!(workspace.repos()[0].files()[0].source_bytes(), source.as_bytes());
+}
 fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
     let mut repo = OrgRepo::new(format!("/unused/{id}")).unwrap();
     repo.id = id.into();

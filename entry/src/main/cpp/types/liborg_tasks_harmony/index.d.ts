@@ -83,6 +83,7 @@ export class Task {
   readonly fileName: string;
   readonly level: number;
   readonly body: string;
+  readonly bodyFirstLine: string | null;
   readonly addressLinks: AddressLink[];
   readonly bodyHtml: string;
   readonly logbookHtml: string;

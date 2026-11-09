@@ -118,6 +118,7 @@ enum FilterSortField {
     Event,
     Closed,
     Created,
+    Modified,
     Priority,
     State,
     Position,
@@ -262,7 +263,7 @@ impl FilterTask {
         self.created_at
     }
 
-    /// 所属文件在 Core 扫描时取得的本地磁盘修改时间。
+    /// 当前标题自身 LAST_MODIFIED 属性的时间；缺失或无效时为空。
     pub fn modified_at(&self) -> Option<crate::TimestampMs> {
         self.modified_at
     }
@@ -452,6 +453,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             _ => FilterStateType::None,
         };
         let address_links = extract_address_links(&headline);
+        let created = property_time(&headline, "CREATED");
         tasks.push(FilterTask {
             id: identities.id_for(&headline, state_type != FilterStateType::None),
             full_path,
@@ -476,19 +478,19 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
             deadline_warning: planning_warning(&headline, "DEADLINE", headline.deadline()),
             closed: planning_date(&headline, "CLOSED", headline.closed()),
-            created: creation_time(&headline).map(|value| value.0),
-            created_at: creation_time(&headline).map(|value| value.1),
-            modified_at: file.modified_at,
+            created: created.map(|value| value.0),
+            created_at: created.map(|value| value.1),
+            modified_at: property_time(&headline, "LAST_MODIFIED").map(|value| value.1),
             events,
         });
     }
     tasks
 }
 
-// CREATED 仅从当前标题自身的属性抽屉读取，不继承、不扫描正文或文件前言。
-fn creation_time(headline: &Headline) -> Option<(FilterDate, crate::TimestampMs)> {
+// 时间属性仅从当前标题自身的属性抽屉读取，不继承、不扫描正文或文件前言。
+fn property_time(headline: &Headline, property: &str) -> Option<(FilterDate, crate::TimestampMs)> {
     let value = headline.properties()?.iter().find_map(|(key, value)| {
-        key.eq_ignore_ascii_case("CREATED").then(|| value.to_string())
+        key.eq_ignore_ascii_case(property).then(|| value.to_string())
     })?;
     let value = value.trim();
     let timestamp = orgize::Org::parse(value).first_node::<Timestamp>()?;
@@ -908,6 +910,14 @@ fn interval_date(interval: FilterInterval, today: NaiveDate) -> NaiveDate {
 fn sort_tasks(tasks: &mut [FilterTask], orders: &[FilterSort]) {
     tasks.sort_by(|left, right| {
         for order in orders {
+            // 修改时间缺失始终置末，不随升降序反转，也不使用创建时间替代。
+            if order.field == FilterSortField::Modified {
+                match (left.modified_at, right.modified_at) {
+                    (Some(_), None) => return Ordering::Less,
+                    (None, Some(_)) => return Ordering::Greater,
+                    _ => {}
+                }
+            }
             let result = compare_sort(left, right, order.field);
             if result != Ordering::Equal {
                 return if order.descending {
@@ -933,6 +943,7 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
         FilterSortField::Deadline => left.deadline.cmp(&right.deadline),
         FilterSortField::Closed => left.closed.cmp(&right.closed),
         FilterSortField::Created => left.created_at.cmp(&right.created_at),
+        FilterSortField::Modified => left.modified_at.cmp(&right.modified_at),
         FilterSortField::Event => left.events.first().cmp(&right.events.first()),
         FilterSortField::Position => left
             .path
@@ -1188,6 +1199,7 @@ fn parse_sort(token: &str) -> Option<FilterSort> {
         "event" | "e" => FilterSortField::Event,
         "closed" | "close" | "c" => FilterSortField::Closed,
         "created" | "cr" => FilterSortField::Created,
+        "modified" => FilterSortField::Modified,
         "priority" | "prio" | "pri" | "p" => FilterSortField::Priority,
         "state" | "st" => FilterSortField::State,
         "position" | "pos" => FilterSortField::Position,
@@ -1270,6 +1282,23 @@ impl BoolNot for bool {
 mod tests {
     use super::*;
     use crate::OrgFile;
+
+    #[test]
+    fn modified_sort_keeps_missing_values_last_and_uses_source_order_for_ties() {
+        let mut file = OrgFile::new("repo".into(), "notes.org".into(),
+            b"* Missing\n:PROPERTIES:\n:CREATED: [2030-01-01 Tue 12:00]\n:END:\n* Old\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 09:00]\n:END:\n* New\n:PROPERTIES:\n:last_modified: [2026-11-09 Mon 10:00]\n:END:\n* Same time\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-09 Mon 10:00]\n:END:\n".to_vec()).unwrap();
+        // 文件 mtime 即使可用，也不能为缺失任务属性补值或参与排序。
+        file.modified_at = Some(999_999_999_999);
+        let repo = OrgRepo::new("/tmp/modified-sort".into()).unwrap();
+        let mut tasks = tasks_from_file(&repo, &file);
+        assert!(tasks[0].modified_at().is_none());
+        Filter::parse(".o.modified").filter_tasks(&mut tasks);
+        assert_eq!(tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            ["New", "Same time", "Old", "Missing"]);
+        Filter::parse("o.modified").filter_tasks(&mut tasks);
+        assert_eq!(tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            ["Old", "New", "Same time", "Missing"]);
+    }
 
     #[test]
     fn created_window_matches_three_local_calendar_days() {
