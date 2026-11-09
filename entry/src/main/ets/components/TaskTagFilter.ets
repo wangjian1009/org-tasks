@@ -1,4 +1,4 @@
-import { TaskTagSelection, toggleTaskTag } from '../ui/TaskTagFilterPresentation'
+import { TaskTagSelection, toggleTaskTag, groupedTaskTags } from '../ui/TaskTagFilterPresentation'
 import { UiColor } from '../ui/Theme'
 
 @Component
@@ -27,6 +27,7 @@ export struct TaskTagFilter {
   @Prop tags: string[] = []
   @Prop selectedTags: string[] = []
   @Prop includeUntagged: boolean = false
+  @Prop exclusiveGroups: string[][] = []
   changed: (selection: TaskTagSelection) => void = () => {}
 
   allSelected(): boolean { return this.selectedTags.length === 0 && !this.includeUntagged }
@@ -56,11 +57,24 @@ export struct TaskTagFilter {
               this.changed({ tags: this.selectedTags, includeUntagged: false })
             } })
           }
-          ForEach(this.tags, (tag: string) => {
-            TaskTagChip({ label: tag, selected: this.selectedTags.includes(tag), activate: (): void => {
-              this.changed(toggleTaskTag(this.selection(), tag))
-            } })
-          }, (tag: string) => tag)
+          if (this.exclusiveGroups.length > 0) {
+            ForEach(groupedTaskTags(this.tags, this.exclusiveGroups), (group: string[], index: number) => {
+              Row({ space: 2 }) {
+                if (index > 0) { Divider().vertical(true).height(18).color(UiColor.outline).margin({ left: 6, right: 6 }) }
+                ForEach(group, (tag: string) => {
+                  TaskTagChip({ label: tag, selected: this.selectedTags.includes(tag), activate: (): void => {
+                    this.changed(toggleTaskTag(this.selection(), tag, this.exclusiveGroups))
+                  } })
+                }, (tag: string) => tag)
+              }.alignItems(VerticalAlign.Center)
+            }, (group: string[]) => JSON.stringify(group))
+          } else {
+            ForEach(this.tags, (tag: string) => {
+              TaskTagChip({ label: tag, selected: this.selectedTags.includes(tag), activate: (): void => {
+                this.changed(toggleTaskTag(this.selection(), tag))
+              } })
+            }, (tag: string) => tag)
+          }
         }.alignItems(VerticalAlign.Center)
       }.layoutWeight(1).scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.None).align(Alignment.Start)

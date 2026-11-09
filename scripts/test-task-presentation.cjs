@@ -282,6 +282,34 @@ test('计划按日期组织原任务快照，保留空日期、月分组与分�
 
 const tagFilters = loadGrouping('TaskTagFilterPresentation', {});
 
+test('备忘 TAGS 花括号组互斥切换，跨组匹配交集，未分组标签保留并集', () => {
+  const groups = [['iOS', 'Android'], ['BUG', 'FEAT'], ['SDK', 'COOL']];
+  const selection = { tags: ['iOS', 'BUG', 'SDK'], includeUntagged: false };
+  const changed = tagFilters.toggleTaskTag(selection, 'Android', groups);
+  assert.deepEqual(changed, { tags: ['BUG', 'SDK', 'Android'], includeUntagged: false });
+  assert.deepEqual(selection.tags, ['iOS', 'BUG', 'SDK']);
+  assert.deepEqual(tagFilters.toggleTaskTag(changed, 'Android', groups).tags, ['BUG', 'SDK']);
+  const tasks = [task('ios-bug', { tags: ['iOS', 'BUG', 'SDK'] }), task('android-bug', { tags: ['Android', 'BUG', 'SDK'] }),
+    task('ios-feat', { tags: ['iOS', 'FEAT', 'SDK'] }), task('ios-bug-cool', { tags: ['iOS', 'BUG', 'COOL'] }), task('none')];
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, selection, groups), [tasks[0]]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['iOS', 'BUG'], includeUntagged: true }, groups), [tasks[0], tasks[3], tasks[4]]);
+  assert.deepEqual(tagFilters.reconcileTaskTags({ tags: ['iOS', 'Android', 'BUG'], includeUntagged: false },
+    ['iOS', 'Android', 'BUG'], groups).tags, ['Android', 'BUG']);
+  assert.deepEqual(tagFilters.groupedTaskTags(['Android', 'BUG', 'iOS', '自定义'], groups), [['iOS', 'Android'], ['BUG'], ['自定义']]);
+});
+
+test('备忘标签候选合并任务标签与 TAGS 配置，未使用候选保留但不赋给任务', () => {
+  const tasks = [task('a', { tags: ['家居'] }), task('b', { tags: ['工作'] }), task('c')];
+  const configured = ['家居', 'unused'];
+  const options = tagFilters.taskTagOptions(tasks, configured);
+  assert.deepEqual(options, ['unused', '家居', '工作'].sort((a, b) => a.localeCompare(b)));
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['unused'], includeUntagged: false }), []);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['家居'], includeUntagged: false }), [tasks[0]]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: [], includeUntagged: true }), [tasks[2]]);
+  assert.deepEqual(tagFilters.taskTagOptions([], configured), configured.slice().sort((a, b) => a.localeCompare(b)));
+  assert.deepEqual(configured, ['家居', 'unused']);
+});
+
 test('标签候选从完整任务快照去重，包含 Core 提供的继承标签且不随当前选择缩减', () => {
   const tasks = [task('a', { tags: ['阅读', '技术'] }), task('b', { tags: ['外出', '阅读'] }), task('c')];
   assert.deepEqual(tagFilters.taskTagOptions(tasks), ['外出', '技术', '阅读'].sort((a, b) => a.localeCompare(b)));

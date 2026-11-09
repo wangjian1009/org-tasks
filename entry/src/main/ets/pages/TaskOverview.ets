@@ -13,7 +13,7 @@ import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { NoteService } from '../services/NoteService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreTask, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTask, CoreTaskQueryResult, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups } from '../ui/PlannedPresentation'
@@ -29,6 +29,7 @@ struct TaskOverview {
   @State tasks: CoreTask[] = []
   @State visibleTasks: CoreTask[] = []
   @State tagOptions: string[] = []
+  @State tagGroups: string[][] = []
   @State selectedTags: string[] = []
   @State includeUntagged: boolean = false
   @State sections: TodaySection[] = []
@@ -62,7 +63,7 @@ struct TaskOverview {
   }
 
   supportsTagFilter(): boolean {
-    return this.view === 'today' || this.view === 'anytime' || this.view === 'someday'
+    return this.view === 'today' || this.view === 'anytime' || this.view === 'someday' || this.view === 'memo'
   }
 
   confirmDeleteMemo(task: CoreTask) {
@@ -98,7 +99,7 @@ struct TaskOverview {
   applyTagFilter(selection: TaskTagSelection) {
     this.selectedTags = selection.tags
     this.includeUntagged = selection.includeUntagged
-    this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection) : this.tasks
+    this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
     this.sections = this.view === 'today' ? todaySections(this.visibleTasks) : []
   }
 
@@ -109,15 +110,26 @@ struct TaskOverview {
     this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const result = this.view === 'someday' || this.view === 'memo'
-        ? await FileTargetService.query(config, this.view)
-        : await NativeCoreService.queryTasks(config.repos, overviewTaskQuery(this.view), config.todoDefaults)
+      let result: CoreTaskQueryResult | undefined = undefined
+      let configuredTags: string[] = []
+      let configuredGroups: string[][] = []
+      if (this.view === 'someday' || this.view === 'memo') {
+        const fileResult = await FileTargetService.query(config, this.view)
+        result = fileResult
+        if (this.view === 'memo') {
+          configuredTags = fileResult?.tagOptions ?? []
+          configuredGroups = fileResult?.tagGroups ?? []
+        }
+      } else {
+        result = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery(this.view), config.todoDefaults)
+      }
       if (request !== this.requestId) return
       if (!result) {
         this.needsConfiguration = true
         this.tasks = []
         this.visibleTasks = []
         this.tagOptions = []
+        this.tagGroups = []
         this.sections = []
         this.planGroups = []
         return
@@ -126,9 +138,10 @@ struct TaskOverview {
       if (this.view === 'planned') planGroups = plannedGroups(result.tasks)
       if (request !== this.requestId) return
       this.tasks = result.tasks
-      this.tagOptions = this.supportsTagFilter() ? taskTagOptions(result.tasks) : []
+      this.tagOptions = this.supportsTagFilter() ? taskTagOptions(result.tasks, configuredTags) : []
+      this.tagGroups = configuredGroups
       this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged },
-        this.tagOptions))
+        this.tagOptions, this.tagGroups))
       this.referenceTime = Date.now()
       this.planGroups = planGroups
     } catch (e) {
@@ -136,6 +149,7 @@ struct TaskOverview {
         this.tasks = []
         this.visibleTasks = []
         this.tagOptions = []
+        this.tagGroups = []
         this.sections = []
         this.planGroups = []
         this.message = `读取任务失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -171,7 +185,7 @@ struct TaskOverview {
         NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
       } else {
         if (this.supportsTagFilter()) {
-          TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags,
+          TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags, exclusiveGroups: this.tagGroups,
             includeUntagged: this.includeUntagged, changed: (selection: TaskTagSelection): void => {
               this.applyTagFilter(selection)
             } })

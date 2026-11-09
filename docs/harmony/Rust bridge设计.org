@@ -222,7 +222,7 @@ interface TaskQueryResult {
 
 Rust 默认不限制表达式、分类和文件，两个包含开关均为真。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。
 
-不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。今天、随时、某天的标签筛选条是明确的展示层例外，仅按已取得的 ~task.tags~ 控制本页任务可见性，不更改上述 bridge、查询参数或原始快照；不新增 Core 请求，不影响全局计数。
+不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。今天、随时、某天和备忘的标签筛选条是明确的展示层例外，仅按已取得的 ~task.tags~ 控制本页任务可见性，不更改上述 bridge、查询参数或原始快照；不新增 Core 请求，不影响全局计数。
 
 * 轻量文件清单
 
@@ -232,6 +232,8 @@ interface OrgFileMetadata {
   readonly path: string
   readonly title: string | null
   readonly titleParts: TitlePart[]
+  readonly tagOptions: string[]
+  readonly tagGroups: string[][]
   readonly isIgnore: boolean
   readonly taskCount: number
   readonly byteLength: number
@@ -361,6 +363,12 @@ C ABI 为 ~org_tasks_harmony_workspace_notifications~ ，复用现有字符串�
 ~CoreNotificationService~ 统一持有当前 workspace 的通知订阅，更新回调提升 ~coreNotifications.revision~ 并重新查询 ~notifications~ 。 ~AppShell~ 只按通知模块的数据版本使当前可见页面重新查询；隐藏页面恢复时检查遗漏版本。同步区域不再持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面；解决结果保存后同样由 Core 通知触发。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。
 
 ~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源仍是 ~notifications~ 。
+
+* 备忘标签候选
+
+~OrgFileMetadata.tagOptions: string[]~ 和 ~tagGroups: string[][]~ 分别由 Core 的 ~OrgFile.tag_options()~ 与 ~tag_groups()~ 生成，通过既有文件元信息 JSON 原样透传；C++ worker 与 ~CoreRepo.fileMetadata()~ 不解析标签，不增加独立 native 请求。 ~FileTargetService.resolve~ 只保留所选文件的候选和互斥组， ~FileTargetService.query~ 在现有任务与分类结果旁携带这些配置；其他文件或仓库配置不混入。
+
+Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保留花括号互斥组，不为任务赋标签。备忘页把候选与完整 ~Task.tags~ 快照合并，按配置顺序区分各组；同组单选、组间交集，未分组标签按并集匹配，其他页面仍使用原有筛选方式。 ~TAGS~ 中未使用的候选可以显示，但只有任务实际标签参与匹配；不在 ArkTS 解析 Org。
 
 * 正文首行与修改时间排序
 

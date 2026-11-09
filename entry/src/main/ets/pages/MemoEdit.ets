@@ -1,6 +1,8 @@
 import { CoreTask } from '../services/NativeCoreService'
 import { NoteService } from '../services/NoteService'
 import { MemoEditor } from '../components/MemoEditor'
+import { CoreNotificationsView } from '../components/CoreNotificationsView'
+import { CoreNotificationService, CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { EmptyState } from '../components/Controls'
 import { UiColor } from '../ui/Theme'
@@ -10,6 +12,7 @@ interface MemoParams { task?: CoreTask; create?: boolean }
 @Entry
 @Component
 struct MemoEdit {
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State memo: CoreTask | undefined = undefined
   @State heading: string = ''
   @State body: string = ''
@@ -24,6 +27,18 @@ struct MemoEdit {
     this.creating = params?.create === true
     this.heading = this.memo?.heading || ''
     this.body = this.memo?.body || ''
+  }
+
+  onPageShow() { this.refreshNotifications() }
+
+  async refreshNotifications() {
+    try {
+      await CoreNotificationService.refresh(this.getUIContext().getHostContext()!)
+    } catch (e) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: `读取通知失败：${coreErrorMessage(e as CoreBridgeError)}` })
+      } catch (_) { console.error('显示备忘通知读取错误失败') }
+    }
   }
 
   onBackPress(): boolean {
@@ -107,6 +122,10 @@ struct MemoEdit {
       }.width('100%').height(64).padding({ left: 4, right: 4 }).alignItems(VerticalAlign.Center)
         .backgroundColor(UiColor.surface)
       Divider().color(UiColor.outline).strokeWidth(0.5)
+      if (this.notificationState.notifications.length > 0) {
+        CoreNotificationsView({ disabled: this.working || this.committed })
+          .margin({ bottom: 12 })
+      }
       if (this.message.length > 0) {
         Text(this.message).width('100%').padding({ left: 16, right: 16, top: 8, bottom: 8 })
           .fontSize(13).fontColor(UiColor.error).backgroundColor(UiColor.container)

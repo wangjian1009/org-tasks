@@ -217,6 +217,8 @@ export interface OrgFileMetadata {
   readonly path: string;
   readonly title: string | null;
   readonly titleParts: TitlePart[];
+  readonly tagOptions: string[];
+  readonly tagGroups: string[][];
   readonly isIgnore: boolean;
   readonly taskCount: number;
   readonly byteLength: number;

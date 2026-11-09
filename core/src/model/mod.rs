@@ -13,6 +13,7 @@ mod render;
 pub(crate) mod service;
 pub(crate) mod task_identity;
 mod task_scan;
+mod tags;
 mod task_path;
 mod task_operation;
 mod task_operation_executor;
@@ -59,6 +60,8 @@ pub struct OrgFileMetadata {
     pub path: String,
     pub title: Option<String>,
     pub title_parts: Vec<TitlePart>,
+    pub tag_options: Vec<String>,
+    pub tag_groups: Vec<Vec<String>>,
     pub is_ignore: bool,
     pub task_count: usize,
     pub byte_length: usize,
@@ -117,6 +120,8 @@ impl OrgRepo {
                 path: file.path.clone(),
                 title: file.title(),
                 title_parts: file.title_parts(),
+                tag_options: file.tag_options(),
+                tag_groups: file.tag_groups(),
                 is_ignore: self.task_scan_rules.excludes(&file.path),
                 task_count: if self.task_scan_rules.excludes(&file.path) {
                     0
@@ -581,7 +586,9 @@ mod tests {
             assert_eq!(metadata[0].path, "work.org");
             assert_eq!(repo.files[0].source_bytes(), source.as_bytes());
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 8);
+            assert_eq!(value.as_object().unwrap().len(), 10);
+            assert_eq!(value["tagOptions"], serde_json::json!([]));
+            assert_eq!(value["tagGroups"], serde_json::json!([]));
             assert_eq!(
                 value["titleParts"],
                 serde_json::to_value(&metadata[0].title_parts).unwrap()

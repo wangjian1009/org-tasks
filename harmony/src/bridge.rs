@@ -855,7 +855,7 @@ mod tests {
     fn lightweight_file_metadata_reloads_titles_without_full_content() {
         let root = std::env::temp_dir().join(format!("org-tasks-metadata-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("work.org"), "#+TITLE: 工作计划\n* TODO Task\n").unwrap();
+        std::fs::write(root.join("work.org"), "#+TITLE: 工作计划\n#+TAGS: { 家居(j) unused(u) }\n* TODO Task :家居:\n").unwrap();
         let handle = create_workspace().unwrap();
         let directory = root.to_string_lossy().to_string();
         workspace_add_repo(handle, directory.clone()).unwrap();
@@ -865,6 +865,10 @@ mod tests {
         assert_eq!(metadata[0]["title"], "工作计划");
         assert_eq!(metadata[0]["path"], "work.org");
         assert_eq!(metadata[0]["isIgnore"], false);
+        assert_eq!(metadata[0]["tagOptions"], serde_json::json!(["家居", "unused"]));
+        assert_eq!(metadata[0]["tagGroups"], serde_json::json!([["家居", "unused"]]));
+        let tasks: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, r#"{"expression":"t.家居"}"#.into()).unwrap()).unwrap();
+        assert_eq!(tasks["tasks"][0]["tags"], serde_json::json!(["家居"]));
         assert!(metadata[0].get("source").is_none());
         assert!(metadata[0].get("renderedHtml").is_none());
         let full: serde_json::Value = serde_json::from_str(
@@ -882,6 +886,8 @@ mod tests {
         let changed: serde_json::Value =
             serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
         assert_eq!(changed[0]["title"], "");
+        assert_eq!(changed[0]["tagOptions"], serde_json::json!([]));
+        assert_eq!(changed[0]["tagGroups"], serde_json::json!([]));
         std::fs::write(root.join(".orgzlyignore"), "work.org\n").unwrap();
         let ignored: serde_json::Value = serde_json::from_str(
             &repo_file_metadata_json(handle, root.to_string_lossy().into()).unwrap(),

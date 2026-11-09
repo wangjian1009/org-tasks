@@ -6,7 +6,8 @@ import { inboxRecordQuery, memoRecordQuery } from './TaskViewQueries'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }
-export interface ResolvedFileTarget { repository: RepoConfig; repo: CoreRepo; path: string }
+export interface ResolvedFileTarget { repository: RepoConfig; repo: CoreRepo; path: string; tagOptions: string[]; tagGroups: string[][] }
+export interface FileTargetQueryResult extends CoreTaskQueryResult { tagOptions: string[]; tagGroups: string[][] }
 
 export function configuredFileTarget(config: AppConfig, kind: FileTargetKind): FileTarget {
   if (kind === 'inbox') return { repoId: config.inboxRepoId, path: config.inboxFile }
@@ -32,16 +33,18 @@ export class FileTargetService {
     const target = configuredFileTarget(config, kind)
     const repo = await NativeCoreService.repository([repository], repository, config.todoDefaults)
     const files = await repo.fileMetadata()
-    if (!files.some(file => file.path === target.path && !file.isIgnore)) return undefined
-    return { repository, repo, path: target.path }
+    const file = files.find(file => file.path === target.path && !file.isIgnore)
+    if (!file) return undefined
+    return { repository, repo, path: target.path, tagOptions: file.tagOptions ?? [], tagGroups: file.tagGroups ?? [] }
   }
 
-  static async query(config: AppConfig, kind: FileTargetKind): Promise<CoreTaskQueryResult | undefined> {
+  static async query(config: AppConfig, kind: FileTargetKind): Promise<FileTargetQueryResult | undefined> {
     const target = await FileTargetService.resolve(config, kind)
     if (!target) return undefined
     const query = kind === 'memo' ? memoRecordQuery(target.path) : inboxRecordQuery(target.path)
     query.includeDone = kind !== 'someday'
-    return await NativeCoreService.queryTasks([target.repository], query, config.todoDefaults)
+    const result = await NativeCoreService.queryTasks([target.repository], query, config.todoDefaults)
+    return { tasks: result.tasks, categories: result.categories, tagOptions: target.tagOptions, tagGroups: target.tagGroups }
   }
 
   static async select(context: Context, kind: FileTargetKind, repoId: string, path: string): Promise<void> {

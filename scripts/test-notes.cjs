@@ -107,17 +107,20 @@ test('Core 版本冲突原样返回给页面，不以新版本自动重试覆盖
 });
 
 // 仅转译页面的状态与提交方法，ArkUI 布局由实际 HAP 编译检查。
-function page(name, service, router) {
+function page(name, service, router, notifications = { async refresh() {} }) {
   const filename = path.resolve('entry/src/main/ets/pages/' + name + '.ets');
   let source = fs.readFileSync(filename, 'utf8');
   source = source.slice(0, source.indexOf('\n  build()')) + '\n}';
-  source = source.replace(/^@(Entry|Component)\n/gm, '').replace(/^  @State /gm, '  ').replace('struct ' + name, 'export class ' + name);
+  source = source.replace(/^@(Entry|Component)\n/gm, '').replace(/^  @State /gm, '  ')
+    .replace(/^  @StorageLink\('[^']+'\) /gm, '  ').replace('struct ' + name, 'export class ' + name);
   const module = { exports: {} };
   const compiled = ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + compiled + '\n})', { filename })(dependency => {
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
+    if (dependency.endsWith('/CoreNotificationService')) return { CoreNotificationService: notifications,
+      emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
     if (dependency.endsWith('/NativeCoreService')) return { coreErrorMessage: error => error.message };
     throw new Error('缺少页面替身: ' + dependency);
   }, module, module.exports);
@@ -125,6 +128,34 @@ function page(name, service, router) {
   instance.getUIContext = () => ({ getRouter: () => router, getHostContext: () => ({}) });
   return instance;
 }
+
+test('备忘编辑刷新通知不重读路由或覆盖正在编辑的标题与正文', async () => {
+  let refreshes = 0;
+  const memo = page('MemoEdit', {}, { getParams() { assert.fail('通知刷新不重读路由'); } }, {
+    async refresh() { refreshes++; }
+  });
+  memo.heading = '未保存的标题'; memo.body = '未保存的正文\n第二行';
+  await memo.refreshNotifications();
+  assert.equal(refreshes, 1);
+  assert.equal(memo.heading, '未保存的标题');
+  assert.equal(memo.body, '未保存的正文\n第二行');
+  assert.equal(memo.committed, false);
+});
+
+test('备忘通知读取失败保留已有通知、编辑草稿及保存错误', async () => {
+  const memo = page('MemoEdit', {}, {}, { async refresh() { throw new Error('通知暂不可用'); } });
+  const snapshot = { notifications: [{ type: 'syncConflict' }], repositories: [], revision: 1 };
+  memo.notificationState = snapshot;
+  memo.heading = '草稿标题'; memo.body = '草稿正文'; memo.message = '文件版本已变化';
+  const messages = [];
+  memo.getUIContext = () => ({ getHostContext: () => ({}),
+    getPromptAction: () => ({ showToast: value => messages.push(value.message) }) });
+  await memo.refreshNotifications();
+  assert.equal(memo.notificationState, snapshot);
+  assert.equal(memo.heading, '草稿标题'); assert.equal(memo.body, '草稿正文');
+  assert.equal(memo.message, '文件版本已变化');
+  assert.deepEqual(messages, ['读取通知失败：通知暂不可用']);
+});
 
 test('新建提交成功而导航失败后，仅重试返回，不重复创建', async () => {
   let creations = 0, navigations = 0;

@@ -589,6 +589,8 @@ pub struct OrgFileMetadata {
     pub path: String,
     pub title: Option<String>,
     pub title_parts: Vec<TitlePart>,
+    pub tag_options: Vec<String>,
+    pub tag_groups: Vec<Vec<String>>,
     pub is_ignore: bool,
     pub task_count: usize,
     pub byte_length: usize,
@@ -601,6 +603,8 @@ pub struct OrgFileMetadata {
 当前轻量接口减少响应构建和跨层复制，首次加载仍需完整解析。后续若优化首次列表扫描，可评估由 Core 缓存文件版本与已解析元信息，或提供专门头部扫描；需要保持注释、块结构、第一条声明和文件头边界语义，并避免固定行数遗漏合法 TITLE。任何缓存都不得改变同步读取完整原始字节的要求。
 
 ~is_ignore~ 表示相对路径是否命中 ~.orgzlyignore~ ，宿主文件选择列表必须过滤该项；~task_count~ 统计当前文件语法树中的所有标题，包括已完成和无 TODO 的标题；命中 ~.orgzlyignore~ 时为零，语义与 Core 的任务扫描一致。 ~byte_length~ 来自源字节长度， ~modified_at~ 使用扫描目录时已有的文件属性，转换为 Unix 毫秒时间，无可用值时为 ~None~ 。读取轻量清单不重新 stat 文件；需要最新信息时先加载仓库。文件对象的克隆与默认 TODO 设置更新保留已读取的磁盘时间，内存中直接创建的文件时间为 ~None~ 。这些信息不写入同步历史，也不用于替代同步版本判断。
+
+~OrgFile.tag_options() -> Vec<String>~ 返回文件头 ~TAGS~ 定义的候选，去重并去除系统标签；~tag(k)~ 去掉快捷键，没有快捷键的标签也保留。~OrgFile.tag_groups() -> Vec<Vec<String>>~ 返回花括号定义的互斥组，保留组及成员的声明顺序。~OrgFileMetadata.tag_options~ 与 ~tag_groups~ 携带相同的轻量投影，空文件仍保留配置，宿主无需复制正文或另行解析。配置不向任务赋标签，完整语义见 [[file:查询语言设计.org::*文件头 TAGS 配置][文件头 TAGS 配置]] 。
 
 * 整篇只读渲染
 

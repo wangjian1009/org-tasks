@@ -4,7 +4,7 @@
 
 ## 核心约束
 
-- ArkTS 只负责界面与平台接入，不解析 Org、不实现同步规则；默认不再次过滤任务，今天、随时、某天的共享标签筛选条仅筛选本页已加载快照，作为展示层例外。
+- ArkTS 只负责界面与平台接入，不解析 Org、不实现同步规则；默认不再次过滤任务，今天、随时、某天和备忘的共享标签筛选条仅筛选本页已加载快照，作为展示层例外。
 - Core 请求必须通过 bridge 在工作线程执行，不阻塞 ArkUI；跨语言接口保持 Rust 对象边界，参数使用结构化对象。
 - 修改 bridge 时同时更新 Rust、`src/main/cpp/napi_init.cpp`、`src/main/cpp/types/liborg_tasks_harmony/index.d.ts`、ArkTS wrapper、调用方与接口设计。
 - 仓库与凭据身份保持稳定；真实密码只通过 `CredentialService` 存入 Asset Store。

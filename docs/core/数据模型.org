@@ -65,6 +65,8 @@
   path: String \\
   title: Option\textless String\textgreater \\
   title\_parts: Vec\textless TitlePart\textgreater \\
+  tag\_options: Vec\textless String\textgreater \\
+  tag\_groups: Vec\textless Vec\textless String\textgreater\textgreater \\
   is\_ignore: bool \\
   task\_count: usize \\
   byte\_length: usize \\
@@ -206,6 +208,20 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 \umlclass[x=7,y=-3]{AddressLink}{uri: String \\ label: String}{}
 \umldep{FilterTask}{OrgFile}
 \umldep{FilterTask}{AddressLink}
+\end{tikzpicture}
+\end{center}
+
+* 文件头标签投影
+
+~OrgFile.tag_options()~ 从文件头 ~TAGS~ 提取候选， ~OrgFile.tag_groups()~ 保留花括号定义的互斥组；快捷键不进入标签名称，没有快捷键的标签仍有效。 ~OrgFileMetadata.tag_options: Vec<String>~ 与 ~tag_groups: Vec<Vec<String>>~ 携带相同的只读投影，空文件仍保留配置。源码、示例和标题正文中的同名文本不参与。配置只提供候选与互斥约束，不给任务赋标签；候选排除系统标签，不进入历史、outbox 或源文件。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgFile}{}{tag\_options(): Vec\textless String\textgreater \\
+  tag\_groups(): Vec\textless Vec\textless String\textgreater\textgreater}
+\umlclass[x=7,y=0]{OrgFileMetadata}{tag\_options: Vec\textless String\textgreater \\
+  tag\_groups: Vec\textless Vec\textless String\textgreater\textgreater}{}
+\umldep{OrgFileMetadata}{OrgFile}
 \end{tikzpicture}
 \end{center}
 

@@ -184,6 +184,18 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   assert.equal(f.queries[2].query.expression, 'b."inbox.org" .o.modified');
 });
 
+test('备忘文件候选标签只取所选文件的 Core 元信息，不混入其他文件配置', async () => {
+  const f = fixture();
+  f.config.memoRepoId = 'personal'; f.config.memoFile = 'inbox.org';
+  f.fileLists.set('personal', [{ path: 'inbox.org', isIgnore: false, tagOptions: ['家居', 'unused'], tagGroups: [['家居', 'unused']] },
+    { path: 'other.org', isIgnore: false, tagOptions: ['other'] }]);
+  const result = await f.FileTargetService.query(f.config, 'memo');
+  assert.deepEqual(result.tagOptions, ['家居', 'unused']);
+  assert.deepEqual(result.tagGroups, [['家居', 'unused']]);
+  assert.equal(f.queries.length, 1);
+  assert.equal(f.queries[0].query.expression, 'b."inbox.org" .o.modified');
+});
+
 test('文件已删除或被忽略时不查询、不创建同名文件，保留原目标供重新选择', async () => {
   const f = fixture();
   for (const files of [[], [{ path: 'inbox.org', isIgnore: true }]]) {
