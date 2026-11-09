@@ -1,9 +1,9 @@
 {
   "shortcuts": [
     {
-      "shortcutId": "capture_text",
+      "shortcutId": "capture_inbox_text",
       "label": "$string:capture_text_shortcut",
-      "icon": "$media:app_icon",
+      "icon": "$media:shortcut_capture_text",
       "wants": [
         {
           "bundleName": "com.example.orgtasks",
@@ -16,9 +16,9 @@
       ]
     },
     {
-      "shortcutId": "capture_voice",
+      "shortcutId": "capture_inbox_voice",
       "label": "$string:capture_voice_shortcut",
-      "icon": "$media:app_icon",
+      "icon": "$media:shortcut_capture_voice",
       "wants": [
         {
           "bundleName": "com.example.orgtasks",
