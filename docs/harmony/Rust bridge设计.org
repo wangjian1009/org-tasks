@@ -375,3 +375,13 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 ~FilterTask.body_first_line()~ 在 Rust 查询投影时映射为只读、可枚举的 ~Task.bodyFirstLine: string | null~ ，C++、ArkTS wrapper 与路由完整透传，空正文保留 ~null~ 。任务 ~modifiedAt~ 通过 Core 的 ~modified_at()~ 获取，Core 仅解释标题自身的 ~LAST_MODIFIED~ 属性；属性缺失时为 ~null~ 。备忘摘要只组合 ~modifiedAt ?? createdAt~ 的本地日期、有效 ~tags~ 与 ~bodyFirstLine~ ，不从原始正文或 HTML 推断第一行。
 
 ~FileTargetService.query~ 的备忘文件请求使用 ~b."路径" .o.modified~ ，完成与组合标题开关均开启。排序与缺失值置末由 Core 统一处理；宿主沿用返回顺序。固定卡片点击进入既有 ~MemoEdit~ ，左滑删除继续通过 ~NoteService.remove~ 提交带完整路径和文件版本的 Deletion。
+
+* 任务卡片原位编辑
+
+任务对象新增只读、可枚举的 ~ownTags~ 、 ~inheritedTags~ 与 ~editContent~ 。自身标签取自 Core 原始标题标签，包含不展示的用途标签，操作普通标签时保留原用途；继承标签标记来源且不在当前任务取消； ~editContent~ 包含 ~notes~ 和 ~checklist~ ，条目字段为 ~id~ 、 ~text~ 、 ~checked~ 、 ~partial~ 、 ~depth~ 。C++ 只透传嵌套对象，ArkTS 不解析正文或 checkbox。
+
+~TaskModificationField~ 接入 ~NOTES~ 、 ~CHECKLIST~ 、 ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ ，仍通过原有异步 ~Workspace.executeTaskOperations~ 提交。 ~TaskChecklistChange~ 使用辨别字段 ~type~ ，值为 ~add~ 、 ~edit~ 、 ~setChecked~ 或 ~remove~ 。 ~TaskInlineService~ 携带文件版本、Core 仓库 ID 和待上传仓库集合，从操作结果的路径取得最新任务，包括改名后的路径和清单新偏移；失败保留输入，不拿新版本覆盖。
+
+标签候选合并当前文件的 ~tagOptions~ 、当前任务标签与 workspace 已用标签，不合并其他文件未使用的候选。新建标签通过赋给当前任务落盘，不创建独立标签配置。
+
+编辑会话由 ~TaskInlineSession~ 管理，同一窗口只展开一个任务；Core 通知照常更新，列表重查询推迟至会话结束，避免响应本次保存时重建输入控件。切换任务前先完成失焦保存，失败阻止切换；收件箱定时重新读取在编辑期间暂停，结束后使用既有通知刷新。

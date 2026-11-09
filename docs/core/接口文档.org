@@ -756,3 +756,15 @@ Serde 表示使用带 ~type~ 的事件对象，冲突类型为 ~syncConflict~ �
 WebDAV 同步开始前由 Core 的 ~WebDavSyncPolicy.synchronize~ 统一查询 ~OrgRepo.pending_sync_conflicts~ ，使用 ~last_effect_sync~ 最近成功同步中的未解决路径判断。仍有任一路径未解决时返回 ~CoreError::InvalidState~ ，提示“存在未解决的同步冲突，请先解决后再同步”；缺少备份但未解决的路径同样阻止，过滤目录不能绕过检查。
 
 检查在网络请求、同步进度事件、传输备份和工作文件写入前执行；被拒绝的尝试不新增同步记录、不改动本地内容或 outbox，也不发送数据更新通知。前台、后台、CLI 与直接调用 Core 的普通 WebDAV 同步均走同一入口，宿主不另行实现领域预检查。冲突比较与解决接口继续允许调用；部分解决仍阻止，全部解决后可恢复同步。更早日志的遗留冲突不参与，最近成功同步没有冲突时正常允许。
+
+* 任务卡片编辑
+
+#+begin_src rust
+impl OrgFile {
+    pub fn task_edit_content(&self, path: &TaskPath) -> Result<TaskEditContent, CoreError>;
+}
+#+end_src
+
+卡片通过该接口取得备注和检查清单；标题使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选或删除； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
+
+调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；结果返回修改后任务路径，宿主从最新投影继续后续操作。

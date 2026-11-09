@@ -1,3 +1,4 @@
+import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
@@ -51,6 +52,7 @@ struct TaskOverview {
   onPageShow() { this.loadTasks() }
 
   onBackPress(): boolean {
+    if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
   }

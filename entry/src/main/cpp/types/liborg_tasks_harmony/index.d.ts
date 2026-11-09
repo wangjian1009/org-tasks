@@ -26,8 +26,11 @@ export interface TaskCreation {
   tags?: string[]; scheduled?: string | null; deadline?: string | null; closed?: string | null; recordCreated?: boolean;
 }
 export interface TaskAddressChange { oldUri: string; newUri: string; }
-export type TaskModificationField = 'TITLE' | 'BODY' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'DEADLINE' | 'CLOSED' | 'CREATED' | 'ADDRESS_LINK';
-export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | null; }
+export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_DATE' | 'DEADLINE' | 'DEADLINE_DATE' | 'CLOSED' | 'CREATED' | 'ADDRESS_LINK';
+export interface TaskChecklistItem { readonly id: string; readonly text: string; readonly checked: boolean; readonly partial: boolean; readonly depth: number; }
+export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly checklist: TaskChecklistItem[]; }
+export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string };
+export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }
@@ -79,6 +82,9 @@ export class Task {
   readonly scheduled: string;
   readonly deadline: string;
   readonly tags: string[];
+  readonly ownTags: string[];
+  readonly inheritedTags: string[];
+  readonly editContent: TaskEditContent;
   readonly filePath: string;
   readonly fileName: string;
   readonly level: number;

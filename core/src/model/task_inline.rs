@@ -1,0 +1,351 @@
+//! 卡片编辑使用的正文与检查清单投影；所有源范围与保真改写由 Core 维护。
+use super::{CoreError, OrgFile, TaskPath};
+use orgize::{
+    SyntaxKind,
+    ast::{Headline, List, ListItem},
+    rowan::ast::AstNode,
+};
+use serde::{Deserialize, Serialize};
+use std::ops::Range;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskChecklistItem {
+    pub id: String,
+    pub text: String,
+    pub checked: bool,
+    pub partial: bool,
+    pub depth: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskEditContent {
+    pub own_tags: Vec<String>,
+    pub notes: String,
+    pub checklist: Vec<TaskChecklistItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+pub enum TaskChecklistChange {
+    Add { text: String },
+    Edit { id: String, text: String },
+    SetChecked { id: String, checked: bool },
+    Remove { id: String },
+}
+
+pub(crate) fn checklist_lists(headline: &Headline) -> Vec<List> {
+    headline
+        .section()
+        .into_iter()
+        .flat_map(|section| {
+            section
+                .syntax()
+                .children()
+                .filter_map(List::cast)
+                .filter(|list| {
+                    // 混合普通列表保留为完整备注，避免拆散非 checkbox 内容。
+                    list.syntax()
+                        .descendants()
+                        .filter_map(ListItem::cast)
+                        .all(|item| item.checkbox().is_some() && item.tag().next().is_none())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+pub(crate) fn note_ranges(headline: &Headline) -> Vec<Range<usize>> {
+    let lists = checklist_lists(headline);
+    headline
+        .section()
+        .into_iter()
+        .flat_map(|section| {
+            section
+                .syntax()
+                .children_with_tokens()
+                .filter(|node| {
+                    !matches!(
+                        node.kind(),
+                        SyntaxKind::PLANNING | SyntaxKind::PROPERTY_DRAWER | SyntaxKind::DRAWER
+                    ) && !lists
+                        .iter()
+                        .any(|list| list.syntax().text_range() == node.text_range())
+                })
+                .map(|node| {
+                    u32::from(node.text_range().start()) as usize
+                        ..u32::from(node.text_range().end()) as usize
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+pub(crate) fn checklist_items(headline: &Headline) -> Vec<ListItem> {
+    checklist_lists(headline)
+        .iter()
+        .flat_map(|list| {
+            list.syntax()
+                .descendants()
+                .filter_map(ListItem::cast)
+                .filter(|item| item.checkbox().is_some())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+pub(crate) fn item_text_range(file: &OrgFile, item: &ListItem) -> Range<usize> {
+    let token = item.checkbox().expect("已验证 checkbox");
+    let source = file.source_bytes();
+    let mut a = u32::from(token.text_range().end()) as usize + 1;
+    while matches!(source.get(a), Some(b' ' | b'\t')) {
+        a += 1;
+    }
+    let mut b = source[a..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|n| a + n)
+        .unwrap_or(source.len());
+    while b > a && matches!(source.get(b - 1), Some(b' ' | b'\t' | b'\r')) {
+        b -= 1;
+    }
+    a..b
+}
+
+impl OrgFile {
+    pub fn task_edit_content(&self, path: &TaskPath) -> Result<TaskEditContent, CoreError> {
+        let headline = self
+            .path_headlines()
+            .into_iter()
+            .find(|(candidate, _)| candidate == path)
+            .map(|(_, headline)| headline)
+            .ok_or(CoreError::InvalidInput("任务不存在或已改变"))?;
+        let notes = note_ranges(&headline)
+            .iter()
+            .map(|range| std::str::from_utf8(&self.source_bytes()[range.clone()]).expect("UTF-8"))
+            .collect::<String>();
+        let checklist = checklist_items(&headline)
+            .iter()
+            .map(|item| {
+                let token = item.checkbox().expect("checkbox");
+                TaskChecklistItem {
+                    id: u32::from(item.start()).to_string(),
+                    text: std::str::from_utf8(&self.source_bytes()[item_text_range(self, item)])
+                        .expect("UTF-8")
+                        .into(),
+                    checked: token.as_ref() == "X" || token.as_ref() == "x",
+                    partial: token.as_ref() == "-",
+                    depth: item
+                        .syntax()
+                        .ancestors()
+                        .skip(1)
+                        .filter(|node| node.kind() == SyntaxKind::LIST_ITEM)
+                        .count(),
+                }
+            })
+            .collect();
+        Ok(TaskEditContent {
+            own_tags: headline.tags().map(|tag| tag.to_string()).collect(),
+            notes,
+            checklist,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{TaskModification, model::task_operation_executor::modify};
+    fn file(source: &str) -> OrgFile {
+        OrgFile::new(
+            "repo".into(),
+            "tasks.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap()
+    }
+    fn projection(file: &OrgFile) -> TaskEditContent {
+        file.task_edit_content(&file.path_headlines()[0].0).unwrap()
+    }
+    fn apply(file: &mut OrgFile, change: TaskModification) {
+        let headline = file.path_headlines()[0].1.clone();
+        modify(file, &headline, &change).unwrap();
+    }
+    #[test]
+    fn inline_projection_excludes_metadata_logs_and_code_literals() {
+        let file = file(
+            "* TODO 任务 :工作:\nSCHEDULED: <2026-11-09 Mon>\n:PROPERTIES:\n:ID: stable\n:END:\n备注\n- [ ] 条目\n:LOGBOOK:\n日志\n:END:\n#+begin_src org\n- [X] 字面文本\n#+end_src\n** 子任务\n- [ ] 子条目\n",
+        );
+        let edit = projection(&file);
+        assert!(edit.notes.contains("备注"));
+        assert!(
+            !edit.notes.contains("LOGBOOK")
+                && !edit.notes.contains("ID: stable")
+                && !edit.notes.contains("SCHEDULED")
+        );
+        assert!(edit.notes.contains("#+begin_src"));
+        assert_eq!(edit.checklist.len(), 1);
+        assert_eq!(edit.checklist[0].text, "条目");
+    }
+    #[test]
+    fn checkbox_toggle_changes_only_one_byte_and_preserves_nested_content() {
+        let source =
+            "* TODO Task\r\n备注  \r\n+ [ ] 外层  \r\n  - [-] 内层\r\n\r\n** Child\r\nbody\r\n";
+        let mut file = file(source);
+        let item = projection(&file).checklist[1].clone();
+        assert_eq!(item.depth, 1);
+        assert!(item.partial);
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::SetChecked {
+                id: item.id,
+                checked: true,
+            }),
+        );
+        assert_eq!(
+            file.source_bytes(),
+            source.replacen("[-]", "[X]", 1).as_bytes()
+        );
+    }
+    #[test]
+    fn editing_notes_preserves_checklist_and_metadata_bytes() {
+        let source = "* TODO Task\nSCHEDULED: <2026-11-09 Mon>\n:PROPERTIES:\n:ID: stable\n:END:\nOld notes\n- [ ] Item\n:LOGBOOK:\nLog\n:END:\n** Child\nUnchanged\n";
+        let mut file = file(source);
+        apply(
+            &mut file,
+            TaskModification::Notes(Some("New notes\n".into())),
+        );
+        assert_eq!(
+            file.source_bytes(),
+            source.replace("Old notes", "New notes").as_bytes()
+        );
+    }
+    #[test]
+    fn add_edit_and_remove_keep_newline_style_and_unrelated_source() {
+        let source = "* Task\r\nNote\r\n\r\n** Child\r\nChild body\r\n";
+        let mut file = file(source);
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Add {
+                text: "First".into(),
+            }),
+        );
+        let item = projection(&file).checklist[0].clone();
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Edit {
+                id: item.id.clone(),
+                text: "中文标题".into(),
+            }),
+        );
+        assert_eq!(projection(&file).checklist[0].text, "中文标题");
+        assert!(
+            std::str::from_utf8(file.source_bytes())
+                .unwrap()
+                .contains("- [ ] 中文标题\r\n** Child")
+        );
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Remove { id: item.id }),
+        );
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+    #[test]
+    fn mixed_lists_remain_intact_in_notes() {
+        let source = "* Task\n- ordinary\n- [ ] checked item\n";
+        let edit = projection(&file(source));
+        assert!(edit.checklist.is_empty());
+        assert!(edit.notes.contains("ordinary") && edit.notes.contains("checked item"));
+    }
+    #[test]
+    fn changing_a_day_preserves_time_repeater_warning_and_other_planning() {
+        let source = "* TODO Task\r\nSCHEDULED: <2026-11-09 Mon 09:30 +1w -2d> DEADLINE: <2026-11-20 Fri>\r\nNotes\r\n";
+        let mut file = file(source);
+        apply(
+            &mut file,
+            TaskModification::ScheduleDate(Some("2026-11-10".into())),
+        );
+        assert_eq!(
+            file.source_bytes(),
+            source
+                .replace("2026-11-09 Mon", "2026-11-10 Tue")
+                .as_bytes()
+        );
+        apply(&mut file, TaskModification::DeadlineDate(None));
+        let result = std::str::from_utf8(file.source_bytes()).unwrap();
+        assert!(result.contains("09:30 +1w -2d"));
+        assert!(!result.contains("DEADLINE:"));
+    }
+    #[test]
+    fn append_checklist_keeps_mixed_list_visible_and_adds_a_separate_list() {
+        let mut file = file("* Task\n- ordinary\n- [ ] mixed\n");
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Add { text: "New".into() }),
+        );
+        let edit = projection(&file);
+        assert_eq!(edit.checklist.len(), 1);
+        assert_eq!(edit.checklist[0].text, "New");
+        assert!(edit.notes.contains("ordinary") && edit.notes.contains("mixed"));
+    }
+    #[test]
+    fn edits_reject_stale_item_ids_and_invalid_text() {
+        let mut file = file("* Task\n- [ ] Item\n");
+        let h = file.path_headlines()[0].1.clone();
+        assert!(
+            modify(
+                &mut file,
+                &h,
+                &TaskModification::Checklist(TaskChecklistChange::Remove { id: "wrong".into() })
+            )
+            .is_err()
+        );
+        assert!(
+            modify(
+                &mut file,
+                &h,
+                &TaskModification::Checklist(TaskChecklistChange::Add {
+                    text: "\n* Injected".into()
+                })
+            )
+            .is_err()
+        );
+        assert!(
+            modify(
+                &mut file,
+                &h,
+                &TaskModification::DeadlineDate(Some("2026-02-30".into()))
+            )
+            .is_err()
+        );
+        assert_eq!(file.source_bytes(), b"* Task\n- [ ] Item\n");
+    }
+    #[test]
+    fn editable_own_tags_keep_system_tags_for_unrelated_tag_changes() {
+        let file = file("* TODO Task :REFILE:work:\nNotes\n");
+        assert_eq!(projection(&file).own_tags, ["REFILE", "work"]);
+    }
+    #[test]
+    fn empty_existing_checklist_item_can_be_edited_without_losing_checkbox() {
+        let mut file = file("* Task\n- [ ]\n");
+        let edit = projection(&file);
+        assert_eq!(edit.checklist.len(), 1);
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Edit {
+                id: edit.checklist[0].id.clone(),
+                text: "Text".into(),
+            }),
+        );
+        assert_eq!(file.source_bytes(), b"* Task\n- [ ] Text\n");
+        assert_eq!(projection(&file).checklist[0].text, "Text");
+    }
+    #[test]
+    fn ordinary_nested_items_are_retained_in_notes_instead_of_being_hidden() {
+        let file = file("* Task\n- [ ] Parent\n  - Ordinary child\n");
+        let edit = projection(&file);
+        assert!(edit.checklist.is_empty());
+        assert!(edit.notes.contains("Ordinary child") && edit.notes.contains("Parent"));
+    }
+}

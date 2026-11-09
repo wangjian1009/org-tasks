@@ -1,4 +1,8 @@
-import { CoreTask } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { TaskInlineService, TaskInlineSession } from '../services/TaskInlineService'
+import { TaskDateDialog } from './TaskDateDialog'
+import { TaskTagsDialog } from './TaskTagsDialog'
+import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
@@ -6,9 +10,10 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
 import { TitleText } from './TitleText'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
-import { OrgContentView } from './OrgContentView'
+import { KeyboardAvoidMode } from '@ohos.arkui.UIContext'
+import { window } from '@kit.ArkUI'
 
-// 只维护展开状态与展示；任务快照只读，导航行为由调用方提供。
+// 快照与写入均来自 Core；只维护卡片、输入草稿和浮层状态。
 @Component
 export struct TaskListItem {
   @Prop task: CoreTask
@@ -19,23 +24,208 @@ export struct TaskListItem {
   open: () => void = () => {}
   swipe: (left: boolean) => void = () => {}
   @State expanded: boolean = false
-  @State contentMounted: boolean = false
-  @State contentHeight: number = 0
+  @State editTask: CoreTask | undefined = undefined
+  @State heading: string = ''
+  @State notes: string = ''
+  @State typing: boolean = false
+  @State working: boolean = false
+  @State message: string = ''
   @State rowWidth: number = 366
   @State deadlineWidth: number = 0
+  @State checkId: string = ''
+  @State checkText: string = ''
+  @State addingCheck: boolean = false
+  @State newCheck: string = ''
+  @State contentLimit: number = 160
+  @StorageLink('taskInlineDateRequest') @Watch('dateRequested') dateRequest: string = ''
   @Prop referenceTime: number = Date.now()
-  private measuredContentHeight: number = 0
-
-  duration(): number { return taskDurationDays(this.task, new Date(this.referenceTime)) }
-
-  leadingDate(): string { return taskDateText(taskDisplayDate(this.task), true, new Date(this.referenceTime)) }
-
-  leadingWidth(): number {
-    return (this.showDate && taskDisplayDate(this.task).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
-      + (this.task.isRepeating ? 28 : 0)
+  private ownerKey: string = ''
+  private dateDialog: CustomDialogController | undefined = undefined
+  private tagsDialog: CustomDialogController | undefined = undefined
+  private pending: Promise<void> = Promise.resolve()
+  private checkSaving: Promise<boolean> | undefined = undefined
+  private continueCheck: boolean = false
+  private checklistTouch: boolean = false
+  private headingController: TextAreaController = new TextAreaController()
+  private notesController: TextAreaController = new TextAreaController()
+  private hostWindow: window.Window | undefined = undefined
+  @State keyboardHeight: number = 0
+  private originalWindowHeight: number = 0
+  private cardTop: number = 0
+  private keyboardChanged = (height: number): void => {
+    this.keyboardHeight = height
+    if (height === 0 && this.typing) { this.typing = false; AppStorage.setOrCreate('taskInlineTyping', false); this.saveText(); this.saveCheck(false) }
+    if (this.originalWindowHeight > 0) this.contentLimit = Math.max(80, this.getUIContext().px2vp(this.originalWindowHeight - height) - this.cardTop - 80)
   }
 
-  deadlineColor(): string { return taskDeadlineColor(this.task, new Date(this.referenceTime)) }
+  dateRequested() {
+    if (this.dateRequest.startsWith(`${this.task.id}\n`)) this.dates(false)
+  }
+  value(): CoreTask { return this.editTask ?? this.task }
+  aboutToAppear() { this.ownerKey = this.task.id }
+  aboutToDisappear() {
+    this.dateDialog?.close(); this.tagsDialog?.close()
+    if (this.hostWindow) this.hostWindow.off('keyboardHeightChange', this.keyboardChanged)
+    TaskInlineSession.release(this.ownerKey)
+  }
+  async prepare(): Promise<boolean> {
+    if (!this.ownerKey) this.ownerKey = this.task.id
+    if (!await TaskInlineSession.begin(this.ownerKey, async (collapse: boolean) => await this.finish(collapse))) return false
+    if (!this.editTask) { this.editTask = this.task; this.heading = this.task.heading; this.notes = this.task.editContent.notes.trimEnd() }
+    if (!this.hostWindow) {
+      try {
+        this.hostWindow = await window.getLastWindow(this.getUIContext().getHostContext()!)
+        this.originalWindowHeight = this.hostWindow.getWindowProperties().windowRect.height
+        this.hostWindow.on('keyboardHeightChange', this.keyboardChanged)
+      } catch (_) {}
+    }
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+    return true
+  }
+  async toggle() {
+    if (this.expanded) { await this.finish(true); return }
+    if (!await this.prepare()) return
+    this.referenceTime = Date.now()
+    this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
+  }
+  async finish(collapse: boolean): Promise<boolean> {
+    this.headingController.stopEditing(); this.notesController.stopEditing()
+    this.getUIContext().getFocusController().clearFocus()
+    this.typing = false; AppStorage.setOrCreate('taskInlineTyping', false)
+    await this.saveText()
+    await this.saveCheck(false)
+    await this.pending
+    if (this.message) return false
+    if (collapse) {
+      this.expanded = false
+      TaskInlineSession.release(this.ownerKey)
+    }
+    return true
+  }
+  inputFocus() {
+    this.typing = true; AppStorage.setOrCreate('taskInlineTyping', true)
+  }
+  async persist(modifications: CoreTaskModification[]): Promise<boolean> {
+    let success: boolean = false
+    const operation = this.pending.then(async () => {
+      this.working = true; this.message = ''
+      try {
+        this.editTask = await TaskInlineService.modify(this.getUIContext().getHostContext()!, this.value(), modifications)
+        success = true
+      } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+      finally { this.working = false }
+    })
+    this.pending = operation
+    await operation
+    return success
+  }
+  async saveText(): Promise<boolean> {
+    await this.pending
+    if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
+    const modifications: CoreTaskModification[] = []
+    if (this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
+    if (this.notes !== this.value().editContent.notes.trimEnd()) modifications.push({ field: 'NOTES', value: this.notes })
+    return modifications.length === 0 ? true : await this.persist(modifications)
+  }
+  async saveCheck(next: boolean): Promise<boolean> {
+    if (next) this.continueCheck = true
+    if (this.checkSaving) return await this.checkSaving
+    this.checkSaving = this.commitCheck()
+    const result = await this.checkSaving
+    this.checkSaving = undefined
+    if (result && this.continueCheck) {
+      this.addingCheck = true
+      setTimeout(() => { this.getUIContext().getFocusController().requestFocus(`inline_new_check_${this.ownerKey}`) }, 30)
+    }
+    this.continueCheck = false
+    return result
+  }
+  private async commitCheck(): Promise<boolean> {
+    await this.pending
+    const id = this.checkId
+    const text = id ? this.checkText : this.newCheck
+    if (!id && !text.trim()) { this.addingCheck = false; return true }
+    if (!text.trim()) { this.message = '清单条目不能为空'; return false }
+    const original = this.value().editContent.checklist.find(item => item.id === id)
+    if (id && original?.text === text) { this.checkId = ''; return true }
+    const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } : { type: 'add', text }
+    if (!await this.persist([{ field: 'CHECKLIST', value: change }])) return false
+    this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false
+    return true
+  }
+  async changeCheck(change: CoreTaskChecklistChange) {
+    if (this.working) return
+    const id = change.type === 'add' ? '' : change.id
+    const index = this.value().editContent.checklist.findIndex(item => item.id === id)
+    if (!await this.saveText() || !await this.saveCheck(false)) return
+    const current = this.value().editContent.checklist[index]
+    if (change.type === 'setChecked' && current) change = { type: 'setChecked', id: current.id, checked: change.checked }
+    else if (change.type === 'remove' && current) change = { type: 'remove', id: current.id }
+    await this.persist([{ field: 'CHECKLIST', value: change }])
+  }
+  async editCheck(item: CoreTaskChecklistItem) {
+    const index = this.value().editContent.checklist.findIndex(current => current.id === item.id)
+    if (!await this.saveText() || !await this.saveCheck(false)) return
+    const current = this.value().editContent.checklist[index]
+    if (!current) return
+    this.checkId = current.id; this.checkText = current.text
+    setTimeout(() => { this.getUIContext().getFocusController().requestFocus(`inline_check_${current.id}`) }, 30)
+  }
+  async addCheck() {
+    if (!await this.saveText() || !await this.saveCheck(false)) return
+    this.addingCheck = true
+    setTimeout(() => { this.getUIContext().getFocusController().requestFocus(`inline_new_check_${this.ownerKey}`) }, 30)
+  }
+  async dates(deadline: boolean) {
+    if (!await this.prepare() || !await this.finish(false)) return
+    const wasExpanded = this.expanded
+    this.dateDialog = new CustomDialogController({
+      builder: TaskDateDialog({ closed: () => { if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }, selected: deadline ? this.value().deadline : this.value().scheduled, deadline,
+        choose: async (date: string): Promise<boolean> => {
+          return await this.persist([{ field: deadline ? 'DEADLINE_DATE' : 'SCHEDULE_DATE', value: date || null }])
+        } }),
+      customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+      onWillDismiss: (action: DismissDialogAction) => { if (this.working) return; action.dismiss(); if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }
+    })
+    this.dateDialog.open()
+  }
+  reloadDraft() {
+    if (this.working) return
+    this.getUIContext().showAlertDialog({ title: '重新载入任务？', message: '将放弃卡片中未保存的输入，读取文件中的最新内容。',
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '重新载入', action: async () => {
+        this.working = true
+        try {
+          this.editTask = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value())
+          this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
+          this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.message = ''
+        } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+        finally { this.working = false }
+      } } })
+  }
+  async tags() {
+    if (!await this.prepare() || !await this.finish(false)) return
+    try {
+      const options = await TaskInlineService.tagOptions(this.getUIContext().getHostContext()!, this.value())
+      this.tagsDialog = new CustomDialogController({
+        builder: TaskTagsDialog({ options, ownTags: this.value().ownTags, inheritedTags: this.value().inheritedTags,
+          change: async (tags: string[]): Promise<boolean> => await this.persist([{ field: 'TAGS', value: tags }]) }),
+        customStyle: true, autoCancel: true, alignment: DialogAlignment.Center
+      })
+      this.tagsDialog.open()
+    } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+  }
+
+  duration(): number { return taskDurationDays(this.value(), new Date(this.referenceTime)) }
+
+  leadingDate(): string { return taskDateText(taskDisplayDate(this.value()), true, new Date(this.referenceTime)) }
+
+  leadingWidth(): number {
+    return (this.showDate && taskDisplayDate(this.value()).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
+      + (this.value().isRepeating ? 28 : 0)
+  }
+
+  deadlineColor(): string { return taskDeadlineColor(this.value(), new Date(this.referenceTime)) }
 
   deadlineIcon(): Resource {
     return this.deadlineColor() === UiColor.deadline
@@ -47,30 +237,12 @@ export struct TaskListItem {
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth(), this.task.tags.length, taskIndicators(this.task).length,
-      this.duration(), this.task.deadline.length > 0 ? this.deadlineWidth : 0,
-      titleCountsWidth(this.task.headingParts, this.countBudget()))
+    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth(), this.value().tags.length, taskIndicators(this.value()).length,
+      this.duration(), this.value().deadline.length > 0 ? this.deadlineWidth : 0,
+      titleCountsWidth(this.value().headingParts, this.countBudget()))
   }
 
   titleWidth(): number { return Math.max(40, this.rowWidth - 88) }
-
-  toggle() {
-    this.referenceTime = Date.now()
-    this.contentMounted = true
-    this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => {
-      this.expanded = !this.expanded
-      this.contentHeight = this.expanded ? this.measuredContentHeight : 0
-    })
-  }
-
-  measureContent(area: Area) {
-    const height = Math.ceil(parseFloat(area.height.toString()))
-    if (!Number.isFinite(height) || height <= 0 || height === this.measuredContentHeight) return
-    this.measuredContentHeight = height
-    if (this.expanded) {
-      this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.contentHeight = height })
-    }
-  }
 
   indicatorIcon(kind: string): Resource {
     switch (kind) {
@@ -81,20 +253,20 @@ export struct TaskListItem {
 
   @Builder
   completionState() {
-    if (this.task.todoKind === 'done' && !this.task.isCancelled) {
+    if (this.value().todoKind === 'done' && !this.value().isCancelled) {
       Image($r('app.media.ui_task_done')).width(18).height(18)
         .accessibilityText('已完成，只读')
     } else {
-      Text(this.task.isCancelled ? '−' : '').width(18).height(18).fontSize(13)
+      Text(this.value().isCancelled ? '−' : '').width(18).height(18).fontSize(13)
         .textAlign(TextAlign.Center).fontColor(UiColor.disabled)
         .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
-        .accessibilityText(this.task.isCancelled ? '已取消，只读' : '未完成，只读')
+        .accessibilityText(this.value().isCancelled ? '已取消，只读' : '未完成，只读')
     }
   }
 
   @Builder
   stateIndicator() {
-    if (this.task.todoKind === null) {
+    if (this.value().todoKind === null) {
       Image($r('app.media.ui_note')).width(18).height(18)
         .accessibilityText('笔记，无任务状态')
     } else {
@@ -105,16 +277,16 @@ export struct TaskListItem {
   @Builder
   compactTags() {
     Row({ space: 4 }) {
-      Text(this.task.tags[0]).fontSize(11).fontColor('#F5F5F5').maxLines(1)
+      Text(this.value().tags[0]).fontSize(11).fontColor('#F5F5F5').maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-        .backgroundColor(taskTagColor(this.task.tags[0])).borderRadius(10)
+        .backgroundColor(taskTagColor(this.value().tags[0])).borderRadius(10)
         .constraintSize({ maxWidth: this.layout().firstTagWidth }).flexShrink(0)
       if (this.layout().showMoreTags) {
         Text('…').fontSize(12).fontColor(UiColor.secondary).width(22).height(21).textAlign(TextAlign.Center)
           .border({ width: 1, color: '#686561' }).borderRadius(10)
       }
     }.constraintSize({ maxWidth: this.layout().tagWidth }).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`标签：${this.task.tags.join('、')}`)
+      .accessibilityText(`标签：${this.value().tags.join('、')}`)
       .onClick((): void => { this.toggle() })
   }
 
@@ -122,35 +294,35 @@ export struct TaskListItem {
   compactIndicators() {
     Row({ space: 4 }) {
       if (this.layout().showAllIndicators) {
-        ForEach(taskIndicators(this.task), (kind: string) => {
+        ForEach(taskIndicators(this.value()), (kind: string) => {
           Image(this.indicatorIcon(kind)).width(14).height(14)
         }, (kind: string) => kind)
       } else {
         Text('…').fontSize(13).fontColor(UiColor.secondary).width(14).maxLines(1)
       }
     }.width(this.layout().indicatorWidth).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`${this.task.hasText ? '有正文；' : ''}${this.task.hasList ? '有列表' : ''}`)
+      .accessibilityText(`${this.value().hasText ? '有正文；' : ''}${this.value().hasList ? '有列表' : ''}`)
   }
 
   @Builder
   compactTitle() {
     Row({ space: 6 }) {
       Column({ space: 2 }) {
-        TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 1, showCounts: false, cancelled: this.task.isCancelled })
+        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: this.value().isCancelled })
           .width('100%').constraintSize({ minWidth: 0 })
-        if (this.showCategory && this.task.category) {
-          Text(this.task.category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+        if (this.showCategory && this.value().category) {
+          Text(this.value().category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         }
       }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Start)
         .onClick((): void => { this.toggle() })
-      if (titleCounts(this.task.headingParts).length > 0) {
-        TitleCounts({ parts: this.task.headingParts, budget: this.countBudget() })
-          .width(titleCountsWidth(this.task.headingParts, this.countBudget())).flexShrink(0)
+      if (titleCounts(this.value().headingParts).length > 0) {
+        TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
+          .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
           .onClick((): void => { this.toggle() })
       }
-      if (this.task.tags.length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
+      if (this.value().tags.length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
       if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
       if (this.layout().durationWidth > 0) {
         Text(`${this.duration()}天`).fontSize(11).fontColor(UiColor.secondary)
@@ -158,149 +330,173 @@ export struct TaskListItem {
           .accessibilityText(`持续 ${this.duration()} 天`)
       }
     }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
-      .accessibilityText(`${taskTitleText(this.task)}，点击展开`)
-  }
-
-  @Builder
-  expandedTitle() {
-    Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
-      TitleText({ text: this.task.heading, parts: this.task.headingParts, showCounts: false, cancelled: this.task.isCancelled })
-        .constraintSize({ maxWidth: this.titleWidth() }).margin({ right: 8, bottom: 6 })
-      if (titleCounts(this.task.headingParts).length > 0) {
-        TitleCounts({ parts: this.task.headingParts }).width(this.titleWidth()).margin({ bottom: 6 })
-      }
-      ForEach(this.task.tags, (tag: string) => {
-        Text(tag).fontSize(13).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
-          .padding({ left: 10, right: 10, top: 3, bottom: 3 }).backgroundColor(taskTagColor(tag)).borderRadius(13)
-          .constraintSize({ maxWidth: this.titleWidth() }).margin({ right: 6, bottom: 6 })
-          .onClick((): void => { this.toggle() })
-      }, (tag: string) => tag)
-    }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 32 })
-      .accessibilityText(`${taskTitleText(this.task)}，点击收起`)
-      .onClick((): void => { this.toggle() })
+      .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
   }
 
   @Builder
   compactDeadline() {
     Row({ space: 4 }) {
       Image(this.deadlineIcon()).width(16).height(16)
-      Text(taskDeadlineText(this.task, new Date(this.referenceTime))).fontSize(12).fontColor(this.deadlineColor())
-        .maxLines(1).flexShrink(0)
+      Text(taskDeadlineText(this.value(), new Date(this.referenceTime))).fontSize(12).fontColor(this.deadlineColor()).maxLines(1)
     }.alignItems(VerticalAlign.Center).flexShrink(0)
-      .onAreaChange((oldArea: Area, newArea: Area) => {
-        const width = parseFloat(newArea.width.toString())
-        if (Number.isFinite(width) && width > 0 && width !== this.deadlineWidth) this.deadlineWidth = width
-      })
-      .accessibilityText(`截止日期：${taskDateText(this.task.deadline, false, new Date(this.referenceTime))}`)
+      .onAreaChange((oldArea: Area, area: Area) => { this.deadlineWidth = parseFloat(area.width.toString()) })
   }
-
   @Builder
   compactLeadingInfo() {
-    if (this.showDate && taskDisplayDate(this.task).length > 0) {
-      Text(this.leadingDate()).fontSize(11).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
-        .backgroundColor('#5A5856').borderRadius(3).padding({ left: 5, right: 5, top: 2, bottom: 2 })
-        .maxLines(1).flexShrink(0)
-        .accessibilityText(`日期：${taskDateText(taskDisplayDate(this.task), false, new Date(this.referenceTime))}`)
+    if (this.showDate && taskDisplayDate(this.value())) {
+      Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
+        .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
     }
-    if (this.task.isRepeating) {
-      Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0)
-        .accessibilityText('重复任务')
-    }
+    if (this.value().isRepeating) { Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0) }
   }
-
   @Builder
-  detailsButton() {
-    Button({ type: ButtonType.Normal }) {
-      Image($r('app.media.ui_task_details')).width(20).height(20).padding(6).width(32).height(32)
-        .backgroundColor('#494846').borderRadius(9)
-    }.width(44).height(44).borderRadius(12).backgroundColor(Color.Transparent)
-      .flexShrink(0).accessibilityText('查看任务详情').onClick((): void => { this.open() })
+  checklistRow(item: CoreTaskChecklistItem) {
+    Row({ space: 4 }) {
+      Button(item.checked ? '✓' : item.partial ? '−' : '○').width(28).height(44).padding(0)
+        .fontSize(19).fontColor(UiColor.secondary).backgroundColor(Color.Transparent).enabled(!this.working)
+        .accessibilityText(item.checked ? `恢复未完成：${item.text}` : `完成：${item.text}`)
+        .onClick(() => { this.changeCheck({ type: 'setChecked', id: item.id, checked: !item.checked }) })
+      if (this.checkId === item.id) {
+        TextInput({ text: this.checkText }).id(`inline_check_${item.id}`).layoutWeight(1).fontSize(14)
+          .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
+          .onChange((text: string) => { this.checkText = text }).onFocus(() => { this.inputFocus() })
+          .onBlur(() => { this.saveCheck(false) }).onSubmit(() => { this.saveCheck(true) })
+      } else {
+        Text(item.text).layoutWeight(1).fontSize(14).fontColor(item.checked ? UiColor.disabled : UiColor.text)
+          .decoration({ type: item.checked ? TextDecorationType.LineThrough : TextDecorationType.None })
+          .onClick(() => { this.editCheck(item) })
+      }
+    }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: Math.min(item.depth, 6) * 12 })
   }
-
   @Builder
-  scheduledInfo() {
-    Row({ space: 8 }) {
-      Image(taskDateIsToday(this.task.scheduled, new Date(this.referenceTime))
-        ? $r('app.media.nav_today') : $r('app.media.ui_task_calendar')).width(22).height(22).flexShrink(0)
-      Text(taskDateIsToday(this.task.scheduled, new Date(this.referenceTime))
-        ? '今天' : taskDateText(this.task.scheduled, false, new Date(this.referenceTime)))
-        .fontSize(15).fontColor(UiColor.text).layoutWeight(1).wordBreak(WordBreak.BREAK_ALL)
-    }.padding(taskDateIsToday(this.task.scheduled, new Date(this.referenceTime)) ? 0 : 7)
-      .border({ width: taskDateIsToday(this.task.scheduled, new Date(this.referenceTime)) ? 0 : 1, color: '#706D69' })
-      .borderRadius(10).constraintSize({ maxWidth: this.rowWidth - 140 }).flexShrink(1)
-      .accessibilityText(`计划日期：${taskDateText(this.task.scheduled, false, new Date(this.referenceTime))}`)
+  deleteCheck(item: CoreTaskChecklistItem) {
+    Button('×').width(44).height(44).fontColor(Color.White).backgroundColor(UiColor.deadline).fontSize(20)
+      .enabled(!this.working).accessibilityText(`删除清单条目：${item.text}`)
+      .onClick(() => { this.changeCheck({ type: 'remove', id: item.id }) })
   }
-
   @Builder
-  expandedContent() {
-    Column({ space: 10 }) {
-      if (this.duration() > 0) {
-        Text(`持续 ${this.duration()} 天`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-      }
-      if (this.task.bodyHtml.trim().length > 0) {
-        OrgContentView({ fragment: this.task.bodyHtml, embedded: true,
-          contentBackground: UiColor.taskCard, embeddedPadding: 0, horizontalParentFirst: this.enableSwipeActions,
-          horizontalSwipe: (left: boolean): void => { this.swipe(left) } }).width('100%')
-      }
-      if (this.task.scheduled.length > 0) {
-        Row() {
-          this.scheduledInfo()
-          Blank().layoutWeight(1)
-          if (this.task.deadline.length === 0) { this.detailsButton() }
-        }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
-      }
-      if (this.task.deadline.length > 0) {
-        Row({ space: 6 }) {
-          Image(this.deadlineIcon()).width(18).height(18)
-            .flexShrink(0).align(Alignment.Top)
-          Column({ space: 2 }) {
-            Text(`截止日期：${taskDateText(this.task.deadline, false, new Date(this.referenceTime))}`)
-              .fontSize(14).fontColor(this.deadlineColor()).width('100%').wordBreak(WordBreak.BREAK_ALL)
-            if (taskDateIsToday(this.task.deadline, new Date(this.referenceTime))) {
-              Text('今天').fontSize(12).fontColor(UiColor.secondary).width('100%')
+  editorContent() {
+    Row({ space: 9 }) {
+      this.stateIndicator()
+      TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
+        .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
+        .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).borderRadius(0)
+        .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
+        .onChange((value: string) => { this.heading = value }).onFocus(() => { this.inputFocus() })
+        .onBlur(() => { this.saveText() })
+    }.width('100%').alignItems(VerticalAlign.Top)
+    Column({ space: 12 }) {
+      TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
+        .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
+        .placeholderColor(UiColor.disabled).backgroundColor(Color.Transparent).padding(0).borderRadius(0)
+        .onChange((value: string) => { this.notes = value }).onFocus(() => { this.inputFocus() })
+        .onBlur(() => { this.saveText() })
+      if (this.value().editContent.checklist.length > 0 || this.addingCheck) {
+        List() {
+          ForEach(this.value().editContent.checklist, (item: CoreTaskChecklistItem) => {
+            ListItem() { this.checklistRow(item) }
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) this.checklistTouch = true
+                if (event.type === TouchType.Up || event.type === TouchType.Cancel) setTimeout(() => { this.checklistTouch = false }, 100)
+              })
+              .swipeAction({ end: this.deleteCheck(item), edgeEffect: SwipeEdgeEffect.None })
+          }, (item: CoreTaskChecklistItem) => `${item.id}:${item.text}:${item.checked}`)
+          if (this.addingCheck) {
+            ListItem() {
+              Row({ space: 4 }) {
+                Text('○').width(28).fontSize(19).fontColor(UiColor.secondary)
+                TextInput({ text: this.newCheck, placeholder: '清单项' }).id(`inline_new_check_${this.ownerKey}`)
+                  .layoutWeight(1).fontSize(14).fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0)
+                  .enterKeyType(EnterKeyType.Next).onFocus(() => { this.inputFocus() })
+                  .onChange((text: string) => { this.newCheck = text }).onBlur(() => { this.saveCheck(false) })
+                  .onSubmit(() => { this.saveCheck(true) })
+              }.width('100%').height(44)
             }
-          }.layoutWeight(1)
-          this.detailsButton()
-        }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
-      } else if (this.task.scheduled.length === 0) {
-        Row() { Blank().layoutWeight(1); this.detailsButton() }.width('100%')
+          }
+          ListItem() {
+            Text('+  添加清单项').fontSize(14).fontColor(UiColor.secondary).width('100%').height(44)
+              .onClick(() => { this.addCheck() })
+          }
+        }.width('100%').height((this.value().editContent.checklist.length + (this.addingCheck ? 1 : 0) + 1) * 44)
+          .scrollBar(BarState.Off).enableScrollInteraction(false)
       }
-    }.width('100%').padding({ left: 28, top: 8 }).alignItems(HorizontalAlign.Start).flexShrink(0)
-      .onAreaChange((oldArea: Area, newArea: Area) => { this.measureContent(newArea) })
+      if (this.value().tags.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.value().tags, (tag: string) => {
+            Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10).backgroundColor(taskTagColor(tag))
+              .constraintSize({ maxWidth: this.rowWidth - 64 }).margin({ right: 6, bottom: 6 })
+              .onClick(() => { this.tags() })
+          }, (tag: string) => tag)
+        }.width('100%')
+      }
+      if (this.message) {
+        Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%')
+        Button('重新载入').height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+          .enabled(!this.working).onClick(() => { this.reloadDraft() })
+      }
+    }.width('100%').padding({ left: 27 })
   }
-
+  @Builder
+  attributeButton(icon: Resource, label: string, activate: () => void) {
+    Button({ type: ButtonType.Normal }) { Image(icon).width(18).height(18) }
+      .id(label === '设置标签' ? 'inline_tags_button' : 'inline_checklist_button')
+      .width(36).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working)
+      .accessibilityText(label).onClick(activate)
+  }
+  @Builder
+  attributes() {
+    Row() {
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: 5 }) {
+          Image(this.value().scheduled === inlineDate(new Date()) ? $r('app.media.nav_today') : $r('app.media.ui_task_calendar')).width(18).height(18)
+          if (this.value().scheduled) { Text(inlineDateLabel(this.value().scheduled)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
+        }
+      }.id('inline_schedule_button').height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working).constraintSize({ minWidth: 36, maxWidth: '46%' })
+        .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
+      Blank().layoutWeight(1)
+      this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
+      this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() })
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: 4 }) {
+          Image(this.deadlineIcon()).width(16).height(16)
+          if (this.value().deadline) { Text(inlineDateLabel(this.value().deadline)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
+        }
+      }.id('inline_deadline_button').height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working).constraintSize({ minWidth: 36, maxWidth: '34%' })
+        .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
+    }.width('100%').padding({ left: 27 })
+  }
   build() {
     Column() {
-      Row({ space: 8 }) {
-        this.stateIndicator()
-        if (this.expanded) {
-          this.expandedTitle()
-          Image($r('app.media.ui_up')).width(20).height(20).flexShrink(0)
-            .accessibilityText('收起任务').onClick((): void => { this.toggle() })
-        } else {
+      if (this.expanded) {
+        Column({ space: 8 }) {
+          Scroll() { Column({ space: 12 }) { this.editorContent() }.width('100%') }
+            .width('100%').height(this.typing ? this.contentLimit : 'auto')
+            .scrollBar(BarState.Off).nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.PARENT_FIRST })
+          this.attributes()
+        }.width('100%').padding(12).backgroundColor(UiColor.taskCard).borderRadius(12)
+        Text(this.value().category || this.value().fileName).fontSize(11).fontColor(UiColor.secondary)
+          .width('100%').textAlign(TextAlign.End).padding({ top: 6, right: 12, bottom: 4 })
+      } else {
+        Row({ space: 8 }) {
+          this.stateIndicator()
           this.compactLeadingInfo()
           this.compactTitle()
-          if (this.task.deadline.length > 0) { this.compactDeadline() }
-        }
-      }.width('100%').alignItems(this.expanded ? VerticalAlign.Top : VerticalAlign.Center)
-      if (this.contentMounted) {
-        // 仅用于内容测量与动画裁切，纵向滚动交给外层列表。
-        Scroll() { this.expandedContent() }.width('100%').height(this.contentHeight).clip(true)
-          .scrollable(ScrollDirection.Vertical).enableScrollInteraction(false).scrollBar(BarState.Off)
-          .nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.PARENT_FIRST })
-          .edgeEffect(EdgeEffect.None).align(Alignment.TopStart)
-          .opacity(this.expanded ? 1 : 0)
-          .transition(TransitionEffect.OPACITY.animation({ duration: 220 }))
-          .accessibilityLevel(this.expanded ? 'auto' : 'no-hide-descendants')
+          if (this.value().deadline) { this.compactDeadline() }
+        }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })
+        if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       }
-    }.width('100%').alignItems(HorizontalAlign.Start)
-      .padding({ left: this.expanded ? 16 : 8, right: this.expanded ? 16 : 8,
-        top: this.expanded ? 16 : 0, bottom: this.expanded ? 16 : 0 })
-      .margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
-      .backgroundColor(this.expanded ? UiColor.taskCard : Color.Transparent).borderRadius(18)
-      .onAreaChange((oldArea: Area, newArea: Area) => {
-        const width = parseFloat(newArea.width.toString())
-        if (Number.isFinite(width) && width > 0 && width !== this.rowWidth) this.rowWidth = width
+    }.width('100%').alignItems(HorizontalAlign.Start).margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
+      .onAreaChange((oldArea: Area, area: Area) => {
+        this.rowWidth = parseFloat(area.width.toString())
+        this.cardTop = parseFloat((area.globalPosition.y ?? 0).toString())
+        if (this.keyboardHeight > 0) this.contentLimit = Math.max(80, this.getUIContext().px2vp(this.originalWindowHeight - this.keyboardHeight) - this.cardTop - 80)
       })
+      .onClick(() => {})
+      .priorityGesture(PanGesture({ direction: PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
+        if (event.offsetX > 48 && !this.typing && !this.checklistTouch) this.dates(false)
+        else if (event.offsetX < -48 && this.enableSwipeActions && !this.typing && !this.checklistTouch) this.swipe(true)
+      }))
+      .onGestureJudgeBegin(() => this.checklistTouch || this.typing || this.enableSwipeActions ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }
 }

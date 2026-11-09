@@ -838,11 +838,15 @@ pub struct TaskModificationOperation {
 pub enum TaskModification {
     Title(Option<String>),
     Body(Option<String>),
+    Notes(Option<String>),
+    Checklist(TaskChecklistChange),
     Todo(Option<String>),
     Priority(Option<String>),
     Tags(Option<Vec<String>>),
     Schedule(Option<String>),
+    ScheduleDate(Option<String>),
     Deadline(Option<String>),
+    DeadlineDate(Option<String>),
     Closed(Option<String>),
     Created(Option<String>),
     AddressLink(Option<TaskAddressChange>),
@@ -939,7 +943,7 @@ pub struct TaskOperationResult {
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
 \umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
 \umlclass[x=7,y=-8]{TaskDeletion}{path: TaskPath}{}
-\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / TODO \\ PRIORITY / TAGS \\ SCHEDULE / DEADLINE / CLOSED \\ CREATED / ADDRESS\_LINK}{}
+\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / NOTES / CHECKLIST \\ TODO / PRIORITY / TAGS \\ SCHEDULE / SCHEDULE\_DATE \\ DEADLINE / DEADLINE\_DATE \\ CLOSED / CREATED / ADDRESS\_LINK}{}
 \umlclass[x=0,y=-12]{TaskOperationHistory}{entries: Vec\textless TaskOperationRecord\textgreater}{}
 \umlclass[x=8,y=-12]{TaskOperationRecord}{operation\_group: TaskOperationGroup \\ fallback\_group: TaskFallbackGroup}{}
 \umlclass[x=15,y=-12]{TaskFallbackGroup}{files: Vec\textless TaskFileFallback\textgreater}{}
@@ -1112,3 +1116,41 @@ repo\_id: OrgRepoId}{}
 \end{tikzpicture}
 
 ~SyncContext.local_changes~ 为仅运行时的本地变更暂存，包含原路径、旧字节与待应用字节，不保存到日志 JSON。仅成功同步提交此集合；失败或取消丢弃。 ~last_effect_sync~ 直接选择最近的 ~Succeeded~ 记录，不按冲突、备份或解决状态过滤。
+
+* 卡片编辑正文与检查清单
+
+~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
+
+#+begin_src rust
+pub struct TaskEditContent {
+    pub own_tags: Vec<String>,
+    pub notes: String,
+    pub checklist: Vec<TaskChecklistItem>,
+}
+pub struct TaskChecklistItem {
+    pub id: String,
+    pub text: String,
+    pub checked: bool,
+    pub partial: bool,
+    pub depth: usize,
+}
+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+pub enum TaskChecklistChange {
+    Add { text: String },
+    Edit { id: String, text: String },
+    SetChecked { id: String, checked: bool },
+    Remove { id: String },
+}
+#+end_src
+
+条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态只替换 checkbox token；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
+
+~SCHEDULE_DATE~ 与 ~DEADLINE_DATE~ 接收 ~YYYY-MM-DD~ 或空值，只修改对应规划时间戳的开始日期并更新星期，不清除原时刻、重复器或预警；原 ~SCHEDULE~ 与 ~DEADLINE~ 仍设置完整时间戳。清除一个日期不修改另一个日期。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ own\_tags: Vec}{}
+\umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
+\umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove}{}
+\umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}
+\umldep{TaskChecklistChange}{TaskChecklistItem}
+\end{tikzpicture}

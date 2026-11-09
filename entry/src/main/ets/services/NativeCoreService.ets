@@ -6,6 +6,8 @@ import {
   TaskOperationGroup as NativeTaskOperationGroup,
   TaskOperationResult as NativeTaskOperationResult,
   TaskModification as NativeTaskModification,
+  TaskChecklistItem as NativeTaskChecklistItem,
+  TaskChecklistChange as NativeTaskChecklistChange,
   TodoMetadata as NativeTodoMetadata,
   defaultSyncOptions,
   defaultTodoSettings,
@@ -43,6 +45,8 @@ export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
 // 逻辑身份、category、hasList、hasText 与 isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
+export type CoreTaskChecklistItem = NativeTaskChecklistItem
+export type CoreTaskChecklistChange = NativeTaskChecklistChange
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
 export type CoreAddressLink = NativeAddressLink

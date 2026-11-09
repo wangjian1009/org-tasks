@@ -77,6 +77,9 @@ pub struct HarmonyBridgeTask {
     pub scheduled: String,
     pub deadline: String,
     pub tags: Vec<String>,
+    pub own_tags: Vec<String>,
+    pub inherited_tags: Vec<String>,
+    pub edit_content: org_tasks_core::TaskEditContent,
     pub file_path: String,
     pub file_name: String,
     pub level: u32,
@@ -243,6 +246,7 @@ fn task_from_filter(
     let is_cancelled = task.is_cancelled();
     let heading_parts = task.title_parts();
     let content = task.render_content();
+    let edit_content = file.task_edit_content(task.full_path())?;
     let mut tags = task.own_tags().to_vec();
     for inherited in task.inherited_tags() {
         if !tags.contains(inherited) {
@@ -277,6 +281,9 @@ fn task_from_filter(
             .deadline()
             .map(|date| date.date().to_string())
             .unwrap_or_default(),
+        own_tags: edit_content.own_tags.clone(),
+        inherited_tags: task.inherited_tags().to_vec(),
+        edit_content,
         tags,
         file_name: path.rsplit('/').next().unwrap_or(&path).into(),
         file_path: path,

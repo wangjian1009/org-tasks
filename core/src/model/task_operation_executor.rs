@@ -632,7 +632,7 @@ fn validate_timestamp(value: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn modify(
+pub(super) fn modify(
     file: &mut OrgFile,
     headline: &Headline,
     modification: &TaskModification,
@@ -773,6 +773,48 @@ fn modify(
             }
             replace(file, body_start..b.max(body_start), content.as_bytes())
         }
+        TaskModification::Notes(value) => {
+            let value = value.as_deref().unwrap_or("");
+            validate_body(value)?;
+            let ranges = super::task_inline::note_ranges(headline);
+            let at = ranges
+                .first()
+                .map(|range| range.start)
+                .unwrap_or_else(|| inline_body_start(file, headline));
+            let nl = newline(file).to_owned();
+            let mut content = normalize_newlines(value, &nl);
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push_str(&nl);
+            }
+            for range in ranges.iter().rev() {
+                replace(file, range.clone(), &[])?;
+            }
+            if at > 0 && file.source_bytes().get(at - 1) != Some(&b'\n') && !content.is_empty() {
+                content.insert_str(0, &nl);
+            }
+            replace(file, at..at, content.as_bytes())
+        }
+        TaskModification::Checklist(change) => modify_checklist(file, headline, change),
+        TaskModification::ScheduleDate(value) => {
+            let value = planning_date_value(headline.scheduled(), value)?;
+            planning(
+                file,
+                headline,
+                "SCHEDULED",
+                SyntaxKind::PLANNING_SCHEDULED,
+                &value,
+            )
+        }
+        TaskModification::DeadlineDate(value) => {
+            let value = planning_date_value(headline.deadline(), value)?;
+            planning(
+                file,
+                headline,
+                "DEADLINE",
+                SyntaxKind::PLANNING_DEADLINE,
+                &value,
+            )
+        }
         TaskModification::Schedule(value) => planning(
             file,
             headline,
@@ -899,6 +941,151 @@ fn created(
         )
     } else {
         Ok(())
+    }
+}
+
+fn planning_date_value(
+    existing: Option<orgize::ast::Timestamp>,
+    value: &Option<String>,
+) -> Result<Option<String>, CoreError> {
+    let Some(value) = value else { return Ok(None) };
+    let day = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| CoreError::InvalidInput("日期必须是 YYYY-MM-DD"))?;
+    if value.len() != 10 {
+        return Err(CoreError::InvalidInput("日期必须是 YYYY-MM-DD"));
+    }
+    let Some(timestamp) = existing else {
+        return Ok(Some(format!("<{value}>")));
+    };
+    let mut raw = timestamp.raw();
+    let offset = u32::from(timestamp.start()) as usize;
+    if let Some(token) = timestamp
+        .syntax()
+        .children_with_tokens()
+        .find(|node| node.kind() == SyntaxKind::TIMESTAMP_DAYNAME)
+    {
+        let a = u32::from(token.text_range().start()) as usize - offset;
+        let b = u32::from(token.text_range().end()) as usize - offset;
+        raw.replace_range(a..b, &day.format("%a").to_string());
+    }
+    raw.replace_range(1..11, value);
+    validate_timestamp(&raw)?;
+    Ok(Some(raw))
+}
+
+fn inline_body_start(file: &OrgFile, headline: &Headline) -> usize {
+    let mut at = file.source_bytes()[start(headline)..]
+        .iter()
+        .position(|b| *b == b'\n')
+        .map(|n| start(headline) + n + 1)
+        .unwrap_or(file.source_bytes().len());
+    if let Some((_, end, _)) = planning_lines(file, headline).last() {
+        at = at.max(*end);
+    }
+    if let Some(properties) = headline.properties() {
+        at = at.max(u32::from(properties.end()) as usize);
+    }
+    at
+}
+
+fn checklist_line_end(file: &OrgFile, item: &orgize::ast::ListItem) -> usize {
+    let a = u32::from(item.start()) as usize;
+    let b = u32::from(item.end()) as usize;
+    let raw = std::str::from_utf8(&file.source_bytes()[a..b]).expect("UTF-8");
+    let content_end = a + raw.trim_end_matches(['\r', '\n']).len();
+    file.source_bytes()[content_end..b]
+        .iter()
+        .position(|b| *b == b'\n')
+        .map(|n| content_end + n + 1)
+        .unwrap_or(b)
+}
+
+fn modify_checklist(
+    file: &mut OrgFile,
+    headline: &Headline,
+    change: &TaskChecklistChange,
+) -> Result<(), CoreError> {
+    let text = match change {
+        TaskChecklistChange::Add { text } | TaskChecklistChange::Edit { text, .. } => Some(text),
+        _ => None,
+    };
+    if let Some(text) = text {
+        if text.trim().is_empty() || text.chars().any(char::is_control) {
+            return Err(CoreError::InvalidInput("清单条目不能为空或包含换行"));
+        }
+        // 新文本不能改变条目结构或吞并为描述列表。
+        let org = orgize::Org::parse(&format!("- [ ] {text}\n"));
+        let item = org
+            .first_node::<orgize::ast::ListItem>()
+            .ok_or(CoreError::InvalidInput("清单条目无效"))?;
+        if item.tag().next().is_some() {
+            return Err(CoreError::InvalidInput("清单条目不能变为描述列表"));
+        }
+    }
+    let items = super::task_inline::checklist_items(headline);
+    if let TaskChecklistChange::Add { text } = change {
+        let lists = super::task_inline::checklist_lists(headline);
+        let last = lists.last().and_then(|list| list.items().last());
+        let at = last
+            .as_ref()
+            .map(|item| checklist_line_end(file, item))
+            .unwrap_or_else(|| {
+                headline
+                    .section()
+                    .map(|section| u32::from(section.end()) as usize)
+                    .unwrap_or_else(|| inline_body_start(file, headline))
+            });
+        let nl = newline(file);
+        let prefix = if last.is_none()
+            && headline
+                .section()
+                .map(|s| s.syntax().children().any(|n| n.kind() == SyntaxKind::LIST))
+                .unwrap_or(false)
+        {
+            if file.source_bytes().get(at.wrapping_sub(1)) == Some(&b'\n') {
+                "\n\n"
+            } else {
+                "\n\n\n"
+            }
+        } else if at > 0 && file.source_bytes()[at - 1] != b'\n' {
+            nl
+        } else {
+            ""
+        };
+        let prefix = normalize_newlines(prefix, nl);
+        return replace(file, at..at, format!("{prefix}- [ ] {text}{nl}").as_bytes());
+    }
+    let id = match change {
+        TaskChecklistChange::Edit { id, .. }
+        | TaskChecklistChange::SetChecked { id, .. }
+        | TaskChecklistChange::Remove { id } => id,
+        _ => unreachable!(),
+    };
+    let item = items
+        .into_iter()
+        .find(|item| u32::from(item.start()).to_string() == *id)
+        .ok_or(CoreError::InvalidInput("清单条目不存在或已改变"))?;
+    match change {
+        TaskChecklistChange::Edit { text, .. } => {
+            let range = super::task_inline::item_text_range(file, &item);
+            let content = if file.source_bytes().get(range.start.wrapping_sub(1)) == Some(&b']') { format!(" {text}") } else { text.clone() };
+            replace(file, range, content.as_bytes())
+        },
+        TaskChecklistChange::SetChecked { checked, .. } => {
+            let token = item.checkbox().expect("checkbox");
+            replace(
+                file,
+                u32::from(token.text_range().start()) as usize
+                    ..u32::from(token.text_range().end()) as usize,
+                if *checked { b"X" } else { b" " },
+            )
+        }
+        TaskChecklistChange::Remove { .. } => replace(
+            file,
+            u32::from(item.start()) as usize..checklist_line_end(file, &item),
+            &[],
+        ),
+        _ => unreachable!(),
     }
 }
 

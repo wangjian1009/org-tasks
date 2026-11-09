@@ -36,6 +36,7 @@ all: build
 deps:
 	@echo ">>> 安装依赖..."
 	cd $(CURDIR) && $(OHPM) install --all
+	cd $(CURDIR)/entry && $(OHPM) install
 
 # HarmonyOS 6.1.1 的 Hvigor 通过 sdk-pkg.json 发现已安装的组合 SDK。
 check-sdk:

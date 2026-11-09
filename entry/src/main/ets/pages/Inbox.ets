@@ -1,3 +1,4 @@
+import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
@@ -30,6 +31,7 @@ struct Inbox {
   @State message: string = ''
   @State @Watch('drawerChanged') drawerOpen: boolean = false
   @State needsConfiguration: boolean = false
+  @StorageLink('taskInlineActive') inlineActive: string = ''
   @State captureOpen: boolean = false
   @State captureTitle: string = ''
   @State captureSaving: boolean = false
@@ -63,6 +65,7 @@ struct Inbox {
   }
 
   onBackPress(): boolean {
+    if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.captureOpen) { this.closeCapture(); return true }
     if (this.selected) { this.closeTargetPopup(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
@@ -108,6 +111,18 @@ struct Inbox {
     if (!node) return
     if (left) ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
     else ListItemSwipeActionManager.collapse(node)
+  }
+
+  @Builder
+  scheduleHint() {
+    Row() { Image($r('app.media.ui_task_calendar')).width(24).height(24) }
+      .width(56).height('100%').justifyContent(FlexAlign.Center).backgroundColor('#344A47')
+  }
+
+  requestSchedule(record: CoreTask) {
+    const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
+    if (node) ListItemSwipeActionManager.collapse(node)
+    AppStorage.setOrCreate('taskInlineDateRequest', `${record.id}\n${Date.now()}`)
   }
 
   @Builder
@@ -263,6 +278,7 @@ struct Inbox {
   }
 
   async loadRecords() {
+    if (TaskInlineSession.active()) return
     const request = ++this.requestId
     clearTimeout(this.refreshTimer)
     this.loadRecentRecords(request)
@@ -351,7 +367,8 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.id(`inbox_record_${record.id}`).swipeAction({ end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None })
+                }.id(`inbox_record_${record.id}`).swipeAction({ start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
+                  end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None })
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
@@ -397,7 +414,7 @@ struct Inbox {
           }
         }.width('100%').height('100%')
       }
-      if (!this.drawerOpen && !this.captureOpen && !this.selected) {
+      if (!this.drawerOpen && !this.captureOpen && !this.selected && !this.inlineActive) {
         Button({ type: ButtonType.Circle }) {
           Image($r('app.media.ui_add_primary')).width(28).height(28)
         }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)

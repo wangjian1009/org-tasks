@@ -1,3 +1,4 @@
+import { TaskInlineSession } from '../services/TaskInlineService'
 import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
 import { UiColor, UiSize } from '../ui/Theme'
@@ -46,6 +47,9 @@ export struct AppShell {
   @State logbookCount: number = -1
   @State navMessage: string = ''
   @StorageLink('coreNotifications') @Watch('notificationUpdated') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @StorageLink('taskInlineActive') @Watch('inlineSessionChanged') inlineActive: string = ''
+  @StorageLink('taskInlineTyping') inlineTyping: boolean = false
+  private deferredRefresh: boolean = false
   private navigationRequest: number = 0
   private notificationRevision: number = 0
   private pageIndex: number = 0
@@ -101,13 +105,25 @@ export struct AppShell {
     }
   }
 
+  inlineSessionChanged() {
+    if (!this.inlineActive && this.deferredRefresh) {
+      setTimeout(() => {
+        if (this.inlineActive) return
+        this.deferredRefresh = false
+        this.repositoryDataInvalidated()
+      }, 0)
+    }
+  }
+
   repositoryDataInvalidated() {
+    if (TaskInlineSession.active()) { this.deferredRefresh = true; return }
     this.synchronized()
     if (this.drawerOpen) this.loadNavigation()
   }
 
-  openDrawer() {
+  async openDrawer() {
     if (this.back || this.busy) return
+    if (TaskInlineSession.active() && !await TaskInlineSession.end(true)) return
     this.drawerOpen = true
   }
 
@@ -266,6 +282,10 @@ export struct AppShell {
               .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`).enabled(!this.busy)
               .onClick((): void => { this.openDrawer() })
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
+          if (this.inlineTyping) {
+            Button('完成').height(48).width(64).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+              .onClick(() => { TaskInlineSession.end(false) })
+          }
           if (this.secondaryActionLabel.length > 0) {
             IconButton({ icon: this.secondaryActionIcon, label: this.secondaryActionLabel, disabled: this.busy, action: this.secondaryAction })
           }
@@ -284,11 +304,12 @@ export struct AppShell {
           Divider().color(UiColor.outline).strokeWidth(0.5)
         }
         Column() {
-          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen }) {
+          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen || this.inlineActive.length > 0 }) {
             this.content()
           }
         }.width('100%').layoutWeight(1)
       }.width('100%').height('100%').backgroundColor(UiColor.surface)
+        .onClick(() => { if (TaskInlineSession.active()) TaskInlineSession.end(true) })
       if (this.drawerOpen) {
         Row().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.drawerOpen = false })
         this.drawer()
