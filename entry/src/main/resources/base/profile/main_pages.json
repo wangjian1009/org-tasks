@@ -1,6 +1,5 @@
 {
   "src": [
-    "pages/Search",
     "pages/Files",
     "pages/SyncLog",
     "pages/SyncDetail",

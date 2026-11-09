@@ -6,7 +6,6 @@ import { RepositorySyncView } from './RepositorySyncView'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
-import { SavedSearch, SavedSearchService } from '../services/SavedSearchService'
 import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 
 export interface AppMenuItem {
@@ -22,7 +21,7 @@ export struct AppShell {
   @Prop activeRoute: string = ''
   @Prop activeOverview: string = ''
   @Prop back: boolean = false
-  @Prop actionIcon: Resource = $r('app.media.ui_search')
+  @Prop actionIcon: Resource = $r('app.media.ui_more')
   @Prop actionLabel: string = ''
   @Prop secondaryActionIcon: Resource = $r('app.media.ui_info')
   @Prop secondaryActionLabel: string = ''
@@ -43,7 +42,6 @@ export struct AppShell {
   @State somedayCount: number = -1
   @State memoCount: number = -1
   @State logbookCount: number = -1
-  @State searches: SavedSearch[] = []
   @State navMessage: string = ''
   private navigationRequest: number = 0
 
@@ -84,7 +82,6 @@ export struct AppShell {
     this.inboxCount = -1
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const searches = await SavedSearchService.load(this.getUIContext().getHostContext()!)
       const inbox = await FileTargetService.query(config, 'inbox')
       const today = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('today'), config.todoDefaults)
       const overdue = await NativeCoreService.queryTasks(config.repos, overdueTaskQuery(), config.todoDefaults)
@@ -94,7 +91,6 @@ export struct AppShell {
       const memo = await FileTargetService.query(config, 'memo')
       const logbook = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('logbook'), config.todoDefaults)
       if (request !== this.navigationRequest) return
-      this.searches = searches
       this.inboxCount = inbox?.tasks.length ?? -1
       this.todayCount = today.tasks.length
       this.overdueCount = overdue.tasks.length
@@ -138,11 +134,6 @@ export struct AppShell {
     }
   }
 
-  async openSearch(search: SavedSearch) {
-    this.drawerOpen = false
-    try { await this.getUIContext().getRouter().replaceUrl({ url: 'pages/Search', params: { query: search.query, name: search.name, run: true } }) }
-    catch (error) { this.navMessage = '打开查询页面失败，请重试'; this.drawerOpen = true }
-  }
 
   primaryCount(view: TaskOverview | 'inbox'): number {
     switch (view) {
@@ -204,10 +195,6 @@ export struct AppShell {
           this.primaryItem('备忘', $r('app.media.nav_memo'), 'memo')
           Row().height(12)
           this.primaryItem('日志簿', $r('app.media.nav_logbook'), 'logbook')
-          ForEach(this.searches, (search: SavedSearch) => {
-            Text(search.name).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary).width('100%').padding({ left: 58, right: 16, top: 8, bottom: 8 })
-              .onClick((): void => { this.openSearch(search) })
-          }, (search: SavedSearch) => search.id)
           Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
           this.navItem('存储库', $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
           if (this.navMessage.length > 0) {

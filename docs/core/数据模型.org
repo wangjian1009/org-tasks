@@ -196,7 +196,7 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 
 ~FilterTask.category~ 是查询时所属文件的 ~OrgFile.category()~ 快照，由 Core 每文件提取一次；未声明为 ~None~ ，显式空声明为 ~Some("")~ 。标题属性不覆盖这个文件分类。分类变化不改变任务逻辑 ID，但刷新后必须使用新任务快照。宿主通过只读数据控制分类展示，不再逐项获取文件，不额外传入分类文字。该投影不进入同步记录或 outbox。
 
-~FilterTask.own_tags~ 与 ~inherited_tags~ 在查询内部保留原始标签用于表达式求值； ~OrgWorkspace.search~ 和 ~query~ 返回前统一排除系统标签 ~REFILE~ 与 ~ARCHIVE~ 。其余标签的内容与顺序保持不变，大小写不同的 ~refile~ 或 ~archive~ 不受影响。放置目标从 ~OrgFile~ 的标题自身标签读取，不依赖已去除系统标签的查询返回值。
+~FilterTask.own_tags~ 与 ~inherited_tags~ 在查询内部保留原始标签用于表达式求值； ~OrgWorkspace.query~ 返回前统一排除系统标签 ~REFILE~ 与 ~ARCHIVE~ 。其余标签的内容与顺序保持不变，大小写不同的 ~refile~ 或 ~archive~ 不受影响。放置目标从 ~OrgFile~ 的标题自身标签读取，不依赖已去除系统标签的查询返回值。
 
 \begin{center}
 \begin{tikzpicture}
@@ -304,9 +304,11 @@ pub struct TaskPosition {
 \end{tikzpicture}
 \end{center}
 
+表达式解析器 ~Filter~ 及其条件、区间和排序节点只存在于 Core 内部，不属于宿主数据模型。所有宿主统一使用 ~TaskQuery~ 与 ~TaskQueryResult~ 。
+
 * 工作空间与仓库
 
-~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~Filter~ 搜索，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
+~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~TaskQuery~ 查询，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
 ~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史属于仓库的本地控制数据， ~load::<P>~ 可返回它供查询； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，也不新增历史字段或单独状态文件。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
@@ -647,6 +649,9 @@ include\_compose\_tasks: bool}{}
 \umlclass[x=8,y=0]{TaskQueryResult}{tasks: Vec\textless FilterTask\textgreater \\
 categories: Vec\textless TaskCategory\textgreater}{}
 \umldep{TaskQueryResult}{TaskQuery}
+\umlclass[x=4,y=-4]{OrgWorkspace}{}{query(TaskQuery): Result\textless TaskQueryResult, CoreError\textgreater}
+\umldep{OrgWorkspace}{TaskQuery}
+\umldep{OrgWorkspace}{TaskQueryResult}
 \end{tikzpicture}
 \end{center}
 

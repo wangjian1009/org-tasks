@@ -7,7 +7,7 @@
 
 本查询语言用于从 ~OrgRepo~ 的任务快照中选择和排序任务。语法以参考项目 Orgzly Android Revived 的 ~DottedQueryParser~ 、~QueryTokenizer~ 、~QueryInterval~ 及其 ~QueryTest~ 和 ~QueryTokenizerTest~ 为准；本项目在 ~core::filter~ 中实现同一套 dotted expression，而不使用 Android 的 SQLite 表达式实现。
 
-查询是完整的 ~Filter~ ：它由可选布尔表达式、零个或多个排序项和可选 agenda 天数构成。无法识别为操作符的 token 按普通文本条件处理，保持参考实现的宽容输入行为。
+对外唯一任务读取入口为 ~OrgWorkspace.query(&TaskQuery)~ 。表达式在 Core 内部解析为 ~Filter~ ：它由可选布尔表达式、零个或多个排序项和可选 agenda 天数构成。无法识别为操作符的 token 按普通文本条件处理，保持参考实现的宽容输入行为。
 
 * 语法
 
@@ -51,7 +51,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 * core 映射
 
-~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存由 Core 生成的逻辑 ~id~ 、仓库 ID、相对路径、源位置、标题层级、状态、优先级、自身标签、继承标签、标题、正文和规划时间。~OrgWorkspace.search~ 汇总各仓库任务后由核心过滤器统一求值；宿主和 CLI 不得重新解释 org AST 或绕过 workspace 实现搜索。
+~FilterTask~ 从 ~OrgFile~ 的 ~orgize~ 无损语法树生成：它保存由 Core 生成的逻辑 ~id~ 、仓库 ID、相对路径、源位置、标题层级、状态、优先级、自身标签、继承标签、标题、正文和规划时间。~OrgWorkspace.query~ 汇总各仓库任务后由核心过滤器统一求值；宿主和 CLI 不得重新解释 org AST 或绕过 workspace 实现搜索。
 
 任务投影覆盖全部 headline，以保持 ~it.none~ 和 ~.it.done~ 的 headline 语义一致。参考应用还会为每个文件的前言创建无状态根笔记；core 不投影 ~#+TITLE~ 、文件属性或第一个 headline 前的文本，因此这些文件级前言不参与任务查询。创建日期从当前标题自身属性 drawer 的 ~CREATED~ 读取，键不区分大小写，不继承祖先值；无效日期、时间或非时间戳值不投影。 ~FilterTask.created~ 保留日期，供既有 ~cr.*~ 自然日语法匹配； ~created_at()~ 保留按设备本地时区解释的 Unix 毫秒时间，缺失或无效时返回 ~None~ 。 ~modified_at()~ 返回所属文件由 Core 扫描时取得的本地磁盘修改时间；内存中构造的文件或不可取得文件属性时返回 ~None~ 。只有日期时按本地 00:00 解释，夏令时回拨重复时刻选较早值，不存在的本地时刻忽略。 ~.o.created~ 按完整创建时间倒序，同一天可按时刻排序。
 
@@ -61,7 +61,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 精确等于 ~REFILE~ 的标签表示可放置任务的标题，目标由 ~OrgWorkspace.refile_targets()~ 或 ~OrgRepo.refile_targets()~ 单独枚举，模型与层级路径见 [[file:数据模型.org::*任务放置目标][任务放置目标]] 。放置标记只认标题自身显式标签，不从祖先或文件标签继承。
 
-~search~ 和 ~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ 与 ~ARCHIVE~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 或 ~archive~ 时保留。带这些系统标签的标题仍属于正常任务查询结果，不因标记被整体排除。
+~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ 与 ~ARCHIVE~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 或 ~archive~ 时保留。带这些系统标签的标题仍属于正常任务查询结果，不因标记被整体排除。
 
 ~t.REFILE~ 仍按既有标签匹配规则检索自身或祖先标签， ~tn.REFILE~ 仍只检索自身标签，否定及普通文本条件也在移除前求值。这些表达式的匹配范围与放置目标的精确标签识别不同；目标枚举不通过任务查询实现。源 Org 字节与原始标签均不修改。
 
@@ -132,7 +132,6 @@ pub struct TaskQueryResult {
 
 impl OrgWorkspace {
     pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
-    pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
 }
 #+end_src
 
@@ -154,8 +153,6 @@ UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRe
 
 最近三天按今天、昨天和前天三个本地自然日解释，请求使用 ~cr.ge.-2d cr.le.today .o.created~ 。创建日期属于前天全天的记录均可匹配，今天晚些时候的创建时间同样属于今天；明天及更晚日期不匹配。时间条件统一由 ~expression~ 表达，不额外增加创建时间范围字段，也不扩展小时级筛选语义。
 
-* 分享地址候选查询排查与接入建议
+* 分享地址候选查询
 
-~ShareLocation.openUpdate~ 已通过 ~NativeCoreService.queryTasks -> Workspace.query -> OrgWorkspace.query~ 获得候选，目前逐仓库请求 ~includeDone=false~ 后合并。界面使用 ~tasks.slice(0, 8)~ 截断列表，且“搜索任务标题”输入框未绑定查询；当前过滤不要求存在地址链接，因此无可更新链接的无状态记录也可能出现在候选列表。
-
-建议确认后统一对全部仓库发起一次 ~Workspace.query~ ，保留任务投影中的 ~repoId~ 和 ~source~ 以定位更新对象，移除前八项截断，将搜索作为请求交给 Core。现有 ~expression~ 支持通用文字搜索，若产品严格要求仅标题匹配或只返回含地址链接的任务，可另行审定 ~title_contains: Option<String>~ 与 ~has_address_links: Option<bool>~ 两个通用条件；它们属于后续扩展建议，本轮 Query 定义尚未加入，也不在 UI 做地址或标题过滤。
+~ShareLocation~ 通过 ~NativeCoreService.queryTasks -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与任务／备忘文件条件，并设置 ~includeDone=false~ ；页面不再按标题、地址或条数过滤返回结果。

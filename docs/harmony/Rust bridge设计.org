@@ -43,7 +43,6 @@ class Workspace {
   repos(): Promise<Repo[]>
   addRepo(rootDirectory: string): Promise<Repo>
   removeRepo(rootDirectory: string): Promise<void>
-  search(expression: string): Promise<Task[]>
   query(query: TaskQuery): Promise<TaskQueryResult>
 }
 
@@ -111,7 +110,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~WebDavSyncPolicy.compare_merge(repo, sync_id)~ | ~policy.compareMerge(repo, syncId)~ | 合并比较属于策略对象。 |
 | ~WebDavSyncPolicy.apply_merge(repo, comparison)~ | ~policy.applyMerge(repo, comparison)~ | 直接回传用户选择后的比较对象。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
-| ~OrgWorkspace.search(&Filter)~ | ~workspace.search(expression)~ | 宿主传查询文本，由 Rust 解析为 ~Filter~ 。 |
+| ~OrgWorkspace.query(&TaskQuery)~ | ~workspace.query(query)~ | 结构化请求在 worker 中透传 Core，返回任务及分类统计。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
 | ~OrgRepo.load::<WebDavSyncPolicy>()~ 与 ~sync_history_summaries~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录并生成执行结果、传输方向与冲突处理摘要；bridge 只编组字段，ArkTS 不读取控制目录。 |
@@ -156,11 +155,11 @@ comparison.changes[0].resolution = 'remote'
 const outcome = await policy.applyMerge(repo, comparison)
 #+end_src
 
-* 默认 TODO、搜索与结果投影
+* 默认 TODO、查询与结果投影
 
 ~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并重算已加载文件；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
-~Workspace.search~ 将表达式交给 Rust 的 ~Filter::parse~ 和 ~OrgWorkspace.search~ 。返回 ~Task~ 对象用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
+~Workspace.query~ 将结构化请求交给 ~OrgWorkspace.query~ ，由 Core 内部解析表达式并求值。返回结果中的 ~tasks~ 为原生 ~Task~ 对象，用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
 * 错误与扩展
 
@@ -170,7 +169,7 @@ const outcome = await policy.applyMerge(repo, comparison)
 
 * 任务完成对象
 
-~Workspace.search~ 返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新搜索。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
+~Workspace.query~ 在结果的 ~tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
 
 #+begin_src ts
 class Task {
@@ -189,6 +188,8 @@ class Task {
 #+end_src
 
 * 通用查询与 UI 职责边界（固定设计原则）
+
+~Workspace.search~ 及其 FFI、N-API 和 ArkTS 封装已删除，不保留兼容入口。任务列表、后台日历与任务操作后的快照统一调用 ~Workspace.query~ 。 ~NativeCoreService.loadWorkspace~ 和 ~syncWorkspaceWebDav~ 返回 ~CoreTask[]~ ，不再返回包含 workspace 与同步摘要的聚合响应类型。
 
 界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。新增页面和调整交互时必须遵守该原则；分类计数可以由展示层计算或直接显示 core 摘要，但不能为任务列表在展示层复制过滤规则。
 

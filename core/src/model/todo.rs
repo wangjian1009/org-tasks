@@ -332,7 +332,7 @@ fn parse_state(word: &str) -> Result<TodoStateMetadata, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Filter, OrgFile, OrgRepo, OrgWorkspace};
+    use crate::{OrgFile, OrgRepo, OrgWorkspace};
 
     fn file(source: &str) -> OrgFile {
         OrgFile::with_todo_defaults(
@@ -443,14 +443,14 @@ mod tests {
         repo.id = "repo".into();
         repo.files = vec![f];
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let done = workspace.search(&Filter::parse("it.done"));
+        let done = workspace.query(&crate::TaskQuery { expression: "it.done".into(), ..Default::default() }).unwrap().tasks;
         assert_eq!(
             done.iter()
                 .map(|task| task.state.as_deref().unwrap())
                 .collect::<Vec<_>>(),
             ["FINISHED", "CANCELED"]
         );
-        let pending = workspace.search(&Filter::parse("it.todo"));
+        let pending = workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).unwrap().tasks;
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].title, "Before");
     }
@@ -529,7 +529,7 @@ mod tests {
             repo.files.push(file.clone());
             let actual = OrgWorkspace::new(vec![repo])
                 .unwrap()
-                .search(&Filter::parse(""));
+                .query(&crate::TaskQuery::default()).unwrap().tasks;
             let headlines = actual.iter().map(|task| serde_json::json!({ "title": task.title, "state": task.state,
                 "kind": match task.state_type { crate::FilterStateType::Todo => Some("pending"), crate::FilterStateType::Done => Some("done"), _ => None },
             })).collect::<Vec<_>>();

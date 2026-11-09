@@ -24,7 +24,7 @@ fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
 fn created_properties_project_own_valid_dates_times_and_sort_by_time() {
     let source = "#+PROPERTY: CREATED [2026-11-08 Sun 11:00]\n* Parent\n:PROPERTIES:\n:created: [2026-11-08 Sun 10:00]\n:END:\n** Child\nBody [2026-11-08 Sun 12:00]\n* TODO Morning\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\n* DONE Noon\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n* Note\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun]\n:END:\n* BadDate\n:PROPERTIES:\n:CREATED: [2026-02-30 Mon 12:00]\n:END:\n* BadTime\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 25:00]\n:END:\n* Text\n:PROPERTIES:\n:CREATED: prefix [2026-11-08 Sun 12:00]\n:END:\n* Fake\n#+begin_src org\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n#+end_src\n";
     let w = OrgWorkspace::new(vec![repo("a", &[("inbox.org", source)])]).unwrap();
-    let tasks = w.search(&Filter::parse(".o.created"));
+    let tasks = w.query(&TaskQuery { expression: ".o.created".into(), ..Default::default() }).unwrap().tasks;
     let valid = tasks
         .iter()
         .filter(|task| task.created_at().is_some())
@@ -35,9 +35,6 @@ fn created_properties_project_own_valid_dates_times_and_sort_by_time() {
     );
     assert_eq!(valid[0].created_at(), Some(local("2026-11-08 12:00")));
     assert_eq!(valid[3].created_at(), Some(local("2026-11-08 00:00")));
-    let filter = Filter::parse("cr.ge.-2d cr.le.today");
-    assert!(filter.matches_at(valid[0], NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()));
-    assert!(!filter.matches_at(valid[0], NaiveDate::from_ymd_opt(2026, 11, 11).unwrap()));
     for title in ["Child", "BadDate", "BadTime", "Text", "Fake"] {
         assert!(
             tasks

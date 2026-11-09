@@ -171,16 +171,6 @@ pub extern "C" fn org_tasks_harmony_repo_id(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_search(
-    handle: u64,
-    expression: *const c_char,
-) -> *mut c_char {
-    string_result(
-        read_c_string(expression).and_then(|value| bridge::workspace_search_json(handle, value)),
-    )
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_query(
     handle: u64,
     query_json: *const c_char,

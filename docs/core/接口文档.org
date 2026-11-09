@@ -87,8 +87,6 @@ impl OrgWorkspace {
 
     pub fn remove_repo_by_root_directory(&mut self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
-    pub fn search(&self, filter: &Filter) -> Vec<FilterTask>;
-
     pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
 
     pub fn refile_targets(&self) -> Vec<RefileTarget>;
@@ -100,7 +98,9 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 ~search~ 汇总全部已加载仓库的 headline 任务投影，应用 ~Filter~ 并按其排序规则返回结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 ~query~ 汇总全部已加载仓库的 headline 任务投影，解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+
+~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
 *** 任务展示数据
 
@@ -161,7 +161,7 @@ impl OrgRepo {
 
 *** TaskScanRules
 
-~OrgRepo.task_scan_rules~ 保存最近一次 ~load~ 从根目录 ~.orgzlyignore~ 加载的运行时规则；不改变 ~files()~ 和 ~file(path)~ 的完整文件访问，也不传入同步策略。 ~search~ 和 ~query~ 在 Core 生成任务记录时统一排除命中文件。 WebDAV 同步还会下载根目录忽略配置，并在校验和本地提交成功后立即更新该字段；配置不作为 Org 文件进入 ~files()~ ，其下载、删除和本地修改保护见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]。
+~OrgRepo.task_scan_rules~ 保存最近一次 ~load~ 从根目录 ~.orgzlyignore~ 加载的运行时规则；不改变 ~files()~ 和 ~file(path)~ 的完整文件访问，也不传入同步策略。 ~query~ 在 Core 生成任务记录时统一排除命中文件。 WebDAV 同步还会下载根目录忽略配置，并在校验和本地提交成功后立即更新该字段；配置不作为 Org 文件进入 ~files()~ ，其下载、删除和本地修改保护见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]。
 
 #+begin_src rust
 impl TaskScanRules {
@@ -551,7 +551,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 ~OrgWorkspace.query(&TaskQuery)~ 返回 Core 过滤后的任务列表和分类摘要。请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
 
-~search~ 与 ~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 或 ~ARCHIVE~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
+~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 或 ~ARCHIVE~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
 
 * 任务放置目标
 

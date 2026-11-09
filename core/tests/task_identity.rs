@@ -1,4 +1,4 @@
-use org_tasks_core::{Filter, FilterTask, OrgFile, OrgRepo, OrgWorkspace, TaskQuery};
+use org_tasks_core::{FilterTask, OrgFile, OrgRepo, OrgWorkspace, TaskQuery};
 
 fn workspace(root: &str, path: &str, source: &str) -> OrgWorkspace {
     let mut repo = OrgRepo::new(root.into()).unwrap();
@@ -9,7 +9,7 @@ fn workspace(root: &str, path: &str, source: &str) -> OrgWorkspace {
 }
 
 fn tasks(source: &str) -> Vec<FilterTask> {
-    workspace("/repo", "inbox.org", source).search(&Filter::parse(""))
+    workspace("/repo", "inbox.org", source).query(&TaskQuery::default()).unwrap().tasks
 }
 
 #[test]
@@ -97,16 +97,16 @@ fn repo_path_file_path_and_task_ancestors_scope_the_identity() {
     let id = tasks(source)[1].id().to_owned();
     assert_ne!(
         id,
-        workspace("/other", "inbox.org", source).search(&Filter::parse(""))[1].id()
+        workspace("/other", "inbox.org", source).query(&TaskQuery::default()).unwrap().tasks[1].id()
     );
     assert_ne!(
         id,
-        workspace("/repo", "other/inbox.org", source).search(&Filter::parse(""))[1].id()
+        workspace("/repo", "other/inbox.org", source).query(&TaskQuery::default()).unwrap().tasks[1].id()
     );
     assert_ne!(id, tasks("* TODO Other project\n** TODO Child\n")[1].id());
     let mut rebuilt = workspace("/repo", "inbox.org", source);
     rebuilt.repos[0].id = "new-repo-id".into();
-    assert_eq!(id, rebuilt.search(&Filter::parse(""))[1].id());
+    assert_eq!(id, rebuilt.query(&TaskQuery::default()).unwrap().tasks[1].id());
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn display_content_changes_keep_identity_without_rewriting_source() {
     let source =
         "* DONE [#C] Project [1/1] :new:\r\nSCHEDULED: <2026-11-06 Fri>\r\nChanged body\r\n";
     let ws = workspace("/repo", "inbox.org", source);
-    let after = ws.search(&Filter::parse(""));
+    let after = ws.query(&TaskQuery::default()).unwrap().tasks;
     assert_eq!(before[0].id(), after[0].id());
     assert_ne!(before[0].body(), after[0].body());
     assert_eq!(ws.repos()[0].files()[0].source_bytes(), source.as_bytes());

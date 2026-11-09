@@ -843,7 +843,7 @@ mod tests {
         repo.id = "repo".into();
         repo.files.push(file);
         let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
-        let task = workspace.search(&crate::Filter::parse("")).remove(0);
+        let task = workspace.query(&crate::TaskQuery::default()).unwrap().tasks.remove(0);
         let rendered = task.render_content();
         assert!(rendered.body_html.contains("<b>粗体</b>"));
         assert!(rendered.body_html.contains("链接</a>"));

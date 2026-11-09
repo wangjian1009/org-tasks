@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{CoreError, Filter, FilterTask, OrgWorkspace};
+use crate::filter::Filter;
+use crate::{CoreError, FilterTask, OrgWorkspace};
 
 fn include_by_default() -> bool {
     true

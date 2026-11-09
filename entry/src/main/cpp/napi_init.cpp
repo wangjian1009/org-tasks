@@ -24,7 +24,6 @@ extern "C" char* org_tasks_harmony_repo_history(uint64_t workspace_handle, const
 extern "C" char* org_tasks_harmony_repo_history_detail(uint64_t workspace_handle, const char* root_directory, const char* sync_id);
 extern "C" char* org_tasks_harmony_repo_full_path(uint64_t handle, const char* root);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
-extern "C" char* org_tasks_harmony_workspace_search(uint64_t handle, const char* expression);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
 extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle, const char* query_json);
 extern "C" char* org_tasks_harmony_workspace_execute_task_operations(uint64_t handle, const char* request);
@@ -77,7 +76,6 @@ struct WebDavConnectionWork {
 };
 
 struct WorkspaceStringWork {
-    bool task_query = false;
     bool refile_targets = false;
     bool execute_operations = false;
     bool todo_defaults = false;
@@ -441,10 +439,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->response = TakeRustString(org_tasks_harmony_normalize_sync_options(work->expression.c_str()));
     } else if (work->todo_defaults) {
         if (org_tasks_harmony_workspace_set_todo_defaults(work->handle, work->expression.c_str()) == 0) work->response = "{}";
-    } else if (work->task_query) {
-        work->response = TakeRustString(org_tasks_harmony_workspace_query(work->handle, work->expression.c_str()));
     } else {
-        work->response = TakeRustString(org_tasks_harmony_workspace_search(work->handle, work->expression.c_str()));
+        work->response = TakeRustString(org_tasks_harmony_workspace_query(work->handle, work->expression.c_str()));
     }
     if (work->response.empty()) work->error = TakeRustError();
 }
@@ -468,7 +464,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         } else if (!work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
             napi_value tasks;
             napi_value source_tasks = result;
-            bool valid = !work->task_query || napi_get_named_property(env, result, "tasks", &source_tasks) == napi_ok;
+            bool valid = napi_get_named_property(env, result, "tasks", &source_tasks) == napi_ok;
             uint32_t length = 0;
             valid = valid && napi_get_array_length(env, source_tasks, &length) == napi_ok &&
                 napi_create_array_with_length(env, length, &tasks) == napi_ok;
@@ -479,8 +475,8 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
                 napi_value task = CreateTaskObject(env, source);
                 valid = task != nullptr && napi_set_element(env, tasks, index, task) == napi_ok;
             }
-            if (valid && work->task_query) valid = napi_set_named_property(env, result, "tasks", tasks) == napi_ok;
-            if (valid) napi_resolve_deferred(env, work->deferred, work->task_query ? result : tasks);
+            if (valid) valid = napi_set_named_property(env, result, "tasks", tasks) == napi_ok;
+            if (valid) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {
             napi_resolve_deferred(env, work->deferred, result);
@@ -852,26 +848,6 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
     return promise;
 }
 
-napi_value WorkspaceSearch(napi_env env, napi_callback_info info)
-{
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
-    WorkspaceWrap* workspace = nullptr;
-    napi_value self;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
-        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace->handle == 0) {
-        napi_throw_error(env, nullptr, "Workspace.search 参数无效");
-        return nullptr;
-    }
-    auto* work = new WorkspaceStringWork();
-    if (!ReadString(env, args[0], &work->expression)) {
-        delete work;
-        napi_throw_error(env, nullptr, "Workspace.search 表达式无效");
-        return nullptr;
-    }
-    work->handle = workspace->handle;
-    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceSearch", self);
-}
 
 napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
 {
@@ -885,7 +861,6 @@ napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
         return nullptr;
     }
     auto* work = new WorkspaceStringWork();
-    work->task_query = true;
     if (!EncodeJson(env, args[0], &work->expression)) {
         delete work;
         napi_throw_error(env, nullptr, "任务查询参数无效");
@@ -954,7 +929,7 @@ napi_value WorkspaceExecuteTaskOperations(napi_env env, napi_callback_info info)
         napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
         napi_throw_error(env, nullptr, "Workspace.executeTaskOperations 参数无效"); return nullptr;
     }
-    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->execute_operations = true; work->task_query = true;
+    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->execute_operations = true;
     if (!EncodeJson(env, args[0], &work->expression)) { delete work; napi_throw_error(env, nullptr, "任务整理参数无效"); return nullptr; }
     return QueueWorkspaceString(env, work, "OrgTasksExecuteTaskOperations", self);
 }
@@ -1406,7 +1381,6 @@ static napi_value Init(napi_env env, napi_value exports)
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"search", nullptr, WorkspaceSearch, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"query", nullptr, WorkspaceQuery, nullptr, nullptr, nullptr, napi_default, nullptr},

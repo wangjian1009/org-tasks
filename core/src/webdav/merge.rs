@@ -1789,7 +1789,7 @@ mod tests {
         assert_eq!(file.todo.initial_state.as_deref(), Some("OPEN"));
         assert_eq!(file.todo.done_keywords, ["FINISHED"]);
         let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
-        assert_eq!(workspace.search(&crate::Filter::parse("it.done")).len(), 1);
+        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.done".into(), ..Default::default() }).unwrap().tasks.len(), 1);
         worker.abort();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }

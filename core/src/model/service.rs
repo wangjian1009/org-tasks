@@ -1092,7 +1092,7 @@ mod tests {
                 .iter()
                 .all(|category| category.category.as_deref() != Some("Hidden"))
         );
-        assert_eq!(workspace.search(&crate::Filter::parse("\"Hidden\"")), []);
+        assert_eq!(workspace.query(&crate::TaskQuery { expression: "\"Hidden\"".into(), ..Default::default() }).unwrap().tasks, []);
 
         // 规则变更与删除在下一次 load 生效；已有完整字节不受影响。
         let repo = &mut workspace.repos[0];

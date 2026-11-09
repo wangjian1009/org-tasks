@@ -1,5 +1,5 @@
 use org_tasks_core::{
-    Filter, OrgFile, OrgFileEdit, OrgFileRef, OrgRepo, OrgWorkspace, SourcePosition, TaskQuery,
+    OrgFile, OrgFileEdit, OrgFileRef, OrgRepo, OrgWorkspace, SourcePosition, TaskQuery,
     TaskScanRules, apply_edit, serialize_file,
 };
 
@@ -101,7 +101,7 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
 }
 
 #[test]
-fn searches_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
+fn queries_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
     let source = "* Parent :REFILE:ARCHIVE:work:REFILE:\n\
 ** TODO Child :REFILE:home:refile:\n\
 *** TODO Grandchild :next:\n\
@@ -115,23 +115,21 @@ fn searches_match_original_tags_but_return_no_refile_own_or_inherited_tags() {
         ("REFILE", 4),
         ("t.home", 2),
     ] {
-        let searched = workspace.search(&Filter::parse(expression));
         let queried = workspace
             .query(&TaskQuery {
                 expression: expression.into(),
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(searched.len(), expected, "{expression}");
-        assert_eq!(searched, queried.tasks, "{expression}");
-        assert!(searched.iter().all(|task| {
+        assert_eq!(queried.tasks.len(), expected, "{expression}");
+        assert!(queried.tasks.iter().all(|task| {
             task.own_tags()
                 .iter()
                 .chain(task.inherited_tags().iter())
                 .all(|tag| tag != "REFILE" && tag != "ARCHIVE")
         }));
     }
-    let tasks = workspace.search(&Filter::parse(""));
+    let tasks = workspace.query(&TaskQuery::default()).unwrap().tasks;
     assert_eq!(tasks[0].own_tags(), ["work"]);
     assert_eq!(tasks[1].own_tags(), ["home", "refile"]);
     assert_eq!(tasks[1].inherited_tags(), ["work"]);

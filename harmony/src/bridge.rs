@@ -7,7 +7,7 @@ use org_tasks_core::webdav::{
     WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    CoreError, Filter, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
+    CoreError, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace,
     SyncCancellation, SyncOptions, SyncProgressReporter, TimestampMs,
 };
 use serde::Serialize;
@@ -82,7 +82,7 @@ pub struct HarmonyBridgeTask {
     pub level: u32,
     pub body: String,
     #[serde(rename = "addressLinks")]
-    pub address_links: Vec<org_tasks_core::filter::AddressLink>,
+    pub address_links: Vec<org_tasks_core::AddressLink>,
     pub body_html: String,
     pub logbook_html: String,
     pub progress: i32,
@@ -223,17 +223,6 @@ impl WebDavSyncMonitor for HarmonyWebDavSyncMonitor {
         };
         report_webdav_sync_event(self.handle, &event);
     }
-}
-
-fn task_snapshot(
-    workspace: &OrgWorkspace,
-    filter: &Filter,
-) -> Result<Vec<HarmonyBridgeTask>, CoreError> {
-    Ok(workspace
-        .search(filter)
-        .into_iter()
-        .map(|task| task_from_filter(task, workspace))
-        .collect::<Result<Vec<_>, _>>()?)
 }
 
 fn task_from_filter(
@@ -449,16 +438,12 @@ pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError>
     Ok(repository.id.clone())
 }
 
-pub fn workspace_search_json(handle: u64, expression: String) -> Result<String, CoreError> {
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let runtime = runtime()?;
-    for repo in &mut workspace.repos {
-        runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
-    }
-    encode(&task_snapshot(&workspace, &Filter::parse(&expression))?)
+
+#[cfg(test)]
+fn query_tasks_json(handle: u64, expression: String) -> Result<String, CoreError> {
+    let response = workspace_query_json(handle, serde_json::json!({ "expression": expression }).to_string())?;
+    let result: serde_json::Value = serde_json::from_str(&response).unwrap();
+    encode(&result["tasks"])
 }
 
 pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, CoreError> {
@@ -828,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_search_reloads_task_ignore_rules_before_projection() {
+    fn workspace_query_reloads_task_ignore_rules_before_projection() {
         let root =
             std::env::temp_dir().join(format!("org-tasks-harmony-ignore-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -840,7 +825,7 @@ mod tests {
         let directory = root.to_string_lossy().to_string();
         workspace_add_repo(handle, directory).unwrap();
         let tasks: serde_json::Value =
-            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+            serde_json::from_str(&query_tasks_json(handle, "".into()).unwrap()).unwrap();
         assert_eq!(tasks.as_array().unwrap().len(), 1);
         assert_eq!(tasks[0]["heading"], "Visible");
         let query = serde_json::json!({
@@ -866,7 +851,7 @@ mod tests {
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, directory.clone()).unwrap();
         repo_load(handle,directory).unwrap();
-        let records:serde_json::Value=serde_json::from_str(&workspace_search_json(handle,"".into()).unwrap()).unwrap();
+        let records:serde_json::Value=serde_json::from_str(&query_tasks_json(handle,"".into()).unwrap()).unwrap();
         let result=workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Modification","data":{"path":records[0]["fullPath"],"modifications":[{"field":"ADDRESS_LINK","value":{"oldUri":"addr:old","newUri":"geo:39.9,116.4"}}]}}]}).to_string()).unwrap();
         let response:serde_json::Value=serde_json::from_str(&result).unwrap();
         let task=&response["tasks"][0];
@@ -918,7 +903,7 @@ mod tests {
         assert_eq!(after["tasks"][0]["body"], "新正文\n");
         assert_eq!(before["tasks"][2]["todoKind"], "pending");
         let session = workspace_for_handle(handle).unwrap();
-        let core_tasks = session.lock().unwrap().search(&Filter::parse(""));
+        let core_tasks = session.lock().unwrap().query(&org_tasks_core::TaskQuery::default()).unwrap().tasks;
         assert_eq!(after["tasks"][0]["id"], core_tasks[0].id());
         assert!(serde_json::from_str::<serde_json::Value>(core_tasks[0].id())
             .unwrap()
@@ -1010,7 +995,7 @@ mod tests {
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
         let tasks: serde_json::Value =
-            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+            serde_json::from_str(&query_tasks_json(handle, "".into()).unwrap()).unwrap();
         let task = tasks
             .as_array()
             .unwrap()
@@ -1053,7 +1038,7 @@ mod tests {
             serde_json::from_str(&repo_snapshot_json(handle, directory).unwrap()).unwrap();
         assert_eq!(snapshot["files"][0]["source"], source);
         let tasks: serde_json::Value =
-            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+            serde_json::from_str(&query_tasks_json(handle, "".into()).unwrap()).unwrap();
         let captured = tasks
             .as_array()
             .unwrap()
@@ -1078,10 +1063,10 @@ mod tests {
         workspace_add_repo(handle, root_directory.clone()).unwrap();
         repo_load(handle, root_directory.clone()).unwrap();
         let id=repo_id(handle,root_directory.clone()).unwrap();
-        let records:serde_json::Value=serde_json::from_str(&workspace_search_json(handle,"".into()).unwrap()).unwrap();
+        let records:serde_json::Value=serde_json::from_str(&query_tasks_json(handle,"".into()).unwrap()).unwrap();
         workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"},"after":records[0]["fullPath"]},"title":"created from bridge","state":"TODO"}}],"queueRepoIds":[id]}).to_string()).unwrap();
         let tasks: serde_json::Value =
-            serde_json::from_str(&workspace_search_json(handle, "i.todo".into()).unwrap()).unwrap();
+            serde_json::from_str(&query_tasks_json(handle, "i.todo".into()).unwrap()).unwrap();
         assert_eq!(tasks.as_array().unwrap().len(), 2);
         assert_eq!(tasks[0]["level"], 1);
         assert_eq!(
@@ -1108,7 +1093,7 @@ mod tests {
         repo_load(handle, second_directory.clone()).unwrap();
         let second_id = repo_id(handle, second_directory).unwrap();
         let tasks: Vec<serde_json::Value> =
-            serde_json::from_str(&workspace_search_json(handle, "".into()).unwrap()).unwrap();
+            serde_json::from_str(&query_tasks_json(handle, "".into()).unwrap()).unwrap();
         let second_tasks = tasks
             .iter()
             .filter(|task| task["repoId"] == second_id)
@@ -1246,7 +1231,7 @@ mod todo_tests {
         .unwrap();
         assert_eq!(missing["todo"]["initialState"], "OPEN");
         let done: serde_json::Value =
-            serde_json::from_str(&workspace_search_json(handle, "it.done".into()).unwrap())
+            serde_json::from_str(&query_tasks_json(handle, "it.done".into()).unwrap())
                 .unwrap();
         assert_eq!(done.as_array().unwrap().len(), 2);
         assert_eq!(done[0]["todoKind"], "done");
@@ -1254,7 +1239,7 @@ mod todo_tests {
         assert!(workspace_set_todo_defaults(handle, "invalid".into()).is_err());
         workspace_set_todo_defaults(handle, "#+TODO: OTHER | END".into()).unwrap();
         let done: serde_json::Value =
-            serde_json::from_str(&workspace_search_json(handle, "it.done".into()).unwrap())
+            serde_json::from_str(&query_tasks_json(handle, "it.done".into()).unwrap())
                 .unwrap();
         assert_eq!(done.as_array().unwrap().len(), 1);
         assert_eq!(done[0]["isDone"], true);
@@ -1275,7 +1260,7 @@ mod todo_tests {
             .unwrap(),
         );
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let task = task_from_filter(workspace.search(&Filter::parse("")).remove(0), &workspace).unwrap();
+        let task = task_from_filter(workspace.query(&org_tasks_core::TaskQuery::default()).unwrap().tasks.remove(0), &workspace).unwrap();
         let value = serde_json::to_value(task).unwrap();
         assert_eq!(value["heading"], "Task [1/2]");
         assert_eq!(value["headingParts"][1]["count"]["completed"], 1);
@@ -1309,6 +1294,6 @@ pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<Str
     let session=workspace_for_handle(handle)?;
     let mut workspace=session.lock().map_err(|_|CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let result=runtime()?.block_on(workspace.execute_task_operations(&group))?;
-    let tasks=workspace.search(&Filter::parse("")).into_iter().map(|task|task_from_filter(task,&workspace)).collect::<Result<Vec<_>,_>>()?;
+    let tasks=workspace.query(&org_tasks_core::TaskQuery::default())?.tasks.into_iter().map(|task|task_from_filter(task,&workspace)).collect::<Result<Vec<_>,_>>()?;
     encode(&serde_json::json!({"paths":result.paths,"fallback":result.fallback,"tasks":tasks}))
 }

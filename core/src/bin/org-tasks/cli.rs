@@ -8,7 +8,7 @@ use org_tasks_core::webdav::{
     WebDavEndpoint, WebDavSyncContextDetail, WebDavSyncFileDetail, WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    Filter, FilterTask, OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction,
+    FilterTask, OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction,
     OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress,
     OrgRepoSyncRecord, OrgRepoSyncSnapshot, OrgWorkspace,
 };
@@ -183,8 +183,21 @@ pub async fn run() -> Result<(), String> {
 async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
     let mut workspace = OrgWorkspace::new(vec![repo]).map_err(|error| error.to_string())?;
     match command.target {
-        TaskTarget::All => print_tasks(workspace.search(&Filter::parse(""))),
-        TaskTarget::Search(args) => print_tasks(workspace.search(&Filter::parse(&args.expression))),
+        TaskTarget::All => print_tasks(
+            workspace
+                .query(&org_tasks_core::TaskQuery::default())
+                .map_err(|error| error.to_string())?
+                .tasks,
+        ),
+        TaskTarget::Search(args) => print_tasks(
+            workspace
+                .query(&org_tasks_core::TaskQuery {
+                    expression: args.expression,
+                    ..Default::default()
+                })
+                .map_err(|error| error.to_string())?
+                .tasks,
+        ),
         TaskTarget::Paths => print_json(&task_nodes(&workspace)),
         TaskTarget::Apply(args) => {
             for directory in args.repository {
@@ -787,7 +800,7 @@ mod tests {
             files: vec![file],
         };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let tasks = workspace.search(&Filter::parse(""));
+        let tasks = workspace.query(&org_tasks_core::TaskQuery::default()).unwrap().tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].state(), Some("TODO"));
         assert_eq!(tasks[0].priority(), Some("A"));

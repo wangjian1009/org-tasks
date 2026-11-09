@@ -6,15 +6,11 @@ import {
   TaskOperationGroup as NativeTaskOperationGroup,
   TaskOperationResult as NativeTaskOperationResult,
   TaskModification as NativeTaskModification,
-  TaskCreation as NativeTaskCreation,
   TodoMetadata as NativeTodoMetadata,
   defaultSyncOptions,
   defaultTodoSettings,
   ConflictSync as NativeConflictSync,
   MergeComparison as NativeMergeComparison,
-  MergeChange as NativeMergeChange,
-  MergeChangeState as NativeMergeChangeState,
-  MergeFileVersion as NativeMergeFileVersion,
   MergeOutcome as NativeMergeOutcome,
   RefileTarget as NativeRefileTarget,
   RefileTargetQuery as NativeRefileTargetQuery,
@@ -31,7 +27,6 @@ import {
   AddressLink as NativeAddressLink,
   TitleCount as NativeTitleCount,
   TaskQuery as NativeTaskQuery,
-  TaskCategory as NativeTaskCategory,
   TaskQueryResult as NativeTaskQueryResult,
   WebDavSyncEvent as NativeWebDavSyncEvent,
   WebDavSyncMonitor as NativeWebDavSyncMonitor,
@@ -49,7 +44,6 @@ export type CoreTitlePart = NativeTitlePart
 export type CoreAddressLink = NativeAddressLink
 export type CoreTitleCount = NativeTitleCount
 export type CoreTaskQuery = NativeTaskQuery
-export type CoreTaskCategory = NativeTaskCategory
 export type CoreTaskQueryResult = NativeTaskQueryResult
 
 export interface CoreSyncSnapshot {
@@ -66,28 +60,10 @@ export type CoreSyncRecordDetail = NativeSyncRecordDetail
 export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
-export interface CoreBridgeResponse {
-  workspace: CoreWorkspace
-  tasks: CoreTask[]
-  sync: CoreSyncSnapshot | null
-}
-
 export type CoreTodoMetadata = NativeTodoMetadata
 
 export type CoreMergeComparison = NativeMergeComparison
-export type CoreMergeChange = NativeMergeChange
-export type CoreMergeChangeState = NativeMergeChangeState
-export type CoreMergeFileVersion = NativeMergeFileVersion
 export type CoreMergeOutcome = NativeMergeOutcome
-export enum CoreMergeMode {
-  AcceptRemote = 'acceptRemote',
-  MergeTasks = 'mergeTasks'
-}
-export enum CoreMergeResolution {
-  Local = 'local',
-  Remote = 'remote',
-  Remove = 'remove'
-}
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
 
 export type CoreOrgFileRef = NativeOrgFileRef
@@ -99,7 +75,6 @@ export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskOperationResult = NativeTaskOperationResult
 export type CoreTaskModification = NativeTaskModification
-export type CoreTaskCreation = NativeTaskCreation
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
@@ -205,10 +180,6 @@ export class CoreWorkspace {
     await this.native.removeRepo(rootDirectory)
   }
 
-  async search(expression: string): Promise<CoreTask[]> {
-    return await this.native.search(expression) as NativeTask[]
-  }
-
   async query(query: CoreTaskQuery): Promise<CoreTaskQueryResult> {
     return await this.native.query(query)
   }
@@ -286,32 +257,27 @@ export class NativeCoreService {
     return await workspace.executeTaskOperations(group)
   }
 
-  static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreBridgeResponse> {
+  static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
     for (const repo of repos) {
       await repo.load()
     }
-    return {
-      workspace,
-      tasks: await workspace.search(''),
-      sync: null
-    }
+    return (await workspace.query({})).tasks
   }
 
   static async syncWorkspaceWebDav(
     repositories: RepoConfig[],
     monitor?: CoreWebDavSyncMonitor,
     todoDefaults?: string
-  ): Promise<CoreBridgeResponse> {
+  ): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repos = await workspace.repos()
-    let sync: CoreSyncSnapshot | null = null
     for (const repo of repos) {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
-        sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories })
+        const sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories })
         if (sync.result !== 'succeeded') {
           throw new Error('WebDAV 同步未完成，请重试')
         }
@@ -319,24 +285,7 @@ export class NativeCoreService {
         await repo.load()
       }
     }
-    return {
-      workspace,
-      tasks: await workspace.search(''),
-      sync
-    }
-  }
-
-  static async searchWorkspace(repositories: RepoConfig[], expression: string, todoDefaults?: string): Promise<CoreBridgeResponse> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    const repos = await workspace.repos()
-    for (const repo of repos) {
-      await repo.load()
-    }
-    return {
-      workspace,
-      tasks: await workspace.search(expression),
-      sync: null
-    }
+    return (await workspace.query({})).tasks
   }
 
 }

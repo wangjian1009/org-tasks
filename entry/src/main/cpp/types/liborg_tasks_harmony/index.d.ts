@@ -170,7 +170,6 @@ export class Workspace {
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
-  search(expression: string): Promise<Task[]>;
   query(query: TaskQuery): Promise<TaskQueryResult>;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<TaskOperationResult>;

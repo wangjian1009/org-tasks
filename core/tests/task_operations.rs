@@ -1,3 +1,4 @@
+use org_tasks_core::TaskQuery;
 use org_tasks_core::{webdav::WebDavSyncPolicy, *};
 use std::path::PathBuf;
 use tokio::fs;
@@ -135,7 +136,7 @@ async fn record_created_is_generated_by_core_and_survives_reload() {
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
-    let tasks = f.workspace.search(&Filter::parse(""));
+    let tasks = f.workspace.query(&TaskQuery::default()).unwrap().tasks;
     assert!(tasks[0].created_at().is_some());
     assert!(
         std::fs::read_to_string(f.root.join("tasks.org"))

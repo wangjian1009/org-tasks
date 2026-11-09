@@ -1,4 +1,5 @@
-use org_tasks_core::{Filter, FilterTask, OrgFile, OrgRepo, OrgWorkspace};
+use org_tasks_core::TaskQuery;
+use org_tasks_core::{FilterTask, OrgFile, OrgRepo, OrgWorkspace};
 
 fn tasks(source: &str) -> Vec<FilterTask> {
     let mut repo = OrgRepo::new("/tmp/task-display-hints".into()).unwrap();
@@ -12,7 +13,7 @@ fn tasks(source: &str) -> Vec<FilterTask> {
         .unwrap(),
     );
     let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-    let result = workspace.search(&Filter::parse(""));
+    let result = workspace.query(&TaskQuery::default()).unwrap().tasks;
     assert_eq!(
         workspace.repos()[0].files()[0].source_bytes(),
         source.as_bytes()

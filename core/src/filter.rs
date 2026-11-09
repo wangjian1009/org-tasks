@@ -8,14 +8,14 @@ use serde::Serialize;
 use crate::OrgRepo;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Filter {
-    pub expression: Option<FilterExpression>,
-    pub sort_orders: Vec<FilterSort>,
-    pub agenda_days: Option<u32>,
+pub(crate) struct Filter {
+    expression: Option<FilterExpression>,
+    sort_orders: Vec<FilterSort>,
+    agenda_days: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FilterExpression {
+enum FilterExpression {
     InBook {
         value: String,
         negated: bool,
@@ -68,7 +68,7 @@ pub enum FilterStateType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FilterDateField {
+enum FilterDateField {
     Event,
     Scheduled,
     Deadline,
@@ -77,7 +77,7 @@ pub enum FilterDateField {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FilterRelation {
+enum FilterRelation {
     Eq,
     Ne,
     Lt,
@@ -87,13 +87,13 @@ pub enum FilterRelation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FilterInterval {
-    pub unit: FilterIntervalUnit,
-    pub value: i32,
+struct FilterInterval {
+    unit: FilterIntervalUnit,
+    value: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FilterIntervalUnit {
+enum FilterIntervalUnit {
     None,
     Now,
     Hour,
@@ -104,13 +104,13 @@ pub enum FilterIntervalUnit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FilterSort {
-    pub field: FilterSortField,
-    pub descending: bool,
+struct FilterSort {
+    field: FilterSortField,
+    descending: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FilterSortField {
+enum FilterSortField {
     Book,
     Title,
     Scheduled,
@@ -317,11 +317,12 @@ impl Filter {
         }
     }
 
-    pub fn matches(&self, task: &FilterTask) -> bool {
+    #[cfg(test)]
+    fn matches(&self, task: &FilterTask) -> bool {
         self.matches_at(task, Local::now().date_naive())
     }
 
-    pub fn matches_at(&self, task: &FilterTask, today: NaiveDate) -> bool {
+    fn matches_at(&self, task: &FilterTask, today: NaiveDate) -> bool {
         self.expression
             .as_ref()
             .is_none_or(|expression| matches_expression(expression, task, today))
@@ -1269,6 +1270,21 @@ impl BoolNot for bool {
 mod tests {
     use super::*;
     use crate::OrgFile;
+
+    #[test]
+    fn created_window_matches_three_local_calendar_days() {
+        let file = OrgFile::new(
+            "repo".into(),
+            "tasks.org".into(),
+            b"* TODO Task\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n".to_vec(),
+        )
+        .unwrap();
+        let repo = OrgRepo::new("/tmp/created-window".into()).unwrap();
+        let tasks = tasks_from_file(&repo, &file);
+        let filter = Filter::parse("cr.ge.-2d cr.le.today");
+        assert!(filter.matches_at(&tasks[0], NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()));
+        assert!(!filter.matches_at(&tasks[0], NaiveDate::from_ymd_opt(2026, 11, 11).unwrap()));
+    }
 
     #[test]
     fn ports_reference_tokenizer_cases() {

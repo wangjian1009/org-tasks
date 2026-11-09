@@ -12,10 +12,10 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
     console.info('后台同步任务开始')
     try {
       const config = await AppConfigService.load(this.context)
-      const workspace = config.repos.some((repository) => repository.webdavEnabled)
+      const tasks = config.repos.some((repository) => repository.webdavEnabled)
         ? await NativeCoreService.syncWorkspaceWebDav(config.repos, undefined, config.todoDefaults)
         : await NativeCoreService.loadWorkspace(config.repos, config.todoDefaults)
-      console.info(`core workspace 提供 ${workspace.tasks.length} 个任务`)
+      console.info(`core workspace 提供 ${tasks.length} 个任务`)
 
       // 同步到日历
       const sync = new CalendarSync(this.context, config.calendarName)
@@ -25,7 +25,7 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
         return
       }
 
-      const result = await sync.syncTasks(workspace.tasks)
+      const result = await sync.syncTasks(tasks)
       console.info(`同步完成: ${result.synced}/${result.total}，新增 ${result.created}，更新 ${result.updated}，删除 ${result.deleted}`)
 
       // 更新最后同步时间

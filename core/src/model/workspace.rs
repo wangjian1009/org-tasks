@@ -1,5 +1,4 @@
 use crate::CoreError;
-use crate::filter::{Filter, FilterTask, tasks_from_repo};
 
 use super::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
 
@@ -77,19 +76,6 @@ impl OrgWorkspace {
             .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
         Ok(self.repos.remove(index))
     }
-
-    pub fn search(&self, filter: &Filter) -> Vec<FilterTask> {
-        let mut tasks = self
-            .repos
-            .iter()
-            .flat_map(tasks_from_repo)
-            .collect::<Vec<_>>();
-        filter.filter_tasks(&mut tasks);
-        for task in &mut tasks {
-            task.exclude_refile_tag();
-        }
-        tasks
-    }
 }
 
 fn validate_repositories(repos: &[OrgRepo]) -> Result<(), CoreError> {
@@ -119,7 +105,7 @@ mod tests {
     use crate::OrgFile;
 
     #[test]
-    fn search_combines_repositories_and_keeps_repository_identity() {
+    fn query_combines_repositories_and_keeps_repository_identity() {
         let first = OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
@@ -149,7 +135,7 @@ mod tests {
             ],
         };
         let workspace = OrgWorkspace::new(vec![first, second]).unwrap();
-        let tasks = workspace.search(&Filter::parse("i.todo"));
+        let tasks = workspace.query(&crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }).unwrap().tasks;
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].repo_id, "repo-1");
@@ -228,11 +214,11 @@ mod tests {
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OPEN | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.search(&Filter::parse("it.todo")).len(), 2);
+        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).unwrap().tasks.len(), 2);
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OTHER | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.search(&Filter::parse("it.todo")).len(), 1);
+        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).unwrap().tasks.len(), 1);
         workspace
             .add_repo(OrgRepo::new("/tmp/two".into()).unwrap())
             .unwrap();
