@@ -192,9 +192,10 @@ struct TaskOverview {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
         } else {
           List() {
-              if (this.notificationState.notifications.length > 0) {
-                ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
-              }
+            if (this.notificationState.notifications.length > 0) {
+              ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
+                .margin({ bottom: this.view === 'memo' ? 12 : 0 })
+            }
             ForEach(this.visibleTasks, (task: CoreTask) => {
               if (this.view === 'memo') {
                 ListItem() {
