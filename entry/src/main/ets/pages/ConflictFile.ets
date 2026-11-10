@@ -14,6 +14,7 @@ interface ConflictPlacement { label: string; target: CoreConflictTarget }
 @Component
 struct ConflictFile {
   @State file: CoreOrgFile | undefined = undefined
+  @State baseFile: CoreOrgFile | undefined = undefined
   @State previewFile: CoreOrgFile | undefined = undefined
   @State conflicts: CoreFileConflict[] = []
   @State changes: CoreConflictPreviewChanges | undefined = undefined
@@ -73,6 +74,7 @@ struct ConflictFile {
     const request = ++this.requestId
     this.loading = true
     this.message = ''
+    let createdPreview: CoreConflictPreview | undefined = undefined
     try {
       const params = this.getUIContext().getRouter().getParams() as ConflictParams
       const context = this.getUIContext().getHostContext()!
@@ -83,8 +85,16 @@ struct ConflictFile {
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
       await workspace.setPreviewRoot(`${context.cacheDir}/org-conflict-previews`)
       const file = await repo.file(params.path)
-      const conflicts = file.conflicts()
-      if (request !== this.requestId) return
+      let conflicts = file.conflicts()
+      let baseFile = file
+      let previewFile: CoreOrgFile | undefined = undefined
+      if (conflicts.length > 0) {
+        createdPreview = await workspace.createConflictPreview({ file: file.fullPath, conflictId: conflicts[0].id, sourceVersion: file.fileVersion })
+        baseFile = await createdPreview.sourceFile()
+        previewFile = await createdPreview.file()
+        conflicts = await createdPreview.conflicts()
+      }
+      if (request !== this.requestId) { if (createdPreview) await createdPreview.discard(); return }
       this.workspace = workspace
       this.coreRepoId = repo.id
       this.configRepoId = repository.id
@@ -94,15 +104,19 @@ struct ConflictFile {
       this.sourceMode = config.fileDisplayMode === 'source'
       this.file = file
       this.conflicts = conflicts
-      this.previewFile = undefined
+      this.preview = createdPreview
+      this.baseFile = baseFile
+      this.previewFile = previewFile
       this.changes = undefined
       this.stale = false
       this.selectedId = ''
+      this.showBefore = false
       this.selectedNode = undefined
       this.stagedAction = ''
       this.initialized = true
-      this.present(file)
+      this.present(baseFile)
     } catch (e) {
+      if (createdPreview) await createdPreview.discard().catch((): void => {})
       if (request === this.requestId) this.message = `读取冲突文件失败：${coreErrorMessage(e as CoreBridgeError)}`
     } finally { if (request === this.requestId) this.loading = false }
   }
@@ -152,6 +166,7 @@ struct ConflictFile {
   async prepare(conflict: CoreFileConflict, action: string, chooseTarget: boolean = false) {
     if (!this.workspace || !this.file || this.saving) return
     const request = ++this.requestId
+    const reusable = this.preview && !this.stagedAction && !this.manuallyEdited && !this.pendingGroup && !this.stale ? this.preview : undefined
     this.saving = true
     this.message = ''
     this.stale = false
@@ -162,16 +177,17 @@ struct ConflictFile {
     this.manuallyEdited = false
     this.pendingGroup = undefined
     try {
-      const preview = await this.workspace.createConflictPreview({ file: this.file.fullPath,
+      const preview = reusable ?? await this.workspace.createConflictPreview({ file: this.file.fullPath,
         conflictId: conflict.id, sourceVersion: this.file.fileVersion })
       if (request !== this.requestId) { await preview.discard(); return }
       this.preview = preview
       this.selectedId = conflict.id
       const copied = await preview.file()
+      this.baseFile = await preview.sourceFile()
       this.previewFile = copied
       this.showBefore = false
       this.present(copied)
-      const copiedConflict = copied.conflicts().find(item => item.id === conflict.id)
+      const copiedConflict = (await preview.conflicts()).find(item => item.id === conflict.id)
       if (!copiedConflict) throw new Error('冲突点已变化，请重新读取')
       if (action === 'discard') await this.stage('discard')
       else if (action === 'useLocal') {
@@ -274,7 +290,7 @@ struct ConflictFile {
     this.showBefore = before
     this.selectedNode = undefined
     try {
-      const file = before ? this.file : this.previewFile
+      const file = before ? this.baseFile : this.previewFile
       if (file) this.present(file)
     }
     catch (e) { this.handleError(e as CoreBridgeError, '切换预览失败') }
@@ -448,7 +464,7 @@ struct ConflictFile {
                 }
               }.width('100%').padding({ left: 20, right: 20, bottom: 8 })
             }
-            if (this.preview) {
+            if (this.preview && this.selectedId) {
               Row({ space: 12 }) {
                 Button('当前文件').layoutWeight(1).fontSize(13).height(44).backgroundColor(this.showBefore ? UiColor.selected : UiColor.container)
                   .fontColor(this.showBefore ? UiColor.primary : UiColor.secondary).onClick((): void => { this.toggleBefore(true) })

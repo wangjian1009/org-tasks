@@ -93,6 +93,8 @@ struct PreviewState {
     id: String,
     directory: PathBuf,
     original: OrgFile,
+    conflicts: Vec<conflict::ConflictPoint>,
+    resolved: std::collections::BTreeSet<String>,
     generation: u64,
     operations: Vec<TaskOperation>,
 }
@@ -174,37 +176,35 @@ impl ConflictPreview {
         let slot = self.store.slot.lock().await;
         Ok(self.state(&slot)?.original.clone())
     }
+    /// 冲突材料独立于主树，返回尚未选择的点及基于当前主树计算的目标。
+    pub async fn conflicts(&self) -> Result<Vec<FileConflict>, CoreError> {
+        let slot = self.store.slot.lock().await;
+        let state = self.state(&slot)?;
+        let file = read_working(state).await?;
+        state
+            .conflicts
+            .iter()
+            .filter(|point| !state.resolved.contains(&point.id))
+            .map(|point| conflict::describe_point(&file, point))
+            .collect()
+    }
     pub async fn changes(&self) -> Result<ConflictPreviewChanges, CoreError> {
         let slot = self.store.slot.lock().await;
         let state = self.state(&slot)?;
         let file = read_working(state).await?;
-        let mut changes = Vec::new();
-        let before_main = conflict::main_source(&state.original);
-        let after_main = conflict::main_source(&file);
-        if before_main != after_main {
-            changes.push(diff(
+        let changes = if state.original.source_bytes() == file.source_bytes() {
+            Vec::new()
+        } else {
+            vec![diff(
                 &state.original,
                 &file,
-                &before_main,
-                &after_main,
+                state.original.source_bytes(),
+                file.source_bytes(),
                 0,
                 0,
                 "main",
-            ));
-        }
-        let before_material = &state.original.source_bytes()[before_main.len()..];
-        let after_material = &file.source_bytes()[after_main.len()..];
-        if before_material != after_material {
-            changes.push(diff(
-                &state.original,
-                &file,
-                before_material,
-                after_material,
-                before_main.len(),
-                after_main.len(),
-                "conflictMaterial",
-            ));
-        }
+            )]
+        };
         Ok(ConflictPreviewChanges {
             source_version: self.source_version.clone(),
             preview_version: version(&file),
@@ -251,17 +251,13 @@ impl ConflictPreview {
         if resolved.is_empty() {
             return Err(error("conflictDecisionRequired", "请先选择冲突的处理方式"));
         }
-        let expected = conflict::points(&state.original)?
-            .into_iter()
-            .filter(|p| !resolved.contains(p.id.as_str()))
-            .map(|p| (p.id, p.source))
-            .collect::<Vec<_>>();
-        let actual = conflict::points(&file)?
-            .into_iter()
-            .map(|p| (p.id, p.source))
-            .collect::<Vec<_>>();
-        if expected != actual {
-            return Err(CoreError::InvalidInput("预览不能修改未选择的冲突点"));
+        if resolved.iter().any(|id| !state.resolved.contains(*id))
+            || resolved.len() != state.resolved.len()
+        {
+            return Err(CoreError::InvalidState("预览冲突取舍与操作记录不一致"));
+        }
+        if file.has_conflict() {
+            return Err(CoreError::InvalidInput("预览主树不能包含冲突节点"));
         }
         let group = TaskOperationGroup {
             operations: state
@@ -388,13 +384,19 @@ impl OrgWorkspace {
             return Err(error("sourceVersionMismatch", "原文件已变化，请重新读取"));
         }
         let setup = super::service::load_setup_settings(&source_root, path, &source).await?;
-        let original = repo.parse_file_with_setup(path.clone(), source, setup)?;
+        let mut original = repo.parse_file_with_setup(path.clone(), source, setup)?;
         if !original
             .conflicts()?
             .iter()
             .any(|p| p.id == request.conflict_id)
         {
             return Err(CoreError::InvalidInput("冲突点不存在或已变化"));
+        }
+        let conflicts = conflict::points(&original)?;
+        original.source_bytes = conflict::main_source(&original);
+        original.reparse()?;
+        if original.has_conflict() {
+            return Err(CoreError::InvalidInput("文件主树中存在无法分离的冲突节点"));
         }
         slot.active = None;
         let id = super::service::generate_repo_id()?;
@@ -411,6 +413,8 @@ impl OrgWorkspace {
             id: id.clone(),
             directory,
             original,
+            conflicts,
+            resolved: Default::default(),
             generation: self.preview.generation.load(Ordering::SeqCst),
             operations: Vec::new(),
         };
@@ -506,12 +510,34 @@ impl OrgWorkspace {
                 }
             }
         }
-        let updated = super::task_operation_executor::edit_preview(file, group)?;
+        let mut updated = file;
+        let mut resolved = state.resolved.clone();
+        for operation in &group.operations {
+            if let TaskOperation::ConfilictSelection(selection) = operation {
+                let point = state
+                    .conflicts
+                    .iter()
+                    .find(|point| point.id == selection.id && !resolved.contains(&point.id))
+                    .ok_or(CoreError::InvalidInput("冲突点不存在或已选择"))?;
+                conflict::select_point(&mut updated, point, selection)?;
+                resolved.insert(point.id.clone());
+            } else {
+                let step = TaskOperationGroup {
+                    operations: vec![operation.clone()],
+                    ..Default::default()
+                };
+                updated = super::task_operation_executor::edit_preview(updated, &step)?;
+            }
+            if updated.has_conflict() {
+                return Err(CoreError::InvalidInput("预览主树不能包含冲突节点"));
+            }
+        }
         let temporary = state.directory.join("next.tmp");
         super::write_intent::write_new(&temporary, updated.source_bytes()).await?;
         fs::rename(&temporary, state.directory.join("working.org"))
             .await
             .map_err(io)?;
+        state.resolved = resolved;
         state.operations.extend(group.operations.iter().cloned());
         Ok(())
     }

@@ -58,13 +58,13 @@
 
 ** 冲突容器与设计原则
 
-使用文件末尾唯一的一级标题“同步冲突”作为容器，自身打大写 ~CONFLICT~ 标签，整个子树都是冲突区。原先设计中的 ~CONFILICT~ 标签拼写统一为 ~CONFLICT~ 。容器的每个直接子标题是一个冲突点，仅增加定位属性 ~CONFILICT_ID~ 与节点内关键字 ~#+CONFLICT_REASON:~ ； ~CONFILICT_ID~ 按已确认的拼写保留，和旧的 ~CONFLICT_ID~ 不同。容器不另设属性，冲突点的完整原文作为其可见后代或 example 块保存，不再生成 ~CONFLICT_SOURCE~ 、 ~CONFLICT_ORIGIN~ 、 ~CONFLICT_PARENT~ 、 ~CONFLICT_PATH~ 或 ~CONFLICT_OPERATION~ 。用户原有属性与代码块字面文本保留，不按前缀清理。
+使用文件末尾唯一的一级标题“同步冲突”作为容器，自身同时带有大写 ~CONFLICT~ 与标准 ~ARCHIVE~ 标签，整个子树都是冲突区。旧文件只有 CONFLICT 标签时仍可识别；新生成容器统一使用 ~:CONFLICT:ARCHIVE:~ 。原先设计中的 ~CONFILICT~ 标签拼写统一为 ~CONFLICT~ 。容器的每个直接子标题是一个冲突点，仅增加定位属性 ~CONFILICT_ID~ 与节点内关键字 ~#+CONFLICT_REASON:~ ； ~CONFILICT_ID~ 按已确认的拼写保留，和旧的 ~CONFLICT_ID~ 不同。容器不另设属性，冲突点的完整原文作为其可见后代或 example 块保存，不再生成 ~CONFLICT_SOURCE~ 、 ~CONFLICT_ORIGIN~ 、 ~CONFLICT_PARENT~ 、 ~CONFLICT_PATH~ 或 ~CONFLICT_OPERATION~ 。用户原有属性与代码块字面文本保留，不按前缀清理。
 
 #+begin_example
 * 普通任务
 远端内容
 
-* 同步冲突 :CONFLICT:
+* 同步冲突 :CONFLICT:ARCHIVE:
 ** 普通任务
 :PROPERTIES:
 :CONFILICT_ID: <稳定定位值>
@@ -201,7 +201,7 @@
 
 ~TaskOperation::ConfilictSelection~ 使用文件根 path、id、action 和可选 target。id 定位 CONFILICT_ID；Discard 仅删除该点，UseLocal 按明确目标采用完整候选或删除意图。候选可用性、目标与范围由 Core 校验，最后一点移除后自动清除容器及其生成分隔符。多点按 ID 顺序定位，不受前序移除导致的字节位置变化影响。
 
-手机逐点预览先复制完整源文件，在副本上通过同一个 execute_task_operations 执行并记录成功操作。finish 只重写路径并返回操作组，不写真实文件。应用随后通过统一操作入口提交返回组；创建时源版本作为约束，真实文件、outbox、回退记录及更新事件仍遵循普通操作组规则。完整流程见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。
+手机逐点预览先将源文件分为主树与冲突材料，只把主树写入工作副本，冲突材料由 Core 独立保存。副本上通过同一个 execute_task_operations 执行并记录成功操作，选择候选时不会把冲突包装插回基础文档。finish 只重写路径并返回操作组，不写真实文件。应用随后通过统一操作入口提交返回组；创建时源版本作为约束，真实文件、outbox、回退记录及更新事件仍遵循普通操作组规则。完整流程见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。
 
 处理不访问远端、不改 remote_base、不产生新的同步历史或解决结果文件。丢弃全部仍使用一次普通操作组，并携带已读版本；读取或版本失败不能覆盖新内容。
 

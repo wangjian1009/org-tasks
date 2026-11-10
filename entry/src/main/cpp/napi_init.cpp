@@ -1794,6 +1794,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"fullPath", nullptr, nullptr, PreviewProperty, nullptr, nullptr, napi_default, const_cast<char*>("fullPath")},
         {"file", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},
         {"sourceFile", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("sourceFile")},
+        {"conflicts", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("conflicts")},
         {"changes", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("changes")},
         {"finish", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("finish")},
         {"discard", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("discard")},

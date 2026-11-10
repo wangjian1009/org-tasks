@@ -444,6 +444,7 @@ class ConflictPreview {
   readonly fullPath: TaskPath
   file(): Promise<OrgFile>
   sourceFile(): Promise<OrgFile>
+  conflicts(): Promise<FileConflict[]>
   changes(): Promise<ConflictPreviewChanges>
   finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>
   discard(): Promise<void>
@@ -460,13 +461,13 @@ class ConflictPreview {
 // insertionPositions(): TaskPosition[]
 #+end_src
 
-ConflictPreview 是原生活动对象，由 Rust session 绑定 Core 句柄，C++ 对象保留 workspace 引用。所有 I/O 通过 async work 在 worker 执行，finalizer 只释放句柄和引用，不隐式提交。旧 UUID 或对象返回 previewExpired，不映射为真实文件。OrgFile 仍为独立快照，节点、锚点、候选描述与变化全部由 Core 产生。
+ConflictPreview 是原生活动对象，file／sourceFile 只返回主树快照，异步 conflicts 方法从独立材料集合返回待选冲突；不再从副本 OrgFile.conflicts 取得列表。由 Rust session 绑定 Core 句柄，C++ 对象保留 workspace 引用。所有 I/O 通过 async work 在 worker 执行，finalizer 只释放句柄和引用，不隐式提交。旧 UUID 或对象返回 previewExpired，不映射为真实文件。OrgFile 仍为独立快照，节点、锚点、候选描述与变化全部由 Core 产生。
 
 预览 fullPath 使用固定 ~repoId="<preview>"~ 和 ~file=UUID~ 。临时 executeTaskOperations 与真实修改一样只返回 void；页面通过 preview.file 的节点方法显式重读副本，不查询全 workspace 来寻找它。NoteService 与任务编辑组件直接使用同一操作组和版本机制，临时保存不登记上传，也不要求匹配真实仓库配置。
 
 finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup。ConflictFile 按当前源仓库配置填 queueRepoIds，再调用既有 Workspace.executeTaskOperations；不增加另一个真实写入接口。结束后提交失败保留返回组与已显示快照，重试不再次 finish。原文件变化仍由统一数据接口版本约束拒绝。
 
-页面进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。
+页面初次加载即取得主树快照与独立冲突列表，首次选择复用未操作的副本。进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。
 
 * 查询结果与文件加载生命周期
 

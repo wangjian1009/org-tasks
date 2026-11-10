@@ -17,9 +17,9 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
   const code = ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const requests=[], dialogs=[], events=[], handles=[];
   let failure, submitWait, stageFailure, coreId='core', backs=0, creates=0;
-  const makeFile = (repoId='core', file='a.org', version='v1', ids=['first','second'], text='* TODO Task\nremote\n') => ({
+  const makeFile = (repoId='core', file='a.org', version='v1', ids=['first','second'], text) => ({
     repoId, path:file, fullPath:{repoId,file,titles:[],occurrence:1}, fileVersion:version, conflictIds:ids,
-    hasConflict:ids.length>0, sourceBytes:()=>Buffer.from(text), renderHtml:()=>'<details class="heading"><summary>Task</summary></details>', title:()=>null,
+    hasConflict:ids.length>0, sourceBytes:()=>Buffer.from(text ?? ('* TODO Task\nremote\n' + (ids.length ? '\n* 同步冲突 :CONFLICT:ARCHIVE:\n** 候选\n:CONFILICT_ID: hidden\n' : ''))), renderHtml:()=>'<details class="heading"><summary>Task</summary></details>' + (ids.length ? '<details><summary>同步冲突</summary></details>' : ''), title:()=>null,
     conflicts:()=>conflicts.filter(c=>ids.includes(c.id)).map(c=>({...c,suggestedTarget:{type:'existing',data:{...nodePath,repoId,file}}})),
     nodes:()=>[{repoId,filePath:file,fullPath:{...nodePath,repoId,file},fileVersion:version,heading:'Task'}], editableNodePaths:()=>[{...nodePath,repoId,file}], insertionPositions:()=>[]
   });
@@ -44,15 +44,16 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
       if (request.sourceVersion!==realFile.fileVersion) throw Object.assign(new Error('原文件已变化'),{code:'sourceVersionMismatch'});
       for(const previous of handles)previous.expired=true;
       const id=`uuid-${creates}`, original=realFile, operations=[];
-      let copied=makeFile('<preview>',id,'copy1',realFile.conflictIds), done=false;
+      let copied=makeFile('<preview>',id,'copy1',[]), done=false, pending=[...realFile.conflictIds];
       const handle={id,fullPath:copied.fullPath,sourcePath,sourceVersion:original.fileVersion,conflictId:request.conflictId,expired:false,
         async file(){if(done||handle.expired)throw new Error('预览已结束');return copied;},
-        async sourceFile(){return original;},
-        async changes(){return {sourceVersion:original.fileVersion,previewVersion:copied.fileVersion,changes:[{area:'main',kind:'replace',before:null,after:null,lines:[]}]};},
+        async sourceFile(){return makeFile('core','a.org','main-source',[]);},
+        async conflicts(){return makeFile('<preview>',id,'materials',pending).conflicts();},
+        async changes(){return {sourceVersion:original.fileVersion,previewVersion:copied.fileVersion,changes:copied.sourceBytes().toString('utf8')==='* TODO Task\nremote\n'?[]:[{area:'main',kind:'replace',before:null,after:null,lines:[]}]};},
         async finish(options){events.push('finish');assert.equal(options.previewVersion,copied.fileVersion);done=true;return {operations:remap(operations),fileVersions:[{repoId:'core',file:'a.org',version:original.fileVersion}],queueRepoIds:[]};},
         async discard(){events.push('discard');handle.expired=true;},
         change(){copied=makeFile('<preview>',id,'manually-edited',copied.conflictIds,'* TODO Adjusted\n');},
-        stage(group){operations.push(...group.operations);copied=makeFile('<preview>',id,'copy2',realFile.conflictIds.filter(value=>value!==request.conflictId),'* TODO Task\nlocal\n');}
+        stage(group){operations.push(...group.operations);pending=pending.filter(value=>!group.operations.some(op=>op.type==='ConfilictSelection'&&op.data.id===value));copied=makeFile('<preview>',id,'copy2',[],group.operations.some(op=>op.data.action==='useLocal')?'* TODO Task\nlocal\n':copied.sourceBytes().toString('utf8'));}
       };
       handles.push(handle);return handle;
     },
@@ -84,14 +85,14 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 
-test('读取冲突列表不会复制或修改文件',async()=>{
- const f=fixture();await f.page.load();assert.equal(f.page.conflicts.length,2);assert.equal(f.creates(),0);assert.equal(f.requests.length,0);
+test('进入页面创建纯主树预览，独立读取冲突列表且不提交源文件',async()=>{
+ const f=fixture();await f.page.load();assert.equal(f.page.conflicts.length,2);assert.equal(f.creates(),1);assert.equal(f.requests.length,0);assert.equal(f.page.baseFile.hasConflict,false);assert.equal(f.page.previewFile.conflicts().length,0);
 });
 test('逐点预览只编辑副本，finish 后才经统一接口提交源操作',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'useLocal');
  assert.equal(f.requests.length,1);assert.equal(f.requests[0].fileVersions[0].repoId,'<preview>');assert.deepEqual(f.requests[0].queueRepoIds,[]);assert.equal(f.page.file.conflictIds.length,2);
- await f.page.applyPreview();assert.deepEqual(f.events.filter(e=>['create','stage','finish','submit'].includes(e)),['create','stage','finish','submit']);
- const applied=f.requests[1];assert.equal(applied.operations[0].data.path.repoId,'core');assert.equal(applied.operations[0].data.target.data.file,'a.org');assert.deepEqual(applied.fileVersions,[{repoId:'core',file:'a.org',version:'v1'}]);assert.deepEqual(applied.queueRepoIds,['core']);assert.equal(f.page.conflicts.length,1);assert.equal(f.page.preview,undefined);
+ await f.page.applyPreview();assert.deepEqual(f.events.filter(e=>['create','stage','finish','submit'].includes(e)).slice(0,4),['create','stage','finish','submit']);
+ const applied=f.requests[1];assert.equal(applied.operations[0].data.path.repoId,'core');assert.equal(applied.operations[0].data.target.data.file,'a.org');assert.deepEqual(applied.fileVersions,[{repoId:'core',file:'a.org',version:'v1'}]);assert.deepEqual(applied.queueRepoIds,['core']);assert.equal(f.page.conflicts.length,1);assert.equal(f.page.preview.conflictId,'second');assert.equal(f.page.previewFile.hasConflict,false);
 });
 test('统一提交失败可重试同一操作组，不重复 finish 或再次读取已结束副本',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'discard');f.fail(new Error('存储失败'));await f.page.applyPreview();assert.match(f.page.message,/存储失败/);assert.ok(f.page.pendingGroup);assert.ok(f.page.previewFile);
@@ -131,4 +132,15 @@ test('仓库冲突文件使用配置 ID 打开唯一解决页，Core ID 与配�
 });
 test('仓库普通文件继续使用 Core ID 打开文件阅读页',()=>{
  const target=repositoryRow(false);assert.equal(target.url,'pages/FileDetail');assert.deepEqual(target.params,{repoId:'core',path:'a.org'});
+});
+
+test('正文、当前文件和预览只展示主树，原文件的候选仍由独立列表读取',async()=>{
+ const f=fixture();await f.page.load();
+ assert.match(f.page.file.sourceBytes().toString('utf8'),/同步冲突/);
+ assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
+ assert.doesNotMatch(f.page.html,/同步冲突/);
+ assert.equal(f.page.conflicts.length,2);
+ await f.page.prepare(f.page.conflicts[0],'useLocal');
+ await f.page.toggleBefore(true);assert.match(f.page.content,/remote/);assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
+ await f.page.toggleBefore(false);assert.match(f.page.content,/local/);assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
 });

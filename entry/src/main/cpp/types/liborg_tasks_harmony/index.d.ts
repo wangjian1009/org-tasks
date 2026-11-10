@@ -300,6 +300,7 @@ export class ConflictPreview {
   readonly conflictId: string;
   file(): Promise<OrgFile>;
   sourceFile(): Promise<OrgFile>;
+  conflicts(): Promise<FileConflict[]>;
   changes(): Promise<ConflictPreviewChanges>;
   finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>;
   discard(): Promise<void>;

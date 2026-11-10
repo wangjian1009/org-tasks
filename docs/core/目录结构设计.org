@@ -63,6 +63,6 @@ WebDAV 额外读取远端根目录的 ~.orgzlyignore~ ，校验 UTF-8 与规则�
 
 * 冲突预览临时文件
 
-workspace 由宿主提供独立 preview_root，Core 验证其在全部仓库根目录之外，在 ~<preview_root>/workspace-<workspace_nonce>/<preview_id>/working.org~ 保存唯一活动副本。workspace 通过 .lease 独占租约标记存活，支持的平台只清理已退出的会话目录。副本不进入真实仓库的文件加载结果，不初始化仓库身份、同步目录或扫描规则，不能放在 .sync 或普通仓库目录内。
+workspace 由宿主提供独立 preview_root，Core 验证其在全部仓库根目录之外，在 ~<preview_root>/workspace-<workspace_nonce>/<preview_id>/working.org~ 保存唯一活动主树副本；冲突点原文仅存于 Core 会话的独立集合，working.org 中没有冲突容器。workspace 通过 .lease 独占租约标记存活，支持的平台只清理已退出的会话目录。副本不进入真实仓库的文件加载结果，不初始化仓库身份、同步目录或扫描规则，不能放在 .sync 或普通仓库目录内。
 
 逻辑定位为 ~{ repoId: "<preview>", file: UUID }~ ，原路径单独保存。finish 返回真实操作组并清理副本；真实修改仍由统一数据接口提交。详细契约见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。

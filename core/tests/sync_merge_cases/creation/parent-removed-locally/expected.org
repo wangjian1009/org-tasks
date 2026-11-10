@@ -6,7 +6,7 @@
 remote
 * Other
 
-* 同步冲突 :CONFLICT:
+* 同步冲突 :CONFLICT:ARCHIVE:
 ** Parent
 :PROPERTIES:
 :CONFILICT_ID: <conflict-1>

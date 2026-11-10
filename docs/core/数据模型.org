@@ -1278,9 +1278,9 @@ pub struct ConflictPreviewDiffLine {
 }
 #+end_src
 
-内部 PreviewState 保存创建时 OrgFile、选定冲突 ID、当前 UUID、工作文件目录、配置代次与成功执行的 ~Vec<TaskOperation>~ 。完成对象缓存返回的操作组；同一最终版本重复 finish 不重复记录或提交。状态在 Active、Finished、Discarded 与失效之间变化。
+内部 PreviewState 的 original 保存剥离冲突区后的原始主树，conflicts 独立保存 ~Vec<ConflictPoint>~ ，resolved 保存已经选择的 ID 集合；当前工作文件也只有主树。创建时的完整源版本由 ConflictPreview.source_version 保留，用于真实提交约束。成功操作记录仍为 ~Vec<TaskOperation>~ 。完成对象缓存返回的操作组；同一最终版本重复 finish 不重复记录或提交。状态在 Active、Finished、Discarded 与失效之间变化。
 
-变化 kind 使用 insert／delete／replace，无法可靠确定的移动按源范围差异表达；area 为 main 或 conflictMaterial，行 kind 为 added／removed。所有源范围与标题锚点绑定两端版本。Rust 字段经 Serde 使用 camelCase，ConflictTarget 使用 ~{ type, data }~ 标签形式，ReplaceMain 没有 data。
+变化 kind 使用 insert／delete／replace，无法可靠确定的移动按源范围差异表达；preview 的 area 只输出 main；冲突材料的选择与移除不会作为正文变化输出。FileConflict.source_range 属于单个独立材料，不用于主树导航。行 kind 为 added／removed。所有源范围与标题锚点绑定两端版本。Rust 字段经 Serde 使用 camelCase，ConflictTarget 使用 ~{ type, data }~ 标签形式，ReplaceMain 没有 data。
 
 \begin{center}
 \resizebox{\textwidth}{!}{%
@@ -1292,13 +1292,16 @@ preview: PreviewStore}{execute\_task\_operations(group)}
 source\_path: TaskPath \\
 source\_version: String \\
 conflict\_id: String}{file(): OrgFile \\
+conflicts(): Vec\textless FileConflict\textgreater \\
 changes(): ConflictPreviewChanges \\
 finish(options): TaskOperationGroup \\
 discard()}
 \umlclass[x=0,y=-5]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\
 file\_versions: Vec\textless TaskFileVersion\textgreater \\
 queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
-\umlclass[x=8,y=-5]{PreviewState}{original: OrgFile \\
+\umlclass[x=8,y=-5]{PreviewState}{original: OrgFile (main) \\
+conflicts: Vec\textless ConflictPoint\textgreater \\
+resolved: Set\textless String\textgreater \\
 operations: Vec\textless TaskOperation\textgreater \\
 working\_file: PathBuf}{}
 \umluniassoc[mult1=1,mult2=0..1]{OrgWorkspace}{ConflictPreview}

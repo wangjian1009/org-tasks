@@ -20,6 +20,7 @@ async fn file_conflict_state_comes_from_real_node_tags_not_headers_or_block_lite
     for source in [
         "#+CONFLICT: true\n* A\n",
         "* A :conflict:\n",
+        "* A :ARCHIVE:\n",
         "#+begin_src org\n,* A :CONFLICT:\n#+end_src\n",
         "* A\n:PROPERTIES:\n:CONFLICT: true\n:END:\n",
     ] {
@@ -41,5 +42,14 @@ fn merge_generates_one_container_and_no_additional_file_header() {
     let text = String::from_utf8(result.clone()).unwrap();
     assert_eq!(text.matches("* 同步冲突 :CONFLICT:").count(), 1);
     assert!(!text.contains("#+CONFLICT:"));
+    assert!(text.contains("* 同步冲突 :CONFLICT:ARCHIVE:"));
+    let parsed = OrgFile::new("r".into(), "a.org".into(), result.clone()).unwrap();
+    let container = parsed
+        .syntax()
+        .document()
+        .headlines()
+        .find(|headline| headline.tags().any(|tag| tag == "CONFLICT"))
+        .unwrap();
+    assert!(container.tags().any(|tag| tag == "ARCHIVE"));
     assert_eq!(merge(base, local, &result).unwrap(), result);
 }

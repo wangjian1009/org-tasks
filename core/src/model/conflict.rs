@@ -6,7 +6,7 @@ use std::ops::Range;
 pub(crate) const CONFLICT_CONTAINER_TITLE: &str = "同步冲突";
 pub(crate) const CONFLICT_POINT_ID: &str = "CONFILICT_ID";
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct ConflictPoint {
     pub id: String,
     pub source: String,
@@ -83,7 +83,7 @@ pub(crate) fn append_points(file: &OrgFile, main: &[u8], points: &[ConflictPoint
     };
     let mut source = main.to_vec();
     source.extend_from_slice(
-        format!("{newline}* {CONFLICT_CONTAINER_TITLE} :CONFLICT:{newline}").as_bytes(),
+        format!("{newline}* {CONFLICT_CONTAINER_TITLE} :CONFLICT:ARCHIVE:{newline}").as_bytes(),
     );
     for point in points {
         source.extend_from_slice(point.source.as_bytes());
@@ -223,54 +223,113 @@ impl OrgFile {
             return Err(CoreError::InvalidInput("冲突容器必须位于文件末尾"));
         }
         root.headlines()
-            .map(|point| {
-                let why = reason(&point).ok_or(CoreError::InvalidInput("冲突点缺少原因"))?;
-                let suggested_target = target_for(self, &point, &why);
-                let mut available_actions = vec![TaskConfilictAction::Discard];
-                if matches!(
-                    why.as_str(),
-                    "modify"
-                        | "create"
-                        | "delete"
-                        | "modify-missing"
-                        | "missing-parent"
-                        | "reorder"
-                        | "structure"
-                ) && candidate(self, &point, &why).is_ok()
-                {
-                    available_actions.push(TaskConfilictAction::UseLocal);
-                }
-                Ok(FileConflict {
-                    id: point_id(&point).unwrap(),
-                    title: point.title_raw().trim_end().into(),
-                    reason: why,
-                    source_range: super::conflict_preview::source_range(
-                        self,
-                        usize::from(point.start()),
-                        usize::from(point.end()),
-                    ),
-                    requires_target: suggested_target.is_none(),
-                    suggested_target,
-                    available_actions,
-                })
-            })
+            .map(|point| describe(self, &point, self))
             .collect()
     }
 }
+
+fn describe(
+    main: &OrgFile,
+    point: &Headline,
+    material: &OrgFile,
+) -> Result<FileConflict, CoreError> {
+    let why = reason(point).ok_or(CoreError::InvalidInput("冲突点缺少原因"))?;
+    let suggested_target = target_for(main, point, &why);
+    let mut available_actions = vec![TaskConfilictAction::Discard];
+    if matches!(
+        why.as_str(),
+        "modify"
+            | "create"
+            | "delete"
+            | "modify-missing"
+            | "missing-parent"
+            | "reorder"
+            | "structure"
+    ) && candidate(main, point, &why).is_ok()
+    {
+        available_actions.push(TaskConfilictAction::UseLocal);
+    }
+    Ok(FileConflict {
+        id: point_id(point).ok_or(CoreError::InvalidInput("冲突点缺少定位 ID"))?,
+        title: point.title_raw().trim_end().into(),
+        reason: why,
+        source_range: super::conflict_preview::source_range(
+            material,
+            usize::from(point.start()),
+            usize::from(point.end()),
+        ),
+        requires_target: suggested_target.is_none(),
+        suggested_target,
+        available_actions,
+    })
+}
+
+fn parse_point(
+    template: &OrgFile,
+    point: &ConflictPoint,
+) -> Result<(OrgFile, Headline), CoreError> {
+    let mut material = template.clone();
+    material.source_bytes = point.source.as_bytes().to_vec();
+    material.reparse()?;
+    let headline = material
+        .syntax()
+        .document()
+        .first_headline()
+        .ok_or(CoreError::InvalidInput("冲突材料缺少标题"))?;
+    if point_id(&headline).as_deref() != Some(point.id.as_str()) {
+        return Err(CoreError::InvalidInput("冲突材料的定位 ID 不一致"));
+    }
+    Ok((material, headline))
+}
+
+pub(super) fn describe_point(
+    main: &OrgFile,
+    point: &ConflictPoint,
+) -> Result<FileConflict, CoreError> {
+    let (material, headline) = parse_point(main, point)?;
+    describe(main, &headline, &material)
+}
+
 pub(super) fn select(
     file: &mut OrgFile,
     selection: &TaskConfilictSelection,
 ) -> Result<Option<TaskPath>, CoreError> {
-    let descriptions = file.conflicts()?;
-    let description = descriptions
-        .iter()
-        .find(|p| p.id == selection.id)
+    file.conflicts()?;
+    let point = points(file)?
+        .into_iter()
+        .find(|point| point.id == selection.id)
         .ok_or(CoreError::InvalidInput("冲突点不存在"))?;
+    let root = container(file).ok_or(CoreError::InvalidInput("文件没有冲突容器"))?;
+    let range = block_range(file, &root);
+    let material = file.source_bytes()[range.clone()].to_vec();
+    let mut main = file.clone();
+    main.source_bytes.truncate(range.start);
+    main.reparse()?;
+    let path = select_point(&mut main, &point, selection)?;
+    main.source_bytes.extend(material);
+    main.reparse()?;
+    discard(&mut main, &selection.id)?;
+    *file = main;
+    Ok(path)
+}
+
+/// 材料单独解析，整个选择过程的可编辑文件始终只有主树。
+pub(super) fn select_point(
+    file: &mut OrgFile,
+    point: &ConflictPoint,
+    selection: &TaskConfilictSelection,
+) -> Result<Option<TaskPath>, CoreError> {
+    if file.has_conflict() {
+        return Err(CoreError::InvalidInput("预览主树不能包含冲突节点"));
+    }
+    let description = describe_point(file, point)?;
+    if selection.id != point.id {
+        return Err(CoreError::InvalidInput("冲突点不存在"));
+    }
     if selection.action == TaskConfilictAction::Discard {
         if selection.target.is_some() {
             return Err(CoreError::InvalidInput("保留当前不能附带目标"));
         }
-        discard(file, &selection.id)?;
         return Ok(None);
     }
     if !description
@@ -287,20 +346,10 @@ pub(super) fn select(
             "conflictTargetRequired",
             "请选择明确的处理目标",
         ))?;
-    let point = container(file)
-        .unwrap()
-        .headlines()
-        .find(|h| point_id(h).as_deref() == Some(&selection.id))
-        .unwrap();
-    let content = candidate(file, &point, &description.reason)?;
+    let (_material, headline) = parse_point(file, point)?;
+    let content = candidate(file, &headline, &description.reason)?;
     let original = file.clone();
-    // 全部验证成功后才发布副本；其他点的包装与分隔符逐字节保留。
     let mut next = file.clone();
-    let block = container(&next).unwrap();
-    let block = block_range(&next, &block);
-    let material = next.source_bytes()[block.clone()].to_vec();
-    next.source_bytes.truncate(block.start);
-    next.reparse()?;
     let path = match target {
         ConflictTarget::Existing(path) => {
             if !matches!(description.reason.as_str(), "modify" | "delete") {
@@ -381,9 +430,6 @@ pub(super) fn select(
             }
         }
     }
-    next.source_bytes.extend(material);
-    next.reparse()?;
-    discard(&mut next, &selection.id)?;
     *file = next;
     Ok(path)
 }

@@ -233,7 +233,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
     let base = b"* TODO Project [/]\r\n- [ ] First\r\n- [X] Second\r\n** TODO Child [%]\r\nNotes\r\n";
     let (policy, state, worker) = server(&[("a.org", base)]).await;
     assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
-    let file = repo.file("a.org").unwrap();
+    let file = repo.file("a.org").await.unwrap();
     let path = file.node_paths()[0].clone();
     let item = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
     let repo_id = repo.id.clone();
@@ -267,7 +267,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
         assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
         assert!(repo.pending_writes().await.unwrap().is_empty());
         assert!(!repo.has_local_changes().await.unwrap());
-        let tasks = crate::OrgWorkspace::new(vec![repo.clone()]).unwrap().query(&crate::TaskQuery::default()).unwrap().tasks;
+        let tasks = crate::OrgWorkspace::new(vec![repo.clone()]).unwrap().query(&crate::TaskQuery::default()).await.unwrap().tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].full_path().titles, ["Project"]);
         assert_eq!(tasks[1].full_path().titles, ["Project", "Child"]);

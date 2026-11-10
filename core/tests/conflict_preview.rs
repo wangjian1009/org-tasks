@@ -85,10 +85,16 @@ async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
     let p = f.preview().await;
     assert_eq!(p.full_path().repo_id, "<preview>");
     assert_eq!(p.full_path().file.as_deref(), Some(p.id()));
-    assert_eq!(p.file().await.unwrap().source_bytes(), f.source);
+    assert_eq!(
+        p.file().await.unwrap().source_bytes(),
+        b"* TODO Work\n:PROPERTIES:\n:ID: work\n:END:\nremote\n"
+    );
+    assert!(!p.file().await.unwrap().has_conflict());
+    assert_eq!(p.conflicts().await.unwrap().len(), 1);
     assert_eq!(
         f.workspace
-            .query(&TaskQuery::default()).await
+            .query(&TaskQuery::default())
+            .await
             .unwrap()
             .tasks
             .len(),
@@ -285,8 +291,7 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
         .await
         .unwrap();
     let p = f.preview().await;
-    let initial = p.file().await.unwrap();
-    let other = initial.conflict_ids()[1].clone();
+    let other = p.conflicts().await.unwrap()[1].id.clone();
     f.choose(&p, TaskConfilictAction::UseLocal).await;
     let copied = p.file().await.unwrap();
     let mut missing = copied.editable_node_paths()[0].clone();
@@ -320,13 +325,19 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
     assert_eq!(group.operations.len(), 1);
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(
-        f.workspace.repos()[0].file("a.org").await.unwrap().conflict_ids(),
+        f.workspace.repos()[0]
+            .file("a.org")
+            .await
+            .unwrap()
+            .conflict_ids(),
         vec![other]
     );
-    assert_eq!(
-        std::fs::read(f.root.join("repo/a.org")).unwrap(),
-        copied.source_bytes()
+    assert!(
+        std::fs::read(f.root.join("repo/a.org"))
+            .unwrap()
+            .starts_with(copied.source_bytes())
     );
+    assert!(!copied.has_conflict());
 }
 
 #[tokio::test]
@@ -340,7 +351,7 @@ async fn missing_stable_id_requires_explicit_target_and_finish_remaps_it() {
         .unwrap();
     let p = f.preview().await;
     let file = p.file().await.unwrap();
-    let conflict = file.conflicts().unwrap().remove(0);
+    let conflict = p.conflicts().await.unwrap().remove(0);
     assert!(conflict.requires_target);
     assert!(conflict.suggested_target.is_none());
     let mut group = TaskOperationGroup {
@@ -530,13 +541,15 @@ async fn every_conflict_choice_in_one_preview_is_returned_in_order() {
         .unwrap();
     let p = f.preview().await;
     let file = p.file().await.unwrap();
-    let operations = file
-        .conflict_ids()
+    let operations = p
+        .conflicts()
+        .await
+        .unwrap()
         .into_iter()
-        .map(|id| {
+        .map(|point| {
             TaskOperation::ConfilictSelection(TaskConfilictSelection {
                 path: Some(file.full_path()),
-                id,
+                id: point.id,
                 action: TaskConfilictAction::Discard,
                 target: None,
             })
@@ -568,7 +581,13 @@ async fn every_conflict_choice_in_one_preview_is_returned_in_order() {
         std::fs::read(f.root.join("repo/a.org")).unwrap(),
         edited.source_bytes()
     );
-    assert!(!f.workspace.repos()[0].file("a.org").await.unwrap().has_conflict());
+    assert!(
+        !f.workspace.repos()[0]
+            .file("a.org")
+            .await
+            .unwrap()
+            .has_conflict()
+    );
 }
 
 #[tokio::test]
@@ -602,4 +621,329 @@ async fn preview_stays_silent_and_real_submission_notifies_each_data_subscriber_
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(first.load(Ordering::SeqCst), 1);
     assert_eq!(second.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn preview_keeps_main_documents_and_candidate_materials_separate_from_creation() {
+    let mut f = Fixture::new().await;
+    let preview = f.preview().await;
+    let original = preview.source_file().await.unwrap();
+    let working = preview.file().await.unwrap();
+    let by_path = f.workspace.file_at(&preview.full_path()).await.unwrap();
+    let expected = b"* TODO Work\n:PROPERTIES:\n:ID: work\n:END:\nremote\n";
+    for file in [&original, &working, &by_path] {
+        assert_eq!(file.source_bytes(), expected);
+        assert!(!file.has_conflict());
+        assert!(file.conflict_ids().is_empty());
+        assert!(file.conflicts().unwrap().is_empty());
+        assert_eq!(file.node_paths().len(), 1);
+        assert!(!file.render_html().contains("同步冲突"));
+    }
+    assert_eq!(preview.conflicts().await.unwrap().len(), 1);
+    assert_eq!(
+        preview.source_version(),
+        LocalFileVersion::from_bytes(&f.source).content_hash
+    );
+    assert!(preview.changes().await.unwrap().changes.is_empty());
+    assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
+}
+
+#[tokio::test]
+async fn keeping_current_changes_only_the_independent_choice_set() {
+    let mut f = Fixture::new().await;
+    let preview = f.preview().await;
+    let before = preview.file().await.unwrap();
+    f.choose(&preview, TaskConfilictAction::Discard).await;
+    assert_eq!(
+        preview.file().await.unwrap().source_bytes(),
+        before.source_bytes()
+    );
+    assert!(preview.conflicts().await.unwrap().is_empty());
+    assert!(preview.changes().await.unwrap().changes.is_empty());
+    let file = preview.file().await.unwrap();
+    let duplicate = TaskOperationGroup {
+        operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
+            path: Some(file.full_path()),
+            id: preview.conflict_id().into(),
+            action: TaskConfilictAction::Discard,
+            target: None,
+        })],
+        file_versions: vec![TaskFileVersion {
+            repo_id: file.repo_id.clone(),
+            file: file.path.clone(),
+            version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+        }],
+        queue_repo_ids: vec![],
+    };
+    assert!(
+        f.workspace
+            .execute_task_operations(&duplicate)
+            .await
+            .is_err()
+    );
+    let group = preview
+        .finish(ConflictPreviewFinishOptions {
+            preview_version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+        })
+        .await
+        .unwrap();
+    assert_eq!(group.operations.len(), 1);
+    assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
+}
+
+#[tokio::test]
+async fn failed_group_rolls_back_both_main_edits_and_separate_conflict_choices() {
+    let mut f = Fixture::new().await;
+    let preview = f.preview().await;
+    let before = preview.file().await.unwrap();
+    let initial_id = preview.conflicts().await.unwrap()[0].id.clone();
+    let mut missing = before.full_path();
+    missing.titles = vec!["不存在".into()];
+    let group = TaskOperationGroup {
+        operations: vec![
+            TaskOperation::ConfilictSelection(TaskConfilictSelection {
+                path: Some(before.full_path()),
+                id: initial_id.clone(),
+                action: TaskConfilictAction::UseLocal,
+                target: None,
+            }),
+            TaskOperation::Deletion(TaskDeletion { path: missing }),
+        ],
+        file_versions: vec![TaskFileVersion {
+            repo_id: before.repo_id.clone(),
+            file: before.path.clone(),
+            version: LocalFileVersion::from_bytes(before.source_bytes()).content_hash,
+        }],
+        queue_repo_ids: vec![],
+    };
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(
+        preview.file().await.unwrap().source_bytes(),
+        before.source_bytes()
+    );
+    assert_eq!(preview.conflicts().await.unwrap()[0].id, initial_id);
+    assert!(matches!(
+        preview
+            .finish(ConflictPreviewFinishOptions {
+                preview_version: LocalFileVersion::from_bytes(before.source_bytes()).content_hash
+            })
+            .await,
+        Err(CoreError::Preview {
+            code: "conflictDecisionRequired",
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn ordinary_preview_operations_cannot_insert_new_conflict_nodes() {
+    let mut f = Fixture::new().await;
+    let preview = f.preview().await;
+    let before = preview.file().await.unwrap();
+    let mut creation = TaskCreation::new(
+        TaskPosition {
+            parent: before.full_path(),
+            after: None,
+        },
+        "不允许的容器".into(),
+    );
+    creation.tags = vec!["CONFLICT".into(), "ARCHIVE".into()];
+    let group = TaskOperationGroup {
+        operations: vec![TaskOperation::Creation(creation)],
+        file_versions: vec![TaskFileVersion {
+            repo_id: before.repo_id.clone(),
+            file: before.path.clone(),
+            version: LocalFileVersion::from_bytes(before.source_bytes()).content_hash,
+        }],
+        queue_repo_ids: vec![],
+    };
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(
+        preview.file().await.unwrap().source_bytes(),
+        before.source_bytes()
+    );
+    assert_eq!(preview.conflicts().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn empty_main_remains_empty_until_a_separate_candidate_is_inserted() {
+    let mut f = Fixture::new().await;
+    // 空远端与本地新增通常可直接合并，使用现有容器格式构造离线候选。
+    f.source = "\n* 同步冲突 :CONFLICT:ARCHIVE:\n** Local\n:PROPERTIES:\n:CONFILICT_ID: local\n:END:\n#+CONFLICT_REASON: create\n*** TODO Local\nbody\n".as_bytes().to_vec();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    f.workspace.repos[0]
+        .load::<WebDavSyncPolicy>()
+        .await
+        .unwrap();
+    let preview = f.preview().await;
+    let file = preview.file().await.unwrap();
+    assert!(file.source_bytes().is_empty());
+    assert!(
+        preview
+            .source_file()
+            .await
+            .unwrap()
+            .source_bytes()
+            .is_empty()
+    );
+    let selection = TaskConfilictSelection {
+        path: Some(file.full_path()),
+        id: preview.conflict_id().into(),
+        action: TaskConfilictAction::UseLocal,
+        target: Some(ConflictTarget::Insert(TaskPosition {
+            parent: file.full_path(),
+            after: None,
+        })),
+    };
+    f.workspace
+        .execute_task_operations(&TaskOperationGroup {
+            operations: vec![TaskOperation::ConfilictSelection(selection)],
+            file_versions: vec![TaskFileVersion {
+                repo_id: file.repo_id.clone(),
+                file: file.path.clone(),
+                version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+            }],
+            queue_repo_ids: vec![],
+        })
+        .await
+        .unwrap();
+    let edited = preview.file().await.unwrap();
+    assert_eq!(edited.source_bytes(), b"* TODO Local\nbody\n");
+    let group = preview
+        .finish(ConflictPreviewFinishOptions {
+            preview_version: LocalFileVersion::from_bytes(edited.source_bytes()).content_hash,
+        })
+        .await
+        .unwrap();
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(
+        std::fs::read(f.root.join("repo/a.org")).unwrap(),
+        edited.source_bytes()
+    );
+}
+
+#[tokio::test]
+async fn legacy_conflict_footer_is_separated_and_archive_never_leaks_to_adopted_tasks() {
+    let mut f = Fixture::new().await;
+    f.source = std::str::from_utf8(&f.source)
+        .unwrap()
+        .replace(":CONFLICT:ARCHIVE:", ":CONFLICT:")
+        .into_bytes();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    f.workspace.repos[0]
+        .load::<WebDavSyncPolicy>()
+        .await
+        .unwrap();
+    let preview = f.preview().await;
+    assert!(!preview.source_file().await.unwrap().has_conflict());
+    f.choose(&preview, TaskConfilictAction::UseLocal).await;
+    let file = preview.file().await.unwrap();
+    let nodes = file.nodes();
+    assert!(!nodes[0].own_tags().iter().any(|tag| tag == "ARCHIVE"));
+    assert!(!nodes[0].inherited_tags().iter().any(|tag| tag == "ARCHIVE"));
+    let group = preview
+        .finish(ConflictPreviewFinishOptions {
+            preview_version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+        })
+        .await
+        .unwrap();
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(
+        std::fs::read(f.root.join("repo/a.org")).unwrap(),
+        file.source_bytes()
+    );
+}
+
+#[tokio::test]
+async fn full_file_candidate_replaces_only_the_separated_main_document() {
+    let mut f = Fixture::new().await;
+    f.source = "#+TITLE: Remote\n* Remote\nremote body\n\n* 同步冲突 :CONFLICT:ARCHIVE:\n** 文件结构\n:PROPERTIES:\n:CONFILICT_ID: whole\n:END:\n#+CONFLICT_REASON: structure\n#+begin_example\n,#+TITLE: Local\n,* TODO Local\nlocal body\n#+end_example\n".as_bytes().to_vec();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    f.workspace.repos[0]
+        .load::<WebDavSyncPolicy>()
+        .await
+        .unwrap();
+    let preview = f.preview().await;
+    let file = preview.file().await.unwrap();
+    assert_eq!(
+        file.source_bytes(),
+        b"#+TITLE: Remote\n* Remote\nremote body\n"
+    );
+    let group = TaskOperationGroup {
+        operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
+            path: Some(file.full_path()),
+            id: "whole".into(),
+            action: TaskConfilictAction::UseLocal,
+            target: Some(ConflictTarget::ReplaceMain),
+        })],
+        file_versions: vec![TaskFileVersion {
+            repo_id: file.repo_id.clone(),
+            file: file.path.clone(),
+            version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+        }],
+        queue_repo_ids: vec![],
+    };
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let edited = preview.file().await.unwrap();
+    assert_eq!(
+        edited.source_bytes(),
+        b"#+TITLE: Local\n* TODO Local\nlocal body\n"
+    );
+    assert!(!edited.has_conflict());
+    assert!(preview.conflicts().await.unwrap().is_empty());
+    let operations = preview
+        .finish(ConflictPreviewFinishOptions {
+            preview_version: LocalFileVersion::from_bytes(edited.source_bytes()).content_hash,
+        })
+        .await
+        .unwrap();
+    f.workspace
+        .execute_task_operations(&operations)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(f.root.join("repo/a.org")).unwrap(),
+        edited.source_bytes()
+    );
+}
+
+#[tokio::test]
+async fn separated_preview_preserves_setupfile_context_when_adopting_a_candidate() {
+    let mut f = Fixture::new().await;
+    let base = "#+SETUPFILE: workflow.setup\n* OPEN Work\n:PROPERTIES:\n:ID: work\n:END:\nbase\n";
+    f.source = merge(
+        base.as_bytes(),
+        base.replace("base", "local").as_bytes(),
+        base.replace("base", "remote").as_bytes(),
+    )
+    .unwrap();
+    std::fs::write(
+        f.root.join("repo/workflow.setup"),
+        "#+TODO: OPEN | CLOSED\n",
+    )
+    .unwrap();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    let preview = f.preview().await;
+    let baseline = preview.source_file().await.unwrap();
+    assert_eq!(baseline.todo.initial_state.as_deref(), Some("OPEN"));
+    assert_eq!(baseline.node_paths()[0].titles, vec!["Work"]);
+    assert!(!baseline.has_conflict());
+    f.choose(&preview, TaskConfilictAction::UseLocal).await;
+    let edited = preview.file().await.unwrap();
+    assert_eq!(edited.nodes()[0].state(), Some("OPEN"));
+    assert_eq!(edited.node_paths()[0].titles, vec!["Work"]);
+    let operations = preview
+        .finish(ConflictPreviewFinishOptions {
+            preview_version: LocalFileVersion::from_bytes(edited.source_bytes()).content_hash,
+        })
+        .await
+        .unwrap();
+    f.workspace
+        .execute_task_operations(&operations)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(f.root.join("repo/a.org")).unwrap(),
+        edited.source_bytes()
+    );
 }

@@ -1603,6 +1603,7 @@ pub fn workspace_preview_operation(handle:u64,request:String)->Result<String,Cor
         FileAt {path:org_tasks_core::TaskPath},
         #[serde(rename_all="camelCase")] File {preview_id:String},
         #[serde(rename_all="camelCase")] SourceFile {preview_id:String},
+        #[serde(rename_all="camelCase")] Conflicts {preview_id:String},
         #[serde(rename_all="camelCase")] Changes {preview_id:String},
         #[serde(rename_all="camelCase")] Finish {preview_id:String,options:org_tasks_core::ConflictPreviewFinishOptions},
         #[serde(rename_all="camelCase")] Discard {preview_id:String},
@@ -1621,11 +1622,12 @@ pub fn workspace_preview_operation(handle:u64,request:String)->Result<String,Cor
         }
         Request::FileAt {path}=>encode(&file_snapshot(&runtime.block_on(workspace.file_at(&path))?)?),
         request=>{
-            let id=match &request {Request::File{preview_id}|Request::SourceFile{preview_id}|Request::Changes{preview_id}|Request::Finish{preview_id,..}|Request::Discard{preview_id}=>preview_id,_=>unreachable!()};
+            let id=match &request {Request::File{preview_id}|Request::SourceFile{preview_id}|Request::Conflicts{preview_id}|Request::Changes{preview_id}|Request::Finish{preview_id,..}|Request::Discard{preview_id}=>preview_id,_=>unreachable!()};
             let preview=workspace_sessions().lock().map_err(|_|CoreError::InvalidState("会话锁不可用"))?.sessions.get(&handle).and_then(|s|s.previews.get(id)).cloned().ok_or(CoreError::Preview{code:"previewExpired",message:"预览对象已释放"})?;
             match request {
                 Request::File{..}=>encode(&file_snapshot(&runtime.block_on(preview.file())?)?),
                 Request::SourceFile{..}=>encode(&file_snapshot(&runtime.block_on(preview.source_file())?)?),
+                Request::Conflicts{..}=>encode(&runtime.block_on(preview.conflicts())?),
                 Request::Changes{..}=>encode(&runtime.block_on(preview.changes())?),
                 Request::Finish{options,..}=>encode(&runtime.block_on(preview.finish(options))?),
                 Request::Discard{..}=>{runtime.block_on(preview.discard())?;encode(&serde_json::json!({}))},
@@ -1657,8 +1659,10 @@ mod preview_tests {
         let preview=request(handle,serde_json::json!({"operation":"create","request":{"file":file["fullPath"],"conflictId":file["conflictIds"][0],"sourceVersion":file["fileVersion"]}}));
         assert_eq!(preview["fullPath"]["repoId"],"<preview>");assert_eq!(preview["fullPath"]["file"],preview["id"]);
         let copied=request(handle,serde_json::json!({"operation":"file","previewId":preview["id"]}));
-        assert_eq!(copied["source"],file["source"]);assert_eq!(copied["nodes"][0]["repoId"],"<preview>");
-        let staged:serde_json::Value=serde_json::from_str(&workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"ConfilictSelection","data":{"path":preview["fullPath"],"id":preview["conflictId"],"action":"useLocal","target":copied["conflicts"][0]["suggestedTarget"]}}],"fileVersions":[{"repoId":"<preview>","file":preview["id"],"version":copied["fileVersion"]}]}).to_string()).unwrap()).unwrap();
+        assert_eq!(copied["source"],base.replace("base","remote"));assert_eq!(copied["nodes"][0]["repoId"],"<preview>");
+        assert_eq!(copied["hasConflict"],false);assert_eq!(copied["conflicts"],serde_json::json!([]));
+        let conflicts=request(handle,serde_json::json!({"operation":"conflicts","previewId":preview["id"]}));
+        let staged:serde_json::Value=serde_json::from_str(&workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"ConfilictSelection","data":{"path":preview["fullPath"],"id":preview["conflictId"],"action":"useLocal","target":conflicts[0]["suggestedTarget"]}}],"fileVersions":[{"repoId":"<preview>","file":preview["id"],"version":copied["fileVersion"]}]}).to_string()).unwrap()).unwrap();
         assert_eq!(staged,serde_json::json!({}));assert_eq!(std::fs::read(root.join("repo/a.org")).unwrap(),source);
         let edited=request(handle,serde_json::json!({"operation":"file","previewId":preview["id"]}));
         assert_eq!(edited["nodes"][0]["repoId"],"<preview>");

@@ -4,7 +4,7 @@
 :END:
 remote
 
-* 同步冲突 :CONFLICT:
+* 同步冲突 :CONFLICT:ARCHIVE:
 ** A
 :PROPERTIES:
 :CONFILICT_ID: <conflict-1>
