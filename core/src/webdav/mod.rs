@@ -9,6 +9,7 @@ mod synchronize;
 pub(crate) mod transaction;
 pub use archive::*;
 pub mod runtime;
+#[cfg(test)]
 pub(crate) use history::is_conflict as history_is_conflict;
 pub use history::*;
 #[cfg(test)]
@@ -27,6 +28,7 @@ use crate::model::{
     OrgRepoSyncResult, RemoteFileVersion, SyncCancellation, SyncContext, SyncPolicy,
     SyncProgressReporter,
 };
+use crate::OrgRepoSyncFileOutcome;
 use crate::{CoreError, TimestampMs};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,8 +91,8 @@ pub struct WebDavSyncFileDetail {
     pub synced_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive: Option<WebDavFileArchive>,
-    #[serde(skip)]
-    pub resolved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_archive: Option<WebDavFileArchive>,
 }
 
 impl From<RemoteFileVersion> for WebDavSyncFileDetail {
@@ -102,7 +104,7 @@ impl From<RemoteFileVersion> for WebDavSyncFileDetail {
             task_versions: None,
             synced_source: None,
             archive: None,
-            resolved: false,
+            deleted_archive: None,
         }
     }
 }
@@ -293,6 +295,7 @@ fn failed_record(
     .with_local_version(Some(local))
     .with_detail(WebDavSyncFileDetail::default())
     .with_error(error)
+    .with_outcome(OrgRepoSyncFileOutcome::Failed)
 }
 
 #[cfg(test)]

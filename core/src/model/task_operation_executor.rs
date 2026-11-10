@@ -34,6 +34,9 @@ impl OrgWorkspace {
         let mut touched = BTreeSet::new();
         for operation in &group.operations {
             match operation {
+                TaskOperation::ConfilictSelection(data) => {
+                    touched.insert(selection_path(self, &data.id)?.repo_id);
+                }
                 TaskOperation::Creation(data) => {
                     touched.insert(data.position.parent.repo_id.clone());
                     if let Some(after) = &data.position.after {
@@ -125,6 +128,20 @@ impl OrgWorkspace {
     }
 }
 
+fn selection_path(workspace: &OrgWorkspace, id: &str) -> Result<TaskPath, CoreError> {
+    let paths = workspace
+        .repos()
+        .iter()
+        .flat_map(|repo| repo.files())
+        .filter(|file| file.conflict_ids().iter().any(|value| value == id))
+        .map(|file| file.full_path())
+        .collect::<Vec<_>>();
+    if paths.len() != 1 {
+        return Err(CoreError::InvalidInput("冲突点不存在或 ID 重复，请刷新"));
+    }
+    Ok(paths[0].clone())
+}
+
 fn key(path: &TaskPath) -> Result<FileKey, CoreError> {
     path.validate()?;
     Ok((
@@ -142,6 +159,10 @@ async fn load_files(
     let mut keys = BTreeSet::new();
     for operation in &group.operations {
         let (source, position) = match operation {
+            TaskOperation::ConfilictSelection(data) => {
+                keys.insert(key(&selection_path(workspace, &data.id)?)?);
+                (None, None)
+            }
             TaskOperation::Creation(data) => (None, Some(&data.position)),
             TaskOperation::Modification(data) => (Some(&data.path), None),
             TaskOperation::Movement(data) => (Some(&data.path), Some(&data.position)),
@@ -233,13 +254,18 @@ async fn checked_disk(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
 }
 
 fn locate(file: &OrgFile, path: &TaskPath) -> Result<Headline, CoreError> {
-    file.path_headlines()
+    let headline = file
+        .path_headlines()
         .into_iter()
         .find(|(candidate, _)| candidate == path)
         .map(|(_, headline)| headline)
         .ok_or(CoreError::InvalidInput(
             "标题路径不存在，请使用当前完整路径",
-        ))
+        ))?;
+    if OrgFile::is_conflict_headline(&headline) {
+        return Err(CoreError::InvalidInput("不能修改冲突节点或其子树的内容"));
+    }
+    Ok(headline)
 }
 
 fn start(headline: &Headline) -> usize {
@@ -293,6 +319,7 @@ fn replace(
     range: std::ops::Range<usize>,
     content: &[u8],
 ) -> Result<(), CoreError> {
+    super::editor::ensure_editable_range(file, range.start, range.end)?;
     file.source_bytes.splice(range, content.iter().copied());
     file.reparse()
 }
@@ -321,7 +348,71 @@ fn execute(
     files: &mut BTreeMap<FileKey, WorkingFile>,
     operation: &TaskOperation,
 ) -> Result<Option<TaskPath>, CoreError> {
+    if matches!(operation, TaskOperation::ConfilictSelection(_)) {
+        return execute_inner(files, operation);
+    }
+    // 先在完整快照上校验，不能借临时分离容器绕过冲突路径保护。
     match operation {
+        TaskOperation::Modification(data) => {
+            locate(&files[&key(&data.path)?].file, &data.path)?;
+        }
+        TaskOperation::Deletion(data) => {
+            locate(&files[&key(&data.path)?].file, &data.path)?;
+        }
+        TaskOperation::Movement(data) => {
+            locate(&files[&key(&data.path)?].file, &data.path)?;
+            position(&files[&key(&data.position.parent)?].file, &data.position)?;
+        }
+        TaskOperation::Creation(data) => {
+            position(&files[&key(&data.position.parent)?].file, &data.position)?;
+        }
+        TaskOperation::ConfilictSelection(_) => unreachable!(),
+    }
+    // 普通操作只编辑主树；把容器及其专属分隔符原样放回，避免正文替换或插入吞掉分隔符。
+    let mut blocks = Vec::new();
+    for (key, item) in files.iter_mut() {
+        if let Some(container) = super::conflict::container(&item.file) {
+            let range = super::conflict::block_range(&item.file, &container);
+            if range.end != item.file.source_bytes().len() {
+                continue;
+            }
+            blocks.push((
+                key.clone(),
+                item.file.source_bytes()[range.clone()].to_vec(),
+            ));
+            item.file.source_bytes.drain(range);
+            item.file.reparse()?;
+        }
+    }
+    let path = execute_inner(files, operation)?;
+    for (key, block) in blocks {
+        let file = &mut files.get_mut(&key).unwrap().file;
+        file.source_bytes.extend(block);
+        file.reparse()?;
+    }
+    Ok(path)
+}
+
+fn execute_inner(
+    files: &mut BTreeMap<FileKey, WorkingFile>,
+    operation: &TaskOperation,
+) -> Result<Option<TaskPath>, CoreError> {
+    match operation {
+        TaskOperation::ConfilictSelection(data) => {
+            let keys = files
+                .iter()
+                .filter(|(_, item)| item.file.conflict_ids().iter().any(|id| id == &data.id))
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            if keys.len() != 1 {
+                return Err(CoreError::InvalidInput("冲突点不存在或 ID 重复，请刷新"));
+            }
+            let item = files.get_mut(&keys[0]).unwrap();
+            match data.action {
+                TaskConfilictAction::Discard => super::conflict::discard(&mut item.file, &data.id)?,
+            }
+            Ok(None)
+        }
         TaskOperation::Creation(data) => {
             let item = files
                 .get_mut(&key(&data.position.parent)?)
@@ -1114,9 +1205,13 @@ fn modify_checklist(
     match change {
         TaskChecklistChange::Edit { text, .. } => {
             let range = super::task_inline::item_text_range(file, &item);
-            let content = if file.source_bytes().get(range.start.wrapping_sub(1)) == Some(&b']') { format!(" {text}") } else { text.clone() };
+            let content = if file.source_bytes().get(range.start.wrapping_sub(1)) == Some(&b']') {
+                format!(" {text}")
+            } else {
+                text.clone()
+            };
             replace(file, range, content.as_bytes())
-        },
+        }
         TaskChecklistChange::SetChecked { checked, .. } => {
             let token = item.checkbox().expect("checkbox");
             replace(

@@ -1,47 +1,44 @@
 use org_tasks_core::{OrgFile, OrgRepo, merge};
-
 #[test]
-fn scans_title_and_conflict_only_from_document_header() {
+fn file_conflict_state_comes_from_real_node_tags_not_headers_or_block_literals() {
     let file = OrgFile::new(
-        "repo".into(),
-        "A.org".into(),
-        b"#+title: Name\r\n#+conflict: true\r\n* TODO A\r\n#+CONFLICT: false\r\n".to_vec(),
+        "r".into(),
+        "a.org".into(),
+        "#+title: Name\r\n* Normal\r\n* 同步冲突 :CONFLICT:\r\n** Point\r\n"
+            .as_bytes()
+            .to_vec(),
     )
     .unwrap();
     assert_eq!(file.title().as_deref(), Some("Name"));
     assert!(file.has_conflict());
     let mut repo = OrgRepo::new("/unused/metadata".into()).unwrap();
     repo.files.push(file);
-    let value = serde_json::to_value(&repo.file_metadata()[0]).unwrap();
-    assert_eq!(value["hasConflict"], true);
+    let metadata = serde_json::to_value(&repo.file_metadata()[0]).unwrap();
+    assert_eq!(metadata["hasConflict"], true);
+    assert_eq!(metadata["taskCount"], 1);
     for source in [
-        "#+CONFLICT: false\n",
-        "* A\n#+CONFLICT: true\n",
-        "#+begin_src org\n#+CONFLICT: true\n#+end_src\n",
+        "#+CONFLICT: true\n* A\n",
+        "* A :conflict:\n",
+        "#+begin_src org\n,* A :CONFLICT:\n#+end_src\n",
+        "* A\n:PROPERTIES:\n:CONFLICT: true\n:END:\n",
     ] {
         assert!(
-            !OrgFile::new("r".into(), "A.org".into(), source.as_bytes().to_vec())
+            !OrgFile::new("r".into(), "a.org".into(), source.as_bytes().to_vec())
                 .unwrap()
-                .has_conflict()
+                .has_conflict(),
+            "{source}"
         );
     }
 }
-
 #[test]
-fn merge_generates_one_header_marker_and_clears_stale_markers() {
-    let base = b"* TODO A\n:PROPERTIES:\n:ID: a\n:END:\nbase\n";
-    let local = String::from_utf8(base.to_vec())
-        .unwrap()
-        .replace("base", "local");
-    let remote = String::from_utf8(base.to_vec())
-        .unwrap()
-        .replace("base", "remote");
-    let result = merge(base, local.as_bytes(), remote.as_bytes()).unwrap();
-    assert!(result.starts_with(b"#+CONFLICT: true\n"));
-    assert_eq!(merge(base, local.as_bytes(), &result).unwrap(), result);
-    let clean = b"#+TITLE: Name\n#+CONFLICT: true\n#+CONFLICT: false\n* TODO A\n";
-    assert_eq!(
-        merge(clean, clean, clean).unwrap(),
-        b"#+TITLE: Name\n* TODO A\n"
-    );
+fn merge_generates_one_container_and_no_additional_file_header() {
+    let base = b"#+TITLE: Name\n* A\nbase\n";
+    let local = b"#+TITLE: Local\n* A\nlocal\n";
+    let remote = b"#+TITLE: Remote\n* A\nremote\n";
+    let result = merge(base, local, remote).unwrap();
+    assert!(result.starts_with(remote));
+    let text = String::from_utf8(result.clone()).unwrap();
+    assert_eq!(text.matches("* 同步冲突 :CONFLICT:").count(), 1);
+    assert!(!text.contains("#+CONFLICT:"));
+    assert_eq!(merge(base, local, &result).unwrap(), result);
 }

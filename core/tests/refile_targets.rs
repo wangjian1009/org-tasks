@@ -101,44 +101,36 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
 }
 
 #[test]
-fn queries_match_original_tags_but_hide_system_own_and_inherited_tags() {
+fn queries_exclude_conflicts_before_matching_other_system_tags() {
     let source = "* Parent :REFILE:ARCHIVE:CONFLICT:work:REFILE:\n\
 ** TODO Child :REFILE:CONFLICT:home:refile:\n\
 *** TODO Grandchild :next:\n\
-* TODO Other :refile:\n";
+* TODO Other :REFILE:refile:\n";
     let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
     for (expression, expected) in [
-        ("", 4),
-        ("t.REFILE", 3),
-        ("tn.REFILE", 2),
-        (".t.REFILE", 1),
-        ("REFILE", 4),
-        ("t.home", 2),
-        ("t.CONFLICT", 3),
-        ("tn.CONFLICT", 2),
+        ("", 1),
+        ("t.REFILE", 1),
+        ("tn.REFILE", 1),
+        (".t.REFILE", 0),
+        ("REFILE", 1),
+        ("t.home", 0),
+        ("t.CONFLICT", 0),
+        ("tn.CONFLICT", 0),
         (".t.CONFLICT", 1),
     ] {
-        let queried = workspace
+        let result = workspace
             .query(&TaskQuery {
                 expression: expression.into(),
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(queried.tasks.len(), expected, "{expression}");
-        assert!(queried.tasks.iter().all(|task| {
-            task.own_tags()
-                .iter()
-                .chain(task.inherited_tags().iter())
-                .all(|tag| tag != "REFILE" && tag != "ARCHIVE" && tag != "CONFLICT")
-        }));
+        assert_eq!(result.tasks.len(), expected, "{expression}");
+        assert!(result.tasks.iter().all(|task| task.title() == "Other"));
     }
     let tasks = workspace.query(&TaskQuery::default()).unwrap().tasks;
-    assert_eq!(tasks[0].own_tags(), ["work"]);
-    assert_eq!(tasks[1].own_tags(), ["home", "refile"]);
-    assert_eq!(tasks[1].inherited_tags(), ["work"]);
-    assert_eq!(tasks[2].inherited_tags(), ["work", "home", "refile"]);
-    assert_eq!(tasks[3].own_tags(), ["refile"]);
-    assert_eq!(workspace.refile_targets().len(), 2);
+    assert_eq!(tasks[0].own_tags(), ["refile"]);
+    assert!(tasks[0].inherited_tags().is_empty());
+    assert_eq!(workspace.refile_targets().len(), 1);
     assert_eq!(
         serialize_file(&workspace.repos[0].files[0]),
         source.as_bytes()

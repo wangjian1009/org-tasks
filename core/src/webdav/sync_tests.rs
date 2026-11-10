@@ -220,13 +220,202 @@ async fn remote_deletion_directly_removes_modified_local_file_and_consumes_inten
     let (policy, state, worker) = server(&[("inbox.org", b"* TODO Original\n")]).await;
     sync(&mut repo, &policy, 1).await;
     offline(&mut repo, "inbox.org").await;
+    let deleted_content = tokio::fs::read(root.join("inbox.org")).await.unwrap();
     state.lock().unwrap().files.clear();
     let result = sync(&mut repo, &policy, 2).await;
     assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
     assert_eq!(result.files[0].action, OrgRepoSyncFileAction::Deleted);
+    assert_eq!(
+        result.files[0].outcome,
+        crate::OrgRepoSyncFileOutcome::Deleted
+    );
+    assert_eq!(
+        tokio::fs::read(root.join(".sync/history/2/deleted/inbox.org/inbox.org"))
+            .await
+            .unwrap(),
+        deleted_content
+    );
+    assert_eq!(
+        repo.history_file(&result.id, "inbox.org", false)
+            .await
+            .unwrap()
+            .source_bytes(),
+        deleted_content
+    );
+    assert!(
+        repo.history_detail(&result.id).await.unwrap().files[0]
+            .backup
+            .is_some()
+    );
     assert!(!root.join("inbox.org").exists());
     assert!(repo.pending_writes().await.unwrap().is_empty());
     assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn history_persists_file_results_and_keeps_deleted_bytes_out_of_remote_baseline() {
+    use crate::OrgRepoSyncFileOutcome as Outcome;
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO A\n:PROPERTIES:\n:ID: a\n:END:\nbase\n";
+    let (policy, state, worker) = server(&[
+        ("same.org", base),
+        ("update.org", base),
+        ("merge.org", base),
+        ("conflict.org", base),
+        ("delete.org", base),
+        ("upload.org", base),
+    ])
+    .await;
+    let first = sync(&mut repo, &policy, 1).await;
+    assert!(first.files.iter().all(|f| f.outcome == Outcome::Created));
+    let remote = String::from_utf8(base.to_vec())
+        .unwrap()
+        .replace("base", "remote");
+    tokio::fs::write(
+        root.join("merge.org"),
+        String::from_utf8(base.to_vec())
+            .unwrap()
+            .replace("TODO", "DONE"),
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        root.join("conflict.org"),
+        String::from_utf8(base.to_vec())
+            .unwrap()
+            .replace("base", "local"),
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        root.join("upload.org"),
+        String::from_utf8(base.to_vec())
+            .unwrap()
+            .replace("base", "local"),
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(root.join("new-local.org"), b"* New local\n")
+        .await
+        .unwrap();
+    {
+        let mut dav = state.lock().unwrap();
+        dav.files.remove("delete.org");
+        for path in ["update.org", "merge.org", "conflict.org"] {
+            dav.files.insert(
+                path.into(),
+                Remote {
+                    data: remote.as_bytes().to_vec(),
+                    etag: "\"changed\"".into(),
+                },
+            );
+        }
+        dav.files.insert(
+            "new-remote.org".into(),
+            Remote {
+                data: b"* New remote\n".to_vec(),
+                etag: "\"new\"".into(),
+            },
+        );
+    }
+    let result = sync(&mut repo, &policy, 2).await;
+    assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+    let expected = [
+        ("same.org", Outcome::Unchanged),
+        ("update.org", Outcome::Updated),
+        ("merge.org", Outcome::Merged),
+        ("conflict.org", Outcome::Conflict),
+        ("delete.org", Outcome::Deleted),
+        ("upload.org", Outcome::Uploaded),
+        ("new-local.org", Outcome::Created),
+        ("new-remote.org", Outcome::Created),
+    ];
+    let persisted: OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> =
+        serde_json::from_slice(
+            &tokio::fs::read(root.join(".sync/history/2.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+    for (path, outcome) in expected {
+        assert_eq!(
+            persisted
+                .files
+                .iter()
+                .find(|f| f.relative_path == path)
+                .unwrap()
+                .outcome,
+            outcome,
+            "{path}"
+        );
+    }
+    let deletion = persisted
+        .files
+        .iter()
+        .find(|f| f.relative_path == "delete.org")
+        .unwrap();
+    assert!(deletion.detail.synced_source.is_none());
+    assert!(deletion.local_version.is_none());
+    assert!(deletion.detail.deleted_archive.is_some());
+    assert_eq!(
+        repo.history_file(&result.id, "delete.org", false)
+            .await
+            .unwrap()
+            .source_bytes(),
+        base
+    );
+    let detail = repo.history_detail(&result.id).await.unwrap();
+    assert_eq!(detail.files.len(), 8);
+    assert_eq!(
+        detail
+            .files
+            .iter()
+            .find(|f| f.path == "merge.org")
+            .unwrap()
+            .outcome,
+        WebDavSyncFileOutcome::Merged
+    );
+    let again = sync(&mut repo, &policy, 3).await;
+    assert_eq!(
+        again
+            .files
+            .iter()
+            .find(|f| f.relative_path == "delete.org")
+            .unwrap()
+            .outcome,
+        Outcome::Unchanged
+    );
+    assert!(!root.join(".sync/history/3/deleted").exists());
+    tokio::fs::write(
+        root.join(".sync/history/2/deleted/delete.org/delete.org"),
+        b"damaged",
+    )
+    .await
+    .unwrap();
+    assert!(
+        repo.history_file(&result.id, "delete.org", false)
+            .await
+            .is_err()
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn remote_deletion_backs_up_empty_baseline_when_local_is_already_missing() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("empty.org", b"")]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::remove_file(root.join("empty.org")).await.unwrap();
+    state.lock().unwrap().files.clear();
+    let result = sync(&mut repo, &policy, 2).await;
+    assert_eq!(result.files[0].outcome, crate::OrgRepoSyncFileOutcome::Deleted);
+    assert_eq!(tokio::fs::read(root.join(".sync/history/2/deleted/empty.org/empty.org")).await.unwrap(), b"");
+    assert!(repo.history_file(&result.id, "empty.org", false).await.unwrap().source_bytes().is_empty());
+    assert!(!root.join("empty.org").exists());
+    assert!(result.files[0].detail.synced_source.is_none());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -689,13 +878,13 @@ async fn task_conflict_uploads_both_versions_remains_readable_and_does_not_block
     let text = String::from_utf8(merged.clone()).unwrap();
     assert!(text.contains("local"));
     assert!(text.contains("remote"));
-    assert!(text.contains("(conflict)"));
+    assert!(text.contains("* 同步冲突 :CONFLICT:"));
     assert_eq!(state.lock().unwrap().files["a.org"].data, merged);
     let archived = root.join(".sync/history/2/conflicts/a.org/a.org");
     assert_eq!(tokio::fs::read(&archived).await.unwrap(), merged);
     let detail = repo.history_detail(&conflict.id).await.unwrap();
-    assert_eq!(detail.summary.pending_conflicts, 1);
-    assert!(detail.files[0].backup.is_some());
+    assert_eq!(detail.summary.conflicts.len(), 1);
+    assert!(detail.files[0].backup.is_none());
     assert_eq!(
         repo.history_file(&conflict.id, "a.org", false)
             .await
@@ -713,10 +902,12 @@ async fn task_conflict_uploads_both_versions_remains_readable_and_does_not_block
             .all(|r| !r.starts_with("PUT"))
     );
     assert_eq!(repo.notifications().await.unwrap().len(), 1);
-    // 普通任务编辑去掉标记即解决任务冲突，下一次同步照常上传本地修改。
-    tokio::fs::write(root.join("a.org"), text.replace(":CONFLICT:", ""))
+    // 外部编辑移除完整冲突容器，下一次同步照常上传本地修改。
+    let clean = crate::model::conflict::main_source(&repo.file("a.org").unwrap());
+    tokio::fs::write(root.join("a.org"), clean)
         .await
         .unwrap();
+    repo.load::<WebDavSyncPolicy>().await.unwrap();
     assert!(repo.notifications().await.unwrap().is_empty());
     sync(&mut repo, &policy, 4).await;
     assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
@@ -813,6 +1004,7 @@ async fn failed_sync_discards_all_downloads_deletions_rules_and_base_updates() {
     );
     drop(subscription);
     assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
+    assert!(!root.join(".sync/history/2/deleted").exists());
     assert_eq!(
         tokio::fs::read(root.join("a.org")).await.unwrap(),
         b"* TODO Old A\n"
@@ -1185,6 +1377,10 @@ async fn only_local_file_deletion_is_conditional_and_both_missing_updates_the_to
     tokio::fs::remove_file(root.join("a.org")).await.unwrap();
     let record = sync(&mut repo, &policy, 2).await;
     assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(
+        record.files[0].outcome,
+        crate::OrgRepoSyncFileOutcome::Deleted
+    );
     assert!(!state.lock().unwrap().files.contains_key("a.org"));
     assert!(
         state
@@ -1242,99 +1438,43 @@ async fn missing_or_weak_etags_block_mutation_before_any_remote_upload() {
 }
 
 #[tokio::test]
-async fn existing_compare_and_resolve_interfaces_handle_task_candidates_without_new_dtos() {
+async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseline_is_confirmed() {
     let (mut repo, root) = repo().await;
     let base = b"* TODO Work\n:PROPERTIES:\n:ID: stable\n:END:\nbase\n";
     let (policy, state, worker) = server(&[("a.org", base)]).await;
     sync(&mut repo, &policy, 1).await;
-    let local = String::from_utf8(base.to_vec())
-        .unwrap()
-        .replace("base", "local");
-    tokio::fs::write(root.join("a.org"), &local).await.unwrap();
-    {
-        let mut dav = state.lock().unwrap();
-        dav.files.insert(
-            "a.org".into(),
-            Remote {
-                data: String::from_utf8(base.to_vec())
-                    .unwrap()
-                    .replace("base", "remote")
-                    .into_bytes(),
-                etag: "\"remote\"".into(),
-            },
-        );
-    }
+    tokio::fs::write(root.join("a.org"), String::from_utf8(base.to_vec()).unwrap().replace("base", "local")).await.unwrap();
+    let remote = String::from_utf8(base.to_vec()).unwrap().replace("base", "remote");
+    state.lock().unwrap().files.insert("a.org".into(), Remote {data:remote.as_bytes().to_vec(),etag:"\"remote\"".into()});
     let conflict = sync(&mut repo, &policy, 2).await;
-    let baseline = tokio::fs::read(root.join(".sync/remote_base/current.json"))
-        .await
-        .unwrap();
-    let comparison = repo
-        .compare_conflict(&SyncConflictTarget {
-            sync_id: conflict.id.clone(),
-            path: "a.org".into(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(comparison.changes.len(), 1);
-    assert!(
-        comparison.changes[0]
-            .local
-            .as_ref()
-            .unwrap()
-            .source
-            .contains("local")
-    );
-    assert!(
-        comparison.changes[0]
-            .remote
-            .as_ref()
-            .unwrap()
-            .source
-            .contains("remote")
-    );
-    let choices = comparison
-        .changes
-        .iter()
-        .map(|c| crate::OrgMergeChoice {
-            key: c.key.clone(),
-            side: crate::OrgMergeSide::Local,
-        })
-        .collect();
-    let request = SyncConflictResolution {
-        target: comparison.target,
-        expected_local_hash: comparison.local_hash,
-        expected_remote_hash: comparison.remote_hash,
-        expected_local_missing: comparison.local_missing,
-        choices,
+    let original_history = tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap();
+    let original_base = tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap();
+    assert!(!repo.has_local_changes().await.unwrap());
+    let file = repo.file("a.org").unwrap();
+    let group = crate::TaskOperationGroup {
+        operations: file.conflict_ids().into_iter().map(|id|crate::TaskOperation::ConfilictSelection(crate::TaskConfilictSelection{id,action:crate::TaskConfilictAction::Discard})).collect(),
+        file_versions:vec![crate::TaskFileVersion{repo_id:repo.id.clone(),file:"a.org".into(),version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash}],
+        queue_repo_ids:vec![repo.id.clone()],
     };
-    let count = state.lock().unwrap().requests.len();
-    repo.resolve_conflict(&request).await.unwrap();
-    assert_eq!(state.lock().unwrap().requests.len(), count);
-    assert_eq!(
-        tokio::fs::read(root.join("a.org")).await.unwrap(),
-        local.as_bytes()
-    );
-    assert_eq!(
-        tokio::fs::read(root.join(".sync/remote_base/current.json"))
-            .await
-            .unwrap(),
-        baseline
-    );
-    assert_eq!(
-        repo.history_file(&conflict.id, "a.org", true)
-            .await
-            .unwrap()
-            .source_bytes(),
-        local.as_bytes()
-    );
-    assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
-    assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
-    let next = sync(&mut repo, &policy, 3).await;
-    assert_eq!(next.result, Some(OrgRepoSyncResult::Succeeded));
-    assert_eq!(state.lock().unwrap().files["a.org"].data, local.as_bytes());
-    assert!(repo.pending_writes().await.unwrap().is_empty());
-    worker.abort();
-    tokio::fs::remove_dir_all(root).await.unwrap();
+    let count=state.lock().unwrap().requests.len();
+    let mut workspace=crate::OrgWorkspace::new(vec![repo]).unwrap();
+    workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(state.lock().unwrap().requests.len(),count);
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(),remote.as_bytes());
+    assert_eq!(tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap(),original_history);
+    assert_eq!(tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap(),original_base);
+    let notices=workspace.notifications().await.unwrap();
+    assert_eq!(notices,vec![crate::CoreNotification::SyncRequired]);
+    repo=workspace.repos.remove(0);
+    let detail=repo.history_detail(&conflict.id).await.unwrap();
+    assert_eq!(detail.files[0].outcome,WebDavSyncFileOutcome::Conflict);
+    assert!(detail.files[0].backup.is_none());
+    assert!(!root.join(".sync/history/2/conflicts/a.org/a.resolved.org").exists());
+    sync(&mut repo,&policy,3).await;
+    assert!(!repo.has_local_changes().await.unwrap());
+    assert!(crate::OrgWorkspace::new(vec![repo]).unwrap().notifications().await.unwrap().is_empty());
+    assert_eq!(tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap(),original_history);
+    worker.abort();tokio::fs::remove_dir_all(root).await.unwrap();
 }
 
 #[tokio::test]

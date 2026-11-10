@@ -124,33 +124,6 @@ fn validate_task_path(path: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-pub(crate) async fn task_target(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
-    let mut target = root.to_path_buf();
-    let parts = path.split('/').collect::<Vec<_>>();
-    for (index, part) in parts.iter().enumerate() {
-        target.push(part);
-        match fs::symlink_metadata(&target).await {
-            Ok(metadata)
-                if metadata.file_type().is_symlink()
-                    || (index + 1 < parts.len() && !metadata.is_dir())
-                    || (index + 1 == parts.len() && !metadata.is_file()) =>
-            {
-                return Err(CoreError::InvalidInput(
-                    "任务目标不能包含符号链接或非普通文件",
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if index + 1 < parts.len() {
-                    fs::create_dir(&target).await.map_err(store_error)?;
-                }
-            }
-            Err(error) => return Err(store_error(error)),
-        }
-    }
-    Ok(target)
-}
-
 pub(crate) async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
     match fs::read(path).await {
         Ok(bytes) => Ok(Some(bytes)),

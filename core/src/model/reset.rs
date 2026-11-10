@@ -206,8 +206,6 @@ impl OrgRepo {
         self.id = id;
         self.files.clear();
         self.task_scan_rules = super::TaskScanRules::default();
-        let version = super::notification::sync_required_version(&self.id);
-        super::notification::confirm_required_sync(&self.id, version);
         // 正式完成后清理失败留待下次加载，不把成功重置报告成失败。
         let _ = recover(root).await;
         super::sync_events::publish(self);
@@ -253,11 +251,9 @@ mod tests {
                 .await
                 .unwrap();
         }
-        super::super::notification::require_sync(&repo.id);
         repo.reset().await.unwrap();
         assert_eq!(fs::read(root.join(".sync/id")).await.unwrap(), identity);
         assert!(repo.files.is_empty());
-        assert!(super::super::notification::sync_required_version(&repo.id).is_none());
         assert!(repo.load::<WebDavSyncPolicy>().await.unwrap().is_empty());
         let mut entries = fs::read_dir(&root).await.unwrap();
         assert_eq!(

@@ -9,7 +9,6 @@ pub(crate) enum SyncCommitted {
         root_directory: String,
         repo_id: String,
     },
-    GlobalNotificationsChanged,
 }
 type Callback = Arc<dyn Fn(&SyncCommitted) + Send + Sync>;
 static OBSERVERS: OnceLock<Mutex<BTreeMap<u64, Callback>>> = OnceLock::new();
@@ -39,9 +38,6 @@ pub(crate) fn publish(repo: &super::OrgRepo) {
         root_directory: repo.root_directory.clone(),
         repo_id: repo.id.clone(),
     });
-}
-pub(crate) fn publish_global() {
-    publish_event(SyncCommitted::GlobalNotificationsChanged);
 }
 fn publish_event(event: SyncCommitted) {
     let callbacks = observers()

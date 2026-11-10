@@ -54,23 +54,10 @@ pub struct Expected {
 pub enum Inspect {
     #[serde(rename_all = "camelCase")]
     ConflictSubtree {
-        origin_id: Option<String>,
         candidate_alias: String,
-        operation: String,
-        root_only_tag: String,
-        placement: Placement,
-        parent_titles: Vec<String>,
-        origin_titles: Vec<String>,
+        reason: String,
         source: String,
-        after_id: Option<String>,
-        before_id: Option<String>,
     },
-}
-
-#[derive(Deserialize, PartialEq)]
-pub enum Placement {
-    AfterOriginSubtree,
-    Anchored,
 }
 
 pub fn safe_path(path: &str) -> Result<()> {

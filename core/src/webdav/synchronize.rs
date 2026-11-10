@@ -12,6 +12,9 @@ struct Prepared {
     version: RemoteFileVersion,
     action: OrgRepoSyncFileAction,
     conflicts: bool,
+    remote_deleted: bool,
+    deleted_source: Option<Vec<u8>>,
+    outcome: OrgRepoSyncFileOutcome,
 }
 fn missing_version() -> RemoteFileVersion {
     RemoteFileVersion {
@@ -338,6 +341,23 @@ impl WebDavSyncPolicy {
             } else {
                 false
             };
+            let local_changed = match &baseline {
+                Some(Some(base)) => before.as_ref() != Some(base),
+                Some(None) => before.is_some(),
+                None => before.is_some(),
+            };
+            let remote_changed = match &baseline {
+                Some(Some(base)) => remote.as_ref() != Some(base),
+                Some(None) => remote.is_some(),
+                None => remote.is_some(),
+            };
+            let remote_deleted =
+                remote.is_none() && baseline.as_ref().is_some_and(|base| base.is_some());
+            let deleted_source = if remote_deleted {
+                before.clone().or_else(|| baseline.clone().flatten())
+            } else {
+                None
+            };
             let action = if result.is_none() {
                 if before.is_none() && remote.is_none() {
                     OrgRepoSyncFileAction::Unchanged
@@ -360,6 +380,27 @@ impl WebDavSyncPolicy {
                 OrgRepoSyncFileAction::Downloaded
             } else {
                 OrgRepoSyncFileAction::Unchanged
+            };
+            let outcome = if conflicts {
+                OrgRepoSyncFileOutcome::Conflict
+            } else if result.is_none() && (before.is_some() || remote.is_some() || remote_deleted) {
+                OrgRepoSyncFileOutcome::Deleted
+            } else if result.is_none() {
+                OrgRepoSyncFileOutcome::Unchanged
+            } else if baseline.as_ref().is_none_or(|base| base.is_none())
+                && (before.is_none() || remote.is_none())
+            {
+                OrgRepoSyncFileOutcome::Created
+            } else if before.is_none() && remote.is_some() && !local_changed {
+                OrgRepoSyncFileOutcome::Updated
+            } else if remote_changed && local_changed {
+                OrgRepoSyncFileOutcome::Merged
+            } else if remote_changed {
+                OrgRepoSyncFileOutcome::Updated
+            } else if local_changed {
+                OrgRepoSyncFileOutcome::Uploaded
+            } else {
+                OrgRepoSyncFileOutcome::Unchanged
             };
             // 任何需要更新／删除已有远端的计划都先验证条件能力，不能在上传了一半后才发现缺少版本。
             if path.ends_with(".org")
@@ -388,6 +429,9 @@ impl WebDavSyncPolicy {
                 version,
                 action,
                 conflicts,
+                remote_deleted,
+                deleted_source,
+                outcome,
             });
         }
         let mut plan = Plan::default();
@@ -470,6 +514,22 @@ impl WebDavSyncPolicy {
                     content_hash: LocalFileVersion::from_bytes(bytes).content_hash,
                 });
             }
+            if item.remote_deleted {
+                let bytes = item
+                    .deleted_source
+                    .as_ref()
+                    .ok_or(CoreError::InvalidState("远端删除缺少可备份原文"))?;
+                let archive_path = format!(
+                    ".sync/history/{}/deleted/{}/{}",
+                    record.started_at,
+                    item.path,
+                    super::archive::archive_name(&item.path, false)?
+                );
+                plan.set(root, archive_path, Some(bytes.clone())).await?;
+                detail.deleted_archive = Some(super::WebDavFileArchive {
+                    content_hash: LocalFileVersion::from_bytes(bytes).content_hash,
+                });
+            }
             let file = OrgRepoSyncFileRecord::new(
                 item.path.clone(),
                 item.action,
@@ -480,7 +540,8 @@ impl WebDavSyncPolicy {
                 },
             )?
             .with_local_version(item.result.as_deref().map(LocalFileVersion::from_bytes))
-            .with_detail(detail);
+            .with_detail(detail)
+            .with_outcome(item.outcome);
             record.append_file(file.clone())?;
             let mut event = file;
             event.detail.synced_source = None;

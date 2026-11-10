@@ -10,7 +10,7 @@ export struct NotebookFileRow {
   @Prop usages: FileTargetKind[] = []
 
   build() {
-    FileItem({ file: this.file, usages: this.usages, status: this.file.hasConflict ? '冲突' : '', statusColor: UiColor.error, open: (): void => {
+    FileItem({ file: this.file, usages: this.usages, status: this.file.hasConflict ? '冲突' : '', statusColor: UiColor.secondary, open: (): void => {
       this.getUIContext().getRouter().pushUrl({ url: this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail', params: { repoId: this.file.repoId, path: this.file.path } })
     } })
   }

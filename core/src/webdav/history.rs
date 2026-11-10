@@ -22,13 +22,14 @@ pub struct WebDavSyncRecordSummary {
     pub uploaded_files: usize,
     pub transfer: WebDavSyncTransfer,
     pub conflicts: Vec<String>,
-    pub pending_conflicts: usize,
-    pub resolved_conflicts: usize,
     pub error_category: Option<OrgRepoSyncErrorCategory>,
     pub error_message: Option<String>,
 }
 
 pub(crate) fn is_conflict(file: &OrgRepoSyncFileRecord<WebDavSyncFileDetail>) -> bool {
+    if file.outcome != OrgRepoSyncFileOutcome::Legacy {
+        return file.outcome == OrgRepoSyncFileOutcome::Conflict;
+    }
     matches!(
         file.state,
         OrgRepoSyncFileState::Conflict | OrgRepoSyncFileState::RemoteDeleted
@@ -106,9 +107,7 @@ impl WebDavSyncRecordSummary {
                 (false, true) => WebDavSyncTransfer::Upload,
                 (true, true) => WebDavSyncTransfer::Bidirectional,
             },
-            pending_conflicts: conflicts.len(),
             conflicts: conflicts.into_iter().collect(),
-            resolved_conflicts: 0,
             error_category,
             error_message,
         })
@@ -119,24 +118,7 @@ impl WebDavSyncRecordSummary {
 pub fn sync_history_summaries(
     history: &[OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>],
 ) -> Result<Vec<WebDavSyncRecordSummary>, CoreError> {
-    let mut summaries = Vec::with_capacity(history.len());
-    for record in history.iter().rev() {
-        let mut summary = WebDavSyncRecordSummary::from_record(record)?;
-        summary.resolved_conflicts = summary
-            .conflicts
-            .iter()
-            .filter(|path| {
-                record
-                    .files
-                    .iter()
-                    .any(|f| &f.relative_path == *path && f.detail.resolved)
-            })
-            .count();
-        summary.pending_conflicts -= summary.resolved_conflicts;
-        summaries.push(summary);
-    }
-    summaries.reverse();
-    Ok(summaries)
+    history.iter().map(WebDavSyncRecordSummary::from_record).collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -148,9 +130,10 @@ pub enum WebDavSyncFileOutcome {
     Created,
     Deleted,
     Conflict,
-    Resolved,
     Failed,
     Skipped,
+    Updated,
+    Merged,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -193,13 +176,21 @@ pub fn sync_history_detail(
         .iter()
         .map(|file| {
             let outcome = if is_conflict(file) {
-                if file.detail.resolved {
-                    WebDavSyncFileOutcome::Resolved
-                } else {
-                    WebDavSyncFileOutcome::Conflict
-                }
+                WebDavSyncFileOutcome::Conflict
             } else if file.state == OrgRepoSyncFileState::Failed {
                 WebDavSyncFileOutcome::Failed
+            } else if file.outcome != OrgRepoSyncFileOutcome::Legacy {
+                match file.outcome {
+                    OrgRepoSyncFileOutcome::Unchanged => WebDavSyncFileOutcome::Unchanged,
+                    OrgRepoSyncFileOutcome::Created => WebDavSyncFileOutcome::Created,
+                    OrgRepoSyncFileOutcome::Deleted => WebDavSyncFileOutcome::Deleted,
+                    OrgRepoSyncFileOutcome::Updated => WebDavSyncFileOutcome::Updated,
+                    OrgRepoSyncFileOutcome::Uploaded => WebDavSyncFileOutcome::Uploaded,
+                    OrgRepoSyncFileOutcome::Merged => WebDavSyncFileOutcome::Merged,
+                    OrgRepoSyncFileOutcome::Conflict => WebDavSyncFileOutcome::Conflict,
+                    OrgRepoSyncFileOutcome::Failed => WebDavSyncFileOutcome::Failed,
+                    _ => WebDavSyncFileOutcome::Skipped,
+                }
             } else {
                 match file.action {
                     OrgRepoSyncFileAction::Unchanged => WebDavSyncFileOutcome::Unchanged,
@@ -328,7 +319,7 @@ mod tests {
         let summary = WebDavSyncRecordSummary::from_record(&record).unwrap();
         assert_eq!(record.result, Some(OrgRepoSyncResult::Failed));
         assert_eq!(summary.execution_result, OrgRepoSyncResult::Succeeded);
-        assert_eq!(summary.pending_conflicts, 1);
+        assert_eq!(summary.conflicts.len(), 1);
         let mixed = make_record("mixed", OrgRepoSyncResult::Failed, vec![conflict, network]);
         let summary = WebDavSyncRecordSummary::from_record(&mixed).unwrap();
         assert_eq!(summary.execution_result, OrgRepoSyncResult::Failed);
@@ -336,7 +327,7 @@ mod tests {
             summary.error_category,
             Some(OrgRepoSyncErrorCategory::Network)
         );
-        assert_eq!(summary.pending_conflicts, 1);
+        assert_eq!(summary.conflicts.len(), 1);
         let empty = make_record("listing", OrgRepoSyncResult::Failed, vec![]);
         assert_eq!(
             WebDavSyncRecordSummary::from_record(&empty)
@@ -384,14 +375,8 @@ mod tests {
             ),
         ];
         let summaries = sync_history_summaries(&history).unwrap();
-        assert_eq!(summaries[1].pending_conflicts, 2);
-        assert_eq!(summaries[1].resolved_conflicts, 0);
-        assert_eq!(summaries[4].pending_conflicts, 1);
-        assert_eq!(summaries[4].resolved_conflicts, 0);
-        assert_eq!(
-            sync_history_summaries(&history[..3]).unwrap()[1].resolved_conflicts,
-            0
-        );
+        assert_eq!(summaries[1].conflicts.len(), 2);
+        assert_eq!(summaries[4].conflicts.len(), 1);
     }
 
     #[test]
@@ -416,7 +401,7 @@ mod tests {
         );
         let summary = WebDavSyncRecordSummary::from_record(&conflict).unwrap();
         assert_eq!(summary.execution_result, OrgRepoSyncResult::Succeeded);
-        assert_eq!(summary.pending_conflicts, 1);
+        assert_eq!(summary.conflicts.len(), 1);
         assert_eq!(summary.transfer, WebDavSyncTransfer::Unchanged);
         assert!(summary.error_category.is_none());
         for result in [OrgRepoSyncResult::Cancelled, OrgRepoSyncResult::Interrupted] {
@@ -438,8 +423,7 @@ mod tests {
             )],
         );
         let summaries = sync_history_summaries(&[conflict, resolved]).unwrap();
-        assert_eq!(summaries[0].pending_conflicts, 1);
-        assert_eq!(summaries[0].resolved_conflicts, 0);
+        assert_eq!(summaries[0].conflicts.len(), 1);
     }
 
     #[test]

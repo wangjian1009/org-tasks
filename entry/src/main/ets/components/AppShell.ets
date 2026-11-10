@@ -26,6 +26,7 @@ export struct AppShell {
   @Prop back: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_more')
   @Prop actionLabel: string = ''
+  @Prop actionText: string = ''
   @Prop secondaryActionIcon: Resource = $r('app.media.ui_info')
   @Prop secondaryActionLabel: string = ''
   @Prop busy: boolean = false
@@ -290,7 +291,11 @@ export struct AppShell {
             IconButton({ icon: this.secondaryActionIcon, label: this.secondaryActionLabel, disabled: this.busy, action: this.secondaryAction })
           }
           if (this.actionLabel.length > 0) {
-            if (this.actionMenuItems.length > 0) {
+            if (this.actionText.length > 0) {
+              Button(this.actionText).height(48).constraintSize({ minWidth: 64 }).fontSize(15)
+                .fontColor(UiColor.primary).backgroundColor(Color.Transparent).enabled(!this.busy)
+                .accessibilityText(this.actionLabel).onClick((): void => { this.action() })
+            } else if (this.actionMenuItems.length > 0) {
               Button({ type: ButtonType.Normal }) {
                 Image(this.actionIcon).width(24).height(24)
               }.width(48).height(48).borderRadius(24).backgroundColor(Color.Transparent)

@@ -417,6 +417,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
     let mut identities =
         crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
     for (full_path, headline) in file.path_headlines() {
+        if crate::OrgFile::is_conflict_headline(&headline) { continue; }
         let level = headline.level();
         while ancestors
             .last()

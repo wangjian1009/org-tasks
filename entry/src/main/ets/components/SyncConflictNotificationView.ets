@@ -17,11 +17,11 @@ export struct SyncConflictNotificationView {
     this.opening = true
     try {
       const target = await CoreNotificationService.syncConflictTarget(this.getUIContext().getHostContext()!, this.notification)
-      await this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncDetail', params: target })
+      await this.getUIContext().getRouter().pushUrl({ url: 'pages/ConflictFile', params: target })
     } catch (e) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: `无法打开同步详情：${coreErrorMessage(e as CoreBridgeError)}` })
-      } catch (_) { console.error('显示同步详情读取错误失败') }
+        this.getUIContext().getPromptAction().showToast({ message: `无法打开冲突文件：${coreErrorMessage(e as CoreBridgeError)}` })
+      } catch (_) { console.error('显示冲突文件读取错误失败') }
       try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) } catch (_) {}
     } finally {
       this.opening = false
@@ -33,14 +33,14 @@ export struct SyncConflictNotificationView {
       Row({ space: 6 }) {
         Image($r('app.media.ui_notification_conflict')).width(16).height(16).flexShrink(0)
         Row({ space: 4 }) {
-          Text(`${this.name()}有${this.notification.paths.length}个文件冲突`).fontSize(13).fontColor(UiColor.text)
+          Text(`${this.name()} · ${this.notification.path} 有冲突`).fontSize(13).fontColor(UiColor.secondary)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
           Image($r('app.media.ui_goto')).width(16).height(16).flexShrink(0)
         }.layoutWeight(1).alignItems(VerticalAlign.Center)
       }.width('100%').height(32).padding({ left: 18, right: 12 }).alignItems(VerticalAlign.Center)
     }.width('100%').height(32).padding(0).backgroundColor(Color.Transparent).borderRadius(0)
       .enabled(!this.disabled && !this.opening)
-      .accessibilityText(`${this.name()}有${this.notification.paths.length}个文件冲突，点击进入同步详情`)
+      .accessibilityText(`${this.name()}，${this.notification.path} 有冲突，点击打开冲突解决界面`)
       .onClick((): void => { this.resolve() })
   }
 }

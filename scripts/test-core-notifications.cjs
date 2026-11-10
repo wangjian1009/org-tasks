@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-core-notifications.cjs\n验证事件快照、多仓库身份、过期响应、错误保留和同步详情路由目标。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-core-notifications.cjs\n验证事件快照、多仓库身份、过期响应、错误保留和文件冲突路由目标。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -52,21 +52,21 @@ function fixture() {
   return { ...service, writes, context, config, setEvents(value) { events = value; },
     setQuery(value) { query = value; }, emit() { observer(); }, setCoreId(value) { coreId = value; }, loads: () => loads };
 }
-const conflict = (repoId = 'core-a', paths = ['same.org']) => ({ type: 'syncConflict', repoId, rootDirectory: repoId === 'core-a' ? '/a' : '/b', syncId: 'same-sync', paths });
+const conflict = (repoId = 'core-a', paths = ['same.org']) => ({ type: 'syncConflict', repoId, rootDirectory: repoId === 'core-a' ? '/a' : '/b', path: paths[0] });
 
 test('多仓库同名文件保持独立，展示名称仅由通知及本地配置得到，不查询其他 Core 接口', async () => {
   const f = fixture(), events = [conflict(), conflict('core-b')];
   f.setEvents(events); await f.CoreNotificationService.refresh(f.context);
   const state = f.writes[0];
   assert.deepEqual(state.notifications, events);
-  assert.deepEqual(Object.keys(state.notifications[0]), ['type', 'repoId', 'rootDirectory', 'syncId', 'paths']);
+  assert.deepEqual(Object.keys(state.notifications[0]), ['type', 'repoId', 'rootDirectory', 'path']);
   assert.deepEqual(state.repositories.map(repo => [repo.coreRepoId, repo.configRepoId]), [['core-a', 'config-a'], ['core-b', 'config-b']]);
 });
 
-test('解决按钮使用配置身份与精确同步 ID，仓库替换后拒绝旧通知', async () => {
+test('解决按钮使用配置身份与精确文件路径，仓库替换后拒绝旧通知', async () => {
   const f = fixture(), notice = conflict();
   f.setEvents([notice]); await f.CoreNotificationService.refresh(f.context);
-  assert.deepEqual(await f.CoreNotificationService.syncConflictTarget(f.context, notice), { repoId: 'config-a', syncId: 'same-sync' });
+  assert.deepEqual(await f.CoreNotificationService.syncConflictTarget(f.context, notice), { repoId: 'config-a', path: 'same.org' });
   assert.equal(f.loads(), 1);
   f.setCoreId('replacement');
   await assert.rejects(f.CoreNotificationService.syncConflictTarget(f.context, notice), /发生变化/);

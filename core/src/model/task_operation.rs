@@ -28,6 +28,7 @@ pub enum TaskOperation {
     Modification(TaskModificationOperation),
     Movement(TaskMovement),
     Deletion(TaskDeletion),
+    ConfilictSelection(TaskConfilictSelection),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +130,20 @@ pub struct TaskMovement {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskDeletion {
     pub path: TaskPath,
+}
+
+/// 冲突选择和普通任务操作共用版本校验、提交、outbox 与回退记录。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskConfilictSelection {
+    pub id: String,
+    pub action: TaskConfilictAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskConfilictAction {
+    Discard,
 }
 
 /// 保存准确原文而非反向重建语义字段，以便未来按字节恢复。

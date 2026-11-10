@@ -72,6 +72,32 @@ pub fn apply_edit(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFileEd
     Ok(())
 }
 
+/// 原文编辑与节点操作共用边界检查，防止通过祖先删除、链接替换等路径修改冲突内容。
+pub(super) fn ensure_editable_range(
+    file: &OrgFile,
+    start: usize,
+    end: usize,
+) -> Result<(), CoreError> {
+    use orgize::{ast::Headline, rowan::ast::AstNode};
+    for headline in file
+        .syntax()
+        .document()
+        .syntax()
+        .descendants()
+        .filter_map(Headline::cast)
+    {
+        if !headline.tags().any(|tag| tag == super::CONFLICT_TAG) {
+            continue;
+        }
+        let a = u32::from(headline.start()) as usize;
+        let b = u32::from(headline.end()) as usize;
+        if (start < b && a < end) || (start == end && a < start && start < b) {
+            return Err(CoreError::InvalidInput("不能修改冲突节点或其子树的内容"));
+        }
+    }
+    Ok(())
+}
+
 fn apply_edit_inner(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFileEditError> {
     match edit {
         OrgFileEdit::ReplaceRange { target, content } => {
@@ -83,6 +109,7 @@ fn apply_edit_inner(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFile
             if start > end {
                 return Err(CoreError::InvalidInput("编辑范围起点不能位于终点之后"));
             }
+            ensure_editable_range(file, start, end)?;
             file.source_bytes.splice(start..end, content);
         }
         OrgFileEdit::DeleteRange { target } => {
@@ -90,6 +117,7 @@ fn apply_edit_inner(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFile
             let end = offset(target.end)?;
             validate_position(file.source_bytes(), start, target.start)?;
             validate_position(file.source_bytes(), end, target.end)?;
+            ensure_editable_range(file, start, end)?;
             if start >= end {
                 return Err(CoreError::InvalidInput("删除范围不能为空"));
             }
@@ -99,6 +127,7 @@ fn apply_edit_inner(file: &mut OrgFile, edit: OrgFileEdit) -> Result<(), OrgFile
             validate_content(&content)?;
             let offset = offset(anchor)?;
             validate_position(file.source_bytes(), offset, anchor)?;
+            ensure_editable_range(file, offset, offset)?;
             file.source_bytes.splice(offset..offset, content);
         }
     }

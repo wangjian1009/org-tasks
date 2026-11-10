@@ -23,7 +23,7 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 1. 对象层级必须与 Rust 的领域边界一致，以 ~Workspace -> Repo -> OrgFile~ 导航；文件行为通过文件对象调用，例如 ~file.category()~ ，不得退回 ~repo.category(path)~ 这种由上层对象代理文件行为的接口。
 2. Rust 公开字段映射为 TS 数据属性，读取身份和元信息时不使用无行为的 getter 方法，例如 ~repo.id~ 、 ~repo.rootDirectory~ 、 ~file.path~ 和 ~file.todo~ 。Rust 方法映射为 camelCase 方法，例如 ~source_bytes() -> sourceBytes()~ 。在 native class 上，身份和来源字段必须提供只读属性。
 3. 拥有行为或生命周期的领域类型使用 class；纯数据结构、调用参数、事件和结果使用 interface 或判别联合；任务需要完成判断行为时使用 Task class。不能为了统一外观把所有数据结构改为 class，也不能把领域对象退化为需要调用方解释的普通 JSON 快照。
-4. 方法必须归属于 Rust 中实际承担行为的对象；当前日志文件读取、离线比较与本地提交归属 ~OrgRepo~ ，对应 ~repo.historyFile~ 、 ~repo.compareConflict~ 和 ~repo.resolveConflict~ ，不依赖 WebDAV 策略。
+4. 方法必须归属于 Rust 中实际承担行为的对象；日志备份读取归属 ~OrgRepo.historyFile~ ，冲突选择与其他任务修改统一归属 ~Workspace.executeTaskOperations~ ，不依赖 WebDAV 策略。
 5. 结构化 Rust 参数必须通过 TS 对象传入。禁止公开 ~optionsJson~ 、 ~requestJson~ 或要求调用方 ~JSON.stringify~ 的参数；序列化与反序列化只发生在 bridge 内部。查询表达式和 Org 设置文本是领域输入，不属于 JSON 编组参数。
 6. 访问 core、仓库锁、文件或网络的操作必须在 worker 中执行，并返回 Promise。已经返回的独立文件对象可同步读取属性、分类和原始字节；同步 getter 不得隐式重新加载仓库或发起网络请求。
 7. Rust 的 ~Option<T>~ 结果映射为 ~T | null~ ，不能用虚构默认值替代缺失值；显式空字符串与 ~null~ 必须区分。Rust 的 ~Result~ 失败通过 Promise 拒绝或同步接口异常表达，不能转换为空对象、空列表或成功结果。
@@ -60,8 +60,6 @@ class Repo {
   lastEffectSync(): Promise<SyncRecord | null>
   historyDetail(syncId: string): Promise<SyncRecordDetail>
   historyFile(target: HistoryFileTarget): Promise<OrgFile>
-  compareConflict(target: ConflictFileTarget): Promise<SyncConflictComparison>
-  resolveConflict(request: SyncConflictResolution): Promise<void>
   files(): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
@@ -76,6 +74,7 @@ class OrgFile {
   readonly path: string
   readonly todo: TodoMetadata
   readonly hasConflict: boolean
+  readonly conflictIds: string[]
   category(): string | null
   title(): string | null
   titleParts(): TitlePart[]
@@ -128,9 +127,9 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
 
-同步记录保留原有 ~result~ 、 ~conflicts~ 、时间与文件数，另增 ~executionResult~ 、 ~transfer~ 、 ~downloadedFiles~ 、 ~uploadedFiles~ 、 ~pendingConflicts~ 、 ~resolvedConflicts~ 、 ~errorCategory~ 与 ~errorMessage~ 。 ~result~ 继续承载原始作业结果，避免改变现有同步编排；日志行按 ~executionResult~ 展示结果图标，只有冲突而无执行错误时为 ~succeeded~ 。 ~transfer~ 为 ~unchanged~ 、 ~download~ 、 ~upload~ 或 ~bidirectional~ ，只统计 Core 已确认成功的文件动作。冲突两种数量由 Core 对完整历史回放得到，UI 仅按待处理优先展示一个标签。
+同步记录保留原有 ~result~ 、 ~conflicts~ 、时间与文件数，另增 ~executionResult~ 、 ~transfer~ 、 ~downloadedFiles~ 、 ~uploadedFiles~  、 ~errorCategory~ 与 ~errorMessage~ 。 ~result~ 继续承载原始作业结果，避免改变现有同步编排；日志行按 ~executionResult~ 展示结果图标，只有冲突而无执行错误时为 ~succeeded~ 。 ~transfer~ 为 ~unchanged~ 、 ~download~ 、 ~upload~ 或 ~bidirectional~ ，只统计 Core 已确认成功的文件动作。冲突路径仅反映当次固定结果，UI 显示固定冲突数，不再提供待处理／已解决计数。
 
-~errorCategory~ 与 ~errorMessage~ 分别为既有文件记录的错误分类和消息，缺失时为 ~null~ 。ArkTS 优先显示已有错误消息，缺失时使用结果或分类生成标题；列举失败的空记录保留 ~failed~ ，没有已记录原因时显示“执行失败”。不扩展原始历史格式或补造旧错误。取消与中断保留原结果及独立的辅助色图标。实时 ~repo.sync()~ 复用相同摘要字段；当前记录尚无后续历史，因此该次返回的 ~resolvedConflicts~ 为零。C++ 在工作线程请求后完整透传摘要， ~NativeCoreService~ 不重复判断传输或冲突状态。
+~errorCategory~ 与 ~errorMessage~ 分别为既有文件记录的错误分类和消息，缺失时为 ~null~ 。ArkTS 优先显示已有错误消息，缺失时使用结果或分类生成标题；列举失败的空记录保留 ~failed~ ，没有已记录原因时显示“执行失败”。不扩展原始历史格式或补造旧错误。取消与中断保留原结果及独立的辅助色图标。实时 ~repo.sync()~ 复用相同摘要字段；冲突字段在完成时固定，不随后续文件操作变化。C++ 在工作线程请求后完整透传摘要， ~NativeCoreService~ 不重复判断传输或冲突状态。
 
 * 文件对象与生命周期
 
@@ -154,14 +153,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 ~defaultSyncOptions~ 读取 Rust 默认配置； ~normalizeSyncOptions~ 接受数据对象，由 Rust 验证并返回规范化对象。Preferences 只保存外部配置，core 不读取宿主配置存储。
 
-~Repo.conflicts~ 返回 Core 按各条日志 resolved 状态投影的待处理同步。 ~repo.compareConflict({ syncId, path })~ 返回单文件的离线比较， ~repo.resolveConflict(comparison)~ 只提交本地解决结果，所有必要选择完成后才能调用。ArkTS 只修改各变化的 ~resolution~ ，Core 校验其余字段及当前文件版本。旧的 ~policy.compareMerge~ 、 ~policy.applyMerge~ 、对应 C ABI 与手机旧冲突页面已移除。
+冲突选择使用 ~Workspace.executeTaskOperations~ 的 ~ConfilictSelection~ 变体，不保留 Repo 上独立的比较或解决写入方法。当前冲突来自文件末尾容器，定位 ID 随普通文件对象返回。创建、普通修改和冲突选择都由 Core 处理文件版本、提交与 outbox。
 
-#+begin_src typescript
-const comparison = await repo.compareConflict({ syncId, path })
-// 在内存完成每项 resolution 后，显式提交。
-await repo.resolveConflict(comparison)
-const historical = await repo.historyFile({ syncId, path, resolved: true })
-#+end_src
 
 * 默认 TODO、查询与结果投影
 
@@ -328,9 +321,9 @@ interface TitleCount {
 
 * 同步详情投影
 
-~Repo.historyDetail(syncId)~ 在工作线程重新加载所选仓库的历史，返回 ~SyncRecordDetail~ 的 ~summary~ 、 ~files~ 和 ~errors~ 。 ~files~ 每项包含 ~path~ 、 ~outcome~ 、Core 提供的 ~section~ 与可空备份元信息 ~backup~ ；结果枚举为 ~unchanged~ 、 ~downloaded~ 、 ~uploaded~ 、 ~created~ 、 ~deleted~ 、 ~conflict~ 、 ~resolved~ 、 ~failed~ 或 ~skipped~ 。 ~errors~ 中每项只含关联的相对 ~path~ 与原记录已有的 ~message~ 。JSON 编组仍位于 bridge 内部，C++ 通过原有 async work 生命周期完整透传， ~CoreRepo.historyDetail~ 不解释文件状态。
+~Repo.historyDetail(syncId)~ 在工作线程重新加载所选仓库的历史，返回 ~SyncRecordDetail~ 的 ~summary~ 、 ~files~ 和 ~errors~ 。 ~files~ 每项包含 ~path~ 、 ~outcome~ 、Core 提供的 ~section~ 与可空备份元信息 ~backup~ ；结果枚举为 ~unchanged~ 、 ~downloaded~ 、 ~uploaded~ 、 ~created~ 、 ~deleted~ 、 ~updated~ 、 ~merged~ 、 ~conflict~ 、  ~failed~ 或 ~skipped~ 。 ~errors~ 中每项只含关联的相对 ~path~ 与原记录已有的 ~message~ 。JSON 编组仍位于 bridge 内部，C++ 通过原有 async work 生命周期完整透传， ~CoreRepo.historyDetail~ 不解释文件状态。
 
-路由仅传配置仓库 ID 与同步 ID，详情页重新取得当前投影；不存在的仓库或历史应明确失败，不能退回其他记录。摘要不包含源内容快照，正常、冲突和失败记录均使用同一个同步详情接口。
+日志列表展开项传配置仓库 ID 与同步 ID， ~SyncLogDetails~ 重新取得当前投影；不存在的仓库或历史应明确失败，不能退回其他记录。摘要不包含源内容快照，正常、冲突和失败记录均使用同一个同步详情接口。
 
 * 配置文件范围与将来，也许快捷移动
 
@@ -341,23 +334,17 @@ interface TitleCount {
 
 * 待关注事件
 
-~Workspace.notifications(): Promise<CoreNotification[]>~ 在工作线程通过 Core 的同名接口读取当前待关注事件。 ~CoreWorkspace.notifications~ 原样透传， ~NativeCoreService.notifications(repositories, todoDefaults?)~ 提供宿主配置接入。首次查询时 bridge 加载尚无 ID 的仓库以取得稳定身份，之后每次由 Core 重新读取本地历史，不订阅远端或复制冲突判定算法。
+~Workspace.notifications~ 返回当前文件与基线派生的事件。文件冲突形状为 ~{ type: 'syncConflict', repoId, path }~ ，每个文件独立一条；Rust bridge 附带 ~rootDirectory~ 供宿主映射配置仓库，Core 事件本身不保存绝对路径。通知查询前重新加载仓库，保证外部文件变化可见；点击校验仓库身份后按文件路径进入 ~ConflictFile~ 。
 
-当前事件形状为 ~{ type: 'syncConflict', repoId, syncId, paths }~ ，其中 ~repoId~ 始终是 Core 仓库 ID；配置 ID 与其不同，页面需要配置身份时由宿主按仓库对象的 ID 和根目录映射，不改写公开事件字段。 ~syncId~ 和 ~paths~ 可用于定位对应冲突处理对象。重复查询不消费事件，全部解决后该事件消失；加载或读取失败使 Promise 拒绝，不能返回空事件数组掩盖错误。
+~{ type: 'syncRequired' }~ 为 workspace 级无载荷事件；只要任一仓库本地字节 hash 与基线索引不同就生成一条，点击执行普通同步。它不依赖进程内去重标记，重启后可重新发现。Core 负责当前状态判断，ArkTS 只展示快照，读取失败保留既有快照。
 
-C ABI 为 ~org_tasks_harmony_workspace_notifications~ ，复用现有字符串释放与错误契约。C++ 复用 workspace async work、持有调用对象直到完成，并直接解析事件数组；不执行 Task 对象构造。现有 ~Repo.conflicts~ 保持原有调用边界，此接口供应用层读取 Core 通用待关注事件。
+* 文件冲突与普通操作组
 
+移除 Repo 上的 compare／preview／resolve 专用冲突方法及相关 DTO；不再为手机构造专门差异展示数据。普通 ~OrgFile~ 对象增加只读 ~conflictIds: string[]~ ，Rust 从文件末尾容器读取 ~CONFILICT_ID~ ，C++ 通过文件属性投影； ~hasConflict~ 根据真实节点标签取得，不解析旧文件头。
 
-通知在 Rust 中使用 ~CoreNotification~ 枚举，各变体独立。当前已实现带 ~SyncConflictNotification~ 结构的 ~SyncConflict~ ；新增无载荷的 ~SyncRequired~ 已接入。TS 使用独立 ~SyncConflictNotification~ 接口及带类型辨别字段的 ~CoreNotification~ 联合类型；除 ~type~ 外不建立公共通知数据基类。当前 JSON 形状不变，冲突通知的仓库、同步记录和文件路径字段不要求其他通知拥有。统一 UI 仅按类型分发到专属组件，冲突类型点击进入日志； ~syncRequired~ 类型不携带仓库身份，点击直接调用当前配置全部仓库的普通同步，不拼接日志路由。
+~Workspace.executeTaskOperations~ 接受新增 ~{ type: 'ConfilictSelection', data: { id, action: 'discard' } }~ ，经原有结构化请求和 worker 进入 Core。 ~TaskConfilictSelection~ 的拼写保持约定，参数之外不携带同步 ID、来源正文或服务端比较会话。最终文件版本、完整回退和待上传意图由普通执行器统一生成。C++ 不实现新的合并算法。
 
-
-共享事件展示通过 ~CoreNotificationService~ 读取 ~Workspace.notifications~ ，并将宿主仓库名称与配置 ID 作为独立展示上下文维护；Core 通知结构不增加公共 UI 字段。已确认的界面层级由外层 ~AppShell~ 平级放置上方的 ~CoreNotificationsView~ 事件区和下方的 ~RepositorySyncView~ 同步区，通知展示与刷新不归属同步控件；冲突通知交给 ~SyncConflictNotificationView~ 。点击通知整行时重新校验当前仓库 Core ID，路由仅携带配置仓库 ID 和原始同步 ID，进入统一同步详情。展示和导航不消费事件，不改变 Core 的冲突判断或历史格式。
-
-* 日志文件读取与离线冲突处理
-
-日志文件方法与 ~lastEffectSync~ 经 ~org_tasks_harmony_repo_history_operation~ 统一 ABI 编组，以 ~file~ 、 ~compare~ 、 ~resolve~ 、 ~lastEffectSync~ 分发。对外 TS 参数保持结构化对象，JSON 只在 C++ 与 Rust bridge 之间使用。所有操作在原有 async worker 中执行，并持有 Repo 至完成； ~file~ 返回值通过已有 ~OrgFile~ 构造器投影， ~compare~ 返回普通比较对象， ~resolve~ 只接收 ~SyncConflictResolution~ 版本依据与全部选择并在成功时返回空值；不回传来源正文。
-
-~HistoryFileTarget~ 包含 ~syncId~ 、原 ~path~ 与 ~resolved~ ， ~ConflictFileTarget~ 包含 ~syncId~ 和原 ~path~ 。路由可额外携带配置仓库 ID，但不能由宿主拼接控制目录或把当前文件冒充备份。旧日志缺少备份时 Promise 拒绝，通知与冲突状态保留。所有新判断来自 Core，Harmony 不扫描目录判断是否已解决。
+日志备份仍经 ~historyFile~ 和历史 ABI 读取。只有远端删除备份有手机入口，旧结果文件的读取兼容不代表当前仍存在“已解决”状态；新冲突丢弃不再写入历史目录。
 
 * 通知更新监控与生命周期
 
@@ -401,13 +388,17 @@ TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复�
 
 * 内容合并的 Core 边界
 
-现有 UI 同步调用经原有 Repo 同步入口进入 Core，复用文件内三方合并。 ~org_tasks_core::merge~ 是直接接收 Org 原文的 Rust 纯函数，不新增 C ABI、C++ N-API 或 ArkTS 方法。逐项解决继续使用现有 ~compareConflict~ 与 ~resolveConflict~ ；任务候选不阻止后续同步。完整目录与基线语义见 [[file:../core/同步核心设计.org][同步核心设计]]。
+现有 UI 同步调用经原有 Repo 同步入口进入 Core，复用文件内三方合并。 ~org_tasks_core::merge~ 是直接接收 Org 原文的 Rust 纯函数，不新增 C ABI、C++ N-API 或 ArkTS 方法。冲突丢弃使用普通 ~executeTaskOperations~ 的 ~ConfilictSelection~ ；任务候选不阻止后续同步。完整目录与基线语义见 [[file:../core/同步核心设计.org][同步核心设计]]。
 
 * 仓库重置与冲突展示
 
 ~Repo.reset(): Promise<void>~ 经 ~org_tasks_harmony_repo_reset~ 在既有 N-API async worker 调用 Core。worker 持有 Repo 至完成，异常拒绝 Promise；Rust bridge 成功后移除该仓库的内存操作回退快照。仓库 ID、配置 ID、凭据和远端保持不变，ArkTS 不删除文件或清理同步状态。
 
-文件元信息增加 ~hasConflict: boolean~ ，文件对象提供同名只读属性。Rust bridge 直接投影 ~OrgFile.has_conflict()~ ，N-API 与 ArkTS 不解析文件头。存储库据此显示冲突状态并导航现有 ~ConflictFile~ 页；没有 syncId 的文件入口只显示文件信息，内部处理交互待定，已有同步详情入口仍使用原比较与解决接口。
+文件元信息增加 ~hasConflict: boolean~ ，文件对象提供同名只读属性。Rust bridge 直接投影 ~OrgFile.has_conflict()~ ，N-API 与 ArkTS 不解析节点标签。存储库据此显示冲突状态并导航现有 ~ConflictFile~ 页；文件入口直接读取当前文件，顶部丢弃全部通过普通操作组提交；历史项仅为删除备份提供阅读。
+
+* 历史列表展开接入
+
+手机移除独立 ~SyncDetail~ 路由，保留既有 ~Repo.historyDetail(syncId)~ 异步方法用于展开项读取；C++ 与 Rust 的方法归属、worker 生命周期和错误传播保持一致。Rust 透传 Core 的 ~updated~ 、 ~merged~ 等结果，不在 bridge 按 action/state 推断业务状态。 ~section~ 新增 ~merge~ 与 ~unchanged~ ，展开列表直接展示全部 ~files~ 。 ~backup~ 可包含远端删除前的备份元信息，点击使用原 ~historyFile~ 参数读取；宿主不拼接删除备份路径。
 
 * 任务可配置标签投影
 

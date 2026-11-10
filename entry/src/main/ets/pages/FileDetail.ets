@@ -9,7 +9,7 @@ import { CoreBridgeError, CoreOrgFile, CoreTitlePart, NativeCoreService, coreErr
 import { syncLogTimeLabel } from '../ui/SyncLogPresentation'
 import { UiColor } from '../ui/Theme'
 
-interface NotebookParams { repoId?: string; path?: string; syncId?: string; resolved?: boolean; repositoryName?: string; backupTime?: number; backupPath?: string }
+interface NotebookParams { repoId?: string; path?: string; syncId?: string; repositoryName?: string; backupTime?: number; backupPath?: string }
 
 @Entry
 @Component
@@ -49,8 +49,8 @@ struct FileDetail {
         const repository = config.repos.find((item) => item.id === params.repoId)
         if (!repository) throw new Error('此存储库已不存在')
         const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
-        file = await repo.historyFile(params.syncId, this.path, params.resolved === true)
-        this.historyLabel = `历史备份${params.resolved ? ' · 已解决' : ''} · ${params.backupPath || this.path}\n${params.repositoryName || ''}${params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''}`
+        file = await repo.historyFile(params.syncId, this.path, false)
+        this.historyLabel = `历史备份 · ${params.backupPath || this.path}\n${params.repositoryName || ''}${params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''}`
       } else {
         file = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
         this.historyLabel = ''

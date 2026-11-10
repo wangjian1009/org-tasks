@@ -18,7 +18,7 @@ export interface CoreNotificationsState {
 
 export interface SyncConflictTarget {
   repoId: string
-  syncId: string
+  path: string
 }
 
 export function emptyCoreNotificationsState(): CoreNotificationsState {
@@ -82,6 +82,6 @@ export class CoreNotificationService {
     const repo = await NativeCoreService.repository(config.repos, configured, config.todoDefaults)
     await repo.load()
     if (repo.id !== notification.repoId) throw new Error('存储库已发生变化，请刷新后重试')
-    return { repoId: configured.id, syncId: notification.syncId }
+    return { repoId: configured.id, path: notification.path }
   }
 }

@@ -15,18 +15,8 @@
       "inspect": [
         {
           "type": "ConflictSubtree",
-          "originId": "task-a",
           "candidateAlias": "candidate-a",
-          "operation": "modify",
-          "rootOnlyTag": "CONFLICT",
-          "placement": "AfterOriginSubtree",
-          "parentTitles": [
-            "Project"
-          ],
-          "originTitles": [
-            "Project",
-            "A"
-          ],
+          "reason": "modify",
           "source": "source.org"
         }
       ]

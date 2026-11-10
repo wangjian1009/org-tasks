@@ -2,7 +2,6 @@
   "src": [
     "pages/Files",
     "pages/SyncLog",
-    "pages/SyncDetail",
     "pages/Inbox",
     "pages/TaskOverview",
     "pages/FileDetail",

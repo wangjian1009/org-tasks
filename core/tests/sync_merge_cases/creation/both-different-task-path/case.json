@@ -16,13 +16,7 @@
         {
           "type": "ConflictSubtree",
           "candidateAlias": "candidate-a",
-          "operation": "create",
-          "rootOnlyTag": "CONFLICT",
-          "placement": "Anchored",
-          "parentTitles": [],
-          "originTitles": [
-            "A"
-          ],
+          "reason": "create",
           "source": "source.org"
         }
       ]

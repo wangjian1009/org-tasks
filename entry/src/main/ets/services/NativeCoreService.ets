@@ -4,6 +4,7 @@ import {
   TaskFileVersion as NativeTaskFileVersion,
   TaskOperation as NativeTaskOperation,
   TaskOperationGroup as NativeTaskOperationGroup,
+  TaskConfilictSelection as NativeTaskConfilictSelection,
   TaskOperationResult as NativeTaskOperationResult,
   TaskModification as NativeTaskModification,
   TaskChecklistItem as NativeTaskChecklistItem,
@@ -13,16 +14,11 @@ import {
   defaultSyncOptions,
   defaultTodoSettings,
   ConflictSync as NativeConflictSync,
-  SyncConflictChange as NativeMergeChange,
-  MergeChangeState as NativeMergeChangeState,
   RefileTarget as NativeRefileTarget,
   RefileTargetQuery as NativeRefileTargetQuery,
   OrgFileRef as NativeOrgFileRef,
   CoreError as NativeCoreError,
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
-  SyncConflictComparison as NativeSyncConflictComparison,
-  SyncConflictResolution as NativeSyncConflictResolution,
-  SyncConflictChoice as NativeSyncConflictChoice,
   SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
@@ -71,22 +67,12 @@ export interface CoreSyncSnapshot {
 export type CoreSyncRecord = NativeSyncRecord
 export type CoreSyncRecordDetail = NativeSyncRecordDetail
 export type CoreNotificationUpdateMonitor = NativeNotificationUpdateMonitor
-export type CoreSyncConflictComparison = NativeSyncConflictComparison
-export type CoreSyncConflictResolution = NativeSyncConflictResolution
-export type CoreSyncConflictChoice = NativeSyncConflictChoice
 export type CoreSyncRequiredNotification = NativeSyncRequiredNotification
 export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
 export type CoreTodoMetadata = NativeTodoMetadata
 
-export type CoreMergeChange = NativeMergeChange
-export type CoreMergeChangeState = NativeMergeChangeState
-export enum CoreMergeResolution {
-  Local = 'local',
-  Remote = 'remote',
-  Remove = 'remove'
-}
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
 
 export type CoreOrgFileRef = NativeOrgFileRef
@@ -96,6 +82,7 @@ export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion
 export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
+export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
 export type CoreTaskOperationResult = NativeTaskOperationResult
 export type CoreTaskModification = NativeTaskModification
 
@@ -171,14 +158,6 @@ export class CoreRepo {
 
   async historyFile(syncId: string, path: string, resolved: boolean): Promise<CoreOrgFile> {
     return await this.native.historyFile({ syncId, path, resolved })
-  }
-
-  async compareConflict(syncId: string, path: string): Promise<CoreSyncConflictComparison> {
-    return await this.native.compareConflict({ syncId, path })
-  }
-
-  async resolveConflict(request: CoreSyncConflictResolution): Promise<void> {
-    await this.native.resolveConflict(request)
   }
 
   async historyDetail(syncId: string): Promise<CoreSyncRecordDetail> {

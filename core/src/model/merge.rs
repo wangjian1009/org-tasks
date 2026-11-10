@@ -409,62 +409,6 @@ pub fn merge_org_tasks(
     Ok(output)
 }
 
-impl super::OrgRepo {
-    /// 从预览版本提交已确认内容；不格式化未修改字节。
-    pub async fn replace_conflict_file(
-        &mut self,
-        path: &str,
-        expected_hash: Option<&str>,
-        content: Option<Vec<u8>>,
-    ) -> Result<(), CoreError> {
-        use super::write_intent::{read_optional, task_target, write_new};
-        use tokio::fs;
-        super::validate_relative_path(path)?;
-        if path.split('/').next() == Some(".sync") || !path.ends_with(".org") {
-            return Err(CoreError::InvalidInput(
-                "冲突目标必须是控制目录外的 .org 文件",
-            ));
-        }
-        let target = task_target(std::path::Path::new(&self.root_directory), path).await?;
-        let original = read_optional(&target).await?;
-        if original.as_deref().map(content_hash).as_deref() != expected_hash {
-            return Err(CoreError::InvalidState("本地文件已改变，请重新比较"));
-        }
-        let file = content
-            .map(|bytes| self.parse_file(path.into(), bytes))
-            .transpose()?;
-        let temporary =
-            target.with_file_name(format!(".{}.tmp", super::service::generate_repo_id()?));
-        if let Some(file) = &file {
-            write_new(&temporary, file.source_bytes()).await?;
-        }
-        if read_optional(&target).await? != original {
-            let _ = fs::remove_file(&temporary).await;
-            return Err(CoreError::InvalidState("本地文件已改变，请重新比较"));
-        }
-        let result = if file.is_some() {
-            fs::rename(&temporary, &target).await
-        } else if original.is_some() {
-            fs::remove_file(&target).await
-        } else {
-            Ok(())
-        };
-        if let Err(error) = result {
-            let _ = fs::remove_file(&temporary).await;
-            return Err(merge_io(error));
-        }
-        self.files.retain(|f| f.path != path);
-        if let Some(file) = file {
-            self.files.push(file);
-        }
-        Ok(())
-    }
-}
-
-fn merge_io(error: std::io::Error) -> CoreError {
-    CoreError::Store(format!("无法保存冲突备份或合并文件: {error}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,5 +733,4 @@ mod tests {
         assert!(merged.starts_with(remote.source_bytes()));
         assert!(merged.ends_with(b"* TODO Local only\n  body  \n"));
     }
-
 }

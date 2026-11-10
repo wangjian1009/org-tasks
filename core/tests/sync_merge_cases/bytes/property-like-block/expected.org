@@ -1,14 +1,19 @@
-#+CONFLICT: true
 * TODO A
 :PROPERTIES:
 :ID: task-a
 :END:
 remote
-* TODO A (conflict) :CONFLICT:
+
+* 同步冲突 :CONFLICT:
+** A
 :PROPERTIES:
-:ID: <generated-1>
+:CONFILICT_ID: <conflict-1>
+:END:
+#+CONFLICT_REASON: modify
+*** TODO A
+:PROPERTIES:
+:ID: task-a
 :CONFLICT_COMMENT: user property
-:CONFLICT_OPERATION: modify
 :END:
 local
 #+begin_src text

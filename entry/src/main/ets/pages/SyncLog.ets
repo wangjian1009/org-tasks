@@ -3,6 +3,7 @@ import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
+import { SyncLogDetails } from '../components/SyncLogDetails'
 import { SyncLogItem } from '../components/SyncLogItem'
 import { syncLogRenderKey, visibleSyncLogs } from '../ui/SyncLogPresentation'
 import { AppConfigService } from '../services/AppConfigService'
@@ -11,6 +12,7 @@ import { repositoryLabel } from '../ui/Theme'
 
 interface SyncLogParams {
   repoId: string
+  syncId?: string
 }
 
 @Entry
@@ -24,7 +26,10 @@ struct SyncLog {
   @State message: string = ''
   @State drawerOpen: boolean = false
   @State showUnchanged: boolean = false
+  @State expandedId: string = ''
+  @State revision: number = 0
   private requestId: number = 0
+  private initialTarget: boolean = false
 
   onPageShow() { this.loadLogs() }
 
@@ -40,6 +45,11 @@ struct SyncLog {
     try {
       const params = this.getUIContext().getRouter().getParams() as SyncLogParams | undefined
       const repoId = this.repoId || params?.repoId
+      if (!this.initialTarget && params?.syncId) {
+        this.expandedId = params.syncId
+        this.showUnchanged = true
+        this.initialTarget = true
+      }
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if (request !== this.requestId) return
       const repository = config.repos.find((repo) => repo.id === repoId)
@@ -49,7 +59,11 @@ struct SyncLog {
       const items = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults)
       if (request !== this.requestId) return
       items.sort((left: CoreSyncRecord, right: CoreSyncRecord): number => right.started_at - left.started_at)
+      if (params?.syncId && !items.some((item: CoreSyncRecord) => item.id === params.syncId)) {
+        throw new Error('通知对应的同步记录已不存在')
+      }
       this.items = items
+      this.revision++
     } catch (e) {
       if (request === this.requestId) {
         this.items = []
@@ -62,6 +76,11 @@ struct SyncLog {
 
   visibleItems(): CoreSyncRecord[] { return visibleSyncLogs(this.items, this.showUnchanged) }
 
+  initialIndex(): number {
+    const index = this.visibleItems().findIndex((item: CoreSyncRecord) => item.id === this.expandedId)
+    return index < 0 ? 0 : index + (this.notificationState.notifications.length > 0 ? 1 : 0)
+  }
+
   @Builder
   content() {
     if (this.loading) {
@@ -73,16 +92,24 @@ struct SyncLog {
     } else if (this.visibleItems().length === 0) {
       NotificationEmptyState({ title: '暂无上传或下载记录', detail: '点击右上角显示全部日志' })
     } else {
-      List() {
+      List({ initialIndex: this.initialIndex() }) {
               if (this.notificationState.notifications.length > 0) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
         ForEach(this.visibleItems(), (item: CoreSyncRecord) => {
-          ListItem() { SyncLogItem({ record: item, open: (): void => {
-            this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncDetail', params: { repoId: this.repoId, syncId: item.id } })
-          } }) }
-        }, (item: CoreSyncRecord) => syncLogRenderKey(item))
-      }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 }).edgeEffect(EdgeEffect.None)
+          ListItem() {
+            Column() {
+              SyncLogItem({ record: item, expanded: this.expandedId === item.id, open: (): void => {
+                this.expandedId = this.expandedId === item.id ? '' : item.id
+              } })
+              if (this.expandedId === item.id) {
+                SyncLogDetails({ repoId: this.repoId, syncId: item.id, repositoryName: this.repositoryName })
+              }
+            }.width('100%')
+          }
+        }, (item: CoreSyncRecord) => `${this.revision}:${syncLogRenderKey(item)}`)
+      }.width('100%').layoutWeight(1)
+        .padding({ left: 12, right: 12, bottom: 16 }).edgeEffect(EdgeEffect.None)
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
     }
   }

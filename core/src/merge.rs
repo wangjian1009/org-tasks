@@ -133,65 +133,48 @@ fn reparse(file: &OrgFile, bytes: Vec<u8>) -> Result<OrgFile, CoreError> {
     )
 }
 
-/// 包括任务及无状态 note，只识别本节点自有 CONFLICT 标签，不用继承标签或字符串搜索猜测。
-pub(crate) fn conflict_ids(file: &OrgFile) -> BTreeSet<String> {
-    file.syntax()
-        .document()
-        .syntax()
-        .descendants()
-        .filter_map(Headline::cast)
-        .filter(|h| h.tags().any(|tag| tag == crate::model::CONFLICT_TAG))
-        .filter_map(|h| {
-            h.properties().and_then(|p| {
-                p.iter()
-                    .find(|(key, _)| key.eq_ignore_ascii_case("CONFLICT_ID"))
-                    .map(|(_, v)| v.to_string())
-            })
-        })
+/// 候选只由节点自有标签识别，使用完整标题路径和重名序号定位。
+pub(crate) fn conflict_paths(file: &OrgFile) -> BTreeSet<String> {
+    file.path_headlines()
+        .into_iter()
+        .filter(|(_, headline)| headline.tags().any(|tag| tag == crate::model::CONFLICT_TAG))
+        .map(|(path, _)| serde_json::to_string(&path).expect("任务路径可序列化"))
         .collect()
 }
 pub(crate) fn has_conflicts(file: &OrgFile) -> bool {
-    !conflict_ids(file).is_empty()
+    !conflict_paths(file).is_empty()
+}
+
+/// 重放去重比较已保存的操作、原节点和来源原文，不依赖额外的冲突 ID 属性。
+fn candidate_exists(file: &OrgFile, origin: &str, operation: &str, source: &str) -> bool {
+    file.path_headlines().into_iter().any(|(_, headline)| {
+        headline.tags().any(|tag| tag == crate::model::CONFLICT_TAG)
+            && property(&headline, "CONFLICT_OPERATION").as_deref() == Some(operation)
+            && property(&headline, "CONFLICT_ORIGIN")
+                .and_then(|value| serde_json::from_str::<String>(&value).ok())
+                .as_deref()
+                == Some(origin)
+            && property(&headline, "CONFLICT_SOURCE")
+                .and_then(|value| serde_json::from_str::<String>(&value).ok())
+                .as_deref()
+                == Some(source)
+    })
+}
+
+fn subtree_source(document: &Document, key: &str) -> String {
+    let lookup = by_key(document);
+    document
+        .nodes
+        .iter()
+        .filter(|node| node.key == key || descendant(&node.key, key, &lookup))
+        .map(|node| node.source.as_str())
+        .collect()
 }
 
 /// 文件头只保存当前状态；标记的增删不触碰其他关键字、正文或源码块。
 pub(crate) fn with_conflict_header(file: &OrgFile) -> Result<Vec<u8>, CoreError> {
-    let has = has_conflicts(file);
-    let source = std::str::from_utf8(file.source_bytes())
-        .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
-    let newline = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let mut edits = Vec::new();
-    let mut found = false;
-    for keyword in file
-        .syntax()
-        .document()
-        .keywords()
-        .filter(|k| k.key().eq_ignore_ascii_case("CONFLICT"))
-    {
-        let replacement = if has && !found {
-            format!("#+CONFLICT: true{newline}")
-        } else {
-            String::new()
-        };
-        found = true;
-        edits.push((
-            usize::from(keyword.start())..usize::from(keyword.end()),
-            replacement,
-        ));
-    }
-    let mut result = source.to_string();
-    for (range, replacement) in edits.into_iter().rev() {
-        result.replace_range(range, &replacement);
-    }
-    if has && !found {
-        let at = if result.starts_with('\u{feff}') { 3 } else { 0 };
-        result.insert_str(at, &format!("#+CONFLICT: true{newline}"));
-    }
-    Ok(result.into_bytes())
+    // 冲突状态由尾部 CONFLICT 容器表达，不再修改远端文件头。
+    Ok(file.source_bytes().to_vec())
 }
 
 #[derive(Clone, Debug)]
@@ -517,7 +500,6 @@ fn mark(
         output.insert_str(at, " (conflict)");
     }
     output = set_property(file, &output, "ID", &format!("conflict-{id}"))?;
-    output = set_property(file, &output, "CONFLICT_ID", id)?;
     output = set_property(
         file,
         &output,
@@ -896,8 +878,180 @@ pub(crate) fn merge_files(
     local: &OrgFile,
     remote: &OrgFile,
 ) -> Result<Vec<u8>, CoreError> {
-    let bytes = merge_nodes(base, local, remote)?;
-    with_conflict_header(&reparse(remote, bytes)?)
+    merge_with_container(base, local, remote)
+}
+
+#[derive(Clone)]
+struct PendingConflict {
+    origin: String,
+    reason: String,
+    source: String,
+}
+
+/// 冲突文件回退到远端主树；所有未应用的本地差异保存在文件尾部的独立容器中。
+fn merge_with_container(
+    base: &OrgFile,
+    local: &OrgFile,
+    remote: &OrgFile,
+) -> Result<Vec<u8>, CoreError> {
+    use crate::model::conflict::{self, ConflictPoint};
+    let base_points = conflict::points(base)?;
+    let local_points = conflict::points(local)?;
+    let mut points = conflict::points(remote)?;
+    let base_ids = base_points
+        .iter()
+        .map(|point| point.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let local_ids = local_points
+        .iter()
+        .map(|point| point.id.as_str())
+        .collect::<BTreeSet<_>>();
+    points.retain(|point| {
+        !base_ids.contains(point.id.as_str()) || local_ids.contains(point.id.as_str())
+    });
+    for point in &local_points {
+        if !base_ids.contains(point.id.as_str()) && !points.iter().any(|other| other.id == point.id)
+        {
+            points.push(point.clone());
+        }
+    }
+    let b = reparse(base, conflict::main_source(base))?;
+    let l = reparse(local, conflict::main_source(local))?;
+    let r = reparse(remote, conflict::main_source(remote))?;
+    let merged = reparse(remote, merge_nodes(&b, &l, &r)?)?;
+    let mut pending = Vec::<PendingConflict>::new();
+    for (_, headline) in merged.path_headlines() {
+        if !headline.tags().any(|tag| tag == crate::model::CONFLICT_TAG) {
+            continue;
+        }
+        let Some(reason) = property(&headline, "CONFLICT_OPERATION") else {
+            continue;
+        };
+        let origin = property(&headline, "CONFLICT_ORIGIN")
+            .and_then(|value| serde_json::from_str::<String>(&value).ok())
+            .ok_or(CoreError::InvalidState("候选缺少生成期定位信息"))?;
+        let source = property(&headline, "CONFLICT_SOURCE")
+            .and_then(|value| serde_json::from_str::<String>(&value).ok())
+            .ok_or(CoreError::InvalidState("候选缺少完整来源"))?;
+        pending.push(PendingConflict {
+            origin,
+            reason,
+            source,
+        });
+    }
+    if pending.is_empty() && points.is_empty() {
+        return Ok(merged.source_bytes().to_vec());
+    }
+    let normal_changed = merged.source_bytes() != r.source_bytes();
+    if !pending
+        .iter()
+        .any(|point| matches!(point.reason.as_str(), "structure" | "reorder"))
+        && (normal_changed || !pending.is_empty())
+    {
+        let bd = parse(&b);
+        let ld = parse(&l);
+        let rd = parse(&r);
+        let bm = by_key(&bd);
+        let lm = by_key(&ld);
+        let rm = by_key(&rd);
+        // 同一文件有冲突时，已经安全重放的本地差异也留在候选区，保证主树仍为原远端。
+        for node in &ld.nodes {
+            if bm.get(&node.key).is_some_and(|old| same(old, node)) {
+                continue;
+            }
+            if !pending.iter().any(|point| point.origin == node.key) {
+                pending.push(PendingConflict {
+                    origin: node.key.clone(),
+                    reason: if bm.contains_key(&node.key) {
+                        "modify"
+                    } else {
+                        "create"
+                    }
+                    .into(),
+                    source: subtree_source(&ld, &node.key),
+                });
+            }
+        }
+        for node in &bd.nodes {
+            if !lm.contains_key(&node.key)
+                && rm.contains_key(&node.key)
+                && !pending.iter().any(|point| point.origin == node.key)
+            {
+                pending.push(PendingConflict {
+                    origin: node.key.clone(),
+                    reason: "delete".into(),
+                    source: subtree_source(&rd, &node.key),
+                });
+            }
+        }
+        let origins = pending
+            .iter()
+            .map(|point| point.origin.clone())
+            .collect::<BTreeSet<_>>();
+        pending.retain(|point| {
+            !origins.iter().any(|other| {
+                other != &point.origin
+                    && (descendant(&point.origin, other, &lm)
+                        || descendant(&point.origin, other, &bm))
+            })
+        });
+    }
+    for point in pending {
+        let id = hash(
+            &serde_json::to_vec(&(
+                &remote.repo_id,
+                &remote.path,
+                &point.origin,
+                &point.reason,
+                &point.source,
+            ))
+            .expect("冲突定位信息可序列化"),
+        );
+        if points.iter().any(|existing| existing.id == id) {
+            continue;
+        }
+        let newline = if remote.source_bytes().windows(2).any(|v| v == b"\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let parsed = fragment(local, &point.source);
+        let title = parsed
+            .first_node::<Headline>()
+            .map(|headline| headline.title_raw().trim_end().to_string())
+            .unwrap_or_else(|| "文件内容".into());
+        let title = if point.reason == "structure" {
+            "文件结构".into()
+        } else if point.reason == "reorder" {
+            "文件顺序".into()
+        } else {
+            title
+        };
+        let mut source = format!(
+            "** {title}{newline}:PROPERTIES:{newline}:CONFILICT_ID: {id}{newline}:END:{newline}#+CONFLICT_REASON: {}{newline}",
+            point.reason
+        );
+        if matches!(point.reason.as_str(), "structure" | "reorder") {
+            source.push_str(&format!("#+begin_example{newline}"));
+            for line in point.source.split_inclusive('\n') {
+                if line.starts_with('*') || line.starts_with("#+") || line.starts_with(',') {
+                    source.push(',');
+                }
+                source.push_str(line);
+            }
+            if !source.ends_with('\n') {
+                source.push_str(newline);
+            }
+            source.push_str(&format!("#+end_example{newline}"));
+        } else {
+            source.push_str(&at_level(local, &point.source, 3)?);
+        }
+        if !source.ends_with('\n') {
+            source.push_str(newline);
+        }
+        points.push(ConflictPoint { id, source });
+    }
+    Ok(conflict::append_points(remote, r.source_bytes(), &points))
 }
 
 fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<u8>, CoreError> {
@@ -906,7 +1060,11 @@ fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<
         return Ok(remote.source_bytes().to_vec());
     }
     if remote.source_bytes() == base.source_bytes() {
-        return Ok(local.source_bytes().to_vec());
+        // 即使只有本地发生变化，文件前言也始终采用远端原文。
+        let local_prefix = parse(local).preamble.len();
+        let mut output = parse(remote).preamble.into_bytes();
+        output.extend_from_slice(&local.source_bytes()[local_prefix..]);
+        return Ok(output);
     }
     let duplicate_ids = |file: &OrgFile| {
         let mut seen = BTreeSet::new();
@@ -927,14 +1085,13 @@ fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<
     let bm = by_key(&b);
     let lm = by_key(&l);
     let rm = by_key(&r);
-    let existing = conflict_ids(remote);
     let mut copies = Vec::new();
     let mut output = r.nodes.clone();
     let mut suppressed = BTreeSet::<String>::new();
     let make_conflict =
         |key: &str, operation: &str, copies: &mut Vec<Node>| -> Result<(), CoreError> {
             let id = conflict_key(base, local, key, operation);
-            if !existing.contains(&id) {
+            if !candidate_exists(remote, key, operation, &subtree_source(&l, key)) {
                 clone_conflict(local, &l, key, &id, operation, copies)?;
             }
             Ok(())
@@ -962,7 +1119,12 @@ fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<
                     output.retain(|n| n.key != node.key);
                 } else {
                     let id = conflict_key(base, local, &node.key, "delete");
-                    if !existing.contains(&id) {
+                    if !candidate_exists(
+                        remote,
+                        &node.key,
+                        "delete",
+                        &subtree_source(&r, &remote_node.key),
+                    ) {
                         // 原远端任务保持原样；删除意图也通过新增候选树表达，只标记候选树根。
                         clone_conflict(remote, &r, &remote_node.key, &id, "delete", &mut copies)?;
                     }
@@ -1024,44 +1186,8 @@ fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<
         let lookup = output.iter().cloned().map(|n| (n.key.clone(), n)).collect();
         output.retain(|n| n.key != key && !descendant(&n.key, &key, &lookup));
     }
-    let mut preamble = if let Some(preamble) = text_merge(&b.preamble, &l.preamble, &r.preamble) {
-        preamble
-    } else {
-        let id = conflict_key(base, local, "preamble", "preamble");
-        if !existing.contains(&id) {
-            let escaped = l
-                .preamble
-                .lines()
-                .map(|line| {
-                    if line.starts_with('*') || line.starts_with("#+") {
-                        format!(",{line}\n")
-                    } else {
-                        format!("{line}\n")
-                    }
-                })
-                .collect::<String>();
-            let source = mark(
-                remote,
-                &format!("* 文件前言\n#+begin_example\n{escaped}#+end_example\n"),
-                &id,
-                "preamble",
-                "preamble",
-            )?;
-            let source = set_property(
-                remote,
-                &source,
-                "CONFLICT_SOURCE",
-                &serde_json::to_string(&l.preamble).unwrap(),
-            )?;
-            copies.push(Node {
-                key: format!("preamble:{id}"),
-                parent: None,
-                level: 1,
-                source,
-            });
-        }
-        r.preamble.clone()
-    };
+    // 文件头关键字及第一个标题前的原文统一接受远端，不生成前言候选。
+    let preamble = &r.preamble;
     // 同级排序也是操作。两端顺序各自变化且不同则保留远端顺序并记录本地候选。
     let parents = l
         .nodes
@@ -1098,7 +1224,12 @@ fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<
                 }
             } else {
                 let id = conflict_key(base, local, parent.as_deref().unwrap_or("root"), "reorder");
-                if !existing.contains(&id) {
+                if !candidate_exists(
+                    remote,
+                    "order",
+                    "reorder",
+                    std::str::from_utf8(local.source_bytes()).unwrap(),
+                ) {
                     let source = format!(
                         "* 文件顺序\n#+begin_example\n{}#+end_example\n",
                         local
@@ -1135,7 +1266,6 @@ fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<
     if parse(&parsed).nodes.len() != output.len() {
         return structural_conflict(base, local, remote);
     }
-    preamble.clear();
     Ok(bytes)
 }
 
@@ -1145,7 +1275,12 @@ fn structural_conflict(
     remote: &OrgFile,
 ) -> Result<Vec<u8>, CoreError> {
     let id = conflict_key(base, local, "document", "structure");
-    if conflict_ids(remote).contains(&id) {
+    if candidate_exists(
+        remote,
+        "document",
+        "structure",
+        std::str::from_utf8(local.source_bytes()).unwrap(),
+    ) {
         return Ok(remote.source_bytes().to_vec());
     }
     let mut candidate = mark(remote, "* 文件结构\n", &id, "document", "structure")?;
@@ -1161,108 +1296,12 @@ fn structural_conflict(
     Ok(output.into_bytes())
 }
 
-#[derive(Clone)]
-pub(crate) struct ConflictVersion {
-    pub key: String,
-    pub local: Option<crate::OrgMergeVersion>,
-    pub remote: Option<crate::OrgMergeVersion>,
-    pub preamble: bool,
-    operation: String,
-    candidate: std::ops::Range<usize>,
-    origin: Option<std::ops::Range<usize>>,
-}
 fn property(headline: &Headline, key: &str) -> Option<String> {
     headline.properties().and_then(|p| {
         p.iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(key))
             .map(|(_, v)| v.to_string())
     })
-}
-fn version(source: String) -> crate::OrgMergeVersion {
-    let parsed = orgize::Org::parse(&source);
-    let headline = parsed.first_node::<Headline>();
-    crate::OrgMergeVersion {
-        title: headline
-            .as_ref()
-            .map_or_else(|| "文件内容".into(), |h| h.title_raw().trim_end().into()),
-        level: headline.map_or(0, |h| h.level()),
-        parent: None,
-        source,
-    }
-}
-pub(crate) fn versions(file: &OrgFile) -> Result<Vec<ConflictVersion>, CoreError> {
-    let doc = parse(file);
-    let headlines = file
-        .syntax()
-        .document()
-        .syntax()
-        .descendants()
-        .filter_map(Headline::cast)
-        .collect::<Vec<_>>();
-    let mut ranges = BTreeMap::new();
-    for (node, headline) in doc.nodes.iter().zip(&headlines) {
-        ranges.insert(
-            node.key.as_str(),
-            u32::from(headline.start()) as usize..u32::from(headline.end()) as usize,
-        );
-    }
-    let mut output = Vec::new();
-    for (node, headline) in doc.nodes.iter().zip(&headlines) {
-        if !headline.tags().any(|t| t == crate::model::CONFLICT_TAG) {
-            continue;
-        }
-        let Some(id) = property(headline, "CONFLICT_ID") else {
-            continue;
-        };
-        let operation = property(headline, "CONFLICT_OPERATION")
-            .ok_or(CoreError::InvalidState("冲突记录缺少操作类型"))?;
-        let local_source = property(headline, "CONFLICT_SOURCE")
-            .map(|s| {
-                serde_json::from_str::<String>(&s)
-                    .map_err(|_| CoreError::InvalidState("冲突候选原文无效"))
-            })
-            .transpose()?;
-        let origin_key = property(headline, "CONFLICT_ORIGIN")
-            .map(|s| {
-                serde_json::from_str::<String>(&s)
-                    .map_err(|_| CoreError::InvalidState("冲突来源身份无效"))
-            })
-            .transpose()?;
-        let origin = origin_key
-            .as_ref()
-            .and_then(|key| ranges.get(key.as_str()))
-            .cloned();
-        let candidate = ranges[node.key.as_str()].clone();
-        let preamble = matches!(operation.as_str(), "preamble" | "structure" | "reorder");
-        let local = if operation == "delete" {
-            None
-        } else {
-            local_source.clone().map(version)
-        };
-        let remote = if operation == "delete" {
-            local_source.map(version)
-        } else if preamble {
-            Some(version(if operation == "preamble" {
-                doc.preamble.clone()
-            } else {
-                String::from_utf8(file.source_bytes().to_vec()).unwrap()
-            }))
-        } else {
-            origin.as_ref().map(|range| {
-                version(String::from_utf8(file.source_bytes()[range.clone()].to_vec()).unwrap())
-            })
-        };
-        output.push(ConflictVersion {
-            key: id,
-            local,
-            remote,
-            preamble,
-            operation,
-            candidate,
-            origin,
-        });
-    }
-    Ok(output)
 }
 fn at_level(file: &OrgFile, source: &str, level: usize) -> Result<String, CoreError> {
     let syntax = fragment(file, source);
@@ -1286,132 +1325,6 @@ fn at_level(file: &OrgFile, source: &str, level: usize) -> Result<String, CoreEr
     }
     Ok(result)
 }
-pub(crate) fn resolve(
-    file: &OrgFile,
-    choices: &[crate::OrgMergeChoice],
-) -> Result<Vec<u8>, CoreError> {
-    let bytes = resolve_nodes(file, choices)?;
-    with_conflict_header(&reparse(file, bytes)?)
-}
-
-fn resolve_nodes(file: &OrgFile, choices: &[crate::OrgMergeChoice]) -> Result<Vec<u8>, CoreError> {
-    let conflicts = versions(file)?;
-    let mut decisions = BTreeMap::new();
-    for choice in choices {
-        if decisions.insert(choice.key.as_str(), choice.side).is_some() {
-            return Err(CoreError::InvalidInput("合并选择包含重复任务"));
-        }
-    }
-    if decisions.len() != conflicts.len()
-        || conflicts
-            .iter()
-            .any(|c| !decisions.contains_key(c.key.as_str()))
-    {
-        return Err(CoreError::InvalidInput(
-            "请完成全部冲突选择，不能遗漏或加入未知任务",
-        ));
-    }
-    let mut replacements = Vec::<(std::ops::Range<usize>, String)>::new();
-    let mut appended = String::new();
-    let mut whole_file = None;
-    for conflict in conflicts {
-        let side = decisions[conflict.key.as_str()];
-        if conflict.preamble {
-            replacements.push((conflict.candidate.clone(), String::new()));
-            if side == crate::OrgMergeSide::Local {
-                let local = conflict
-                    .local
-                    .ok_or(CoreError::InvalidState("冲突候选丢失"))?;
-                if conflict.operation == "preamble" {
-                    let prefix = parse(file).preamble.len();
-                    replacements.push((0..prefix, local.source));
-                } else {
-                    if whole_file.is_some() {
-                        return Err(CoreError::InvalidInput("一次只能采用一个整文件结构候选"));
-                    }
-                    whole_file = Some(local.source.into_bytes());
-                }
-            }
-            continue;
-        }
-        if conflict.operation == "delete" {
-            if conflict
-                .origin
-                .as_ref()
-                .is_some_and(|origin| *origin != conflict.candidate)
-            {
-                replacements.push((conflict.candidate, String::new()));
-                if side != crate::OrgMergeSide::Remote {
-                    replacements.push((conflict.origin.unwrap(), String::new()));
-                }
-            } else {
-                let content = if side == crate::OrgMergeSide::Remote {
-                    conflict.remote.map(|v| v.source).unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                replacements.push((conflict.candidate, content));
-            }
-            continue;
-        }
-        replacements.push((conflict.candidate, String::new()));
-        if side != crate::OrgMergeSide::Remote {
-            if let Some(origin) = conflict.origin {
-                let old = fragment(
-                    file,
-                    std::str::from_utf8(&file.source_bytes()[origin.clone()]).unwrap(),
-                );
-                let level = old.first_node::<Headline>().map_or(1, |h| h.level());
-                let content = if side == crate::OrgMergeSide::Local {
-                    at_level(
-                        file,
-                        &conflict
-                            .local
-                            .ok_or(CoreError::InvalidState("冲突候选丢失"))?
-                            .source,
-                        level,
-                    )?
-                } else {
-                    String::new()
-                };
-                replacements.push((origin, content));
-            } else if side == crate::OrgMergeSide::Local {
-                append(
-                    &mut appended,
-                    &at_level(
-                        file,
-                        &conflict
-                            .local
-                            .ok_or(CoreError::InvalidState("冲突候选丢失"))?
-                            .source,
-                        1,
-                    )?,
-                );
-            }
-        }
-    }
-    if let Some(bytes) = whole_file {
-        reparse(file, bytes.clone())?;
-        return Ok(bytes);
-    }
-    replacements.sort_by_key(|(range, _)| (range.start, range.end));
-    for pair in replacements.windows(2) {
-        if pair[0].0.end > pair[1].0.start {
-            return Err(CoreError::InvalidInput(
-                "所选父子冲突范围重叠，请先整理对应任务",
-            ));
-        }
-    }
-    let mut output = String::from_utf8(file.source_bytes().to_vec()).unwrap();
-    for (range, content) in replacements.into_iter().rev() {
-        output.replace_range(range, &content);
-    }
-    append(&mut output, &appended);
-    let bytes = output.into_bytes();
-    reparse(file, bytes.clone())?;
-    Ok(bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1420,6 +1333,42 @@ mod tests {
     }
     fn task(state: &str, body: &str) -> String {
         format!("* {state} Work\n:PROPERTIES:\n:ID: stable\n:END:\n{body}\n")
+    }
+    #[test]
+    fn preamble_always_uses_remote_even_when_only_local_changed() {
+        let base = "#+TITLE: Base\r\nbase preface\r\n* A\r\nbase\r\n";
+        let local = "#+TITLE: Local\r\nlocal preface\r\n* A\r\nlocal\r\n";
+        assert_eq!(
+            merge(base.as_bytes(), local.as_bytes(), base.as_bytes()).unwrap(),
+            b"#+TITLE: Base\r\nbase preface\r\n* A\r\nlocal\r\n"
+        );
+        let remote = "#+TITLE: Remote\r\nremote preface\r\n* A\r\nbase\r\n";
+        assert_eq!(
+            merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap(),
+            b"#+TITLE: Remote\r\nremote preface\r\n* A\r\nlocal\r\n"
+        );
+        assert_eq!(
+            merge(b"base preface\n", b"local preface\n", b"remote preface\n").unwrap(),
+            b"remote preface\n"
+        );
+    }
+
+    #[test]
+    fn candidate_paths_distinguish_equal_titles_without_conflict_id_properties() {
+        let source = "* A :CONFLICT:\nfirst\n* A :CONFLICT:\nsecond\n";
+        let paths = conflict_paths(&file(source))
+            .into_iter()
+            .map(|value| serde_json::from_str::<crate::TaskPath>(&value).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| path.titles == vec!["A"]));
+        assert_eq!(
+            paths
+                .iter()
+                .map(|path| path.occurrence)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([1, 2])
+        );
     }
     #[test]
     fn state_and_remote_body_are_merged_without_formatting() {
@@ -1439,7 +1388,7 @@ mod tests {
         assert!(text.starts_with(&r));
         assert!(text.contains("local"));
         assert!(text.contains("(conflict)"));
-        assert_eq!(conflict_ids(&file(&text)).len(), 1);
+        assert_eq!(conflict_paths(&file(&text)).len(), 1);
         let retried = merge_nodes(&file(&b), &file(&l), &file(&text)).unwrap();
         assert_eq!(retried, result);
     }
@@ -1487,62 +1436,16 @@ mod tests {
         );
     }
     #[test]
-    fn existing_selection_api_can_accept_or_discard_a_delete_intent_without_losing_remote_content()
-    {
-        let b = "* TODO Work\n:PROPERTIES:\n:ID: stable\n:END:\nbase\n* Other\n";
-        let l = "* Other\n";
-        let r = b.replace("base", "remote");
-        let merged =
-            file(&String::from_utf8(merge_nodes(&file(b), &file(l), &file(&r)).unwrap()).unwrap());
-        let changes = versions(&merged).unwrap();
-        assert_eq!(changes.len(), 1);
-        assert!(changes[0].local.is_none());
-        let keep = resolve(
-            &merged,
-            &[crate::OrgMergeChoice {
-                key: changes[0].key.clone(),
-                side: crate::OrgMergeSide::Remote,
-            }],
-        )
-        .unwrap();
-        assert_eq!(keep, r.as_bytes());
-        let remove = resolve(
-            &merged,
-            &[crate::OrgMergeChoice {
-                key: changes[0].key.clone(),
-                side: crate::OrgMergeSide::Local,
-            }],
-        )
-        .unwrap();
-        assert_eq!(remove, l.as_bytes());
-    }
-    #[test]
-    fn cycles_and_ambiguous_ids_preserve_complete_local_candidates_as_conflict_notes() {
-        let b = "* TODO A\n:PROPERTIES:\n:ID: a\n:END:\n* TODO B\n:PROPERTIES:\n:ID: b\n:END:\n";
-        let l = "* TODO B\n:PROPERTIES:\n:ID: b\n:END:\n** TODO A\n:PROPERTIES:\n:ID: a\n:END:\n";
-        let r = "* TODO A\n:PROPERTIES:\n:ID: a\n:END:\n** TODO B\n:PROPERTIES:\n:ID: b\n:END:\n";
-        let merged =
-            file(&String::from_utf8(merge_nodes(&file(b), &file(l), &file(r)).unwrap()).unwrap());
-        assert!(has_conflicts(&merged));
-        assert!(
-            std::str::from_utf8(merged.source_bytes())
-                .unwrap()
-                .starts_with(r)
-        );
-        let changes = versions(&merged).unwrap();
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].local.as_ref().unwrap().source, l);
-        assert_eq!(
-            resolve(
-                &merged,
-                &[crate::OrgMergeChoice {
-                    key: changes[0].key.clone(),
-                    side: crate::OrgMergeSide::Local
-                }]
-            )
-            .unwrap(),
-            l.as_bytes()
-        );
+    fn ambiguous_structure_is_visible_inside_the_conflict_container() {
+        let base = "* A\n:PROPERTIES:\n:ID: a\n:END:\n* B\n:PROPERTIES:\n:ID: b\n:END:\n";
+        let local = "* B\n:PROPERTIES:\n:ID: b\n:END:\n** A\n:PROPERTIES:\n:ID: a\n:END:\n";
+        let remote = "* A\n:PROPERTIES:\n:ID: a\n:END:\n** B\n:PROPERTIES:\n:ID: b\n:END:\n";
+        let result = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
+        assert!(result.starts_with(remote.as_bytes()));
+        let source = String::from_utf8(result).unwrap();
+        assert!(source.contains("#+CONFLICT_REASON: structure"));
+        assert!(source.contains("#+begin_example"));
+        assert!(!source.contains(":CONFLICT_SOURCE:"));
     }
     #[test]
     fn in_buffer_todo_configuration_keeps_state_and_body_changes_independent() {

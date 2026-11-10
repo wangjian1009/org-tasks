@@ -35,8 +35,9 @@ export interface TaskModification { field: TaskModificationField; value: string 
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }
-export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion';
-export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion; }
+export interface TaskConfilictSelection { id: string; action: 'discard'; }
+export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
+export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operations: TaskOperation[]; queueRepoIds?: string[]; fileVersions?: TaskFileVersion[]; }
 export interface TaskFileFallback { repoId: string; file: string; before: string | null; after: string; }
@@ -61,6 +62,7 @@ export class OrgFile {
   sourceBytes(): Uint8Array;
   renderHtml(): string;
   readonly hasConflict: boolean;
+  readonly conflictIds: string[];
 }
 
 export class Task {
@@ -113,16 +115,14 @@ export interface SyncRecord {
   conflicts: string[];
   executionResult: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
   transfer: 'unchanged' | 'download' | 'upload' | 'bidirectional';
-  pendingConflicts: number;
-  resolvedConflicts: number;
   errorCategory: 'Network' | 'Authentication' | 'Tls' | 'Validation' | 'LocalStorage' | 'Conflict' | null;
   errorMessage: string | null;
 }
 
 export interface SyncFileRecord {
   path: string;
-  outcome: 'unchanged' | 'downloaded' | 'uploaded' | 'created' | 'deleted' | 'conflict' | 'resolved' | 'failed' | 'skipped';
-  section: 'upload' | 'download' | 'conflict' | null;
+  outcome: 'unchanged' | 'downloaded' | 'uploaded' | 'created' | 'deleted' | 'updated' | 'merged' | 'conflict' | 'failed' | 'skipped';
+  section: 'upload' | 'download' | 'merge' | 'unchanged' | 'conflict' | null;
   backup: OrgFileMetadata | null;
 }
 
@@ -178,8 +178,7 @@ export interface SyncConflictNotification {
   type: 'syncConflict';
   rootDirectory: string;
   repoId: string;
-  syncId: string;
-  paths: string[];
+  path: string;
 }
 
 export interface SyncRequiredNotification { type: 'syncRequired'; }
@@ -219,8 +218,6 @@ export class Repo {
   historyDetail(syncId: string): Promise<SyncRecordDetail>;
   lastEffectSync(): Promise<SyncRecord | null>;
   historyFile(target: HistoryFileTarget): Promise<OrgFile>;
-  compareConflict(target: ConflictFileTarget): Promise<SyncConflictComparison>;
-  resolveConflict(request: SyncConflictResolution): Promise<void>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
 }
@@ -240,21 +237,6 @@ export interface OrgFileMetadata {
 }
 
 
-export interface MergeVersion {
-  title: string;
-  source: string;
-  parent: string | null;
-  level: number;
-}
-export type MergeResolution = 'local' | 'remote' | 'remove';
-export type MergeChangeState = 'unchanged' | 'added' | 'modified' | 'deleted' | 'unmatched';
-export interface SyncConflictChange {
-  key: string;
-  kind: 'added' | 'modified' | 'deleted';
-  preamble: boolean;
-  local: MergeVersion | null;
-  remote: MergeVersion | null;
-}
 export interface ConflictSync { syncId: string; paths: string[]; }
 
 
@@ -282,23 +264,4 @@ export function defaultTodoSettings(): Promise<string>;
 export function defaultSyncOptions(): Promise<SyncOptions>;
 export function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>;
 
-export interface ConflictFileTarget { syncId: string; path: string; }
 export interface HistoryFileTarget { syncId: string; path: string; resolved: boolean; }
-export interface SyncConflictComparison {
-  repoId: string;
-  target: ConflictFileTarget;
-  localHash: string;
-  remoteHash: string;
-  localMissing: boolean;
-  unchangedCount: number;
-  changes: SyncConflictChange[];
-}
-
-export interface SyncConflictChoice { key: string; side: MergeResolution; }
-export interface SyncConflictResolution {
-  target: ConflictFileTarget;
-  expectedLocalHash: string;
-  expectedRemoteHash: string;
-  expectedLocalMissing: boolean;
-  choices: SyncConflictChoice[];
-}

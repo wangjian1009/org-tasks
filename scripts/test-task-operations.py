@@ -53,6 +53,9 @@ def run_case(binary, case, keep_failed):
         for repo in repos:
             (repo / '.sync/history').mkdir(parents=True, exist_ok=True)
             (repo / '.sync/id').write_text(ids[repo.name] + '\n')
+            initialized = subprocess.run([str(binary), '--repo-dir', str(repo), 'task', 'paths'],
+                                         text=True, capture_output=True, timeout=30)
+            assert initialized.returncode == 0, initialized.stderr
         before = files_under(work, control=True)
         operation_files = sorted((case / 'operations').glob('*.json'))
         assert operation_files, 'operations 中必须至少定义一个操作组'

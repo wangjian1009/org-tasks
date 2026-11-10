@@ -1,11 +1,13 @@
-#+CONFLICT: true
 * Existing
 base
 * A
 remote
-* A (conflict) :CONFLICT:
+
+* 同步冲突 :CONFLICT:
+** A
 :PROPERTIES:
-:ID: <generated-1>
-:CONFLICT_OPERATION: create
+:CONFILICT_ID: <conflict-1>
 :END:
+#+CONFLICT_REASON: create
+*** A
 local

@@ -15,15 +15,8 @@
       "inspect": [
         {
           "type": "ConflictSubtree",
-          "originId": "task-a",
           "candidateAlias": "candidate-a",
-          "operation": "delete",
-          "rootOnlyTag": "CONFLICT",
-          "placement": "Anchored",
-          "parentTitles": [],
-          "originTitles": [
-            "A"
-          ],
+          "reason": "delete",
           "source": "remote.org"
         }
       ]

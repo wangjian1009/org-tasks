@@ -15,15 +15,8 @@
       "inspect": [
         {
           "type": "ConflictSubtree",
-          "originId": "task-a",
           "candidateAlias": "candidate-a",
-          "operation": "create",
-          "rootOnlyTag": "CONFLICT",
-          "placement": "AfterOriginSubtree",
-          "parentTitles": [],
-          "originTitles": [
-            "A"
-          ],
+          "reason": "create",
           "source": "source.org"
         }
       ]

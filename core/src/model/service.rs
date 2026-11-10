@@ -555,7 +555,6 @@ impl OrgRepo {
         if history.iter().any(|record| record.started_at == started_at) {
             return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
-        let notification_version = super::notification::sync_required_version(&self.id);
         let slot = crate::webdav::transaction::CommitSlot::new(
             Path::new(&self.root_directory),
             started_at,
@@ -641,21 +640,7 @@ impl OrgRepo {
         }
         drop(guard);
         super::sync_events::publish(self);
-        if notification_version.is_some()
-            && P::KIND == "webdav"
-            && record.result == Some(super::OrgRepoSyncResult::Succeeded)
-            && self
-                .pending_writes()
-                .await
-                .is_ok_and(|writes| writes.is_empty())
-            && (committed_transaction
-                || self
-                    .pending_sync_conflicts()
-                    .await
-                    .is_ok_and(|conflicts| conflicts.is_empty()))
-        {
-            super::notification::confirm_required_sync(&self.id, notification_version);
-        }
+
         Ok(record)
     }
 }

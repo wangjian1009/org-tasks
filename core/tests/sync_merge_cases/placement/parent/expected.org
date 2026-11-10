@@ -1,14 +1,19 @@
-#+CONFLICT: true
 * Project
 ** New
-** TODO A (conflict) :CONFLICT:
+
+* 同步冲突 :CONFLICT:
+** A
 :PROPERTIES:
-:ID: <generated-1>
-:CONFLICT_OPERATION: modify-missing
+:CONFILICT_ID: <conflict-1>
+:END:
+#+CONFLICT_REASON: modify-missing
+*** TODO A
+:PROPERTIES:
+:ID: task-a
 :END:
 local
-*** TODO Child :work:
+**** TODO Child :work:
 :PROPERTIES:
-:ID: <generated-2>
+:ID: child
 :END:
 child body

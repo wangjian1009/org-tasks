@@ -2,6 +2,7 @@ use crate::{CoreError, TimestampMs};
 use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod conflict;
 mod editor;
 mod merge;
 pub(crate) mod notification;
@@ -168,6 +169,7 @@ impl OrgFile {
                     .syntax()
                     .descendants()
                     .filter_map(orgize::ast::Headline::cast)
+                    .filter(|headline| !OrgFile::is_conflict_headline(headline))
                     .count()
             },
             byte_length: self.source_bytes().len(),
@@ -237,22 +239,22 @@ impl OrgFile {
         self.header_metadata().0
     }
 
-    /// 与 TITLE 共用文件头扫描，不读取子树或源码块中的同名文本。
+    /// 文件冲突状态来自真实标题的 CONFLICT 自有标签，不解释源码块中的字面文本。
     pub fn has_conflict(&self) -> bool {
         self.header_metadata().1
     }
 
     pub(crate) fn header_metadata(&self) -> (Option<String>, bool) {
         let mut title = None;
-        let mut conflict = None;
+        let conflict = self.syntax.document().syntax().descendants()
+            .filter_map(orgize::ast::Headline::cast)
+            .any(|headline| headline.tags().any(|tag| tag == CONFLICT_TAG));
         for keyword in self.syntax.document().keywords() {
             if title.is_none() && keyword.key().eq_ignore_ascii_case("TITLE") {
                 title = Some(keyword.value().trim().to_owned());
-            } else if conflict.is_none() && keyword.key().eq_ignore_ascii_case("CONFLICT") {
-                conflict = Some(keyword.value().trim().eq_ignore_ascii_case("true"));
             }
         }
-        (title, conflict.unwrap_or(false))
+        (title, conflict)
     }
 
     pub fn syntax(&self) -> &orgize::Org {
@@ -379,6 +381,9 @@ pub struct OrgRepoSyncFileRecord<F = serde_json::Value> {
     pub local_version: Option<LocalFileVersion>,
     pub detail: F,
     pub error: Option<OrgRepoSyncErrorSummary>,
+    /// 完成本次同步后文件的领域结果；旧历史缺少该字段时由读取层兼容推导。
+    #[serde(default)]
+    pub outcome: OrgRepoSyncFileOutcome,
 }
 
 impl<F: Default> OrgRepoSyncFileRecord<F> {
@@ -395,6 +400,7 @@ impl<F: Default> OrgRepoSyncFileRecord<F> {
             local_version: None,
             detail: F::default(),
             error: None,
+            outcome: OrgRepoSyncFileOutcome::Legacy,
         })
     }
 
@@ -412,6 +418,28 @@ impl<F: Default> OrgRepoSyncFileRecord<F> {
         self.error = Some(error);
         self
     }
+
+    pub fn with_outcome(mut self, outcome: OrgRepoSyncFileOutcome) -> Self {
+        self.outcome = outcome;
+        self
+    }
+}
+
+/// 同步历史直接记录的文件结果，避免 UI 根据 action/state 猜测业务语义。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OrgRepoSyncFileOutcome {
+    Unchanged,
+    Created,
+    Deleted,
+    Updated,
+    Uploaded,
+    Merged,
+    Conflict,
+    Failed,
+    Skipped,
+    #[default]
+    Legacy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

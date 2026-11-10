@@ -23,8 +23,7 @@ export function syncLogResultLabel(record: CoreSyncRecord): string {
 }
 
 export function syncLogConflictLabel(record: CoreSyncRecord): string {
-  if (record.pendingConflicts > 0) return `冲突 ${record.pendingConflicts}`
-  if (record.resolvedConflicts > 0) return `已解决 ${record.resolvedConflicts}`
+  if (record.conflicts.length > 0) return `冲突 ${record.conflicts.length}`
   return ''
 }
 
@@ -51,7 +50,7 @@ export function syncLogTimeLabel(timestamp: number, compact: boolean = false): s
 
 export function visibleSyncLogs(records: CoreSyncRecord[], showUnchanged: boolean): CoreSyncRecord[] {
   return showUnchanged ? records : records.filter((record: CoreSyncRecord) =>
-    record.transfer !== 'unchanged' || record.executionResult !== 'succeeded' || record.pendingConflicts > 0)
+    record.transfer !== 'unchanged' || record.executionResult !== 'succeeded' || record.conflicts.length > 0)
 }
 
 export function syncLogRenderKey(record: CoreSyncRecord): string {
@@ -67,12 +66,13 @@ export function syncLogTitle(record: CoreSyncRecord): string {
 
 export function syncLogFileOutcomeLabel(file: CoreSyncFileRecord): string {
   switch (file.outcome) {
-    case 'downloaded': return '已下载'
-    case 'uploaded': return '已上传'
-    case 'created': return '已上传（新建）'
-    case 'deleted': return '已采用远端删除'
+    case 'downloaded': return '更新'
+    case 'uploaded': return '本地上传'
+    case 'created': return '新增'
+    case 'deleted': return '删除'
+    case 'updated': return '更新'
+    case 'merged': return '合并'
     case 'conflict': return '冲突'
-    case 'resolved': return '已解决'
     case 'failed': return '执行失败'
     case 'skipped': return '已跳过'
     default: return '无变化'

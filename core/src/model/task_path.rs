@@ -75,6 +75,15 @@ impl OrgRepo {
 }
 
 impl OrgFile {
+    /// 自身或祖先带有冲突标签的标题均属于受保护的冲突子树。
+    pub(crate) fn is_conflict_headline(headline: &Headline) -> bool {
+        headline
+            .syntax()
+            .ancestors()
+            .filter_map(Headline::cast)
+            .any(|node| node.tags().any(|tag| tag == super::CONFLICT_TAG))
+    }
+
     pub fn full_path(&self) -> TaskPath {
         TaskPath::file(self.repo_id.clone(), self.path.clone())
     }

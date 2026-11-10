@@ -47,6 +47,8 @@ pub struct HarmonyBridgeFile {
     pub todo: org_tasks_core::TodoMetadata,
     #[serde(rename = "hasConflict")]
     pub has_conflict: bool,
+    #[serde(rename = "conflictIds")]
+    pub conflict_ids: Vec<String>,
     pub category: Option<String>,
     #[serde(rename = "fileVersion")]
     pub file_version: String,
@@ -113,10 +115,6 @@ pub struct HarmonyBridgeSync {
     #[serde(rename = "executionResult")]
     pub execution_result: String,
     pub transfer: org_tasks_core::webdav::WebDavSyncTransfer,
-    #[serde(rename = "pendingConflicts")]
-    pub pending_conflicts: usize,
-    #[serde(rename = "resolvedConflicts")]
-    pub resolved_conflicts: usize,
     #[serde(rename = "errorCategory")]
     pub error_category: Option<org_tasks_core::OrgRepoSyncErrorCategory>,
     #[serde(rename = "errorMessage")]
@@ -478,9 +476,7 @@ pub fn workspace_notifications_json(handle: u64) -> Result<String, CoreError> {
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let runtime = runtime()?;
     for repo in &mut workspace.repos {
-        if repo.id.is_empty() {
-            runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
-        }
+        runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
     }
     // 冲突通知的宿主定位信息随通知一次返回，展示层无需额外查询仓库列表。
     let notifications = runtime.block_on(workspace.notifications())?;
@@ -573,8 +569,6 @@ fn bridge_sync_summary(
         uploaded_files: summary.uploaded_files,
         conflicts: summary.conflicts,
         transfer: summary.transfer,
-        pending_conflicts: summary.pending_conflicts,
-        resolved_conflicts: summary.resolved_conflicts,
         error_category: summary.error_category,
         error_message: summary.error_message,
     })
@@ -622,6 +616,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         file_version: org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         todo: file.todo.clone(),
         has_conflict: file.has_conflict(),
+        conflict_ids: file.conflict_ids(),
         category: file.category(),
         title: file.title(),
         title_parts: file.title_parts(),
@@ -705,105 +700,21 @@ mod tests {
     }
 
     #[test]
-    fn workspace_notifications_initialize_core_ids_and_refresh_conflicts_without_consuming_them() {
-        use org_tasks_core::webdav::{WebDavSyncContextDetail, WebDavSyncFileDetail};
-        use org_tasks_core::{
-            OrgRepoSyncFileAction, OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncRecord,
-        };
-        let root = std::env::temp_dir().join(format!(
-            "org-tasks-notifications-bridge-{}",
-            std::process::id()
-        ));
-        let first = root.join("one");
-        let second = root.join("two");
-        std::fs::create_dir_all(&first).unwrap();
-        std::fs::create_dir_all(&second).unwrap();
-        let handle = create_workspace().unwrap();
-        assert_eq!(workspace_notifications_json(handle).unwrap(), "[]");
-        for directory in [&first, &second] {
-            workspace_add_repo(handle, directory.to_string_lossy().into()).unwrap();
-        }
-        assert_eq!(workspace_notifications_json(handle).unwrap(), "[]");
-        for directory in [&first, &second] {
-            let mut record = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new(
-                "same-sync".into(),
-                1,
-            )
-            .unwrap()
-            .with_kind("webdav");
-            record
-                .append_file(
-                    OrgRepoSyncFileRecord::new(
-                        "same.org".into(),
-                        OrgRepoSyncFileAction::Conflicted,
-                        OrgRepoSyncFileState::Conflict,
-                    )
-                    .unwrap(),
-                )
-                .unwrap();
-            let bytes=b"* TODO Backup\n";
-            let folder=directory.join(".sync/history/1/files/same.org");
-            std::fs::create_dir_all(&folder).unwrap();
-            std::fs::write(folder.join("same.org"),bytes).unwrap();
-            record.files[0].detail.archive=Some(org_tasks_core::webdav::WebDavFileArchive {
-                content_hash: org_tasks_core::LocalFileVersion::from_bytes(bytes).content_hash,
-            });
-            record.finish(OrgRepoSyncResult::Succeeded, 2).unwrap();
-            std::fs::write(
-                directory.join(".sync/history/1.json"),
-                serde_json::to_vec(&record).unwrap(),
-            )
-            .unwrap();
-        }
-        let events = workspace_notifications_json(handle).unwrap();
-        assert_eq!(workspace_notifications_json(handle).unwrap(), events);
-        let value: serde_json::Value = serde_json::from_str(&events).unwrap();
-        assert_eq!(value.as_array().unwrap().len(), 2);
-        assert_eq!(value[0]["type"], "syncConflict");
-        assert_eq!(
-            value[0]["repoId"],
-            repo_id(handle, first.to_string_lossy().into()).unwrap()
-        );
-        assert_ne!(value[0]["repoId"], value[1]["repoId"]);
-        assert_eq!(value[0]["syncId"], "same-sync");
-        assert_eq!(value[0]["paths"][0], "same.org");
-        assert_eq!(value[0]["rootDirectory"],first.to_string_lossy().as_ref());
-        let mut resolved = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new(
-            "resolved".into(),
-            3,
-        )
-        .unwrap()
-        .with_kind("webdav");
-        resolved
-            .append_file(
-                OrgRepoSyncFileRecord::new(
-                    "same.org".into(),
-                    OrgRepoSyncFileAction::Downloaded,
-                    OrgRepoSyncFileState::Synchronized,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        resolved.finish(OrgRepoSyncResult::Succeeded, 4).unwrap();
-        std::fs::write(
-            first.join(".sync/history/3.json"),
-            serde_json::to_vec(&resolved).unwrap(),
-        )
-        .unwrap();
-        let result_dir = first.join(".sync/history/1/files/same.org");
-        std::fs::create_dir_all(&result_dir).unwrap();
-        std::fs::write(result_dir.join("same.resolved.org"), "* TODO Resolved\n").unwrap();
-        let value: serde_json::Value =
-            serde_json::from_str(&workspace_notifications_json(handle).unwrap()).unwrap();
-        assert_eq!(value.as_array().unwrap().len(), 1);
-        assert_eq!(
-            value[0]["repoId"],
-            repo_id(handle, second.to_string_lossy().into()).unwrap()
-        );
-        std::fs::write(second.join(".sync/history/3.json"), b"broken history").unwrap();
-        assert!(workspace_notifications_json(handle).is_err());
-        release_workspace(handle);
-        std::fs::remove_dir_all(root).unwrap();
+    fn workspace_notifications_reload_files_and_project_one_event_per_conflict_file() {
+        let root=std::env::temp_dir().join(format!("org-notification-bridge-{}",std::process::id()));
+        let _=std::fs::remove_dir_all(&root);std::fs::create_dir_all(&root).unwrap();
+        let handle=create_workspace().unwrap();let directory=root.to_string_lossy().to_string();
+        workspace_add_repo(handle,directory.clone()).unwrap();
+        for path in ["a.org","b.org"] {std::fs::write(root.join(path),"* 同步冲突 :CONFLICT:\n** Point\n").unwrap();}
+        let notices:serde_json::Value=serde_json::from_str(&workspace_notifications_json(handle).unwrap()).unwrap();
+        let values=notices.as_array().unwrap();assert_eq!(values.len(),3);
+        assert_eq!(values[0]["path"],"a.org");assert_eq!(values[1]["path"],"b.org");
+        assert_eq!(values[2]["type"],"syncRequired");assert!(values[0].get("syncId").is_none());
+        assert_eq!(values[0]["rootDirectory"],directory);
+        std::fs::write(root.join("a.org"),"* Normal\n").unwrap();
+        let current:serde_json::Value=serde_json::from_str(&workspace_notifications_json(handle).unwrap()).unwrap();
+        assert_eq!(current.as_array().unwrap().len(),2);assert_eq!(current[0]["path"],"b.org");
+        release_workspace(handle);std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -870,8 +781,8 @@ mod tests {
         assert_eq!(history[0]["result"], "failed");
         assert_eq!(history[0]["executionResult"], "succeeded");
         assert_eq!(history[0]["transfer"], "unchanged");
-        assert_eq!(history[0]["pendingConflicts"], 1);
-        assert_eq!(history[0]["resolvedConflicts"], 1);
+        assert_eq!(history[0]["conflicts"].as_array().unwrap().len(), 2);
+        assert!(history[0].get("resolvedConflicts").is_none());
         assert!(history[0]["errorCategory"].is_null());
         assert_eq!(history[1]["transfer"], "download");
         assert_eq!(history[1]["downloadedFiles"], 1);
@@ -880,8 +791,8 @@ mod tests {
             &repo_history_detail_json(handle, directory.clone(), "conflict".into()).unwrap(),
         )
         .unwrap();
-        assert_eq!(detail["summary"]["pendingConflicts"], 1);
-        assert_eq!(detail["files"][0]["outcome"], "resolved");
+        assert!(detail["summary"].get("pendingConflicts").is_none());
+        assert_eq!(detail["files"][0]["outcome"], "conflict");
         assert_eq!(detail["files"][1]["outcome"], "conflict");
         assert_eq!(detail["errors"].as_array().unwrap().len(), 0);
         assert!(repo_history_detail_json(handle, directory.clone(), "missing".into()).is_err());
@@ -1468,9 +1379,6 @@ pub fn repo_history_operation(handle: u64, root: String, request: String) -> Res
         LastEffectSync,
         #[serde(rename_all = "camelCase")]
         File { sync_id: String, path: String, resolved: bool },
-        #[serde(rename_all = "camelCase")]
-        Compare { sync_id: String, path: String },
-        Resolve { request: org_tasks_core::webdav::SyncConflictResolution },
     }
     let request: Request = serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("历史文件参数无效"))?;
     let session = workspace_for_handle(handle)?;
@@ -1482,66 +1390,11 @@ pub fn repo_history_operation(handle: u64, root: String, request: String) -> Res
         Request::LastEffectSync => {
             let current = runtime.block_on(repo.last_effect_sync())?;
             let summary = current.map(|r| {
-                let mut summary = org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&r)?;
-                summary.resolved_conflicts = r.files.iter().filter(|f| f.detail.resolved).count();
-                summary.pending_conflicts -= summary.resolved_conflicts;
-                bridge_sync_summary(summary)
+                bridge_sync_summary(org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&r)?)
             }).transpose()?;
             encode(&summary)
         },
         Request::File { sync_id, path, resolved } => encode(&file_snapshot(&runtime.block_on(repo.history_file(&sync_id, &path, resolved))?)?),
-        Request::Compare { sync_id, path } => encode(&runtime.block_on(repo.compare_conflict(&org_tasks_core::webdav::SyncConflictTarget { sync_id, path }))?),
-        Request::Resolve { request } => { runtime.block_on(repo.resolve_conflict(&request))?; Ok("{}".into()) },
-    }
-}
-
-#[cfg(test)]
-mod archive_tests {
-    use super::*;
-    #[test]
-    fn structured_history_file_comparison_and_resolution_roundtrip_without_policy() {
-        use org_tasks_core::webdav::{WebDavFileArchive, WebDavSyncContextDetail, WebDavSyncFileDetail};
-        use org_tasks_core::{LocalFileVersion, OrgRepoSyncRecord, OrgRepoSyncFileRecord, OrgRepoSyncFileAction, OrgRepoSyncFileState};
-        let root = std::env::temp_dir().join(format!("org-archive-bridge-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir(&root).unwrap();
-        let handle = create_workspace().unwrap();
-        let directory = root.to_string_lossy().into_owned();
-        workspace_add_repo(handle, directory.clone()).unwrap();
-        repo_load(handle, directory.clone()).unwrap();
-        let bytes = b"#+TITLE: Backup\r\n* TODO Same\r\n";
-        std::fs::write(root.join("a.org"), bytes).unwrap();
-        let backup = root.join(".sync/history/1/files/a.org");
-        std::fs::create_dir_all(&backup).unwrap();
-        std::fs::write(backup.join("a.org"), bytes).unwrap();
-        let mut record = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new("one".into(),1).unwrap().with_kind("webdav");
-        record.append_file(OrgRepoSyncFileRecord::new("a.org".into(),OrgRepoSyncFileAction::Conflicted,OrgRepoSyncFileState::Conflict).unwrap()
-            .with_detail(WebDavSyncFileDetail { archive: Some(WebDavFileArchive { content_hash: LocalFileVersion::from_bytes(bytes).content_hash }), ..Default::default() })).unwrap();
-        record.finish(OrgRepoSyncResult::Succeeded,2).unwrap();
-        std::fs::write(root.join(".sync/history/1.json"),serde_json::to_vec(&record).unwrap()).unwrap();
-        let current: serde_json::Value=serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"lastEffectSync"}"#.into()).unwrap()).unwrap();
-        assert_eq!(current["id"],"one");
-        assert_eq!(current["pendingConflicts"],1);
-        let comparison: serde_json::Value = serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"compare","syncId":"one","path":"a.org"}"#.into()).unwrap()).unwrap();
-        assert!(comparison["changes"].as_array().unwrap().is_empty());
-        let result = repo_history_operation(handle,directory.clone(),serde_json::json!({"operation":"resolve","request": {
-            "target": comparison["target"], "expectedLocalHash": comparison["localHash"],
-            "expectedRemoteHash": comparison["remoteHash"], "expectedLocalMissing": comparison["localMissing"], "choices": []
-        }}).to_string()).unwrap();
-        assert_eq!(result,"{}");
-        let file: serde_json::Value = serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"file","syncId":"one","path":"a.org","resolved":true}"#.into()).unwrap()).unwrap();
-        assert_eq!(file["path"],"a.resolved.org");
-        assert_eq!(file["source"],std::str::from_utf8(bytes).unwrap());
-        let detail: serde_json::Value = serde_json::from_str(&repo_history_detail_json(handle,directory.clone(),"one".into()).unwrap()).unwrap();
-        assert_eq!(detail["files"][0]["section"],"conflict");
-        assert_eq!(detail["files"][0]["backup"]["title"],"Backup");
-        assert_eq!(detail["files"][0]["outcome"],"resolved");
-        let current: serde_json::Value=serde_json::from_str(&repo_history_operation(handle,directory.clone(),r#"{"operation":"lastEffectSync"}"#.into()).unwrap()).unwrap();
-        assert_eq!(current["id"],"one");
-        assert_eq!(current["resolvedConflicts"],1);
-        assert_eq!(workspace_notifications_json(handle).unwrap(),"[]");
-        release_workspace(handle);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }
 
@@ -1597,7 +1450,7 @@ mod reset_bridge_tests {
     fn reset_keeps_id_and_exposes_file_conflict_metadata_before_clearing() {
         let root = std::env::temp_dir().join(format!("org-reset-bridge-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir(&root).unwrap();
-        std::fs::write(root.join("A.org"), "#+TITLE: A\n#+CONFLICT: true\n* TODO A\n").unwrap();
+        std::fs::write(root.join("A.org"), "#+TITLE: A\n* 同步冲突 :CONFLICT:\n** TODO A\n").unwrap();
         let path = root.to_string_lossy().into_owned();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, path.clone()).unwrap();

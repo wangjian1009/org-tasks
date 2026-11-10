@@ -16,13 +16,7 @@
         {
           "type": "ConflictSubtree",
           "candidateAlias": "candidate-parent",
-          "operation": "delete",
-          "rootOnlyTag": "CONFLICT",
-          "placement": "Anchored",
-          "parentTitles": [],
-          "originTitles": [
-            "Parent"
-          ],
+          "reason": "delete",
           "source": "source.org"
         }
       ]

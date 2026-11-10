@@ -1,4 +1,3 @@
-#+CONFLICT: true
 * Project
 ** TODO Prev
 :PROPERTIES:
@@ -15,19 +14,25 @@ remote
 :ID: child
 :END:
 child body
-** TODO A (conflict) :CONFLICT:
-:PROPERTIES:
-:ID: <generated-1>
-:CONFLICT_OPERATION: modify
-:END:
-local
-*** TODO Child :work:
-:PROPERTIES:
-:ID: <generated-2>
-:END:
-child body
 ** TODO Next
 :PROPERTIES:
 :ID: next
 :END:
 next
+
+* 同步冲突 :CONFLICT:
+** A
+:PROPERTIES:
+:CONFILICT_ID: <conflict-1>
+:END:
+#+CONFLICT_REASON: modify
+*** TODO A
+:PROPERTIES:
+:ID: task-a
+:END:
+local
+**** TODO Child :work:
+:PROPERTIES:
+:ID: child
+:END:
+child body

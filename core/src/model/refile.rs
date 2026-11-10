@@ -74,6 +74,7 @@ impl OrgRepo {
             let file_version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
             let mut ancestors: Vec<(usize, String)> = Vec::new();
             for (full_path, headline) in file.path_headlines() {
+                if super::OrgFile::is_conflict_headline(&headline) { continue; }
                 let level = headline.level();
                 while ancestors.last().is_some_and(|(depth, _)| *depth >= level) {
                     ancestors.pop();

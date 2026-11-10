@@ -137,7 +137,7 @@ struct RepoSnapshotWork {
     std::string task_json;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, Reset, History, HistoryDetail, Conflicts, File, FileMetadata, HistoryFile, ConflictCompare, ConflictResolve, LastEffectSync } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, Reset, History, HistoryDetail, Conflicts, File, FileMetadata, HistoryFile, LastEffectSync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -625,8 +625,6 @@ void ExecuteRepoSnapshot(napi_env, void* data)
     switch (work->operation) {
         case RepoSnapshotWork::Operation::LastEffectSync:
         case RepoSnapshotWork::Operation::HistoryFile:
-        case RepoSnapshotWork::Operation::ConflictCompare:
-        case RepoSnapshotWork::Operation::ConflictResolve:
             work->response = TakeRustString(org_tasks_harmony_repo_history_operation(work->workspace_handle,
                 work->root_directory.c_str(), work->task_json.c_str()));
             break;
@@ -692,8 +690,7 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
     } else {
         napi_value result;
         if (work->operation == RepoSnapshotWork::Operation::Load ||
-            work->operation == RepoSnapshotWork::Operation::Reset ||
-            work->operation == RepoSnapshotWork::Operation::ConflictResolve) {
+            work->operation == RepoSnapshotWork::Operation::Reset) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!ParseJson(env, work->response, &result)) {
@@ -1311,9 +1308,7 @@ napi_value RepoHistoryOperation(napi_env env, napi_callback_info info)
     napi_create_object(env, &request);
     napi_create_string_utf8(env, operation, NAPI_AUTO_LENGTH, &value);
     napi_set_named_property(env, request, "operation", value);
-    if (std::strcmp(operation, "resolve") == 0) {
-        napi_set_named_property(env, request, "request", args[0]);
-    } else if (std::strcmp(operation, "lastEffectSync") != 0) {
+    if (std::strcmp(operation, "lastEffectSync") != 0) {
         for (const char* key : {"syncId", "path"}) {
             if (napi_get_named_property(env, args[0], key, &value) != napi_ok) return nullptr;
             napi_set_named_property(env, request, key, value);
@@ -1328,7 +1323,7 @@ napi_value RepoHistoryOperation(napi_env env, napi_callback_info info)
     work->workspace_handle = repo->workspace_handle;
     work->root_directory = repo->root_directory;
     work->operation = std::strcmp(operation, "file") == 0 ? RepoSnapshotWork::Operation::HistoryFile
-        : std::strcmp(operation, "compare") == 0 ? RepoSnapshotWork::Operation::ConflictCompare : std::strcmp(operation, "lastEffectSync") == 0 ? RepoSnapshotWork::Operation::LastEffectSync : RepoSnapshotWork::Operation::ConflictResolve;
+        : RepoSnapshotWork::Operation::LastEffectSync;
     return QueueMergeWork(env, self, work);
 }
 
@@ -1542,8 +1537,6 @@ static napi_value Init(napi_env env, napi_value exports)
         {"history", nullptr, RepoHistory, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"lastEffectSync", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("lastEffectSync")},
         {"historyFile", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},
-        {"compareConflict", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("compare")},
-        {"resolveConflict", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("resolve")},
         {"historyDetail", nullptr, RepoHistoryDetail, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"files", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"fileMetadata", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
