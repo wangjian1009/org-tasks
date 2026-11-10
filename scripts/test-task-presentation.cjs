@@ -363,27 +363,29 @@ test('扁平标签完整匹配，不按名称前缀或分隔符推断级联关�
 const syncLogs = loadGrouping('SyncLogPresentation', {});
 function syncRecord(values = {}) {
   return { id: 'sync', started_at: 1, finished_at: 2, result: 'succeeded', executionResult: 'succeeded',
-    files: 2, downloadedFiles: 0, uploadedFiles: 0, errorMessage: null, conflicts: [], transfer: 'unchanged', pendingConflicts: 0, resolvedConflicts: 0,
+    files: 2, downloadedFiles: 0, uploadedFiles: 0, errorMessage: null, conflicts: [], transfer: 'unchanged',
     errorCategory: null, ...values };
 }
 
-test('无变化筛选保留失败与待处理冲突，切换全部时恢复原顺序和快照', () => {
+test('无变化筛选保留失败与冲突历史，切换全部时恢复原顺序和快照', () => {
   const records = [syncRecord(), syncRecord({ id: 'failure', executionResult: 'failed' }),
-    syncRecord({ id: 'conflict', pendingConflicts: 2 }), syncRecord({ id: 'transfer', transfer: 'download' })];
+    syncRecord({ id: 'conflict', conflicts: ['a.org', 'b.org'] }), syncRecord({ id: 'transfer', transfer: 'download' })];
   assert.deepEqual(syncLogs.visibleSyncLogs(records, false), records.slice(1));
   assert.equal(syncLogs.visibleSyncLogs(records, true), records);
   assert.equal(records.length, 4);
 });
 
-test('冲突与已解决互斥，同一次历史刷新后更新标签和行快照', () => {
-  const pending = syncRecord({ result: 'failed', pendingConflicts: 1, resolvedConflicts: 2 });
-  const resolved = syncRecord({ ...pending, pendingConflicts: 0, resolvedConflicts: 3 });
-  assert.equal(syncLogs.syncLogConflictLabel(pending), '冲突 1');
-  assert.equal(syncLogs.syncLogConflictLabel(resolved), '已解决 3');
-  assert.equal(syncLogs.syncLogConflictLabel(syncRecord()), '');
-  assert.equal(syncLogs.syncLogResultLabel(pending), '执行成功');
-  assert.equal(syncLogs.syncLogErrorLabel(pending), '');
-  assert.notEqual(syncLogs.syncLogRenderKey(pending), syncLogs.syncLogRenderKey(resolved));
+test('历史冲突按固定文件列表计数，重读快照不出现已解决标签', () => {
+  const conflict = syncRecord({ result: 'failed', conflicts: ['a.org', 'b.org', 'c.org'] });
+  const reread = syncRecord({ ...conflict, conflicts: [...conflict.conflicts] });
+  const next = syncRecord({ id: 'next-sync', conflicts: [] });
+  assert.equal(syncLogs.syncLogConflictLabel(conflict), '冲突 3');
+  assert.equal(syncLogs.syncLogConflictLabel(reread), '冲突 3');
+  assert.equal(syncLogs.syncLogConflictLabel(next), '');
+  assert.equal(syncLogs.syncLogResultLabel(conflict), '执行成功');
+  assert.equal(syncLogs.syncLogErrorLabel(conflict), '');
+  assert.equal(syncLogs.syncLogRenderKey(conflict), syncLogs.syncLogRenderKey(reread));
+  assert.notEqual(syncLogs.syncLogRenderKey(conflict), syncLogs.syncLogRenderKey(next));
 });
 
 test('方向与执行错误分别展示，网络失败不改写已完成的传输方向', () => {

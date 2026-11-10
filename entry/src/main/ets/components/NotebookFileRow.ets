@@ -7,11 +7,19 @@ import { UiColor } from '../ui/Theme'
 @Component
 export struct NotebookFileRow {
   @Prop file: CoreOrgFileMetadata
+  @Prop configRepoId: string = ''
   @Prop usages: FileTargetKind[] = []
 
+  openFile() {
+    this.getUIContext().getRouter().pushUrl({
+      url: this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
+      params: { repoId: this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
+    })
+  }
+
   build() {
-    FileItem({ file: this.file, usages: this.usages, status: this.file.hasConflict ? '冲突' : '', statusColor: UiColor.secondary, open: (): void => {
-      this.getUIContext().getRouter().pushUrl({ url: this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail', params: { repoId: this.file.repoId, path: this.file.path } })
-    } })
+    FileItem({ file: this.file, usages: this.usages, status: this.file.hasConflict ? '冲突' : '',
+      statusColor: UiColor.error, statusBackgroundColor: UiColor.conflictBadge,
+      open: (): void => { this.openFile() } })
   }
 }

@@ -10,6 +10,7 @@ export struct FileItem {
   @Prop usages: FileTargetKind[] = []
   @Prop status: string = ''
   @Prop statusColor: string = UiColor.secondary
+  @Prop statusBackgroundColor: string = UiColor.container
   open: () => void = () => {}
 
   usageColor(kind: FileTargetKind): string {
@@ -31,8 +32,9 @@ export struct FileItem {
           TitleText({ text: (this.file.title || '').trim() || this.file.path, parts: this.file.titleParts, lineLimit: 1 })
             .flexShrink(1).constraintSize({ minWidth: 0 })
           if (this.status.length > 0) {
-            Text(this.status).fontSize(11).fontColor(this.statusColor).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-              .backgroundColor(UiColor.container).borderRadius(8).margin({ left: 6 }).flexShrink(0)
+            Text(this.status).fontSize(12).lineHeight(16).fontWeight(FontWeight.Medium).maxLines(1).fontColor(this.statusColor)
+              .padding({ left: 6, right: 6, top: 2, bottom: 2 }).backgroundColor(this.statusBackgroundColor)
+              .border({ width: 1, color: this.statusColor }).borderRadius(6).margin({ left: 6 }).flexShrink(0)
           }
           if (this.usages.length > 0) {
             Row({ space: 4 }) {

@@ -86,7 +86,7 @@ struct Files {
                   }
                   ForEach(this.visibleFiles(group), (file: CoreOrgFileMetadata) => {
                     ListItem() {
-                      NotebookFileRow({ file, usages: fileUsageKinds(this.config, group.configId, file.path) })
+                      NotebookFileRow({ file, configRepoId: group.configId, usages: fileUsageKinds(this.config, group.configId, file.path) })
                     }
                   }, (file: CoreOrgFileMetadata) => JSON.stringify(file))
                 }

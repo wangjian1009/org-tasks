@@ -345,7 +345,7 @@ interface TitleCount {
 
 * 文件冲突与普通操作组
 
-移除 Repo 上的 compare／preview／resolve 专用冲突方法及相关 DTO；不再为手机构造专门差异展示数据。普通 ~OrgFile~ 对象增加只读 ~conflictIds: string[]~ ，Rust 从文件末尾容器读取 ~CONFILICT_ID~ ，C++ 必须在 N-API 类上注册同名只读属性并通过 ~OrgFileProperty~ 取得数组；没有可定位冲突点时返回空数组。该属性与类型声明及 ArkTS 读取保持一致，不能只保留 Rust JSON 字段而遗漏原生对象属性； ~hasConflict~ 根据真实节点标签取得，不解析旧文件头。
+Repo 不提供独立的网络比较／解决会话；文件读取与 Core ConflictPreview 对象提供当前完整内容、冲突描述及变化。普通 ~OrgFile~ 对象增加只读 ~conflictIds: string[]~ ，Rust 从文件末尾容器读取 ~CONFILICT_ID~ ，C++ 必须在 N-API 类上注册同名只读属性并通过 ~OrgFileProperty~ 取得数组；没有可定位冲突点时返回空数组。该属性与类型声明及 ArkTS 读取保持一致，不能只保留 Rust JSON 字段而遗漏原生对象属性； ~hasConflict~ 根据真实节点标签取得，不解析旧文件头。
 
 ~Workspace.executeTaskOperations~ 接受新增 ~{ type: 'ConfilictSelection', data: { id, action: 'discard' } }~ ，经原有结构化请求和 worker 进入 Core。 ~TaskConfilictSelection~ 的拼写保持约定，参数之外不携带同步 ID、来源正文或服务端比较会话。最终文件版本、完整回退和待上传意图由普通执行器统一生成。C++ 不实现新的合并算法。
 
@@ -399,7 +399,7 @@ TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复�
 
 ~Repo.reset(): Promise<void>~ 经 ~org_tasks_harmony_repo_reset~ 在既有 N-API async worker 调用 Core。worker 持有 Repo 至完成，异常拒绝 Promise；Rust bridge 成功后移除该仓库的内存操作回退快照。仓库 ID、配置 ID、凭据和远端保持不变，ArkTS 不删除文件或清理同步状态。
 
-文件元信息增加 ~hasConflict: boolean~ ，文件对象提供同名只读属性。Rust bridge 直接投影 ~OrgFile.has_conflict()~ ，N-API 与 ArkTS 不解析节点标签。存储库据此显示冲突状态并导航现有 ~ConflictFile~ 页；文件入口直接读取当前文件，顶部丢弃全部通过普通操作组提交；历史项仅为删除备份提供阅读。
+文件元信息增加 ~hasConflict: boolean~ ，文件对象提供同名只读属性。Rust bridge 直接投影 ~OrgFile.has_conflict()~ ，N-API 与 ArkTS 不解析节点标签。存储库据此显示醒目的冲突标签，并通过所属配置仓库 ID 导航唯一的 ~ConflictFile~ 页面；该页提供冲突列表与完整预览，finish 后通过普通操作组提交。历史项仅为删除备份提供阅读。
 
 * 历史列表展开接入
 

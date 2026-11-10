@@ -11,7 +11,7 @@ const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-St
 const sourcePath = { repoId: 'core', file: 'a.org', titles: [], occurrence: 1 };
 const nodePath = { ...sourcePath, titles: ['Task'] };
 const conflicts = ['first', 'second'].map(id => ({ id, title: id, reason: 'modify', availableActions: ['discard','useLocal'], suggestedTarget: { type: 'existing', data: nodePath }, requiresTarget: false }));
-function fixture() {
+function fixture(params = {repoId:'config',path:'a.org'}) {
   const filename = path.resolve('entry/src/main/ets/pages/ConflictFile.ets');
   const source = fs.readFileSync(filename,'utf8').split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State /g,'').replace('struct ConflictFile','class ConflictFile')+'}\nmodule.exports=ConflictFile;';
   const code = ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
@@ -79,7 +79,7 @@ function fixture() {
   const module={exports:{}};
   vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{assert.ok(name in dependencies,name);return dependencies[name];},module,module.exports);
   const page=new module.exports();
-  page.getUIContext=()=>({getHostContext:()=>({cacheDir:'/cache'}),showAlertDialog:dialog=>dialogs.push(dialog),getRouter:()=>({getParams:()=>({repoId:'config',path:'a.org'}),back:()=>{backs++;},async pushUrl(){}})});
+  page.getUIContext=()=>({getHostContext:()=>({cacheDir:'/cache'}),showAlertDialog:dialog=>dialogs.push(dialog),getRouter:()=>({getParams:()=>params,back:()=>{backs++;},async pushUrl(){}})});
   return {page,requests,dialogs,events,handles,config,creates:()=>creates,backs:()=>backs,fail:value=>failure=value,stageFail:value=>stageFailure=value,wait:value=>submitWait=value,replaceRepo:()=>coreId='other',externalEdit:()=>realFile=makeFile('core','a.org','external')};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -111,4 +111,24 @@ test('提交期间阻止重复应用和返回，丢弃全部需确认并校验�
 test('本地仓库提交不排队上传，取消预览不提交真实操作',async()=>{
  const f=fixture();f.config.repos[0].webdavEnabled=false;await f.page.load();await f.page.prepare(f.page.conflicts[0],'discard');await f.page.applyPreview();assert.deepEqual(f.requests.at(-1).queueRepoIds,[]);
  const g=fixture();await g.page.load();await g.page.prepare(g.page.conflicts[0],'useLocal');await g.page.leave();assert.equal(g.events.includes('submit'),false);assert.equal(g.backs(),1);
+});
+
+function repositoryRow(hasConflict) {
+ const filename=path.resolve('entry/src/main/ets/components/NotebookFileRow.ets');
+ const source=fs.readFileSync(filename,'utf8').split('  build()')[0].replace(/@Component\n|@Prop /g,'').replace('export struct NotebookFileRow','class NotebookFileRow')+'}\nmodule.exports=NotebookFileRow;';
+ const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const module={exports:{}};
+ vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(()=>({}),module,module.exports);
+ const row=new module.exports();
+ row.file={repoId:'core',path:'a.org',hasConflict};row.configRepoId='config';
+ let target;row.getUIContext=()=>({getRouter:()=>({pushUrl(value){target=value;}})});
+ row.openFile();return target;
+}
+test('仓库冲突文件使用配置 ID 打开唯一解决页，Core ID 与配置 ID 不同也能加载',async()=>{
+ const target=repositoryRow(true);
+ assert.equal(target.url,'pages/ConflictFile');assert.deepEqual(target.params,{repoId:'config',path:'a.org'});
+ const f=fixture(target.params);await f.page.load();assert.equal(f.page.message,'');assert.equal(f.page.conflicts.length,2);
+});
+test('仓库普通文件继续使用 Core ID 打开文件阅读页',()=>{
+ const target=repositoryRow(false);assert.equal(target.url,'pages/FileDetail');assert.deepEqual(target.params,{repoId:'core',path:'a.org'});
 });
