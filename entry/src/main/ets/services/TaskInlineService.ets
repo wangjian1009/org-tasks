@@ -16,8 +16,9 @@ export class TaskInlineService {
       queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
       fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
     })
-    const path = result.paths[0]
-    const updated = result.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(path))
+    const change = result.nodeChanges.find(item => item.operationIndex === 0 && item.before?.id === task.id) ||
+      result.nodeChanges.find(item => item.operationIndex === 0 && item.after)
+    const updated = change?.after ?? undefined
     if (!updated) throw new Error('修改已完成，但未取得最新任务，请重新打开列表')
     return updated
   }

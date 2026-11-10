@@ -511,6 +511,26 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
+        } else if (work->execute_operations) {
+            napi_value changes;
+            bool valid = napi_get_named_property(env, result, "nodeChanges", &changes) == napi_ok;
+            uint32_t length = 0;
+            valid = valid && napi_get_array_length(env, changes, &length) == napi_ok;
+            for (uint32_t index = 0; valid && index < length; index++) {
+                napi_value change;
+                valid = napi_get_element(env, changes, index, &change) == napi_ok;
+                if (!valid) break;
+                napi_value source_after;
+                valid = napi_get_named_property(env, change, "after", &source_after) == napi_ok;
+                if (!valid) break;
+                napi_valuetype after_type = napi_undefined;
+                valid = napi_typeof(env, source_after, &after_type) == napi_ok;
+                if (!valid || after_type == napi_null) continue;
+                napi_value after = CreateTaskObject(env, source_after);
+                valid = after != nullptr && napi_set_named_property(env, change, "after", after) == napi_ok;
+            }
+            if (valid) napi_resolve_deferred(env, work->deferred, result);
+            else RejectFileProjection(env, work->deferred);
         } else if (!work->notifications && !work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
             napi_value tasks;
             napi_value source_tasks = result;

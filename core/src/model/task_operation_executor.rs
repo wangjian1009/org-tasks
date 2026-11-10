@@ -22,7 +22,7 @@ impl OrgWorkspace {
     pub async fn execute_task_operations(
         &mut self,
         group: &TaskOperationGroup,
-    ) -> Result<TaskOperationResult, CoreError> {
+    ) -> Result<(), CoreError> {
         if group.operations.is_empty() {
             return Err(CoreError::InvalidInput("操作组不能为空"));
         }
@@ -80,9 +80,8 @@ impl OrgWorkspace {
             crate::webdav::transaction::recover(Path::new(root)).await?;
         }
         let mut files = load_files(self, group).await?;
-        let mut paths = Vec::new();
         for operation in &group.operations {
-            paths.push(execute(&mut files, operation)?);
+            execute(&mut files, operation)?;
         }
         let fallback = TaskFallbackGroup {
             files: files
@@ -124,7 +123,7 @@ impl OrgWorkspace {
         for repo_id in updated_repositories {
             super::sync_events::publish(self.repo(repo_id).expect("已验证仓库"));
         }
-        Ok(TaskOperationResult { paths, fallback })
+        Ok(())
     }
 }
 

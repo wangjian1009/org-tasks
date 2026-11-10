@@ -78,16 +78,19 @@ async fn task_operations_notify_only_after_changed_files_are_committed() {
 }
 
 #[tokio::test]
-async fn successful_groups_accumulate_exact_fallbacks_and_failed_group_does_not_publish() {
+async fn successful_groups_accumulate_history_and_failed_group_does_not_publish() {
     let source = "* TODO Original\r\nBody  \r\n";
     let mut f = Fixture::new(source).await;
-    let first = f
-        .workspace
+    f.workspace
         .execute_task_operations(&f.group("One"))
         .await
         .unwrap();
-    assert_eq!(first.fallback.files[0].before.as_deref(), Some(source));
-    assert_eq!(first.paths[0].as_ref().unwrap().titles, ["One"]);
+    assert_eq!(
+        f.workspace.task_operation_history.entries[0].fallback_group.files[0]
+            .before
+            .as_deref(),
+        Some(source)
+    );
     f.workspace
         .execute_task_operations(&f.group("Two"))
         .await
@@ -99,7 +102,7 @@ async fn successful_groups_accumulate_exact_fallbacks_and_failed_group_does_not_
         .push(TaskOperation::Deletion(TaskDeletion {
             path: TaskPath {
                 titles: vec!["Missing".into()],
-                ..first.paths[0].clone().unwrap()
+                ..f.workspace.repos()[0].files()[0].node_paths()[0].clone()
             },
         }));
     assert!(f.workspace.execute_task_operations(&invalid).await.is_err());

@@ -143,7 +143,9 @@ struct ShareLocation {
           queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
         }, this.config.todoDefaults)
-        this.updatedTask = result.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(result.paths[0]))
+        const change = result.nodeChanges.find(item => item.operationIndex === 0 && item.before?.id === task.id) ||
+          result.nodeChanges.find(item => item.operationIndex === 0 && item.after)
+        this.updatedTask = change?.after ?? undefined
         if (!this.updatedTask) throw new Error('无法读取更新后的任务')
       }
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext

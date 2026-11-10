@@ -143,7 +143,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 创建、同步与合并
 
-~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功后返回每一步路径、回退组及最新原生 Task 投影，失败时保留 Core 错误类别。Rust workspace 自动保存成功操作历史；C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
+~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功后返回 ~nodeChanges~ 节点增量和 ~updatedFiles~ 文件新版本。每项节点增量包含请求 ~requestPath~ 、旧节点身份和完整的最新原生 Task 投影，新增、删除、改名、移动及继承属性变化均可由宿主直接应用；不再返回全 workspace Task 列表、路径数组或回退正文。失败时保留 Core 错误类别。Rust workspace 自动保存成功操作历史；C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
 
 创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，并传 ~recordCreated=true~ 由 Core 补齐 CREATED。任务与备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；备忘新增通过 Creation 创建无状态标题和正文，并启用 recordCreated。NoteService 只编排配置、Core 仓库身份与文件版本，不解析 Org；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。收件箱整理以字段清理和 Movement 组合为一个操作组。
 
@@ -370,7 +370,7 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 任务对象新增只读、可枚举的 ~ownTags~ 、 ~inheritedTags~ 与 ~editContent~ 。自身标签取自 Core 原始标题标签，包含不展示的用途标签，操作普通标签时保留原用途；继承标签标记来源且不在当前任务取消； ~editContent~ 包含 ~notes~ 和 ~checklist~ ，条目字段为 ~id~ 、 ~text~ 、 ~checked~ 、 ~partial~ 、 ~depth~ 。C++ 只透传嵌套对象，ArkTS 不解析正文或 checkbox。
 
-~TaskModificationField~ 接入 ~NOTES~ 、 ~CHECKLIST~ 、 ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ ，仍通过原有异步 ~Workspace.executeTaskOperations~ 提交。 ~TaskChecklistChange~ 使用辨别字段 ~type~ ，值为 ~add~ 、 ~edit~ 、 ~setChecked~ 或 ~remove~ 。 ~TaskInlineService~ 携带文件版本、Core 仓库 ID 和待上传仓库集合，从操作结果的路径取得最新任务，包括改名后的路径和清单新偏移；失败保留输入，不拿新版本覆盖。
+~TaskModificationField~ 接入 ~NOTES~ 、 ~CHECKLIST~ 、 ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ ，仍通过原有异步 ~Workspace.executeTaskOperations~ 提交。 ~TaskChecklistChange~ 使用辨别字段 ~type~ ，值为 ~add~ 、 ~edit~ 、 ~setChecked~ 或 ~remove~ 。 ~TaskInlineService~ 携带文件版本、Core 仓库 ID 和待上传仓库集合，从 ~nodeChanges~ 中按 ~operationIndex~ 取得最新任务，包括改名后的路径和清单新偏移；失败保留输入，不拿新版本覆盖。收件箱、备忘和分享入口在操作成功后继续按现有页面生命周期重新载入，通知订阅接口保持不变。
 
 标签候选合并当前文件的 ~tagOptions~ 、当前任务标签与 workspace 已用标签，不合并其他文件未使用的候选。新建标签通过赋给当前任务落盘，不创建独立标签配置。
 

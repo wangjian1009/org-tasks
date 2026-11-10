@@ -26,7 +26,8 @@ def arguments():
 
 def files_under(root, control=False):
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*')
-            if p.is_file() and (control or '.sync' not in p.relative_to(root).parts)}
+            if p.is_file() and p.name != '.transaction.lock'
+            and (control or '.sync' not in p.relative_to(root).parts)}
 
 
 def bind(value, ids):
@@ -75,9 +76,10 @@ def run_case(binary, case, keep_failed):
             else:
                 assert completed.returncode == 0, completed.stderr
                 output = json.loads(completed.stdout)
+                assert 'nodeChanges' in output and 'updatedFiles' in output, '操作结果缺少节点增量或文件版本'
                 assert len(output['history']['entries']) == 1, '成功操作没有登记一次回退历史'
-                assert output['history']['entries'][0]['fallbackGroup'] == output['fallback']
-                for snapshot in output['fallback']['files']:
+                fallback = output['history']['entries'][0]['fallbackGroup']
+                for snapshot in fallback['files']:
                     name = next(k for k, v in ids.items() if v == snapshot['repoId'])
                     relative = name + '/' + snapshot['file']
                     assert (snapshot['before'].encode() if snapshot['before'] is not None else None) == before.get(relative), '回退快照与原始输入字节不符'

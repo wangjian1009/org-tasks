@@ -208,8 +208,8 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
             }
             let bytes = tokio::fs::read(args.operations).await.map_err(|e|format!("无法读取操作组: {e}"))?;
             let group: org_tasks_core::TaskOperationGroup = serde_json::from_slice(&bytes).map_err(|e|format!("操作组格式无效: {e}"))?;
-            let result = workspace.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
-            print_json(&serde_json::json!({"fallback": result.fallback, "paths": result.paths,
+            workspace.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
+            print_json(&serde_json::json!({
                 "history": workspace.task_operation_history, "nodes": task_nodes(&workspace)}))
         }
     }

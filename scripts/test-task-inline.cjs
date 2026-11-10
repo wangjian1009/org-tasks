@@ -29,7 +29,7 @@ function fixture() {
   const workspace={
     repos:async()=>[{id:'core',rootDirectory:'/repo',fileMetadata:async()=>[{path:'task.org',tagOptions:['configured']},{path:'other.org',tagOptions:['excluded']}]}],
     query:async()=>({tasks:[{tags:['used']}]}),
-    executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');return {paths:[updated.fullPath],tasks:[updated]};}
+    executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');return {nodeChanges:[{operationIndex:0,requestPath:task.fullPath,before:{id:task.id,taskId:task.taskId ?? null,fullPath:task.fullPath,repoId:task.repoId,filePath:task.filePath,sourceOffset:0},after:updated}],updatedFiles:[{repoId:'core',file:'task.org',version:'new'}]};}
   };
   const service=load('entry/src/main/ets/services/TaskInlineService.ets',{
     './AppConfigService':{AppConfigService:{load:async()=>config}},

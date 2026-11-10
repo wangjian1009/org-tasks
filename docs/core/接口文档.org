@@ -285,7 +285,7 @@ pub struct OrgRepoWriteIntent {
 }
 #+end_src
 
-所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。 ~TaskOperationResult.paths~ 与操作列表一一对应，每项是该步骤执行后的路径，删除为 ~None~ ； ~fallback~ 是整组实际变更文件的原始 before、after。成功历史自动追加到 ~OrgWorkspace.task_operation_history~ 。
+所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果通过 ~TaskOperationResult.node_changes~ 返回节点增量：每项包含对应操作的 ~operation_index~ 、请求中的 ~request_path~ 、可用于移除旧节点的 ~before~ 身份，以及提交后的完整 ~after~ 节点投影； ~before=None~ 表示新增， ~after=None~ 表示删除。标题改名、移动或继承属性变化影响的父子节点均列入结果。~updated_files~ 返回实际变更文件的新版本，供宿主更新同文件其他节点的乐观版本。回退正文只保存在 Core 的 ~TaskOperationHistory~ ，不进入操作结果。成功历史自动追加到 ~OrgWorkspace.task_operation_history~ 。
 
 *** SourcePosition 与 SourceRange
 

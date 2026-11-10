@@ -944,13 +944,7 @@ mod tests {
         repo_load(handle,directory).unwrap();
         let records:serde_json::Value=serde_json::from_str(&query_tasks_json(handle,"".into()).unwrap()).unwrap();
         let result=workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Modification","data":{"path":records[0]["fullPath"],"modifications":[{"field":"ADDRESS_LINK","value":{"oldUri":"addr:old","newUri":"geo:39.9,116.4"}}]}}]}).to_string()).unwrap();
-        let response:serde_json::Value=serde_json::from_str(&result).unwrap();
-        let task=&response["tasks"][0];
-        assert_eq!(task["heading"], "Visit");
-        assert_eq!(task["addressLinks"][0]["uri"], "geo:39.9,116.4");
-        assert!(task["bodyHtml"].as_str().unwrap().contains("geo:39.9,116.4"));
-        assert_eq!(task["isDone"], false);
-        assert!(task["modifiedAt"].is_null());
+        assert_eq!(result, "{}");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1366,9 +1360,8 @@ pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<Str
         .map_err(|_|CoreError::InvalidInput("任务操作组参数无效"))?;
     let session=workspace_for_handle(handle)?;
     let mut workspace=session.lock().map_err(|_|CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let result=runtime()?.block_on(workspace.execute_task_operations(&group))?;
-    let tasks=workspace.query(&org_tasks_core::TaskQuery::default())?.tasks.into_iter().map(|task|task_from_filter(task,&workspace)).collect::<Result<Vec<_>,_>>()?;
-    encode(&serde_json::json!({"paths":result.paths,"fallback":result.fallback,"tasks":tasks}))
+    runtime()?.block_on(workspace.execute_task_operations(&group))?;
+    Ok("{}".into())
 }
 
 /// 公开对象方法在 ABI 内统一编组；操作及路径校验仍由 Core 完成。

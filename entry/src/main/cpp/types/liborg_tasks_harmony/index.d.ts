@@ -40,9 +40,13 @@ export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Dele
 export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operations: TaskOperation[]; queueRepoIds?: string[]; fileVersions?: TaskFileVersion[]; }
-export interface TaskFileFallback { repoId: string; file: string; before: string | null; after: string; }
-export interface TaskFallbackGroup { files: TaskFileFallback[]; }
-export interface TaskOperationResult { paths: (TaskPath | null)[]; fallback: TaskFallbackGroup; tasks: Task[]; }
+export interface TaskNodeIdentity {
+  id: string; taskId: string | null; fullPath: TaskPath; repoId: string; filePath: string; sourceOffset: number;
+}
+export interface TaskNodeChange {
+  operationIndex: number; requestPath: TaskPath; before: TaskNodeIdentity | null; after: Task | null;
+}
+export interface TaskOperationResult { nodeChanges: TaskNodeChange[]; updatedFiles: TaskFileVersion[]; }
 
 export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; }
 export interface RefileTarget {
