@@ -23,6 +23,7 @@ fn remember_error(error: &CoreError) {
         CoreError::InvalidInput(_) => "invalidInput",
         CoreError::InvalidState(_) => "invalidState",
         CoreError::Store(_) => "store",
+        CoreError::Preview { code, .. } => code,
     };
     let value = serde_json::json!({
         "code": code,
@@ -438,4 +439,13 @@ pub extern "C" fn org_tasks_harmony_workspace_unwatch_data_changes(id:u64) {brid
 pub extern "C" fn org_tasks_harmony_workspace_reload(handle:u64)->i32 {
     clear_last_error();
     match bridge::workspace_reload(handle) {Ok(())=>0,Err(e)=>{remember_error(&e);-1}}
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_preview_operation(handle:u64, request:*const c_char)->*mut c_char {
+    string_result(read_c_string(request).and_then(|request|bridge::workspace_preview_operation(handle,request)))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_preview_release(handle:u64,id:*const c_char) {
+    if let Ok(id)=read_c_string(id) {bridge::release_preview(handle,&id);}
 }

@@ -38,7 +38,7 @@ impl Fixture {
             operations: ids
                 .iter()
                 .map(|id| {
-                    TaskOperation::ConfilictSelection(TaskConfilictSelection {
+                    TaskOperation::ConfilictSelection(TaskConfilictSelection { path:None, target:None,
                         id: id.clone(),
                         action: TaskConfilictAction::Discard,
                     })
@@ -151,7 +151,7 @@ async fn invalid_stale_or_duplicate_selections_leave_the_entire_group_unwritten(
     let mut unknown = f.group(&ids);
     unknown
         .operations
-        .push(TaskOperation::ConfilictSelection(TaskConfilictSelection {
+        .push(TaskOperation::ConfilictSelection(TaskConfilictSelection { path:None, target:None,
             id: "missing".into(),
             action: TaskConfilictAction::Discard,
         }));

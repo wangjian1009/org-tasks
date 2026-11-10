@@ -1452,7 +1452,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     assert!(!repo.has_local_changes().await.unwrap());
     let file = repo.file("a.org").unwrap();
     let group = crate::TaskOperationGroup {
-        operations: file.conflict_ids().into_iter().map(|id|crate::TaskOperation::ConfilictSelection(crate::TaskConfilictSelection{id,action:crate::TaskConfilictAction::Discard})).collect(),
+        operations: file.conflict_ids().into_iter().map(|id|crate::TaskOperation::ConfilictSelection(crate::TaskConfilictSelection{path:None,target:None,id,action:crate::TaskConfilictAction::Discard})).collect(),
         file_versions:vec![crate::TaskFileVersion{repo_id:repo.id.clone(),file:"a.org".into(),version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash}],
         queue_repo_ids:vec![repo.id.clone()],
     };

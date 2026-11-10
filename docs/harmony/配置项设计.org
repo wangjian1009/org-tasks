@@ -217,3 +217,7 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 * 重置本地目录的配置边界
 
 仓库重置只调用 ~Repo.reset~ ，保留 ~RepoConfig~ 、Asset Store 密码、入口文件绑定与原 Core 仓库 ID。它与“删除存储库”不同，不移除配置或凭据；绑定的文件重置后暂不存在，相关入口沿用已有缺失提示。确认目标使用保存配置中的根目录，未保存的目录草稿不得用于重置。重置不访问远端，下次同步重新建立本地基线。
+
+* 冲突预览缓存
+
+ConflictFile 进入时把 ~<cacheDir>/org-conflict-previews~ 作为 setPreviewRoot 参数传给同一长期 Workspace。它是运行时私有缓存位置，不增加 Preferences 配置项，不保存凭据或可恢复草稿。Core 验证其在全部仓库之外，通过 workspace 租约与 UUID 子目录维护临时文件；结束、取消或会话清理后删除，重启从真实源文件重新开始。临时身份固定为带尖括号的 ~<preview>~ ，不属于配置仓库 ID 或 Core 真实仓库 ID。

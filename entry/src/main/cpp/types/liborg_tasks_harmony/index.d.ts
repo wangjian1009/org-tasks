@@ -16,7 +16,7 @@ export interface AddressLink {
 }
 
 export interface CoreError extends Error {
-  readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge';
+  readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge' | 'previewUnavailable' | 'previewExpired' | 'previewVersionMismatch' | 'sourceVersionMismatch' | 'conflictTargetRequired' | 'invalidConflictTarget' | 'conflictDecisionRequired' | 'mixedPreviewOperation';
 }
 
 export interface TaskPath { repoId: string; file: string | null; titles: string[]; occurrence?: number; }
@@ -35,7 +35,7 @@ export interface TaskModification { field: TaskModificationField; value: string 
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }
-export interface TaskConfilictSelection { id: string; action: 'discard'; }
+export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
 export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
 export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
@@ -59,6 +59,11 @@ export class OrgFile {
   titleParts(): TitlePart[];
   sourceBytes(): Uint8Array;
   renderHtml(): string;
+  conflicts(): FileConflict[];
+  nodes(): Task[];
+  node(path: TaskPath): Task;
+  editableNodePaths(): TaskPath[];
+  insertionPositions(): TaskPosition[];
   readonly hasConflict: boolean;
   readonly conflictIds: string[];
 }
@@ -190,6 +195,9 @@ export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 export class Workspace {
   constructor();
   setTodoDefaults(settings: string): Promise<void>;
+  setPreviewRoot(root: string): Promise<void>;
+  createConflictPreview(request: ConflictPreviewRequest): Promise<ConflictPreview>;
+  fileAt(path: TaskPath): Promise<OrgFile>;
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
@@ -265,3 +273,31 @@ export function defaultSyncOptions(): Promise<SyncOptions>;
 export function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>;
 
 export interface HistoryFileTarget { syncId: string; path: string; resolved: boolean; }
+
+export type ConflictTarget = { type: 'existing'; data: TaskPath } | { type: 'insert'; data: TaskPosition } | { type: 'replaceMain' };
+export interface ConflictPreviewRequest { file: TaskPath; conflictId: string; sourceVersion: string; }
+export interface FileConflict {
+  id: string; title: string; reason: string; sourceRange: SourceRange;
+  availableActions: ('discard' | 'useLocal')[]; suggestedTarget: ConflictTarget | null; requiresTarget: boolean;
+}
+export interface ConflictPreviewDiffLine { kind: 'context' | 'added' | 'removed'; beforeLine: number | null; afterLine: number | null; text: string; }
+export interface ConflictPreviewChange {
+  kind: 'insert' | 'delete' | 'replace' | 'move'; area: 'main' | 'conflictMaterial';
+  before: SourceRange | null; after: SourceRange | null; beforePath: TaskPath | null; afterPath: TaskPath | null;
+  lines: ConflictPreviewDiffLine[];
+}
+export interface ConflictPreviewChanges { sourceVersion: string; previewVersion: string; changes: ConflictPreviewChange[]; }
+export interface ConflictPreviewFinishOptions { previewVersion: string; }
+export class ConflictPreview {
+  private constructor();
+  readonly id: string;
+  readonly fullPath: TaskPath;
+  readonly sourcePath: TaskPath;
+  readonly sourceVersion: string;
+  readonly conflictId: string;
+  file(): Promise<OrgFile>;
+  sourceFile(): Promise<OrgFile>;
+  changes(): Promise<ConflictPreviewChanges>;
+  finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>;
+  discard(): Promise<void>;
+}

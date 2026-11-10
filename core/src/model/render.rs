@@ -310,7 +310,7 @@ impl Traverser for ReadingView {
                 if self.2.is_some() => {}
             Event::Enter(Container::Headline(headline)) => {
                 let level = headline.level().min(6);
-                self.0.push_str(format!("<details class=\"heading level-{level}\" open><summary><span role=\"heading\" aria-level=\"{level}\" class=\"heading-title\">"));
+                self.0.push_str(format!("<details class=\"heading level-{level}\" data-org-start=\"{}\" data-org-end=\"{}\" id=\"org-node-{}\" open><summary><span role=\"heading\" aria-level=\"{level}\" class=\"heading-title\">", u32::from(headline.start()), u32::from(headline.end()),u32::from(headline.start())));
                 if let Some(todo) = headline.todo_keyword() {
                     let kind = if headline.is_done() {
                         "done"

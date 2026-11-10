@@ -8,6 +8,7 @@ pub type TimestampMs = i64;
 pub enum CoreError {
     InvalidInput(&'static str),
     Store(String),
+    Preview { code: &'static str, message: &'static str },
     InvalidState(&'static str),
 }
 
@@ -17,6 +18,7 @@ impl Display for CoreError {
             Self::InvalidInput(message) | Self::InvalidState(message) => {
                 formatter.write_str(message)
             }
+            Self::Preview { message, .. } => formatter.write_str(message),
             Self::Store(message) => write!(formatter, "存储操作失败: {message}"),
         }
     }

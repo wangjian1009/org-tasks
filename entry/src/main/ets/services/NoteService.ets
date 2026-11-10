@@ -35,6 +35,11 @@ export class NoteService {
   private static async execute(context: Context, note: CoreTask, operation: CoreTaskOperation): Promise<void> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    if (note.repoId === '<preview>') {
+      await workspace.executeTaskOperations({ operations: [operation], queueRepoIds: [],
+        fileVersions: [{ repoId: note.repoId, file: note.filePath, version: note.fileVersion }] })
+      return
+    }
     const repo = (await workspace.repos()).find(item => item.id === note.repoId)
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
     if (!repository) throw new Error('目标仓库不可用')

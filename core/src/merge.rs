@@ -1303,7 +1303,7 @@ fn property(headline: &Headline, key: &str) -> Option<String> {
             .map(|(_, v)| v.to_string())
     })
 }
-fn at_level(file: &OrgFile, source: &str, level: usize) -> Result<String, CoreError> {
+pub(crate) fn at_level(file: &OrgFile, source: &str, level: usize) -> Result<String, CoreError> {
     let syntax = fragment(file, source);
     let headlines = syntax
         .document()

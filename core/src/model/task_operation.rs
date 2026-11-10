@@ -136,14 +136,19 @@ pub struct TaskDeletion {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskConfilictSelection {
+    #[serde(default)]
+    pub path: Option<TaskPath>,
     pub id: String,
     pub action: TaskConfilictAction,
+    #[serde(default)]
+    pub target: Option<super::ConflictTarget>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TaskConfilictAction {
     Discard,
+    UseLocal,
 }
 
 /// 保存准确原文而非反向重建语义字段，以便未来按字节恢复。

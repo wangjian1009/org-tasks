@@ -1,5 +1,12 @@
 import {
   Repo as NativeRepo,
+  ConflictPreview as NativeConflictPreview,
+  ConflictPreviewRequest as NativeConflictPreviewRequest,
+  ConflictPreviewChanges as NativeConflictPreviewChanges,
+  ConflictPreviewChange as NativeConflictPreviewChange,
+  ConflictPreviewDiffLine as NativeConflictPreviewDiffLine,
+  ConflictTarget as NativeConflictTarget,
+  FileConflict as NativeFileConflict,
   TaskPath as NativeTaskPath,
   TaskFileVersion as NativeTaskFileVersion,
   TaskOperation as NativeTaskOperation,
@@ -42,6 +49,13 @@ import {
 } from 'liborg_tasks_harmony.so'
 import { RepoConfig, SyncOptions } from '../models/OrgTask'
 
+export type CoreConflictPreview = NativeConflictPreview
+export type CoreConflictPreviewRequest = NativeConflictPreviewRequest
+export type CoreConflictPreviewChanges = NativeConflictPreviewChanges
+export type CoreConflictPreviewChange = NativeConflictPreviewChange
+export type CoreConflictPreviewDiffLine = NativeConflictPreviewDiffLine
+export type CoreConflictTarget = NativeConflictTarget
+export type CoreFileConflict = NativeFileConflict
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
@@ -180,6 +194,9 @@ export class CoreWorkspace {
   }
 
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
+  async setPreviewRoot(root: string): Promise<void> { await this.native.setPreviewRoot(root) }
+  async createConflictPreview(request: CoreConflictPreviewRequest): Promise<CoreConflictPreview> { return await this.native.createConflictPreview(request) }
+  async fileAt(path: CoreTaskPath): Promise<CoreOrgFile> { return await this.native.fileAt(path) }
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async notifications(): Promise<CoreNotification[]> { return await this.native.notifications() }

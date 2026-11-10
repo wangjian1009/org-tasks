@@ -517,9 +517,9 @@ impl WebDavSyncPolicy {
 
 * 冲突接口与版本恢复
 
-冲突处理通过普通 ~OrgWorkspace.execute_task_operations~ 提交 ~TaskOperation::ConfilictSelection~ ，数据为 ~TaskConfilictSelection { id, action }~ 。 ~id~ 对应当前文件冲突点的 ~CONFILICT_ID~ ，本版 ~action~ 仅支持 ~Discard~ ，JSON 为 ~discard~ 。完整选择规则、文件末尾容器及提交边界见 [[file:同步核心设计.org][同步核心设计]]。不再公开独立的候选比较、结果预览和解决写入接口。
+冲突选择通过普通 ~OrgWorkspace.execute_task_operations~ 提交 ~TaskOperation::ConfilictSelection~ ，字段为文件根 path、id、action 与可选 target。id 对应 CONFILICT_ID，Discard 保留主树并移除候选，UseLocal 按受控目标采用候选。预览、结束后路径重写和真实提交规则见本文“冲突预览接口”与 [[file:同步核心设计.org][同步核心设计]]。
 
-~OrgFile.conflict_ids() -> Vec<String>~ 返回普通文件值对象中的定位信息；与 ~has_conflict()~ 、 ~source_bytes()~ 和 ~render_html()~ 一起供宿主读取，不提供专门差异展示 DTO。
+OrgFile.conflict_ids 与 conflicts 分别返回 ID 和结构化描述，普通文件读取仍包含完整冲突原文。当前／预览的变化由 Core 投影，宿主不解析 Org 或复制合并规则。
 
 * TODO 默认配置与文件元信息接口
 
@@ -701,7 +701,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 冲突通知判断只在 Rust 中执行： ~Workspace.notifications -> OrgRepo.notifications -> last_effect_sync~ 。新增同步提示取进程内状态，不能从 ~last_effect_sync~ 重建。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 
 
-~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调只携带 Core 仓库 ID，不携带任务快照。任务操作、同步提交、冲突解决、重置和显式 ~reload~ 成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~；失败、无实际变化与只读查询不发送。宿主必须异步重新查询，不能在回调中重入 workspace 锁。
+~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调只携带 Core 仓库 ID，不携带任务快照。任务操作、同步提交、冲突解决、重置和显式 ~reload~ 成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主必须异步重新查询，不能在回调中重入 workspace 锁。
 ~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 继续只服务通知区域，完整契约见下文。
 
 全局同步提示产生或清除使用 ~NotificationUpdate::GlobalNotificationsChanged~ ，不虚构仓库 ID，完整契约见 [[file:同步核心设计.org::*通知更新、模型与职责][同步核心设计]]。
@@ -749,4 +749,60 @@ impl OrgFile {
 历史结果在同步决策时写入 ~OrgRepoSyncFileRecord.outcome~ ，含 ~Created~ 、 ~Deleted~ 、 ~Unchanged~ 、 ~Updated~ 、 ~Merged~ 、 ~Conflict~ 、 ~Uploaded~ 、 ~Failed~ 、 ~Skipped~ ；旧字段缺失使用 ~Legacy~ 兼容推导。 ~history_detail~ 直接消费该结果，冲突结果固定为 ~Conflict~ ，不再存在 ~Resolved~ 投影。 ~Updated~ 表示远端改变、本地无变化， ~Merged~ 表示两端变化且自动合并完成， ~Uploaded~ 表示仅本地变化。
 
 ~WebDavSyncFileDetail.deleted_archive~ 保存删除前备份的 hash； ~history_file(sync_id, path, false)~ 可只读打开相应正文。备份材料和删除操作在同一仓库事务内提交，缺失或 hash 不符返回错误；不能据备份恢复远端存在状态。完整布局和保留规则见 [[file:同步核心设计.org::*远端删除备份][远端删除备份]]。 ~history_detail~ 的文件列表包含无变化项及其可用备份，供列表原地展开，不要求宿主另建详情页面。
-调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；成功只返回提交完成，宿主通过数据变化监听后重新读取最新投影。
+
+* 冲突预览接口
+
+完整规则见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]，字段见 [[file:数据模型.org::*冲突预览模型][数据模型]]。preview 不提供真实写回接口；finish 返回普通操作组，应用通过 execute_task_operations 提交。
+
+#+begin_src rust
+impl OrgWorkspace {
+    pub fn with_preview_root(self, root: PathBuf) -> Result<Self, CoreError>;
+    pub fn set_preview_root(&mut self, root: PathBuf) -> Result<(), CoreError>;
+    pub async fn create_conflict_preview(
+        &mut self, request: ConflictPreviewRequest,
+    ) -> Result<ConflictPreview, CoreError>;
+    pub async fn file_at(&self, path: &TaskPath) -> Result<OrgFile, CoreError>;
+}
+impl OrgFile {
+    pub fn conflicts(&self) -> Result<Vec<FileConflict>, CoreError>;
+    pub fn nodes(&self) -> Vec<FilterTask>;
+    pub fn node(&self, path: &TaskPath) -> Result<FilterTask, CoreError>;
+    pub fn editable_node_paths(&self) -> Vec<TaskPath>;
+    pub fn insertion_positions(&self) -> Vec<TaskPosition>;
+}
+impl ConflictPreview {
+    pub fn id(&self) -> &str;
+    pub fn source_path(&self) -> &TaskPath;
+    pub fn source_version(&self) -> &str;
+    pub fn conflict_id(&self) -> &str;
+    pub fn full_path(&self) -> TaskPath;
+    pub async fn file(&self) -> Result<OrgFile, CoreError>;
+    pub async fn source_file(&self) -> Result<OrgFile, CoreError>;
+    pub async fn changes(&self) -> Result<ConflictPreviewChanges, CoreError>;
+    pub async fn finish(
+        &self, options: ConflictPreviewFinishOptions,
+    ) -> Result<TaskOperationGroup, CoreError>;
+    pub async fn discard(&self) -> Result<(), CoreError>;
+}
+#+end_src
+
+file_at 从当前地址读取文件根快照，真实文件受仓库锁保护，临时地址只解析活动 UUID，不接受任意磁盘路径。节点读取包含普通无状态和已完成标题，排除冲突区；insertion_positions 由 Core 列举文件／标题首项及各直属节点之后的位置。
+
+创建校验 source_version 和真实文件存在性，再复制一次完整源字节；不能以 OrgRepo.file 的未落盘空对象代替磁盘源文件。临时操作必须带副本版本及显式冲突选择路径，不允许真实路径混入。每个成功临时组追加原操作，失败组不记录。
+
+finish 要求用户看到的 preview_version 与当前副本一致、已选择的点受控移除、未选择的点保持。它返回保持顺序且路径映射为 sourcePath 的 operations、创建时的真实 file_versions 和空 queue_repo_ids，同时结束副本。应用按当前配置填入 queue_repo_ids 后调用现有统一入口；真实版本校验、提交失败回滚、outbox、回退记录及事件仍遵循统一操作组契约。finish 不执行这些真实副作用。
+
+~render_html~ 的标题节点携带 data-org-start、data-org-end 与唯一文档内锚点，范围来自同一 Core 语法树。共享控件按文件版本关联变化，缺少精确正文块锚点时定位至最近标题并提供精确源行差异。
+
+| 错误 code | 条件 | 宿主行为 |
+|-
+| previewUnavailable | 私有目录不可用或与仓库重叠 | 保留源文件，提示重试 |
+| previewExpired | 旧 UUID、旧对象或配置代次变化 | 不回落至真实文件，重新创建 |
+| previewVersionMismatch | 临时操作或 finish 所见版本不是当前版本 | 重读活动副本 |
+| sourceVersionMismatch | 创建时源文件已变化或不存在 | 重读真实文件，明确重新创建 |
+| conflictTargetRequired | 缺少可靠自动目标 | 请求用户明确选择 |
+| invalidConflictTarget | 目标与原因不匹配 | 整组拒绝 |
+| conflictDecisionRequired | 选定点尚未处理或没有成功记录 | 禁止结束预览 |
+| mixedPreviewOperation | 临时组混入其他文件或上传意图 | 整组拒绝 |
+
+结束后真实提交沿用统一操作接口已有的版本与存储错误。应用保留返回组；原版本仍有效可重试，版本变化禁止覆盖。错误类别由 bridge 透传，不靠中文消息进行业务判断。

@@ -44,6 +44,12 @@ impl TaskPath {
 
     pub(crate) fn validate(&self) -> Result<(), CoreError> {
         super::validate_id(&self.repo_id, "仓库 ID 不能为空")?;
+        if self.repo_id == "<preview>" {
+            let id=self.file.as_ref().ok_or(CoreError::InvalidInput("预览路径必须指定创建 UUID"))?;
+            if !super::conflict_preview::valid_preview_id(id) { return Err(CoreError::InvalidInput("预览文件必须是创建 UUID")); }
+            if self.occurrence==0 || (self.titles.is_empty() && self.occurrence!=1) {return Err(CoreError::InvalidInput("路径出现序号无效"));}
+            return Ok(());
+        }
         if let Some(file) = &self.file {
             super::validate_relative_path(file)?;
             if !file.ends_with(".org") || file.split('/').any(|part| part == ".sync") {

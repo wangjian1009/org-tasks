@@ -3,6 +3,7 @@ use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
 pub(crate) mod conflict;
+mod conflict_preview;
 mod editor;
 mod data_changes;
 mod merge;
@@ -24,6 +25,7 @@ mod todo;
 mod workspace;
 pub(crate) mod write_intent;
 
+pub use conflict_preview::*;
 pub use editor::*;
 pub use data_changes::*;
 pub use merge::*;

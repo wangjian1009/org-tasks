@@ -337,6 +337,8 @@ pub struct TaskPosition {
 
 ~file=None~ 且标题链为空表示仓库；有文件且标题链为空表示文件；有标题链表示真实标题节点。路径标题保留从根到自身的全部祖先，使用剥离状态、优先级和标签后的标题原文，仅去除尾部空白，不剥离进度节点。相同完整标题链以文件原文中的 ~occurrence~ 区分，默认从 1 开始。路径使用稳定的 Core 仓库 ID，不使用宿主配置 ID；不把包含分隔符的标题再次拆分为层级。
 
+预览文件使用固定 ~repo_id="<preview>"~ 与本次创建 UUID 作为 file，其标题路径仍使用相同结构。它是临时文档地址而非仓库，详见本文“冲突预览模型”。
+
 ~TaskPosition.parent~ 指向文件或标题，不能指向仓库节点。 ~after=None~ 表示插入为第一个子节点，位于 parent 自身正文之后；非空时 after 必须是 parent 的直属子节点，插入在其完整子树之后。文件作为 parent 时对应顶层标题。移动不能以自身或后代作为 parent 或 after；不要求目标带 REFILE 标签，展示层仍可从放置目标列表选择位置。
 
 \begin{center}
@@ -824,12 +826,14 @@ pub struct TaskMovement {
 pub struct TaskDeletion { pub path: TaskPath }
 
 pub struct TaskConfilictSelection {
+    pub path: Option<TaskPath>,
     pub id: String,
     pub action: TaskConfilictAction,
+    pub target: Option<ConflictTarget>,
 }
 
 #[serde(rename_all = "camelCase")]
-pub enum TaskConfilictAction { Discard }
+pub enum TaskConfilictAction { Discard, UseLocal }
 
 /// 保存准确原文而非反向重建语义字段，以便未来按字节恢复。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1039,13 +1043,15 @@ path: String}{}
 
 当前文件尾部用一个自有 ~CONFLICT~ 标签的一级容器保存全部冲突点，每个直接子标题具有 ~CONFILICT_ID~ 定位属性和 ~#+CONFLICT_REASON:~ 关键字，可见后代或 example 块保存完整候选。 ~OrgFile.conflict_ids()~ 返回这些 ID， ~has_conflict()~ 根据真实标题标签取得标记；不生成额外文件头字段。
 
-~TaskConfilictSelection~ 作为普通 ~TaskOperation~ 变体提交，只携带 ID 和动作。本版 ~Discard~ 删除一个点，最后一点删除后移除容器及其生成分隔符。操作复用普通文件版本、提交、回退和 outbox，不接受历史同步 ID 或完整差异对象。其他动作后续再按原因扩展。
+~TaskConfilictSelection~ 作为普通 ~TaskOperation~ 变体提交，携带文件根 path、ID、动作与可选 target。Discard 移除候选，UseLocal 根据受控目标采用候选；最后一点删除后移除容器及其生成分隔符。操作复用普通文件版本、提交、回退和 outbox，不接受历史同步 ID 或任意完整文件字节。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
-\umlclass[x=0,y=0]{TaskConfilictSelection}{id: String \\
-action: TaskConfilictAction}{}
-\umlclass[x=8,y=0,type=enumeration]{TaskConfilictAction}{Discard}{}
+\umlclass[x=0,y=0]{TaskConfilictSelection}{path: Option\textless TaskPath\textgreater \\
+id: String \\
+action: TaskConfilictAction \\
+target: Option\textless ConflictTarget\textgreater}{}
+\umlclass[x=8,y=0,type=enumeration]{TaskConfilictAction}{Discard / UseLocal}{}
 \umlclass[x=0,y=-4,type=enumeration]{TaskOperation}{Creation / Modification \\
 Movement / Deletion \\
 ConfilictSelection}{}
@@ -1155,3 +1161,80 @@ pub enum TaskChecklistChange {
 \umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}
 \umldep{TaskChecklistChange}{TaskChecklistItem}
 \end{tikzpicture}
+
+* 冲突预览模型
+
+ConflictPreview 是 workspace 唯一活动对象，保存在仓库外的临时文件不注册为 OrgRepo。TaskPath 结构不变，临时文件使用 ~repo_id="<preview>"~ 与 ~file=UUID~ 定位；源路径及创建版本单独保存。预览的所有标题路径使用同一 UUID。
+
+#+begin_src rust
+pub struct ConflictPreviewRequest {
+    pub file: TaskPath,
+    pub conflict_id: String,
+    pub source_version: String,
+}
+pub struct ConflictPreviewFinishOptions { pub preview_version: String }
+pub enum ConflictTarget {
+    Existing(TaskPath), Insert(TaskPosition), ReplaceMain,
+}
+pub struct FileConflict {
+    pub id: String,
+    pub title: String,
+    pub reason: String,
+    pub source_range: SourceRange,
+    pub available_actions: Vec<TaskConfilictAction>,
+    pub suggested_target: Option<ConflictTarget>,
+    pub requires_target: bool,
+}
+pub struct ConflictPreviewChanges {
+    pub source_version: String,
+    pub preview_version: String,
+    pub changes: Vec<ConflictPreviewChange>,
+}
+pub struct ConflictPreviewChange {
+    pub kind: &'static str,
+    pub area: &'static str,
+    pub before: Option<SourceRange>,
+    pub after: Option<SourceRange>,
+    pub before_path: Option<TaskPath>,
+    pub after_path: Option<TaskPath>,
+    pub lines: Vec<ConflictPreviewDiffLine>,
+}
+pub struct ConflictPreviewDiffLine {
+    pub kind: &'static str,
+    pub before_line: Option<usize>,
+    pub after_line: Option<usize>,
+    pub text: String,
+}
+#+end_src
+
+内部 PreviewState 保存创建时 OrgFile、选定冲突 ID、当前 UUID、工作文件目录、配置代次与成功执行的 ~Vec<TaskOperation>~ 。完成对象缓存返回的操作组；同一最终版本重复 finish 不重复记录或提交。状态在 Active、Finished、Discarded 与失效之间变化。
+
+变化 kind 使用 insert／delete／replace，无法可靠确定的移动按源范围差异表达；area 为 main 或 conflictMaterial，行 kind 为 added／removed。所有源范围与标题锚点绑定两端版本。Rust 字段经 Serde 使用 camelCase，ConflictTarget 使用 ~{ type, data }~ 标签形式，ReplaceMain 没有 data。
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{OrgWorkspace}{repos: Vec\textless OrgRepo\textgreater \\
+preview: PreviewStore}{execute\_task\_operations(group)}
+\umlclass[x=8,y=0]{ConflictPreview}{id: UUID \\
+source\_path: TaskPath \\
+source\_version: String \\
+conflict\_id: String}{file(): OrgFile \\
+changes(): ConflictPreviewChanges \\
+finish(options): TaskOperationGroup \\
+discard()}
+\umlclass[x=0,y=-5]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\
+file\_versions: Vec\textless TaskFileVersion\textgreater \\
+queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
+\umlclass[x=8,y=-5]{PreviewState}{original: OrgFile \\
+operations: Vec\textless TaskOperation\textgreater \\
+working\_file: PathBuf}{}
+\umluniassoc[mult1=1,mult2=0..1]{OrgWorkspace}{ConflictPreview}
+\umldep{ConflictPreview}{PreviewState}
+\umldep{ConflictPreview}{TaskOperationGroup}
+\umldep{OrgWorkspace}{TaskOperationGroup}
+\end{tikzpicture}}
+\end{center}
+
+结束预览重写每个操作中的文件路径及位置引用，只保留真实源版本作为提交约束。操作顺序和标题路径保持，应用随后通过同一个数据修改接口提交。完整生命周期见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。

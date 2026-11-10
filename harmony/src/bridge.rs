@@ -15,6 +15,7 @@ use serde::Serialize;
 struct WorkspaceSession {
     workspace: Arc<Mutex<OrgWorkspace>>,
     references: usize,
+    previews: BTreeMap<String,org_tasks_core::ConflictPreview>,
 }
 
 #[derive(Default)]
@@ -57,6 +58,14 @@ pub struct HarmonyBridgeFile {
     pub title_parts: Vec<org_tasks_core::TitlePart>,
     #[serde(rename = "renderedHtml")]
     pub rendered_html: String,
+    pub conflicts: Vec<org_tasks_core::FileConflict>,
+    #[serde(rename="conflictError")]
+    pub conflict_error: Option<serde_json::Value>,
+    pub nodes: Vec<HarmonyBridgeTask>,
+    #[serde(rename="editableNodePaths")]
+    pub editable_node_paths: Vec<org_tasks_core::TaskPath>,
+    #[serde(rename="insertionPositions")]
+    pub insertion_positions: Vec<org_tasks_core::TaskPosition>,
 }
 
 #[derive(Debug, Serialize)]
@@ -240,6 +249,12 @@ fn task_from_filter(
         .repo(&repo_id)
         .and_then(|repo| repo.files().iter().find(|file| file.path == path))
         .ok_or(CoreError::InvalidState("任务文件不存在"))?;
+    task_from_file(task,file)
+}
+
+fn task_from_file(task:FilterTask,file:&org_tasks_core::OrgFile)->Result<HarmonyBridgeTask,CoreError> {
+    let repo_id=task.repo_id().to_owned();
+    let path=task.path().to_owned();
     let file_version =
         org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
     let task_id = task.task_id().map(str::to_owned);
@@ -318,6 +333,7 @@ pub fn create_workspace() -> Result<u64, CoreError> {
         WorkspaceSession {
             workspace: Arc::new(Mutex::new(workspace)),
             references: 1,
+            previews: BTreeMap::new(),
         },
     );
     Ok(handle)
@@ -605,6 +621,13 @@ pub fn repo_file_metadata_json(handle: u64, root_directory: String) -> Result<St
 }
 
 fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
+    let (conflicts,conflict_error)=match file.conflicts() {
+        Ok(conflicts)=>(conflicts,None),
+        Err(error)=>{
+            let code=match &error {CoreError::InvalidInput(_)=>"invalidInput",CoreError::InvalidState(_)=>"invalidState",CoreError::Store(_)=>"store",CoreError::Preview{code,..}=>code};
+            (Vec::new(),Some(serde_json::json!({"code":code,"message":error.to_string()})))
+        }
+    };
     Ok(HarmonyBridgeFile {
         full_path: file.full_path(),
         repo_id: file.repo_id.clone(),
@@ -621,6 +644,11 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         title: file.title(),
         title_parts: file.title_parts(),
         rendered_html: file.render_html(),
+        conflicts,
+        conflict_error,
+        nodes: file.nodes().into_iter().map(|task|task_from_file(task,file)).collect::<Result<Vec<_>,_>>()?,
+        editable_node_paths: file.editable_node_paths(),
+        insertion_positions:file.insertion_positions(),
     })
 }
 
@@ -1497,5 +1525,85 @@ mod reset_bridge_tests {
         assert_eq!(repo_history_json(handle, path).unwrap(), "[]");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// 活动对象行为仅在 ABI 中打包，所有语义与文件操作由 Core 执行。
+pub fn workspace_preview_operation(handle:u64,request:String)->Result<String,CoreError> {
+    #[derive(serde::Deserialize)]
+    #[serde(tag="operation",rename_all="camelCase",deny_unknown_fields)]
+    enum Request {
+        Configure {root:String},
+        Create {request:org_tasks_core::ConflictPreviewRequest},
+        FileAt {path:org_tasks_core::TaskPath},
+        #[serde(rename_all="camelCase")] File {preview_id:String},
+        #[serde(rename_all="camelCase")] SourceFile {preview_id:String},
+        #[serde(rename_all="camelCase")] Changes {preview_id:String},
+        #[serde(rename_all="camelCase")] Finish {preview_id:String,options:org_tasks_core::ConflictPreviewFinishOptions},
+        #[serde(rename_all="camelCase")] Discard {preview_id:String},
+    }
+    let request:Request=serde_json::from_str(&request).map_err(|_|CoreError::InvalidInput("预览请求参数无效"))?;
+    let session=workspace_for_handle(handle)?;
+    let mut workspace=session.lock().map_err(|_|CoreError::InvalidState("工作区锁不可用"))?;
+    let runtime=runtime()?;
+    match request {
+        Request::Configure {root}=>{workspace.set_preview_root(root.into())?;encode(&serde_json::json!({}))}
+        Request::Create {request}=>{
+            let preview=runtime.block_on(workspace.create_conflict_preview(request))?;
+            let value=serde_json::json!({"id":preview.id(),"sourcePath":preview.source_path(),"sourceVersion":preview.source_version(),"conflictId":preview.conflict_id(),"fullPath":preview.full_path()});
+            workspace_sessions().lock().map_err(|_|CoreError::InvalidState("会话锁不可用"))?.sessions.get_mut(&handle).ok_or(CoreError::InvalidState("工作区已关闭"))?.previews.insert(preview.id().into(),preview);
+            encode(&value)
+        }
+        Request::FileAt {path}=>encode(&file_snapshot(&runtime.block_on(workspace.file_at(&path))?)?),
+        request=>{
+            let id=match &request {Request::File{preview_id}|Request::SourceFile{preview_id}|Request::Changes{preview_id}|Request::Finish{preview_id,..}|Request::Discard{preview_id}=>preview_id,_=>unreachable!()};
+            let preview=workspace_sessions().lock().map_err(|_|CoreError::InvalidState("会话锁不可用"))?.sessions.get(&handle).and_then(|s|s.previews.get(id)).cloned().ok_or(CoreError::Preview{code:"previewExpired",message:"预览对象已释放"})?;
+            match request {
+                Request::File{..}=>encode(&file_snapshot(&runtime.block_on(preview.file())?)?),
+                Request::SourceFile{..}=>encode(&file_snapshot(&runtime.block_on(preview.source_file())?)?),
+                Request::Changes{..}=>encode(&runtime.block_on(preview.changes())?),
+                Request::Finish{options,..}=>encode(&runtime.block_on(preview.finish(options))?),
+                Request::Discard{..}=>{runtime.block_on(preview.discard())?;encode(&serde_json::json!({}))},
+                _=>unreachable!()
+            }
+        }
+    }
+}
+pub fn release_preview(handle:u64,id:&str) {
+    if let Ok(mut sessions)=workspace_sessions().lock() {if let Some(session)=sessions.sessions.get_mut(&handle) {session.previews.remove(id);}}
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+    fn request(handle:u64,value:serde_json::Value)->serde_json::Value {
+        serde_json::from_str(&workspace_preview_operation(handle,value.to_string()).unwrap()).unwrap()
+    }
+    #[test]
+    fn preview_objects_return_operations_and_only_data_interface_writes_repository() {
+        let root=std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("harmony-preview-{}-{}",std::process::id(),org_tasks_core::LocalFileVersion::from_bytes(format!("{:?}",std::time::SystemTime::now()).as_bytes()).content_hash));
+        std::fs::create_dir_all(root.join("repo")).unwrap();
+        let base="* TODO Work\n:PROPERTIES:\n:ID: work\n:END:\nbase\n";
+        let source=org_tasks_core::merge(base.as_bytes(),base.replace("base","local").as_bytes(),base.replace("base","remote").as_bytes()).unwrap();
+        std::fs::write(root.join("repo/a.org"),&source).unwrap();
+        let handle=create_workspace().unwrap();let directory=root.join("repo").to_str().unwrap().to_owned();workspace_add_repo(handle,directory.clone()).unwrap();
+        let file:serde_json::Value=serde_json::from_str(&repo_file_json(handle,directory.clone(),"a.org".into()).unwrap()).unwrap();
+        request(handle,serde_json::json!({"operation":"configure","root":root.join("cache")}));
+        let preview=request(handle,serde_json::json!({"operation":"create","request":{"file":file["fullPath"],"conflictId":file["conflictIds"][0],"sourceVersion":file["fileVersion"]}}));
+        assert_eq!(preview["fullPath"]["repoId"],"<preview>");assert_eq!(preview["fullPath"]["file"],preview["id"]);
+        let copied=request(handle,serde_json::json!({"operation":"file","previewId":preview["id"]}));
+        assert_eq!(copied["source"],file["source"]);assert_eq!(copied["nodes"][0]["repoId"],"<preview>");
+        let staged:serde_json::Value=serde_json::from_str(&workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"ConfilictSelection","data":{"path":preview["fullPath"],"id":preview["conflictId"],"action":"useLocal","target":copied["conflicts"][0]["suggestedTarget"]}}],"fileVersions":[{"repoId":"<preview>","file":preview["id"],"version":copied["fileVersion"]}]}).to_string()).unwrap()).unwrap();
+        assert_eq!(staged,serde_json::json!({}));assert_eq!(std::fs::read(root.join("repo/a.org")).unwrap(),source);
+        let edited=request(handle,serde_json::json!({"operation":"file","previewId":preview["id"]}));
+        assert_eq!(edited["nodes"][0]["repoId"],"<preview>");
+        let group=request(handle,serde_json::json!({"operation":"finish","previewId":preview["id"],"options":{"previewVersion":edited["fileVersion"]}}));
+        assert_eq!(std::fs::read(root.join("repo/a.org")).unwrap(),source);assert_eq!(group["operations"][0]["data"]["path"],file["fullPath"]);assert_eq!(group["fileVersions"][0]["version"],file["fileVersion"]);
+        assert_eq!(request(handle,serde_json::json!({"operation":"finish","previewId":preview["id"],"options":{"previewVersion":edited["fileVersion"]}})),group);
+        workspace_execute_task_operations(handle,group.to_string()).unwrap();
+        assert_eq!(std::fs::read(root.join("repo/a.org")).unwrap(),edited["source"].as_str().unwrap().as_bytes());
+        release_preview(handle,preview["id"].as_str().unwrap());
+        assert!(matches!(workspace_preview_operation(handle,serde_json::json!({"operation":"file","previewId":preview["id"]}).to_string()),Err(CoreError::Preview{code:"previewExpired",..})));
+        release_workspace(handle);std::fs::remove_dir_all(root).unwrap();
     }
 }

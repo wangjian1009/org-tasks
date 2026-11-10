@@ -1,0 +1,124 @@
+#+TITLE: 冲突预览与合并设计
+#+LANGUAGE: zh-CN
+#+OPTIONS: author:nil date:nil toc:2
+
+* 范围与状态
+
+文件阅读、历史备份和冲突解决共享全文预览控件。独立解决页提供冲突列表、采用本地／保留当前、目标选择、变化预览与任务编辑。Core 负责文件复制、操作执行与记录；结束预览返回操作组，由应用通过统一数据接口提交真实修改。
+
+类型见 [[file:数据模型.org::*冲突预览模型][数据模型]]，签名见 [[file:接口文档.org::*冲突预览接口][接口文档]]，布局见 [[file:../harmony/UI导航设计.org::*文件预览与逐点合并][界面设计]]。画板与功能清单已同步实现状态；硬件交互仍需设备验收。
+
+本版逐点确认：一个 preview 对应一个原文件和一个冲突点，记录该点的冲突取舍以及随后成功的普通编辑。应用后重新读取源文件与剩余冲突；其他点原样保留。切换冲突点重新复制最新源文件，不累计多个点尚未确认的决定。
+
+* 共享全文控件与界面
+
+~OrgFilePreviewView~ 复用 ~OrgContentView~ ，提供渲染／原文、连续文档版式、前言、目录、章节折叠、变化标记和版本化定位。页面提供完整内容快照、展示上下文与可选变化投影，不在控件内加载仓库或提交数据。
+
+冲突页主体为完整文件，底部“冲突列表”打开 35%／65% 面板；点击一项收起面板并创建预览。有稳定目标时默认展示采用本地的变化，否则先选择明确目标。底部保留“保留当前”“采用本地”和“应用此项”；整主树替换使用明确文案和二次确认。更多菜单保留丢弃全部及文档目录。
+
+“当前文件／合并预览”切换创建时的原快照和修改结果。渲染模式按 Core 的源锚点标记变化，删除附加旧内容；原文模式提供行号与增删文本，并保留完整原文。多个不连续变更可合并为首个至最后一个差异的范围，移动通过前后内容与范围变化阅读，不猜测节点对应关系。冲突材料移除单独投影，正文未变化时明确提示。
+
+在渲染预览中点击普通标题／正文选中对应节点，再点击“编辑此项”进入既有 TaskEdit／TaskEditor。普通保存仍走相同操作接口，返回后重读同一副本，不重新创建；冲突容器不能直接编辑。原文模式提供全文阅读与变化查看。
+
+* 唯一 preview、地址与实际文件
+
+** fullPath 约定
+
+一个 Core workspace 最多持有一个活动 preview，Harmony 应用复用一个长期 native workspace。TaskPath 结构保持不变，预览固定使用带尖括号的 ~repoId="<preview>"~ ， ~file~ 为本次创建生成的 UUID，标题链和 occurrence 沿用既有规则：
+
+#+begin_src json
+{
+  "repoId": "<preview>",
+  "file": "550e8400-e29b-41d4-a716-446655440000",
+  "titles": ["项目", "准备发布"],
+  "occurrence": 1
+}
+#+end_src
+
+~"<preview>"~ 是保留地址域，不是真实仓库。真实仓库不能使用此身份；预览地址不要求 file 以 .org 结尾，但必须是合法 UUID。空标题链表示预览文件根。Core 只解析当前槽位内的 UUID，旧 UUID、伪造路径、跨副本路径和与真实文件混合的操作全部拒绝，不回落到磁盘文件。UI 直接使用返回路径，不拼接地址。
+
+~sourcePath~ 单独保存真实仓库和原相对路径，供展示与结束预览时重写操作使用。预览文件的 OrgFile.path 是 UUID；页面始终展示 sourcePath，不向用户显示临时身份或绝对路径。
+
+** 实际存储与创建
+
+宿主通过 ~setPreviewRoot~ 提供私有缓存目录，当前为 ~<cacheDir>/org-conflict-previews~ 。Core 先验证其在全部仓库根目录之外，再创建目录，不接受符号链接路径；新增仓库也验证隔离。
+
+#+begin_example
+<preview_root>/workspace-<workspace_nonce>/
+├── .lease
+└── <preview_id>/working.org
+#+end_example
+
+每个 workspace 持有独立租约。Unix 平台只清理能够取得独占租约的旧 workspace 目录，不删除仍在使用的副本；退出时清理本会话材料。新建预览按统一顺序取得 preview 协调锁与源仓库锁，恢复未完成事务，从磁盘读取并校验真实文件版本与选定点，再逐字节写入一个 working.org。创建只复制一次完整文件，返回时没有应用任何取舍，BOM、CRLF/LF 和末尾状态保持。
+
+替换前先校验源文件。进入替换阶段后旧句柄立即失效；复制失败可使槽位为空，页面不能继续操作旧快照。副本不复制仓库、历史、基线或 outbox，不访问远端。
+
+* 操作执行与记录
+
+** 复用统一修改接口
+
+页面将预览 fullPath 交给 ~OrgWorkspace.execute_task_operations~ ，继续使用 Creation、Modification、Movement、Deletion 和 ConfilictSelection。一个操作组只能引用当前副本；所有版本约束使用 ~{ repoId: "<preview>", file: UUID, version }~ ， ~queueRepoIds~ 为空。Core 在隔离内存执行全部操作，成功保存副本后才记录原操作序列；失败整组不写副本，也不记录任何步骤。
+
+预览的读取与编辑内容沿用 OrgFile，位置选择使用 Core 提供的 ~editable_node_paths~ 与 ~insertion_positions~ ，不从全仓库查询中筛出临时任务。临时编辑不更新 OrgRepo.files、真实操作回退历史、全局通知、日历或同步提示。
+
+** 冲突选择
+
+~TaskConfilictSelection~ 增加文件根 path 与可选 target。新界面必须传 path；省略时仅为旧调用在真实仓库中定位，不搜索 preview。Discard 删除指定点并保留主树，界面称“保留当前”；UseLocal 受控采纳完整候选并移除该点。最后一点移除时一并清除容器及生成分隔符。
+
+| 原因 | UseLocal 行为 | 目标 |
+|-
+| modify | 用完整候选替换明确子树 | Existing |
+| delete | 删除明确主树节点 | Existing |
+| create | 插入完整本地新增子树 | Insert |
+| modify-missing、missing-parent | 恢复完整候选，不猜测原父级 | Insert |
+| reorder、structure | 经确认采用完整文件候选替换主树，保留其他点 | ReplaceMain |
+
+自动目标只按唯一 Org ID 匹配主树。现有候选没有完整保存旧父级和兄弟锚点，缺少稳定 ID 或身份重复时必须由用户明确选择，不能仅凭同名标题猜测。完整文件候选由 Core 解码并校验，旧冲突材料不导入新主树，材料不完整时仅允许保留当前。
+
+候选提取移除系统生成的包装，不按属性名前缀清理用户内容。其他冲突点、未涉及正文和换行保真保留。Core 记录同一副本中全部成功的冲突选择，创建时 conflictId 仅标记初始关注点；当前页面按点确认。普通修改仍不能改变候选区。
+
+* finish 返回操作组，由应用提交
+
+~finish({ previewVersion })~ 校验最终副本版本、已有冲突取舍且未选择的冲突材料未变，然后将成功记录的全部操作按原顺序重写路径：
+
+- 源操作 path、创建／移动的 parent 和 after、冲突选择的文件 path 与 target 内路径，都从当前预览地址映射为 sourcePath 的真实仓库／文件。
+- titles、occurrence、字段值、冲突 ID、动作与目标类型保持原值；不通过字符串替换修改正文。
+- 仅附带创建时真实源文件的 fileVersions；queueRepoIds 返回空，由应用按当前配置指定。
+
+完成后 Core 清理工作副本并使其不可编辑，同一对象以相同最终版本重复 finish 返回同一操作组。finish 不写原文件、outbox、基线或任何真实操作历史，不发布更新事件。discard 只丢弃副本，重复调用幂等，也不提交记录的操作。
+
+应用收到结果后调用原 ~executeTaskOperations~ 。这个调用按顺序在真实文件内重放全部选择和编辑，统一验证源版本、提交文件、登记 outbox、生成一次回退历史并发布更新。它不复制副本最终字节、不自动访问 WebDAV，也不改 remote_base 或既有同步历史。源文件变化时整组拒绝。
+
+结束后提交失败，页面保留已显示的内容、变化与返回操作组。源版本仍有效时可重试同一组，不重复 finish；版本变化时禁用应用，重新创建前明确确认放弃。提交成功后立即清除待提交组，后续刷新失败不会重复提交。其他点保留时通知继续存在；最后一点移除后通知自然消失。
+
+#+begin_src ts
+const preview = await workspace.createConflictPreview({
+  file: source.fullPath, conflictId, sourceVersion: source.fileVersion
+})
+const copied = await preview.file()
+await workspace.executeTaskOperations({
+  operations: [{ type: 'ConfilictSelection', data: {
+    path: copied.fullPath, id: conflictId, action: 'discard'
+  } }],
+  fileVersions: [{ repoId: '<preview>', file: preview.id, version: copied.fileVersion }],
+  queueRepoIds: []
+})
+const edited = await preview.file()
+const changes = await preview.changes()
+// 展示 edited 与 changes，等待用户点击“应用此项”。
+const group = await preview.finish({ previewVersion: edited.fileVersion })
+group.queueRepoIds = enabledRepoIds
+await workspace.executeTaskOperations(group)
+#+end_src
+
+* 生命周期、错误与隔离
+
+返回先关闭目录或底部面板；手动调整存在时确认放弃，再 discard 并离开。进入子编辑页不销毁 preview，真正退出才清理。原文件变化保留已显示的调整并禁用应用；普通读取失败可重试，错误不按中文字符串识别。异步响应校验请求代次与对象 ID，退出后的旧响应只能丢弃它自己的对象，不能影响后创建的副本。
+
+workspace 配置变化、源仓库移除或全局 TODO 规则改变使旧对象失效。应用重启不恢复预览草稿或已返回操作组，始终从真实文件重新开始。
+
+副本物理目录在仓库外，逻辑上也不加入 repos 或 OrgRepo.files，因此搜索、分类计数、REFILE、文件入口、仓库列表、日历、通知和同步天然看不到它。无需增加 UI 过滤或 .orgzlyignore 规则。
+
+* 验证边界
+
+验证覆盖逐字节复制、唯一 UUID 和旧句柄失效、租约隔离、保真丢弃、显式目标、失败操作不记录、其他冲突点保留、普通修改及创建／移动／删除的顺序与路径重写、finish 不写真实文件、统一提交及源版本保护。共享阅读验证目录和异步导航，页面验证结束后提交、失败重试与编辑返回不重建。构建同时检查 ArkTS、C++ 与 Rust 接入。

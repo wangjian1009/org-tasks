@@ -58,3 +58,9 @@ WebDAV 额外读取远端根目录的 ~.orgzlyignore~ ，校验 UTF-8 与规则�
 ~TaskOperationHistory~ 由 Core workspace 在内存中管理；每次成功操作组生成一个 ~TaskFallbackGroup~ ，保存实际变更文件的完整 before、after 原文与是否原先存在。它不写入同步历史、不生成持久化操作历史文件，也不参与 WebDAV。undo、redo 与重启恢复尚未实现。
 
 旧任务整理产生的 ~.sync/backups/task-edit-<nonce>/~ 目录不主动删除，但新接口不再创建该类备份；提交期间的同目录 rollback 文件仅用于恢复本次普通 I/O 失败。同步冲突与解决结果见 [[file:同步核心设计.org][同步核心设计]]。执行与失败边界见 [[file:接口文档.org::*统一任务操作组执行][统一任务操作组执行]] 。
+
+* 冲突预览临时文件
+
+workspace 由宿主提供独立 preview_root，Core 验证其在全部仓库根目录之外，在 ~<preview_root>/workspace-<workspace_nonce>/<preview_id>/working.org~ 保存唯一活动副本。workspace 通过 .lease 独占租约标记存活，支持的平台只清理已退出的会话目录。副本不加入 OrgRepo.files，不初始化仓库身份、同步目录或扫描规则，不能放在 .sync 或普通仓库目录内。
+
+逻辑定位为 ~{ repoId: "<preview>", file: UUID }~ ，原路径单独保存。finish 返回真实操作组并清理副本；真实修改仍由统一数据接口提交。详细契约见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。

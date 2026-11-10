@@ -9,7 +9,7 @@ import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
 // 复用只读文档的加载顺序；嵌入编辑内容时按实际内容高度参与页面滚动。
 @Component
 export struct OrgContentView {
-  @Prop fragment: string = ''
+  @Prop @Watch('documentChanged') fragment: string = ''
   @Prop empty: boolean = false
   @Prop embedded: boolean = false
   @Prop horizontalParentFirst: boolean = false
@@ -18,6 +18,7 @@ export struct OrgContentView {
   @Prop fileReading: boolean = false
   @Prop fileContext: string = ''
   controller: webview.WebviewController = new webview.WebviewController()
+  nodeActivated: ((index: number) => void) | undefined = undefined
   activate: (() => void) | undefined = undefined
   horizontalSwipe: (left: boolean) => void = () => {}
   private tapX: number = 0
@@ -30,6 +31,7 @@ export struct OrgContentView {
   @State error: string = ''
   @State chooserVisible: boolean = false
   @State mapChoices: MapAppChoice[] = []
+  private documentGeneration: number = 0
   private loadRequested: boolean = false
   private loaded: boolean = false
   private active: boolean = true
@@ -51,10 +53,21 @@ export struct OrgContentView {
   }
 
   async activateAt(x: number, y: number) {
-    if (!this.activate || !this.loaded || !this.active || this.widthVp <= 0) return
+    if ((!this.activate && !this.nodeActivated) || !this.loaded || !this.active || this.widthVp <= 0) return
+    const generation = this.documentGeneration
     try {
       const result = await this.controller.runJavaScript(`Boolean(document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp})?.closest('a, summary'))`)
+      if (generation !== this.documentGeneration) return
       if (this.active && result === 'false') this.activate?.()
+      if (this.active && this.nodeActivated) {
+        const selected = await this.controller.runJavaScript(`(() => {
+          const node = document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp});
+          if (!node || node.closest('a')) return -1;
+          return [...document.querySelectorAll('details.heading')].indexOf(node.closest('details.heading'));
+        })()`)
+        const index = Number(selected)
+        if (generation === this.documentGeneration && this.active && Number.isInteger(index) && index >= 0) this.nodeActivated?.(index)
+      }
     } catch (e) { /* 点击命中检查失败时保留阅读视图。 */ }
   }
 
@@ -68,7 +81,7 @@ export struct OrgContentView {
     this.chooserVisible = true
   }
 
-  aboutToDisappear() { this.active = false }
+  aboutToDisappear() { this.documentGeneration++; this.active = false }
 
   async measure() {
     if (!this.active || !this.embedded || !this.loaded || this.widthVp <= 0) return
@@ -85,6 +98,17 @@ export struct OrgContentView {
   reportError(error: CoreBridgeError) {
     this.error = `阅读视图加载失败：${coreErrorMessage(error)}`
     this.failed(this.error)
+  }
+
+  documentChanged() {
+    this.documentGeneration++
+    if (!this.active || !this.loaded) return
+    this.loaded = false
+    this.loadRequested = true
+    try {
+      this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
+        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext)), 'text/html', 'UTF-8')
+    } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 
   pageEnded() {

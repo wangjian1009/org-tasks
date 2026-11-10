@@ -158,7 +158,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 ~defaultSyncOptions~ 读取 Rust 默认配置； ~normalizeSyncOptions~ 接受数据对象，由 Rust 验证并返回规范化对象。Preferences 只保存外部配置，core 不读取宿主配置存储。
 
-冲突选择使用 ~Workspace.executeTaskOperations~ 的 ~ConfilictSelection~ 变体，不保留 Repo 上独立的比较或解决写入方法。当前冲突来自文件末尾容器，定位 ID 随普通文件对象返回。创建、普通修改和冲突选择都由 Core 处理文件版本、提交与 outbox。
+冲突选择使用 ~Workspace.executeTaskOperations~ 的 ~ConfilictSelection~ 变体，path 明确定位真实文件或当前 preview，动作包含 discard 与 useLocal。临时文件由 ConflictPreview 管理，其 finish 返回源路径操作组；真实提交继续通过同一个 Workspace.executeTaskOperations 完成。
 
 
 * 默认 TODO、查询与结果投影
@@ -416,3 +416,47 @@ readonly supportTags: SupportTags | null
 #+end_src
 
 标签窗口直接消费当前任务的 ~supportTags~ 、 ~ownTags~ 和 ~inheritedTags~ ，不再额外查询全部任务或补读文件元信息来拼接候选。任务已有但未列入候选的标签仍保留显示，便于删除；新建标签沿用现有 Core 写入接口，不修改候选配置。选择同一互斥组的另一项只替换当前任务自身的同组标签；父标题继承的互斥项不能在子任务删除或同时选择其同组项。
+
+* 冲突预览对象接入
+
+应用复用长期 Workspace，进入冲突页时通过异步 setPreviewRoot 提供私有缓存根目录，Core 验证隔离并管理副本与租约。字段和目标直接映射 [[file:../core/数据模型.org::*冲突预览模型][Core 类型]]，JSON 仅用于 ABI 内部编组，ArkTS 使用结构化对象。
+
+#+begin_src ts
+interface ConflictPreviewRequest {
+  file: TaskPath
+  conflictId: string
+  sourceVersion: string
+}
+interface ConflictPreviewFinishOptions { previewVersion: string }
+class ConflictPreview {
+  private constructor()
+  readonly id: string
+  readonly sourcePath: TaskPath
+  readonly sourceVersion: string
+  readonly conflictId: string
+  readonly fullPath: TaskPath
+  file(): Promise<OrgFile>
+  sourceFile(): Promise<OrgFile>
+  changes(): Promise<ConflictPreviewChanges>
+  finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>
+  discard(): Promise<void>
+}
+// Workspace 新增：
+// setPreviewRoot(root: string): Promise<void>
+// createConflictPreview(request: ConflictPreviewRequest): Promise<ConflictPreview>
+// fileAt(path: TaskPath): Promise<OrgFile>
+// OrgFile 新增：
+// conflicts(): FileConflict[]
+// nodes(): Task[]
+// node(path: TaskPath): Task
+// editableNodePaths(): TaskPath[]
+// insertionPositions(): TaskPosition[]
+#+end_src
+
+ConflictPreview 是原生活动对象，由 Rust session 绑定 Core 句柄，C++ 对象保留 workspace 引用。所有 I/O 通过 async work 在 worker 执行，finalizer 只释放句柄和引用，不隐式提交。旧 UUID 或对象返回 previewExpired，不映射为真实文件。OrgFile 仍为独立快照，节点、锚点、候选描述与变化全部由 Core 产生。
+
+预览 fullPath 使用固定 ~repoId="<preview>"~ 和 ~file=UUID~ 。临时 executeTaskOperations 与真实修改一样只返回 void；页面通过 preview.file 的节点方法显式重读副本，不查询全 workspace 来寻找它。NoteService 与任务编辑组件直接使用同一操作组和版本机制，临时保存不登记上传，也不要求匹配真实仓库配置。
+
+finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup。ConflictFile 按当前源仓库配置填 queueRepoIds，再调用既有 Workspace.executeTaskOperations；不增加另一个真实写入接口。结束后提交失败保留返回组与已显示快照，重试不再次 finish。原文件变化仍由统一数据接口版本约束拒绝。
+
+页面进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。

@@ -37,6 +37,8 @@ extern "C" char* org_tasks_harmony_repo_full_path(uint64_t handle, const char* r
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
 extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle, const char* query_json);
+extern "C" char* org_tasks_harmony_preview_operation(uint64_t handle, const char* request);
+extern "C" void org_tasks_harmony_preview_release(uint64_t handle, const char* id);
 extern "C" char* org_tasks_harmony_workspace_execute_task_operations(uint64_t handle, const char* request);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
@@ -66,6 +68,12 @@ struct OrgFileWrap {
     std::string source;
 };
 
+struct PreviewWrap {
+    napi_ref data = nullptr;
+    uint64_t handle = 0;
+    std::string id;
+};
+
 struct TaskWrap {
     napi_ref data = nullptr;
     bool is_done = false;
@@ -88,6 +96,7 @@ struct WebDavConnectionWork {
 };
 
 struct WorkspaceStringWork {
+    std::string preview_action;
     bool notifications = false;
     bool watch_notifications = false;
     bool watch_data_changes = false;
@@ -155,6 +164,7 @@ struct RepoSnapshotWork {
 
 napi_ref repo_constructor = nullptr;
 napi_ref file_constructor = nullptr;
+napi_ref preview_constructor = nullptr;
 napi_ref task_constructor = nullptr;
 
 bool ReadString(napi_env env, napi_value value, std::string* result)
@@ -482,10 +492,118 @@ extern "C" void org_tasks_harmony_data_change_monitor_release(uint64_t handle)
     if (watch != nullptr) napi_release_threadsafe_function(watch->function, napi_tsfn_release);
 }
 
+void FinalizePreview(napi_env env, void* data, void*)
+{
+    auto* preview = static_cast<PreviewWrap*>(data);
+    if (preview->handle != 0) {
+        org_tasks_harmony_preview_release(preview->handle, preview->id.c_str());
+        org_tasks_harmony_workspace_release(preview->handle);
+    }
+    if (preview->data != nullptr) napi_delete_reference(env, preview->data);
+    delete preview;
+}
+
+napi_value PreviewConstructor(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2; napi_value args[2], self, id;
+    auto* preview = new PreviewWrap();
+    bool retained = false;
+    bool valid = napi_get_cb_info(env, info, &argc, args, &self, nullptr) == napi_ok && argc == 2 &&
+        ReadHandle(env, args[1], &preview->handle) &&
+        napi_get_named_property(env, args[0], "id", &id) == napi_ok && ReadString(env, id, &preview->id);
+    if (valid) { retained = org_tasks_harmony_workspace_retain(preview->handle); valid = retained; }
+    if (valid) valid = napi_create_reference(env, args[0], 1, &preview->data) == napi_ok &&
+        napi_wrap(env, self, preview, FinalizePreview, nullptr, nullptr) == napi_ok;
+    if (!valid) {
+        if (!retained) preview->handle = 0;
+        FinalizePreview(env, preview, nullptr);
+        napi_throw_error(env, nullptr, "无法创建 ConflictPreview 对象"); return nullptr;
+    }
+    return self;
+}
+
+napi_value PreviewProperty(napi_env env, napi_callback_info info)
+{
+    napi_value self, data, value; void* property = nullptr; PreviewWrap* preview = nullptr;
+    if (napi_get_cb_info(env, info, nullptr, nullptr, &self, &property) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&preview)) != napi_ok || preview == nullptr ||
+        napi_get_reference_value(env, preview->data, &data) != napi_ok ||
+        napi_get_named_property(env, data, static_cast<const char*>(property), &value) != napi_ok) {
+        napi_throw_error(env, nullptr, "预览对象无效"); return nullptr;
+    }
+    return value;
+}
+
+napi_value CreatePreviewObject(napi_env env, napi_value data, uint64_t handle)
+{
+    napi_value constructor, result, args[2] = {data, nullptr};
+    if (napi_create_double(env, static_cast<double>(handle), &args[1]) != napi_ok ||
+        napi_get_reference_value(env, preview_constructor, &constructor) != napi_ok ||
+        napi_new_instance(env, constructor, 2, args, &result) != napi_ok) return nullptr;
+    return result;
+}
+
+napi_value OrgFileConflicts(napi_env env, napi_callback_info info)
+{
+    napi_value self, data, message, value; OrgFileWrap* file = nullptr; std::string error;
+    if (napi_get_cb_info(env, info, nullptr, nullptr, &self, nullptr) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&file)) != napi_ok || file == nullptr ||
+        napi_get_reference_value(env, file->data, &data) != napi_ok) return nullptr;
+    napi_valuetype error_type = napi_undefined;
+    if (napi_get_named_property(env, data, "conflictError", &message) == napi_ok &&
+        napi_typeof(env, message, &error_type) == napi_ok && error_type == napi_object) {
+        napi_value code_value, message_value; std::string code = "invalidState";
+        if (napi_get_named_property(env, message, "code", &code_value) == napi_ok) ReadString(env, code_value, &code);
+        if (napi_get_named_property(env, message, "message", &message_value) == napi_ok) ReadString(env, message_value, &error);
+        napi_throw_error(env, code.c_str(), error.c_str()); return nullptr;
+    }
+    if (napi_get_named_property(env, data, "conflicts", &value) != napi_ok) return nullptr;
+    return value;
+}
+
+bool SameTaskPath(napi_env env, napi_value a, napi_value b)
+{
+    for (const char* key : {"repoId", "file", "titles"}) {
+        napi_value av, bv; std::string as, bs;
+        if (napi_get_named_property(env, a, key, &av) != napi_ok || napi_get_named_property(env, b, key, &bv) != napi_ok ||
+            !EncodeJson(env, av, &as) || !EncodeJson(env, bv, &bs) || as != bs) return false;
+    }
+    napi_value av, bv; uint32_t ai = 1, bi = 1;
+    if (napi_get_named_property(env, a, "occurrence", &av) == napi_ok) napi_get_value_uint32(env, av, &ai);
+    if (napi_get_named_property(env, b, "occurrence", &bv) == napi_ok) napi_get_value_uint32(env, bv, &bi);
+    return ai == bi;
+}
+
+napi_value OrgFileNodes(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self, data, nodes, output; void* method = nullptr; OrgFileWrap* file = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, &method) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&file)) != napi_ok || file == nullptr ||
+        napi_get_reference_value(env, file->data, &data) != napi_ok ||
+        napi_get_named_property(env, data, "nodes", &nodes) != napi_ok) return nullptr;
+    const bool single = std::string(static_cast<const char*>(method)) == "node";
+    uint32_t length = 0; if (napi_get_array_length(env, nodes, &length) != napi_ok) return nullptr;
+    if (single && argc != 1) { napi_throw_error(env, nullptr, "node 需要完整路径"); return nullptr; }
+    if (!single && napi_create_array_with_length(env, length, &output) != napi_ok) return nullptr;
+    for (uint32_t i = 0; i < length; i++) {
+        napi_value node, path; if (napi_get_element(env, nodes, i, &node) != napi_ok) return nullptr;
+        if (single) {
+            if (napi_get_named_property(env, node, "fullPath", &path) == napi_ok && SameTaskPath(env, args[0], path)) return CreateTaskObject(env, node);
+        } else {
+            napi_value task = CreateTaskObject(env, node);
+            if (task == nullptr || napi_set_element(env, output, i, task) != napi_ok) return nullptr;
+        }
+    }
+    if (single) { napi_throw_error(env, nullptr, "标题路径已失效，请重新读取"); return nullptr; }
+    return output;
+}
+
 void ExecuteWorkspaceString(napi_env, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
-    if (work->watch_notifications) {
+    if (!work->preview_action.empty()) {
+        work->response = TakeRustString(org_tasks_harmony_preview_operation(work->handle, work->expression.c_str()));
+    } else if (work->watch_notifications) {
         uint64_t monitor = work->monitor_handle;
         work->monitor_handle = 0; // Rust 接管，即使注册失败也负责释放。
         work->subscription_id = org_tasks_harmony_workspace_watch_notifications(work->handle, monitor);
@@ -559,6 +677,12 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         } else if (work->execute_operations) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
+        } else if (!work->preview_action.empty()) {
+            napi_value projected = result;
+            if (work->preview_action == "create") projected = CreatePreviewObject(env, result, work->handle);
+            else if (work->preview_action == "file" || work->preview_action == "sourceFile" || work->preview_action == "fileAt") projected = CreateOrgFileObject(env, result);
+            if (projected != nullptr) napi_resolve_deferred(env, work->deferred, projected);
+            else RejectFileProjection(env, work->deferred);
         } else if (!work->notifications && !work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
             napi_value tasks;
             napi_value source_tasks = result;
@@ -1124,6 +1248,37 @@ napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksRefileTargets", self);
 }
 
+
+napi_value PreviewRequest(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self, request, name, id; void* data = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, &data) != napi_ok || data == nullptr) return nullptr;
+    const std::string operation(static_cast<const char*>(data));
+    auto* work = new WorkspaceStringWork(); work->preview_action = operation;
+    if (napi_create_object(env, &request) != napi_ok || napi_create_string_utf8(env, operation.c_str(), NAPI_AUTO_LENGTH, &name) != napi_ok ||
+        napi_set_named_property(env, request, "operation", name) != napi_ok) { delete work; return nullptr; }
+    const bool workspace_method = operation == "create" || operation == "configure" || operation == "fileAt";
+    if (workspace_method) {
+        WorkspaceWrap* workspace = nullptr;
+        if (argc != 1 || napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+            delete work; napi_throw_error(env, nullptr, "预览请求参数无效"); return nullptr;
+        }
+        work->handle = workspace->handle;
+        const char* field = operation == "create" ? "request" : operation == "configure" ? "root" : "path";
+        if (napi_set_named_property(env, request, field, args[0]) != napi_ok) { delete work; return nullptr; }
+    } else {
+        PreviewWrap* preview = nullptr;
+        if (napi_unwrap(env, self, reinterpret_cast<void**>(&preview)) != napi_ok || preview == nullptr ||
+            (operation == "finish" && argc != 1)) { delete work; napi_throw_error(env, nullptr, "预览对象或参数无效"); return nullptr; }
+        work->handle = preview->handle;
+        if (napi_create_string_utf8(env, preview->id.c_str(), NAPI_AUTO_LENGTH, &id) != napi_ok ||
+            napi_set_named_property(env, request, "previewId", id) != napi_ok ||
+            (operation == "finish" && napi_set_named_property(env, request, "options", args[0]) != napi_ok)) { delete work; return nullptr; }
+    }
+    if (!EncodeJson(env, request, &work->expression)) { delete work; napi_throw_error(env, nullptr, "预览参数无法编组"); return nullptr; }
+    return QueueWorkspaceString(env, work, "OrgTasksConflictPreview", self);
+}
+
 napi_value WorkspaceExecuteTaskOperations(napi_env env, napi_callback_info info)
 {
     WorkspaceWrap* workspace = nullptr; napi_value self; size_t argc = 1; napi_value args[1];
@@ -1575,6 +1730,11 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_create_reference(env, task_class, 1, &task_constructor);
     napi_set_named_property(env, exports, "Task", task_class);
     napi_property_descriptor file_descriptors[] = {
+        {"conflicts", nullptr, OrgFileConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nodes", nullptr, OrgFileNodes, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("nodes")},
+        {"node", nullptr, OrgFileNodes, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("node")},
+        {"insertionPositions", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("insertionPositions")},
+        {"editableNodePaths", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("editableNodePaths")},
         {"fullPath", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("fullPath")},
         {"fileVersion", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("fileVersion")},
         {"repoId", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("repoId")},
@@ -1593,6 +1753,23 @@ static napi_value Init(napi_env env, napi_value exports)
         sizeof(file_descriptors) / sizeof(file_descriptors[0]), file_descriptors, &file_class);
     napi_create_reference(env, file_class, 1, &file_constructor);
     napi_set_named_property(env, exports, "OrgFile", file_class);
+    napi_property_descriptor preview_descriptors[] = {
+        {"id", nullptr, nullptr, PreviewProperty, nullptr, nullptr, napi_default, const_cast<char*>("id")},
+        {"sourcePath", nullptr, nullptr, PreviewProperty, nullptr, nullptr, napi_default, const_cast<char*>("sourcePath")},
+        {"sourceVersion", nullptr, nullptr, PreviewProperty, nullptr, nullptr, napi_default, const_cast<char*>("sourceVersion")},
+        {"conflictId", nullptr, nullptr, PreviewProperty, nullptr, nullptr, napi_default, const_cast<char*>("conflictId")},
+        {"fullPath", nullptr, nullptr, PreviewProperty, nullptr, nullptr, napi_default, const_cast<char*>("fullPath")},
+        {"file", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},
+        {"sourceFile", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("sourceFile")},
+        {"changes", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("changes")},
+        {"finish", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("finish")},
+        {"discard", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("discard")},
+    };
+    napi_value preview_class;
+    napi_define_class(env, "ConflictPreview", NAPI_AUTO_LENGTH, PreviewConstructor, nullptr,
+        sizeof(preview_descriptors) / sizeof(preview_descriptors[0]), preview_descriptors, &preview_class);
+    napi_create_reference(env, preview_class, 1, &preview_constructor);
+    napi_set_named_property(env, exports, "ConflictPreview", preview_class);
     napi_value default_todo_settings;
     napi_create_function(env, "defaultTodoSettings", NAPI_AUTO_LENGTH, DefaultTodoSettings, nullptr, &default_todo_settings);
     napi_set_named_property(env, exports, "defaultTodoSettings", default_todo_settings);
@@ -1603,6 +1780,9 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_create_function(env, "normalizeSyncOptions", NAPI_AUTO_LENGTH, NormalizeSyncOptions, nullptr, &normalize_sync_options);
     napi_set_named_property(env, exports, "normalizeSyncOptions", normalize_sync_options);
     napi_property_descriptor workspace_descriptors[] = {
+        {"setPreviewRoot", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("configure")},
+        {"createConflictPreview", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("create")},
+        {"fileAt", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("fileAt")},
         {"setTodoDefaults", nullptr, WorkspaceSetTodoDefaults, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},

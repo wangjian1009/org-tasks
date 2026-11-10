@@ -8,7 +8,7 @@ use super::write_intent::{read_optional, write_new};
 use super::*;
 use crate::CoreError;
 
-type FileKey = (OrgRepoId, String);
+pub(super) type FileKey = (OrgRepoId, String);
 
 struct WorkingFile {
     disk: PathBuf,
@@ -23,6 +23,9 @@ impl OrgWorkspace {
         &mut self,
         group: &TaskOperationGroup,
     ) -> Result<(), CoreError> {
+        if super::conflict_preview::has_preview_path(group) {
+            return self.execute_preview_operations(group).await;
+        }
         if group.operations.is_empty() {
             return Err(CoreError::InvalidInput("操作组不能为空"));
         }
@@ -35,7 +38,7 @@ impl OrgWorkspace {
         for operation in &group.operations {
             match operation {
                 TaskOperation::ConfilictSelection(data) => {
-                    touched.insert(selection_path(self, &data.id)?.repo_id);
+                    touched.insert(selection_path(self, data)?.repo_id);
                 }
                 TaskOperation::Creation(data) => {
                     touched.insert(data.position.parent.repo_id.clone());
@@ -127,7 +130,13 @@ impl OrgWorkspace {
     }
 }
 
-fn selection_path(workspace: &OrgWorkspace, id: &str) -> Result<TaskPath, CoreError> {
+fn selection_path(workspace: &OrgWorkspace, data: &TaskConfilictSelection) -> Result<TaskPath, CoreError> {
+    if let Some(path) = &data.path {
+        path.validate()?;
+        if !path.titles.is_empty() || path.file.is_none() { return Err(CoreError::InvalidInput("冲突选择必须指定文件根路径")); }
+        return Ok(path.clone());
+    }
+    let id = &data.id;
     let paths = workspace
         .repos()
         .iter()
@@ -159,7 +168,7 @@ async fn load_files(
     for operation in &group.operations {
         let (source, position) = match operation {
             TaskOperation::ConfilictSelection(data) => {
-                keys.insert(key(&selection_path(workspace, &data.id)?)?);
+                keys.insert(key(&selection_path(workspace, data)?)?);
                 (None, None)
             }
             TaskOperation::Creation(data) => (None, Some(&data.position)),
@@ -224,7 +233,7 @@ async fn load_files(
     Ok(files)
 }
 
-async fn checked_disk(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
+pub(super) async fn checked_disk(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
     let root = fs::canonicalize(root).await.map_err(store_error)?;
     let mut disk = root;
     let parts = path.split('/').collect::<Vec<_>>();
@@ -252,7 +261,7 @@ async fn checked_disk(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
     Ok(disk)
 }
 
-fn locate(file: &OrgFile, path: &TaskPath) -> Result<Headline, CoreError> {
+pub(super) fn locate(file: &OrgFile, path: &TaskPath) -> Result<Headline, CoreError> {
     let headline = file
         .path_headlines()
         .into_iter()
@@ -274,8 +283,8 @@ fn end(headline: &Headline) -> usize {
     u32::from(headline.end()) as usize
 }
 
-fn position(file: &OrgFile, request: &TaskPosition) -> Result<(usize, usize), CoreError> {
-    if key(&request.parent)? != (file.repo_id.clone(), file.path.clone()) {
+pub(super) fn position(file: &OrgFile, request: &TaskPosition) -> Result<(usize, usize), CoreError> {
+    if key(&request.parent)? != key(&file.full_path())? {
         return Err(CoreError::InvalidInput("目标位置不属于当前文件"));
     }
     let parent = if request.parent.titles.is_empty() {
@@ -400,17 +409,14 @@ fn execute_inner(
         TaskOperation::ConfilictSelection(data) => {
             let keys = files
                 .iter()
-                .filter(|(_, item)| item.file.conflict_ids().iter().any(|id| id == &data.id))
+                .filter(|((repo_id, path), item)| data.path.as_ref().is_none_or(|p| &p.repo_id == repo_id && p.file.as_ref() == Some(path)) && item.file.conflict_ids().iter().any(|id| id == &data.id))
                 .map(|(key, _)| key.clone())
                 .collect::<Vec<_>>();
             if keys.len() != 1 {
                 return Err(CoreError::InvalidInput("冲突点不存在或 ID 重复，请刷新"));
             }
             let item = files.get_mut(&keys[0]).unwrap();
-            match data.action {
-                TaskConfilictAction::Discard => super::conflict::discard(&mut item.file, &data.id)?,
-            }
-            Ok(None)
+            super::conflict::select(&mut item.file, data)
         }
         TaskOperation::Creation(data) => {
             let item = files
@@ -652,7 +658,7 @@ fn execute_inner(
     }
 }
 
-fn path_at(file: &OrgFile, offset: usize) -> Result<TaskPath, CoreError> {
+pub(super) fn path_at(file: &OrgFile, offset: usize) -> Result<TaskPath, CoreError> {
     file.path_headlines()
         .into_iter()
         .find(|(_, node)| start(node) == offset)
@@ -1547,4 +1553,14 @@ mod tests {
             fs::remove_dir_all(root).await.unwrap();
         }
     }
+}
+
+/// 临时文件复用完整操作执行器，但不提交仓库或广播更新。
+pub(super) fn edit_preview(file: OrgFile, group: &TaskOperationGroup) -> Result<OrgFile, CoreError> {
+    let file_key = key(&file.full_path())?;
+    let mut files = BTreeMap::from([(file_key.clone(), WorkingFile {
+        disk: PathBuf::new(), original: None, exists: true, file,
+    })]);
+    for operation in &group.operations { execute(&mut files, operation)?; }
+    Ok(files.remove(&file_key).unwrap().file)
 }

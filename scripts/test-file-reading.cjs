@@ -29,7 +29,7 @@ const presentation = load(base + 'ui/OrgDocumentPresentation.ets', { './Theme': 
 function fixture() {
   const calls = [], toasts = [];
   let evaluate = async () => JSON.stringify({ chapters: [{ index: 0, level: 1, title: '章节' }], activeIndex: 0 });
-  const { FileDetail } = load(base + 'pages/FileDetail.ets', {
+  const { FileDetail } = load(base + 'components/OrgFilePreviewView.ets', {
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
     '@kit.ArkWeb': { webview: { WebviewController: class { async runJavaScript(script) { calls.push(script); return evaluate(script); } } } },
     '../services/AppConfigService': {},
@@ -38,9 +38,10 @@ function fixture() {
     '../ui/SyncLogPresentation': {},
     '../ui/Theme': theme,
     '../ui/OrgDocumentNavigation': navigation
-  }, source => source.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State /g, '')
-    .replace('struct FileDetail', 'class FileDetail') + '}\nmodule.exports = { FileDetail };');
+  }, source => source.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    .replace('export struct OrgFilePreviewView', 'class FileDetail') + '}\nmodule.exports = { FileDetail };');
   const page = new FileDetail();
+  page.aboutToAppear();
   page.loading = false;
   page.renderReady = true;
   page.getUIContext = () => ({ getPromptAction: () => ({ showToast: toast => toasts.push(toast.message) }) });
@@ -55,7 +56,7 @@ test('目录读取当前快照，跳转成功后关闭面板', async () => {
   f.evaluate(async () => 'true');
   await f.page.openChapter(f.page.chapters[0]);
   assert.equal(f.page.outlineVisible, false);
-  assert.equal(f.page.message, '');
+  assert.equal(f.page.content, '');
 });
 
 test('兼容 Web 引擎对目录字符串进行 JSON 二次编码', async () => {
@@ -71,7 +72,7 @@ test('离开页面后迟到的目录读取不会重新打开面板', async () =>
   let complete;
   f.evaluate(() => new Promise(resolve => { complete = resolve; }));
   const pending = f.page.openOutline();
-  f.page.onPageHide();
+  f.page.aboutToDisappear();
   complete(JSON.stringify({ chapters: [{ index: 4, level: 2, title: '旧文件' }], activeIndex: 4 }));
   await pending;
   assert.equal(f.page.outlineVisible, false);
@@ -97,11 +98,11 @@ test('定位失败保留正文和目录供重试，返回键只关闭面板', as
   f.evaluate(async () => 'false');
   await f.page.openChapter(f.page.chapters[0]);
   assert.equal(f.page.outlineVisible, true);
-  assert.equal(f.page.message, '');
+  assert.equal(f.page.content, '');
   assert.match(f.toasts[0], /目录已失效/);
-  assert.equal(f.page.onBackPress(), true);
+  assert.equal(f.page.navigation.closePanel(), true);
   assert.equal(f.page.outlineVisible, false);
-  assert.equal(f.page.onBackPress(), false);
+  assert.equal(f.page.navigation.closePanel(), false);
 });
 
 test('最新目录请求优先；旧章节跳转不修改新文件状态', async () => {
@@ -115,7 +116,7 @@ test('最新目录请求优先；旧章节跳转不修改新文件状态', async
   await first;
   assert.deepEqual(f.page.chapters, []);
   const jump = f.page.openChapter({ index: 0, level: 1, title: '旧章节' });
-  f.page.onPageHide();
+  f.page.aboutToDisappear();
   pending[2]('true');
   await jump;
   assert.equal(f.page.activeChapter, -1);

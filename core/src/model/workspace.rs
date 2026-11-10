@@ -9,6 +9,7 @@ pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
     pub todo_defaults: TodoConfig,
     pub task_operation_history: super::TaskOperationHistory,
+    pub(crate) preview: super::conflict_preview::PreviewStore,
 }
 
 impl OrgWorkspace {
@@ -18,11 +19,14 @@ impl OrgWorkspace {
             repos,
             todo_defaults: TodoConfig::default(),
             task_operation_history: Default::default(),
+            preview: Default::default(),
         })
     }
 
     pub fn set_todo_defaults(&mut self, defaults: TodoConfig) -> Result<(), CoreError> {
         defaults.validate()?;
+        if self.todo_defaults == defaults { return Ok(()); }
+        self.preview.invalidate();
         let mut repos = self.repos.clone();
         for repo in &mut repos {
             repo.set_todo_defaults(defaults.clone())?;
@@ -57,6 +61,7 @@ impl OrgWorkspace {
     }
 
     pub fn add_repo(&mut self, mut repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError> {
+        self.preview.validate_repo(&repo)?;
         repo.set_todo_defaults(self.todo_defaults.clone())?;
         let mut repositories = self.repos.clone();
         repositories.push(repo.clone());
@@ -74,6 +79,7 @@ impl OrgWorkspace {
             .iter()
             .position(|repo| repo.root_directory == root_directory)
             .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+        self.preview.invalidate();
         Ok(self.repos.remove(index))
     }
 }
@@ -87,6 +93,7 @@ fn validate_repositories(repos: &[OrgRepo]) -> Result<(), CoreError> {
             return Err(CoreError::InvalidInput("仓库根目录必须唯一"));
         }
         if !repo.id.is_empty() {
+            if repo.id == "<preview>" { return Err(CoreError::InvalidInput("仓库 ID 不能使用 <preview> 保留身份")); }
             validate_id(&repo.id, "仓库 ID 不能为空")?;
             if repos[..index]
                 .iter()

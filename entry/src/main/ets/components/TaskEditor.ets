@@ -43,9 +43,9 @@ export struct TaskEditor {
     } else {
       Scroll() {
         Column() {
-          Text([this.task!.filePath, ...this.parents].join('  /  ')).fontSize(14).fontColor(UiColor.primary).width('100%')
+          Text(this.task!.repoId === '<preview>' ? '合并预览 · 调整尚未应用' : [this.task!.filePath, ...this.parents].join('  /  ')).fontSize(14).fontColor(UiColor.primary).width('100%')
             .padding({ left: 16, right: 16, top: 20, bottom: 12 })
-            .enabled(!this.editable && !this.disabled)
+            .enabled(!this.editable && !this.disabled && this.task!.repoId !== '<preview>')
             .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail', params: { repoId: this.task!.repoId, path: this.task!.filePath } }) })
           if (this.editable) {
             TextInput({ text: this.headingValue, placeholder: '标题' })
