@@ -38,6 +38,7 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 #+begin_src ts
 class Workspace {
   executeTaskOperations(group: TaskOperationGroup): Promise<void>
+  taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>
   constructor()
   setTodoDefaults(settings: string): Promise<void>
   repos(): Promise<Repo[]>
@@ -149,6 +150,10 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 * 创建、同步与合并
 
 ~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功只返回 ~void~ ，失败时以 Promise rejection 传播 Core 错误。仓库数据变化由独立 ~watchDataChanges~ 订阅转发，C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
+
+收件箱合并调用 ~Workspace.taskMergeOperations({ paths, fileVersion })~ ，paths 保持用户选择顺序。C++ 在工作线程调用 Rust ABI ~org_tasks_harmony_workspace_task_merge_operations~ ，返回 Core 生成的 ~TaskMergePlan { operationGroup, mainPath }~ 。该操作组只含现有的 Deletion 与 Modification，不新增操作种类，也不创建编辑会话或预览界面。
+
+~InboxService~ 先验证当前收件箱配置，加载对应仓库取得稳定 Core 身份，再请求操作组；仅补充 ~queueRepoIds~ ，随后通过原 ~Workspace.executeTaskOperations~ 一组提交。页面直接显示选择顺序与目标标题，点击合并后完成规划和提交；期间冻结选择并防止重复执行。版本变化保留选择并要求刷新，提交成功后刷新失败只重读。结果在同一收件箱列表中高亮并展示 Core 提供的正文列表，不新增路由、弹窗或确认界面。ArkTS 不解析或拼接 Org 内容。
 
 创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，并传 ~recordCreated=true~ 由 Core 补齐 CREATED。任务与备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；备忘新增通过 Creation 创建无状态标题和正文，并启用 recordCreated。NoteService 只编排配置、Core 仓库身份与文件版本，不解析 Org；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。收件箱整理以字段清理和 Movement 组合为一个操作组。
 

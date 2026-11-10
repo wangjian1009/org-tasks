@@ -35,6 +35,8 @@ export interface TaskModification { field: TaskModificationField; value: string 
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }
+export interface TaskMergeRequest { paths: TaskPath[]; fileVersion: string; }
+export interface TaskMergePlan { operationGroup: TaskOperationGroup; mainPath: TaskPath; }
 export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
 export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
 export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
@@ -204,6 +206,7 @@ export class Workspace {
   query(query: TaskQuery): Promise<TaskQueryResult>;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
+  taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
   notifications(): Promise<CoreNotification[]>;
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>;
   stopWatchingNotifications(): void;

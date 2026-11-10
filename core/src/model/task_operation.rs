@@ -132,6 +132,22 @@ pub struct TaskDeletion {
     pub path: TaskPath,
 }
 
+/// paths 按用户选择顺序排列，首条保留并改名为“合并: 原标题”。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskMergeRequest {
+    pub paths: Vec<TaskPath>,
+    pub file_version: String,
+}
+
+/// 合并只规划普通删除和修改；调用方通过原批量入口一次提交。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMergePlan {
+    pub operation_group: TaskOperationGroup,
+    pub main_path: TaskPath,
+}
+
 /// 冲突选择和普通任务操作共用版本校验、提交、outbox 与回退记录。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

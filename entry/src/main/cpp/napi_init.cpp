@@ -40,6 +40,7 @@ extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle, con
 extern "C" char* org_tasks_harmony_preview_operation(uint64_t handle, const char* request);
 extern "C" void org_tasks_harmony_preview_release(uint64_t handle, const char* id);
 extern "C" char* org_tasks_harmony_workspace_execute_task_operations(uint64_t handle, const char* request);
+extern "C" char* org_tasks_harmony_workspace_task_merge_operations(uint64_t handle, const char* request);
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
     int64_t started_at);
@@ -112,6 +113,7 @@ struct WorkspaceStringWork {
     }
     bool refile_targets = false;
     bool execute_operations = false;
+    bool merge_operations = false;
     bool todo_defaults = false;
     bool default_todo_settings = false;
     bool default_sync_options = false;
@@ -621,6 +623,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle, work->expression.c_str()));
     } else if (work->execute_operations) {
         work->response = TakeRustString(org_tasks_harmony_workspace_execute_task_operations(work->handle, work->expression.c_str()));
+    } else if (work->merge_operations) {
+        work->response = TakeRustString(org_tasks_harmony_workspace_task_merge_operations(work->handle, work->expression.c_str()));
     } else if (work->default_todo_settings) {
         work->response = TakeRustString(org_tasks_harmony_default_todo_settings());
     } else if (work->default_sync_options) {
@@ -676,6 +680,8 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_reject_deferred(env, work->deferred, error);
         } else if (work->execute_operations) {
             napi_get_undefined(env, &result);
+            napi_resolve_deferred(env, work->deferred, result);
+        } else if (work->merge_operations) {
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!work->preview_action.empty()) {
             napi_value projected = result;
@@ -1291,6 +1297,18 @@ napi_value WorkspaceExecuteTaskOperations(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksExecuteTaskOperations", self);
 }
 
+napi_value WorkspaceTaskMergeOperations(napi_env env, napi_callback_info info)
+{
+    WorkspaceWrap* workspace = nullptr; napi_value self; size_t argc = 1; napi_value args[1];
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "Workspace.taskMergeOperations 参数无效"); return nullptr;
+    }
+    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->merge_operations = true;
+    if (!EncodeJson(env, args[0], &work->expression)) { delete work; napi_throw_error(env, nullptr, "记录合并参数无效"); return nullptr; }
+    return QueueWorkspaceString(env, work, "OrgTasksTaskMergeOperations", self);
+}
+
 napi_value WorkspaceSetTodoDefaults(napi_env env, napi_callback_info info)
 {
     size_t argc = 1; napi_value args[1] = {nullptr}; napi_value self;
@@ -1789,6 +1807,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"taskMergeOperations", nullptr, WorkspaceTaskMergeOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"query", nullptr, WorkspaceQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"watchNotifications", nullptr, WorkspaceWatchNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stopWatchingNotifications", nullptr, WorkspaceStopWatchingNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},

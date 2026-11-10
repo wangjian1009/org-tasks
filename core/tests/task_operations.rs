@@ -46,6 +46,125 @@ impl Drop for Fixture {
     }
 }
 
+fn merge_request(f: &Fixture, selected: &[usize]) -> TaskMergeRequest {
+    let file = &f.workspace.repos()[0].files()[0];
+    let paths = file.node_paths();
+    TaskMergeRequest { paths: selected.iter().map(|i| paths[*i].clone()).collect(),
+        file_version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash }
+}
+
+#[tokio::test]
+async fn merging_plans_only_deletions_and_modifications_in_selection_order() {
+    let source = "#+TITLE: Inbox\r\n前言  \r\n* DONE First :old:\r\nCLOSED: [2026-11-01 Sun]\r\n:LOGBOOK:\r\n- Old log\r\n:END:\r\nFirst body  \r\n** TODO Child\r\nchild body\r\n* TODO Main :keep:\r\nSCHEDULED: <2026-11-14 Sat>\r\n:PROPERTIES:\r\n:ID: keep-main\r\n:END:\r\nMain body\r\n** Existing\r\noriginal child\r\n* Last\r\n- [ ] tent\r\n#+begin_src org\r\n,* literal heading\r\n#+end_src\r\n* Unrelated  \r\nDo not touch\r\n";
+    let mut f = Fixture::new(source).await;
+    let request = merge_request(&f, &[2,4,0]);
+    let snapshot = f.workspace.clone();
+    let mut plan = f.workspace.task_merge_operations(&request).await.unwrap();
+    assert_eq!(f.workspace, snapshot);
+    assert_eq!(fs::read_to_string(f.root.join("tasks.org")).await.unwrap(), source);
+    assert!(f.workspace.repos()[0].pending_writes().await.unwrap().is_empty());
+    assert!(plan.operation_group.operations.iter().all(|op| matches!(op,TaskOperation::Deletion(_)|TaskOperation::Modification(_))));
+    assert_eq!(plan.operation_group.operations.len(),4);
+    plan.operation_group.queue_repo_ids.push(request.paths[0].repo_id.clone());
+    f.workspace.execute_task_operations(&plan.operation_group).await.unwrap();
+    let result = fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
+    assert!(result.starts_with("#+TITLE: Inbox\r\n前言  \r\n* TODO 合并: Main :keep:\r\nSCHEDULED: <2026-11-14 Sat>\r\n:PROPERTIES:\r\n:ID: keep-main\r\n:END:\r\n- Main\r\n"),"{result}");
+    assert!(result.ends_with("* Unrelated  \r\nDo not touch\r\n"));
+    let file=&f.workspace.repos()[0].files()[0];
+    assert_eq!(file.node_paths().iter().map(|p|p.titles.clone()).collect::<Vec<_>>(),vec![vec!["合并: Main"],vec!["Unrelated"]]);
+    assert_eq!(file.node_paths()[0],plan.main_path);
+    let body=file.nodes()[0].render_content().body_html.clone();
+    assert!(body.find("Main").unwrap()<body.find("Last").unwrap());
+    assert!(body.find("Last").unwrap()<body.find("First").unwrap());
+    assert!(body.contains("Child") && body.contains("Existing") && body.contains("tent"));
+    assert!(!body.contains("合并前元数据") && !body.contains("Old log") && !body.contains("org_tasks_merge_original"),"{body}");
+    assert!(result.contains("CLOSED: [2026-11-01 Sun]"));
+    assert!(result.contains("- Old log"));
+    assert_eq!(f.workspace.repos()[0].pending_writes().await.unwrap().len(),1);
+    assert_eq!(f.workspace.task_operation_history.entries.len(),1);
+    assert_eq!(f.workspace.task_operation_history.entries[0].fallback_group.files[0].before.as_deref(),Some(source));
+}
+
+#[tokio::test]
+async fn merging_rejects_overlapping_selection_identity_targets_and_conflicts_without_writes() {
+    for (source, selected) in [
+        ("* Main\n* Other\n", vec![0,0]),
+        ("* Main\n* Other\n", vec![0,1,1]),
+        ("* Main\n** Child\n", vec![0,1]),
+        ("* Main\n** Child\n", vec![1,0]),
+        ("* Main\n* Other\n:PROPERTIES:\n:ID: stable\n:END:\n", vec![0,1]),
+        ("* Main\n** Child\n:PROPERTIES:\n:CUSTOM_ID: stable\n:END:\n* Other\n", vec![0,2]),
+        ("* Main\n[[*Other]]\n* Other\n", vec![0,1]),
+        ("* Main\n* Other\n** Candidate :CONFLICT:\n", vec![0,1]),
+        ("* Main\n* Other\n", vec![0]),
+    ] {
+        let f=Fixture::new(source).await;
+        let request=merge_request(&f,&selected);
+        let snapshot=f.workspace.clone();
+        assert!(f.workspace.task_merge_operations(&request).await.is_err(),"{source}");
+        assert_eq!(f.workspace,snapshot);
+        assert_eq!(fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),source);
+        assert!(f.workspace.repos()[0].pending_writes().await.unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn merging_keeps_first_selected_duplicate_and_converts_children_to_nested_lists() {
+    let mut f=Fixture::new("* Same\nfirst\n* Same\nsecond\n* Parent\n** Source\nbody\n**** TODO Nested\n#+begin_src org\n,**** literal\n#+end_src\n").await;
+    let request=merge_request(&f,&[1,3,0]);
+    let plan=f.workspace.task_merge_operations(&request).await.unwrap();
+    f.workspace.execute_task_operations(&plan.operation_group).await.unwrap();
+    let result=fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
+    assert!(result.starts_with("* 合并: Same\n- Same\n  second\n"),"{result}");
+    assert!(result.contains("  - Nested\n"));
+    assert!(result.contains(",**** literal"));
+    assert!(result.ends_with("* Parent\n"));
+    assert_eq!(f.workspace.repos()[0].files()[0].node_paths()[0],plan.main_path);
+}
+
+#[tokio::test]
+async fn merging_group_version_prevents_partial_deletion_and_archives_cannot_end_early() {
+    let source="* Main\n* Source\n:LOGBOOK:\n#+end_comment\nlog\n:END:\n";
+    let mut f=Fixture::new(source).await;
+    let request=merge_request(&f,&[0,1]);
+    let plan=f.workspace.task_merge_operations(&request).await.unwrap();
+    let newer=source.replace("* Main","* Main changed");
+    fs::write(f.root.join("tasks.org"),&newer).await.unwrap();
+    assert!(f.workspace.execute_task_operations(&plan.operation_group).await.is_err());
+    assert!(f.workspace.task_merge_operations(&request).await.is_err());
+    assert_eq!(fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),newer);
+    assert!(f.workspace.task_operation_history.entries.is_empty());
+    fs::write(f.root.join("tasks.org"),source).await.unwrap();
+    f.workspace.execute_task_operations(&plan.operation_group).await.unwrap();
+    assert!(fs::read_to_string(f.root.join("tasks.org")).await.unwrap().contains(",#+end_comment"));
+}
+
+#[tokio::test]
+async fn repeated_merging_keeps_archives_out_of_notes_and_notes_edits_preserve_metadata() {
+    let mut f = Fixture::new("* Main\nnotes\n* Source\n:PROPERTIES:\n:CREATED: [2026-11-10 Tue]\n:END:\nextra\n").await;
+    let first = f.workspace.task_merge_operations(&merge_request(&f,&[0,1])).await.unwrap();
+    f.workspace.execute_task_operations(&first.operation_group).await.unwrap();
+    let mut content=fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
+    content.push_str("* Third\nmore\n");
+    fs::write(f.root.join("tasks.org"),&content).await.unwrap();
+    f.workspace.repos[0].load::<WebDavSyncPolicy>().await.unwrap();
+    let second=f.workspace.task_merge_operations(&merge_request(&f,&[0,1])).await.unwrap();
+    f.workspace.execute_task_operations(&second.operation_group).await.unwrap();
+    let file=&f.workspace.repos()[0].files()[0];
+    let notes=file.task_edit_content(&second.main_path).unwrap().notes;
+    assert!(notes.contains("- 合并: Main") && notes.contains("- Source") && notes.contains("- Third"),"{notes}");
+    assert!(!notes.contains("org_tasks_merge_original") && !notes.contains("CREATED"),"{notes}");
+    let source=std::str::from_utf8(file.source_bytes()).unwrap();
+    assert_eq!(source.matches("#+begin_comment org_tasks_merge_original").count(),4);
+    let group=TaskOperationGroup { operations:vec![TaskOperation::Modification(TaskModificationOperation {
+        path:second.main_path, modifications:vec![TaskModification::Notes(Some("edited\n".into()))]
+    })], ..Default::default() };
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let updated=fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
+    assert!(updated.contains(":CREATED: [2026-11-10 Tue]"));
+    assert!(updated.contains("edited\n"));
+}
+
 #[tokio::test]
 async fn task_operations_notify_only_after_changed_files_are_committed() {
     let mut f = Fixture::new("* TODO Original\n").await;

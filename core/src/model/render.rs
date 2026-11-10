@@ -554,7 +554,10 @@ impl Traverser for ReadingView {
                 ctx.skip();
             }
             Event::Enter(Container::CommentBlock(block)) => {
-                self.literal("metadata", block.raw());
+                // 合并原文保存在标准注释块中，阅读时只展示整理后的列表。
+                if !super::task_merging::is_archive(&block.raw()) {
+                    self.literal("metadata", block.raw());
+                }
                 ctx.skip();
             }
             Event::Enter(Container::Comment(comment)) => {

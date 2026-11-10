@@ -2,13 +2,39 @@ import { Context } from '@kit.AbilityKit'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { configuredFileTarget } from './FileTargetService'
-import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, CoreOrgFileRef, NativeCoreService } from './NativeCoreService'
+import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, CoreOrgFileRef, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService } from './NativeCoreService'
 
 export type InboxAction = 'move' | 'memo' | 'delete' | 'someday'
 export interface InboxTargets { targets: CoreRefileTarget[]; somedayTarget: CoreRefileTarget | undefined; somedayHint: string }
 
+class InboxMergeChangedError extends Error {
+  readonly code: string = 'invalidState'
+  constructor(message: string) { super(message) }
+}
+
 // 只编排配置与 Core 请求，不解析 Org 或在宿主实现任务移动。
 export class InboxService {
+  static async merge(context: Context, records: CoreTask[]): Promise<CoreTaskPath> {
+    if (records.length < 2) throw new Error('请至少选择两条记录')
+    const first = records[0]
+    if (records.some(item => item.repoId !== first.repoId || item.filePath !== first.filePath || item.fileVersion !== first.fileVersion)) {
+      throw new InboxMergeChangedError('只能合并同一文件的同一版本，请刷新后重新选择')
+    }
+    const config = await AppConfigService.load(context, false)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const selected = configuredFileTarget(config, 'inbox')
+    const settings = config.repos.find(item => item.id === selected.repoId)
+    const repo = (await workspace.repos()).find(item => item.rootDirectory === settings?.rootDirectory)
+    if (!settings || !repo || selected.path !== first.filePath) throw new InboxMergeChangedError('收件箱配置已变更，请刷新后重新选择')
+    await repo.load()
+    if (repo.id !== first.repoId) throw new InboxMergeChangedError('收件箱身份已变化，请刷新后重新选择')
+    const request: CoreTaskMergeRequest = { paths: records.map(item => item.fullPath), fileVersion: first.fileVersion }
+    const plan: CoreTaskMergePlan = await workspace.taskMergeOperations(request)
+    plan.operationGroup.queueRepoIds = settings.webdavEnabled ? [repo.id] : []
+    await workspace.executeTaskOperations(plan.operationGroup)
+    return plan.mainPath
+  }
+
   static async targets(context: Context): Promise<InboxTargets> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)

@@ -18,6 +18,19 @@ struct WorkingFile {
 }
 
 impl OrgWorkspace {
+    /// 按当前原文与版本规划普通操作，不写盘或发布历史。
+    pub async fn task_merge_operations(&self, request: &TaskMergeRequest) -> Result<TaskMergePlan, CoreError> {
+        let first = request.paths.first().ok_or(CoreError::InvalidInput("请至少选择两条记录"))?;
+        let file = first.file.clone().ok_or(CoreError::InvalidInput("合并必须指定文件"))?;
+        let loading = TaskOperationGroup {
+            operations: request.paths.iter().map(|path| TaskOperation::Deletion(TaskDeletion { path: path.clone() })).collect(),
+            file_versions: vec![TaskFileVersion { repo_id: first.repo_id.clone(), file, version: request.file_version.clone() }],
+            ..Default::default()
+        };
+        let files = load_files(self, &loading).await?;
+        super::task_merging::operations(&files[&key(first)?].file, request)
+    }
+
     /// 全组先在隔离文件快照中执行，成功提交后才发布内存与回退历史。
     pub async fn execute_task_operations(
         &mut self,

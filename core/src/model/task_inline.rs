@@ -69,7 +69,7 @@ pub(crate) fn note_ranges(headline: &Headline) -> Vec<Range<usize>> {
                     !matches!(
                         node.kind(),
                         SyntaxKind::PLANNING | SyntaxKind::PROPERTY_DRAWER | SyntaxKind::DRAWER
-                    ) && !lists
+                    ) && !(node.kind() == SyntaxKind::COMMENT_BLOCK && super::task_merging::is_archive(&node.to_string())) && !lists
                         .iter()
                         .any(|list| list.syntax().text_range() == node.text_range())
                 })

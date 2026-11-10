@@ -711,6 +711,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn merge_planning_returns_one_ordinary_operation_group_with_a_version_guard() {
+        let root=std::env::temp_dir().join(format!("org-merge-bridge-{}",std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source="* TODO Main\nmain\n* Source\nextra\n";
+        std::fs::write(root.join("inbox.org"),source).unwrap();
+        let handle=create_workspace().unwrap();
+        let directory=root.to_string_lossy().to_string();
+        workspace_add_repo(handle,directory.clone()).unwrap();
+        let file:serde_json::Value=serde_json::from_str(&repo_file_json(handle,directory,"inbox.org".into()).unwrap()).unwrap();
+        let request=serde_json::json!({"paths":[file["nodes"][1]["fullPath"],file["nodes"][0]["fullPath"]],"fileVersion":file["fileVersion"]});
+        let plan:serde_json::Value=serde_json::from_str(&workspace_task_merge_operations(handle,request.to_string()).unwrap()).unwrap();
+        assert_eq!(plan["operationGroup"]["operations"][0]["type"],"Deletion");
+        assert_eq!(plan["operationGroup"]["operations"][1]["type"],"Modification");
+        assert_eq!(plan["mainPath"]["titles"][0],"合并: Source");
+        assert_eq!(std::fs::read_to_string(root.join("inbox.org")).unwrap(),source);
+        workspace_execute_task_operations(handle,plan["operationGroup"].to_string()).unwrap();
+        assert!(workspace_execute_task_operations(handle,plan["operationGroup"].to_string()).is_err());
+        release_workspace(handle);std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn task_supported_tags_preserve_groups_empty_and_missing_configuration() {
         for (source, expected) in [
             ("#+TAGS: { iOS(i) Android(a) } 工作\n* TODO Task\n", serde_json::json!({"tags":["iOS","Android","工作"],"groups":[["iOS","Android"]]})),
@@ -1390,6 +1411,14 @@ pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<Str
     let mut workspace=session.lock().map_err(|_|CoreError::Store("Harmony workspace 锁不可用".into()))?;
     runtime()?.block_on(workspace.execute_task_operations(&group))?;
     Ok("{}".into())
+}
+
+pub fn workspace_task_merge_operations(handle: u64, request: String) -> Result<String, CoreError> {
+    let request: org_tasks_core::TaskMergeRequest = serde_json::from_str(&request)
+        .map_err(|_| CoreError::InvalidInput("记录合并参数无效"))?;
+    let session = workspace_for_handle(handle)?;
+    let workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    encode(&runtime()?.block_on(workspace.task_merge_operations(&request))?)
 }
 
 /// 公开对象方法在 ABI 内统一编组；操作及路径校验仍由 Core 完成。

@@ -115,6 +115,10 @@ impl OrgWorkspace {
         &mut self, group: &TaskOperationGroup,
     ) -> Result<(), CoreError>;
 
+    pub async fn task_merge_operations(
+        &self, request: &TaskMergeRequest,
+    ) -> Result<TaskMergePlan, CoreError>;
+
     pub async fn notifications(&self) -> Result<Vec<CoreNotification>, CoreError>;
 }
 #+end_src
@@ -229,7 +233,7 @@ impl OrgFile {
 
 *** TaskOperationGroup 与 OrgRepoWriteIntent
 
-~TaskOperationGroup~ 、 ~TaskOperation~ 、四种独立操作数据、 ~TaskModification~ 、 ~TaskPath~ 、 ~TaskPosition~ 与回退历史结构统一见 [[file:数据模型.org::*统一任务操作模型][统一任务操作模型]] 。任务修改只通过 workspace 的批量入口执行，不再公开单独的仓库任务新增、内容修改、地址更新、删除或旧整理入口。
+~TaskOperationGroup~ 、 ~TaskOperation~ 、各类独立操作数据、 ~TaskModification~ 、 ~TaskPath~ 、 ~TaskPosition~ 与回退历史结构统一见 [[file:数据模型.org::*统一任务操作模型][统一任务操作模型]] 。任务修改只通过 workspace 的批量入口执行，不再公开单独的仓库任务新增、内容修改、地址更新、删除或旧整理入口。
 
 #+begin_src rust
 impl OrgWorkspace {
@@ -662,6 +666,12 @@ impl FilterTask {
 * 统一任务操作组执行
 
 ~OrgWorkspace.execute_task_operations~ 是唯一任务写入入口。操作组可组合 Creation、Modification、Movement、Deletion 和 ConfilictSelection；每类数据独立，字段设置和清除由 ~TaskModification~ 枚举表达。目标位置使用 ~TaskPosition { parent, after }~ ，不再使用字节位置作跨快照输入。
+
+~task_merge_operations~ 接受 ~TaskMergeRequest { paths, file_version }~ ，按选择顺序把同一文件内至少两条互不重叠的记录转换为正文列表，结果标题为“合并: 第一条所选记录的原始标题”。第一条记录保留原位置及自身状态、规划和属性，原子记录转为嵌套列表。元数据与日志保存在专用 Org comment 块中，阅读与备注编辑不展示这些归档。
+
+返回 ~TaskMergePlan { operation_group, main_path }~ ，操作组仅包含普通 Deletion 和 Modification，以及原文件版本。删除按原文逆序排列，修改使用删除后的完整路径；规划在内存副本中验证，不写盘、不产生历史或通知。调用方仅补充需要 outbox 的仓库 ID，再通过既有 ~execute_task_operations~ 一次提交； ~main_path~ 供成功后定位，不作为提交修改的路径。该接口是内容操作规划，不创建预览页面或临时文档。
+
+路径重复、祖先与后代重叠、跨文件、受保护冲突节点、将被转换为列表的记录带 ID／CUSTOM_ID，或当前文件存在其标题链接引用时拒绝。未涉及范围保留原字节；其他文件与仓库外的标题定位链接不自动重写。
 
 Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部操作；任一步失败丢弃全部工作快照，磁盘、历史与 outbox 不变。全部内存操作完成后才准备临时文件、校验磁盘原始字节并提交。普通提交失败回滚已修改文件；回滚期间发生外部写入时保留恢复材料并报错，不能宣称跨文件崩溃原子性。
 

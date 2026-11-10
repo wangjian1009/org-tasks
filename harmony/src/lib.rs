@@ -412,6 +412,11 @@ pub extern "C" fn org_tasks_harmony_workspace_execute_task_operations(handle:u64
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_task_merge_operations(handle: u64, request: *const c_char) -> *mut c_char {
+    string_result(read_c_string(request).and_then(|request| bridge::workspace_task_merge_operations(handle, request)))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_full_path(handle:u64,root:*const c_char)->*mut c_char{
     string_result(read_c_string(root).and_then(|root|bridge::repo_full_path_json(handle,root)))
 }

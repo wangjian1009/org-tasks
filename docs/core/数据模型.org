@@ -34,7 +34,8 @@
   repos: Vec\textless OrgRepo\textgreater \\
   todo\_defaults: TodoConfig \\
   task\_operation\_history: TaskOperationHistory
-}{execute\_task\_operations(group): ()}
+}{execute\_task\_operations(group): () \\
+task\_merge\_operations(request): TaskMergePlan}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
@@ -825,6 +826,17 @@ pub struct TaskMovement {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskDeletion { pub path: TaskPath }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskMergeRequest { pub paths: Vec<TaskPath>, pub file_version: String }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMergePlan {
+    pub operation_group: TaskOperationGroup,
+    pub main_path: TaskPath,
+}
+
 pub struct TaskConfilictSelection {
     pub path: Option<TaskPath>,
     pub id: String,
@@ -882,6 +894,14 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 移动保留整棵子树，仅调整真实标题的星号层级；目标文件配置不能改变子树标题或 TODO 状态的解释。删除移除目标完整子树。备忘整理由清除 TODO、优先级、规划字段的 Modification 和随后的 Movement 组合完成，不在 Movement 中复制字段修改语义。
 
+** 多记录合并操作规划
+
+~TaskMergeRequest.paths~ 严格按用户选择顺序排列。第一条记录作为保留位置，标题改为“合并: 原始标题”；所选全部记录（包括第一条）转换为同一个正文列表，正文缩进到所属项，子记录递归转为嵌套列表。状态、日期、优先级和自身属性保留第一条记录的原值，其他元数据及日志随原始标题存入 ~#+begin_comment org_tasks_merge_original~ 块，使用逗号转义保护标题与块结束符。阅读与备注投影隐藏该归档，备注编辑保持归档字节；再次合并时旧归档平铺保留，避免复制整份历史。
+
+~TaskMergePlan~ 包含普通 ~operation_group~ 与结果 ~main_path~ ，不增加 ~TaskOperation~ 变体。来源根及第一条记录原有的子树按原文逆序生成 Deletion，随后使用删除后的路径生成一次 Modification，修改 BODY 与 TITLE。规划复用原执行器在内存中验证版本、路径及结构，但不写盘或生成历史；真实执行只提交一组操作，复用原有文件版本、回退和 outbox 机制。
+
+规划拒绝重复、祖先与后代重叠、跨文件、受保护冲突节点，以及转换为列表后会丢失 ID／CUSTOM_ID 或当前文件标题引用的情况。第一条记录自身 ID 保留，其余标题定位引用不自动迁移。 ~main_path~ 按最终标题与出现序号重新投影，供合并成功后定位。
+
 ** 顺序、提交与失败处理
 
 1. 根据操作组收集所需源文件、目标 parent 和 after 所在文件；验证安全路径、仓库归属和可选的 ~file_versions~ ，将原始内容加载到隔离内存快照。不存在的 Org 文件可由创建操作产生，移动目标须已存在于本组内存快照；父目录须已存在，加载阶段不创建目录，不跟随文件符号链接。
@@ -913,6 +933,9 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 \umlclass[x=8,y=-12]{TaskOperationRecord}{operation\_group: TaskOperationGroup \\ fallback\_group: TaskFallbackGroup}{}
 \umlclass[x=15,y=-12]{TaskFallbackGroup}{files: Vec\textless TaskFileFallback\textgreater}{}
 \umlclass[x=15,y=-16]{TaskFileFallback}{repo\_id: OrgRepoId \\ file: String \\ before: Option\textless String\textgreater \\ after: String}{}
+\umlclass[x=0,y=-17]{TaskMergeRequest}{paths: Vec\textless TaskPath\textgreater \\ file\_version: String}{}
+\umlclass[x=7,y=-19]{TaskMergePlan}{operation\_group: TaskOperationGroup \\ main\_path: TaskPath}{}
+\umluniassoc{TaskMergePlan}{TaskOperationGroup}
 \umluniassoc[mult2=1..*]{TaskOperationGroup}{TaskOperation}
 \umldep{TaskOperation}{TaskCreation}
 \umldep{TaskOperation}{TaskModificationOperation}

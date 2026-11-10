@@ -10,12 +10,14 @@ import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { InboxTargetPopup } from '../components/InboxTargetPopup'
 import { InboxSwipeActions } from '../components/InboxSwipeActions'
+import { InboxSelectionRow } from '../components/InboxSelectionRow'
+import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { RefileSection, RecentDay, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
 import { FileTargetService } from '../services/FileTargetService'
-import { CoreBridgeError, CoreTask, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
@@ -43,6 +45,14 @@ struct Inbox {
   @State actionBusy: boolean = false
   @State popupWidth: number = 350
   @State listHeight: number = 0
+  @State selectingRecords: boolean = false
+  @State selectedRecordIds: string[] = []
+  @State selectionStarting: boolean = false
+  @State mergeBusy: boolean = false
+  @State mergeMessage: string = ''
+  @State mergeInvalid: boolean = false
+  @State mergedPath: string = ''
+  private mergeFocusTimer: number = -1
   private refreshTimer: number = -1
   private visible: boolean = true
   private targetRequest: number = 0
@@ -54,10 +64,11 @@ struct Inbox {
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
   onPageShow() { this.visible = true; this.loadRecords() }
-  onPageHide() { this.visible = false; clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); this.closeTargetPopup() }
+  onPageHide() { this.visible = false; clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
     clearTimeout(this.captureFocusTimer)
     clearTimeout(this.actionTimer)
+    clearTimeout(this.mergeFocusTimer)
     this.visible = false
     clearTimeout(this.refreshTimer)
     ++this.targetRequest
@@ -65,6 +76,8 @@ struct Inbox {
   }
 
   onBackPress(): boolean {
+    if (this.mergeBusy || this.selectionStarting) return true
+    if (this.selectingRecords) { this.cancelSelection(); return true }
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.captureOpen) { this.closeCapture(); return true }
     if (this.selected) { this.closeTargetPopup(); return true }
@@ -72,10 +85,88 @@ struct Inbox {
     return false
   }
 
-  drawerChanged() { if (this.drawerOpen) this.closeTargetPopup() }
+  drawerChanged() { if (this.drawerOpen) { this.closeTargetPopup(); if (this.selectingRecords && !this.mergeBusy) this.cancelSelection() } }
+
+  selectedRecords(): CoreTask[] {
+    const result: CoreTask[] = []
+    for (const id of this.selectedRecordIds) {
+      const record = this.records.find(item => item.id === id)
+      if (record) result.push(record)
+    }
+    return result
+  }
+
+  async startSelection(record?: CoreTask) {
+    if (this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
+    this.selectionStarting = true
+    clearTimeout(this.actionTimer)
+    try {
+      if (!await TaskInlineSession.end(true)) return
+      this.closeTargetPopup()
+      this.listScroller.closeAllSwipeActions()
+      await this.loadRecords()
+      if (!this.visible || this.needsConfiguration || this.message) return
+      this.selectingRecords = true
+      this.selectedRecordIds = record && this.records.some(item => item.id === record.id) ? [record.id] : []
+      this.mergedPath = ''
+      clearTimeout(this.refreshTimer)
+    } finally { this.selectionStarting = false }
+  }
+
+  resetSelection() {
+    this.selectingRecords = false
+    this.selectedRecordIds = []
+    this.mergeMessage = ''
+    this.mergeInvalid = false
+  }
+
+  cancelSelection() {
+    if (this.mergeBusy) return
+    this.resetSelection()
+    if (this.visible) this.loadRecords()
+  }
+
+  toggleRecord(record: CoreTask) {
+    if (this.mergeBusy) return
+    this.selectedRecordIds = this.selectedRecordIds.includes(record.id) ?
+      this.selectedRecordIds.filter(id => id !== record.id) : [...this.selectedRecordIds, record.id]
+  }
+
+  async mergeSelected() {
+    const records = this.selectedRecords()
+    if (records.length < 2 || this.mergeBusy || this.mergeInvalid) return
+    this.mergeBusy = true
+    this.mergeMessage = ''
+    let merged: CoreTaskPath
+    try {
+      merged = await InboxService.merge(this.getUIContext().getHostContext()!, records)
+    } catch (e) {
+      this.mergeBusy = false
+      this.mergeMessage = coreErrorMessage(e as CoreBridgeError)
+      this.mergeInvalid = (e as CoreBridgeError).code === 'invalidState'
+      return
+    }
+    // 一组已经提交；刷新失败只重新读取，不能再次删除或修改原记录。
+    this.mergeBusy = false
+    this.resetSelection()
+    this.mergedPath = JSON.stringify(merged)
+    try { this.getUIContext().getPromptAction().showToast({ message: `已合并 ${records.length} 条记录` }) }
+    catch (_) { /* 成功提示失败不能阻止读取已提交的结果。 */ }
+    await this.loadRecords()
+    const index = this.records.findIndex(item => JSON.stringify(item.fullPath) === this.mergedPath)
+    if (index >= 0) {
+      clearTimeout(this.mergeFocusTimer)
+      this.mergeFocusTimer = setTimeout((): void => {
+        if (this.visible && !this.selectingRecords) {
+          try { this.listScroller.scrollToIndex(index + (this.notificationState.notifications.length > 0 ? 1 : 0), true, ScrollAlign.CENTER) }
+          catch (_) { /* 尚未布局时保留结果高亮。 */ }
+        }
+      }, 100)
+    }
+  }
 
   selectRecord(record: CoreTask) {
-    if (this.actionBusy || this.drawerOpen || this.captureOpen) return
+    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords) return
     this.selected = record
     this.popupMessage = ''
     this.loadTargets()
@@ -91,7 +182,7 @@ struct Inbox {
   }
 
   swipeAction(record: CoreTask, action: InboxAction) {
-    if (this.actionBusy || this.drawerOpen || this.captureOpen) return
+    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords) return
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
     if (node) ListItemSwipeActionManager.collapse(node)
     this.listScroller.closeAllSwipeActions()
@@ -106,7 +197,7 @@ struct Inbox {
   }
 
   swipeRecord(record: CoreTask, left: boolean) {
-    if (this.actionBusy || this.selected || this.drawerOpen || this.captureOpen) return
+    if (this.actionBusy || this.selected || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
     if (!node) return
     if (left) ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
@@ -120,6 +211,7 @@ struct Inbox {
   }
 
   requestSchedule(record: CoreTask) {
+    if (this.selectingRecords || this.mergeBusy) return
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
     if (node) ListItemSwipeActionManager.collapse(node)
     AppStorage.setOrCreate('taskInlineDateRequest', `${record.id}\n${Date.now()}`)
@@ -174,7 +266,7 @@ struct Inbox {
 
   async perform(action: InboxAction, target?: CoreRefileTarget, record?: CoreTask) {
     const selected = record || this.selected
-    if (!selected || this.actionBusy) return
+    if (!selected || this.actionBusy || this.selectingRecords || this.selectionStarting) return
     this.actionBusy = true
     this.popupMessage = ''
     ++this.targetRequest
@@ -192,7 +284,7 @@ struct Inbox {
   }
 
   capture() {
-    if (this.captureOpen || this.drawerOpen || this.actionBusy) return
+    if (this.captureOpen || this.drawerOpen || this.actionBusy || this.selectingRecords || this.selectionStarting) return
     this.keyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
     this.captureMessage = ''
@@ -278,7 +370,7 @@ struct Inbox {
   }
 
   async loadRecords() {
-    if (TaskInlineSession.active()) return
+    if (TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
     const request = ++this.requestId
     clearTimeout(this.refreshTimer)
     this.loadRecentRecords(request)
@@ -318,7 +410,11 @@ struct Inbox {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'), synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, pullToSync: true, busy: this.actionBusy }) {
+      AppShell({ title: this.selectingRecords ? `已选 ${this.selectedRecordIds.length} 条` : '收件箱', titleIcon: $r('app.media.nav_inbox'),
+        actionLabel: this.selectingRecords ? '退出多选' : '多选收件箱记录', actionText: this.selectingRecords ? '取消' : '多选',
+        action: (): void => { if (this.selectingRecords) this.cancelSelection(); else this.startSelection() },
+        synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
+        pullToSync: !this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
         Column() {
           if (this.loading && this.recentGroups.length === 0) {
             NotificationEmptyState({ title: '正在读取收件箱', busy: true })
@@ -345,14 +441,25 @@ struct Inbox {
               }
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
+                  if (this.selectingRecords) {
+                    InboxSelectionRow({ task: record, selected: this.selectedRecordIds.includes(record.id), selectionOrder: this.selectedRecordIds.indexOf(record.id) + 1, busy: this.mergeBusy,
+                      choose: (): void => { this.toggleRecord(record) } }).padding({ left: 12, right: 12 })
+                  } else {
                   Row() {
+                    Column() {
                     TaskListItem({ task: record, enableSwipeActions: true,
                       swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
                       this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
                     } })
+                    if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
+                      OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
+                        .width('100%').padding({ left: 27 })
+                    }
+                    }.width('100%')
                   }.width('100%').padding({ left: 12, right: 12 })
-                    .backgroundColor(this.selected?.id === record.id ? '#323D3A' : Color.Transparent)
-                    .borderRadius(12).border({ width: this.selected?.id === record.id ? 1 : 0, color: UiColor.primary })
+                    .backgroundColor(this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath) ? '#323D3A' : Color.Transparent)
+                    .borderRadius(12).border({ width: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath) ? 1 : 0, color: UiColor.primary })
+                    .gesture(LongPressGesture({ repeat: false }).onAction((): void => { this.startSelection(record) }))
                     .bindPopup(this.selected?.id === record.id, {
                       builder: this.targetPopup, placement: Placement.Bottom, targetSpace: 10,
                       enableArrow: false, width: this.popupWidth, radius: 16,
@@ -367,8 +474,9 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.id(`inbox_record_${record.id}`).swipeAction({ start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
-                  end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None })
+                  }
+                }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords ? {} : { start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
+                  end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
@@ -386,7 +494,7 @@ struct Inbox {
                         Row() {
                           TaskListItem({ task, showDate: true, showCategory: true, open: (): void => {
                             this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
-                          } })
+                          } }).enabled(!this.selectingRecords && !this.mergeBusy)
                         }.width('100%').padding({ left: 20, right: 20 }).backgroundColor('#282C29')
                       }
                     }, (task: CoreTask) => taskRenderKey(task))
@@ -414,13 +522,29 @@ struct Inbox {
           }
         }.width('100%').height('100%')
       }
-      if (!this.drawerOpen && !this.captureOpen && !this.selected && !this.inlineActive) {
+      if (!this.drawerOpen && !this.captureOpen && !this.selected && !this.inlineActive && !this.selectingRecords && !this.selectionStarting) {
         Button({ type: ButtonType.Circle }) {
           Image($r('app.media.ui_add_primary')).width(28).height(28)
         }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
           .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
           .accessibilityText('记一条')
           .onClick((): void => { this.capture() })
+      }
+      if (this.selectingRecords) {
+        Column({ space: 8 }) {
+          if (this.mergeMessage) { Text(this.mergeMessage).fontSize(13).fontColor(UiColor.error).width('100%') }
+          Row({ space: 12 }) {
+            Text(this.selectedRecordIds.length > 0 ? `合并: ${this.selectedRecords()[0]?.heading || ''}` : '请选择记录')
+              .fontSize(14).fontColor(UiColor.text).maxLines(2).layoutWeight(1)
+            if (this.mergeInvalid) {
+              Button('刷新重选').height(48).enabled(!this.mergeBusy).onClick((): void => { this.cancelSelection() })
+            } else {
+              Button(this.mergeBusy ? '合并中…' : '合并').id('inbox_merge').height(48).fontColor(UiColor.onPrimary)
+                .backgroundColor(UiColor.primary).enabled(this.selectedRecordIds.length >= 2 && !this.mergeBusy)
+                .onClick((): void => { this.mergeSelected() })
+            }
+          }.width('100%')
+        }.width('92%').padding(12).margin({ bottom: 24 }).backgroundColor(UiColor.container).borderRadius(18)
       }
       if (this.captureOpen) {
         Column().width('100%').height('100%').backgroundColor('#66000000')

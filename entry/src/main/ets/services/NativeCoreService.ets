@@ -11,6 +11,8 @@ import {
   TaskFileVersion as NativeTaskFileVersion,
   TaskOperation as NativeTaskOperation,
   TaskOperationGroup as NativeTaskOperationGroup,
+  TaskMergeRequest as NativeTaskMergeRequest,
+  TaskMergePlan as NativeTaskMergePlan,
   TaskConfilictSelection as NativeTaskConfilictSelection,
   TaskModification as NativeTaskModification,
   TaskChecklistItem as NativeTaskChecklistItem,
@@ -97,6 +99,8 @@ export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion
 export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
+export type CoreTaskMergeRequest = NativeTaskMergeRequest
+export type CoreTaskMergePlan = NativeTaskMergePlan
 export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
 export type CoreDataChangeEvent = NativeDataChangeEvent
 export type CoreDataChangeMonitor = NativeDataChangeMonitor
@@ -199,6 +203,7 @@ export class CoreWorkspace {
   async fileAt(path: CoreTaskPath): Promise<CoreOrgFile> { return await this.native.fileAt(path) }
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
+  async taskMergeOperations(request: CoreTaskMergeRequest): Promise<CoreTaskMergePlan> { return await this.native.taskMergeOperations(request) }
   async notifications(): Promise<CoreNotification[]> { return await this.native.notifications() }
   async watchNotifications(monitor: CoreNotificationUpdateMonitor): Promise<void> { await this.native.watchNotifications(monitor) }
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }

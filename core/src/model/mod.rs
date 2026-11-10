@@ -17,6 +17,7 @@ pub(crate) mod sync_events;
 mod tags;
 pub(crate) mod task_identity;
 mod task_inline;
+mod task_merging;
 mod task_operation;
 mod task_operation_executor;
 mod task_path;
