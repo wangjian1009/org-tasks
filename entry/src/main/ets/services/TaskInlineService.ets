@@ -32,17 +32,6 @@ export class TaskInlineService {
     return current
   }
 
-  static async tagOptions(context: Context, task: CoreTask): Promise<string[]> {
-    const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-    const repo = (await workspace.repos()).find(item => item.id === task.repoId)
-    if (!repo) throw new Error('目标仓库不可用')
-    const metadata = (await repo.fileMetadata()).find(item => item.path === task.filePath)
-    const tasks = (await workspace.query({ includeDone: true, includeComposeTasks: true })).tasks
-    const names: string[] = [...(metadata?.tagOptions ?? []), ...task.tags]
-    tasks.forEach(item => names.push(...item.tags))
-    return Array.from(new Set(names))
-  }
 }
 
 // 当前窗口只保留一个展开编辑会话，刷新推迟到会话结束，避免通知销毁输入控件。

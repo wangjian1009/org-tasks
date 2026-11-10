@@ -29,6 +29,7 @@ export interface TaskAddressChange { oldUri: string; newUri: string; }
 export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_DATE' | 'DEADLINE' | 'DEADLINE_DATE' | 'CLOSED' | 'CREATED' | 'ADDRESS_LINK';
 export interface TaskChecklistItem { readonly id: string; readonly text: string; readonly checked: boolean; readonly partial: boolean; readonly depth: number; }
 export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly checklist: TaskChecklistItem[]; }
+export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }
 export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string };
 export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
@@ -85,6 +86,7 @@ export class Task {
   readonly tags: string[];
   readonly ownTags: string[];
   readonly inheritedTags: string[];
+  readonly supportTags: SupportTags | null;
   readonly editContent: TaskEditContent;
   readonly filePath: string;
   readonly fileName: string;

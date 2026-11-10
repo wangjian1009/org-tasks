@@ -122,6 +122,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
 | ~OrgRepo.load::<WebDavSyncPolicy>()~ 与 ~sync_history_summaries~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录并生成执行结果、传输方向与冲突处理摘要；bridge 只编组字段，ArkTS 不读取控制目录。 |
 | ~sync_history_detail(history, sync_id)~ | ~await repo.historyDetail(syncId)~ | 按当前仓库的同步记录 ID 返回摘要、文件结果与已有错误消息；Core 计算冲突解决状态，不返回源内容快照。 |
+| ~FilterTask.support_tags()~ | ~task.supportTags~ | 可空只读配置，结构为 ~{ tags: string[], groups: string[][] }~ ；缺少配置映射为 ~null~ ，显式空配置保留空数组，互斥组不展平。 |
 | ~FilterTask.is_done()~ | ~task.isDone()~ | Rust 根据文件有效配置计算完成结果，native Task 方法原样返回。 |
 | ~OrgRepoSyncRecord~ 、 ~FilterTask~ | ~SyncRecord~ 、 ~Task~ | 同步记录为数据投影；任务为含只读字段和行为的对象，不是 Rust 结构体的全部字段。 |
 
@@ -407,3 +408,15 @@ TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复�
 ~Repo.reset(): Promise<void>~ 经 ~org_tasks_harmony_repo_reset~ 在既有 N-API async worker 调用 Core。worker 持有 Repo 至完成，异常拒绝 Promise；Rust bridge 成功后移除该仓库的内存操作回退快照。仓库 ID、配置 ID、凭据和远端保持不变，ArkTS 不删除文件或清理同步状态。
 
 文件元信息增加 ~hasConflict: boolean~ ，文件对象提供同名只读属性。Rust bridge 直接投影 ~OrgFile.has_conflict()~ ，N-API 与 ArkTS 不解析文件头。存储库据此显示冲突状态并导航现有 ~ConflictFile~ 页；没有 syncId 的文件入口只显示文件信息，内部处理交互待定，已有同步详情入口仍使用原比较与解决接口。
+
+* 任务可配置标签投影
+
+Rust 的 ~SupportTags~ 由 Core 解析， ~HarmonyBridgeTask.support_tags~ 仅克隆结果供跨语言编组；C++ 在原生 ~Task~ 上定义可枚举只读 ~supportTags~ 属性，ArkTS 使用 ~CoreSupportTags~ 类型别名。查询、修改操作返回的新任务使用同一投影路径；无配置保留 ~null~ ，不以空数组掩盖缺失。
+
+#+begin_src ts
+interface SupportTags { readonly tags: string[]; readonly groups: string[][] }
+// Task 上的只读查询快照
+readonly supportTags: SupportTags | null
+#+end_src
+
+标签窗口直接消费当前任务的 ~supportTags~ 、 ~ownTags~ 和 ~inheritedTags~ ，不再额外查询全部任务或补读文件元信息来拼接候选。任务已有但未列入候选的标签仍保留显示，便于删除；新建标签沿用现有 Core 写入接口，不修改候选配置。选择同一互斥组的另一项只替换当前任务自身的同组标签；父标题继承的互斥项不能在子任务删除或同时选择其同组项。

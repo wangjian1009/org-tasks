@@ -129,6 +129,8 @@ impl OrgWorkspace {
 
 ~FilterTask.task_id()~ 对待办和已完成任务返回可空明文身份，非任务标题返回 ~None~ 。逻辑路径规则保持不变，采用紧凑 JSON 字符串直接编码，不再使用 MD5。 ~full_path()~ 对仓库、文件及所有标题节点返回 ~TaskPath~ ，标题链保留无状态祖先；身份与完整结构定位各自独立，具体定义见 [[file:数据模型.org::*任务逻辑身份][任务逻辑身份]] 和 [[file:数据模型.org::*完整结构路径与插入位置][完整结构路径与插入位置]] 。
 
+~FilterTask.file_metadata()~ 借用同文件任务通过 ~Arc<OrgFileMetadata>~ 共享的不可变元信息； ~repo_id()~ 和 ~path()~ 继续提供原有读取接口。 ~support_tags() -> Option<&SupportTags>~ 返回候选名称与互斥组，类型为 ~SupportTags { tags: Vec<String>, groups: Vec<Vec<String>> }~ 。缺少配置返回 ~None~ ，显式空配置返回空集合，任务克隆不复制文件元信息或相同候选配置；规则与共享关系见 [[file:数据模型.org::*文件信息共享与可配置标签][数据模型]]。
+
 ~FilterTask~ 的字段不作为跨 crate 访问契约公开。宿主使用 ~id()~ 、 ~repo_id()~ 、 ~path()~ 、 ~title()~ 、 ~body()~ 、 ~state()~ 、 ~priority()~ 、 ~category()~ 、 ~own_tags()~ 、 ~inherited_tags()~ 、 ~scheduled()~ 、 ~deadline()~ 、 ~closed()~ 、 ~created()~ 与 ~address_links()~ 等方法读取查询快照；缺失的状态、优先级、分类、规划日期和地址均通过可空返回值表达。 ~created_at()~ 和 ~modified_at()~ 均返回 ~Option<TimestampMs>~ ，前者来自标题自身的 ~CREATED~ 属性，后者仅来自当前标题自身属性 drawer 中的 ~LAST_MODIFIED~ 。属性名不区分大小写，不继承父标题或文件级值；缺失或无效时返回 ~None~ ，不使用文件 mtime、创建时间或当前时间补齐。任务查询只读该属性，不自动生成或回填修改时间。
 
 *** OrgRepo
@@ -239,6 +241,8 @@ impl FilterTask {
     pub fn full_path(&self) -> &TaskPath;
     pub fn repo_id(&self) -> &str;
     pub fn path(&self) -> &str;
+    pub fn file_metadata(&self) -> &OrgFileMetadata;
+    pub fn support_tags(&self) -> Option<&SupportTags>;
     pub fn category(&self) -> Option<&str>;
     pub fn line(&self) -> u32;
     pub fn column(&self) -> u32;

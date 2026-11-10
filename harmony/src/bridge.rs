@@ -81,6 +81,7 @@ pub struct HarmonyBridgeTask {
     pub tags: Vec<String>,
     pub own_tags: Vec<String>,
     pub inherited_tags: Vec<String>,
+    pub support_tags: Option<org_tasks_core::SupportTags>,
     pub edit_content: org_tasks_core::TaskEditContent,
     pub file_path: String,
     pub file_name: String,
@@ -285,6 +286,7 @@ fn task_from_filter(
             .unwrap_or_default(),
         own_tags: edit_content.own_tags.clone(),
         inherited_tags: task.inherited_tags().to_vec(),
+        support_tags: task.support_tags().cloned(),
         edit_content,
         tags,
         file_name: path.rsplit('/').next().unwrap_or(&path).into(),
@@ -684,6 +686,23 @@ fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_supported_tags_preserve_groups_empty_and_missing_configuration() {
+        for (source, expected) in [
+            ("#+TAGS: { iOS(i) Android(a) } 工作\n* TODO Task\n", serde_json::json!({"tags":["iOS","Android","工作"],"groups":[["iOS","Android"]]})),
+            ("#+TAGS:\n* TODO Task\n", serde_json::json!({"tags":[],"groups":[]})),
+            ("* TODO Task\n", serde_json::Value::Null),
+        ] {
+            let mut repo = OrgRepo::new("/unused/supported-tags".into()).unwrap();
+            repo.id = "repo".into();
+            repo.files.push(org_tasks_core::OrgFile::new(repo.id.clone(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap());
+            let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+            let task = workspace.query(&org_tasks_core::TaskQuery::default()).unwrap().tasks.remove(0);
+            let projection = serde_json::to_value(task_from_filter(task, &workspace).unwrap()).unwrap();
+            assert_eq!(projection["supportTags"], expected);
+        }
+    }
 
     #[test]
     fn workspace_notifications_initialize_core_ids_and_refresh_conflicts_without_consuming_them() {

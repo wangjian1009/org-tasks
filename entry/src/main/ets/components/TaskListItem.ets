@@ -216,9 +216,9 @@ export struct TaskListItem {
   async tags() {
     if (!await this.prepare() || !await this.finish(false)) return
     try {
-      const options = await TaskInlineService.tagOptions(this.getUIContext().getHostContext()!, this.value())
       this.tagsDialog = new CustomDialogController({
-        builder: TaskTagsDialog({ options, ownTags: this.value().ownTags, inheritedTags: this.value().inheritedTags,
+        builder: TaskTagsDialog({ supportTags: this.value().supportTags, ownTags: this.value().ownTags, visibleTags: this.value().tags,
+          inheritedTags: this.value().inheritedTags,
           change: async (tags: string[]): Promise<boolean> => await this.persist([{ field: 'TAGS', value: tags }]) }),
         customStyle: true, autoCancel: true, alignment: DialogAlignment.Center
       })

@@ -1,4 +1,12 @@
 use super::OrgFile;
+use serde::Serialize;
+
+/// 可配置标签及互斥组；配置缺失与显式空配置由外层 Option 区分。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SupportTags {
+    pub tags: Vec<String>,
+    pub groups: Vec<Vec<String>>,
+}
 
 fn valid_tag(tag: &str) -> bool {
     !tag.is_empty() && tag.chars().all(|c| c.is_alphanumeric() || "_@#%".contains(c))
@@ -25,20 +33,22 @@ fn configured_tag(token: &str) -> Option<&str> {
 impl OrgFile {
     /// 文件头定义的候选标签；TAGS 只提供候选，不为任务赋标签。
     pub fn tag_options(&self) -> Vec<String> {
-        self.header_tag_config().0
+        self.support_tags().map_or_else(Vec::new, |config| config.tags)
     }
 
     /// TAGS 中花括号定义的互斥组，不将快捷键或组标记作为标签。
     pub fn tag_groups(&self) -> Vec<Vec<String>> {
-        self.header_tag_config().1
+        self.support_tags().map_or_else(Vec::new, |config| config.groups)
     }
 
-    fn header_tag_config(&self) -> (Vec<String>, Vec<Vec<String>>) {
+    pub(crate) fn support_tags(&self) -> Option<SupportTags> {
         let mut tags = Vec::new();
         let mut groups = Vec::new();
         let mut group: Option<Vec<String>> = None;
+        let mut configured = false;
         for keyword in self.syntax().document().keywords() {
             if keyword.key().eq_ignore_ascii_case("TAGS") {
+                configured = true;
                 for token in keyword.value().split_whitespace() {
                     if token == "{" {
                         group = Some(Vec::new());
@@ -62,6 +72,6 @@ impl OrgFile {
                 }
             }
         }
-        (tags, groups)
+        configured.then_some(SupportTags { tags, groups })
     }
 }

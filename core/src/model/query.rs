@@ -87,13 +87,13 @@ impl OrgWorkspace {
             .windows(2)
             .filter_map(|pair| {
                 let (parent, child) = (&pair[0], &pair[1]);
-                (parent.repo_id == child.repo_id
-                    && parent.path == child.path
+                (parent.repo_id() == child.repo_id()
+                    && parent.path() == child.path()
                     && child.level > parent.level)
                     .then(|| {
                         (
-                            parent.repo_id.clone(),
-                            parent.path.clone(),
+                            parent.repo_id().to_owned(),
+                            parent.path().to_owned(),
                             parent.byte_offset,
                         )
                     })
@@ -105,11 +105,11 @@ impl OrgWorkspace {
                 && !query
                     .excluded_files
                     .iter()
-                    .any(|source| source.repo_id == task.repo_id && source.path == task.path)
+                    .any(|source| source.repo_id == task.repo_id() && source.path == task.path())
                 && (query.include_compose_tasks
                     || !parents.contains(&(
-                        task.repo_id.clone(),
-                        task.path.clone(),
+                        task.repo_id().to_owned(),
+                        task.path().to_owned(),
                         task.byte_offset,
                     )))
         });
@@ -117,7 +117,7 @@ impl OrgWorkspace {
         let mut counts = BTreeMap::<Option<String>, usize>::new();
         for task in &all {
             let category = file_categories
-                .get(&(task.repo_id.clone(), task.path.clone()))
+                .get(&(task.repo_id().to_owned(), task.path().to_owned()))
                 .cloned()
                 .flatten();
             *counts.entry(category).or_default() += 1;
@@ -150,7 +150,7 @@ impl OrgWorkspace {
                 .collect::<BTreeSet<_>>();
             all.retain(|task| {
                 let category = file_categories
-                    .get(&(task.repo_id.clone(), task.path.clone()))
+                    .get(&(task.repo_id().to_owned(), task.path().to_owned()))
                     .cloned()
                     .flatten();
                 selected.contains(&category)
@@ -255,7 +255,7 @@ mod tests {
             result
                 .tasks
                 .iter()
-                .all(|task| !task.is_done() && task.path != "capture.org")
+                .all(|task| !task.is_done() && task.path() != "capture.org")
         );
         assert!(
             !result
@@ -458,7 +458,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(result.tasks.len(), 1);
-        assert_eq!(result.tasks[0].path, "visible.org");
+        assert_eq!(result.tasks[0].path(), "visible.org");
     }
 
     #[test]

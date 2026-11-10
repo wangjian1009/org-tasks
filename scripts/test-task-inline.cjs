@@ -48,8 +48,31 @@ test('备注、标签和清单操作原样交给 Core，不重建正文',async()
 test('版本冲突向调用方传播，不拿新版本自动覆盖',async()=>{
   const f=fixture();f.conflict();await assert.rejects(f.TaskInlineService.modify({},f.task,[{field:'NOTES',value:'draft'}]),/版本冲突/);assert.equal(f.requests.length,1);
 });
-test('标签候选保留文件配置与已有名称，不混入其他文件未使用候选',async()=>{
-  const f=fixture();assert.deepEqual(await f.TaskInlineService.tagOptions({},f.task),['configured','local','used']);
+const tagPresentation = load('entry/src/main/ets/ui/TaskTagsPresentation.ets');
+test('标签窗口直接使用任务候选快照，保留已有与继承标签，不混入其他任务候选',()=>{
+  const config={tags:['iOS','Android','工作'],groups:[['iOS','Android']]};
+  assert.deepEqual(tagPresentation.editableTagNames(config,['existing'],['inherited']),['iOS','Android','工作','existing','inherited']);
+  assert.deepEqual(tagPresentation.editableTagNames(null,['existing'],['inherited']),['existing','inherited']);
+  assert.deepEqual(tagPresentation.editableTagNames({tags:[],groups:[]},[],[]),[]);
+});
+test('互斥组分别展示，未分组标签单独排列，选择组内另一项只替换本组',()=>{
+  const config={tags:['iOS','Android','BUG','FEAT','工作'],groups:[['iOS','Android'],['BUG','FEAT']]};
+  assert.deepEqual(tagPresentation.editableTagGroups(config.tags,config),[['iOS','Android'],['BUG','FEAT'],['工作']]);
+  assert.deepEqual(tagPresentation.toggleEditableTag(['iOS','BUG','工作'],'Android',config),['BUG','工作','Android']);
+  assert.deepEqual(tagPresentation.toggleEditableTag(['Android','BUG'],'Android',config),['BUG']);
+  assert.deepEqual(tagPresentation.toggleEditableTag(['iOS'],'工作',config),['iOS','工作']);
+});
+test('父标题继承的互斥标签不能在子任务同时选择其同组标签',()=>{
+  const config={tags:['iOS','Android','工作'],groups:[['iOS','Android']]};
+  assert.equal(tagPresentation.inheritedTagConflict('Android',['iOS'],config),'iOS');
+  assert.equal(tagPresentation.inheritedTagConflict('工作',['iOS'],config),undefined);
+  assert.equal(tagPresentation.inheritedTagConflict('Android',[],config),undefined);
+});
+test('已选区域遵循 Core 可见标签，隐藏的内部用途标签在其他标签修改时仍保留',()=>{
+  const own=['iOS','REFILE','ARCHIVE'];
+  assert.deepEqual(tagPresentation.selectedTagNames(own,['inherited'],['iOS','inherited']),['iOS','inherited']);
+  assert.deepEqual(tagPresentation.toggleEditableTag(own,'Android',{tags:['iOS','Android'],groups:[['iOS','Android']]}),['REFILE','ARCHIVE','Android']);
+  assert.deepEqual(own,['iOS','REFILE','ARCHIVE']);
 });
 test('上一编辑会话保存失败时不允许切换任务',async()=>{
   const {TaskInlineSession:s}=fixture();await s.begin('first',async()=>false);

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, TimeZone};
 use orgize::ast::{Headline, Link, TimeUnit, Timestamp};
@@ -129,8 +130,8 @@ pub struct FilterTask {
     /// 兼容既有调用方的明文逻辑身份；任务专属身份请使用 task_id()。
     pub(crate) id: String,
     pub(crate) full_path: crate::TaskPath,
-    pub(crate) repo_id: String,
-    pub(crate) path: String,
+    pub(crate) file_metadata: Arc<crate::OrgFileMetadata>,
+    pub(crate) support_tags: Option<Arc<crate::SupportTags>>,
     /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
     pub(crate) category: Option<String>,
     pub(crate) line: u32,
@@ -180,11 +181,20 @@ impl FilterTask {
     }
 
     pub fn repo_id(&self) -> &str {
-        &self.repo_id
+        &self.file_metadata.repo_id
     }
 
     pub fn path(&self) -> &str {
-        &self.path
+        &self.file_metadata.path
+    }
+
+    /// 同一文件的任务共享不可变元信息，任务克隆继续共享该快照。
+    pub fn file_metadata(&self) -> &crate::OrgFileMetadata {
+        &self.file_metadata
+    }
+
+    pub fn support_tags(&self) -> Option<&crate::SupportTags> {
+        self.support_tags.as_deref()
     }
 
     pub fn category(&self) -> Option<&str> {
@@ -391,8 +401,8 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
         .flat_map(|file| tasks_from_file(repository, file))
         .collect::<Vec<_>>();
     tasks.sort_by(|left, right| {
-        left.path
-            .cmp(&right.path)
+        left.path()
+            .cmp(right.path())
             .then(left.byte_offset.cmp(&right.byte_offset))
     });
     tasks
@@ -400,6 +410,8 @@ pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
 
 pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Vec<FilterTask> {
     let mut tasks = Vec::new();
+    let file_metadata = Arc::new(file.metadata(repository.task_scan_rules.excludes(&file.path)));
+    let support_tags = file.support_tags().map(Arc::new);
     let category = file.category();
     let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
     let mut identities =
@@ -462,8 +474,8 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         tasks.push(FilterTask {
             id: identities.id_for(&headline, state_type != FilterStateType::None),
             full_path,
-            repo_id: repository.id.clone(),
-            path: file.path.clone(),
+            file_metadata: Arc::clone(&file_metadata),
+            support_tags: support_tags.clone(),
             category: category.clone(),
             line,
             column,
@@ -742,7 +754,7 @@ fn source_position(source: &[u8], offset: usize) -> (u32, u32) {
 fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: NaiveDate) -> bool {
     match expression {
         FilterExpression::InBook { value, negated } => {
-            apply_negation(task.path == *value, *negated)
+            apply_negation(task.path() == *value, *negated)
         }
         FilterExpression::State { value, negated } => apply_negation(
             task.state
@@ -932,15 +944,15 @@ fn sort_tasks(tasks: &mut [FilterTask], orders: &[FilterSort]) {
                 };
             }
         }
-        left.path
-            .cmp(&right.path)
+        left.path()
+            .cmp(right.path())
             .then(left.byte_offset.cmp(&right.byte_offset))
     });
 }
 
 fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -> Ordering {
     match field {
-        FilterSortField::Book => left.path.cmp(&right.path),
+        FilterSortField::Book => left.path().cmp(right.path()),
         FilterSortField::Title => left.title.cmp(&right.title),
         FilterSortField::Priority => left.priority.cmp(&right.priority),
         FilterSortField::State => left.state.cmp(&right.state),
@@ -951,8 +963,8 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
         FilterSortField::Modified => left.modified_at.cmp(&right.modified_at),
         FilterSortField::Event => left.events.first().cmp(&right.events.first()),
         FilterSortField::Position => left
-            .path
-            .cmp(&right.path)
+            .path()
+            .cmp(right.path())
             .then(left.byte_offset.cmp(&right.byte_offset)),
     }
 }
@@ -1512,7 +1524,7 @@ mod tests {
         };
         let tasks = tasks_from_repo(&repository);
         for (path, _, expected) in sources {
-            let task = tasks.iter().find(|task| task.path == path).unwrap();
+            let task = tasks.iter().find(|task| task.path() == path).unwrap();
             assert_eq!(task.is_done(), expected, "{path}");
             assert_eq!(Filter::parse("it.done").matches(task), task.is_done());
         }

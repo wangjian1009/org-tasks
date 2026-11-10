@@ -63,3 +63,47 @@ fn an_empty_file_keeps_configured_options_and_peer_files_do_not_share_tags() {
     assert_eq!(tasks.len(), 1);
     assert!(tasks[0].inherited_tags().is_empty());
 }
+
+#[test]
+fn task_file_metadata_is_shared_and_remains_an_independent_snapshot() {
+    let mut ws = workspace("#+TITLE: Original\n#+TAGS: { iOS Android } 工作\n* TODO First\n* TODO Second\n");
+    ws.repos[0].files.push(OrgFile::new("repo".into(), "other.org".into(), b"* TODO Other\n".to_vec()).unwrap());
+    let tasks = ws.query(&TaskQuery::default()).unwrap().tasks;
+    let first = tasks.iter().find(|task| task.title() == "First").unwrap();
+    let second = tasks.iter().find(|task| task.title() == "Second").unwrap();
+    let other = tasks.iter().find(|task| task.title() == "Other").unwrap();
+    assert!(std::ptr::eq(first.file_metadata(), second.file_metadata()));
+    assert!(std::ptr::eq(first.file_metadata(), first.clone().file_metadata()));
+    assert!(!std::ptr::eq(first.file_metadata(), other.file_metadata()));
+    assert!(std::ptr::eq(first.support_tags().unwrap(), second.support_tags().unwrap()));
+    ws.repos[0].files[0] = OrgFile::new("repo".into(), "notes.org".into(), b"#+TITLE: Updated\n* TODO First\n".to_vec()).unwrap();
+    drop(ws);
+    assert_eq!(first.file_metadata().title.as_deref(), Some("Original"));
+    assert_eq!(first.support_tags().unwrap().groups, vec![vec!["iOS", "Android"]]);
+    assert_eq!(first.file_metadata().task_count, 2);
+}
+
+#[test]
+fn supported_tags_distinguish_absent_configuration_from_explicit_empty_configuration() {
+    let ws = workspace("* TODO No configuration :existing:\n");
+    assert!(ws.query(&TaskQuery::default()).unwrap().tasks[0].support_tags().is_none());
+    let ws = workspace("#+TAGS:\n* TODO Explicit empty\n");
+    let tasks = ws.query(&TaskQuery::default()).unwrap().tasks;
+    let config = tasks[0].support_tags().unwrap();
+    assert!(config.tags.is_empty());
+    assert!(config.groups.is_empty());
+}
+
+#[test]
+fn supported_tags_preserve_exclusive_groups_and_are_scoped_to_the_origin_file() {
+    let mut ws = workspace("#+TAGS: { iOS(i) Android(a) } { BUG(b) FEAT(f) } 工作 REFILE ARCHIVE\n* TODO First\n** TODO Child\n");
+    ws.repos[0].files.push(OrgFile::new("repo".into(), "other.org".into(), b"#+TAGS: unrelated\n* TODO Other\n".to_vec()).unwrap());
+    let tasks = ws.query(&TaskQuery::default()).unwrap().tasks;
+    let first = tasks.iter().find(|task| task.title() == "First").unwrap();
+    let child = tasks.iter().find(|task| task.title() == "Child").unwrap();
+    let config = first.support_tags().unwrap();
+    assert_eq!(config.tags, ["iOS", "Android", "BUG", "FEAT", "工作"]);
+    assert_eq!(config.groups, vec![vec!["iOS", "Android"], vec!["BUG", "FEAT"]]);
+    assert_eq!(child.support_tags(), Some(config));
+    assert_eq!(tasks.iter().find(|task| task.title() == "Other").unwrap().support_tags().unwrap().tags, ["unrelated"]);
+}

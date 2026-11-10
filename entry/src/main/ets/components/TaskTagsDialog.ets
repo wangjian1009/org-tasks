@@ -1,10 +1,13 @@
 import { UiColor } from '../ui/Theme'
+import { CoreSupportTags } from '../services/NativeCoreService'
+import { editableTagNames, editableTagGroups, selectedTagNames, inheritedTagConflict, toggleEditableTag } from '../ui/TaskTagsPresentation'
 
 @CustomDialog
 export struct TaskTagsDialog {
   controller: CustomDialogController
-  options: string[] = []
+  supportTags: CoreSupportTags | null = null
   ownTags: string[] = []
+  visibleTags: string[] = []
   inheritedTags: string[] = []
   change: (tags: string[]) => Promise<boolean> = async () => false
   @State names: string[] = []
@@ -14,10 +17,12 @@ export struct TaskTagsDialog {
   @State busy: boolean = false
   @State message: string = ''
 
-  aboutToAppear() { this.names = [...this.options]; this.selected = [...this.ownTags] }
+  aboutToAppear() { this.names = editableTagNames(this.supportTags, this.visibleTags, this.inheritedTags); this.selected = [...this.ownTags] }
   async toggle(tag: string) {
     if (this.busy || this.inheritedTags.includes(tag)) return
-    await this.apply(this.selected.includes(tag) ? this.selected.filter(item => item !== tag) : [...this.selected, tag])
+    const inherited = inheritedTagConflict(tag, this.inheritedTags, this.supportTags)
+    if (!this.selected.includes(tag) && inherited) { this.message = `该组已继承“${inherited}”，请在父标题修改`; return }
+    await this.apply(toggleEditableTag(this.selected, tag, this.supportTags))
   }
   async apply(tags: string[]): Promise<boolean> {
     this.busy = true; this.message = ''
@@ -30,10 +35,28 @@ export struct TaskTagsDialog {
   async create() {
     const name = this.name.trim()
     if (!name || this.busy) return
-    if (await this.apply(this.selected.includes(name) ? this.selected : [...this.selected, name])) {
+    if (this.inheritedTags.includes(name)) { this.message = '该标签已从父标题继承'; return }
+    const inherited = inheritedTagConflict(name, this.inheritedTags, this.supportTags)
+    if (inherited) { this.message = `该组已继承“${inherited}”，请在父标题修改`; return }
+    if (await this.apply(this.selected.includes(name) ? this.selected : toggleEditableTag(this.selected, name, this.supportTags))) {
       if (!this.names.includes(name)) this.names = [...this.names, name]
       this.name = ''; this.creating = false
     }
+  }
+  @Builder
+  tagChip(tag: string, selectedArea: boolean = false) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 4 }) {
+        Text(tag).fontSize(14).fontColor(this.selected.includes(tag) || this.inheritedTags.includes(tag) ? UiColor.primary : UiColor.secondary)
+          .wordBreak(WordBreak.BREAK_ALL)
+        if (this.inheritedTags.includes(tag)) { Text('继承').fontSize(10).fontColor(UiColor.secondary) }
+      }
+    }.id(selectedArea ? `inline_selected_tag_${tag}` : `inline_tag_${tag}`)
+      .constraintSize({ minHeight: 32, maxWidth: '100%' }).padding({ left: 12, right: 12, top: 5, bottom: 5 })
+      .backgroundColor(this.selected.includes(tag) || this.inheritedTags.includes(tag) ? '#1F382E' : UiColor.field).borderRadius(16)
+      .margin({ right: 8, bottom: 8 }).enabled(!this.busy)
+      .accessibilityText(`${tag}${this.inheritedTags.includes(tag) ? '，从父标题继承' : this.selected.includes(tag) ? '，已选中' : '，未选择'}`)
+      .onClick(() => { this.toggle(tag) })
   }
   build() {
     Column({ space: 8 }) {
@@ -55,20 +78,23 @@ export struct TaskTagsDialog {
         Text('创建后添加到当前任务').fontSize(12).fontColor(UiColor.secondary).width('100%')
       } else {
         Scroll() {
-          Column() {
-            ForEach(this.names, (tag: string) => {
-              Row({ space: 8 }) {
-                Image($r('app.media.ui_tags')).width(18).height(18)
-                Text(tag).fontSize(15).fontColor(UiColor.text).layoutWeight(1).wordBreak(WordBreak.BREAK_ALL)
-                if (this.inheritedTags.includes(tag)) {
-                  Text('继承').fontSize(11).fontColor(UiColor.secondary)
-                }
-                Text(this.selected.includes(tag) || this.inheritedTags.includes(tag) ? '✓' : '').width(24)
-                  .fontSize(18).fontColor(UiColor.primary)
-              }.id(`inline_tag_${tag}`).width('100%').constraintSize({ minHeight: 44 }).padding({ top: 8, bottom: 8 })
-                .enabled(!this.busy).accessibilityText(`${tag}${this.inheritedTags.includes(tag) ? '，从父标题继承' : this.selected.includes(tag) ? '，已选中' : '，未选择'}`)
-                .onClick(() => { this.toggle(tag) })
-            }, (tag: string) => tag)
+          Column({ space: 8 }) {
+            if (selectedTagNames(this.selected, this.inheritedTags, this.names).length > 0) {
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(selectedTagNames(this.selected, this.inheritedTags, this.names), (tag: string) => {
+                  this.tagChip(tag, true)
+                }, (tag: string) => tag)
+              }.width('100%')
+              Divider().color(UiColor.outline)
+            }
+            Text('全部标签').fontSize(13).fontColor(UiColor.secondary).width('100%')
+            ForEach(editableTagGroups(this.names, this.supportTags), (group: string[], index: number) => {
+              if (index > 0) { Divider().color(UiColor.outline).margin({ bottom: 8 }) }
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(group, (tag: string) => { this.tagChip(tag) }, (tag: string) => tag)
+              }.width('100%')
+            }, (group: string[]) => JSON.stringify(group))
+            if (this.names.length === 0) { Text('暂无标签，可点击下方新建标签添加').fontSize(13).fontColor(UiColor.secondary).width('100%') }
           }.width('100%')
         }.width('100%').constraintSize({ maxHeight: 360 })
         Button('+ 新建标签').id('inline_tag_create').width('100%').height(40).backgroundColor(UiColor.field).fontColor(UiColor.text)

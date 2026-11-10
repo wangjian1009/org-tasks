@@ -1188,7 +1188,7 @@ mod tests {
         assert!(
             crate::filter::tasks_from_repo(repo)
                 .iter()
-                .all(|task| task.path != "visible.org")
+                .all(|task| task.path() != "visible.org")
         );
         assert!(
             crate::filter::tasks_from_repo(repo)

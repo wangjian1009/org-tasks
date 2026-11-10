@@ -133,8 +133,8 @@ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 pub struct FilterTask {
     id: String,
     full_path: TaskPath,
-    repo_id: String,
-    path: String,
+    file_metadata: Arc<OrgFileMetadata>,
+    support_tags: Option<Arc<SupportTags>>,
     category: Option<String>,
     line: u32,
     column: u32,
@@ -167,6 +167,8 @@ impl FilterTask {
     pub fn full_path(&self) -> &TaskPath;
     pub fn repo_id(&self) -> &str;
     pub fn path(&self) -> &str;
+    pub fn file_metadata(&self) -> &OrgFileMetadata;
+    pub fn support_tags(&self) -> Option<&SupportTags>;
     pub fn category(&self) -> Option<&str>;
     pub fn line(&self) -> u32;
     pub fn column(&self) -> u32;
@@ -211,6 +213,30 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 \umlclass[x=7,y=-3]{AddressLink}{uri: String \\ label: String}{}
 \umldep{FilterTask}{OrgFile}
 \umldep{FilterTask}{AddressLink}
+\end{tikzpicture}
+\end{center}
+
+* 文件信息共享与可配置标签
+
+同一文件的一次任务投影共用 ~Arc<OrgFileMetadata>~ ，标题记录不再分别保存仓库 ID 与文件路径副本； ~repo_id()~ 与 ~path()~ 从共享元信息读取。 ~file_metadata()~ 返回该不可变快照的借用，任务克隆继续共享；仓库重新加载后旧任务保留旧文件信息，不持有仓库锁、源字节或整个语法树。通过文件对象与任务投影生成的元信息使用同一实现。
+
+#+begin_src rust
+pub struct SupportTags {
+    pub tags: Vec<String>,
+    pub groups: Vec<Vec<String>>,
+}
+#+end_src
+
+~support_tags() -> Option<&SupportTags>~ 返回候选标签与互斥组；同一文件的相同配置通过 ~Arc~ 共享。配置中的快捷键不进入名称， ~{ ... }~ 保留为互斥组，普通标签保留原顺序。缺少候选配置时返回 ~None~ ，显式空 ~#+TAGS:~ 返回包含空数组的 ~Some~ ，不以实际已使用标签伪造配置。文件头候选继续来自已有 ~orgize~ 语法树，与实际标签赋值及任务查询匹配分开。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{FilterTask}{file\_metadata: Arc\textless OrgFileMetadata\textgreater \\
+  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ support\_tags(): Option\textless SupportTags\textgreater}
+\umlclass[x=8,y=0]{OrgFileMetadata}{repo\_id: OrgRepoId \\ path: String}{}
+\umlclass[x=8,y=-4]{SupportTags}{tags: Vec\textless String\textgreater \\ groups: Vec\textless Vec\textless String\textgreater\textgreater}{}
+\umluniassoc[mult1=0..*,mult2=1]{FilterTask}{OrgFileMetadata}
+\umluniassoc[mult1=0..*,mult2=0..1]{FilterTask}{SupportTags}
 \end{tikzpicture}
 \end{center}
 

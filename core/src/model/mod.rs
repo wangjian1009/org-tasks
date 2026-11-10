@@ -29,6 +29,7 @@ pub use query::*;
 pub use refile::*;
 pub use render::*;
 pub use service::*;
+pub use tags::SupportTags;
 pub use task_inline::*;
 pub use task_operation::*;
 pub use task_path::*;
@@ -119,31 +120,7 @@ impl OrgRepo {
     pub fn file_metadata(&self) -> Vec<OrgFileMetadata> {
         self.files
             .iter()
-            .map(|file| {
-                let (title, has_conflict) = file.header_metadata();
-                OrgFileMetadata {
-                    repo_id: file.repo_id.clone(),
-                    path: file.path.clone(),
-                    title,
-                    has_conflict,
-                    title_parts: file.title_parts(),
-                    tag_options: file.tag_options(),
-                    tag_groups: file.tag_groups(),
-                    is_ignore: self.task_scan_rules.excludes(&file.path),
-                    task_count: if self.task_scan_rules.excludes(&file.path) {
-                        0
-                    } else {
-                        file.syntax()
-                            .document()
-                            .syntax()
-                            .descendants()
-                            .filter_map(orgize::ast::Headline::cast)
-                            .count()
-                    },
-                    byte_length: file.source_bytes().len(),
-                    modified_at: file.modified_at,
-                }
-            })
+            .map(|file| file.metadata(self.task_scan_rules.excludes(&file.path)))
             .collect()
     }
 
@@ -172,6 +149,32 @@ pub struct OrgFile {
 }
 
 impl OrgFile {
+    pub(crate) fn metadata(&self, is_ignore: bool) -> OrgFileMetadata {
+        let (title, has_conflict) = self.header_metadata();
+        OrgFileMetadata {
+            repo_id: self.repo_id.clone(),
+            path: self.path.clone(),
+            title,
+            has_conflict,
+            title_parts: self.title_parts(),
+            tag_options: self.tag_options(),
+            tag_groups: self.tag_groups(),
+            is_ignore,
+            task_count: if is_ignore {
+                0
+            } else {
+                self.syntax()
+                    .document()
+                    .syntax()
+                    .descendants()
+                    .filter_map(orgize::ast::Headline::cast)
+                    .count()
+            },
+            byte_length: self.source_bytes().len(),
+            modified_at: self.modified_at,
+        }
+    }
+
     pub fn new(
         repo_id: OrgRepoId,
         path: String,

@@ -291,7 +291,7 @@ async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
         .query(&query)
         .unwrap();
     assert_eq!(result.tasks.len(), 1);
-    assert_eq!(result.tasks[0].path, "visible.org");
+    assert_eq!(result.tasks[0].path(), "visible.org");
     assert!(
         repo.file_metadata()
             .iter()

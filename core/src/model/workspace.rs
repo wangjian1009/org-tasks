@@ -138,8 +138,8 @@ mod tests {
         let tasks = workspace.query(&crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }).unwrap().tasks;
 
         assert_eq!(tasks.len(), 2);
-        assert_eq!(tasks[0].repo_id, "repo-1");
-        assert_eq!(tasks[1].repo_id, "repo-2");
+        assert_eq!(tasks[0].repo_id(), "repo-1");
+        assert_eq!(tasks[1].repo_id(), "repo-2");
     }
 
     #[test]
