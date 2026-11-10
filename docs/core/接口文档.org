@@ -752,6 +752,10 @@ impl OrgFile {
 
 卡片通过该接口取得备注和检查清单；标题使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选、删除或同级排序； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
 
+~TITLE~ 更新后，Core 识别标题中已有或新输入的分数与百分比统计并重算；先校验标题没有被重新解释为状态、优先级或标签，再改写派生统计。~CHECKLIST~ 的新增、删除和完成状态切换更新 checkbox 统计；~TODO~ 设置、清除与切换更新父标题的子任务统计，按 ~COOKIE_DATA~ 的 ~recursive~ 配置向上更新。来源混合、递归继承边界与完成状态规则见 [[file:数据模型.org::*标题统计更新][标题统计更新]]，语义依据 [[info:org#Breaking Down Tasks][Org Info：任务分解]] 与 [[info:org#Checkboxes][Org Info：checkbox]] 。
+
+统计修改与原操作在同一事务中提交，复用版本校验、回退历史与 ~watch_data_changes~ ；每个实际变更的仓库在提交后只广播一次数据失效事件，失败或最终字节未变化不广播。计数完成不会自动修改父任务状态。标题投影仍只读取文件中的统计值，宿主收到事件后重新查询，不自行计算进度或以操作返回值触发刷新。
+
 调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；成功只返回提交完成，宿主通过数据变化监听后重新读取最新投影。
 
 清单排序使用 ~Move { id, before_id }~ ，目标为空时移到本同级列表末尾。Core 投影直接父列表身份 ~sibling_group~ 并验证来源和目标同组，移动父项携带嵌套内容；宿主只维护拖动预览，松手后提交一次，成功后重新读取条目 ID 和文件版本。

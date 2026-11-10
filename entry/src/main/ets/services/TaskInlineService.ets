@@ -23,7 +23,7 @@ export class TaskInlineService {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
     const tasks = (await workspace.query({ includeDone: true, includeComposeTasks: true })).tasks
     const current = tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
-      (task.taskId ? item.taskId === task.taskId : JSON.stringify(item.fullPath) === JSON.stringify(task.fullPath)))
+      (task.taskId ? item.taskId === task.taskId : item.id === task.id))
     if (!current) throw new Error('任务已删除或改名，请返回列表重新打开')
     return current
   }

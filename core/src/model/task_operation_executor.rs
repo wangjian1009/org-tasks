@@ -539,25 +539,6 @@ fn execute_inner(
                     .find(|node| start(node) == offset)
                     .ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?;
                 match modification {
-                    TaskModification::Title(value)
-                        if updated.title_raw().trim_end()
-                            != value.as_deref().unwrap_or("").trim_end()
-                            || updated.todo_keyword().map(|token| token.to_string())
-                                != headline.todo_keyword().map(|token| token.to_string())
-                            || updated.priority() != headline.priority()
-                            || updated
-                                .tags()
-                                .map(|token| token.to_string())
-                                .collect::<Vec<_>>()
-                                != headline
-                                    .tags()
-                                    .map(|token| token.to_string())
-                                    .collect::<Vec<_>>() =>
-                    {
-                        return Err(CoreError::InvalidInput(
-                            "标题或状态不能被 Org 重新解释为其他字段",
-                        ));
-                    }
                     TaskModification::Todo(value)
                         if updated.todo_keyword().map(|token| token.to_string()) != *value
                             || updated.title_raw() != headline.title_raw() =>
@@ -568,8 +549,28 @@ fn execute_inner(
                     }
                     _ => (),
                 }
-                // 所有字段操作只影响本标题及其正文，标题起点不变。
+                // 字段修改期间保留本标题起点，父级统计在全部字段完成后更新。
                 offset = start(&headline);
+            }
+            if data
+                .modifications
+                .iter()
+                .any(|change| matches!(change, TaskModification::Todo(_)))
+            {
+                let changed = item
+                    .file
+                    .path_headlines()
+                    .into_iter()
+                    .map(|(_, node)| node)
+                    .find(|node| start(node) == offset)
+                    .ok_or(CoreError::InvalidState("修改后标题无法定位"))?;
+                for (range, value) in super::title_statistics::parent_edits(&item.file, &changed)
+                    .into_iter()
+                    .rev()
+                {
+                    offset = offset - (range.end - range.start) + value.len();
+                    replace(&mut item.file, range, value.as_bytes())?;
+                }
             }
             Ok(Some(path_at(&item.file, offset)?))
         }
@@ -748,6 +749,27 @@ fn normalize_newlines(value: &str, nl: &str) -> String {
         .replace('\r', "\n")
         .replace('\n', nl)
 }
+
+fn update_title_counts(
+    file: &mut OrgFile,
+    offset: usize,
+    trigger: super::title_statistics::Trigger,
+) -> Result<(), CoreError> {
+    let headline = file
+        .path_headlines()
+        .into_iter()
+        .map(|(_, node)| node)
+        .find(|node| start(node) == offset)
+        .ok_or(CoreError::InvalidState("修改后标题无法定位"))?;
+    for (range, value) in super::title_statistics::title_edits(file, &headline, trigger)
+        .into_iter()
+        .rev()
+    {
+        replace(file, range, value.as_bytes())?;
+    }
+    Ok(())
+}
+
 fn validate_timestamp(value: &str) -> Result<(), CoreError> {
     let parsed = orgize::Org::parse(value);
     let timestamp = parsed
@@ -809,7 +831,32 @@ pub(super) fn modify(
                 u32::from(node.text_range().start()) as usize
                     ..u32::from(node.text_range().end()) as usize - trailing,
                 value.as_deref().unwrap_or("").as_bytes(),
-            )
+            )?;
+            let updated = file
+                .path_headlines()
+                .into_iter()
+                .map(|(_, node)| node)
+                .find(|node| start(node) == start(headline))
+                .ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?;
+            // 先验证输入仍是标题文字，再更新派生统计，不能放宽字段边界。
+            if updated.title_raw().trim_end() != value.as_deref().unwrap_or("").trim_end()
+                || updated.todo_keyword().map(|token| token.to_string())
+                    != headline.todo_keyword().map(|token| token.to_string())
+                || updated.priority() != headline.priority()
+                || updated
+                    .tags()
+                    .map(|token| token.to_string())
+                    .collect::<Vec<_>>()
+                    != headline
+                        .tags()
+                        .map(|token| token.to_string())
+                        .collect::<Vec<_>>()
+            {
+                return Err(CoreError::InvalidInput(
+                    "标题或状态不能被 Org 重新解释为其他字段",
+                ));
+            }
+            update_title_counts(file, start(headline), super::title_statistics::Trigger::Title)
         }
         TaskModification::Todo(value) => {
             validate_state(file, value.as_deref())?;
@@ -949,7 +996,19 @@ pub(super) fn modify(
             }
             replace(file, at..at, content.as_bytes())
         }
-        TaskModification::Checklist(change) => modify_checklist(file, headline, change),
+        TaskModification::Checklist(change) => {
+            modify_checklist(file, headline, change)?;
+            if matches!(
+                change,
+                TaskChecklistChange::Add { .. }
+                    | TaskChecklistChange::SetChecked { .. }
+                    | TaskChecklistChange::Remove { .. }
+            ) {
+                // 条目编辑后重取语法节点，统计与 checkbox 在同一事务内提交和通知。
+                update_title_counts(file, start(headline), super::title_statistics::Trigger::Checkbox)?;
+            }
+            Ok(())
+        }
         TaskModification::ScheduleDate(value) => {
             let value = planning_date_value(headline.scheduled(), value)?;
             planning(

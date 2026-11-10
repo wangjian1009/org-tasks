@@ -197,6 +197,286 @@ async fn task_operations_notify_only_after_changed_files_are_committed() {
 }
 
 #[tokio::test]
+async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
+    let source = "* TODO Task [0/2]\r\n- [ ] First\r\n- [ ] Second\r\n";
+    let mut f = Fixture::new(source).await;
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events = observed.clone();
+    let disk = f.root.join("tasks.org");
+    let repo_id = f.workspace.repos()[0].id.clone();
+    let _subscription = f.workspace.watch_data_changes(move |event| {
+        events
+            .lock()
+            .unwrap()
+            .push((event, std::fs::read_to_string(&disk).unwrap()));
+    });
+    let initial = f
+        .workspace
+        .query(&TaskQuery::default())
+        .unwrap()
+        .tasks
+        .remove(0);
+    for (checked, title, event_count) in [
+        (true, "Task [1/2]", 1),
+        (true, "Task [1/2]", 1),
+        (false, "Task [0/2]", 2),
+    ] {
+        let file = &f.workspace.repos()[0].files()[0];
+        let path = file.node_paths()[0].clone();
+        let id = file.task_edit_content(&path).unwrap().checklist[0]
+            .id
+            .clone();
+        let group = TaskOperationGroup {
+            operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                path,
+                modifications: vec![TaskModification::Checklist(
+                    TaskChecklistChange::SetChecked { id, checked },
+                )],
+            })],
+            file_versions: vec![TaskFileVersion {
+                repo_id: repo_id.clone(),
+                file: "tasks.org".into(),
+                version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+            }],
+            ..Default::default()
+        };
+        f.workspace.execute_task_operations(&group).await.unwrap();
+        let current = f
+            .workspace
+            .query(&TaskQuery::default())
+            .unwrap()
+            .tasks
+            .remove(0);
+        assert_eq!(current.title(), title);
+        assert_eq!(current.id(), initial.id());
+        assert_eq!(current.state(), Some("TODO"));
+        let events = observed.lock().unwrap();
+        assert_eq!(events.len(), event_count);
+        assert_eq!(
+            events.last().unwrap().0,
+            DataChangeEvent::RepositoryChanged {
+                repo_id: repo_id.clone()
+            }
+        );
+        assert_eq!(
+            events.last().unwrap().1.as_bytes(),
+            f.workspace.repos()[0].files()[0].source_bytes()
+        );
+    }
+    let before = f.workspace.clone();
+    let file = &f.workspace.repos()[0].files()[0];
+    let path = file.node_paths()[0].clone();
+    let id = file.task_edit_content(&path).unwrap().checklist[0]
+        .id
+        .clone();
+    let invalid = TaskOperationGroup {
+        operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            path,
+            modifications: vec![
+                TaskModification::Checklist(TaskChecklistChange::SetChecked { id, checked: true }),
+                TaskModification::Title(Some("Invalid\nHeading".into())),
+            ],
+        })],
+        ..Default::default()
+    };
+    assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
+    assert_eq!(f.workspace, before);
+    assert_eq!(
+        std::fs::read(f.root.join("tasks.org")).unwrap(),
+        source.as_bytes()
+    );
+    assert_eq!(observed.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_updates() {
+    let reference: serde_json::Value =
+        serde_json::from_str(include_str!("data/title_statistics_emacs.json")).unwrap();
+    for case in reference["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let mut f = Fixture::new(case["source"].as_str().unwrap()).await;
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events = observed.clone();
+        let disk = f.root.join("tasks.org");
+        let repo_id = f.workspace.repos()[0].id.clone();
+        let _subscription = f.workspace.watch_data_changes(move |event| {
+            events
+                .lock()
+                .unwrap()
+                .push((event, std::fs::read_to_string(&disk).unwrap()));
+        });
+        let mut expected_events = 0;
+        for action in case["actions"].as_array().unwrap() {
+            let file = &f.workspace.repos()[0].files()[0];
+            let before = file.source_bytes().to_vec();
+            let path = file.node_paths()[action["index"].as_u64().unwrap() as usize].clone();
+            let modification = match action["type"].as_str().unwrap() {
+                "title" => TaskModification::Title(Some(action["value"].as_str().unwrap().into())),
+                "todo" => TaskModification::Todo(action["value"].as_str().map(str::to_owned)),
+                "checkbox" => {
+                    let item = &file.task_edit_content(&path).unwrap().checklist[0];
+                    TaskModification::Checklist(TaskChecklistChange::SetChecked {
+                        id: item.id.clone(),
+                        checked: !item.checked,
+                    })
+                }
+                _ => unreachable!(),
+            };
+            let group = TaskOperationGroup {
+                operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                    path,
+                    modifications: vec![modification],
+                })],
+                file_versions: vec![TaskFileVersion {
+                    repo_id: repo_id.clone(),
+                    file: "tasks.org".into(),
+                    version: LocalFileVersion::from_bytes(&before).content_hash,
+                }],
+                ..Default::default()
+            };
+            f.workspace
+                .execute_task_operations(&group)
+                .await
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let expected = action["expected"].as_str().unwrap();
+            assert_eq!(
+                f.workspace.repos()[0].files()[0].source_bytes(),
+                expected.as_bytes(),
+                "{name}: {action}"
+            );
+            assert_eq!(
+                std::fs::read(f.root.join("tasks.org")).unwrap(),
+                expected.as_bytes(),
+                "{name}"
+            );
+            if before != expected.as_bytes() {
+                expected_events += 1;
+                let events = observed.lock().unwrap();
+                assert_eq!(
+                    events.last().unwrap(),
+                    &(
+                        DataChangeEvent::RepositoryChanged {
+                            repo_id: repo_id.clone()
+                        },
+                        expected.into()
+                    ),
+                    "{name}"
+                );
+                let history = &f
+                    .workspace
+                    .task_operation_history
+                    .entries
+                    .last()
+                    .unwrap()
+                    .fallback_group
+                    .files[0];
+                assert_eq!(history.before.as_deref().unwrap().as_bytes(), before);
+                assert_eq!(history.after, expected);
+            }
+            assert_eq!(observed.lock().unwrap().len(), expected_events, "{name}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event() {
+    let source = "* TODO Root [/] [%]\r\n:PROPERTIES:\r\n:COOKIE_DATA: todo recursive\r\n:END:\r\n** TODO Parent [/]\r\n*** TODO Child\r\nOld notes  \r\n";
+    let mut f = Fixture::new(source).await;
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events = observed.clone();
+    let _subscription = f
+        .workspace
+        .watch_data_changes(move |event| events.lock().unwrap().push(event));
+    let child = f.workspace.repos()[0].files()[0].node_paths()[2].clone();
+    let group = TaskOperationGroup {
+        operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            path: child,
+            modifications: vec![
+                TaskModification::Todo(Some("DONE".into())),
+                TaskModification::Priority(Some("A".into())),
+                TaskModification::Notes(Some("New notes\n".into())),
+            ],
+        })],
+        ..Default::default()
+    };
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let expected = source
+        .replace("Root [/] [%]", "Root [1/2] [50%]")
+        .replace("Parent [/]", "Parent [1/1]")
+        .replace("TODO Child", "DONE [#A] Child")
+        .replace("Old notes  ", "New notes");
+    assert_eq!(
+        f.workspace.repos()[0].files()[0].source_bytes(),
+        expected.as_bytes()
+    );
+    assert_eq!(observed.lock().unwrap().len(), 1);
+    let snapshot = f.workspace.clone();
+    let child = f.workspace.repos()[0].files()[0].node_paths()[2].clone();
+    let mut invalid = TaskOperationGroup {
+        operations: vec![
+            TaskOperation::Modification(TaskModificationOperation {
+                path: child.clone(),
+                modifications: vec![TaskModification::Todo(Some("TODO".into()))],
+            }),
+            TaskOperation::Deletion(TaskDeletion {
+                path: TaskPath {
+                    titles: vec!["Missing".into()],
+                    ..child
+                },
+            }),
+        ],
+        ..Default::default()
+    };
+    assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
+    assert_eq!(f.workspace, snapshot);
+    invalid.operations.pop();
+    invalid.file_versions.push(TaskFileVersion {
+        repo_id: f.workspace.repos()[0].id.clone(),
+        file: "tasks.org".into(),
+        version: LocalFileVersion::from_bytes(source.as_bytes()).content_hash,
+    });
+    assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
+    assert_eq!(f.workspace, snapshot);
+    assert_eq!(
+        std::fs::read(f.root.join("tasks.org")).unwrap(),
+        expected.as_bytes()
+    );
+    assert_eq!(observed.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn title_statistics_never_allow_field_injection_or_publish_failed_edits() {
+    let source = "* Note\n- [X] First\n- [ ] Second\n";
+    let mut f = Fixture::new(source).await;
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events = observed.clone();
+    let _subscription = f
+        .workspace
+        .watch_data_changes(move |event| events.lock().unwrap().push(event));
+    let snapshot = f.workspace.clone();
+    for title in [
+        "TODO Other [/]",
+        "[#A] Other [/]",
+        "Other [/] :work:",
+        "Broken\nHeadline",
+    ] {
+        assert!(
+            f.workspace
+                .execute_task_operations(&f.group(title))
+                .await
+                .is_err(),
+            "{title}"
+        );
+        assert_eq!(f.workspace, snapshot);
+        assert_eq!(
+            std::fs::read(f.root.join("tasks.org")).unwrap(),
+            source.as_bytes()
+        );
+        assert!(observed.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
 async fn successful_groups_accumulate_history_and_failed_group_does_not_publish() {
     let source = "* TODO Original\r\nBody  \r\n";
     let mut f = Fixture::new(source).await;

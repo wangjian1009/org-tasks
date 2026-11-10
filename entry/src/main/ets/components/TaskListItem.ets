@@ -1,5 +1,6 @@
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession } from '../services/TaskInlineService'
+import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskTagsDialog } from './TaskTagsDialog'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
@@ -58,6 +59,7 @@ export struct TaskListItem {
   @State checkLayoutRevision: number = 0
   @State snapshotBlocked: boolean = false
   @StorageLink('taskInlineDateRequest') @Watch('dateRequested') dateRequest: string = ''
+  @StorageLink('coreDataChanges') @Watch('dataChanged') dataChanges: CoreDataChangeState = emptyCoreDataChangeState()
   @Prop referenceTime: number = Date.now()
   private ownerKey: string = ''
   private dateDialog: CustomDialogController | undefined = undefined
@@ -92,6 +94,20 @@ export struct TaskListItem {
     if (this.dateRequest.startsWith(`${this.task.id}\n`)) this.dates(false)
   }
   value(): CoreTask { return this.editTask ?? this.task }
+  dataChanged() {
+    if (!this.editTask) return
+    // 操作提交与数据事件各自排队，读取新快照由事件触发，并保留未保存的文字。
+    const refresh = this.pending.then(async () => {
+      const previous = this.value()
+      try {
+        const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, previous)
+        if (this.heading === previous.heading) this.heading = current.heading
+        if (this.notes === previous.editContent.notes.trimEnd()) this.notes = current.editContent.notes.trimEnd()
+        this.editTask = current
+      } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+    })
+    this.pending = refresh
+  }
   aboutToAppear() { this.ownerKey = this.task.id }
   aboutToDisappear() {
     this.cancelCheckDrag()
@@ -148,13 +164,13 @@ export struct TaskListItem {
       try {
         const context = this.getUIContext().getHostContext()!
         await TaskInlineService.modify(context, this.value(), modifications)
-        this.editTask = await TaskInlineService.reload(context, this.value())
         success = true
       } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
       finally { this.working = false }
     })
     this.pending = operation
     await operation
+    await this.pending
     return success
   }
   async saveText(): Promise<boolean> {

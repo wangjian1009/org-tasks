@@ -1175,7 +1175,9 @@ pub enum TaskChecklistChange {
 }
 #+end_src
 
-条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态只替换 checkbox token；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
+条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态修改 checkbox token，并由 Core 重算所属标题中已有的统计节点；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
+
+新增、删除与切换完成状态后，Core 重算所属标题中的 checkbox 统计；统计来源受 ~COOKIE_DATA~ 约束，完整规则见 [[*标题统计更新][标题统计更新]]。统计修改与条目修改复用同一操作事务、版本校验、回退历史和 ~DataChangeEvent::RepositoryChanged~ ，提交后统一广播仓库失效事件，由宿主异步重查修改后的节点；不逐个广播节点快照，不改变任务 TODO 状态。
 
 ~sibling_group~ 是当前快照中直接父列表的位置身份，序列化为 ~siblingGroup~ ，用于展示层判断可排序的同级组，不是持久化顺序。 ~Move~ 将条目及其嵌套内容移到 ~before_id~ 之前，空值表示本同级列表末尾；跨列表、跨父项和过期 ID 拒绝，原位移动不改字节。移动保留项目符号、编号、文字、完成状态和缩进；条目之间的分隔空行保留在原槽位，防止堆叠空行拆散列表。末项没有终止换行时仅在新连接处补足原换行样式。
 
@@ -1188,6 +1190,22 @@ pub enum TaskChecklistChange {
 \umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}
 \umldep{TaskChecklistChange}{TaskChecklistItem}
 \end{tikzpicture}
+
+* 标题统计更新
+
+规则依据 [[info:org#Breaking Down Tasks][Org Info：Breaking Down Tasks]] 与 [[info:org#Checkboxes][Org Info：Checkboxes]]。Core 使用 Org 默认层级语义，即 ~org-hierarchical-todo-statistics~ 与 ~org-checkbox-hierarchical-statistics~ 均为真，通过标题的 ~COOKIE_DATA~ 属性表达局部递归设置；统计属于保真编辑的派生修改，不新增持久化字段或宿主专属配置。
+
+| 触发修改 | 未固定来源时的统计行为 |
+|-
+| ~TITLE~ | 校验标题结构后重算已有或新输入的统计；本节有 checkbox 时统计列表，否则统计子任务，相当于在标题执行显式统计更新。 |
+| ~CHECKLIST~ 新增、删除、切换完成 | 更新本标题的 checkbox 统计。 |
+| ~TODO~ 设置、清除、切换 | 更新直属父标题的子任务统计；递归配置可扩大统计范围并向上更新。 |
+
+同一标题既有列表又有子任务时，两类数量不相加。Info 明确规定未固定来源的统计显示最后变化的一类； ~COOKIE_DATA: checkbox~ 固定为列表，TODO 变化不覆盖该计数； ~COOKIE_DATA: todo~ 固定为子任务，checkbox 变化不覆盖该计数。更新标题时也遵循显式来源。
+
+checkbox 默认只统计本节最外层条目，部分完成计入总数但不计为完成；本标题的 ~COOKIE_DATA~ 包含 ~recursive~ 时统计嵌套 checkbox。TODO 默认只统计直属子标题中有有效任务状态的记录，完成集合取自文件有效的 ~TodoMetadata.done_keywords~ ，不硬编码状态名；无状态标题不计入总数。~COOKIE_DATA: todo recursive~ 统计整个子树的任务；后代任务状态变化时，从直属父级逐级更新，直至最近定义该递归属性的祖先，外部祖先不更新。内层 ~COOKIE_DATA~ 覆盖继承设置，固定为 ~checkbox~ 的节点阻止 TODO 统计继续向上传播。
+
+分数写为 ~[completed/total]~ ，百分比向下取整；空列表写为 ~[0/0]~ 与 ~[0%]~ 。仅修改真实统计语法节点，没有统计节点时不补建；标题中的链接、代码、逐字文本以及未涉及的正文和源码块字节保持原样。父级计数变化可改变后代的完整标题路径和字节偏移，Core 在操作内维护定位，不要求宿主自行计算新路径。全部统计与原始修改共同提交、回退和校验版本，最终无字节变化不广播，失败不发布部分更新；父任务状态不随计数自动切换。
 
 * 冲突预览模型
 

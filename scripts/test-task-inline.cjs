@@ -22,7 +22,7 @@ const storage = new Map();
 global.AppStorage = {setOrCreate:(key,value)=>storage.set(key,value)};
 function fixture() {
   const requests=[];
-  const task={repoId:'core',filePath:'task.org',fileVersion:'old',fullPath:{repoId:'core',file:'task.org',titles:['Original'],occurrence:1},heading:'Original',tags:['local'],editContent:{notes:'notes',checklist:[]}};
+  const task={id:'stable',repoId:'core',filePath:'task.org',fileVersion:'old',fullPath:{repoId:'core',file:'task.org',titles:['Original'],occurrence:1},heading:'Original',tags:['local'],editContent:{notes:'notes',checklist:[]}};
   const updated={...task,heading:'New',fileVersion:'new',fullPath:{...task.fullPath,titles:['New']}};
   let conflict=false;
   const config={repos:[{rootDirectory:'/repo',webdavEnabled:true}],todoDefaults:''};
@@ -47,6 +47,62 @@ test('备注、标签和清单操作原样交给 Core，不重建正文',async()
 });
 test('版本冲突向调用方传播，不拿新版本自动覆盖',async()=>{
   const f=fixture();f.conflict();await assert.rejects(f.TaskInlineService.modify({},f.task,[{field:'NOTES',value:'draft'}]),/版本冲突/);assert.equal(f.requests.length,1);
+});
+test('无 TODO 标题的进度与完整路径出现次序变化后，按 Core 逻辑身份读取新路径', async () => {
+  const f = fixture();
+  f.updated.fullPath.occurrence = 2;
+  assert.equal(await f.TaskInlineService.reload({}, f.task), f.updated);
+  await assert.rejects(f.TaskInlineService.reload({}, { ...f.task, id: 'another-task' }), /任务已删除或改名/);
+});
+
+function cardRefreshFixture(emit = true) {
+  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const refresh = source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\]\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
+  const code = ts.transpileModule('export class CardRefresh {' + refresh + persist + '\n}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} };
+  let reads = 0, state;
+  const original = { heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
+  const updated = { ...original, heading: '任务 [1/2]', fileVersion: 'new' };
+  const service = {
+    async modify() { if (emit) state.dataChanged(); },
+    async reload() { reads++; return updated; }
+  };
+  vm.runInThisContext('(function(module,exports,TaskInlineService,coreErrorMessage){' + code + '\n})', { filename })(module, module.exports, service, error => error.message);
+  state = Object.assign(new module.exports.CardRefresh(), {
+    editTask: original, heading: original.heading, notes: '备注', pending: Promise.resolve(), working: false, message: '',
+    value() { return this.editTask; }, getUIContext: () => ({ getHostContext: () => ({}) })
+  });
+  return { state, original, updated, reads: () => reads };
+}
+test('数据事件在写入之后重查卡片，标题草稿同步新进度，后续保存使用新版本', async () => {
+  const f = cardRefreshFixture();
+  assert.equal(await f.state.persist([{ field: 'CHECKLIST', value: { type: 'setChecked', id: '1', checked: true } }]), true);
+  assert.equal(f.reads(), 1);
+  assert.equal(f.state.editTask, f.updated);
+  assert.equal(f.state.heading, '任务 [1/2]');
+  assert.equal(f.state.editTask.fileVersion, 'new');
+});
+test('提交完成本身不触发重查，延后到达的数据事件仍刷新进度', async () => {
+  const f = cardRefreshFixture(false);
+  assert.equal(await f.state.persist([{ field: 'TAGS', value: [] }]), true);
+  assert.equal(f.reads(), 0);
+  assert.equal(f.state.editTask, f.original);
+  f.state.dataChanged();
+  await f.state.pending;
+  assert.equal(f.state.heading, '任务 [1/2]');
+});
+test('事件刷新保留正在输入的标题和备注', async () => {
+  const f = cardRefreshFixture();
+  f.state.heading = '尚未保存的标题';
+  f.state.notes = '尚未保存的备注';
+  f.state.dataChanged();
+  await f.state.pending;
+  assert.equal(f.state.heading, '尚未保存的标题');
+  assert.equal(f.state.notes, '尚未保存的备注');
 });
 const tagPresentation = load('entry/src/main/ets/ui/TaskTagsPresentation.ets');
 test('标签窗口直接使用任务候选快照，保留已有与继承标签，不混入其他任务候选',()=>{

@@ -235,6 +235,64 @@ mod tests {
         );
     }
     #[test]
+    fn checkbox_toggle_updates_title_counts_and_preserves_unrelated_bytes() {
+        let source = "* TODO 任务 [0/2] [0%] :工作:\r\n备注 [8/9]  \r\n- [ ] 第一项\r\n- [-] 第二项\r\n  - [X] 嵌套项\r\n#+begin_src org\r\n- [X] 字面条目\r\n#+end_src\r\n** 子任务 [0/1]\r\n- [ ] 子条目\r\n";
+        let mut file = file(source);
+        let id = projection(&file).checklist[0].id.clone();
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::SetChecked { id, checked: true }),
+        );
+        let expected = source
+            .replace("任务 [0/2] [0%]", "任务 [1/2] [50%]")
+            .replace("[ ] 第一项", "[X] 第一项");
+        assert_eq!(file.source_bytes(), expected.as_bytes());
+        let id = projection(&file).checklist[0].id.clone();
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::SetChecked { id, checked: false }),
+        );
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+    #[test]
+    fn checkbox_counts_respect_cookie_data_and_literal_title_content() {
+        for (property, expected) in [("", "[1/2]"), ("recursive", "[2/3]"), ("todo", "[/]")] {
+            let source = format!(
+                "* Task [/] ~[8/9]~ =[7/9]= [[https://example.com][[6/9]]]\n:PROPERTIES:\n:COOKIE_DATA: {property}\n:END:\n- [ ] First\n  - [X] Nested\n- [ ] Second\n"
+            );
+            let mut file = file(&source);
+            let id = projection(&file).checklist[0].id.clone();
+            apply(
+                &mut file,
+                TaskModification::Checklist(TaskChecklistChange::SetChecked { id, checked: true }),
+            );
+            let expected = source
+                .replacen("[/]", expected, 1)
+                .replace("[ ] First", "[X] First");
+            assert_eq!(file.source_bytes(), expected.as_bytes());
+        }
+    }
+    #[test]
+    fn checklist_add_and_remove_update_empty_title_counts() {
+        let mut file = file("* Task [/] [%]\nNotes\n");
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Add {
+                text: "Item".into(),
+            }),
+        );
+        assert_eq!(
+            file.source_bytes(),
+            b"* Task [0/1] [0%]\nNotes\n- [ ] Item\n"
+        );
+        let id = projection(&file).checklist[0].id.clone();
+        apply(
+            &mut file,
+            TaskModification::Checklist(TaskChecklistChange::Remove { id }),
+        );
+        assert_eq!(file.source_bytes(), b"* Task [0/0] [0%]\nNotes\n");
+    }
+    #[test]
     fn editing_notes_preserves_checklist_and_metadata_bytes() {
         let source = "* TODO Task\nSCHEDULED: <2026-11-09 Mon>\n:PROPERTIES:\n:ID: stable\n:END:\nOld notes\n- [ ] Item\n:LOGBOOK:\nLog\n:END:\n** Child\nUnchanged\n";
         let mut file = file(source);
@@ -397,6 +455,19 @@ mod tests {
         assert_eq!(items[1].sibling_group, items[2].sibling_group);
         assert_ne!(items[0].sibling_group, items[1].sibling_group);
         assert_ne!(items[0].sibling_group, items[4].sibling_group);
+    }
+
+    #[test]
+    fn moving_items_preserves_title_statistics_from_todo_children() {
+        let source = "* TODO Task [1/1] [100%]\n- [ ] First\n- [ ] Second\n** DONE Child\n";
+        let mut file = file(source);
+        move_item(&mut file, 1, Some(0));
+        assert_eq!(
+            file.source_bytes(),
+            source
+                .replace("- [ ] First\n- [ ] Second\n", "- [ ] Second\n- [ ] First\n")
+                .as_bytes()
+        );
     }
 
     #[test]

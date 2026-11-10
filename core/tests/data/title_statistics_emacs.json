@@ -1,0 +1,289 @@
+{
+  "reference": "(org) Breaking Down Tasks; (org) Checkboxes",
+  "orgVersion": "9.8.10",
+  "cases": [
+    {
+      "name": "标题新增分数和百分比统计",
+      "source": "* TODO Task\n- [X] First\n- [ ] Second\n** DONE Child\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Task [/] [%]",
+          "expected": "* TODO Task [1/2] [50%]\n- [X] First\n- [ ] Second\n** DONE Child\n"
+        }
+      ]
+    },
+    {
+      "name": "标题纠正旧计数并保留字面内容",
+      "source": "* Task\n- [X] First\n- [ ] Second\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Task [99/99] ~[8/9]~ =[7/9]= [99%]",
+          "expected": "* Task [1/2] ~[8/9]~ =[7/9]= [50%]\n- [X] First\n- [ ] Second\n"
+        }
+      ]
+    },
+    {
+      "name": "标题统计直属子任务",
+      "source": "* TODO Parent\n** TODO First\n*** DONE Nested\n** DONE Second\n** Plain\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Parent [/] [%]",
+          "expected": "* TODO Parent [1/2] [50%]\n** TODO First\n*** DONE Nested\n** DONE Second\n** Plain\n"
+        }
+      ]
+    },
+    {
+      "name": "混合来源按最后变化更新",
+      "source": "* TODO Parent [0/2]\n- [ ] First\n- [ ] Second\n** TODO Child\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Parent [/] [%]",
+          "expected": "* TODO Parent [0/2] [0%]\n- [ ] First\n- [ ] Second\n** TODO Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "DONE",
+          "expected": "* TODO Parent [1/1] [100%]\n- [ ] First\n- [ ] Second\n** DONE Child\n"
+        },
+        {
+          "type": "checkbox",
+          "index": 0,
+          "expected": "* TODO Parent [1/2] [50%]\n- [X] First\n- [ ] Second\n** DONE Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "TODO",
+          "expected": "* TODO Parent [0/1] [0%]\n- [X] First\n- [ ] Second\n** TODO Child\n"
+        },
+        {
+          "type": "checkbox",
+          "index": 0,
+          "expected": "* TODO Parent [0/2] [0%]\n- [ ] First\n- [ ] Second\n** TODO Child\n"
+        }
+      ]
+    },
+    {
+      "name": "显式todo不受列表切换影响",
+      "source": "* TODO Parent [0/1]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n- [ ] First\n- [ ] Second\n** TODO Child\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Parent [/] [%]",
+          "expected": "* TODO Parent [0/1] [0%]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n- [ ] First\n- [ ] Second\n** TODO Child\n"
+        },
+        {
+          "type": "checkbox",
+          "index": 0,
+          "expected": "* TODO Parent [0/1] [0%]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n- [X] First\n- [ ] Second\n** TODO Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "DONE",
+          "expected": "* TODO Parent [1/1] [100%]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n- [X] First\n- [ ] Second\n** DONE Child\n"
+        },
+        {
+          "type": "checkbox",
+          "index": 0,
+          "expected": "* TODO Parent [1/1] [100%]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n- [ ] First\n- [ ] Second\n** DONE Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "TODO",
+          "expected": "* TODO Parent [0/1] [0%]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n- [ ] First\n- [ ] Second\n** TODO Child\n"
+        }
+      ]
+    },
+    {
+      "name": "显式checkbox不受子任务切换影响",
+      "source": "* TODO Parent [0/2]\n:PROPERTIES:\n:COOKIE_DATA: checkbox\n:END:\n- [ ] First\n- [ ] Second\n** TODO Child\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Parent [/] [%]",
+          "expected": "* TODO Parent [0/2] [0%]\n:PROPERTIES:\n:COOKIE_DATA: checkbox\n:END:\n- [ ] First\n- [ ] Second\n** TODO Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "DONE",
+          "expected": "* TODO Parent [0/2] [0%]\n:PROPERTIES:\n:COOKIE_DATA: checkbox\n:END:\n- [ ] First\n- [ ] Second\n** DONE Child\n"
+        },
+        {
+          "type": "checkbox",
+          "index": 0,
+          "expected": "* TODO Parent [1/2] [50%]\n:PROPERTIES:\n:COOKIE_DATA: checkbox\n:END:\n- [X] First\n- [ ] Second\n** DONE Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "TODO",
+          "expected": "* TODO Parent [1/2] [50%]\n:PROPERTIES:\n:COOKIE_DATA: checkbox\n:END:\n- [X] First\n- [ ] Second\n** TODO Child\n"
+        }
+      ]
+    },
+    {
+      "name": "默认只更新直属父级",
+      "source": "* TODO Root [9/9]\n** TODO Parent [0/1]\n*** TODO Child\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "DONE",
+          "expected": "* TODO Root [9/9]\n** TODO Parent [1/1]\n*** DONE Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "TODO",
+          "expected": "* TODO Root [9/9]\n** TODO Parent [0/1]\n*** TODO Child\n"
+        }
+      ]
+    },
+    {
+      "name": "recursive继承并逐级更新到配置祖先",
+      "source": "* TODO Outside [9/9]\n** TODO Root [/] [%]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n*** TODO Parent [/] [%]\n**** TODO Child\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 3,
+          "value": "DONE",
+          "expected": "* TODO Outside [9/9]\n** TODO Root [1/2] [50%]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n*** TODO Parent [1/1] [100%]\n**** DONE Child\n"
+        },
+        {
+          "type": "todo",
+          "index": 3,
+          "value": "TODO",
+          "expected": "* TODO Outside [9/9]\n** TODO Root [0/2] [0%]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n*** TODO Parent [0/1] [0%]\n**** TODO Child\n"
+        }
+      ]
+    },
+    {
+      "name": "内层配置终止递归继承",
+      "source": "* TODO Root [9/9]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n** TODO Parent [0/1]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n*** TODO Child\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "DONE",
+          "expected": "* TODO Root [9/9]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n** TODO Parent [1/1]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n*** DONE Child\n"
+        }
+      ]
+    },
+    {
+      "name": "checkbox来源阻止TODO向上传播",
+      "source": "* TODO Root [9/9]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n** TODO Parent [0/1]\n:PROPERTIES:\n:COOKIE_DATA: checkbox recursive\n:END:\n- [ ] Box\n*** TODO Child\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "DONE",
+          "expected": "* TODO Root [9/9]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n** TODO Parent [0/1]\n:PROPERTIES:\n:COOKIE_DATA: checkbox recursive\n:END:\n- [ ] Box\n*** DONE Child\n"
+        }
+      ]
+    },
+    {
+      "name": "标题递归统计所有后代任务",
+      "source": "* TODO Parent\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n** TODO First\n*** DONE Nested\n** DONE Second\n** Plain\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Parent [/] [%]",
+          "expected": "* TODO Parent [2/3] [66%]\n:PROPERTIES:\n:COOKIE_DATA: todo recursive\n:END:\n** TODO First\n*** DONE Nested\n** DONE Second\n** Plain\n"
+        }
+      ]
+    },
+    {
+      "name": "完成关键字以文件配置为准",
+      "source": "#+TODO: OPEN | FINISHED CANCELLED\n* OPEN Parent [0/2] [0%]\n** OPEN First\n** OPEN Second\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "FINISHED",
+          "expected": "#+TODO: OPEN | FINISHED CANCELLED\n* OPEN Parent [1/2] [50%]\n** FINISHED First\n** OPEN Second\n"
+        },
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "CANCELLED",
+          "expected": "#+TODO: OPEN | FINISHED CANCELLED\n* OPEN Parent [2/2] [100%]\n** FINISHED First\n** CANCELLED Second\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "OPEN",
+          "expected": "#+TODO: OPEN | FINISHED CANCELLED\n* OPEN Parent [1/2] [50%]\n** OPEN First\n** CANCELLED Second\n"
+        }
+      ]
+    },
+    {
+      "name": "增加和移除子任务状态改变分母",
+      "source": "* Parent [1/1]\n** DONE First\n** Second\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "TODO",
+          "expected": "* Parent [1/2]\n** DONE First\n** TODO Second\n"
+        },
+        {
+          "type": "todo",
+          "index": 1,
+          "value": null,
+          "expected": "* Parent [0/1]\n** First\n** TODO Second\n"
+        },
+        {
+          "type": "todo",
+          "index": 2,
+          "value": "DONE",
+          "expected": "* Parent [1/1]\n** First\n** DONE Second\n"
+        }
+      ]
+    },
+    {
+      "name": "缺少统计节点不补建",
+      "source": "* Parent\n** TODO First\n",
+      "actions": [
+        {
+          "type": "todo",
+          "index": 1,
+          "value": "DONE",
+          "expected": "* Parent\n** DONE First\n"
+        },
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Renamed",
+          "expected": "* Renamed\n** DONE First\n"
+        }
+      ]
+    },
+    {
+      "name": "标题规范化后无实际变更",
+      "source": "* TODO Task [1/2]\n- [X] First\n- [ ] Second\n",
+      "actions": [
+        {
+          "type": "title",
+          "index": 0,
+          "value": "Task [99/99]",
+          "expected": "* TODO Task [1/2]\n- [X] First\n- [ ] Second\n"
+        }
+      ]
+    }
+  ]
+}

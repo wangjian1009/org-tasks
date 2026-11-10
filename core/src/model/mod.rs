@@ -22,6 +22,7 @@ mod task_operation;
 mod task_operation_executor;
 mod task_path;
 mod task_scan;
+mod title_statistics;
 mod todo;
 mod workspace;
 pub(crate) mod write_intent;
