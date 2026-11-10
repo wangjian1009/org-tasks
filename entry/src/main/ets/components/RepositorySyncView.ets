@@ -5,6 +5,7 @@ import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } 
 // 统一同步手势、进度与错误；正文刷新由通知模块驱动。
 @Component
 export struct RepositorySyncView {
+  @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   @Prop pullEnabled: boolean = false
   @Prop disabled: boolean = false
   beforePull: () => Promise<boolean> = async (): Promise<boolean> => true
@@ -54,7 +55,7 @@ export struct RepositorySyncView {
   }
 
   private canPull(): boolean {
-    return this.pullEnabled && !this.disabled && this.pageVisible && !this.syncState.running &&
+    return this.pullEnabled && !this.disabled && !this.checklistDragging && this.pageVisible && !this.syncState.running &&
       this.getUIContext().getRouter().getState().index === this.pageIndex
   }
 
@@ -86,7 +87,7 @@ export struct RepositorySyncView {
           Refresh({ refreshing: $$this.refreshing, builder: this.pullIndicator }) {
             this.content()
           }.width('100%').height('100%').refreshOffset(64).pullDownRatio(0.4)
-            .pullToRefresh(!this.disabled && !this.syncState.running)
+            .pullToRefresh(!this.disabled && !this.checklistDragging && !this.syncState.running)
             .onRefreshing((): void => { this.syncFromPull() })
         } else {
           this.content()

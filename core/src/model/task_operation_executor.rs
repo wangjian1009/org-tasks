@@ -1213,7 +1213,8 @@ fn modify_checklist(
     let id = match change {
         TaskChecklistChange::Edit { id, .. }
         | TaskChecklistChange::SetChecked { id, .. }
-        | TaskChecklistChange::Remove { id } => id,
+        | TaskChecklistChange::Remove { id }
+        | TaskChecklistChange::Move { id, .. } => id,
         _ => unreachable!(),
     };
     let item = items
@@ -1244,8 +1245,63 @@ fn modify_checklist(
             u32::from(item.start()) as usize..checklist_line_end(file, &item),
             &[],
         ),
+        TaskChecklistChange::Move { before_id, .. } => move_checklist_item(file, &item, before_id),
         _ => unreachable!(),
     }
+}
+
+fn move_checklist_item(
+    file: &mut OrgFile,
+    item: &orgize::ast::ListItem,
+    before_id: &Option<String>,
+) -> Result<(), CoreError> {
+    let list = item
+        .syntax()
+        .parent()
+        .and_then(orgize::ast::List::cast)
+        .ok_or(CoreError::InvalidInput("清单条目的父列表无效"))?;
+    let siblings: Vec<_> = list.items().collect();
+    let source_index = siblings
+        .iter()
+        .position(|sibling| sibling.start() == item.start())
+        .expect("同级条目");
+    let target_index = match before_id {
+        Some(id) => siblings
+            .iter()
+            .position(|sibling| u32::from(sibling.start()).to_string() == *id)
+            .ok_or(CoreError::InvalidInput("只能在同一清单的同级条目之间排序"))?,
+        None => siblings.len(),
+    };
+    if target_index == source_index || target_index == source_index + 1 {
+        return Ok(());
+    }
+    let mut order: Vec<_> = (0..siblings.len()).collect();
+    order.remove(source_index);
+    order.insert(
+        if target_index > source_index { target_index - 1 } else { target_index },
+        source_index,
+    );
+    let first = order.iter().enumerate()
+        .position(|(slot, index)| slot != *index).expect("顺序已变化");
+    let last = order.iter().enumerate()
+        .rposition(|(slot, index)| slot != *index).expect("顺序已变化");
+    let ranges: Vec<_> = siblings.iter()
+        .map(|sibling| u32::from(sibling.start()) as usize..checklist_line_end(file, sibling))
+        .collect();
+    let source = file.source_bytes();
+    let mut result = Vec::new();
+    // 分隔空行留在原槽位，避免随片段移动后堆成两条空行并拆散 Org 列表。
+    for slot in first..=last {
+        let content = &source[ranges[order[slot]].clone()];
+        result.extend_from_slice(content);
+        if slot < last {
+            if !content.ends_with(b"\n") {
+                result.extend_from_slice(newline(file).as_bytes());
+            }
+            result.extend_from_slice(&source[ranges[slot].end..ranges[slot + 1].start]);
+        }
+    }
+    replace(file, ranges[first].start..ranges[last].end, &result)
 }
 
 fn planning_lines(

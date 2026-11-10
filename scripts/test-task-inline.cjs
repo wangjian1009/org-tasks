@@ -89,7 +89,7 @@ function finishFixture(textSaved = true, checkSaved = true) {
   vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) });
   let checkCalls = 0;
   const state = { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
-    pending: Promise.resolve(), checkFocus: { cancel() {} }, headingController: { stopEditing() {} }, notesController: { stopEditing() {} },
+    pending: Promise.resolve(), cancelCheckDrag() {}, checkFocus: { cancel() {} }, headingController: { stopEditing() {} }, notesController: { stopEditing() {} },
     getUIContext: () => ({ getFocusController: () => ({ clearFocus() {} }) }),
     saveText: async () => textSaved, saveCheck: async () => { checkCalls++; return checkSaved; } };
   return { state, released, checkCalls: () => checkCalls, finish: () => module.exports.InlineFinish.prototype.finish.call(state, true) };
@@ -159,4 +159,88 @@ test('随时请求只匹配无计划和无截止的待办任务，由 Core 求�
   assert.deepEqual(overviewTaskQuery('anytime'), {
     expression:'it.todo s.none d.none',includeDone:false,includeComposeTasks:true
   });
+});
+
+const reorder = load('entry/src/main/ets/ui/TaskChecklistReorder.ets');
+function checklistItem(id, depth = 0, siblingGroup = 'root') {
+  return {id, text:id, depth, siblingGroup, checked:id === 'a', partial:id === 'b'};
+}
+const ids = items => items.map(item => item.id);
+test('清单预览移动父项及嵌套内容，只调整同级顺序并保留状态', () => {
+  const items=[checklistItem('a'),checklistItem('child',1,'nested'),checklistItem('b'),checklistItem('other',0,'separate')];
+  const moved=reorder.checklistMovePreview(items,'a',null);
+  assert.deepEqual(ids(moved),['b','a','child','other']);
+  assert.equal(moved[1],items[0]);assert.equal(moved[2],items[1]);
+  assert.deepEqual(ids(items),['a','child','b','other']);
+  assert.deepEqual(ids(reorder.checklistMovePreview(items,'a','child')),ids(items));
+  assert.deepEqual(ids(reorder.checklistMovePreview(items,'a','other')),ids(items));
+});
+test('嵌套同级的上移、下移及末尾不改变父项或其他列表', () => {
+  const items=[checklistItem('parent'),checklistItem('x',1,'nested'),checklistItem('y',1,'nested'),checklistItem('b')];
+  assert.deepEqual(ids(reorder.checklistMovePreview(items,'x',null)),['parent','y','x','b']);
+  assert.deepEqual(ids(reorder.checklistMovePreview(items,'y','x')),['parent','y','x','b']);
+  assert.deepEqual(ids(reorder.checklistMovePreview(items,'y',null)),ids(items));
+});
+test('拖动按实际行高计算浮层和占位，不按44像素索引定位', () => {
+  const items=[checklistItem('a'),checklistItem('child',1,'nested'),checklistItem('b'),checklistItem('c')];
+  const heights=new Map([['a',88],['child',66],['b',44],['c',110]]);
+  const drag=new reorder.TaskChecklistDrag(items,'a',heights,22);
+  assert.equal(drag.height,154);assert.equal(drag.grab,22);assert.equal(drag.changed(),false);
+  drag.update(290,true);
+  assert.equal(drag.valid,true);assert.equal(drag.beforeId,null);assert.equal(drag.top,268);
+  assert.deepEqual(ids(drag.preview()),['b','c','a','child']);assert.equal(drag.placeholderTop(),154);
+  assert.equal(drag.contains('child'),true);
+  drag.update(22,true);assert.equal(drag.changed(),false);
+});
+test('拖出同级组或水平方向离开卡片后无合法落点，取消不改变快照', () => {
+  const items=[checklistItem('parent'),checklistItem('x',1,'nested'),checklistItem('y',1,'nested'),checklistItem('b')];
+  const drag=new reorder.TaskChecklistDrag(items,'x',new Map(),60);
+  assert.equal(drag.minY,44);assert.equal(drag.maxY,132);
+  drag.update(120,true);assert.equal(drag.valid,true);assert.equal(drag.beforeId,null);
+  drag.update(160,true);assert.equal(drag.valid,false);
+  drag.update(120,false);assert.equal(drag.valid,false);
+  assert.deepEqual(ids(items),['parent','x','y','b']);
+});
+test('边缘滚动仅在可见区域40vp边缘触发，速度有上限', () => {
+  assert.equal(reorder.checklistEdgeScroll(100,100,600),-240);
+  assert.equal(reorder.checklistEdgeScroll(120,100,600),-120);
+  assert.equal(reorder.checklistEdgeScroll(300,100,600),0);
+  assert.equal(reorder.checklistEdgeScroll(580,100,600),120);
+  assert.equal(reorder.checklistEdgeScroll(600,100,600),240);
+  assert.equal(reorder.checklistEdgeScroll(601,100,600),0);
+});
+
+function sortFixture({writeError,reloadError}={}) {
+  const filename='entry/src/main/ets/components/TaskListItem.ets';
+  const source=fs.readFileSync(filename,'utf8');
+  const method=source.match(/  async sortCheck\(id: string, beforeId: string \| null\) \{[\s\S]*?\n  \}\n(?=  accessibleCheckOrder)/)[0];
+  const code=ts.transpileModule('export class SortCheck {'+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const module={exports:{}}, requests=[];
+  const items=[checklistItem('a'),checklistItem('b')];
+  let current={fileVersion:'old',heading:'Title',editContent:{notes:'Notes',checklist:items}};
+  const updated={fileVersion:'new',heading:'Changed title',editContent:{notes:'Changed notes',checklist:[items[1],items[0]]}};
+  let reloadCalls=0;
+  const service={modify:async(context,task,changes)=>{requests.push({task,changes});if(writeError)throw new Error(writeError);},reload:async()=>{reloadCalls++;if(reloadError)throw new Error(reloadError);return updated;}};
+  vm.runInThisContext('(function(module,exports,TaskInlineService,checklistMovePreview,coreErrorMessage){'+code+'\n})',{filename})(module,module.exports,service,reorder.checklistMovePreview,error=>error.message);
+  const state={pending:Promise.resolve(),working:false,snapshotBlocked:false,draggingCheck:false,checkPreview:[],message:'',
+    heading:'Title',notes:'Notes',canSortCheck(){return !this.snapshotBlocked&&!this.working;},
+    value(){return this.editTask??current;},getUIContext:()=>({getHostContext:()=>({})})};
+  return {state,requests,updated,reloadCalls:()=>reloadCalls,sort:()=>module.exports.SortCheck.prototype.sortCheck.call(state,'a',null)};
+}
+test('清单排序只提交一次原版本请求，成功后采用新快照并清除预览', async()=>{
+  const f=sortFixture();await f.sort();assert.equal(f.requests.length,1);assert.equal(f.requests[0].task.fileVersion,'old');
+  assert.deepEqual(f.requests[0].changes,[{field:'CHECKLIST',value:{type:'move',id:'a',beforeId:null}}]);
+  assert.equal(f.state.editTask,f.updated);assert.deepEqual(f.state.checkPreview,[]);assert.equal(f.state.working,false);
+});
+test('排序提交失败恢复旧顺序；版本冲突只重读，不再次写入',async()=>{
+  const failed=sortFixture({writeError:'磁盘写入失败'});await failed.sort();
+  assert.deepEqual(ids(failed.state.value().editContent.checklist),['a','b']);assert.equal(failed.state.message,'排序未保存，请重试');assert.equal(failed.reloadCalls(),0);
+  const conflict=sortFixture({writeError:'任务文件版本已变化'});await conflict.sort();
+  assert.equal(conflict.requests.length,1);assert.equal(conflict.reloadCalls(),1);assert.equal(conflict.state.editTask,conflict.updated);
+  assert.equal(conflict.state.heading,'Changed title');assert.equal(conflict.state.notes,'Changed notes');
+});
+test('排序已写入但重读失败时停用后续写入，防止旧条目ID重复提交',async()=>{
+  const f=sortFixture({reloadError:'读取失败'});await f.sort();
+  assert.equal(f.requests.length,1);assert.equal(f.state.snapshotBlocked,true);assert.match(f.state.message,/顺序已保存/);
+  await f.sort();assert.equal(f.requests.length,1);assert.deepEqual(f.state.checkPreview,[]);
 });

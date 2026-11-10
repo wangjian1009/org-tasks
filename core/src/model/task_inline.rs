@@ -12,6 +12,7 @@ use std::ops::Range;
 #[serde(rename_all = "camelCase")]
 pub struct TaskChecklistItem {
     pub id: String,
+    pub sibling_group: String,
     pub text: String,
     pub checked: bool,
     pub partial: bool,
@@ -27,12 +28,31 @@ pub struct TaskEditContent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum TaskChecklistChange {
-    Add { text: String },
-    Edit { id: String, text: String },
-    SetChecked { id: String, checked: bool },
-    Remove { id: String },
+    Add {
+        text: String,
+    },
+    Edit {
+        id: String,
+        text: String,
+    },
+    SetChecked {
+        id: String,
+        checked: bool,
+    },
+    Remove {
+        id: String,
+    },
+    Move {
+        id: String,
+        before_id: Option<String>,
+    },
 }
 
 pub(crate) fn checklist_lists(headline: &Headline) -> Vec<List> {
@@ -69,9 +89,11 @@ pub(crate) fn note_ranges(headline: &Headline) -> Vec<Range<usize>> {
                     !matches!(
                         node.kind(),
                         SyntaxKind::PLANNING | SyntaxKind::PROPERTY_DRAWER | SyntaxKind::DRAWER
-                    ) && !(node.kind() == SyntaxKind::COMMENT_BLOCK && super::task_merging::is_archive(&node.to_string())) && !lists
-                        .iter()
-                        .any(|list| list.syntax().text_range() == node.text_range())
+                    ) && !(node.kind() == SyntaxKind::COMMENT_BLOCK
+                        && super::task_merging::is_archive(&node.to_string()))
+                        && !lists
+                            .iter()
+                            .any(|list| list.syntax().text_range() == node.text_range())
                 })
                 .map(|node| {
                     u32::from(node.text_range().start()) as usize
@@ -131,6 +153,10 @@ impl OrgFile {
                 let token = item.checkbox().expect("checkbox");
                 TaskChecklistItem {
                     id: u32::from(item.start()).to_string(),
+                    sibling_group: u32::from(
+                        item.syntax().parent().expect("父列表").text_range().start(),
+                    )
+                    .to_string(),
                     text: std::str::from_utf8(&self.source_bytes()[item_text_range(self, item)])
                         .expect("UTF-8")
                         .into(),
@@ -347,5 +373,193 @@ mod tests {
         let edit = projection(&file);
         assert!(edit.checklist.is_empty());
         assert!(edit.notes.contains("Ordinary child") && edit.notes.contains("Parent"));
+    }
+
+    fn move_item(file: &mut OrgFile, from: usize, before: Option<usize>) {
+        let items = projection(file).checklist;
+        apply(
+            file,
+            TaskModification::Checklist(TaskChecklistChange::Move {
+                id: items[from].id.clone(),
+                before_id: before.map(|index| items[index].id.clone()),
+            }),
+        );
+    }
+
+    #[test]
+    fn checklist_groups_follow_direct_parent_lists_not_visual_depth() {
+        let file = file(
+            "* Task\n- [ ] Parent\n  - [ ] Child A\n  - [-] Child B\n- [X] Sibling\n\nNotes\n\n- [ ] Separate\n",
+        );
+        let items = projection(&file).checklist;
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].sibling_group, items[3].sibling_group);
+        assert_eq!(items[1].sibling_group, items[2].sibling_group);
+        assert_ne!(items[0].sibling_group, items[1].sibling_group);
+        assert_ne!(items[0].sibling_group, items[4].sibling_group);
+    }
+
+    #[test]
+    fn moving_first_and_last_preserves_unicode_states_and_unrelated_bytes() {
+        let prefix =
+            "#+TITLE: 原样\n* TODO Task :work:\n:PROPERTIES:\n:ID: stable\n:END:\n备注  \n";
+        let suffix = "\n:LOGBOOK:\n日志\n:END:\n** Child\n正文\n";
+        let first = "+ [X] 已完成  \n";
+        let second = "+ [-] 部分完成\n";
+        let third = "+ [ ] 待办 🧭\n";
+        let source = format!("{prefix}{first}{second}{third}{suffix}");
+        let mut file = file(&source);
+        move_item(&mut file, 0, None);
+        assert_eq!(
+            file.source_bytes(),
+            format!("{prefix}{second}{third}{first}{suffix}").as_bytes()
+        );
+        move_item(&mut file, 2, Some(0));
+        assert_eq!(file.source_bytes(), source.as_bytes());
+        let items = projection(&file).checklist;
+        assert!(items[0].checked && items[1].partial && !items[2].checked);
+    }
+
+    #[test]
+    fn moving_parent_carries_nested_content_and_continuation_paragraphs() {
+        let parent = "- [ ] Parent\n  continuation  \n\n  - [X] Child A\n  - [-] Child B\n";
+        let sibling = "- [ ] Sibling\n";
+        let mut file = file(&format!("* Task\n{parent}{sibling}\n** Child\nbody\n"));
+        move_item(&mut file, 0, None);
+        assert_eq!(
+            file.source_bytes(),
+            format!("* Task\n{sibling}{parent}\n** Child\nbody\n").as_bytes()
+        );
+        let items = projection(&file).checklist;
+        assert_eq!(
+            items.iter().map(|item| item.depth).collect::<Vec<_>>(),
+            [0, 0, 1, 1]
+        );
+    }
+
+    #[test]
+    fn moving_nested_siblings_preserves_crlf_numbering_and_parent() {
+        let source = "* Task\r\n- [ ] Parent\r\n  3. [@3] [X] First\r\n  9. [-] Second\r\n- [ ] Other\r\n\r\n";
+        let mut file = file(source);
+        move_item(&mut file, 2, Some(1));
+        assert_eq!(
+            file.source_bytes(),
+            source
+                .replace(
+                    "  3. [@3] [X] First\r\n  9. [-] Second\r\n",
+                    "  9. [-] Second\r\n  3. [@3] [X] First\r\n"
+                )
+                .as_bytes()
+        );
+        let items = projection(&file).checklist;
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[1].depth, 1);
+        assert_eq!(items[1].sibling_group, items[2].sibling_group);
+    }
+
+    #[test]
+    fn moving_rejects_other_lists_parents_descendants_and_stale_targets() {
+        let source =
+            "* Task\n- [ ] Parent\n  - [ ] Child\n- [ ] Sibling\n\nNotes\n\n- [ ] Separate\n";
+        for target in [1, 3, 99] {
+            let mut file = file(source);
+            let items = projection(&file).checklist;
+            let headline = file.path_headlines()[0].1.clone();
+            assert!(
+                modify(
+                    &mut file,
+                    &headline,
+                    &TaskModification::Checklist(TaskChecklistChange::Move {
+                        id: items[0].id.clone(),
+                        before_id: Some(
+                            items
+                                .get(target)
+                                .map(|item| item.id.clone())
+                                .unwrap_or("stale".into())
+                        ),
+                    })
+                )
+                .is_err()
+            );
+            assert_eq!(file.source_bytes(), source.as_bytes());
+        }
+    }
+
+    #[test]
+    fn releasing_at_current_position_does_not_change_bytes() {
+        let source = "* Task\n- [ ] First\n\n- [ ] Second\n\n";
+        for (from, before) in [(0, Some(0)), (0, Some(1)), (1, None)] {
+            let mut file = file(source);
+            move_item(&mut file, from, before);
+            assert_eq!(file.source_bytes(), source.as_bytes());
+        }
+    }
+
+    #[test]
+    fn moving_unterminated_last_line_adds_only_a_required_join_newline() {
+        for nl in ["\n", "\r\n"] {
+            let mut file = file(&format!("* Task{nl}- [ ] First{nl}- [X] Last"));
+            move_item(&mut file, 1, Some(0));
+            assert_eq!(
+                file.source_bytes(),
+                format!("* Task{nl}- [X] Last{nl}- [ ] First{nl}").as_bytes()
+            );
+            assert_eq!(projection(&file).checklist.len(), 2);
+            let mut file = super::tests::file(&format!("* Task{nl}- [ ] First{nl}- [X] Last"));
+            move_item(&mut file, 0, None);
+            assert_eq!(
+                file.source_bytes(),
+                format!("* Task{nl}- [X] Last{nl}- [ ] First{nl}").as_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn checklist_move_wire_format_uses_camel_case_and_nullable_target() {
+        for target in [Some("123".into()), None] {
+            let change = TaskChecklistChange::Move {
+                id: "42".into(),
+                before_id: target.clone(),
+            };
+            let json = serde_json::json!({"type":"move", "id":"42", "beforeId":target});
+            assert_eq!(serde_json::to_value(&change).unwrap(), json);
+            assert_eq!(
+                serde_json::from_value::<TaskChecklistChange>(json).unwrap(),
+                change
+            );
+        }
+    }
+
+    #[test]
+    fn moving_keeps_blank_line_slots_and_does_not_split_the_list() {
+        let source = "* Task\n- [ ] A\n\n- [ ] B\n\n- [ ] C\n\nNotes\n";
+        for from in 0..3 {
+            for before in [Some(0), Some(1), Some(2), None] {
+                let mut file = file(source);
+                let original = projection(&file).checklist;
+                let mut expected = vec!["A", "B", "C"];
+                let target = before.unwrap_or(3);
+                if from != target && from + 1 != target {
+                    let moved = expected.remove(from);
+                    expected.insert(if target > from { target - 1 } else { target }, moved);
+                }
+                move_item(&mut file, from, before);
+                assert_eq!(
+                    file.source_bytes(),
+                    format!(
+                        "* Task\n- [ ] {}\n\n- [ ] {}\n\n- [ ] {}\n\nNotes\n",
+                        expected[0], expected[1], expected[2]
+                    )
+                    .as_bytes()
+                );
+                let items = projection(&file).checklist;
+                assert_eq!(items.len(), original.len());
+                assert!(
+                    items
+                        .iter()
+                        .all(|item| item.sibling_group == items[0].sibling_group)
+                );
+            }
+        }
     }
 }

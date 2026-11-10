@@ -7,6 +7,8 @@ import { TaskListItem } from './TaskListItem'
 
 @Component
 export struct PlannedTaskList {
+  @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
+  private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop groups: PlannedGroup[] = []
   @Prop referenceTime: number = Date.now()
@@ -38,6 +40,7 @@ export struct PlannedTaskList {
       }
       ForEach(group.items, (item: PlannedTaskItem) => {
         TaskListItem({ task: item.task, showDate: group.kind !== 'day', showCategory: true,
+          scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
           referenceTime: this.referenceTime, open: (): void => {
             this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
           } })
@@ -49,14 +52,15 @@ export struct PlannedTaskList {
   }
 
   build() {
-    List() {
+    List({ scroller: this.listScroller }) {
               if (this.notificationState.notifications.length > 0) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
       ForEach(this.groups, (group: PlannedGroup) => {
         ListItem() { this.groupContent(group) }
       }, (group: PlannedGroup) => JSON.stringify(group))
-    }.width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
+    }.id('planned_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
+      .enableScrollInteraction(!this.checklistDragging)
       .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .edgeEffect(EdgeEffect.None)
   }

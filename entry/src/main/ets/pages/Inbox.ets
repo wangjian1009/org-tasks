@@ -34,6 +34,7 @@ struct Inbox {
   @State @Watch('drawerChanged') drawerOpen: boolean = false
   @State needsConfiguration: boolean = false
   @StorageLink('taskInlineActive') inlineActive: string = ''
+  @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   @State captureOpen: boolean = false
   @State captureTitle: string = ''
   @State captureSaving: boolean = false
@@ -97,6 +98,7 @@ struct Inbox {
   }
 
   async startSelection(record?: CoreTask) {
+    if (this.checklistDragging) return
     if (this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
     clearTimeout(this.actionTimer)
@@ -447,7 +449,7 @@ struct Inbox {
                   } else {
                   Row() {
                     Column() {
-                    TaskListItem({ task: record, enableSwipeActions: true,
+                    TaskListItem({ task: record, enableSwipeActions: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                       swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
                       this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
                     } })
@@ -492,7 +494,7 @@ struct Inbox {
                     ForEach(day.tasks, (task: CoreTask) => {
                       ListItem() {
                         Row() {
-                          TaskListItem({ task, showDate: true, showCategory: true, open: (): void => {
+                          TaskListItem({ task, showDate: true, showCategory: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
                             this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
                           } }).enabled(!this.selectingRecords && !this.mergeBusy)
                         }.width('100%').padding({ left: 20, right: 20 }).backgroundColor('#282C29')
@@ -512,7 +514,7 @@ struct Inbox {
                 }
               }
               ListItem() { Column().height(104) }
-            }.width('100%').layoutWeight(1)
+            }.id('inbox_task_list').width('100%').layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
                 this.listHeight = parseFloat(newArea.height.toString())
                 this.popupWidth = Math.min(350, Math.max(0, parseFloat(newArea.width.toString()) - 40))

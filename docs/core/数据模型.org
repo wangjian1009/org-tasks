@@ -1159,28 +1159,32 @@ pub struct TaskEditContent {
 }
 pub struct TaskChecklistItem {
     pub id: String,
+    pub sibling_group: String,
     pub text: String,
     pub checked: bool,
     pub partial: bool,
     pub depth: usize,
 }
-#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum TaskChecklistChange {
     Add { text: String },
     Edit { id: String, text: String },
     SetChecked { id: String, checked: bool },
     Remove { id: String },
+    Move { id: String, before_id: Option<String> },
 }
 #+end_src
 
 条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态只替换 checkbox token；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
 
+~sibling_group~ 是当前快照中直接父列表的位置身份，序列化为 ~siblingGroup~ ，用于展示层判断可排序的同级组，不是持久化顺序。 ~Move~ 将条目及其嵌套内容移到 ~before_id~ 之前，空值表示本同级列表末尾；跨列表、跨父项和过期 ID 拒绝，原位移动不改字节。移动保留项目符号、编号、文字、完成状态和缩进；条目之间的分隔空行保留在原槽位，防止堆叠空行拆散列表。末项没有终止换行时仅在新连接处补足原换行样式。
+
 ~SCHEDULE_DATE~ 与 ~DEADLINE_DATE~ 接收 ~YYYY-MM-DD~ 或空值，只修改对应规划时间戳的开始日期并更新星期，不清除原时刻、重复器或预警；原 ~SCHEDULE~ 与 ~DEADLINE~ 仍设置完整时间戳。清除一个日期不修改另一个日期。
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ own\_tags: Vec}{}
-\umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
-\umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove}{}
+\umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ sibling\_group: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
+\umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove \\ Move}{}
 \umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}
 \umldep{TaskChecklistChange}{TaskChecklistItem}
 \end{tikzpicture}

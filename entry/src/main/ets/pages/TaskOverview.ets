@@ -25,6 +25,8 @@ interface OverviewParams { view?: OverviewKind }
 @Entry({ useSharedStorage: true })
 @Component
 struct TaskOverview {
+  @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
+  private listScroller: ListScroller = new ListScroller()
   @LocalStorageProp('entryView') entryView: string = ''
   @LocalStorageProp('entryMemoAction') entryMemoAction: string = ''
   @LocalStorageProp('entryMemoId') entryMemoId: string = ''
@@ -228,7 +230,7 @@ struct TaskOverview {
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
         } else {
-          List() {
+          List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {
               ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
                 .margin({ bottom: this.view === 'memo' ? 12 : 0 })
@@ -243,7 +245,7 @@ struct TaskOverview {
               } else {
                 ListItem() {
                   if (this.view === 'someday') {
-                    TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
+                    TaskListItem({ task, referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'overview_task_list', open: this.openTask(task) })
                   } else {
                     TaskRow({ task, showBody: true, open: this.openTask(task) })
                   }
@@ -253,7 +255,8 @@ struct TaskOverview {
             if (this.view === 'memo') {
               ListItem() { Column().height(104) }
             }
-          }.width('100%').layoutWeight(1).padding({ bottom: this.view === 'memo' ? 0 : 16 })
+          }.id('overview_task_list').width('100%').layoutWeight(1).padding({ bottom: this.view === 'memo' ? 0 : 16 })
+            .enableScrollInteraction(!this.checklistDragging)
             .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
             .edgeEffect(EdgeEffect.None)
         }

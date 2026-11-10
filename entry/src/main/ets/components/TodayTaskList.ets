@@ -7,6 +7,8 @@ import { TaskListItem } from './TaskListItem'
 
 @Component
 export struct TodayTaskList {
+  @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
+  private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop sections: TodaySection[] = []
   @Prop referenceTime: number = Date.now()
@@ -17,7 +19,7 @@ export struct TodayTaskList {
   }
 
   build() {
-    List() {
+    List({ scroller: this.listScroller }) {
               if (this.notificationState.notifications.length > 0) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
@@ -25,14 +27,15 @@ export struct TodayTaskList {
         ListItemGroup({ header: this.sectionHeader(section) }) {
           ForEach(section.items, (item: TodayTaskItem) => {
             ListItem() {
-              TaskListItem({ task: item.task, referenceTime: this.referenceTime, open: (): void => {
+              TaskListItem({ task: item.task, referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'today_task_list', open: (): void => {
                 this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
               } })
             }
           }, (item: TodayTaskItem) => taskRenderKey(item.task))
         }
       }, (section: TodaySection) => JSON.stringify(section))
-    }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+    }.id('today_task_list').width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+      .enableScrollInteraction(!this.checklistDragging)
       .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .edgeEffect(EdgeEffect.None)
   }

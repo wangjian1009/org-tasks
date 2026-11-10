@@ -1077,6 +1077,41 @@ mod tests {
     }
 
     #[test]
+    fn checklist_move_preserves_bytes_and_rejects_old_snapshot_across_bridge() {
+        let root = std::env::temp_dir().join(format!("org-checklist-move-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "* TODO Task\r\nNotes  \r\n- [X] Parent\r\n  - [-] Nested\r\n- [ ] Sibling\r\n\r\n** Child\r\nUnchanged\r\n";
+        std::fs::write(root.join("tasks.org"), source).unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let query = || -> serde_json::Value { serde_json::from_str(&workspace_query_json(handle, "{}".into()).unwrap()).unwrap() };
+        let before = query();
+        let task = &before["tasks"][0];
+        let items = &task["editContent"]["checklist"];
+        assert_eq!(items[0]["siblingGroup"], items[2]["siblingGroup"]);
+        assert_ne!(items[0]["siblingGroup"], items[1]["siblingGroup"]);
+        let request = serde_json::json!({
+            "operations":[{"type":"Modification","data":{"path":task["fullPath"],"modifications":[
+                {"field":"CHECKLIST","value":{"type":"move","id":items[0]["id"],"beforeId":null}}
+            ]}}],
+            "fileVersions":[{"repoId":task["repoId"],"file":task["filePath"],"version":task["fileVersion"]}]
+        });
+        workspace_execute_task_operations(handle, request.to_string()).unwrap();
+        let expected = source.replace("- [X] Parent\r\n  - [-] Nested\r\n- [ ] Sibling\r\n", "- [ ] Sibling\r\n- [X] Parent\r\n  - [-] Nested\r\n");
+        assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
+        assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
+        assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
+        let after = query();
+        let updated = &after["tasks"][0];
+        assert_ne!(updated["fileVersion"], task["fileVersion"]);
+        assert_eq!(updated["editContent"]["checklist"][0]["text"], "Sibling");
+        assert_eq!(updated["editContent"]["checklist"][1]["checked"], true);
+        assert_eq!(updated["editContent"]["checklist"][2]["partial"], true);
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn task_modified_time_projects_own_property_and_keeps_disk_only_time_null() {
         let root = std::env::temp_dir().join(format!("org-task-modified-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
