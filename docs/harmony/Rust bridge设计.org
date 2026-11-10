@@ -340,7 +340,7 @@ interface TitleCount {
 
 * 文件冲突与普通操作组
 
-移除 Repo 上的 compare／preview／resolve 专用冲突方法及相关 DTO；不再为手机构造专门差异展示数据。普通 ~OrgFile~ 对象增加只读 ~conflictIds: string[]~ ，Rust 从文件末尾容器读取 ~CONFILICT_ID~ ，C++ 通过文件属性投影； ~hasConflict~ 根据真实节点标签取得，不解析旧文件头。
+移除 Repo 上的 compare／preview／resolve 专用冲突方法及相关 DTO；不再为手机构造专门差异展示数据。普通 ~OrgFile~ 对象增加只读 ~conflictIds: string[]~ ，Rust 从文件末尾容器读取 ~CONFILICT_ID~ ，C++ 必须在 N-API 类上注册同名只读属性并通过 ~OrgFileProperty~ 取得数组；没有可定位冲突点时返回空数组。该属性与类型声明及 ArkTS 读取保持一致，不能只保留 Rust JSON 字段而遗漏原生对象属性； ~hasConflict~ 根据真实节点标签取得，不解析旧文件头。
 
 ~Workspace.executeTaskOperations~ 接受新增 ~{ type: 'ConfilictSelection', data: { id, action: 'discard' } }~ ，经原有结构化请求和 worker 进入 Core。 ~TaskConfilictSelection~ 的拼写保持约定，参数之外不携带同步 ID、来源正文或服务端比较会话。最终文件版本、完整回退和待上传意图由普通执行器统一生成。C++ 不实现新的合并算法。
 
