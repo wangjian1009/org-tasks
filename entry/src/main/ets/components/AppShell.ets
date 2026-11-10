@@ -304,7 +304,8 @@ export struct AppShell {
           Divider().color(UiColor.outline).strokeWidth(0.5)
         }
         Column() {
-          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen || this.inlineActive.length > 0 }) {
+          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen,
+            beforePull: async (): Promise<boolean> => await TaskInlineSession.end(true) }) {
             this.content()
           }
         }.width('100%').layoutWeight(1)

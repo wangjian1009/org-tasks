@@ -55,6 +55,36 @@ test('上一编辑会话保存失败时不允许切换任务',async()=>{
   const {TaskInlineSession:s}=fixture();await s.begin('first',async()=>false);
   assert.equal(await s.begin('second',async()=>true),false);assert.equal(storage.get('taskInlineActive'),'first');s.release('first');
 });
+
+function finishFixture(textSaved = true, checkSaved = true) {
+  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const method = fs.readFileSync(filename, 'utf8').match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];
+  const code = ts.transpileModule('export class InlineFinish {' + method + '\n}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} }, released = [];
+  vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) });
+  let checkCalls = 0;
+  const state = { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
+    pending: Promise.resolve(), checkFocus: { cancel() {} }, headingController: { stopEditing() {} }, notesController: { stopEditing() {} },
+    getUIContext: () => ({ getFocusController: () => ({ clearFocus() {} }) }),
+    saveText: async () => textSaved, saveCheck: async () => { checkCalls++; return checkSaved; } };
+  return { state, released, checkCalls: () => checkCalls, finish: () => module.exports.InlineFinish.prototype.finish.call(state, true) };
+}
+
+test('结束编辑必须检查保存结果，任一保存失败均保留展开会话', async () => {
+  for (const [textSaved, checkSaved] of [[false, true], [true, false]]) {
+    const f = finishFixture(textSaved, checkSaved);
+    assert.equal(await f.finish(), false); assert.equal(f.state.expanded, true); assert.deepEqual(f.released, []);
+    if (!textSaved) assert.equal(f.checkCalls(), 0);
+  }
+});
+
+test('校验错误修正为原内容后，成功保存可以清除旧错误并结束会话', async () => {
+  const f = finishFixture();
+  assert.equal(await f.finish(), true); assert.equal(f.state.expanded, false);
+  assert.equal(f.state.message, ''); assert.deepEqual(f.released, ['task']);
+});
 const dates=load('entry/src/main/ets/ui/TaskInlinePresentation.ets');
 test('月历跨年、闰月、今天与已选日期独立且固定42格',()=>{
   const days=dates.taskCalendarDays(2028,1,'2028-02-29',new Date(2028,1,28,12));
@@ -65,4 +95,45 @@ test('月历跨年、闰月、今天与已选日期独立且固定42格',()=>{
 test('明天按本地自然日计算，跨月跨年标签正确',()=>{
   assert.equal(dates.inlineDateLabel('2027-01-01',new Date(2026,11,31,12)),'明天');
   assert.equal(dates.inlineDateLabel('2026-11-09',new Date(2026,10,9,12)),'今天');
+});
+
+const { TaskInlineFocus } = load('entry/src/main/ets/ui/TaskInlineFocus.ets');
+function focusFixture() {
+  const frames = [], focused = [];
+  let failure;
+  const focus = new TaskInlineFocus(callback => frames.push(callback), key => {
+    if (failure) throw failure;
+    focused.push(key);
+  });
+  return { focus, focused, flush() { while (frames.length) frames.shift()(); }, fail(error) { failure = error; } };
+}
+test('新增输入挂载前不抢焦点，挂载后的布局帧才执行', () => {
+  const f=focusFixture();f.focus.request('new');f.flush();assert.deepEqual(f.focused,[]);
+  f.focus.appeared('new');f.flush();assert.deepEqual(f.focused,['new']);
+});
+test('输入已被移除时取消旧布局帧，重新挂载可重新聚焦', () => {
+  const f=focusFixture();f.focus.request('new');f.focus.appeared('new');f.focus.disappeared('new');
+  f.flush();assert.deepEqual(f.focused,[]);f.focus.appeared('new');f.flush();assert.deepEqual(f.focused,['new']);
+});
+test('界面结束输入或组件销毁后不执行过期聚焦', () => {
+  for(const action of ['cancel','dispose']) {
+    const f=focusFixture();f.focus.appeared('new');f.focus.request('new');f.focus[action]();f.flush();
+    assert.deepEqual(f.focused,[]);
+  }
+});
+test('150003 聚焦异常不会逃出布局回调，输入可见后可重试', () => {
+  const f=focusFixture();f.fail(Object.assign(new Error('component not visible'),{code:150003}));
+  f.focus.appeared('new');f.focus.request('new');assert.doesNotThrow(()=>f.flush());
+  f.fail(undefined);f.focus.visible('new');f.flush();assert.deepEqual(f.focused,['new']);
+});
+test('快速切换输入时只聚焦最后一次请求，不复活旧输入', () => {
+  const f=focusFixture();f.focus.appeared('old');f.focus.appeared('new');
+  f.focus.request('old');f.focus.request('new');f.flush();assert.deepEqual(f.focused,['new']);
+});
+
+const { overviewTaskQuery } = load('entry/src/main/ets/services/TaskViewQueries.ets');
+test('随时请求只匹配无计划和无截止的待办任务，由 Core 求值', () => {
+  assert.deepEqual(overviewTaskQuery('anytime'), {
+    expression:'it.todo s.none d.none',includeDone:false,includeComposeTasks:true
+  });
 });

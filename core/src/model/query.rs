@@ -462,6 +462,21 @@ mod tests {
     }
 
     #[test]
+    fn pending_undated_task_query_excludes_notes_done_and_either_planning_field() {
+        let mut workspace = workspace();
+        let repo = &mut workspace.repos[0];
+        repo.files.push(OrgFile::new(repo.id.clone(), "undated.org".into(),
+            "#+CATEGORY: Work\n#+TODO: NEXT | CLOSED\n* NEXT Undated task\n* Plain heading\n* CLOSED Completed task\n* NEXT Scheduled task\nSCHEDULED: <2026-11-09 Mon>\n* NEXT Deadline task\nDEADLINE: <2026-11-10 Tue>\n".as_bytes().to_vec()).unwrap());
+        let result = workspace.query(&TaskQuery {
+            expression: "it.todo s.none d.none".into(), include_done: false, include_compose_tasks: true,
+            ..Default::default()
+        }).unwrap();
+        let titles = result.tasks.iter().filter(|task| task.path() == "undated.org").map(|task| task.title()).collect::<Vec<_>>();
+        assert_eq!(titles, ["Undated task"]);
+        assert!(result.tasks.iter().all(|task| task.state_type() == crate::FilterStateType::Todo && task.scheduled().is_none() && task.deadline().is_none()));
+    }
+
+    #[test]
     fn compose_tasks_are_detected_before_expression_filter_and_respect_file_boundaries() {
         let workspace = workspace();
         let query = TaskQuery {

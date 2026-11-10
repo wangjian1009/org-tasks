@@ -7,11 +7,13 @@ import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } 
 export struct RepositorySyncView {
   @Prop pullEnabled: boolean = false
   @Prop disabled: boolean = false
+  beforePull: () => Promise<boolean> = async (): Promise<boolean> => true
   @BuilderParam content: () => void
   @StorageLink('repositorySync') @Watch('repositorySyncChanged') syncState: RepositorySyncState = emptyRepositorySyncState()
   @State refreshing: boolean = false
   private pageIndex: number = 0
   private pageVisible: boolean = true
+  private preparingPull: boolean = false
   private pageChanged = (info: uiObserver.RouterPageInfo): void => {
     if (info.index !== this.pageIndex) return
     if (info.state === uiObserver.RouterPageState.ON_PAGE_HIDE) {
@@ -51,11 +53,24 @@ export struct RepositorySyncView {
     }
   }
 
-  syncFromPull() {
+  private canPull(): boolean {
+    return this.pullEnabled && !this.disabled && this.pageVisible && !this.syncState.running &&
+      this.getUIContext().getRouter().getState().index === this.pageIndex
+  }
+
+  async syncFromPull() {
     // 松手后内容复位；持续进度由标题下的共享进度线展示。
     this.refreshing = false
-    if (!this.pullEnabled || this.disabled || !this.pageVisible || this.syncState.running || this.getUIContext().getRouter().getState().index !== this.pageIndex) return
-    RepositorySyncService.start(this.getUIContext().getHostContext()!)
+    if (this.preparingPull || !this.canPull()) return
+    this.preparingPull = true
+    try {
+      if (!await this.beforePull() || !this.canPull()) return
+      await RepositorySyncService.start(this.getUIContext().getHostContext()!)
+    } catch (_) {
+      this.getUIContext().getPromptAction().showToast({ message: '保存任务失败，请重试。' })
+    } finally {
+      this.preparingPull = false
+    }
   }
 
   @Builder

@@ -155,3 +155,62 @@ test('点击同步提示调用共享同步 service，忙碌或连续点击不会
   assert.equal(calls, 1);
   assert.equal(view.syncState.running, true);
 });
+
+function pullFixture() {
+  const filename = path.resolve('entry/src/main/ets/components/RepositorySyncView.ets');
+  const source = fs.readFileSync(filename, 'utf8').split('  @Builder\n  pullIndicator()')[0]
+    .replace(/@Component\n|@State |@Prop |@BuilderParam |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
+    .replace('export struct RepositorySyncView', 'export class RepositorySyncView') + '}';
+  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const module = { exports: {} }, starts = [], toasts = [], context = {};
+  let pageIndex = 0;
+  vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename })(() => ({
+    emptyRepositorySyncState: () => ({ running: false }),
+    RepositorySyncService: { async start(actual) { starts.push(actual); } }
+  }), module, module.exports);
+  const view = new module.exports.RepositorySyncView();
+  view.pullEnabled = true;
+  view.getUIContext = () => ({ getHostContext: () => context,
+    getRouter: () => ({ getState: () => ({ index: pageIndex }) }),
+    getPromptAction: () => ({ showToast: value => toasts.push(value) }) });
+  return { view, starts, toasts, context, leave: () => pageIndex++ };
+}
+
+test('展开卡片下拉先等待保存，保存期间连续下拉只执行一次同步', async () => {
+  const f = pullFixture(), saved = deferred();
+  let saves = 0;
+  f.view.beforePull = async () => { saves++; return await saved.promise; };
+  const first = f.view.syncFromPull();
+  await f.view.syncFromPull();
+  assert.equal(saves, 1); assert.equal(f.starts.length, 0);
+  saved.resolve(true); await first;
+  assert.deepEqual(f.starts, [f.context]);
+});
+
+test('下拉前保存失败不发起同步，后续修正后仍可重试', async () => {
+  const f = pullFixture();
+  f.view.beforePull = async () => false;
+  await f.view.syncFromPull(); assert.equal(f.starts.length, 0);
+  f.view.beforePull = async () => true;
+  await f.view.syncFromPull(); assert.equal(f.starts.length, 1);
+});
+
+test('等待保存时离开页面或页面变忙，不在旧页面启动同步', async () => {
+  for (const change of [f => f.leave(), f => f.view.disabled = true, f => f.view.syncState.running = true]) {
+    const f = pullFixture(), saved = deferred();
+    f.view.beforePull = () => saved.promise;
+    const first = f.view.syncFromPull(); change(f); saved.resolve(true); await first;
+    assert.equal(f.starts.length, 0);
+  }
+});
+
+test('保存意外失败有反馈并释放下拉锁，禁用时不结束编辑会话', async () => {
+  const f = pullFixture();
+  f.view.beforePull = async () => { throw new Error('保存失败'); };
+  await f.view.syncFromPull();
+  assert.equal(f.starts.length, 0); assert.equal(f.toasts.length, 1);
+  f.view.disabled = true;
+  await f.view.syncFromPull(); assert.equal(f.toasts.length, 1);
+  f.view.disabled = false; f.view.beforePull = async () => true;
+  await f.view.syncFromPull(); assert.equal(f.starts.length, 1);
+});

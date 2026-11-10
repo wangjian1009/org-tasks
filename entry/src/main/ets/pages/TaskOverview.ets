@@ -104,7 +104,7 @@ struct TaskOverview {
     this.selectedTags = selection.tags
     this.includeUntagged = selection.includeUntagged
     this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
-    this.sections = this.view === 'today' ? todaySections(this.visibleTasks) : []
+    this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks) : []
   }
 
   async loadTasks() {
@@ -204,7 +204,7 @@ struct TaskOverview {
         } else if (this.visibleTasks.length === 0) {
           NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
-        } else if (this.view === 'today') {
+        } else if (this.view === 'today' || this.view === 'anytime') {
           TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime })
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
@@ -223,7 +223,7 @@ struct TaskOverview {
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
               } else {
                 ListItem() {
-                  if (this.view === 'anytime' || this.view === 'someday') {
+                  if (this.view === 'someday') {
                     TaskListItem({ task, referenceTime: this.referenceTime, open: this.openTask(task) })
                   } else {
                     TaskRow({ task, showBody: true, open: this.openTask(task) })

@@ -10,8 +10,16 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
 import { TitleText } from './TitleText'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
-import { KeyboardAvoidMode } from '@ohos.arkui.UIContext'
+import { TaskInlineFocus } from '../ui/TaskInlineFocus'
+import { FrameCallback, KeyboardAvoidMode } from '@ohos.arkui.UIContext'
 import { window } from '@kit.ArkUI'
+
+class ChecklistFocusFrame extends FrameCallback {
+  private callback: () => void
+  constructor(callback: () => void) { super(); this.callback = callback }
+  onFrame(_frameTimeInNano: number): void {}
+  onIdle(_timeLeftInNano: number): void { this.callback() }
+}
 
 // 快照与写入均来自 Core；只维护卡片、输入草稿和浮层状态。
 @Component
@@ -36,7 +44,6 @@ export struct TaskListItem {
   @State checkText: string = ''
   @State addingCheck: boolean = false
   @State newCheck: string = ''
-  @State contentLimit: number = 160
   @StorageLink('taskInlineDateRequest') @Watch('dateRequested') dateRequest: string = ''
   @Prop referenceTime: number = Date.now()
   private ownerKey: string = ''
@@ -49,13 +56,13 @@ export struct TaskListItem {
   private headingController: TextAreaController = new TextAreaController()
   private notesController: TextAreaController = new TextAreaController()
   private hostWindow: window.Window | undefined = undefined
-  @State keyboardHeight: number = 0
-  private originalWindowHeight: number = 0
-  private cardTop: number = 0
+  private checkFocus: TaskInlineFocus = new TaskInlineFocus(
+    (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
+    (key: string) => { this.getUIContext().getFocusController().requestFocus(key) })
   private keyboardChanged = (height: number): void => {
-    this.keyboardHeight = height
-    if (height === 0 && this.typing) { this.typing = false; AppStorage.setOrCreate('taskInlineTyping', false); this.saveText(); this.saveCheck(false) }
-    if (this.originalWindowHeight > 0) this.contentLimit = Math.max(80, this.getUIContext().px2vp(this.originalWindowHeight - height) - this.cardTop - 80)
+    if (!this.expanded) return
+    this.typing = height > 0
+    AppStorage.setOrCreate('taskInlineTyping', this.typing)
   }
 
   dateRequested() {
@@ -64,6 +71,7 @@ export struct TaskListItem {
   value(): CoreTask { return this.editTask ?? this.task }
   aboutToAppear() { this.ownerKey = this.task.id }
   aboutToDisappear() {
+    this.checkFocus.dispose()
     this.dateDialog?.close(); this.tagsDialog?.close()
     if (this.hostWindow) this.hostWindow.off('keyboardHeightChange', this.keyboardChanged)
     TaskInlineSession.release(this.ownerKey)
@@ -75,7 +83,6 @@ export struct TaskListItem {
     if (!this.hostWindow) {
       try {
         this.hostWindow = await window.getLastWindow(this.getUIContext().getHostContext()!)
-        this.originalWindowHeight = this.hostWindow.getWindowProperties().windowRect.height
         this.hostWindow.on('keyboardHeightChange', this.keyboardChanged)
       } catch (_) {}
     }
@@ -89,13 +96,16 @@ export struct TaskListItem {
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
   }
   async finish(collapse: boolean): Promise<boolean> {
+    this.continueCheck = false
+    this.checkFocus.cancel()
     this.headingController.stopEditing(); this.notesController.stopEditing()
     this.getUIContext().getFocusController().clearFocus()
     this.typing = false; AppStorage.setOrCreate('taskInlineTyping', false)
-    await this.saveText()
-    await this.saveCheck(false)
+    if (!await this.saveText() || !await this.saveCheck(false)) return false
     await this.pending
-    if (this.message) return false
+    this.checkFocus.cancel()
+    if (!this.newCheck.trim() && !this.checkId) this.addingCheck = false
+    this.message = ''
     if (collapse) {
       this.expanded = false
       TaskInlineSession.release(this.ownerKey)
@@ -135,7 +145,7 @@ export struct TaskListItem {
     this.checkSaving = undefined
     if (result && this.continueCheck) {
       this.addingCheck = true
-      setTimeout(() => { this.getUIContext().getFocusController().requestFocus(`inline_new_check_${this.ownerKey}`) }, 30)
+      this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
     }
     this.continueCheck = false
     return result
@@ -144,13 +154,13 @@ export struct TaskListItem {
     await this.pending
     const id = this.checkId
     const text = id ? this.checkText : this.newCheck
-    if (!id && !text.trim()) { this.addingCheck = false; return true }
+    if (!id && !text.trim()) return true
     if (!text.trim()) { this.message = '清单条目不能为空'; return false }
     const original = this.value().editContent.checklist.find(item => item.id === id)
     if (id && original?.text === text) { this.checkId = ''; return true }
     const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } : { type: 'add', text }
     if (!await this.persist([{ field: 'CHECKLIST', value: change }])) return false
-    this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false
+    this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = this.continueCheck
     return true
   }
   async changeCheck(change: CoreTaskChecklistChange) {
@@ -169,12 +179,12 @@ export struct TaskListItem {
     const current = this.value().editContent.checklist[index]
     if (!current) return
     this.checkId = current.id; this.checkText = current.text
-    setTimeout(() => { this.getUIContext().getFocusController().requestFocus(`inline_check_${current.id}`) }, 30)
+    this.checkFocus.request(`inline_check_${current.id}`)
   }
   async addCheck() {
     if (!await this.saveText() || !await this.saveCheck(false)) return
     this.addingCheck = true
-    setTimeout(() => { this.getUIContext().getFocusController().requestFocus(`inline_new_check_${this.ownerKey}`) }, 30)
+    this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
   }
   async dates(deadline: boolean) {
     if (!await this.prepare() || !await this.finish(false)) return
@@ -360,7 +370,11 @@ export struct TaskListItem {
         TextInput({ text: this.checkText }).id(`inline_check_${item.id}`).layoutWeight(1).fontSize(14)
           .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
           .onChange((text: string) => { this.checkText = text }).onFocus(() => { this.inputFocus() })
-          .onBlur(() => { this.saveCheck(false) }).onSubmit(() => { this.saveCheck(true) })
+          .onBlur(() => { this.saveCheck(false) })
+          .onAppear(() => { this.checkFocus.appeared(`inline_check_${item.id}`) })
+          .onDisAppear(() => { this.checkFocus.disappeared(`inline_check_${item.id}`) })
+          .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_check_${item.id}`) })
+          .onSubmit((_key: EnterKeyType, event?: SubmitEvent) => { event?.keepEditableState(); this.saveCheck(true) })
       } else {
         Text(item.text).layoutWeight(1).fontSize(14).fontColor(item.checked ? UiColor.disabled : UiColor.text)
           .decoration({ type: item.checked ? TextDecorationType.LineThrough : TextDecorationType.None })
@@ -409,7 +423,10 @@ export struct TaskListItem {
                   .layoutWeight(1).fontSize(14).fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0)
                   .enterKeyType(EnterKeyType.Next).onFocus(() => { this.inputFocus() })
                   .onChange((text: string) => { this.newCheck = text }).onBlur(() => { this.saveCheck(false) })
-                  .onSubmit(() => { this.saveCheck(true) })
+                  .onAppear(() => { this.checkFocus.appeared(`inline_new_check_${this.ownerKey}`) })
+                  .onDisAppear(() => { this.checkFocus.disappeared(`inline_new_check_${this.ownerKey}`) })
+                  .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_new_check_${this.ownerKey}`) })
+                  .onSubmit((_key: EnterKeyType, event?: SubmitEvent) => { event?.keepEditableState(); this.saveCheck(true) })
               }.width('100%').height(44)
             }
           }
@@ -470,9 +487,7 @@ export struct TaskListItem {
     Column() {
       if (this.expanded) {
         Column({ space: 8 }) {
-          Scroll() { Column({ space: 12 }) { this.editorContent() }.width('100%') }
-            .width('100%').height(this.typing ? this.contentLimit : 'auto')
-            .scrollBar(BarState.Off).nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.PARENT_FIRST })
+          Column({ space: 12 }) { this.editorContent() }.width('100%')
           this.attributes()
         }.width('100%').padding(12).backgroundColor(UiColor.taskCard).borderRadius(12)
         Text(this.value().category || this.value().fileName).fontSize(11).fontColor(UiColor.secondary)
@@ -489,8 +504,6 @@ export struct TaskListItem {
     }.width('100%').alignItems(HorizontalAlign.Start).margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
       .onAreaChange((oldArea: Area, area: Area) => {
         this.rowWidth = parseFloat(area.width.toString())
-        this.cardTop = parseFloat((area.globalPosition.y ?? 0).toString())
-        if (this.keyboardHeight > 0) this.contentLimit = Math.max(80, this.getUIContext().px2vp(this.originalWindowHeight - this.keyboardHeight) - this.cardTop - 80)
       })
       .onClick(() => {})
       .priorityGesture(PanGesture({ direction: PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
