@@ -49,12 +49,14 @@ test('分享后的收件箱与任务编辑跳转使用 Want 参数，窗口之�
     '../ui/Theme': { UiColor: {} }
   }, { LocalStorage: class { constructor(values) { this.values = values; } } })('entryability/EntryAbility').default;
   const ability = new EntryAbility();
-  const pages = [], snapshots = [];
+  const pages = [], snapshots = [], destinations = [];
   const mainWindow = { async setWindowSystemBarProperties() {}, getUIContext() {
     assert.fail('主窗口应直接加载目标页面');
   } };
   const stage = { async getMainWindow() { return mainWindow; }, getMainWindowSync() { return mainWindow; },
-    loadContent(page, storage, callback) { pages.push(page); snapshots.push(storage.values.entryTask); callback({ code: 0 }); } };
+    loadContent(page, storage, callback) {
+      pages.push(page); snapshots.push(storage.values.entryTask); destinations.push(storage.values); callback({ code: 0 });
+    } };
   const task = { id: 'updated', heading: '地址任务', body: '[[geo:31.4,120.8][新地址]]', bodyHtml: '<p>新地址</p>' };
   ability.onNewWant({ parameters: { page: 'taskEdit', task: JSON.stringify(task) } }, {});
   await ability.onWindowStageCreate(stage);
@@ -68,6 +70,22 @@ test('分享后的收件箱与任务编辑跳转使用 Want 参数，窗口之�
   assert.deepEqual(snapshots[2], task);
   ability.onNewWant({}, {});
   assert.equal(pages.length, 3);
+  ability.onNewWant({ parameters: { page: 'memo', memoAction: 'create' } }, {});
+  assert.equal(pages.at(-1), 'pages/TaskOverview');
+  assert.equal(destinations.at(-1).entryView, 'memo');
+  assert.equal(destinations.at(-1).entryMemoAction, 'create');
+  ability.onNewWant({ parameters: { page: 'memo', memoAction: 'edit', memoId: 'core-record' } }, {});
+  assert.equal(destinations.at(-1).entryMemoAction, 'edit');
+  assert.equal(destinations.at(-1).entryMemoId, 'core-record');
+  ability.onNewWant({ parameters: { page: 'memo' } }, {});
+  assert.equal(destinations.at(-1).entryMemoAction, '');
+  assert.equal(destinations.at(-1).entryMemoId, '');
+  const cold = new EntryAbility();
+  cold.onNewWant({ parameters: { page: 'memo', memoAction: 'edit', memoId: 'cold-record' } }, {});
+  await cold.onWindowStageCreate(stage);
+  assert.equal(destinations.at(-1).entryView, 'memo');
+  assert.equal(destinations.at(-1).entryMemoAction, 'edit');
+  assert.equal(destinations.at(-1).entryMemoId, 'cold-record');
 });
 
 function fixture() {

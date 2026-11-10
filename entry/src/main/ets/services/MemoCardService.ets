@@ -13,6 +13,9 @@ export interface MemoCardData {
   memoCardItem1: string
   memoCardItem2: string
   memoCardItem3: string
+  memoCardItemId1: string
+  memoCardItemId2: string
+  memoCardItemId3: string
   memoCardMessage: string
 }
 
@@ -23,11 +26,12 @@ export interface MemoCardSnapshot {
 }
 
 export function memoCardData(tasks: CoreTask[] = [], tag: string = '', message: string = ''): MemoCardData {
-  const titles = tasks.map((task: CoreTask): string => task.heading.trim())
-    .filter((title: string): boolean => title.length > 0).slice(0, 3)
+  const items = tasks.filter((task: CoreTask): boolean => task.heading.trim().length > 0).slice(0, 3)
   return {
     memoCardTitle: tag || '全部备忘',
-    memoCardItem1: titles[0] ?? '', memoCardItem2: titles[1] ?? '', memoCardItem3: titles[2] ?? '',
+    memoCardItem1: items[0]?.heading.trim() ?? '', memoCardItem2: items[1]?.heading.trim() ?? '',
+    memoCardItem3: items[2]?.heading.trim() ?? '',
+    memoCardItemId1: items[0]?.id ?? '', memoCardItemId2: items[1]?.id ?? '', memoCardItemId3: items[2]?.id ?? '',
     memoCardMessage: message || (tag ? '此标签下暂无备忘' : '暂无备忘')
   }
 }

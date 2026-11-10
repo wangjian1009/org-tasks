@@ -6,24 +6,38 @@ struct MemoCard {
   @LocalStorageProp('memoCardItem1') item1: string = ''
   @LocalStorageProp('memoCardItem2') item2: string = ''
   @LocalStorageProp('memoCardItem3') item3: string = ''
+  @LocalStorageProp('memoCardItemId1') itemId1: string = ''
+  @LocalStorageProp('memoCardItemId2') itemId2: string = ''
+  @LocalStorageProp('memoCardItemId3') itemId3: string = ''
   @LocalStorageProp('memoCardMessage') message: string = '正在读取备忘…'
 
   private openMemo(): void {
     postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { page: 'memo' } })
   }
 
+  private createMemo(): void {
+    postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { page: 'memo', memoAction: 'create' } })
+  }
+
+  private editMemo(index: number): void {
+    const memoId = [this.itemId1, this.itemId2, this.itemId3][index]
+    postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { page: 'memo', memoAction: 'edit', memoId } })
+  }
+
   build() {
     Column() {
       Row() {
-        Text(this.cardTitle).layoutWeight(1).fontSize(16).fontWeight(FontWeight.Medium)
-          .fontColor('#FFF8DC').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Row() {
+          Text(this.cardTitle).layoutWeight(1).fontSize(16).fontWeight(FontWeight.Medium)
+            .fontColor('#FFF8DC').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.layoutWeight(1).height('100%').onClick((): void => { this.openMemo() })
         Button({ type: ButtonType.Circle }) {
           Stack() {
             Rect().width(16).height(1.5).radius(0.75).fill('#FFF8DC')
             Rect().width(1.5).height(16).radius(0.75).fill('#FFF8DC')
           }.width(28).height(28)
         }.width(28).height(28).padding(0).backgroundColor(Color.Transparent)
-          .accessibilityText('打开备忘').onClick((): void => { this.openMemo() })
+          .accessibilityText('新增备忘').onClick((): void => { this.createMemo() })
       }.width('100%').height('25%').padding({ left: 12, right: 8 }).backgroundColor('#F4BF35')
       Column() {
         // 直接在响应式列表中读取绑定字段，避免 Builder 值参数停留在首次空快照。
@@ -35,7 +49,7 @@ struct MemoCard {
                 Text(title).layoutWeight(1).fontSize(14).fontColor('#E4E0D5')
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }.width('100%').height(40).padding({ left: 14, right: 12 })
-                .onClick((): void => { this.openMemo() })
+                .onClick((): void => { this.editMemo(index) })
               if (index < 2) {
                 Row() {
                   Rect().width('100%').height(0.5).fill('#39311B')
@@ -51,6 +65,5 @@ struct MemoCard {
         }
       }.width('100%').height('75%').clip(true).alignItems(HorizontalAlign.Start)
     }.width('100%').height('100%').backgroundColor('#211A08').clip(true)
-      .onClick((): void => { this.openMemo() })
   }
 }

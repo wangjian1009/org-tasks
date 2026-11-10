@@ -22,10 +22,12 @@ import { filterTasksByTags, reconcileTaskTags, taskTagOptions, TaskTagSelection 
 
 interface OverviewParams { view?: OverviewKind }
 
-@Entry
+@Entry({ useSharedStorage: true })
 @Component
 struct TaskOverview {
   @LocalStorageProp('entryView') entryView: string = ''
+  @LocalStorageProp('entryMemoAction') entryMemoAction: string = ''
+  @LocalStorageProp('entryMemoId') entryMemoId: string = ''
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
@@ -43,6 +45,7 @@ struct TaskOverview {
   @State drawerOpen: boolean = false
   @State deletingMemo: boolean = false
   private requestId: number = 0
+  private entryMemoOpened: boolean = false
 
   aboutToAppear() {
     this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view ||
@@ -63,6 +66,21 @@ struct TaskOverview {
         url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit',
         params: { task }
       })
+    }
+  }
+
+  async openEntryMemo(): Promise<void> {
+    if (this.view !== 'memo' || this.entryMemoOpened || !this.entryMemoAction) return
+    this.entryMemoOpened = true
+    if (this.entryMemoAction === 'create') {
+      await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } })
+    } else if (this.entryMemoAction === 'edit') {
+      const task = this.tasks.find((item: CoreTask): boolean => item.id === this.entryMemoId)
+      if (task) {
+        await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { task } })
+      } else {
+        this.getUIContext().getPromptAction().showToast({ message: '此备忘已变更或删除，请从列表重新选择' })
+      }
     }
   }
 
@@ -148,6 +166,7 @@ struct TaskOverview {
         this.tagOptions, this.tagGroups))
       this.referenceTime = Date.now()
       this.planGroups = planGroups
+      await this.openEntryMemo()
     } catch (e) {
       if (request === this.requestId) {
         this.tasks = []

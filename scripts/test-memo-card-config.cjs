@@ -83,6 +83,18 @@ test('候选保留未使用的声明标签，筛选包含转义后的标签并�
   f.invalidate(); assert.equal((await f.MemoCardService.snapshot({}, '已删除标签')).available, false);
 });
 
+test('卡片标题与记录身份保持对应，跳过空标题后不按原行号错配，清空同时清除身份', () => {
+  const { memoCardData } = fixture();
+  const data = memoCardData([
+    { id: 'blank', heading: ' ' }, { id: 'first', heading: ' 同名 ' },
+    { id: 'second', heading: '同名' }, { id: 'third', heading: '第三条' }, { id: 'fourth', heading: '第四条' }
+  ]);
+  assert.deepEqual([data.memoCardItem1, data.memoCardItem2, data.memoCardItem3], ['同名', '同名', '第三条']);
+  assert.deepEqual([data.memoCardItemId1, data.memoCardItemId2, data.memoCardItemId3], ['first', 'second', 'third']);
+  const empty = memoCardData();
+  assert.deepEqual([empty.memoCardItemId1, empty.memoCardItemId2, empty.memoCardItemId3], ['', '', '']);
+});
+
 test('卡片身份保持完整字符串，缺失和不安全参数不能写入设置', async () => {
   const f = fixture();
   assert.equal(f.memoCardFormId({ parameters: { identity: '12345678901234567890' } }), '12345678901234567890');

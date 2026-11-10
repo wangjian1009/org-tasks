@@ -12,13 +12,15 @@ import { CoreTask } from '../services/NativeCoreService'
 const PREF_NAME = 'org_tasks_config'
 const DEFAULT_INTERVAL = 20 // 分钟
 
-interface MainPageStorage { entryTask?: CoreTask; entryView?: string }
+interface MainPageStorage { entryTask?: CoreTask; entryView?: string; entryMemoAction?: string; entryMemoId?: string }
 
 export default class EntryAbility extends UIAbility {
   private mainStage: window.WindowStage | undefined = undefined
   private initialPage: string = 'pages/TaskOverview'
   private initialView: string | undefined = undefined
   private taskToEdit: CoreTask | undefined = undefined
+  private memoAction: string = ''
+  private memoId: string = ''
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
@@ -39,6 +41,13 @@ export default class EntryAbility extends UIAbility {
     this.initialPage = want.parameters?.page === 'memo' ? 'pages/TaskOverview' : 'pages/Inbox'
     this.initialView = want.parameters?.page === 'memo' ? 'memo' : undefined
     this.taskToEdit = undefined
+    this.memoAction = ''
+    this.memoId = ''
+    if (want.parameters.page === 'memo') {
+      const action = want.parameters.memoAction
+      if (typeof action === 'string' && (action === 'create' || action === 'edit')) this.memoAction = action
+      if (typeof want.parameters.memoId === 'string') this.memoId = want.parameters.memoId
+    }
     if (want.parameters.page === 'taskEdit' && typeof want.parameters.task === 'string') {
       try { this.taskToEdit = JSON.parse(want.parameters.task) as CoreTask }
       catch (error) { console.error('读取任务编辑参数失败') }
@@ -52,6 +61,10 @@ export default class EntryAbility extends UIAbility {
     const data: MainPageStorage = {}
     if (task) data.entryTask = task
     if (this.initialView) data.entryView = this.initialView
+    data.entryMemoAction = this.memoAction
+    data.entryMemoId = this.memoId
+    this.memoAction = ''
+    this.memoId = ''
     const storage = new LocalStorage(data)
     stage.loadContent(this.initialPage, storage, (err) => {
       if (err && err.code !== 0) {
