@@ -15,6 +15,8 @@ export struct OrgContentView {
   @Prop horizontalParentFirst: boolean = false
   @Prop @Watch('backgroundChanged') contentBackground: string = UiColor.surface
   @Prop embeddedPadding: number = 16
+  @Prop fileReading: boolean = false
+  @Prop fileContext: string = ''
   controller: webview.WebviewController = new webview.WebviewController()
   activate: (() => void) | undefined = undefined
   horizontalSwipe: (left: boolean) => void = () => {}
@@ -95,7 +97,8 @@ export struct OrgContentView {
     this.loadRequested = true
     try {
       // 初始空白页结束后加载文档；URL 编码保留 CSS 中的 # 等字符。
-      this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded, this.contentBackground, this.embeddedPadding)), 'text/html', 'UTF-8')
+      this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
+        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext)), 'text/html', 'UTF-8')
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 
