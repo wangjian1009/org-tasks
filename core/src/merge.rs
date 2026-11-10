@@ -70,7 +70,7 @@ fn parse(file: &OrgFile) -> Document {
                 "path:{}",
                 serde_json::to_string(&(
                     parents.iter().map(|(_, key)| key).collect::<Vec<_>>(),
-                    headline.title_raw().trim_end()
+                    crate::model::task_identity::path_title(&headline)
                 ))
                 .unwrap()
             )
@@ -661,7 +661,7 @@ fn outline_paths(file: &OrgFile, nodes: &[Node]) -> BTreeMap<String, Vec<String>
             let syntax = fragment(file, &node.source);
             let title = syntax
                 .first_node::<Headline>()
-                .map_or_else(String::new, |h| h.title_raw().trim_end().to_string());
+                .map_or_else(String::new, |h| crate::model::task_identity::path_title(&h));
             (node.key.clone(), title)
         })
         .collect::<BTreeMap<_, _>>();
@@ -1350,6 +1350,38 @@ mod tests {
         assert_eq!(
             merge(b"base preface\n", b"local preface\n", b"remote preface\n").unwrap(),
             b"remote preface\n"
+        );
+    }
+
+    #[test]
+    fn different_progress_updates_do_not_create_duplicate_task_trees() {
+        let base = "* TODO 项目 [/]\n- [ ] 甲\n- [ ] 乙\n** TODO 子任务 [%]\n备注\n";
+        let local = "* TODO 项目 [1/2]\n- [X] 乙\n- [ ] 甲\n** TODO 子任务 [0%]\n备注\n";
+        let remote = "* TODO 项目 [0/2]\n- [ ] 甲\n- [ ] 乙\n** TODO 子任务 [50%]\n远端备注\n";
+        let bytes = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
+        let merged = OrgFile::new("repo".into(), "a.org".into(), bytes).unwrap();
+        let ordinary = merged.path_headlines().into_iter()
+            .filter(|(_, headline)| !OrgFile::is_conflict_headline(headline))
+            .collect::<Vec<_>>();
+        assert_eq!(ordinary.len(), 2, "进度竞争只能保留一个主树并保存候选，不能新增同一任务");
+        assert!(merged.has_conflict());
+        assert!(merged.source_bytes().starts_with(remote.as_bytes()));
+        assert_eq!(
+            merge(base.as_bytes(), local.as_bytes(), merged.source_bytes()).unwrap(),
+            merged.source_bytes(),
+            "重试不得重复生成进度竞争的候选子树",
+        );
+    }
+
+    #[test]
+    fn checklist_reorder_and_progress_update_keep_remote_child_edits() {
+        let base = "* TODO 项目 [/]\n- [ ] 甲\n- [X] 乙\n** TODO 子任务 [%]\n原备注\n* 其他任务\n保留\n";
+        let local = base.replace("项目 [/]", "项目 [1/2]")
+            .replace("- [ ] 甲\n- [X] 乙\n", "- [X] 乙\n- [ ] 甲\n");
+        let remote = base.replace("原备注", "远端备注");
+        assert_eq!(
+            merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap(),
+            local.replace("原备注", "远端备注").as_bytes(),
         );
     }
 

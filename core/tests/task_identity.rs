@@ -51,6 +51,11 @@ async fn task_state_and_edge_cookies_do_not_change_parent_or_child_identity() {
             updated.iter().map(|t| t.id()).collect::<Vec<_>>(),
             "{source}"
         );
+        assert_eq!(
+            plain.iter().map(|task| task.full_path()).collect::<Vec<_>>(),
+            updated.iter().map(|task| task.full_path()).collect::<Vec<_>>(),
+            "{source}"
+        );
     }
     assert_eq!(tasks("* DONE [2/2] Report\n").await[0].title(), "[2/2] Report");
 }

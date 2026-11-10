@@ -115,7 +115,7 @@ fn units(file: &OrgFile) -> Vec<(String, OrgMergeVersion)> {
                 .iter()
                 .map(|(_, key)| key.as_str())
                 .collect::<Vec<_>>(),
-            headline.title_raw().trim_end(),
+            super::task_identity::path_title(&headline),
         ))
         .unwrap();
         let explicit = headline.properties().and_then(|p| {
@@ -412,6 +412,19 @@ pub fn merge_org_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn progress_updates_keep_comparison_keys_and_parent_links_stable() {
+        let base = file("* TODO Parent [/]\n** TODO Child [%]\nOld\n");
+        let local = file("* TODO Parent [1/2]\n** TODO Child [50%]\nNew\n");
+        let baseline = task_fingerprints(&base);
+        let updated = task_fingerprints(&local);
+        assert_eq!(baseline.iter().map(|item| &item.key).collect::<Vec<_>>(), updated.iter().map(|item| &item.key).collect::<Vec<_>>());
+        let plan = compare_org_tasks(&local, &base, Some(&baseline));
+        assert_eq!(plan.items.len(), 3);
+        assert!(plan.items.iter().all(|item| item.local_change != OrgMergeChange::Added && item.local_change != OrgMergeChange::Deleted));
+        assert_eq!(merge_org_tasks(&plan, &choices(&plan, OrgMergeSide::Local)).unwrap(), local.source_bytes());
+    }
+
     fn file(source: &str) -> OrgFile {
         OrgFile::new(
             "repo".into(),

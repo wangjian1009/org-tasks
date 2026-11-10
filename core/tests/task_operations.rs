@@ -46,8 +46,37 @@ impl Drop for Fixture {
     }
 }
 
+#[tokio::test]
+async fn progress_changes_keep_nested_write_paths_but_do_not_bypass_file_versions() {
+    let source = "* TODO Parent [/]\n** TODO Child [0/2]\nOld notes\n";
+    let mut fixture = Fixture::new(source).await;
+    let file = &fixture.workspace.repos()[0].load_files(&[]).await.unwrap()[0];
+    let path = file.node_paths()[1].clone();
+    assert_eq!(path.titles, ["Parent", "Child"]);
+    let mut group = TaskOperationGroup {
+        operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            path: path.clone(),
+            modifications: vec![TaskModification::Notes(Some("New notes\n".into()))],
+        })],
+        file_versions: vec![TaskFileVersion {
+            repo_id: path.repo_id.clone(), file: "tasks.org".into(),
+            version: LocalFileVersion::from_bytes(source.as_bytes()).content_hash,
+        }],
+        ..Default::default()
+    };
+    let updated = source.replace("Parent [/]", "Parent [1/2]").replace("Child [0/2]", "Child [1/2]");
+    fs::write(fixture.root.join("tasks.org"), &updated).await.unwrap();
+    assert!(fixture.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(fs::read_to_string(fixture.root.join("tasks.org")).await.unwrap(), updated);
+    group.file_versions[0].version = LocalFileVersion::from_bytes(updated.as_bytes()).content_hash;
+    fixture.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(fs::read_to_string(fixture.root.join("tasks.org")).await.unwrap(), updated.replace("Old notes", "New notes"));
+    assert_eq!(fixture.workspace.repos()[0].load_files(&[]).await.unwrap()[0].node_paths()[1], path);
+}
+
 async fn merge_request(f: &Fixture, selected: &[usize]) -> TaskMergeRequest {
     let file = &f.workspace.repos()[0].load_files(&[]).await.unwrap()[0];
+
     let paths = file.node_paths();
     TaskMergeRequest { paths: selected.iter().map(|i| paths[*i].clone()).collect(),
         file_version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash }

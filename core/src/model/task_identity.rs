@@ -73,3 +73,36 @@ fn identity_title(headline: &Headline) -> String {
         .trim()
         .to_owned()
 }
+
+/// 完整结构路径与同步匹配共用；只排除标题直属的进度节点，不改写源文本。
+pub(crate) fn path_title(headline: &Headline) -> String {
+    let mut output = String::new();
+    let mut removed_cookie = false;
+    let mut separator = false;
+    for part in headline.title() {
+        if part.kind() == SyntaxKind::COOKIE {
+            removed_cookie = true;
+            let trimmed = output.trim_end_matches([' ', '\t']).len();
+            separator |= trimmed < output.len();
+            output.truncate(trimmed);
+            continue;
+        }
+        let text = part.to_string();
+        if removed_cookie {
+            let trimmed = text.trim_start_matches([' ', '\t']);
+            separator |= trimmed.len() < text.len();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if separator && !output.is_empty() {
+                output.push(' ');
+            }
+            output.push_str(trimmed);
+            removed_cookie = false;
+            separator = false;
+        } else {
+            output.push_str(&text);
+        }
+    }
+    output.trim_end().to_owned()
+}

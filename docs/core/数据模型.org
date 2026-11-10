@@ -363,7 +363,7 @@ pub struct TaskPosition {
 }
 #+end_src
 
-~file=None~ 且标题链为空表示仓库；有文件且标题链为空表示文件；有标题链表示真实标题节点。路径标题保留从根到自身的全部祖先，使用剥离状态、优先级和标签后的标题原文，仅去除尾部空白，不剥离进度节点。相同完整标题链以文件原文中的 ~occurrence~ 区分，默认从 1 开始。路径使用稳定的 Core 仓库 ID，不使用宿主配置 ID；不把包含分隔符的标题再次拆分为层级。
+~file=None~ 且标题链为空表示仓库；有文件且标题链为空表示文件；有标题链表示真实标题节点。路径标题保留从根到自身的全部祖先，排除状态、优先级、标签及标题直属的真实 ~COOKIE~ 进度节点，包括 ~[/]~ 、 ~[1/2]~ 、 ~[%]~ 和 ~[50%]~ ，不因进度变化改变自身或后代路径。排除进度时将其两侧空白合并为一个空格，去除尾部空白；代码、链接与强调内部的字面进度和普通文字保留。相同规范化标题链以文件原文中的 ~occurrence~ 区分，默认从 1 开始。路径使用稳定的 Core 仓库 ID，不使用宿主配置 ID；不把包含分隔符的标题再次拆分为层级。该规范化只用于结构定位与同步匹配，展示标题和源字节仍保留原始进度；写入继续校验真实文件版本。
 
 预览文件使用固定 ~repo_id="<preview>"~ 与本次创建 UUID 作为 file，其标题路径仍使用相同结构。它是临时文档地址而非仓库，详见本文“冲突预览模型”。
 
@@ -377,6 +377,7 @@ pub struct TaskPosition {
 \umlclass[x=0,y=-4]{TaskPosition}{parent: TaskPath \\ after: Option\textless TaskPath\textgreater}{}
 \umluniassoc{FilterTask}{TaskPath}
 \umluniassoc[mult2=1]{TaskPosition}{TaskPath}
+\umlnote[x=7,y=-7,width=6cm]{TaskPath}{titles 排除标题直属的 COOKIE 进度节点；原文和展示保留进度。}
 \end{tikzpicture}
 \end{center}
 

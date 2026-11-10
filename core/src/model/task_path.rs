@@ -115,7 +115,7 @@ impl OrgFile {
                 {
                     ancestors.pop();
                 }
-                ancestors.push((headline.level(), headline.title_raw().trim_end().to_owned()));
+                ancestors.push((headline.level(), super::task_identity::path_title(&headline)));
                 let titles = ancestors
                     .iter()
                     .map(|(_, title)| title.clone())
@@ -133,5 +133,37 @@ impl OrgFile {
                 )
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(source: &str) -> OrgFile {
+        OrgFile::new("repo".into(), "a.org".into(), source.as_bytes().to_vec()).unwrap()
+    }
+
+    #[test]
+    fn progress_is_excluded_from_all_path_segments_without_rewriting_source() {
+        let plain = file("* TODO 项目\n** 无状态分组\n*** TODO 阶段 任务\n").node_paths();
+        let source = "* DONE [1/2] 项目 [50%]\r\n** 无状态分组 [/]\r\n*** TODO 阶段 [0/3] 任务 [%]\r\n";
+        let updated = file(source);
+        assert_eq!(plain, updated.node_paths());
+        assert_eq!(updated.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn normalized_duplicate_paths_keep_occurrences_and_literal_markup() {
+        let file = file("* TODO Task [/]\n* TODO Task [1/2]\n* TODO =[1/2]= Task\n* TODO [[https://example.org][[1/2]]] Task\n* TODO [one/two] Task\n* TODO *[1/2]* Task\n");
+        let paths = file.node_paths();
+        assert_eq!(paths[0].titles, ["Task"]);
+        assert_eq!(paths[1].titles, ["Task"]);
+        assert_eq!(paths[0].occurrence, 1);
+        assert_eq!(paths[1].occurrence, 2);
+        assert_eq!(paths[2].titles, ["=[1/2]= Task"]);
+        assert_eq!(paths[3].titles, ["[[https://example.org][[1/2]]] Task"]);
+        assert_eq!(paths[4].titles, ["[one/two] Task"]);
+        assert_eq!(paths[5].titles, ["*[1/2]* Task"]);
     }
 }

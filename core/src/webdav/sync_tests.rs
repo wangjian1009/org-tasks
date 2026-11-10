@@ -228,6 +228,56 @@ async fn offline(repo: &mut OrgRepo, path: &str) {
 }
 
 #[tokio::test]
+async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_idempotent() {
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Project [/]\r\n- [ ] First\r\n- [X] Second\r\n** TODO Child [%]\r\nNotes\r\n";
+    let (policy, state, worker) = server(&[("a.org", base)]).await;
+    assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
+    let file = repo.file("a.org").unwrap();
+    let path = file.node_paths()[0].clone();
+    let item = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
+    let repo_id = repo.id.clone();
+    let mut workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+    workspace.execute_task_operations(&crate::TaskOperationGroup {
+        operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
+            path,
+            modifications: vec![
+                crate::TaskModification::Checklist(crate::TaskChecklistChange::Move { id: item, before_id: None }),
+                crate::TaskModification::Title(Some("Project [1/2]".into())),
+            ],
+        })],
+        queue_repo_ids: vec![repo_id.clone()],
+        file_versions: vec![crate::TaskFileVersion {
+            repo_id, file: "a.org".into(), version: LocalFileVersion::from_bytes(base).content_hash,
+        }],
+    }).await.unwrap();
+    assert_eq!(workspace.notifications().await.unwrap(), vec![crate::CoreNotification::SyncRequired]);
+    repo = workspace.repos.remove(0);
+    let remote = String::from_utf8(base.to_vec()).unwrap().replace("Project [/]", "Project [1/2]").replace("Child [%]", "Child [50%]").replace("Notes", "Remote notes");
+    state.lock().unwrap().files.insert("a.org".into(), Remote { data: remote.into_bytes(), etag: "\"remote\"".into() });
+    let expected = String::from_utf8(base.to_vec()).unwrap()
+        .replace("Project [/]", "Project [1/2]").replace("Child [%]", "Child [50%]")
+        .replace("- [ ] First\r\n- [X] Second\r\n", "- [X] Second\r\n- [ ] First\r\n")
+        .replace("Notes", "Remote notes");
+    for time in [2, 3] {
+        let result = sync(&mut repo, &policy, time).await;
+        assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), expected.as_bytes());
+        assert_eq!(state.lock().unwrap().files["a.org"].data, expected.as_bytes());
+        assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+        assert!(repo.pending_writes().await.unwrap().is_empty());
+        assert!(!repo.has_local_changes().await.unwrap());
+        let tasks = crate::OrgWorkspace::new(vec![repo.clone()]).unwrap().query(&crate::TaskQuery::default()).unwrap().tasks;
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].full_path().titles, ["Project"]);
+        assert_eq!(tasks[1].full_path().titles, ["Project", "Child"]);
+    }
+    assert!(crate::OrgWorkspace::new(vec![repo]).unwrap().notifications().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
 async fn remote_deletion_directly_removes_modified_local_file_and_consumes_intents() {
     let (mut repo, root) = repo().await;
     let (policy, state, worker) = server(&[("inbox.org", b"* TODO Original\n")]).await;
