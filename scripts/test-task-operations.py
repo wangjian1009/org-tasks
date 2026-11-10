@@ -76,7 +76,6 @@ def run_case(binary, case, keep_failed):
             else:
                 assert completed.returncode == 0, completed.stderr
                 output = json.loads(completed.stdout)
-                assert 'nodeChanges' in output and 'updatedFiles' in output, '操作结果缺少节点增量或文件版本'
                 assert len(output['history']['entries']) == 1, '成功操作没有登记一次回退历史'
                 fallback = output['history']['entries'][0]['fallbackGroup']
                 for snapshot in fallback['files']:

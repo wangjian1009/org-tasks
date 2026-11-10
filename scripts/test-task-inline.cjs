@@ -28,8 +28,8 @@ function fixture() {
   const config={repos:[{rootDirectory:'/repo',webdavEnabled:true}],todoDefaults:''};
   const workspace={
     repos:async()=>[{id:'core',rootDirectory:'/repo',fileMetadata:async()=>[{path:'task.org',tagOptions:['configured']},{path:'other.org',tagOptions:['excluded']}]}],
-    query:async()=>({tasks:[{tags:['used']}]}),
-    executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');return {nodeChanges:[{operationIndex:0,requestPath:task.fullPath,before:{id:task.id,taskId:task.taskId ?? null,fullPath:task.fullPath,repoId:task.repoId,filePath:task.filePath,sourceOffset:0},after:updated}],updatedFiles:[{repoId:'core',file:'task.org',version:'new'}]};}
+    query:async()=>({tasks:[updated]}),
+    executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');}
   };
   const service=load('entry/src/main/ets/services/TaskInlineService.ets',{
     './AppConfigService':{AppConfigService:{load:async()=>config}},
@@ -37,8 +37,8 @@ function fixture() {
   });
   return {task,updated,config,requests,...service,conflict:()=>conflict=true};
 }
-test('标题修改使用原路径版本，返回新名称对应的最新快照',async()=>{
-  const f=fixture();assert.equal(await f.TaskInlineService.modify({},f.task,[{field:'TITLE',value:'New'}]),f.updated);
+test('标题修改使用原路径版本并只等待 Core 成功',async()=>{
+  const f=fixture();await f.TaskInlineService.modify({},f.task,[{field:'TITLE',value:'New'}]);
   assert.deepEqual(f.requests[0],{operations:[{type:'Modification',data:{path:f.task.fullPath,modifications:[{field:'TITLE',value:'New'}]}}],queueRepoIds:['core'],fileVersions:[{repoId:'core',file:'task.org',version:'old'}]});
 });
 test('备注、标签和清单操作原样交给 Core，不重建正文',async()=>{

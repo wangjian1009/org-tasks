@@ -4,23 +4,18 @@ import { CoreTask, CoreTaskModification, NativeCoreService } from './NativeCoreS
 
 // 只组装字段操作和快照版本；保真修改、校验与通知由 Core 完成。
 export class TaskInlineService {
-  static async modify(context: Context, task: CoreTask, modifications: CoreTaskModification[]): Promise<CoreTask> {
-    if (modifications.length === 0) return task
+  static async modify(context: Context, task: CoreTask, modifications: CoreTaskModification[]): Promise<void> {
+    if (modifications.length === 0) return
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
     const repo = (await workspace.repos()).find(item => item.id === task.repoId)
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
     if (!repository) throw new Error('目标仓库不可用')
-    const result = await workspace.executeTaskOperations({
+    await workspace.executeTaskOperations({
       operations: [{ type: 'Modification', data: { path: task.fullPath, modifications } }],
       queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
       fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
     })
-    const change = result.nodeChanges.find(item => item.operationIndex === 0 && item.before?.id === task.id) ||
-      result.nodeChanges.find(item => item.operationIndex === 0 && item.after)
-    const updated = change?.after ?? undefined
-    if (!updated) throw new Error('修改已完成，但未取得最新任务，请重新打开列表')
-    return updated
   }
 
   static async reload(context: Context, task: CoreTask): Promise<CoreTask> {

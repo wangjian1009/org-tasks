@@ -113,7 +113,7 @@ impl OrgWorkspace {
 
     pub async fn execute_task_operations(
         &mut self, group: &TaskOperationGroup,
-    ) -> Result<TaskOperationResult, CoreError>;
+    ) -> Result<(), CoreError>;
 
     pub async fn notifications(&self) -> Result<Vec<CoreNotification>, CoreError>;
 }
@@ -235,7 +235,7 @@ impl OrgFile {
 impl OrgWorkspace {
     pub async fn execute_task_operations(
         &mut self, group: &TaskOperationGroup,
-    ) -> Result<TaskOperationResult, CoreError>;
+    ) -> Result<(), CoreError>;
 }
 impl FilterTask {
     pub fn id(&self) -> &str;
@@ -285,7 +285,7 @@ pub struct OrgRepoWriteIntent {
 }
 #+end_src
 
-所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果通过 ~TaskOperationResult.node_changes~ 返回节点增量：每项包含对应操作的 ~operation_index~ 、请求中的 ~request_path~ 、可用于移除旧节点的 ~before~ 身份，以及提交后的完整 ~after~ 节点投影； ~before=None~ 表示新增， ~after=None~ 表示删除。标题改名、移动或继承属性变化影响的父子节点均列入结果。~updated_files~ 返回实际变更文件的新版本，供宿主更新同文件其他节点的乐观版本。回退正文只保存在 Core 的 ~TaskOperationHistory~ ，不进入操作结果。成功历史自动追加到 ~OrgWorkspace.task_operation_history~ 。
+所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果只表示提交完成，返回 ~Ok(())~ ；失败通过 ~CoreError~ 返回。实际变更由 ~OrgWorkspace.watch_data_changes~ 发布仓库数据失效事件，调用方收到事件后重新查询。回退正文只保存在 Core 的 ~TaskOperationHistory~ 。
 
 *** SourcePosition 与 SourceRange
 
@@ -698,7 +698,15 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 ~OrgRepo.last_effect_sync()~ 仍按时间取得最近成功完成的记录，返回内容不因后续任务编辑而变化。当前冲突通知改从文件标记生成，每文件一条 ~{ type: 'syncConflict', repoId, path }~ 。 ~OrgRepo.has_local_changes()~ 比较本地与基线 hash，workspace 在任一仓库有变化时附加唯一 ~syncRequired~ 通知。
 
-~watch_notifications~ 订阅成功提交后的仓库更新，宿主在事件之后异步重读正文和通知；查询不消费通知、不广播伪造更新。回调在注册表锁外执行，不能同步重入当前仓库锁。
+冲突通知判断只在 Rust 中执行： ~Workspace.notifications -> OrgRepo.notifications -> last_effect_sync~ 。新增同步提示取进程内状态，不能从 ~last_effect_sync~ 重建。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
+
+
+~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调只携带 Core 仓库 ID，不携带任务快照。任务操作、同步提交、冲突解决、重置和显式 ~reload~ 成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~；失败、无实际变化与只读查询不发送。宿主必须异步重新查询，不能在回调中重入 workspace 锁。
+~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 继续只服务通知区域，完整契约见下文。
+
+全局同步提示产生或清除使用 ~NotificationUpdate::GlobalNotificationsChanged~ ，不虚构仓库 ID，完整契约见 [[file:同步核心设计.org::*通知更新、模型与职责][同步核心设计]]。
+
+订阅对象销毁即解除，回调在注册表锁外执行；回调不能重入调用时仍持有的仓库锁，宿主通过线程安全队列转到 UI 后再查询。页面正文监听数据变化模块发布的数据版本，通知区域单独监听通知模块版本；同步控件只负责发起同步和展示进度，不在 Promise 完成后直接刷新正文。
 
 * 失败同步的本地提交边界
 
@@ -710,7 +718,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在源文件配置中验证，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 
-统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~NotificationUpdate~ 对应的数据失效事件；失败或无实际文件变化不发布。回调只用于安排异步重查，不能重入当前 workspace 锁。
+统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~DataChangeEvent::RepositoryChanged~；失败或无实际文件变化不发布。数据回调只用于安排异步重查，不能重入当前 workspace 锁。~watch_notifications~ 继续只服务通知区域。
 
 * 任务冲突与普通同步
 
@@ -734,10 +742,11 @@ impl OrgFile {
 
 卡片通过该接口取得备注和检查清单；标题使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选或删除； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
 
-调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；结果返回修改后任务路径，宿主从最新投影继续后续操作。
+调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；成功只返回提交完成，宿主通过数据变化监听后重新读取最新投影。
 
 * 文件历史结果与删除备份
 
 历史结果在同步决策时写入 ~OrgRepoSyncFileRecord.outcome~ ，含 ~Created~ 、 ~Deleted~ 、 ~Unchanged~ 、 ~Updated~ 、 ~Merged~ 、 ~Conflict~ 、 ~Uploaded~ 、 ~Failed~ 、 ~Skipped~ ；旧字段缺失使用 ~Legacy~ 兼容推导。 ~history_detail~ 直接消费该结果，冲突结果固定为 ~Conflict~ ，不再存在 ~Resolved~ 投影。 ~Updated~ 表示远端改变、本地无变化， ~Merged~ 表示两端变化且自动合并完成， ~Uploaded~ 表示仅本地变化。
 
 ~WebDavSyncFileDetail.deleted_archive~ 保存删除前备份的 hash； ~history_file(sync_id, path, false)~ 可只读打开相应正文。备份材料和删除操作在同一仓库事务内提交，缺失或 hash 不符返回错误；不能据备份恢复远端存在状态。完整布局和保留规则见 [[file:同步核心设计.org::*远端删除备份][远端删除备份]]。 ~history_detail~ 的文件列表包含无变化项及其可用备份，供列表原地展开，不要求宿主另建详情页面。
+调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；成功只返回提交完成，宿主通过数据变化监听后重新读取最新投影。

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod conflict;
 mod editor;
+mod data_changes;
 mod merge;
 pub(crate) mod notification;
 mod query;
@@ -24,6 +25,7 @@ mod workspace;
 pub(crate) mod write_intent;
 
 pub use editor::*;
+pub use data_changes::*;
 pub use merge::*;
 pub use notification::*;
 pub use query::*;

@@ -428,6 +428,13 @@ pub extern "C" fn org_tasks_harmony_workspace_watch_notifications(handle:u64, mo
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_unwatch_notifications(id:u64) {bridge::workspace_unwatch_notifications(id);}
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_watch_data_changes(handle:u64, monitor:u64)->u64 {
+    clear_last_error();
+    match bridge::workspace_watch_data_changes(handle,monitor) {Ok(id)=>id,Err(e)=>{remember_error(&e);0}}
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_unwatch_data_changes(id:u64) {bridge::workspace_unwatch_data_changes(id);}
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_reload(handle:u64)->i32 {
     clear_last_error();
     match bridge::workspace_reload(handle) {Ok(())=>0,Err(e)=>{remember_error(&e);-1}}

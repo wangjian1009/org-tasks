@@ -6,6 +6,7 @@ import { IconButton } from './Controls'
 import { RepositorySyncView } from './RepositorySyncView'
 import { uiObserver } from '@kit.ArkUI'
 import { CoreNotificationService, CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
@@ -48,11 +49,13 @@ export struct AppShell {
   @State logbookCount: number = -1
   @State navMessage: string = ''
   @StorageLink('coreNotifications') @Watch('notificationUpdated') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @StorageLink('coreDataChanges') @Watch('dataChanged') dataChangeState: CoreDataChangeState = emptyCoreDataChangeState()
   @StorageLink('taskInlineActive') @Watch('inlineSessionChanged') inlineActive: string = ''
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   private deferredRefresh: boolean = false
   private navigationRequest: number = 0
   private notificationRevision: number = 0
+  private dataRevision: number = 0
   private pageIndex: number = 0
   private pageVisible: boolean = true
   private pageChanged = (info: uiObserver.RouterPageInfo): void => {
@@ -60,8 +63,9 @@ export struct AppShell {
     if (info.state === uiObserver.RouterPageState.ON_PAGE_HIDE) this.pageVisible = false
     else if (info.state === uiObserver.RouterPageState.ON_PAGE_SHOW) {
       this.pageVisible = true
-      this.notificationUpdated()
+      this.dataChanged()
       this.refreshNotifications()
+      this.refreshDataChanges()
     }
   }
 
@@ -82,8 +86,10 @@ export struct AppShell {
     this.pageIndex = this.getUIContext().getRouter().getState().index
     this.pageVisible = true
     this.notificationRevision = this.notificationState.revision
+    this.dataRevision = this.dataChangeState.revision
     this.getUIContext().getUIObserver().on('routerPageUpdate', this.pageChanged)
     this.refreshNotifications()
+    this.refreshDataChanges()
     if (this.drawerOpen) this.loadNavigation()
   }
 
@@ -93,8 +99,13 @@ export struct AppShell {
   }
 
   notificationUpdated() {
-    if (!this.pageVisible || this.notificationRevision === this.notificationState.revision) return
+    if (this.notificationRevision === this.notificationState.revision) return
     this.notificationRevision = this.notificationState.revision
+  }
+
+  dataChanged() {
+    if (!this.pageVisible || this.dataRevision === this.dataChangeState.revision) return
+    this.dataRevision = this.dataChangeState.revision
     this.repositoryDataInvalidated()
   }
 
@@ -103,6 +114,14 @@ export struct AppShell {
     catch (e) {
       if (!this.pageVisible) return
       try { this.getUIContext().getPromptAction().showToast({ message: `读取通知失败：${coreErrorMessage(e as CoreBridgeError)}` }) } catch (_) {}
+    }
+  }
+
+  async refreshDataChanges() {
+    try { await CoreDataChangeService.refresh(this.getUIContext().getHostContext()!) }
+    catch (e) {
+      if (!this.pageVisible) return
+      console.error(`数据监控注册失败：${coreErrorMessage(e as CoreBridgeError)}`)
     }
   }
 

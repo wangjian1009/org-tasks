@@ -40,14 +40,8 @@ export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Dele
 export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operations: TaskOperation[]; queueRepoIds?: string[]; fileVersions?: TaskFileVersion[]; }
-export interface TaskNodeIdentity {
-  id: string; taskId: string | null; fullPath: TaskPath; repoId: string; filePath: string; sourceOffset: number;
-}
-export interface TaskNodeChange {
-  operationIndex: number; requestPath: TaskPath; before: TaskNodeIdentity | null; after: Task | null;
-}
-export interface TaskOperationResult { nodeChanges: TaskNodeChange[]; updatedFiles: TaskFileVersion[]; }
-
+export type DataChangeEvent = { type: 'repositoryChanged'; repoId: string };
+export type DataChangeMonitor = (event: DataChangeEvent) => void;
 export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; }
 export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
@@ -201,10 +195,12 @@ export class Workspace {
   removeRepo(rootDirectory: string): Promise<void>;
   query(query: TaskQuery): Promise<TaskQueryResult>;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
-  executeTaskOperations(group: TaskOperationGroup): Promise<TaskOperationResult>;
+  executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   notifications(): Promise<CoreNotification[]>;
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>;
   stopWatchingNotifications(): void;
+  watchDataChanges(monitor: DataChangeMonitor): Promise<number>;
+  stopWatchingDataChanges(subscriptionId: number): void;
   reload(): Promise<void>;
 }
 

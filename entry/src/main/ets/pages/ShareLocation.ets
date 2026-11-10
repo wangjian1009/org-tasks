@@ -137,15 +137,15 @@ struct ShareLocation {
     this.saving = true; this.message = ''
     try {
       if (!this.updatedTask) {
-        const result = await NativeCoreService.executeTaskOperations(this.config.repos, {
+        await NativeCoreService.executeTaskOperations(this.config.repos, {
           operations: [{ type: 'Modification', data: { path: task.fullPath,
             modifications: [{ field: 'ADDRESS_LINK', value: { oldUri, newUri: uri } }] } }],
           queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
         }, this.config.todoDefaults)
-        const change = result.nodeChanges.find(item => item.operationIndex === 0 && item.before?.id === task.id) ||
-          result.nodeChanges.find(item => item.operationIndex === 0 && item.after)
-        this.updatedTask = change?.after ?? undefined
+        const refreshed = await NativeCoreService.queryTasks([repository],
+          { includeDone: true, includeComposeTasks: true }, this.config.todoDefaults)
+        this.updatedTask = refreshed.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(task.fullPath))
         if (!this.updatedTask) throw new Error('无法读取更新后的任务')
       }
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext

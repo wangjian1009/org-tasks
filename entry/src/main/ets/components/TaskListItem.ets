@@ -120,7 +120,9 @@ export struct TaskListItem {
     const operation = this.pending.then(async () => {
       this.working = true; this.message = ''
       try {
-        this.editTask = await TaskInlineService.modify(this.getUIContext().getHostContext()!, this.value(), modifications)
+        const context = this.getUIContext().getHostContext()!
+        await TaskInlineService.modify(context, this.value(), modifications)
+        this.editTask = await TaskInlineService.reload(context, this.value())
         success = true
       } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
       finally { this.working = false }

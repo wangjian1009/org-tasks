@@ -5,7 +5,6 @@ import {
   TaskOperation as NativeTaskOperation,
   TaskOperationGroup as NativeTaskOperationGroup,
   TaskConfilictSelection as NativeTaskConfilictSelection,
-  TaskOperationResult as NativeTaskOperationResult,
   TaskModification as NativeTaskModification,
   TaskChecklistItem as NativeTaskChecklistItem,
   TaskChecklistChange as NativeTaskChecklistChange,
@@ -19,6 +18,8 @@ import {
   OrgFileRef as NativeOrgFileRef,
   CoreError as NativeCoreError,
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
+  DataChangeEvent as NativeDataChangeEvent,
+  DataChangeMonitor as NativeDataChangeMonitor,
   SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
@@ -83,7 +84,8 @@ export type CoreTaskFileVersion = NativeTaskFileVersion
 export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
-export type CoreTaskOperationResult = NativeTaskOperationResult
+export type CoreDataChangeEvent = NativeDataChangeEvent
+export type CoreDataChangeMonitor = NativeDataChangeMonitor
 export type CoreTaskModification = NativeTaskModification
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
@@ -179,10 +181,12 @@ export class CoreWorkspace {
 
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
-  async executeTaskOperations(group: CoreTaskOperationGroup): Promise<CoreTaskOperationResult> { return await this.native.executeTaskOperations(group) }
+  async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async notifications(): Promise<CoreNotification[]> { return await this.native.notifications() }
   async watchNotifications(monitor: CoreNotificationUpdateMonitor): Promise<void> { await this.native.watchNotifications(monitor) }
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
+  async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
+  stopWatchingDataChanges(subscriptionId: number): void { this.native.stopWatchingDataChanges(subscriptionId) }
   async reload(): Promise<void> { await this.native.reload() }
 
   async repos(): Promise<CoreRepo[]> {
@@ -275,9 +279,9 @@ export class NativeCoreService {
     return await request
   }
 
-  static async executeTaskOperations(repositories: RepoConfig[], group: CoreTaskOperationGroup, todoDefaults?: string): Promise<CoreTaskOperationResult> {
+  static async executeTaskOperations(repositories: RepoConfig[], group: CoreTaskOperationGroup, todoDefaults?: string): Promise<void> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    return await workspace.executeTaskOperations(group)
+    await workspace.executeTaskOperations(group)
   }
 
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreTask[]> {

@@ -34,7 +34,7 @@
   repos: Vec\textless OrgRepo\textgreater \\
   todo\_defaults: TodoConfig \\
   task\_operation\_history: TaskOperationHistory
-}{execute\_task\_operations(group): TaskOperationResult}
+}{execute\_task\_operations(group): ()}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
@@ -857,81 +857,6 @@ pub struct TaskOperationRecord {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
-/// 操作成功后的完整节点展示与编辑投影，字段与宿主 Task 保持一致。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskNodeSnapshot {
-    pub id: String,
-    pub full_path: TaskPath,
-    pub task_id: Option<String>,
-    pub file_version: String,
-    pub repo_id: OrgRepoId,
-    pub heading: String,
-    pub category: Option<String>,
-    pub heading_parts: Vec<TitlePart>,
-    pub todo_state: String,
-    pub todo_kind: Option<TodoStateKind>,
-    pub is_done: bool,
-    pub is_cancelled: bool,
-    pub created_at: Option<TimestampMs>,
-    pub modified_at: Option<TimestampMs>,
-    pub priority: String,
-    pub scheduled: String,
-    pub deadline: String,
-    pub tags: Vec<String>,
-    pub own_tags: Vec<String>,
-    pub inherited_tags: Vec<String>,
-    pub support_tags: Option<SupportTags>,
-    pub edit_content: TaskEditContent,
-    pub file_path: String,
-    pub file_name: String,
-    pub level: u32,
-    pub source_offset: u64,
-    pub body: String,
-    pub body_first_line: Option<String>,
-    pub address_links: Vec<AddressLink>,
-    pub body_html: String,
-    pub logbook_html: String,
-    pub progress: i32,
-    pub has_list: bool,
-    pub has_text: bool,
-    pub is_repeating: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskNodeIdentity {
-    pub id: String,
-    pub task_id: Option<String>,
-    pub full_path: TaskPath,
-    pub repo_id: OrgRepoId,
-    pub file_path: String,
-    pub source_offset: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskNodeChange {
-    pub operation_index: usize,
-    pub request_path: TaskPath,
-    pub before: Option<TaskNodeIdentity>,
-    pub after: Option<TaskNodeSnapshot>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskFileVersionChange {
-    pub repo_id: OrgRepoId,
-    pub file: String,
-    pub version: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskOperationResult {
-    pub node_changes: Vec<TaskNodeChange>,
-    pub updated_files: Vec<TaskFileVersionChange>,
-}
 #+end_src
 
 ** 创建与字段修改
@@ -956,10 +881,10 @@ pub struct TaskOperationResult {
 ** 顺序、提交与失败处理
 
 1. 根据操作组收集所需源文件、目标 parent 和 after 所在文件；验证安全路径、仓库归属和可选的 ~file_versions~ ，将原始内容加载到隔离内存快照。不存在的 Org 文件可由创建操作产生，移动目标须已存在于本组内存快照；父目录须已存在，加载阶段不创建目录，不跟随文件符号链接。
-2. 按 operations 顺序执行；后续操作使用前面步骤产生的新路径。组内改名、移动、重名项序号变化后，旧路径可能失效，Core 不猜测调用意图。提交成功后比较操作前后的完整节点投影，生成 ~TaskNodeChange~ 列表；新增、删除、改名、移动以及继承属性变化的节点均返回。
+2. 按 operations 顺序执行；后续操作使用前面步骤产生的新路径。组内改名、移动、重名项序号变化后，旧路径可能失效，Core 不猜测调用意图。提交成功后发布仓库数据变化事件；失败或无实际文件变化不发布。
 3. 任一内存操作失败即丢弃全组，不修改用户文件、outbox、workspace 快照或操作历史。受影响但未修改的文件不重复写入。
 4. 所有内存操作完成后，准备完整临时文件、回退字节和最终 outbox；再次核对原始磁盘字节，统一进入提交。普通提交 I/O 失败时以已准备的原始字节回滚已替换文件，并清理本次临时文件和意图。
-5. 全部文件提交成功后才发布新 workspace 快照，将一次 ~TaskFallbackGroup~ 与原操作组一起追加到 ~TaskOperationHistory~ ，并返回实际变更文件的 ~updated_files~ 版本。失败的组不形成成功历史，也不返回节点增量。
+5. 全部文件提交成功后才发布新 workspace 快照，将一次 ~TaskFallbackGroup~ 与原操作组一起追加到 ~TaskOperationHistory~ 。失败的组不形成成功历史，也不发布数据变化事件。
 
 单文件替换采用同目录原子重命名。普通文件系统不提供跨文件、跨仓库的整体原子替换；进程崩溃、介质不可写或回滚期间的外部并发写入不能仅靠内存保证恢复。检测到回滚目标已被外部写入时保留回退文件并明确返回存储错误，不覆盖外部数据，也不将部分提交登记为成功。当前契约覆盖可正常完成回滚的执行错误，崩溃恢复与持久化事务日志另行设计。
 
@@ -984,11 +909,6 @@ pub struct TaskOperationResult {
 \umlclass[x=8,y=-12]{TaskOperationRecord}{operation\_group: TaskOperationGroup \\ fallback\_group: TaskFallbackGroup}{}
 \umlclass[x=15,y=-12]{TaskFallbackGroup}{files: Vec\textless TaskFileFallback\textgreater}{}
 \umlclass[x=15,y=-16]{TaskFileFallback}{repo\_id: OrgRepoId \\ file: String \\ before: Option\textless String\textgreater \\ after: String}{}
-\umlclass[x=0,y=-20]{TaskOperationResult}{node\_changes: Vec\textless TaskNodeChange\textgreater \\ updated\_files: Vec\textless TaskFileVersionChange\textgreater}{}
-\umlclass[x=8,y=-20]{TaskNodeChange}{operation\_index: usize \\ request\_path: TaskPath \\ before: Option\textless TaskNodeIdentity\textgreater \\ after: Option\textless TaskNodeSnapshot\textgreater}{}
-\umlclass[x=16,y=-20]{TaskNodeIdentity}{id: String \\ task\_id: Option\textless String\textgreater \\ full\_path: TaskPath \\ source\_offset: u64}{}
-\umlclass[x=8,y=-25]{TaskFileVersionChange}{repo\_id: OrgRepoId \\ file: String \\ version: String}{}
-\umlclass[x=16,y=-25]{TaskNodeSnapshot}{id: String \\ full\_path: TaskPath \\ file\_version: String \\ heading: String \\ body: String \\ edit\_content: TaskEditContent}{}
 \umluniassoc[mult2=1..*]{TaskOperationGroup}{TaskOperation}
 \umldep{TaskOperation}{TaskCreation}
 \umldep{TaskOperation}{TaskModificationOperation}
@@ -998,10 +918,6 @@ pub struct TaskOperationResult {
 \umluniassoc[mult2=0..*]{TaskOperationHistory}{TaskOperationRecord}
 \umluniassoc{TaskOperationRecord}{TaskFallbackGroup}
 \umluniassoc[mult2=0..*]{TaskFallbackGroup}{TaskFileFallback}
-\umluniassoc[mult2=0..*]{TaskOperationResult}{TaskNodeChange}
-\umluniassoc[mult2=0..*]{TaskOperationResult}{TaskFileVersionChange}
-\umldep{TaskNodeChange}{TaskNodeIdentity}
-\umldep{TaskNodeChange}{TaskNodeSnapshot}
 \end{tikzpicture}%
 }
 \end{center}

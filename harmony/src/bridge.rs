@@ -1393,11 +1393,15 @@ pub fn repo_history_operation(handle: u64, root: String, request: String) -> Res
 
 static NOTIFICATION_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<u64, org_tasks_core::NotificationSubscription>>> = OnceLock::new();
 static NEXT_NOTIFICATION_SUBSCRIPTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static DATA_CHANGE_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<u64, org_tasks_core::DataChangeSubscription>>> = OnceLock::new();
+static NEXT_DATA_CHANGE_SUBSCRIPTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 struct NotificationMonitor(u64);
 #[cfg(not(test))]
 unsafe extern "C" {
     fn org_tasks_harmony_notification_update(handle: u64, json: *const std::ffi::c_char);
     fn org_tasks_harmony_notification_monitor_release(handle: u64);
+    fn org_tasks_harmony_data_change_update(handle: u64, json: *const std::ffi::c_char);
+    fn org_tasks_harmony_data_change_monitor_release(handle: u64);
 }
 impl Drop for NotificationMonitor {
     fn drop(&mut self) {
@@ -1427,6 +1431,37 @@ pub fn workspace_watch_notifications(handle:u64, monitor:u64)->Result<u64,CoreEr
 pub fn workspace_unwatch_notifications(id:u64) {
     // 在锁外销毁回调资源，避免释放宿主句柄时重入注册表。
     let removed=NOTIFICATION_SUBSCRIPTIONS.get_or_init(Default::default).lock().ok().and_then(|mut map|map.remove(&id));
+    drop(removed);
+}
+
+struct DataChangeMonitor(u64);
+impl Drop for DataChangeMonitor {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        let _ = self.0;
+        #[cfg(not(test))]
+        unsafe { org_tasks_harmony_data_change_monitor_release(self.0); }
+    }
+}
+pub fn workspace_watch_data_changes(handle:u64, monitor:u64)->Result<u64,CoreError> {
+    let monitor=DataChangeMonitor(monitor);
+    let session=workspace_for_handle(handle)?;
+    let workspace=session.lock().map_err(|_|CoreError::Store("workspace 锁不可用".into()))?;
+    let subscription=workspace.watch_data_changes(move |event| {
+        let _keep_alive=&monitor;
+        if let Ok(json)=serde_json::to_string(&event).and_then(|s|CString::new(s).map_err(serde::ser::Error::custom)) {
+            #[cfg(not(test))]
+            unsafe { org_tasks_harmony_data_change_update(monitor.0, json.as_ptr()); }
+            #[cfg(test)]
+            let _=json;
+        }
+    });
+    let id=NEXT_DATA_CHANGE_SUBSCRIPTION.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+    DATA_CHANGE_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_|CoreError::Store("数据监控订阅锁不可用".into()))?.insert(id,subscription);
+    Ok(id)
+}
+pub fn workspace_unwatch_data_changes(id:u64) {
+    let removed=DATA_CHANGE_SUBSCRIPTIONS.get_or_init(Default::default).lock().ok().and_then(|mut map|map.remove(&id));
     drop(removed);
 }
 pub fn workspace_reload(handle:u64)->Result<(),CoreError> {
