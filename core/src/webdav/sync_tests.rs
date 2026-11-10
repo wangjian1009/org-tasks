@@ -1,4 +1,5 @@
 use super::*;
+use crate::TaskScanRules;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -14,6 +15,7 @@ struct Dav {
     requests: Vec<String>,
     hierarchical: bool,
     invalid_listing: bool,
+    pause: Option<(String, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 
 async fn server(
@@ -42,6 +44,7 @@ async fn server(
         requests: Vec::new(),
         hierarchical: false,
         invalid_listing: false,
+        pause: None,
     }));
     let shared = state.clone();
     let endpoint =
@@ -86,6 +89,16 @@ async fn server(
                 .unwrap()
                 .trim_start_matches("/org/")
                 .to_string();
+            let pause = {
+                let mut dav = shared.lock().unwrap();
+                if dav.pause.as_ref().is_some_and(|(expected, _, _)| expected == method) {
+                    dav.pause.take()
+                } else { None }
+            };
+            if let Some((_, entered, resume)) = pause {
+                entered.notify_one();
+                resume.notified().await;
+            }
             let (status, body, etag) = {
                 let mut dav = shared.lock().unwrap();
                 dav.requests.push(headers.clone());
@@ -437,17 +450,17 @@ async fn task_ignore_does_not_change_upload_download_or_write_acknowledgement() 
         tokio::fs::read(root.join("remote.org")).await.unwrap(),
         remote
     );
-    assert_eq!(repo.files().len(), 2);
+    assert_eq!(repo.load_files(&[]).await.unwrap().len(), 2);
     assert!(repo.pending_writes().await.unwrap().is_empty());
-    assert!(crate::filter::tasks_from_repo(&repo).is_empty());
+    assert!(crate::filter::tasks_from_repo(&repo).await.unwrap().is_empty());
     repo.load::<WebDavSyncPolicy>().await.unwrap();
-    assert_eq!(repo.files().len(), 2);
-    assert!(crate::filter::tasks_from_repo(&repo).is_empty());
+    assert_eq!(repo.load_files(&[]).await.unwrap().len(), 2);
+    assert!(crate::filter::tasks_from_repo(&repo).await.unwrap().is_empty());
     tokio::fs::remove_file(root.join(".orgzlyignore"))
         .await
         .unwrap();
     repo.load::<WebDavSyncPolicy>().await.unwrap();
-    assert_eq!(crate::filter::tasks_from_repo(&repo).len(), 2);
+    assert_eq!(crate::filter::tasks_from_repo(&repo).await.unwrap().len(), 2);
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -464,7 +477,7 @@ async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
     .await;
     let record = sync(&mut repo, &policy, 1).await;
     assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
-    assert_eq!(repo.files().len(), 2);
+    assert_eq!(repo.load_files(&[]).await.unwrap().len(), 2);
     assert!(!root.join("nested/.orgzlyignore").exists());
     assert_eq!(
         tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
@@ -477,12 +490,12 @@ async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
     };
     let result = crate::OrgWorkspace::new(vec![repo.clone()])
         .unwrap()
-        .query(&query)
+        .query(&query).await
         .unwrap();
     assert_eq!(result.tasks.len(), 1);
     assert_eq!(result.tasks[0].path(), "visible.org");
     assert!(
-        repo.file_metadata()
+        repo.file_metadata().await.unwrap()
             .iter()
             .find(|file| file.path == "ann.org")
             .unwrap()
@@ -508,15 +521,15 @@ async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
         sync(&mut repo, &policy, 2).await.result,
         Some(OrgRepoSyncResult::Succeeded)
     );
-    assert!(repo.task_scan_rules.excludes("visible.org"));
-    assert!(!repo.task_scan_rules.excludes("ann.org"));
+    assert!(TaskScanRules::load(&root).await.unwrap().excludes("visible.org"));
+    assert!(!TaskScanRules::load(&root).await.unwrap().excludes("ann.org"));
     state.lock().unwrap().files.remove(".orgzlyignore");
     assert_eq!(
         sync(&mut repo, &policy, 3).await.result,
         Some(OrgRepoSyncResult::Succeeded)
     );
     assert!(!root.join(".orgzlyignore").exists());
-    assert!(!repo.task_scan_rules.excludes("visible.org"));
+    assert!(!TaskScanRules::load(&root).await.unwrap().excludes("visible.org"));
     assert!(
         state
             .lock()
@@ -553,7 +566,7 @@ async fn sync_ignore_rules_preserves_local_edits_and_rejects_invalid_remote_cont
         tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
         b"local.org\n"
     );
-    assert!(repo.task_scan_rules.excludes("local.org"));
+    assert!(TaskScanRules::load(&root).await.unwrap().excludes("local.org"));
     tokio::fs::write(root.join(".orgzlyignore"), "ann.org\n")
         .await
         .unwrap();
@@ -581,7 +594,7 @@ async fn sync_ignore_rules_preserves_local_edits_and_rejects_invalid_remote_cont
             tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
             b"ann.org\n"
         );
-        assert!(repo.task_scan_rules.excludes("ann.org"));
+        assert!(TaskScanRules::load(&root).await.unwrap().excludes("ann.org"));
     }
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
@@ -767,7 +780,7 @@ async fn first_sync_uploads_local_only_and_downloads_remote_only_files() {
         b"* TODO Remote\n"
     );
     assert!(repo.pending_writes().await.unwrap().is_empty());
-    assert!(repo.file("remote.org").unwrap().modified_at.is_some());
+    assert!(repo.file("remote.org").await.unwrap().modified_at.is_some());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -781,7 +794,7 @@ async fn downloaded_file_todo_declarations_override_external_defaults_and_surviv
     let first = sync(&mut repo, &policy, 1).await;
     assert_eq!(first.result, Some(OrgRepoSyncResult::Succeeded));
     repo.load::<WebDavSyncPolicy>().await.unwrap();
-    let file = &repo.files[0];
+    let file = &repo.load_files(&[]).await.unwrap()[0];
     assert_eq!(file.source_bytes(), bytes);
     assert_eq!(file.todo.source, crate::TodoSource::InBuffer);
     assert_eq!(file.todo.initial_state.as_deref(), Some("OPEN"));
@@ -792,7 +805,7 @@ async fn downloaded_file_todo_declarations_override_external_defaults_and_surviv
             .query(&crate::TaskQuery {
                 expression: "it.done".into(),
                 ..Default::default()
-            })
+            }).await
             .unwrap()
             .tasks
             .len(),
@@ -903,7 +916,7 @@ async fn task_conflict_uploads_both_versions_remains_readable_and_does_not_block
     );
     assert_eq!(repo.notifications().await.unwrap().len(), 1);
     // 外部编辑移除完整冲突容器，下一次同步照常上传本地修改。
-    let clean = crate::model::conflict::main_source(&repo.file("a.org").unwrap());
+    let clean = crate::model::conflict::main_source(&repo.file("a.org").await.unwrap());
     tokio::fs::write(root.join("a.org"), clean)
         .await
         .unwrap();
@@ -1014,8 +1027,8 @@ async fn failed_sync_discards_all_downloads_deletions_rules_and_base_updates() {
         tokio::fs::read(root.join(".orgzlyignore")).await.unwrap(),
         b"old.org\n"
     );
-    assert!(repo.task_scan_rules.excludes("old.org"));
-    assert!(!repo.task_scan_rules.excludes("new.org"));
+    assert!(TaskScanRules::load(&root).await.unwrap().excludes("old.org"));
+    assert!(!TaskScanRules::load(&root).await.unwrap().excludes("new.org"));
     assert_eq!(repo.last_effect_sync().await.unwrap().unwrap().id, first.id);
     assert!(repo.history_file(&failed.id, "a.org", false).await.is_err());
     assert_eq!(
@@ -1450,7 +1463,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     let original_history = tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap();
     let original_base = tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap();
     assert!(!repo.has_local_changes().await.unwrap());
-    let file = repo.file("a.org").unwrap();
+    let file = repo.file("a.org").await.unwrap();
     let group = crate::TaskOperationGroup {
         operations: file.conflict_ids().into_iter().map(|id|crate::TaskOperation::ConfilictSelection(crate::TaskConfilictSelection{path:None,target:None,id,action:crate::TaskConfilictAction::Discard})).collect(),
         file_versions:vec![crate::TaskFileVersion{repo_id:repo.id.clone(),file:"a.org".into(),version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash}],
@@ -1507,14 +1520,92 @@ async fn setupfile_todo_context_is_read_from_snapshots_without_temporary_reposit
     let record = sync(&mut repo, &policy, 2).await;
     assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
     assert_eq!(
-        repo.file("a.org").unwrap().source_bytes(),
+        repo.file("a.org").await.unwrap().source_bytes(),
         local.replace("base", "remote").as_bytes()
     );
     assert_eq!(
-        repo.file("a.org").unwrap().todo.done_keywords,
+        repo.file("a.org").await.unwrap().todo.done_keywords,
         vec!["FINISHED"]
     );
     assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn downloads_release_repository_lock_and_merge_reads_edits_made_during_network() {
+    let (mut source, root) = repo().await;
+    let initial = b"* TODO A\n:PROPERTIES:\n:ID: a\n:END:\nold body\n";
+    let (policy, state, worker) = server(&[("a.org", initial)]).await;
+    sync(&mut source, &policy, 1).await;
+    {
+        let mut dav = state.lock().unwrap();
+        let file = dav.files.get_mut("a.org").unwrap();
+        file.data = b"* TODO A\n:PROPERTIES:\n:ID: a\n:END:\nremote body\n".to_vec();
+        file.etag = "\"changed\"".into();
+    }
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    state.lock().unwrap().pause = Some(("GET".into(), entered.clone(), resume.clone()));
+    let syncing = tokio::spawn(async move {
+        source.sync(&policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default()).await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await.unwrap();
+    let mut reader = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), reader.load::<WebDavSyncPolicy>()).await.unwrap().unwrap();
+    assert!(root.join("sync").exists());
+    let file = reader.file("a.org").await.unwrap();
+    let task = crate::filter::tasks_from_repo(&reader).await.unwrap().remove(0);
+    let mut workspace = crate::OrgWorkspace::new(vec![reader]).unwrap();
+    let group = crate::TaskOperationGroup {
+        operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
+            path: task.full_path().clone(),
+            modifications: vec![crate::TaskModification::Todo(Some("DONE".into()))],
+        })],
+        file_versions: vec![crate::TaskFileVersion { repo_id: file.repo_id.clone(), file: file.path.clone(),
+            version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash }],
+        queue_repo_ids: vec![file.repo_id.clone()],
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(1), workspace.execute_task_operations(&group)).await.unwrap().unwrap();
+    resume.notify_one();
+    let record = syncing.await.unwrap().unwrap();
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    let content = tokio::fs::read_to_string(root.join("a.org")).await.unwrap();
+    assert!(content.starts_with("* DONE A\n"), "{content}");
+    assert!(content.contains("remote body"), "{content}");
+    assert!(!root.join("sync").exists());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn uploads_release_repository_lock_and_never_overwrite_newer_local_versions() {
+    let (mut source, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Original\n")]).await;
+    sync(&mut source, &policy, 1).await;
+    tokio::fs::write(root.join("a.org"), b"* TODO Upload this\n").await.unwrap();
+    let baseline = tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap();
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    state.lock().unwrap().pause = Some(("PUT".into(), entered.clone(), resume.clone()));
+    let syncing = tokio::spawn(async move {
+        source.sync(&policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default()).await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await.unwrap();
+    let guard = tokio::time::timeout(std::time::Duration::from_secs(1), super::transaction::lock(&root)).await.unwrap().unwrap();
+    tokio::fs::write(root.join("a.org"), b"* TODO Newer local edit\n").await.unwrap();
+    drop(guard);
+    resume.notify_one();
+    assert!(syncing.await.unwrap().is_err());
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), b"* TODO Newer local edit\n");
+    assert_eq!(tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap(), baseline);
+    assert!(!root.join(".sync/history/2.json").exists());
+    assert_eq!(state.lock().unwrap().files["a.org"].data, b"* TODO Upload this\n");
+    let mut reader = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
+    reader.load::<WebDavSyncPolicy>().await.unwrap();
+    assert!(root.join("sync").exists());
+    reader.load_files(&[]).await.unwrap();
+    assert!(!root.join("sync").exists());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }

@@ -239,30 +239,16 @@ impl WebDavSyncMonitor for HarmonyWebDavSyncMonitor {
     }
 }
 
-fn task_from_filter(
-    task: FilterTask,
-    workspace: &OrgWorkspace,
-) -> Result<HarmonyBridgeTask, CoreError> {
-    let repo_id = task.repo_id().to_owned();
-    let path = task.path().to_owned();
-    let file = workspace
-        .repo(&repo_id)
-        .and_then(|repo| repo.files().iter().find(|file| file.path == path))
-        .ok_or(CoreError::InvalidState("任务文件不存在"))?;
-    task_from_file(task,file)
-}
-
-fn task_from_file(task:FilterTask,file:&org_tasks_core::OrgFile)->Result<HarmonyBridgeTask,CoreError> {
+fn task_from_filter(task:FilterTask)->Result<HarmonyBridgeTask,CoreError> {
     let repo_id=task.repo_id().to_owned();
     let path=task.path().to_owned();
-    let file_version =
-        org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
+    let file_version = task.file_version().to_owned();
     let task_id = task.task_id().map(str::to_owned);
     let is_done = task.is_done();
     let is_cancelled = task.is_cancelled();
     let heading_parts = task.title_parts();
     let content = task.render_content();
-    let edit_content = file.task_edit_content(task.full_path())?;
+    let edit_content = task.edit_content().clone();
     let mut tags = task.own_tags().to_vec();
     for inherited in task.inherited_tags() {
         if !tags.contains(inherited) {
@@ -520,9 +506,10 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
     for repo in &mut workspace.repos {
         runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
     }
-    let result = workspace.query(&query)?;
+    let result = runtime.block_on(workspace.query(&query))?;
+    drop(workspace);
     encode(&serde_json::json!({
-        "tasks": result.tasks.into_iter().map(|task| task_from_filter(task, &workspace)).collect::<Result<Vec<_>, _>>()?,
+        "tasks": result.tasks.into_iter().map(task_from_filter).collect::<Result<Vec<_>, _>>()?,
         "categories": result.categories,
     }))
 }
@@ -546,12 +533,12 @@ pub fn repo_sync_json(
         })
     };
     let workspace = workspace_for_handle(workspace_handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
+    let mut repository = {
+        let workspace = workspace.lock()
+            .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+        workspace.repo_by_root_directory(&root_directory)
+            .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?.clone()
+    };
     let runtime = runtime()?;
     let options = if options_json.trim().is_empty() {
         SyncOptions::default()
@@ -566,6 +553,16 @@ pub fn repo_sync_json(
         &SyncProgressReporter::default(),
         options,
     ))?;
+    // 只交回稳定身份，避免同步开始前取得的对象覆盖网络期间其他请求更新的快照。
+    if record.result == Some(OrgRepoSyncResult::Succeeded) {
+        let mut workspace = workspace.lock()
+            .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+        if let Some(current) = workspace.repo_mut_by_root_directory(&root_directory) {
+            if current.id.is_empty() || current.id == repository.id {
+                current.id = repository.id;
+            }
+        }
+    }
     encode(&bridge_sync_summary(
         org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&record)?,
     )?)
@@ -591,17 +588,22 @@ fn bridge_sync_summary(
 }
 
 pub fn repo_snapshot_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
+    repo_load_files_json(handle, root_directory, "[]".into())
+}
+
+pub fn repo_load_files_json(handle: u64, root_directory: String, ignore_files_json: String) -> Result<String, CoreError> {
+    let ignore_files: Vec<String> = serde_json::from_str(&ignore_files_json)
+        .map_err(|_| CoreError::InvalidInput("排除文件必须是仓库相对路径列表"))?;
     let workspace = workspace_for_handle(handle)?;
-    let workspace = workspace
+    let mut workspace = workspace
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let repository = workspace
-        .repo_by_root_directory(&root_directory)
+        .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let mut files = Vec::with_capacity(repository.files().len());
-    for file in repository.files() {
-        files.push(file_snapshot(file)?);
-    }
+    runtime()?.block_on(repository.load::<WebDavSyncPolicy>())?;
+    let files = runtime()?.block_on(repository.load_files(&ignore_files))?.iter()
+        .map(file_snapshot).collect::<Result<Vec<_>, _>>()?;
     encode(&HarmonyBridgeRepository {
         id: repository.id.clone(),
         files,
@@ -617,7 +619,7 @@ pub fn repo_file_metadata_json(handle: u64, root_directory: String) -> Result<St
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     runtime()?.block_on(repo.load::<WebDavSyncPolicy>())?;
-    encode(&repo.file_metadata())
+    encode(&runtime()?.block_on(repo.file_metadata())?)
 }
 
 fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
@@ -646,7 +648,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         rendered_html: file.render_html(),
         conflicts,
         conflict_error,
-        nodes: file.nodes().into_iter().map(|task|task_from_file(task,file)).collect::<Result<Vec<_>,_>>()?,
+        nodes: file.nodes().into_iter().map(task_from_filter).collect::<Result<Vec<_>,_>>()?,
         editable_node_paths: file.editable_node_paths(),
         insertion_positions:file.insertion_positions(),
     })
@@ -740,10 +742,10 @@ mod tests {
         ] {
             let mut repo = OrgRepo::new("/unused/supported-tags".into()).unwrap();
             repo.id = "repo".into();
-            repo.files.push(org_tasks_core::OrgFile::new(repo.id.clone(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap());
+            { let value = org_tasks_core::OrgFile::new(repo.id.clone(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap(); test_support::push_file(&mut repo, value); };
             let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-            let task = workspace.query(&org_tasks_core::TaskQuery::default()).unwrap().tasks.remove(0);
-            let projection = serde_json::to_value(task_from_filter(task, &workspace).unwrap()).unwrap();
+            let task = runtime().unwrap().block_on(workspace.query(&org_tasks_core::TaskQuery::default())).unwrap().tasks.remove(0);
+            let projection = serde_json::to_value(task_from_filter(task).unwrap()).unwrap();
             assert_eq!(projection["supportTags"], expected);
         }
     }
@@ -799,6 +801,7 @@ mod tests {
         }
         conflict.finish(OrgRepoSyncResult::Failed, 11).unwrap();
         let original = serde_json::to_vec(&conflict).unwrap();
+        std::fs::create_dir_all(root.join(".sync/history")).unwrap();
         std::fs::write(root.join(".sync/history/10.json"), &original).unwrap();
         let mut resolved = OrgRepoSyncRecord::<WebDavSyncContextDetail, WebDavSyncFileDetail>::new(
             "resolved".into(),
@@ -1037,7 +1040,7 @@ mod tests {
         assert_eq!(after["tasks"][0]["body"], "新正文\n");
         assert_eq!(before["tasks"][2]["todoKind"], "pending");
         let session = workspace_for_handle(handle).unwrap();
-        let core_tasks = session.lock().unwrap().query(&org_tasks_core::TaskQuery::default()).unwrap().tasks;
+        let core_tasks = runtime().unwrap().block_on(session.lock().unwrap().query(&org_tasks_core::TaskQuery::default())).unwrap().tasks;
         assert_eq!(after["tasks"][0]["id"], core_tasks[0].id());
         assert!(serde_json::from_str::<serde_json::Value>(core_tasks[0].id())
             .unwrap()
@@ -1065,9 +1068,9 @@ mod tests {
         let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, query.to_string()).unwrap()).unwrap();
         // 固定样例只在其创建日期落入最近三个自然日时匹配。
         let projection = workspace_for_handle(handle).unwrap();
-        let expected = projection.lock().unwrap().query(&org_tasks_core::TaskQuery {
+        let expected = runtime().unwrap().block_on(projection.lock().unwrap().query(&org_tasks_core::TaskQuery {
             expression: "cr.ge.-2d cr.le.today .o.created".into(), ..Default::default()
-        }).unwrap().tasks.len();
+        })).unwrap().tasks.len();
         assert_eq!(result["tasks"].as_array().unwrap().len(), expected);
         let excluded = serde_json::json!({ "excludedFiles": [{ "repoId":tasks[0]["repoId"], "path":"tasks.org" }] });
         let result: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, excluded.to_string()).unwrap()).unwrap();
@@ -1335,7 +1338,7 @@ pub fn repo_file_json(
         .repo_mut_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
     runtime()?.block_on(repo.load::<WebDavSyncPolicy>())?;
-    encode(&file_snapshot(&repo.file(&path)?)?)
+    encode(&file_snapshot(&runtime()?.block_on(repo.file(&path))?)?)
 }
 
 #[cfg(test)]
@@ -1400,17 +1403,15 @@ mod todo_tests {
     fn task_list_display_hints_are_serialized_without_parsing_in_host() {
         let mut repo = OrgRepo::new("/tmp/harmony-display-hints".into()).unwrap();
         repo.id = "display".into();
-        repo.files.push(
-            org_tasks_core::OrgFile::new(
+        { let value = org_tasks_core::OrgFile::new(
                 repo.id.clone(),
                 "tasks.org".into(),
                 b"#+CATEGORY: Work\n* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n"
                     .to_vec(),
             )
-            .unwrap(),
-        );
+            .unwrap(); test_support::push_file(&mut repo, value); };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let task = task_from_filter(workspace.query(&org_tasks_core::TaskQuery::default()).unwrap().tasks.remove(0), &workspace).unwrap();
+        let task = task_from_filter(runtime().unwrap().block_on(workspace.query(&org_tasks_core::TaskQuery::default())).unwrap().tasks.remove(0)).unwrap();
         let value = serde_json::to_value(task).unwrap();
         assert_eq!(value["heading"], "Task [1/2]");
         assert_eq!(value["headingParts"][1]["count"]["completed"], 1);
@@ -1436,7 +1437,7 @@ pub fn workspace_refile_targets_json(handle: u64, query_json: String) -> Result<
     let mut workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let runtime = runtime()?;
     for repo in &mut workspace.repos { runtime.block_on(repo.load::<WebDavSyncPolicy>())?; }
-    encode(&workspace.query_refile_targets(&query)?)
+    encode(&runtime.block_on(workspace.query_refile_targets(&query))?)
 }
 
 pub fn workspace_execute_task_operations(handle:u64, request:String)->Result<String,CoreError>{
@@ -1669,5 +1670,113 @@ mod preview_tests {
         release_preview(handle,preview["id"].as_str().unwrap());
         assert!(matches!(workspace_preview_operation(handle,serde_json::json!({"operation":"file","previewId":preview["id"]}).to_string()),Err(CoreError::Preview{code:"previewExpired",..})));
         release_workspace(handle);std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod sync_concurrency_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    #[test]
+    fn network_sync_does_not_block_other_workspace_requests_or_restore_old_file_snapshots() {
+        let root = std::env::temp_dir().join(format!("org-harmony-concurrent-{}",
+            org_tasks_core::model::LocalFileVersion::from_bytes(format!("{:?}", std::time::SystemTime::now()).as_bytes()).content_hash));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("a.org"), b"* TODO Original\n").unwrap();
+        let directory = root.to_string_lossy().into_owned();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        repo_load(handle, directory.clone()).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/org/", listener.local_addr().unwrap());
+        let (entered, entering) = std::sync::mpsc::channel();
+        let (resume, resuming) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 8192];
+                let end = loop {
+                    let n = socket.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(offset) = request.windows(4).position(|s| s == b"\r\n\r\n") { break offset + 4; }
+                };
+                let header = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let length: usize = header.lines().find_map(|line| line.strip_prefix("content-length:")
+                    .and_then(|value| value.trim().parse().ok())).unwrap_or(0);
+                while request.len() < end + length {
+                    let n = socket.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                if index == 0 {
+                    assert!(header.starts_with("propfind "));
+                    entered.send(()).unwrap();
+                    resuming.recv_timeout(Duration::from_secs(5)).unwrap();
+                    let body = "<d:multistatus xmlns:d=\"DAV:\"></d:multistatus>";
+                    write!(socket, "HTTP/1.1 207 Multi-Status\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                } else {
+                    assert!(header.starts_with("put "));
+                    socket.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nETag: \"uploaded\"\r\nConnection: close\r\n\r\n").unwrap();
+                }
+            }
+        });
+        let sync_directory = directory.clone();
+        let syncing = std::thread::spawn(move || repo_sync_json(handle, sync_directory,
+            endpoint, "user".into(), "secret".into(), String::new(), 0, 1));
+        entering.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::fs::write(root.join("a.org"), b"* TODO Edited during network\n").unwrap();
+        let (read, reading) = std::sync::mpsc::channel();
+        let read_directory = directory.clone();
+        let reader = std::thread::spawn(move || { read.send(repo_snapshot_json(handle, read_directory)).unwrap(); });
+        let snapshot = reading.recv_timeout(Duration::from_secs(2));
+        resume.send(()).unwrap();
+        let snapshot = snapshot.expect("网络同步不能占住整个 workspace mutex").unwrap();
+        assert!(snapshot.contains("Edited during network"));
+        reader.join().unwrap();
+        let result = syncing.join().unwrap().unwrap();
+        assert!(result.contains("succeeded"), "{result}");
+        server.join().unwrap();
+        assert!(repo_snapshot_json(handle, directory).unwrap().contains("Edited during network"));
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+mod test_support {
+    use org_tasks_core as core_types;
+    include!("../../core/tests/support/disk.rs");
+}
+
+#[cfg(test)]
+mod load_files_tests {
+    use super::*;
+    #[test]
+    fn relative_ignored_files_cross_bridge_without_repository_snapshot_storage() {
+        let root = std::env::temp_dir().join(format!("org-bridge-load-files-{}",
+            org_tasks_core::LocalFileVersion::from_bytes(format!("{:?}", std::time::SystemTime::now()).as_bytes()).content_hash));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("good.org"), b"* TODO Good\n").unwrap();
+        std::fs::write(root.join("ignored.org"), [0xff]).unwrap();
+        let directory = root.to_string_lossy().into_owned();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        repo_load(handle, directory.clone()).unwrap();
+        let first: serde_json::Value = serde_json::from_str(&repo_load_files_json(handle, directory.clone(), "[\"ignored.org\"]".into()).unwrap()).unwrap();
+        assert_eq!(first["files"].as_array().unwrap().len(), 1);
+        assert_eq!(first["files"][0]["source"], "* TODO Good\n");
+        std::fs::write(root.join("good.org"), b"* TODO New\n").unwrap();
+        let second = repo_load_files_json(handle, directory.clone(), "[\"ignored.org\"]".into()).unwrap();
+        assert!(second.contains("TODO New"));
+        assert_eq!(first["files"][0]["source"], "* TODO Good\n");
+        assert!(repo_load_files_json(handle, directory, "[\"../outside.org\"]".into()).is_err());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

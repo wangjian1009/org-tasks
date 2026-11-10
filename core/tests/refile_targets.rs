@@ -1,3 +1,4 @@
+mod support;
 use org_tasks_core::{
     OrgFile, OrgFileEdit, OrgFileRef, OrgRepo, OrgWorkspace, SourcePosition, TaskQuery,
     TaskScanRules, apply_edit, serialize_file,
@@ -6,17 +7,17 @@ use org_tasks_core::{
 fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
     let mut repo = OrgRepo::new(format!("/unused/{id}")).unwrap();
     repo.id = id.into();
-    repo.files = files
+    { let value = files
         .iter()
         .map(|(path, source)| {
             OrgFile::new(id.into(), (*path).into(), source.as_bytes().to_vec()).unwrap()
         })
-        .collect();
+        .collect(); support::write_files(&mut repo, value); }
     repo
 }
 
-#[test]
-fn targets_use_explicit_tags_and_full_outline_including_plain_and_done_headings() {
+#[tokio::test]
+async fn targets_use_explicit_tags_and_full_outline_including_plain_and_done_headings() {
     let source = "#+FILETAGS: :REFILE:\r\n\
 #+begin_src org\r\n,* 源码中的假目标 :REFILE:\r\n#+end_src\r\n\
 #+begin_example\r\n,* 示例中的假目标 :REFILE:\r\n#+end_example\r\n\
@@ -29,14 +30,14 @@ fn targets_use_explicit_tags_and_full_outline_including_plain_and_done_headings(
 *** 子项 :PREFILE:\r\n\
 * 无状态 :REFILE:\r\n";
     let repository = repo("work", &[("nested/tasks.org", source)]);
-    let targets = repository.refile_targets();
+    let targets = repository.refile_targets().await.unwrap();
     assert_eq!(targets.len(), 3);
     assert_eq!(targets[0].heading_path, ["项目", "方向", "归档"]);
     assert_eq!(targets[1].heading_path, ["项目", "方向", "旁支"]);
     assert_eq!(targets[2].heading_path, ["无状态"]);
     assert_eq!(
         targets[0].display_path(),
-        "work / nested/tasks.org / 项目 / 方向 / 归档"
+        format!("{} / nested/tasks.org / 项目 / 方向 / 归档", support::id("work"))
     );
     let offset = source.find("**** DONE").unwrap();
     assert_eq!(targets[0].position.byte_offset, offset as u64);
@@ -49,11 +50,11 @@ fn targets_use_explicit_tags_and_full_outline_including_plain_and_done_headings(
             .count() as u32
             + 1
     );
-    assert_eq!(serialize_file(&repository.files[0]), source.as_bytes());
+    assert_eq!(serialize_file(&repository.load_files(&[]).await.unwrap()[0]), source.as_bytes());
 }
 
-#[test]
-fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
+#[tokio::test]
+async fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
     let source = "* 标题 / 分段\n** 相同 :REFILE:\n** 相同 :REFILE:\n";
     let mut second = repo(
         "b",
@@ -64,7 +65,7 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
         ],
     );
     // 显式目标属于完整文件访问，不受任务扫描范围限制。
-    second.task_scan_rules = TaskScanRules::parse("a.org\n").unwrap();
+    { let value = TaskScanRules::parse("a.org\n").unwrap(); support::set_rules(&mut second, value); }
     let workspace = OrgWorkspace::new(vec![
         second,
         repo(
@@ -73,17 +74,19 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
         ),
     ])
     .unwrap();
-    let targets = workspace.refile_targets();
+    let targets = workspace.refile_targets().await.unwrap();
+    let a_id = support::id("a");
+    let b_id = support::id("b");
     assert_eq!(
         targets
             .iter()
             .map(|target| (target.repo_id.as_str(), target.path.as_str()))
             .collect::<Vec<_>>(),
         [
-            ("a", "a.org"),
-            ("b", "a.org"),
-            ("b", "a.org"),
-            ("b", "z.org")
+            (a_id.as_str(), "a.org"),
+            (b_id.as_str(), "a.org"),
+            (b_id.as_str(), "a.org"),
+            (b_id.as_str(), "z.org")
         ]
     );
     assert_eq!(targets[0].heading_path, ["[[https://example.org][名称]]"]);
@@ -91,17 +94,17 @@ fn workspace_targets_keep_repository_file_segment_and_duplicate_identity() {
     assert_eq!(targets[1].heading_path, targets[2].heading_path);
     assert_ne!(targets[1].position, targets[2].position);
     let json = serde_json::to_value(&targets[1]).unwrap();
-    assert_eq!(json["repoId"], "b");
+    assert_eq!(json["repoId"], support::id("b"));
     assert_eq!(json["path"], "a.org");
     assert_eq!(
         json["headingPath"],
         serde_json::json!(["标题 / 分段", "相同"])
     );
-    assert_eq!(OrgWorkspace::new(vec![]).unwrap().refile_targets(), []);
+    assert_eq!(OrgWorkspace::new(vec![]).unwrap().refile_targets().await.unwrap(), []);
 }
 
-#[test]
-fn queries_exclude_conflicts_before_matching_other_system_tags() {
+#[tokio::test]
+async fn queries_exclude_conflicts_before_matching_other_system_tags() {
     let source = "* Parent :REFILE:ARCHIVE:CONFLICT:work:REFILE:\n\
 ** TODO Child :REFILE:CONFLICT:home:refile:\n\
 *** TODO Grandchild :next:\n\
@@ -122,23 +125,23 @@ fn queries_exclude_conflicts_before_matching_other_system_tags() {
             .query(&TaskQuery {
                 expression: expression.into(),
                 ..Default::default()
-            })
+            }).await
             .unwrap();
         assert_eq!(result.tasks.len(), expected, "{expression}");
         assert!(result.tasks.iter().all(|task| task.title() == "Other"));
     }
-    let tasks = workspace.query(&TaskQuery::default()).unwrap().tasks;
+    let tasks = workspace.query(&TaskQuery::default()).await.unwrap().tasks;
     assert_eq!(tasks[0].own_tags(), ["refile"]);
     assert!(tasks[0].inherited_tags().is_empty());
-    assert_eq!(workspace.refile_targets().len(), 1);
+    assert_eq!(workspace.refile_targets().await.unwrap().len(), 1);
     assert_eq!(
-        serialize_file(&workspace.repos[0].files[0]),
+        serialize_file(&workspace.repos[0].load_files(&[]).await.unwrap()[0]),
         source.as_bytes()
     );
 }
 
-#[test]
-fn structured_query_flags_and_categories_still_apply_before_returning_tags() {
+#[tokio::test]
+async fn structured_query_flags_and_categories_still_apply_before_returning_tags() {
     let source = "#+CATEGORY: Work\n* DONE Parent :REFILE:work:\n** TODO Child :home:\n";
     let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
     let query = TaskQuery {
@@ -148,41 +151,43 @@ fn structured_query_flags_and_categories_still_apply_before_returning_tags() {
         include_compose_tasks: false,
         ..Default::default()
     };
-    let result = workspace.query(&query).unwrap();
+    let result = workspace.query(&query).await.unwrap();
     assert_eq!(result.tasks.len(), 1);
     assert_eq!(result.tasks[0].title(), "Child");
     assert_eq!(result.tasks[0].own_tags(), ["home"]);
     assert_eq!(result.tasks[0].inherited_tags(), ["work"]);
     assert_eq!(result.categories[0].count, 1);
-    assert_eq!(workspace.refile_targets()[0].heading_path, ["Parent"]);
+    assert_eq!(workspace.refile_targets().await.unwrap()[0].heading_path, ["Parent"]);
     assert!(
         workspace
             .query(&TaskQuery {
                 excluded_files: vec![OrgFileRef {
-                    repo_id: "r".into(),
+                    repo_id: support::id("r"),
                     path: "tasks.org".into()
                 }],
                 ..query
-            })
+            }).await
             .unwrap()
             .tasks
             .is_empty()
     );
 }
 
-#[test]
-fn targets_read_the_current_tree_after_edits_without_reusing_stale_positions() {
+#[tokio::test]
+async fn targets_read_the_current_tree_after_edits_without_reusing_stale_positions() {
     let mut repository = repo("r", &[("tasks.org", "* 原目标 :REFILE:\n")]);
-    let old = repository.refile_targets();
+    let old = repository.refile_targets().await.unwrap();
+    let mut file = repository.file("tasks.org").await.unwrap();
     apply_edit(
-        &mut repository.files[0],
+        &mut file,
         OrgFileEdit::InsertAt {
             anchor: SourcePosition::new(1, 0, 0).unwrap(),
             content: "* 新目标 :REFILE:\n".as_bytes().to_vec(),
         },
     )
     .unwrap();
-    let current = repository.refile_targets();
+    support::push_file(&mut repository, file);
+    let current = repository.refile_targets().await.unwrap();
     assert_eq!(current.len(), 2);
     assert_eq!(current[0].heading_path, ["新目标"]);
     assert_eq!(current[1].heading_path, ["原目标"]);
@@ -191,8 +196,8 @@ fn targets_read_the_current_tree_after_edits_without_reusing_stale_positions() {
     assert_eq!(old[0].position.line, 1);
 }
 
-#[test]
-fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files() {
+#[tokio::test]
+async fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files() {
     use org_tasks_core::RefileTargetQuery;
     let source = "#+CATEGORY: Hidden\n* First :REFILE:\n* Second :REFILE:\n";
     let w = OrgWorkspace::new(vec![
@@ -214,16 +219,16 @@ fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files()
         files: vec![],
         excluded_files: vec![
             OrgFileRef {
-                repo_id: "a".into(),
+                repo_id: support::id("a"),
                 path: "inbox.org".into(),
             },
             OrgFileRef {
-                repo_id: "a".into(),
+                repo_id: support::id("a"),
                 path: "someday.org".into(),
             },
         ],
     };
-    let targets = w.query_refile_targets(&query).unwrap();
+    let targets = w.query_refile_targets(&query).await.unwrap();
     assert_eq!(
         targets
             .iter()
@@ -234,11 +239,11 @@ fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files()
     let shortcut = w
         .query_refile_targets(&RefileTargetQuery {
             files: vec![OrgFileRef {
-                repo_id: "a".into(),
+                repo_id: support::id("a"),
                 path: "someday.org".into(),
             }],
             ..Default::default()
-        })
+        }).await
         .unwrap();
     assert_eq!(shortcut.len(), 2);
     assert_eq!(shortcut[0].heading_path, ["First"]);
@@ -246,11 +251,11 @@ fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files()
     assert!(
         w.query_refile_targets(&RefileTargetQuery {
             excluded_files: vec![OrgFileRef {
-                repo_id: "a".into(),
+                repo_id: support::id("a"),
                 path: "../escape.org".into()
             }],
             ..Default::default()
-        })
+        }).await
         .is_err()
     );
 }

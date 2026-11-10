@@ -22,6 +22,11 @@ impl OrgWorkspace {
     pub async fn task_merge_operations(&self, request: &TaskMergeRequest) -> Result<TaskMergePlan, CoreError> {
         let first = request.paths.first().ok_or(CoreError::InvalidInput("请至少选择两条记录"))?;
         let file = first.file.clone().ok_or(CoreError::InvalidInput("合并必须指定文件"))?;
+        if request.paths.iter().any(|path| path.repo_id != first.repo_id || path.file != first.file) {
+            return Err(CoreError::InvalidInput("合并记录必须位于同一文件"));
+        }
+        let repo = self.repo(&first.repo_id).ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
+        let _guard = super::access::enter(Path::new(&repo.root_directory), &repo.id).await?;
         let loading = TaskOperationGroup {
             operations: request.paths.iter().map(|path| TaskOperation::Deletion(TaskDeletion { path: path.clone() })).collect(),
             file_versions: vec![TaskFileVersion { repo_id: first.repo_id.clone(), file, version: request.file_version.clone() }],
@@ -42,6 +47,14 @@ impl OrgWorkspace {
         if group.operations.is_empty() {
             return Err(CoreError::InvalidInput("操作组不能为空"));
         }
+        let source_group = group;
+        let mut resolved_group = group.clone();
+        for operation in &mut resolved_group.operations {
+            if let TaskOperation::ConfilictSelection(selection) = operation {
+                if selection.path.is_none() { selection.path = Some(selection_path(self, selection).await?); }
+            }
+        }
+        let group = &resolved_group;
         for id in &group.queue_repo_ids {
             if self.repo(id).is_none() {
                 return Err(CoreError::InvalidInput("上传意图仓库不属于 workspace"));
@@ -51,7 +64,7 @@ impl OrgWorkspace {
         for operation in &group.operations {
             match operation {
                 TaskOperation::ConfilictSelection(data) => {
-                    touched.insert(selection_path(self, data)?.repo_id);
+                    touched.insert(selection_path(self, data).await?.repo_id);
                 }
                 TaskOperation::Creation(data) => {
                     touched.insert(data.position.parent.repo_id.clone());
@@ -75,25 +88,27 @@ impl OrgWorkspace {
             }
         }
         touched.extend(group.file_versions.iter().map(|v| v.repo_id.clone()));
-        let mut roots = Vec::new();
+        let mut roots = BTreeMap::new();
         for id in touched {
             let repo = self
                 .repo(&id)
                 .ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
-            roots.push(
-                tokio::fs::canonicalize(&repo.root_directory)
+            let root = tokio::fs::canonicalize(&repo.root_directory)
                     .await
                     .map_err(|_| CoreError::Store("操作仓库目录不可读取".into()))?
                     .to_string_lossy()
-                    .into_owned(),
-            );
+                    .into_owned();
+            if roots.insert(root, repo.id.clone()).is_some_and(|previous| previous != repo.id) {
+                return Err(CoreError::InvalidInput("同一磁盘目录不能具有不同仓库身份"));
+            }
         }
-        roots.sort();
-        roots.dedup();
         let mut guards = Vec::new();
-        for root in &roots {
-            guards.push(crate::webdav::transaction::lock(Path::new(root)).await?);
-            crate::webdav::transaction::recover(Path::new(root)).await?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        for root in roots.keys() {
+            guards.push(crate::webdav::transaction::lock_before(Path::new(root), deadline).await?);
+        }
+        for (root, id) in &roots {
+            super::access::recover(Path::new(root), id).await?;
         }
         let mut files = load_files(self, group).await?;
         for operation in &group.operations {
@@ -116,18 +131,10 @@ impl OrgWorkspace {
                 .collect(),
         };
         commit(self, group, &files).await?;
-        for ((id, path), item) in files {
-            let repo = self.repo_mut(&id).expect("已验证仓库");
-            if let Some(previous) = repo.files.iter_mut().find(|file| file.path == path) {
-                *previous = item.file;
-            } else {
-                repo.files.push(item.file);
-            }
-        }
         self.task_operation_history
             .entries
             .push(TaskOperationRecord {
-                operation_group: group.clone(),
+                operation_group: source_group.clone(),
                 fallback_group: fallback.clone(),
             });
         let updated_repositories = fallback
@@ -143,20 +150,19 @@ impl OrgWorkspace {
     }
 }
 
-fn selection_path(workspace: &OrgWorkspace, data: &TaskConfilictSelection) -> Result<TaskPath, CoreError> {
+async fn selection_path(workspace: &OrgWorkspace, data: &TaskConfilictSelection) -> Result<TaskPath, CoreError> {
     if let Some(path) = &data.path {
         path.validate()?;
         if !path.titles.is_empty() || path.file.is_none() { return Err(CoreError::InvalidInput("冲突选择必须指定文件根路径")); }
         return Ok(path.clone());
     }
     let id = &data.id;
-    let paths = workspace
-        .repos()
-        .iter()
-        .flat_map(|repo| repo.files())
-        .filter(|file| file.conflict_ids().iter().any(|value| value == id))
-        .map(|file| file.full_path())
-        .collect::<Vec<_>>();
+    let mut paths = Vec::new();
+    for repo in workspace.repos() {
+        for file in repo.load_files(&[]).await? {
+            if file.conflict_ids().iter().any(|value| value == id) { paths.push(file.full_path()); }
+        }
+    }
     if paths.len() != 1 {
         return Err(CoreError::InvalidInput("冲突点不存在或 ID 重复，请刷新"));
     }
@@ -181,7 +187,7 @@ async fn load_files(
     for operation in &group.operations {
         let (source, position) = match operation {
             TaskOperation::ConfilictSelection(data) => {
-                keys.insert(key(&selection_path(workspace, data)?)?);
+                keys.insert(key(&selection_path(workspace, data).await?)?);
                 (None, None)
             }
             TaskOperation::Creation(data) => (None, Some(&data.position)),
@@ -220,7 +226,9 @@ async fn load_files(
             return Err(CoreError::InvalidInput("仓库文件路径不能互相重叠"));
         }
         let original = read_optional(&disk).await?;
-        let file = repo.parse_file(path.clone(), original.clone().unwrap_or_default())?;
+        let source = original.clone().unwrap_or_default();
+        let setup = super::service::load_setup_settings(Path::new(&repo.root_directory), &path, &source).await?;
+        let file = repo.parse_file_with_setup(path.clone(), source, setup)?;
         files.insert(
             (repo_id, path),
             WorkingFile {

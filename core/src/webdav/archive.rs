@@ -108,8 +108,7 @@ async fn optional_bytes(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
 
 impl OrgRepo {
     pub async fn webdav_history(&self) -> Result<Vec<Record>, CoreError> {
-        let _guard = super::transaction::lock(Path::new(&self.root_directory)).await?;
-        super::transaction::recover(Path::new(&self.root_directory)).await?;
+        let _guard = crate::model::access::enter(Path::new(&self.root_directory), &self.id).await?;
         self.sync_history::<WebDavSyncPolicy>().await
     }
 
@@ -117,8 +116,7 @@ impl OrgRepo {
         if self.id.is_empty() {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
-        let _guard = super::transaction::lock(Path::new(&self.root_directory)).await?;
-        super::transaction::recover(Path::new(&self.root_directory)).await?;
+        let _guard = crate::model::access::enter(Path::new(&self.root_directory), &self.id).await?;
         let history = self.sync_history::<WebDavSyncPolicy>().await?;
         let Some(record) = history
             .into_iter()
@@ -132,7 +130,7 @@ impl OrgRepo {
 
     pub async fn pending_sync_conflicts(&self) -> Result<Vec<WebDavConflictSync>, CoreError> {
         Ok(self
-            .files()
+            .load_files(&[]).await?
             .iter()
             .filter(|file| file.has_conflict())
             .map(|file| WebDavConflictSync {

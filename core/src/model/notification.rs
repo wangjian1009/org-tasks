@@ -39,7 +39,7 @@ impl OrgRepo {
             return Err(CoreError::InvalidState("仓库尚未加载"));
         }
         Ok(self
-            .files()
+            .load_files(&[]).await?
             .iter()
             .filter(|file| file.has_conflict())
             .map(|file| {

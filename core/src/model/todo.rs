@@ -434,23 +434,23 @@ mod tests {
         assert!(TodoConfig::from_settings("").unwrap().workflows.is_empty());
     }
 
-    #[test]
-    fn declaration_after_headlines_applies_to_entire_file_and_done_filter_uses_it() {
+    #[tokio::test]
+    async fn declaration_after_headlines_applies_to_entire_file_and_done_filter_uses_it() {
         let f = file(
             "* OPEN Before\n#+TODO: OPEN | FINISHED CANCELED\n* FINISHED End\n* TODO Plain\n* CANCELED Cancelled\n",
         );
         let mut repo = OrgRepo::new("/tmp/todo".into()).unwrap();
         repo.id = "repo".into();
-        repo.files = vec![f];
+        { let value = vec![f]; crate::model::test_support::write_files(&mut repo, value); }
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let done = workspace.query(&crate::TaskQuery { expression: "it.done".into(), ..Default::default() }).unwrap().tasks;
+        let done = workspace.query(&crate::TaskQuery { expression: "it.done".into(), ..Default::default() }).await.unwrap().tasks;
         assert_eq!(
             done.iter()
                 .map(|task| task.state.as_deref().unwrap())
                 .collect::<Vec<_>>(),
             ["FINISHED", "CANCELED"]
         );
-        let pending = workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).unwrap().tasks;
+        let pending = workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).await.unwrap().tasks;
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].title, "Before");
     }
@@ -485,8 +485,8 @@ mod tests {
         );
         assert_eq!(f, before);
     }
-    #[test]
-    fn matches_emacs_org_element_oracle() {
+    #[tokio::test]
+    async fn matches_emacs_org_element_oracle() {
         let cases: Vec<serde_json::Value> =
             serde_json::from_str(include_str!("../../tests/data/todo_emacs.json")).unwrap();
         for case in cases {
@@ -526,10 +526,11 @@ mod tests {
             );
             let mut repo = OrgRepo::new("/tmp/oracle".into()).unwrap();
             repo.id = "repo".into();
-            repo.files.push(file.clone());
+            repo.todo_defaults = file.todo_defaults.clone();
+            { let value = file.clone(); crate::model::test_support::push_file(&mut repo, value); };
             let actual = OrgWorkspace::new(vec![repo])
                 .unwrap()
-                .query(&crate::TaskQuery::default()).unwrap().tasks;
+                .query(&crate::TaskQuery::default()).await.unwrap().tasks;
             let headlines = actual.iter().map(|task| serde_json::json!({ "title": task.title, "state": task.state,
                 "kind": match task.state_type { crate::FilterStateType::Todo => Some("pending"), crate::FilterStateType::Done => Some("done"), _ => None },
             })).collect::<Vec<_>>();

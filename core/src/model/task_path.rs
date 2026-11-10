@@ -69,11 +69,9 @@ impl TaskPath {
 
 impl OrgRepo {
     /// 所有标题节点的投影，不应用任务扫描忽略或查询筛选。
-    pub fn nodes(&self) -> Vec<crate::FilterTask> {
-        self.files()
-            .iter()
-            .flat_map(|file| crate::filter::tasks_from_file(self, file))
-            .collect()
+    pub async fn nodes(&self) -> Result<Vec<crate::FilterTask>, CoreError> {
+        Ok(self.load_files(&[]).await?.iter()
+            .flat_map(|file| crate::filter::tasks_from_file(self, file)).collect())
     }
     pub fn full_path(&self) -> TaskPath {
         TaskPath::repository(self.id.clone())

@@ -9,7 +9,7 @@ pub(crate) async fn append_fixture(
     let mut workspace = OrgWorkspace::new(vec![repo.clone()])?;
     let parent = TaskPath::file(repo.id.clone(), path.into());
     let after = repo
-        .files()
+        .load_files(&[]).await?
         .iter()
         .find(|file| file.path == path)
         .and_then(|file| {
@@ -30,3 +30,6 @@ pub(crate) async fn append_fixture(
     *repo = workspace.repos.remove(0);
     Ok(())
 }
+
+use crate as core_types;
+include!("../../tests/support/disk.rs");

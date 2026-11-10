@@ -59,29 +59,24 @@ fn normalized_category(category: Option<String>) -> Option<String> {
 
 impl OrgWorkspace {
     /// UI 组装通用查询；任务过滤、文件关联及组合任务判断统一在 core 中执行。
-    pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError> {
+    pub async fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError> {
         for source in &query.excluded_files {
             super::validate_relative_path(&source.path)?;
             if source.repo_id.is_empty() {
                 return Err(CoreError::InvalidInput("排除文件的仓库 ID 不能为空"));
             }
         }
-        let file_categories = self
-            .repos()
-            .iter()
-            .flat_map(|repo| repo.files().iter())
-            .map(|file| {
-                (
-                    (file.repo_id.clone(), file.path.clone()),
-                    normalized_category(file.category()),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut all = self
-            .repos()
-            .iter()
-            .flat_map(crate::filter::tasks_from_repo)
-            .collect::<Vec<_>>();
+        let mut file_categories = BTreeMap::new();
+        let mut all = Vec::new();
+        for repo in self.repos() {
+            let ignore_files = query.excluded_files.iter().filter(|source| source.repo_id == repo.id)
+                .map(|source| source.path.clone()).collect::<Vec<_>>();
+            let files = repo.load_files(&ignore_files).await?;
+            for file in files.iter().filter(|file| !file.scan_ignored) {
+                file_categories.insert((file.repo_id.clone(), file.path.clone()), normalized_category(file.category()));
+                all.extend(crate::filter::tasks_from_file(repo, file));
+            }
+        }
         // 必须在表达式过滤前判断，子任务未命中查询不代表父任务失去子任务。
         let parents = all
             .windows(2)
@@ -102,10 +97,6 @@ impl OrgWorkspace {
         Filter::parse(&query.expression).filter_tasks(&mut all);
         all.retain(|task| {
             (query.include_done || !task.is_done())
-                && !query
-                    .excluded_files
-                    .iter()
-                    .any(|source| source.repo_id == task.repo_id() && source.path == task.path())
                 && (query.include_compose_tasks
                     || !parents.contains(&(
                         task.repo_id().to_owned(),
@@ -212,14 +203,14 @@ mod tests {
                 .map(|id| {
                     let mut repo = OrgRepo::new(format!("/tmp/{id}")).unwrap();
                     repo.id = id.into();
-                    repo.files = sources
+                    { let value = sources
                         .iter()
                         .filter(|(repo_id, _, _)| *repo_id == id)
                         .map(|(_, path, source)| {
                             OrgFile::new(id.into(), (*path).into(), source.as_bytes().to_vec())
                                 .unwrap()
                         })
-                        .collect();
+                        .collect(); crate::model::test_support::write_files(&mut repo, value); }
                     repo
                 })
                 .collect(),
@@ -231,11 +222,11 @@ mod tests {
         TaskQuery {
             excluded_files: vec![
                 OrgFileRef {
-                    repo_id: "r1".into(),
+                    repo_id: crate::model::test_support::id("r1"),
                     path: "capture.org".into(),
                 },
                 OrgFileRef {
-                    repo_id: "r2".into(),
+                    repo_id: crate::model::test_support::id("r2"),
                     path: "capture.org".into(),
                 },
             ],
@@ -244,12 +235,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn generic_defaults_include_all_records_and_flags_filter_in_core() {
+    #[tokio::test]
+    async fn generic_defaults_include_all_records_and_flags_filter_in_core() {
         let workspace = workspace();
-        let result = workspace.query(&TaskQuery::default()).unwrap();
+        let result = workspace.query(&TaskQuery::default()).await.unwrap();
         assert_eq!(result.tasks.len(), 12);
-        let result = workspace.query(&category_query()).unwrap();
+        let result = workspace.query(&category_query()).await.unwrap();
         assert_eq!(result.tasks.len(), 6);
         assert!(
             result
@@ -279,12 +270,12 @@ mod tests {
                 categories: vec![category.category],
                 ..category_query()
             };
-            assert_eq!(workspace.query(&query).unwrap().tasks.len(), category.count);
+            assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), category.count);
         }
     }
 
-    #[test]
-    fn categories_are_values_with_union_and_empty_means_no_category_filter() {
+    #[tokio::test]
+    async fn categories_are_values_with_union_and_empty_means_no_category_filter() {
         let workspace = workspace();
         let query = TaskQuery {
             categories: vec![
@@ -294,52 +285,51 @@ mod tests {
             ],
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).unwrap().tasks.len(), 4);
+        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 4);
         let query = TaskQuery {
             categories: vec![None],
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 1);
         let query = TaskQuery {
             categories: vec![Some("未分类".into())],
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 1);
         let query = TaskQuery {
             categories: vec![Some("gone".into())],
             ..category_query()
         };
-        assert!(workspace.query(&query).unwrap().tasks.is_empty());
-        assert_eq!(workspace.query(&category_query()).unwrap().tasks.len(), 6);
+        assert!(workspace.query(&query).await.unwrap().tasks.is_empty());
+        assert_eq!(workspace.query(&category_query()).await.unwrap().tasks.len(), 6);
     }
 
-    #[test]
-    fn archive_file_category_is_hidden_from_task_projection_and_summary() {
+    #[tokio::test]
+    async fn archive_file_category_is_hidden_from_task_projection_and_summary() {
         let mut repo = OrgRepo::new("/tmp/archive-category".into()).unwrap();
         repo.id = "archive".into();
-        repo.files.push(
+        { let value =
             OrgFile::new(
                 repo.id.clone(),
                 "archive.org".into(),
                 b"#+CATEGORY: ARCHIVE\n* TODO Archived\n".to_vec(),
             )
-            .unwrap(),
-        );
+            .unwrap(); crate::model::test_support::push_file(&mut repo, value); };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let result = workspace.query(&TaskQuery::default()).unwrap();
+        let result = workspace.query(&TaskQuery::default()).await.unwrap();
         assert_eq!(result.tasks[0].category, None);
         assert_eq!(result.categories.len(), 1);
         assert_eq!(result.categories[0].category, None);
     }
 
-    #[test]
-    fn ui_can_request_inbox_using_expression_and_include_all_record_types() {
+    #[tokio::test]
+    async fn ui_can_request_inbox_using_expression_and_include_all_record_types() {
         let workspace = workspace();
         let query = TaskQuery {
             expression: "b.capture.org".into(),
             ..Default::default()
         };
-        let result = workspace.query(&query).unwrap();
+        let result = workspace.query(&query).await.unwrap();
         assert_eq!(result.tasks.len(), 4);
         assert_eq!(result.tasks.iter().filter(|task| task.is_done()).count(), 2);
         assert!(result.tasks.iter().any(|task| task.state.is_none()));
@@ -348,7 +338,7 @@ mod tests {
                 .query(&TaskQuery {
                     expression: "b.work.org".into(),
                     ..Default::default()
-                })
+                }).await
                 .unwrap()
                 .tasks
                 .len(),
@@ -356,11 +346,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn address_query_uses_real_links_and_combines_state_and_configured_note_file() {
+    #[tokio::test]
+    async fn address_query_uses_real_links_and_combines_state_and_configured_note_file() {
         let mut repo = OrgRepo::new("/tmp/address-query".into()).unwrap();
         repo.id = "repo".into();
-        repo.files = [
+        { let value = [
             ("tasks.org", concat!(
                 "#+TODO: NEXT | FINISHED\n",
                 "* NEXT Coordinates\n[[geo:39.9,116.4][地点]]\n",
@@ -379,14 +369,14 @@ mod tests {
             ("notes.org", "* Note\n[[addr:备忘地点][备忘]]\n* DONE Finished note\n[[geo:1,2]]\n* No address\n正文\n"),
         ].into_iter().map(|(path, source)| {
             OrgFile::new("repo".into(), path.into(), source.as_bytes().to_vec()).unwrap()
-        }).collect();
+        }).collect(); crate::model::test_support::write_files(&mut repo, value); }
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
         let query = TaskQuery {
             expression: "has.address (it.todo or (b.notes.org it.none))".into(),
             include_done: false,
             ..Default::default()
         };
-        let result = workspace.query(&query).unwrap();
+        let result = workspace.query(&query).await.unwrap();
         let titles = result
             .tasks
             .iter()
@@ -418,7 +408,7 @@ mod tests {
             .query(&TaskQuery {
                 expression: ".has.address".into(),
                 ..Default::default()
-            })
+            }).await
             .unwrap();
         assert!(
             without
@@ -429,11 +419,11 @@ mod tests {
         assert!(without.tasks.iter().any(|task| task.title == "Literals"));
     }
 
-    #[test]
-    fn anytime_query_excludes_files_from_task_ignore_rules() {
+    #[tokio::test]
+    async fn anytime_query_excludes_files_from_task_ignore_rules() {
         let mut repository = OrgRepo::new("/tmp/ignored-anytime".into()).unwrap();
         repository.id = "repo".into();
-        repository.files = vec![
+        { let value = vec![
             OrgFile::new(
                 "repo".into(),
                 "visible.org".into(),
@@ -446,8 +436,8 @@ mod tests {
                 b"* TODO Announcement\n".to_vec(),
             )
             .unwrap(),
-        ];
-        repository.task_scan_rules = crate::TaskScanRules::parse("ann.org\n").unwrap();
+        ]; crate::model::test_support::write_files(&mut repository, value); }
+        { let value = crate::TaskScanRules::parse("ann.org\n").unwrap(); crate::model::test_support::set_rules(&mut repository, value); }
         let workspace = OrgWorkspace::new(vec![repository]).unwrap();
         let result = workspace
             .query(&TaskQuery {
@@ -455,46 +445,46 @@ mod tests {
                 include_done: false,
                 include_compose_tasks: true,
                 ..Default::default()
-            })
+            }).await
             .unwrap();
         assert_eq!(result.tasks.len(), 1);
         assert_eq!(result.tasks[0].path(), "visible.org");
     }
 
-    #[test]
-    fn pending_undated_task_query_excludes_notes_done_and_either_planning_field() {
+    #[tokio::test]
+    async fn pending_undated_task_query_excludes_notes_done_and_either_planning_field() {
         let mut workspace = workspace();
-        let repo = &mut workspace.repos[0];
-        repo.files.push(OrgFile::new(repo.id.clone(), "undated.org".into(),
-            "#+CATEGORY: Work\n#+TODO: NEXT | CLOSED\n* NEXT Undated task\n* Plain heading\n* CLOSED Completed task\n* NEXT Scheduled task\nSCHEDULED: <2026-11-09 Mon>\n* NEXT Deadline task\nDEADLINE: <2026-11-10 Tue>\n".as_bytes().to_vec()).unwrap());
+        let mut repo = &mut workspace.repos[0];
+        { let value = OrgFile::new(repo.id.clone(), "undated.org".into(),
+            "#+CATEGORY: Work\n#+TODO: NEXT | CLOSED\n* NEXT Undated task\n* Plain heading\n* CLOSED Completed task\n* NEXT Scheduled task\nSCHEDULED: <2026-11-09 Mon>\n* NEXT Deadline task\nDEADLINE: <2026-11-10 Tue>\n".as_bytes().to_vec()).unwrap(); crate::model::test_support::push_file(&mut repo, value); };
         let result = workspace.query(&TaskQuery {
             expression: "it.todo s.none d.none".into(), include_done: false, include_compose_tasks: true,
             ..Default::default()
-        }).unwrap();
+        }).await.unwrap();
         let titles = result.tasks.iter().filter(|task| task.path() == "undated.org").map(|task| task.title()).collect::<Vec<_>>();
         assert_eq!(titles, ["Undated task"]);
         assert!(result.tasks.iter().all(|task| task.state_type() == crate::FilterStateType::Todo && task.scheduled().is_none() && task.deadline().is_none()));
     }
 
-    #[test]
-    fn compose_tasks_are_detected_before_expression_filter_and_respect_file_boundaries() {
+    #[tokio::test]
+    async fn compose_tasks_are_detected_before_expression_filter_and_respect_file_boundaries() {
         let workspace = workspace();
         let query = TaskQuery {
             include_compose_tasks: false,
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).unwrap().tasks.len(), 5);
+        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 5);
         let query = TaskQuery {
             expression: "\"Parent home\"".into(),
             include_compose_tasks: false,
             ..Default::default()
         };
-        assert!(workspace.query(&query).unwrap().tasks.is_empty());
+        assert!(workspace.query(&query).await.unwrap().tasks.is_empty());
         let query = TaskQuery {
             expression: "\"Parent home\"".into(),
             ..Default::default()
         };
-        assert_eq!(workspace.query(&query).unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 1);
         let repos = [
             ("one", "* TODO Parent\n** DONE Child\n"),
             ("two", "* TODO Peer\n"),
@@ -503,9 +493,8 @@ mod tests {
         .map(|(id, source)| {
             let mut repo = OrgRepo::new(format!("/tmp/{id}")).unwrap();
             repo.id = id.into();
-            repo.files.push(
-                OrgFile::new(id.into(), "same.org".into(), source.as_bytes().to_vec()).unwrap(),
-            );
+            { let value =
+                OrgFile::new(id.into(), "same.org".into(), source.as_bytes().to_vec()).unwrap(); crate::model::test_support::push_file(&mut repo, value); };
             repo
         })
         .collect();
@@ -515,25 +504,25 @@ mod tests {
                 include_done: false,
                 include_compose_tasks: false,
                 ..Default::default()
-            })
+            }).await
             .unwrap();
         assert_eq!(result.tasks.len(), 1);
         assert_eq!(result.tasks[0].title, "Peer");
     }
 
-    #[test]
-    fn unsafe_exclusions_are_rejected_and_json_defaults_are_generic() {
+    #[tokio::test]
+    async fn unsafe_exclusions_are_rejected_and_json_defaults_are_generic() {
         let workspace = workspace();
         for path in ["", "../capture.org", "/capture.org", "a\\capture.org"] {
             assert!(
                 workspace
                     .query(&TaskQuery {
                         excluded_files: vec![OrgFileRef {
-                            repo_id: "r1".into(),
+                            repo_id: crate::model::test_support::id("r1"),
                             path: path.into()
                         }],
                         ..Default::default()
-                    })
+                    }).await
                     .is_err()
             );
         }

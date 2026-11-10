@@ -43,12 +43,6 @@ impl OrgRepo {
         version: &LocalFileVersion,
     ) -> Result<(), CoreError> {
         validate_task_path(path)?;
-        let Some(file) = self.files.iter().find(|file| file.path == path) else {
-            return Ok(());
-        };
-        if LocalFileVersion::from_bytes(file.source_bytes()) != *version {
-            return Ok(());
-        }
         let current = read_optional(&Path::new(&self.root_directory).join(path)).await?;
         if current
             .as_deref()
@@ -170,7 +164,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn corrupt_outbox_fails_load_and_temporary_intents_are_ignored() {
+    async fn identity_load_ignores_outbox_and_explicit_read_reports_corruption() {
         let mut repo = repo().await;
         let root = PathBuf::from(&repo.root_directory);
         fs::create_dir(root.join(".sync/outbox")).await.unwrap();
@@ -181,7 +175,8 @@ mod tests {
         fs::write(root.join(".sync/outbox/invalid.json"), b"{")
             .await
             .unwrap();
-        assert!(repo.load::<WebDavSyncPolicy>().await.is_err());
+        repo.load::<WebDavSyncPolicy>().await.unwrap();
+        assert!(repo.pending_writes().await.is_err());
         fs::remove_dir_all(root).await.unwrap();
     }
 
@@ -217,7 +212,7 @@ mod tests {
                     },
                 )?
                 .with_local_version(Some(LocalFileVersion::from_bytes(
-                    context.repo.files[0].source_bytes(),
+                    context.repo.load_files(&[]).await.unwrap()[0].source_bytes(),
                 ))),
             )?;
             record.finish(

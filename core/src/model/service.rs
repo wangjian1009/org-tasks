@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use orgize::rowan::ast::AstNode;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::fs::{self, OpenOptions};
@@ -447,45 +448,60 @@ impl OrgRepo {
         load_sync_history::<P>(Path::new(&self.root_directory)).await
     }
 
-    /// 初始化仓库标识并扫描本地根目录，生成完整文件快照。
+    /// 只恢复稳定身份；不检查控制标记或加载业务内容。
     pub async fn load<P: SyncPolicy>(
         &mut self,
     ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
         let _guard = crate::webdav::transaction::lock(Path::new(&self.root_directory)).await?;
-        self.load_unlocked::<P>().await
+        self.id = load_or_create_repo_id(Path::new(&self.root_directory)).await?;
+        Ok(Vec::new())
     }
 
-    async fn load_unlocked<P: SyncPolicy>(
-        &mut self,
-    ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
-        self.id = load_or_create_repo_id(Path::new(&self.root_directory)).await?;
-        super::reset::recover(Path::new(&self.root_directory)).await?;
-        crate::webdav::transaction::recover(Path::new(&self.root_directory)).await?;
-        let history = load_sync_history::<P>(Path::new(&self.root_directory)).await?;
-        let task_scan_rules = super::TaskScanRules::load(Path::new(&self.root_directory)).await?;
-        let sources = scan_org_files(Path::new(&self.root_directory)).await?;
+    /// 本次操作独立拥有文件集合；相对路径在读取正文之前排除，不写入仓库缓存。
+    pub async fn load_files(&self, ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError> {
+        validate_ignored_files(ignore_files)?;
+        let _guard = super::access::enter(Path::new(&self.root_directory), &self.id).await?;
+        self.load_files_unlocked(ignore_files).await
+    }
+
+    pub(crate) async fn load_files_unlocked(&self, ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError> {
+        validate_ignored_files(ignore_files)?;
+        let root = Path::new(&self.root_directory);
+        let rules = super::TaskScanRules::load(root).await?;
+        let sources = scan_org_files(root, ignore_files).await?;
         let mut files = Vec::with_capacity(sources.len());
         for source in sources {
-            let setup = load_setup_settings(
-                Path::new(&self.root_directory),
-                &source.path,
-                &source.source_bytes,
-            )
-            .await?;
+            let setup = load_setup_settings(root, &source.path, &source.source_bytes).await?;
             let mut file = self.parse_file_with_setup(source.path, source.source_bytes, setup)?;
             file.modified_at = source.modified_at;
-            if files
-                .iter()
-                .any(|existing: &OrgFile| existing.path == file.path)
-            {
-                return Err(CoreError::InvalidState("扫描结果包含重复文件路径"));
-            }
+            file.scan_ignored = rules.excludes(&file.path);
             files.push(file);
         }
-        self.pending_writes().await?;
-        self.files = files;
-        self.task_scan_rules = task_scan_rules;
-        Ok(history)
+        Ok(files)
+    }
+
+    pub async fn file_metadata(&self) -> Result<Vec<super::OrgFileMetadata>, CoreError> {
+        Ok(self.load_files(&[]).await?.iter().map(|file| file.metadata(file.scan_ignored)).collect())
+    }
+
+    /// 指定文件按需读盘；不存在时返回未落盘的空值对象，供新增读取默认元信息。
+    pub async fn file(&self, path: &str) -> Result<OrgFile, CoreError> {
+        if !self.contains_path(path) || path.split('/').any(|part| part == ".sync") {
+            return Err(CoreError::InvalidInput("Org 文件路径无效"));
+        }
+        let _guard = super::access::enter(Path::new(&self.root_directory), &self.id).await?;
+        self.file_unlocked(path).await
+    }
+
+    pub(crate) async fn file_unlocked(&self, path: &str) -> Result<OrgFile, CoreError> {
+        let root = Path::new(&self.root_directory);
+        let source = crate::webdav::transaction::read(root, path).await?.unwrap_or_default();
+        let setup = load_setup_settings(root, path, &source).await?;
+        let mut file = self.parse_file_with_setup(path.into(), source, setup)?;
+        file.scan_ignored = super::TaskScanRules::load(root).await?.excludes(path);
+        file.modified_at = fs::metadata(root.join(path)).await.ok().and_then(|m| m.modified().ok())
+            .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
+        Ok(file)
     }
 
     pub(crate) fn parse_file(
@@ -551,10 +567,19 @@ impl OrgRepo {
     {
         let options = options.normalized()?;
         let guard = crate::webdav::transaction::lock(Path::new(&self.root_directory)).await?;
-        let history = self.load_unlocked::<P>().await?;
+        let root_directory = self.root_directory.clone();
+        let id = load_or_create_repo_id(Path::new(&root_directory)).await?;
+        if !self.id.is_empty() && self.id != id { return Err(CoreError::InvalidState("仓库身份已改变，请重新打开")); }
+        self.id = id;
+        super::access::recover(Path::new(&root_directory), &self.id).await?;
+        let history = self.sync_history::<P>().await?;
         if history.iter().any(|record| record.started_at == started_at) {
             return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
+        let session = crate::webdav::session::Session::begin(
+            Path::new(&root_directory), &self.id, started_at,
+        ).await?;
+        drop(guard);
         let slot = crate::webdav::transaction::CommitSlot::new(
             Path::new(&self.root_directory),
             started_at,
@@ -564,6 +589,9 @@ impl OrgRepo {
             .synchronize(&mut context, cancellation, progress)
             .await?;
         drop(context);
+        let guard = crate::webdav::session::enter(
+            Path::new(&root_directory), &self.id, started_at, crate::webdav::session::Phase::Committing,
+        ).await?;
         let pending_commit = slot.take();
         drop(slot);
         if record.kind.is_empty() {
@@ -602,19 +630,7 @@ impl OrgRepo {
                 ),
             )
             .await?;
-            let snapshot = plan.snapshot.take();
             plan.commit(root).await?;
-            if let Some(snapshot) = snapshot {
-                *self = snapshot;
-            }
-            // 正式提交后仅尽力刷新元信息，不因清理／重新读取失败推翻已生效事务。
-            for file in &mut self.files {
-                file.modified_at = fs::metadata(Path::new(&self.root_directory).join(&file.path))
-                    .await
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).timestamp_millis());
-            }
         } else {
             persist_sync_record(root, &record).await?;
         }
@@ -639,6 +655,8 @@ impl OrgRepo {
             }
         }
         drop(guard);
+        // 正式结果已持久化；收尾失败留下标记由下一次访问恢复，不推翻提交结果。
+        let _ = session.finish().await;
         super::sync_events::publish(self);
 
         Ok(record)
@@ -842,7 +860,7 @@ fn repo_id_write_error(error: std::io::Error) -> CoreError {
     CoreError::Store(format!("无法写入 .sync/id: {error}"))
 }
 
-async fn scan_org_files(root: &Path) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
+async fn scan_org_files(root: &Path, ignore_files: &[String]) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
     let mut files = Vec::new();
     let mut directories = vec![std::path::PathBuf::new()];
     while let Some(relative) = directories.pop() {
@@ -863,7 +881,7 @@ async fn scan_org_files(root: &Path) -> Result<Vec<OrgRepoSourceFile>, CoreError
                 continue;
             }
             if metadata.is_dir() {
-                if relative.as_os_str().is_empty() && name == ".sync" {
+                if name == ".sync" {
                     continue;
                 }
                 directories.push(child);
@@ -871,6 +889,7 @@ async fn scan_org_files(root: &Path) -> Result<Vec<OrgRepoSourceFile>, CoreError
                 && child.extension().and_then(|value| value.to_str()) == Some("org")
             {
                 let path = relative_path(&child)?;
+                if ignore_files.iter().any(|ignored| ignored == &path) { continue; }
                 let source_bytes = fs::read(entry.path())
                     .await
                     .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
@@ -887,7 +906,7 @@ async fn scan_org_files(root: &Path) -> Result<Vec<OrgRepoSourceFile>, CoreError
     Ok(files)
 }
 
-async fn load_setup_settings(
+pub(crate) async fn load_setup_settings(
     root: &Path,
     source_path: &str,
     source_bytes: &[u8],
@@ -897,24 +916,13 @@ async fn load_setup_settings(
     let mut visited = std::collections::BTreeSet::new();
     while let Some((current_path, current_bytes)) = pending.pop() {
         let current_dir = current_path.parent().unwrap_or_else(|| Path::new(""));
-        for line in String::from_utf8_lossy(&current_bytes).lines() {
-            let trimmed = line.trim();
-            let lower = trimmed.to_ascii_lowercase();
-            if lower.starts_with("#+todo:")
-                || lower.starts_with("#+seq_todo:")
-                || lower.starts_with("#+typ_todo:")
-            {
-                settings.push(trimmed.to_owned());
+        for (key, value) in file_keywords(&current_bytes)? {
+            if matches!(key.as_str(), "TODO" | "SEQ_TODO" | "TYP_TODO") {
+                settings.push(format!("#+{key}: {value}"));
                 continue;
             }
-            let Some(value) = trimmed
-                .get(13..)
-                .filter(|_| lower.starts_with("#+setupfile:"))
-                .map(str::trim)
-            else {
-                continue;
-            };
-            let value = value.strip_prefix("file:").unwrap_or(value).trim();
+            if key != "SETUPFILE" { continue; }
+            let value = value.strip_prefix("file:").unwrap_or(&value).trim();
             let relative = Path::new(value);
             if relative.is_absolute()
                 || relative
@@ -924,16 +932,13 @@ async fn load_setup_settings(
                 continue;
             }
             let setup_path = current_dir.join(relative);
+            let setup_path = setup_path.components().filter(|part| !matches!(part, std::path::Component::CurDir))
+                .collect::<PathBuf>();
             let normalized = setup_path
                 .to_string_lossy()
                 .replace(std::path::MAIN_SEPARATOR, "/");
-            if !visited.insert(normalized) {
-                continue;
-            }
-            let absolute = root.join(&setup_path);
-            let Ok(bytes) = fs::read(&absolute).await else {
-                continue;
-            };
+            if normalized.split('/').any(|part| part == ".sync") || !visited.insert(normalized.clone()) { continue; }
+            let Some(bytes) = crate::webdav::transaction::read(root, &normalized).await? else { continue };
             pending.push((setup_path, bytes));
         }
     }
@@ -1022,7 +1027,7 @@ mod tests {
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         let history = repo.load::<CompletedSync>().await.unwrap();
         assert!(history.is_empty());
-        assert_eq!(repo.files()[0].path, "inbox.org");
+        assert_eq!(repo.load_files(&[]).await.unwrap()[0].path, "inbox.org");
         let initial_id = repo.id.clone();
 
         let mut reloaded_repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
@@ -1054,20 +1059,20 @@ mod tests {
             .unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        let info = &repo.file_metadata()[0];
+        let info = &repo.file_metadata().await.unwrap()[0];
         assert_eq!(info.task_count, 3);
         assert!(!info.is_ignore);
         assert_eq!(info.byte_length, source.len());
         assert_eq!(info.modified_at, Some(1_700_000_000_123));
-        assert_eq!(repo.file("work.org").unwrap().modified_at, info.modified_at);
+        assert_eq!(repo.file("work.org").await.unwrap().modified_at, info.modified_at);
         repo.set_todo_defaults(crate::TodoConfig::default())
             .unwrap();
-        assert_eq!(repo.file_metadata()[0].modified_at, info.modified_at);
+        assert_eq!(repo.file_metadata().await.unwrap()[0].modified_at, info.modified_at);
         fs::write(root.join(".orgzlyignore"), "work.org\n")
             .await
             .unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        let ignored = &repo.file_metadata()[0];
+        let ignored = &repo.file_metadata().await.unwrap()[0];
         assert_eq!(ignored.task_count, 0);
         assert!(ignored.is_ignore);
         assert_eq!(ignored.byte_length, source.len());
@@ -1092,10 +1097,10 @@ mod tests {
         .unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        let tasks = crate::filter::tasks_from_repo(&repo);
+        let tasks = crate::filter::tasks_from_repo(&repo).await.unwrap();
         assert_eq!(tasks[0].state_type, crate::filter::FilterStateType::Todo);
         assert_eq!(tasks[1].state_type, crate::filter::FilterStateType::Done);
-        assert_eq!(repo.files()[0].todo.done_keywords, ["DONE", "CNCL"]);
+        assert_eq!(repo.load_files(&[]).await.unwrap()[0].todo.done_keywords, ["DONE", "CNCL"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1123,9 +1128,9 @@ mod tests {
         .unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        assert_eq!(repo.files().len(), 4);
+        assert_eq!(repo.load_files(&[]).await.unwrap().len(), 4);
         assert!(
-            repo.file("hidden.org")
+            repo.file("hidden.org").await
                 .unwrap()
                 .source_bytes()
                 .starts_with(b"#+CATEGORY")
@@ -1138,7 +1143,7 @@ mod tests {
         let mut other = OrgRepo::new(other_root.to_string_lossy().into()).unwrap();
         other.load::<CompletedSync>().await.unwrap();
         let mut workspace = crate::OrgWorkspace::new(vec![repo, other]).unwrap();
-        let result = workspace.query(&crate::TaskQuery::default()).unwrap();
+        let result = workspace.query(&crate::TaskQuery::default()).await.unwrap();
         assert_eq!(result.tasks.len(), 3);
         assert!(
             result
@@ -1157,7 +1162,7 @@ mod tests {
                 .query(&crate::TaskQuery {
                     expression: "\"Hidden\"".into(),
                     ..Default::default()
-                })
+                }).await
                 .unwrap()
                 .tasks,
             []
@@ -1165,31 +1170,33 @@ mod tests {
 
         // 规则变更与删除在下一次 load 生效；已有完整字节不受影响。
         let repo = &mut workspace.repos[0];
-        let original = repo.file("hidden.org").unwrap().source_bytes().to_vec();
+        let original = repo.file("hidden.org").await.unwrap().source_bytes().to_vec();
         fs::write(root.join(".orgzlyignore"), "visible.org\n")
             .await
             .unwrap();
         repo.load::<CompletedSync>().await.unwrap();
         assert!(
-            crate::filter::tasks_from_repo(repo)
+            crate::filter::tasks_from_repo(repo).await.unwrap()
                 .iter()
                 .all(|task| task.path() != "visible.org")
         );
         assert!(
-            crate::filter::tasks_from_repo(repo)
+            crate::filter::tasks_from_repo(repo).await.unwrap()
                 .iter()
                 .any(|task| task.title == "Hidden")
         );
         fs::remove_file(root.join(".orgzlyignore")).await.unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        let count = crate::filter::tasks_from_repo(repo).len();
+        let count = crate::filter::tasks_from_repo(repo).await.unwrap().len();
         assert_eq!(count, 5);
         assert_eq!(fs::read(root.join("hidden.org")).await.unwrap(), original);
 
         // 无效配置明确失败，不能静默伪装为空任务集合。
         fs::write(root.join(".orgzlyignore"), [0xff]).await.unwrap();
-        assert!(repo.load::<CompletedSync>().await.is_err());
-        assert_eq!(crate::filter::tasks_from_repo(repo).len(), count);
+        repo.load::<CompletedSync>().await.unwrap();
+        assert!(crate::filter::tasks_from_repo(repo).await.is_err());
+        fs::write(root.join(".orgzlyignore"), b"").await.unwrap();
+        assert_eq!(crate::filter::tasks_from_repo(repo).await.unwrap().len(), count);
         fs::remove_dir_all(root).await.unwrap();
         fs::remove_dir_all(other_root).await.unwrap();
     }
@@ -1239,7 +1246,7 @@ mod tests {
         let mut reloaded_repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         reloaded_repo.load::<CompletedSync>().await.unwrap();
         assert_eq!(
-            reloaded_repo.load::<CompletedSync>().await.unwrap(),
+            reloaded_repo.sync_history::<CompletedSync>().await.unwrap(),
             vec![record]
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -1251,7 +1258,8 @@ mod tests {
         let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         let controller = OrgRepoSyncController::new(repo, CompletedSync);
         controller.start(10).await.unwrap();
-        for _ in 0..100 {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
             let snapshot = controller.snapshot();
             if snapshot.lifecycle == OrgRepoSyncLifecycle::Succeeded {
                 assert_eq!(
@@ -1272,7 +1280,8 @@ mod tests {
         let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         let controller = OrgRepoSyncController::new(repo, FailedSync);
         controller.start(10).await.unwrap();
-        for _ in 0..100 {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
             let snapshot = controller.snapshot();
             if snapshot.lifecycle == OrgRepoSyncLifecycle::Failed {
                 assert_eq!(
@@ -1299,6 +1308,7 @@ mod tests {
         .unwrap()
         .with_kind("other");
         record.finish(OrgRepoSyncResult::Succeeded, 11).unwrap();
+        tokio::fs::create_dir_all(root.join(".sync/history")).await.unwrap();
         tokio::fs::write(
             root.join(".sync/history/10.json"),
             serde_json::to_vec(&record).unwrap(),
@@ -1307,7 +1317,8 @@ mod tests {
         .unwrap();
 
         let mut reloaded = OrgRepo::new(root.to_string_lossy().into()).unwrap();
-        let error = reloaded.load::<CompletedSync>().await.unwrap_err();
+        reloaded.load::<CompletedSync>().await.unwrap();
+        let error = reloaded.sync(&CompletedSync, 20, &SyncCancellation::default(), &SyncProgressReporter::default()).await.unwrap_err();
         assert!(error.to_string().contains("kind 与策略不一致"));
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
@@ -1341,7 +1352,7 @@ mod tests {
             assert_eq!(history.len(), context.started_at as usize);
             if context.started_at == 1 {
                 assert_eq!(
-                    context.repo.files[0].source_bytes(),
+                    context.repo.load_files(&[]).await.unwrap()[0].source_bytes(),
                     b"* TODO External edit\n"
                 );
                 assert_eq!(history[0].id, "history-0");
@@ -1368,7 +1379,8 @@ mod tests {
             }
             controller.start(time).await.unwrap();
             let mut completed = false;
-            for _ in 0..100 {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while tokio::time::Instant::now() < deadline {
                 let snapshot = controller.snapshot();
                 if snapshot.lifecycle == OrgRepoSyncLifecycle::Succeeded {
                     assert_eq!(
@@ -1383,7 +1395,7 @@ mod tests {
             assert!(completed, "同步控制器没有使用正确历史完成同步");
         }
         let mut repo = controller.repo().unwrap();
-        assert_eq!(repo.load::<HistoryReadingSync>().await.unwrap().len(), 2);
+        assert_eq!(repo.sync_history::<HistoryReadingSync>().await.unwrap().len(), 2);
         assert!(
             repo.sync(
                 &HistoryReadingSync,
@@ -1409,4 +1421,21 @@ mod tests {
         );
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+fn validate_ignored_files(paths: &[String]) -> Result<(), CoreError> {
+    for path in paths {
+        super::validate_relative_path(path)?;
+        if Path::new(path).is_absolute() || path.split('/').any(|part| part == ".sync") {
+            return Err(CoreError::InvalidInput("排除文件必须是当前仓库的安全相对路径"));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn file_keywords(source: &[u8]) -> Result<Vec<(String, String)>, CoreError> {
+    let source = std::str::from_utf8(source).map_err(|_| CoreError::InvalidInput("Org 与 SETUPFILE 内容必须是 UTF-8"))?;
+    let syntax = orgize::Org::parse(source);
+    Ok(syntax.document().syntax().descendants().filter_map(orgize::ast::Keyword::cast)
+        .map(|keyword| (keyword.key().to_ascii_uppercase(), keyword.value().trim().to_owned())).collect())
 }

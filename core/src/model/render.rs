@@ -869,15 +869,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn task_content_extracts_only_real_logbook_drawers() {
+    #[tokio::test]
+    async fn task_content_extracts_only_real_logbook_drawers() {
         let source = "* TODO Task\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-05 Thu 10:00]\nCLOCK: [2026-11-05 Thu 09:00]--[2026-11-05 Thu 10:00] => 1:00\n:END:\n正文 *粗体* [[https://example.com][链接]]\n#+begin_src text\n:LOGBOOK:\n保留代码\n:END:\n#+end_src\n:OTHER:\n其他抽屉\n:END:\n:LOGBOOK:\n- 第二条记录\n:END:\n";
         let file = file(source);
         let mut repo = crate::OrgRepo::new("/tmp/render-only".into()).unwrap();
         repo.id = "repo".into();
-        repo.files.push(file);
+        { let value = file; crate::model::test_support::push_file(&mut repo, value); };
         let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
-        let task = workspace.query(&crate::TaskQuery::default()).unwrap().tasks.remove(0);
+        let task = workspace.query(&crate::TaskQuery::default()).await.unwrap().tasks.remove(0);
         let rendered = task.render_content();
         assert!(rendered.body_html.contains("<b>粗体</b>"));
         assert!(rendered.body_html.contains("链接</a>"));
@@ -889,7 +889,7 @@ mod tests {
         assert!(rendered.logbook_html.contains("第二条记录"));
         assert!(task.body.contains(":LOGBOOK:"));
         assert_eq!(
-            workspace.repos()[0].files()[0].source_bytes(),
+            workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes(),
             source.as_bytes()
         );
     }

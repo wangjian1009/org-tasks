@@ -14,6 +14,10 @@ pub(crate) struct Guard {
 }
 
 pub(crate) async fn lock(root: &Path) -> Result<Guard, CoreError> {
+    lock_before(root, tokio::time::Instant::now() + std::time::Duration::from_secs(10)).await
+}
+
+pub(crate) async fn lock_before(root: &Path, deadline: tokio::time::Instant) -> Result<Guard, CoreError> {
     use std::sync::{Arc, Mutex, OnceLock, Weak};
     static LOCKS: OnceLock<
         Mutex<std::collections::BTreeMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>,
@@ -33,7 +37,9 @@ pub(crate) async fn lock(root: &Path) -> Result<Guard, CoreError> {
             mutex
         }
     };
-    let local = mutex.lock_owned().await;
+    let local = tokio::time::timeout_at(deadline, mutex.lock_owned())
+        .await
+        .map_err(|_| busy())?;
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
@@ -49,15 +55,22 @@ pub(crate) async fn lock(root: &Path) -> Result<Guard, CoreError> {
             .write(true)
             .open(path)
             .map_err(io)?;
-        // LOCK_EX | LOCK_NB：跨进程不能把另一进程正在应用的事务误当作崩溃遗留来恢复。
-        if unsafe { flock(file.as_raw_fd(), 2 | 4) } != 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::WouldBlock {
-                return Err(CoreError::InvalidState(
-                    "仓库正在另一个进程中使用，请稍后重试",
-                ));
+        // 非阻塞探测配合异步退避；等待期间不恢复另一进程仍在执行的事务。
+        let mut delay = std::time::Duration::from_millis(25);
+        loop {
+            if unsafe { flock(file.as_raw_fd(), 2 | 4) } == 0 {
+                break;
             }
-            return Err(io(error));
+            let error = std::io::Error::last_os_error();
+            match error.kind() {
+                std::io::ErrorKind::Interrupted => continue,
+                std::io::ErrorKind::WouldBlock => {}
+                _ => return Err(io(error)),
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() { return Err(busy()); }
+            tokio::time::sleep(delay.min(remaining)).await;
+            delay = (delay * 2).min(std::time::Duration::from_millis(200));
         }
         return Ok(Guard {
             _local: local,
@@ -66,6 +79,10 @@ pub(crate) async fn lock(root: &Path) -> Result<Guard, CoreError> {
     }
     #[cfg(not(unix))]
     Ok(Guard { _local: local })
+}
+
+fn busy() -> CoreError {
+    CoreError::InvalidState("等待仓库空闲超时，请稍后重试")
 }
 
 // 私有提交槽把策略准备的本地事务交回 OrgRepo，保持 SyncContext 的公开字段与构造接口不变。
@@ -133,7 +150,6 @@ pub(crate) struct Change {
 pub(crate) struct Plan {
     pub changes: Vec<Change>,
     pub guards: Vec<(String, Option<Vec<u8>>)>,
-    pub snapshot: Option<crate::OrgRepo>,
 }
 #[derive(Serialize, Deserialize)]
 struct Journal {
@@ -181,13 +197,13 @@ pub(crate) async fn read(root: &Path, path: &str) -> Result<Option<Vec<u8>>, Cor
         Err(e) => Err(io(e)),
     }
 }
-async fn sync_dir(path: &Path) -> Result<(), CoreError> {
+pub(crate) async fn sync_dir(path: &Path) -> Result<(), CoreError> {
     // 同文件系统 rename 后刷新父目录，确保恢复日志与正式目标的提交顺序。
     std::fs::File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(io)
 }
-async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
+pub(crate) async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
     let temporary = path.with_file_name(format!(
         ".{}.tmp",
         crate::model::service::generate_repo_id()?
@@ -314,7 +330,7 @@ impl Plan {
         Ok(())
     }
 }
-async fn ensure_directory(root: &Path, path: &str) -> Result<(), CoreError> {
+pub(crate) async fn ensure_directory(root: &Path, path: &str) -> Result<(), CoreError> {
     crate::model::validate_relative_path(path)?;
     let mut directory = root.to_path_buf();
     for part in path.split('/') {
@@ -554,8 +570,23 @@ mod tests {
             return;
         };
         assert!(matches!(
-            lock(Path::new(&root)).await,
+            lock_before(Path::new(&root), tokio::time::Instant::now() + std::time::Duration::from_millis(100)).await,
             Err(CoreError::InvalidState(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn queued_writer_waits_until_owner_releases_and_timeout_releases_local_queue() {
+        let root = root().await;
+        let guard = lock(&root).await.unwrap();
+        let waiting_root = root.clone();
+        let waiting = tokio::spawn(async move { lock(&waiting_root).await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        assert!(lock_before(&root, tokio::time::Instant::now() + std::time::Duration::from_millis(20)).await.is_err());
+        drop(guard);
+        drop(waiting.await.unwrap().unwrap());
+        drop(lock(&root).await.unwrap());
+        fs::remove_dir_all(root).await.unwrap();
     }
 }

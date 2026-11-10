@@ -45,6 +45,7 @@ extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const ch
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
     int64_t started_at);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
+extern "C" char* org_tasks_harmony_repo_load_files(uint64_t workspace_handle, const char* root, const char* ignore_files_json);
 extern "C" char* org_tasks_harmony_repo_file_metadata(uint64_t workspace_handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_webdav_test_connection(
     const char* webdav_url, const char* username, const char* password);
@@ -822,8 +823,8 @@ void ExecuteRepoSnapshot(napi_env, void* data)
                 work->workspace_handle, work->root_directory.c_str()));
             break;
         case RepoSnapshotWork::Operation::Snapshot:
-            work->response = TakeRustString(org_tasks_harmony_repo_snapshot(
-                work->workspace_handle, work->root_directory.c_str()));
+            work->response = TakeRustString(org_tasks_harmony_repo_load_files(
+                work->workspace_handle, work->root_directory.c_str(), work->task_json.c_str()));
             break;
         case RepoSnapshotWork::Operation::History:
             // 透传 Core 的执行结果、传输方向与冲突摘要，继续在 worker 内读取历史。
@@ -1454,21 +1455,35 @@ napi_value RepoRootDirectory(napi_env env, napi_callback_info info)
     return value;
 }
 
-napi_value RepoFiles(napi_env env, napi_callback_info info)
+napi_value RepoLoadFiles(napi_env env, napi_callback_info info)
 {
     RepoWrap* repo = nullptr;
     napi_value self;
     if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
     void* metadata = nullptr;
-    napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &metadata);
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, &metadata);
     auto* work = new RepoSnapshotWork();
     if (metadata != nullptr) work->operation = RepoSnapshotWork::Operation::FileMetadata;
+    work->task_json = "[]";
+    if (metadata == nullptr && argc == 1) {
+        napi_valuetype argument_type;
+        bool is_array = false;
+        if (napi_typeof(env, args[0], &argument_type) != napi_ok ||
+            (argument_type != napi_undefined &&
+             (napi_is_array(env, args[0], &is_array) != napi_ok || !is_array || !EncodeJson(env, args[0], &work->task_json)))) {
+            delete work;
+            napi_throw_type_error(env, nullptr, "Repo.loadFiles 需要仓库相对路径数组");
+            return nullptr;
+        }
+    }
     work->workspace_handle = repo->workspace_handle;
     work->root_directory = repo->root_directory;
     napi_value promise;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
         delete work;
-        napi_throw_error(env, nullptr, "无法创建 Repo.files Promise");
+        napi_throw_error(env, nullptr, "无法创建文件读取 Promise");
         return nullptr;
     }
     napi_value resource_name;
@@ -1479,7 +1494,7 @@ napi_value RepoFiles(napi_env env, napi_callback_info info)
         if (work->owner != nullptr) napi_delete_reference(env, work->owner);
         if (work->work != nullptr) napi_delete_async_work(env, work->work);
         delete work;
-        napi_throw_error(env, nullptr, "无法调度 Repo.files 请求");
+        napi_throw_error(env, nullptr, "无法调度文件读取请求");
         return nullptr;
     }
     return promise;
@@ -1832,8 +1847,8 @@ static napi_value Init(napi_env env, napi_value exports)
         {"lastEffectSync", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("lastEffectSync")},
         {"historyFile", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},
         {"historyDetail", nullptr, RepoHistoryDetail, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"files", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"fileMetadata", nullptr, RepoFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
+        {"loadFiles", nullptr, RepoLoadFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"fileMetadata", nullptr, RepoLoadFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"conflicts", nullptr, RepoConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

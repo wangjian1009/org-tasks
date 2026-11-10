@@ -46,8 +46,9 @@ impl WebDavSyncPolicy {
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>, CoreError> {
-        let repo = &*context.repo;
-        let root = Path::new(&repo.root_directory);
+        let repo = context.repo.clone();
+        let root_directory = repo.root_directory.clone();
+        let root = Path::new(&root_directory);
         let mut record = OrgRepoSyncRecord::new(
             format!("webdav-{}-{}", repo.id, context.started_at),
             context.started_at,
@@ -87,6 +88,9 @@ impl WebDavSyncPolicy {
         self.report(WebDavSyncEvent::Listed {
             files: remote_by_path.len(),
         });
+        let download_guard = super::session::enter(root, &repo.id, context.started_at,
+            super::session::Phase::Downloading).await?;
+        let mut files = repo.load_files_unlocked(&[]).await?;
         let origin = LocalFileVersion::from_bytes(
             &serde_json::to_vec(&(
                 &self.endpoint.base_url.trim_end_matches('/'),
@@ -133,9 +137,7 @@ impl WebDavSyncPolicy {
                 );
             }
         }
-        let mut paths = repo
-            .files
-            .iter()
+        let mut paths = files.iter()
             .map(|f| f.path.clone())
             .collect::<BTreeSet<_>>();
         paths.extend(remote_by_path.keys().cloned());
@@ -159,6 +161,10 @@ impl WebDavSyncPolicy {
         // 下载和解析全部远端文件后才发送修改远端的请求，减少准备失败的远端副作用。
         let mut snapshots = BTreeMap::<String, Option<Vec<u8>>>::new();
         let mut local_sources = BTreeMap::<String, Option<Vec<u8>>>::new();
+        for path in &paths {
+            local_sources.insert(path.clone(), transaction::read(root, path).await?);
+        }
+        drop(download_guard);
         for (index, path) in paths.iter().cloned().enumerate() {
             if cancellation.is_cancelled() {
                 return self.abort_snapshot(record, OrgRepoSyncResult::Cancelled, progress);
@@ -169,19 +175,7 @@ impl WebDavSyncPolicy {
                 index,
                 total,
             });
-            let before = transaction::read(root, &path).await?;
-            if path.ends_with(".org")
-                && repo
-                    .files
-                    .iter()
-                    .find(|f| f.path == path)
-                    .map(|f| f.source_bytes())
-                    != before.as_deref()
-            {
-                return Err(CoreError::InvalidState(
-                    "同步准备期间本地文件已变化，请重试",
-                ));
-            }
+            let before = local_sources[&path].clone();
             let baseline = bases.state(&path).cloned();
             let listed = remote_by_path.get(&path);
             let remote = if let Some(remote) = listed {
@@ -213,7 +207,7 @@ impl WebDavSyncPolicy {
                         Ok(bytes) => Some(bytes),
                         Err(error) => {
                             record.append_file(failed_record(
-                                repo,
+                                &repo,
                                 path,
                                 LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
                                 transfer_failure(error),
@@ -229,8 +223,29 @@ impl WebDavSyncPolicy {
             } else {
                 None
             };
+            if let Some(bytes) = &remote {
+                super::session::stage(root, &repo.id, context.started_at, "remote", &path, bytes).await?;
+            }
             snapshots.insert(path.clone(), remote);
-            local_sources.insert(path, before);
+        }
+        let remote_manifest = paths.iter().map(|path| serde_json::json!({
+            "path": path, "present": snapshots[path].is_some(),
+            "version": remote_by_path.get(path).map(|file| &file.version),
+        })).collect::<Vec<_>>();
+        super::session::stage(root, &repo.id, context.started_at, "metadata", "remote.json",
+            &serde_json::to_vec(&remote_manifest).map_err(|_| CoreError::InvalidState("无法编码远端下载清单"))?).await?;
+        let merge_guard = super::session::enter(root, &repo.id, context.started_at,
+            super::session::Phase::Merging).await?;
+        // 网络阶段允许普通编辑；合并必须重新取得当前磁盘内容。
+        files = repo.load_files_unlocked(&[]).await?;
+        for file in &files {
+            if !context.options.excludes_path(&file.path) && !paths.contains(&file.path) {
+                paths.push(file.path.clone());
+                snapshots.insert(file.path.clone(), None);
+            }
+        }
+        for path in &paths {
+            local_sources.insert(path.clone(), transaction::read(root, path).await?);
         }
         let base_sources = bases.sources();
         for (index, path) in paths.into_iter().enumerate() {
@@ -259,7 +274,7 @@ impl WebDavSyncPolicy {
                     });
                 if let Err(error) = valid {
                     record.append_file(failed_record(
-                        repo,
+                        &repo,
                         path,
                         LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
                         core_error(error),
@@ -268,7 +283,7 @@ impl WebDavSyncPolicy {
                 }
                 if before != remote && before.is_some() && baseline.as_ref() != Some(&before) {
                     record.append_file(failed_record(
-                        repo,
+                        &repo,
                         path,
                         LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
                         core_error(CoreError::InvalidState(
@@ -281,7 +296,7 @@ impl WebDavSyncPolicy {
             } else {
                 let decision = (|| -> Result<Option<Vec<u8>>, CoreError> {
                     if let Some(bytes) = &remote {
-                        parse_snapshot(repo, &path, bytes.clone(), &snapshots)?;
+                        parse_snapshot(&repo, &path, bytes.clone(), &snapshots, &files)?;
                     }
                     match (&baseline, &before, &remote) {
                         // 已跟踪远端删除：无论本地是否修改都采用删除。
@@ -292,16 +307,17 @@ impl WebDavSyncPolicy {
                         (_, None, None) => Ok(None),
                         (base, Some(local), Some(remote)) => {
                             let base = parse_snapshot(
-                                repo,
+                                &repo,
                                 &path,
                                 base.as_ref()
                                     .and_then(|b| b.as_ref())
                                     .cloned()
                                     .unwrap_or_default(),
                                 &base_sources,
+                                &files,
                             )?;
-                            let local = parse_snapshot(repo, &path, local.clone(), &local_sources)?;
-                            let remote = parse_snapshot(repo, &path, remote.clone(), &snapshots)?;
+                            let local = parse_snapshot(&repo, &path, local.clone(), &local_sources, &files)?;
+                            let remote = parse_snapshot(&repo, &path, remote.clone(), &snapshots, &files)?;
                             crate::merge::merge_files(&base, &local, &remote).map(Some)
                         }
                     }
@@ -310,7 +326,7 @@ impl WebDavSyncPolicy {
                     Ok(result) => result,
                     Err(error) => {
                         record.append_file(failed_record(
-                            repo,
+                            &repo,
                             path,
                             LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
                             core_error(error),
@@ -322,7 +338,7 @@ impl WebDavSyncPolicy {
             let result = if path.ends_with(".org") {
                 result
                     .map(|bytes| {
-                        let file = parse_snapshot(repo, &path, bytes, &snapshots)?;
+                        let file = parse_snapshot(&repo, &path, bytes, &snapshots, &files)?;
                         crate::merge::with_conflict_header(&file)
                     })
                     .transpose()?
@@ -333,7 +349,7 @@ impl WebDavSyncPolicy {
                 result
                     .as_ref()
                     .map(|bytes| {
-                        parse_snapshot(repo, &path, bytes.clone(), &snapshots)
+                        parse_snapshot(&repo, &path, bytes.clone(), &snapshots, &files)
                             .map(|f| crate::merge::has_conflicts(&f))
                     })
                     .transpose()?
@@ -409,7 +425,7 @@ impl WebDavSyncPolicy {
                 && strong(version.etag.as_deref()).is_none()
             {
                 record.append_file(failed_record(
-                    repo,
+                    &repo,
                     path,
                     LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
                     core_error(CoreError::InvalidState(
@@ -440,12 +456,29 @@ impl WebDavSyncPolicy {
             plan.guards.push((item.path.clone(), item.before.clone()));
         }
         plan.verify(root).await?;
+        let captured_intents = capture_intents(root).await?;
+        for (path, bytes, _) in &captured_intents { plan.guards.push((path.clone(), Some(bytes.clone()))); }
+        for item in &prepared {
+            if let Some(bytes) = &item.result {
+                super::session::stage(root, &repo.id, context.started_at, "merged", &item.path, bytes).await?;
+            }
+        }
+        drop(merge_guard);
+        // 上传与下载一样不占仓库锁；同步租约由外层操作一直持有。
+        let upload_guard = super::session::enter(root, &repo.id, context.started_at,
+            super::session::Phase::Uploading).await?;
+        drop(upload_guard);
+        let mut archives = Vec::new();
         for (index, item) in prepared.iter_mut().enumerate() {
             if cancellation.is_cancelled() {
                 return self.abort_snapshot(record, OrgRepoSyncResult::Cancelled, progress);
             }
             progress.report("Synchronizing", index, total, Some(item.path.clone()));
             if item.path.ends_with(".org") && item.result != item.remote {
+                super::session::stage(root, &repo.id, context.started_at, "requests", &format!("{index}.json"),
+                    &serde_json::to_vec(&serde_json::json!({"path":item.path,"confirmed":false,
+                        "deletion":item.result.is_none(),"expectedEtag":item.version.etag}))
+                        .map_err(|_| CoreError::InvalidState("无法编码同步请求意图"))?).await?;
                 let transfer = if let Some(bytes) = &item.result {
                     let condition = if item.remote.is_some() {
                         WebDavPutCondition::Match(item.version.etag.clone().unwrap())
@@ -479,10 +512,16 @@ impl WebDavSyncPolicy {
                     .map(|()| missing_version())
                 };
                 match transfer {
-                    Ok(version) => item.version = version,
+                    Ok(version) => {
+                        super::session::stage(root, &repo.id, context.started_at, "requests", &format!("{index}.json"),
+                            &serde_json::to_vec(&serde_json::json!({"path":item.path,"confirmed":true,
+                                "deletion":item.result.is_none(),"version":version}))
+                                .map_err(|_| CoreError::InvalidState("无法编码同步请求结果"))?).await?;
+                        item.version = version;
+                    }
                     Err(error) => {
                         record.append_file(failed_record(
-                            repo,
+                            &repo,
                             item.path.clone(),
                             LocalFileVersion::from_bytes(
                                 item.before.as_deref().unwrap_or_default(),
@@ -509,7 +548,7 @@ impl WebDavSyncPolicy {
                     item.path,
                     super::archive::archive_name(&item.path, false)?
                 );
-                plan.set(root, archive_path, Some(bytes.clone())).await?;
+                archives.push((archive_path, bytes.clone()));
                 detail.archive = Some(super::WebDavFileArchive {
                     content_hash: LocalFileVersion::from_bytes(bytes).content_hash,
                 });
@@ -525,7 +564,7 @@ impl WebDavSyncPolicy {
                     item.path,
                     super::archive::archive_name(&item.path, false)?
                 );
-                plan.set(root, archive_path, Some(bytes.clone())).await?;
+                archives.push((archive_path, bytes.clone()));
                 detail.deleted_archive = Some(super::WebDavFileArchive {
                     content_hash: LocalFileVersion::from_bytes(bytes).content_hash,
                 });
@@ -550,6 +589,10 @@ impl WebDavSyncPolicy {
         if cancellation.is_cancelled() {
             return self.abort_snapshot(record, OrgRepoSyncResult::Cancelled, progress);
         }
+        let commit_guard = super::session::enter(root, &repo.id, context.started_at,
+            super::session::Phase::Committing).await?;
+        plan.verify(root).await?;
+        for (path, bytes) in archives { plan.set(root, path, Some(bytes)).await?; }
         for item in &prepared {
             if item.before != item.result {
                 plan.set(root, item.path.clone(), item.result.clone())
@@ -568,63 +611,16 @@ impl WebDavSyncPolicy {
         }
         bases.finish(root, &mut plan).await?;
         // outbox 确认与正式文件、基线及完成历史同属一个本地事务。
-        let intents = root.join(".sync/outbox");
-        if let Ok(mut entries) = tokio::fs::read_dir(&intents).await {
-            while let Some(entry) = entries
-                .next_entry()
-                .await
-                .map_err(|e| CoreError::Store(format!("无法读取待上传意图: {e}")))?
-            {
-                if !entry
-                    .file_type()
-                    .await
-                    .map_err(|e| CoreError::Store(e.to_string()))?
-                    .is_file()
-                    || entry.path().extension().and_then(|e| e.to_str()) != Some("json")
-                {
-                    continue;
-                }
-                let relative = format!(".sync/outbox/{}", entry.file_name().to_string_lossy());
-                let source = transaction::read(root, &relative)
-                    .await?
-                    .ok_or(CoreError::InvalidState("写入意图在同步期间消失"))?;
-                let intent: crate::OrgRepoWriteIntent = serde_json::from_slice(&source)
-                    .map_err(|_| CoreError::Store("写入意图无效".into()))?;
-                if prepared.iter().any(|p| p.path == intent.relative_path) {
-                    plan.set(root, relative, None).await?;
-                }
+        for (relative, _, intent) in captured_intents {
+            if prepared.iter().any(|item| item.path == intent.relative_path
+                && item.before.as_deref().map(LocalFileVersion::from_bytes)
+                    .is_some_and(|version| version.content_hash == intent.content_hash)) {
+                plan.set(root, relative, None).await?;
             }
         }
-        let mut snapshot = repo.clone();
-        let mut final_sources = local_sources.clone();
-        for item in &prepared {
-            final_sources.insert(item.path.clone(), item.result.clone());
-        }
-        for item in &prepared {
-            if item.path == crate::model::TASK_SCAN_RULES_PATH {
-                snapshot.task_scan_rules = crate::TaskScanRules::parse(
-                    item.result
-                        .as_deref()
-                        .map(std::str::from_utf8)
-                        .transpose()
-                        .map_err(|_| CoreError::InvalidInput("忽略规则编码无效"))?
-                        .unwrap_or_default(),
-                )?;
-            } else {
-                snapshot.files.retain(|f| f.path != item.path);
-                if let Some(bytes) = &item.result {
-                    snapshot.files.push(parse_snapshot(
-                        repo,
-                        &item.path,
-                        bytes.clone(),
-                        &final_sources,
-                    )?);
-                }
-            }
-        }
-        plan.snapshot = Some(snapshot);
         plan.verify(root).await?;
         transaction::stage(root, context.started_at, plan)?;
+        drop(commit_guard);
         self.finish_snapshot(record, OrgRepoSyncResult::Succeeded, progress)
     }
     fn abort_snapshot(
@@ -668,26 +664,19 @@ fn parse_snapshot(
     path: &str,
     bytes: Vec<u8>,
     sources: &BTreeMap<String, Option<Vec<u8>>>,
+    files: &[OrgFile],
 ) -> Result<OrgFile, CoreError> {
     let mut settings = Vec::new();
     let mut pending = vec![(path.to_string(), bytes.clone())];
     let mut seen = BTreeSet::new();
     while let Some((current, source)) = pending.pop() {
-        for line in String::from_utf8_lossy(&source).lines() {
-            let trimmed = line.trim();
-            let lower = trimmed.to_ascii_lowercase();
-            if lower.starts_with("#+todo:")
-                || lower.starts_with("#+seq_todo:")
-                || lower.starts_with("#+typ_todo:")
-            {
-                settings.push(trimmed.to_string());
+        for (key, value) in crate::model::service::file_keywords(&source)? {
+            if matches!(key.as_str(), "TODO" | "SEQ_TODO" | "TYP_TODO") {
+                settings.push(format!("#+{key}: {value}"));
                 continue;
             }
-            if !lower.starts_with("#+setupfile:") {
-                continue;
-            }
-            let value = trimmed.get(12..).unwrap_or_default().trim();
-            let value = value.strip_prefix("file:").unwrap_or(value);
+            if key != "SETUPFILE" { continue; }
+            let value = value.strip_prefix("file:").unwrap_or(&value);
             let setup = std::path::Path::new(value);
             if setup.is_absolute()
                 || setup
@@ -715,18 +704,34 @@ fn parse_snapshot(
         }
     }
     if settings.is_empty() {
-        if let Some(previous) = repo.files.iter().find(|f| f.path == path) {
-            let references = |source: &[u8]| {
-                String::from_utf8_lossy(source)
-                    .lines()
-                    .filter(|line| line.trim().to_ascii_lowercase().starts_with("#+setupfile:"))
-                    .map(|line| line.trim().to_string())
-                    .collect::<Vec<_>>()
+        if let Some(previous) = files.iter().find(|f| f.path == path) {
+            let references = |source: &[u8]| -> Result<Vec<String>, CoreError> {
+                Ok(crate::model::service::file_keywords(source)?.into_iter()
+                    .filter(|(key, _)| key == "SETUPFILE").map(|(_, value)| value).collect())
             };
-            if references(previous.source_bytes()) == references(&bytes) {
+            if references(previous.source_bytes())? == references(&bytes)? {
                 settings.push(previous.todo_setup.clone());
             }
         }
     }
     repo.parse_file_with_setup(path.into(), bytes, settings.join("\n"))
+}
+
+// 只确认合并准备阶段已存在的意图，网络期间的新意图留待后续同步。
+async fn capture_intents(root: &Path) -> Result<Vec<(String, Vec<u8>, crate::OrgRepoWriteIntent)>, CoreError> {
+    let mut result = Vec::new();
+    let mut entries = match tokio::fs::read_dir(root.join(".sync/outbox")).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(result),
+        Err(error) => return Err(CoreError::Store(format!("无法读取待上传意图: {error}"))),
+    };
+    while let Some(entry) = entries.next_entry().await.map_err(|error| CoreError::Store(error.to_string()))? {
+        if entry.path().extension().and_then(|v| v.to_str()) != Some("json") { continue; }
+        let name = entry.file_name().into_string().map_err(|_| CoreError::InvalidState("意图文件名编码无效"))?;
+        let path = format!(".sync/outbox/{name}");
+        let bytes = transaction::read(root, &path).await?.ok_or(CoreError::InvalidState("意图文件已消失"))?;
+        let intent = serde_json::from_slice(&bytes).map_err(|_| CoreError::InvalidState("待上传意图无效"))?;
+        result.push((path, bytes, intent));
+    }
+    Ok(result)
 }

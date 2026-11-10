@@ -259,6 +259,17 @@ pub extern "C" fn org_tasks_harmony_repo_snapshot(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_load_files(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+    ignore_files_json: *const c_char,
+) -> *mut c_char {
+    string_result((|| {
+        bridge::repo_load_files_json(workspace_handle, read_c_string(root_directory)?, read_c_string(ignore_files_json)?)
+    })())
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_file_metadata(
     workspace_handle: u64,
     root_directory: *const c_char,

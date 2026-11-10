@@ -66,7 +66,7 @@ class Repo {
   lastEffectSync(): Promise<SyncRecord | null>
   historyDetail(syncId: string): Promise<SyncRecordDetail>
   historyFile(target: HistoryFileTarget): Promise<OrgFile>
-  files(): Promise<OrgFile[]>
+  loadFiles(ignoreFiles?: string[]): Promise<OrgFile[]>
   fileMetadata(): Promise<OrgFileMetadata[]>
   file(path: string): Promise<OrgFile>
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
@@ -110,7 +110,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgWorkspace.repos()~ | ~await workspace.repos()~ | 返回仓库对象，不返回仓库 DTO。 |
 | ~OrgWorkspace.notifications()~ | ~await workspace.notifications()~ | 返回 Core 判定的待关注事件快照，不将结果转换为 Task，也不在宿主重算冲突。 |
 | ~OrgRepo.id~ 、 ~root_directory~ | ~repo.id~ 、 ~repo.rootDirectory~ | 只读属性；core 的 ID 来自本地 ~.sync/id~ 。 |
-| ~OrgRepo.files()~ | ~await repo.files()~ | 返回独立的 ~OrgFile~ 对象数组。 |
+| ~OrgRepo.load_files(ignore_files)~ | ~await repo.loadFiles(ignoreFiles)~ | 相对排除路径原样透传；按次读盘返回独立对象数组，仓库不持有文件集合。 |
 | ~OrgRepo.file(path)~ | ~await repo.file(path)~ | 返回已有文件的副本；路径尚不存在时返回未落盘空文件。 |
 | ~OrgFile.repo_id~ 、 ~path~ 、 ~todo~ | ~file.repoId~ 、 ~file.path~ 、 ~file.todo~ | 属性承载数据，TODO 完成类型由 Rust 计算。 |
 | ~OrgRepo.file_metadata()~ | ~await repo.fileMetadata()~ | 轻量文件数组，含文件标题、笔记数、字节数和本地修改时间，不复制正文或生成任务对象。 |
@@ -124,7 +124,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
 | ~OrgWorkspace.query(&TaskQuery)~ | ~workspace.query(query)~ | 结构化请求在 worker 中透传 Core，返回任务及分类统计。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
-| ~OrgRepo.load()~ | ~repo.load()~ | core 返回历史；TS 只等待加载完成，不公开该返回值。 |
+| ~OrgRepo.load()~ | ~repo.load()~ | 仅恢复稳定 ID；Core 原泛型返回类型保留为空集合，TS 只等待完成。 |
 | ~OrgRepo.load::<WebDavSyncPolicy>()~ 与 ~sync_history_summaries~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录并生成执行结果、传输方向与冲突处理摘要；bridge 只编组字段，ArkTS 不读取控制目录。 |
 | ~sync_history_detail(history, sync_id)~ | ~await repo.historyDetail(syncId)~ | 按当前仓库的同步记录 ID 返回摘要、文件结果与已有错误消息；Core 计算冲突解决状态，不返回源内容快照。 |
 | ~FilterTask.support_tags()~ | ~task.supportTags~ | 可空只读配置，结构为 ~{ tags: string[], groups: string[][] }~ ；缺少配置映射为 ~null~ ，显式空配置保留空数组，互斥组不展平。 |
@@ -139,9 +139,11 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 文件对象与生命周期
 
+同步的网络阶段使用从当前仓库配置和身份取得的独立执行对象，不持有整个 workspace mutex；本轮同步锁和分阶段仓库锁由 Core 内部管理。成功后 bridge 仅短暂交回稳定身份，不用旧执行对象覆盖并发请求的快照；文件列表请求重新通过 Core 读盘；新增 ~loadFiles(ignoreFiles)~ 及其 C ABI、N-API 接入，替换原文件集合访问；其他请求与结果字段保持原约定。该变化允许同进程页面请求在下载和上传期间进入 Core，具体协议与缓存迁移边界见 [[file:../core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
+
 ~Workspace~ 与 ~Repo~ 持有同一个 opaque workspace handle 的引用；最后一个引用释放后，Harmony session 释放 core workspace。 ~Repo~ 从 workspace 取得，不能直接构造。
 
-~repo.load()~ 扫描本地仓库。 ~repo.files()~ 读取当前仓库文件集合； ~repo.file(path)~ 重新加载仓库后调用 core 的 ~OrgRepo.file~ 。路径不存在时，core 使用外部默认 TODO 配置构造未落盘的空文件，供新增任务读取 ~file.todo.initialState~ ，不创建空文件、不写入 outbox。非法路径使 Promise 拒绝。
+~repo.load()~ 仅恢复 ID。 ~repo.loadFiles(ignoreFiles)~ 等待 Core 加载本次文件集合，参数仅为仓库相对路径； ~repo.file(path)~ 按路径从磁盘读取。路径不存在时，Core 构造未落盘的空文件供新增读取默认元信息，不创建文件或 outbox；非法路径和 I/O 失败使 Promise 拒绝。
 
 ~OrgFile~ 是取得时刻的独立文件值对象，保存 Rust 投影的元信息和源字节。 ~category()~ 只返回 Rust 的 ~OrgFile.category()~ 结果，不在 C++ 或 ArkTS 解析头部； ~sourceBytes()~ 每次返回独立副本，修改该数组不会改写文件对象或仓库文件。仓库重新加载、修改全局设置或移除仓库后，已取得对象仍保留原值；需要新值时重新获取文件对象。
 
@@ -168,7 +170,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 默认 TODO、查询与结果投影
 
-~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并重算已加载文件；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
+~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并用于后续每次文件解析；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
 ~Workspace.query~ 将结构化请求交给 ~OrgWorkspace.query~ ，由 Core 内部解析表达式并求值。返回结果中的 ~tasks~ 为原生 ~Task~ 对象，用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
@@ -247,7 +249,7 @@ interface OrgFileMetadata {
 }
 #+end_src
 
-~Repo.fileMetadata()~ 在 worker 中加载仓库，调用 Core 的 ~OrgRepo.file_metadata()~ ，只投影文件元信息；不调用任务查询，不传递 ~source~ 、 ~todo~ 或原始字节。完整文件继续通过 ~repo.file(path)~ 获取， ~file.title()~ 返回取得该对象时 Core 提取的标题，旧对象不随仓库刷新变化。两个接口都由 Core 读取文件头语法树，Bridge 和 ArkTS 不解析 TITLE。
+~Repo.fileMetadata()~ 在 worker 中加载仓库，等待 Core 的 ~OrgRepo.file_metadata()~ 按次读盘 ，只投影文件元信息；不调用任务查询，不传递 ~source~ 、 ~todo~ 或原始字节。完整文件继续通过 ~repo.file(path)~ 获取， ~file.title()~ 返回取得该对象时 Core 提取的标题，旧对象不随仓库刷新变化。两个接口都由 Core 读取文件头语法树，Bridge 和 ArkTS 不解析 TITLE。
 
 ~OrgFileMetadata.taskCount~ 由 Core 对有效文件语法树统计标题数，沿用任务扫描忽略规则；不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
 
@@ -257,7 +259,7 @@ Core 的 ~is_ignore~ 通过现有 Rust 元信息序列化、C++ worker 的结构
 
 * 文件只读阅读投影
 
-Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path) 与 repo.files() 在现有 N-API worker 内生成 renderedHtml 字符串，并与文件值对象快照一起返回；C++ 方法仅读取该快照，ArkTS 不解析 Org。已有对象的 HTML 与其源字节、TODO 配置一致，不随仓库后续刷新变化。轻量文件列表不生成或传递 HTML。
+Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path) 与 repo.loadFiles(ignoreFiles) 在现有 N-API worker 内生成 renderedHtml 字符串，并与文件值对象快照一起返回；C++ 方法仅读取该快照，ArkTS 不解析 Org。已有对象的 HTML 与其源字节、TODO 配置一致，不随仓库后续刷新变化。轻量文件列表不生成或传递 HTML。
 
 文件详情通过 NotebookService.open 按仓库 ID 和相对路径取得目标文件；先校验文件清单，避免将 Core 为缺失路径提供的新增草稿误显示为空白文件。不再读取整个工作区的任务投影或在 UI 按文件过滤任务。Web 只加载内存文档，关闭网络、本地文件、数据库与 DOM storage 访问；CSP 禁止文内脚本及外部资源，固定的宿主 JavaScript 仅修改标题 details 的 open 状态，不注册写入接口。
 
@@ -465,3 +467,9 @@ ConflictPreview 是原生活动对象，由 Rust session 绑定 Core 句柄，C+
 finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup。ConflictFile 按当前源仓库配置填 queueRepoIds，再调用既有 Workspace.executeTaskOperations；不增加另一个真实写入接口。结束后提交失败保留返回组与已显示快照，重试不再次 finish。原文件变化仍由统一数据接口版本约束拒绝。
 
 页面进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。
+
+* 查询结果与文件加载生命周期
+
+Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的仓库文件快照。 ~load_files~ 经新增的 ~org_tasks_harmony_repo_load_files~ 在既有 N-API worker 中执行，JSON 数组只在 ABI 内编组为相对路径列表； ~Repo.loadFiles~ 返回独立值对象。任务请求继续使用既有 ~TaskQuery.excludedFiles~ ，Core 按仓库 ID 提取相对路径，不在 ArkTS 执行文件筛选。
+
+~FilterTask.file_version()~ 和 ~edit_content()~ 在 Core 投影时从同一文件产生，bridge 直接构造既有 ~Task.fileVersion~ 与 ~editContent~ ，不再二次查找源文件。结果字段、版本算法和错误枚举不变；Rust 磁盘接口采用异步 ~Result~ ，TS 保持 Promise 错误传播。

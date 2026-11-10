@@ -131,6 +131,8 @@ pub struct FilterTask {
     pub(crate) id: String,
     pub(crate) full_path: crate::TaskPath,
     pub(crate) file_metadata: Arc<crate::OrgFileMetadata>,
+    file_version: String,
+    edit_content: crate::TaskEditContent,
     pub(crate) support_tags: Option<Arc<crate::SupportTags>>,
     /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
     pub(crate) category: Option<String>,
@@ -168,6 +170,8 @@ pub struct AddressLink {
 }
 
 impl FilterTask {
+    pub fn file_version(&self) -> &str { &self.file_version }
+    pub fn edit_content(&self) -> &crate::TaskEditContent { &self.edit_content }
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -393,24 +397,17 @@ impl FilterInterval {
     }
 }
 
-pub(crate) fn tasks_from_repo(repository: &OrgRepo) -> Vec<FilterTask> {
-    let mut tasks = repository
-        .files()
-        .iter()
-        .filter(|file| !repository.task_scan_rules.excludes(&file.path))
-        .flat_map(|file| tasks_from_file(repository, file))
-        .collect::<Vec<_>>();
-    tasks.sort_by(|left, right| {
-        left.path()
-            .cmp(right.path())
-            .then(left.byte_offset.cmp(&right.byte_offset))
-    });
-    tasks
+#[cfg(test)]
+pub(crate) async fn tasks_from_repo(repository: &OrgRepo) -> Result<Vec<FilterTask>, crate::CoreError> {
+    let files = repository.load_files(&[]).await?;
+    Ok(files.iter().filter(|file| !file.scan_ignored)
+        .flat_map(|file| tasks_from_file(repository, file)).collect())
 }
 
 pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Vec<FilterTask> {
     let mut tasks = Vec::new();
-    let file_metadata = Arc::new(file.metadata(repository.task_scan_rules.excludes(&file.path)));
+    let file_metadata = Arc::new(file.metadata(file.scan_ignored));
+    let file_version = crate::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
     let support_tags = file.support_tags().map(Arc::new);
     let category = file.category();
     let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
@@ -472,7 +469,10 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         };
         let address_links = extract_address_links(&headline);
         let created = property_time(&headline, "CREATED");
+        let edit_content = file.task_edit_content(&full_path).expect("同一语法树生成的任务路径必须可定位");
         tasks.push(FilterTask {
+            file_version: file_version.clone(),
+            edit_content,
             id: identities.id_for(&headline, state_type != FilterStateType::None),
             full_path,
             file_metadata: Arc::clone(&file_metadata),
@@ -1412,17 +1412,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn filters_tasks_with_reference_state_tag_and_date_semantics() {
+    #[tokio::test]
+    async fn filters_tasks_with_reference_state_tag_and_date_semantics() {
         let file = OrgFile::new("repo".into(), "work.org".into(), b"* TODO Parent :work:\n** DONE Child :home:\nSCHEDULED: <2024-01-03 Wed>\n* TODO Other\n* Plain heading\n".to_vec()).unwrap();
-        let repository = OrgRepo {
+        let repository = crate::model::test_support::with_files(OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![file],
-        };
-        let tasks = tasks_from_repo(&repository);
+        }, vec![file], Default::default());
+        let tasks = tasks_from_repo(&repository).await.unwrap();
         assert_eq!(tasks.len(), 4);
         assert_eq!(
             tasks.iter().map(|task| task.level).collect::<Vec<_>>(),
@@ -1466,8 +1464,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn file_level_cancel_state_is_done_in_task_projection() {
+    #[tokio::test]
+    async fn file_level_cancel_state_is_done_in_task_projection() {
         let file = OrgFile::with_todo_defaults(
             "repo".into(),
             "work.org".into(),
@@ -1475,20 +1473,18 @@ mod tests {
             crate::TodoConfig::default(),
         )
         .unwrap();
-        let repository = OrgRepo {
+        let repository = crate::model::test_support::with_files(OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![file],
-        };
-        let task = tasks_from_repo(&repository).pop().unwrap();
+        }, vec![file], Default::default());
+        let task = tasks_from_repo(&repository).await.unwrap().pop().unwrap();
         assert_eq!(task.state.as_deref(), Some("CNCL"));
         assert_eq!(task.state_type, FilterStateType::Done);
     }
 
-    #[test]
-    fn is_done_follows_each_files_in_buffer_configuration() {
+    #[tokio::test]
+    async fn is_done_follows_each_files_in_buffer_configuration() {
         let defaults = crate::TodoConfig::from_settings("#+TODO: GLOBAL | CNCL").unwrap();
         let sources = [
             (
@@ -1505,12 +1501,11 @@ mod tests {
             ("global.org", "* CNCL Done by default\n", true),
             ("plain.org", "* No state\n", false),
         ];
-        let repository = OrgRepo {
+        let repository = crate::model::test_support::with_files(OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: defaults.clone(),
-            task_scan_rules: Default::default(),
-            files: sources
+        }, sources
                 .iter()
                 .map(|(path, source, _)| {
                     OrgFile::with_todo_defaults(
@@ -1521,9 +1516,8 @@ mod tests {
                     )
                     .unwrap()
                 })
-                .collect(),
-        };
-        let tasks = tasks_from_repo(&repository);
+                .collect(), Default::default());
+        let tasks = tasks_from_repo(&repository).await.unwrap();
         for (path, _, expected) in sources {
             let task = tasks.iter().find(|task| task.path() == path).unwrap();
             assert_eq!(task.is_done(), expected, "{path}");
@@ -1531,22 +1525,20 @@ mod tests {
         }
     }
 
-    #[test]
-    fn projects_scheduled_timestamp_with_repeater() {
+    #[tokio::test]
+    async fn projects_scheduled_timestamp_with_repeater() {
         let file = OrgFile::new(
             "repo".into(),
             "work.org".into(),
             b"* TODO Repeated\nSCHEDULED: <2026-09-27 Sun .+4w/5w>\n".to_vec(),
         )
         .unwrap();
-        let repository = OrgRepo {
+        let repository = crate::model::test_support::with_files(OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![file],
-        };
-        let task = tasks_from_repo(&repository).pop().unwrap();
+        }, vec![file], Default::default());
+        let task = tasks_from_repo(&repository).await.unwrap().pop().unwrap();
         assert_eq!(
             task.scheduled,
             Some(FilterDate {
@@ -1556,8 +1548,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deadline_warning_period_matches_today_without_changing_display_date() {
+    #[tokio::test]
+    async fn deadline_warning_period_matches_today_without_changing_display_date() {
         let file = OrgFile::new(
             "repo".into(),
             "mortgage.org".into(),
@@ -1565,14 +1557,12 @@ mod tests {
                 .to_vec(),
         )
         .unwrap();
-        let repository = OrgRepo {
+        let repository = crate::model::test_support::with_files(OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![file],
-        };
-        let task = tasks_from_repo(&repository).pop().unwrap();
+        }, vec![file], Default::default());
+        let task = tasks_from_repo(&repository).await.unwrap().pop().unwrap();
         assert_eq!(
             task.deadline.unwrap().date,
             NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()

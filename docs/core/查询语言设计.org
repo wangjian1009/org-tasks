@@ -7,7 +7,7 @@
 
 本查询语言用于从 ~OrgRepo~ 的任务快照中选择和排序任务。语法以参考项目 Orgzly Android Revived 的 ~DottedQueryParser~ 、~QueryTokenizer~ 、~QueryInterval~ 及其 ~QueryTest~ 和 ~QueryTokenizerTest~ 为准；本项目在 ~core::filter~ 中实现同一套 dotted expression，而不使用 Android 的 SQLite 表达式实现。
 
-对外唯一任务读取入口为 ~OrgWorkspace.query(&TaskQuery)~ 。表达式在 Core 内部解析为 ~Filter~ ：它由可选布尔表达式、零个或多个排序项和可选 agenda 天数构成。无法识别为操作符的 token 按普通文本条件处理，保持参考实现的宽容输入行为。
+对外唯一任务读取入口为异步 ~OrgWorkspace.query(&TaskQuery)~ 。每次调用对各仓库提取 ~excluded_files~ 中属于本仓库的相对 ~path~ ，直接传给 ~load_files(ignore_files)~ ，在读取正文和解析前排除；任务筛选不依赖仓库缓存。表达式在 Core 内部解析为 ~Filter~ ：它由可选布尔表达式、零个或多个排序项和可选 agenda 天数构成。无法识别为操作符的 token 按普通文本条件处理，保持参考实现的宽容输入行为。
 
 * 冲突子树排除
 

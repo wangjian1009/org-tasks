@@ -3,6 +3,7 @@ use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
 pub(crate) mod conflict;
+pub(crate) mod access;
 mod conflict_preview;
 mod editor;
 mod data_changes;
@@ -58,9 +59,7 @@ pub type RemoteFileVersionError = CoreError;
 pub struct OrgRepo {
     pub id: OrgRepoId,
     pub root_directory: String,
-    pub files: Vec<OrgFile>,
     pub todo_defaults: TodoConfig,
-    pub task_scan_rules: TaskScanRules,
 }
 
 /// 文件列表的轻量元信息，不携带正文、语法树或任务投影。
@@ -88,31 +87,13 @@ impl OrgRepo {
         Ok(Self {
             id: String::new(),
             root_directory,
-            files: Vec::new(),
             todo_defaults: TodoConfig::default(),
-            task_scan_rules: TaskScanRules::default(),
         })
     }
 
     pub fn set_todo_defaults(&mut self, defaults: TodoConfig) -> Result<(), CoreError> {
         defaults.validate()?;
-        let files = self
-            .files
-            .iter()
-            .map(|file| {
-                let mut updated = OrgFile::with_todo_defaults_and_setup(
-                    file.repo_id.clone(),
-                    file.path.clone(),
-                    file.source_bytes.clone(),
-                    defaults.clone(),
-                    file.todo_setup.clone(),
-                )?;
-                updated.modified_at = file.modified_at;
-                Ok(updated)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         self.todo_defaults = defaults;
-        self.files = files;
         Ok(())
     }
 
@@ -120,27 +101,7 @@ impl OrgRepo {
         validate_relative_path(path).is_ok()
     }
 
-    pub fn files(&self) -> &[OrgFile] {
-        &self.files
-    }
 
-    pub fn file_metadata(&self) -> Vec<OrgFileMetadata> {
-        self.files
-            .iter()
-            .map(|file| file.metadata(self.task_scan_rules.excludes(&file.path)))
-            .collect()
-    }
-
-    /// 返回当前文件的独立对象；不存在时构造未落盘的空文件供读取默认元信息。
-    pub fn file(&self, path: &str) -> Result<OrgFile, CoreError> {
-        if !self.contains_path(path) {
-            return Err(CoreError::InvalidInput("Org 文件路径无效"));
-        }
-        match self.files.iter().find(|file| file.path == path) {
-            Some(file) => Ok(file.clone()),
-            None => self.parse_file(path.into(), Vec::new()),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -152,6 +113,7 @@ pub struct OrgFile {
     pub(crate) todo_defaults: TodoConfig,
     pub(crate) todo_setup: String,
     pub(crate) modified_at: Option<TimestampMs>,
+    pub(crate) scan_ignored: bool,
     syntax: orgize::Org,
 }
 
@@ -221,6 +183,7 @@ impl OrgFile {
             todo_defaults: defaults,
             todo_setup,
             modified_at: None,
+            scan_ignored: false,
             syntax,
         })
     }
@@ -289,6 +252,7 @@ impl Clone for OrgFile {
         )
         .expect("已加载的 Org 文件必须可重新解析");
         file.modified_at = self.modified_at;
+        file.scan_ignored = self.scan_ignored;
         file
     }
 }
@@ -566,13 +530,11 @@ mod tests {
 
     #[test]
     fn workspace_rejects_duplicate_repo_ids() {
-        let repo = OrgRepo {
+        let repo = crate::model::test_support::with_files(OrgRepo {
             id: "repo-1".into(),
             root_directory: "/data/org".into(),
             todo_defaults: TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: Vec::new(),
-        };
+        }, Vec::new(), Default::default());
         assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
     }
 
@@ -622,8 +584,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn file_title_and_lightweight_metadata_follow_header_syntax_without_source_copy() {
+    #[tokio::test]
+    async fn file_title_and_lightweight_metadata_follow_header_syntax_without_source_copy() {
         for (source, expected) in [
             ("", None),
             ("#+TITLE: 工作计划\r\n* Task\r\n", Some("工作计划")),
@@ -639,11 +601,11 @@ mod tests {
                 OrgFile::new("repo".into(), "work.org".into(), source.as_bytes().to_vec()).unwrap();
             assert_eq!(file.title().as_deref(), expected);
             let mut repo = OrgRepo::new("/unused".into()).unwrap();
-            repo.files.push(file);
-            let metadata = repo.file_metadata();
+            { let value = file; crate::model::test_support::push_file(&mut repo, value); };
+            let metadata = repo.file_metadata().await.unwrap();
             assert_eq!(metadata[0].title.as_deref(), expected);
             assert_eq!(metadata[0].path, "work.org");
-            assert_eq!(repo.files[0].source_bytes(), source.as_bytes());
+            assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), source.as_bytes());
             let value = serde_json::to_value(&metadata[0]).unwrap();
             assert_eq!(value.as_object().unwrap().len(), 11);
             assert_eq!(value["tagOptions"], serde_json::json!([]));
@@ -697,32 +659,31 @@ mod tests {
         );
     }
 
-    #[test]
-    fn repository_file_objects_preserve_values_and_support_unsaved_targets() {
+    #[tokio::test]
+    async fn repository_file_objects_preserve_values_and_support_unsaved_targets() {
         let mut repo = OrgRepo::new("/unused".into()).unwrap();
-        assert!(repo.file("new.org").is_err());
+        assert!(repo.file("new.org").await.is_err());
         repo.id = "repo".into();
         repo.set_todo_defaults(TodoConfig::from_settings("#+TODO: NEXT | CLOSED").unwrap())
             .unwrap();
-        repo.files.push(
+        { let value =
             OrgFile::new(
                 "repo".into(),
                 "work.org".into(),
                 b"#+CATEGORY: Work\n".to_vec(),
             )
-            .unwrap(),
-        );
-        let file = repo.file("work.org").unwrap();
-        repo.files.clear();
+            .unwrap(); crate::model::test_support::push_file(&mut repo, value); };
+        let file = repo.file("work.org").await.unwrap();
+        crate::model::test_support::clear_files(&mut repo);
         assert_eq!(file.category().as_deref(), Some("Work"));
-        let draft = repo.file("new.org").unwrap();
-        assert_eq!(draft.repo_id, "repo");
+        let draft = repo.file("new.org").await.unwrap();
+        assert_eq!(draft.repo_id, repo.id);
         assert_eq!(draft.path, "new.org");
         assert!(draft.source_bytes().is_empty());
         assert_eq!(draft.todo.initial_state.as_deref(), Some("NEXT"));
         assert!(draft.category().is_none());
-        assert!(repo.files().is_empty());
-        assert!(repo.file("../work.org").is_err());
+        assert!(repo.load_files(&[]).await.unwrap().is_empty());
+        assert!(repo.file("../work.org").await.is_err());
     }
 
     #[test]
@@ -773,4 +734,5 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) mod test_support;

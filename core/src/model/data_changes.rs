@@ -51,13 +51,11 @@ mod tests {
 
     #[test]
     fn multiple_subscriptions_receive_and_can_cancel_repository_changes() {
-        let repo = super::super::OrgRepo {
+        let repo = crate::model::test_support::with_files(crate::OrgRepo {
             id: "repo".into(),
             root_directory: "/tmp/data-change-test".into(),
-            files: Vec::new(),
             todo_defaults: super::super::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-        };
+        }, Vec::new(), Default::default());
         let workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
         let first = Arc::new(Mutex::new(Vec::new()));
         let second = Arc::new(Mutex::new(Vec::new()));

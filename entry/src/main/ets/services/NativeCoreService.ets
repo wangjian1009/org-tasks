@@ -159,7 +159,7 @@ export class CoreRepo {
 
   async file(path: string): Promise<CoreOrgFile> { return await this.native.file(path) }
 
-  async files(): Promise<CoreOrgFile[]> { return await this.native.files() }
+  async loadFiles(ignoreFiles: string[] = []): Promise<CoreOrgFile[]> { return await this.native.loadFiles(ignoreFiles) }
   async fileMetadata(): Promise<CoreOrgFileMetadata[]> { return await this.native.fileMetadata() }
 
   async conflicts(): Promise<NativeConflictSync[]> { return await this.native.conflicts() }

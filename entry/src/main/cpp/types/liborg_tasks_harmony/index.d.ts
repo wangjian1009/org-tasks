@@ -218,7 +218,7 @@ export class Workspace {
 export class Repo {
   private constructor();
   file(path: string): Promise<OrgFile>;
-  files(): Promise<OrgFile[]>;
+  loadFiles(ignoreFiles?: string[]): Promise<OrgFile[]>;
   fileMetadata(): Promise<OrgFileMetadata[]>;
   readonly id: string;
   readonly rootDirectory: string;

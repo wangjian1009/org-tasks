@@ -42,7 +42,7 @@ impl Fixture {
         }
     }
     async fn preview(&mut self) -> ConflictPreview {
-        let file = self.workspace.repos()[0].file("a.org").unwrap();
+        let file = self.workspace.repos()[0].file("a.org").await.unwrap();
         self.workspace
             .create_conflict_preview(ConflictPreviewRequest {
                 file: file.full_path(),
@@ -81,14 +81,14 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
     let mut f = Fixture::new().await;
-    let before = f.workspace.query(&TaskQuery::default()).unwrap();
+    let before = f.workspace.query(&TaskQuery::default()).await.unwrap();
     let p = f.preview().await;
     assert_eq!(p.full_path().repo_id, "<preview>");
     assert_eq!(p.full_path().file.as_deref(), Some(p.id()));
     assert_eq!(p.file().await.unwrap().source_bytes(), f.source);
     assert_eq!(
         f.workspace
-            .query(&TaskQuery::default())
+            .query(&TaskQuery::default()).await
             .unwrap()
             .tasks
             .len(),
@@ -201,7 +201,7 @@ async fn new_copy_invalidates_old_paths_and_mixed_operations_fail_before_writing
     assert!(old.file().await.is_err());
     assert!(f.workspace.file_at(&old.full_path()).await.is_err());
     let file = current.file().await.unwrap();
-    let real = f.workspace.repos()[0].file("a.org").unwrap();
+    let real = f.workspace.repos()[0].file("a.org").await.unwrap();
     let group = TaskOperationGroup {
         operations: vec![TaskOperation::Deletion(TaskDeletion {
             path: real.node_paths()[0].clone(),
@@ -320,7 +320,7 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
     assert_eq!(group.operations.len(), 1);
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(
-        f.workspace.repos()[0].file("a.org").unwrap().conflict_ids(),
+        f.workspace.repos()[0].file("a.org").await.unwrap().conflict_ids(),
         vec![other]
     );
     assert_eq!(
@@ -497,7 +497,7 @@ async fn another_workspace_does_not_clean_a_live_preview_lease() {
         .unwrap()
         .with_preview_root(f.root.join("previews"))
         .unwrap();
-    let file = independent.repos()[0].file("a.org").unwrap();
+    let file = independent.repos()[0].file("a.org").await.unwrap();
     let second = independent
         .create_conflict_preview(ConflictPreviewRequest {
             file: file.full_path(),
@@ -568,7 +568,7 @@ async fn every_conflict_choice_in_one_preview_is_returned_in_order() {
         std::fs::read(f.root.join("repo/a.org")).unwrap(),
         edited.source_bytes()
     );
-    assert!(!f.workspace.repos()[0].file("a.org").unwrap().has_conflict());
+    assert!(!f.workspace.repos()[0].file("a.org").await.unwrap().has_conflict());
 }
 
 #[tokio::test]

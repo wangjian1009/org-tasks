@@ -174,7 +174,7 @@ pub async fn run() -> Result<(), String> {
             SyncTarget::Webdav(args) => sync_webdav(repo, args).await,
         },
         Command::Conflict(command) => crate::conflict::run(repo, history_records, command).await,
-        Command::History(command) => history(history_records, command),
+        Command::History(command) => history(repo.webdav_history().await.map_err(|e| e.to_string())?, command),
         Command::File(command) => file(repo, command).await,
         Command::Task(command) => task(repo, command).await,
     }
@@ -185,7 +185,7 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
     match command.target {
         TaskTarget::All => print_tasks(
             workspace
-                .query(&org_tasks_core::TaskQuery::default())
+                .query(&org_tasks_core::TaskQuery::default()).await
                 .map_err(|error| error.to_string())?
                 .tasks,
         ),
@@ -194,11 +194,11 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
                 .query(&org_tasks_core::TaskQuery {
                     expression: args.expression,
                     ..Default::default()
-                })
+                }).await
                 .map_err(|error| error.to_string())?
                 .tasks,
         ),
-        TaskTarget::Paths => print_json(&task_nodes(&workspace)),
+        TaskTarget::Paths => print_json(&task_nodes(&workspace).await?),
         TaskTarget::Apply(args) => {
             for directory in args.repository {
                 let mut repo = open_repo(directory)?;
@@ -210,17 +210,17 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
             let group: org_tasks_core::TaskOperationGroup = serde_json::from_slice(&bytes).map_err(|e|format!("操作组格式无效: {e}"))?;
             workspace.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
             print_json(&serde_json::json!({
-                "history": workspace.task_operation_history, "nodes": task_nodes(&workspace)}))
+                "history": workspace.task_operation_history, "nodes": task_nodes(&workspace).await?}))
         }
     }
 }
 
-fn task_nodes(workspace: &OrgWorkspace) -> Vec<serde_json::Value> {
+async fn task_nodes(workspace: &OrgWorkspace) -> Result<Vec<serde_json::Value>, String> {
     let mut nodes=Vec::new();
     for repo in workspace.repos() {
         nodes.push(serde_json::json!({"kind":"repository","fullPath":repo.full_path(),"taskId":null}));
-        let records=repo.nodes();
-        for file in repo.files() {
+        let records=repo.nodes().await.map_err(|e|e.to_string())?;
+        for file in repo.load_files(&[]).await.map_err(|e|e.to_string())? {
             nodes.push(serde_json::json!({"kind":"file","fullPath":file.full_path(),"taskId":null,
                 "fileVersion":org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash}));
             // 路径与身份均来自 Core 投影，CLI 不解析或重建标题树。
@@ -230,7 +230,7 @@ fn task_nodes(workspace: &OrgWorkspace) -> Vec<serde_json::Value> {
             }
         }
     }
-    nodes
+    Ok(nodes)
 }
 
 fn print_json(value: &impl serde::Serialize) -> Result<(), String> {
@@ -274,17 +274,18 @@ fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {
 async fn file(repo: OrgRepo, command: FileCommand) -> Result<(), String> {
     match command.target {
         FileTarget::List => list_files(&repo).await,
-        FileTarget::Dump(args) => dump_file(&repo, &args.path),
+        FileTarget::Dump(args) => dump_file(&repo, &args.path).await,
     }
 }
 
 async fn list_files(repo: &OrgRepo) -> Result<(), String> {
-    if repo.files().is_empty() {
+    let files = repo.load_files(&[]).await.map_err(|e|e.to_string())?;
+    if files.is_empty() {
         println!("没有 Org 文件。");
         return Ok(());
     }
     println!("文件  任务数  大小  MD5  最后修改时间  TODO 来源与状态");
-    for file in repo.files() {
+    for file in &files {
         let metadata = tokio::fs::metadata(PathBuf::from(&repo.root_directory).join(&file.path))
             .await
             .map_err(|error| format!("无法读取文件元数据 {}: {error}", file.path))?;
@@ -306,12 +307,8 @@ async fn list_files(repo: &OrgRepo) -> Result<(), String> {
     Ok(())
 }
 
-fn dump_file(repo: &OrgRepo, path: &str) -> Result<(), String> {
-    let file = repo
-        .files()
-        .iter()
-        .find(|file| file.path == path)
-        .ok_or_else(|| format!("未找到 Org 文件: {path}"))?;
+async fn dump_file(repo: &OrgRepo, path: &str) -> Result<(), String> {
+    let file = repo.file(path).await.map_err(|e|e.to_string())?;
     println!("{}", file.path);
     println!(
         "TODO 元信息: {}",
@@ -784,23 +781,21 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn task_search_view_uses_core_filter_task_projection() {
+    #[tokio::test]
+    async fn task_search_view_uses_core_filter_task_projection() {
         let file = org_tasks_core::OrgFile::new(
             "repo-1".into(),
             "inbox.org".into(),
             b"* TODO [#A] Parent :work:\n** DONE Child :done:\n".to_vec(),
         )
         .unwrap();
-        let repo = OrgRepo {
+        let repo = super::test_support::with_files(OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/org".into(),
             todo_defaults: org_tasks_core::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![file],
-        };
+        }, vec![file], Default::default());
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let tasks = workspace.query(&org_tasks_core::TaskQuery::default()).unwrap().tasks;
+        let tasks = workspace.query(&org_tasks_core::TaskQuery::default()).await.unwrap().tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].state(), Some("TODO"));
         assert_eq!(tasks[0].priority(), Some("A"));
@@ -813,4 +808,11 @@ mod tests {
     fn md5_uses_standard_lowercase_hex() {
         assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
     }
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+mod test_support {
+    use org_tasks_core as core_types;
+    include!("../../../tests/support/disk.rs");
 }

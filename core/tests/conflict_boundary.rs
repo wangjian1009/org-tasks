@@ -72,7 +72,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targets() {
     let f = Fixture::new().await;
-    let result = f.workspace.query(&TaskQuery::default()).unwrap();
+    let result = f.workspace.query(&TaskQuery::default()).await.unwrap();
     assert_eq!(
         result.tasks.iter().map(|t| t.title()).collect::<Vec<_>>(),
         vec!["Normal", "Parent", "Visible"]
@@ -93,7 +93,7 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
                     include_done: true,
                     include_compose_tasks: true,
                     ..Default::default()
-                })
+                }).await
                 .unwrap()
                 .tasks
                 .is_empty(),
@@ -102,12 +102,12 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
     }
     let targets = f
         .workspace
-        .query_refile_targets(&RefileTargetQuery::default())
+        .query_refile_targets(&RefileTargetQuery::default()).await
         .unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].heading_path, vec!["Normal"]);
-    assert_eq!(f.workspace.repos()[0].file_metadata()[0].task_count, 3);
-    assert_eq!(f.workspace.repos()[0].nodes().len(), 3);
+    assert_eq!(f.workspace.repos()[0].file_metadata().await.unwrap()[0].task_count, 3);
+    assert_eq!(f.workspace.repos()[0].nodes().await.unwrap().len(), 3);
 }
 
 #[tokio::test]

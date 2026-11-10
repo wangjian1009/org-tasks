@@ -16,11 +16,30 @@
 
 * 范围与状态
 
-本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，并拥有当前文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局和本次重构目标见 [[file:同步核心设计.org][同步核心设计]]。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，不持有文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局和本次重构目标见 [[file:同步核心设计.org][同步核心设计]]。
 
 ~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~TaskOperationGroup~ 是统一任务修改输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
 调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
+
+仓库按需读盘和跨进程同步模型见 [[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。 ~OrgRepo~ 仅持有身份、根目录配置和默认 TODO 配置，移除 ~files~ 与扫描规则缓存； ~load_files(ignore_files)~ 异步返回操作拥有的文件集合。以下同步租约与恢复对象仍为私有执行状态。
+
+* 同步执行与重置恢复对象
+
+每轮同步的 ~Session~ 独立持有文件租约和阶段身份，网络阶段不占仓库锁。 ~State~ 落盘于本轮目录，关联仓库 ID、同步 ID、开始时间和阶段；根目录 ~sync~ 标记仅保存该同步 ID。 ~ResetIntent~ 记录已声明的重置及所属仓库，清理完成前持续存在。真实数据通过已有 ~Guard~ 排他访问；临时下载、合并和请求结果归属本轮同步目录。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{Session}{root: PathBuf \\ state: State \\ lease: File}{begin() \\ finish()}
+\umlclass[x=7,y=0]{State}{version: u32 \\ id: String \\ repo\_id: String \\ started\_at: TimestampMs \\ phase: Phase}{}
+\umlclass[x=0,y=-4]{Guard}{file: File \\ local: OwnedMutexGuard}{}
+\umlclass[x=7,y=-4]{ResetIntent}{version: u32 \\ repo\_id: String}{}
+\umluniassoc[mult1=1,mult2=1]{Session}{State}
+\umldep{Session}{Guard}
+\umldep{ResetIntent}{Guard}
+\end{tikzpicture}
+\end{center}
 
 * 模型概览
 
@@ -39,13 +58,12 @@ task\_merge\_operations(request): TaskMergePlan}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
-  files: Vec\textless OrgFile\textgreater \\
-  todo\_defaults: TodoConfig \\
-  task\_scan\_rules: TaskScanRules
+  todo\_defaults: TodoConfig
 }{
   reset(): Result \\
-  file(path): OrgFile \\
-  file\_metadata(): Vec\textless OrgFileMetadata\textgreater \\
+  load\_files(ignore\_files): FutureResult \\
+  file(path): FutureResult \\
+  file\_metadata(): FutureResult \\
   sync(policy, started\_at, cancellation, progress) \\
   sync\_with\_options(policy, started\_at, cancellation, progress, options)
 }
@@ -106,7 +124,7 @@ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 \umldep{OrgRepo}{OrgRepoWriteIntent}
 
 \umluniassoc[mult1=1,mult2=0..*]{OrgWorkspace}{OrgRepo}
-\umluniassoc[mult1=1,mult2=0..*]{OrgRepo}{OrgFile}
+\umldep{OrgRepo}{OrgFile}
 \umldep{OrgRepo}{OrgRepoSyncRecord}
 \umluniassoc[mult1=1,mult2=0..*]{OrgRepoSyncRecord}{OrgRepoSyncFileRecord}
 \umldep{OrgRepoSyncFileRecord}{OrgFile}
@@ -136,6 +154,8 @@ pub struct FilterTask {
     id: String,
     full_path: TaskPath,
     file_metadata: Arc<OrgFileMetadata>,
+    file_version: String,
+    edit_content: TaskEditContent,
     support_tags: Option<Arc<SupportTags>>,
     category: Option<String>,
     line: u32,
@@ -170,6 +190,8 @@ impl FilterTask {
     pub fn repo_id(&self) -> &str;
     pub fn path(&self) -> &str;
     pub fn file_metadata(&self) -> &OrgFileMetadata;
+    pub fn file_version(&self) -> &str;
+    pub fn edit_content(&self) -> &TaskEditContent;
     pub fn support_tags(&self) -> Option<&SupportTags>;
     pub fn category(&self) -> Option<&str>;
     pub fn line(&self) -> u32;
@@ -234,7 +256,9 @@ pub struct SupportTags {
 \begin{center}
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{file\_metadata: Arc\textless OrgFileMetadata\textgreater \\
-  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ support\_tags(): Option\textless SupportTags\textgreater}
+  file\_version: String \\
+  edit\_content: TaskEditContent \\
+  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ file\_version(): String \\ edit\_content(): TaskEditContent \\ support\_tags(): Option\textless SupportTags\textgreater}
 \umlclass[x=8,y=0]{OrgFileMetadata}{repo\_id: OrgRepoId \\ path: String}{}
 \umlclass[x=8,y=-4]{SupportTags}{tags: Vec\textless String\textgreater \\ groups: Vec\textless Vec\textless String\textgreater\textgreater}{}
 \umluniassoc[mult1=0..*,mult2=1]{FilterTask}{OrgFileMetadata}
@@ -319,6 +343,9 @@ Group 的 taskId：null
 
 明文身份仅用于运行时查询与宿主日历映射，不进入同步日志、outbox 或错误摘要。冲突比较中的 Org ID 优先级与原文单元 key 保持独立；不以任务身份替代内容版本校验。
 
+
+任务查询结果另外保留同次文件读取产生的 ~file_version()~ 和 ~edit_content()~ ，后者为 ~TaskEditContent~ 值对象。它们不引用仓库或完整语法树，用于宿主直接投影版本和编辑内容；源文件后续变化不会修改已返回结果。
+
 * 完整结构路径与插入位置
 
 ~TaskPath~ 定义于 ~core::model~ ，形式为“仓库 + 文件 + title1 + title2”。仓库和文件通过各自的 ~full_path()~ 返回路径；每个标题投影通过 ~FilterTask.full_path()~ 返回路径，包括所有无状态标题。 ~OrgFile.node_paths()~ 遍历完整标题树， ~OrgRepo.nodes()~ 返回相同范围的标题投影，均不受任务查询和忽略规则影响。
@@ -359,9 +386,9 @@ pub struct TaskPosition {
 
 ~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~TaskQuery~ 查询，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
-~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~files~ 保存扫描后的文件快照；同步历史属于仓库的本地控制数据， ~load::<P>~ 可返回它供查询； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，也不新增历史字段或单独状态文件。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
+~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~load_files(ignore_files)~ 每次从磁盘返回独立文件集合，仓库不保留它；同步历史属于仓库的本地控制数据，由专用历史方法读取； ~load::<P>~ 仅处理身份； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，历史通过既有控制目录与本轮同步状态关联，仓库对象不持有历史集合。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
-~task_scan_rules~ 是从仓库根目录 ~.orgzlyignore~ 加载的运行时任务扫描规则，默认为空。 ~files~ 仍保存全部已扫描 org 文件，规则仅在生成 ~FilterTask~ 时排除命中文件的全部标题及子标题。规则匹配不改变 Org 文件同步候选、原始字节或写入意图；运行时 matcher 不序列化到 ~.sync/~ 。WebDAV 从远端下载的根目录配置单独保存普通文件同步记录与原始 UTF-8 快照，校验后同时更新本地配置和运行时规则；不加入 ~files~ ，也不生成 Org 任务指纹。
+根目录 ~.orgzlyignore~ 每次读盘时加载到本次操作上下文； ~OrgRepo~ 不保存规则。 ~load_files~ 返回完整的本次文件集合并携带对应的元信息标记，任务查询排除命中规则的标题。规则不改变文件同步、原始字节或 outbox；WebDAV 更新配置后，下一次读取立即使用新规则。
 
 远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不进入 ~OrgRepo~ 或任何其他 core 数据结构。
 
@@ -375,9 +402,7 @@ pub struct OrgWorkspace {
 pub struct OrgRepo {
     pub id: OrgRepoId,
     pub root_directory: String,
-    pub files: Vec<OrgFile>,
     pub todo_defaults: TodoConfig,
-    pub task_scan_rules: TaskScanRules,
 }
 #+end_src
 
@@ -457,7 +482,7 @@ Uploaded / Failed / Skipped / Legacy}{}
 
 持久化层在仓库根目录的 ~.sync~ 中保存 ~OrgRepoSyncRecord~ 、 ~OrgRepoSyncFileRecord~ 及其版本元数据，并以 ~.sync/id~ 保存稳定 ~OrgRepoId~ ；完整布局、提交和恢复规则见 [[file:目录结构设计.org][目录结构设计]]。Org 内容由原始文件保存，运行时 ~orgize~ 缓存不持久化。持久化不得保存仓库根目录、远端完整 URL、配置凭据或运行时调度状态；完整内容仅作为成功文件快照和冲突备份保存。
 
-~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。 ~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和仓库快照更新；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
+~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。 ~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和磁盘提交；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 
 * 旧接口
 
@@ -906,9 +931,9 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 1. 根据操作组收集所需源文件、目标 parent 和 after 所在文件；验证安全路径、仓库归属和可选的 ~file_versions~ ，将原始内容加载到隔离内存快照。不存在的 Org 文件可由创建操作产生，移动目标须已存在于本组内存快照；父目录须已存在，加载阶段不创建目录，不跟随文件符号链接。
 2. 按 operations 顺序执行；后续操作使用前面步骤产生的新路径。组内改名、移动、重名项序号变化后，旧路径可能失效，Core 不猜测调用意图。提交成功后发布仓库数据变化事件；失败或无实际文件变化不发布。
-3. 任一内存操作失败即丢弃全组，不修改用户文件、outbox、workspace 快照或操作历史。受影响但未修改的文件不重复写入。
+3. 任一内存操作失败即丢弃全组，不修改用户文件、outbox 或操作历史。受影响但未修改的文件不重复写入。
 4. 所有内存操作完成后，准备完整临时文件、回退字节和最终 outbox；再次核对原始磁盘字节，统一进入提交。普通提交 I/O 失败时以已准备的原始字节回滚已替换文件，并清理本次临时文件和意图。
-5. 全部文件提交成功后才发布新 workspace 快照，将一次 ~TaskFallbackGroup~ 与原操作组一起追加到 ~TaskOperationHistory~ 。失败的组不形成成功历史，也不发布数据变化事件。
+5. 全部文件提交成功后释放本次文件集合并发布数据变化通知，将一次 ~TaskFallbackGroup~ 与原操作组一起追加到 ~TaskOperationHistory~ 。失败的组不形成成功历史，也不发布数据变化事件。
 
 单文件替换采用同目录原子重命名。普通文件系统不提供跨文件、跨仓库的整体原子替换；进程崩溃、介质不可写或回滚期间的外部并发写入不能仅靠内存保证恢复。检测到回滚目标已被外部写入时保留回退文件并明确返回存储错误，不覆盖外部数据，也不将部分提交登记为成功。当前契约覆盖可正常完成回滚的执行错误，崩溃恢复与持久化事务日志另行设计。
 

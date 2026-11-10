@@ -374,8 +374,7 @@ impl OrgWorkspace {
             .repo(&request.file.repo_id)
             .ok_or(error("previewExpired", "源仓库不可用"))?;
         let source_root = fs::canonicalize(&repo.root_directory).await.map_err(io)?;
-        let _guard = crate::webdav::transaction::lock(&source_root).await?;
-        crate::webdav::transaction::recover(&source_root).await?;
+        let _guard = super::access::enter(&source_root, &repo.id).await?;
         let path = request
             .file
             .file
@@ -388,7 +387,8 @@ impl OrgWorkspace {
         if LocalFileVersion::from_bytes(&source).content_hash != request.source_version {
             return Err(error("sourceVersionMismatch", "原文件已变化，请重新读取"));
         }
-        let original = repo.parse_file(path.clone(), source)?;
+        let setup = super::service::load_setup_settings(&source_root, path, &source).await?;
+        let original = repo.parse_file_with_setup(path.clone(), source, setup)?;
         if !original
             .conflicts()?
             .iter()
@@ -457,10 +457,8 @@ impl OrgWorkspace {
                 .as_ref()
                 .ok_or(CoreError::InvalidInput("读取必须指定文件"))?;
             let root = Path::new(&repo.root_directory);
-            let _guard = crate::webdav::transaction::lock(root).await?;
-            crate::webdav::transaction::recover(root).await?;
-            let disk = super::task_operation_executor::checked_disk(root, relative).await?;
-            repo.parse_file(relative.clone(), fs::read(disk).await.map_err(io)?)
+            let _guard = super::access::enter(root, &repo.id).await?;
+            repo.file_unlocked(relative).await
         }
     }
     pub(super) async fn execute_preview_operations(
@@ -579,9 +577,7 @@ impl OrgFile {
         let repo = OrgRepo {
             id: self.repo_id.clone(),
             root_directory: String::new(),
-            files: Vec::new(),
             todo_defaults: TodoConfig::default(),
-            task_scan_rules: Default::default(),
         };
         crate::filter::tasks_from_file(&repo, self)
     }

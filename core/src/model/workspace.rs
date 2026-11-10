@@ -111,59 +111,53 @@ mod tests {
     use super::*;
     use crate::OrgFile;
 
-    #[test]
-    fn query_combines_repositories_and_keeps_repository_identity() {
-        let first = OrgRepo {
+    #[tokio::test]
+    async fn query_combines_repositories_and_keeps_repository_identity() {
+        let first = crate::model::test_support::with_files(OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![
+        }, vec![
                 OrgFile::new(
                     "repo-1".into(),
                     "tasks.org".into(),
                     b"* TODO First\n".to_vec(),
                 )
                 .unwrap(),
-            ],
-        };
-        let second = OrgRepo {
+            ], Default::default());
+        let second = crate::model::test_support::with_files(OrgRepo {
             id: "repo-2".into(),
             root_directory: "/tmp/two".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: vec![
+        }, vec![
                 OrgFile::new(
                     "repo-2".into(),
                     "tasks.org".into(),
                     b"* TODO Second\n".to_vec(),
                 )
                 .unwrap(),
-            ],
-        };
+            ], Default::default());
         let workspace = OrgWorkspace::new(vec![first, second]).unwrap();
-        let tasks = workspace.query(&crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }).unwrap().tasks;
+        let tasks = workspace.query(&crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }).await.unwrap().tasks;
 
         assert_eq!(tasks.len(), 2);
-        assert_eq!(tasks[0].repo_id(), "repo-1");
-        assert_eq!(tasks[1].repo_id(), "repo-2");
+        assert_eq!(tasks[0].repo_id(), crate::model::test_support::id("repo-1"));
+        assert_eq!(tasks[1].repo_id(), crate::model::test_support::id("repo-2"));
     }
 
     #[test]
     fn repo_mut_returns_only_the_repository_with_matching_identity() {
-        let mut workspace = OrgWorkspace::new(vec![OrgRepo {
+        let mut workspace = OrgWorkspace::new(vec![crate::model::test_support::with_files(OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: Vec::new(),
-        }])
+        }, Vec::new(), Default::default())])
         .unwrap();
 
-        workspace.repo_mut(&"repo-1".into()).unwrap().root_directory = "/tmp/updated".into();
+        workspace.repo_mut(&crate::model::test_support::id("repo-1")).unwrap().root_directory = "/tmp/updated".into();
 
         assert_eq!(
-            workspace.repo(&"repo-1".into()).unwrap().root_directory,
+            workspace.repo(&crate::model::test_support::id("repo-1")).unwrap().root_directory,
             "/tmp/updated"
         );
         assert!(workspace.repo_mut(&"unknown".into()).is_none());
@@ -171,13 +165,11 @@ mod tests {
 
     #[test]
     fn add_repo_rejects_duplicate_repository_identity() {
-        let repo = OrgRepo {
+        let repo = crate::model::test_support::with_files(OrgRepo {
             id: "repo-1".into(),
             root_directory: "/tmp/one".into(),
             todo_defaults: crate::TodoConfig::default(),
-            task_scan_rules: Default::default(),
-            files: Vec::new(),
-        };
+        }, Vec::new(), Default::default());
         let mut workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
 
         assert!(workspace.add_repo(repo).is_err());
@@ -202,34 +194,32 @@ mod tests {
         assert_eq!(removed.root_directory, "/tmp/one");
         assert!(workspace.repos().is_empty());
     }
-    #[test]
-    fn workspace_updates_external_defaults_for_loaded_and_new_repos() {
+    #[tokio::test]
+    async fn workspace_updates_external_defaults_for_loaded_and_new_repos() {
         let mut repo = OrgRepo::new("/tmp/one".into()).unwrap();
         repo.id = "repo".into();
-        repo.files.push(
-            OrgFile::new("repo".into(), "default.org".into(), b"* OPEN A\n".to_vec()).unwrap(),
-        );
-        repo.files.push(
+        { let value =
+            OrgFile::new("repo".into(), "default.org".into(), b"* OPEN A\n".to_vec()).unwrap(); crate::model::test_support::push_file(&mut repo, value); };
+        { let value =
             OrgFile::new(
                 "repo".into(),
                 "override.org".into(),
                 b"#+TODO: OWN | CLOSED\n* OWN B\n".to_vec(),
             )
-            .unwrap(),
-        );
+            .unwrap(); crate::model::test_support::push_file(&mut repo, value); };
         let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OPEN | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).unwrap().tasks.len(), 2);
+        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).await.unwrap().tasks.len(), 2);
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OTHER | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(&crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).await.unwrap().tasks.len(), 1);
         workspace
             .add_repo(OrgRepo::new("/tmp/two".into()).unwrap())
             .unwrap();
         assert_eq!(workspace.repos[1].todo_defaults, workspace.todo_defaults);
-        assert_eq!(workspace.repos[0].files[0].source_bytes(), b"* OPEN A\n");
+        assert_eq!(workspace.repos[0].load_files(&[]).await.unwrap()[0].source_bytes(), b"* OPEN A\n");
     }
 }

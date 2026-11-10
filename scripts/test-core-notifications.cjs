@@ -159,7 +159,7 @@ test('点击同步提示调用共享同步 service，忙碌或连续点击不会
 function pullFixture() {
   const filename = path.resolve('entry/src/main/ets/components/RepositorySyncView.ets');
   const source = fs.readFileSync(filename, 'utf8').split('  @Builder\n  pullIndicator()')[0]
-    .replace(/@Component\n|@State |@Prop |@BuilderParam |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
+    .replace(/@Component\n|@State |@Prop |@BuilderParam |@StorageLink\('[^']+'\)(?: @Watch\('[^']+'\))? /g, '')
     .replace('export struct RepositorySyncView', 'export class RepositorySyncView') + '}';
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} }, starts = [], toasts = [], context = {};

@@ -4,6 +4,7 @@
 #+STARTUP: show2levels hideblocks hidestars indent
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
+
 #+LATEX_CLASS: article
 #+LATEX_CLASS_OPTIONS: [a4paper]
 #+LATEX_HEADER: \usepackage{xeCJK}
@@ -12,11 +13,21 @@
 #+LATEX_HEADER: \geometry{a4paper,left=1cm,right=1cm,top=1cm,bottom=1cm}
 :END:
 
+* 仓库访问与恢复边界
+
+[[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]] 定义仓库锁有界异步等待、同步独立存活租约、阶段目录和重置意图恢复。 ~OrgRepo~ 不保存文件快照或扫描规则；原 ~files~ 字段和 ~files()~ 已移除，使用异步 ~load_files(ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError>~ 按次读取。依赖磁盘的查询、文件元信息、节点和目标方法使用异步 ~Result~ ，保持既有请求数据结构和错误枚举。 ~fileVersion~ 算法不变。
+
+~ignore_files~ 只接受当前仓库的安全相对路径，在读取正文和解析前精确排除。任务查询先筛选 ~excluded_files~ 中属于当前仓库的引用，再提取 ~path~ 传入；空列表不额外排除。 ~.orgzlyignore~ 独立按既有任务规则生效。 ~load()~ 仅初始化身份，不读取业务数据或执行恢复；其原泛型返回类型保留并返回空集合，历史应通过专用历史方法读取。
+
+每次真实业务访问在仓库锁内处理 ~reset~ 及失去同步租约的恢复材料；活动同步的网络阶段允许普通读写。同步在合并前重新读取本地内容，提交时校验文件版本与基线，禁止覆盖上传期间新增的编辑。查询结果中的 ~file_version()~ 和 ~edit_content()~ 来自同次读取，调用方直接消费该独立结果，不回查仓库数据。
+
+
+
 * 范围与状态
 
 本文定义围绕 ~OrgWorkspace~ 与 ~OrgRepo~ 的 core 接口。数据结构与源码保真规则见 [[file:数据模型.org][数据模型]]，WebDAV 协议语义见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]，Harmony 的配置与凭据边界见 [[file:../harmony/配置项设计.org][Harmony 配置项设计]]。
 
-~core::model~ 是本地仓库管理能力，直接扫描目录、解析 org 文件、维护文件快照和同步记录数据； ~core::webdav~ 是 ~SyncPolicy~ 的 WebDAV 实现，执行版本比较、下载、文件写回、创建与条件更新，并生成同步记录。仓库加载、WebDAV I/O 与同步控制器任务均运行于 Tokio；HTTP 和 Harmony 只负责选择和操作本地仓库；其他同步方式通过实现 ~SyncPolicy~ 接入。
+~core::model~ 是本地仓库管理能力，直接扫描目录、解析 org 文件、按次生成文件结果并维护同步记录数据； ~core::webdav~ 是 ~SyncPolicy~ 的 WebDAV 实现，执行版本比较、下载、文件写回、创建与条件更新，并生成同步记录。仓库加载、WebDAV I/O 与同步控制器任务均运行于 Tokio；HTTP 和 Harmony 只负责选择和操作本地仓库；其他同步方式通过实现 ~SyncPolicy~ 接入。
 
 * 核心场景
 
@@ -30,33 +41,35 @@ repo.load::<WebDavSyncPolicy>().await?;
 let workspace = OrgWorkspace::new(vec![repo])?;
 #+end_src
 
-~OrgWorkspace::new~ 校验已加载仓库的 ID 唯一性； ~OrgRepo::new~ 只校验根目录。 ~load~ 才会扫描目录并读取或创建 ~.sync/id~ ；它不会请求 WebDAV、创建后台线程或写入同步记录。
+~OrgWorkspace::new~ 校验已加载仓库的 ID 唯一性； ~OrgRepo::new~ 只校验根目录。 ~load~ 仅读取或创建 ~.sync/id~ ；它不会请求 WebDAV、创建后台线程或写入同步记录。
 
 ** 解析、编辑并写回 org 文件
 
-调用方通过 ~OrgRepo.load~ 扫描并解析目录中的 org 文件。随后用当前快照中的元素定位替换、删除或插入内容。未编辑文件直接以读取时的原始字节写回；编辑只影响目标范围或锚点，编辑后的位置由编辑器更新。
+调用方按路径读取独立文件值，用该次内容生成定位和版本约束，再由统一操作组执行修改。未编辑区域保留原始字节；仓库不保留文件结果，也不由宿主直接写回正式文件。
 
 #+begin_src rust
-let repo = workspace.repos.iter_mut().find(|repo| repo.id == repo_id)?;
-repo.load::<WebDavSyncPolicy>().await?;
-let file = repo.files.iter_mut().find(|file| file.path == "inbox.org")?;
-
-apply_edit(
-    file,
-    OrgFileEdit::ReplaceRange {
-        target: headline_range,
-        content: b"* TODO 更新后的标题\n".to_vec(),
-    },
-)?;
-
-file_writer.write(&file.path, serialize_file(file))?;
+let repo = workspace.repo(&repo_id).ok_or(CoreError::InvalidInput("仓库不存在"))?;
+let file = repo.file("inbox.org").await?;
+let path = file.node_paths().first().cloned().ok_or(CoreError::InvalidInput("文件没有标题"))?;
+let group = TaskOperationGroup {
+    operations: vec![TaskOperation::Modification(TaskModificationOperation {
+        path,
+        modifications: vec![TaskModification::Title(Some("更新后的标题".into()))],
+    })],
+    file_versions: vec![TaskFileVersion {
+        repo_id: file.repo_id.clone(), file: file.path.clone(),
+        version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+    }],
+    ..Default::default()
+};
+workspace.execute_task_operations(&group).await?;
 #+end_src
 
 调用方在下一次编辑前必须使用重新解析后的来源范围；旧的 ~SourceRange~ 不能跨文件快照复用。未被替换的字节必须保持原始值。
 
 ** 同步一个仓库
 
-宿主将同步策略传入仓库。 ~OrgRepo.sync~ 内部调用 ~load::<P>~ 恢复仓库身份、当前文件、outbox 和归属本仓库的完成历史，再构造 ~SyncContext~ 调用策略；调用方不传入历史，也不需要先加载旧快照。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
+宿主将同步策略传入仓库。 ~OrgRepo.sync~ 内部校验仓库身份与恢复状态，按阶段读取当前文件、outbox 和归属本仓库的完成历史，再构造 ~SyncContext~ 调用策略；调用方不传入历史，也不需要先加载旧快照。上传使用 ~serialize_file~ 的完整结果，不得在同步阶段格式化未修改区域。
 
 #+begin_src rust
 let record = repo.sync(
@@ -107,9 +120,9 @@ impl OrgWorkspace {
 
     pub fn remove_repo_by_root_directory(&mut self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
-    pub fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
+    pub async fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
 
-    pub fn refile_targets(&self) -> Vec<RefileTarget>;
+    pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, CoreError>;
 
     pub async fn execute_task_operations(
         &mut self, group: &TaskOperationGroup,
@@ -123,7 +136,7 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID、扫描文件并恢复同步记录。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 ~query~ 汇总全部已加载仓库的 headline 任务投影，解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 异步 ~query~ 按次加载文件并汇总 headline 任务投影，解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 ~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
@@ -141,9 +154,9 @@ impl OrgWorkspace {
 
 *** OrgRepo
 
-~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~ ，由 ~load::<P>~ 返回，不作为仓库字段保留。
+~OrgRepo~ 定义一个本地 org 文件仓库。根目录仅在运行时使用；同步历史落盘于根目录的 ~.sync/history/~ ，由专用历史接口按需读取，不作为仓库字段保留。
 
-~OrgRepo.notifications().await~ 返回当前仓库的待关注事件；仓库应先通过 ~load::<WebDavSyncPolicy>~ 取得稳定 Core ID。 ~OrgWorkspace.notifications().await~ 汇总已加载仓库的事件。完整契约见本文“待关注事件”一节。
+~OrgRepo.notifications().await~ 返回当前仓库的待关注事件；仓库应先通过 ~load::<WebDavSyncPolicy>~ 取得稳定 Core ID。 ~OrgWorkspace.notifications().await~ 按次读取并汇总各仓库的事件。完整契约见本文“待关注事件”一节。
 
 #+begin_src rust
 impl OrgRepo {
@@ -153,13 +166,13 @@ impl OrgRepo {
 
     pub fn contains_path(&self, path: &str) -> bool;
 
-    pub fn files(&self) -> &[OrgFile];
+    pub async fn load_files(&self, ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError>;
 
-    pub fn file_metadata(&self) -> Vec<OrgFileMetadata>;
+    pub async fn file_metadata(&self) -> Result<Vec<OrgFileMetadata>, CoreError>;
 
-    pub fn refile_targets(&self) -> Vec<RefileTarget>;
+    pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, CoreError>;
 
-    pub fn file(&self, path: &str) -> Result<OrgFile, CoreError>;
+    pub async fn file(&self, path: &str) -> Result<OrgFile, CoreError>;
 
     pub async fn pending_writes(&self) -> Result<Vec<OrgRepoWriteIntent>, CoreError>;
 
@@ -192,7 +205,7 @@ impl OrgRepo {
 
 *** TaskScanRules
 
-~OrgRepo.task_scan_rules~ 保存最近一次 ~load~ 从根目录 ~.orgzlyignore~ 加载的运行时规则；不改变 ~files()~ 和 ~file(path)~ 的完整文件访问，也不传入同步策略。 ~query~ 在 Core 生成任务记录时统一排除命中文件。 WebDAV 同步还会下载根目录忽略配置，并在校验和本地提交成功后立即更新该字段；配置不作为 Org 文件进入 ~files()~ ，其下载、删除和本地修改保护见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]。
+根目录 ~.orgzlyignore~ 在每次文件读取中重新加载；仓库不保存扫描规则。 ~load_files~ 和 ~file(path)~ 返回独立文件值，任务 ~query~ 依据本次读取的规则排除隐藏文件；WebDAV 下载、删除和本地修改保护见 [[file:WebDAV 同步能力设计.org][WebDAV 同步能力设计]]。
 
 #+begin_src rust
 impl TaskScanRules {
@@ -277,7 +290,7 @@ impl FilterDate {
 }
 impl OrgRepo {
     pub fn full_path(&self) -> TaskPath;
-    pub fn nodes(&self) -> Vec<FilterTask>;
+    pub async fn nodes(&self) -> Result<Vec<FilterTask>, CoreError>;
 }
 impl OrgFile {
     pub fn full_path(&self) -> TaskPath;
@@ -553,7 +566,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 * 任务放置目标
 
-~REFILE~ 是大小写敏感的系统标签，表示该标题可以作为放置任务的位置。 ~OrgRepo.refile_targets()~ 返回当前仓库的目标， ~OrgWorkspace.refile_targets()~ 汇总全部已加载仓库；只读取现有无损语法树，不重新加载磁盘，也不修改文件或同步记录。
+~REFILE~ 是大小写敏感的系统标签，表示该标题可以作为放置任务的位置。 ~OrgRepo.refile_targets()~ 返回当前仓库的目标， ~OrgWorkspace.refile_targets()~ 异步按次读取并汇总各仓库；不修改文件或同步记录。
 
 #+begin_src rust
 pub struct RefileTarget {
@@ -724,7 +737,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 放置目标的具体文件范围
 
-~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 读取已加载仓库的 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ 。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
+~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 异步按次读盘取得 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ 。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
 
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在源文件配置中验证，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 

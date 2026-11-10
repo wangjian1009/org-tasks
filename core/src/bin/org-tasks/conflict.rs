@@ -14,13 +14,13 @@ enum ConflictTarget {
 pub(crate) async fn run(repo: OrgRepo, _history: History, command: ConflictCommand) -> Result<(), String> {
     match command.target {
         ConflictTarget::List { json } => {
-            let files = repo.files().iter().filter(|file| file.has_conflict())
+            let files = repo.load_files(&[]).await.map_err(|e|e.to_string())?.iter().filter(|file| file.has_conflict())
                 .map(|file| serde_json::json!({ "path": file.path, "ids": file.conflict_ids() })).collect::<Vec<_>>();
             if json { println!("{}", serde_json::to_string_pretty(&files).map_err(|e|e.to_string())?); }
             else { for file in files { println!("{}", file); } }
         }
         ConflictTarget::Discard { path } => {
-            let file = repo.file(&path).map_err(|e| e.to_string())?;
+            let file = repo.file(&path).await.map_err(|e| e.to_string())?;
             let ids = file.conflict_ids();
             if ids.is_empty() { return Err("此文件没有可丢弃的冲突点".into()); }
             let group = TaskOperationGroup {

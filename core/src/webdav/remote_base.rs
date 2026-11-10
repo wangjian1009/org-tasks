@@ -188,8 +188,7 @@ impl crate::OrgRepo {
     /// 仅比较索引中的已确认 hash 与当前字节，不读取基线正文、不运行三方合并或访问网络。
     pub async fn has_local_changes(&self) -> Result<bool, CoreError> {
         let root = Path::new(&self.root_directory);
-        let _guard = transaction::lock(root).await?;
-        transaction::recover(root).await?;
+        let _guard = crate::model::access::enter(root, &self.id).await?;
         let bytes = transaction::read(root, INDEX).await?;
         let index: Index = match bytes {
             Some(bytes) => serde_json::from_slice(&bytes)
@@ -203,7 +202,7 @@ impl crate::OrgRepo {
             return Err(CoreError::InvalidState("不支持的远端基线版本"));
         }
         let mut paths = self
-            .files()
+            .load_files_unlocked(&[]).await?
             .iter()
             .map(|file| file.path.clone())
             .collect::<std::collections::BTreeSet<_>>();

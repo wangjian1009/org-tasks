@@ -29,11 +29,11 @@ impl Fixture {
             workspace: OrgWorkspace::new(vec![repo]).unwrap(),
         }
     }
-    fn file(&self) -> OrgFile {
-        self.workspace.repos()[0].file("a.org").unwrap()
+    async fn file(&self) -> OrgFile {
+        self.workspace.repos()[0].file("a.org").await.unwrap()
     }
-    fn group(&self, ids: &[String]) -> TaskOperationGroup {
-        let file = self.file();
+    async fn group(&self, ids: &[String]) -> TaskOperationGroup {
+        let file = self.file().await;
         TaskOperationGroup {
             operations: ids
                 .iter()
@@ -78,7 +78,7 @@ async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
                 merged
             );
             let mut f = Fixture::new(&merged).await;
-            let file = f.file();
+            let file = f.file().await;
             assert!(file.has_conflict());
             assert_eq!(file.conflict_ids().len(), 2);
             let roots = file
@@ -108,7 +108,7 @@ async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
                     "{legacy}"
                 );
             }
-            let query = f.workspace.query(&TaskQuery::default()).unwrap();
+            let query = f.workspace.query(&TaskQuery::default()).await.unwrap();
             assert_eq!(query.tasks.len(), 2);
             assert!(
                 query
@@ -117,14 +117,14 @@ async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
                     .all(|task| !task.body().contains("local"))
             );
             let ids = file.conflict_ids();
-            let first = f.group(&ids[..1]);
+            let first = f.group(&ids[..1]).await;
             f.workspace.execute_task_operations(&first).await.unwrap();
-            assert!(f.file().has_conflict());
-            assert_eq!(f.file().conflict_ids().len(), 1);
-            let last = f.group(&ids[1..]);
+            assert!(f.file().await.has_conflict());
+            assert_eq!(f.file().await.conflict_ids().len(), 1);
+            let last = f.group(&ids[1..]).await;
             f.workspace.execute_task_operations(&last).await.unwrap();
-            assert!(!f.file().has_conflict());
-            assert!(f.file().conflict_ids().is_empty());
+            assert!(!f.file().await.has_conflict());
+            assert!(f.file().await.conflict_ids().is_empty());
             assert_eq!(
                 std::fs::read(f.root.join("a.org")).unwrap(),
                 remote.as_bytes()
@@ -143,12 +143,12 @@ async fn invalid_stale_or_duplicate_selections_leave_the_entire_group_unwritten(
     let base = b"* A\nbase\n";
     let merged = merge(base, b"* A\nlocal\n", b"* A\nremote\n").unwrap();
     let mut f = Fixture::new(&merged).await;
-    let ids = f.file().conflict_ids();
-    let mut stale = f.group(&ids);
+    let ids = f.file().await.conflict_ids();
+    let mut stale = f.group(&ids).await;
     stale.file_versions[0].version = "stale".into();
-    let mut duplicate = f.group(&ids);
+    let mut duplicate = f.group(&ids).await;
     duplicate.operations.push(duplicate.operations[0].clone());
-    let mut unknown = f.group(&ids);
+    let mut unknown = f.group(&ids).await;
     unknown
         .operations
         .push(TaskOperation::ConfilictSelection(TaskConfilictSelection { path:None, target:None,
@@ -187,8 +187,8 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
     for remote in ["* A\nremote", "* A\nremote\n"] {
         let merged = merge(b"* A\nbase\n", b"* A\nlocal\n", remote.as_bytes()).unwrap();
         let mut f = Fixture::new(&merged).await;
-        let original_ids = f.file().conflict_ids();
-        let normal = f.file().node_paths()[0].clone();
+        let original_ids = f.file().await.conflict_ids();
+        let normal = f.file().await.node_paths()[0].clone();
         f.workspace
             .execute_task_operations(&TaskOperationGroup {
                 operations: vec![
@@ -198,7 +198,7 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
                     }),
                     TaskOperation::Creation(TaskCreation::new(
                         TaskPosition {
-                            parent: f.file().full_path(),
+                            parent: f.file().await.full_path(),
                             after: Some(normal),
                         },
                         "New".into(),
@@ -208,15 +208,15 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
             })
             .await
             .unwrap();
-        assert_eq!(f.file().conflict_ids(), original_ids);
+        assert_eq!(f.file().await.conflict_ids(), original_ids);
         let clean = OrgFile::new(
-            f.file().repo_id.clone(),
+            f.file().await.repo_id.clone(),
             "a.org".into(),
             remote.as_bytes().to_vec(),
         )
         .unwrap();
         let mut plain = Fixture::new(clean.source_bytes()).await;
-        let plain_path = plain.file().node_paths()[0].clone();
+        let plain_path = plain.file().await.node_paths()[0].clone();
         plain
             .workspace
             .execute_task_operations(&TaskOperationGroup {
@@ -227,7 +227,7 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
                     }),
                     TaskOperation::Creation(TaskCreation::new(
                         TaskPosition {
-                            parent: plain.file().full_path(),
+                            parent: plain.file().await.full_path(),
                             after: Some(plain_path),
                         },
                         "New".into(),
@@ -237,8 +237,8 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
             })
             .await
             .unwrap();
-        let group = f.group(&original_ids);
+        let group = f.group(&original_ids).await;
         f.workspace.execute_task_operations(&group).await.unwrap();
-        assert_eq!(f.file().source_bytes(), plain.file().source_bytes());
+        assert_eq!(f.file().await.source_bytes(), plain.file().await.source_bytes());
     }
 }

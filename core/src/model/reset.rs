@@ -14,6 +14,13 @@ struct Journal {
     entries: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResetIntent {
+    version: u32,
+    repo_id: String,
+}
+
 fn io(error: std::io::Error) -> CoreError {
     CoreError::Store(format!("无法重置或恢复仓库目录: {error}"))
 }
@@ -47,6 +54,38 @@ fn validate(entry: &str) -> Result<(), CoreError> {
 
 /// 调用者持有仓库锁；正式完成前还原，完成后只清理，不跟随暂存中的符号链接。
 pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
+    if let Some(bytes) = transaction::read(root, "reset").await? {
+        let intent: ResetIntent = serde_json::from_slice(&bytes)
+            .map_err(|_| CoreError::InvalidState("reset 不是有效的仓库重置标记"))?;
+        let identity = super::service::read_repo_id(&root.join(".sync/id")).await.map_err(io)?;
+        if intent.version != 1 || intent.repo_id != identity {
+            return Err(CoreError::InvalidState("重置标记与仓库身份不一致"));
+        }
+        if crate::webdav::session::active(root).await? {
+            return Err(CoreError::InvalidState("重置等待活动同步结束"));
+        }
+        // 重置意图一旦落盘就继续清理；不让旧事务重新还原已声明清除的内容。
+        for directory in [root.to_path_buf(), root.join(".sync")] {
+            let mut entries = fs::read_dir(&directory).await.map_err(io)?;
+            while let Some(entry) = entries.next_entry().await.map_err(io)? {
+                let name = entry.file_name();
+                if (directory == root && (name == ".sync" || name == "reset"))
+                    || (directory != root && (name == "id" || name == ".transaction.lock")) {
+                    continue;
+                }
+                let meta = fs::symlink_metadata(entry.path()).await.map_err(io)?;
+                if meta.is_dir() && !meta.file_type().is_symlink() {
+                    fs::remove_dir_all(entry.path()).await.map_err(io)?;
+                } else {
+                    fs::remove_file(entry.path()).await.map_err(io)?;
+                }
+            }
+            sync(&directory)?;
+        }
+        fs::remove_file(root.join("reset")).await.map_err(io)?;
+        sync(root)?;
+        return Ok(());
+    }
     let work = root.join(WORK);
     if !exists(&work).await? {
         return Ok(());
@@ -131,85 +170,33 @@ impl OrgRepo {
         {
             return Err(CoreError::InvalidInput("不能重置此仓库根目录"));
         }
-        let _guard = transaction::lock(root).await?;
-        // 身份不可重建；拒绝过期句柄，避免清理已经更换身份的目录。
-        transaction::read(root, ".sync/id")
-            .await?
-            .ok_or(CoreError::InvalidState("仓库尚未初始化"))?;
-        let id = super::service::read_repo_id(&root.join(".sync/id"))
-            .await
-            .map_err(io)?;
-        if !self.id.is_empty() && self.id != id {
-            return Err(CoreError::InvalidState("仓库身份已改变，请重新打开"));
-        }
-        recover(root).await?;
-        let mut targets = Vec::new();
-        for directory in ["", ".sync"] {
-            let mut entries = fs::read_dir(root.join(directory)).await.map_err(io)?;
-            while let Some(entry) = entries.next_entry().await.map_err(io)? {
-                let name = entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| CoreError::InvalidInput("仓库包含非 UTF-8 文件名"))?;
-                if (directory.is_empty() && name == ".sync")
-                    || (directory == ".sync"
-                        && ["id", ".transaction.lock"].contains(&name.as_str()))
-                {
-                    continue;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let guard = transaction::lock_before(root, deadline).await?;
+            let id = super::service::read_repo_id(&root.join(".sync/id")).await.map_err(io)?;
+            if !self.id.is_empty() && self.id != id {
+                return Err(CoreError::InvalidState("仓库身份已改变，请重新打开"));
+            }
+            if transaction::read(root, "reset").await?.is_none() {
+                let intent = ResetIntent { version: 1, repo_id: id.clone() };
+                let bytes = serde_json::to_vec(&intent)
+                    .map_err(|_| CoreError::InvalidState("无法编码重置标记"))?;
+                transaction::atomic_write(&transaction::target(root, "reset").await?, &bytes).await?;
+            }
+            if crate::webdav::session::active(root).await? {
+                drop(guard);
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(CoreError::InvalidState("重置等待活动同步结束，已保留重置标记"));
                 }
-                let relative = if directory.is_empty() {
-                    name
-                } else {
-                    format!("{directory}/{name}")
-                };
-                validate(&relative)?;
-                targets.push(relative);
-            }
-        }
-        targets.sort();
-        let work = root.join(WORK);
-        fs::create_dir_all(work.join("items")).await.map_err(io)?;
-        let journal = Journal {
-            version: 1,
-            entries: targets,
-        };
-        super::write_intent::write_new(
-            &work.join("journal.json"),
-            &serde_json::to_vec(&journal)
-                .map_err(|_| CoreError::InvalidState("无法编码重置日志"))?,
-        )
-        .await?;
-        sync(&work)?;
-        sync(&root.join(".sync"))?;
-        let result = async {
-            for (i, entry) in journal.entries.iter().enumerate() {
-                fs::rename(root.join(entry), work.join(format!("items/{i}")))
-                    .await
-                    .map_err(io)?;
-                sync(root.join(entry).parent().unwrap())?;
-                sync(&work.join("items"))?;
-            }
-            super::write_intent::write_new(&work.join("committed"), b"1\n").await?;
-            sync(&work)
-        }
-        .await;
-        if let Err(error) = result {
-            // 完成标记的目录刷新失败仍属提交失败，撤销标记后按日志恢复旧内容。
-            let marker = work.join("committed");
-            if exists(&marker).await? {
-                fs::remove_file(marker).await.map_err(io)?;
-                sync(&work)?;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                continue;
             }
             recover(root).await?;
-            return Err(error);
+            self.id = id;
+            drop(guard);
+            super::sync_events::publish(self);
+            return Ok(());
         }
-        self.id = id;
-        self.files.clear();
-        self.task_scan_rules = super::TaskScanRules::default();
-        // 正式完成后清理失败留待下次加载，不把成功重置报告成失败。
-        let _ = recover(root).await;
-        super::sync_events::publish(self);
-        Ok(())
     }
 }
 
@@ -253,7 +240,7 @@ mod tests {
         }
         repo.reset().await.unwrap();
         assert_eq!(fs::read(root.join(".sync/id")).await.unwrap(), identity);
-        assert!(repo.files.is_empty());
+        assert!(repo.load_files(&[]).await.unwrap().is_empty());
         assert!(repo.load::<WebDavSyncPolicy>().await.unwrap().is_empty());
         let mut entries = fs::read_dir(&root).await.unwrap();
         assert_eq!(
@@ -271,7 +258,6 @@ mod tests {
             names,
             [
                 std::ffi::OsString::from(".transaction.lock"),
-                std::ffi::OsString::from("history"),
                 std::ffi::OsString::from("id")
             ]
         );
@@ -299,6 +285,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reset_intent_continues_cleanup_and_cannot_be_confused_with_user_file() {
+        let (repo, root) = repository().await;
+        fs::write(root.join("A.org"), b"keep until valid intent").await.unwrap();
+        fs::write(root.join("reset"), b"user content").await.unwrap();
+        let guard = transaction::lock(&root).await.unwrap();
+        assert!(recover(&root).await.is_err());
+        assert!(root.join("A.org").exists());
+        let intent = ResetIntent { version: 1, repo_id: repo.id.clone() };
+        fs::write(root.join("reset"), serde_json::to_vec(&intent).unwrap()).await.unwrap();
+        fs::create_dir_all(root.join(".sync/transactions/partial")).await.unwrap();
+        fs::write(root.join(".sync/transactions/partial/journal.json"), b"invalid old transaction").await.unwrap();
+        recover(&root).await.unwrap();
+        assert!(!root.join("reset").exists());
+        assert!(!root.join("A.org").exists());
+        assert!(!root.join(".sync/transactions").exists());
+        assert_eq!(super::super::service::read_repo_id(&root.join(".sync/id")).await.unwrap(), repo.id);
+        recover(&root).await.unwrap();
+        drop(guard);
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn interrupted_reset_rolls_back_and_committed_reset_only_cleans() {
         let (mut repo, root) = repository().await;
         for committed in [false, true] {
@@ -315,6 +323,7 @@ mod tests {
                 fs::write(work.join("committed"), b"1\n").await.unwrap();
             }
             repo.load::<WebDavSyncPolicy>().await.unwrap();
+            repo.load_files(&[]).await.unwrap();
             assert_eq!(root.join("A.org").exists(), !committed);
             if !committed {
                 fs::remove_file(root.join("A.org")).await.unwrap();

@@ -59,7 +59,7 @@
 
 页面将预览 fullPath 交给 ~OrgWorkspace.execute_task_operations~ ，继续使用 Creation、Modification、Movement、Deletion 和 ConfilictSelection。一个操作组只能引用当前副本；所有版本约束使用 ~{ repoId: "<preview>", file: UUID, version }~ ， ~queueRepoIds~ 为空。Core 在隔离内存执行全部操作，成功保存副本后才记录原操作序列；失败整组不写副本，也不记录任何步骤。
 
-预览的读取与编辑内容沿用 OrgFile，位置选择使用 Core 提供的 ~editable_node_paths~ 与 ~insertion_positions~ ，不从全仓库查询中筛出临时任务。临时编辑不更新 OrgRepo.files、真实操作回退历史、全局通知、日历或同步提示。
+预览的读取与编辑内容沿用 OrgFile，位置选择使用 Core 提供的 ~editable_node_paths~ 与 ~insertion_positions~ ，不从全仓库查询中筛出临时任务。临时编辑不修改真实仓库文件、真实操作回退历史、全局通知、日历或同步提示。
 
 ** 冲突选择
 
@@ -117,7 +117,7 @@ await workspace.executeTaskOperations(group)
 
 workspace 配置变化、源仓库移除或全局 TODO 规则改变使旧对象失效。应用重启不恢复预览草稿或已返回操作组，始终从真实文件重新开始。
 
-副本物理目录在仓库外，逻辑上也不加入 repos 或 OrgRepo.files，因此搜索、分类计数、REFILE、文件入口、仓库列表、日历、通知和同步天然看不到它。无需增加 UI 过滤或 .orgzlyignore 规则。
+副本物理目录在仓库外，逻辑上也不加入 repos 或真实仓库的文件加载结果，因此搜索、分类计数、REFILE、文件入口、仓库列表、日历、通知和同步天然看不到它。无需增加 UI 过滤或 .orgzlyignore 规则。
 
 * 验证边界
 

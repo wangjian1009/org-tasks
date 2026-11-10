@@ -59,15 +59,16 @@ impl RefileTarget {
 
 impl OrgRepo {
     /// 遍历完整已加载文件；任务查询条件及任务扫描忽略规则不限制放置目标。
-    pub fn refile_targets(&self) -> Vec<RefileTarget> {
-        self.refile_targets_in(&RefileTargetQuery::default())
+    pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, crate::CoreError> {
+        self.refile_targets_in(&RefileTargetQuery::default()).await
     }
 
-    fn refile_targets_in(&self, query: &RefileTargetQuery) -> Vec<RefileTarget> {
+    async fn refile_targets_in(&self, query: &RefileTargetQuery) -> Result<Vec<RefileTarget>, crate::CoreError> {
         let mut targets = Vec::new();
-        for file in self
-            .files()
-            .iter()
+        let ignore_files = query.excluded_files.iter().filter(|file| file.repo_id == self.id)
+            .map(|file| file.path.clone()).collect::<Vec<_>>();
+        let files = self.load_files(&ignore_files).await?;
+        for file in files.iter()
             .filter(|file| query.includes(&self.id, &file.path))
         {
             let category = file.category();
@@ -98,18 +99,17 @@ impl OrgRepo {
             }
         }
         sort_targets(&mut targets);
-        targets
+        Ok(targets)
     }
 }
 
 impl OrgWorkspace {
     /// 汇总已加载仓库中的所有显式 REFILE 标题，不重新读取磁盘。
-    pub fn refile_targets(&self) -> Vec<RefileTarget> {
-        self.query_refile_targets(&RefileTargetQuery::default())
-            .expect("默认目标范围有效")
+    pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, crate::CoreError> {
+        self.query_refile_targets(&RefileTargetQuery::default()).await
     }
 
-    pub fn query_refile_targets(
+    pub async fn query_refile_targets(
         &self,
         query: &RefileTargetQuery,
     ) -> Result<Vec<RefileTarget>, crate::CoreError> {
@@ -119,11 +119,8 @@ impl OrgWorkspace {
                 return Err(crate::CoreError::InvalidInput("目标文件的仓库 ID 不能为空"));
             }
         }
-        let mut targets = self
-            .repos()
-            .iter()
-            .flat_map(|repo| repo.refile_targets_in(query))
-            .collect::<Vec<_>>();
+        let mut targets = Vec::new();
+        for repo in self.repos() { targets.extend(repo.refile_targets_in(query).await?); }
         sort_targets(&mut targets);
         Ok(targets)
     }

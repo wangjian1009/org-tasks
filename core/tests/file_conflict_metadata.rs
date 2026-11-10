@@ -1,6 +1,7 @@
+mod support;
 use org_tasks_core::{OrgFile, OrgRepo, merge};
-#[test]
-fn file_conflict_state_comes_from_real_node_tags_not_headers_or_block_literals() {
+#[tokio::test]
+async fn file_conflict_state_comes_from_real_node_tags_not_headers_or_block_literals() {
     let file = OrgFile::new(
         "r".into(),
         "a.org".into(),
@@ -12,8 +13,8 @@ fn file_conflict_state_comes_from_real_node_tags_not_headers_or_block_literals()
     assert_eq!(file.title().as_deref(), Some("Name"));
     assert!(file.has_conflict());
     let mut repo = OrgRepo::new("/unused/metadata".into()).unwrap();
-    repo.files.push(file);
-    let metadata = serde_json::to_value(&repo.file_metadata()[0]).unwrap();
+    { let value = file; support::push_file(&mut repo, value); };
+    let metadata = serde_json::to_value(&repo.file_metadata().await.unwrap()[0]).unwrap();
     assert_eq!(metadata["hasConflict"], true);
     assert_eq!(metadata["taskCount"], 1);
     for source in [

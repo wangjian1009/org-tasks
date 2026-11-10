@@ -12,6 +12,7 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 | 核心 API 与数据结构 | [[file:core/接口文档.org][接口文档]]、[[file:core/数据模型.org][数据模型]] |
 | WebDAV 与同步扩展 | [[file:core/WebDAV 同步能力设计.org][WebDAV 同步能力设计]] |
 | 同步目录、历史、冲突解决与通知 | [[file:core/同步核心设计.org][同步核心设计]] |
+| 仓库按需访问、跨进程锁与同步阶段 | [[file:core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]] |
 | 普通仓库目录与任务扫描 | [[file:core/目录结构设计.org][目录结构设计]] |
 | 通用查询与 UI 过滤边界 | [[file:core/查询语言设计.org][查询语言设计]] |
 | Rust、C++ 与 ArkTS 接口 | [[file:harmony/Rust bridge设计.org][Rust bridge 设计]] |

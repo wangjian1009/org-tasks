@@ -6,6 +6,7 @@ mod archive;
 mod history;
 mod remote_base;
 mod synchronize;
+pub(crate) mod session;
 pub(crate) mod transaction;
 pub use archive::*;
 pub mod runtime;
@@ -675,7 +676,7 @@ mod write_tests {
             Some(OrgRepoSyncResult::Failed)
         );
         assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
-        assert_eq!(repo.files[0].source_bytes(), second);
+        assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), second);
         assert_eq!(
             sync(&mut repo, &policy, 3).await.result,
             Some(OrgRepoSyncResult::Succeeded)
@@ -723,7 +724,7 @@ mod write_tests {
             .unwrap();
         let record = sync(&mut repo, &policy, 2).await;
         assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
-        assert_eq!(repo.files[0].source_bytes(), second);
+        assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), second);
         assert!(repo.pending_writes().await.unwrap().is_empty());
         worker.await.unwrap();
         tokio::fs::remove_dir_all(root).await.unwrap();
