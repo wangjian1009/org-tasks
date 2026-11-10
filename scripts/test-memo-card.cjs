@@ -102,22 +102,25 @@ test('已显示记录改名、重排、减少和清空后不保留旧标题', ()
 function extension() {
   const calls = [], updates = [];
   let tasks = [{ heading: ' 第一条 ' }, { heading: '第二条' }], failRead = false, failUpdate = false, readGate;
-  const repository = { id: 'repo' }, config = { repos: [repository], todoDefaults: '' };
   const mocks = {
     '@kit.FormKit': { FormExtensionAbility: class {}, formInfo: { FormParam: { IDENTITY_KEY: 'id' }, VisibilityType: { FORM_VISIBLE: 1 } },
       formBindingData: { createFormBindingData: data => data }, formProvider: { async updateForm(id, data) {
         if (failUpdate) { failUpdate = false; throw { code: 1 }; } updates.push({ id, data });
       } } },
     '@kit.ArkData': { preferences: { async removePreferencesFromCache() { calls.push('invalidate'); } } },
-    '../services/AppConfigService': { APP_CONFIG_PREFERENCES: 'config', AppConfigService: { async load(_, credentials) {
-      assert.equal(credentials, false); calls.push('config'); return config;
-    } } },
-    '../services/FileTargetService': { fileTargetRepository: () => repository, FileTargetService: { async query() {
-      calls.push('query'); if (readGate) await readGate; if (failRead) throw { code: 2 }; return { tasks };
-    } } },
-    '../services/NativeCoreService': { NativeCoreService: { async repository() {
-      return { async load() { calls.push('reload'); } };
-    } } }
+    '../services/AppConfigService': { APP_CONFIG_PREFERENCES: 'config' },
+    '../services/MemoCardService': { memoCardData: (tasks = [], tag = '', message = '暂无备忘') => ({
+      memoCardTitle: tag || '全部备忘', memoCardItem1: tasks[0]?.heading.trim() || '', memoCardItem2: tasks[1]?.heading.trim() || '',
+      memoCardItem3: tasks[2]?.heading.trim() || '', memoCardMessage: message
+    }), MemoCardService: {
+      async loadTag() { calls.push('settings'); return '家居'; },
+      async remove(id) { calls.push('remove'); },
+      async snapshot(_, tag) {
+        assert.equal(tag, '家居'); calls.push('query'); if (readGate) await readGate;
+        if (failRead) throw { code: 2 };
+        return { data: mocks['../services/MemoCardService'].memoCardData(tasks, tag) };
+      }
+    } }
   };
   const filename = path.resolve('entry/src/main/ets/entryability/MemoFormExtension.ets');
   const module = { exports: {} };
@@ -135,7 +138,8 @@ test('创建与扩展重启后重新可见均先读最新配置和文件，再�
   const f = extension();
   assert.equal(f.instance.onAddForm({ parameters: { id: 'one' } }).memoCardMessage, '正在读取备忘…');
   await f.idle();
-  assert.deepEqual(f.calls, ['invalidate', 'config', 'reload', 'query']);
+  assert.deepEqual(f.calls, ['invalidate', 'settings', 'query']);
+  assert.equal(f.updates[0].data.memoCardTitle, '家居');
   assert.equal(f.updates[0].data.memoCardItem1, '第一条');
   f.tasks([{ heading: '修改后' }]);
   f.instance.onChangeFormVisibility({ restored: 1, hidden: 2 }); await f.idle();

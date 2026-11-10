@@ -8,6 +8,7 @@
     "pages/FileDetail",
     "pages/TaskEdit",
     "pages/MemoEdit",
+    "pages/MemoCardConfig",
     "pages/Settings",
     "pages/FileTargetPicker",
     "pages/RepositorySettings",

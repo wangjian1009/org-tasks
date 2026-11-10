@@ -2,26 +2,8 @@ import { Context, Want } from '@kit.AbilityKit'
 import { FormExtensionAbility, formBindingData, formInfo, formProvider } from '@kit.FormKit'
 import { preferences } from '@kit.ArkData'
 import { BusinessError } from '@kit.BasicServicesKit'
-import { APP_CONFIG_PREFERENCES, AppConfigService } from '../services/AppConfigService'
-import { fileTargetRepository, FileTargetService } from '../services/FileTargetService'
-import { CoreTask, NativeCoreService } from '../services/NativeCoreService'
-
-interface MemoFormData {
-  memoCardTitle: string
-  memoCardItem1: string
-  memoCardItem2: string
-  memoCardItem3: string
-  memoCardMessage: string
-}
-
-function formData(tasks: CoreTask[], message: string = '暂无备忘'): MemoFormData {
-  const values = tasks.map((task: CoreTask): string => task.heading.trim())
-    .filter((title: string): boolean => title.length > 0).slice(0, 3)
-  return {
-    memoCardTitle: '全部备忘',
-    memoCardItem1: values[0] ?? '', memoCardItem2: values[1] ?? '', memoCardItem3: values[2] ?? '', memoCardMessage: message
-  }
-}
+import { APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
+import { MemoCardData, memoCardData, MemoCardService } from '../services/MemoCardService'
 
 export default class MemoFormExtension extends FormExtensionAbility {
   private readonly formIds: Set<string> = new Set<string>()
@@ -33,7 +15,7 @@ export default class MemoFormExtension extends FormExtensionAbility {
       this.formIds.add(formId)
       this.refreshForm(formId)
     }
-    return formBindingData.createFormBindingData(formData([], '正在读取备忘…'))
+    return formBindingData.createFormBindingData(memoCardData([], '', '正在读取备忘…'))
   }
 
   onUpdateForm(formId: string): void {
@@ -41,7 +23,11 @@ export default class MemoFormExtension extends FormExtensionAbility {
     this.refreshForm(formId)
   }
 
-  onRemoveForm(formId: string): void { this.formIds.delete(formId) }
+  onRemoveForm(formId: string): void {
+    this.formIds.delete(formId)
+    MemoCardService.remove(this.context as Context, formId)
+      .catch((): void => { console.error('清理备忘卡片设置失败') })
+  }
 
   onCastToNormalForm(formId: string): void { this.onUpdateForm(formId) }
 
@@ -58,22 +44,15 @@ export default class MemoFormExtension extends FormExtensionAbility {
 
   private async updateForm(formId: string): Promise<void> {
     if (!this.formIds.has(formId)) return
-    let data: MemoFormData = formData([])
+    let tag = ''
+    let data: MemoCardData = memoCardData()
     try {
       await preferences.removePreferencesFromCache(this.context, APP_CONFIG_PREFERENCES)
-      const config = await AppConfigService.load(this.context as Context, false)
-      const repository = fileTargetRepository(config, 'memo')
-      if (repository) {
-        const repo = await NativeCoreService.repository([repository], repository, config.todoDefaults)
-        await repo.load()
-        const result = await FileTargetService.query(config, 'memo')
-        data = result ? formData(result.tasks) : formData([], '备忘文件已失效，请在应用中重新选择')
-      } else {
-        data = formData([], '请先在应用中选择备忘文件')
-      }
+      tag = await MemoCardService.loadTag(this.context as Context, formId)
+      data = (await MemoCardService.snapshot(this.context as Context, tag)).data
     } catch (error) {
       console.error('读取备忘卡片失败，错误码:', (error as BusinessError).code)
-      data = formData([], '暂时无法读取备忘，点击打开应用')
+      data = memoCardData([], tag, '暂时无法读取备忘，点击打开应用')
     }
     if (!this.formIds.has(formId)) return
     try { await formProvider.updateForm(formId, formBindingData.createFormBindingData(data)) }

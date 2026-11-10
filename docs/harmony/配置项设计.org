@@ -94,6 +94,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 | 仓库同步记录与身份 | core ~OrgRepo~ | ~rootDirectory/.sync/~ | ~id~ 保存唯一 ~repoId~ ； ~history/~ 追加保存 ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ ， ~outbox/~ 保存待上传路径与哈希 。不保存凭据或绝对路径；实际远端基线、历史正文与冲突快照由 Core 按统一同步设计保存。 |
 | 日历映射 | Harmony | ~org_tasks_config~ 中的 ~calendar_sync_state~ 键 | 当前保存日历名称、任务 ID、事件 ID 和指纹；尚未按目标设计隔离到独立存储。 |
 | 捕捉草稿 | Harmony | Preferences 的 ~org_tasks_capture~ | ~drafts~ 仅保存草稿 ID 与未保存标题；独立于配置、凭据、Org 文件与同步记录；成功保存后移除对应草稿。 |
+| 桌面备忘卡片 | Harmony | 每个卡片独立的 ~org_tasks_memo_card_<formId>~ Preferences | ~tag~ 保存此实例选择的一个标签，空字符串表示全部备忘；不保存任务内容、凭据或文件副本，移除卡片时清理。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
 日历映射中的任务 ID 直接使用 Core 的明文逻辑路径编码，不再采用“仓库 ID、文件路径、字节偏移”的旧格式。已有映射保留读取；下一次后台日历同步按现有规则为新 ID 创建/匹配事件，并清理旧 ID 对应的已跟踪事件，不增加配置键、不猜测旧偏移与新标题的对应关系。状态、首尾进度和无关记录增删不再因位置变化重建日历身份；仓库根路径、文件路径或任务祖先标题变更仍会产生新身份。
@@ -176,6 +177,8 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 备忘未配置或失效时点击侧边栏入口显示“备忘文件未选择或已失效”并提供前往设置；清空后恢复该状态，不清理原文件或内容。
 
 桌面备忘卡片使用相同的文件入口配置，不增加来源设置。 ~MemoFormExtension~ 运行于独立扩展进程，每次刷新先通过 ~removePreferencesFromCache~ 清除自身的 ~org_tasks_config~ 缓存，再以不含凭据的方式读取配置，并由 Core 重新加载目标本地仓库；不请求 WebDAV 密码或执行网络同步。可见性回调与系统定时刷新只更新卡片展示，不修改入口、Org 文件或同步记录。
+
+卡片长按菜单的编辑入口由服务卡片配置 ~formConfigAbility=ability://MemoCardConfigAbility~ 声明。系统传入的 ~form_identity~ 使用完整字符串作为实例身份，不转为 JavaScript 数字，缺失或无效时不写设置。 ~MemoCardService~ 按实例读取、保存和清理独立 Preferences，每次读取先清除本进程缓存；默认 ~tag~ 为空。独立存储避免不同卡片的跨进程保存覆盖彼此，卡片配置不进入 ~AppConfig~ 或 Org 文件。修改标签仅在点击“确定”后通过 ~PreferencesStore.put~ 与 ~flush~ 持久化，再调用 ~formProvider.updateForm~ 更新当前实例；返回不保存，写入或更新失败不报告完成。扩展后续刷新继续使用该实例的标签，标签不再存在时保持空结果，不静默改为全部备忘。
 
 仓库设置页为本地与 WebDAV 仓库提供“名称”输入。清空后恢复当前仓库名作为默认显示值，不把该默认值固化为配置名称；因此目录变更后的缺省名称随新目录更新。只修改名称不更改配置 ID、Core 的 ~.sync/id~ 、根目录、远端配置或凭据别名。
 

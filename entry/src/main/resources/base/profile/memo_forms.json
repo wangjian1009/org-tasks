@@ -12,6 +12,7 @@
       "updateEnabled": true,
       "updateDuration": 1,
       "formVisibleNotify": true,
+      "formConfigAbility": "ability://MemoCardConfigAbility",
       "supportDimensions": ["2*4"],
       "defaultDimension": "2*4"
     }

@@ -6,8 +6,10 @@ export function inboxRecordQuery(inboxFile: string): CoreTaskQuery {
   return { expression: `b."${path}"`, includeDone: true, includeComposeTasks: true }
 }
 
-export function memoRecordQuery(memoFile: string): CoreTaskQuery {
-  return { expression: `${inboxRecordQuery(memoFile).expression} .o.modified`, includeDone: true, includeComposeTasks: true }
+export function memoRecordQuery(memoFile: string, tag: string = ''): CoreTaskQuery {
+  const escapedTag = tag.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const tagExpression = tag.length > 0 ? ` t."${escapedTag}"` : ''
+  return { expression: `${inboxRecordQuery(memoFile).expression}${tagExpression} .o.modified`, includeDone: true, includeComposeTasks: true }
 }
 
 // TODO 来自所选仓库，note 仅来自配置的备忘文件；地址与完成状态由 Core 判断。

@@ -68,6 +68,19 @@
         ]
       },
       {
+        "name": "MemoCardConfigAbility",
+        "srcEntry": "./ets/entryability/MemoCardConfigAbility.ets",
+        "launchType": "multiton",
+        "description": "编辑桌面备忘卡片显示的标签",
+        "icon": "$media:app_icon",
+        "label": "$string:memo_card_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "removeMissionAfterTerminate": true,
+        "excludeFromMissions": true
+      },
+      {
         "name": "ShareLocationAbility",
         "srcEntry": "./ets/entryability/ShareLocationAbility.ets",
         "description": "从地图分享地点创建或更新任务",
