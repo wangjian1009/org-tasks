@@ -262,7 +262,7 @@ struct Inbox {
       Divider().color('#606D64').margin({ left: 20, right: 20 })
       Row({ space: 10 }) {
         Row().width(3).height(18).backgroundColor(UiColor.primary)
-        Text('已规划').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.primary)
+        Text('最近新增').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.primary)
         Divider().layoutWeight(1).color('#4C5951')
       }.height(52).width('100%').padding({ left: 20, right: 20 })
     }.width('100%').backgroundColor('#242925')
