@@ -32,7 +32,7 @@ export class CaptureService {
     if (!file.todo.initialState) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
     await NativeCoreService.executeTaskOperations(config.repos, {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: normalizedTitle,
-        body: entities.body, scheduled: entities.scheduled, state: file.todo.initialState, recordCreated: true } }],
+        body: entities.body, scheduled: entities.scheduled, state: file.todo.initialState } }],
       queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
     }, config.todoDefaults)

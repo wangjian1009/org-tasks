@@ -1,0 +1,4 @@
+#+STARTUP: logrepeat logdrawer
+* TODO Task
+SCHEDULED: <2026-11-10 Tue +1w/3w>
+Body

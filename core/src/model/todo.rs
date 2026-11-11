@@ -252,16 +252,19 @@ impl TodoMetadata {
         setup_settings: &str,
     ) -> Result<(Self, orgize::Org), CoreError> {
         let initial = orgize::Org::parse(source);
-        let declarations = declarations(source, &initial);
-        let metadata = if declarations.is_empty() && !setup_settings.trim().is_empty() {
-            TodoConfig::from_settings(setup_settings)?.metadata(TodoSource::InBuffer, Vec::new())?
-        } else if declarations.is_empty() {
-            defaults.metadata(TodoSource::GlobalDefault, declarations)?
+        let local_declarations = declarations(source, &initial);
+        let setup_syntax = orgize::Org::parse(setup_settings);
+        let setup_declarations = declarations(setup_settings, &setup_syntax);
+        let metadata = if local_declarations.is_empty() && !setup_declarations.is_empty() {
+            TodoConfig { workflows: specs(&setup_declarations) }
+                .metadata(TodoSource::InBuffer, Vec::new())?
+        } else if local_declarations.is_empty() {
+            defaults.metadata(TodoSource::GlobalDefault, local_declarations)?
         } else {
             TodoConfig {
-                workflows: specs(&declarations),
+                workflows: specs(&local_declarations),
             }
-            .metadata(TodoSource::InBuffer, declarations)?
+            .metadata(TodoSource::InBuffer, local_declarations)?
         };
         let syntax = ParseConfig {
             todo_keywords: (
@@ -275,7 +278,7 @@ impl TodoMetadata {
     }
 }
 
-fn parse_state(word: &str) -> Result<TodoStateMetadata, CoreError> {
+pub(super) fn parse_state(word: &str) -> Result<TodoStateMetadata, CoreError> {
     let (name, suffix) = if let Some((name, rest)) = word.split_once('(') {
         (
             name,

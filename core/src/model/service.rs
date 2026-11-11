@@ -917,12 +917,14 @@ pub(crate) async fn load_setup_settings(
     while let Some((current_path, current_bytes)) = pending.pop() {
         let current_dir = current_path.parent().unwrap_or_else(|| Path::new(""));
         for (key, value) in file_keywords(&current_bytes)? {
-            if matches!(key.as_str(), "TODO" | "SEQ_TODO" | "TYP_TODO") {
+            if matches!(key.as_str(), "TODO" | "SEQ_TODO" | "TYP_TODO" | "STARTUP" | "PROPERTY") {
                 settings.push(format!("#+{key}: {value}"));
                 continue;
             }
             if key != "SETUPFILE" { continue; }
-            let value = value.strip_prefix("file:").unwrap_or(&value).trim();
+            let value = value.trim();
+            let value = value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
+            let value = value.strip_prefix("file:").unwrap_or(value).trim();
             let relative = Path::new(value);
             if relative.is_absolute()
                 || relative

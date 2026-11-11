@@ -13,7 +13,7 @@ export class NoteService {
     const file = await target.repo.file(target.path)
     await NativeCoreService.executeTaskOperations(config.repos, {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title, body,
-        state: null, recordCreated: true } }],
+        state: null } }],
       queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
     }, config.todoDefaults)

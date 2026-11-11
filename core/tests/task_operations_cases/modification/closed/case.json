@@ -1,3 +1,3 @@
 {
-  "purpose": "设置并清除 CLOSED 不修改正文"
+  "purpose": "恢复为待办状态时自动清理 CLOSED，保留正文"
 }

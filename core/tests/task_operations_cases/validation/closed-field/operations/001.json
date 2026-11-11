@@ -1,0 +1,22 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "CLOSED",
+            "value": "[2026-11-08 Sun]"
+          }
+        ]
+      }
+    }
+  ]
+}

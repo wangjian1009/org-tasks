@@ -157,7 +157,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 ~InboxService~ 先验证当前收件箱配置，加载对应仓库取得稳定 Core 身份，再请求操作组；仅补充 ~queueRepoIds~ ，随后通过原 ~Workspace.executeTaskOperations~ 一组提交。页面直接显示选择顺序与目标标题，点击合并后完成规划和提交；期间冻结选择并防止重复执行。版本变化保留选择并要求刷新，提交成功后刷新失败只重读。结果在同一收件箱列表中高亮并展示 Core 提供的正文列表，不新增路由、弹窗或确认界面。ArkTS 不解析或拼接 Org 内容。
 
-创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，并传 ~recordCreated=true~ 由 Core 补齐 CREATED。任务与备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；备忘新增通过 Creation 创建无状态标题和正文，并启用 recordCreated。NoteService 只编排配置、Core 仓库身份与文件版本，不解析 Org；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。收件箱整理以字段清理和 Movement 组合为一个操作组。
+创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，由 Core 自动补齐 CREATED。任务与备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；备忘新增通过 Creation 创建无状态标题和正文。NoteService 只编排配置、Core 仓库身份与文件版本，不解析 Org；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。CREATED 与 CLOSED 不接受显式字段修改，创建参数不包含 recordCreated 或 closed；Core 新建时自动记录创建时间，TODO 修改按含 SETUPFILE 的文件有效状态自动写入或清理关闭时间。收件箱整理以字段清理和 Movement 组合为一个操作组。
 
 旧 Repo.createTask、Repo.updateTaskLocation、Repo.updateTask、Repo.deleteTask 与 Workspace.editTask 均已删除，native 导出、类型声明和宿主 wrapper 不保留兼容入口。
 
@@ -293,7 +293,7 @@ interface TitleCount {
 ~TitlePart.count~ 与嵌套的 ~completed~ 、 ~total~ 由 Core 生成，经 Rust 序列化与 C++ JSON 编组原样透传，适用于文件元信息、文件标题与任务标题，不添加同步请求或原文解析。 ~NativeCoreService~ 导出 ~CoreTitleCount~ ，计数随标题片段进入任务快照渲染键。 ~TitleCountBadge~ 使用 ArkUI 的 ~ProgressType.Ring~ 在运行时按有效比例绘制； ~TitleCounts~ 管理多个计数的换行与窄屏图标回退。 ~TitleText~ 只组合普通文字、链接与计数标记；今天收起行单独为计数和日期保留宽度，展开与任务编辑共用同款标记，不重复“已完成”说明。文件阅读使用 Core 的安全标题 HTML 与宿主样式绘制同款圆环。
 * 快速捕捉复用
 
-快速捕捉复用 ~Workspace.executeTaskOperations~ 的 ~Creation~ ，提交 ~title~ 并启用 ~recordCreated=true~ ，以文件根节点作为 ~position.parent~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。保存时由 Harmony 的 ~CaptureEntityService~ 调用华为 Natural Language Kit 识别地址和时间；完整输入保留为 ~title~ ，地址链接通过已有 ~body~ 字段传递，归一化时间转换为完整 Org 时间戳后通过已有 ~scheduled~ 字段传递。识别失败时正文为空、计划时间为空，不改动 bridge 类型或复制 Core 的写入校验、Org 解析与同步规则。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
+快速捕捉复用 ~Workspace.executeTaskOperations~ 的 ~Creation~ ，提交 ~title~ ，以文件根节点作为 ~position.parent~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。保存时由 Harmony 的 ~CaptureEntityService~ 调用华为 Natural Language Kit 识别地址和时间；完整输入保留为 ~title~ ，地址链接通过已有 ~body~ 字段传递，归一化时间转换为完整 Org 时间戳后通过已有 ~scheduled~ 字段传递。识别失败时正文为空、计划时间为空，不改动 bridge 类型或复制 Core 的写入校验、Org 解析与同步规则。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
 
 捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Workspace.executeTaskOperations~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。
 
@@ -323,7 +323,7 @@ interface TitleCount {
 
 ~Workspace.refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>~ 继续返回 REFILE 目标，增加由 Core 生成的 ~fullPath~ ，保留 category 与 fileVersion。每个 Task 增加 ~taskId: string | null~ 、 ~fullPath: TaskPath~ 和 ~fileVersion~ ；仓库和文件也提供完整路径。新的 ~Workspace.executeTaskOperations(group)~ 是唯一任务写入入口。
 
-~InboxService~ 将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID。普通移动提交 Movement，目标 parent 使用放置目标 fullPath；备忘先以 Modification 清除 TODO、优先级、SCHEDULE、DEADLINE、CLOSED，再以 Movement 移入配置的备忘文件；删除提交 Deletion。源、目标可携带文件版本，将来，也许先以 Modification 设置 TODO 并清除 SCHEDULE、DEADLINE、CLOSED，再以 Movement 移到所配置某天文件中的首个 REFILE 标题。源与所选放置目标携带文件版本；失败保留当前浮层与用户选择。
+~InboxService~ 将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID。普通移动提交 Movement，目标 parent 使用放置目标 fullPath；备忘先以 Modification 清除 TODO、优先级、SCHEDULE、DEADLINE，由 Core 随状态自动清理 CLOSED，再以 Movement 移入配置的备忘文件；删除提交 Deletion。源、目标可携带文件版本，将来，也许先以 Modification 设置 TODO 并清除 SCHEDULE、DEADLINE，由 Core 随状态自动清理 CLOSED，再以 Movement 移到所配置某天文件中的首个 REFILE 标题。源与所选放置目标携带文件版本；失败保留当前浮层与用户选择。
 
 * Query 文件引用与创建日期扩展
 

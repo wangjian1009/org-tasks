@@ -1,2 +1,5 @@
 * Parent
 ** TODO Renamed
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:

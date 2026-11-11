@@ -64,10 +64,6 @@ pub struct TaskCreation {
     pub scheduled: Option<String>,
     #[serde(default)]
     pub deadline: Option<String>,
-    #[serde(default)]
-    pub closed: Option<String>,
-    #[serde(default)]
-    pub record_created: bool,
 }
 
 impl TaskCreation {
@@ -81,8 +77,6 @@ impl TaskCreation {
             tags: Vec::new(),
             scheduled: None,
             deadline: None,
-            closed: None,
-            record_created: false,
         }
     }
 }
@@ -94,7 +88,7 @@ pub struct TaskModificationOperation {
     pub modifications: Vec<TaskModification>,
 }
 
-/// 每项只修改一个字段；None 清除值，未列出的字段及其字节保持原样。
+/// 每项修改指定字段；TODO 统一维护时间、重复调度和日志，其余未涉及的字段及字节保持原样。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "field",
@@ -114,8 +108,6 @@ pub enum TaskModification {
     ScheduleDate(Option<String>),
     Deadline(Option<String>),
     DeadlineDate(Option<String>),
-    Closed(Option<String>),
-    Created(Option<String>),
     AddressLink(Option<TaskAddressChange>),
 }
 

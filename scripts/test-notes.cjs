@@ -52,12 +52,12 @@ function fixture() {
     fail(error) { failure = error; }, invalidate() { missingTarget = true; } };
 }
 
-test('新增备忘明确创建无状态标题，携带正文、创建时间请求与文件版本', async () => {
+test('新增备忘明确创建无状态标题，携带正文与文件版本', async () => {
   const f = fixture();
   await f.service.createMemo({}, '中文 [[https://example.com][链接]]', '正文\r\n- 列表\r\n');
   assert.deepEqual(f.requests, [{ operations: [{ type: 'Creation', data: {
     position: { parent: f.file.fullPath }, title: '中文 [[https://example.com][链接]]', body: '正文\r\n- 列表\r\n',
-    state: null, recordCreated: true
+    state: null
   } }], queueRepoIds: ['core-id'], fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'current-file' }] }]);
 });
 

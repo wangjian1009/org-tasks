@@ -6,7 +6,7 @@
 
 每个用例是独立黑盒场景，按测试目的分组。对应目录为 ~core/tests/task_operations_cases/<组>/<用例>/~ ，输入、操作、预期输出分别保存在 ~input/~ 、 ~operations/~ 、 ~output/~ 子目录； ~case.json~ 记录目的、错误与附加断言。本文列出全部用例的实际定义，具体程序使用方式由程序帮助发现。
 
-操作中的仓库名称是用例占位身份，执行前绑定到该输入仓库的稳定 Core ID。成功时检查操作历史与回退快照、最终文件清单及每个字节；失败时比较初始化后的全部文件和控制目录，要求文件、outbox 与临时文件均无变化。文件清单中包含空文件，不以删除空文件代替删除节点。
+操作中的仓库名称是用例占位身份，执行前绑定到该输入仓库的稳定 Core ID。成功时检查操作历史与回退快照、最终文件清单及每个字节；失败时比较初始化后的全部文件和控制目录，要求文件、outbox 与临时文件均无变化。文件清单中包含空文件，不以删除空文件代替删除节点。预期输出中的 {{TIMESTAMP}} 匹配本次操作生成的有效本地非活动时间戳，校验其落在执行时间窗口内，其他字节仍逐一比较。
 
 说明中的换行展示为 LF；涉及 CRLF 的文件会另行标注，磁盘样例才是逐字节比较依据。行尾空格以 ␠ 展示；源码块内逗号是 Org 引用转义，均不属于输入文件。
 
@@ -264,6 +264,9 @@
 ,* One
 ,** Child
 ,* New
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 ,* Two
 #+end_example
 
@@ -388,6 +391,9 @@
 ,* NEXT [#B] New :工作:home:
 SCHEDULED: <2026-11-09 Mon>
 DEADLINE: <2026-11-10 Tue>
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 Body
 #+end_example
 
@@ -454,6 +460,9 @@ parent body
 ,* Parent
 parent body
 ,** TODO New
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 正文
 ,** Existing
 #+end_example
@@ -623,11 +632,73 @@ parent body
 
 #+begin_example
 ,* TODO New
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 #+end_example
 
 文件： ~repo/tasks.org~ 。
 
 #+begin_example
+,* Keep
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** completed
+
+目的：按文件完成状态创建时自动生成 CREATED 和 CLOSED。
+
+目录： ~core/tests/task_operations_cases/creation/completed~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: NEXT | FINISHED
+,* Keep
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org"
+          }
+        },
+        "title": "New",
+        "state": "FINISHED"
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: NEXT | FINISHED
+,* FINISHED New
+CLOSED: {{TIMESTAMP}}
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 ,* Keep
 #+end_example
 
@@ -1035,7 +1106,7 @@ Child body
 
 ** clear-created
 
-目的：清除 CREATED 仅删除该属性。
+目的：拒绝显式设置或清除 CREATED，保留原始文件。
 
 目录： ~core/tests/task_operations_cases/modification/clear-created~ 。
 
@@ -1090,6 +1161,7 @@ Body
 #+begin_example
 ,* Note
 :PROPERTIES:
+:CREATED: [2026-11-08 Sun 09:00]
 :ID: stable
 :END:
 Body
@@ -1097,9 +1169,7 @@ Body
 
 *** 附加断言
 
-执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
-
-不生成上传意图。
+执行失败，错误包含 =unknown variant `CREATED`= ；文件和控制目录保持原样，不登记成功历史或上传意图。
 
 ** clear-duplicate-planning
 
@@ -1307,7 +1377,7 @@ Body
 
 ** closed
 
-目的：设置并清除 CLOSED 不修改正文。
+目的：恢复为待办状态时自动清理 CLOSED，保留正文。
 
 目录： ~core/tests/task_operations_cases/modification/closed~ 。
 
@@ -1341,8 +1411,8 @@ Body
         },
         "modifications": [
           {
-            "field": "CLOSED",
-            "value": null
+            "field": "TODO",
+            "value": "TODO"
           }
         ]
       }
@@ -1357,7 +1427,7 @@ Body
 文件： ~repo/tasks.org~ 。
 
 #+begin_example
-,* DONE Note
+,* TODO Note
 Body
 #+end_example
 
@@ -1369,7 +1439,7 @@ Body
 
 ** created-property
 
-目的：设置 CREATED 属性保留其他属性和正文。
+目的：拒绝显式设置或清除 CREATED，保留原始文件。
 
 目录： ~core/tests/task_operations_cases/modification/created-property~ 。
 
@@ -1423,7 +1493,6 @@ Body
 #+begin_example
 ,* Note
 :PROPERTIES:
-:CREATED: [2026-11-08 Sun 09:00]
 :ID: stable
 :END:
 Body
@@ -1431,9 +1500,7 @@ Body
 
 *** 附加断言
 
-执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
-
-不生成上传意图。
+执行失败，错误包含 =unknown variant `CREATED`= ；文件和控制目录保持原样，不登记成功历史或上传意图。
 
 ** invalid-date
 
@@ -1693,7 +1760,7 @@ Body
 
 #+begin_example
 ,* DONE [#C] Note :工作:
-DEADLINE: <2026-11-10 Tue> SCHEDULED: <2026-11-09 Mon>
+DEADLINE: <2026-11-10 Tue> SCHEDULED: <2026-11-09 Mon> CLOSED: {{TIMESTAMP}}
 Body
 #+end_example
 
@@ -1758,6 +1825,305 @@ Body␠␠
 ,* TODO [#A] 新标题 :tag:
 Body␠␠
 ,** Child
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** setup-completion
+
+目的：嵌套 SETUPFILE 定义完成状态并自动生成 CLOSED。
+
+目录： ~core/tests/task_operations_cases/modification/setup-completion~ 。
+
+*** 输入文件
+
+文件： ~repo/settings/inner.org~ 。
+
+#+begin_example
+,#+SEQ_TODO: OPEN | FINISHED
+#+end_example
+
+文件： ~repo/settings/outer.org~ 。
+
+#+begin_example
+,#+SETUPFILE: inner.org
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+SETUPFILE: settings/outer.org
+,* OPEN Note
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "FINISHED"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/settings/inner.org~ 。
+
+#+begin_example
+,#+SEQ_TODO: OPEN | FINISHED
+#+end_example
+
+文件： ~repo/settings/outer.org~ 。
+
+#+begin_example
+,#+SETUPFILE: inner.org
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+SETUPFILE: settings/outer.org
+,* FINISHED Note
+CLOSED: {{TIMESTAMP}}
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** repeat-completion
+
+目的：完成重复任务推进日期并恢复状态，无配置不生成日志。
+
+目录： ~core/tests/task_operations_cases/modification/repeat-completion~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+SCHEDULED: <2026-11-10 Tue +1w> DEADLINE: <2030-01-01 Tue>
+:PROPERTIES:
+:CREATED: [2000-01-01 Sat 09:00]
+:END:
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+SCHEDULED: <2026-11-17 Tue +1w> DEADLINE: <2030-01-01 Tue>
+:PROPERTIES:
+:CREATED: [2000-01-01 Sat 09:00]
+:END:
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** state-logging
+
+目的：按进入与离开配置生成日志，新记录在前且同组执行。
+
+目录： ~core/tests/task_operations_cases/modification/state-logging~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: TODO WAIT(w@/!) | DONE(d!)
+,#+STARTUP: logdrawer
+,* TODO Task
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "WAIT"
+          },
+          {
+            "field": "TODO",
+            "value": "TODO"
+          },
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: TODO WAIT(w@/!) | DONE(d!)
+,#+STARTUP: logdrawer
+,* DONE Task
+CLOSED: {{TIMESTAMP}}
+:LOGBOOK:
+- State "DONE"       from "TODO"       {{TIMESTAMP}}
+- State "TODO"       from "WAIT"       {{TIMESTAMP}}
+- State "WAIT"       from "TODO"       {{TIMESTAMP}}
+:END:
+Body
+#+end_example
+
+*** 附加断言
+
+执行成功，每个操作组恰好登记一条成功历史及对应回退组；回退 before 等于原输入，after 等于磁盘最终字节。
+
+不生成上传意图。
+
+** repeat-log
+
+目的：重复任务按文件配置记录 LAST_REPEAT 和 LOGBOOK。
+
+目录： ~core/tests/task_operations_cases/modification/repeat-log~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+STARTUP: logrepeat logdrawer
+,* TODO Task
+SCHEDULED: <2026-11-10 Tue +1w/3w>
+Body
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+STARTUP: logrepeat logdrawer
+,* TODO Task
+SCHEDULED: <2026-11-17 Tue +1w/3w>
+:PROPERTIES:
+:LAST_REPEAT: {{TIMESTAMP}}
+:END:
+:LOGBOOK:
+- State "DONE"       from "TODO"       {{TIMESTAMP}}
+:END:
+Body
 #+end_example
 
 *** 附加断言
@@ -2763,10 +3129,6 @@ Body
           {
             "field": "DEADLINE",
             "value": null
-          },
-          {
-            "field": "CLOSED",
-            "value": null
           }
         ]
       }
@@ -2809,7 +3171,11 @@ Body
 ,** Child
 #+end_example
 
-文件： ~repo/tasks.org~ 。 空文件。
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+
+#+end_example
 
 *** 附加断言
 
@@ -3071,6 +3437,9 @@ Body
 #+begin_example
 ,* Parent
 ,** TODO Renamed
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 #+end_example
 
 *** 附加断言
@@ -3715,6 +4084,232 @@ Body
 
 不生成上传意图。
 
+** closed-field
+
+目的：拒绝显式设置 CLOSED，保留原始文件。
+
+目录： ~core/tests/task_operations_cases/validation/closed-field~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "CLOSED",
+            "value": "[2026-11-08 Sun]"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Note
+#+end_example
+
+*** 附加断言
+
+执行失败，错误包含 =unknown variant `CLOSED`= ；文件和控制目录保持原样，不登记成功历史或上传意图。
+
+** parent-state
+
+目的：有有效子任务时拒绝父任务状态变化。
+
+目录： ~core/tests/task_operations_cases/validation/parent-state~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+,** TODO Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+,** TODO Child
+#+end_example
+
+*** 附加断言
+
+执行失败，错误包含 =存在子任务时不能修改父任务状态= ；文件、历史、outbox 与临时文件保持原样。
+
+** parent-done-child
+
+目的：有有效子任务时拒绝父任务状态变化。
+
+目录： ~core/tests/task_operations_cases/validation/parent-done-child~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+,** DONE Child
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+,** DONE Child
+#+end_example
+
+*** 附加断言
+
+执行失败，错误包含 =存在子任务时不能修改父任务状态= ；文件、历史、outbox 与临时文件保持原样。
+
+** repeat-hour-without-time
+
+目的：按小时重复缺少时刻时整组失败。
+
+目录： ~core/tests/task_operations_cases/validation/repeat-hour-without-time~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+SCHEDULED: <2026-11-10 Tue +1h>
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+SCHEDULED: <2026-11-10 Tue +1h>
+#+end_example
+
+*** 附加断言
+
+执行失败，错误包含 =按小时重复必须指定时刻= ；文件、历史、outbox 与临时文件保持原样。
+
 * 原始字节保真
 
 ** body-crlf
@@ -3859,10 +4454,19 @@ Old
 - 成功操作组连续追加准确 before、after；末尾操作失败不改变 workspace、历史或已有 outbox。
 - 可选文件版本拒绝过期请求；正确版本执行成功，操作历史可完整序列化往返。
 - 提交准备阶段遇到不可写 outbox 目标时，保留原文件、内存和历史。
-- Core 自动生成 CREATED，重新加载后仍能投影创建时间和任务身份。
+- Core 创建时无条件生成 CREATED，重新加载后仍能投影创建时间和任务身份；拒绝显式修改时间或关闭自动创建时间。
+- 完成状态来自文件有效配置，覆盖嵌套 SETUPFILE、文件内覆盖、配置重新读取、自定义完成与待办状态；完成与恢复自动维护 CLOSED，保留 CREATED、子条目和其他规划，失败整组回滚。
 - 拒绝符号链接及不存在的父目录，不跟随链接或创建意外目录。
 - 在四个不同提交阶段注入 I/O 故障，逐一验证两个文件和上传意图全部恢复；故障注入仅在 Core 模块内部测试使用。
 
+* Org 状态行为对照
+
+固定当前时间为 2026-11-11 12:34，从 Emacs Org 9.8.10 生成状态变化参考结果，依据 [[info:org#Closing items][关闭记录]]、 [[info:org#Tracking TODO state changes][状态日志]] 与 [[info:org#Repeated tasks][重复任务]]；参考数据与生成源码保存在 ~core/tests/data/task_state_emacs.json~ 和 ~core/tests/data/task_state_oracle.el~ 。应用默认记录关闭时间，但默认不记录普通状态及重复日志，参考生成采用相同默认策略。
+
+对照覆盖三种重复器、所有时间单位、月末和闰日溢出、按小时的时刻范围、缺少时刻、重复窗口、正文活动与非活动时间戳、普通计划清理、多流程和类型流程恢复、 ~REPEAT_TO_STATE~ 、日志进入与离开优先级、重复设置同一状态、局部属性覆盖和继承、自定义 drawer、日志顺序及空说明确认。规划字段所在行的排版不作为差异，日期、状态、属性、日志内容与其顺序必须一致。
+
+仓库级补充验证包括带引号路径的嵌套 SETUP、仅含 STARTUP 时保留默认 TODO、设置文件修改后立即生效、CRLF 与原正文保真、单次通知与完整回退、过期版本拒绝、无效重复器整组失败、标题重复时间戳通过公开执行器修改，以及有效子任务对父任务状态的限制。子任务限制遵循本应用的显式约束，已完成子任务仍会阻止父任务状态变化。
+
 * 交付记录
 
-当前目录用例总数：56。验证结果在实施计划中记录。
+当前目录用例总数：65。验证结果在实施计划中记录。

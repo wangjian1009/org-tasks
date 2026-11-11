@@ -2,5 +2,8 @@
 * Parent
 parent body
 ** TODO New
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 正文
 ** Existing

@@ -680,6 +680,8 @@ impl FilterTask {
 
 * 统一任务操作组执行
 
+新建任务及无状态标题时，Core 自动写入本地非活动 ~CREATED~ 时间戳，后续不可通过字段操作设置或清除；不再接受 ~recordCreated~ 开关或创建参数 ~closed~ 。 ~TODO~ 操作按当前文件加载后的有效完成集合自动维护 ~CLOSED~ ，包含文件内覆盖与嵌套 ~SETUPFILE~ ，不按状态名硬编码。默认进入完成状态写入当前时间；已完成且已有关闭时间时保留；恢复为未完成或清除状态时移除。文件日志配置可覆盖关闭记录策略。重复任务完成时自动推进真实活动重复时间戳并恢复流程状态，不保留 CLOSED；普通状态及重复日志仅由文件或 SETUP 中的显式配置触发。存在有效子任务时禁止改变父任务状态，其他字段仍可编辑。完整规则见 [[file:数据模型.org::*状态变化、重复调度与日志][状态变化、重复调度与日志]]。 ~CREATED~ 与 ~CLOSED~ 显式字段输入拒绝。
+
 ~OrgWorkspace.execute_task_operations~ 是唯一任务写入入口。操作组可组合 Creation、Modification、Movement、Deletion 和 ConfilictSelection；每类数据独立，字段设置和清除由 ~TaskModification~ 枚举表达。目标位置使用 ~TaskPosition { parent, after }~ ，不再使用字节位置作跨快照输入。
 
 ~task_merge_operations~ 接受 ~TaskMergeRequest { paths, file_version }~ ，按选择顺序把同一文件内至少两条互不重叠的记录转换为正文列表，结果标题为“合并: 第一条所选记录的原始标题”。第一条记录保留原位置及自身状态、规划和属性，原子记录转为嵌套列表。元数据与日志保存在专用 Org comment 块中，阅读与备注编辑不展示这些归档。
@@ -741,7 +743,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 ~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 异步按次读盘取得 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ 。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
 
-设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在源文件配置中验证，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
+设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在含 ~SETUPFILE~ 的源文件有效配置中验证， ~CLOSED~ 随状态自动维护，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 
 统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~DataChangeEvent::RepositoryChanged~；失败或无实际文件变化不发布。数据回调只用于安排异步重查，不能重入当前 workspace 锁。~watch_notifications~ 继续只服务通知区域。
 

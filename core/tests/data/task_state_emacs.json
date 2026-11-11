@@ -1,0 +1,279 @@
+{
+  "orgVersion": "9.8.10",
+  "reference": "(org) Closing items; Tracking TODO state changes; Repeated tasks",
+  "now": "2026-11-11 12:34",
+  "cases": [
+    {
+      "name": "无配置仅记录关闭时间",
+      "source": "* TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\nBody\n"
+        },
+        {
+          "state": "TODO",
+          "expected": "* TODO Task\nBody\n"
+        },
+        {
+          "state": null,
+          "expected": "* Task\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "进入与离开日志优先级",
+      "source": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "WAIT",
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* WAIT Task\n:LOGBOOK:\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "TODO",
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* TODO Task\n:LOGBOOK:\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "WAIT",
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* WAIT Task\n:LOGBOOK:\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- State \"DONE\"       from \"DONE\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": null,
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* Task\n:LOGBOOK:\n- State \"DONE\"       from \"DONE\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "无抽屉日志与关闭说明",
+      "source": "#+STARTUP: lognotedone\n#+TODO: TODO NEXT(n!) | DONE\n* TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "NEXT",
+          "expected": "#+STARTUP: lognotedone\n#+TODO: TODO NEXT(n!) | DONE\n* NEXT Task\n- State \"NEXT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\nBody\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: lognotedone\n#+TODO: TODO NEXT(n!) | DONE\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n- CLOSING NOTE [2026-11-11 Wed 12:34]\n- State \"NEXT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "局部日志覆盖与继承",
+      "source": "#+TODO: TODO(t!) WAIT(w!) | DONE(d!)\n#+STARTUP: logdrawer\n* Group\n:PROPERTIES:\n:LOGGING: WAIT(!) nologdone\n:LOG_INTO_DRAWER: HISTORY\n:END:\n** TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "WAIT",
+          "expected": "#+TODO: TODO(t!) WAIT(w!) | DONE(d!)\n#+STARTUP: logdrawer\n* Group\n:PROPERTIES:\n:LOGGING: WAIT(!) nologdone\n:LOG_INTO_DRAWER: HISTORY\n:END:\n** WAIT Task\n:HISTORY:\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+TODO: TODO(t!) WAIT(w!) | DONE(d!)\n#+STARTUP: logdrawer\n* Group\n:PROPERTIES:\n:LOGGING: WAIT(!) nologdone\n:LOG_INTO_DRAWER: HISTORY\n:END:\n** DONE Task\n:HISTORY:\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "TODO",
+          "expected": "#+TODO: TODO(t!) WAIT(w!) | DONE(d!)\n#+STARTUP: logdrawer\n* Group\n:PROPERTIES:\n:LOGGING: WAIT(!) nologdone\n:LOG_INTO_DRAWER: HISTORY\n:END:\n** TODO Task\n:HISTORY:\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "局部禁用日志",
+      "source": "#+TODO: TODO(t!) | DONE(d!)\n#+STARTUP: logrepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d>\n:PROPERTIES:\n:LOGGING: nil\n:END:\nBody\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+TODO: TODO(t!) | DONE(d!)\n#+STARTUP: logrepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-11 Wed +1d>\n:PROPERTIES:\n:LOGGING: nil\n:END:\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "累积重复与普通计划清理",
+      "source": "#+STARTUP: logrepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-01 Sun> DEADLINE: <2026-10-31 Sat +1m -3d>\nBody <2026-11-10 Tue +1w>\nInactive [2026-11-10 Tue +1d]\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: logrepeat logdrawer\n* TODO Task\nDEADLINE: <2026-12-01 Tue +1m -3d>\n:PROPERTIES:\n:LAST_REPEAT: [2026-11-11 Wed 12:34]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody <2026-11-17 Tue +1w>\nInactive [2026-11-10 Tue +1d]\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: logrepeat logdrawer\n* TODO Task\nDEADLINE: <2027-01-01 Fri +1m -3d>\n:PROPERTIES:\n:LAST_REPEAT: [2026-11-11 Wed 12:34]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody <2026-11-24 Tue +1w>\nInactive [2026-11-10 Tue +1d]\n"
+        }
+      ]
+    },
+    {
+      "name": "追赶重复的日期和小时",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-09 Mon ++1d> DEADLINE: <2026-11-11 Wed 10:00 ++1h>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2026-11-12 Thu ++1d> DEADLINE: <2026-11-11 Wed 13:00 ++1h>\n"
+        }
+      ]
+    },
+    {
+      "name": "带未来时刻的日追赶",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 20:00 ++1d>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2026-11-12 Thu 20:00 ++1d>\n"
+        }
+      ]
+    },
+    {
+      "name": "重新开始重复",
+      "source": "* TODO Task\nSCHEDULED: <2026-10-01 Thu 08:00 .+1m> DEADLINE: <2026-10-01 Thu 08:00 .+2h>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2026-12-11 Fri 08:00 .+1m> DEADLINE: <2026-11-11 Wed 14:34 .+2h>\n"
+        }
+      ]
+    },
+    {
+      "name": "月末和闰日",
+      "source": "* TODO Task\nSCHEDULED: <2024-01-31 Wed +1m> DEADLINE: <2024-02-29 Thu +1y>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2024-03-02 Sat +1m> DEADLINE: <2025-03-01 Sat +1y>\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2024-04-02 Tue +1m> DEADLINE: <2026-03-01 Sun +1y>\n"
+        }
+      ]
+    },
+    {
+      "name": "多流程重复恢复状态",
+      "source": "#+TODO: TODO | DONE\n#+TODO: NEXT WAIT | FINISHED\n* WAIT Task\nSCHEDULED: <2026-11-10 Tue +1d>\n",
+      "actions": [
+        {
+          "state": "FINISHED",
+          "expected": "#+TODO: TODO | DONE\n#+TODO: NEXT WAIT | FINISHED\n* NEXT Task\nSCHEDULED: <2026-11-11 Wed +1d>\n"
+        }
+      ]
+    },
+    {
+      "name": "类型流程恢复与指定状态",
+      "source": "#+TYP_TODO: ALICE BOB | FINISHED\n* BOB Task\nSCHEDULED: <2026-11-10 Tue +1d>\n:PROPERTIES:\n:REPEAT_TO_STATE: ALICE\n:END:\n",
+      "actions": [
+        {
+          "state": "FINISHED",
+          "expected": "#+TYP_TODO: ALICE BOB | FINISHED\n* ALICE Task\nSCHEDULED: <2026-11-11 Wed +1d>\n:PROPERTIES:\n:REPEAT_TO_STATE: ALICE\n:END:\n"
+        }
+      ]
+    },
+    {
+      "name": "类型流程原状态",
+      "source": "#+TYP_TODO: ALICE BOB | FINISHED\n* BOB Task\nSCHEDULED: <2026-11-10 Tue +1d>\n",
+      "actions": [
+        {
+          "state": "FINISHED",
+          "expected": "#+TYP_TODO: ALICE BOB | FINISHED\n* BOB Task\nSCHEDULED: <2026-11-11 Wed +1d>\n"
+        }
+      ]
+    },
+    {
+      "name": "重复区间",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 08:00-09:30 +1h>\nRange <2026-11-10 Tue +1w>--<2026-11-12 Thu>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00-10:30 +1h>\nRange <2026-11-17 Tue +1w>--<2026-11-12 Thu>\n"
+        }
+      ]
+    },
+    {
+      "name": "最晚重复间隔",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue .+1d/3d>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2026-11-12 Thu .+1d/3d>\n"
+        }
+      ]
+    },
+    {
+      "name": "日志正序",
+      "source": "#+STARTUP: logdrawer nologstatesreversed\n#+TODO: TODO NEXT(!) | DONE(!)\n* TODO Task\n:LOGBOOK:\n- State \"OLD\" from \"\" [2020-01-01 Wed]\n:END:\n",
+      "actions": [
+        {
+          "state": "NEXT",
+          "expected": "#+STARTUP: logdrawer nologstatesreversed\n#+TODO: TODO NEXT(!) | DONE(!)\n* NEXT Task\n:LOGBOOK:\n- State \"OLD\" from \"\" [2020-01-01 Wed]\n- State \"NEXT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: logdrawer nologstatesreversed\n#+TODO: TODO NEXT(!) | DONE(!)\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- State \"OLD\" from \"\" [2020-01-01 Wed]\n- State \"NEXT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"NEXT\"       [2026-11-11 Wed 12:34]\n:END:\n"
+        }
+      ]
+    },
+    {
+      "name": "普通日期不重复",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue>\nBody [2026-11-10 Tue +1d]\n#+begin_src org\n<2026-11-10 Tue +1d>\n#+end_src\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* DONE Task\nCLOSED: [2026-11-11 Wed 12:34] SCHEDULED: <2026-11-10 Tue>\nBody [2026-11-10 Tue +1d]\n#+begin_src org\n<2026-11-10 Tue +1d>\n#+end_src\n"
+        }
+      ]
+    },
+    {
+      "name": "缺少星期与临时延迟",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 +1d --2d>\nBody <2026-11-10 +1w>--<2026-11-12>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\nSCHEDULED: <2026-11-11 Wed +1d>\nBody <2026-11-17 Tue +1w>--<2026-11-12>\n"
+        }
+      ]
+    },
+    {
+      "name": "带窗口的重复日志",
+      "source": "#+STARTUP: logrepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue .+1d/3d>\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: logrepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-12 Thu .+1d/3d>\n:PROPERTIES:\n:LAST_REPEAT: [2026-11-11 Wed 12:34]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\n"
+        }
+      ]
+    },
+    {
+      "name": "只有类型完成状态的重复",
+      "source": "#+TODO: TODO | DONE\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d>\n:PROPERTIES:\n:REPEAT_TO_STATE: DONE\n:END:\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+TODO: TODO | DONE\n* DONE Task\nSCHEDULED: <2026-11-11 Wed +1d>\n:PROPERTIES:\n:REPEAT_TO_STATE: DONE\n:END:\n"
+        }
+      ]
+    },
+    {
+      "name": "已有关闭时间不回填日志",
+      "source": "#+STARTUP: nologdone\n* DONE Task\nCLOSED: [2000-01-01 Sat]\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: nologdone\n* DONE Task\nCLOSED: [2000-01-01 Sat]\n"
+        }
+      ]
+    },
+    {
+      "name": "纯文本和代码中的窗口",
+      "source": "* TODO Task\n= <2026-11-10 Tue .+1d/3d> =\n~<2026-11-10 Tue .+1d/3d>~\n#+begin_src org\n<2026-11-10 Tue .+1d/3d>\n#+end_src\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "* TODO Task\n= <2026-11-12 Thu .+1d/3d> =\n~<2026-11-10 Tue .+1d/3d>~\n#+begin_src org\n<2026-11-10 Tue .+1d/3d>\n#+end_src\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "operations": [
+    {
+      "type": "Creation",
+      "data": {
+        "position": {
+          "parent": {
+            "repoId": "repo",
+            "file": "tasks.org"
+          }
+        },
+        "title": "New",
+        "state": "FINISHED"
+      }
+    }
+  ]
+}

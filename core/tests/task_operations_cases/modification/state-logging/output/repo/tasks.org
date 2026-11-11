@@ -1,0 +1,10 @@
+#+TODO: TODO WAIT(w@/!) | DONE(d!)
+#+STARTUP: logdrawer
+* DONE Task
+CLOSED: {{TIMESTAMP}}
+:LOGBOOK:
+- State "DONE"       from "TODO"       {{TIMESTAMP}}
+- State "TODO"       from "WAIT"       {{TIMESTAMP}}
+- State "WAIT"       from "TODO"       {{TIMESTAMP}}
+:END:
+Body

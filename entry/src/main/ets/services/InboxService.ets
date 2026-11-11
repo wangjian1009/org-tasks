@@ -109,7 +109,7 @@ export class InboxService {
       parent = first.fullPath
       operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
         { field: 'TODO', value: 'TODO' }, { field: 'SCHEDULE', value: null },
-        { field: 'DEADLINE', value: null }, { field: 'CLOSED', value: null }
+        { field: 'DEADLINE', value: null }
       ] } })
     } else if (action === 'memo') {
       const selected = configuredFileTarget(config, 'memo')
@@ -123,7 +123,7 @@ export class InboxService {
       parent = (await repo.file(selected.path)).fullPath
       operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
         { field: 'TODO', value: null }, { field: 'PRIORITY', value: null },
-        { field: 'SCHEDULE', value: null }, { field: 'DEADLINE', value: null }, { field: 'CLOSED', value: null }
+        { field: 'SCHEDULE', value: null }, { field: 'DEADLINE', value: null }
       ] } })
     }
     operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :

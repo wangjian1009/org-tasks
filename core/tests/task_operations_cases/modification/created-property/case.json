@@ -1,3 +1,4 @@
 {
-  "purpose": "设置 CREATED 属性保留其他属性和正文"
+  "purpose": "拒绝显式设置或清除 CREATED，保留原始文件",
+  "error": "unknown variant `CREATED`"
 }

@@ -1,4 +1,7 @@
 * One
 ** Child
 * New
+:PROPERTIES:
+:CREATED: {{TIMESTAMP}}
+:END:
 * Two

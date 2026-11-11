@@ -1,0 +1,4 @@
+#+SETUPFILE: settings/outer.org
+* FINISHED Note
+CLOSED: {{TIMESTAMP}}
+Body

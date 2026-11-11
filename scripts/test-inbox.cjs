@@ -66,7 +66,7 @@ test('备忘使用配置文件顶部并清除根 TODO；失效目标不提交', 
   assert.deepEqual(f.requests[0].operations, [
     { type: 'Modification', data: { path: f.task.fullPath, modifications: [
       { field: 'TODO', value: null }, { field: 'PRIORITY', value: null },
-      { field: 'SCHEDULE', value: null }, { field: 'DEADLINE', value: null }, { field: 'CLOSED', value: null }
+      { field: 'SCHEDULE', value: null }, { field: 'DEADLINE', value: null }
     ] } },
     { type: 'Movement', data: { path: f.task.fullPath, position: { parent: { repoId: 'core-id', file: 'memo.org', titles: [] } } } }
   ]);
@@ -154,7 +154,7 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
   assert.deepEqual(requests[0], { operations: [
     { type: 'Modification', data: { path: task.fullPath, modifications: [
       { field: 'TODO', value: 'TODO' }, { field: 'SCHEDULE', value: null },
-      { field: 'DEADLINE', value: null }, { field: 'CLOSED', value: null }
+      { field: 'DEADLINE', value: null }
     ] } },
     { type: 'Movement', data: { path: task.fullPath, position: { parent: first.fullPath } } }
   ], fileVersions: [

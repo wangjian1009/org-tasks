@@ -297,10 +297,10 @@ pub(super) fn locate(file: &OrgFile, path: &TaskPath) -> Result<Headline, CoreEr
     Ok(headline)
 }
 
-fn start(headline: &Headline) -> usize {
+pub(super) fn start(headline: &Headline) -> usize {
     u32::from(headline.start()) as usize
 }
-fn end(headline: &Headline) -> usize {
+pub(super) fn end(headline: &Headline) -> usize {
     u32::from(headline.end()) as usize
 }
 
@@ -343,7 +343,7 @@ pub(super) fn position(file: &OrgFile, request: &TaskPosition) -> Result<(usize,
     }
 }
 
-fn replace(
+pub(super) fn replace(
     file: &mut OrgFile,
     range: std::ops::Range<usize>,
     content: &[u8],
@@ -353,7 +353,7 @@ fn replace(
     file.reparse()
 }
 
-fn newline(file: &OrgFile) -> &'static str {
+pub(super) fn newline(file: &OrgFile) -> &'static str {
     if file.source_bytes().windows(2).any(|pair| pair == b"\r\n") {
         "\r\n"
     } else {
@@ -470,7 +470,6 @@ fn execute_inner(
             for (field, value) in [
                 ("SCHEDULED", &data.scheduled),
                 ("DEADLINE", &data.deadline),
-                ("CLOSED", &data.closed),
             ] {
                 if let Some(value) = value {
                     validate_timestamp(value)?;
@@ -478,15 +477,18 @@ fn execute_inner(
                 }
             }
             validate_body(&data.body)?;
-            if data.record_created {
-                let created = chrono::Local::now().format("[%Y-%m-%d %a %H:%M]");
-                content.push_str(&format!(
-                    ":PROPERTIES:{}:CREATED: {created}{}:END:{}",
-                    newline(&item.file),
-                    newline(&item.file),
-                    newline(&item.file)
-                ));
+            let timestamp = chrono::Local::now()
+                .format("[%Y-%m-%d %a %H:%M]")
+                .to_string();
+            if data.state.as_ref().is_some_and(|state| item.file.todo.done_keywords.contains(state)) {
+                content.push_str(&format!("CLOSED: {timestamp}{}", newline(&item.file)));
             }
+            content.push_str(&format!(
+                ":PROPERTIES:{}:CREATED: {timestamp}{}:END:{}",
+                newline(&item.file),
+                newline(&item.file),
+                newline(&item.file)
+            ));
             content.push_str(&normalize_newlines(&data.body, newline(&item.file)));
             let probe = item.file_source(&content)?;
             if probe.syntax().document().headlines().count() != 1
@@ -539,24 +541,10 @@ fn execute_inner(
                     .find(|node| start(node) == offset)
                     .ok_or(CoreError::InvalidState("修改后标题无法定位"))?;
                 modify(&mut item.file, &headline, modification)?;
-                let updated = item
-                    .file
-                    .path_headlines()
-                    .into_iter()
-                    .map(|(_, node)| node)
+                // 各字段在写入处校验边界；重复调度允许更新标题内的真实时间戳。
+                item.file.path_headlines().into_iter().map(|(_, node)| node)
                     .find(|node| start(node) == offset)
                     .ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?;
-                match modification {
-                    TaskModification::Todo(value)
-                        if updated.todo_keyword().map(|token| token.to_string()) != *value
-                            || updated.title_raw() != headline.title_raw() =>
-                    {
-                        return Err(CoreError::InvalidInput(
-                            "标题或状态不能被 Org 重新解释为其他字段",
-                        ));
-                    }
-                    _ => (),
-                }
                 // 字段修改期间保留本标题起点，父级统计在全部字段完成后更新。
                 offset = start(&headline);
             }
@@ -703,7 +691,7 @@ fn validate_title(value: &str) -> Result<(), CoreError> {
     }
     Ok(())
 }
-fn validate_state(file: &OrgFile, value: Option<&str>) -> Result<(), CoreError> {
+pub(super) fn validate_state(file: &OrgFile, value: Option<&str>) -> Result<(), CoreError> {
     if value.is_some_and(|value| {
         !file
             .todo
@@ -779,7 +767,8 @@ fn update_title_counts(
 }
 
 fn validate_timestamp(value: &str) -> Result<(), CoreError> {
-    let parsed = orgize::Org::parse(value);
+    let masked = super::task_state::mask_repeater_windows(value);
+    let parsed = orgize::Org::parse(&masked);
     let timestamp = parsed
         .first_node::<orgize::ast::Timestamp>()
         .ok_or(CoreError::InvalidInput("规划值必须是完整 Org 时间戳"))?;
@@ -802,7 +791,7 @@ fn validate_timestamp(value: &str) -> Result<(), CoreError> {
             .zip(timestamp.day_end().and_then(|d| d.parse::<u32>().ok()))
             .and_then(|((y, m), d)| chrono::NaiveDate::from_ymd_opt(y, m, d))
             .is_none();
-    if timestamp.raw() != value
+    if timestamp.raw() != masked
         || value.chars().any(char::is_control)
         || invalid_time
         || invalid_end
@@ -866,22 +855,7 @@ pub(super) fn modify(
             }
             update_title_counts(file, start(headline), super::title_statistics::Trigger::Title)
         }
-        TaskModification::Todo(value) => {
-            validate_state(file, value.as_deref())?;
-            if let Some(token) = headline.todo_keyword() {
-                let a = u32::from(token.text_range().start()) as usize;
-                let mut b = a + token.len();
-                if value.is_none() && file.source_bytes().get(b) == Some(&b' ') {
-                    b += 1;
-                }
-                replace(file, a..b, value.as_deref().unwrap_or("").as_bytes())
-            } else if let Some(value) = value {
-                let a = start(headline) + headline.level() + 1;
-                replace(file, a..a, format!("{value} ").as_bytes())
-            } else {
-                Ok(())
-            }
-        }
+        TaskModification::Todo(value) => super::task_state::modify(file, headline, value.as_deref()),
         TaskModification::Priority(value) => {
             validate_priority(value.as_deref())?;
             if let Some(node) = headline
@@ -1051,10 +1025,6 @@ pub(super) fn modify(
             SyntaxKind::PLANNING_DEADLINE,
             value,
         ),
-        TaskModification::Closed(value) => {
-            planning(file, headline, "CLOSED", SyntaxKind::PLANNING_CLOSED, value)
-        }
-        TaskModification::Created(value) => created(file, headline, value),
         TaskModification::AddressLink(value) => {
             let change = value
                 .as_ref()
@@ -1081,88 +1051,6 @@ pub(super) fn modify(
                 change.new_uri.as_bytes(),
             )
         }
-    }
-}
-
-fn created(
-    file: &mut OrgFile,
-    headline: &Headline,
-    value: &Option<String>,
-) -> Result<(), CoreError> {
-    if let Some(value) = value {
-        validate_timestamp(value)?;
-    }
-    if let Some(drawer) = headline.properties() {
-        let mut ranges = drawer
-            .node_properties()
-            .filter(|property| {
-                property
-                    .syntax()
-                    .children_with_tokens()
-                    .filter_map(|item| item.into_token())
-                    .any(|token| {
-                        token.kind() == SyntaxKind::TEXT
-                            && token.text().eq_ignore_ascii_case("CREATED")
-                    })
-            })
-            .map(|property| {
-                u32::from(property.start()) as usize..u32::from(property.end()) as usize
-            })
-            .collect::<Vec<_>>();
-        if !ranges.is_empty() {
-            ranges.sort_by_key(|range| std::cmp::Reverse(range.start));
-            let count = ranges.len();
-            for (index, range) in ranges.into_iter().enumerate() {
-                let content = if index + 1 == count {
-                    value
-                        .as_ref()
-                        .map(|v| format!(":CREATED: {v}{}", newline(file)))
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                replace(file, range, content.as_bytes())?;
-            }
-            Ok(())
-        } else if let Some(value) = value {
-            let a = u32::from(drawer.content_start()) as usize;
-            replace(
-                file,
-                a..a,
-                format!(":CREATED: {value}{}", newline(file)).as_bytes(),
-            )
-        } else {
-            Ok(())
-        }
-    } else if let Some(value) = value {
-        let a = planning_lines(file, headline)
-            .last()
-            .map(|(_, end, _)| *end)
-            .unwrap_or_else(|| {
-                file.source_bytes()[start(headline)..]
-                    .iter()
-                    .position(|b| *b == b'\n')
-                    .map(|n| start(headline) + n + 1)
-                    .unwrap_or(file.source_bytes().len())
-            });
-        let prefix = if a > 0 && file.source_bytes()[a - 1] != b'\n' {
-            newline(file)
-        } else {
-            ""
-        };
-        replace(
-            file,
-            a..a,
-            format!(
-                "{prefix}:PROPERTIES:{}:CREATED: {value}{}:END:{}",
-                newline(file),
-                newline(file),
-                newline(file)
-            )
-            .as_bytes(),
-        )
-    } else {
-        Ok(())
     }
 }
 
@@ -1371,7 +1259,7 @@ fn move_checklist_item(
     replace(file, ranges[first].start..ranges[last].end, &result)
 }
 
-fn planning_lines(
+pub(super) fn planning_lines(
     file: &OrgFile,
     headline: &Headline,
 ) -> Vec<(usize, usize, Vec<(SyntaxKind, usize, usize)>)> {
@@ -1390,7 +1278,8 @@ fn planning_lines(
             .unwrap_or(source.len());
         let line = std::str::from_utf8(&source[cursor..line_end]).expect("已解析 UTF-8");
         let prefix = "* probe\n";
-        let syntax = orgize::Org::parse(&format!("{prefix}{line}"));
+        let masked = super::task_state::mask_repeater_windows(line);
+        let syntax = orgize::Org::parse(&format!("{prefix}{masked}"));
         let Some(planning) = syntax.first_node::<orgize::ast::Planning>() else {
             break;
         };
@@ -1422,7 +1311,7 @@ fn planning_lines(
     lines
 }
 
-fn planning(
+pub(super) fn planning(
     file: &mut OrgFile,
     headline: &Headline,
     name: &str,
@@ -1469,7 +1358,13 @@ fn planning(
     if !found {
         if let Some(value) = value {
             if let Some((a, _, _)) = lines.first() {
-                edits.push((*a, *a, format!("{name}: {value} ")));
+                // 自动添加的 CLOSED 独占一行，恢复状态时可完整移除，避免累积空格。
+                let separator = if kind == SyntaxKind::PLANNING_CLOSED {
+                    newline(file)
+                } else {
+                    " "
+                };
+                edits.push((*a, *a, format!("{name}: {value}{separator}")));
             } else {
                 let a = file.source_bytes()[start(headline)..]
                     .iter()

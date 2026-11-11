@@ -571,7 +571,7 @@ pub struct TodoMetadata {
 }
 #+end_src
 
-~TodoWorkflowSpec.keywords~ 保留分隔符和括号后缀，如 ~WAIT(w@/!)~ 。元信息分解出名称、状态类型、显式快捷键、进入日志与离开日志要求，未指定值为 ~None~ 。当前只提供这些信息，不自动写入状态变更日志。
+~TodoWorkflowSpec.keywords~ 保留分隔符和括号后缀，如 ~WAIT(w@/!)~ 。元信息分解出名称、状态类型、显式快捷键、进入日志与离开日志要求，未指定值为 ~None~ 。状态修改按这些配置写入日志；无进入、离开或重复日志配置时不生成相应记录，具体规则见本文“状态变化、重复调度与日志”。
 
 \begin{center}
 \resizebox{\textwidth}{!}{%
@@ -600,7 +600,7 @@ pub struct TodoMetadata {
 
 ~|~ 后为完成状态；无分隔符时，每套流程最后一个状态为完成状态。若全部流程都没有给出完成状态，则文件最后一个关键词作为完成状态。跨流程同名状态的完成归属以文件有效完成集合为准。空 ~#+TODO:~ 也是覆盖，表示清空文件 TODO 识别。
 
-设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。文件未直接声明时，仓库加载会按相对路径展开仓库内的 ~SETUPFILE~ ，只提取其中的 TODO 声明作为该文件的有效设置；不执行 Emacs Lisp，也忽略仓库外或不存在的设置文件。
+设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。文件未直接声明时，仓库加载会按相对路径展开仓库内的 ~SETUPFILE~ ，提取其中的 TODO 声明、 ~STARTUP~ 和 ~PROPERTY~ 作为该文件的有效设置；不执行 Emacs Lisp，也忽略仓库外或不存在的设置文件。
 
 非法配置报告错误，不静默回退全局值。未修改文件直接返回原始字节；编辑声明后重算元信息，重新解析失败时回滚此次局部编辑。新增任务使用 ~initial_state~ ，即有效配置首个未完成状态；文件尚不存在时使用外部默认。没有可用未完成状态则拒绝保存。
 
@@ -801,16 +801,12 @@ pub struct TaskCreation {
     pub scheduled: Option<String>,
     #[serde(default)]
     pub deadline: Option<String>,
-    #[serde(default)]
-    pub closed: Option<String>,
-    #[serde(default)]
-    pub record_created: bool,
 }
 
 impl TaskCreation {
     pub fn new(position: TaskPosition, title: String) -> Self {
         Self {position,title,body:String::new(),state:None,priority:None,tags:Vec::new(),
-            scheduled:None,deadline:None,closed:None,record_created:false}
+            scheduled:None,deadline:None}
     }
 }
 
@@ -821,7 +817,7 @@ pub struct TaskModificationOperation {
     pub modifications: Vec<TaskModification>,
 }
 
-/// 每项只修改一个字段；None 清除值，未列出的字段及其字节保持原样。
+/// 每项修改指定字段；TODO 统一维护时间、重复调度和日志，其余未涉及的字段及字节保持原样。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "field", content = "value", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub enum TaskModification {
@@ -836,8 +832,6 @@ pub enum TaskModification {
     ScheduleDate(Option<String>),
     Deadline(Option<String>),
     DeadlineDate(Option<String>),
-    Closed(Option<String>),
-    Created(Option<String>),
     AddressLink(Option<TaskAddressChange>),
 }
 
@@ -903,22 +897,57 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 ** 创建与字段修改
 
-创建显式指定标题、插入位置和可选状态；未提供状态时创建无状态标题。状态须属于目标文件有效 TODO 配置；宿主需要创建任务时从文件元信息取得初始状态。正文不允许引入额外标题。 ~record_created~ 启用时由 Core 生成本地非活动 CREATED 时间戳。
+创建显式指定标题、插入位置和可选状态；未提供状态时创建无状态标题。状态须属于目标文件有效 TODO 配置；宿主需要创建任务时从文件元信息取得初始状态。正文不允许引入额外标题。Core 在每次创建时自动生成精确到分钟的本地非活动 ~CREATED~ 时间戳；创建参数不接受创建时间开关或关闭时间。创建为有效完成状态时同时生成 ~CLOSED~ 。
 
-~TaskModificationOperation.path~ 定位一个标题， ~modifications~ 顺序执行，每项只修改一个字段。字段类型由 ~TaskModification~ 枚举表示，JSON 中字段名为大写枚举值， ~value=null~ 清除值，未列出的字段保持原样。多项字段修改始终定位同一标题，不会因为前面改名而丢失后续字段操作。
+~TaskModificationOperation.path~ 定位一个标题， ~modifications~ 顺序执行，每项修改指定字段；修改 ~TODO~ 时同时维护 ~CLOSED~ 。字段类型由 ~TaskModification~ 枚举表示，JSON 中字段名为大写枚举值， ~value=null~ 清除可空字段，除随状态维护的关闭时间外，未涉及的字段保持原样。多项字段修改始终定位同一标题，不会因为前面改名而丢失后续字段操作。
 
 | 枚举 | 值与清理语义 |
 |-
 | ~TITLE~ | 字符串修改标题文字；空值清除文字，不改变 TODO、优先级或标签。 |
 | ~BODY~ | 字符串替换当前标题自身正文；空值清空。保留规划、属性 drawer 和子标题；拒绝正文引入额外标题。 |
-| ~TODO~ | 设置目标文件已配置状态；空值清除状态。 |
+| ~TODO~ | 设置目标文件已配置状态；空值清除状态。进入有效完成状态自动生成 CLOSED，恢复未完成或清除状态自动清理 CLOSED。 |
 | ~PRIORITY~ | 单个大写字母；空值清除优先级。 |
 | ~TAGS~ | 标签数组；空值或空数组清除自身标签，不修改继承来源。 |
-| ~SCHEDULE~ 、 ~DEADLINE~ 、 ~CLOSED~ | 完整有效 Org 时间戳，保留重复器等表达式；空值清除对应规划项。 |
-| ~CREATED~ | 设置属性 drawer 中的 CREATED 时间戳；空值只清除此属性。 |
+| ~SCHEDULE~ 、 ~DEADLINE~ | 完整有效 Org 时间戳，保留重复器等表达式；空值清除对应规划项。 |
 | ~ADDRESS_LINK~ | 提交新旧 URI，仅替换子树中首个匹配的真实链接，保留描述及其他字节；空值拒绝，不把源码块中的伪链接当成真实链接。 |
 
+~CREATED~ 与 ~CLOSED~ 不属于可提交的字段操作，旧字段输入返回错误。创建时间仅在新建时生成，后续编辑、移动、读取及同步保留已有值，不为旧记录回填。关闭时间由 ~TODO~ 操作根据当前文件的有效 ~TodoMetadata.done_keywords~ 及日志配置自动维护；文件内 ~TODO~ 、 ~SEQ_TODO~ 、 ~TYP_TODO~ 覆盖 SETUP 的状态声明，没有声明时沿用全局默认。每次写入重新加载文件和嵌套 ~SETUPFILE~ ，不硬编码状态名。时间维护、重复调度、日志和状态变更共用版本校验、提交、失败回滚和数据通知。
+
 移动保留整棵子树，仅调整真实标题的星号层级；目标文件配置不能改变子树标题或 TODO 状态的解释。删除移除目标完整子树。备忘整理由清除 TODO、优先级、规划字段的 Modification 和随后的 Movement 组合完成，不在 Movement 中复制字段修改语义。
+
+** 状态变化、重复调度与日志
+
+语义依据 [[info:org#Closing items][Org Info：关闭记录]]、 [[info:org#Tracking TODO state changes][状态变更日志]] 与 [[info:org#Repeated tasks][重复任务]]，由 Core 的 ~task_state~ 统一执行；宿主继续只提交 ~TODO~ 字段。文件与 SETUP 的配置通过真实 keyword 节点读取，不执行 Lisp。
+
+*** 完成与关闭时间
+
+应用默认等同启用 ~org-log-done=time~ ：从未完成状态进入文件定义的任意完成状态，写入当前本地非活动 ~CLOSED~ 时间戳；恢复未完成或清除状态时移除自身关闭时间，保留子标题和其他规划。已完成状态之间切换保留已有关闭时间，旧完成任务缺少关闭时间时可在显式设置状态时补齐。文件 ~#+STARTUP: logdone~ 、 ~lognotedone~ 、 ~nologdone~ 及有效 ~LOGGING~ 属性可覆盖关闭记录策略。新增的关闭项独占一行，恢复时完整移除，不累积规划行空格。
+
+*** 重复完成与重新调度
+
+进入完成状态时处理当前标题自身的所有真实活动重复时间戳，包括计划、截止、标题及正文；不处理非活动时间戳、源码、示例、逐字内容或子标题中的时间戳。重复完成后移除 ~CLOSED~ 并恢复待办状态，记录本次完成的历史由显式日志配置决定。
+
+| 重复器 | 调度规则 |
+|-
+| ~+Nunit~ | 按原时间向后推进一次，即使下一次仍然过期。 |
+| ~++Nunit~ | 至少推进一次并追赶到未来；按小时比较当前时刻，其他单位按 Org 的自然日规则追赶。 |
+| ~.+Nunit~ | 从本次完成的自然日重新计算；按小时重复则以当前时刻计算。 |
+
+~unit~ 支持 ~h~ 、 ~d~ 、 ~w~ 、 ~m~ 、 ~y~ ；支持保留 ~/Nunit~ 窗口，单次预警 ~--Nunit~ 在重复后清除，普通预警 ~-Nunit~ 保留。按小时重复必须存在时刻，否则整个操作组失败。月和年遵循 Org 的日期溢出归一化，例如一月三十一日加一个月进入三月；时间范围保持持续时长，独立日期范围的另一端没有重复器时保持原样。
+
+恢复状态优先使用自身或文件默认的 ~REPEAT_TO_STATE~ ，无有效指定时，顺序流程恢复该流程首状态，类型流程恢复原状态。存在重复时间戳时，未带重复器的 ~SCHEDULED~ 清除，未带重复器的 ~DEADLINE~ 保留。所有改写保持未涉及的正文、属性、创建时间和字节格式。
+
+*** 配置驱动的日志
+
+应用默认关闭普通状态及重复日志：没有对应配置时不产生状态日志、重复日志或 ~LAST_REPEAT~ 。关键词 ~!~ 记录进入状态时间， ~@~ 记录带时间的说明，斜线后的标记记录离开状态；目标状态有进入日志时优先使用目标配置，不重复记录来源日志。当前接口不接收说明文本， ~@~ 按 Org 允许的空说明确认方式记录。清除为无状态不写状态日志；显式重复设置同一状态时，按 Org 的关键词配置记录。
+
+文件 ~#+STARTUP: logrepeat~ 、 ~lognoterepeat~ 、 ~nologrepeat~ 控制重复日志；重复日志启用或当前记录含真实 CLOCK 时更新 ~LAST_REPEAT~ 。 ~LOGGING~ 属性从当前标题向祖先继承，也可来自文件 ~#+PROPERTY~ ；非空值先清空已有状态、完成与重复日志配置，再应用属性中指定的日志选项及状态标记， ~LOGGING: nil~ 禁用全部日志。
+
+~#+STARTUP: logdrawer~ 将日志写入 ~LOGBOOK~ ， ~nologdrawer~ 写入正文；继承的 ~LOG_INTO_DRAWER~ 可指定自定义 drawer 或以 ~nil~ 覆盖。 ~logstatesreversed~ 默认新记录在前， ~nologstatesreversed~ 按时间追加。已有 drawer 原样保留，不把源码中的 drawer 样式文字当成日志容器。
+
+*** 子任务限制
+
+当前标题存在任意有效 TODO 或完成状态的后代任务时，禁止改变自身状态；无状态的普通子标题不触发限制。保留标题、备注、清单等其他编辑。本应用的限制比 [[info:org#TODO dependencies][Org 的可配置未完成依赖检查]] 更严格：已完成子任务同样阻止父任务状态变化。失败操作连同本组已执行的其他字段修改一起回滚。
 
 ** 多记录合并操作规划
 
@@ -954,7 +983,7 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
 \umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
 \umlclass[x=7,y=-8]{TaskDeletion}{path: TaskPath}{}
-\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / NOTES / CHECKLIST \\ TODO / PRIORITY / TAGS \\ SCHEDULE / SCHEDULE\_DATE \\ DEADLINE / DEADLINE\_DATE \\ CLOSED / CREATED / ADDRESS\_LINK}{}
+\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / NOTES / CHECKLIST \\ TODO / PRIORITY / TAGS \\ SCHEDULE / SCHEDULE\_DATE \\ DEADLINE / DEADLINE\_DATE \\ ADDRESS\_LINK}{}
 \umlclass[x=0,y=-12]{TaskOperationHistory}{entries: Vec\textless TaskOperationRecord\textgreater}{}
 \umlclass[x=8,y=-12]{TaskOperationRecord}{operation\_group: TaskOperationGroup \\ fallback\_group: TaskFallbackGroup}{}
 \umlclass[x=15,y=-12]{TaskFallbackGroup}{files: Vec\textless TaskFileFallback\textgreater}{}

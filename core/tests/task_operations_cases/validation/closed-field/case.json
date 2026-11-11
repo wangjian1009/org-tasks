@@ -1,0 +1,4 @@
+{
+  "purpose": "拒绝显式设置 CLOSED，保留原始文件",
+  "error": "unknown variant `CLOSED`"
+}

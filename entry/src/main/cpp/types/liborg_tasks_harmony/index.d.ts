@@ -23,10 +23,10 @@ export interface TaskPath { repoId: string; file: string | null; titles: string[
 export interface TaskPosition { parent: TaskPath; after?: TaskPath | null; }
 export interface TaskCreation {
   position: TaskPosition; title: string; body?: string; state?: string | null; priority?: string | null;
-  tags?: string[]; scheduled?: string | null; deadline?: string | null; closed?: string | null; recordCreated?: boolean;
+  tags?: string[]; scheduled?: string | null; deadline?: string | null;
 }
 export interface TaskAddressChange { oldUri: string; newUri: string; }
-export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_DATE' | 'DEADLINE' | 'DEADLINE_DATE' | 'CLOSED' | 'CREATED' | 'ADDRESS_LINK';
+export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_DATE' | 'DEADLINE' | 'DEADLINE_DATE' | 'ADDRESS_LINK';
 export interface TaskChecklistItem { readonly id: string; readonly siblingGroup: string; readonly text: string; readonly checked: boolean; readonly partial: boolean; readonly depth: number; }
 export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly checklist: TaskChecklistItem[]; }
 export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }

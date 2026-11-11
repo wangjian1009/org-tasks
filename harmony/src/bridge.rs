@@ -1157,7 +1157,7 @@ mod tests {
         let request = serde_json::json!({ "operations": [
             {"type":"Modification", "data":{"path":task["fullPath"], "modifications":[
                 {"field":"TODO", "value":"TODO"}, {"field":"SCHEDULE", "value":null},
-                {"field":"DEADLINE", "value":null}, {"field":"CLOSED", "value":null}]}},
+                {"field":"DEADLINE", "value":null}]}},
             {"type":"Movement", "data":{"path":task["fullPath"], "position":{"parent":target["fullPath"]}}}
         ], "fileVersions":[
             {"repoId":task["repoId"], "file":task["filePath"], "version":task["fileVersion"]},
@@ -1211,7 +1211,7 @@ mod tests {
     }
 
     #[test]
-    fn capture_creation_flag_reaches_core_and_survives_reload() {
+    fn capture_creation_automatically_records_created_and_survives_reload() {
         let root =
             std::env::temp_dir().join(format!("org-tasks-capture-created-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -1222,7 +1222,7 @@ mod tests {
         workspace_add_repo(handle, directory.clone()).unwrap();
         repo_load(handle,directory.clone()).unwrap();
         let id=repo_id(handle,directory.clone()).unwrap();
-        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"}},"title":"Captured","state":"TODO","recordCreated":true}}],"queueRepoIds":[id]}).to_string()).unwrap();
+        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"}},"title":"Captured","state":"TODO"}}],"queueRepoIds":[id]}).to_string()).unwrap();
         let source = std::fs::read_to_string(root.join("inbox.org")).unwrap();
         assert!(source.starts_with("* TODO Captured\n:PROPERTIES:\n:CREATED: ["));
         assert!(source.ends_with(original));
@@ -1269,10 +1269,10 @@ mod tests {
         let response = repo_snapshot_json(handle, root_directory).unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["files"][0]["path"], "inbox.org");
-        assert_eq!(
-            response["files"][0]["source"],
-            "* TODO bridge\n* TODO created from bridge\n"
-        );
+        let source = response["files"][0]["source"].as_str().unwrap();
+        assert!(source.starts_with("* TODO bridge\n* TODO created from bridge\n:PROPERTIES:\n:CREATED: ["));
+        assert!(source.ends_with("]\n:END:\n"));
+        assert_eq!(source, std::fs::read_to_string(root.join("inbox.org")).unwrap());
 
         let second_root = root.with_extension("second");
         std::fs::create_dir_all(&second_root).unwrap();

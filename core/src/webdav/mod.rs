@@ -505,7 +505,7 @@ mod write_tests {
     struct Exchange {
         method: &'static str,
         condition: Option<&'static str>,
-        body: Option<Vec<u8>>,
+        body: Option<std::path::PathBuf>,
         status: u16,
         response: String,
     }
@@ -554,7 +554,7 @@ mod write_tests {
                     request.extend_from_slice(&buffer[..count]);
                 }
                 if let Some(body) = exchange.body {
-                    assert_eq!(&request[header_end..], &body);
+                    assert_eq!(&request[header_end..], &tokio::fs::read(body).await.unwrap());
                 }
                 let response = format!(
                     "HTTP/1.1 {} Result\r\nContent-Length: {}\r\nETag: {}\r\nConnection: close\r\n\r\n{}",
@@ -592,11 +592,11 @@ mod write_tests {
         }
     }
 
-    fn put(body: &[u8], condition: &'static str, status: u16) -> Exchange {
+    fn put(body: &std::path::Path, condition: &'static str, status: u16) -> Exchange {
         Exchange {
             method: "PUT",
             condition: Some(condition),
-            body: Some(body.to_vec()),
+            body: Some(body.to_path_buf()),
             status,
             response: String::new(),
         }
@@ -636,16 +636,18 @@ mod write_tests {
 
     #[tokio::test]
     async fn offline_tasks_upload_with_conditions_and_retry_without_losing_intents() {
-        let first = b"* TODO First\n";
-        let second = b"* TODO First\n* TODO Second\n";
+        let mut repo = repository().await;
+        let root = repo.root_directory.clone();
+        crate::model::test_support::append_fixture(&mut repo, "inbox.org", "First").await.unwrap();
+        let disk = std::path::Path::new(&root).join("inbox.org");
+        let first = tokio::fs::read(&disk).await.unwrap();
         let (url, worker) = server(vec![
             propfind("<multistatus xmlns=\"DAV:\"/>".into()),
-            propfind("<multistatus xmlns=\"DAV:\"/>".into()),
-            put(first, "if-none-match: *", 201),
+            put(&disk, "if-none-match: *", 201),
             propfind(listing("\"v1\"", first.len())),
-            put(second, "if-match: \"v1\"", 500),
+            put(&disk, "if-match: \"v1\"", 500),
             propfind(listing("\"v1\"", first.len())),
-            put(second, "if-match: \"v1\"", 204),
+            put(&disk, "if-match: \"v1\"", 204),
         ])
         .await;
         let policy = WebDavSyncPolicy::new(
@@ -654,15 +656,6 @@ mod write_tests {
             "secret".into(),
         )
         .unwrap();
-        let mut repo = repository().await;
-        let root = repo.root_directory.clone();
-        assert_eq!(
-            sync(&mut repo, &policy, 0).await.result,
-            Some(OrgRepoSyncResult::Succeeded)
-        );
-        crate::model::test_support::append_fixture(&mut repo, "inbox.org", "First")
-            .await
-            .unwrap();
         assert_eq!(
             sync(&mut repo, &policy, 1).await.result,
             Some(OrgRepoSyncResult::Succeeded)
@@ -671,6 +664,7 @@ mod write_tests {
         crate::model::test_support::append_fixture(&mut repo, "inbox.org", "Second")
             .await
             .unwrap();
+        let second = tokio::fs::read(&disk).await.unwrap();
         assert_eq!(
             sync(&mut repo, &policy, 2).await.result,
             Some(OrgRepoSyncResult::Failed)
@@ -688,11 +682,14 @@ mod write_tests {
 
     #[tokio::test]
     async fn same_content_new_etag_replays_local_changes_and_updates_the_confirmed_base() {
-        let first = b"* TODO First\n";
-        let second = b"* TODO First\n* TODO Second\n";
+        let mut repo = repository().await;
+        let root = repo.root_directory.clone();
+        crate::model::test_support::append_fixture(&mut repo, "inbox.org", "First").await.unwrap();
+        let disk = std::path::Path::new(&root).join("inbox.org");
+        let first = tokio::fs::read(&disk).await.unwrap();
         let (url, worker) = server(vec![
             propfind("<multistatus xmlns=\"DAV:\"/>".into()),
-            put(first, "if-none-match: *", 201),
+            put(&disk, "if-none-match: *", 201),
             propfind(listing("\"v2\"", first.len())),
             Exchange {
                 method: "GET",
@@ -701,7 +698,7 @@ mod write_tests {
                 status: 200,
                 response: String::from_utf8(first.to_vec()).unwrap(),
             },
-            put(second, "if-match: \"v2\"", 204),
+            put(&disk, "if-match: \"v2\"", 204),
         ])
         .await;
         let policy = WebDavSyncPolicy::new(
@@ -710,11 +707,6 @@ mod write_tests {
             "secret".into(),
         )
         .unwrap();
-        let mut repo = repository().await;
-        let root = repo.root_directory.clone();
-        crate::model::test_support::append_fixture(&mut repo, "inbox.org", "First")
-            .await
-            .unwrap();
         assert_eq!(
             sync(&mut repo, &policy, 1).await.result,
             Some(OrgRepoSyncResult::Succeeded)
@@ -722,6 +714,7 @@ mod write_tests {
         crate::model::test_support::append_fixture(&mut repo, "inbox.org", "Second")
             .await
             .unwrap();
+        let second = tokio::fs::read(&disk).await.unwrap();
         let record = sync(&mut repo, &policy, 2).await;
         assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
         assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), second);

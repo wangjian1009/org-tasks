@@ -243,7 +243,7 @@ test('选择与清除只修改对应文件入口，保留其他设置和新选�
   assert.equal(f.config.inboxRepoId, 'personal');
 });
 
-test('保存提交标题并请求记录创建时间，使用配置 inbox 与既有上传规则', async () => {
+test('保存提交标题，使用配置 inbox 与既有上传规则', async () => {
   const f = fixture();
   f.config.repos[0].webdavEnabled = true;
   f.config.inboxFile = 'notes/inbox.org';
@@ -251,7 +251,7 @@ test('保存提交标题并请求记录创建时间，使用配置 inbox 与既�
   assert.equal(f.calls.length, 1);
   assert.deepEqual(f.calls[0], { repos: f.config.repos, group: {
     operations: [{ type: 'Creation', data: { position: { parent: { repoId: 'core-personal', file: 'notes/inbox.org', titles: [] } },
-      title: '周五前交报销', body: '', scheduled: null, state: 'TODO', recordCreated: true } }],
+      title: '周五前交报销', body: '', scheduled: null, state: 'TODO' } }],
     queueRepoIds: ['core-personal'],
     fileVersions: [{ repoId: 'core-personal', file: 'notes/inbox.org', version: 'version-personal' }]
   }, todoDefaults: '#+TODO: TODO | DONE' });
@@ -306,7 +306,6 @@ test('捕捉保留完整标题，将去重地址链接与首个有效时间随�
   assert.equal(created.title, title);
   assert.equal(created.scheduled, '<2026-11-10 15:00>');
   assert.equal(created.body, ['杭州市西湖区文三路', '西湖'].map(address => `[[addr:${encodeURIComponent(address)}][${address}]]`).join('\n'));
-  assert.equal(created.recordCreated, true);
   assert.equal(f.releases(), 1);
 });
 

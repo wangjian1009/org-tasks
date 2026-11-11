@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """通过真实 CLI 执行按测试目的组织的任务操作黑盒用例。"""
 import argparse
+from datetime import datetime
 import difflib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -41,6 +43,7 @@ def bind(value, ids):
 
 
 def run_case(binary, case, keep_failed):
+    started = datetime.now().replace(second=0, microsecond=0)
     temp = Path(tempfile.mkdtemp(prefix='org-task-case-'))
     failed = True
     try:
@@ -90,6 +93,16 @@ def run_case(binary, case, keep_failed):
         actual = files_under(work)
         assert expected.keys() == actual.keys(), f'文件清单不同：expected={sorted(expected)}, actual={sorted(actual)}'
         for name in expected:
+            if b'{{TIMESTAMP}}' in expected[name]:
+                pattern = re.escape(expected[name]).replace(re.escape(b'{{TIMESTAMP}}'),
+                    rb'(\[\d{4}-\d{2}-\d{2} [A-Za-z]{3} \d{2}:\d{2}\])')
+                match = re.fullmatch(pattern, actual[name])
+                assert match, f'{name} 自动时间戳或其他字节与预期不符: {actual[name]!r}'
+                ended = datetime.now().replace(second=0, microsecond=0)
+                for timestamp in match.groups():
+                    value = datetime.strptime(timestamp.decode(), '[%Y-%m-%d %a %H:%M]')
+                    assert started <= value <= ended, f'{name} 时间戳不是本次操作时间: {timestamp!r}'
+                continue
             if expected[name] != actual[name]:
                 diff = ''.join(difflib.unified_diff(expected[name].decode().splitlines(True), actual[name].decode().splitlines(True), fromfile='expected/' + name, tofile='actual/' + name))
                 raise AssertionError(f'{name} 字节不一致\n{diff or repr((expected[name], actual[name]))}')

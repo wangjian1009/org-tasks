@@ -13,8 +13,8 @@
         },
         "modifications": [
           {
-            "field": "CLOSED",
-            "value": null
+            "field": "TODO",
+            "value": "TODO"
           }
         ]
       }

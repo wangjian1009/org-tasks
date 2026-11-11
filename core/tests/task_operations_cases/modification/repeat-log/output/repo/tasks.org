@@ -1,0 +1,10 @@
+#+STARTUP: logrepeat logdrawer
+* TODO Task
+SCHEDULED: <2026-11-17 Tue +1w/3w>
+:PROPERTIES:
+:LAST_REPEAT: {{TIMESTAMP}}
+:END:
+:LOGBOOK:
+- State "DONE"       from "TODO"       {{TIMESTAMP}}
+:END:
+Body

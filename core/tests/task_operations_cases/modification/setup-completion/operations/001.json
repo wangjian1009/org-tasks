@@ -1,0 +1,22 @@
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Note"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "FINISHED"
+          }
+        ]
+      }
+    }
+  ]
+}
