@@ -136,6 +136,22 @@ test('批次失败不产生通知快照，订阅回调不自行查询通知',asy
   assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,snapshots);
 });
 
+test('原位编辑重读卡片时同批发布同步提示，恢复基线后清除，失败保留快照',async()=>{
+  const f=fixture(),service=f.load('services/TaskInlineService').TaskInlineService;
+  const task={id:'editing',repoId:'core-a',filePath:'same.org',fileVersion:'new',tags:['新增标签']};
+  let changed=true;
+  f.query(batch=>batch.map(request=>request.type==='notification' ?
+    {type:'notification',result:changed?[{type:'syncRequired'}]:[]} : {type:'task',result:{tasks:[task]}}));
+  assert.equal(await service.reload({},task),task);
+  assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['task','notification']);
+  assert.deepEqual(f.writes.filter(write=>write.key==='coreNotifications').at(-1).value.notifications,[{type:'syncRequired'}]);
+  changed=false;await service.reload({},task);
+  assert.deepEqual(f.writes.filter(write=>write.key==='coreNotifications').at(-1).value.notifications,[]);
+  const before=f.writes.filter(write=>write.key==='coreNotifications').length;
+  f.fail();await assert.rejects(service.reload({},task),/整批读取失败/);
+  assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,before);
+});
+
 test('显式通知请求保留原位置，任务和文件结果按输入下标对应',async()=>{
   const f=fixture(),PageQueryService=f.load('services/PageQueryService').PageQueryService;
   const values=await PageQueryService.query(f.config,[{type:'notification',query:{}},{type:'file',query:{includeFiles:[{repoId:'core-b',path:'same.org'}]}},{type:'task',query:{}}]);

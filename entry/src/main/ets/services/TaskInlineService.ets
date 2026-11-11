@@ -1,6 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { CoreTask, CoreTaskModification, NativeCoreService, taskResult } from './NativeCoreService'
+import { PageQueryService } from './PageQueryService'
 
 // 只组装字段操作和快照版本；保真修改、校验与通知由 Core 完成。
 export class TaskInlineService {
@@ -11,26 +12,32 @@ export class TaskInlineService {
     const repo = (await workspace.repos()).find(item => item.id === task.repoId)
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
     if (!repository) throw new Error('目标仓库不可用')
+    // 字段值应用于最新快照；清单操作含快照条目 ID，继续校验原版本。
+    const current = modifications.some(change => change.field === 'CHECKLIST') ? task :
+      await TaskInlineService.reload(context, task)
     await workspace.executeTaskOperations({
-      operations: [{ type: 'Modification', data: { path: task.fullPath, modifications } }],
+      operations: [{ type: 'Modification', data: { path: current.fullPath, modifications } }],
       queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
-      fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
+      fileVersions: [{ repoId: current.repoId, file: current.filePath, version: current.fileVersion }]
     })
   }
 
   static async reload(context: Context, task: CoreTask): Promise<CoreTask> {
-    const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-    const tasks = taskResult((await workspace.query([{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }]))[0]).tasks
-    const current = tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
-      (task.taskId ? item.taskId === task.taskId : item.id === task.id))
+    const current = await TaskInlineService.find(context, task)
     if (!current) throw new Error('任务已删除或改名，请返回列表重新打开')
     return current
   }
 
+  static async find(context: Context, task: CoreTask): Promise<CoreTask | undefined> {
+    const config = await AppConfigService.load(context, false)
+    const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }]))[0]).tasks
+    return tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
+      (task.taskId ? item.taskId === task.taskId : item.id === task.id))
+  }
+
 }
 
-// 当前窗口只保留一个展开编辑会话，刷新推迟到会话结束，避免通知销毁输入控件。
+// 当前窗口只保留一个展开编辑会话；列表重排推迟到会话结束，卡片快照与通知继续刷新。
 export class TaskInlineSession {
   private static owner: string = ''
   private static finish: ((collapse: boolean) => Promise<boolean>) | undefined = undefined

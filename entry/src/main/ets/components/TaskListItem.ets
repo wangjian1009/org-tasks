@@ -1,6 +1,6 @@
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession } from '../services/TaskInlineService'
-import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
+import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../ui/TaskRepeatPresentation'
@@ -42,6 +42,9 @@ export struct TaskListItem {
   @State editTask: CoreTask | undefined = undefined
   @State heading: string = ''
   @State notes: string = ''
+  private headingEditing: boolean = false
+  private notesEditing: boolean = false
+  @State removed: boolean = false
   @State typing: boolean = false
   @State working: boolean = false
   @State completing: boolean = false
@@ -115,18 +118,26 @@ export struct TaskListItem {
     }
   }
   dataChanged() {
-    if (!this.editTask) return
+    if (!this.editTask || this.removed) return
     // 操作提交与数据事件各自排队，读取新快照由事件触发，并保留未保存的文字。
     const refresh = this.pending.then(async () => {
       const previous = this.value()
       try {
-        const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, previous)
-        if (this.heading === previous.heading) this.heading = current.heading
-        if (this.notes === previous.editContent.notes.trimEnd()) this.notes = current.editContent.notes.trimEnd()
+        const current = await TaskInlineService.find(this.getUIContext().getHostContext()!, previous)
+        if (!current) { this.removeDeletedTask(); return }
+        if (!this.headingEditing) this.heading = current.heading
+        if (!this.notesEditing) this.notes = current.editContent.notes.trimEnd()
         this.editTask = current
       } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
     })
     this.pending = refresh
+  }
+  removeDeletedTask() {
+    this.removed = true; this.snapshotBlocked = true
+    this.cancelCheckDrag()
+    this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
+    TaskInlineSession.release(this.ownerKey)
+    CoreDataChangeService.invalidate()
   }
   aboutToAppear() { this.ownerKey = this.task.id }
   aboutToDisappear() {
@@ -180,10 +191,15 @@ export struct TaskListItem {
     if (this.snapshotBlocked) return false
     let success: boolean = false
     const operation = this.pending.then(async () => {
+      if (this.removed) return
       this.working = true; this.message = ''
       try {
         const context = this.getUIContext().getHostContext()!
         await TaskInlineService.modify(context, this.value(), modifications)
+        for (const modification of modifications) {
+          if (modification.field === 'TITLE' && this.heading === modification.value) this.headingEditing = false
+          if (modification.field === 'NOTES' && this.notes === modification.value) this.notesEditing = false
+        }
         success = true
       } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
       finally { this.working = false }
@@ -195,11 +211,14 @@ export struct TaskListItem {
   }
   async saveText(): Promise<boolean> {
     await this.pending
+    if (this.removed) return false
     if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
     const modifications: CoreTaskModification[] = []
-    if (this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
-    if (this.notes !== this.value().editContent.notes.trimEnd()) modifications.push({ field: 'NOTES', value: this.notes })
-    return modifications.length === 0 ? true : await this.persist(modifications)
+    if (this.headingEditing && this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
+    if (this.notesEditing && this.notes !== this.value().editContent.notes.trimEnd()) modifications.push({ field: 'NOTES', value: this.notes })
+    if (modifications.length > 0) return await this.persist(modifications)
+    this.headingEditing = false; this.notesEditing = false
+    return true
   }
   async saveCheck(next: boolean): Promise<boolean> {
     if (next) this.continueCheck = true
@@ -284,6 +303,7 @@ export struct TaskListItem {
         try {
           this.editTask = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value())
           this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
+          this.headingEditing = false; this.notesEditing = false
           this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.message = ''
           this.snapshotBlocked = false; this.checkPreview = []
         } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
@@ -678,7 +698,8 @@ export struct TaskListItem {
         .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
         .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).borderRadius(0)
         .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
-        .onChange((value: string) => { this.heading = value }).onFocus(() => { this.inputFocus() })
+        .onChange((value: string) => { this.heading = value; this.headingEditing = true })
+        .onFocus(() => { this.headingEditing = true; this.inputFocus() })
         .onBlur(() => { this.saveText() })
     }.width('100%').alignItems(VerticalAlign.Top)
     Column({ space: 12 }) {
@@ -686,7 +707,8 @@ export struct TaskListItem {
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
         .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
         .placeholderColor(UiColor.disabled).backgroundColor(Color.Transparent).padding(0).borderRadius(0)
-        .onChange((value: string) => { this.notes = value }).onFocus(() => { this.inputFocus() })
+        .onChange((value: string) => { this.notes = value; this.notesEditing = true })
+        .onFocus(() => { this.notesEditing = true; this.inputFocus() })
         .onBlur(() => { this.saveText() })
       if (this.value().editContent.checklist.length > 0 || this.addingCheck) {
         Stack({ alignContent: Alignment.TopStart }) {
@@ -826,7 +848,8 @@ export struct TaskListItem {
         }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       }
-    }.width('100%').alignItems(HorizontalAlign.Start).margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
+    }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)
+      .alignItems(HorizontalAlign.Start).margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
       .onAreaChange((oldArea: Area, area: Area) => {
         this.rowWidth = parseFloat(area.width.toString())
       })
