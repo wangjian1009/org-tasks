@@ -1613,5 +1613,19 @@ mod tests {
         ));
         assert!(!Filter::parse("d.le.yesterday").matches_at(&task, today));
         assert!(Filter::parse("d.ge.tomorrow").matches_at(&task, today));
+        let badge_filter = Filter::parse("it.todo d.lt.tomorrow");
+        assert!(!badge_filter.matches_at(&task, today));
+        assert!(!badge_filter.matches_at(
+            &task,
+            NaiveDate::from_ymd_opt(2026, 11, 9).unwrap()
+        ));
+        assert!(badge_filter.matches_at(
+            &task,
+            NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()
+        ));
+        assert!(badge_filter.matches_at(
+            &task,
+            NaiveDate::from_ymd_opt(2026, 11, 11).unwrap()
+        ));
     }
 }

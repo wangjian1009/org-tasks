@@ -6,6 +6,7 @@ import { FileTargetService } from '../services/FileTargetService'
 import { ShareLocationRequest, SharedLocation, parseSharedLocation, resolveAmapShortUrl } from '../services/SharedLocationService'
 import { UiColor } from '../ui/Theme'
 import { shareLocationTaskQuery } from '../services/TaskViewQueries'
+import { DeviceBadgeService } from '../services/DeviceBadgeService'
 import { ListSectionHeader } from '../components/Controls'
 
 @Entry
@@ -118,6 +119,7 @@ struct ShareLocation {
           fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
         }, this.config.todoDefaults)
         this.created = true
+        await DeviceBadgeService.refresh(this.getUIContext().getHostContext()!)
       }
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'EntryAbility',

@@ -2,6 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { RepoConfig } from '../models/OrgTask'
 import { CoreBridgeError, CoreWebDavSyncEvent, NativeCoreService, coreErrorMessage } from './NativeCoreService'
+import { DeviceBadgeService } from './DeviceBadgeService'
 
 export interface RepositorySyncState {
   running: boolean
@@ -93,6 +94,7 @@ export class RepositorySyncService {
       console.info(state.error ? '前台文件同步失败' : '前台文件同步完成')
       RepositorySyncService.failurePending = state.error
       RepositorySyncService.publish()
+      await DeviceBadgeService.refresh(context)
     }
   }
 

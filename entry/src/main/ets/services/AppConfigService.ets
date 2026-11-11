@@ -10,6 +10,11 @@ export const APP_CONFIG_PREFERENCES = 'org_tasks_config'
 const REPOS_KEY = 'repos'
 
 export class AppConfigService {
+  private static changeListeners: Set<() => void> = new Set()
+
+  static watchChanges(listener: () => void): void { AppConfigService.changeListeners.add(listener) }
+  static stopWatchingChanges(listener: () => void): void { AppConfigService.changeListeners.delete(listener) }
+
   static async load(context: Context, includeCredentials: boolean = true): Promise<AppConfig> {
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const repos = await AppConfigService.loadRepositories(store, includeCredentials)
@@ -78,6 +83,7 @@ export class AppConfigService {
     await store.put('todoDefaults', config.todoDefaults)
     await store.put('fileDisplayMode', config.fileDisplayMode)
     await store.flush()
+    AppConfigService.changeListeners.forEach((listener: () => void): void => { listener() })
   }
 
   static async removeRepository(context: Context, configId: string): Promise<void> {

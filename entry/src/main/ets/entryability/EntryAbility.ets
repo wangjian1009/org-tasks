@@ -8,6 +8,7 @@ import { emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { preferences } from '@kit.ArkData'
 import { UiColor } from '../ui/Theme'
 import { CoreTask } from '../services/NativeCoreService'
+import { DeviceBadgeService } from '../services/DeviceBadgeService'
 
 const PREF_NAME = 'org_tasks_config'
 const DEFAULT_INTERVAL = 20 // 分钟
@@ -103,6 +104,9 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
-  onDestroy() {
-  }
+  onForeground(): void { DeviceBadgeService.start(this.context) }
+
+  onBackground(): void { DeviceBadgeService.stop() }
+
+  onDestroy(): void { DeviceBadgeService.stop() }
 }

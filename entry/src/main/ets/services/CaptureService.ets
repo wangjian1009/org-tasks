@@ -4,6 +4,7 @@ import { AppConfigService } from './AppConfigService'
 import { NativeCoreService } from './NativeCoreService'
 import { FileTargetService, fileTargetRepository } from './FileTargetService'
 import { CaptureEntityService } from './CaptureEntityService'
+import { DeviceBadgeService } from './DeviceBadgeService'
 
 import { CaptureDraft, CaptureDraftStore } from './CaptureDraftStore'
 
@@ -36,5 +37,6 @@ export class CaptureService {
       queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
     }, config.todoDefaults)
+    await DeviceBadgeService.refresh(context)
   }
 }

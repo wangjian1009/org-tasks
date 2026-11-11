@@ -6,11 +6,13 @@ import { CalendarSync } from '../services/CalendarSync'
 import { preferences } from '@kit.ArkData'
 import { NativeCoreService } from '../services/NativeCoreService'
 import { AppConfigService, APP_CONFIG_PREFERENCES } from '../services/AppConfigService'
+import { DeviceBadgeService } from '../services/DeviceBadgeService'
 
 export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
   async onWorkStart(workInfo: workScheduler.WorkInfo) {
     console.info('后台同步任务开始')
     try {
+      await preferences.removePreferencesFromCache(this.context, APP_CONFIG_PREFERENCES)
       const config = await AppConfigService.load(this.context)
       const tasks = config.repos.some((repository) => repository.webdavEnabled)
         ? await NativeCoreService.syncWorkspaceWebDav(config.repos, undefined, config.todoDefaults)
@@ -34,6 +36,9 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
       await store.flush()
     } catch (e) {
       console.error('后台同步失败:', JSON.stringify(e))
+    } finally {
+      // 部分仓库成功或日历初始化失败时，同样读取当前本地快照。
+      await DeviceBadgeService.refresh(this.context)
     }
   }
 
