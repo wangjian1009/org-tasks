@@ -44,9 +44,16 @@ pub extern "C" fn org_tasks_harmony_last_error() -> *mut c_char {
     })
 }
 
+/// 释放本 bridge 返回的字符串；空指针不执行操作。
+///
+/// # Safety
+///
+/// 非空 value 必须是本 bridge 通过 CString::into_raw 返回的原始指针，
+/// 仍归调用方持有且尚未释放；不得改变字符串长度，释放后不得再次访问或释放。
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn org_tasks_harmony_free_string(value: *mut c_char) {
     if !value.is_null() {
+        // 调用方保证指针来源、分配布局与唯一所有权符合 CString::from_raw 的约定。
         unsafe {
             drop(CString::from_raw(value));
         }
@@ -316,14 +323,16 @@ mod tests {
         let value = org_tasks_harmony_workspace_notifications(handle);
         assert!(!value.is_null());
         assert_eq!(unsafe { CStr::from_ptr(value) }.to_str().unwrap(), "[]");
-        org_tasks_harmony_free_string(value);
+        // value 来自上面的 bridge 请求，内容只读且尚未释放。
+        unsafe { org_tasks_harmony_free_string(value) };
         org_tasks_harmony_workspace_release(handle);
         assert!(org_tasks_harmony_workspace_notifications(u64::MAX).is_null());
         let error = org_tasks_harmony_last_error();
         let json: serde_json::Value =
             serde_json::from_str(unsafe { CStr::from_ptr(error) }.to_str().unwrap()).unwrap();
         assert_eq!(json["code"], "invalidInput");
-        org_tasks_harmony_free_string(error);
+        // error 是 last_error 返回的独立分配，读取后交还 Rust。
+        unsafe { org_tasks_harmony_free_string(error) };
     }
 
     #[test]
@@ -331,9 +340,11 @@ mod tests {
         let value = string_result(Err(CoreError::Store("仓库根目录不存在或不是目录".into())));
         assert!(value.is_null());
 
-        let error = org_tasks_harmony_last_error();
-        let error = unsafe { CStr::from_ptr(error) }.to_str().unwrap();
+        let error_ptr = org_tasks_harmony_last_error();
+        let error = unsafe { CStr::from_ptr(error_ptr) }.to_str().unwrap();
         let error: serde_json::Value = serde_json::from_str(error).unwrap();
+        // JSON 已取得独立值，原始错误字符串不再使用。
+        unsafe { org_tasks_harmony_free_string(error_ptr) };
         assert_eq!(error["code"], "store");
         assert!(
             error["message"]
@@ -341,6 +352,23 @@ mod tests {
                 .unwrap()
                 .contains("仓库根目录不存在或不是目录")
         );
+    }
+
+    #[test]
+    fn ffi_free_string_accepts_null_and_independent_owned_responses() {
+        // 空指针是释放接口明确允许的输入。
+        unsafe { org_tasks_harmony_free_string(std::ptr::null_mut()) };
+        let first = string_result(Ok("中文响应".into()));
+        let second = string_result(Ok("另一个响应".into()));
+        assert!(!first.is_null() && !second.is_null());
+        assert_ne!(first, second);
+        // 两个指针分别来自 bridge，读取后各交还一次；释放首个不会使第二个失效。
+        unsafe {
+            assert_eq!(CStr::from_ptr(first).to_str().unwrap(), "中文响应");
+            org_tasks_harmony_free_string(first);
+            assert_eq!(CStr::from_ptr(second).to_str().unwrap(), "另一个响应");
+            org_tasks_harmony_free_string(second);
+        }
     }
 }
 

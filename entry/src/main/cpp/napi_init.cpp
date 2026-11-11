@@ -7,6 +7,7 @@
 
 #include "napi/native_api.h"
 
+// 仅接收 Rust bridge 返回且尚未释放的原始指针；不得改变字符串长度，只能释放一次。
 extern "C" void org_tasks_harmony_free_string(char* value);
 extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();

@@ -139,6 +139,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 * 文件对象与生命周期
 
+Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复制后交给 ~org_tasks_harmony_free_string~ 释放。释放接口在 Rust 声明为 ~unsafe extern "C"~ ：非空参数必须是本 bridge 返回、尚未释放的原始指针，不得改变字符串长度，释放后不得访问或再次释放；空指针无操作。错误字符串使用同一所有权约定。Rust 调用方在 ~unsafe~ 块中保证这些条件；C++ 保持原有 C ABI，ArkTS 接口不暴露字符串指针。
+
 同步的网络阶段使用从当前仓库配置和身份取得的独立执行对象，不持有整个 workspace mutex；本轮同步锁和分阶段仓库锁由 Core 内部管理。成功后 bridge 仅短暂交回稳定身份，不用旧执行对象覆盖并发请求的快照；文件列表请求重新通过 Core 读盘；新增 ~loadFiles(ignoreFiles)~ 及其 C ABI、N-API 接入，替换原文件集合访问；其他请求与结果字段保持原约定。该变化允许同进程页面请求在下载和上传期间进入 Core，具体协议与缓存迁移边界见 [[file:../core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
 
 ~Workspace~ 与 ~Repo~ 持有同一个 opaque workspace handle 的引用；最后一个引用释放后，Harmony session 释放 core workspace。 ~Repo~ 从 workspace 取得，不能直接构造。
