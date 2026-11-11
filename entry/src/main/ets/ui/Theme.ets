@@ -30,6 +30,8 @@ export class UiColor {
   static readonly conflictBadge: string = '#55313B'
   static readonly warning: string = '#F2C96D'
   static readonly done: string = '#65CD7B'
+  static readonly selection: string = '#4A8DF6'
+  static readonly selectionTint: string = '#304765'
 }
 
 export class UiSize {

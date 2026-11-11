@@ -109,6 +109,8 @@ struct Inbox {
       if (!this.visible || this.needsConfiguration || this.message) return
       this.selectingRecords = true
       this.selectedRecordIds = record && this.records.some(item => item.id === record.id) ? [record.id] : []
+      this.mergeMessage = ''
+      this.mergeInvalid = false
       this.mergedPath = ''
       clearTimeout(this.refreshTimer)
     } finally { this.selectionStarting = false }
@@ -220,7 +222,8 @@ struct Inbox {
 
   @Builder
   swipeMenu(record: CoreTask) {
-    InboxSwipeActions({ busy: this.actionBusy,
+    InboxSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy,
+      select: (): void => { this.startSelection(record) },
       move: (): void => { this.swipeAction(record, 'move') },
       someday: (): void => { this.swipeAction(record, 'someday') },
       memo: (): void => { this.swipeAction(record, 'memo') },
@@ -404,8 +407,9 @@ struct Inbox {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ refreshOnPageShow: true, title: this.selectingRecords ? `已选 ${this.selectedRecordIds.length} 条` : '收件箱', titleIcon: $r('app.media.nav_inbox'),
-        actionLabel: this.selectingRecords ? '退出多选' : '多选收件箱记录', actionText: this.selectingRecords ? '取消' : '多选',
+      AppShell({ refreshOnPageShow: true, title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
+        actionLabel: this.selectingRecords ? '完成多选并退出' : '多选收件箱记录', actionText: this.selectingRecords ? '完成' : '多选',
+        actionProminent: this.selectingRecords,
         action: (): void => { if (this.selectingRecords) this.cancelSelection(); else this.startSelection() },
         synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
         pullToSync: !this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
@@ -527,18 +531,28 @@ struct Inbox {
       if (this.selectingRecords) {
         Column({ space: 8 }) {
           if (this.mergeMessage) { Text(this.mergeMessage).fontSize(13).fontColor(UiColor.error).width('100%') }
+          Text(this.selectedRecordIds.length > 0 ? `合并: ${this.selectedRecords()[0]?.heading || ''}` : '请选择至少两条记录')
+            .fontSize(12).fontColor(UiColor.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+            .padding({ left: 12, right: 12 })
           Row({ space: 12 }) {
-            Text(this.selectedRecordIds.length > 0 ? `合并: ${this.selectedRecords()[0]?.heading || ''}` : '请选择记录')
-              .fontSize(14).fontColor(UiColor.text).maxLines(2).layoutWeight(1)
+            Text(`已选 ${this.selectedRecordIds.length} 条`).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
             if (this.mergeInvalid) {
-              Button('刷新重选').height(48).enabled(!this.mergeBusy).onClick((): void => { this.cancelSelection() })
+              Button('刷新重选').height(44).fontColor(UiColor.selection).backgroundColor(Color.Transparent)
+                .enabled(!this.mergeBusy).onClick((): void => { this.cancelSelection() })
             } else {
-              Button(this.mergeBusy ? '合并中…' : '合并').id('inbox_merge').height(48).fontColor(UiColor.onPrimary)
-                .backgroundColor(UiColor.primary).enabled(this.selectedRecordIds.length >= 2 && !this.mergeBusy)
+              Button({ type: ButtonType.Normal }) {
+                Row({ space: 6 }) {
+                  Image($r('app.media.ui_merge_records')).width(20).height(20)
+                  Text(this.mergeBusy ? '合并中…' : '合并').fontSize(15).fontColor(Color.White)
+                }.opacity(this.selectedRecordIds.length >= 2 ? 1 : 0.4)
+              }.id('inbox_merge').height(44).padding({ left: 12, right: 8 })
+                .backgroundColor(Color.Transparent).enabled(this.selectedRecordIds.length >= 2 && !this.mergeBusy)
+                .accessibilityText('按选择顺序合并记录')
                 .onClick((): void => { this.mergeSelected() })
             }
-          }.width('100%')
-        }.width('92%').padding(12).margin({ bottom: 24 }).backgroundColor(UiColor.container).borderRadius(18)
+          }.width('100%').height(52).padding({ left: 18, right: 8 }).backgroundColor('#25282E').borderRadius(26)
+            .shadow({ radius: 8, color: '#40000000', offsetY: 3 })
+        }.width('92%').constraintSize({ maxWidth: 420 }).margin({ bottom: 24 })
       }
       if (this.captureOpen) {
         Column().width('100%').height('100%').backgroundColor('#66000000')
