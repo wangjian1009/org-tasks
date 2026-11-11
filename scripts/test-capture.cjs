@@ -28,6 +28,7 @@ function etsLoader(mocks = {}, globals = {}) {
     const localRequire = dependency => {
       if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
       if (dependency.endsWith('/DeviceBadgeService')) return { DeviceBadgeService: { async refresh() {}, start() {}, stop() {} } };
+      if (dependency.endsWith('/NotificationPermissionService')) return { NotificationPermissionService: { async start() {}, stop() {} } };
       if (dependency.startsWith('.')) return load(path.relative(sourceRoot, path.resolve(path.dirname(filename), dependency)));
       throw new Error('缺少平台替身: ' + dependency);
     };

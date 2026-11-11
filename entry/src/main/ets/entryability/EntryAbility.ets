@@ -9,6 +9,7 @@ import { preferences } from '@kit.ArkData'
 import { UiColor } from '../ui/Theme'
 import { CoreTask } from '../services/NativeCoreService'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
+import { NotificationPermissionService } from '../services/NotificationPermissionService'
 
 const PREF_NAME = 'org_tasks_config'
 const DEFAULT_INTERVAL = 20 // 分钟
@@ -22,6 +23,8 @@ export default class EntryAbility extends UIAbility {
   private taskToEdit: CoreTask | undefined = undefined
   private memoAction: string = ''
   private memoId: string = ''
+  private foreground: boolean = false
+  private contentReady: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
@@ -57,6 +60,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   private loadMainPage(stage: window.WindowStage) {
+    this.contentReady = false
     const task = this.taskToEdit
     this.taskToEdit = undefined
     const data: MainPageStorage = {}
@@ -70,7 +74,10 @@ export default class EntryAbility extends UIAbility {
     stage.loadContent(this.initialPage, storage, (err) => {
       if (err && err.code !== 0) {
         console.error('加载页面失败:', JSON.stringify(err))
+        return
       }
+      this.contentReady = true
+      this.checkNotificationPermission()
     })
   }
 
@@ -104,9 +111,29 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
-  onForeground(): void { DeviceBadgeService.start(this.context) }
+  private checkNotificationPermission(): void {
+    if (!this.foreground || !this.contentReady) return
+    NotificationPermissionService.start(this.context).catch((error: Error): void => {
+      console.error(`检查通知授权失败：${error.message}`)
+    })
+  }
 
-  onBackground(): void { DeviceBadgeService.stop() }
+  onForeground(): void {
+    this.foreground = true
+    DeviceBadgeService.start(this.context)
+    this.checkNotificationPermission()
+  }
 
-  onDestroy(): void { DeviceBadgeService.stop() }
+  onBackground(): void {
+    this.foreground = false
+    NotificationPermissionService.stop()
+    DeviceBadgeService.stop()
+  }
+
+  onDestroy(): void {
+    this.foreground = false
+    this.contentReady = false
+    NotificationPermissionService.stop()
+    DeviceBadgeService.stop()
+  }
 }

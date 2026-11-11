@@ -7,6 +7,8 @@ import { AppShell } from '../components/AppShell'
 import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
+import { common } from '@kit.AbilityKit'
+import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
 
 interface SettingsParams { section?: string }
 
@@ -23,10 +25,77 @@ struct Settings {
   @State loaded: boolean = false
   @State message: string = ''
   @State drawerOpen: boolean = false
+  @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
+  @State notificationBusy: boolean = false
+  private notificationRevision: number = 0
+  private notificationVisible: boolean = false
+  private notificationTimer: number = -1
   private saveTimer: number = -1
   private saveRequested: boolean = false
 
-  onPageShow() { this.load() }
+  onPageShow() {
+    this.notificationVisible = true
+    this.load()
+    this.loadNotificationState()
+    this.scheduleNotificationCheck()
+  }
+  onPageHide() { this.stopNotificationCheck() }
+  aboutToDisappear() { this.stopNotificationCheck() }
+
+  private scheduleNotificationCheck(): void {
+    if (!this.notificationVisible || this.notificationTimer !== -1) return
+    this.notificationTimer = setTimeout(async (): Promise<void> => {
+      this.notificationTimer = -1
+      if (!this.notificationVisible) return
+      // 系统半屏设置不保证触发页面或窗口生命周期，只检查权限，不重复读取任务。
+      if (this.section === '应用程序' && NotificationPermissionService.isForeground()) await this.loadNotificationState(true)
+      this.scheduleNotificationCheck()
+    }, 1000)
+  }
+
+  private stopNotificationCheck(): void {
+    this.notificationVisible = false
+    this.notificationRevision++
+    if (this.notificationTimer !== -1) clearTimeout(this.notificationTimer)
+    this.notificationTimer = -1
+  }
+
+  async loadNotificationState(refreshBadge: boolean = false): Promise<void> {
+    const revision = ++this.notificationRevision
+    try {
+      const context = this.getUIContext().getHostContext()!
+      const state = await NotificationPermissionService.state(context)
+      if (revision !== this.notificationRevision) return
+      const previous = this.notificationState
+      this.notificationState = state
+      if (refreshBadge && state === 'enabled' && previous !== 'enabled') await NotificationPermissionService.refresh(context)
+    } catch (_) {
+      if (revision === this.notificationRevision) this.notificationState = 'error'
+    }
+  }
+
+  notificationDetail(): string {
+    if (this.notificationBusy) return '正在处理…'
+    if (this.notificationState === 'enabled') return '通知已开启 · 管理系统通知设置'
+    if (this.notificationState === 'disabled') return '通知未开启 · 前往系统设置'
+    if (this.notificationState === 'unrequested') return '开启通知'
+    if (this.notificationState === 'error') return '状态读取失败 · 点击重试'
+    return '正在读取…'
+  }
+
+  async manageNotifications(): Promise<void> {
+    if (this.notificationBusy || this.notificationState === 'loading') return
+    this.notificationBusy = true
+    try {
+      if (this.notificationState !== 'error') {
+        await NotificationPermissionService.manage(this.getUIContext().getHostContext()! as common.UIAbilityContext)
+      }
+      await this.loadNotificationState()
+    } catch (error) {
+      this.message = `更新通知设置失败：${coreErrorMessage(error as CoreBridgeError)}`
+      await this.loadNotificationState()
+    } finally { this.notificationBusy = false }
+  }
   onBackPress(): boolean {
     if (this.saveTimer >= 0) {
       clearTimeout(this.saveTimer)
@@ -151,6 +220,11 @@ struct Settings {
                 SectionHeading({ title: '小清单' })
                 Text('浏览 Org 笔记本、按日期查看任务，并将任务同步到 HarmonyOS 系统日历。')
                   .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(24)
+                SectionHeading({ title: '通知与角标' })
+                PreferenceRow({ title: '通知与角标', detail: this.notificationDetail(), icon: $r('app.media.ui_info'),
+                  action: (): void => { this.manageNotifications() } })
+                Text('在桌面图标显示收件箱、截止任务和冲突的数量。数字角标还需在系统设置中开启桌面角标。')
+                  .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%').padding({ left: 24, right: 24, bottom: 16 })
               }
             }.width('100%').padding({ bottom: 32 }).enabled(this.loaded)
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
