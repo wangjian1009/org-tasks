@@ -521,9 +521,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
 
 // 时间属性仅从当前标题自身的属性抽屉读取，不继承、不扫描正文或文件前言。
 fn property_time(headline: &Headline, property: &str) -> Option<(FilterDate, crate::TimestampMs)> {
-    let value = headline.properties()?.iter().find_map(|(key, value)| {
-        key.eq_ignore_ascii_case(property).then(|| value.to_string())
-    })?;
+    let value = crate::model::properties::own(headline, property)?;
     let value = value.trim();
     let timestamp = orgize::Org::parse(value).first_node::<Timestamp>()?;
     if timestamp.raw() != value || timestamp.is_range() {

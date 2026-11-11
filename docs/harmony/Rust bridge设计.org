@@ -517,7 +517,7 @@ Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一�
 
 ~Task.project()~ 与文件元信息的 ~project()~ 只返回 Rust 生成的 ~projectName~ 快照；Task 字段只读且可枚举，文件元信息的同名字段也固定为只读。C++ 注册同步方法，不解析文件标签或 ~PROJECT_NAME~ 。方法不会执行文件 I/O，序列化保留字段值而不包含方法。Core 的 ~FilterTask.project()~ 直接委托共享的 ~OrgFileMetadata.project()~ 。
 
-文件头 ~FILETAGS~ 包含 ~project~ 时，项目名优先取 ~#+PROJECT_NAME:~ ，不存在时取文件 ~TITLE~ 。非项目为 null，未命名项目为空字符串，由界面显示“未命名项目”。项目元信息与任务来自同次加载，不增加查询或回查文件。
+文件头 ~FILETAGS~ 包含 ~project~ 时，项目名优先取 ~#+PROJECT_NAME:~ ，不存在时取 Core 合并后的文件默认属性 ~PROJECT_NAME~ （包含顶部属性 drawer），仍缺失时取文件 ~TITLE~ 。非项目为 null，未命名项目为空字符串，由界面显示“未命名项目”。项目元信息与任务来自同次加载，不增加查询或回查文件。
 
 今天页保持原有 CATEGORY 一级分区，仅在分类内把项目任务按名字组装为带左上角弱角标的区块；普通任务直接排列，随时页继续只按分类。项目分组只组织已取得任务快照，保持每条任务和项目内相对顺序，不做额外任务过滤。来源行在原分类文字后显示“ · 项目名”，布局见 [[file:项目分类布局设计.org][项目分类布局设计]]。
 

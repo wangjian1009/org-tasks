@@ -753,6 +753,11 @@ mod tests {
         assert_eq!(metadata[0]["projectName"], "Shared Project");
         assert_eq!(results[0]["tasks"][0]["projectName"], metadata[0]["projectName"]);
         assert_eq!(results[0]["tasks"][1]["projectName"], metadata[0]["projectName"]);
+        std::fs::write(root.join("project.org"), ":PROPERTIES:\n:PROJECT_NAME: Drawer\n:PROJECT_NAME+: Project\n:END:\n#+FILETAGS: :project:\n* TODO First\n").unwrap();
+        let drawer_metadata: serde_json::Value = serde_json::from_str(&query_files_json(handle, root.to_string_lossy().into_owned()).unwrap()).unwrap();
+        let drawer_tasks: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
+        assert_eq!(drawer_metadata[0]["projectName"], "Drawer Project");
+        assert_eq!(drawer_tasks[0]["tasks"][0]["projectName"], drawer_metadata[0]["projectName"]);
         std::fs::write(root.join("project.org"), "#+TITLE: Plain\n* TODO First\n").unwrap();
         let updated: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
         assert!(updated[0]["tasks"][0]["projectName"].is_null());

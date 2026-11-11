@@ -12,6 +12,7 @@ mod merge;
 pub(crate) mod notification;
 mod query;
 mod project;
+pub(crate) mod properties;
 mod refile;
 mod render;
 pub(crate) mod reset;
@@ -183,7 +184,7 @@ impl OrgFile {
         let source = std::str::from_utf8(&source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
         let (todo, syntax) = TodoMetadata::parse_with_setup(source, &defaults, &todo_setup)?;
-        let file_keywords = file_keywords::FileKeywords::parse(&syntax);
+        let file_keywords = file_keywords::FileKeywords::parse(&syntax, &todo_setup);
         Ok(Self {
             repo_id,
             path,
@@ -234,7 +235,7 @@ impl OrgFile {
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
         let (todo, syntax) =
             TodoMetadata::parse_with_setup(source, &self.todo_defaults, &self.todo_setup)?;
-        let file_keywords = file_keywords::FileKeywords::parse(&syntax);
+        let file_keywords = file_keywords::FileKeywords::parse(&syntax, &self.todo_setup);
         self.todo = todo;
         self.syntax = syntax;
         self.file_keywords = file_keywords;

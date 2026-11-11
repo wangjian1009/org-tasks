@@ -17,7 +17,16 @@ impl OrgFile {
         if !is_project {
             return None;
         }
-        let name = self.file_keywords.get("PROJECT_NAME").map(str::to_owned);
+        let name = self
+            .file_keywords
+            .get("PROJECT_NAME")
+            .or_else(|| {
+                self.file_keywords
+                    .properties
+                    .get("PROJECT_NAME")
+                    .map(String::as_str)
+            })
+            .map(str::to_owned);
         Some(name.or_else(|| self.title()).unwrap_or_default())
     }
 }

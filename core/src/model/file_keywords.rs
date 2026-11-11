@@ -4,10 +4,11 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub(super) struct FileKeywords {
     values: BTreeMap<String, Vec<String>>,
+    pub(super) properties: BTreeMap<String, String>,
 }
 
 impl FileKeywords {
-    pub(super) fn parse(syntax: &orgize::Org) -> Self {
+    pub(super) fn parse(syntax: &orgize::Org, setup: &str) -> Self {
         let mut values = BTreeMap::<String, Vec<String>>::new();
         for keyword in syntax.document().keywords() {
             values
@@ -15,7 +16,10 @@ impl FileKeywords {
                 .or_default()
                 .push(keyword.value().trim().to_owned());
         }
-        Self { values }
+        Self {
+            values,
+            properties: super::properties::file_properties(syntax, setup),
+        }
     }
 
     pub(super) fn values(&self, name: &str) -> impl Iterator<Item = &str> {
@@ -51,7 +55,7 @@ mod tests {
     fn exposes_names_and_values_without_org_keyword_syntax() {
         let source = "  #+project_name:  中文项目  \r\n#+TITLE: 第一行\r\n#+title: 第二行\r\n#+CUSTOM:\r\n#+TAGS: work\r\n#+TAGS: home\r\n#+begin_src org\r\n#+PROJECT_NAME: 源码\r\n#+end_src\r\n* 标题\r\n#+PROJECT_NAME: 标题正文\r\n";
         let syntax = orgize::Org::parse(source);
-        let keywords = FileKeywords::parse(&syntax);
+        let keywords = FileKeywords::parse(&syntax, "");
         assert_eq!(keywords.get("PROJECT_NAME"), Some("中文项目"));
         assert_eq!(keywords.get("project_name"), Some("中文项目"));
         assert_eq!(keywords.get("#+PROJECT_NAME:"), None);

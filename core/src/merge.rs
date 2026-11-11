@@ -56,13 +56,7 @@ fn parse(file: &OrgFile) -> Document {
         {
             parents.pop();
         }
-        let explicit = headline
-            .properties()
-            .and_then(|p| {
-                p.iter()
-                    .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
-                    .map(|(_, value)| value.to_string())
-            })
+        let explicit = crate::model::properties::own(&headline, "ID")
             .filter(|id| !id.trim().is_empty());
         // 同步的逻辑身份不包含仓库、文件、TODO 状态；无 ID 时保留文件内完整路径回退。
         let identity = explicit.map(|id| format!("id:{id}")).unwrap_or_else(|| {
@@ -1334,11 +1328,7 @@ fn structural_conflict(
 }
 
 fn property(headline: &Headline, key: &str) -> Option<String> {
-    headline.properties().and_then(|p| {
-        p.iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .map(|(_, v)| v.to_string())
-    })
+    crate::model::properties::own(headline, key)
 }
 pub(crate) fn at_level(file: &OrgFile, source: &str, level: usize) -> Result<String, CoreError> {
     let syntax = fragment(file, source);

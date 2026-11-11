@@ -1,0 +1,62 @@
+[
+  {
+    "source": "* Child\n:PROPERTIES:\n:Genres: Classic\n:Genres+: Baroque\n:genres+: Keyboard\n:END:\n",
+    "property": "Genres",
+    "own": "Classic Baroque Keyboard",
+    "inherited": "Classic Baroque Keyboard"
+  },
+  {
+    "source": "* Child\n:PROPERTIES:\n:Genres+: First\n:Genres: Reset\n:Genres+: Last\n:END:\n",
+    "property": "Genres",
+    "own": "Reset First Last",
+    "inherited": "Reset First Last"
+  },
+  {
+    "source": "* Parent\n:PROPERTIES:\n:Genres: Classic\n:END:\n** Child\n:PROPERTIES:\n:Genres+: Baroque\n:END:\n",
+    "property": "Genres",
+    "own": "Baroque",
+    "inherited": "Classic Baroque"
+  },
+  {
+    "source": "* Parent\n:PROPERTIES:\n:Genres: Classic\n:END:\n** Child\n:PROPERTIES:\n:Genres: \n:END:\n",
+    "property": "Genres",
+    "own": "",
+    "inherited": ""
+  },
+  {
+    "source": "* Parent\n:PROPERTIES:\n:Genres: Classic\n:END:\n** Child\n:PROPERTIES:\n:Genres: nil\n:END:\n",
+    "property": "Genres",
+    "own": "nil",
+    "inherited": "nil"
+  },
+  {
+    "source": ":PROPERTIES:\n:Genres: Drawer\n:END:\n#+PROPERTY: Genres Keyword\n* Child\n",
+    "property": "Genres",
+    "own": null,
+    "inherited": "Drawer"
+  },
+  {
+    "source": ":PROPERTIES:\n:Genres+: Drawer\n:END:\n#+PROPERTY: Genres Keyword\n* Child\n",
+    "property": "Genres",
+    "own": null,
+    "inherited": "Keyword Drawer"
+  },
+  {
+    "source": "#+PROPERTY: Genres+ First\n#+PROPERTY: Genres Reset\n#+PROPERTY: Genres+ Last\n* Child\n",
+    "property": "Genres",
+    "own": null,
+    "inherited": "Reset Last"
+  },
+  {
+    "source": "#+PROPERTY: Genres Keyword\n* Child\n:PROPERTIES:\n:Genres+: Own\n:END:\n",
+    "property": "Genres",
+    "own": "Own",
+    "inherited": "Keyword Own"
+  },
+  {
+    "source": "#+begin_src org\n#+PROPERTY: Genres Fake\n:PROPERTIES:\n:Genres: Fake\n:END:\n#+end_src\n* Child\n",
+    "property": "Genres",
+    "own": null,
+    "inherited": null
+  }
+]

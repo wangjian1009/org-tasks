@@ -15,14 +15,8 @@ pub(super) enum Trigger {
 }
 
 fn options(headline: &Headline) -> Option<Vec<String>> {
-    headline.properties()?.iter().find_map(|(key, value)| {
-        key.eq_ignore_ascii_case("COOKIE_DATA").then(|| {
-            value
-                .split_whitespace()
-                .map(str::to_ascii_lowercase)
-                .collect()
-        })
-    })
+    super::properties::own(headline, "COOKIE_DATA")
+        .map(|value| value.split_whitespace().map(str::to_ascii_lowercase).collect())
 }
 
 fn has(options: &[String], word: &str) -> bool {

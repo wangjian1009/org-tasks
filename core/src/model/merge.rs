@@ -118,11 +118,7 @@ fn units(file: &OrgFile) -> Vec<(String, OrgMergeVersion)> {
             super::task_identity::path_title(&headline),
         ))
         .unwrap();
-        let explicit = headline.properties().and_then(|p| {
-            p.iter()
-                .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
-                .map(|(_, value)| value.to_string())
-        });
+        let explicit = super::properties::own(&headline, "ID");
         // 无 ID 的标题改名无法可靠配对；重复身份通过出现序号区分，始终要求人工检查差异。
         let identity = explicit
             .filter(|id| !id.trim().is_empty())

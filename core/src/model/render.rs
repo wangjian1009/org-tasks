@@ -353,7 +353,7 @@ impl Traverser for ReadingView {
             Event::Enter(Container::PropertyDrawer(drawer)) => {
                 self.0
                     .push_str("<details class=\"drawer\"><summary>PROPERTIES</summary><dl>");
-                for (key, value) in drawer.iter() {
+                for (key, value) in super::properties::Properties::from_drawer(&drawer).iter() {
                     self.0.push_str(format!(
                         "<dt>{}</dt><dd>{}</dd>",
                         HtmlEscape(key),
@@ -383,7 +383,13 @@ impl Traverser for ReadingView {
                     "<details class=\"drawer\"><summary>{}</summary>",
                     HtmlEscape(drawer.name())
                 ));
-                self.literal("drawer-content", drawer.content_raw());
+                let mut content = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
+                for element in drawer.syntax().children()
+                    .filter(|node| node.kind() == SyntaxKind::DRAWER_CONTENT)
+                    .flat_map(|node| node.children_with_tokens()) {
+                    content.element(element, &mut TraversalContext::default());
+                }
+                self.0.push_str(format!("<div class=\"drawer-content\">{}</div>", content.0.finish()));
                 self.0.push_str("</details>");
                 ctx.skip();
             }
@@ -872,6 +878,31 @@ mod tests {
         for literal in ["#+PROJECT_NAME: 源码示例", "#+PROJECT_NAME: 字面示例", "正文中的 #+PROJECT<sub>NAME</sub>: 普通文字"] {
             assert!(html.contains(literal), "{html}");
         }
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn property_drawers_show_resolved_values_and_keep_supported_empty_properties() {
+        let source = "* Task\r\n:PROPERTIES:\r\n:EMPTY: \r\n:Genres: Classic\r\n:Genres+: Baroque\r\n:END:\r\n";
+        let file = file(source);
+        let html = file.render_html();
+        assert!(html.contains("<dt>EMPTY</dt><dd></dd>"), "{html}");
+        assert!(html.contains("<dt>GENRES</dt><dd>Classic Baroque</dd>"), "{html}");
+        assert_eq!(html.matches("<dt>GENRES</dt>").count(), 1);
+        assert!(!html.contains(":PROPERTIES:"));
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn ordinary_drawers_render_safe_org_content_and_exclude_metadata_keywords() {
+        let source = "* Task\n:NOTES:\n*bold* [[https://example.com][link]]\n- item\n#+PROJECT_NAME: 隐藏配置\n#+begin_src org\n#+PROJECT_NAME: 字面配置\n#+end_src\n[[javascript:alert(1)][脚本]]\n:END:\n";
+        let file = file(source);
+        let html = file.render_html();
+        for expected in ["<summary>NOTES</summary>", "<b>bold</b>", "href=\"https://example.com/\"", "<ul>", "#+PROJECT_NAME: 字面配置", "link unsupported"] {
+            assert!(html.contains(expected), "{html}");
+        }
+        assert!(!html.contains("隐藏配置"));
+        assert!(!html.contains("href=\"javascript:"));
         assert_eq!(file.source_bytes(), source.as_bytes());
     }
 

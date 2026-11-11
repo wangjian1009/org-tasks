@@ -273,7 +273,7 @@ pub struct SupportTags {
 
 * 文件项目归属
 
-~OrgFileMetadata.project_name: Option<String>~ 是一次读取生成的项目名称快照； ~project() -> Option<&str>~ 返回该字段的借用。只有文件头 ~FILETAGS~ 精确包含 ~project~ 时才存在项目归属，名称取文件头 ~PROJECT_NAME~ ，缺失时取 ~TITLE~ 。缺失名称和标题或显式空名称时保留空字符串以区别非项目的 ~None~ 。标题任务的自身标签、候选标签和真实子标题层级均不参与项目判定。
+~OrgFileMetadata.project_name: Option<String>~ 是一次读取生成的项目名称快照； ~project() -> Option<&str>~ 返回该字段的借用。只有文件头 ~FILETAGS~ 精确包含 ~project~ 时才存在项目归属，名称优先取文件头关键字 ~PROJECT_NAME~ ，缺失时取文件默认属性中的同名值，仍缺失时取 ~TITLE~ 。缺失名称和标题或显式空名称时保留空字符串以区别非项目的 ~None~ 。标题任务的自身标签、候选标签和真实子标题层级均不参与项目判定。
 
 ~FilterTask.project()~ 只调用 ~file_metadata.project()~ ，同文件任务共用一次计算结果，克隆仍共享同一元信息。JSON 和 Harmony 的 ~projectName~ 字段便于保存完整展示快照，访问方法不执行 I/O；原 Org 文件及同步持久化结构保持既有格式。
 
@@ -629,7 +629,7 @@ pub struct TodoMetadata {
 
 * 文件头元数据解析
 
-内部 ~FileKeywords~ 在 ~OrgFile~ 创建和重新解析时由同一 ~orgize~ 无损语法树生成，使用 ~BTreeMap<String, Vec<String>>~ 保存大写关键字名称与按声明顺序排列的值。 ~#+~ 和冒号是语法标记，不进入名称；每条值去除首尾空白，显式空声明保留空字符串。消费者通过属性名读取，不再各自遍历关键字节点或读取声明原文。该映射不是持久化字段，也不扩展宿主接口。
+内部 ~FileKeywords~ 在 ~OrgFile~ 创建和重新解析时由同一 ~orgize~ 无损语法树生成，使用 ~BTreeMap<String, Vec<String>>~ 保存大写关键字名称与按声明顺序排列的值，另以 ~properties: BTreeMap<String, String>~ 保存合并后的文件默认属性。 ~#+~ 和冒号是语法标记，不进入名称；每条值去除首尾空白，显式空声明保留空字符串。消费者通过属性名读取，不再各自遍历关键字节点或读取声明原文。该映射不是持久化字段，也不扩展宿主接口。
 
 ~TITLE~ 的多行值按空格合并，符合 [[info:org#Export Settings][Org Info：导出设置]]； ~CATEGORY~ 与自定义 ~PROJECT_NAME~ 取首条， ~FILETAGS~ 与 ~TAGS~ 按有序多值读取。仅收集第一个标题前的直属关键字，独立于允许整篇配置的 TODO 设置与标题属性继承。规则来源见 [[info:org#In-buffer Settings][Org Info：缓冲区设置]] 与 [[info:org#Property Syntax][Org Info：属性语法]]。
 
@@ -638,8 +638,26 @@ pub struct TodoMetadata {
 \begin{center}
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{OrgFile}{syntax: orgize::Org \\ file\_keywords: FileKeywords}{}
-\umlclass[x=8,y=0]{FileKeywords}{values: BTreeMap\textless String, Vec\textless String\textgreater\textgreater}{get(name): Option\textless \&str\textgreater \\ values(name): Iterator \\ title(): Option\textless String\textgreater}
+\umlclass[x=8,y=0]{FileKeywords}{values: BTreeMap\textless String, Vec\textless String\textgreater\textgreater \\ properties: BTreeMap\textless String, String\textgreater}{get(name): Option\textless \&str\textgreater \\ values(name): Iterator \\ title(): Option\textless String\textgreater}
 \umluniassoc[mult1=1,mult2=1]{OrgFile}{FileKeywords}
+\end{tikzpicture}
+\end{center}
+
+* Drawer 属性语义
+
+内部 ~Properties~ 从 ~orgize~ 属性节点建立只读语义投影；每个名称保留基础值与有序追加值，基础值缺失和显式空字符串分开。 ~PropertyEntry~ 同时保留规范化名称、值、追加标记与值的源区间，供局部编辑只改目标字节。字段名不携带冒号或 ~+~ 语法，追加语义由 Core 计算；文件默认值、日志设置、时间属性、合并身份和阅读投影共用此实现。
+
+文件默认属性先处理已展开的 SETUPFILE 设置与文件内 ~PROPERTY~ 声明，再叠加顶部属性 drawer。需要继承时从外到内叠加父标题和自身 drawer，子级基础声明覆盖继承值，只有追加声明时延续继承值；显式 ~nil~ 保留给字段消费者终止相应继承。普通属性不自动启用继承，时间属性保持只读自身。文件关键字与默认属性分开保存， ~TITLE~ 与 ~CATEGORY~ 的既有关键字含义不变；自定义项目名可在文件头关键字缺失时读取文件默认属性。
+
+规则依据 [[info:org#Drawers][Org Info：Drawers]]、 [[info:org#Property Syntax][Org Info：属性语法]] 和 [[info:org#Property Inheritance][Org Info：属性继承]]。普通 drawer 内容由原语法树生成安全 HTML，保留默认折叠；不进入卡片备注、正文首行或列表／文本提示统计。上游 ~orgize~ 无法识别的无空格空属性 ~:EMPTY:~ 继续保留原文，本次不修改该依赖或另建解析器；已生成属性节点的空值不会再遗漏。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{Properties}{values: BTreeMap\textless String, PropertyValue\textgreater}{get(name) \\ resolve(name, inherited)}
+\umlclass[x=8,y=0]{PropertyValue}{base: Option\textless String\textgreater \\ additions: Vec\textless String\textgreater}{}
+\umlclass[x=0,y=-3]{PropertyEntry}{name: String \\ value: String \\ append: bool \\ value\_range: TextRange}{}
+\umluniassoc[mult1=1,mult2=0..*]{Properties}{PropertyValue}
+\umldep{Properties}{PropertyEntry}
 \end{tikzpicture}
 \end{center}
 

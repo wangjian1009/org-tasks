@@ -30,6 +30,30 @@ async fn only_file_project_tags_enable_names_and_project_name_precedes_title() {
             Some("中文项目"),
         ),
         (
+            ":PROPERTIES:\n:PROJECT_NAME: Drawer Project\n:END:\n#+TITLE: Fallback\n#+FILETAGS: :project:\n* TODO Task\n",
+            Some("Drawer Project"),
+        ),
+        (
+            ":PROPERTIES:\n:PROJECT_NAME+: Drawer\n:END:\n#+FILETAGS: :project:\n#+PROPERTY: PROJECT_NAME Default\n* TODO Task\n",
+            Some("Default Drawer"),
+        ),
+        (
+            ":PROPERTIES:\n:PROJECT_NAME: \n:END:\n#+TITLE: Fallback\n#+FILETAGS: :project:\n* TODO Task\n",
+            Some(""),
+        ),
+        (
+            ":PROPERTIES:\n:PROJECT_NAME: Drawer\n:END:\n#+FILETAGS: :project:\n#+PROJECT_NAME: Keyword\n* TODO Task\n",
+            Some("Keyword"),
+        ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY: PROJECT_NAME Default\n#+PROPERTY: PROJECT_NAME+ Extra\n* TODO Task\n",
+            Some("Default Extra"),
+        ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n* TODO Task\n:PROPERTIES:\n:PROJECT_NAME: Heading\n:END:\n",
+            Some("Fallback"),
+        ),
+        (
             "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Wrong\n#+PROJECT_NAME: Named\n* TODO Task\n",
             Some("Named"),
         ),

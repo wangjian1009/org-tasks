@@ -151,11 +151,8 @@ pub(super) fn operations(
             .filter_map(Headline::cast)
             .filter(|h| start(h) != start(main))
         {
-            if removed.properties().is_some_and(|p| {
-                p.iter().any(|(key, _)| {
-                    key.eq_ignore_ascii_case("ID") || key.eq_ignore_ascii_case("CUSTOM_ID")
-                })
-            }) {
+            if super::properties::own(&removed, "ID").is_some()
+                || super::properties::own(&removed, "CUSTOM_ID").is_some() {
                 return Err(CoreError::InvalidInput(
                     "合并列表不能移除带 ID 或 CUSTOM_ID 的记录，请改用移动",
                 ));

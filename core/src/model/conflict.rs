@@ -13,11 +13,7 @@ pub(crate) struct ConflictPoint {
 }
 
 pub(crate) fn point_id(headline: &Headline) -> Option<String> {
-    headline
-        .properties()?
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(CONFLICT_POINT_ID))
-        .map(|(_, value)| value.to_string())
+    super::properties::own(headline, CONFLICT_POINT_ID)
 }
 
 pub(crate) fn container(file: &OrgFile) -> Option<Headline> {
@@ -140,11 +136,7 @@ fn reason(point: &Headline) -> Option<String> {
         .map(|k| k.value().trim().into())
 }
 fn property(headline: &Headline, key: &str) -> Option<String> {
-    headline
-        .properties()?
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(key))
-        .map(|(_, v)| v.to_string())
+    super::properties::own(headline, key)
 }
 fn candidate(file: &OrgFile, point: &Headline, reason: &str) -> Result<Vec<u8>, CoreError> {
     if matches!(reason, "structure" | "reorder") {

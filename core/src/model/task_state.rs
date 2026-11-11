@@ -32,28 +32,11 @@ fn property(
     inherit: bool,
 ) -> Result<Option<String>, CoreError> {
     let headline = metadata_node(file, headline);
-    for node in headline.syntax().ancestors().filter_map(Headline::cast) {
-        if !inherit && start(&node) != start(&headline) {
-            break;
-        }
-        if let Some(value) = node.properties().and_then(|drawer| {
-            drawer.iter().find_map(|(key, value)| {
-                key.eq_ignore_ascii_case(name)
-                    .then(|| value.trim().to_owned())
-            })
-        }) {
-            return Ok(Some(value));
-        }
-    }
-    Ok(keywords(file)?
-        .into_iter()
-        .filter(|(key, _)| key == "PROPERTY")
-        .filter_map(|(_, value)| {
-            let (key, value) = value.split_once(char::is_whitespace)?;
-            key.eq_ignore_ascii_case(name)
-                .then(|| value.trim().to_owned())
-        })
-        .next_back())
+    Ok(super::properties::resolve(
+        &headline, name,
+        file.file_keywords.properties.get(&name.to_ascii_uppercase()).map(String::as_str),
+        inherit,
+    ))
 }
 
 impl Logging {
@@ -373,11 +356,10 @@ fn set_property(
     value: &str,
 ) -> Result<(), CoreError> {
     if let Some(drawer) = metadata_node(file, headline).properties() {
-        if let Some((_, old)) = drawer
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        if let Some(entry) = super::properties::entries(&drawer)
+            .find(|entry| !entry.append && entry.name.eq_ignore_ascii_case(name))
         {
-            let range = old.text_range();
+            let range = entry.value_range;
             return replace(
                 file,
                 u32::from(range.start()) as usize..u32::from(range.end()) as usize,
@@ -786,5 +768,35 @@ mod tests {
             }
         }
         assert!(errors.is_empty(), "{}", errors.join("\n\n"));
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+
+    #[test]
+    fn logging_properties_combine_file_defaults_ancestors_and_local_additions() {
+        let source = ":PROPERTIES:\n:LOGGING+: logrepeat\n:END:\n#+PROPERTY: LOGGING logdone\n* Parent\n:PROPERTIES:\n:LOGGING+: TODO(!)\n:END:\n** Child\n:PROPERTIES:\n:LOGGING+: DONE(!)\n:END:\n";
+        let file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let child = file.syntax().document().syntax().descendants().filter_map(Headline::cast)
+            .find(|node| node.title_raw().trim() == "Child").unwrap();
+        assert_eq!(property(&file, &child, "logging", true).unwrap().as_deref(), Some("logdone logrepeat TODO(!) DONE(!)"));
+        assert_eq!(property(&file, &child, "LOGGING", false).unwrap().as_deref(), Some("logdone logrepeat DONE(!)"));
+        let logging = Logging::load(&file, &child).unwrap();
+        assert_eq!(logging.done, Some(TodoLogAction::Time));
+        assert_eq!(logging.repeat, Some(TodoLogAction::Time));
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn updating_an_empty_property_preserves_its_drawer_and_unrelated_bytes() {
+        let source = "* TODO Task\r\n:PROPERTIES:\r\n:LAST_REPEAT:   \r\n:Genres: Classic\r\n:Genres+: Baroque\r\n:END:\r\n正文  \r\n";
+        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let headline = file.syntax().first_node::<Headline>().unwrap();
+        set_property(&mut file, &headline, "LAST_REPEAT", "[2026-11-11 Wed 10:00]").unwrap();
+        assert_eq!(file.source_bytes(), source.replace(":LAST_REPEAT:   ", ":LAST_REPEAT:   [2026-11-11 Wed 10:00]").as_bytes());
+        let headline = file.syntax().first_node::<Headline>().unwrap();
+        assert_eq!(super::super::properties::own(&headline, "Genres").as_deref(), Some("Classic Baroque"));
     }
 }
