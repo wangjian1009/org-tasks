@@ -7,6 +7,7 @@ pub(crate) mod access;
 mod conflict_preview;
 mod editor;
 mod data_changes;
+mod file_keywords;
 mod merge;
 pub(crate) mod notification;
 mod query;
@@ -120,6 +121,7 @@ pub struct OrgFile {
     pub(crate) modified_at: Option<TimestampMs>,
     pub(crate) scan_ignored: bool,
     syntax: orgize::Org,
+    file_keywords: file_keywords::FileKeywords,
 }
 
 impl OrgFile {
@@ -181,6 +183,7 @@ impl OrgFile {
         let source = std::str::from_utf8(&source_bytes)
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
         let (todo, syntax) = TodoMetadata::parse_with_setup(source, &defaults, &todo_setup)?;
+        let file_keywords = file_keywords::FileKeywords::parse(&syntax);
         Ok(Self {
             repo_id,
             path,
@@ -191,6 +194,7 @@ impl OrgFile {
             modified_at: None,
             scan_ignored: false,
             syntax,
+            file_keywords,
         })
     }
 
@@ -200,18 +204,13 @@ impl OrgFile {
 
     /// 读取文件头的 CATEGORY 声明；未声明时为空，不使用文件名兜底。
     pub fn category(&self) -> Option<String> {
-        let category = self
-            .syntax
-            .document()
-            .keywords()
-            .find(|keyword| keyword.key().eq_ignore_ascii_case("CATEGORY"))
-            .map(|keyword| keyword.value().trim().to_owned());
+        let category = self.file_keywords.get("CATEGORY").map(str::to_owned);
         category.filter(|value| !value.eq_ignore_ascii_case("ARCHIVE"))
     }
 
-    /// 复用已有语法树，仅遍历文件头关键字，找到第一条 TITLE 即返回。
+    /// 从已解析的文件头元数据读取 TITLE，多行声明按顺序合并。
     pub fn title(&self) -> Option<String> {
-        self.header_metadata().0
+        self.file_keywords.title()
     }
 
     /// 文件冲突状态来自真实标题的 CONFLICT 自有标签，不解释源码块中的字面文本。
@@ -220,16 +219,10 @@ impl OrgFile {
     }
 
     pub(crate) fn header_metadata(&self) -> (Option<String>, bool) {
-        let mut title = None;
         let conflict = self.syntax.document().syntax().descendants()
             .filter_map(orgize::ast::Headline::cast)
             .any(|headline| headline.tags().any(|tag| tag == CONFLICT_TAG));
-        for keyword in self.syntax.document().keywords() {
-            if title.is_none() && keyword.key().eq_ignore_ascii_case("TITLE") {
-                title = Some(keyword.value().trim().to_owned());
-            }
-        }
-        (title, conflict)
+        (self.file_keywords.title(), conflict)
     }
 
     pub fn syntax(&self) -> &orgize::Org {
@@ -241,8 +234,10 @@ impl OrgFile {
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
         let (todo, syntax) =
             TodoMetadata::parse_with_setup(source, &self.todo_defaults, &self.todo_setup)?;
+        let file_keywords = file_keywords::FileKeywords::parse(&syntax);
         self.todo = todo;
         self.syntax = syntax;
+        self.file_keywords = file_keywords;
         Ok(())
     }
 }
@@ -597,7 +592,7 @@ mod tests {
             ("#+TITLE: 工作计划\r\n* Task\r\n", Some("工作计划")),
             ("  #+title:  Work Plan  \n", Some("Work Plan")),
             ("#+TITLE:\n* Task\n", Some("")),
-            ("#+TITLE: First\n#+TITLE: Second\n", Some("First")),
+            ("#+TITLE: First\n#+TITLE: Second\n", Some("First Second")),
             ("* Task\n#+TITLE: Heading section\n", None),
             ("#+begin_src org\n#+TITLE: Hidden\n#+end_src\n", None),
             ("#+begin_example\n#+TITLE: Hidden\n#+end_example\n", None),

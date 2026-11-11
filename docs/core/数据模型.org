@@ -273,7 +273,7 @@ pub struct SupportTags {
 
 * 文件项目归属
 
-~OrgFileMetadata.project_name: Option<String>~ 是一次读取生成的项目名称快照； ~project() -> Option<&str>~ 返回该字段的借用。只有文件头 ~FILETAGS~ 精确包含 ~project~ 时才存在项目归属，名称取文件头 ~PROPERTY_NAME~ ，缺失时取 ~TITLE~ 。缺失名称和标题或显式空名称时保留空字符串以区别非项目的 ~None~ 。标题任务的自身标签、候选标签和真实子标题层级均不参与项目判定。
+~OrgFileMetadata.project_name: Option<String>~ 是一次读取生成的项目名称快照； ~project() -> Option<&str>~ 返回该字段的借用。只有文件头 ~FILETAGS~ 精确包含 ~project~ 时才存在项目归属，名称取文件头 ~PROJECT_NAME~ ，缺失时取 ~TITLE~ 。缺失名称和标题或显式空名称时保留空字符串以区别非项目的 ~None~ 。标题任务的自身标签、候选标签和真实子标题层级均不参与项目判定。
 
 ~FilterTask.project()~ 只调用 ~file_metadata.project()~ ，同文件任务共用一次计算结果，克隆仍共享同一元信息。JSON 和 Harmony 的 ~projectName~ 字段便于保存完整展示快照，访问方法不执行 I/O；原 Org 文件及同步持久化结构保持既有格式。
 
@@ -627,9 +627,25 @@ pub struct TodoMetadata {
 
 ~set_todo_defaults~ 校验并重解析内存文件，不改写原文；有文内覆盖的文件仍使用自身配置。运行时合并版本包含全局默认配置，有效配置变化后旧比较对象失效，必须重新比较。
 
+* 文件头元数据解析
+
+内部 ~FileKeywords~ 在 ~OrgFile~ 创建和重新解析时由同一 ~orgize~ 无损语法树生成，使用 ~BTreeMap<String, Vec<String>>~ 保存大写关键字名称与按声明顺序排列的值。 ~#+~ 和冒号是语法标记，不进入名称；每条值去除首尾空白，显式空声明保留空字符串。消费者通过属性名读取，不再各自遍历关键字节点或读取声明原文。该映射不是持久化字段，也不扩展宿主接口。
+
+~TITLE~ 的多行值按空格合并，符合 [[info:org#Export Settings][Org Info：导出设置]]； ~CATEGORY~ 与自定义 ~PROJECT_NAME~ 取首条， ~FILETAGS~ 与 ~TAGS~ 按有序多值读取。仅收集第一个标题前的直属关键字，独立于允许整篇配置的 TODO 设置与标题属性继承。规则来源见 [[info:org#In-buffer Settings][Org Info：缓冲区设置]] 与 [[info:org#Property Syntax][Org Info：属性语法]]。
+
+编辑成功后语法树与元数据映射一起替换，旧文件对象和已返回快照保留旧值；未涉及的源字节保持不变。阅读投影不输出配置声明原文，未知关键字同样隐藏，源码、示例和段落中的字面文本继续保留。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgFile}{syntax: orgize::Org \\ file\_keywords: FileKeywords}{}
+\umlclass[x=8,y=0]{FileKeywords}{values: BTreeMap\textless String, Vec\textless String\textgreater\textgreater}{get(name): Option\textless \&str\textgreater \\ values(name): Iterator \\ title(): Option\textless String\textgreater}
+\umluniassoc[mult1=1,mult2=1]{OrgFile}{FileKeywords}
+\end{tikzpicture}
+\end{center}
+
 * 文件分类访问
 
-文件分类通过 ~OrgFile.category() -> Option<String>~ 读取，值来自文件头真实的 ~CATEGORY~ keyword 节点。分类是当前语法树的派生值，不新增持久化字段； ~None~ 表示未配置或值为特殊分类 ~ARCHIVE~ ，空字符串表示显式空声明。读取只考虑第一个标题之前的第一条声明，忽略大小写并去除值的首尾空白，避免将块内示例或标题属性当作文件分类。接口的详细边界见 [[file:接口文档.org][接口文档]]。
+文件分类通过 ~OrgFile.category() -> Option<String>~ 读取，值来自解析后的文件头元数据属性 ~CATEGORY~ 。分类是当前解析快照的派生值，不新增持久化字段； ~None~ 表示未配置或值为特殊分类 ~ARCHIVE~ ，空字符串表示显式空声明。读取只考虑第一个标题之前的第一条声明，忽略大小写并去除值的首尾空白，避免将块内示例或标题属性当作文件分类。接口的详细边界见 [[file:接口文档.org][接口文档]]。
 
 * 同步运行时参数
 

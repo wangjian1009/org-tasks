@@ -15,33 +15,53 @@ fn workspace(source: &str) -> OrgWorkspace {
 }
 
 #[tokio::test]
-async fn only_file_project_tags_enable_names_and_name_property_precedes_title() {
+async fn only_file_project_tags_enable_names_and_project_name_precedes_title() {
     for (source, expected) in [
         (
-            "#+TITLE: Fallback\n#+FILETAGS: :work:project:\n#+PROPERTY_NAME: Named\n* TODO Task\n",
+            "#+TITLE: Fallback\n#+FILETAGS: :work:project:\n#+PROJECT_NAME: Named\n* TODO Task\n",
             Some("Named"),
         ),
         (
             "#+TITLE: Fallback\n#+filetags: :project:\n* TODO Task\n",
             Some("Fallback"),
         ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+project_name:  中文项目  \n* TODO Task\n",
+            Some("中文项目"),
+        ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Wrong\n#+PROJECT_NAME: Named\n* TODO Task\n",
+            Some("Named"),
+        ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Wrong\n* TODO Task\n",
+            Some("Fallback"),
+        ),
         ("#+FILETAGS: :project:\n* TODO Task\n", Some("")),
         (
-            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY_NAME:\n* TODO Task\n",
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROJECT_NAME:\n* TODO Task\n",
             Some(""),
         ),
         (
-            "#+TITLE: Plain\n#+PROPERTY_NAME: Named\n* TODO Task :project:\n",
+            "#+TITLE: Plain\n#+PROJECT_NAME: Named\n* TODO Task :project:\n",
             None,
+        ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+begin_src org\n#+PROJECT_NAME: Fake\n#+end_src\n* TODO Task\n",
+            Some("Fallback"),
+        ),
+        (
+            "#+TITLE: Fallback\n#+FILETAGS: :project:\n* TODO Task\n#+PROJECT_NAME: Body\n",
+            Some("Fallback"),
         ),
         ("#+TITLE: Plain\n#+TAGS: project\n* TODO Task\n", None),
         ("#+TITLE: Plain\n#+FILETAGS: :PROJECT:\n* TODO Task\n", None),
         (
-            "#+TITLE: Plain\n#+begin_src org\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Fake\n#+end_src\n* TODO Task\n",
+            "#+TITLE: Plain\n#+begin_src org\n#+FILETAGS: :project:\n#+PROJECT_NAME: Fake\n#+end_src\n* TODO Task\n",
             None,
         ),
         (
-            "#+TITLE: Plain\n* TODO Task\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Body\n",
+            "#+TITLE: Plain\n* TODO Task\n#+FILETAGS: :project:\n#+PROJECT_NAME: Body\n",
             None,
         ),
     ] {
@@ -84,7 +104,7 @@ async fn task_projects_delegate_to_shared_file_metadata_and_keep_their_original_
     let disk = std::path::Path::new(&workspace.repos()[0].root_directory).join("project.org");
     std::fs::write(
         &disk,
-        "#+FILETAGS: :project:\n#+PROPERTY_NAME: Changed\n* TODO First\n",
+        "#+FILETAGS: :project:\n#+PROJECT_NAME: Changed\n* TODO First\n",
     )
     .unwrap();
     let changed = workspace

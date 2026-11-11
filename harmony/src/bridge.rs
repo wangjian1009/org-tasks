@@ -744,7 +744,7 @@ mod tests {
     fn project_names_cross_metadata_and_task_projections_without_host_parsing() {
         let root = std::env::temp_dir().join(format!("org-project-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("project.org"), "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Shared Project\n* TODO First\n* TODO Second\n").unwrap();
+        std::fs::write(root.join("project.org"), "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROJECT_NAME: Shared Project\n* TODO First\n* TODO Second\n").unwrap();
         let handle = create_workspace().unwrap();
         let directory = root.to_string_lossy().into_owned();
         workspace_add_repo(handle, directory.clone()).unwrap();

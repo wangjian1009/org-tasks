@@ -402,11 +402,8 @@ impl Traverser for ReadingView {
             }
             Event::Leave(Container::OrgTable(table)) => {
                 self.0
-                    .event(Event::Leave(Container::OrgTable(table.clone())), ctx);
+                    .event(Event::Leave(Container::OrgTable(table)), ctx);
                 self.0.push_str("</div>");
-                for formula in table.tblfm() {
-                    self.literal("metadata", format!("#+TBLFM: {}", formula.trim()));
-                }
             }
             Event::Enter(Container::OrgTableRow(row)) if !row.is_rule() => {
                 self.0
@@ -446,11 +443,8 @@ impl Traverser for ReadingView {
                             .push_str(format!("<span class=\"tag\">{}</span>", HtmlEscape(tag)));
                     }
                     self.0.push_str("</div>");
-                } else if !keyword.key().eq_ignore_ascii_case("TITLE")
-                    && !keyword.key().eq_ignore_ascii_case("TBLFM")
-                {
-                    self.literal("metadata", keyword.raw().trim());
                 }
+                // 配置关键字由解析层消费，阅读投影不输出原始声明。
                 ctx.skip();
             }
             Event::Enter(Container::Link(link)) => {
@@ -568,10 +562,7 @@ impl Traverser for ReadingView {
                 self.literal("literal", block.raw());
                 ctx.skip();
             }
-            Event::Enter(Container::BabelCall(call)) => {
-                self.literal("metadata", call.raw());
-                ctx.skip();
-            }
+            Event::Enter(Container::BabelCall(_)) => ctx.skip(),
             Event::Snippet(value) => self.0.push_str(format!("{}", HtmlEscape(value.raw()))),
             Event::LatexFragment(value) => self.0.push_str(format!("{}", HtmlEscape(value.raw()))),
             Event::LatexEnvironment(value) => self.literal("literal", value.raw()),
@@ -802,7 +793,6 @@ mod tests {
             "堆肥</a>",
             "<table>",
             "<td>木材",
-            "#+TBLFM: $2=18",
             "src python",
             "&lt;wood&gt;",
         ] {
@@ -813,6 +803,7 @@ mod tests {
         assert_eq!(file.source_bytes(), source.as_bytes());
         assert!(!html.contains("document-title"));
         assert!(!html.contains("花园"));
+        assert!(!html.contains("#+TBLFM:"));
     }
 
     #[test]
@@ -850,6 +841,55 @@ mod tests {
         }
         assert!(!html.contains("<img"));
         assert_eq!(html.matches("<ul>").count(), html.matches("</ul>").count());
+    }
+
+    #[test]
+    fn reads_metadata_by_name_and_hides_keyword_declarations_in_reading_view() {
+        let source = "#+TITLE: 文件标题\r\n#+FILETAGS: :project:work:\r\n#+project_name: 中文项目\r\n#+CATEGORY: 工作\r\n#+TAGS: work home\r\n#+TODO: NEXT | FINISHED\r\n#+CUSTOM_SETTING: 未知配置\r\n#+CALL: ignored()\r\n前言\r\n* NEXT 任务\r\n#+PROJECT_NAME: 正文配置\r\n正文\r\n| 数值 |\r\n| 1 |\r\n#+TBLFM: $1=1\r\n";
+        let file = file(source);
+        let metadata = file.metadata(false);
+        assert_eq!(metadata.title.as_deref(), Some("文件标题"));
+        assert_eq!(metadata.project(), Some("中文项目"));
+        assert_eq!(metadata.tag_options, ["work", "home"]);
+        assert_eq!(file.category().as_deref(), Some("工作"));
+        let html = file.render_html();
+        assert!(!html.contains("#+"), "{html}");
+        for hidden in ["中文项目", "未知配置", "正文配置", "ignored()"] {
+            assert!(!html.contains(hidden), "{html}");
+        }
+        for visible in ["前言", "正文", "project</span>", "work</span>", "todo pending", "<table>"] {
+            assert!(html.contains(visible), "{html}");
+        }
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn preserves_keyword_text_when_it_is_literal_content() {
+        let source = "#+PROJECT_NAME: 隐藏配置\n#+begin_src org\n#+PROJECT_NAME: 源码示例\n#+end_src\n#+begin_example\n#+PROJECT_NAME: 字面示例\n#+end_example\n正文中的 #+PROJECT_NAME: 普通文字\n";
+        let file = file(source);
+        let html = file.render_html();
+        assert!(!html.contains("隐藏配置"));
+        for literal in ["#+PROJECT_NAME: 源码示例", "#+PROJECT_NAME: 字面示例", "正文中的 #+PROJECT<sub>NAME</sub>: 普通文字"] {
+            assert!(html.contains(literal), "{html}");
+        }
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn keyword_only_task_has_no_readable_body_or_preview() {
+        let source = "* TODO Task\n#+PROJECT_NAME: 配置\n#+CUSTOM: 配置\n#+CALL: ignored()\n";
+        let mut repo = crate::OrgRepo::new("/unused/keyword-only".into()).unwrap();
+        repo.id = "repo".into();
+        crate::model::test_support::push_file(&mut repo, file(source));
+        let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        let task = workspace.query(&[(crate::TaskQuery::default()).into()]).await.unwrap()
+            .remove(0).into_task().unwrap().tasks.remove(0);
+        let rendered = task.render_content();
+        assert_eq!(rendered.body_html, "");
+        assert!(!rendered.has_text);
+        assert!(!rendered.has_list);
+        assert_eq!(task.body_first_line(), None);
+        assert!(task.body.contains("#+PROJECT_NAME:"));
     }
 
     #[test]

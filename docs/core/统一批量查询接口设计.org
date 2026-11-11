@@ -94,13 +94,13 @@ impl FilterTask {
 
 | 所属文件状态 | ~project()~ 返回值 |
 |-
-| 文件级标签不含 ~project~ | ~None~ 。即使存在 ~PROPERTY_NAME~ 也不视为项目。 |
-| 文件级标签含 ~project~ ，文件级 ~PROPERTY_NAME~ 存在 | 使用该属性值作为项目名称。 |
-| 文件级标签含 ~project~ ，文件级 ~PROPERTY_NAME~ 不存在 | 使用文件的 ~title~ 作为项目名称。 |
+| 文件级标签不含 ~project~ | ~None~ 。即使存在 ~PROJECT_NAME~ 也不视为项目。 |
+| 文件级标签含 ~project~ ，文件级 ~PROJECT_NAME~ 存在 | 使用该属性值作为项目名称。 |
+| 文件级标签含 ~project~ ，文件级 ~PROJECT_NAME~ 不存在 | 使用文件的 ~title~ 作为项目名称。 |
 
 项目标记来自所属文件的标签；不是某条标题的自身标签，也不是“有子标题”的组合任务规则。文件中的所有任务共享该文件的项目名称，任务方法只委托已有文件元信息快照，不读盘、不解析 Org、不另外保存一份项目计算逻辑。重新查询取得新项目状态，旧快照保留取得时的名称。
 
-~FileQuery.is_project~ 依据文件级 ~project~ 标签判断，不能根据任务标题层级判断，也不能依赖项目名称是否为空来判断。 已接入的名称写法为文件头 ~#+PROPERTY_NAME:~ ；名称与 title 均缺失或名称为空时返回空字符串保留项目身份，由界面显示“未命名项目”。不使用路径或文件名作为名称回退。
+~FileQuery.is_project~ 依据文件级 ~project~ 标签判断，不能根据任务标题层级判断，也不能依赖项目名称是否为空来判断。 已接入的名称写法为文件头 ~#+PROJECT_NAME:~ ；名称与 title 均缺失或名称为空时返回空字符串保留项目身份，由界面显示“未命名项目”。不使用路径或文件名作为名称回退。
 
 Harmony 的文件元信息与 Task 同时暴露 ~project(): string | null~ 方法。Rust 计算项目名称，C++ 仅包装该快照值为方法，ArkTS 不重新判断标签或属性。 ~TaskQuery~ 和 ~TaskQueryResult~ 的请求与结果字段保持原定义。
 

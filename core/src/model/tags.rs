@@ -46,28 +46,26 @@ impl OrgFile {
         let mut groups = Vec::new();
         let mut group: Option<Vec<String>> = None;
         let mut configured = false;
-        for keyword in self.syntax().document().keywords() {
-            if keyword.key().eq_ignore_ascii_case("TAGS") {
-                configured = true;
-                for token in keyword.value().split_whitespace() {
-                    if token == "{" {
-                        group = Some(Vec::new());
+        for value in self.file_keywords.values("TAGS") {
+            configured = true;
+            for token in value.split_whitespace() {
+                if token == "{" {
+                    group = Some(Vec::new());
+                    continue;
+                }
+                if token == "}" {
+                    if let Some(values) = group.take().filter(|values| !values.is_empty()) {
+                        groups.push(values);
+                    }
+                    continue;
+                }
+                if let Some(tag) = configured_tag(token) {
+                    if tag == super::REFILE_TAG || tag == super::ARCHIVE_TAG {
                         continue;
                     }
-                    if token == "}" {
-                        if let Some(values) = group.take().filter(|values| !values.is_empty()) {
-                            groups.push(values);
-                        }
-                        continue;
-                    }
-                    if let Some(tag) = configured_tag(token) {
-                        if tag == super::REFILE_TAG || tag == super::ARCHIVE_TAG {
-                            continue;
-                        }
-                        push_unique(&mut tags, tag);
-                        if let Some(group) = &mut group {
-                            push_unique(group, tag);
-                        }
+                    push_unique(&mut tags, tag);
+                    if let Some(group) = &mut group {
+                        push_unique(group, tag);
                     }
                 }
             }
