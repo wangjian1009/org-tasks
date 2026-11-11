@@ -200,6 +200,11 @@ impl FilterTask {
         &self.file_metadata
     }
 
+    /// 项目名称来自共享文件元信息，不重新解析或读取所属文件。
+    pub fn project(&self) -> Option<&str> {
+        self.file_metadata.project()
+    }
+
     pub fn support_tags(&self) -> Option<&crate::SupportTags> {
         self.support_tags.as_deref()
     }

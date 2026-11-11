@@ -271,6 +271,22 @@ pub struct SupportTags {
 \end{tikzpicture}
 \end{center}
 
+* 文件项目归属
+
+~OrgFileMetadata.project_name: Option<String>~ 是一次读取生成的项目名称快照； ~project() -> Option<&str>~ 返回该字段的借用。只有文件头 ~FILETAGS~ 精确包含 ~project~ 时才存在项目归属，名称取文件头 ~PROPERTY_NAME~ ，缺失时取 ~TITLE~ 。缺失名称和标题或显式空名称时保留空字符串以区别非项目的 ~None~ 。标题任务的自身标签、候选标签和真实子标题层级均不参与项目判定。
+
+~FilterTask.project()~ 只调用 ~file_metadata.project()~ ，同文件任务共用一次计算结果，克隆仍共享同一元信息。JSON 和 Harmony 的 ~projectName~ 字段便于保存完整展示快照，访问方法不执行 I/O；原 Org 文件及同步持久化结构保持既有格式。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgFile}{syntax: orgize::Org}{project\_name(): Option\textless String\textgreater}
+\umlclass[x=7,y=0]{OrgFileMetadata}{project\_name: Option\textless String\textgreater}{project(): Option\textless \&str\textgreater}
+\umlclass[x=7,y=-3]{FilterTask}{file\_metadata: Arc\textless OrgFileMetadata\textgreater}{project(): Option\textless \&str\textgreater}
+\umldep{OrgFileMetadata}{OrgFile}
+\umluniassoc{FilterTask}{OrgFileMetadata}
+\end{tikzpicture}
+\end{center}
+
 * 文件头标签投影
 
 ~OrgFile.tag_options()~ 从文件头 ~TAGS~ 提取候选， ~OrgFile.tag_groups()~ 保留花括号定义的互斥组；快捷键不进入标签名称，没有快捷键的标签仍有效。 ~OrgFileMetadata.tag_options: Vec<String>~ 与 ~tag_groups: Vec<Vec<String>>~ 携带相同的只读投影，空文件仍保留配置。源码、示例和标题正文中的同名文本不参与。配置只提供候选与互斥约束，不给任务赋标签；候选排除系统标签，不进入历史、outbox 或源文件。

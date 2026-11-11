@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、侧边栏批量查询计数和同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、侧边栏批量查询计数、项目区块与来源文字和同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -21,9 +21,9 @@ const { taskRenderKey } = exported;
 
 // 与 native Task 一样，数据字段只读且可枚举，行为位于原型上。
 function task(id, values = {}) {
-  const result = Object.create({ isDone() { return this.todoKind === 'done'; } });
+  const result = Object.create({ isDone() { return this.todoKind === 'done'; }, project() { return this.projectName ?? null; } });
   for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
-    todoState: 'TODO', todoKind: 'pending', priority: '', scheduled: '', deadline: '', tags: [],
+    todoState: 'TODO', todoKind: 'pending', projectName: null, priority: '', scheduled: '', deadline: '', tags: [],
     filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '',
     hasList: false, hasText: true, isRepeating: false, progress: -1, ...values })) {
     Object.defineProperty(result, key, { value, enumerable: true });
@@ -475,4 +475,44 @@ test('批量查询拒绝时侧边栏保留原计数并显示整体加载错误',
   assert.equal(calls.length, 1);
   assert.match(view.navMessage, /文件加载失败/);
   assert.deepEqual([view.todayCount, view.overdueCount, view.plannedCount, view.anytimeCount, view.logbookCount], [100, 101, 102, 103, 104]);
+});
+
+
+test('今天保留分类层级，仅项目任务组成区块，普通任务和项目内顺序均保留', () => {
+  const { todaySections } = loadGrouping('TodayPresentation', {});
+  const tasks = [task('a', { category: '工作' }), task('b', { category: '工作', projectName: '项目甲' }),
+    task('c', { category: '工作' }), task('d', { category: '工作', projectName: '项目乙' }),
+    task('e', { category: '工作', projectName: '项目甲' }), task('f', { category: null, projectName: '项目甲' })];
+  const sections = todaySections(tasks, true);
+  assert.deepEqual(sections.map(section => section.category), ['工作', null]);
+  assert.deepEqual(sections[0].items.map(item => item.task), tasks.slice(0, 5));
+  assert.deepEqual(sections[0].groups.map(group => [group.project, group.items.map(item => item.task.id)]),
+    [[null, ['a']], ['项目甲', ['b', 'e']], [null, ['c']], ['项目乙', ['d']]]);
+  assert.deepEqual(sections[1].groups.map(group => group.items.map(item => item.task.id)), [['f']]);
+  const all = sections.flatMap(section => section.groups.flatMap(group => group.items.map(item => item.task.id)));
+  assert.equal(all.length, tasks.length);
+  assert.deepEqual([...all].sort(), tasks.map(value => value.id).sort());
+});
+
+test('随时保持原有分类，未命名项目仍是项目，筛选后不残留空项目区块', () => {
+  const { todaySections } = loadGrouping('TodayPresentation', {});
+  const values = [task('a', { category: '工作', projectName: '', tags: ['技术'] }),
+    task('b', { category: '工作', projectName: '其他', tags: ['阅读'] }), task('c', { category: '工作' })];
+  assert.ok(todaySections(values, false)[0].groups.every(group => group.project === null && group.items.length === 1));
+  const visible = tagFilters.filterTasksByTags(values, { tags: ['技术'], includeUntagged: false });
+  const groups = todaySections(visible, true)[0].groups;
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].project, '');
+  assert.equal(groups[0].items[0].task, values[0]);
+});
+
+test('来源文字追加项目名，分类缺失时单独显示项目，非项目保留原文件名回退', () => {
+  const { taskSourceText } = presentation;
+  assert.equal(taskSourceText(task('a', { category: '工作', projectName: '项目甲' })), '工作 · 项目甲');
+  assert.equal(taskSourceText(task('b', { category: null, projectName: '项目甲' })), '项目甲');
+  assert.equal(taskSourceText(task('c', { category: '工作', projectName: '' })), '工作 · 未命名项目');
+  assert.equal(taskSourceText(task('d', { category: '生活' })), '生活');
+  assert.equal(taskSourceText(task('e', { category: null })), '');
+  assert.equal(taskSourceText(task('f', { category: null }), true), 'inbox.org');
+  assert.notEqual(taskRenderKey(task('same', { projectName: '旧项目' })), taskRenderKey(task('same', { projectName: '新项目' })));
 });

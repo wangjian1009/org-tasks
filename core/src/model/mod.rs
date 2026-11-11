@@ -10,6 +10,7 @@ mod data_changes;
 mod merge;
 pub(crate) mod notification;
 mod query;
+mod project;
 mod refile;
 mod render;
 pub(crate) mod reset;
@@ -73,6 +74,7 @@ pub struct OrgFileMetadata {
     pub path: String,
     pub title: Option<String>,
     pub title_parts: Vec<TitlePart>,
+    pub project_name: Option<String>,
     pub tag_options: Vec<String>,
     pub tag_groups: Vec<Vec<String>>,
     pub has_conflict: bool,
@@ -129,6 +131,7 @@ impl OrgFile {
             title,
             has_conflict,
             title_parts: self.title_parts(),
+            project_name: self.project_name(),
             tag_options: self.tag_options(),
             tag_groups: self.tag_groups(),
             is_ignore,
@@ -610,7 +613,8 @@ mod tests {
             assert_eq!(metadata[0].path, "work.org");
             assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), source.as_bytes());
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 11);
+            assert_eq!(value.as_object().unwrap().len(), 12);
+            assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));
             assert_eq!(value["tagGroups"], serde_json::json!([]));
             assert_eq!(value["hasConflict"], false);

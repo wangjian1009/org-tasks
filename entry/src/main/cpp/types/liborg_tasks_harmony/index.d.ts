@@ -77,6 +77,8 @@ export class OrgFile {
 export class Task {
   private constructor();
   isDone(): boolean;
+  project(): string | null;
+  readonly projectName: string | null;
   // Core 生成的明文逻辑路径，独立于源字节偏移、状态和首尾进度。
   readonly id: string;
   readonly fullPath: TaskPath;
@@ -239,6 +241,8 @@ export class Repo {
 }
 
 export interface OrgFileMetadata {
+  project(): string | null;
+  readonly projectName: string | null;
   readonly repoId: string;
   readonly path: string;
   readonly title: string | null;

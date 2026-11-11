@@ -105,3 +105,14 @@ export function taskRowLayout(width: number, tagCount: number, indicatorCount: n
     indicatorWidth, showAllIndicators: indicatorWidth >= fullIndicators,
     durationWidth }
 }
+
+// 仅组合 Core 已提供的来源名称，不判断文件标签或项目属性。
+export function taskSourceText(task: CoreTask, fallbackFile: boolean = false): string {
+  const category = task.category || ''
+  const project = task.project()
+  if (project !== null) {
+    const name = project || '未命名项目'
+    return category ? `${category} · ${name}` : name
+  }
+  return category || (fallbackFile ? task.fileName : '')
+}

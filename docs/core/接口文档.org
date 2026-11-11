@@ -864,3 +864,18 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 ~OrgFile.task_edit_content(path)~ 及查询结果 ~FilterTask.edit_content()~ 新增 ~scheduled_repeat~ 、 ~deadline_repeat~ ，各自返回可空的 ~TaskRepeatInfo { date, has_time, rule }~ 。规则结构、JSON 枚举与保真边界见 [[file:数据模型.org::*规划重复规则编辑][规划重复规则编辑]]。
 
 通过原 ~execute_task_operations~ 提交 ~SCHEDULE_REPEAT~ 或 ~DEADLINE_REPEAT~ ， ~value~ 为 ~{ mode, interval, unit }~ 或 ~null~ 。无日期时须在同组先提交对应 ~SCHEDULE_DATE~ ／ ~DEADLINE_DATE~ ；不自动选择今天或改动另一规划项。错误与版本变化使整组不写入；停止规则保留原日期。重复任务完成时的日期推进继续由原 ~TODO~ 操作执行。
+
+* 文件与任务的项目名称
+
+~OrgFileMetadata.project() -> Option<&str>~ 返回文件项目名称， ~FilterTask.project() -> Option<&str>~ 直接委托同次共享元信息的方法，不读盘、不重新解析。文件头 ~FILETAGS~ 中存在大小写精确匹配的 ~project~ 标签时，该文件是项目文件；标题自身标签、候选 ~TAGS~ 或源码块中的字面声明不影响判断。
+
+项目名称优先读取文件头 ~#+PROPERTY_NAME:~ ，不存在时使用文件 ~TITLE~ 。项目文件的两者均缺失或名称为空时返回 ~Some("")~ ，保留项目身份；非项目返回 ~None~ 。宿主将空项目名展示为“未命名项目”。例如：
+
+#+begin_src org
+,#+TITLE: 文件显示标题
+,#+FILETAGS: :project:work:
+,#+PROPERTY_NAME: HarmonyOS 适配
+,* TODO 确认桥接层接口
+#+end_src
+
+元信息的只读投影字段 ~project_name: Option<String>~ 承载该值，JSON 对应 ~projectName~ ，所有同文件任务共享该元信息。项目名称变更后重新查询取得新快照，已返回对象保持旧值。字段不写入同步记录或 outbox，不改变原 Org 文件字节。 ~TaskQuery~ 与 ~TaskQueryResult~ 定义保持不变。

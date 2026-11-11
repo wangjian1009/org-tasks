@@ -9,7 +9,7 @@ import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
-  TaskRowLayout, taskTitleText } from '../ui/TaskListPresentation'
+  TaskRowLayout, taskTitleText, taskSourceText } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
@@ -536,14 +536,29 @@ export struct TaskListItem {
   }
 
   @Builder
+  categoryProject() {
+    Row({ space: 4 }) {
+      if (this.value().category) {
+        Text(this.value().category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: this.value().project() === null ? '100%' : '40%' })
+      }
+      if (this.value().project() !== null) {
+        if (this.value().category) { Text('·').fontSize(12).fontColor(UiColor.secondary) }
+        Text(this.value().project() || '未命名项目').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+      }
+    }.width('100%').accessibilityText(taskSourceText(this.value()))
+  }
+
+  @Builder
   compactTitle() {
     Row({ space: 6 }) {
       Column({ space: 2 }) {
         TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: this.value().isCancelled })
           .width('100%').constraintSize({ minWidth: 0 })
-        if (this.showCategory && this.value().category) {
-          Text(this.value().category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        if (this.showCategory && (this.value().category || this.value().project() !== null)) {
+          this.categoryProject()
         }
       }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Start)
@@ -797,7 +812,7 @@ export struct TaskListItem {
           Column({ space: 12 }) { this.editorContent() }.width('100%')
           this.attributes()
         }.width('100%').padding(12).backgroundColor(UiColor.taskCard).borderRadius(12)
-        Text(this.value().category || this.value().fileName).fontSize(11).fontColor(UiColor.secondary)
+        Text(taskSourceText(this.value(), true)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
           .width('100%').textAlign(TextAlign.End).padding({ top: 6, right: 12, bottom: 4 })
       } else {
         Row({ space: 8 }) {

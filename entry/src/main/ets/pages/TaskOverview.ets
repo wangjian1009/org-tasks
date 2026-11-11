@@ -124,7 +124,7 @@ struct TaskOverview {
     this.selectedTags = selection.tags
     this.includeUntagged = selection.includeUntagged
     this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
-    this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks) : []
+    this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks, this.view === 'today') : []
   }
 
   async loadTasks() {

@@ -1,0 +1,201 @@
+#+TITLE: 统一批量查询接口设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+
+* 状态与本次新增
+
+本文的统一批量查询入口为待确认草案，尚未实施；其中的文件与任务项目访问方法已随确认后的布局接入。现行接口仍见 [[file:批量查询接口设计.org][批量查询接口设计]]。本轮新增 ~CoreQuery~ 、 ~CoreQueryResult~ 、 ~FileQuery~ 与 ~NotificationQuery~ ，使任务、文件元信息和当前通知可以在同一个查询数组中表达；文件元信息与任务另增加 ~project()~ 访问方法。
+
+~TaskQuery~ 和 ~TaskQueryResult~ 保持原定义与既有过滤语义，不向其中新增文件范围、文件元信息或通知字段。已撤回试写的 TaskQuery 字段扩展；本次生产改动仅涉及项目访问方法与已确认的界面布局。
+
+* 统一入口与结果
+
+#+begin_src rust
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+pub enum CoreQuery {
+    Task {
+        query: TaskQuery,
+        #[serde(default, rename = "repoIds")]
+        repo_ids: Vec<OrgRepoId>,
+    },
+    File {
+        query: FileQuery,
+    },
+    Notification {
+        query: NotificationQuery,
+    },
+}
+
+pub enum CoreQueryResult {
+    Task(TaskQueryResult),
+    File(Vec<OrgFileMetadata>),
+    Notification(Vec<CoreNotification>),
+}
+
+impl OrgWorkspace {
+    pub async fn query(
+        &self,
+        queries: &[CoreQuery],
+    ) -> Result<Vec<CoreQueryResult>, CoreError>;
+}
+#+end_src
+
+成功时结果数组与输入等长， ~results[i]~ 与 ~queries[i]~ 的位置和枚举种类严格对应。空结果与重复请求保留原位置；任一请求校验、共享加载、求值或编组失败，整批返回 ~Err~ ，Harmony 拒绝整个 Promise。空数组返回空数组，不加业务锁、不读盘。
+
+~CoreQuery::Task.repo_ids~ 是本次新增的外层仓库范围，不属于 ~TaskQuery~ 。空列表或省略表示整个 workspace，非空表示所列 Core 仓库的并集；空 ID 或不属于 workspace 的 ID 返回输入错误。它用于在同一批中查询不同仓库的同名文件，避免改变 ~TaskQuery~ 或让 UI 再过滤任务。宿主配置 ID 必须先通过已初始化 workspace 的仓库对象映射成 Core 仓库 ID，不得混用。
+
+* FileQuery 定义
+
+#+begin_src rust
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct FileQuery {
+    pub include_files: Vec<OrgFileRef>,
+    pub exclude_files: Vec<OrgFileRef>,
+    pub file_tags: Vec<String>,
+    pub is_project: Option<bool>,
+    pub include_ignored: bool,
+}
+#+end_src
+
+| 字段 | 默认值 | 语义 |
+|-
+| ~include_files~ | 空数组 | 非空时只查询所列具体文件，多项取并集；空数组不限制文件范围。每项精确匹配 Core 仓库 ID 与安全相对路径，不支持裸路径或通配符。 |
+| ~exclude_files~ | 空数组 | 非空时排除所列具体文件；空数组不排除。不得与非空 ~include_files~ 同时使用。 |
+| ~file_tags~ | 空数组 | 任务标签条件，空数组不限制；匹配任务的有效标签，不解释为文件中声明的候选标签。多个标签的组合方式待确认。 |
+| ~is_project~ | ~None~ | 三态条件：不筛选项目属性、只保留项目文件范围、只保留非项目文件范围，依次对应 ~None~ 、 ~Some(true)~ 、 ~Some(false)~ 。项目依据文件级 ~project~ 标签判断，与标题是否有子任务无关。 |
+| ~include_ignored~ | ~false~ | 是否包含被任务扫描规则隐藏的文件。为真时保留这些文件，且元信息的 ~is_ignore~ 为真；为假时不返回。 |
+
+~include_files~ 与 ~exclude_files~ 均非空时，在加锁与加载前返回输入错误，整批失败；二者均省略或为空时不限制文件范围。重复文件引用按集合处理。空仓库 ID、未知仓库 ID 和非法路径均是输入错误。
+
+~is_project~ 在 Rust 中使用 ~Option<bool>~ ，省略或 JSON ~null~ 表示不限制， ~true~ 与 ~false~ 分别表示只保留项目或非项目；不能用默认 ~false~ 代替未指定。该字段只属于 FileQuery，不修改 TaskQuery 的既有组合任务开关。
+
+FileQuery 返回内容待确认：原草案仅返回 ~Vec<OrgFileMetadata>~ ；新增任务标签与项目条件后，需要确认是返回匹配任务及其来源文件元信息，还是仅返回包含匹配任务的文件元信息。在此确定前，不实施返回类型或页面迁移。
+
+文件元信息继续复用现有轻量类型，包含来源、标题、标签候选、互斥组、冲突标记、任务数、大小和修改时间。不按 ~#+TAGS~ 的候选声明判断任务是否命中标签。未设置任务条件时，空文件仍有元信息；不存在的文件不返回，也不创建空文件。
+
+* 文件与任务的项目访问
+
+仓库中的现有类型名为 ~OrgFileMetadata~ ，对应本次讨论中的 FileMetaData；不因新增方法而重命名该类型。
+
+#+begin_src rust
+impl OrgFileMetadata {
+    pub fn project(&self) -> Option<&str>;
+}
+
+impl FilterTask {
+    pub fn project(&self) -> Option<&str> {
+        self.file_metadata.project()
+    }
+}
+#+end_src
+
+| 所属文件状态 | ~project()~ 返回值 |
+|-
+| 文件级标签不含 ~project~ | ~None~ 。即使存在 ~PROPERTY_NAME~ 也不视为项目。 |
+| 文件级标签含 ~project~ ，文件级 ~PROPERTY_NAME~ 存在 | 使用该属性值作为项目名称。 |
+| 文件级标签含 ~project~ ，文件级 ~PROPERTY_NAME~ 不存在 | 使用文件的 ~title~ 作为项目名称。 |
+
+项目标记来自所属文件的标签；不是某条标题的自身标签，也不是“有子标题”的组合任务规则。文件中的所有任务共享该文件的项目名称，任务方法只委托已有文件元信息快照，不读盘、不解析 Org、不另外保存一份项目计算逻辑。重新查询取得新项目状态，旧快照保留取得时的名称。
+
+~FileQuery.is_project~ 依据文件级 ~project~ 标签判断，不能根据任务标题层级判断，也不能依赖项目名称是否为空来判断。 已接入的名称写法为文件头 ~#+PROPERTY_NAME:~ ；名称与 title 均缺失或名称为空时返回空字符串保留项目身份，由界面显示“未命名项目”。不使用路径或文件名作为名称回退。
+
+Harmony 的文件元信息与 Task 同时暴露 ~project(): string | null~ 方法。Rust 计算项目名称，C++ 仅包装该快照值为方法，ArkTS 不重新判断标签或属性。 ~TaskQuery~ 和 ~TaskQueryResult~ 的请求与结果字段保持原定义。
+
+* NotificationQuery 定义
+
+#+begin_src rust
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationQuery {}
+#+end_src
+
+本轮为无参数查询，返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ ，覆盖整个 workspace，沿用现有通知内容：每个当前冲突文件一条 ~SyncConflict~ ，任一仓库相对远端基线存在本地变化时追加一条 ~SyncRequired~ 。不增加通知筛选、分页、消费、确认或持久化语义。
+
+通知不受同批任务的排除条件、完成开关、分类或 FileQuery 的隐藏文件开关限制。被任务规则隐藏的文件仍可能产生冲突和本地变化通知；无本地变化时不返回 ~SyncRequired~ 。多项 NotificationQuery 各自占据输入位置，但共享本次计算，不因重复请求增加结果内部的通知条数。
+
+现有独立通知读取入口迁移到统一批量接口； ~watch_notifications~ 、 ~watchNotifications~ 和停止订阅接口保留，只通知宿主重新发起批量查询。Harmony 继续为冲突通知附带宿主定位所需的 ~rootDirectory~ ，不改变 Core 事件字段或写入任何持久化记录。
+
+* Harmony 定义与请求示例
+
+#+begin_src ts
+interface FileQuery {
+  includeFiles?: OrgFileRef[]
+  excludeFiles?: OrgFileRef[]
+  fileTags?: string[]
+  isProject?: boolean | null
+  includeIgnored?: boolean
+}
+
+interface NotificationQuery {}
+
+// 现有文件元信息与 Task 类型新增以下方法。
+interface OrgFileMetadata {
+  project(): string | null
+}
+class Task {
+  project(): string | null
+}
+
+type CoreQuery =
+  | { type: 'task'; query: TaskQuery; repoIds?: string[] }
+  | { type: 'file'; query: FileQuery }
+  | { type: 'notification'; query: NotificationQuery }
+
+type CoreQueryResult =
+  | { type: 'task'; result: TaskQueryResult }
+  | { type: 'file'; result: OrgFileMetadata[] }
+  | { type: 'notification'; result: CoreNotification[] }
+
+class Workspace {
+  query(queries: CoreQuery[]): Promise<CoreQueryResult[]>
+}
+#+end_src
+
+JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响应由 bridge 投影成 ~type~ 与 ~result~ ，其中任务结果继续包装为原生 Task。以下为某天文件、文件元信息和当前通知的同批请求：
+
+#+begin_src json
+[
+  {
+    "type": "task",
+    "repoIds": ["core-repo-id"],
+    "query": {
+      "expression": "b.\"someday.org\"",
+      "includeDone": false,
+      "includeComposeTasks": true
+    }
+  },
+  {
+    "type": "file",
+    "query": {
+      "includeFiles": [{ "repoId": "core-repo-id", "path": "someday.org" }]
+    }
+  },
+  { "type": "notification", "query": {} }
+]
+#+end_src
+
+示例中未设置任务标签或项目条件，按原草案依次返回任务及分类摘要、文件元信息数组、通知数组；FileQuery 的最终结果形态待确认后统一更新上方结果定义。元信息和任务必须属于同批快照，宿主不从另一次读取补齐标签配置，也不按文件条件重新过滤任务。
+
+* 一次加锁与加载
+
+整批预先校验全部请求并收集数据需求。每个涉及的仓库仅取得一次业务锁、执行一次恢复检查和一次 Org 文件加载；Harmony 仅取得一次 workspace 业务 Mutex。任务、文件元信息、冲突判断与本地文件 hash 均复用这次读取。
+
+只有所有查询种类都不需要的文件，才允许在底层正文读取前排除。例如所有 TaskQuery 都排除某文件，但 FileQuery 需要其元信息或 NotificationQuery 需要检查它，该文件仍加载一次；TaskQuery 的排除在其自身求值前执行。NotificationQuery 覆盖整个 workspace，因此包含它的批次必须取得完整文件范围，不能用任务排除集合缩小通知范围。
+
+NotificationQuery 还需在同次锁内按需读取远端基线索引，使用已加载的本地字节计算 hash 并比较，覆盖修改、新增和删除；不得调用现有会再次加锁、再次加载和重读本地正文的公开 ~notifications()~ 或 ~has_local_changes()~ 流程。基线索引等同步元信息不属于 Org 文件正文，不读取完整同步历史或基线正文。
+
+* 页面迁移目标
+
+| 页面 | 一次批次中的请求 |
+|-
+| 收件箱 | 所选仓库的收件箱 Task、整个 workspace 的最近新增 Task、收件箱 File、Notification。 |
+| 今天、计划、随时、日志簿 | 当前视图 Task、Notification。 |
+| 某天、备忘 | 所选仓库的文件 Task、目标 File、Notification。 |
+| 侧边栏 | 收件箱、今天、过期、计划、随时、某天、备忘、日志簿的 Task，三个目标 File，以及 Notification。 |
+
+未配置的文件入口不组装无范围任务查询，仍加载其他有效项目。页面只发起一轮批量读取；AppShell 不再在页面加载期间独立读取通知。通知订阅回调仅更新失效版本，由当前页面或侧边栏安排同一批次重查，并消费其中的通知结果，避免订阅模块再发一轮通知读取。缺失文件判断与标签候选统一消费 File 结果。
+
+统一批量查询入口及 FileQuery、NotificationQuery 仍待确认后实施；项目访问方法与布局的现行定义见 [[file:接口文档.org::*文件与任务的项目名称][文件与任务的项目名称]] 和 [[file:../harmony/项目分类布局设计.org][项目分类布局设计]]。

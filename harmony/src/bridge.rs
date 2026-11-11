@@ -71,6 +71,7 @@ pub struct HarmonyBridgeFile {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarmonyBridgeTask {
+    pub project_name: Option<String>,
     pub id: String,
     pub full_path: org_tasks_core::TaskPath,
     pub task_id: Option<String>,
@@ -264,6 +265,7 @@ fn task_from_filter(task:FilterTask)->Result<HarmonyBridgeTask,CoreError> {
         repo_id,
         heading: task.title().to_owned(),
         category: task.category().map(str::to_owned),
+        project_name: task.project().map(str::to_owned),
         heading_parts,
         todo_state: task.state().unwrap_or_default().to_owned(),
         done_keywords: task.done_keywords().to_vec(),
@@ -716,6 +718,27 @@ fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_names_cross_metadata_and_task_projections_without_host_parsing() {
+        let root = std::env::temp_dir().join(format!("org-project-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("project.org"), "#+TITLE: Fallback\n#+FILETAGS: :project:\n#+PROPERTY_NAME: Shared Project\n* TODO First\n* TODO Second\n").unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().into_owned();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
+        let results: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, "[{}]".into()).unwrap()).unwrap();
+        assert_eq!(metadata[0]["projectName"], "Shared Project");
+        assert_eq!(results[0]["tasks"][0]["projectName"], metadata[0]["projectName"]);
+        assert_eq!(results[0]["tasks"][1]["projectName"], metadata[0]["projectName"]);
+        std::fs::write(root.join("project.org"), "#+TITLE: Plain\n* TODO First\n").unwrap();
+        let updated: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, "[{}]".into()).unwrap()).unwrap();
+        assert!(updated[0]["tasks"][0]["projectName"].is_null());
+        assert_eq!(results[0]["tasks"][0]["projectName"], "Shared Project");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn task_completion_uses_first_file_defined_done_keyword() {

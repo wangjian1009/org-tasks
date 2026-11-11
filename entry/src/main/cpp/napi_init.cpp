@@ -386,13 +386,25 @@ napi_value TaskIsDone(napi_env env, napi_callback_info info)
     return result;
 }
 
+// 项目名由 Core 提供；Task 与文件元信息都只读取取得时的快照值。
+napi_value SnapshotProject(napi_env env, napi_callback_info info)
+{
+    napi_value self, value;
+    if (napi_get_cb_info(env, info, nullptr, nullptr, &self, nullptr) != napi_ok ||
+        napi_get_named_property(env, self, "projectName", &value) != napi_ok) {
+        napi_throw_error(env, nullptr, "无法读取项目名称");
+        return nullptr;
+    }
+    return value;
+}
+
 napi_value CreateTaskObject(napi_env env, napi_value data)
 {
     napi_value constructor, result;
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // id 为 Core 的明文逻辑路径；editContent 的 checklist、scheduledRepeat 与 deadlineRepeat 嵌套结构原样透传。
-    for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "headingParts", "todoState", "doneKeywords", "todoKind", "isCancelled", "createdAt", "modifiedAt", "priority", "scheduled",
+    for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "todoState", "doneKeywords", "todoKind", "isCancelled", "createdAt", "modifiedAt", "priority", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "progress", "hasList", "hasText", "isRepeating"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
@@ -891,6 +903,22 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
         } else if (work->operation == RepoSnapshotWork::Operation::File || work->operation == RepoSnapshotWork::Operation::HistoryFile) {
             napi_value file = CreateOrgFileObject(env, result);
             if (file != nullptr) napi_resolve_deferred(env, work->deferred, file);
+            else RejectFileProjection(env, work->deferred);
+        } else if (work->operation == RepoSnapshotWork::Operation::FileMetadata) {
+            uint32_t length = 0;
+            bool valid = napi_get_array_length(env, result, &length) == napi_ok;
+            for (uint32_t index = 0; valid && index < length; index++) {
+                napi_value metadata, project_name;
+                valid = napi_get_element(env, result, index, &metadata) == napi_ok &&
+                    napi_get_named_property(env, metadata, "projectName", &project_name) == napi_ok;
+                if (!valid) break;
+                napi_property_descriptor properties[] = {
+                    {"projectName", nullptr, nullptr, nullptr, nullptr, project_name, napi_enumerable, nullptr},
+                    {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
+                };
+                valid = napi_define_properties(env, metadata, 2, properties) == napi_ok;
+            }
+            if (valid) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else if (work->operation == RepoSnapshotWork::Operation::Snapshot) {
             napi_value files, objects;
@@ -1764,6 +1792,7 @@ static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor task_descriptors[] = {
         {"isDone", nullptr, TaskIsDone, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value task_class;
     napi_define_class(env, "Task", NAPI_AUTO_LENGTH, TaskConstructor, nullptr,

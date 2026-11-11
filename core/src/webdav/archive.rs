@@ -279,6 +279,7 @@ fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {
         path: file.path.clone(),
         title: file.title(),
         title_parts: file.title_parts(),
+        project_name: file.project_name(),
         tag_options: file.tag_options(),
         tag_groups: file.tag_groups(),
         has_conflict: file.has_conflict(),
