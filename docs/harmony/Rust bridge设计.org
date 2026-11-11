@@ -488,3 +488,9 @@ Rust bridge 将 ~FilterTask.done_keywords()~ 投影为 ~HarmonyBridgeTask.done_k
 Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不取得业务锁、不加载文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/批量查询接口设计.org][批量查询接口设计]]。
 
 侧边栏将今天、过期、计划、随时和日志簿的全仓库查询合为一个批次，并按输入位置显示计数。收件箱、某天和备忘保持各自仓库范围与目标文件元信息边界。
+
+* 规划重复规则编辑接入
+
+~Task.editContent~ 新增 ~scheduledRepeat~ 与 ~deadlineRepeat~ ，类型为 ~TaskRepeatInfo | null~ ，内部包含 ~date~ 、 ~hasTime~ 与可空 ~rule~ 。 ~TaskRepeatRule~ 使用 ~mode~ 、 ~interval~ 、 ~unit~ ，名称与 Core 的 camelCase 序列化保持一致。Rust 直接投影 Core 值，C++ 的只读可枚举 ~editContent~ 属性原样透传嵌套对象，不新增解析或线程入口。类型声明、 ~NativeCoreService~ 别名及调用方同步维护。
+
+原 ~TaskModification~ 联合值扩展为可接收 ~TaskRepeatRule~ ，字段新增 ~SCHEDULE_REPEAT~ 、 ~DEADLINE_REPEAT~ 。 ~TaskRepeatDialog~ 仅维护草稿、中文摘要与字段操作，不生成 Org 时间戳；保存经原 worker、 ~Workspace.executeTaskOperations~ 和文件版本约束一次提交。卡片先结束文字输入，再打开重复编辑；保存由原数据事件重读，失败保留输入。独立任务详情经 ~NoteService.modify~ 复用正式文件与预览副本的提交边界，提交后从原文件对象重新取得节点；写入成功但重读失败时停用后续修改，返回重开，不重复提交。

@@ -354,3 +354,18 @@ test('无状态、已完成、无完成配置或不可用快照不提交', async
   const f = completionFixture(); f.state.snapshotBlocked = true;
   await f.state.complete(); assert.equal(f.writes.length, 0);
 });
+
+const repeats = load('entry/src/main/ets/ui/TaskRepeatPresentation.ets');
+test('重复编辑把新日期和规则一次提交给 Core，停止只清除当前字段', () => {
+  const rule = { mode: 'afterCompletion', interval: 2, unit: 'week' };
+  assert.deepEqual(repeats.repeatModifications(false, '', '2026-11-11', rule), [
+    { field: 'SCHEDULE_DATE', value: '2026-11-11' }, { field: 'SCHEDULE_REPEAT', value: rule }
+  ]);
+  assert.deepEqual(repeats.repeatModifications(true, '2026-11-11', '2026-11-11', rule), [
+    { field: 'DEADLINE_REPEAT', value: rule }
+  ]);
+  assert.deepEqual(repeats.repeatModifications(true, '2026-11-11', '2026-12-01', null), [
+    { field: 'DEADLINE_REPEAT', value: null }
+  ]);
+  assert.equal(repeats.repeatSummary({ mode: 'catchUp', interval: 1, unit: 'month' }), '每 1 月 · 跳过已错过的日期');
+});

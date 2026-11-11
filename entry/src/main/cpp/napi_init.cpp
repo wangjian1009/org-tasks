@@ -391,7 +391,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     napi_value constructor, result;
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
-    // id 为 Core 的明文逻辑路径；editContent.checklist 含快照内的 siblingGroup，嵌套结构原样透传。
+    // id 为 Core 的明文逻辑路径；editContent 的 checklist、scheduledRepeat 与 deadlineRepeat 嵌套结构原样透传。
     for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "headingParts", "todoState", "doneKeywords", "todoKind", "isCancelled", "createdAt", "modifiedAt", "priority", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "progress", "hasList", "hasText", "isRepeating"}) {
         napi_value value;

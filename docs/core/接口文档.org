@@ -853,3 +853,9 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 系统仅提供 ~query(queries: &[TaskQuery]) -> Result<Vec<TaskQueryResult>, CoreError>~ 异步查询接口，单查询也传单项数组。成功时结果数组长度与输入相同， ~results[i]~ 对应 ~queries[i]~ ；空命中和重复查询不改变位置。任一错误使整批失败，不返回部分结果。空批次不加业务锁、不读取仓库。
 
 每仓库在本批锁内加载一次，只有所有请求共同排除的文件传入底层 ~ignore_files~ ；其余加载后在各项查询求值前排除。多仓库锁按规范化目录排序取得，完成全部加载后释放，后续计算消费本次独立快照。完整签名、错误路径与 Harmony 编组见 [[file:批量查询接口设计.org][批量查询接口设计]]。
+
+* 结构化重复规则修改
+
+~OrgFile.task_edit_content(path)~ 及查询结果 ~FilterTask.edit_content()~ 新增 ~scheduled_repeat~ 、 ~deadline_repeat~ ，各自返回可空的 ~TaskRepeatInfo { date, has_time, rule }~ 。规则结构、JSON 枚举与保真边界见 [[file:数据模型.org::*规划重复规则编辑][规划重复规则编辑]]。
+
+通过原 ~execute_task_operations~ 提交 ~SCHEDULE_REPEAT~ 或 ~DEADLINE_REPEAT~ ， ~value~ 为 ~{ mode, interval, unit }~ 或 ~null~ 。无日期时须在同组先提交对应 ~SCHEDULE_DATE~ ／ ~DEADLINE_DATE~ ；不自动选择今天或改动另一规划项。错误与版本变化使整组不写入；停止规则保留原日期。重复任务完成时的日期推进继续由原 ~TODO~ 操作执行。

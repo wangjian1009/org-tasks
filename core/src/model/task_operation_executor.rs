@@ -991,25 +991,13 @@ pub(super) fn modify(
             }
             Ok(())
         }
+        TaskModification::ScheduleRepeat(value) => super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_SCHEDULED, value),
+        TaskModification::DeadlineRepeat(value) => super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_DEADLINE, value),
         TaskModification::ScheduleDate(value) => {
-            let value = planning_date_value(headline.scheduled(), value)?;
-            planning(
-                file,
-                headline,
-                "SCHEDULED",
-                SyntaxKind::PLANNING_SCHEDULED,
-                &value,
-            )
+            modify_planning_date(file, headline, "SCHEDULED", SyntaxKind::PLANNING_SCHEDULED, value)
         }
         TaskModification::DeadlineDate(value) => {
-            let value = planning_date_value(headline.deadline(), value)?;
-            planning(
-                file,
-                headline,
-                "DEADLINE",
-                SyntaxKind::PLANNING_DEADLINE,
-                &value,
-            )
+            modify_planning_date(file, headline, "DEADLINE", SyntaxKind::PLANNING_DEADLINE, value)
         }
         TaskModification::Schedule(value) => planning(
             file,
@@ -1054,8 +1042,24 @@ pub(super) fn modify(
     }
 }
 
+fn modify_planning_date(file: &mut OrgFile, headline: &Headline, name: &str, kind: SyntaxKind, value: &Option<String>) -> Result<(), CoreError> {
+    let existing = super::task_repeat::planning_timestamp(file, headline, kind);
+    let updated = planning_date_value(existing.clone(), value)?;
+    if let (Some(existing), Some(updated)) = (existing, &updated) {
+        for (_, _, fields) in planning_lines(file, headline) {
+            for (field, a, b) in fields {
+                if field != kind { continue; }
+                let raw = std::str::from_utf8(&file.source_bytes()[a..b]).expect("UTF-8");
+                let offset = raw.find(['<', '[']).expect("已有时间戳");
+                return replace(file, a + offset..a + offset + existing.len(), updated.as_bytes());
+            }
+        }
+    }
+    planning(file, headline, name, kind, &updated)
+}
+
 fn planning_date_value(
-    existing: Option<orgize::ast::Timestamp>,
+    existing: Option<String>,
     value: &Option<String>,
 ) -> Result<Option<String>, CoreError> {
     let Some(value) = value else { return Ok(None) };
@@ -1064,10 +1068,13 @@ fn planning_date_value(
     if value.len() != 10 {
         return Err(CoreError::InvalidInput("日期必须是 YYYY-MM-DD"));
     }
-    let Some(timestamp) = existing else {
+    let Some(mut raw) = existing else {
         return Ok(Some(format!("<{value}>")));
     };
-    let mut raw = timestamp.raw();
+    let masked = super::task_state::mask_repeater_windows(&raw);
+    let parsed = orgize::Org::parse(&masked);
+    let timestamp = parsed.first_node::<orgize::ast::Timestamp>()
+        .ok_or(CoreError::InvalidInput("规划时间戳无效"))?;
     let offset = u32::from(timestamp.start()) as usize;
     if let Some(token) = timestamp
         .syntax()

@@ -32,6 +32,10 @@ export class NoteService {
     await NoteService.execute(context, note, { type: 'Deletion', data: { path: note.fullPath } })
   }
 
+  static async modify(context: Context, note: CoreTask, modifications: CoreTaskModification[]): Promise<void> {
+    await NoteService.execute(context, note, { type: 'Modification', data: { path: note.fullPath, modifications } })
+  }
+
   private static async execute(context: Context, note: CoreTask, operation: CoreTaskOperation): Promise<void> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)

@@ -25,6 +25,8 @@ pub struct TaskEditContent {
     pub own_tags: Vec<String>,
     pub notes: String,
     pub checklist: Vec<TaskChecklistItem>,
+    pub scheduled_repeat: Option<super::TaskRepeatInfo>,
+    pub deadline_repeat: Option<super::TaskRepeatInfo>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,6 +177,8 @@ impl OrgFile {
             own_tags: headline.tags().map(|tag| tag.to_string()).collect(),
             notes,
             checklist,
+            scheduled_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),
+            deadline_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_DEADLINE),
         })
     }
 }

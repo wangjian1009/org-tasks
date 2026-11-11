@@ -1484,6 +1484,9 @@ mod todo_tests {
         assert_eq!(value["isRepeating"], true);
         assert_eq!(value["category"], "Work");
         assert_eq!(value["scheduled"], "2026-11-06");
+        assert_eq!(value["editContent"]["scheduledRepeat"]["rule"], serde_json::json!({"mode":"cumulative","interval":1,"unit":"day"}));
+        assert_eq!(value["editContent"]["scheduledRepeat"]["date"], "2026-11-06");
+        assert!(value["editContent"]["deadlineRepeat"].is_null());
         assert!(value["modifiedAt"].is_null());
         assert!(value["bodyHtml"].as_str().unwrap().contains("<ul>"));
         assert_eq!(value["bodyFirstLine"], "First");

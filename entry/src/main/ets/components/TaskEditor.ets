@@ -5,6 +5,7 @@ import { TitleCounts } from './TitleCounts'
 import { titleCounts } from '../ui/TitleCountPresentation'
 import { OrgContentView } from './OrgContentView'
 import { UiColor } from '../ui/Theme'
+import { repeatSummary } from '../ui/TaskRepeatPresentation'
 
 // 任务内容独立于路由页面，由任务编辑页展示。
 @Component
@@ -17,6 +18,7 @@ export struct TaskEditor {
   @Prop bodyValue: string = ''
   headingChanged: (value: string) => void = () => {}
   bodyChanged: (value: string) => void = () => {}
+  editRepeat: () => void = () => {}
   @State metadataExpanded: boolean = true
   @State bodyExpanded: boolean = true
   @State logbookExpanded: boolean = false
@@ -72,6 +74,18 @@ export struct TaskEditor {
             this.metadata($r('app.media.ui_priority'), '优先级', this.task!.priority ? `[#${this.task!.priority}]` : '')
             this.metadata($r('app.media.ui_calendar'), '计划时间', this.task!.scheduled)
             this.metadata($r('app.media.ui_deadline'), '截止时间', this.task!.deadline)
+            Row({ space: 12 }) {
+              Image($r('app.media.ui_task_repeat')).width(24).height(24)
+              Column({ space: 4 }) {
+                Text('重复').fontSize(12).fontColor(UiColor.secondary).width('100%')
+                Text(`计划：${repeatSummary(this.task!.editContent.scheduledRepeat?.rule)}`).fontSize(15).fontColor(UiColor.text).width('100%')
+                if (this.task!.editContent.deadlineRepeat?.rule) {
+                  Text(`截止：${repeatSummary(this.task!.editContent.deadlineRepeat?.rule)}`).fontSize(15).fontColor(UiColor.text).width('100%')
+                }
+              }.layoutWeight(1)
+              Text('›').fontSize(22).fontColor(UiColor.secondary)
+            }.width('100%').padding(16).constraintSize({ minHeight: 64 })
+              .enabled(!this.disabled && !this.editable).onClick(() => { this.editRepeat() })
           }
           Divider().color(UiColor.outline)
           Row({ space: 24 }) {

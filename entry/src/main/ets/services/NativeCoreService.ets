@@ -17,6 +17,10 @@ import {
   TaskModification as NativeTaskModification,
   TaskChecklistItem as NativeTaskChecklistItem,
   TaskChecklistChange as NativeTaskChecklistChange,
+  TaskRepeatRule as NativeTaskRepeatRule,
+  TaskRepeatInfo as NativeTaskRepeatInfo,
+  TaskRepeatMode as NativeTaskRepeatMode,
+  TaskRepeatUnit as NativeTaskRepeatUnit,
   SupportTags as NativeSupportTags,
   TodoMetadata as NativeTodoMetadata,
   defaultSyncOptions,
@@ -65,6 +69,10 @@ export type CoreOrgFileMetadata = NativeOrgFileMetadata
 export type CoreTaskChecklistItem = NativeTaskChecklistItem
 // 包含 move / beforeId；与 siblingGroup 一起透传，排序规则由 Core 验证。
 export type CoreTaskChecklistChange = NativeTaskChecklistChange
+export type CoreTaskRepeatRule = NativeTaskRepeatRule
+export type CoreTaskRepeatInfo = NativeTaskRepeatInfo
+export type CoreTaskRepeatMode = NativeTaskRepeatMode
+export type CoreTaskRepeatUnit = NativeTaskRepeatUnit
 export type CoreSupportTags = NativeSupportTags
 export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart

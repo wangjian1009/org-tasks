@@ -1,4 +1,6 @@
-import { CoreTask, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskModification, NativeCoreService, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { AppConfigService } from '../services/AppConfigService'
+import { TaskRepeatDialog } from '../components/TaskRepeatDialog'
 import { NoteService } from '../services/NoteService'
 import { AppShell } from '../components/AppShell'
 import { TaskEditor } from '../components/TaskEditor'
@@ -18,6 +20,32 @@ struct TaskEdit {
   @State working: boolean = false
   @State committed: boolean = false
   @State message: string = ''
+  private repeatDialog: CustomDialogController | undefined = undefined
+
+  editRepeat() {
+    if (!this.task || this.working || this.committed || this.editing) return
+    this.repeatDialog = new CustomDialogController({ builder: TaskRepeatDialog({ task: this.task,
+      initialDeadline: !this.task.editContent.scheduledRepeat?.rule && !!this.task.editContent.deadlineRepeat?.rule,
+      save: async (changes: CoreTaskModification[]): Promise<boolean> => {
+        if (!this.task) return false
+        this.working = true; this.message = ''
+        try {
+          const context = this.getUIContext().getHostContext()!
+          await NoteService.modify(context, this.task, changes)
+          this.committed = true
+          const config = await AppConfigService.load(context, false)
+          const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+          this.task = (await workspace.fileAt(this.task.fullPath)).node(this.task.fullPath)
+          this.committed = false
+          return true
+        } catch (error) {
+          this.message = `${this.committed ? '重复规则已保存，重新读取失败，请返回列表' : '保存失败'}：${coreErrorMessage(error as CoreBridgeError)}`
+          return this.committed
+        } finally { this.working = false }
+      } }), customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+      onWillDismiss: (action: DismissDialogAction) => { if (!this.working) action.dismiss() } })
+    this.repeatDialog.open()
+  }
 
   aboutToAppear() {
     const params = this.getUIContext().getRouter().getParams() as TaskParams | undefined
@@ -26,6 +54,8 @@ struct TaskEdit {
     this.heading = this.task?.heading || ''
     this.body = this.task?.body || ''
   }
+
+  aboutToDisappear() { this.repeatDialog?.close() }
 
   onBackPress(): boolean {
     this.saveAndBack()
@@ -89,6 +119,7 @@ struct TaskEdit {
           TaskEditor({ task: this.task, parents: this.parents, editable: this.editing,
             disabled: this.working || this.committed, headingValue: this.heading, bodyValue: this.body,
             headingChanged: (value: string): void => { this.heading = value },
+            editRepeat: () => { this.editRepeat() },
             bodyChanged: (value: string): void => { this.body = value } }).layoutWeight(1)
         }.width('100%').height('100%')
       }

@@ -2,6 +2,8 @@ import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModif
 import { TaskInlineService, TaskInlineSession } from '../services/TaskInlineService'
 import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
+import { TaskRepeatDialog } from './TaskRepeatDialog'
+import { repeatSummary } from '../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
@@ -65,6 +67,7 @@ export struct TaskListItem {
   private ownerKey: string = ''
   private dateDialog: CustomDialogController | undefined = undefined
   private tagsDialog: CustomDialogController | undefined = undefined
+  private repeatDialog: CustomDialogController | undefined = undefined
   private pending: Promise<void> = Promise.resolve()
   private checkSaving: Promise<boolean> | undefined = undefined
   private continueCheck: boolean = false
@@ -128,7 +131,7 @@ export struct TaskListItem {
   aboutToDisappear() {
     this.cancelCheckDrag()
     this.checkFocus.dispose()
-    this.dateDialog?.close(); this.tagsDialog?.close()
+    this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
     if (this.hostWindow) this.hostWindow.off('keyboardHeightChange', this.keyboardChanged)
     TaskInlineSession.release(this.ownerKey)
   }
@@ -260,6 +263,16 @@ export struct TaskListItem {
       onWillDismiss: (action: DismissDialogAction) => { if (this.working) return; action.dismiss(); if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }
     })
     this.dateDialog.open()
+  }
+  async repeats(deadline: boolean = false) {
+    if (!await this.prepare() || !await this.finish(false)) return
+    this.repeatDialog = new CustomDialogController({
+      builder: TaskRepeatDialog({ task: this.value(), initialDeadline: deadline,
+        save: async (changes: CoreTaskModification[]): Promise<boolean> => await this.persist(changes) }),
+      customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+      onWillDismiss: (action: DismissDialogAction) => { if (!this.working) action.dismiss() }
+    })
+    this.repeatDialog.open()
   }
   reloadDraft() {
     if (this.working) return
@@ -736,25 +749,46 @@ export struct TaskListItem {
   }
   @Builder
   attributes() {
-    Row() {
-      Button({ type: ButtonType.Normal }) {
-        Row({ space: 5 }) {
-          Image(this.value().scheduled === inlineDate(new Date()) ? $r('app.media.nav_today') : $r('app.media.ui_task_calendar')).width(18).height(18)
-          if (this.value().scheduled) { Text(inlineDateLabel(this.value().scheduled)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
-        }
-      }.id('inline_schedule_button').height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
-        .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
-      Blank().layoutWeight(1)
-      this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
-      this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() })
-      Button({ type: ButtonType.Normal }) {
-        Row({ space: 4 }) {
-          Image(this.deadlineIcon()).width(16).height(16)
-          if (this.value().deadline) { Text(inlineDateLabel(this.value().deadline)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
-        }
-      }.id('inline_deadline_button').height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
-        .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
+    Column({ space: 4 }) {
+      if (this.value().editContent.scheduledRepeat?.rule) {
+        this.repeatRule(false)
+      }
+      if (this.value().editContent.deadlineRepeat?.rule) {
+        this.repeatRule(true)
+      }
+      Row() {
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: 5 }) {
+            Image(this.value().scheduled === inlineDate(new Date()) ? $r('app.media.nav_today') : $r('app.media.ui_task_calendar')).width(18).height(18)
+            if (this.value().scheduled) { Text(inlineDateLabel(this.value().scheduled)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
+          }
+        }.id('inline_schedule_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
+          .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
+        Blank().layoutWeight(1)
+        this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
+        this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() })
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: 4 }) {
+            Image(this.deadlineIcon()).width(16).height(16)
+            if (this.value().deadline) { Text(inlineDateLabel(this.value().deadline)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
+          }
+        }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
+          .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
+        Button('…').id('inline_more_button').width(36).height(44).padding(0).fontSize(22).fontColor(UiColor.secondary)
+          .backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
+          .accessibilityText('更多任务操作').bindMenu([{ value: '重复…', action: () => { this.repeats() } }])
+      }.width('100%')
     }.width('100%').padding({ left: 27 })
+  }
+  @Builder
+  repeatRule(deadline: boolean) {
+    Row({ space: 7 }) {
+      Image($r('app.media.ui_task_repeat')).width(18).height(18)
+      Text(`${deadline ? '截止' : '计划'} · ${repeatSummary(deadline ? this.value().editContent.deadlineRepeat?.rule : this.value().editContent.scheduledRepeat?.rule)}`)
+        .fontSize(13).fontColor(UiColor.primary).layoutWeight(1)
+      Text('›').fontSize(18).fontColor(UiColor.secondary)
+    }.width('100%').constraintSize({ minHeight: 44 }).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
+      .accessibilityText(`编辑${deadline ? '截止' : '计划'}重复规则`).onClick(() => { this.repeats(deadline) })
   }
   build() {
     Column() {

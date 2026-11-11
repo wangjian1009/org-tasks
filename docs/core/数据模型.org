@@ -835,8 +835,10 @@ pub enum TaskModification {
     Tags(Option<Vec<String>>),
     Schedule(Option<String>),
     ScheduleDate(Option<String>),
+    ScheduleRepeat(Option<TaskRepeatRule>),
     Deadline(Option<String>),
     DeadlineDate(Option<String>),
+    DeadlineRepeat(Option<TaskRepeatRule>),
     AddressLink(Option<TaskAddressChange>),
 }
 
@@ -988,7 +990,7 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
 \umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
 \umlclass[x=7,y=-8]{TaskDeletion}{path: TaskPath}{}
-\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / NOTES / CHECKLIST \\ TODO / PRIORITY / TAGS \\ SCHEDULE / SCHEDULE\_DATE \\ DEADLINE / DEADLINE\_DATE \\ ADDRESS\_LINK}{}
+\umlclass[x=15,y=-4]{TaskModification}{TITLE / BODY / NOTES / CHECKLIST \\ TODO / PRIORITY / TAGS \\ SCHEDULE / SCHEDULE\_DATE / SCHEDULE\_REPEAT \\ DEADLINE / DEADLINE\_DATE / DEADLINE\_REPEAT \\ ADDRESS\_LINK}{}
 \umlclass[x=0,y=-12]{TaskOperationHistory}{entries: Vec\textless TaskOperationRecord\textgreater}{}
 \umlclass[x=8,y=-12]{TaskOperationRecord}{operation\_group: TaskOperationGroup \\ fallback\_group: TaskFallbackGroup}{}
 \umlclass[x=15,y=-12]{TaskFallbackGroup}{files: Vec\textless TaskFileFallback\textgreater}{}
@@ -1216,6 +1218,8 @@ pub struct TaskEditContent {
     pub own_tags: Vec<String>,
     pub notes: String,
     pub checklist: Vec<TaskChecklistItem>,
+    pub scheduled_repeat: Option<TaskRepeatInfo>,
+    pub deadline_repeat: Option<TaskRepeatInfo>,
 }
 pub struct TaskChecklistItem {
     pub id: String,
@@ -1346,3 +1350,34 @@ working\_file: PathBuf}{}
 \end{center}
 
 结束预览重写每个操作中的文件路径及位置引用，只保留真实源版本作为提交约束。操作顺序和标题路径保持，应用随后通过同一个数据修改接口提交。完整生命周期见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。
+
+* 规划重复规则编辑
+
+~TaskEditContent.scheduled_repeat~ 与 ~deadline_repeat~ 分别投影当前标题自身的计划、截止时间戳；未设置日期时为 ~None~ ，有日期但没有重复器时 ~rule=None~ 。两者来自同次文件快照，不读取正文、日志或子标题中的重复器，不持久化派生字段。
+
+#+begin_src rust
+pub struct TaskRepeatInfo {
+    pub date: String,
+    pub has_time: bool,
+    pub rule: Option<TaskRepeatRule>,
+}
+pub struct TaskRepeatRule {
+    pub mode: TaskRepeatMode,
+    pub interval: u32,
+    pub unit: TaskRepeatUnit,
+}
+pub enum TaskRepeatMode { Cumulative, CatchUp, AfterCompletion }
+pub enum TaskRepeatUnit { Hour, Day, Week, Month, Year }
+#+end_src
+
+~SCHEDULE_REPEAT~ 与 ~DEADLINE_REPEAT~ 接收 ~TaskRepeatRule~ 或空值。三种模式分别写为 ~+~ 、 ~++~ 和 ~.+~ ；序列化名称为 ~cumulative~ 、 ~catchUp~ 、 ~afterCompletion~ ，单位为 ~hour~ 、 ~day~ 、 ~week~ 、 ~month~ 、 ~year~ 。间隔须大于零，按小时重复须已有具体时刻。添加规则前须已有对应日期，可在同一操作组先设置日期；规则修改只替换重复器 token，保留原有重复窗口后缀、日期、星期、时刻、预警、另一个规划字段及其他字节。停止重复只移除该规划字段的重复器与其窗口，不清除日期，不修改状态。规则编辑复用原版本校验、事务、回退、outbox 和数据通知。
+
+日期修改也从原规划字段读取时间戳，对 ~orgize~ 尚未识别的重复窗口进行等长遮罩后取得日期节点，确保修改日期不会丢失 ~.+4w/5w~ 等原规则。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskRepeatInfo}{date: String \\ has\_time: bool}{}
+\umlclass[x=7,y=0]{TaskRepeatRule}{mode: TaskRepeatMode \\ interval: u32 \\ unit: TaskRepeatUnit}{}
+\umlclass[x=0,y=-4]{TaskEditContent}{scheduled\_repeat: Option \\ deadline\_repeat: Option}{}
+\umlcompo[mult2=0..1]{TaskRepeatInfo}{TaskRepeatRule}
+\umlcompo[mult2=0..2]{TaskEditContent}{TaskRepeatInfo}
+\end{tikzpicture}

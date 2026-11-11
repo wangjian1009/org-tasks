@@ -47,6 +47,38 @@ impl Drop for Fixture {
 }
 
 #[tokio::test]
+async fn repeat_rule_group_is_atomic_versioned_and_keeps_the_other_planning_field() {
+    let source = "* TODO Task\r\nDEADLINE: <2026-12-01 Tue ++1m -2d>\r\nNotes  \r\n";
+    let mut fixture = Fixture::new(source).await;
+    let mut group = fixture.group("unused").await;
+    let repo_id = fixture.workspace.repos()[0].id.clone();
+    group.file_versions = vec![TaskFileVersion { repo_id, file: "tasks.org".into(), version: LocalFileVersion::from_bytes(source.as_bytes()).content_hash }];
+    let TaskOperation::Modification(operation) = &mut group.operations[0] else { unreachable!() };
+    operation.modifications = serde_json::from_value(serde_json::json!([
+        {"field":"SCHEDULE_DATE","value":"2026-11-11"},
+        {"field":"SCHEDULE_REPEAT","value":{"mode":"afterCompletion","interval":0,"unit":"week"}}
+    ])).unwrap();
+    assert!(fixture.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(fs::read(fixture.root.join("tasks.org")).await.unwrap(), source.as_bytes());
+    assert!(fixture.workspace.repos()[0].pending_writes().await.unwrap().is_empty());
+    let TaskOperation::Modification(operation) = &mut group.operations[0] else { unreachable!() };
+    operation.modifications[1] = TaskModification::ScheduleRepeat(Some(TaskRepeatRule { mode: TaskRepeatMode::AfterCompletion, interval: 2, unit: TaskRepeatUnit::Week }));
+    fixture.workspace.execute_task_operations(&group).await.unwrap();
+    let saved = fs::read(fixture.root.join("tasks.org")).await.unwrap();
+    assert_eq!(saved, source.replace("DEADLINE:", "SCHEDULED: <2026-11-11 .+2w> DEADLINE:").as_bytes());
+    assert!(fixture.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(fs::read(fixture.root.join("tasks.org")).await.unwrap(), saved);
+    let file = fixture.workspace.repos()[0].file("tasks.org").await.unwrap();
+    let content = file.task_edit_content(&file.node_paths()[0]).unwrap();
+    assert_eq!(content.scheduled_repeat.unwrap().rule.unwrap().mode, TaskRepeatMode::AfterCompletion);
+    group.file_versions[0].version = LocalFileVersion::from_bytes(&saved).content_hash;
+    let TaskOperation::Modification(operation) = &mut group.operations[0] else { unreachable!() };
+    operation.modifications = vec![TaskModification::ScheduleRepeat(None)];
+    fixture.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(fs::read(fixture.root.join("tasks.org")).await.unwrap(), source.replace("DEADLINE:", "SCHEDULED: <2026-11-11> DEADLINE:").as_bytes());
+}
+
+#[tokio::test]
 async fn progress_changes_keep_nested_write_paths_but_do_not_bypass_file_versions() {
     let source = "* TODO Parent [/]\n** TODO Child [0/2]\nOld notes\n";
     let mut fixture = Fixture::new(source).await;

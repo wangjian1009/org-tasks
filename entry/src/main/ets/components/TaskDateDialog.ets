@@ -6,6 +6,7 @@ export struct TaskDateDialog {
   controller: CustomDialogController
   selected: string = ''
   deadline: boolean = false
+  allowClear: boolean = true
   closed: () => void = () => {}
   choose: (value: string) => Promise<boolean> = async () => false
   @State year: number = new Date().getFullYear()
@@ -83,8 +84,10 @@ export struct TaskDateDialog {
       }.width('100%').height(216).columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr').rowsGap(2).columnsGap(2)
       if (this.selected) {
         Text(`已选：${this.selected}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+        if (this.allowClear) {
         Button('清除日期').id('inline_date_clear').width('100%').height(40).backgroundColor('#443337').fontColor(UiColor.error)
           .enabled(!this.busy).onClick(() => { this.pick('') })
+        }
       }
       if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
     }.width('90%').constraintSize({ maxWidth: 360 }).padding(16).backgroundColor('#262B2D').borderRadius(20)

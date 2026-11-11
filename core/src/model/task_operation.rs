@@ -106,8 +106,10 @@ pub enum TaskModification {
     Tags(Option<Vec<String>>),
     Schedule(Option<String>),
     ScheduleDate(Option<String>),
+    ScheduleRepeat(Option<super::TaskRepeatRule>),
     Deadline(Option<String>),
     DeadlineDate(Option<String>),
+    DeadlineRepeat(Option<super::TaskRepeatRule>),
     AddressLink(Option<TaskAddressChange>),
 }
 
