@@ -1,0 +1,47 @@
+{
+  "formatVersion": 2,
+  "purpose": "已有冲突时，仅插入新节点正常合并，原冲突材料保持不变",
+  "rounds": [
+    {
+      "label": "首次合并",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": "remote.org"
+      },
+      "expected": {
+        "content": "expected.org"
+      }
+    },
+    {
+      "label": "上轮已提交后无修改再次同步",
+      "input": {
+        "base": {
+          "round": 1
+        },
+        "local": {
+          "round": 1
+        },
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    },
+    {
+      "label": "沿用原基线重放同一修改",
+      "input": {
+        "base": "base.org",
+        "local": "local.org",
+        "remote": {
+          "round": 1
+        }
+      },
+      "expected": {
+        "sameBytesAsRound": 1
+      }
+    }
+  ]
+}

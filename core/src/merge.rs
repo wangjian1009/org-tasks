@@ -914,7 +914,7 @@ struct PendingConflict {
     source: String,
 }
 
-/// 冲突文件回退到远端主树；所有未应用的本地差异保存在文件尾部的独立容器中。
+/// 主树与旧冲突材料分别合并；本轮新冲突才触发远端主树回退及候选保存。
 fn merge_with_container(
     base: &OrgFile,
     local: &OrgFile,
@@ -965,8 +965,9 @@ fn merge_with_container(
             source,
         });
     }
-    if pending.is_empty() && points.is_empty() {
-        return Ok(merged.source_bytes().to_vec());
+    if pending.is_empty() {
+        // 旧冲突仅作为独立材料保留，不让本轮已成功合并的主树修改再次变成候选。
+        return Ok(conflict::append_points(remote, merged.source_bytes(), &points));
     }
     let normal_changed = merged.source_bytes() != r.source_bytes();
     if !pending
@@ -1425,6 +1426,35 @@ mod tests {
         let merged = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
         assert_eq!(merged, expected.as_bytes());
         assert!(!String::from_utf8(merged).unwrap().contains("CONFLICT"));
+    }
+
+    #[test]
+    fn existing_conflicts_do_not_turn_safe_insertions_or_checklist_moves_into_new_conflicts() {
+        for nl in ["\n", "\r\n"] {
+            let original = format!("* TODO 任务编辑 - 检查清单 [4/5]{nl}- [X] 已完成{nl}- [ ] 排序{nl}* Other{nl}base{nl}");
+            let seed = merge(
+                original.as_bytes(),
+                original.replace("base", "local").as_bytes(),
+                original.replace("base", "remote").as_bytes(),
+            ).unwrap();
+            let baseline = reparse(&file(""), seed).unwrap();
+            let points = crate::model::conflict::points(&baseline).unwrap();
+            assert_eq!(points.len(), 1);
+            let main = String::from_utf8(crate::model::conflict::main_source(&baseline)).unwrap();
+            for updated in [
+                main.replace(&format!("- [X] 已完成{nl}- [ ] 排序{nl}"), &format!("- [ ] 排序{nl}- [X] 已完成{nl}")),
+                format!("{main}* TODO 新增任务{nl}"),
+                main.replace("已完成", "修改文字"),
+            ] {
+                let local = crate::model::conflict::append_points(&baseline, updated.as_bytes(), &points);
+                let result = merge(baseline.source_bytes(), &local, baseline.source_bytes()).unwrap();
+                assert_eq!(result, local, "已有冲突不应阻止无竞争的普通修改");
+                let merged = reparse(&baseline, result.clone()).unwrap();
+                assert_eq!(merged.conflict_ids(), baseline.conflict_ids());
+                assert_eq!(crate::model::conflict::points(&merged).unwrap()[0].source, points[0].source);
+                assert_eq!(merge(baseline.source_bytes(), &local, &result).unwrap(), result);
+            }
+        }
     }
 
     #[test]

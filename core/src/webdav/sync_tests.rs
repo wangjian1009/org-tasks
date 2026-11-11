@@ -307,6 +307,73 @@ async fn checklist_sort_only_sync_uploads_without_conflict() {
 }
 
 #[tokio::test]
+async fn old_conflict_material_does_not_block_edits_and_success_advances_all_snapshots() {
+    use crate::{TaskChecklistChange, TaskCreation, TaskFileVersion, TaskModification,
+        TaskModificationOperation, TaskOperation, TaskOperationGroup, TaskPosition};
+    for (move_checklist, insert_node) in [(true, false), (false, true), (true, true)] {
+        let main = "* TODO 任务编辑 - 检查清单 [4/5]\n- [X] 展示清单\n- [X] 编辑条目\n- [X] 标记完成\n- [X] 删除条目\n- [ ] 调整顺序\n* TODO Other\nbase\n";
+        let seed = crate::merge(main.as_bytes(), main.replace("base", "local").as_bytes(), main.replace("base", "remote").as_bytes()).unwrap();
+        let (mut repo, root) = repo().await;
+        let (policy, state, worker) = server(&[("a.org", &seed)]).await;
+        sync(&mut repo, &policy, 1).await;
+        let file = repo.file("a.org").await.unwrap();
+        let old_points = crate::model::conflict::points(&file).unwrap().into_iter()
+            .map(|point| (point.id, point.source)).collect::<Vec<_>>();
+        assert_eq!(old_points.len(), 1);
+        let path = file.node_paths()[0].clone();
+        let mut operations = Vec::new();
+        if move_checklist {
+            let id = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
+            operations.push(TaskOperation::Modification(TaskModificationOperation {
+                path: path.clone(), modifications: vec![TaskModification::Checklist(TaskChecklistChange::Move { id, before_id: None })],
+            }));
+        }
+        if insert_node {
+            let mut creation = TaskCreation::new(TaskPosition { parent: file.full_path(), after: Some(path) }, "新增任务".into());
+            creation.state = Some("TODO".into());
+            creation.body = "新增备注\n".into();
+            operations.push(TaskOperation::Creation(creation));
+        }
+        let mut workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        workspace.execute_task_operations(&TaskOperationGroup {
+            operations, queue_repo_ids: vec![file.repo_id.clone()],
+            file_versions: vec![TaskFileVersion { repo_id: file.repo_id.clone(), file: "a.org".into(), version: LocalFileVersion::from_bytes(&seed).content_hash }],
+        }).await.unwrap();
+        let expected = tokio::fs::read(root.join("a.org")).await.unwrap();
+        if move_checklist { assert!(String::from_utf8_lossy(&expected).contains("- [ ] 调整顺序\n- [X] 展示清单\n")); }
+        if insert_node { assert!(String::from_utf8_lossy(&expected).contains("* TODO 新增任务\n")); }
+        repo = workspace.repos.remove(0);
+        for time in [2, 3] {
+            let record = sync(&mut repo, &policy, time).await;
+            assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+            assert_eq!(record.files[0].action, if time == 2 { OrgRepoSyncFileAction::Uploaded } else { OrgRepoSyncFileAction::Unchanged });
+            assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), expected);
+            assert_eq!(state.lock().unwrap().files["a.org"].data, expected);
+            assert_eq!(record.files[0].detail.synced_source.as_deref().unwrap().as_bytes(), expected);
+            let index: serde_json::Value = serde_json::from_slice(&tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap()).unwrap();
+            let entry = &index["entries"]["a.org"];
+            let revision = entry["revision"].as_str().unwrap();
+            assert_eq!(entry["hash"], LocalFileVersion::from_bytes(&expected).content_hash);
+            assert_eq!(tokio::fs::read(root.join(format!(".sync/remote_base/files/a.org/{revision}/a.org"))).await.unwrap(), expected);
+            let current = repo.file("a.org").await.unwrap();
+            let points = crate::model::conflict::points(&current).unwrap().into_iter()
+                .map(|point| (point.id, point.source)).collect::<Vec<_>>();
+            assert_eq!(points, old_points, "旧候选保持原样，不能新增伪冲突");
+            assert!(!repo.has_local_changes().await.unwrap());
+            assert!(repo.pending_writes().await.unwrap().is_empty());
+        }
+        let put_count = state.lock().unwrap().requests.iter().filter(|request| request.starts_with("PUT ")).count();
+        assert_eq!(put_count, 1, "无修改的再次同步不重复上传");
+        let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        let tasks = workspace.query(&crate::TaskQuery::default()).await.unwrap().tasks;
+        assert_eq!(tasks.len(), if insert_node { 3 } else { 2 });
+        assert!(!workspace.notifications().await.unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn remote_deletion_directly_removes_modified_local_file_and_consumes_intents() {
     let (mut repo, root) = repo().await;
     let (policy, state, worker) = server(&[("inbox.org", b"* TODO Original\n")]).await;

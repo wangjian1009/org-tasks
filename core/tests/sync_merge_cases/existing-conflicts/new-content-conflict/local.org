@@ -1,0 +1,21 @@
+#+TITLE: 清单同步回归
+* 项目
+** 任务编辑
+*** TODO 任务编辑 - 检查清单 [4/5]
+SCHEDULED: <2026-11-10 Tue>
+- [X] 展示清单
+- [X] 添加与修改条目
+- [X] 标记完成
+- [X] 左滑删除
+- [ ] 调整顺序
+*** TODO 其他任务
+本轮本地备注
+
+* 同步冲突 :CONFLICT:ARCHIVE:
+** 其他任务
+:PROPERTIES:
+:CONFILICT_ID: 1111111111111111
+:END:
+#+CONFLICT_REASON: modify
+*** TODO 其他任务
+历史本地候选
