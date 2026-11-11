@@ -95,7 +95,7 @@ struct Inbox {
     return result
   }
 
-  async startSelection(record?: CoreTask) {
+  async startSelection(record: CoreTask) {
     if (this.checklistDragging) return
     if (this.selectingRecords || this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
@@ -106,8 +106,9 @@ struct Inbox {
       this.listScroller.closeAllSwipeActions()
       await this.loadRecords()
       if (!this.visible || this.needsConfiguration || this.message) return
+      if (!this.records.some(item => item.id === record.id)) return
       this.selectingRecords = true
-      this.selectedRecordIds = record && this.records.some(item => item.id === record.id) ? [record.id] : []
+      this.selectedRecordIds = [record.id]
       this.mergeMessage = ''
       this.mergeInvalid = false
       this.mergedPath = ''
@@ -407,9 +408,9 @@ struct Inbox {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       AppShell({ refreshOnPageShow: true, title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
-        actionLabel: this.selectingRecords ? '完成多选并退出' : '多选收件箱记录', actionText: this.selectingRecords ? '完成' : '多选',
+        actionLabel: this.selectingRecords ? '完成多选并退出' : '', actionText: this.selectingRecords ? '完成' : '',
         actionProminent: this.selectingRecords,
-        action: (): void => { if (this.selectingRecords) this.cancelSelection(); else this.startSelection() },
+        action: (): void => { this.cancelSelection() },
         synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
         Column() {

@@ -141,6 +141,15 @@ test('多选期间再次触发长按入口，保留原顺序与快照，不重�
   assert.equal(f.requests.length, 0);
 });
 
+test('重新读取后当前记录已消失，不进入旧的空选择界面', async () => {
+  const f = fixture();
+  const record = f.records.shift();
+  await f.page.startSelection(record);
+  assert.equal(f.page.selectingRecords, false);
+  assert.deepEqual(f.page.selectedRecordIds, []);
+  assert.equal(f.requests.length, 0);
+});
+
 test('直接合并连续点击只提交一次；提交成功但刷新失败不能再次提交', async () => {
   const f = fixture(); let resolve;
   f.waitCommit(new Promise(r => { resolve = r; })); f.setQueryFailure();
