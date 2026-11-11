@@ -130,6 +130,17 @@ test('选择顺序决定结果标题，取消选择第一条后下一条成为�
   assert.equal(f.requests.length, 0);
 });
 
+test('多选期间再次触发长按入口，保留原顺序与快照，不重新读取或写入', async () => {
+  const f = fixture();
+  await f.page.startSelection(f.records[1]);
+  f.page.toggleRecord(f.records[0]);
+  const queries = f.queries;
+  await f.page.startSelection(f.records[0]);
+  assert.deepEqual(f.page.selectedRecordIds, ['source', 'main']);
+  assert.equal(f.queries, queries);
+  assert.equal(f.requests.length, 0);
+});
+
 test('直接合并连续点击只提交一次；提交成功但刷新失败不能再次提交', async () => {
   const f = fixture(); let resolve;
   f.waitCommit(new Promise(r => { resolve = r; })); f.setQueryFailure();

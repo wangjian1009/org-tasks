@@ -10,7 +10,6 @@ import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { InboxTargetPopup } from '../components/InboxTargetPopup'
 import { InboxSwipeActions } from '../components/InboxSwipeActions'
-import { InboxSelectionRow } from '../components/InboxSelectionRow'
 import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { RefileSection, RecentDay, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
@@ -98,7 +97,7 @@ struct Inbox {
 
   async startSelection(record?: CoreTask) {
     if (this.checklistDragging) return
-    if (this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
+    if (this.selectingRecords || this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
     clearTimeout(this.actionTimer)
     try {
@@ -439,10 +438,6 @@ struct Inbox {
               }
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
-                  if (this.selectingRecords) {
-                    InboxSelectionRow({ task: record, selected: this.selectedRecordIds.includes(record.id), selectionOrder: this.selectedRecordIds.indexOf(record.id) + 1, busy: this.mergeBusy,
-                      choose: (): void => { this.toggleRecord(record) } }).padding({ left: 12, right: 12 })
-                  } else {
                   Row() {
                     Column() {
                     TaskListItem({ task: record, enableSwipeActions: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
@@ -453,10 +448,26 @@ struct Inbox {
                       OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
                         .width('100%').padding({ left: 27 })
                     }
-                    }.width('100%')
+                    }.layoutWeight(1).constraintSize({ minWidth: 0 })
+                      .hitTestBehavior(this.selectingRecords ? HitTestMode.None : HitTestMode.Default)
+                      .accessibilityLevel(this.selectingRecords ? 'no-hide-descendants' : 'auto')
+                    if (this.selectingRecords) {
+                      Row() {
+                        if (this.selectedRecordIds.includes(record.id)) {
+                          Text(`${this.selectedRecordIds.indexOf(record.id) + 1}`).fontSize(12).fontColor(Color.White)
+                        }
+                      }.width(24).height(24).margin({ left: 8 }).borderRadius(12)
+                        .border({ width: 1.5, color: this.selectedRecordIds.includes(record.id) ? UiColor.selection : UiColor.secondary })
+                        .backgroundColor(this.selectedRecordIds.includes(record.id) ? UiColor.selection : Color.Transparent)
+                        .justifyContent(FlexAlign.Center).accessibilityLevel('no')
+                    }
                   }.width('100%').padding({ left: 12, right: 12 })
-                    .backgroundColor(this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath) ? '#323D3A' : Color.Transparent)
-                    .borderRadius(12).border({ width: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath) ? 1 : 0, color: UiColor.primary })
+                    .backgroundColor(this.selectingRecords ? (this.selectedRecordIds.includes(record.id) ? UiColor.selectionTint : Color.Transparent) :
+                      this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath) ? '#323D3A' : Color.Transparent)
+                    .borderRadius(this.selectingRecords ? 8 : 12)
+                    .border({ width: !this.selectingRecords && (this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath)) ? 1 : 0, color: UiColor.primary })
+                    .accessibilityText(this.selectingRecords ? `${record.heading}，${this.selectedRecordIds.includes(record.id) ? `已选择，第 ${this.selectedRecordIds.indexOf(record.id) + 1} 条` : '未选择'}` : '')
+                    .onClick((): void => { if (this.selectingRecords) this.toggleRecord(record) })
                     .gesture(LongPressGesture({ repeat: false }).onAction((): void => { this.startSelection(record) }))
                     .bindPopup(this.selected?.id === record.id, {
                       builder: this.targetPopup, placement: Placement.Bottom, targetSpace: 10,
@@ -472,7 +483,6 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                  }
                 }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords ? {} : { start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
                   end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
