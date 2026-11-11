@@ -290,6 +290,17 @@ pub(super) fn describe_point(
     describe(main, &headline, &material)
 }
 
+pub(super) fn candidate_source(main: &OrgFile, point: &ConflictPoint) -> Result<String, CoreError> {
+    let (_, headline) = parse_point(main, point)?;
+    let why = reason(&headline).ok_or(CoreError::InvalidInput("冲突点缺少原因"))?;
+    // 删除意图的候选保存的是待删节点，应用后的内容应为空。
+    if why == "delete" {
+        return Ok(String::new());
+    }
+    let bytes = candidate(main, &headline, &why)?;
+    Ok(String::from_utf8(bytes).expect("UTF-8"))
+}
+
 pub(super) fn select(
     file: &mut OrgFile,
     selection: &TaskConfilictSelection,

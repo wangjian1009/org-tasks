@@ -78,10 +78,193 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+
+#[tokio::test]
+async fn read_only_projection_matches_adoption_without_consuming_or_recording_the_choice() {
+    let mut f = Fixture::new().await;
+    let p = f.preview().await;
+    let original = p.file().await.unwrap();
+    let current_version = LocalFileVersion::from_bytes(original.source_bytes()).content_hash;
+    let projected = p
+        .project(ConflictPreviewProjectionRequest {
+            conflict_id: p.conflict_id().into(),
+            preview_version: current_version.clone(),
+            target: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(projected.status, "ready");
+    assert_eq!(projected.before_text, "remote\n");
+    assert_eq!(projected.after_text, "local\n");
+    assert_eq!(projected.working_version, current_version);
+    assert_ne!(projected.changes.preview_version, current_version);
+    let change = &projected.changes.changes[0];
+    let range = change.after.as_ref().unwrap();
+    assert_eq!(
+        &projected.content.as_bytes()
+            [range.start.byte_offset as usize..range.end.byte_offset as usize],
+        b"local\n"
+    );
+    assert!(projected.rendered_html.contains("local"));
+    assert!(!projected.content.contains("CONFILICT_ID"));
+    assert_eq!(
+        p.file().await.unwrap().source_bytes(),
+        original.source_bytes()
+    );
+    assert_eq!(p.conflicts().await.unwrap().len(), 1);
+    assert!(p.changes().await.unwrap().changes.is_empty());
+    assert!(matches!(
+        p.finish(ConflictPreviewFinishOptions {
+            preview_version: current_version
+        })
+        .await,
+        Err(CoreError::Preview {
+            code: "conflictDecisionRequired",
+            ..
+        })
+    ));
+    assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
+    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(
+        f.workspace.repos()[0]
+            .pending_writes()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    f.choose(&p, TaskConfilictAction::UseLocal).await;
+    assert_eq!(
+        p.file().await.unwrap().source_bytes(),
+        projected.content.as_bytes()
+    );
+    assert!(
+        p.project(ConflictPreviewProjectionRequest {
+            conflict_id: p.conflict_id().into(),
+            preview_version: projected.working_version,
+            target: None,
+        })
+        .await
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn switching_projected_points_does_not_accumulate_other_candidates() {
+    let mut f = Fixture::new().await;
+    let base =
+        "* A\n:PROPERTIES:\n:ID: a\n:END:\nbase a\n* B\n:PROPERTIES:\n:ID: b\n:END:\nbase b\n";
+    f.source = merge(
+        base.as_bytes(),
+        base.replace("base", "local").as_bytes(),
+        base.replace("base", "remote").as_bytes(),
+    )
+    .unwrap();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    let p = f.preview().await;
+    let file = p.file().await.unwrap();
+    let points = p.conflicts().await.unwrap();
+    assert_eq!(points.len(), 2);
+    let version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
+    let mut projections = Vec::new();
+    for point in &points {
+        projections.push(
+            p.project(ConflictPreviewProjectionRequest {
+                conflict_id: point.id.clone(),
+                preview_version: version.clone(),
+                target: None,
+            })
+            .await
+            .unwrap(),
+        );
+    }
+    assert!(projections[0].content.contains("local a"));
+    assert!(projections[0].content.contains("remote b"));
+    assert!(projections[1].content.contains("remote a"));
+    assert!(projections[1].content.contains("local b"));
+    assert_eq!(p.file().await.unwrap().source_bytes(), file.source_bytes());
+    assert_eq!(p.conflicts().await.unwrap().len(), 2);
+    assert!(matches!(
+        p.project(ConflictPreviewProjectionRequest {
+            conflict_id: points[0].id.clone(),
+            preview_version: "stale".into(),
+            target: None,
+        })
+        .await,
+        Err(CoreError::Preview {
+            code: "previewVersionMismatch",
+            ..
+        })
+    ));
+    assert!(
+        p.project(ConflictPreviewProjectionRequest {
+            conflict_id: "missing".into(),
+            preview_version: version.clone(),
+            target: None,
+        })
+        .await
+        .is_err()
+    );
+    let old_id = points[0].id.clone();
+    let _new = f.preview().await;
+    assert!(matches!(
+        p.project(ConflictPreviewProjectionRequest {
+            conflict_id: old_id,
+            preview_version: version,
+            target: None,
+        })
+        .await,
+        Err(CoreError::Preview {
+            code: "previewExpired",
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn unresolved_target_exposes_candidate_and_only_explicit_target_produces_file_projection() {
+    let mut f = Fixture::new().await;
+    f.source = merge(b"* Work\nbase\n", b"* Work\nlocal\n", b"* Work\nremote\n").unwrap();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    let p = f.preview().await;
+    let file = p.file().await.unwrap();
+    let version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
+    let request = ConflictPreviewProjectionRequest {
+        conflict_id: p.conflict_id().into(),
+        preview_version: version,
+        target: None,
+    };
+    let pending = p.project(request.clone()).await.unwrap();
+    assert_eq!(pending.status, "targetRequired");
+    assert!(pending.after_text.contains("local"));
+    assert!(pending.before_text.is_empty());
+    assert!(pending.changes.changes.is_empty());
+    assert_eq!(pending.content.as_bytes(), file.source_bytes());
+    let mut targeted = request.clone();
+    targeted.target = Some(ConflictTarget::Existing(
+        file.editable_node_paths()[0].clone(),
+    ));
+    let ready = p.project(targeted).await.unwrap();
+    assert_eq!(ready.status, "ready");
+    assert_eq!(ready.before_text, "remote\n");
+    assert_eq!(ready.after_text, "local\n");
+    let mut invalid = request;
+    invalid.target = Some(ConflictTarget::Existing(TaskPath::file(
+        "real".into(),
+        "a.org".into(),
+    )));
+    assert!(p.project(invalid).await.is_err());
+    assert_eq!(p.file().await.unwrap().source_bytes(), file.source_bytes());
+    assert_eq!(p.conflicts().await.unwrap().len(), 1);
+}
 #[tokio::test]
 async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
     let mut f = Fixture::new().await;
-    let before = f.workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
+    let before = f
+        .workspace
+        .query(&[TaskQuery::default()])
+        .await
+        .unwrap()
+        .remove(0);
     let p = f.preview().await;
     assert_eq!(p.full_path().repo_id, "<preview>");
     assert_eq!(p.full_path().file.as_deref(), Some(p.id()));
@@ -95,7 +278,8 @@ async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
         f.workspace
             .query(&[TaskQuery::default()])
             .await
-            .unwrap().remove(0)
+            .unwrap()
+            .remove(0)
             .tasks
             .len(),
         before.tasks.len()
@@ -869,6 +1053,24 @@ async fn full_file_candidate_replaces_only_the_separated_main_document() {
         file.source_bytes(),
         b"#+TITLE: Remote\n* Remote\nremote body\n"
     );
+    let projected = preview
+        .project(ConflictPreviewProjectionRequest {
+            conflict_id: "whole".into(),
+            preview_version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+            target: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(projected.status, "ready");
+    assert_eq!(
+        projected.content,
+        "#+TITLE: Local\n* TODO Local\nlocal body\n"
+    );
+    assert_eq!(
+        preview.file().await.unwrap().source_bytes(),
+        file.source_bytes()
+    );
+    assert_eq!(preview.conflicts().await.unwrap().len(), 1);
     let group = TaskOperationGroup {
         operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
             path: Some(file.full_path()),

@@ -46,6 +46,26 @@ pub struct ConflictPreviewRequest {
 pub struct ConflictPreviewFinishOptions {
     pub preview_version: String,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConflictPreviewProjectionRequest {
+    pub conflict_id: String,
+    pub preview_version: String,
+    pub target: Option<ConflictTarget>,
+}
+/// 只读候选投影；所有坐标属于返回的主树快照，不指向冲突包装。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictPreviewProjection {
+    pub conflict_id: String,
+    pub working_version: String,
+    pub status: &'static str,
+    pub before_text: String,
+    pub after_text: String,
+    pub content: String,
+    pub rendered_html: String,
+    pub changes: ConflictPreviewChanges,
+}
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileConflict {
@@ -209,6 +229,95 @@ impl ConflictPreview {
             source_version: self.source_version.clone(),
             preview_version: version(&file),
             changes,
+        })
+    }
+    /// 复用正式取舍规则计算候选，但不写 working.org、不消费材料、不记录操作。
+    pub async fn project(
+        &self,
+        request: ConflictPreviewProjectionRequest,
+    ) -> Result<ConflictPreviewProjection, CoreError> {
+        let slot = self.store.slot.lock().await;
+        let state = self.state(&slot)?;
+        let file = read_working(state).await?;
+        let working_version = version(&file);
+        if request.preview_version != working_version {
+            return Err(error("previewVersionMismatch", "预览已变化，请重新读取"));
+        }
+        let point = state
+            .conflicts
+            .iter()
+            .find(|point| point.id == request.conflict_id && !state.resolved.contains(&point.id))
+            .ok_or(CoreError::InvalidInput("冲突点不存在或已选择"))?;
+        let description = conflict::describe_point(&file, point)?;
+        let mut projected = file.clone();
+        let mut before_text = String::new();
+        let mut after_text = String::new();
+        let mut changes = Vec::new();
+        let status = if !description
+            .available_actions
+            .contains(&TaskConfilictAction::UseLocal)
+        {
+            "unavailable"
+        } else {
+            after_text = conflict::candidate_source(&file, point)?;
+            let target = request.target.or(description.suggested_target).or_else(|| {
+                matches!(description.reason.as_str(), "reorder" | "structure")
+                    .then_some(ConflictTarget::ReplaceMain)
+            });
+            if let Some(target) = target {
+                conflict::select_point(
+                    &mut projected,
+                    point,
+                    &TaskConfilictSelection {
+                        path: Some(file.full_path()),
+                        id: point.id.clone(),
+                        action: TaskConfilictAction::UseLocal,
+                        target: Some(target),
+                    },
+                )?;
+                after_text.clear();
+                if file.source_bytes() != projected.source_bytes() {
+                    let change = diff(
+                        &file,
+                        &projected,
+                        file.source_bytes(),
+                        projected.source_bytes(),
+                        0,
+                        0,
+                        "main",
+                    );
+                    before_text = change
+                        .lines
+                        .iter()
+                        .filter(|l| l.kind == "removed")
+                        .map(|l| l.text.as_str())
+                        .collect();
+                    after_text = change
+                        .lines
+                        .iter()
+                        .filter(|l| l.kind == "added")
+                        .map(|l| l.text.as_str())
+                        .collect();
+                    changes.push(change);
+                }
+                "ready"
+            } else {
+                "targetRequired"
+            }
+        };
+        Ok(ConflictPreviewProjection {
+            conflict_id: point.id.clone(),
+            working_version,
+            status,
+            before_text,
+            after_text,
+            content: String::from_utf8(projected.source_bytes().to_vec()).expect("UTF-8"),
+            rendered_html: projected.render_html(),
+            changes: ConflictPreviewChanges {
+                source_version: self.source_version.clone(),
+                preview_version: version(&projected),
+                changes,
+            },
         })
     }
     pub async fn discard(&self) -> Result<(), CoreError> {

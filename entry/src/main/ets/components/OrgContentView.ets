@@ -10,6 +10,7 @@ import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
 @Component
 export struct OrgContentView {
   @Prop @Watch('documentChanged') fragment: string = ''
+  @Prop @Watch('documentChanged') revision: string = ''
   @Prop empty: boolean = false
   @Prop embedded: boolean = false
   @Prop horizontalParentFirst: boolean = false
@@ -32,6 +33,7 @@ export struct OrgContentView {
   @State chooserVisible: boolean = false
   @State mapChoices: MapAppChoice[] = []
   private documentGeneration: number = 0
+  private requestedGeneration: number = -1
   private loadRequested: boolean = false
   private loaded: boolean = false
   private active: boolean = true
@@ -103,8 +105,13 @@ export struct OrgContentView {
   documentChanged() {
     this.documentGeneration++
     if (!this.active || !this.loaded) return
+    this.loadDocument()
+  }
+
+  loadDocument() {
     this.loaded = false
     this.loadRequested = true
+    this.requestedGeneration = this.documentGeneration
     try {
       this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
         this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext)), 'text/html', 'UTF-8')
@@ -112,18 +119,17 @@ export struct OrgContentView {
   }
 
   pageEnded() {
+    if (!this.active) return
     if (this.loadRequested) {
+      // 载入中更换了冲突或版本，旧页面结束后必须加载最新快照。
+      if (this.requestedGeneration !== this.documentGeneration) { this.loadDocument(); return }
       this.loaded = true
       this.ready()
       this.measure()
       return
     }
-    this.loadRequested = true
-    try {
-      // 初始空白页结束后加载文档；URL 编码保留 CSS 中的 # 等字符。
-      this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
-        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext)), 'text/html', 'UTF-8')
-    } catch (e) { this.reportError(e as CoreBridgeError) }
+    // 初始空白页结束后加载文档；URL 编码保留 CSS 中的 # 等字符。
+    this.loadDocument()
   }
 
   build() {
@@ -161,7 +167,7 @@ export struct OrgContentView {
             // Web 会消费横向手势；转交条目原生侧滑菜单，不把拖动当成链接点击。
             this.horizontalSwipe(point.x < this.tapX)
           }
-          if (event.type === TouchType.Up && this.embedded) {
+          if (event.type === TouchType.Up && (this.embedded || this.nodeActivated)) {
             setTimeout(() => { this.measure() }, 100)
             if (point && !this.tapMoved && Date.now() - this.tapTime < 500) this.activateAt(point.x, point.y)
           }

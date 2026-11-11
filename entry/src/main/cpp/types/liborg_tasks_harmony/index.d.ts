@@ -296,6 +296,11 @@ export interface ConflictPreviewChange {
 }
 export interface ConflictPreviewChanges { sourceVersion: string; previewVersion: string; changes: ConflictPreviewChange[]; }
 export interface ConflictPreviewFinishOptions { previewVersion: string; }
+export interface ConflictPreviewProjectionRequest { conflictId: string; previewVersion: string; target?: ConflictTarget; }
+export interface ConflictPreviewProjection {
+  conflictId: string; workingVersion: string; status: 'ready' | 'targetRequired' | 'unavailable';
+  beforeText: string; afterText: string; content: string; renderedHtml: string; changes: ConflictPreviewChanges;
+}
 export class ConflictPreview {
   private constructor();
   readonly id: string;
@@ -307,6 +312,7 @@ export class ConflictPreview {
   sourceFile(): Promise<OrgFile>;
   conflicts(): Promise<FileConflict[]>;
   changes(): Promise<ConflictPreviewChanges>;
+  project(request: ConflictPreviewProjectionRequest): Promise<ConflictPreviewProjection>;
   finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>;
   discard(): Promise<void>;
 }

@@ -1283,11 +1283,12 @@ napi_value PreviewRequest(napi_env env, napi_callback_info info)
     } else {
         PreviewWrap* preview = nullptr;
         if (napi_unwrap(env, self, reinterpret_cast<void**>(&preview)) != napi_ok || preview == nullptr ||
-            (operation == "finish" && argc != 1)) { delete work; napi_throw_error(env, nullptr, "预览对象或参数无效"); return nullptr; }
+            ((operation == "finish" || operation == "project") && argc != 1)) { delete work; napi_throw_error(env, nullptr, "预览对象或参数无效"); return nullptr; }
         work->handle = preview->handle;
         if (napi_create_string_utf8(env, preview->id.c_str(), NAPI_AUTO_LENGTH, &id) != napi_ok ||
             napi_set_named_property(env, request, "previewId", id) != napi_ok ||
-            (operation == "finish" && napi_set_named_property(env, request, "options", args[0]) != napi_ok)) { delete work; return nullptr; }
+            (operation == "finish" && napi_set_named_property(env, request, "options", args[0]) != napi_ok) ||
+            (operation == "project" && napi_set_named_property(env, request, "request", args[0]) != napi_ok)) { delete work; return nullptr; }
     }
     if (!EncodeJson(env, request, &work->expression)) { delete work; napi_throw_error(env, nullptr, "预览参数无法编组"); return nullptr; }
     return QueueWorkspaceString(env, work, "OrgTasksConflictPreview", self);
@@ -1803,6 +1804,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"sourceFile", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("sourceFile")},
         {"conflicts", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("conflicts")},
         {"changes", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("changes")},
+        {"project", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("project")},
         {"finish", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("finish")},
         {"discard", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("discard")},
     };

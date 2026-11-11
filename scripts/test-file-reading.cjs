@@ -16,10 +16,10 @@ function load(filename, mocks = {}, transform = source => source) {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
-  vm.runInThisContext('(function(require,module,exports){' + source + '\n})', { filename })(name => {
+  vm.runInThisContext('(function(require,module,exports,Scroller){' + source + '\n})', { filename })(name => {
     assert.ok(name in mocks, `缺少替身：${name}`);
     return mocks[name];
-  }, module, module.exports);
+  }, module, module.exports, class { scrollTo(value) { this.lastScroll = value; } currentOffset() { return { xOffset: 0, yOffset: this.lastScroll?.yOffset ?? 0 }; } });
   return module.exports;
 }
 const base = 'entry/src/main/ets/';
@@ -136,4 +136,34 @@ test('正文包装保留安全边界，路径按文本转义，新版式只在�
   assert.ok(presentation.orgDocumentPage(fragment, false).includes('<body class="">'));
   assert.ok(presentation.orgDocumentPage('', true, false, theme.UiColor.surface, 16, true).includes('空白 Org 文件'));
   for (const invalid of [-1, 1.5, NaN, Infinity]) assert.equal(navigation.documentChapterScript(invalid), 'false');
+});
+
+test('原文变化定位使用当前快照坐标，切换快照清除旧坐标', async () => {
+  const f = fixture();f.page.displayMode = 'source';
+  f.page.sourceOffsets.set(1, 284);
+  await f.page.focusChange(1);
+  assert.deepEqual(f.page.sourceScroller.lastScroll, { xOffset: 0, yOffset: 284, animation: false });
+  assert.deepEqual(f.calls, []);
+  f.page.snapshotChanged();
+  assert.equal(f.page.sourceOffsets.size, 0);
+});
+
+test('文档载入中切换相同正文的版本，完成回调仍只发布最新快照', () => {
+  const loads = [], ready = [];
+  const { Content } = load(base + 'components/OrgContentView.ets', {
+    '@kit.ArkWeb': { webview: { WebviewController: class { loadData(data) { loads.push(decodeURIComponent(data)); } } } },
+    '../ui/OrgDocumentPresentation': presentation,
+    '../ui/Theme': theme,
+    '../services/NativeCoreService': { coreErrorMessage: e => e.message },
+    '../services/ExternalLinkService': {}
+  }, source => source.split('  build()')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
+  const view = new Content();view.ready = () => ready.push(view.fragment);
+  view.fragment = '<p>旧内容</p>';view.pageEnded();
+  view.fragment = '<p>新内容</p>';view.documentChanged();
+  view.pageEnded();assert.equal(ready.length, 0);assert.match(loads.at(-1), /新内容/);
+  view.pageEnded();assert.deepEqual(ready, ['<p>新内容</p>']);
+  view.revision = '2';view.documentChanged();view.pageEnded();
+  assert.equal(ready.length, 2);
+  view.aboutToDisappear();view.pageEnded();assert.equal(ready.length, 2);
 });

@@ -437,6 +437,21 @@ interface ConflictPreviewRequest {
   sourceVersion: string
 }
 interface ConflictPreviewFinishOptions { previewVersion: string }
+interface ConflictPreviewProjectionRequest {
+  conflictId: string
+  previewVersion: string
+  target?: ConflictTarget
+}
+interface ConflictPreviewProjection {
+  conflictId: string
+  workingVersion: string
+  status: 'ready' | 'targetRequired' | 'unavailable'
+  beforeText: string
+  afterText: string
+  content: string
+  renderedHtml: string
+  changes: ConflictPreviewChanges
+}
 class ConflictPreview {
   private constructor()
   readonly id: string
@@ -448,6 +463,7 @@ class ConflictPreview {
   sourceFile(): Promise<OrgFile>
   conflicts(): Promise<FileConflict[]>
   changes(): Promise<ConflictPreviewChanges>
+  project(request: ConflictPreviewProjectionRequest): Promise<ConflictPreviewProjection>
   finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>
   discard(): Promise<void>
 }
@@ -469,7 +485,7 @@ ConflictPreview 是原生活动对象，file／sourceFile 只返回主树快照�
 
 finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup。ConflictFile 按当前源仓库配置填 queueRepoIds，再调用既有 Workspace.executeTaskOperations；不增加另一个真实写入接口。结束后提交失败保留返回组与已显示快照，重试不再次 finish。原文件变化仍由统一数据接口版本约束拒绝。
 
-页面初次加载即取得主树快照与独立冲突列表，首次选择复用未操作的副本。进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。
+页面初次加载即取得主树快照与独立冲突列表，并选中首个冲突调用只读 project。切换点继续复用未操作的副本，只在用户选择取舍时执行操作。project 在 C++ 通过 PreviewRequest 的 async work 传入结构化 request，Rust 直接调用 Core 并返回普通投影对象，不构造可编辑 OrgFile，也不消费候选。投影工作版本与投影正文版本分别校验；界面按请求代次、对象 ID 和冲突 ID 拒绝迟到结果。进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。
 
 * 查询结果与文件加载生命周期
 

@@ -816,6 +816,9 @@ impl ConflictPreview {
     pub async fn source_file(&self) -> Result<OrgFile, CoreError>;
     pub async fn conflicts(&self) -> Result<Vec<FileConflict>, CoreError>;
     pub async fn changes(&self) -> Result<ConflictPreviewChanges, CoreError>;
+    pub async fn project(
+        &self, request: ConflictPreviewProjectionRequest,
+    ) -> Result<ConflictPreviewProjection, CoreError>;
     pub async fn finish(
         &self, options: ConflictPreviewFinishOptions,
     ) -> Result<TaskOperationGroup, CoreError>;
@@ -826,6 +829,8 @@ impl ConflictPreview {
 file_at 从当前地址读取文件根快照，真实文件受仓库锁保护，临时地址只解析活动 UUID，不接受任意磁盘路径。节点读取包含普通无状态和已完成标题，排除冲突区；insertion_positions 由 Core 列举文件／标题首项及各直属节点之后的位置。
 
 创建校验 source_version 和真实文件存在性，再将主树与冲突材料按语法分离，工作副本只写主树字节；不能以 OrgRepo.file 的未落盘空对象代替磁盘源文件。file、source_file 与临时 file_at 的正文、标题路径和 HTML 都没有冲突节点。source_version 始终是完整源文件的创建版本，用于真实提交；source_file 的内容版本是剥离后的主树哈希，两者不能互换。冲突描述改由 ConflictPreview.conflicts 独立返回，source_range 属于独立候选材料，建议目标仍指向主树。临时操作必须带主树版本及显式冲突选择路径，不允许真实路径混入。每个成功临时组追加原操作，失败组不记录。
+
+~project~ 在同一 preview 锁内校验工作版本、冲突 ID 与目标，并通过正式取舍规则计算内存投影，返回候选正文、HTML、两端变化片段及版本化范围。它不写工作副本，不消费冲突材料，不追加操作；未选择任何取舍时仍不能 finish。目标无法唯一确定时返回 ~targetRequired~ 和本地候选，不猜测插入位置；材料不可用时返回 ~unavailable~ 。结构／顺序冲突可只读比较完整主树，正式采用仍需要显式 ~ReplaceMain~ 与页面确认。旧对象、过期版本或非法目标沿用预览错误机制。
 
 finish 要求用户看到的 preview_version 与当前副本一致、主树不含冲突节点、取舍记录与已选择 ID 一致，未选择材料在独立集合中保持。它返回保持顺序且路径映射为 sourcePath 的 operations、创建时的真实 file_versions 和空 queue_repo_ids，同时结束副本。应用按当前配置填入 queue_repo_ids 后调用现有统一入口；真实版本校验、提交失败回滚、outbox、回退记录及事件仍遵循统一操作组契约。finish 不执行这些真实副作用。
 

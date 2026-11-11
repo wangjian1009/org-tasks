@@ -3,7 +3,7 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreConflictTarget, CoreFileConflict,
+import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreConflictPreviewProjection, CoreConflictTarget, CoreFileConflict,
   CoreOrgFile, CoreTask, CoreTaskOperation, CoreTaskOperationGroup, CoreTitlePart, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 
@@ -18,6 +18,10 @@ struct ConflictFile {
   @State previewFile: CoreOrgFile | undefined = undefined
   @State conflicts: CoreFileConflict[] = []
   @State changes: CoreConflictPreviewChanges | undefined = undefined
+  @State projection: CoreConflictPreviewProjection | undefined = undefined
+  @State beforeText: string = ''
+  @State afterText: string = ''
+  @State comparisonLoading: boolean = false
   @State content: string = ''
   @State html: string = ''
   @State path: string = ''
@@ -51,6 +55,9 @@ struct ConflictFile {
   private initialized: boolean = false
   private childEditor: boolean = false
   private leaving: boolean = false
+  private selectedTarget: CoreConflictTarget | undefined = undefined
+  private targetStagesChoice: boolean = false
+  private restoredPosition: number | undefined = undefined
 
   onPageShow() {
     if (!this.initialized) this.load()
@@ -72,7 +79,7 @@ struct ConflictFile {
     return true
   }
 
-  async load() {
+  async load(selectFirst: boolean = true) {
     const request = ++this.requestId
     this.loading = true
     this.message = ''
@@ -112,6 +119,10 @@ struct ConflictFile {
       this.baseFile = baseFile
       this.previewFile = previewFile
       this.changes = undefined
+      this.projection = undefined
+      this.beforeText = ''
+      this.afterText = ''
+      this.selectedTarget = undefined
       this.stale = false
       this.selectedId = ''
       this.showBefore = false
@@ -119,6 +130,12 @@ struct ConflictFile {
       this.stagedAction = ''
       this.initialized = true
       this.present(baseFile)
+      if (selectFirst && conflicts.length > 0) {
+        this.selectedId = conflicts[0].id
+        // 读取失败也保留主树、冲突标题和保留当前入口。
+        try { await this.readProjection() }
+        catch (e) { if (request === this.requestId) this.handleError(e as CoreBridgeError, '读取差异失败') }
+      }
     } catch (e) {
       if (createdPreview) await createdPreview.discard().catch((): void => {})
       if (request === this.requestId) this.message = `读取冲突文件失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -129,6 +146,62 @@ struct ConflictFile {
     this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
     this.html = file.renderHtml()
     this.renderRevision++
+  }
+
+  presentProjection() {
+    if (!this.projection) return
+    this.content = this.projection.content
+    this.html = this.projection.renderedHtml
+    this.renderRevision++
+  }
+
+  async readProjection(target?: CoreConflictTarget) {
+    const preview = this.preview
+    const file = this.previewFile
+    if (!preview || !file || !this.selectedId) return
+    const request = this.requestId
+    const conflictId = this.selectedId
+    this.comparisonLoading = true
+    try {
+      const projection = await preview.project({ conflictId, previewVersion: file.fileVersion, target })
+      if (request !== this.requestId || preview.id !== this.preview?.id || conflictId !== this.selectedId) return
+      if (projection.conflictId !== conflictId || projection.workingVersion !== file.fileVersion) throw new Error('差异已失效，请重试')
+      this.projection = projection
+      this.changes = projection.changes
+      this.beforeText = projection.beforeText
+      this.afterText = projection.afterText
+      this.showBefore = false
+      this.presentProjection()
+    } finally { if (request === this.requestId && conflictId === this.selectedId) this.comparisonLoading = false }
+  }
+
+  async retryPreview() {
+    if (this.saving) return
+    this.saving = true
+    this.message = ''
+    try {
+      if (this.stagedAction) await this.refreshPreview()
+      else await this.readProjection(this.selectedTarget)
+    } catch (e) { this.handleError(e as CoreBridgeError, '读取差异失败') }
+    finally { this.saving = false }
+  }
+
+  summaryText(before: boolean): string {
+    if (this.comparisonLoading) return '正在读取…'
+    if (!this.stagedAction && !this.projection) return '差异读取失败，请重试'
+    if (!this.stagedAction && this.projection?.status === 'unavailable') return before ? '保留当前文件内容' : '候选材料不完整，仅可保留当前'
+    if (!this.stagedAction && this.projection?.status === 'targetRequired') {
+      return before ? '待选择目标后比较' : this.afterText.trim() || '本地删除意图，待选择目标'
+    }
+    if (this.mainChangeCount() === 0) return this.stagedAction === 'discard' ? '正文不变' : '与当前内容相同'
+    return (before ? this.beforeText : this.afterText).trim() || (before ? '此处没有内容' : '此处内容将被删除')
+  }
+
+  focusChange(delta: number = 0) {
+    const count = this.mainChangeCount()
+    if (count === 0) return
+    this.changeIndex = (this.changeIndex + delta + count) % count
+    this.navigation.focusChange(this.changeIndex)
   }
 
   selectedConflict(): CoreFileConflict | undefined { return this.conflicts.find(item => item.id === this.selectedId) }
@@ -152,11 +225,10 @@ struct ConflictFile {
   }
 
   selectConflict(conflict: CoreFileConflict) {
-    if (this.saving) return
+    if (this.saving || this.stale || this.pendingGroup) return
     this.listVisible = false
     if (this.selectedId === conflict.id && this.preview && !this.stale) { this.navigation.focusChange(0); return }
-    const action = conflict.availableActions.includes('useLocal') && !['reorder', 'structure'].includes(conflict.reason) ? 'useLocal' : ''
-    this.confirmAbandon((): void => { this.prepare(conflict, action) })
+    this.confirmAbandon((): void => { this.prepare(conflict, '') })
   }
 
   confirmAbandon(action: () => void) {
@@ -167,15 +239,25 @@ struct ConflictFile {
       secondaryButton: { value: '放弃调整', action } })
   }
 
-  async prepare(conflict: CoreFileConflict, action: string, chooseTarget: boolean = false) {
+  async prepare(conflict: CoreFileConflict, action: string, target?: CoreConflictTarget) {
     if (!this.workspace || !this.file || this.saving) return
     const request = ++this.requestId
     const reusable = this.preview && !this.stagedAction && !this.manuallyEdited && !this.pendingGroup && !this.stale ? this.preview : undefined
     this.saving = true
+    this.comparisonLoading = true
     this.message = ''
     this.stale = false
     this.selectedNode = undefined
     this.changes = undefined
+    this.projection = undefined
+    this.beforeText = ''
+    this.afterText = ''
+    this.selectedId = conflict.id
+    this.selectedTarget = target
+    this.targetsVisible = false
+    this.content = ''
+    this.html = ''
+    this.renderRevision++
     this.stagedAction = ''
     this.changeIndex = 0
     this.manuallyEdited = false
@@ -187,24 +269,28 @@ struct ConflictFile {
       this.preview = preview
       this.selectedId = conflict.id
       const copied = await preview.file()
-      this.baseFile = await preview.sourceFile()
+      const base = await preview.sourceFile()
+      const pending = await preview.conflicts()
+      if (request !== this.requestId || preview.id !== this.preview?.id) return
+      this.baseFile = base
       this.previewFile = copied
       this.showBefore = false
       this.present(copied)
-      const copiedConflict = (await preview.conflicts()).find(item => item.id === conflict.id)
+      const copiedConflict = pending.find(item => item.id === conflict.id)
       if (!copiedConflict) throw new Error('冲突点已变化，请重新读取')
       if (action === 'discard') await this.stage('discard')
       else if (action === 'useLocal') {
-        if (!chooseTarget && copiedConflict.suggestedTarget) await this.stage('useLocal', copiedConflict.suggestedTarget)
-        else this.openTargets()
-      } else this.changes = await preview.changes()
+        if (target || copiedConflict.suggestedTarget) await this.stage('useLocal', target ?? copiedConflict.suggestedTarget!)
+        else { await this.readProjection(); this.openTargets(true) }
+      } else await this.readProjection()
     } catch (e) {
+      if (request !== this.requestId) return
       this.handleError(e as CoreBridgeError, '创建预览失败')
       // 失败可能发生在替换旧槽位之后，不继续使用旧的文件投影。
       if (this.preview) {
         try { this.previewFile = await this.preview.file() } catch (_) { this.preview = undefined; this.previewFile = undefined }
       }
-    } finally { if (request === this.requestId) this.saving = false }
+    } finally { if (request === this.requestId) { this.saving = false; this.comparisonLoading = false } }
   }
 
   async stage(action: 'discard' | 'useLocal', target?: CoreConflictTarget) {
@@ -222,14 +308,17 @@ struct ConflictFile {
 
   changeChoice(action: 'discard' | 'useLocal') {
     const conflict = this.selectedConflict()
-    if (!conflict || this.saving) return
+    if (!conflict || this.saving || this.stale || this.pendingGroup || this.stagedAction === action) return
     if (action === 'useLocal' && ['reorder', 'structure'].includes(conflict.reason)) {
       this.getUIContext().showAlertDialog({ title: '用本地内容替换主树？',
         message: '将替换文件前言和全部普通内容，其他冲突点仍会保留。请在预览中核对全部变化后再应用。',
         primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '查看替换预览', action: (): void => {
           this.confirmAbandon((): void => { this.prepareMainReplacement(conflict) })
         } } })
-    } else this.confirmAbandon((): void => { this.prepare(conflict, action) })
+    } else {
+      const target = this.selectedTarget
+      this.confirmAbandon((): void => { this.prepare(conflict, action, action === 'useLocal' ? target : undefined) })
+    }
   }
 
   async prepareMainReplacement(conflict: CoreFileConflict) {
@@ -241,10 +330,11 @@ struct ConflictFile {
     finally { this.saving = false }
   }
 
-  openTargets() {
+  openTargets(stageChoice: boolean = false) {
     const file = this.previewFile
     const conflict = this.selectedConflict()
-    if (!file || !conflict) return
+    if (!file || !conflict || this.stale || this.pendingGroup) return
+    this.targetStagesChoice = stageChoice
     if (['modify', 'delete'].includes(conflict.reason)) {
       this.placements = file.editableNodePaths().map(path => ({ label: path.titles.join(' / '), target: { type: 'existing', data: path } } as ConflictPlacement))
     } else {
@@ -261,7 +351,13 @@ struct ConflictFile {
     this.saving = true
     this.message = ''
     this.targetsVisible = false
-    try { await this.stage('useLocal', placement.target) }
+    try {
+      if (this.targetStagesChoice) await this.stage('useLocal', placement.target)
+      else {
+        await this.readProjection(placement.target)
+        this.selectedTarget = placement.target
+      }
+    }
     catch (e) { this.handleError(e as CoreBridgeError, '无法采用此目标') }
     finally { this.saving = false }
   }
@@ -277,10 +373,15 @@ struct ConflictFile {
       if (changes.previewVersion !== file.fileVersion) throw new Error('预览正在变化，请重新读取')
       if (this.previewFile && file.fileVersion !== this.previewFile.fileVersion && this.childEditor === false && checkSource) this.manuallyEdited = true
       this.previewFile = file
-      this.changes = changes
       this.showBefore = false
       this.selectedNode = undefined
-      this.present(file)
+      if (!this.stagedAction && this.selectedId) await this.readProjection(this.selectedTarget)
+      else {
+        this.changes = changes
+        this.beforeText = changes.changes.map(change => change.lines.filter(line => line.kind === 'removed').map(line => line.text).join('')).join('\n')
+        this.afterText = changes.changes.map(change => change.lines.filter(line => line.kind === 'added').map(line => line.text).join('')).join('\n')
+        this.present(file)
+      }
       if (checkSource && this.workspace) {
         const current = await this.workspace.fileAt(preview.sourcePath)
         if (request === this.requestId && current.fileVersion !== preview.sourceVersion) this.stale = true
@@ -294,8 +395,11 @@ struct ConflictFile {
     this.showBefore = before
     this.selectedNode = undefined
     try {
-      const file = before ? this.baseFile : this.previewFile
-      if (file) this.present(file)
+      if (!before && !this.stagedAction && this.projection) this.presentProjection()
+      else {
+        const file = before ? this.baseFile : this.previewFile
+        if (file) this.present(file)
+      }
     }
     catch (e) { this.handleError(e as CoreBridgeError, '切换预览失败') }
     finally { this.saving = false }
@@ -321,6 +425,7 @@ struct ConflictFile {
     this.message = ''
     let committed = false
     try {
+      const position = await this.navigation.capturePosition()
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!, false)
       const repository = config.repos.find(item => item.id === this.configRepoId)
       if (!repository) throw new Error('此存储库已不存在')
@@ -336,7 +441,8 @@ struct ConflictFile {
       committed = true
       this.preview = undefined
       this.manuallyEdited = false
-      await this.load()
+      this.restoredPosition = position
+      await this.load(false)
     } catch (e) {
       this.handleError(e as CoreBridgeError, committed ? '已应用，重新读取失败' : '应用失败')
       if (!committed && this.workspace) {
@@ -410,6 +516,35 @@ struct ConflictFile {
   }
 
   @Builder
+  comparisonCard() {
+    Column({ space: 6 }) {
+      Row() {
+        Text(`冲突 ${this.conflicts.findIndex(item => item.id === this.selectedId) + 1} / ${this.conflicts.length}`)
+          .fontSize(12).fontColor(UiColor.primary).layoutWeight(1)
+        Text(this.stagedAction === 'discard' ? '已选择：保留当前' : this.stagedAction ? '已选择：采用本地' : '仅预览 · 尚未应用')
+          .fontSize(11).fontColor(UiColor.secondary)
+      }.width('100%')
+      Text(this.selectedConflict()?.title ?? '').fontSize(16).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+        .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text(this.reasonLabel(this.selectedConflict()?.reason ?? '')).fontSize(12).fontColor(UiColor.secondary).width('100%')
+      Row({ space: 8 }) {
+        Column({ space: 4 }) {
+          Text('− 应用前').fontSize(12).fontColor(UiColor.error).width('100%')
+          Text(this.summaryText(true)).fontSize(13).fontColor(UiColor.text).width('100%')
+            .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.LocalDevice)
+        }.layoutWeight(1).padding(10).borderRadius(8).backgroundColor('#422B33').alignSelf(ItemAlign.Stretch)
+        Column({ space: 4 }) {
+          Text(this.projection?.status === 'targetRequired' && !this.stagedAction ? '本地候选 · 待选目标' : '＋ 应用后')
+            .fontSize(12).fontColor(UiColor.done).width('100%')
+          Text(this.summaryText(false)).fontSize(13).fontColor(UiColor.text).width('100%')
+            .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.LocalDevice)
+        }.layoutWeight(1).padding(10).borderRadius(8).backgroundColor('#203D33').alignSelf(ItemAlign.Stretch)
+      }.width('100%').alignItems(VerticalAlign.Top)
+    }.width('100%').padding(12).backgroundColor(UiColor.container).borderRadius(12)
+      .margin({ bottom: 8 }).accessibilityText('当前冲突的应用前后比较，内容尚未写回文件')
+  }
+
+  @Builder
   conflictList() {
     Column() {
       Text(`冲突列表 · ${this.conflicts.length} 项`).fontSize(18).fontColor(UiColor.text).width('100%').padding({ bottom: 16 })
@@ -465,29 +600,42 @@ struct ConflictFile {
                 Row({ space: 12 }) {
                   Button('重新读取').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.recreate() })
                   if (this.pendingGroup && !this.stale) { Button('重试应用').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.message = ''; this.applyPreview() }) }
-                  if (this.preview && !this.pendingGroup) { Button('重试预览').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.message = ''; this.refreshPreview() }) }
+                  if (this.preview && !this.pendingGroup) { Button('重试预览').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.retryPreview() }) }
                 }
               }.width('100%').padding({ left: 20, right: 20, bottom: 8 })
             }
             if (this.preview && this.selectedId) {
+              Column() { this.comparisonCard() }.width('100%').padding({ left: 20, right: 20 })
               Row({ space: 12 }) {
                 Button('当前文件').layoutWeight(1).fontSize(13).height(44).backgroundColor(this.showBefore ? UiColor.selected : UiColor.container)
                   .fontColor(this.showBefore ? UiColor.primary : UiColor.secondary).onClick((): void => { this.toggleBefore(true) })
-                Button('合并预览').layoutWeight(1).fontSize(13).height(44).backgroundColor(!this.showBefore ? UiColor.selected : UiColor.container)
+                Button('应用后').layoutWeight(1).fontSize(13).height(44).backgroundColor(!this.showBefore ? UiColor.selected : UiColor.container)
                   .fontColor(!this.showBefore ? UiColor.primary : UiColor.secondary).onClick((): void => { this.toggleBefore(false) })
               }.width('100%').padding({ left: 20, right: 20, bottom: 8 }).enabled(!this.saving)
             }
             OrgFilePreviewView({ content: this.content, renderedHtml: this.html, displayMode: this.sourceMode ? 'source' : 'rendered',
               fileContext: '', title: this.file.title() || this.path, revision: `${this.renderRevision}`,
               changes: this.changes, showBefore: this.showBefore, navigation: this.navigation,
+              ready: (): void => {
+                if (this.restoredPosition !== undefined) {
+                  const position = this.restoredPosition
+                  this.restoredPosition = undefined
+                  this.navigation.restorePosition(position)
+                }
+              },
               nodeActivated: (index: number): void => { this.activateNode(index) },
               failed: (message: string): void => { this.message = message } }).width('100%').layoutWeight(1)
-            if (this.previewFile && this.stagedAction) {
+            if (this.previewFile && this.selectedId) {
               Row() {
-                Text(this.mainChangeCount() === 0 ? '正文不变，将移除此冲突点' : `${this.mainChangeCount()} 处正文变化`).fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+                Text(this.mainChangeCount() === 0 ? this.stagedAction === 'discard' ? '正文不变，将移除此冲突点' : this.projection?.status === 'targetRequired' ? '请先选择目标，再查看全文差异' : '正文无变化'
+                  : `${this.changeIndex + 1} / ${this.mainChangeCount()} 处变化`).fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
                 if (this.selectedNode) { Button('编辑此项').fontSize(12).height(44).onClick((): void => { this.editSelected() }).enabled(!this.saving && !this.showBefore) }
-                Button('定位变化').fontSize(12).height(44).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
-                  .onClick((): void => { this.navigation.focusChange(this.changeIndex); this.changeIndex = (this.changeIndex + 1) % Math.max(1, this.mainChangeCount()) })
+                if (this.mainChangeCount() > 1) {
+                  Button('上一处').fontSize(12).height(44).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+                    .onClick((): void => { this.focusChange(-1) }).enabled(!this.saving)
+                }
+                Button(this.mainChangeCount() > 1 ? '下一处' : '定位此冲突').fontSize(12).height(44).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+                  .onClick((): void => { this.focusChange(this.mainChangeCount() > 1 ? 1 : 0) }).enabled(!this.saving && this.mainChangeCount() > 0)
               }.width('100%').padding({ left: 20, right: 12 })
             }
             if (this.conflicts.length === 0) {
@@ -503,13 +651,13 @@ struct ConflictFile {
                     .backgroundColor(UiColor.container).onClick((): void => { this.changeChoice('discard') })
                   if (this.selectedConflict()?.availableActions.includes('useLocal')) {
                     Button(['reorder', 'structure'].includes(this.selectedConflict()?.reason ?? '') ? '本地替换主树' : '采用本地')
-                      .fontSize(12).height(44).layoutWeight(1).fontColor(UiColor.primary).backgroundColor(UiColor.container)
+                      .fontSize(12).height(44).layoutWeight(1).fontColor(this.stagedAction === 'useLocal' ? UiColor.primary : UiColor.secondary).backgroundColor(UiColor.container)
                       .onClick((): void => { this.changeChoice('useLocal') })
                   }
                   Button('应用此项').fontSize(13).height(44).layoutWeight(1).enabled(this.canApply()).onClick((): void => { this.applyPreview() })
-                }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 }).enabled(!this.saving)
-                if (this.previewFile && !this.stagedAction && !['reorder', 'structure'].includes(this.selectedConflict()?.reason ?? '')) {
-                  Button('选择处理目标或位置').fontSize(12).height(44).onClick((): void => { this.openTargets() }).enabled(!this.saving)
+                }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 }).enabled(!this.saving && !this.stale && !this.pendingGroup)
+                if (this.previewFile && !this.stagedAction && this.selectedConflict()?.requiresTarget && !['reorder', 'structure'].includes(this.selectedConflict()?.reason ?? '')) {
+                  Button(this.selectedTarget ? '更换目标或位置' : '选择处理目标或位置').fontSize(12).height(44).onClick((): void => { this.openTargets() }).enabled(!this.saving)
                 }
               }
             }

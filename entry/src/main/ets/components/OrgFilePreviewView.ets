@@ -4,13 +4,15 @@ import { OrgContentView } from './OrgContentView'
 import { UiColor } from '../ui/Theme'
 import { OrgDocumentChapter, OrgDocumentOutline, documentOutlineScript, documentChapterScript, documentExpandScript } from '../ui/OrgDocumentNavigation'
 
-interface PreviewMarkedRange { start: number; end: number; kind: string; removed: string }
+interface PreviewMarkedRange { start: number; end: number; removed: string; added: string }
 
 export class OrgFilePreviewNavigation {
   controller: webview.WebviewController = new webview.WebviewController()
   openOutline: () => void = () => {}
   expandAll: (expand: boolean) => void = () => {}
   focusChange: (index: number) => void = () => {}
+  capturePosition: () => Promise<number> = async (): Promise<number> => 0
+  restorePosition: (offset: number) => void = () => {}
   closePanel: () => boolean = () => false
 }
 
@@ -36,12 +38,23 @@ export struct OrgFilePreviewView {
   private outlineRequest: number = 0
   private lifecycle: number = 0
   private active: boolean = true
+  private sourceScroller: Scroller = new Scroller()
+  private sourceOffsets: Map<number, number> = new Map()
 
   aboutToAppear() {
     this.active = true
     this.navigation.openOutline = (): void => { this.openOutline() }
     this.navigation.expandAll = (expand: boolean): void => { this.expandAll(expand) }
     this.navigation.focusChange = (index: number): void => { this.focusChange(index) }
+    this.navigation.capturePosition = async (): Promise<number> => {
+      if (this.displayMode === 'source') return this.sourceScroller.currentOffset().yOffset
+      if (!this.renderReady) return 0
+      try {
+        const offset = Number(await this.navigation.controller.runJavaScript('window.scrollY'))
+        return Number.isFinite(offset) ? Math.max(0, offset) : 0
+      } catch (_) { return 0 }
+    }
+    this.navigation.restorePosition = (offset: number): void => { this.restorePosition(offset) }
     this.navigation.closePanel = (): boolean => {
       if (!this.outlineVisible) return false
       this.outlineVisible = false
@@ -50,19 +63,18 @@ export struct OrgFilePreviewView {
     }
   }
   aboutToDisappear() { this.active = false; this.lifecycle++; this.outlineRequest++; this.renderReady = false; this.outlineVisible = false }
-  snapshotChanged() { this.lifecycle++; this.renderReady = false; this.outlineRequest++; this.outlineVisible = false }
+  snapshotChanged() { this.lifecycle++; this.renderReady = false; this.outlineRequest++; this.outlineVisible = false; this.sourceOffsets.clear() }
   async documentReady() {
     if (!this.active) return
     this.renderReady = true
-    this.ready()
     const revision = this.lifecycle
-    if (!this.changes) return
+    if (!this.changes) { this.ready(); return }
     try {
       const ranges = this.changes.changes.filter(change => change.area === 'main').map((change: CoreConflictPreviewChange): PreviewMarkedRange => ({
         start: (this.showBefore ? change.before : change.after)?.start.byte_offset ?? 0,
         end: (this.showBefore ? change.before : change.after)?.end.byte_offset ?? 0,
-        kind: change.kind,
-        removed: change.lines.filter(line => line.kind === 'removed').map(line => line.text).join('')
+        removed: change.lines.filter(line => line.kind === 'removed').map(line => line.text).join(''),
+        added: change.lines.filter(line => line.kind === 'added').map(line => line.text).join('')
       }))
       await this.navigation.controller.runJavaScript(`(() => {
         document.querySelectorAll('[data-preview-marker]').forEach(n => n.remove());
@@ -74,18 +86,37 @@ export struct OrgFilePreviewView {
           const target = containing.sort((a,b) => (+a.dataset.orgEnd - +a.dataset.orgStart) - (+b.dataset.orgEnd - +b.dataset.orgStart))[0] || blocks.find(n => +n.dataset.orgStart >= range.start);
           const marker = document.createElement('div');
           marker.dataset.previewMarker = String(index);
-          marker.style.cssText = 'border-left:3px solid #9ad6b5;background:#20382d;padding:12px;margin:12px 0;white-space:pre-wrap;font-size:13px;line-height:1.6;';
-          marker.textContent = range.kind === 'delete' ? '将删除\n' + range.removed : '本项合并变化';
-          if (target) { target.dataset.previewChange = String(index); target.open = true; target.insertBefore(marker, target.firstChild.nextSibling); }
-          else document.body.prepend(marker);
+          marker.style.cssText = 'margin:12px 0;white-space:pre-wrap;font-size:13px;line-height:1.6;';
+          [['− 应用前',range.removed,'#422B33','#FF7592','此处没有内容'],['＋ 应用后',range.added,'#203D33','#65CD7B','此处内容将被删除']].forEach(([label,text,bg,color,empty]) => {
+            const block = document.createElement('div');
+            block.style.cssText = 'border-left:3px solid '+color+';background:'+bg+';padding:10px;margin:4px 0;';
+            const title = document.createElement('div'); title.textContent = label; title.style.color = color;
+            const content = document.createElement('div'); content.textContent = text || empty;
+            block.append(title,content); marker.append(block);
+          });
+          if (target) {
+            target.dataset.previewChange = String(index);
+            for (let p=target; p; p=p.parentElement) if (p.tagName==='DETAILS') p.open=true;
+            const summary = target.querySelector(':scope > summary');
+            target.insertBefore(marker, summary ? summary.nextSibling : target.firstChild);
+          } else {
+            const content = document.querySelector('.org-content') || document.body;
+            content.append(marker);
+          }
         });
         return true;
       })()`)
       if (revision === this.lifecycle) await this.focusChange(0)
+      if (revision === this.lifecycle) this.ready()
     } catch (e) { if (revision === this.lifecycle) this.readingError(e as CoreBridgeError) }
   }
   async focusChange(index: number) {
-    if (!this.renderReady || this.displayMode !== 'rendered') return
+    if (this.displayMode === 'source') {
+      const offset = this.sourceOffsets.get(index)
+      if (offset !== undefined) this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+      return
+    }
+    if (!this.renderReady || !Number.isInteger(index) || index < 0) return
     try {
       await this.navigation.controller.runJavaScript(`(() => {
         const marker = document.querySelector('[data-preview-marker="${index}"]');
@@ -94,6 +125,15 @@ export struct OrgFilePreviewView {
         marker.scrollIntoView({block:'center'}); return true;
       })()`)
     } catch (e) { this.readingError(e as CoreBridgeError) }
+  }
+  async restorePosition(offset: number) {
+    if (!Number.isFinite(offset) || offset < 0 || !this.active) return
+    if (this.displayMode === 'source') {
+      this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+    } else if (this.renderReady) {
+      try { await this.navigation.controller.runJavaScript(`window.scrollTo(0, ${offset})`) }
+      catch (e) { this.readingError(e as CoreBridgeError) }
+    }
   }
   async expandAll(expand: boolean) {
     if (!this.renderReady || this.displayMode !== 'rendered' || false) return
@@ -184,26 +224,31 @@ export struct OrgFilePreviewView {
   build() {
     Column() {
       if (this.displayMode === 'source') {
-        Scroll() {
+        Scroll(this.sourceScroller) {
           Column({ space: 12 }) {
             if (this.changes) {
               ForEach(this.changes.changes, (change: CoreConflictPreviewChange, index: number) => {
                 Column() {
-                  Text(change.area === 'main' ? '正文变化' : '冲突材料变化').fontSize(12).fontColor(UiColor.secondary).width('100%')
+                  Text(`正文变化 ${index + 1}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
                   ForEach(change.lines, (line: CoreConflictPreviewDiffLine, row: number) => {
-                    Text(`${line.kind === 'removed' ? '−' : '+'} ${line.beforeLine ?? line.afterLine ?? ''}  ${line.text}`)
+                    Text(`${line.kind === 'removed' ? '− 应用前' : line.kind === 'added' ? '＋ 应用后' : '上下文'} ${line.beforeLine ?? line.afterLine ?? ''}  ${line.text}`)
                       .fontSize(12).fontFamily('monospace').fontColor(line.kind === 'removed' ? UiColor.error : UiColor.primary)
                       .width('100%').copyOption(CopyOptions.LocalDevice)
                   }, (line: CoreConflictPreviewDiffLine, row: number) => `${index}-${row}`)
                 }.width('100%').padding(12).backgroundColor(UiColor.container).borderRadius(8)
-              }, (change: CoreConflictPreviewChange, index: number) => `${index}`)
+                  .onAreaChange((oldArea: Area, newArea: Area): void => {
+                    this.sourceOffsets.set(index, Number(newArea.position.y))
+                    if (index === 0) this.focusChange(0)
+                  })
+              }, (change: CoreConflictPreviewChange, index: number) => `${this.revision}-${index}`)
             }
             Text(this.content || '空白 Org 文件').width('100%').fontSize(14).fontFamily('monospace')
               .fontColor(UiColor.text).copyOption(CopyOptions.LocalDevice)
+              .onAreaChange((): void => { this.ready() })
           }.width('100%').padding(20)
         }.width('100%').layoutWeight(1).align(Alignment.TopStart)
       } else {
-        OrgContentView({ fragment: this.renderedHtml, empty: this.content.trim().length === 0,
+        OrgContentView({ fragment: this.renderedHtml, revision: this.revision, empty: this.content.trim().length === 0,
           controller: this.navigation.controller, fileReading: true, fileContext: this.fileContext,
           nodeActivated: this.nodeActivated,
           ready: (): void => { this.documentReady() }, failed: this.failed }).width('100%').layoutWeight(1)

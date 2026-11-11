@@ -3,6 +3,7 @@ import {
   ConflictPreview as NativeConflictPreview,
   ConflictPreviewRequest as NativeConflictPreviewRequest,
   ConflictPreviewChanges as NativeConflictPreviewChanges,
+  ConflictPreviewProjection as NativeConflictPreviewProjection,
   ConflictPreviewChange as NativeConflictPreviewChange,
   ConflictPreviewDiffLine as NativeConflictPreviewDiffLine,
   ConflictTarget as NativeConflictTarget,
@@ -58,6 +59,7 @@ import { RepoConfig, SyncOptions } from '../models/OrgTask'
 export type CoreConflictPreview = NativeConflictPreview
 export type CoreConflictPreviewRequest = NativeConflictPreviewRequest
 export type CoreConflictPreviewChanges = NativeConflictPreviewChanges
+export type CoreConflictPreviewProjection = NativeConflictPreviewProjection
 export type CoreConflictPreviewChange = NativeConflictPreviewChange
 export type CoreConflictPreviewDiffLine = NativeConflictPreviewDiffLine
 export type CoreConflictTarget = NativeConflictTarget
