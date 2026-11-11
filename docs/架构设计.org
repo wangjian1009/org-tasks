@@ -15,6 +15,7 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 | 仓库按需访问、跨进程锁与同步阶段 | [[file:core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]] |
 | 普通仓库目录与任务扫描 | [[file:core/目录结构设计.org][目录结构设计]] |
 | 通用查询与 UI 过滤边界 | [[file:core/查询语言设计.org][查询语言设计]] |
+| AI 框架、工具与 agent（设计中） | [[file:AI接入设计.org][AI 接入设计]] |
 | Rust、C++ 与 ArkTS 接口 | [[file:harmony/Rust bridge设计.org][Rust bridge 设计]] |
 | Preferences、Asset Store 与日历状态 | [[file:harmony/配置项设计.org][配置项设计]] |
 | 页面、交互与设计画板 | [[file:harmony/UI导航设计.org][UI 导航设计]] |
