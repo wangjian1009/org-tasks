@@ -10,31 +10,31 @@
     },
     {
       "name": "memo_accent",
-      "value": "#3F8BF6"
+      "value": "#5AC4B9"
     },
     {
       "name": "memo_card_header",
-      "value": "#1267D9"
+      "value": "#174C47"
     },
     {
       "name": "memo_on_header",
-      "value": "#FFFFFF"
+      "value": "#D8D8D8"
     },
     {
       "name": "memo_card_surface",
-      "value": "#192537"
+      "value": "#343635"
     },
     {
       "name": "memo_card_text",
-      "value": "#EAF2FC"
+      "value": "#D8D8D8"
     },
     {
       "name": "memo_card_secondary",
-      "value": "#AEBDD1"
+      "value": "#AEACA9"
     },
     {
       "name": "memo_card_divider",
-      "value": "#31435D"
+      "value": "#4B4A48"
     }
   ]
 }
