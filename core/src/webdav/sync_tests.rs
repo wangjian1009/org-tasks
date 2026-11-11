@@ -374,6 +374,119 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
 }
 
 #[tokio::test]
+async fn existing_conflicts_merge_concurrent_local_and_remote_changes_and_converge() {
+    use crate::model::conflict;
+    for scenario in ["independent", "new-main-conflict", "both-resolved"] {
+        let main = "* TODO A\n原始 A\n* TODO B\n原始 B\n* TODO 旧任务\n原始正文\n";
+        let seed = crate::merge(
+            main.as_bytes(),
+            main.replace("原始正文", "旧候选").as_bytes(),
+            main.replace("原始正文", "远端原文").as_bytes(),
+        )
+        .unwrap();
+        let (mut repo, root) = repo().await;
+        let (policy, state, worker) = server(&[("a.org", &seed)]).await;
+        sync(&mut repo, &policy, 1).await;
+        let initial = repo.file("a.org").await.unwrap();
+        let old_points = conflict::points(&initial).unwrap();
+        let seed_text = String::from_utf8(seed).unwrap();
+        let mut local = seed_text.replace("原始 A", "本地修改 A");
+        let mut remote = seed_text.replace("原始 B", "远端修改 B");
+        if scenario == "new-main-conflict" {
+            remote = remote.replace("原始 A", "远端修改 A");
+        } else if scenario == "both-resolved" {
+            let without_points = String::from_utf8(conflict::main_source(&initial)).unwrap();
+            local = without_points.replace("原始 A", "本地修改 A");
+            remote = without_points.replace("原始 B", "远端修改 B");
+        }
+        tokio::fs::write(root.join("a.org"), &local).await.unwrap();
+        state.lock().unwrap().files.insert(
+            "a.org".into(),
+            Remote {
+                data: remote.as_bytes().to_vec(),
+                etag: "\"v2\"".into(),
+            },
+        );
+        let merged_record = sync(&mut repo, &policy, 2).await;
+        assert_eq!(merged_record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(
+            merged_record.files[0].action,
+            OrgRepoSyncFileAction::Uploaded
+        );
+        let merged = repo.file("a.org").await.unwrap();
+        let points = conflict::points(&merged).unwrap();
+        assert_eq!(
+            points.len(),
+            match scenario {
+                "independent" => 1,
+                "new-main-conflict" => 2,
+                "both-resolved" => 0,
+                _ => unreachable!(),
+            }
+        );
+        if scenario != "both-resolved" {
+            assert_eq!(points[0].id, old_points[0].id);
+            assert_eq!(points[0].source, old_points[0].source);
+        }
+        let expected_main = main
+            .replace("原始正文", "远端原文")
+            .replace(
+                "原始 A",
+                if scenario == "new-main-conflict" {
+                    "远端修改 A"
+                } else {
+                    "本地修改 A"
+                },
+            )
+            .replace("原始 B", "远端修改 B");
+        assert_eq!(conflict::main_source(&merged), expected_main.as_bytes());
+        let expected = merged.source_bytes().to_vec();
+        let repeated = sync(&mut repo, &policy, 3).await;
+        assert_eq!(repeated.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(repeated.files[0].action, OrgRepoSyncFileAction::Unchanged);
+        assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), expected);
+        assert_eq!(state.lock().unwrap().files["a.org"].data, expected);
+        for record in [&merged_record, &repeated] {
+            assert_eq!(
+                record.files[0]
+                    .detail
+                    .synced_source
+                    .as_deref()
+                    .unwrap()
+                    .as_bytes(),
+                expected
+            );
+            let snapshot = root.join(format!(
+                ".sync/history/{}/conflicts/a.org/a.org",
+                record.started_at
+            ));
+            if scenario == "both-resolved" {
+                assert!(!snapshot.exists());
+            } else {
+                assert_eq!(tokio::fs::read(snapshot).await.unwrap(), expected);
+            }
+        }
+        let index: serde_json::Value = serde_json::from_slice(
+            &tokio::fs::read(root.join(".sync/remote_base/current.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let revision = index["entries"]["a.org"]["revision"].as_str().unwrap();
+        assert_eq!(
+            tokio::fs::read(root.join(format!(".sync/remote_base/files/a.org/{revision}/a.org")))
+                .await
+                .unwrap(),
+            expected
+        );
+        assert!(!repo.has_local_changes().await.unwrap());
+        assert!(repo.pending_writes().await.unwrap().is_empty());
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn remote_deletion_directly_removes_modified_local_file_and_consumes_intents() {
     let (mut repo, root) = repo().await;
     let (policy, state, worker) = server(&[("inbox.org", b"* TODO Original\n")]).await;

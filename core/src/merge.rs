@@ -914,6 +914,35 @@ struct PendingConflict {
     source: String,
 }
 
+/// 冲突点不可修改：基线中的 ID 传播任一端删除，基线外的 ID 合并两端新增。
+fn merge_conflict_points(
+    base: &OrgFile,
+    local: &OrgFile,
+    remote: &OrgFile,
+) -> Result<Vec<crate::model::conflict::ConflictPoint>, CoreError> {
+    use crate::model::conflict::{self, ConflictPoint};
+    let base_points = conflict::points(base)?;
+    let local_points = conflict::points(local)?;
+    let mut points = conflict::points(remote)?;
+    let ids = |points: &[ConflictPoint]| {
+        points
+            .iter()
+            .map(|point| point.id.clone())
+            .collect::<BTreeSet<_>>()
+    };
+    let base_ids = ids(&base_points);
+    let local_ids = ids(&local_points);
+    // M = (B ∩ L ∩ R) ∪ (L \ B) ∪ (R \ B)。保留远端顺序，再追加本地独有的新增。
+    points.retain(|point| !base_ids.contains(&point.id) || local_ids.contains(&point.id));
+    let mut retained_ids = ids(&points);
+    for point in local_points {
+        if !base_ids.contains(&point.id) && retained_ids.insert(point.id.clone()) {
+            points.push(point);
+        }
+    }
+    Ok(points)
+}
+
 /// 主树与旧冲突材料分别合并；本轮新冲突才触发远端主树回退及候选保存。
 fn merge_with_container(
     base: &OrgFile,
@@ -921,26 +950,7 @@ fn merge_with_container(
     remote: &OrgFile,
 ) -> Result<Vec<u8>, CoreError> {
     use crate::model::conflict::{self, ConflictPoint};
-    let base_points = conflict::points(base)?;
-    let local_points = conflict::points(local)?;
-    let mut points = conflict::points(remote)?;
-    let base_ids = base_points
-        .iter()
-        .map(|point| point.id.as_str())
-        .collect::<BTreeSet<_>>();
-    let local_ids = local_points
-        .iter()
-        .map(|point| point.id.as_str())
-        .collect::<BTreeSet<_>>();
-    points.retain(|point| {
-        !base_ids.contains(point.id.as_str()) || local_ids.contains(point.id.as_str())
-    });
-    for point in &local_points {
-        if !base_ids.contains(point.id.as_str()) && !points.iter().any(|other| other.id == point.id)
-        {
-            points.push(point.clone());
-        }
-    }
+    let mut points = merge_conflict_points(base, local, remote)?;
     let b = reparse(base, conflict::main_source(base))?;
     let l = reparse(local, conflict::main_source(local))?;
     let r = reparse(remote, conflict::main_source(remote))?;
