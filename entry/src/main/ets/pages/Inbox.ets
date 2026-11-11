@@ -411,7 +411,7 @@ struct Inbox {
         actionProminent: this.selectingRecords,
         action: (): void => { if (this.selectingRecords) this.cancelSelection(); else this.startSelection() },
         synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
-        pullToSync: !this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
+        pullToSync: true, pullDisabled: this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
         Column() {
           if (this.loading && this.recentGroups.length === 0) {
             NotificationEmptyState({ title: '正在读取收件箱', busy: true })
@@ -449,6 +449,7 @@ struct Inbox {
                         .width('100%').padding({ left: 27 })
                     }
                     }.layoutWeight(1).constraintSize({ minWidth: 0 })
+                      .enabled(!this.selectingRecords)
                       .hitTestBehavior(this.selectingRecords ? HitTestMode.None : HitTestMode.Default)
                       .accessibilityLevel(this.selectingRecords ? 'no-hide-descendants' : 'auto')
                     if (this.selectingRecords) {

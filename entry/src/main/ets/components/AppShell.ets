@@ -35,6 +35,7 @@ export struct AppShell {
   @Prop secondaryActionLabel: string = ''
   @Prop busy: boolean = false
   @Prop pullToSync: boolean = false
+  @Prop pullDisabled: boolean = false
   @Prop actionMenuItems: AppMenuItem[] = []
   @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
@@ -367,7 +368,7 @@ export struct AppShell {
           Divider().color(UiColor.outline).strokeWidth(0.5)
         }
         Column() {
-          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen,
+          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen || this.pullDisabled,
             beforePull: async (): Promise<boolean> => await TaskInlineSession.end(true) }) {
             this.content()
           }
