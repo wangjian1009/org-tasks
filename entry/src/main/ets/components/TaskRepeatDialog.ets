@@ -67,16 +67,16 @@ export struct TaskRepeatDialog {
       Scroll() {
         Column({ space: 16 }) {
           Row({ space: 4 }) {
-            Button('计划日期').type(ButtonType.Normal).layoutWeight(1).height(36).fontSize(14).fontColor(UiColor.text)
+            Button('计划日期').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(!this.deadline ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy).onClick(() => { this.load(false) })
-            Button('截止日期').type(ButtonType.Normal).layoutWeight(1).height(36).fontSize(14).fontColor(UiColor.text)
+            Button('截止日期').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(this.deadline ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy).onClick(() => { this.load(true) })
           }.width('100%').padding(3).backgroundColor(UiColor.field).borderRadius(10)
           Row({ space: 4 }) {
-            Button('定期').type(ButtonType.Normal).layoutWeight(1).height(36).fontSize(14).fontColor(UiColor.text)
+            Button('定期').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(this.mode !== 'afterCompletion' ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy)
               .onClick(() => { this.mode = this.info()?.rule?.mode === 'catchUp' ? 'catchUp' : 'cumulative' })
-            Button('完成后').type(ButtonType.Normal).layoutWeight(1).height(36).fontSize(14).fontColor(UiColor.text)
+            Button('完成后').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(this.mode === 'afterCompletion' ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy)
               .onClick(() => { this.mode = 'afterCompletion' })
           }.width('100%').padding(3).backgroundColor(UiColor.field).borderRadius(10)
@@ -95,14 +95,14 @@ export struct TaskRepeatDialog {
           Row() {
             Text('下次日期').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
             Text(inlineDateLabel(this.date)).fontSize(14).fontColor(UiColor.primary).constraintSize({ maxWidth: '64%' })
-            Text('›').fontSize(22).fontColor(UiColor.secondary).margin({ left: 8 })
+            Image($r('app.media.ui_next')).width(20).height(20).margin({ left: 8 }).accessibilityLevel('no')
           }.width('100%').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 })
             .backgroundColor(UiColor.field).borderRadius(10).enabled(!this.busy).onClick(() => { this.chooseDate() })
           if (this.mode !== 'afterCompletion') {
             Row() {
               Text('错过日期时').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
               Text(this.mode === 'catchUp' ? '跳到未来' : '顺延一次').fontSize(14).fontColor(UiColor.primary)
-              Text('›').fontSize(22).fontColor(UiColor.secondary).margin({ left: 8 })
+              Image($r('app.media.ui_next')).width(20).height(20).margin({ left: 8 }).accessibilityLevel('no')
             }.width('100%').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 })
               .backgroundColor(UiColor.field).borderRadius(10).enabled(!this.busy)
               .onClick(() => { this.mode = this.mode === 'catchUp' ? 'cumulative' : 'catchUp' })
@@ -117,6 +117,7 @@ export struct TaskRepeatDialog {
           if (this.message) { Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%') }
         }.width('100%')
       }.width('100%').constraintSize({ maxHeight: '65%' }).scrollBar(BarState.Auto)
-    }.width('92%').constraintSize({ maxWidth: 390 }).padding(16).backgroundColor('#262B2D').borderRadius(20)
+    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 390 })
+      .padding(16).backgroundColor(UiColor.dialog).borderRadius(20)
   }
 }

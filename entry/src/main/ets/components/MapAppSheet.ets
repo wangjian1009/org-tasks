@@ -23,7 +23,7 @@ export function MapAppSheet(choices: MapAppChoice[], dismiss: () => void, notify
           Text(choice.description).fontSize(14).fontColor(UiColor.secondary)
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         if (choice.installed && choice.supported) {
-          Text('›').fontSize(24).fontColor(UiColor.primary).width(24).textAlign(TextAlign.Center)
+          Image($r('app.media.ui_next')).width(24).height(24).fillColor(UiColor.primary).accessibilityLevel('no')
         }
       }.width('100%').padding({ left: 24, right: 24, top: 12, bottom: 12 })
         .onClick((): void => {

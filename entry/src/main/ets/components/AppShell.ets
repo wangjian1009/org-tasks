@@ -3,6 +3,7 @@ import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
+import { CompactMenuButton, CompactMenuItem } from './CompactMenuButton'
 import { RepositorySyncView } from './RepositorySyncView'
 import { uiObserver } from '@kit.ArkUI'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
@@ -13,10 +14,7 @@ import { FileTargetService, fileTargetRepository } from '../services/FileTargetS
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreQuery, NativeCoreService, taskResult, coreErrorMessage } from '../services/NativeCoreService'
 
-export interface AppMenuItem {
-  title: string
-  action: () => void
-}
+export interface AppMenuItem extends CompactMenuItem {}
 
 @Component
 export struct AppShell {
@@ -88,15 +86,6 @@ export struct AppShell {
       this.bodyLoadedOnAppear = false
       this.refreshDataChanges()
     }
-  }
-
-  @Builder
-  actionMenu() {
-    Menu() {
-      ForEach(this.actionMenuItems, (item: AppMenuItem) => {
-        MenuItem({ content: item.title }).onClick((): void => { item.action() })
-      }, (item: AppMenuItem) => item.title)
-    }.backgroundColor(UiColor.taskCard)
   }
 
   titleLabel(): string {
@@ -355,10 +344,8 @@ export struct AppShell {
                 .backgroundColor(this.actionProminent ? UiColor.selection : Color.Transparent).borderRadius(22).enabled(!this.busy)
                 .accessibilityText(this.actionLabel).onClick((): void => { this.action() })
             } else if (this.actionMenuItems.length > 0) {
-              Button({ type: ButtonType.Normal }) {
-                Image(this.actionIcon).width(24).height(24)
-              }.width(48).height(48).borderRadius(24).backgroundColor(Color.Transparent)
-                .accessibilityText(this.actionLabel).enabled(!this.busy).bindMenu(this.actionMenu)
+              CompactMenuButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy,
+                items: this.actionMenuItems })
             } else {
               IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
             }

@@ -265,7 +265,7 @@ struct Inbox {
     if (this.actionBusy) return
     this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${record.heading}”及其子记录将从文件中删除。`,
       primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '删除', action: (): void => { this.perform('delete', undefined, record) } } })
+      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.perform('delete', undefined, record) } } })
   }
 
   async perform(action: InboxAction, target?: CoreRefileTarget, record?: CoreTask) {

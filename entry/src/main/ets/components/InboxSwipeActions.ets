@@ -30,7 +30,7 @@ export struct InboxSwipeActions {
         this.action($r('app.media.ui_move_to'), '移动', '移动', 'inbox_swipe_move', this.move)
         this.action($r('app.media.nav_someday'), '将来', '将来，也许', 'inbox_swipe_someday', this.someday)
         this.action($r('app.media.nav_memo'), '备忘', '转换为备忘', 'inbox_swipe_memo', this.memo)
-        this.action($r('app.media.ui_delete_record'), '删除', '删除', 'inbox_swipe_delete', this.remove)
+        this.action($r('app.media.ui_delete'), '删除', '删除', 'inbox_swipe_delete', this.remove)
         Button({ type: ButtonType.Normal }) {
           Column({ space: 3 }) {
             Image($r('app.media.ui_select_records')).width(20).height(20).accessibilityLevel('no')

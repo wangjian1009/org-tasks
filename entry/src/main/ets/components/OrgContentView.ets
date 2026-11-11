@@ -178,8 +178,8 @@ export struct OrgContentView {
         })
         .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
           (message: string): void => { if (this.active) this.showLinkError(message) }), {
-          height: 300,
-          detents: [300],
+          height: SheetSize.FIT_CONTENT,
+          detents: [SheetSize.FIT_CONTENT, '85%'],
           preferType: SheetType.BOTTOM,
           backgroundColor: UiColor.surface,
           maskColor: Color.Transparent,

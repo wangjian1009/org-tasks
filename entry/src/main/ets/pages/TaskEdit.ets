@@ -88,7 +88,7 @@ struct TaskEdit {
     this.getUIContext().showAlertDialog({ title: '删除这条记录？',
       message: `“${this.task.heading}”及其子记录将从文件中删除。`,
       primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '删除', action: (): void => { this.deleteNote() } } })
+      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteNote() } } })
   }
 
   async deleteNote() {

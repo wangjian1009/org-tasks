@@ -78,7 +78,7 @@ struct MemoEdit {
       title: '删除备忘？',
       message: `“${this.memo.heading}”及其子记录将从文件中删除。`,
       primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '删除', action: (): void => { this.deleteMemo() } }
+      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteMemo() } }
     })
   }
 

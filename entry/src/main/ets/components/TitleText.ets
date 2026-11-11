@@ -71,8 +71,8 @@ export struct TitleText {
       .onClick(this.activate).flexShrink(1)
       .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
         (message: string): void => { this.showLinkError(message) }), {
-        height: 300,
-        detents: [300],
+        height: SheetSize.FIT_CONTENT,
+        detents: [SheetSize.FIT_CONTENT, '85%'],
         preferType: SheetType.BOTTOM,
         backgroundColor: UiColor.surface,
         maskColor: Color.Transparent,

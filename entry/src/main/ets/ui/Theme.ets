@@ -32,6 +32,9 @@ export class UiColor {
   static readonly done: string = '#65CD7B'
   static readonly selection: string = '#4A8DF6'
   static readonly selectionTint: string = '#304765'
+  static readonly menu: string = '#454948'
+  static readonly menuOutline: string = '#565B59'
+  static readonly dialog: string = '#262B2D'
 }
 
 export class UiSize {
@@ -40,6 +43,12 @@ export class UiSize {
   static readonly drawerFont: number = 16
   static readonly drawerRow: number = 44
   static readonly drawerIcon: number = 22
+  static readonly menuFont: number = 16
+  static readonly menuIcon: number = 16
+  static readonly menuPadding: number = 12
+  static readonly menuGap: number = 8
+  static readonly menuRow: number = 44
+  static readonly menuRadius: number = 10
 }
 
 export function dateLabel(value: string): string {

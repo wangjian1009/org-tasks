@@ -125,6 +125,7 @@ function page(name, service, router, notifications = { async refresh() {} }) {
     if (dependency.endsWith('/CoreNotificationService')) return { CoreNotificationService: notifications,
       emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
     if (dependency.endsWith('/NativeCoreService')) return { coreErrorMessage: error => error.message };
+    if (dependency.endsWith('/ui/Theme')) return { UiColor: { error: '#FF7592' } };
     throw new Error('缺少页面替身: ' + dependency);
   }, module, module.exports);
   const instance = new module.exports[name]();

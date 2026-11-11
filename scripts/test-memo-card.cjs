@@ -66,7 +66,9 @@ function card() {
     if (method === 'onClick') return callback => clicks.set(current, { name, callback });
     return noop;
   } });
-  const sandbox = { ViewPU, loadEtsCard(value) { instance = value; value.initialRender(); },
+  const colors = JSON.parse(fs.readFileSync(path.resolve('entry/src/main/resources/base/element/color.json'), 'utf8')).color;
+  const sandbox = { ViewPU, $r(name) { return colors.find(color => `app.color.${color.name}` === name)?.value ?? name; },
+    loadEtsCard(value) { instance = value; value.initialRender(); },
     ViewStackProcessor: new Proxy({}, { get: () => noop }), postCardAction(_, action) { actions.push(action); } };
   for (const name of ['Column', 'Row', 'Stack', 'Text', 'Rect', 'Blank', 'Button', 'If', 'ForEach']) sandbox[name] = component(name);
   for (const name of ['FontWeight', 'Color', 'ButtonType', 'TextOverflow', 'HorizontalAlign', 'ItemAlign']) {
@@ -137,7 +139,7 @@ function overview(action = '', memoId = '') {
     createStorageLink(_, fallback) { return new Property(fallback); }
   }
   vm.runInNewContext(compile(fs.readFileSync(filename, 'utf8')), {
-    exports: {}, ViewPU, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
+    exports: {}, ViewPU, ListScroller: class {}, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
     LocalStorage: { getShared: () => storage }, registerNamedRoute(callback) { factory = callback; },
     require(name) {
       if (name.includes('CoreNotificationService')) return { emptyCoreNotificationsState: () => ({}) };

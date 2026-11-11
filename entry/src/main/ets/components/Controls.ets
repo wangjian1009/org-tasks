@@ -105,7 +105,8 @@ export struct TaskRow {
     Row({ space: 8 }) {
       if (!this.showSource) {
         Button({ type: ButtonType.Normal }) {
-          Text(this.canFold ? (this.folded ? '▸' : '▾') : '•').fontSize(18).fontColor(UiColor.secondary)
+          Image(this.canFold ? (this.folded ? $r('app.media.ui_next') : $r('app.media.ui_down')) : $r('app.media.ui_note'))
+            .width(18).height(18).accessibilityLevel('no')
         }.width(40).height(48).backgroundColor(Color.Transparent).borderRadius(20)
           .enabled(this.canFold).accessibilityText(this.folded ? '展开子笔记' : '收起子笔记').onClick((): void => { this.fold() })
       }

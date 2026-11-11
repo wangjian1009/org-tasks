@@ -84,7 +84,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
     '../components/OrgFilePreviewView':{OrgFilePreviewNavigation:class{closePanel(){return false;}focusChange(){} async capturePosition(){return 240;}restorePosition(){};}},
     '../services/AppConfigService':{AppConfigService:{async load(){return config;}}},
     '../services/NativeCoreService':{coreErrorMessage:e=>e.message,NativeCoreService:{async workspaceFor(){return workspace;},async repository(){return repo;},async executeTaskOperations(repos,group){return workspace.executeTaskOperations(group);}}},
-    '../ui/Theme':{repositoryLabel:()=> '测试仓库'}
+    '../ui/Theme':{repositoryLabel:()=> '测试仓库', UiColor:{error:'#FF7592'}}
   };
   const module={exports:{}};
   vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{assert.ok(name in dependencies,name);return dependencies[name];},module,module.exports);

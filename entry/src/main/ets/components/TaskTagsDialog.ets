@@ -50,11 +50,11 @@ export struct TaskTagsDialog {
         Text(tag).fontSize(14).fontColor(this.selected.includes(tag) || this.inheritedTags.includes(tag) ? UiColor.primary : UiColor.secondary)
           .wordBreak(WordBreak.BREAK_ALL)
         if (this.inheritedTags.includes(tag)) { Text('继承').fontSize(10).fontColor(UiColor.secondary) }
-      }
+      }.constraintSize({ minHeight: 32, maxWidth: '100%' }).padding({ left: 12, right: 12, top: 5, bottom: 5 })
+        .backgroundColor(this.selected.includes(tag) || this.inheritedTags.includes(tag) ? '#1F382E' : UiColor.field).borderRadius(16)
     }.id(selectedArea ? `inline_selected_tag_${tag}` : `inline_tag_${tag}`)
-      .constraintSize({ minHeight: 32, maxWidth: '100%' }).padding({ left: 12, right: 12, top: 5, bottom: 5 })
-      .backgroundColor(this.selected.includes(tag) || this.inheritedTags.includes(tag) ? '#1F382E' : UiColor.field).borderRadius(16)
-      .margin({ right: 8, bottom: 8 }).enabled(!this.busy)
+      .constraintSize({ minHeight: 44, maxWidth: '100%' }).padding(0).backgroundColor(Color.Transparent)
+      .margin({ right: 8, bottom: 4 }).enabled(!this.busy)
       .accessibilityText(`${tag}${this.inheritedTags.includes(tag) ? '，从父标题继承' : this.selected.includes(tag) ? '，已选中' : '，未选择'}`)
       .onClick(() => { this.toggle(tag) })
   }
@@ -62,11 +62,14 @@ export struct TaskTagsDialog {
     Column({ space: 8 }) {
       Row() {
         if (this.creating) {
-          Button('×').width(44).height(44).backgroundColor(Color.Transparent).fontColor(UiColor.secondary).fontSize(24)
+          Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_close')).width(20).height(20) }
+            .width(44).height(44).backgroundColor(Color.Transparent)
             .enabled(!this.busy).accessibilityText('取消新建标签').onClick(() => { this.creating = false; this.name = ''; this.message = '' })
         } else { Blank().width(44) }
         Text(this.creating ? '新建标签' : '标签').layoutWeight(1).textAlign(TextAlign.Center).fontSize(17).fontColor(UiColor.text)
-        Button('✓').id('inline_tags_done').width(44).height(44).fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary).fontSize(20)
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.ui_done')).width(20).height(20)
+        }.id('inline_tags_done').width(44).height(44).backgroundColor(Color.Transparent)
           .enabled(!this.busy && (!this.creating || this.name.trim().length > 0))
           .accessibilityText(this.creating ? '创建并添加标签' : '关闭标签窗口')
           .onClick(() => { if (this.creating) this.create(); else this.controller.close() })
@@ -97,10 +100,11 @@ export struct TaskTagsDialog {
             if (this.names.length === 0) { Text('暂无标签，可点击下方新建标签添加').fontSize(13).fontColor(UiColor.secondary).width('100%') }
           }.width('100%')
         }.width('100%').constraintSize({ maxHeight: 360 })
-        Button('+ 新建标签').id('inline_tag_create').width('100%').height(40).backgroundColor(UiColor.field).fontColor(UiColor.text)
+        Button('新建标签…').id('inline_tag_create').width('100%').height(44).backgroundColor(UiColor.field).fontColor(UiColor.text)
           .enabled(!this.busy).onClick(() => { this.creating = true })
       }
       if (this.message) { Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%') }
-    }.width('90%').constraintSize({ maxWidth: 360 }).padding(16).backgroundColor('#262B2D').borderRadius(20)
+    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 360 })
+      .padding(16).backgroundColor(UiColor.dialog).borderRadius(20)
   }
 }

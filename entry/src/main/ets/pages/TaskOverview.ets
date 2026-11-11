@@ -94,7 +94,7 @@ struct TaskOverview {
     if (this.deletingMemo) return
     this.getUIContext().showAlertDialog({ title: '删除这条备忘？', message: `“${task.heading}”及其子记录将从文件中删除。`,
       primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '删除', action: (): void => { this.deleteMemo(task) } } })
+      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteMemo(task) } } })
   }
 
   async deleteMemo(task: CoreTask) {
@@ -114,7 +114,7 @@ struct TaskOverview {
   memoDeleteAction(task: CoreTask) {
     Row() {
       Button({ type: ButtonType.Circle }) {
-        Image($r('app.media.ui_delete_record')).width(24).height(24)
+        Image($r('app.media.ui_delete')).width(24).height(24)
       }.width(44).height(44).padding(0).backgroundColor('#513A40').enabled(!this.deletingMemo)
         .accessibilityText('删除备忘').onClick((): void => { this.confirmDeleteMemo(task) })
     }.height('100%').padding({ left: 8, right: 16 })

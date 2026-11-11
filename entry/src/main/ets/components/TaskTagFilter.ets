@@ -1,5 +1,6 @@
 import { TaskTagSelection, toggleTaskTag, groupedTaskTags } from '../ui/TaskTagFilterPresentation'
 import { UiColor } from '../ui/Theme'
+import { CompactMenuButton } from './CompactMenuButton'
 
 @Component
 struct TaskTagChip {
@@ -34,17 +35,6 @@ export struct TaskTagFilter {
 
   selection(): TaskTagSelection { return { tags: this.selectedTags, includeUntagged: this.includeUntagged } }
 
-  @Builder
-  moreMenu() {
-    Menu() {
-      MenuItem({ content: '无标签', labelInfo: this.includeUntagged ? '✓' : '' })
-        .contentFontColor(UiColor.text).labelFontColor(UiColor.text)
-        .onClick((): void => {
-          this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged })
-        })
-    }.backgroundColor(UiColor.taskCard)
-  }
-
   build() {
     Row({ space: 2 }) {
       TaskTagChip({ label: '全部', selected: this.allSelected(), all: true, activate: (): void => {
@@ -78,10 +68,11 @@ export struct TaskTagFilter {
         }.alignItems(VerticalAlign.Center)
       }.layoutWeight(1).scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.None).align(Alignment.Start)
-      Button({ type: ButtonType.Normal }) {
-        Text('…').fontSize(22).fontColor(this.includeUntagged ? '#6EA8FF' : UiColor.secondary)
-      }.width(40).height(44).backgroundColor(Color.Transparent).borderRadius(18)
-        .accessibilityText('更多标签筛选，无标签').bindMenu(this.moreMenu)
+      CompactMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多标签筛选，无标签',
+        buttonWidth: 40, buttonHeight: 44, iconSize: 20,
+        items: [{ title: '无标签', checked: this.includeUntagged, action: (): void => {
+          this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged })
+        } }] })
     }.width('100%').padding({ left: 12, right: 12, top: 4, bottom: 4 })
       .alignItems(VerticalAlign.Center).backgroundColor(UiColor.surface)
   }

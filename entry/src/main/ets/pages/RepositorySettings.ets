@@ -53,7 +53,7 @@ struct RepositorySettings {
     this.message = message
     this.getUIContext().showAlertDialog({ title: '无法保存修改', message,
       primaryButton: { value: '继续编辑', action: () => {} },
-      secondaryButton: { value: '放弃修改并返回', action: (): void => { this.getUIContext().getRouter().back() } } })
+      secondaryButton: { value: '放弃修改并返回', fontColor: UiColor.error, action: (): void => { this.getUIContext().getRouter().back() } } })
   }
 
   clearTestResult() {
@@ -146,7 +146,7 @@ struct RepositorySettings {
     this.getUIContext().showAlertDialog({ title: '删除存储库？',
       message: `将移除“${repositoryLabel(repo)}”的配置和密码，保留本地 Org 文件及远端文件。`,
       primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '删除', action: (): void => { this.removeRepository() } } })
+      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.removeRepository() } } })
   }
 
   async removeRepository() {
@@ -171,7 +171,7 @@ struct RepositorySettings {
     this.getUIContext().showAlertDialog({ title: '重置本地目录？',
       message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。仓库身份、配置及远端文件保留。此操作无法撤销。\n${repo.rootDirectory}`,
       primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '重置', action: (): void => { this.resetRepository(repo.rootDirectory) } } })
+      secondaryButton: { value: '重置', fontColor: UiColor.error, action: (): void => { this.resetRepository(repo.rootDirectory) } } })
   }
 
   async resetRepository(expectedRoot: string) {

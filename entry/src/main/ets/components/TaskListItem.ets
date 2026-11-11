@@ -5,6 +5,7 @@ import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
+import { CompactMenuButton } from './CompactMenuButton'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
@@ -296,7 +297,8 @@ export struct TaskListItem {
         builder: TaskTagsDialog({ supportTags: this.value().supportTags, ownTags: this.value().ownTags, visibleTags: this.value().tags,
           inheritedTags: this.value().inheritedTags,
           change: async (tags: string[]): Promise<boolean> => await this.persist([{ field: 'TAGS', value: tags }]) }),
-        customStyle: true, autoCancel: true, alignment: DialogAlignment.Center
+        customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+        onWillDismiss: (action: DismissDialogAction) => { if (!this.working) action.dismiss() }
       })
       this.tagsDialog.open()
     } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
@@ -662,7 +664,8 @@ export struct TaskListItem {
   }
   @Builder
   deleteCheck(item: CoreTaskChecklistItem) {
-    Button('×').width(44).height(44).fontColor(Color.White).backgroundColor(UiColor.deadline).fontSize(20)
+    Button({ type: ButtonType.Circle }) { Image($r('app.media.ui_delete')).width(24).height(24) }
+      .width(44).height(44).padding(0).backgroundColor('#513A40')
       .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).accessibilityText(`删除清单条目：${item.text}`)
       .onClick(() => { this.changeCheck({ type: 'remove', id: item.id }) })
   }
@@ -789,9 +792,9 @@ export struct TaskListItem {
           }
         }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
           .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
-        Button('…').id('inline_more_button').width(36).height(44).padding(0).fontSize(22).fontColor(UiColor.secondary)
-          .backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-          .accessibilityText('更多任务操作').bindMenu([{ value: '重复…', action: () => { this.repeats() } }])
+        CompactMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
+          buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
+          items: [{ title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } }] })
       }.width('100%')
     }.width('100%').padding({ left: 27 })
   }
@@ -801,7 +804,7 @@ export struct TaskListItem {
       Image($r('app.media.ui_task_repeat')).width(18).height(18)
       Text(`${deadline ? '截止' : '计划'} · ${repeatSummary(deadline ? this.value().editContent.deadlineRepeat?.rule : this.value().editContent.scheduledRepeat?.rule)}`)
         .fontSize(13).fontColor(UiColor.primary).layoutWeight(1)
-      Text('›').fontSize(18).fontColor(UiColor.secondary)
+      Image($r('app.media.ui_next')).width(18).height(18).accessibilityLevel('no')
     }.width('100%').constraintSize({ minHeight: 44 }).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
       .accessibilityText(`编辑${deadline ? '截止' : '计划'}重复规则`).onClick(() => { this.repeats(deadline) })
   }

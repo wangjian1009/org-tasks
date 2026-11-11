@@ -83,7 +83,7 @@ export struct TaskEditor {
                   Text(`截止：${repeatSummary(this.task!.editContent.deadlineRepeat?.rule)}`).fontSize(15).fontColor(UiColor.text).width('100%')
                 }
               }.layoutWeight(1)
-              Text('›').fontSize(22).fontColor(UiColor.secondary)
+              Image($r('app.media.ui_next')).width(20).height(20).accessibilityLevel('no')
             }.width('100%').padding(16).constraintSize({ minHeight: 64 })
               .enabled(!this.disabled && !this.editable).onClick(() => { this.editRepeat() })
           }

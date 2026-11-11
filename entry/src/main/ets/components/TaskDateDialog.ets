@@ -52,25 +52,29 @@ export struct TaskDateDialog {
         .fontColor(day.selected ? UiColor.onPrimary : day.today ? this.color() : day.inMonth ? UiColor.text : UiColor.disabled)
         .backgroundColor(day.selected ? this.color() : Color.Transparent).borderRadius(15)
         .border({ width: day.today && !day.selected ? 1 : 0, color: this.color() })
-    }.id(`inline_day_${day.date}`).width('100%').height(34).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+    }.id(`inline_day_${day.date}`).width('100%').height(44).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
       .accessibilityText(`${day.date}${day.today ? '，今天' : ''}${day.selected ? '，已选中' : ''}`)
       .enabled(!this.busy).onClick(() => { this.pick(day.date) })
   }
   build() {
+    Scroll() {
     Column({ space: 8 }) {
       Row() {
         Text(this.deadline ? '截止日期' : '计划日期').fontSize(17).fontColor(UiColor.text).layoutWeight(1)
-        Button('×').width(44).height(44).fontColor(UiColor.secondary).fontSize(24).backgroundColor(Color.Transparent)
+        Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_close')).width(20).height(20) }
+          .width(44).height(44).backgroundColor(Color.Transparent)
           .accessibilityText('关闭日期选择').enabled(!this.busy).onClick(() => { this.controller.close(); this.closed() })
       }.width('100%')
       this.quick('今天', 0)
       this.quick('明天', 1)
       Row() {
-        Button('‹').width(44).height(44).fontSize(24).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
-          .accessibilityText('上个月').onClick(() => { this.move(-1) })
+        Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_back')).width(20).height(20) }
+          .width(44).height(44).backgroundColor(Color.Transparent)
+          .accessibilityText('上个月').enabled(!this.busy).onClick(() => { this.move(-1) })
         Text(`${this.year}年${this.month + 1}月`).fontSize(14).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
-        Button('›').width(44).height(44).fontSize(24).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
-          .accessibilityText('下个月').onClick(() => { this.move(1) })
+        Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_next')).width(20).height(20) }
+          .width(44).height(44).backgroundColor(Color.Transparent)
+          .accessibilityText('下个月').enabled(!this.busy).onClick(() => { this.move(1) })
       }.width('100%')
       Row() {
         ForEach(['一', '二', '三', '四', '五', '六', '日'], (label: string) => {
@@ -81,15 +85,17 @@ export struct TaskDateDialog {
         ForEach(taskCalendarDays(this.year, this.month, this.selected), (day: TaskCalendarDay) => {
           GridItem() { this.day(day) }
         }, (day: TaskCalendarDay) => day.key)
-      }.width('100%').height(216).columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr').rowsGap(2).columnsGap(2)
+      }.width('100%').height(264).columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr').rowsGap(0).columnsGap(2)
       if (this.selected) {
         Text(`已选：${this.selected}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
         if (this.allowClear) {
-        Button('清除日期').id('inline_date_clear').width('100%').height(40).backgroundColor('#443337').fontColor(UiColor.error)
+        Button('清除日期').id('inline_date_clear').width('100%').height(44).backgroundColor('#443337').fontColor(UiColor.error)
           .enabled(!this.busy).onClick(() => { this.pick('') })
         }
       }
       if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
-    }.width('90%').constraintSize({ maxWidth: 360 }).padding(16).backgroundColor('#262B2D').borderRadius(20)
+    }.width('100%').padding(16)
+    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 360, maxHeight: '85%' })
+      .backgroundColor(UiColor.dialog).borderRadius(20)
   }
 }

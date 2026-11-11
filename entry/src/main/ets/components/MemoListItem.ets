@@ -13,7 +13,7 @@ export struct MemoListItem {
   build() {
     Column({ space: 8 }) {
       Row({ space: 10 }) {
-        Blank().width(4).height(22).backgroundColor('#F2C400').borderRadius(2).flexShrink(0)
+        Blank().width(4).height(22).backgroundColor($r('app.color.memo_accent')).borderRadius(2).flexShrink(0)
         TitleText({ text: this.task.heading, parts: this.task.headingParts, textSize: 18,
           weight: FontWeight.Medium, lineLimit: 1, showCounts: true, openLinks: false, activate: this.open })
           .layoutWeight(1).constraintSize({ minWidth: 0 })

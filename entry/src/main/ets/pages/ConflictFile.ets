@@ -236,7 +236,7 @@ struct ConflictFile {
     this.getUIContext().showAlertDialog({ title: '放弃未应用的调整？',
       message: '本项手动调整仅保存在预览中，继续会放弃这些调整。已经应用的结果不受影响。',
       primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '放弃调整', action } })
+      secondaryButton: { value: '放弃调整', fontColor: UiColor.error, action } })
   }
 
   async prepare(conflict: CoreFileConflict, action: string, target?: CoreConflictTarget) {
@@ -456,7 +456,7 @@ struct ConflictFile {
   recreate() {
     if (this.saving) return
     this.getUIContext().showAlertDialog({ title: '重新创建预览？', message: '将放弃本项未应用的取舍与手动调整，并重新读取当前文件。',
-      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '重新创建', action: (): void => { this.reloadDiscardingPreview() } } })
+      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '重新创建', fontColor: UiColor.error, action: (): void => { this.reloadDiscardingPreview() } } })
   }
 
   async reloadDiscardingPreview() {
@@ -475,7 +475,7 @@ struct ConflictFile {
     if (this.saving || !this.file || this.file.conflictIds.length === 0) return
     this.getUIContext().showAlertDialog({ title: '丢弃全部冲突？',
       message: `将移除“${this.path}”中的 ${this.file.conflictIds.length} 个冲突点，保留当前主树内容，并放弃尚未应用的预览调整。`,
-      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '丢弃全部', action: (): void => { this.discardAll() } } })
+      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '丢弃全部', fontColor: UiColor.error, action: (): void => { this.discardAll() } } })
   }
 
   async discardAll() {
@@ -584,7 +584,7 @@ struct ConflictFile {
         back: true, drawerOpen: $drawerOpen, busy: this.saving,
         backAction: (): void => { this.exit() },
         actionIcon: $r('app.media.ui_more'), actionLabel: this.conflicts.length > 0 ? '更多操作' : '',
-        actionMenuItems: [{ title: '丢弃全部冲突…', action: (): void => { this.confirmDiscard() } },
+        actionMenuItems: [{ title: '丢弃全部冲突…', dangerous: true, action: (): void => { this.confirmDiscard() } },
           { title: '文档目录', action: (): void => { this.navigation.openOutline() } }] }) {
         Column() {
           if (this.loading) {

@@ -96,32 +96,35 @@ struct MemoCardConfig {
   previewCard() {
     Column() {
       Row() {
-        Text(this.preview.memoCardTitle).fontSize(16).fontWeight(FontWeight.Medium).fontColor('#FFF8DC')
+        Text(this.preview.memoCardTitle).fontSize(16).fontWeight(FontWeight.Medium).fontColor($r('app.color.memo_on_header'))
           .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text('+').fontSize(28).fontColor('#FFF8DC')
-      }.width('100%').height('25%').padding({ left: 12, right: 12 }).backgroundColor('#F4BF35')
+        Stack() {
+          Rect().width(16).height(1.5).radius(0.75).fill($r('app.color.memo_on_header'))
+          Rect().width(1.5).height(16).radius(0.75).fill($r('app.color.memo_on_header'))
+        }.width(28).height(28)
+      }.width('100%').height('25%').padding({ left: 12, right: 12 }).backgroundColor($r('app.color.memo_card_header'))
       Column() {
         ForEach([this.preview.memoCardItem1, this.preview.memoCardItem2, this.preview.memoCardItem3], (title: string, index: number) => {
           if (title.length > 0) {
             Column() {
               Row({ space: 8 }) {
-                Rect().width(3).height(14).radius(1.5).fill('#F2C400')
-                Text(title).fontSize(14).fontColor('#E4E0D5').layoutWeight(1)
+                Rect().width(3).height(14).radius(1.5).fill($r('app.color.memo_accent'))
+                Text(title).fontSize(14).fontColor($r('app.color.memo_card_text')).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }.width('100%').height(40).padding({ left: 14, right: 12 })
               if (index < 2) {
-                Row() { Rect().width('100%').height(0.5).fill('#39311B') }
+                Row() { Rect().width('100%').height(0.5).fill($r('app.color.memo_card_divider')) }
                   .width('100%').height(0.5).padding({ left: 25, right: 12 })
               }
             }.width('100%').flexShrink(0)
           }
         }, (title: string, index: number): string => `${index}:${title}`)
         if (!this.preview.memoCardItem1 && !this.preview.memoCardItem2 && !this.preview.memoCardItem3) {
-          Text(this.preview.memoCardMessage).width('100%').fontSize(13).fontColor('#AFA98D')
+          Text(this.preview.memoCardMessage).width('100%').fontSize(13).fontColor($r('app.color.memo_card_secondary'))
             .padding({ left: 14, right: 12, top: 14 }).maxLines(2)
         }
       }.width('100%').height('75%').clip(true)
-    }.width('100%').height(148).backgroundColor('#211A08').borderRadius(22).clip(true)
+    }.width('100%').height(148).backgroundColor($r('app.color.memo_card_surface')).borderRadius(22).clip(true)
       .accessibilityText('卡片预览')
   }
 
@@ -139,11 +142,11 @@ struct MemoCardConfig {
         .padding({ left: 24, right: 24, top: 24, bottom: 12 })
       if (this.message) {
         Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%').padding({ left: 24, right: 24 })
-        Button('重新读取').fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+        Button('重新读取').fontSize(14).backgroundColor(Color.Transparent).fontColor($r('app.color.memo_accent'))
           .enabled(!this.working && !this.loading && !this.previewLoading).onClick((): void => { this.load() })
       }
       if (this.loading) {
-        LoadingProgress().width(32).height(32).color(UiColor.primary).margin(16)
+        LoadingProgress().width(32).height(32).color($r('app.color.memo_accent')).margin(16)
       }
       List() {
         ForEach(this.options, (option: MemoCardTagOption) => {
@@ -152,9 +155,13 @@ struct MemoCardConfig {
               Image($r('app.media.ui_tags')).width(22).height(22)
               Text(option.label).fontSize(18).fontColor(UiColor.text).layoutWeight(1).maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(this.selectedTag === option.tag ? '✓' : '').fontSize(18).fontColor('#211A08')
-                .width(24).height(24).textAlign(TextAlign.Center).borderRadius(12)
-                .backgroundColor(this.selectedTag === option.tag ? '#F2C400' : Color.Transparent)
+              Row() {
+                if (this.selectedTag === option.tag) {
+                  Image($r('app.media.ui_done')).width(18).height(18).fillColor($r('app.color.memo_on_header'))
+                    .accessibilityLevel('no')
+                }
+              }.width(24).height(24).justifyContent(FlexAlign.Center).borderRadius(12)
+                .backgroundColor(this.selectedTag === option.tag ? $r('app.color.memo_card_header') : Color.Transparent)
             }.width('100%').height(52).padding({ left: 16, right: 16 })
               .enabled(!this.loading && !this.working)
               .accessibilityText(`${option.label}，${this.selectedTag === option.tag ? '已选中' : '未选中'}`)
@@ -163,8 +170,8 @@ struct MemoCardConfig {
         }, (option: MemoCardTagOption): string => option.tag)
       }.width('100%').layoutWeight(1).backgroundColor(UiColor.container).borderRadius(20).clip(true)
         .divider({ strokeWidth: 0.5, color: UiColor.outline, startMargin: 50, endMargin: 16 })
-      Button(this.working ? '正在保存…' : '确定').width('100%').height(48).fontSize(17).fontColor('#211A08')
-        .backgroundColor('#F2C400').margin({ top: 16, bottom: 16 })
+      Button(this.working ? '正在保存…' : '确定').width('100%').height(48).fontSize(17).fontColor($r('app.color.memo_on_header'))
+        .backgroundColor($r('app.color.memo_card_header')).margin({ top: 16, bottom: 16 })
         .enabled(!this.loading && !this.previewLoading && !this.working && this.available)
         .onClick((): void => { this.confirm() })
     }.width('100%').height('100%').padding({ left: 16, right: 16 }).backgroundColor(UiColor.surface)

@@ -7,6 +7,34 @@
     {
       "name": "capture_start_background",
       "value": "#00000000"
+    },
+    {
+      "name": "memo_accent",
+      "value": "#3F8BF6"
+    },
+    {
+      "name": "memo_card_header",
+      "value": "#1267D9"
+    },
+    {
+      "name": "memo_on_header",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "memo_card_surface",
+      "value": "#192537"
+    },
+    {
+      "name": "memo_card_text",
+      "value": "#EAF2FC"
+    },
+    {
+      "name": "memo_card_secondary",
+      "value": "#AEBDD1"
+    },
+    {
+      "name": "memo_card_divider",
+      "value": "#31435D"
     }
   ]
 }
