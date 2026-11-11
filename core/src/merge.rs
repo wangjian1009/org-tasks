@@ -298,6 +298,30 @@ fn atom(base: &str, local: &str, remote: &str) -> Option<String> {
     }
 }
 
+fn merge_title_part(base: &str, local: &str, remote: &str) -> Option<String> {
+    if local == base || local == remote {
+        return Some(remote.into());
+    }
+    if remote == base {
+        return Some(local.into());
+    }
+    let normalize = crate::model::task_identity::normalized_title_text;
+    let base_title = normalize(base);
+    let local_title = normalize(local);
+    let remote_title = normalize(remote);
+    // 进度 COOKIE 位于标题边缘，排序或正文变化不应与另一端的进度更新形成标题冲突。
+    if base_title == local_title && base_title == remote_title {
+        return Some(remote.into());
+    }
+    if base_title == local_title {
+        return Some(remote.into());
+    }
+    if base_title == remote_title {
+        return Some(local.into());
+    }
+    None
+}
+
 fn fragment(file: &OrgFile, source: &str) -> orgize::Org {
     orgize::ParseConfig {
         todo_keywords: (
@@ -374,7 +398,9 @@ fn node_merge(
     let r = heading_parts(remote_file, &remote.source)?;
     let mut source = String::new();
     for index in 0..b.len() {
-        let value = if index == 6 {
+        let value = if index == 3 {
+            merge_title_part(&b[index], &l[index], &r[index])
+        } else if index == 6 {
             text_merge(&b[index], &l[index], &r[index])
         } else {
             atom(&b[index], &l[index], &r[index])
@@ -1364,8 +1390,11 @@ mod tests {
             .filter(|(_, headline)| !OrgFile::is_conflict_headline(headline))
             .collect::<Vec<_>>();
         assert_eq!(ordinary.len(), 2, "进度竞争只能保留一个主树并保存候选，不能新增同一任务");
-        assert!(merged.has_conflict());
-        assert!(merged.source_bytes().starts_with(remote.as_bytes()));
+        assert!(!merged.has_conflict(), "进度和清单排序可以与远端进度安全合并");
+        let merged_text = String::from_utf8(merged.source_bytes().to_vec()).unwrap();
+        assert!(merged_text.contains("* TODO 项目 [0/2]"));
+        assert!(merged_text.contains("远端备注"));
+        assert!(merged_text.find("- [X] 乙").unwrap() < merged_text.find("- [ ] 甲").unwrap());
         assert_eq!(
             merge(base.as_bytes(), local.as_bytes(), merged.source_bytes()).unwrap(),
             merged.source_bytes(),
@@ -1383,6 +1412,19 @@ mod tests {
             merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap(),
             local.replace("原备注", "远端备注").as_bytes(),
         );
+    }
+
+    #[test]
+    fn checklist_reorder_merges_with_remote_title_progress_without_conflict() {
+        let base = "* TODO 项目 [/]\n- [ ] 甲\n- [X] 乙\n** TODO 子任务 [%]\n备注\n";
+        let local = base.replace("- [ ] 甲\n- [X] 乙\n", "- [X] 乙\n- [ ] 甲\n");
+        let remote = base.replace("项目 [/]", "项目 [1/2]").replace("子任务 [%]", "子任务 [50%]");
+        let expected = local
+            .replace("项目 [/]", "项目 [1/2]")
+            .replace("子任务 [%]", "子任务 [50%]");
+        let merged = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
+        assert_eq!(merged, expected.as_bytes());
+        assert!(!String::from_utf8(merged).unwrap().contains("CONFLICT"));
     }
 
     #[test]

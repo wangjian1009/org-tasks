@@ -106,3 +106,12 @@ pub(crate) fn path_title(headline: &Headline) -> String {
     }
     output.trim_end().to_owned()
 }
+
+/// 规范化一个已经从标题行切出的标题片段，用于同步字段合并。
+pub(crate) fn normalized_title_text(title: &str) -> String {
+    let parsed = orgize::Org::parse(&format!("* {title}\n"));
+    parsed
+        .first_node::<Headline>()
+        .map(|headline| path_title(&headline))
+        .unwrap_or_else(|| title.trim().to_owned())
+}

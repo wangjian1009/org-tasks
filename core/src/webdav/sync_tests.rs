@@ -278,6 +278,35 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
 }
 
 #[tokio::test]
+async fn checklist_sort_only_sync_uploads_without_conflict() {
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Project [/]\r\n- [ ] First\r\n- [X] Second\r\n** TODO Child [%]\r\nNotes\r\n";
+    let (policy, state, worker) = server(&[("a.org", base)]).await;
+    sync(&mut repo, &policy, 1).await;
+    let file = repo.file("a.org").await.unwrap();
+    let path = file.node_paths()[0].clone();
+    let item = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
+    let repo_id = repo.id.clone();
+    let mut workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+    workspace.execute_task_operations(&crate::TaskOperationGroup {
+        operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
+            path,
+            modifications: vec![crate::TaskModification::Checklist(crate::TaskChecklistChange::Move { id: item, before_id: None })],
+        })],
+        queue_repo_ids: vec![repo_id.clone()],
+        file_versions: vec![crate::TaskFileVersion { repo_id, file: "a.org".into(), version: LocalFileVersion::from_bytes(base).content_hash }],
+    }).await.unwrap();
+    repo = workspace.repos.remove(0);
+    let result = sync(&mut repo, &policy, 2).await;
+    assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(result.files.iter().all(|file| file.state != OrgRepoSyncFileState::Conflict));
+    assert!(!String::from_utf8_lossy(&tokio::fs::read(root.join("a.org")).await.unwrap()).contains("CONFLICT"));
+    assert_eq!(state.lock().unwrap().files["a.org"].data, tokio::fs::read(root.join("a.org")).await.unwrap());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
 async fn remote_deletion_directly_removes_modified_local_file_and_consumes_intents() {
     let (mut repo, root) = repo().await;
     let (policy, state, worker) = server(&[("inbox.org", b"* TODO Original\n")]).await;
