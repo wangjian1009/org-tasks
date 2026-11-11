@@ -300,3 +300,57 @@ test('排序已写入但重读失败时停用后续写入，防止旧条目ID重
   assert.equal(f.requests.length,1);assert.equal(f.state.snapshotBlocked,true);assert.match(f.state.message,/顺序已保存/);
   await f.sort();assert.equal(f.requests.length,1);assert.deepEqual(f.state.checkPreview,[]);
 });
+
+function completionFixture() {
+  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const method = source.match(/  async complete\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const code = ts.transpileModule('export class Completion {' + method + '\n}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} };
+  const writes = [], released = [];
+  vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(
+    module, module.exports, { release: key => released.push(key) });
+  const task = { todoKind: 'pending', doneKeywords: ['FINISHED', 'CANCELLED'] };
+  const state = Object.assign(new module.exports.Completion(), {
+    completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task',
+    value: () => task, prepare: async () => true, finish: async () => true,
+    persist: async changes => { writes.push(changes); return true; }
+  });
+  return { state, task, writes, released };
+}
+test('任务 checkbox 使用文件第一个完成状态，成功后结束会话', async () => {
+  const f = completionFixture();
+  await f.state.complete();
+  assert.deepEqual(f.writes, [[{ field: 'TODO', value: 'FINISHED' }]]);
+  assert.equal(f.state.completing, false);
+  assert.ok(f.released.includes('task'));
+});
+test('完成任务保存草稿失败时不提交状态，保留展开态', async () => {
+  const f = completionFixture();
+  f.state.expanded = true; f.state.finish = async () => false;
+  await f.state.complete();
+  assert.equal(f.writes.length, 0); assert.equal(f.state.expanded, true);
+  assert.equal(f.released.length, 0);
+});
+test('完成任务重复点击只提交一次，写入失败保留展开态', async () => {
+  const f = completionFixture();
+  let finishWrite;
+  f.state.expanded = true;
+  f.state.persist = async changes => { f.writes.push(changes); return await new Promise(resolve => { finishWrite = resolve; }); };
+  const pending = f.state.complete();
+  await Promise.resolve(); await Promise.resolve();
+  await f.state.complete();
+  assert.equal(f.writes.length, 1);
+  finishWrite(false); await pending;
+  assert.equal(f.state.expanded, true); assert.equal(f.state.completing, false);
+});
+test('无状态、已完成、无完成配置或不可用快照不提交', async () => {
+  for (const changes of [{ todoKind: null }, { todoKind: 'done' }, { doneKeywords: [] }]) {
+    const f = completionFixture(); Object.assign(f.task, changes);
+    await f.state.complete(); assert.equal(f.writes.length, 0);
+  }
+  const f = completionFixture(); f.state.snapshotBlocked = true;
+  await f.state.complete(); assert.equal(f.writes.length, 0);
+});

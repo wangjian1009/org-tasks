@@ -155,6 +155,7 @@ pub struct FilterTask {
     full_path: TaskPath,
     file_metadata: Arc<OrgFileMetadata>,
     file_version: String,
+    done_keywords: Arc<Vec<String>>,
     edit_content: TaskEditContent,
     support_tags: Option<Arc<SupportTags>>,
     category: Option<String>,
@@ -181,6 +182,8 @@ pub struct FilterTask {
 }
 #+end_src
 
+~FilterTask.done_keywords()~ 返回所属文件有效的完成状态名称，保持 Core 配置顺序并去除快捷键与日志后缀；同一文件的任务通过 ~Arc~ 共享该快照。文件未声明时沿用全局默认配置，显式清空时返回空列表。宿主完成任务时选择第一项，仍通过带文件版本约束的状态修改操作提交，不硬编码 ~DONE~ 。
+
 ~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值：~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 仅从当前标题自身的 ~LAST_MODIFIED~ 属性解析 Unix 毫秒时间，属性名不区分大小写，不继承、不扫描正文或文件前言。两者缺失或不可解析时均返回 ~None~ ，任务修改时间不读取文件 mtime，也不使用创建时间补齐；读取不生成或回填属性。
 
 #+begin_src rust
@@ -191,6 +194,7 @@ impl FilterTask {
     pub fn path(&self) -> &str;
     pub fn file_metadata(&self) -> &OrgFileMetadata;
     pub fn file_version(&self) -> &str;
+    pub fn done_keywords(&self) -> &[String];
     pub fn edit_content(&self) -> &TaskEditContent;
     pub fn support_tags(&self) -> Option<&SupportTags>;
     pub fn category(&self) -> Option<&str>;
@@ -257,8 +261,9 @@ pub struct SupportTags {
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{file\_metadata: Arc\textless OrgFileMetadata\textgreater \\
   file\_version: String \\
+  done\_keywords: Arc\textless Vec\textless String\textgreater\textgreater \\
   edit\_content: TaskEditContent \\
-  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ file\_version(): String \\ edit\_content(): TaskEditContent \\ support\_tags(): Option\textless SupportTags\textgreater}
+  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ file\_version(): String \\ done\_keywords(): [String] \\ edit\_content(): TaskEditContent \\ support\_tags(): Option\textless SupportTags\textgreater}
 \umlclass[x=8,y=0]{OrgFileMetadata}{repo\_id: OrgRepoId \\ path: String}{}
 \umlclass[x=8,y=-4]{SupportTags}{tags: Vec\textless String\textgreater \\ groups: Vec\textless Vec\textless String\textgreater\textgreater}{}
 \umluniassoc[mult1=0..*,mult2=1]{FilterTask}{OrgFileMetadata}

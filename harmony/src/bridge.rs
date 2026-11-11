@@ -81,6 +81,7 @@ pub struct HarmonyBridgeTask {
     // 包含 Core 生成的链接与分数计数；保留原始 heading 供复制、路由和查询。
     pub heading_parts: Vec<org_tasks_core::TitlePart>,
     pub todo_state: String,
+    pub done_keywords: Vec<String>,
     pub todo_kind: Option<org_tasks_core::TodoStateKind>,
     pub is_done: bool,
     pub is_cancelled: bool,
@@ -265,6 +266,7 @@ fn task_from_filter(task:FilterTask)->Result<HarmonyBridgeTask,CoreError> {
         category: task.category().map(str::to_owned),
         heading_parts,
         todo_state: task.state().unwrap_or_default().to_owned(),
+        done_keywords: task.done_keywords().to_vec(),
         todo_kind: match task.state_type() {
             org_tasks_core::FilterStateType::Todo => Some(org_tasks_core::TodoStateKind::Pending),
             org_tasks_core::FilterStateType::Done => Some(org_tasks_core::TodoStateKind::Done),
@@ -711,6 +713,32 @@ fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_completion_uses_first_file_defined_done_keyword() {
+        let root = std::env::temp_dir().join(format!("org-complete-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "#+TODO: OPEN | FINISHED(f!) CANCELLED(c)\n* OPEN Task\n原始正文\n";
+        std::fs::write(root.join("tasks.org"), source).unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().to_string();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        let file: serde_json::Value = serde_json::from_str(&repo_file_json(handle, directory.clone(), "tasks.org".into()).unwrap()).unwrap();
+        let task = &file["nodes"][0];
+        assert_eq!(task["doneKeywords"], serde_json::json!(["FINISHED", "CANCELLED"]));
+        let request = serde_json::json!({
+            "operations": [{"type":"Modification", "data": {"path":task["fullPath"], "modifications":[{"field":"TODO", "value":task["doneKeywords"][0]}]}}],
+            "fileVersions": [{"repoId":task["repoId"], "file":"tasks.org", "version":task["fileVersion"]}]
+        });
+        workspace_execute_task_operations(handle, request.to_string()).unwrap();
+        let updated: serde_json::Value = serde_json::from_str(&repo_file_json(handle, directory, "tasks.org".into()).unwrap()).unwrap();
+        assert_eq!(updated["nodes"][0]["todoState"], "FINISHED");
+        assert_eq!(updated["nodes"][0]["todoKind"], "done");
+        assert!(std::fs::read_to_string(root.join("tasks.org")).unwrap().ends_with("原始正文\n"));
+        assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn merge_planning_returns_one_ordinary_operation_group_with_a_version_guard() {

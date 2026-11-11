@@ -132,6 +132,7 @@ pub struct FilterTask {
     pub(crate) full_path: crate::TaskPath,
     pub(crate) file_metadata: Arc<crate::OrgFileMetadata>,
     file_version: String,
+    done_keywords: Arc<Vec<String>>,
     edit_content: crate::TaskEditContent,
     pub(crate) support_tags: Option<Arc<crate::SupportTags>>,
     /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
@@ -170,6 +171,8 @@ pub struct AddressLink {
 }
 
 impl FilterTask {
+    /// 所属文件的有效完成状态，保持配置顺序；无文件声明时使用全局默认值。
+    pub fn done_keywords(&self) -> &[String] { &self.done_keywords }
     pub fn file_version(&self) -> &str { &self.file_version }
     pub fn edit_content(&self) -> &crate::TaskEditContent { &self.edit_content }
     pub fn id(&self) -> &str {
@@ -409,6 +412,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
     let file_metadata = Arc::new(file.metadata(file.scan_ignored));
     let file_version = crate::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
     let support_tags = file.support_tags().map(Arc::new);
+    let done_keywords = Arc::new(file.todo.done_keywords.clone());
     let category = file.category();
     let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
     let mut identities =
@@ -471,6 +475,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         let created = property_time(&headline, "CREATED");
         let edit_content = file.task_edit_content(&full_path).expect("同一语法树生成的任务路径必须可定位");
         tasks.push(FilterTask {
+            done_keywords: Arc::clone(&done_keywords),
             file_version: file_version.clone(),
             edit_content,
             id: identities.id_for(&headline, state_type != FilterStateType::None),
@@ -1300,6 +1305,26 @@ impl BoolNot for bool {
 mod tests {
     use super::*;
     use crate::OrgFile;
+
+    #[test]
+    fn task_done_keywords_follow_effective_file_configuration() {
+        let mut repo = OrgRepo::new("/unused/done-keywords".into()).unwrap();
+        repo.id = "repo".into();
+        for (source, setup, expected) in [
+            ("* TODO Task\n", "", vec!["DONE"]),
+            ("#+TODO: OPEN | FINISHED(f!) CANCELLED(c)\n#+TODO: NEXT | ACCEPTED\n* OPEN Task\n", "", vec!["FINISHED", "CANCELLED", "ACCEPTED"]),
+            ("* NEXT Task\n", "#+TODO: NEXT | CLOSED", vec!["CLOSED"]),
+            ("#+TODO:\n* Plain\n", "", vec![]),
+        ] {
+            let file = OrgFile::with_todo_defaults_and_setup(
+                repo.id.clone(), "tasks.org".into(), source.as_bytes().to_vec(),
+                crate::TodoConfig::default(), setup.into(),
+            ).unwrap();
+            let task = tasks_from_file(&repo, &file).remove(0);
+            assert_eq!(task.done_keywords(), expected, "{source}");
+            assert_eq!(file.source_bytes(), source.as_bytes());
+        }
+    }
 
     #[test]
     fn modified_sort_keeps_missing_values_last_and_uses_source_order_for_ties() {

@@ -41,6 +41,7 @@ export struct TaskListItem {
   @State notes: string = ''
   @State typing: boolean = false
   @State working: boolean = false
+  @State completing: boolean = false
   @State message: string = ''
   @State rowWidth: number = 366
   @State deadlineWidth: number = 0
@@ -94,6 +95,21 @@ export struct TaskListItem {
     if (this.dateRequest.startsWith(`${this.task.id}\n`)) this.dates(false)
   }
   value(): CoreTask { return this.editTask ?? this.task }
+  async complete() {
+    if (this.completing || this.working || this.snapshotBlocked || this.value().todoKind !== 'pending' || this.value().doneKeywords.length === 0) return
+    this.completing = true
+    try {
+      if (!await this.prepare() || !await this.finish(false)) return
+      const state = this.value().doneKeywords[0]
+      if (this.value().todoKind !== 'pending' || !state) return
+      if (await this.persist([{ field: 'TODO', value: state }])) {
+        this.expanded = false
+      }
+    } finally {
+      this.completing = false
+      if (!this.expanded) TaskInlineSession.release(this.ownerKey)
+    }
+  }
   dataChanged() {
     if (!this.editTask) return
     // 操作提交与数据事件各自排队，读取新快照由事件触发，并保留未保存的文字。
@@ -450,6 +466,14 @@ export struct TaskListItem {
     if (this.value().todoKind === 'done' && !this.value().isCancelled) {
       Image($r('app.media.ui_task_done')).width(18).height(18)
         .accessibilityText('已完成，只读')
+    } else if (this.value().todoKind === 'pending') {
+      Button({ type: ButtonType.Normal }) {
+        Text('').width(18).height(18)
+          .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+      }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
+        .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
+        .enabled(!this.completing && !this.working && !this.snapshotBlocked && this.value().doneKeywords.length > 0)
+        .accessibilityText('完成任务').onClick(() => { this.complete() })
     } else {
       Text(this.value().isCancelled ? '−' : '').width(18).height(18).fontSize(13)
         .textAlign(TextAlign.Center).fontColor(UiColor.disabled)

@@ -61,7 +61,7 @@ export type CoreFileConflict = NativeFileConflict
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
-// 逻辑身份、category、hasList、hasText 与 isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
+// 逻辑身份、doneKeywords、category、hasList、hasText 与 isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTaskChecklistItem = NativeTaskChecklistItem
 // 包含 move / beforeId；与 siblingGroup 一起透传，排序规则由 Core 验证。
 export type CoreTaskChecklistChange = NativeTaskChecklistChange

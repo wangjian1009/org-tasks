@@ -476,3 +476,7 @@ finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup
 Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的仓库文件快照。 ~load_files~ 经新增的 ~org_tasks_harmony_repo_load_files~ 在既有 N-API worker 中执行，JSON 数组只在 ABI 内编组为相对路径列表； ~Repo.loadFiles~ 返回独立值对象。任务请求继续使用既有 ~TaskQuery.excludedFiles~ ，Core 按仓库 ID 提取相对路径，不在 ArkTS 执行文件筛选。
 
 ~FilterTask.file_version()~ 和 ~edit_content()~ 在 Core 投影时从同一文件产生，bridge 直接构造既有 ~Task.fileVersion~ 与 ~editContent~ ，不再二次查找源文件。结果字段、版本算法和错误枚举不变；Rust 磁盘接口采用异步 ~Result~ ，TS 保持 Promise 错误传播。
+
+* 任务完成状态接入
+
+Rust bridge 将 ~FilterTask.done_keywords()~ 投影为 ~HarmonyBridgeTask.done_keywords~ ，C++ 在 ~Task~ 注册只读、可枚举的 ~doneKeywords: string[]~ 属性，ArkTS 的 ~CoreTask~ 类型别名直接透传。列表前部 checkbox 仅对待办任务开放完成操作，使用 ~doneKeywords[0]~ 组装 ~TODO~ 修改，经原有异步 ~Workspace.executeTaskOperations~ 提交文件版本约束；不在宿主解析文件或硬编码完成关键词。空列表禁用操作，提交期间阻止重复点击，失败显示 Core 错误；成功释放编辑会话，由数据通知刷新当前视图。

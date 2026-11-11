@@ -83,6 +83,7 @@ export class Task {
   readonly category: string | null;
   readonly headingParts: TitlePart[];
   readonly todoState: string;
+  readonly doneKeywords: string[];
   readonly isCancelled: boolean;
   readonly createdAt: number | null;
   readonly modifiedAt: number | null;

@@ -263,6 +263,7 @@ impl FilterTask {
     pub fn repo_id(&self) -> &str;
     pub fn path(&self) -> &str;
     pub fn file_metadata(&self) -> &OrgFileMetadata;
+    pub fn done_keywords(&self) -> &[String];
     pub fn support_tags(&self) -> Option<&SupportTags>;
     pub fn category(&self) -> Option<&str>;
     pub fn line(&self) -> u32;
@@ -840,3 +841,7 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 | mixedPreviewOperation | 临时组混入其他文件或上传意图 | 整组拒绝 |
 
 结束后真实提交沿用统一操作接口已有的版本与存储错误。应用保留返回组；原版本仍有效可重试，版本变化禁止覆盖。错误类别由 bridge 透传，不靠中文消息进行业务判断。
+
+* 任务完成状态访问
+
+~FilterTask.done_keywords() -> &[String]~ 返回所属文件有效的完成状态列表，顺序与 ~OrgFile.todo.done_keywords~ 一致，名称不含快捷键和日志后缀。文件没有声明时继承全局默认配置，显式清空配置时返回空列表。调用方完成任务时使用第一项，通过 ~TaskModification::Todo~ 提交并携带当前文件版本；Core 继续负责状态校验、完成日志与重复任务调度。该快照与 ~file_version()~ 来自同一次读取。
