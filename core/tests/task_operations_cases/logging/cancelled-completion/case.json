@@ -1,0 +1,14 @@
+{
+  "purpose": "共享配置中的 CNCL 作为完成状态记录取消日志和关闭时间",
+  "outbox": {
+    "repo": 1
+  },
+  "inspect": [
+    {
+      "titles": [
+        "Task"
+      ],
+      "task": true
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+#+TITLE: 日志验收
+#+SETUPFILE: ./.setup.org
+* DONE Task
+CLOSED: [2026-11-01 Sun 09:00]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留  
+:END:
+* Other
+不受影响的正文  

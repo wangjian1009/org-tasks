@@ -1,0 +1,14 @@
+{
+  "purpose": "未配置日志时完成任务只修改状态，保留旧日志且不生成关闭时间",
+  "outbox": {
+    "repo": 1
+  },
+  "inspect": [
+    {
+      "titles": [
+        "Task"
+      ],
+      "task": true
+    }
+  ]
+}

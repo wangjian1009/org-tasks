@@ -1,0 +1,11 @@
+#+TITLE: 日志验收
+#+SETUPFILE: ./.setup.org
+* Group
+:PROPERTIES:
+:LOGGING: nil
+:END:
+** TODO Task
+SCHEDULED: <2028-07-02 Sun +1y>
+正文  
+* Other
+不受影响的正文  

@@ -1,0 +1,17 @@
+#+TITLE: 日志验收
+#+SETUPFILE: ./.setup.org
+* Group
+:PROPERTIES:
+:LOGGING: nil
+:END:
+** TODO Task
+SCHEDULED: <2027-07-11 Sun +1y>
+:PROPERTIES:
+:LAST_REPEAT: [2026-09-06 Sun 18:06]
+:END:
+:LOGBOOK:
+CLOCK: [2025-08-09 Sat 16:28]--[2025-08-09 Sat 16:55] =>  0:27
+:END:
+正文  
+* Other
+不受影响的正文  

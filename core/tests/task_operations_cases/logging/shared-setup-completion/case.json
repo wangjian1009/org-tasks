@@ -1,0 +1,18 @@
+{
+  "purpose": "共享设置驱动进行中任务完成，显示选项不清除日志配置，CRLF 与旧日志保持原样",
+  "outbox": {
+    "repo": 1
+  },
+  "inspect": [
+    {
+      "titles": [
+        "Project",
+        "Task"
+      ],
+      "task": true,
+      "identityTitles": [
+        "Task"
+      ]
+    }
+  ]
+}

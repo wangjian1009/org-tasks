@@ -1,0 +1,14 @@
+{
+  "purpose": "日志位置配置不独立启用日志，完成后不创建 drawer 或 CLOSED",
+  "outbox": {
+    "repo": 1
+  },
+  "inspect": [
+    {
+      "titles": [
+        "Task"
+      ],
+      "task": true
+    }
+  ]
+}

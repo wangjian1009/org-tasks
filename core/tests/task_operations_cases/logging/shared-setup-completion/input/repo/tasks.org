@@ -1,0 +1,15 @@
+#+TITLE: 日志验收
+#+SETUPFILE: ./.setup.org
+#+STARTUP: show3levels
+* Project
+** INPROGRESS Task :feature:
+SCHEDULED: <2026-11-11 Wed>
+:PROPERTIES:
+:CREATED: [2026-10-01 Thu 09:00]
+:END:
+:LOGBOOK:
+- State "INPROGRESS" from "TODO"       [2026-10-02 Fri 09:00]
+:END:
+正文  
+* Other
+不受影响的正文  

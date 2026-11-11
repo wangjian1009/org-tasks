@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """通过真实 CLI 执行按测试目的组织的任务操作黑盒用例。"""
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 import difflib
 import json
 from pathlib import Path
@@ -40,6 +40,33 @@ def bind(value, ids):
     if isinstance(value, list):
         return [bind(item, ids) for item in value]
     return value
+
+
+def assert_file_matches(name, expected, actual, started, ended):
+    tokens = list(re.finditer(rb'\{\{(TIMESTAMP|DATE\+([0-9]+)d)\}\}', expected))
+    if tokens:
+        parts, cursor = [], 0
+        for token in tokens:
+            parts.append(re.escape(expected[cursor:token.start()]))
+            parts.append(rb'(\[\d{4}-\d{2}-\d{2} [A-Za-z]{3} \d{2}:\d{2}\])'
+                         if token[1] == b'TIMESTAMP' else rb'(\d{4}-\d{2}-\d{2} [A-Za-z]{3})')
+            cursor = token.end()
+        parts.append(re.escape(expected[cursor:]))
+        match = re.fullmatch(b''.join(parts), actual)
+        assert match, f'{name} 自动日期、时间戳或其他字节与预期不符: {actual!r}'
+        for token, captured in zip(tokens, match.groups()):
+            if token[1] == b'TIMESTAMP':
+                value = datetime.strptime(captured.decode(), '[%Y-%m-%d %a %H:%M]')
+                assert started <= value <= ended, f'{name} 时间戳不是本次操作时间: {captured!r}'
+            else:
+                value = datetime.strptime(captured.decode(), '%Y-%m-%d %a')
+                shift = timedelta(days=int(token[2]))
+                assert captured.decode() == value.strftime('%Y-%m-%d %a'), f'{name} 日期与星期不一致: {captured!r}'
+                assert started.date() + shift <= value.date() <= ended.date() + shift, f'{name} 日期不是本次操作日期加指定天数: {captured!r}'
+        return
+    if expected != actual:
+        diff = ''.join(difflib.unified_diff(expected.decode().splitlines(True), actual.decode().splitlines(True), fromfile='expected/' + name, tofile='actual/' + name))
+        raise AssertionError(f'{name} 字节不一致\n{diff or repr((expected, actual))}')
 
 
 def run_case(binary, case, keep_failed):
@@ -92,20 +119,9 @@ def run_case(binary, case, keep_failed):
         expected = files_under(case / 'output')
         actual = files_under(work)
         assert expected.keys() == actual.keys(), f'文件清单不同：expected={sorted(expected)}, actual={sorted(actual)}'
+        ended = datetime.now().replace(second=0, microsecond=0)
         for name in expected:
-            if b'{{TIMESTAMP}}' in expected[name]:
-                pattern = re.escape(expected[name]).replace(re.escape(b'{{TIMESTAMP}}'),
-                    rb'(\[\d{4}-\d{2}-\d{2} [A-Za-z]{3} \d{2}:\d{2}\])')
-                match = re.fullmatch(pattern, actual[name])
-                assert match, f'{name} 自动时间戳或其他字节与预期不符: {actual[name]!r}'
-                ended = datetime.now().replace(second=0, microsecond=0)
-                for timestamp in match.groups():
-                    value = datetime.strptime(timestamp.decode(), '[%Y-%m-%d %a %H:%M]')
-                    assert started <= value <= ended, f'{name} 时间戳不是本次操作时间: {timestamp!r}'
-                continue
-            if expected[name] != actual[name]:
-                diff = ''.join(difflib.unified_diff(expected[name].decode().splitlines(True), actual[name].decode().splitlines(True), fromfile='expected/' + name, tofile='actual/' + name))
-                raise AssertionError(f'{name} 字节不一致\n{diff or repr((expected[name], actual[name]))}')
+            assert_file_matches(name, expected[name], actual[name], started, ended)
         for repo in repos:
             count = len(list((repo / '.sync/outbox').glob('*.json')))
             assert count == spec.get('outbox', {}).get(repo.name, 0), f'{repo.name} 上传意图数量不符: {count}'
@@ -115,6 +131,7 @@ def run_case(binary, case, keep_failed):
                 assert intent['content_hash'] == versions[(ids[repo.name], intent['relative_path'])], '意图不是文件的最终版本'
 
         if spec.get('inspect'):
+            before_inspect = files_under(work, control=True)
             completed = subprocess.run([str(binary), '--repo-dir', str(repos[0]), 'task', 'paths'], text=True, capture_output=True, timeout=30)
             assert completed.returncode == 0, completed.stderr
             nodes = json.loads(completed.stdout)
@@ -127,6 +144,7 @@ def run_case(binary, case, keep_failed):
                 if node['taskId'] is not None:
                     identity = json.loads(node['taskId'])
                     assert identity[2] == expected_node.get('identityTitles', expected_node['titles']), f'身份祖先错误: {identity}'
+            assert files_under(work, control=True) == before_inspect, '重新读取生成了日志或修改了文件及控制数据'
         assert not any(p.name.endswith(('.tmp', '.rollback')) for p in work.rglob('*')), '留下提交临时文件'
         failed = False
     finally:

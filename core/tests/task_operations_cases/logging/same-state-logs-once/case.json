@@ -1,0 +1,14 @@
+{
+  "purpose": "显式重复设置完成状态按关键词再记录一次，保留原 CLOSED，重新读取不追加日志",
+  "outbox": {
+    "repo": 1
+  },
+  "inspect": [
+    {
+      "titles": [
+        "Task"
+      ],
+      "task": true
+    }
+  ]
+}

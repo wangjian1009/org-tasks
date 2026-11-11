@@ -6,7 +6,7 @@
 
 每个用例是独立黑盒场景，按测试目的分组。对应目录为 ~core/tests/task_operations_cases/<组>/<用例>/~ ，输入、操作、预期输出分别保存在 ~input/~ 、 ~operations/~ 、 ~output/~ 子目录； ~case.json~ 记录目的、错误与附加断言。本文列出全部用例的实际定义，具体程序使用方式由程序帮助发现。
 
-操作中的仓库名称是用例占位身份，执行前绑定到该输入仓库的稳定 Core ID。成功时检查操作历史与回退快照、最终文件清单及每个字节；失败时比较初始化后的全部文件和控制目录，要求文件、outbox 与临时文件均无变化。文件清单中包含空文件，不以删除空文件代替删除节点。预期输出中的 {{TIMESTAMP}} 匹配本次操作生成的有效本地非活动时间戳，校验其落在执行时间窗口内，其他字节仍逐一比较。
+操作中的仓库名称是用例占位身份，执行前绑定到该输入仓库的稳定 Core ID。成功时检查操作历史与回退快照、最终文件清单及每个字节；失败时比较初始化后的全部文件和控制目录，要求文件、outbox 与临时文件均无变化。文件清单中包含空文件，不以删除空文件代替删除节点。预期输出中的 {{TIMESTAMP}} 匹配本次操作生成的有效本地非活动时间戳，校验其落在执行时间窗口内，其他字节仍逐一比较。 ~{{DATE+28d}}~ 表示操作当日本地日期加 28 天及对应星期；跨午夜时允许实际经过的两个本地日期，旧日志中的固定日期保持逐字节比较。
 
 说明中的换行展示为 LF；涉及 CRLF 的文件会另行标注，磁盘样例才是逐字节比较依据。行尾空格以 ␠ 展示；源码块内逗号是 Org 引用转义，均不属于输入文件。
 
@@ -4449,6 +4449,1092 @@ Old
 
 不生成上传意图。
 
+* 日志配置与实际数据回归
+
+下列匿名化场景保留实际目录的共享配置、重复窗口、继承禁用、CLOCK 与旧日志结构。新增日志之外的字节逐一保留，完成后再次读取还必须保持文件与控制数据不变。
+
+** cancelled-completion
+
+目的：共享配置中的 CNCL 作为完成状态记录取消日志和关闭时间。
+
+目录： ~core/tests/task_operations_cases/logging/cancelled-completion~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* TODO Task
+SCHEDULED: <2026-11-11 Wed>
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "CNCL"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* CNCL Task
+CLOSED: {{TIMESTAMP}}
+SCHEDULED: <2026-11-11 Wed>
+:LOGBOOK:
+- State "CNCL"       from "TODO"       {{TIMESTAMP}}
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
+** completed-children-block-parent
+
+目的：共享日志配置下即使子任务全部完成也拒绝修改父状态，不生成父日志或上传意图。
+
+目录： ~core/tests/task_operations_cases/logging/completed-children-block-parent~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* TODO Task [2/2]
+,** DONE First
+CLOSED: [2026-11-01 Sun 09:00]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-11-01 Sun 09:00]
+:END:
+,** DONE Second
+CLOSED: [2026-11-01 Sun 10:00]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-11-01 Sun 10:00]
+:END:
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* TODO Task [2/2]
+,** DONE First
+CLOSED: [2026-11-01 Sun 09:00]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-11-01 Sun 09:00]
+:END:
+,** DONE Second
+CLOSED: [2026-11-01 Sun 10:00]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-11-01 Sun 10:00]
+:END:
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+操作失败，错误包含“存在子任务时不能修改父任务状态”；完整文件、控制目录与上传意图保持原样。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
+** drawer-only-completion
+
+目的：日志位置配置不独立启用日志，完成后不创建 drawer 或 CLOSED。
+
+目录： ~core/tests/task_operations_cases/logging/drawer-only-completion~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+STARTUP: logdrawer
+,#+PROPERTY: LOG_INTO_DRAWER HISTORY
+,* TODO Task
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+STARTUP: logdrawer
+,#+PROPERTY: LOG_INTO_DRAWER HISTORY
+,* DONE Task
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
+** inherited-disabled-clock
+
+目的：继承禁用日志但存在 CLOCK 时仅更新 LAST_REPEAT，保留 CLOCK 且不追加状态日志。
+
+目录： ~core/tests/task_operations_cases/logging/inherited-disabled-clock~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* Group
+:PROPERTIES:
+:LOGGING: nil
+:END:
+,** TODO Task
+SCHEDULED: <2027-07-11 Sun +1y>
+:PROPERTIES:
+:LAST_REPEAT: [2026-09-06 Sun 18:06]
+:END:
+:LOGBOOK:
+CLOCK: [2025-08-09 Sat 16:28]--[2025-08-09 Sat 16:55] =>  0:27
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Group",
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* Group
+:PROPERTIES:
+:LOGGING: nil
+:END:
+,** TODO Task
+SCHEDULED: <2028-07-11 Tue +1y>
+:PROPERTIES:
+:LAST_REPEAT: {{TIMESTAMP}}
+:END:
+:LOGBOOK:
+CLOCK: [2025-08-09 Sat 16:28]--[2025-08-09 Sat 16:55] =>  0:27
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Group",
+      "Task"
+    ],
+    "task": true,
+    "identityTitles": [
+      "Task"
+    ]
+  }
+]
+#+end_example
+
+** inherited-disabled-no-clock
+
+目的：继承 LOGGING nil 的无 CLOCK 重复任务只推进日期，不生成日志、关闭时间或 LAST_REPEAT。
+
+目录： ~core/tests/task_operations_cases/logging/inherited-disabled-no-clock~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* Group
+:PROPERTIES:
+:LOGGING: nil
+:END:
+,** TODO Task
+SCHEDULED: <2027-07-02 Fri +1y>
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Group",
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* Group
+:PROPERTIES:
+:LOGGING: nil
+:END:
+,** TODO Task
+SCHEDULED: <2028-07-02 Sun +1y>
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Group",
+      "Task"
+    ],
+    "task": true,
+    "identityTitles": [
+      "Task"
+    ]
+  }
+]
+#+end_example
+
+** no-config-completion
+
+目的：未配置日志时完成任务只修改状态，保留旧日志且不生成关闭时间。
+
+目录： ~core/tests/task_operations_cases/logging/no-config-completion~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 无日志配置
+,* TODO Task
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 无日志配置
+,* DONE Task
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
+** reopen-preserves-history
+
+目的：重新打开已完成任务只清理关闭时间，当前关键词无离开日志时保留旧日志不追加。
+
+目录： ~core/tests/task_operations_cases/logging/reopen-preserves-history~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* DONE Task
+CLOSED: [2026-11-01 Sun 09:00]
+SCHEDULED: <2026-11-11 Wed>
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "TODO"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* TODO Task
+SCHEDULED: <2026-11-11 Wed>
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
+** same-state-logs-once
+
+目的：显式重复设置完成状态按关键词再记录一次，保留原 CLOSED，重新读取不追加日志。
+
+目录： ~core/tests/task_operations_cases/logging/same-state-logs-once~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* DONE Task
+CLOSED: [2026-11-01 Sun 09:00]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* DONE Task
+CLOSED: [2026-11-01 Sun 09:00]
+:LOGBOOK:
+- State "DONE"       from "DONE"       {{TIMESTAMP}}
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
+** shared-setup-completion
+
+目的：共享设置驱动进行中任务完成，显示选项不清除日志配置，CRLF 与旧日志保持原样。
+
+目录： ~core/tests/task_operations_cases/logging/shared-setup-completion~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。 换行：CRLF。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,#+STARTUP: show3levels
+,* Project
+,** INPROGRESS Task :feature:
+SCHEDULED: <2026-11-11 Wed>
+:PROPERTIES:
+:CREATED: [2026-10-01 Thu 09:00]
+:END:
+:LOGBOOK:
+- State "INPROGRESS" from "TODO"       [2026-10-02 Fri 09:00]
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Project",
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。 换行：CRLF。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,#+STARTUP: show3levels
+,* Project
+,** DONE Task :feature:
+CLOSED: {{TIMESTAMP}}
+SCHEDULED: <2026-11-11 Wed>
+:PROPERTIES:
+:CREATED: [2026-10-01 Thu 09:00]
+:END:
+:LOGBOOK:
+- State "DONE"       from "INPROGRESS" {{TIMESTAMP}}
+- State "INPROGRESS" from "TODO"       [2026-10-02 Fri 09:00]
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Project",
+      "Task"
+    ],
+    "task": true,
+    "identityTitles": [
+      "Task"
+    ]
+  }
+]
+#+end_example
+
+** shared-setup-repeat-restart
+
+目的：共享配置下完成后按当天加四周推进重复任务，保留窗口与旧日志，仅新增一次完成记录。
+
+目录： ~core/tests/task_operations_cases/logging/shared-setup-repeat-restart~ 。
+
+*** 输入文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* TODO Task
+SCHEDULED: <2026-11-23 Mon .+4w/5w>
+:PROPERTIES:
+:STYLE: habit
+:LAST_REPEAT: [2026-10-26 Mon 10:22]
+:END:
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 操作组
+
+文件： ~001.json~ 。
+
+#+begin_example
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_example
+
+*** 预期输出文件
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)
+,#+TODO: | CNCL(c!)
+,#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks
+#+end_example
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TITLE: 日志验收
+,#+SETUPFILE: ./.setup.org
+,* TODO Task
+SCHEDULED: <{{DATE+28d}} .+4w/5w>
+:PROPERTIES:
+:STYLE: habit
+:LAST_REPEAT: {{TIMESTAMP}}
+:END:
+:LOGBOOK:
+- State "DONE"       from "TODO"       {{TIMESTAMP}}
+- State "DONE"       from "TODO"       [2026-10-26 Mon 10:22]
+- State "CNCL"       from "TODO"       [2026-08-02 Sun 16:01]
+  历史说明保留␠␠
+:END:
+正文␠␠
+,* Other
+不受影响的正文␠␠
+#+end_example
+
+*** 附加断言
+
+执行成功，回退快照与磁盘字节一致；目标文件生成 1 条上传意图，记录其最终版本。
+
+重新读取路径与身份后，文件和控制数据保持不变，不新增日志。路径与可空身份断言：
+
+#+begin_example
+[
+  {
+    "titles": [
+      "Task"
+    ],
+    "task": true
+  }
+]
+#+end_example
+
 * Rust 层补充验证
 
 - 成功操作组连续追加准确 before、after；末尾操作失败不改变 workspace、历史或已有 outbox。
@@ -4461,6 +5547,8 @@ Old
 
 * Org 状态行为对照
 
+基于实际任务目录的配置盘点、隔离回放、独立参考与字节保真验证方案见 [[file:任务日志验证机制设计.org][任务日志验证机制设计]]。
+
 固定当前时间为 2026-11-11 12:34，从 Emacs Org 9.8.10 生成状态变化参考结果，依据 [[info:org#Closing items][关闭记录]]、 [[info:org#Tracking TODO state changes][状态日志]] 与 [[info:org#Repeated tasks][重复任务]]；参考数据与生成源码保存在 ~core/tests/data/task_state_emacs.json~ 和 ~core/tests/data/task_state_oracle.el~ 。应用默认不记录关闭时间、普通状态及重复日志，参考生成采用相同默认策略；单独配置日志位置不会触发记录。
 
 对照覆盖三种重复器、所有时间单位、月末和闰日溢出、按小时的时刻范围、缺少时刻、重复窗口、正文活动与非活动时间戳、普通计划清理、多流程和类型流程恢复、 ~REPEAT_TO_STATE~ 、日志进入与离开优先级、重复设置同一状态、局部属性覆盖和继承、自定义 drawer、日志顺序及空说明确认。规划字段所在行的排版不作为差异，日期、状态、属性、日志内容与其顺序必须一致。
@@ -4469,4 +5557,4 @@ Old
 
 * 交付记录
 
-当前目录用例总数：65。验证结果在实施计划中记录。
+当前目录用例总数：75。验证结果在实施计划中记录。

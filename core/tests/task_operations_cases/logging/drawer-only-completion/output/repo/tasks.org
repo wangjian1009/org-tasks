@@ -1,0 +1,6 @@
+#+STARTUP: logdrawer
+#+PROPERTY: LOG_INTO_DRAWER HISTORY
+* DONE Task
+正文  
+* Other
+不受影响的正文  
