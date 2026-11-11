@@ -651,7 +651,7 @@ parent body
 
 ** completed
 
-目的：按文件完成状态创建时自动生成 CREATED 和 CLOSED。
+目的：未配置完成日志时创建完成任务仅生成 CREATED。
 
 目录： ~core/tests/task_operations_cases/creation/completed~ 。
 
@@ -695,7 +695,6 @@ parent body
 #+begin_example
 ,#+TODO: NEXT | FINISHED
 ,* FINISHED New
-CLOSED: {{TIMESTAMP}}
 :PROPERTIES:
 :CREATED: {{TIMESTAMP}}
 :END:
@@ -1760,7 +1759,7 @@ Body
 
 #+begin_example
 ,* DONE [#C] Note :工作:
-DEADLINE: <2026-11-10 Tue> SCHEDULED: <2026-11-09 Mon> CLOSED: {{TIMESTAMP}}
+DEADLINE: <2026-11-10 Tue> SCHEDULED: <2026-11-09 Mon>
 Body
 #+end_example
 
@@ -1845,6 +1844,7 @@ Body␠␠
 
 #+begin_example
 ,#+SEQ_TODO: OPEN | FINISHED
+,#+STARTUP: logdone
 #+end_example
 
 文件： ~repo/settings/outer.org~ 。
@@ -1896,6 +1896,7 @@ Body
 
 #+begin_example
 ,#+SEQ_TODO: OPEN | FINISHED
+,#+STARTUP: logdone
 #+end_example
 
 文件： ~repo/settings/outer.org~ 。
@@ -2048,7 +2049,6 @@ Body
 ,#+TODO: TODO WAIT(w@/!) | DONE(d!)
 ,#+STARTUP: logdrawer
 ,* DONE Task
-CLOSED: {{TIMESTAMP}}
 :LOGBOOK:
 - State "DONE"       from "TODO"       {{TIMESTAMP}}
 - State "TODO"       from "WAIT"       {{TIMESTAMP}}
@@ -4455,13 +4455,13 @@ Old
 - 可选文件版本拒绝过期请求；正确版本执行成功，操作历史可完整序列化往返。
 - 提交准备阶段遇到不可写 outbox 目标时，保留原文件、内存和历史。
 - Core 创建时无条件生成 CREATED，重新加载后仍能投影创建时间和任务身份；拒绝显式修改时间或关闭自动创建时间。
-- 完成状态来自文件有效配置，覆盖嵌套 SETUPFILE、文件内覆盖、配置重新读取、自定义完成与待办状态；完成与恢复自动维护 CLOSED，保留 CREATED、子条目和其他规划，失败整组回滚。
+- 完成状态来自文件有效配置，覆盖嵌套 SETUPFILE、文件内覆盖、配置重新读取、自定义完成与待办状态；按显式日志配置生成 CLOSED，恢复时清理已有 CLOSED，保留 CREATED、子条目和其他规划，失败整组回滚。
 - 拒绝符号链接及不存在的父目录，不跟随链接或创建意外目录。
 - 在四个不同提交阶段注入 I/O 故障，逐一验证两个文件和上传意图全部恢复；故障注入仅在 Core 模块内部测试使用。
 
 * Org 状态行为对照
 
-固定当前时间为 2026-11-11 12:34，从 Emacs Org 9.8.10 生成状态变化参考结果，依据 [[info:org#Closing items][关闭记录]]、 [[info:org#Tracking TODO state changes][状态日志]] 与 [[info:org#Repeated tasks][重复任务]]；参考数据与生成源码保存在 ~core/tests/data/task_state_emacs.json~ 和 ~core/tests/data/task_state_oracle.el~ 。应用默认记录关闭时间，但默认不记录普通状态及重复日志，参考生成采用相同默认策略。
+固定当前时间为 2026-11-11 12:34，从 Emacs Org 9.8.10 生成状态变化参考结果，依据 [[info:org#Closing items][关闭记录]]、 [[info:org#Tracking TODO state changes][状态日志]] 与 [[info:org#Repeated tasks][重复任务]]；参考数据与生成源码保存在 ~core/tests/data/task_state_emacs.json~ 和 ~core/tests/data/task_state_oracle.el~ 。应用默认不记录关闭时间、普通状态及重复日志，参考生成采用相同默认策略；单独配置日志位置不会触发记录。
 
 对照覆盖三种重复器、所有时间单位、月末和闰日溢出、按小时的时刻范围、缺少时刻、重复窗口、正文活动与非活动时间戳、普通计划清理、多流程和类型流程恢复、 ~REPEAT_TO_STATE~ 、日志进入与离开优先级、重复设置同一状态、局部属性覆盖和继承、自定义 drawer、日志顺序及空说明确认。规划字段所在行的排版不作为差异，日期、状态、属性、日志内容与其顺序必须一致。
 

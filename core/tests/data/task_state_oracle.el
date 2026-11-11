@@ -11,8 +11,8 @@
        (org-todo-keywords '((sequence "TODO" "|" "DONE")))
        (org-use-property-inheritance nil)
        (org-auto-align-tags nil)
-       ;; 应用默认记录关闭时间；普通状态与重复日志仅由文件配置开启。
-       (org-log-done 'time)
+       ;; 完成时间、普通状态与重复日志均默认关闭，由文件配置开启。
+       (org-log-done nil)
        (org-log-repeat nil)
        (org-log-into-drawer nil)
        (org-log-states-order-reversed t)

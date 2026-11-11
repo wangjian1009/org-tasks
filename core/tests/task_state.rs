@@ -140,7 +140,7 @@ async fn logs_are_opt_in_and_setup_without_todo_keeps_default_states() {
         .group("Task", vec![TaskModification::Todo(Some("DONE".into()))])
         .await;
     f.workspace.execute_task_operations(&group).await.unwrap();
-    assert!(f.source().contains("CLOSED: ["));
+    assert!(!f.source().contains("CLOSED:"));
     assert!(!f.source().contains("LOGBOOK"));
     // 配置修改不依赖仓库缓存；下一次写入立即按新配置记录日志。
     tokio::fs::write(
@@ -205,7 +205,7 @@ async fn parent_state_changes_are_blocked_for_pending_and_completed_descendants(
         .group("Parent", vec![TaskModification::Todo(Some("DONE".into()))])
         .await;
     f.workspace.execute_task_operations(&group).await.unwrap();
-    assert!(f.source().starts_with("* DONE Parent\nCLOSED:"));
+    assert_eq!(f.source(), "* DONE Parent\n** Notes\n");
 }
 
 #[tokio::test]
@@ -265,4 +265,55 @@ async fn completion_repeats_real_timestamps_in_the_title_through_the_public_exec
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(f.source(), "* TODO Task <2026-11-17 Tue +1w>\nBody\n");
     assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+}
+
+#[tokio::test]
+async fn state_changes_without_logging_configuration_only_replace_the_state() {
+    for prefix in [
+        "",
+        "#+STARTUP: logdrawer\n",
+        "#+PROPERTY: LOG_INTO_DRAWER HISTORY\n",
+        "#+TODO: TODO | DONE\n",
+        "#+STARTUP: logdone logrepeat logdrawer\n#+PROPERTY: LOGGING nil\n",
+        "#+begin_src org\n#+STARTUP: logdone logrepeat logdrawer\n#+TODO: TODO | DONE(!)\n#+end_src\n",
+    ] {
+        let body = ":LOGBOOK:\r\n- 已有日志\r\n:END:\r\n正文  \r\n";
+        let original = format!("{prefix}* TODO Task\r\n{body}");
+        let mut f = Fixture::new(&original).await;
+        for state in [Some("DONE"), Some("DONE"), Some("TODO"), None] {
+            let group = f.group("Task", vec![TaskModification::Todo(state.map(str::to_owned))]).await;
+            f.workspace.execute_task_operations(&group).await.unwrap();
+            let expected = format!("{prefix}* {}Task\r\n{body}", state.map(|value| format!("{value} ")).unwrap_or_default());
+            assert_eq!(f.source(), expected, "{prefix}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn created_completed_tasks_record_closing_information_only_when_enabled() {
+    for (prefix, closed, note) in [
+        ("", false, false),
+        ("#+STARTUP: logdrawer\n", false, false),
+        ("#+STARTUP: logdone\n", true, false),
+        ("#+STARTUP: lognotedone logdrawer\n", true, true),
+        ("#+STARTUP: logdone\n#+PROPERTY: LOGGING nil\n", false, false),
+    ] {
+        let mut f = Fixture::new(&format!("{prefix}* Keep\n")).await;
+        let mut creation = TaskCreation::new(TaskPosition {
+            parent: TaskPath::file(f.workspace.repos()[0].id.clone(), "tasks.org".into()),
+            after: None,
+        }, "New".into());
+        creation.state = Some("DONE".into());
+        f.workspace.execute_task_operations(&TaskOperationGroup {
+            operations: vec![TaskOperation::Creation(creation)],
+            ..Default::default()
+        }).await.unwrap();
+        let source = f.source();
+        assert!(source.contains("* DONE New\n"), "{source}");
+        assert!(source.contains(":CREATED: ["), "{source}");
+        assert_eq!(source.contains("CLOSED: ["), closed, "{source}");
+        assert_eq!(source.contains("CLOSING NOTE"), note, "{source}");
+        assert_eq!(source.contains(":LOGBOOK:"), note, "{source}");
+        assert!(!source.contains("- State"), "创建状态不模拟一次状态切换：{source}");
+    }
 }

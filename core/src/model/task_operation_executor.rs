@@ -477,12 +477,10 @@ fn execute_inner(
                 }
             }
             validate_body(&data.body)?;
-            let timestamp = chrono::Local::now()
+            let now = chrono::Local::now().naive_local();
+            let timestamp = now
                 .format("[%Y-%m-%d %a %H:%M]")
                 .to_string();
-            if data.state.as_ref().is_some_and(|state| item.file.todo.done_keywords.contains(state)) {
-                content.push_str(&format!("CLOSED: {timestamp}{}", newline(&item.file)));
-            }
             content.push_str(&format!(
                 ":PROPERTIES:{}:CREATED: {timestamp}{}:END:{}",
                 newline(&item.file),
@@ -523,6 +521,7 @@ fn execute_inner(
                     "标题或状态不能被 Org 重新解释为其他字段",
                 ));
             }
+            super::task_state::log_created_completion(&mut item.file, &node, now)?;
             item.exists = true;
             Ok(Some(path_at(&item.file, inserted)?))
         }

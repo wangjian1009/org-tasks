@@ -1,1 +1,2 @@
 #+SEQ_TODO: OPEN | FINISHED
+#+STARTUP: logdone

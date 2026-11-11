@@ -445,7 +445,7 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
 
 #[tokio::test]
 async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event() {
-    let source = "* TODO Root [/] [%]\r\n:PROPERTIES:\r\n:COOKIE_DATA: todo recursive\r\n:END:\r\n** TODO Parent [/]\r\n*** TODO Child\r\nOld notes  \r\n";
+    let source = "#+STARTUP: logdone\r\n* TODO Root [/] [%]\r\n:PROPERTIES:\r\n:COOKIE_DATA: todo recursive\r\n:END:\r\n** TODO Parent [/]\r\n*** TODO Child\r\nOld notes  \r\n";
     let mut f = Fixture::new(source).await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events = observed.clone();
@@ -661,7 +661,7 @@ async fn set_state(f: &mut Fixture, state: Option<&str>) {
 
 #[tokio::test]
 async fn completion_tracks_file_states_and_preserves_created_children_and_other_bytes() {
-    let source = "#+TODO: DONE WAIT | FINISHED CANCELLED\r\n* DONE Item\r\nSCHEDULED: <2026-11-20 Fri -1w>\r\n:PROPERTIES:\r\n:CREATED: [2020-01-02 Thu 03:04]\r\n:ID: stable\r\n:END:\r\nBody  \r\n** Child\r\nCLOSED: [2020-01-02 Thu 03:04]\r\n* Other\r\n";
+    let source = "#+STARTUP: logdone\r\n#+TODO: DONE WAIT | FINISHED CANCELLED\r\n* DONE Item\r\nSCHEDULED: <2026-11-20 Fri -1w>\r\n:PROPERTIES:\r\n:CREATED: [2020-01-02 Thu 03:04]\r\n:ID: stable\r\n:END:\r\nBody  \r\n** Child\r\nCLOSED: [2020-01-02 Thu 03:04]\r\n* Other\r\n";
     let mut f = Fixture::new(source).await;
     set_state(&mut f, Some("FINISHED")).await;
     let completed = fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
@@ -726,7 +726,7 @@ async fn creation_and_completion_use_nested_setup_and_in_buffer_overrides() {
     .unwrap();
     fs::write(
         f.root.join("settings/inner.org"),
-        "#+SEQ_TODO: OPEN(o) | FINISHED(f!) CANCELLED(c)\n",
+        "#+SEQ_TODO: OPEN(o) | FINISHED(f!) CANCELLED(c)\n#+STARTUP: logdone\n",
     )
     .await
     .unwrap();
@@ -769,7 +769,7 @@ async fn creation_and_completion_use_nested_setup_and_in_buffer_overrides() {
     // 每次写入重新读取 SETUP 配置；同名 FINISHED 现在属于未完成状态。
     fs::write(
         f.root.join("settings/inner.org"),
-        "#+TYP_TODO: FINISHED | OPEN\n",
+        "#+TYP_TODO: FINISHED | OPEN\n#+STARTUP: logdone\n",
     )
     .await
     .unwrap();
@@ -805,7 +805,7 @@ async fn creation_and_completion_use_nested_setup_and_in_buffer_overrides() {
 
 #[tokio::test]
 async fn closed_cleanup_and_failed_completion_share_the_operation_transaction() {
-    let source = "* TODO Item\nCLOSED: [2000-01-01 Sat] SCHEDULED: <2026-11-20 Fri>\nCLOSED: [2001-01-01 Mon]\nBody\n";
+    let source = "#+STARTUP: logdone\n* TODO Item\nCLOSED: [2000-01-01 Sat] SCHEDULED: <2026-11-20 Fri>\nCLOSED: [2001-01-01 Mon]\nBody\n";
     let mut f = Fixture::new(source).await;
     let mut group = f.group("unused").await;
     let TaskOperation::Modification(data) = &mut group.operations[0] else {

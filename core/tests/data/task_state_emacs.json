@@ -4,12 +4,12 @@
   "now": "2026-11-11 12:34",
   "cases": [
     {
-      "name": "无配置仅记录关闭时间",
+      "name": "无配置不记录日志或关闭时间",
       "source": "* TODO Task\nBody\n",
       "actions": [
         {
           "state": "DONE",
-          "expected": "* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\nBody\n"
+          "expected": "* DONE Task\nBody\n"
         },
         {
           "state": "TODO",
@@ -39,11 +39,11 @@
         },
         {
           "state": "DONE",
-          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* DONE Task\n:LOGBOOK:\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
         },
         {
           "state": "DONE",
-          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- State \"DONE\"       from \"DONE\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+          "expected": "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)\n#+STARTUP: logdrawer\n* DONE Task\n:LOGBOOK:\n- State \"DONE\"       from \"DONE\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
         },
         {
           "state": null,
@@ -211,7 +211,7 @@
         },
         {
           "state": "DONE",
-          "expected": "#+STARTUP: logdrawer nologstatesreversed\n#+TODO: TODO NEXT(!) | DONE(!)\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- State \"OLD\" from \"\" [2020-01-01 Wed]\n- State \"NEXT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"NEXT\"       [2026-11-11 Wed 12:34]\n:END:\n"
+          "expected": "#+STARTUP: logdrawer nologstatesreversed\n#+TODO: TODO NEXT(!) | DONE(!)\n* DONE Task\n:LOGBOOK:\n- State \"OLD\" from \"\" [2020-01-01 Wed]\n- State \"NEXT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"NEXT\"       [2026-11-11 Wed 12:34]\n:END:\n"
         }
       ]
     },
@@ -221,7 +221,7 @@
       "actions": [
         {
           "state": "DONE",
-          "expected": "* DONE Task\nCLOSED: [2026-11-11 Wed 12:34] SCHEDULED: <2026-11-10 Tue>\nBody [2026-11-10 Tue +1d]\n#+begin_src org\n<2026-11-10 Tue +1d>\n#+end_src\n"
+          "expected": "* DONE Task\nSCHEDULED: <2026-11-10 Tue>\nBody [2026-11-10 Tue +1d]\n#+begin_src org\n<2026-11-10 Tue +1d>\n#+end_src\n"
         }
       ]
     },
@@ -274,6 +274,48 @@
           "expected": "* TODO Task\n= <2026-11-12 Thu .+1d/3d> =\n~<2026-11-10 Tue .+1d/3d>~\n#+begin_src org\n<2026-11-10 Tue .+1d/3d>\n#+end_src\n"
         }
       ]
+    },
+    {
+      "name": "显式配置完成时间",
+      "source": "#+STARTUP: logdone\n* TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: logdone\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\nBody\n"
+        },
+        {
+          "state": "TODO",
+          "expected": "#+STARTUP: logdone\n* TODO Task\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "仅抽屉配置不触发日志",
+      "source": "#+STARTUP: logdrawer\n* TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "expected": "#+STARTUP: logdrawer\n* DONE Task\nBody\n"
+        }
+      ]
+    },
+    {
+      "name": "文件默认日志属性",
+      "source": "#+TODO: TODO WAIT | DONE\n#+PROPERTY: LOGGING WAIT(!) DONE(!)\n#+PROPERTY: LOG_INTO_DRAWER HISTORY\n* TODO Task\nBody\n",
+      "actions": [
+        {
+          "state": "WAIT",
+          "expected": "#+TODO: TODO WAIT | DONE\n#+PROPERTY: LOGGING WAIT(!) DONE(!)\n#+PROPERTY: LOG_INTO_DRAWER HISTORY\n* WAIT Task\n:HISTORY:\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        },
+        {
+          "state": "DONE",
+          "expected": "#+TODO: TODO WAIT | DONE\n#+PROPERTY: LOGGING WAIT(!) DONE(!)\n#+PROPERTY: LOG_INTO_DRAWER HISTORY\n* DONE Task\n:HISTORY:\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
+        }
+      ]
     }
-  ]
+  ],
+  "defaults": {
+    "logDone": false,
+    "logRepeat": false
+  }
 }

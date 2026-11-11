@@ -59,7 +59,7 @@ impl Logging {
 
     fn load(file: &OrgFile, headline: &Headline) -> Result<Self, CoreError> {
         let mut result = Self {
-            done: Some(TodoLogAction::Time),
+            done: None,
             repeat: None,
             states: BTreeMap::new(),
             drawer: None,
@@ -167,6 +167,36 @@ pub(super) fn modify(
     value: Option<&str>,
 ) -> Result<(), CoreError> {
     modify_at(file, headline, value, chrono::Local::now().naive_local())
+}
+
+/// 新建时不模拟状态切换；完成时间与关闭说明同样只由显式配置触发。
+pub(super) fn log_created_completion(
+    file: &mut OrgFile,
+    headline: &Headline,
+    now: NaiveDateTime,
+) -> Result<(), CoreError> {
+    if !headline.todo_keyword().is_some_and(|state| {
+        file.todo.done_keywords.iter().any(|done| done == state.as_ref())
+    }) {
+        return Ok(());
+    }
+    let settings = Logging::load(file, headline)?;
+    if settings.done.is_none() {
+        return Ok(());
+    }
+    let timestamp = now.format("[%Y-%m-%d %a %H:%M]").to_string();
+    let offset = start(headline);
+    planning(
+        file, headline, "CLOSED", SyntaxKind::PLANNING_CLOSED,
+        &Some(timestamp.clone()),
+    )?;
+    if settings.done == Some(TodoLogAction::Note) {
+        add_log(
+            file, &node_at(file, offset)?, &settings,
+            &format!("- CLOSING NOTE {timestamp}"),
+        )?;
+    }
+    Ok(())
 }
 
 fn modify_at(
