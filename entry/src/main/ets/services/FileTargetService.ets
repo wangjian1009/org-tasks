@@ -3,7 +3,7 @@ import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
-import { inboxRecordQuery, memoRecordQuery } from './TaskViewQueries'
+import { inboxRecordQuery, memoRecordQuery, overviewTaskQuery } from './TaskViewQueries'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }
@@ -47,8 +47,8 @@ export class FileTargetService {
     const target = configuredFileTarget(config, kind)
     const repo = repos.find(item => item.rootDirectory === repository.rootDirectory)
     if (!repo) return undefined
-    const query = kind === 'memo' ? memoRecordQuery(target.path) : inboxRecordQuery(target.path)
-    query.includeDone = kind !== 'someday'
+    const query = kind === 'someday' ? overviewTaskQuery('someday', target.path) :
+      kind === 'memo' ? memoRecordQuery(target.path) : inboxRecordQuery(target.path)
     const reference: CoreOrgFileRef = { repoId: repo.id, path: target.path }
     return { task: { type: 'task', repoIds: [repo.id], query },
       file: { type: 'file', query: { includeFiles: [reference] } }, reference }

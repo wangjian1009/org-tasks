@@ -212,7 +212,7 @@ struct Settings {
                   PreferenceRow({ title: '收件箱文件', detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'inbox' } }) } })
                   Text('收件箱展示所选仓库中的文件；未配置时点击入口提示设置。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                   PreferenceRow({ title: '某天文件', detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'someday' } }) } })
-                  Text('“某天”展示所选文件中的未完成任务。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  Text('“某天”展示所选文件中具有有效待办状态的任务。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                   PreferenceRow({ title: '备忘文件', detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'memo' } }) } })
                   Text('“备忘”展示所选文件中的全部标题记录。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                 }.width('100%').padding(24)

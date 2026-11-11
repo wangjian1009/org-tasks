@@ -211,7 +211,7 @@ WebDAV 密码由 ~CredentialService~ 保存到 Asset Store。已有待上传意�
 | 今天红色徽标 | ~(s.le.yesterday or d.le.yesterday)~ ， ~includeDone=false~ | 仅显示过期数量；旁边灰色数字为今天的总数，徽标零时隐藏。 |
 | 计划 | ~(s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow)~ ， ~includeDone=false~ | 有日期且最早的计划/截止日期从明天开始；与今天不重叠。 |
 | 随时 | ~it.todo s.none d.none~ ， ~includeDone=false~ | 仅有效待办状态，计划日期和截止日期均为空；按 CATEGORY 分区。 |
-| 某天 | 配置文件的 ~b."相对路径"~ ， ~includeDone=false~ | 只展示 ~somedayFile~ 文件中的未完成记录。 |
+| 某天 | 配置文件的 ~b."相对路径" it.todo~ ， ~includeDone=false~ | 只展示所选仓库 ~somedayFile~ 文件中具有有效待办状态的任务，不包含普通标题与已完成任务；侧边栏计数使用相同查询。 |
 | 备忘 | 配置文件的 ~b."相对路径"~ ， ~includeDone=true~ | 展示 ~memoFile~ 文件中的全部标题记录，包含无 TODO 与已完成记录。 |
 | 日志簿 | ~it.done~ ， ~includeDone=true~ | 按文件有效状态定义展示完成任务，包括被定义为完成的 CNCL。 |
 

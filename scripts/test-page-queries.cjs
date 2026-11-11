@@ -87,7 +87,10 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
-    if(view==='someday')assert.deepEqual(f.batches[0][0].repoIds,['core-b']);
+    if(view==='someday') {
+      assert.deepEqual(f.batches[0][0].repoIds,['core-b']);
+      assert.deepEqual(f.batches[0][0].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
+    }
     if(view==='memo')assert.deepEqual(page.tagOptions,['未使用标签']);
   });
 }
@@ -108,6 +111,7 @@ test('侧边栏八项任务、三个文件和通知合为一个批次，跨仓�
   assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,12);
   assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['task','file','task','file','task','file','notification']);
   assert.deepEqual(f.batches[0][5].repoIds,['core-a']);assert.deepEqual(f.batches[0][7].repoIds,['core-b']);
+  assert.deepEqual(f.batches[0][7].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
 });
 
