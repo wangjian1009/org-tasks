@@ -351,8 +351,12 @@ impl Filter {
             .is_none_or(|expression| matches_expression(expression, task, today))
     }
 
+    #[cfg(test)]
     pub fn filter_tasks(&self, tasks: &mut Vec<FilterTask>) {
-        let today = Local::now().date_naive();
+        self.filter_tasks_at(tasks, Local::now().date_naive());
+    }
+
+    pub(crate) fn filter_tasks_at(&self, tasks: &mut Vec<FilterTask>, today: NaiveDate) {
         tasks.retain(|task| self.matches_at(task, today));
         sort_tasks(tasks, &self.sort_orders);
     }

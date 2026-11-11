@@ -158,13 +158,17 @@ export struct AppShell {
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const inbox = await FileTargetService.query(config, 'inbox')
-      const today = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('today'), config.todoDefaults)
-      const overdue = await NativeCoreService.queryTasks(config.repos, overdueTaskQuery(), config.todoDefaults)
-      const planned = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('planned'), config.todoDefaults)
-      const anytime = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('anytime'), config.todoDefaults)
+      const results = await NativeCoreService.queryTasks(config.repos, [
+        overviewTaskQuery('today'), overdueTaskQuery(), overviewTaskQuery('planned'),
+        overviewTaskQuery('anytime'), overviewTaskQuery('logbook')
+      ], config.todoDefaults)
+      const today = results[0]
+      const overdue = results[1]
+      const planned = results[2]
+      const anytime = results[3]
+      const logbook = results[4]
       const someday = await FileTargetService.query(config, 'someday')
       const memo = await FileTargetService.query(config, 'memo')
-      const logbook = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery('logbook'), config.todoDefaults)
       if (request !== this.navigationRequest) return
       this.inboxCount = inbox?.tasks.length ?? -1
       this.todayCount = today.tasks.length

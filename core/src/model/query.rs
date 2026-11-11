@@ -58,22 +58,74 @@ fn normalized_category(category: Option<String>) -> Option<String> {
 }
 
 impl OrgWorkspace {
-    /// UI 组装通用查询；任务过滤、文件关联及组合任务判断统一在 core 中执行。
-    pub async fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError> {
-        for source in &query.excluded_files {
-            super::validate_relative_path(&source.path)?;
-            if source.repo_id.is_empty() {
-                return Err(CoreError::InvalidInput("排除文件的仓库 ID 不能为空"));
+    /// 一批查询共享同次文件加载；结果按输入顺序返回，任一错误使整批失败。
+    pub async fn query(&self, queries: &[TaskQuery]) -> Result<Vec<TaskQueryResult>, CoreError> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+        for query in queries {
+            for source in &query.excluded_files {
+                super::validate_relative_path(&source.path)?;
+                if source.repo_id.is_empty() {
+                    return Err(CoreError::InvalidInput("排除文件的仓库 ID 不能为空"));
+                }
             }
         }
+        let today = chrono::Local::now().date_naive();
+        let mut roots = BTreeMap::new();
+        for repo in self.repos() {
+            let root = tokio::fs::canonicalize(&repo.root_directory)
+                .await
+                .map_err(|error| CoreError::Store(format!("无法读取查询仓库目录: {error}")))?;
+            if roots
+                .insert(root, repo)
+                .is_some_and(|previous| previous.id != repo.id)
+            {
+                return Err(CoreError::InvalidInput("同一磁盘目录不能具有不同仓库身份"));
+            }
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut guards = Vec::with_capacity(roots.len());
+        for root in roots.keys() {
+            guards.push(crate::webdav::transaction::lock_before(root, deadline).await?);
+        }
+        for (root, repo) in &roots {
+            super::access::recover(root, &repo.id).await?;
+        }
+        let mut loaded = BTreeMap::new();
+        for repo in roots.values() {
+            let mut exclusions = queries.iter().map(|query| {
+                query
+                    .excluded_files
+                    .iter()
+                    .filter(|source| source.repo_id == repo.id)
+                    .map(|source| source.path.clone())
+                    .collect::<BTreeSet<_>>()
+            });
+            let mut common = exclusions.next().expect("非空查询批次");
+            for excluded in exclusions {
+                common.retain(|path| excluded.contains(path));
+            }
+            let files = repo
+                .load_files_unlocked(&common.into_iter().collect::<Vec<_>>())
+                .await?;
+            loaded.insert(repo.id.clone(), files);
+        }
+        drop(guards);
         let mut file_categories = BTreeMap::new();
         let mut all = Vec::new();
+        // 加锁按规范化根目录排序，投影仍按原 workspace 顺序组装。
+        let mut projected = BTreeSet::new();
         for repo in self.repos() {
-            let ignore_files = query.excluded_files.iter().filter(|source| source.repo_id == repo.id)
-                .map(|source| source.path.clone()).collect::<Vec<_>>();
-            let files = repo.load_files(&ignore_files).await?;
+            if !projected.insert(&repo.id) {
+                continue;
+            }
+            let files = &loaded[&repo.id];
             for file in files.iter().filter(|file| !file.scan_ignored) {
-                file_categories.insert((file.repo_id.clone(), file.path.clone()), normalized_category(file.category()));
+                file_categories.insert(
+                    (file.repo_id.clone(), file.path.clone()),
+                    normalized_category(file.category()),
+                );
                 all.extend(crate::filter::tasks_from_file(repo, file));
             }
         }
@@ -94,66 +146,91 @@ impl OrgWorkspace {
                     })
             })
             .collect::<BTreeSet<_>>();
-        Filter::parse(&query.expression).filter_tasks(&mut all);
+        Ok(queries
+            .iter()
+            .map(|query| {
+                let excluded = query
+                    .excluded_files
+                    .iter()
+                    .map(|source| (source.repo_id.as_str(), source.path.as_str()))
+                    .collect::<BTreeSet<_>>();
+                let tasks = all
+                    .iter()
+                    .filter(|task| !excluded.contains(&(task.repo_id(), task.path())))
+                    .cloned()
+                    .collect();
+                evaluate_query(query, tasks, &file_categories, &parents, today)
+            })
+            .collect())
+    }
+}
+
+fn evaluate_query(
+    query: &TaskQuery,
+    mut all: Vec<FilterTask>,
+    file_categories: &BTreeMap<(String, String), Option<String>>,
+    parents: &BTreeSet<(String, String, u64)>,
+    today: chrono::NaiveDate,
+) -> TaskQueryResult {
+    Filter::parse(&query.expression).filter_tasks_at(&mut all, today);
+    all.retain(|task| {
+        (query.include_done || !task.is_done())
+            && (query.include_compose_tasks
+                || !parents.contains(&(
+                    task.repo_id().to_owned(),
+                    task.path().to_owned(),
+                    task.byte_offset,
+                )))
+    });
+    // 分类摘要不受当前 categories 选择影响，供 UI 展示可选分类和计数。
+    let mut counts = BTreeMap::<Option<String>, usize>::new();
+    for task in &all {
+        let category = file_categories
+            .get(&(task.repo_id().to_owned(), task.path().to_owned()))
+            .cloned()
+            .flatten();
+        *counts.entry(category).or_default() += 1;
+    }
+    let mut categories = counts
+        .into_iter()
+        .map(|(category, count)| {
+            let key = category
+                .as_ref()
+                .map_or_else(|| "uncategorized".into(), |name| format!("category:{name}"));
+            TaskCategory {
+                key,
+                category,
+                count,
+            }
+        })
+        .collect::<Vec<_>>();
+    categories.sort_by(|left, right| match (&left.category, &right.category) {
+        (Some(left), Some(right)) => left.cmp(right),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    if !query.categories.is_empty() {
+        let selected = query
+            .categories
+            .iter()
+            .cloned()
+            .map(normalized_category)
+            .collect::<BTreeSet<_>>();
         all.retain(|task| {
-            (query.include_done || !task.is_done())
-                && (query.include_compose_tasks
-                    || !parents.contains(&(
-                        task.repo_id().to_owned(),
-                        task.path().to_owned(),
-                        task.byte_offset,
-                    )))
-        });
-        // 分类摘要不受当前 categories 选择影响，供 UI 展示可选分类和计数。
-        let mut counts = BTreeMap::<Option<String>, usize>::new();
-        for task in &all {
             let category = file_categories
                 .get(&(task.repo_id().to_owned(), task.path().to_owned()))
                 .cloned()
                 .flatten();
-            *counts.entry(category).or_default() += 1;
-        }
-        let mut categories = counts
-            .into_iter()
-            .map(|(category, count)| {
-                let key = category
-                    .as_ref()
-                    .map_or_else(|| "uncategorized".into(), |name| format!("category:{name}"));
-                TaskCategory {
-                    key,
-                    category,
-                    count,
-                }
-            })
-            .collect::<Vec<_>>();
-        categories.sort_by(|left, right| match (&left.category, &right.category) {
-            (Some(left), Some(right)) => left.cmp(right),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+            selected.contains(&category)
         });
-        if !query.categories.is_empty() {
-            let selected = query
-                .categories
-                .iter()
-                .cloned()
-                .map(normalized_category)
-                .collect::<BTreeSet<_>>();
-            all.retain(|task| {
-                let category = file_categories
-                    .get(&(task.repo_id().to_owned(), task.path().to_owned()))
-                    .cloned()
-                    .flatten();
-                selected.contains(&category)
-            });
-        }
-        for task in &mut all {
-            task.exclude_system_tags();
-        }
-        Ok(TaskQueryResult {
-            tasks: all,
-            categories,
-        })
+    }
+    for task in &mut all {
+        task.exclude_system_tags();
+    }
+    TaskQueryResult {
+        tasks: all,
+        categories,
     }
 }
 
@@ -218,6 +295,151 @@ mod tests {
         .unwrap()
     }
 
+    #[tokio::test]
+    async fn batch_preserves_positions_and_independent_results_with_one_access_per_repository() {
+        let workspace = workspace();
+        let before = workspace
+            .repos()
+            .iter()
+            .map(|repo| super::super::test_support::repository_accesses(&repo.root_directory))
+            .collect::<Vec<_>>();
+        let queries = [
+            TaskQuery {
+                expression: "it.done .o.created".into(),
+                ..Default::default()
+            },
+            TaskQuery {
+                expression: "t.no_such_tag".into(),
+                ..Default::default()
+            },
+            category_query(),
+            TaskQuery {
+                categories: vec![Some("Work".into())],
+                include_compose_tasks: false,
+                ..Default::default()
+            },
+            TaskQuery::default(),
+            category_query(),
+        ];
+        let mut results = workspace.query(&queries).await.unwrap();
+        assert_eq!(results.len(), queries.len());
+        assert!(results[1].tasks.is_empty());
+        assert_eq!(results[2], results[5]);
+        for (repo, before) in workspace.repos().iter().zip(before) {
+            let after = super::super::test_support::repository_accesses(&repo.root_directory);
+            assert_eq!([after[0] - before[0], after[1] - before[1]], [1, 1]);
+        }
+        for (query, result) in queries.iter().zip(&results) {
+            let expected = workspace
+                .query(std::slice::from_ref(query))
+                .await
+                .unwrap()
+                .remove(0);
+            assert_eq!(*result, expected);
+        }
+        let duplicate = results[5].clone();
+        results[2].tasks.clear();
+        assert_eq!(results[5], duplicate);
+    }
+
+    #[tokio::test]
+    async fn batch_exclusions_are_intersected_before_loading_and_applied_per_query() {
+        let workspace = workspace();
+        let repo = &workspace.repos()[0];
+        std::fs::write(
+            std::path::Path::new(&repo.root_directory).join("broken.org"),
+            [0xff],
+        )
+        .unwrap();
+        let broken = OrgFileRef {
+            repo_id: repo.id.clone(),
+            path: "broken.org".into(),
+        };
+        let queries = [
+            TaskQuery {
+                excluded_files: vec![
+                    broken.clone(),
+                    OrgFileRef {
+                        repo_id: repo.id.clone(),
+                        path: "work.org".into(),
+                    },
+                ],
+                ..Default::default()
+            },
+            TaskQuery {
+                excluded_files: vec![broken.clone()],
+                ..Default::default()
+            },
+        ];
+        let results = workspace.query(&queries).await.unwrap();
+        assert!(
+            results[0]
+                .tasks
+                .iter()
+                .all(|task| task.repo_id() != repo.id || task.path() != "work.org")
+        );
+        assert!(
+            results[0]
+                .tasks
+                .iter()
+                .any(|task| task.repo_id() != repo.id && task.path() == "work.org")
+        );
+        assert!(
+            results[1]
+                .tasks
+                .iter()
+                .any(|task| task.repo_id() == repo.id && task.path() == "work.org")
+        );
+        assert!(
+            results
+                .iter()
+                .all(|result| result.tasks.iter().all(|task| task.path() != "broken.org"))
+        );
+        // 任意查询需要损坏文件即整体失败，不能返回另一查询的部分成功。
+        assert!(
+            workspace
+                .query(&[queries[0].clone(), TaskQuery::default()])
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_and_invalid_batches_do_not_acquire_repository_locks_or_load_files() {
+        let workspace = workspace();
+        let before = workspace
+            .repos()
+            .iter()
+            .map(|repo| super::super::test_support::repository_accesses(&repo.root_directory))
+            .collect::<Vec<_>>();
+        assert!(workspace.query(&[]).await.unwrap().is_empty());
+        for (repo_id, path) in [
+            (workspace.repos()[0].id.clone(), "../unsafe.org"),
+            (String::new(), "valid.org"),
+        ] {
+            let error = workspace
+                .query(&[
+                    TaskQuery::default(),
+                    TaskQuery {
+                        excluded_files: vec![OrgFileRef {
+                            repo_id,
+                            path: path.into(),
+                        }],
+                        ..Default::default()
+                    },
+                ])
+                .await
+                .unwrap_err();
+            assert!(matches!(error, CoreError::InvalidInput(_)));
+        }
+        for (repo, before) in workspace.repos().iter().zip(before) {
+            assert_eq!(
+                super::super::test_support::repository_accesses(&repo.root_directory),
+                before
+            );
+        }
+    }
+
     fn category_query() -> TaskQuery {
         TaskQuery {
             excluded_files: vec![
@@ -238,9 +460,9 @@ mod tests {
     #[tokio::test]
     async fn generic_defaults_include_all_records_and_flags_filter_in_core() {
         let workspace = workspace();
-        let result = workspace.query(&TaskQuery::default()).await.unwrap();
+        let result = workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
         assert_eq!(result.tasks.len(), 12);
-        let result = workspace.query(&category_query()).await.unwrap();
+        let result = workspace.query(&[category_query()]).await.unwrap().remove(0);
         assert_eq!(result.tasks.len(), 6);
         assert!(
             result
@@ -270,7 +492,7 @@ mod tests {
                 categories: vec![category.category],
                 ..category_query()
             };
-            assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), category.count);
+            assert_eq!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.len(), category.count);
         }
     }
 
@@ -285,23 +507,23 @@ mod tests {
             ],
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 4);
+        assert_eq!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.len(), 4);
         let query = TaskQuery {
             categories: vec![None],
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.len(), 1);
         let query = TaskQuery {
             categories: vec![Some("未分类".into())],
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.len(), 1);
         let query = TaskQuery {
             categories: vec![Some("gone".into())],
             ..category_query()
         };
-        assert!(workspace.query(&query).await.unwrap().tasks.is_empty());
-        assert_eq!(workspace.query(&category_query()).await.unwrap().tasks.len(), 6);
+        assert!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.is_empty());
+        assert_eq!(workspace.query(&[category_query()]).await.unwrap().remove(0).tasks.len(), 6);
     }
 
     #[tokio::test]
@@ -316,7 +538,7 @@ mod tests {
             )
             .unwrap(); crate::model::test_support::push_file(&mut repo, value); };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let result = workspace.query(&TaskQuery::default()).await.unwrap();
+        let result = workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
         assert_eq!(result.tasks[0].category, None);
         assert_eq!(result.categories.len(), 1);
         assert_eq!(result.categories[0].category, None);
@@ -329,17 +551,17 @@ mod tests {
             expression: "b.capture.org".into(),
             ..Default::default()
         };
-        let result = workspace.query(&query).await.unwrap();
+        let result = workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0);
         assert_eq!(result.tasks.len(), 4);
         assert_eq!(result.tasks.iter().filter(|task| task.is_done()).count(), 2);
         assert!(result.tasks.iter().any(|task| task.state.is_none()));
         assert_eq!(
             workspace
-                .query(&TaskQuery {
+                .query(&[TaskQuery {
                     expression: "b.work.org".into(),
                     ..Default::default()
-                }).await
-                .unwrap()
+                }]).await
+                .unwrap().remove(0)
                 .tasks
                 .len(),
             3
@@ -376,7 +598,7 @@ mod tests {
             include_done: false,
             ..Default::default()
         };
-        let result = workspace.query(&query).await.unwrap();
+        let result = workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0);
         let titles = result
             .tasks
             .iter()
@@ -405,11 +627,11 @@ mod tests {
             }]
         );
         let without = workspace
-            .query(&TaskQuery {
+            .query(&[TaskQuery {
                 expression: ".has.address".into(),
                 ..Default::default()
-            }).await
-            .unwrap();
+            }]).await
+            .unwrap().remove(0);
         assert!(
             without
                 .tasks
@@ -440,13 +662,13 @@ mod tests {
         { let value = crate::TaskScanRules::parse("ann.org\n").unwrap(); crate::model::test_support::set_rules(&mut repository, value); }
         let workspace = OrgWorkspace::new(vec![repository]).unwrap();
         let result = workspace
-            .query(&TaskQuery {
+            .query(&[TaskQuery {
                 expression: "s.none d.none".into(),
                 include_done: false,
                 include_compose_tasks: true,
                 ..Default::default()
-            }).await
-            .unwrap();
+            }]).await
+            .unwrap().remove(0);
         assert_eq!(result.tasks.len(), 1);
         assert_eq!(result.tasks[0].path(), "visible.org");
     }
@@ -457,10 +679,10 @@ mod tests {
         let mut repo = &mut workspace.repos[0];
         { let value = OrgFile::new(repo.id.clone(), "undated.org".into(),
             "#+CATEGORY: Work\n#+TODO: NEXT | CLOSED\n* NEXT Undated task\n* Plain heading\n* CLOSED Completed task\n* NEXT Scheduled task\nSCHEDULED: <2026-11-09 Mon>\n* NEXT Deadline task\nDEADLINE: <2026-11-10 Tue>\n".as_bytes().to_vec()).unwrap(); crate::model::test_support::push_file(&mut repo, value); };
-        let result = workspace.query(&TaskQuery {
+        let result = workspace.query(&[TaskQuery {
             expression: "it.todo s.none d.none".into(), include_done: false, include_compose_tasks: true,
             ..Default::default()
-        }).await.unwrap();
+        }]).await.unwrap().remove(0);
         let titles = result.tasks.iter().filter(|task| task.path() == "undated.org").map(|task| task.title()).collect::<Vec<_>>();
         assert_eq!(titles, ["Undated task"]);
         assert!(result.tasks.iter().all(|task| task.state_type() == crate::FilterStateType::Todo && task.scheduled().is_none() && task.deadline().is_none()));
@@ -473,18 +695,18 @@ mod tests {
             include_compose_tasks: false,
             ..category_query()
         };
-        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 5);
+        assert_eq!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.len(), 5);
         let query = TaskQuery {
             expression: "\"Parent home\"".into(),
             include_compose_tasks: false,
             ..Default::default()
         };
-        assert!(workspace.query(&query).await.unwrap().tasks.is_empty());
+        assert!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.is_empty());
         let query = TaskQuery {
             expression: "\"Parent home\"".into(),
             ..Default::default()
         };
-        assert_eq!(workspace.query(&query).await.unwrap().tasks.len(), 1);
+        assert_eq!(workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks.len(), 1);
         let repos = [
             ("one", "* TODO Parent\n** DONE Child\n"),
             ("two", "* TODO Peer\n"),
@@ -500,12 +722,12 @@ mod tests {
         .collect();
         let same_paths = OrgWorkspace::new(repos).unwrap();
         let result = same_paths
-            .query(&TaskQuery {
+            .query(&[TaskQuery {
                 include_done: false,
                 include_compose_tasks: false,
                 ..Default::default()
-            }).await
-            .unwrap();
+            }]).await
+            .unwrap().remove(0);
         assert_eq!(result.tasks.len(), 1);
         assert_eq!(result.tasks[0].title, "Peer");
     }
@@ -516,13 +738,13 @@ mod tests {
         for path in ["", "../capture.org", "/capture.org", "a\\capture.org"] {
             assert!(
                 workspace
-                    .query(&TaskQuery {
+                    .query(&[TaskQuery {
                         excluded_files: vec![OrgFileRef {
                             repo_id: crate::model::test_support::id("r1"),
                             path: path.into()
                         }],
                         ..Default::default()
-                    }).await
+                    }]).await
                     .is_err()
             );
         }

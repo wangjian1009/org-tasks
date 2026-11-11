@@ -33,3 +33,19 @@ pub(crate) async fn append_fixture(
 
 use crate as core_types;
 include!("../../tests/support/disk.rs");
+
+// 按仓库计数，允许并行测试验证真实访问路径没有重复加锁或加载。
+fn access_counts() -> &'static std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, [usize; 2]>> {
+    static COUNTS: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, [usize; 2]>>> = std::sync::OnceLock::new();
+    COUNTS.get_or_init(Default::default)
+}
+
+pub(crate) fn record_access(root: &std::path::Path, kind: usize) {
+    let root = std::fs::canonicalize(root).unwrap();
+    access_counts().lock().unwrap().entry(root).or_default()[kind] += 1;
+}
+
+pub(crate) fn repository_accesses(root: &str) -> [usize; 2] {
+    let root = std::fs::canonicalize(root).unwrap();
+    access_counts().lock().unwrap().get(&root).copied().unwrap_or_default()
+}

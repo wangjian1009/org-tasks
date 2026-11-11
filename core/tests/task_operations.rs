@@ -241,8 +241,8 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
     });
     let initial = f
         .workspace
-        .query(&TaskQuery::default()).await
-        .unwrap()
+        .query(&[TaskQuery::default()]).await
+        .unwrap().remove(0)
         .tasks
         .remove(0);
     for (checked, title, event_count) in [
@@ -272,8 +272,8 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
         f.workspace.execute_task_operations(&group).await.unwrap();
         let current = f
             .workspace
-            .query(&TaskQuery::default()).await
-            .unwrap()
+            .query(&[TaskQuery::default()]).await
+            .unwrap().remove(0)
             .tasks
             .remove(0);
         assert_eq!(current.title(), title);
@@ -606,7 +606,7 @@ async fn creation_always_generates_created_and_survives_reload() {
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
-    let tasks = f.workspace.query(&TaskQuery::default()).await.unwrap().tasks;
+    let tasks = f.workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
     assert!(tasks[0].created_at().is_some());
     assert!(
         std::fs::read_to_string(f.root.join("tasks.org"))

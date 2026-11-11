@@ -13,7 +13,7 @@ async fn tasks(source: &str) -> Vec<FilterTask> {
         )
         .unwrap(); support::push_file(&mut repo, value); };
     let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-    let result = workspace.query(&TaskQuery::default()).await.unwrap().tasks;
+    let result = workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
     assert_eq!(
         workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes(),
         source.as_bytes()

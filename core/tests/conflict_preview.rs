@@ -81,7 +81,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
     let mut f = Fixture::new().await;
-    let before = f.workspace.query(&TaskQuery::default()).await.unwrap();
+    let before = f.workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
     let p = f.preview().await;
     assert_eq!(p.full_path().repo_id, "<preview>");
     assert_eq!(p.full_path().file.as_deref(), Some(p.id()));
@@ -93,9 +93,9 @@ async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
     assert_eq!(p.conflicts().await.unwrap().len(), 1);
     assert_eq!(
         f.workspace
-            .query(&TaskQuery::default())
+            .query(&[TaskQuery::default()])
             .await
-            .unwrap()
+            .unwrap().remove(0)
             .tasks
             .len(),
         before.tasks.len()

@@ -38,8 +38,10 @@ function fixture() {
     './FileTargetService': { fileTargetRepository: () => repository, FileTargetService: { async resolve(_, kind) {
       assert.equal(kind, 'memo'); return available ? { repository, path: '备忘.org', tagOptions: ['未使用标签'] } : undefined;
     } } },
-    './NativeCoreService': { NativeCoreService: { async queryTasks(repos, query, defaults) {
-      assert.equal(repos[0], repository); assert.equal(defaults, 'defaults'); queries.push(query); return { tasks };
+    './NativeCoreService': { NativeCoreService: { async queryTasks(repos, batch, defaults) {
+      assert.ok(Array.isArray(batch));
+      assert.equal(repos[0], repository); assert.equal(defaults, 'defaults');
+      return batch.map(query => { queries.push(query); return { tasks }; });
     } } },
     './PreferencesStore': { PreferencesStore: { async open(_, name) {
       const local = new Map(disk.get(name));

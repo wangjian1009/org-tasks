@@ -106,7 +106,7 @@ test('近期查询使用原有 Workspace.query、今天及前两天的创建日�
   const { InboxService } = load('services/InboxService', {
     './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-id', rootDirectory: '/repo' }], inboxRepoId: 'host-id', inboxFile: 'inbox.org' }; } } },
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.inboxRepoId, path: config.inboxFile }) },
-    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(q) { queries.push(q); return { tasks: [task] }; } }; } } }
+    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch) { assert.ok(Array.isArray(batch)); return batch.map(q => { queries.push(q); return { tasks: [task] }; }); } }; } } }
   });
   assert.deepEqual(await InboxService.recent({}), [task]);
   assert.deepEqual(queries[0], { expression: 'cr.ge.-2d cr.le.today .o.created', includeDone: true, includeComposeTasks: true,

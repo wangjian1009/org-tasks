@@ -145,7 +145,7 @@ struct TaskOverview {
           configuredGroups = fileResult?.tagGroups ?? []
         }
       } else {
-        result = await NativeCoreService.queryTasks(config.repos, overviewTaskQuery(this.view), config.todoDefaults)
+        result = (await NativeCoreService.queryTasks(config.repos, [overviewTaskQuery(this.view)], config.todoDefaults))[0]
       }
       if (request !== this.requestId) return
       if (!result) {

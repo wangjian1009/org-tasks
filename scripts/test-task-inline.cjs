@@ -28,7 +28,7 @@ function fixture() {
   const config={repos:[{rootDirectory:'/repo',webdavEnabled:true}],todoDefaults:''};
   const workspace={
     repos:async()=>[{id:'core',rootDirectory:'/repo',fileMetadata:async()=>[{path:'task.org',tagOptions:['configured']},{path:'other.org',tagOptions:['excluded']}]}],
-    query:async()=>({tasks:[updated]}),
+    query:async batch=>{assert.ok(Array.isArray(batch));return batch.map(()=>({tasks:[updated]}))},
     executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');}
   };
   const service=load('entry/src/main/ets/services/TaskInlineService.ets',{

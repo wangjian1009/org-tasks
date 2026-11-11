@@ -72,7 +72,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targets() {
     let f = Fixture::new().await;
-    let result = f.workspace.query(&TaskQuery::default()).await.unwrap();
+    let result = f.workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
     assert_eq!(
         result.tasks.iter().map(|t| t.title()).collect::<Vec<_>>(),
         vec!["Normal", "Parent", "Visible"]
@@ -88,13 +88,13 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
     ] {
         assert!(
             f.workspace
-                .query(&TaskQuery {
+                .query(&[TaskQuery {
                     expression: expression.into(),
                     include_done: true,
                     include_compose_tasks: true,
                     ..Default::default()
-                }).await
-                .unwrap()
+                }]).await
+                .unwrap().remove(0)
                 .tasks
                 .is_empty(),
             "{expression}"

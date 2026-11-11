@@ -75,7 +75,7 @@ export class InboxService {
     if (inbox) await inbox.load()
     const query: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created', includeDone: true, includeComposeTasks: true,
       excludedFiles: inbox && selected.path ? [{ repoId: inbox.id, path: selected.path }] : [] }
-    return (await workspace.query(query)).tasks
+    return (await workspace.query([query]))[0].tasks
   }
 
   static async perform(context: Context, task: CoreTask, action: InboxAction,

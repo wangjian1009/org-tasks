@@ -21,7 +21,7 @@ export class TaskInlineService {
   static async reload(context: Context, task: CoreTask): Promise<CoreTask> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-    const tasks = (await workspace.query({ includeDone: true, includeComposeTasks: true })).tasks
+    const tasks = (await workspace.query([{ includeDone: true, includeComposeTasks: true }]))[0].tasks
     const current = tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
       (task.taskId ? item.taskId === task.taskId : item.id === task.id))
     if (!current) throw new Error('任务已删除或改名，请返回列表重新打开')

@@ -185,17 +185,17 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
     match command.target {
         TaskTarget::All => print_tasks(
             workspace
-                .query(&org_tasks_core::TaskQuery::default()).await
-                .map_err(|error| error.to_string())?
+                .query(&[org_tasks_core::TaskQuery::default()]).await
+                .map_err(|error| error.to_string())?.remove(0)
                 .tasks,
         ),
         TaskTarget::Search(args) => print_tasks(
             workspace
-                .query(&org_tasks_core::TaskQuery {
+                .query(&[org_tasks_core::TaskQuery {
                     expression: args.expression,
                     ..Default::default()
-                }).await
-                .map_err(|error| error.to_string())?
+                }]).await
+                .map_err(|error| error.to_string())?.remove(0)
                 .tasks,
         ),
         TaskTarget::Paths => print_json(&task_nodes(&workspace).await?),
@@ -795,7 +795,7 @@ mod tests {
             todo_defaults: org_tasks_core::TodoConfig::default(),
         }, vec![file], Default::default());
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let tasks = workspace.query(&org_tasks_core::TaskQuery::default()).await.unwrap().tasks;
+        let tasks = workspace.query(&[org_tasks_core::TaskQuery::default()]).await.unwrap().remove(0).tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].state(), Some("TODO"));
         assert_eq!(tasks[0].priority(), Some("A"));

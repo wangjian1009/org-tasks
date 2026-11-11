@@ -78,7 +78,7 @@ export class MemoCardService {
     if (!target) {
       return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
     }
-    const result = await NativeCoreService.queryTasks([target.repository], memoRecordQuery(target.path, tag), config.todoDefaults)
+    const result = (await NativeCoreService.queryTasks([target.repository], [memoRecordQuery(target.path, tag)], config.todoDefaults))[0]
     return { data: memoCardData(result.tasks, tag), tags: taskTagOptions(result.tasks, target.tagOptions), available: true }
   }
 }

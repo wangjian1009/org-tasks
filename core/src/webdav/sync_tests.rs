@@ -267,7 +267,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
         assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
         assert!(repo.pending_writes().await.unwrap().is_empty());
         assert!(!repo.has_local_changes().await.unwrap());
-        let tasks = crate::OrgWorkspace::new(vec![repo.clone()]).unwrap().query(&crate::TaskQuery::default()).await.unwrap().tasks;
+        let tasks = crate::OrgWorkspace::new(vec![repo.clone()]).unwrap().query(&[crate::TaskQuery::default()]).await.unwrap().remove(0).tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].full_path().titles, ["Project"]);
         assert_eq!(tasks[1].full_path().titles, ["Project", "Child"]);
@@ -365,7 +365,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
         let put_count = state.lock().unwrap().requests.iter().filter(|request| request.starts_with("PUT ")).count();
         assert_eq!(put_count, 1, "无修改的再次同步不重复上传");
         let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
-        let tasks = workspace.query(&crate::TaskQuery::default()).await.unwrap().tasks;
+        let tasks = workspace.query(&[crate::TaskQuery::default()]).await.unwrap().remove(0).tasks;
         assert_eq!(tasks.len(), if insert_node { 3 } else { 2 });
         assert!(!workspace.notifications().await.unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
         worker.abort();
@@ -636,8 +636,8 @@ async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
     };
     let result = crate::OrgWorkspace::new(vec![repo.clone()])
         .unwrap()
-        .query(&query).await
-        .unwrap();
+        .query(std::slice::from_ref(&query)).await
+        .unwrap().remove(0);
     assert_eq!(result.tasks.len(), 1);
     assert_eq!(result.tasks[0].path(), "visible.org");
     assert!(
@@ -948,11 +948,11 @@ async fn downloaded_file_todo_declarations_override_external_defaults_and_surviv
     let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
     assert_eq!(
         workspace
-            .query(&crate::TaskQuery {
+            .query(&[crate::TaskQuery {
                 expression: "it.done".into(),
                 ..Default::default()
-            }).await
-            .unwrap()
+            }]).await
+            .unwrap().remove(0)
             .tasks
             .len(),
         1

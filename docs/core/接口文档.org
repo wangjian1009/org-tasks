@@ -120,7 +120,7 @@ impl OrgWorkspace {
 
     pub fn remove_repo_by_root_directory(&mut self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
-    pub async fn query(&self, query: &TaskQuery) -> Result<TaskQueryResult, CoreError>;
+    pub async fn query(&self, queries: &[TaskQuery]) -> Result<Vec<TaskQueryResult>, CoreError>;
 
     pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, CoreError>;
 
@@ -136,7 +136,7 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 异步 ~query~ 按次加载文件并汇总 headline 任务投影，解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影，解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 ~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
@@ -563,7 +563,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 * 通用结构化任务查询
 
-~OrgWorkspace.query(&TaskQuery)~ 返回 Core 过滤后的任务列表和分类摘要。请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
+~OrgWorkspace.query(&[TaskQuery])~ 返回与请求逐项对应的结果数组，每项包含 Core 过滤后的任务列表和分类摘要。请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
 
 ~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 或 ~ARCHIVE~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
 
@@ -845,3 +845,9 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 * 任务完成状态访问
 
 ~FilterTask.done_keywords() -> &[String]~ 返回所属文件有效的完成状态列表，顺序与 ~OrgFile.todo.done_keywords~ 一致，名称不含快捷键和日志后缀。文件没有声明时继承全局默认配置，显式清空配置时返回空列表。调用方完成任务时使用第一项，通过 ~TaskModification::Todo~ 提交并携带当前文件版本；Core 继续负责状态校验、完成日志与重复任务调度。该快照与 ~file_version()~ 来自同一次读取。
+
+* 批量任务查询
+
+系统仅提供 ~query(queries: &[TaskQuery]) -> Result<Vec<TaskQueryResult>, CoreError>~ 异步查询接口，单查询也传单项数组。成功时结果数组长度与输入相同， ~results[i]~ 对应 ~queries[i]~ ；空命中和重复查询不改变位置。任一错误使整批失败，不返回部分结果。空批次不加业务锁、不读取仓库。
+
+每仓库在本批锁内加载一次，只有所有请求共同排除的文件传入底层 ~ignore_files~ ；其余加载后在各项查询求值前排除。多仓库锁按规范化目录排序取得，完成全部加载后释放，后续计算消费本次独立快照。完整签名、错误路径与 Harmony 编组见 [[file:批量查询接口设计.org][批量查询接口设计]]。

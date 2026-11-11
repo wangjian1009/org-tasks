@@ -466,12 +466,17 @@ impl OrgRepo {
 
     pub(crate) async fn load_files_unlocked(&self, ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError> {
         validate_ignored_files(ignore_files)?;
+        #[cfg(test)]
+        super::test_support::record_access(Path::new(&self.root_directory), 1);
         let root = Path::new(&self.root_directory);
         let rules = super::TaskScanRules::load(root).await?;
         let sources = scan_org_files(root, ignore_files).await?;
+        let mut setup_cache = sources.iter().map(|source| {
+            (source.path.clone(), Some(source.source_bytes.clone()))
+        }).collect();
         let mut files = Vec::with_capacity(sources.len());
         for source in sources {
-            let setup = load_setup_settings(root, &source.path, &source.source_bytes).await?;
+            let setup = load_setup_settings_cached(root, &source.path, &source.source_bytes, &mut setup_cache).await?;
             let mut file = self.parse_file_with_setup(source.path, source.source_bytes, setup)?;
             file.modified_at = source.modified_at;
             file.scan_ignored = rules.excludes(&file.path);
@@ -911,6 +916,15 @@ pub(crate) async fn load_setup_settings(
     source_path: &str,
     source_bytes: &[u8],
 ) -> Result<String, CoreError> {
+    load_setup_settings_cached(root, source_path, source_bytes, &mut Default::default()).await
+}
+
+async fn load_setup_settings_cached(
+    root: &Path,
+    source_path: &str,
+    source_bytes: &[u8],
+    cache: &mut std::collections::BTreeMap<String, Option<Vec<u8>>>,
+) -> Result<String, CoreError> {
     let mut settings = Vec::new();
     let mut pending = vec![(PathBuf::from(source_path), source_bytes.to_vec())];
     let mut visited = std::collections::BTreeSet::new();
@@ -940,8 +954,12 @@ pub(crate) async fn load_setup_settings(
                 .to_string_lossy()
                 .replace(std::path::MAIN_SEPARATOR, "/");
             if normalized.split('/').any(|part| part == ".sync") || !visited.insert(normalized.clone()) { continue; }
-            let Some(bytes) = crate::webdav::transaction::read(root, &normalized).await? else { continue };
-            pending.push((setup_path, bytes));
+            if !cache.contains_key(&normalized) {
+                let bytes = crate::webdav::transaction::read(root, &normalized).await?;
+                cache.insert(normalized.clone(), bytes);
+            }
+            let Some(bytes) = &cache[&normalized] else { continue };
+            pending.push((setup_path, bytes.clone()));
         }
     }
     Ok(settings.join("\n"))
@@ -1145,7 +1163,7 @@ mod tests {
         let mut other = OrgRepo::new(other_root.to_string_lossy().into()).unwrap();
         other.load::<CompletedSync>().await.unwrap();
         let mut workspace = crate::OrgWorkspace::new(vec![repo, other]).unwrap();
-        let result = workspace.query(&crate::TaskQuery::default()).await.unwrap();
+        let result = workspace.query(&[crate::TaskQuery::default()]).await.unwrap().remove(0);
         assert_eq!(result.tasks.len(), 3);
         assert!(
             result
@@ -1161,11 +1179,11 @@ mod tests {
         );
         assert_eq!(
             workspace
-                .query(&crate::TaskQuery {
+                .query(&[crate::TaskQuery {
                     expression: "\"Hidden\"".into(),
                     ..Default::default()
-                }).await
-                .unwrap()
+                }]).await
+                .unwrap().remove(0)
                 .tasks,
             []
         );

@@ -43,7 +43,7 @@ export class FileTargetService {
     if (!target) return undefined
     const query = kind === 'memo' ? memoRecordQuery(target.path) : inboxRecordQuery(target.path)
     query.includeDone = kind !== 'someday'
-    const result = await NativeCoreService.queryTasks([target.repository], query, config.todoDefaults)
+    const result = (await NativeCoreService.queryTasks([target.repository], [query], config.todoDefaults))[0]
     return { tasks: result.tasks, categories: result.categories, tagOptions: target.tagOptions, tagGroups: target.tagGroups }
   }
 

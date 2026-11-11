@@ -692,20 +692,26 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             if (projected != nullptr) napi_resolve_deferred(env, work->deferred, projected);
             else RejectFileProjection(env, work->deferred);
         } else if (!work->notifications && !work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
-            napi_value tasks;
-            napi_value source_tasks = result;
-            bool valid = napi_get_named_property(env, result, "tasks", &source_tasks) == napi_ok;
-            uint32_t length = 0;
-            valid = valid && napi_get_array_length(env, source_tasks, &length) == napi_ok &&
-                napi_create_array_with_length(env, length, &tasks) == napi_ok;
-            for (uint32_t index = 0; valid && index < length; index++) {
-                napi_value source;
-                valid = napi_get_element(env, source_tasks, index, &source) == napi_ok;
-                if (!valid) break;
-                napi_value task = CreateTaskObject(env, source);
-                valid = task != nullptr && napi_set_element(env, tasks, index, task) == napi_ok;
+            uint32_t count = 0;
+            bool valid = napi_get_array_length(env, result, &count) == napi_ok;
+            for (uint32_t item = 0; valid && item < count; item++) {
+                napi_value query_result;
+                napi_value source_tasks;
+                napi_value tasks;
+                uint32_t length = 0;
+                valid = napi_get_element(env, result, item, &query_result) == napi_ok &&
+                    napi_get_named_property(env, query_result, "tasks", &source_tasks) == napi_ok &&
+                    napi_get_array_length(env, source_tasks, &length) == napi_ok &&
+                    napi_create_array_with_length(env, length, &tasks) == napi_ok;
+                for (uint32_t index = 0; valid && index < length; index++) {
+                    napi_value source;
+                    valid = napi_get_element(env, source_tasks, index, &source) == napi_ok;
+                    if (!valid) break;
+                    napi_value task = CreateTaskObject(env, source);
+                    valid = task != nullptr && napi_set_element(env, tasks, index, task) == napi_ok;
+                }
+                if (valid) valid = napi_set_named_property(env, query_result, "tasks", tasks) == napi_ok;
             }
-            if (valid) valid = napi_set_named_property(env, result, "tasks", tasks) == napi_ok;
             if (valid) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {

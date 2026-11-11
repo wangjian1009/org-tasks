@@ -390,7 +390,7 @@ pub struct TaskPosition {
 
 * 工作空间与仓库
 
-~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库 ~TaskQuery~ 查询，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
+~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库批量 ~TaskQuery~ 查询，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
 ~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~load_files(ignore_files)~ 每次从磁盘返回独立文件集合，仓库不保留它；同步历史属于仓库的本地控制数据，由专用历史方法读取； ~load::<P>~ 仅处理身份； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，历史通过既有控制目录与本轮同步状态关联，仓库对象不持有历史集合。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
@@ -640,7 +640,7 @@ options: SyncOptions}{}
 
 * 通用任务查询模型
 
-~TaskQuery~ 为运行时请求，不属于同步历史或 outbox。UI 组装请求， ~OrgWorkspace.query~ 统一生成过滤后的 ~TaskQueryResult.tasks~ ；完成状态依据 ~FilterTask.is_done()~ ，组合任务依据完整文件的真实父子层级。 ~excluded_files~ 统一接收 ~OrgFileRef~ 数组，精确定位 Core 仓库与文件；创建日期条件由 ~expression~ 表达。 ~TaskQueryResult.categories~ 是相同基础范围的分类统计，不保存控件选中状态。详细契约见 [[file:查询语言设计.org][查询语言设计]]。
+~TaskQuery~ 为运行时请求，不属于同步历史或 outbox。UI 组装请求数组， ~OrgWorkspace.query~ 按输入顺序统一生成每项过滤后的 ~TaskQueryResult.tasks~ ；完成状态依据 ~FilterTask.is_done()~ ，组合任务依据完整文件的真实父子层级。 ~excluded_files~ 统一接收 ~OrgFileRef~ 数组，精确定位 Core 仓库与文件；创建日期条件由 ~expression~ 表达。 ~TaskQueryResult.categories~ 是相同基础范围的分类统计，不保存控件选中状态。仅提供批量查询，返回 ~Result<Vec<TaskQueryResult>, CoreError>~ ；成功数组与输入按下标对应，任一错误导致整批失败。请求和结果都不写入仓库缓存或同步记录。详细契约见 [[file:查询语言设计.org][查询语言设计]] 与 [[file:批量查询接口设计.org][批量查询接口设计]]。
 
 #+begin_src rust
 pub struct TaskQuery {
@@ -663,7 +663,7 @@ include\_compose\_tasks: bool}{}
 \umlclass[x=8,y=0]{TaskQueryResult}{tasks: Vec\textless FilterTask\textgreater \\
 categories: Vec\textless TaskCategory\textgreater}{}
 \umldep{TaskQueryResult}{TaskQuery}
-\umlclass[x=4,y=-4]{OrgWorkspace}{}{query(TaskQuery): Result\textless TaskQueryResult, CoreError\textgreater}
+\umlclass[x=4,y=-4]{OrgWorkspace}{}{query(\&[TaskQuery]): Result\textless Vec\textless TaskQueryResult\textgreater, CoreError\textgreater}
 \umldep{OrgWorkspace}{TaskQuery}
 \umldep{OrgWorkspace}{TaskQueryResult}
 \end{tikzpicture}

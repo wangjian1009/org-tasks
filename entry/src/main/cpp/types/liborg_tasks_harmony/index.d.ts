@@ -204,7 +204,7 @@ export class Workspace {
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
-  query(query: TaskQuery): Promise<TaskQueryResult>;
+  query(queries: TaskQuery[]): Promise<TaskQueryResult[]>;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;

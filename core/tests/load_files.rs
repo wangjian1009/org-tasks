@@ -110,15 +110,15 @@ async fn query_extracts_relative_exclusions_for_each_repository_before_file_load
     .await;
     let workspace = OrgWorkspace::new(vec![a.repo.clone(), b.repo.clone()]).unwrap();
     let result = workspace
-        .query(&TaskQuery {
+        .query(&[TaskQuery {
             excluded_files: vec![OrgFileRef {
                 repo_id: a.repo.id.clone(),
                 path: "same.org".into(),
             }],
             ..Default::default()
-        })
+        }])
         .await
-        .unwrap();
+        .unwrap().remove(0);
     assert_eq!(result.tasks.len(), 1);
     assert_eq!(result.tasks[0].repo_id(), b.repo.id);
     assert_eq!(result.tasks[0].path(), "same.org");
@@ -133,7 +133,7 @@ async fn query_extracts_relative_exclusions_for_each_repository_before_file_load
         b.repo.file("same.org").await.unwrap().source_bytes(),
         b"#+CATEGORY: Work\n* TODO Visible\n- [ ] Item\n"
     );
-    assert!(workspace.query(&TaskQuery::default()).await.is_err());
+    assert!(workspace.query(&[TaskQuery::default()]).await.is_err());
 }
 
 #[tokio::test]
@@ -144,10 +144,10 @@ async fn scan_rules_are_read_per_operation_and_do_not_hide_files_from_load_files
     f.write(".orgzlyignore", b"a.org\n").await;
     assert_eq!(f.repo.load_files(&[]).await.unwrap().len(), 2);
     let workspace = OrgWorkspace::new(vec![f.repo.clone()]).unwrap();
-    let first = workspace.query(&TaskQuery::default()).await.unwrap();
+    let first = workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
     assert_eq!(first.tasks[0].path(), "b.org");
     f.write(".orgzlyignore", b"b.org\n").await;
-    let second = workspace.query(&TaskQuery::default()).await.unwrap();
+    let second = workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
     assert_eq!(second.tasks[0].path(), "a.org");
     assert_eq!(first.tasks[0].path(), "b.org");
     assert!(f.repo.file_metadata().await.unwrap()[1].is_ignore);

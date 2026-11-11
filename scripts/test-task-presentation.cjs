@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选和同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、侧边栏批量查询计数和同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -429,4 +429,50 @@ test('备忘摘要优先修改日期，回退创建日期，按日期、标签�
     createdAt: new Date(2026, 9, 1, 12).getTime(), tags: [], bodyFirstLine: '只有正文' })), '10月1日  只有正文');
   assert.equal(memoPresentation.memoSummaryText(task('memo', { modifiedAt: null, createdAt: null,
     tags: [], bodyFirstLine: null })), '');
+});
+
+function navigationFixture(fail = false) {
+  const filename = path.resolve(__dirname, '../entry/src/main/ets/components/AppShell.ets');
+  const source = fs.readFileSync(filename, 'utf8');
+  const method = source.match(/  async loadNavigation\(\) \{[\s\S]*?\n  \}/)[0];
+  const code = ts.transpileModule('export class Navigation {' + method + '\n}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} };
+  const calls = [];
+  const config = { repos: [{ id: 'repo' }], todoDefaults: 'defaults' };
+  const native = { async queryTasks(repositories, queries, defaults) {
+    assert.equal(repositories, config.repos);
+    assert.equal(defaults, config.todoDefaults);
+    calls.push(queries);
+    if (fail) throw new Error('文件加载失败');
+    return queries.map((_, index) => ({ tasks: Array(index).fill({}), categories: [] }));
+  } };
+  vm.runInThisContext('(function(module,exports,AppConfigService,FileTargetService,NativeCoreService,overviewTaskQuery,overdueTaskQuery,coreErrorMessage){' + code + '\n})', { filename })(
+    module, module.exports, { load: async () => config },
+    { query: async (_, kind) => ({ tasks: Array({ inbox: 7, someday: 8, memo: 9 }[kind]).fill({}) }) },
+    native, view => ({ expression: view }), () => ({ expression: 'overdue' }), error => error.message
+  );
+  const view = Object.assign(new module.exports.Navigation(), {
+    navigationRequest: 0, todayCount: 100, overdueCount: 101, plannedCount: 102, anytimeCount: 103, logbookCount: 104,
+    getUIContext: () => ({ getHostContext: () => ({}) })
+  });
+  return { view, calls };
+}
+
+test('侧边栏一次提交五项查询，空命中也按原结果下标显示计数', async () => {
+  const { view, calls } = navigationFixture();
+  await view.loadNavigation();
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].map(query => query.expression), ['today', 'overdue', 'planned', 'anytime', 'logbook']);
+  assert.deepEqual([view.todayCount, view.overdueCount, view.plannedCount, view.anytimeCount, view.logbookCount], [0, 1, 2, 3, 4]);
+  assert.deepEqual([view.inboxCount, view.somedayCount, view.memoCount], [7, 8, 9]);
+});
+
+test('批量查询拒绝时侧边栏保留原计数并显示整体加载错误', async () => {
+  const { view, calls } = navigationFixture(true);
+  await view.loadNavigation();
+  assert.equal(calls.length, 1);
+  assert.match(view.navMessage, /文件加载失败/);
+  assert.deepEqual([view.todayCount, view.overdueCount, view.plannedCount, view.anytimeCount, view.logbookCount], [100, 101, 102, 103, 104]);
 });

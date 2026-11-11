@@ -225,8 +225,8 @@ export class CoreWorkspace {
     await this.native.removeRepo(rootDirectory)
   }
 
-  async query(query: CoreTaskQuery): Promise<CoreTaskQueryResult> {
-    return await this.native.query(query)
+  async query(queries: CoreTaskQuery[]): Promise<CoreTaskQueryResult[]> {
+    return await this.native.query(queries)
   }
 
 }
@@ -243,9 +243,10 @@ export class NativeCoreService {
     return await workspace.notifications()
   }
 
-  static async queryTasks(repositories: RepoConfig[], query: CoreTaskQuery, todoDefaults?: string): Promise<CoreTaskQueryResult> {
+  static async queryTasks(repositories: RepoConfig[], queries: CoreTaskQuery[], todoDefaults?: string): Promise<CoreTaskQueryResult[]> {
+    if (queries.length === 0) return []
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    return await workspace.query(query)
+    return await workspace.query(queries)
   }
   static async repository(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreRepo> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
@@ -310,7 +311,7 @@ export class NativeCoreService {
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     await workspace.reload()
-    return (await workspace.query({})).tasks
+    return (await workspace.query([{}]))[0].tasks
   }
 
   static async syncWorkspaceWebDav(
@@ -332,7 +333,7 @@ export class NativeCoreService {
         await repo.load()
       }
     }
-    return (await workspace.query({})).tasks
+    return (await workspace.query([{}]))[0].tasks
   }
 
 }

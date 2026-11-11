@@ -44,7 +44,7 @@ class Workspace {
   repos(): Promise<Repo[]>
   addRepo(rootDirectory: string): Promise<Repo>
   removeRepo(rootDirectory: string): Promise<void>
-  query(query: TaskQuery): Promise<TaskQueryResult>
+  query(queries: TaskQuery[]): Promise<TaskQueryResult[]>
   notifications(): Promise<CoreNotification[]>
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>
   stopWatchingNotifications(): void
@@ -122,7 +122,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~FilterTask.created_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
-| ~OrgWorkspace.query(&TaskQuery)~ | ~workspace.query(query)~ | 结构化请求在 worker 中透传 Core，返回任务及分类统计。 |
+| ~OrgWorkspace.query(&[TaskQuery])~ | ~workspace.query(queries)~ | 结构化请求数组在一次 worker 调用中透传 Core，按输入顺序返回任务及分类统计数组。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | 仅恢复稳定 ID；Core 原泛型返回类型保留为空集合，TS 只等待完成。 |
 | ~OrgRepo.load::<WebDavSyncPolicy>()~ 与 ~sync_history_summaries~ | ~await repo.history()~ | Core 从仓库 ~.sync/history~ 恢复已完成记录并生成执行结果、传输方向与冲突处理摘要；bridge 只编组字段，ArkTS 不读取控制目录。 |
@@ -184,7 +184,7 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 * 任务完成对象
 
-~Workspace.query~ 在结果的 ~tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
+~Workspace.query~ 在每项结果的 ~tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
 
 #+begin_src ts
 class Task {
@@ -208,7 +208,7 @@ class Task {
 
 界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。新增页面和调整交互时必须遵守该原则；分类计数可以由展示层计算或直接显示 core 摘要，但不能为任务列表在展示层复制过滤规则。
 
-~Workspace.query(query: TaskQuery): Promise<TaskQueryResult>~ 接受结构化 TS 对象，内部编组 JSON，在 worker 中加载仓库并调用 ~OrgWorkspace.query~ 。UI 提交页面所需的通用查询参数；完成、文件、分类并集和组合任务过滤均由 Core 执行。界面直接显示返回的 ~tasks~ 。
+~Workspace.query(queries: TaskQuery[]): Promise<TaskQueryResult[]>~ 仅接受结构化 TS 请求数组，内部编组 JSON，一次 worker 调用 Core 的批量 ~OrgWorkspace.query~ ，返回对应结果数组。UI 提交页面所需的通用查询参数；完成、文件、分类并集和组合任务过滤均由 Core 执行。界面直接显示返回的 ~tasks~ 。
 
 #+begin_src ts
 interface OrgFileRef { repoId: string; path: string }
@@ -480,3 +480,11 @@ Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的�
 * 任务完成状态接入
 
 Rust bridge 将 ~FilterTask.done_keywords()~ 投影为 ~HarmonyBridgeTask.done_keywords~ ，C++ 在 ~Task~ 注册只读、可枚举的 ~doneKeywords: string[]~ 属性，ArkTS 的 ~CoreTask~ 类型别名直接透传。列表前部 checkbox 仅对待办任务开放完成操作，使用 ~doneKeywords[0]~ 组装 ~TODO~ 修改，经原有异步 ~Workspace.executeTaskOperations~ 提交文件版本约束；不在宿主解析文件或硬编码完成关键词。空列表禁用操作，提交期间阻止重复点击，失败显示 Core 错误；成功释放编辑会话，由数据通知刷新当前视图。
+
+* 批量查询与锁边界
+
+~Workspace.query(queries: TaskQuery[]): Promise<TaskQueryResult[]>~ 是唯一通用任务查询入口，旧单对象请求拒绝；单查询提交单项数组并取第零项结果。Rust、C ABI、C++ N-API 与 ArkTS wrapper 一次传递整批，C++ 将每项 ~tasks~ 包装为 Task 对象。 ~results[i]~ 对应 ~queries[i]~ ，空结果和重复查询均保留位置。
+
+Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不取得业务锁、不加载文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/批量查询接口设计.org][批量查询接口设计]]。
+
+侧边栏将今天、过期、计划、随时和日志簿的全仓库查询合为一个批次，并按输入位置显示计数。收件箱、某天和备忘保持各自仓库范围与目标文件元信息边界。

@@ -136,9 +136,12 @@ function fixture() {
       async executeTaskOperations(repos, group, todoDefaults) {
         calls.push({ repos, group, todoDefaults });
       },
-      async queryTasks(repos, query) {
-        queries.push({ repos, query });
-        return { tasks: repos.map(repo => ({ id: repo.id + ':inbox.org', heading: repo.name })), categories: [] };
+      async queryTasks(repos, batch) {
+        assert.ok(Array.isArray(batch));
+        return batch.map(query => {
+          queries.push({ repos, query });
+          return { tasks: repos.map(repo => ({ id: repo.id + ':inbox.org', heading: repo.name })), categories: [] };
+        });
       }
     } }
   }, { canIUse: capability => {

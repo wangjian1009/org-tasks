@@ -23,6 +23,8 @@ pub(crate) async fn lock_before(root: &Path, deadline: tokio::time::Instant) -> 
         Mutex<std::collections::BTreeMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>,
     > = OnceLock::new();
     let path = fs::canonicalize(root).await.map_err(io)?;
+    #[cfg(test)]
+    crate::model::test_support::record_access(&path, 0);
     let mutex = {
         let mut locks = LOCKS
             .get_or_init(Default::default)
