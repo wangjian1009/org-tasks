@@ -138,7 +138,7 @@ mod tests {
                 .unwrap(),
             ], Default::default());
         let workspace = OrgWorkspace::new(vec![first, second]).unwrap();
-        let tasks = workspace.query(&[crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }]).await.unwrap().remove(0).tasks;
+        let tasks = workspace.query(&[(crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].repo_id(), crate::model::test_support::id("repo-1"));
@@ -211,11 +211,11 @@ mod tests {
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OPEN | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.query(&[crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }]).await.unwrap().remove(0).tasks.len(), 2);
+        assert_eq!(workspace.query(&[(crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.len(), 2);
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OTHER | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.query(&[crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }]).await.unwrap().remove(0).tasks.len(), 1);
+        assert_eq!(workspace.query(&[(crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.len(), 1);
         workspace
             .add_repo(OrgRepo::new("/tmp/two".into()).unwrap())
             .unwrap();

@@ -4,7 +4,7 @@
 
 mod archive;
 mod history;
-mod remote_base;
+pub(crate) mod remote_base;
 mod synchronize;
 pub(crate) mod session;
 pub(crate) mod transaction;

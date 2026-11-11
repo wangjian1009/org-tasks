@@ -1,3 +1,5 @@
+import { AppConfigService } from '../services/AppConfigService'
+import { PageQueryService } from '../services/PageQueryService'
 import { CoreSyncConflictNotification, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
 import { CoreNotificationService, NotificationRepository } from '../services/CoreNotificationService'
 import { syncConflictRepositoryName } from '../ui/CoreNotificationPresentation'
@@ -22,7 +24,7 @@ export struct SyncConflictNotificationView {
       try {
         this.getUIContext().getPromptAction().showToast({ message: `无法打开冲突文件：${coreErrorMessage(e as CoreBridgeError)}` })
       } catch (_) { console.error('显示冲突文件读取错误失败') }
-      try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) } catch (_) {}
+      try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
     } finally {
       this.opening = false
     }

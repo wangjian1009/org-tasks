@@ -38,16 +38,14 @@ function fixture() {
   const requests = [];
   let ignored = false;
   const settings = { id: 'host-id', rootDirectory: '/repo', webdavEnabled: true };
-  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {}, async fileMetadata() {
-    return [{ path: 'memo.org', isIgnore: ignored }];
-  }, async file() { return { fileVersion: 'memo-version', fullPath: { repoId: 'core-id', file: 'memo.org', titles: [] } }; } };
+  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {}, async file() { return { fileVersion: 'memo-version', fullPath: { repoId: 'core-id', file: 'memo.org', titles: [] } }; } };
   const task = { repoId: 'core-id', filePath: 'inbox.org', fileVersion: 'source-version', fullPath: { repoId: 'core-id', file: 'inbox.org', titles: ['Item'], occurrence: 1 } };
-  const workspace = { async refileTargets() { return [target('core-id', 'Work')]; },
+  const workspace = { async query(batch) {return batch.map(()=>({type:'file',result:ignored?[]:[{path:'memo.org',isIgnore:false}]}));}, async refileTargets() { return [target('core-id', 'Work')]; },
     async repos() { return [repo]; }, async executeTaskOperations(group) { requests.push(group); } };
   const { InboxService } = load('services/InboxService', {
     './AppConfigService': { AppConfigService: { async load() { return { repos: [settings], memoRepoId: 'host-id', memoFile: 'memo.org' }; } } },
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.memoRepoId, path: config.memoFile }) },
-    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return workspace; } } }
+    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return workspace; } } }
   });
   return { InboxService, requests, task, setIgnored() { ignored = true; } };
 }
@@ -99,18 +97,20 @@ test('近期日期分组只组织返回快照，保留完成与 CNCL、跨年日
   assert.equal(unplannedSpacer(400, 80), 220);
 });
 
-test('近期查询使用原有 Workspace.query、今天及前两天的创建日期条件和精确仓库文件排除', async () => {
+test('收件箱与近期记录在同一批次，最近三天表达式及精确排除保持原样', async () => {
   const queries = [];
-  const task = { id: 'recent', createdAt: 1 };
-  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {} };
-  const { InboxService } = load('services/InboxService', {
-    './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-id', rootDirectory: '/repo' }], inboxRepoId: 'host-id', inboxFile: 'inbox.org' }; } } },
-    './FileTargetService': { configuredFileTarget: config => ({ repoId: config.inboxRepoId, path: config.inboxFile }) },
-    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch) { assert.ok(Array.isArray(batch)); return batch.map(q => { queries.push(q); return { tasks: [task] }; }); } }; } } }
+  const task = {id:'recent',createdAt:1};
+  const config={repos:[{id:'host-id',rootDirectory:'/repo'}],inboxRepoId:'host-id',inboxFile:'inbox.org'};
+  const prepared={reference:{repoId:'core-id',path:'inbox.org'},task:{type:'task',query:{}},file:{type:'file',query:{}}};
+  const {InboxService}=load('services/InboxService',{
+    './AppConfigService':{AppConfigService:{}},
+    './FileTargetService':{configuredFileTarget:c=>({repoId:c.inboxRepoId,path:c.inboxFile}),FileTargetService:{prepare:()=>prepared,result:()=>({tasks:[],categories:[]})}},
+    './NativeCoreService':{taskResult:value=>value.result,NativeCoreService:{async workspaceFor(){return {async repos(){return [{id:'core-id',rootDirectory:'/repo'}];}};}}},
+    './PageQueryService':{PageQueryService:{async query(_,batch){queries.push(batch);return [{type:'task',result:{tasks:[]}},{type:'file',result:[]},{type:'task',result:{tasks:[task]}}];}}}
   });
-  assert.deepEqual(await InboxService.recent({}), [task]);
-  assert.deepEqual(queries[0], { expression: 'cr.ge.-2d cr.le.today .o.created', includeDone: true, includeComposeTasks: true,
-    excludedFiles: [{ repoId: 'core-id', path: 'inbox.org' }] });
+  assert.deepEqual((await InboxService.load(config)).recent,[task]);
+  assert.equal(queries.length,1);
+  assert.deepEqual(queries[0][2].query,{expression:'cr.ge.-2d cr.le.today .o.created',includeDone:true,includeComposeTasks:true,excludedFiles:[{repoId:'core-id',path:'inbox.org'}]});
 });
 
 test('普通 CATEGORY 查询在 Core 排除收件箱和某天文件，快捷入口独立查询具体文件', async () => {
@@ -118,12 +118,12 @@ test('普通 CATEGORY 查询在 Core 排除收件箱和某天文件，快捷入�
   const normal = [target('core-a', 'Work')];
   const first = { ...target('core-a', '必须排除的分类'), path: 'someday.org', headingPath: ['Later'], position: { line: 1, column: 0, byte_offset: 0 } };
   const second = { ...first, headingPath: ['Other'], position: { line: 2, column: 0, byte_offset: 40 } };
-  const repo = { id: 'core-a', rootDirectory: '/a', async load() {}, async fileMetadata() { return [{ path: 'someday.org', isIgnore: false }]; } };
+  const repo = { id: 'core-a', rootDirectory: '/a', async load() {},  };
   const { InboxService } = load('services/InboxService', {
     './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-a', rootDirectory: '/a' }],
       inboxRepoId: 'host-a', inboxFile: 'inbox.org', somedayRepoId: 'host-a', somedayFile: 'someday.org' }; } } },
     './FileTargetService': { configuredFileTarget: (config, kind) => ({ repoId: config[kind + 'RepoId'], path: config[kind + 'File'] }) },
-    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; },
+    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false}]}));},
       async refileTargets(query) { queries.push(query); return query.files ? [first, second] : normal; } }; } } }
   });
   const result = await InboxService.targets({});
@@ -141,11 +141,11 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
   const queries = [];
   let hasTargets = true;
   const first = { ...target('core-id', 'Later'), path: 'someday.org', fullPath: { repoId: 'core-id', file: 'someday.org', titles: ['Later'], occurrence: 2 } };
-  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {}, async fileMetadata() { return [{ path: 'someday.org', isIgnore: false }]; } };
+  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {},  };
   const { InboxService } = load('services/InboxService', {
     './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-id', rootDirectory: '/repo', webdavEnabled: true }], somedayRepoId: 'host-id', somedayFile: 'someday.org' }; } } },
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.somedayRepoId, path: config.somedayFile }) },
-    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; },
+    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false}]}));},
       async refileTargets(query) { queries.push(query); return hasTargets ? [first] : []; }, async executeTaskOperations(group) { requests.push(group); } }; } } }
   });
   const task = { repoId: 'source', filePath: 'inbox.org', fileVersion: 'old', fullPath: { repoId: 'source', file: 'inbox.org', titles: ['Item'], occurrence: 2 } };

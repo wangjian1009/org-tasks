@@ -47,6 +47,9 @@ import {
   TitlePart as NativeTitlePart,
   AddressLink as NativeAddressLink,
   TitleCount as NativeTitleCount,
+  CoreQuery as NativeCoreQuery,
+  CoreQueryResult as NativeCoreQueryResult,
+  FileQuery as NativeFileQuery,
   TaskQuery as NativeTaskQuery,
   TaskQueryResult as NativeTaskQueryResult,
   WebDavSyncEvent as NativeWebDavSyncEvent,
@@ -80,6 +83,9 @@ export type CoreTask = NativeTask
 export type CoreTitlePart = NativeTitlePart
 export type CoreAddressLink = NativeAddressLink
 export type CoreTitleCount = NativeTitleCount
+export type CoreQuery = NativeCoreQuery
+export type CoreQueryResult = NativeCoreQueryResult
+export type CoreFileQuery = NativeFileQuery
 export type CoreTaskQuery = NativeTaskQuery
 export type CoreTaskQueryResult = NativeTaskQueryResult
 
@@ -170,7 +176,6 @@ export class CoreRepo {
   async file(path: string): Promise<CoreOrgFile> { return await this.native.file(path) }
 
   async loadFiles(ignoreFiles: string[] = []): Promise<CoreOrgFile[]> { return await this.native.loadFiles(ignoreFiles) }
-  async fileMetadata(): Promise<CoreOrgFileMetadata[]> { return await this.native.fileMetadata() }
 
   async conflicts(): Promise<NativeConflictSync[]> { return await this.native.conflicts() }
 
@@ -215,7 +220,6 @@ export class CoreWorkspace {
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async taskMergeOperations(request: CoreTaskMergeRequest): Promise<CoreTaskMergePlan> { return await this.native.taskMergeOperations(request) }
-  async notifications(): Promise<CoreNotification[]> { return await this.native.notifications() }
   async watchNotifications(monitor: CoreNotificationUpdateMonitor): Promise<void> { await this.native.watchNotifications(monitor) }
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
   async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
@@ -235,7 +239,7 @@ export class CoreWorkspace {
     await this.native.removeRepo(rootDirectory)
   }
 
-  async query(queries: CoreTaskQuery[]): Promise<CoreTaskQueryResult[]> {
+  async query(queries: CoreQuery[]): Promise<CoreQueryResult[]> {
     return await this.native.query(queries)
   }
 
@@ -248,12 +252,7 @@ let workspaceQueue: Promise<void> = Promise.resolve()
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
-  static async notifications(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreNotification[]> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
-    return await workspace.notifications()
-  }
-
-  static async queryTasks(repositories: RepoConfig[], queries: CoreTaskQuery[], todoDefaults?: string): Promise<CoreTaskQueryResult[]> {
+  static async query(repositories: RepoConfig[], queries: CoreQuery[], todoDefaults?: string): Promise<CoreQueryResult[]> {
     if (queries.length === 0) return []
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     return await workspace.query(queries)
@@ -321,7 +320,7 @@ export class NativeCoreService {
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     await workspace.reload()
-    return (await workspace.query([{}]))[0].tasks
+    return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
   }
 
   static async syncWorkspaceWebDav(
@@ -343,7 +342,20 @@ export class NativeCoreService {
         await repo.load()
       }
     }
-    return (await workspace.query([{}]))[0].tasks
+    return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
   }
 
+}
+
+export function taskResult(result: CoreQueryResult): CoreTaskQueryResult {
+  if (result.type !== 'task') throw new Error('查询结果不是任务结果')
+  return result.result
+}
+export function fileResult(result: CoreQueryResult): CoreOrgFileMetadata[] {
+  if (result.type !== 'file') throw new Error('查询结果不是文件结果')
+  return result.result
+}
+export function notificationResult(result: CoreQueryResult): CoreNotification[] {
+  if (result.type !== 'notification') throw new Error('查询结果不是通知结果')
+  return result.result
 }

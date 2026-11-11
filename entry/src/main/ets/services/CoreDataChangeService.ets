@@ -17,6 +17,16 @@ export class CoreDataChangeService {
   static async refresh(context: Context): Promise<void> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    await CoreDataChangeService.connect(workspace)
+  }
+
+  static invalidate(): void {
+    const updated: CoreDataChangeState = { revision: CoreDataChangeService.state.revision + 1 }
+    CoreDataChangeService.state = updated
+    AppStorage.setOrCreate<CoreDataChangeState>('coreDataChanges', updated)
+  }
+
+  static async connect(workspace: CoreWorkspace): Promise<void> {
     if (CoreDataChangeService.workspace === workspace) {
       await CoreDataChangeService.monitoring
       return
@@ -28,9 +38,7 @@ export class CoreDataChangeService {
     CoreDataChangeService.subscriptionId = 0
     CoreDataChangeService.monitoring = workspace.watchDataChanges((): void => {
       if (CoreDataChangeService.workspace !== workspace) return
-      const updated: CoreDataChangeState = { revision: CoreDataChangeService.state.revision + 1 }
-      CoreDataChangeService.state = updated
-      AppStorage.setOrCreate<CoreDataChangeState>('coreDataChanges', updated)
+      CoreDataChangeService.invalidate()
     }).then((subscriptionId: number): void => {
       if (CoreDataChangeService.workspace !== workspace) {
         workspace.stopWatchingDataChanges(subscriptionId)

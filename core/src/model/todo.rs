@@ -446,14 +446,14 @@ mod tests {
         repo.id = "repo".into();
         { let value = vec![f]; crate::model::test_support::write_files(&mut repo, value); }
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let done = workspace.query(&[crate::TaskQuery { expression: "it.done".into(), ..Default::default() }]).await.unwrap().remove(0).tasks;
+        let done = workspace.query(&[(crate::TaskQuery { expression: "it.done".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
         assert_eq!(
             done.iter()
                 .map(|task| task.state.as_deref().unwrap())
                 .collect::<Vec<_>>(),
             ["FINISHED", "CANCELED"]
         );
-        let pending = workspace.query(&[crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }]).await.unwrap().remove(0).tasks;
+        let pending = workspace.query(&[(crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].title, "Before");
     }
@@ -533,7 +533,7 @@ mod tests {
             { let value = file.clone(); crate::model::test_support::push_file(&mut repo, value); };
             let actual = OrgWorkspace::new(vec![repo])
                 .unwrap()
-                .query(&[crate::TaskQuery::default()]).await.unwrap().remove(0).tasks;
+                .query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
             let headlines = actual.iter().map(|task| serde_json::json!({ "title": task.title, "state": task.state,
                 "kind": match task.state_type { crate::FilterStateType::Todo => Some("pending"), crate::FilterStateType::Done => Some("done"), _ => None },
             })).collect::<Vec<_>>();

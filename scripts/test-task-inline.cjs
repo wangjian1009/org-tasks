@@ -27,13 +27,13 @@ function fixture() {
   let conflict=false;
   const config={repos:[{rootDirectory:'/repo',webdavEnabled:true}],todoDefaults:''};
   const workspace={
-    repos:async()=>[{id:'core',rootDirectory:'/repo',fileMetadata:async()=>[{path:'task.org',tagOptions:['configured']},{path:'other.org',tagOptions:['excluded']}]}],
-    query:async batch=>{assert.ok(Array.isArray(batch));return batch.map(()=>({tasks:[updated]}))},
+    repos:async()=>[{id:'core',rootDirectory:'/repo'}],
+    query:async batch=>{assert.ok(Array.isArray(batch));return batch.map(()=>({type:'task',result:{tasks:[updated]}}))},
     executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');}
   };
   const service=load('entry/src/main/ets/services/TaskInlineService.ets',{
     './AppConfigService':{AppConfigService:{load:async()=>config}},
-    './NativeCoreService':{NativeCoreService:{workspaceFor:async()=>workspace}}
+    './NativeCoreService':{taskResult:value=>value.result,NativeCoreService:{workspaceFor:async()=>workspace}}
   });
   return {task,updated,config,requests,...service,conflict:()=>conflict=true};
 }

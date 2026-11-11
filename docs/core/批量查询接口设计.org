@@ -3,144 +3,18 @@
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
 
-* 范围与目标
+* 唯一查询入口
 
-本文定义已实施的批量查询接口，与 [[file:接口文档.org][接口文档]]、[[file:查询语言设计.org][查询语言设计]] 和 [[file:../harmony/Rust bridge设计.org][Rust bridge 设计]] 共同维护。系统只提供批量形式的通用任务查询，不保留单查询兼容入口。
+系统通过异步 ~OrgWorkspace.query(&[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError>~ 批量读取任务、文件元信息和通知。请求字段、枚举、Harmony 编组及页面批次定义统一见 [[file:统一批量查询接口设计.org][统一批量查询接口设计]]。 ~TaskQuery~ 与 ~TaskQueryResult~ 的字段保持原定义，放入 CoreQuery 的 Task 分支；不保留独立任务、文件元信息或通知读取入口。
 
-将一次一个查询改为一次接收多个查询。整批共享本次加载的文件、任务基础投影、文件分类与完整父子关系，减少重复的 bridge 调用、仓库加锁、目录扫描、正文读取和 Org 解析。各查询仍独立执行表达式、排序、分类与包含开关，领域求值统一位于 Core。
+* 批量契约
 
-* Core 接口
+成功时结果与输入等长，按下标一一对应，结果种类与请求种类相同。无命中和重复请求保留位置，各项排序只作用于自身任务结果。任一参数校验、加锁、恢复、读取、解析、求值或结果编组失败，整批返回错误，Promise 拒绝，不返回部分成功。空批次不取得业务锁、不读盘。
 
-#+begin_src rust
-impl OrgWorkspace {
-    pub async fn query(
-        &self,
-        queries: &[TaskQuery],
-    ) -> Result<Vec<TaskQueryResult>, CoreError>;
-}
-#+end_src
+* 共享文件加载
 
-直接替换原 ~query(&TaskQuery)~ 签名，不增加 ~query_batch~ 或保留单查询重载。 ~TaskQuery~ 、 ~TaskQueryResult~ 、 ~TaskCategory~ 和 ~OrgFileRef~ 的字段及默认值保持既有契约，不引入批次 ID、请求 ID 或新的结果包装类型。
+每批固定仓库配置和本地自然日，按规范化根目录排序、去重，使用共同的 10 秒截止时间取得各仓库锁。每仓库只进行一次身份校验、恢复和 Org 文件加载；全部文件和通知所需基线索引读取完毕后释放锁，在独立快照上生成结果。Harmony 一次 worker 调用整个批次，查询不额外执行仓库身份初始化。
 
-#+begin_src rust
-let results = workspace.query(&[
-    TaskQuery {
-        expression: "i.todo".into(),
-        include_done: false,
-        ..Default::default()
-    },
-    TaskQuery {
-        expression: "it.done".into(),
-        ..Default::default()
-    },
-]).await?;
-let pending = &results[0];
-let done = &results[1];
+只有整批所有查询都不需要的文件才在读取正文前跳过。Task 的排除条件不能隐藏 File 或 Notification 需要的文件；加载后各项按自身范围求值。文件路径始终由 Core 仓库 ID 与安全相对路径共同确定，不跨仓库误排同名文件。标签配置、文件版本、项目名和任务编辑投影都来自同次加载，结果编组不回查正式文件。
 
-let single = workspace.query(&[TaskQuery::default()]).await?;
-#+end_src
-
-* Harmony 接口与编组
-
-#+begin_src ts
-class Workspace {
-  query(queries: TaskQuery[]): Promise<TaskQueryResult[]>
-}
-
-class CoreWorkspace {
-  query(queries: CoreTaskQuery[]): Promise<CoreTaskQueryResult[]>
-}
-
-class NativeCoreService {
-  static queryTasks(
-    repositories: RepoConfig[],
-    queries: CoreTaskQuery[],
-    todoDefaults?: string
-  ): Promise<CoreTaskQueryResult[]>
-}
-#+end_src
-
-请求与响应在 JSON 边界均为数组。 ~org_tasks_harmony_workspace_query~ 保留 C ABI 符号和参数形态，原 ~query_json~ 指针承载整个查询数组，返回字符串承载整个结果数组。C++ N-API 一次创建 async work 并调用 Rust 一次，不在 bridge 内循环调用旧单查询流程。
-
-#+begin_src json
-[
-  { "expression": "i.todo", "includeDone": false },
-  { "expression": "it.done" }
-]
-#+end_src
-
-#+begin_src json
-[
-  { "tasks": [], "categories": [] },
-  { "tasks": [], "categories": [] }
-]
-#+end_src
-
-上例仅展示响应外形，真实数组内容由 Core 求值决定。每个结果的 ~tasks~ 仍包装为原生 Task 对象，保留 ~isDone()~ 、来源、 ~fileVersion~ 和编辑投影；不额外读文件补齐字段。旧单对象请求拒绝，全部调用方统一迁移。
-
-* 结果对应与错误语义
-
-| 情况 | 契约 |
-|-
-| 输入 N 项 | 成功返回 N 项， ~results[i]~ 严格对应 ~queries[i]~ 。 |
-| 查询无命中 | 保留该结果项， ~tasks~ 和 ~categories~ 按既有规则返回空数组。 |
-| 重复查询 | 保留各自结果位置，不合并或去重输入。 |
-| 空数组 | 返回空数组，不取得 workspace 业务锁，不初始化仓库，不扫描或加载文件。 |
-| 单项数组 | 等价于原单查询；排除文件仍可在正文读取前跳过。 |
-| 非法参数 | 整批返回既有 ~CoreError~ ，所有请求校验在仓库加载前完成。 |
-| 加锁、恢复、读取或解析失败 | 整批失败，不返回部分成功结果；Harmony 对整个 Promise 执行 reject。 |
-| 多项相对日期条件 | 整批固定同一个本地自然日进行求值，避免跨午夜出现不同的“今天”。 |
-
-查询数组与结果数组按下标一一对应，不按完成顺序、表达式或命中数量重排。例如输入 ~[queryA, queryB, queryC]~ ，成功时固定返回 ~[resultA, resultB, resultC]~ ；即使 B 无命中，也保留 ~resultB~ ，不会使 C 的结果前移。重复查询同样保留各自结果位置。表达式中的排序只作用于对应结果内部的 ~tasks~ 。
-
-返回类型只有一层 ~Result~ ： ~Ok(results)~ 表示所有查询均成功，且结果数组长度与输入完全相同；任何查询或公共文件加载失败都返回 ~Err(error)~ 。Harmony 对应 resolve 整个结果数组或 reject 整个 Promise，数组中不混入错误、 ~null~ 或部分成功结果。
-
-表达式沿用现有 ~Filter::parse~ 的容错与排序语义，不借本次调整引入严格语法错误规则。分类摘要仍不受该项 ~categories~ 选择影响，各项之间不共享过滤后的可变任务集合。某项排序、移除系统标签等处理不得改变其他项结果。
-
-** 现有错误产生路径
-
-| 路径 | 来源与整批行为 |
-|-
-| ~core/src/model/query.rs~ 参数校验 | 排除路径不安全或仓库 ID 为空产生 ~InvalidInput~ ，在加锁前终止整批。 |
-| ~query.rs~ 仓库根目录与 ~webdav/transaction.rs~ 加锁 | 规范化目录、打开锁文件或文件锁 I/O 失败产生 ~Store~ ；等待仓库锁超时产生 ~InvalidState~ 。 |
-| ~model/access.rs~ 身份校验与恢复 | 身份读取失败、身份改变、重置或遗留同步恢复失败直接终止公共加载。 |
-| ~model/service.rs~ 文件加载 | 扫描规则、目录、正文、 ~SETUPFILE~ 读取及 Org 构造错误属于公共快照加载错误，直接向外传播；扫描产生非法路径也归此阶段，不能只根据错误枚举分类。 |
-| ~filter.rs~ 表达式与求值 | 当前 ~Filter::parse~ 、任务过滤、分类与排序不返回 ~CoreError~ ，未知 token 沿用文本匹配语义。 |
-| ~harmony/src/bridge.rs~ 与 N-API | JSON 解码、无效句柄、workspace Mutex、运行时、结果编码或 Task 包装失败，均拒绝整个 Promise。 |
-
-错误按产生阶段解释，但返回始终只有一层 ~Result~ ；不因为错误源于单项请求而改变整批失败约定。
-
-* 一次加锁与一次加载
-
-一次加锁指一次批次的业务访问边界：Harmony 的 workspace 业务 Mutex 取得一次；Core 对每个不同规范化仓库目录取得一次仓库锁。多仓库本来就有不同的仓库锁，不能用一把进程内锁替代跨进程锁。句柄表等短暂内部管理锁不属于此计数。
-
-非空批次按以下步骤执行：
-
-1. 完整解码查询数组，校验所有排除文件的安全相对路径与非空仓库 ID。
-2. Harmony 取得一次 workspace 业务锁并固定本批仓库配置。仓库身份在打开或加入 workspace 时初始化；查询不再逐仓库调用 ~OrgRepo.load()~ ，避免该初始化接口额外取得仓库锁。
-3. Core 对规范化根目录排序并去重，使用共同的 10 秒加锁截止时间取得仓库锁集合，沿用 [[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]] 的身份校验、重置和遗留同步恢复规则。同一磁盘目录不得绑定不同仓库身份。
-4. 在已持锁上下文中，每仓库只执行一次文件加载。读取本次扫描规则，扫描目录、读取并解析需要的 Org 文件，生成独立文件值；不得再调用会重复加锁的公开 ~load_files~ 。
-5. 全部仓库加载完成后释放仓库锁，基于本次文件值构造共享基础投影与完整父子关系。每个查询独立求值，保持原 workspace 仓库顺序和既有排序规则，不把加锁排序当作任务来源顺序。
-6. 返回按输入顺序组织的独立结果；Harmony 释放 workspace 业务锁后编组结果，不再回查仓库。
-
-同批所有查询消费相同文件版本、扫描规则与配置。仓库锁保护遵守本项目锁协议的读写；外部编辑器直接改盘仍按既有访问边界处理，不扩大为任意外部进程间的事务承诺。快照仅存活于本次操作，不作为下次查询的数据缓存。
-
-“加载一次”指每仓库一次扫描与加载流程，每个需要的 Org 正文读取、解析一次；不是将整个仓库变为一次系统调用。 ~SETUPFILE~ 等共享配置在批次内部按规范化来源复用读取结果，沿用现有解析与安全规则，避免同一配置被不同查询重复加载。
-
-* 不同排除条件的合并
-
-对每个仓库，先分别取各查询中属于该仓库的 ~excluded_files~ ，再取这些集合的交集作为本次加载的 ~ignore_files~ 。只有所有查询都排除的文件才在正文读取和解析前跳过；任意查询未排除的文件必须加载。某项没有排除文件时，交集为空。
-
-加载后的基础投影仍按每项各自的排除集合过滤，再执行该项表达式与其他条件；不允许用排除集合的并集跳过文件。排除始终精确匹配 Core 仓库 ID 与相对路径，其他仓库的同名文件不受影响。
-
-例如查询 A 排除 ~r1/a.org~ ，查询 B 排除 ~r1/b.org~ ，两个文件都加载一次，分别对 A、B 隐藏对应文件。若 A、B 都排除 ~r1/a.org~ ，则不读取该文件正文。若 A 排除某损坏文件但 B 需要它，该文件加载失败导致整批失败；该行为来自整批失败约定。
-
-* 迁移范围与验收
-
-Core 批量入口与内部共享求值已实施，并同步迁移 Rust FFI、C++ N-API、类型声明、ArkTS wrapper 与所有现有单查询调用方；单查询以单项数组提交。CLI 和所有 Rust 调用方同步迁移，HTTP 当前没有任务查询端点，不新增端点。
-
-同一 workspace 范围内的多次查询合并提交，尤其导航中今天、过期、计划、随时和日志等全仓库查询。收件箱、某天与备忘当前还有独立的仓库范围、目标有效性和文件元信息读取，迁移时保持这些契约；不能仅按同名路径把不同仓库范围的请求混成一个查询批次。本文不增加单项仓库范围字段，也不将独立的元信息请求计作批量查询内部加载。
-
-回归验证覆盖结果顺序、空批次、单项等价性、重复请求、各项独立排序与分类、排除交集、跨仓库同名文件、统一日期、错误传播及原生 Task 包装；使用可观测的加锁与加载次数验证多个查询仍只触发一轮仓库访问，避免实现退化为循环调用单查询。现有查询测试迁移后继续覆盖原过滤语义。
-
-现行接口文档、数据模型的方法签名与内嵌 TikZ UML、查询语言设计、仓库访问设计及 Rust bridge 设计同步维护此批量契约。
+通知复用已加载字节计算本地 hash，并在同次仓库锁内比较远端基线索引，覆盖修改、新增与删除。不重新扫描 Org 文件、不二次读取其正文，不读取完整同步历史或基线正文。每个查询结果独立拥有其展示数据，仓库不把这批文件保留为下一批的权威缓存。

@@ -46,13 +46,13 @@ async fn only_file_project_tags_enable_names_and_name_property_precedes_title() 
         ),
     ] {
         let workspace = workspace(source);
-        let metadata = workspace.repos()[0].file_metadata().await.unwrap();
+        let metadata = support::query_files(&workspace.repos()[0]).await.unwrap();
         assert_eq!(metadata[0].project(), expected, "{source}");
         let result = workspace
-            .query(&[TaskQuery::default()])
+            .query(&[(TaskQuery::default()).into()])
             .await
             .unwrap()
-            .remove(0);
+            .remove(0).into_task().unwrap();
         assert_eq!(result.tasks[0].project(), expected, "{source}");
         assert_eq!(result.tasks[0].file_metadata().project(), expected);
         assert_eq!(
@@ -71,10 +71,10 @@ async fn task_projects_delegate_to_shared_file_metadata_and_keep_their_original_
     let workspace =
         workspace("#+FILETAGS: :project:\n#+TITLE: Original\n* TODO First\n** TODO Second\n");
     let tasks = workspace
-        .query(&[TaskQuery::default()])
+        .query(&[(TaskQuery::default()).into()])
         .await
         .unwrap()
-        .remove(0)
+        .remove(0).into_task().unwrap()
         .tasks;
     assert!(std::ptr::eq(
         tasks[0].file_metadata(),
@@ -88,10 +88,10 @@ async fn task_projects_delegate_to_shared_file_metadata_and_keep_their_original_
     )
     .unwrap();
     let changed = workspace
-        .query(&[TaskQuery::default()])
+        .query(&[(TaskQuery::default()).into()])
         .await
         .unwrap()
-        .remove(0);
+        .remove(0).into_task().unwrap();
     assert_eq!(changed.tasks[0].project(), Some("Changed"));
     assert_eq!(tasks[0].project(), Some("Original"));
     std::fs::remove_file(disk).unwrap();

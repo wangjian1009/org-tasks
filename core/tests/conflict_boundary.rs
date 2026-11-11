@@ -1,4 +1,5 @@
 //! 验证冲突子树在查询前排除，所有普通节点和原文编辑入口均不能改写其内容。
+mod support;
 use org_tasks_core::{webdav::WebDavSyncPolicy, *};
 use std::path::PathBuf;
 
@@ -72,7 +73,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targets() {
     let f = Fixture::new().await;
-    let result = f.workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
+    let result = f.workspace.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap();
     assert_eq!(
         result.tasks.iter().map(|t| t.title()).collect::<Vec<_>>(),
         vec!["Normal", "Parent", "Visible"]
@@ -88,13 +89,13 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
     ] {
         assert!(
             f.workspace
-                .query(&[TaskQuery {
+                .query(&[(TaskQuery {
                     expression: expression.into(),
                     include_done: true,
                     include_compose_tasks: true,
                     ..Default::default()
-                }]).await
-                .unwrap().remove(0)
+                }).into()]).await
+                .unwrap().remove(0).into_task().unwrap()
                 .tasks
                 .is_empty(),
             "{expression}"
@@ -106,7 +107,7 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
         .unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].heading_path, vec!["Normal"]);
-    assert_eq!(f.workspace.repos()[0].file_metadata().await.unwrap()[0].task_count, 3);
+    assert_eq!(support::query_files(&f.workspace.repos()[0]).await.unwrap()[0].task_count, 3);
     assert_eq!(f.workspace.repos()[0].nodes().await.unwrap().len(), 3);
 }
 

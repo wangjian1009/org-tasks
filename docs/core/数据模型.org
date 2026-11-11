@@ -654,9 +654,11 @@ options: SyncOptions}{}
 \end{tikzpicture}
 \end{center}
 
-* 通用任务查询模型
+* 通用批量查询模型
 
-~TaskQuery~ 为运行时请求，不属于同步历史或 outbox。UI 组装请求数组， ~OrgWorkspace.query~ 按输入顺序统一生成每项过滤后的 ~TaskQueryResult.tasks~ ；完成状态依据 ~FilterTask.is_done()~ ，组合任务依据完整文件的真实父子层级。 ~excluded_files~ 统一接收 ~OrgFileRef~ 数组，精确定位 Core 仓库与文件；创建日期条件由 ~expression~ 表达。 ~TaskQueryResult.categories~ 是相同基础范围的分类统计，不保存控件选中状态。仅提供批量查询，返回 ~Result<Vec<TaskQueryResult>, CoreError>~ ；成功数组与输入按下标对应，任一错误导致整批失败。请求和结果都不写入仓库缓存或同步记录。详细契约见 [[file:查询语言设计.org][查询语言设计]] 与 [[file:批量查询接口设计.org][批量查询接口设计]]。
+~CoreQuery~ 是唯一通用读取请求的枚举，分为 Task、File 和 Notification； ~OrgWorkspace.query~ 返回 ~Result<Vec<CoreQueryResult>, CoreError>~ ，成功数组与输入的位置、种类一一对应。结果不含逐项错误，任一错误使整批失败。请求与结果都是运行时值，不写入同步记录、outbox 或仓库缓存。
+
+~TaskQuery~ 和 ~TaskQueryResult~ 保持原有字段。Task 分支的外层 ~repo_ids~ 指定 Core 仓库范围，空数组表示全部仓库，不把页面或控件语义放进领域请求。File 只返回元信息，Notification 只返回当前通知，三者复用同次加载的文件和配置。
 
 #+begin_src rust
 pub struct TaskQuery {
@@ -666,22 +668,53 @@ pub struct TaskQuery {
     pub include_done: bool,
     pub include_compose_tasks: bool,
 }
+
+pub struct FileQuery {
+    pub include_files: Vec<OrgFileRef>,
+    pub exclude_files: Vec<OrgFileRef>,
+    pub file_tags: Vec<String>,
+    pub is_project: Option<bool>,
+    pub include_ignored: bool,
+}
+pub struct NotificationQuery {}
+pub enum CoreQuery {
+    Task { query: TaskQuery, repo_ids: Vec<OrgRepoId> },
+    File { query: FileQuery },
+    Notification { query: NotificationQuery },
+}
+pub enum CoreQueryResult {
+    Task(TaskQueryResult),
+    File(Vec<OrgFileMetadata>),
+    Notification(Vec<CoreNotification>),
+}
 #+end_src
+
+~FileQuery.include_files~ 与 ~exclude_files~ 不能同时非空，路径精确到仓库； ~file_tags~ 匹配任务有效标签中的任一项，只返回含匹配任务的文件元信息。 ~is_project~ 为三态文件项目条件， ~include_ignored~ 默认 false。完整字段和错误边界见 [[file:统一批量查询接口设计.org][统一批量查询接口设计]]，任务表达式语义见 [[file:查询语言设计.org][查询语言设计]]。
 
 \begin{center}
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{TaskQuery}{expression: String \\
+\umlclass[x=0,y=0]{OrgWorkspace}{}{query(\&[CoreQuery]): Result\textless Vec\textless CoreQueryResult\textgreater, CoreError\textgreater}
+\umlclass[x=-3,y=-3]{CoreQuery}{Task(TaskQuery, repo\_ids) \\
+File(FileQuery) \\
+Notification(NotificationQuery)}{}
+\umlclass[x=6,y=-3]{CoreQueryResult}{Task(TaskQueryResult) \\
+File(Vec\textless OrgFileMetadata\textgreater) \\
+Notification(Vec\textless CoreNotification\textgreater)}{}
+\umlclass[x=-3,y=-7]{FileQuery}{include\_files: Vec\textless OrgFileRef\textgreater \\
+exclude\_files: Vec\textless OrgFileRef\textgreater \\
+file\_tags: Vec\textless String\textgreater \\
+is\_project: Option\textless bool\textgreater \\
+include\_ignored: bool}{}
+\umlclass[x=6,y=-7]{TaskQuery}{expression: String \\
 categories: Vec\textless Option\textless String\textgreater\textgreater \\
 excluded\_files: Vec\textless OrgFileRef\textgreater \\
 include\_done: bool \\
 include\_compose\_tasks: bool}{}
-\umlclass[x=8,y=0]{TaskQueryResult}{tasks: Vec\textless FilterTask\textgreater \\
-categories: Vec\textless TaskCategory\textgreater}{}
-\umldep{TaskQueryResult}{TaskQuery}
-\umlclass[x=4,y=-4]{OrgWorkspace}{}{query(\&[TaskQuery]): Result\textless Vec\textless TaskQueryResult\textgreater, CoreError\textgreater}
-\umldep{OrgWorkspace}{TaskQuery}
-\umldep{OrgWorkspace}{TaskQueryResult}
+\umldep{OrgWorkspace}{CoreQuery}
+\umldep{OrgWorkspace}{CoreQueryResult}
+\umldep{CoreQuery}{FileQuery}
+\umldep{CoreQuery}{TaskQuery}
 \end{tikzpicture}
 \end{center}
 

@@ -181,6 +181,23 @@ export interface TaskQueryResult {
   categories: TaskCategory[];
 }
 
+export interface FileQuery {
+  includeFiles?: OrgFileRef[];
+  excludeFiles?: OrgFileRef[];
+  fileTags?: string[];
+  isProject?: boolean | null;
+  includeIgnored?: boolean;
+}
+export interface NotificationQuery {}
+export interface TaskCoreQuery { type: 'task'; query: TaskQuery; repoIds?: string[]; }
+export interface FileCoreQuery { type: 'file'; query: FileQuery; }
+export interface NotificationCoreQuery { type: 'notification'; query: NotificationQuery; }
+export type CoreQuery = TaskCoreQuery | FileCoreQuery | NotificationCoreQuery;
+export interface TaskCoreQueryResult { type: 'task'; result: TaskQueryResult; }
+export interface FileCoreQueryResult { type: 'file'; result: OrgFileMetadata[]; }
+export interface NotificationCoreQueryResult { type: 'notification'; result: CoreNotification[]; }
+export type CoreQueryResult = TaskCoreQueryResult | FileCoreQueryResult | NotificationCoreQueryResult;
+
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
   testConnection(): Promise<void>;
@@ -210,11 +227,10 @@ export class Workspace {
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
-  query(queries: TaskQuery[]): Promise<TaskQueryResult[]>;
+  query(queries: CoreQuery[]): Promise<CoreQueryResult[]>;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
-  notifications(): Promise<CoreNotification[]>;
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>;
   stopWatchingNotifications(): void;
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>;
@@ -226,7 +242,6 @@ export class Repo {
   private constructor();
   file(path: string): Promise<OrgFile>;
   loadFiles(ignoreFiles?: string[]): Promise<OrgFile[]>;
-  fileMetadata(): Promise<OrgFileMetadata[]>;
   readonly id: string;
   readonly rootDirectory: string;
   readonly fullPath: TaskPath;

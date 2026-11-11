@@ -30,7 +30,7 @@ struct FileTargetPicker {
       const params = this.getUIContext().getRouter().getParams() as PickerParams | undefined
       if (params?.kind === 'someday' || params?.kind === 'memo') this.kind = params.kind
       this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      this.groups = await NotebookService.list(this.config.repos, this.config.todoDefaults)
+      this.groups = await NotebookService.list(this.config)
       this.groups = this.groups.map((group: NotebookGroup): NotebookGroup => ({
         repoId: group.repoId, configId: group.configId, name: group.name, rootDirectory: group.rootDirectory,
         files: group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore), message: group.message

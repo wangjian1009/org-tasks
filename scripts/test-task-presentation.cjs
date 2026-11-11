@@ -441,17 +441,19 @@ function navigationFixture(fail = false) {
   const module = { exports: {} };
   const calls = [];
   const config = { repos: [{ id: 'repo' }], todoDefaults: 'defaults' };
-  const native = { async queryTasks(repositories, queries, defaults) {
-    assert.equal(repositories, config.repos);
-    assert.equal(defaults, config.todoDefaults);
+  const workspace = { async repos() { return []; } };
+  const native = { async workspaceFor() { return workspace; } };
+  const pageQuery = { async query(_, queries) {
     calls.push(queries);
     if (fail) throw new Error('文件加载失败');
-    return queries.map((_, index) => ({ tasks: Array(index).fill({}), categories: [] }));
+    return queries.map((request, index) => request.type === 'file' ? {type:'file',result:[{}]}
+      : {type:'task', result:{tasks:Array(index<5?index:{inbox:7,someday:8,memo:9}[request.query.expression]).fill({}),categories:[]}});
   } };
-  vm.runInThisContext('(function(module,exports,AppConfigService,FileTargetService,NativeCoreService,overviewTaskQuery,overdueTaskQuery,coreErrorMessage){' + code + '\n})', { filename })(
-    module, module.exports, { load: async () => config },
-    { query: async (_, kind) => ({ tasks: Array({ inbox: 7, someday: 8, memo: 9 }[kind]).fill({}) }) },
-    native, view => ({ expression: view }), () => ({ expression: 'overdue' }), error => error.message
+  const fileTargets = { prepare(_, __, kind) { return {task:{type:'task',query:{expression:kind}},file:{type:'file',query:{}}}; },
+    result(task, file) { return file.result.length ? task.result : undefined; } };
+  vm.runInThisContext('(function(module,exports,AppConfigService,FileTargetService,NativeCoreService,PageQueryService,taskResult,overviewTaskQuery,overdueTaskQuery,coreErrorMessage){' + code + '\n})', { filename })(
+    module, module.exports, { load: async () => config }, fileTargets, native, pageQuery, value=>value.result,
+    view => ({ expression: view }), () => ({ expression: 'overdue' }), error => error.message
   );
   const view = Object.assign(new module.exports.Navigation(), {
     navigationRequest: 0, todayCount: 100, overdueCount: 101, plannedCount: 102, anytimeCount: 103, logbookCount: 104,
@@ -460,11 +462,11 @@ function navigationFixture(fail = false) {
   return { view, calls };
 }
 
-test('侧边栏一次提交五项查询，空命中也按原结果下标显示计数', async () => {
+test('侧边栏一次提交所有任务和文件查询，空命中也按原结果下标显示计数', async () => {
   const { view, calls } = navigationFixture();
   await view.loadNavigation();
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].map(query => query.expression), ['today', 'overdue', 'planned', 'anytime', 'logbook']);
+  assert.deepEqual(calls[0].filter(query=>query.type==='task').map(query => query.query.expression), ['today', 'overdue', 'planned', 'anytime', 'logbook', 'inbox', 'someday', 'memo']);
   assert.deepEqual([view.todayCount, view.overdueCount, view.plannedCount, view.anytimeCount, view.logbookCount], [0, 1, 2, 3, 4]);
   assert.deepEqual([view.inboxCount, view.somedayCount, view.memoCount], [7, 8, 9]);
 });

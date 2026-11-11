@@ -5,12 +5,13 @@ import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
 import { RepositorySyncView } from './RepositorySyncView'
 import { uiObserver } from '@kit.ArkUI'
-import { CoreNotificationService, CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
+import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
-import { FileTargetService } from '../services/FileTargetService'
+import { FileTargetService, fileTargetRepository } from '../services/FileTargetService'
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
-import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreQuery, NativeCoreService, taskResult, coreErrorMessage } from '../services/NativeCoreService'
 
 export interface AppMenuItem {
   title: string
@@ -25,6 +26,7 @@ export struct AppShell {
   @Prop activeRoute: string = ''
   @Prop activeOverview: string = ''
   @Prop back: boolean = false
+  @Prop refreshOnPageShow: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_more')
   @Prop actionLabel: string = ''
   @Prop actionText: string = ''
@@ -53,18 +55,35 @@ export struct AppShell {
   @StorageLink('taskInlineActive') @Watch('inlineSessionChanged') inlineActive: string = ''
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   private deferredRefresh: boolean = false
+  private pageRefreshDeferred: boolean = false
   private navigationRequest: number = 0
+  private navigationLoading: boolean = false
+  private navigationRevision: number = -1
+  private navigationLoadedOnAppear: boolean = false
+  private bodyLoadedOnAppear: boolean = false
   private notificationRevision: number = 0
   private dataRevision: number = 0
   private pageIndex: number = 0
   private pageVisible: boolean = true
   private pageChanged = (info: uiObserver.RouterPageInfo): void => {
     if (info.index !== this.pageIndex) return
-    if (info.state === uiObserver.RouterPageState.ON_PAGE_HIDE) this.pageVisible = false
-    else if (info.state === uiObserver.RouterPageState.ON_PAGE_SHOW) {
+    if (info.state === uiObserver.RouterPageState.ON_PAGE_HIDE) {
+      this.pageVisible = false
+      this.navigationLoadedOnAppear = false
+      this.bodyLoadedOnAppear = false
+    } else if (info.state === uiObserver.RouterPageState.ON_PAGE_SHOW) {
       this.pageVisible = true
-      this.dataChanged()
-      this.refreshNotifications()
+      if (this.refreshOnPageShow) {
+        const alreadyLoaded = this.drawerOpen ? this.navigationLoadedOnAppear : this.bodyLoadedOnAppear
+        if (alreadyLoaded) this.dataChanged()
+        else {
+          this.dataRevision = this.dataChangeState.revision
+          if (this.drawerOpen) { this.pageRefreshDeferred = true; this.loadNavigation() }
+          else this.synchronized()
+        }
+      } else this.dataChanged()
+      this.navigationLoadedOnAppear = false
+      this.bodyLoadedOnAppear = false
       this.refreshDataChanges()
     }
   }
@@ -88,9 +107,9 @@ export struct AppShell {
     this.notificationRevision = this.notificationState.revision
     this.dataRevision = this.dataChangeState.revision
     this.getUIContext().getUIObserver().on('routerPageUpdate', this.pageChanged)
-    this.refreshNotifications()
     this.refreshDataChanges()
-    if (this.drawerOpen) this.loadNavigation()
+    if (this.drawerOpen) { this.navigationLoadedOnAppear = true; this.loadNavigation() }
+    else if (this.refreshOnPageShow) { this.bodyLoadedOnAppear = true; this.synchronized() }
   }
 
   aboutToDisappear() {
@@ -107,14 +126,6 @@ export struct AppShell {
     if (!this.pageVisible || this.dataRevision === this.dataChangeState.revision) return
     this.dataRevision = this.dataChangeState.revision
     this.repositoryDataInvalidated()
-  }
-
-  async refreshNotifications() {
-    try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) }
-    catch (e) {
-      if (!this.pageVisible) return
-      try { this.getUIContext().getPromptAction().showToast({ message: `读取通知失败：${coreErrorMessage(e as CoreBridgeError)}` }) } catch (_) {}
-    }
   }
 
   async refreshDataChanges() {
@@ -137,8 +148,8 @@ export struct AppShell {
 
   repositoryDataInvalidated() {
     if (TaskInlineSession.active()) { this.deferredRefresh = true; return }
-    this.synchronized()
-    if (this.drawerOpen) this.loadNavigation()
+    if (this.drawerOpen) { this.pageRefreshDeferred = true; this.loadNavigation() }
+    else this.synchronized()
   }
 
   async openDrawer() {
@@ -149,26 +160,42 @@ export struct AppShell {
 
   drawerChanged() {
     if (this.drawerOpen) this.loadNavigation()
+    else if (this.pageRefreshDeferred) { this.pageRefreshDeferred = false; this.synchronized() }
   }
 
   async loadNavigation() {
+    const revision = this.dataChangeState?.revision ?? 0
+    if (this.navigationLoading && this.navigationRevision === revision) return
+    this.navigationLoading = true
+    this.navigationRevision = revision
     const request = ++this.navigationRequest
     this.navMessage = ''
     this.inboxCount = -1
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const inbox = await FileTargetService.query(config, 'inbox')
-      const results = await NativeCoreService.queryTasks(config.repos, [
-        overviewTaskQuery('today'), overdueTaskQuery(), overviewTaskQuery('planned'),
-        overviewTaskQuery('anytime'), overviewTaskQuery('logbook')
-      ], config.todoDefaults)
-      const today = results[0]
-      const overdue = results[1]
-      const planned = results[2]
-      const anytime = results[3]
-      const logbook = results[4]
-      const someday = await FileTargetService.query(config, 'someday')
-      const memo = await FileTargetService.query(config, 'memo')
+      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+      const repos = await workspace.repos()
+      const queries: CoreQuery[] = [
+        { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: overdueTaskQuery() },
+        { type: 'task', query: overviewTaskQuery('planned') }, { type: 'task', query: overviewTaskQuery('anytime') },
+        { type: 'task', query: overviewTaskQuery('logbook') }
+      ]
+      const prepared = [FileTargetService.prepare(config, repos, 'inbox'), FileTargetService.prepare(config, repos, 'someday'),
+        FileTargetService.prepare(config, repos, 'memo')]
+      const positions: number[] = []
+      for (const target of prepared) {
+        positions.push(target ? queries.length : -1)
+        if (target) { queries.push(target.task); queries.push(target.file) }
+      }
+      const results = await PageQueryService.query(config, queries)
+      const today = taskResult(results[0])
+      const overdue = taskResult(results[1])
+      const planned = taskResult(results[2])
+      const anytime = taskResult(results[3])
+      const logbook = taskResult(results[4])
+      const inbox = positions[0] < 0 ? undefined : FileTargetService.result(results[positions[0]], results[positions[0] + 1])
+      const someday = positions[1] < 0 ? undefined : FileTargetService.result(results[positions[1]], results[positions[1] + 1])
+      const memo = positions[2] < 0 ? undefined : FileTargetService.result(results[positions[2]], results[positions[2] + 1])
       if (request !== this.navigationRequest) return
       this.inboxCount = inbox?.tasks.length ?? -1
       this.todayCount = today.tasks.length
@@ -180,14 +207,19 @@ export struct AppShell {
       this.logbookCount = logbook.tasks.length
     } catch (e) {
       if (request === this.navigationRequest) this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
+    } finally {
+      if (request === this.navigationRequest) this.navigationLoading = false
     }
   }
 
   async openPrimary(view: TaskOverview | 'inbox') {
+    const current = view === 'inbox' ? this.activeRoute === 'pages/Inbox'
+      : this.activeRoute === 'pages/TaskOverview' && this.activeOverview === view
+    if (!current) this.pageRefreshDeferred = false
     this.drawerOpen = false
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      if ((view === 'inbox' || view === 'someday' || view === 'memo') && !await FileTargetService.resolve(config, view)) {
+      if ((view === 'inbox' || view === 'someday' || view === 'memo') && !fileTargetRepository(config, view)) {
         const title = view === 'inbox' ? '收件箱' : overviewTitle(view)
         this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“笔记与笔记本”中重新选择${title}的仓库和文件。`,
           primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
@@ -206,6 +238,7 @@ export struct AppShell {
   }
 
   async navigate(route: string) {
+    if (this.activeRoute !== route) this.pageRefreshDeferred = false
     this.drawerOpen = false
     if (this.activeRoute !== route) {
       try { await this.getUIContext().getRouter().replaceUrl({ url: route }) }

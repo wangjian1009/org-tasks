@@ -108,7 +108,7 @@ async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
                     "{legacy}"
                 );
             }
-            let query = f.workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0);
+            let query = f.workspace.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap();
             assert_eq!(query.tasks.len(), 2);
             assert!(
                 query

@@ -23,7 +23,6 @@ struct Files {
   @State config: AppConfig = DEFAULT_CONFIG
   private requestId: number = 0
 
-  onPageShow() { this.loadFiles() }
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
@@ -45,7 +44,7 @@ struct Files {
     this.message = ''
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const groups = await NotebookService.list(config.repos, config.todoDefaults)
+      const groups = await NotebookService.list(config)
       if (request !== this.requestId) return
       this.config = config
       this.groups = groups
@@ -61,7 +60,7 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ title: '存储库', titleIcon: $r('app.media.nav_repository'),
+      AppShell({ refreshOnPageShow: true, title: '存储库', titleIcon: $r('app.media.nav_repository'),
         synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {

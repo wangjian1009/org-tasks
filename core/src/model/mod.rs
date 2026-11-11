@@ -608,7 +608,7 @@ mod tests {
             assert_eq!(file.title().as_deref(), expected);
             let mut repo = OrgRepo::new("/unused".into()).unwrap();
             { let value = file; crate::model::test_support::push_file(&mut repo, value); };
-            let metadata = repo.file_metadata().await.unwrap();
+            let metadata = crate::model::test_support::query_files(&repo).await.unwrap();
             assert_eq!(metadata[0].title.as_deref(), expected);
             assert_eq!(metadata[0].path, "work.org");
             assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), source.as_bytes());

@@ -465,12 +465,17 @@ impl OrgRepo {
     }
 
     pub(crate) async fn load_files_unlocked(&self, ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError> {
+        self.load_files_in_unlocked(ignore_files, None).await
+    }
+
+    pub(crate) async fn load_files_in_unlocked(&self, ignore_files: &[String], included_files: Option<&std::collections::BTreeSet<String>>) -> Result<Vec<OrgFile>, CoreError> {
         validate_ignored_files(ignore_files)?;
+        if let Some(paths) = included_files { for path in paths { super::validate_relative_path(path)?; } }
         #[cfg(test)]
         super::test_support::record_access(Path::new(&self.root_directory), 1);
         let root = Path::new(&self.root_directory);
         let rules = super::TaskScanRules::load(root).await?;
-        let sources = scan_org_files(root, ignore_files).await?;
+        let sources = scan_org_files(root, ignore_files, included_files).await?;
         let mut setup_cache = sources.iter().map(|source| {
             (source.path.clone(), Some(source.source_bytes.clone()))
         }).collect();
@@ -483,10 +488,6 @@ impl OrgRepo {
             files.push(file);
         }
         Ok(files)
-    }
-
-    pub async fn file_metadata(&self) -> Result<Vec<super::OrgFileMetadata>, CoreError> {
-        Ok(self.load_files(&[]).await?.iter().map(|file| file.metadata(file.scan_ignored)).collect())
     }
 
     /// 指定文件按需读盘；不存在时返回未落盘的空值对象，供新增读取默认元信息。
@@ -865,7 +866,7 @@ fn repo_id_write_error(error: std::io::Error) -> CoreError {
     CoreError::Store(format!("无法写入 .sync/id: {error}"))
 }
 
-async fn scan_org_files(root: &Path, ignore_files: &[String]) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
+async fn scan_org_files(root: &Path, ignore_files: &[String], included_files: Option<&std::collections::BTreeSet<String>>) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
     let mut files = Vec::new();
     let mut directories = vec![std::path::PathBuf::new()];
     while let Some(relative) = directories.pop() {
@@ -894,7 +895,7 @@ async fn scan_org_files(root: &Path, ignore_files: &[String]) -> Result<Vec<OrgR
                 && child.extension().and_then(|value| value.to_str()) == Some("org")
             {
                 let path = relative_path(&child)?;
-                if ignore_files.iter().any(|ignored| ignored == &path) { continue; }
+                if ignore_files.iter().any(|ignored| ignored == &path) || included_files.is_some_and(|files| !files.contains(&path)) { continue; }
                 let source_bytes = fs::read(entry.path())
                     .await
                     .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
@@ -1079,7 +1080,7 @@ mod tests {
             .unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        let info = &repo.file_metadata().await.unwrap()[0];
+        let info = &crate::model::test_support::query_files(&repo).await.unwrap()[0];
         assert_eq!(info.task_count, 3);
         assert!(!info.is_ignore);
         assert_eq!(info.byte_length, source.len());
@@ -1087,12 +1088,12 @@ mod tests {
         assert_eq!(repo.file("work.org").await.unwrap().modified_at, info.modified_at);
         repo.set_todo_defaults(crate::TodoConfig::default())
             .unwrap();
-        assert_eq!(repo.file_metadata().await.unwrap()[0].modified_at, info.modified_at);
+        assert_eq!(crate::model::test_support::query_files(&repo).await.unwrap()[0].modified_at, info.modified_at);
         fs::write(root.join(".orgzlyignore"), "work.org\n")
             .await
             .unwrap();
         repo.load::<CompletedSync>().await.unwrap();
-        let ignored = &repo.file_metadata().await.unwrap()[0];
+        let ignored = &crate::model::test_support::query_files(&repo).await.unwrap()[0];
         assert_eq!(ignored.task_count, 0);
         assert!(ignored.is_ignore);
         assert_eq!(ignored.byte_length, source.len());
@@ -1163,7 +1164,7 @@ mod tests {
         let mut other = OrgRepo::new(other_root.to_string_lossy().into()).unwrap();
         other.load::<CompletedSync>().await.unwrap();
         let mut workspace = crate::OrgWorkspace::new(vec![repo, other]).unwrap();
-        let result = workspace.query(&[crate::TaskQuery::default()]).await.unwrap().remove(0);
+        let result = workspace.query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap();
         assert_eq!(result.tasks.len(), 3);
         assert!(
             result
@@ -1179,11 +1180,11 @@ mod tests {
         );
         assert_eq!(
             workspace
-                .query(&[crate::TaskQuery {
+                .query(&[(crate::TaskQuery {
                     expression: "\"Hidden\"".into(),
                     ..Default::default()
-                }]).await
-                .unwrap().remove(0)
+                }).into()]).await
+                .unwrap().remove(0).into_task().unwrap()
                 .tasks,
             []
         );

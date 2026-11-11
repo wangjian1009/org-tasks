@@ -58,7 +58,7 @@ TS 领域接口按 ~Workspace -> Repo -> OrgFile~ 访问对象。Rust 字段映�
 
 UI 负责组装请求、维护分类多选等交互状态、展示任务及汇总计数。UI 不得对 Core 返回的任务列表再次按完成状态、分类、文件、日期或父子关系筛选。今天、随时、某天和备忘的标签筛选条是明确的展示层例外：仅在已加载的本页任务快照上按 Core 提供的有效标签控制可见记录，不重发查询、不改变页面基础范围、侧边栏计数或同步数据。该例外不扩展到完成状态、日期、分类或其他查询条件。
 
-Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，由 Core 批量求值；系统仅提供接收 ~TaskQuery~ 数组并返回对应结果数组的异步查询接口，每批每仓库只加锁与加载一次，所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
+Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，由 Core 批量求值；系统仅提供接收 ~CoreQuery~ 数组并返回对应 ~CoreQueryResult~ 数组的异步查询接口，其中 Task、File、Notification 共用加载，TaskQuery 字段保持不变，每批每仓库只加锁与加载一次，所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
 
 * 仓库身份、同步元数据与备份
 
@@ -95,3 +95,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 * 冲突预览边界
 
 [[file:core/冲突预览与合并设计.org][冲突预览与合并设计]] 使用 workspace 唯一、仓库外的临时文件，保留地址域为 ~repoId="<preview>"~ ，file 为本次创建 UUID。临时编辑复用 Core 操作组且记录成功操作，finish 仅返回按原顺序映射为真实路径的操作组，应用再通过统一数据接口提交。副本不加入扫描、查询或同步；宿主不复制文件、不解析 Org 或执行合并规则。
+
+* 页面统一读取
+
+页面通过一个 CoreQuery 批次取得任务、文件元信息和通知，按输入位置消费对应结果。独立文件元信息和通知读取入口已移除；通知订阅只标记数据失效，不自行重查。收件箱本页与最近新增、文件入口有效性和标签候选、侧边栏全部计数及通知共用同次快照，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。

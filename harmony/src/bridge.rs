@@ -470,54 +470,68 @@ pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError>
 
 
 #[cfg(test)]
+fn query_task_results_json(handle: u64, queries: String) -> Result<String, CoreError> {
+    let tasks: Vec<org_tasks_core::TaskQuery> = serde_json::from_str(&queries).map_err(|_| CoreError::InvalidInput("任务查询参数无效"))?;
+    let request = tasks.into_iter().map(org_tasks_core::CoreQuery::from).collect::<Vec<_>>();
+    let response = workspace_query_json(handle, serde_json::to_string(&request).unwrap())?;
+    let results: Vec<serde_json::Value> = serde_json::from_str(&response).unwrap();
+    encode(&results.into_iter().map(|result| result["result"].clone()).collect::<Vec<_>>())
+}
+
+#[cfg(test)]
+fn query_files_json(handle: u64, root: String) -> Result<String, CoreError> {
+    let session = workspace_for_handle(handle)?;
+    let repo_id = session.lock().unwrap().repo_by_root_directory(&root).ok_or(CoreError::InvalidInput("仓库不存在"))?.id.clone();
+    let response = workspace_query_json(handle, r#"[{"type":"file","query":{"includeIgnored":true}}]"#.into())?;
+    let results: serde_json::Value = serde_json::from_str(&response).unwrap();
+    encode(&results[0]["result"].as_array().unwrap().iter().filter(|file| file["repoId"] == repo_id).collect::<Vec<_>>())
+}
+
+#[cfg(test)]
+fn query_notifications_json(handle: u64) -> Result<String, CoreError> {
+    let response = workspace_query_json(handle, r#"[{"type":"notification","query":{}}]"#.into())?;
+    let results: serde_json::Value = serde_json::from_str(&response).unwrap();
+    encode(&results[0]["result"])
+}
+
+#[cfg(test)]
 fn query_tasks_json(handle: u64, expression: String) -> Result<String, CoreError> {
-    let response = workspace_query_json(handle, serde_json::json!([{ "expression": expression }]).to_string())?;
+    let response = query_task_results_json(handle, serde_json::json!([{ "expression": expression }]).to_string())?;
     let result: serde_json::Value = serde_json::from_str(&response).unwrap();
     encode(&result[0]["tasks"])
 }
 
-pub fn workspace_notifications_json(handle: u64) -> Result<String, CoreError> {
-    let session = workspace_for_handle(handle)?;
-    let mut workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let runtime = runtime()?;
-    for repo in &mut workspace.repos {
-        runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
-    }
-    // 冲突通知的宿主定位信息随通知一次返回，展示层无需额外查询仓库列表。
-    let notifications = runtime.block_on(workspace.notifications())?;
-    let mut values = Vec::new();
-    for notification in notifications {
-        let mut value = serde_json::to_value(&notification).map_err(|_| CoreError::InvalidState("无法编码通知"))?;
-        if let org_tasks_core::CoreNotification::SyncConflict(ref conflict) = notification {
-            let repo = workspace.repos().iter().find(|repo| repo.id == conflict.repo_id)
-                .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?;
-            value["rootDirectory"] = repo.root_directory.clone().into();
-        }
-        values.push(value);
-    }
-    encode(&values)
-}
-
 pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, CoreError> {
-    let queries: Vec<org_tasks_core::TaskQuery> = serde_json::from_str(&query_json)
-        .map_err(|_| CoreError::InvalidInput("任务查询参数无效"))?;
-    let workspace = workspace_for_handle(handle)?;
-    if queries.is_empty() {
-        return encode(&Vec::<serde_json::Value>::new());
-    }
-    let workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let queries: Vec<org_tasks_core::CoreQuery> = serde_json::from_str(&query_json)
+        .map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
+    let session = workspace_for_handle(handle)?;
+    if queries.is_empty() { return encode(&Vec::<serde_json::Value>::new()); }
+    let workspace = session.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let roots = workspace.repos().iter().map(|repo| (repo.id.clone(), repo.root_directory.clone())).collect::<BTreeMap<_, _>>();
     let results = runtime()?.block_on(workspace.query(&queries))?;
     drop(workspace);
-    let values = results.into_iter().map(|result| {
-        Ok(serde_json::json!({
-            "tasks": result.tasks.into_iter().map(task_from_filter).collect::<Result<Vec<_>, CoreError>>()?,
-            "categories": result.categories,
-        }))
-    }).collect::<Result<Vec<_>, CoreError>>()?;
+    let values = results.into_iter().map(|result| -> Result<serde_json::Value, CoreError> {
+        Ok(match result {
+            org_tasks_core::CoreQueryResult::Task(result) => serde_json::json!({
+                "type": "task", "result": {
+                    "tasks": result.tasks.into_iter().map(task_from_filter).collect::<Result<Vec<_>, _>>()?,
+                    "categories": result.categories,
+                }
+            }),
+            org_tasks_core::CoreQueryResult::File(files) => serde_json::json!({ "type": "file", "result": files }),
+            org_tasks_core::CoreQueryResult::Notification(notifications) => {
+                let values = notifications.into_iter().map(|notification| {
+                    let mut value = serde_json::to_value(&notification).map_err(|_| CoreError::InvalidState("无法编码通知"))?;
+                    if let org_tasks_core::CoreNotification::SyncConflict(ref conflict) = notification {
+                        value["rootDirectory"] = roots.get(&conflict.repo_id)
+                            .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?.clone().into();
+                    }
+                    Ok(value)
+                }).collect::<Result<Vec<_>, CoreError>>()?;
+                serde_json::json!({ "type": "notification", "result": values })
+            }
+        })
+    }).collect::<Result<Vec<_>, _>>()?;
     encode(&values)
 }
 
@@ -617,18 +631,6 @@ pub fn repo_load_files_json(handle: u64, root_directory: String, ignore_files_js
     })
 }
 
-pub fn repo_file_metadata_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
-    let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repo = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime()?.block_on(repo.load::<WebDavSyncPolicy>())?;
-    encode(&runtime()?.block_on(repo.file_metadata())?)
-}
-
 fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
     let (conflicts,conflict_error)=match file.conflicts() {
         Ok(conflicts)=>(conflicts,None),
@@ -720,6 +722,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unified_query_json_dispatches_all_kinds_and_rejects_the_old_task_array_protocol() {
+        let handle = create_workspace().unwrap();
+        let root = std::env::temp_dir().join(format!("org-unified-bridge-{}",std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.org"), "#+TITLE: File\n* TODO Task\n").unwrap();
+        workspace_add_repo(handle,root.to_string_lossy().into()).unwrap();
+        let response=workspace_query_json(handle,r#"[{"type":"file","query":{}},{"type":"task","query":{}},{"type":"notification","query":{}}]"#.into()).unwrap();
+        let values:serde_json::Value=serde_json::from_str(&response).unwrap();
+        assert_eq!(values[0]["type"],"file");
+        assert_eq!(values[0]["result"][0]["title"],"File");
+        assert_eq!(values[1]["type"],"task");
+        assert_eq!(values[1]["result"]["tasks"][0]["heading"],"Task");
+        assert_eq!(values[2]["type"],"notification");
+        assert!(workspace_query_json(handle,"[{}]".into()).is_err());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn project_names_cross_metadata_and_task_projections_without_host_parsing() {
         let root = std::env::temp_dir().join(format!("org-project-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -727,13 +748,13 @@ mod tests {
         let handle = create_workspace().unwrap();
         let directory = root.to_string_lossy().into_owned();
         workspace_add_repo(handle, directory.clone()).unwrap();
-        let metadata: serde_json::Value = serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
-        let results: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, "[{}]".into()).unwrap()).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&query_files_json(handle, directory).unwrap()).unwrap();
+        let results: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
         assert_eq!(metadata[0]["projectName"], "Shared Project");
         assert_eq!(results[0]["tasks"][0]["projectName"], metadata[0]["projectName"]);
         assert_eq!(results[0]["tasks"][1]["projectName"], metadata[0]["projectName"]);
         std::fs::write(root.join("project.org"), "#+TITLE: Plain\n* TODO First\n").unwrap();
-        let updated: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, "[{}]".into()).unwrap()).unwrap();
+        let updated: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
         assert!(updated[0]["tasks"][0]["projectName"].is_null());
         assert_eq!(results[0]["tasks"][0]["projectName"], "Shared Project");
         release_workspace(handle);
@@ -778,20 +799,20 @@ mod tests {
             {"expression": "it.done"}, {"expression": "t.no_such_tag"},
             {"expression": "it.todo"}, {"expression": "it.done"}
         ]);
-        let results: serde_json::Value = serde_json::from_str(&workspace_query_json(handle, request.to_string()).unwrap()).unwrap();
+        let results: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, request.to_string()).unwrap()).unwrap();
         assert_eq!(results.as_array().unwrap().len(), 4);
         assert_eq!(results[0]["tasks"][0]["heading"], "Finished");
         assert!(results[1]["tasks"].as_array().unwrap().is_empty());
         assert_eq!(results[2]["tasks"][0]["heading"], "Pending");
         assert_eq!(results[0], results[3]);
-        assert!(workspace_query_json(handle, "{}".into()).is_err());
-        assert!(workspace_query_json(handle, r#"[{}, {"excludedFiles": [{"repoId":"", "path":"tasks.org"}]}]"#.into()).is_err());
+        assert!(query_task_results_json(handle, "{}".into()).is_err());
+        assert!(query_task_results_json(handle, r#"[{}, {"excludedFiles": [{"repoId":"", "path":"tasks.org"}]}]"#.into()).is_err());
         std::fs::write(root.join("broken.org"), [0xff]).unwrap();
-        assert!(workspace_query_json(handle, request.to_string()).is_err());
+        assert!(query_task_results_json(handle, request.to_string()).is_err());
         // 空批次不碰业务锁，即使磁盘已损坏也返回空数组。
         let session = workspace_for_handle(handle).unwrap();
         let _guard = session.lock().unwrap();
-        assert_eq!(workspace_query_json(handle, "[]".into()).unwrap(), "[]");
+        assert_eq!(query_task_results_json(handle, "[]".into()).unwrap(), "[]");
         drop(_guard);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
@@ -829,7 +850,7 @@ mod tests {
             repo.id = "repo".into();
             { let value = org_tasks_core::OrgFile::new(repo.id.clone(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap(); test_support::push_file(&mut repo, value); };
             let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-            let task = runtime().unwrap().block_on(workspace.query(&[org_tasks_core::TaskQuery::default()])).unwrap().remove(0).tasks.remove(0);
+            let task = runtime().unwrap().block_on(workspace.query(&[(org_tasks_core::TaskQuery::default()).into()])).unwrap().remove(0).into_task().unwrap().tasks.remove(0);
             let projection = serde_json::to_value(task_from_filter(task).unwrap()).unwrap();
             assert_eq!(projection["supportTags"], expected);
         }
@@ -842,13 +863,13 @@ mod tests {
         let handle=create_workspace().unwrap();let directory=root.to_string_lossy().to_string();
         workspace_add_repo(handle,directory.clone()).unwrap();
         for path in ["a.org","b.org"] {std::fs::write(root.join(path),"* 同步冲突 :CONFLICT:\n** Point\n").unwrap();}
-        let notices:serde_json::Value=serde_json::from_str(&workspace_notifications_json(handle).unwrap()).unwrap();
+        let notices:serde_json::Value=serde_json::from_str(&query_notifications_json(handle).unwrap()).unwrap();
         let values=notices.as_array().unwrap();assert_eq!(values.len(),3);
         assert_eq!(values[0]["path"],"a.org");assert_eq!(values[1]["path"],"b.org");
         assert_eq!(values[2]["type"],"syncRequired");assert!(values[0].get("syncId").is_none());
         assert_eq!(values[0]["rootDirectory"],directory);
         std::fs::write(root.join("a.org"),"* Normal\n").unwrap();
-        let current:serde_json::Value=serde_json::from_str(&workspace_notifications_json(handle).unwrap()).unwrap();
+        let current:serde_json::Value=serde_json::from_str(&query_notifications_json(handle).unwrap()).unwrap();
         assert_eq!(current.as_array().unwrap().len(),2);assert_eq!(current[0]["path"],"b.org");
         release_workspace(handle);std::fs::remove_dir_all(root).unwrap();
     }
@@ -950,14 +971,14 @@ mod tests {
         let directory = root.to_string_lossy().to_string();
         workspace_add_repo(handle, directory.clone()).unwrap();
         let metadata: serde_json::Value =
-            serde_json::from_str(&repo_file_metadata_json(handle, directory.clone()).unwrap())
+            serde_json::from_str(&query_files_json(handle, directory.clone()).unwrap())
                 .unwrap();
         assert_eq!(metadata[0]["title"], "工作计划");
         assert_eq!(metadata[0]["path"], "work.org");
         assert_eq!(metadata[0]["isIgnore"], false);
         assert_eq!(metadata[0]["tagOptions"], serde_json::json!(["家居", "unused"]));
         assert_eq!(metadata[0]["tagGroups"], serde_json::json!([["家居", "unused"]]));
-        let tasks: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, r#"[{"expression":"t.家居"}]"#.into()).unwrap()).unwrap().remove(0);
+        let tasks: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, r#"[{"expression":"t.家居"}]"#.into()).unwrap()).unwrap().remove(0);
         assert_eq!(tasks["tasks"][0]["tags"], serde_json::json!(["家居"]));
         assert!(metadata[0].get("source").is_none());
         assert!(metadata[0].get("renderedHtml").is_none());
@@ -974,13 +995,13 @@ mod tests {
         );
         std::fs::write(root.join("work.org"), "#+TITLE:\n").unwrap();
         let changed: serde_json::Value =
-            serde_json::from_str(&repo_file_metadata_json(handle, directory).unwrap()).unwrap();
+            serde_json::from_str(&query_files_json(handle, directory).unwrap()).unwrap();
         assert_eq!(changed[0]["title"], "");
         assert_eq!(changed[0]["tagOptions"], serde_json::json!([]));
         assert_eq!(changed[0]["tagGroups"], serde_json::json!([]));
         std::fs::write(root.join(".orgzlyignore"), "work.org\n").unwrap();
         let ignored: serde_json::Value = serde_json::from_str(
-            &repo_file_metadata_json(handle, root.to_string_lossy().into()).unwrap(),
+            &query_files_json(handle, root.to_string_lossy().into()).unwrap(),
         )
         .unwrap();
         assert_eq!(ignored[0]["isIgnore"], true);
@@ -1063,7 +1084,7 @@ mod tests {
         })
         .to_string();
         let queried: serde_json::Value =
-            serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, format!("[{query}]")).unwrap()).unwrap().remove(0);
+            serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, format!("[{query}]")).unwrap()).unwrap().remove(0);
         assert_eq!(queried["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(queried["tasks"][0]["heading"], "Visible");
         release_workspace(handle);
@@ -1108,7 +1129,7 @@ mod tests {
         workspace_add_repo(handle, root_directory.clone()).unwrap();
         let query = || -> serde_json::Value {
             serde_json::from_str::<Vec<serde_json::Value>>(
-                &workspace_query_json(handle, r#"[{"expression":"b.\"inbox.org\""}]"#.into())
+                &query_task_results_json(handle, r#"[{"expression":"b.\"inbox.org\""}]"#.into())
                     .unwrap(),
             )
             .unwrap().remove(0)
@@ -1125,7 +1146,7 @@ mod tests {
         assert_eq!(after["tasks"][0]["body"], "新正文\n");
         assert_eq!(before["tasks"][2]["todoKind"], "pending");
         let session = workspace_for_handle(handle).unwrap();
-        let core_tasks = runtime().unwrap().block_on(session.lock().unwrap().query(&[org_tasks_core::TaskQuery::default()])).unwrap().remove(0).tasks;
+        let core_tasks = runtime().unwrap().block_on(session.lock().unwrap().query(&[(org_tasks_core::TaskQuery::default()).into()])).unwrap().remove(0).into_task().unwrap().tasks;
         assert_eq!(after["tasks"][0]["id"], core_tasks[0].id());
         assert!(serde_json::from_str::<serde_json::Value>(core_tasks[0].id())
             .unwrap()
@@ -1141,7 +1162,7 @@ mod tests {
         std::fs::write(root.join("tasks.org"), "#+TODO: TODO | DONE CNCL\n* CNCL Cancelled\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 10:00]\n:END:\n* DONE Finished\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n").unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
-        let all: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, r#"[{"expression":".o.created"}]"#.into()).unwrap()).unwrap().remove(0);
+        let all: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, r#"[{"expression":".o.created"}]"#.into()).unwrap()).unwrap().remove(0);
         let tasks = all["tasks"].as_array().unwrap();
         assert_eq!(tasks[0]["heading"], "Finished");
         assert_eq!(tasks[1]["heading"], "Cancelled");
@@ -1150,15 +1171,15 @@ mod tests {
         assert!(tasks[0]["createdAt"].as_i64().is_some());
         assert!(tasks[0]["modifiedAt"].is_null());
         let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created", "includeDone": true });
-        let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, serde_json::json!([query]).to_string()).unwrap()).unwrap().remove(0);
+        let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, serde_json::json!([query]).to_string()).unwrap()).unwrap().remove(0);
         // 固定样例只在其创建日期落入最近三个自然日时匹配。
         let projection = workspace_for_handle(handle).unwrap();
-        let expected = runtime().unwrap().block_on(projection.lock().unwrap().query(&[org_tasks_core::TaskQuery {
+        let expected = runtime().unwrap().block_on(projection.lock().unwrap().query(&[(org_tasks_core::TaskQuery {
             expression: "cr.ge.-2d cr.le.today .o.created".into(), ..Default::default()
-        }])).unwrap().remove(0).tasks.len();
+        }).into()])).unwrap().remove(0).into_task().unwrap().tasks.len();
         assert_eq!(result["tasks"].as_array().unwrap().len(), expected);
         let excluded = serde_json::json!({ "excludedFiles": [{ "repoId":tasks[0]["repoId"], "path":"tasks.org" }] });
-        let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, serde_json::json!([excluded]).to_string()).unwrap()).unwrap().remove(0);
+        let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, serde_json::json!([excluded]).to_string()).unwrap()).unwrap().remove(0);
         assert!(result["tasks"].as_array().unwrap().is_empty());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
@@ -1172,7 +1193,7 @@ mod tests {
         std::fs::write(root.join("tasks.org"), source).unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
-        let query = || -> serde_json::Value { serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, "[{}]".into()).unwrap()).unwrap().remove(0) };
+        let query = || -> serde_json::Value { serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap().remove(0) };
         let before = query();
         let task = &before["tasks"][0];
         let items = &task["editContent"]["checklist"];
@@ -1208,7 +1229,7 @@ mod tests {
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
         let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
-            &workspace_query_json(handle, r#"[{"expression":".o.modified"}]"#.into()).unwrap(),
+            &query_task_results_json(handle, r#"[{"expression":".o.modified"}]"#.into()).unwrap(),
         ).unwrap().remove(0);
         let tasks = result["tasks"].as_array().unwrap();
         assert_eq!(tasks.iter().map(|task| task["heading"].as_str().unwrap()).collect::<Vec<_>>(), ["New", "Old", "Missing"]);
@@ -1229,7 +1250,7 @@ mod tests {
         std::fs::write(root.join("normal.org"), "#+CATEGORY: Work\n* Work :REFILE:\n").unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
-        let tasks: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&workspace_query_json(handle, r#"[{"expression":"b.inbox.org"}]"#.into()).unwrap()).unwrap().remove(0);
+        let tasks: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, r#"[{"expression":"b.inbox.org"}]"#.into()).unwrap()).unwrap().remove(0);
         let task = tasks["tasks"].as_array().unwrap().iter().find(|task| task["heading"] == "Move me").unwrap();
         let query = serde_json::json!({ "excludedFiles": [ {"repoId": task["repoId"], "path": "inbox.org"}, {"repoId":task["repoId"],"path":"someday.org"} ] });
         let targets: serde_json::Value = serde_json::from_str(&workspace_refile_targets_json(handle, query.to_string()).unwrap()).unwrap();
@@ -1496,7 +1517,7 @@ mod todo_tests {
             )
             .unwrap(); test_support::push_file(&mut repo, value); };
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let task = task_from_filter(runtime().unwrap().block_on(workspace.query(&[org_tasks_core::TaskQuery::default()])).unwrap().remove(0).tasks.remove(0)).unwrap();
+        let task = task_from_filter(runtime().unwrap().block_on(workspace.query(&[(org_tasks_core::TaskQuery::default()).into()])).unwrap().remove(0).into_task().unwrap().tasks.remove(0)).unwrap();
         let value = serde_json::to_value(task).unwrap();
         assert_eq!(value["heading"], "Task [1/2]");
         assert_eq!(value["headingParts"][1]["count"]["completed"], 1);
@@ -1665,7 +1686,7 @@ mod reset_bridge_tests {
         workspace_add_repo(handle, path.clone()).unwrap();
         repo_load(handle, path.clone()).unwrap();
         let id = repo_id(handle, path.clone()).unwrap();
-        let metadata: serde_json::Value = serde_json::from_str(&repo_file_metadata_json(handle, path.clone()).unwrap()).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&query_files_json(handle, path.clone()).unwrap()).unwrap();
         assert_eq!(metadata[0]["hasConflict"], true);
         let snapshot: serde_json::Value = serde_json::from_str(&repo_snapshot_json(handle, path.clone()).unwrap()).unwrap();
         assert_eq!(snapshot["files"][0]["hasConflict"], true);
@@ -1674,7 +1695,7 @@ mod reset_bridge_tests {
         repo_reset(handle, path.clone()).unwrap();
         assert_eq!(repo_id(handle, path.clone()).unwrap(), id);
         assert!(!root.join("A.org").exists());
-        assert_eq!(repo_file_metadata_json(handle, path.clone()).unwrap(), "[]");
+        assert_eq!(query_files_json(handle, path.clone()).unwrap(), "[]");
         assert_eq!(repo_history_json(handle, path).unwrap(), "[]");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();

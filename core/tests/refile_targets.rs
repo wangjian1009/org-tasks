@@ -122,15 +122,15 @@ async fn queries_exclude_conflicts_before_matching_other_system_tags() {
         (".t.CONFLICT", 1),
     ] {
         let result = workspace
-            .query(&[TaskQuery {
+            .query(&[(TaskQuery {
                 expression: expression.into(),
                 ..Default::default()
-            }]).await
-            .unwrap().remove(0);
+            }).into()]).await
+            .unwrap().remove(0).into_task().unwrap();
         assert_eq!(result.tasks.len(), expected, "{expression}");
         assert!(result.tasks.iter().all(|task| task.title() == "Other"));
     }
-    let tasks = workspace.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let tasks = workspace.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(tasks[0].own_tags(), ["refile"]);
     assert!(tasks[0].inherited_tags().is_empty());
     assert_eq!(workspace.refile_targets().await.unwrap().len(), 1);
@@ -151,7 +151,7 @@ async fn structured_query_flags_and_categories_still_apply_before_returning_tags
         include_compose_tasks: false,
         ..Default::default()
     };
-    let result = workspace.query(std::slice::from_ref(&query)).await.unwrap().remove(0);
+    let result = workspace.query(&[(&query).into()]).await.unwrap().remove(0).into_task().unwrap();
     assert_eq!(result.tasks.len(), 1);
     assert_eq!(result.tasks[0].title(), "Child");
     assert_eq!(result.tasks[0].own_tags(), ["home"]);
@@ -160,14 +160,14 @@ async fn structured_query_flags_and_categories_still_apply_before_returning_tags
     assert_eq!(workspace.refile_targets().await.unwrap()[0].heading_path, ["Parent"]);
     assert!(
         workspace
-            .query(&[TaskQuery {
+            .query(&[(TaskQuery {
                 excluded_files: vec![OrgFileRef {
                     repo_id: support::id("r"),
                     path: "tasks.org".into()
                 }],
                 ..query
-            }]).await
-            .unwrap().remove(0)
+            }).into()]).await
+            .unwrap().remove(0).into_task().unwrap()
             .tasks
             .is_empty()
     );

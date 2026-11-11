@@ -119,6 +119,9 @@ function page(name, service, router, notifications = { async refresh() {} }) {
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + compiled + '\n})', { filename })(dependency => {
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
+    if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };
+    if (dependency.endsWith('/AppConfigService')) return { AppConfigService: { async load() { return {repos:[]}; } } };
+    if (dependency.endsWith('/PageQueryService')) return { PageQueryService: { async query() { await notifications.refresh(); return []; } } };
     if (dependency.endsWith('/CoreNotificationService')) return { CoreNotificationService: notifications,
       emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
     if (dependency.endsWith('/NativeCoreService')) return { coreErrorMessage: error => error.message };

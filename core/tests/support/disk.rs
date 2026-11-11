@@ -142,3 +142,9 @@ pub fn set_rules(repo: &mut core_types::OrgRepo, rules: core_types::TaskScanRule
         .collect::<String>();
     std::fs::write(root.join(".orgzlyignore"), source).unwrap();
 }
+
+pub async fn query_files(repo: &core_types::OrgRepo) -> Result<Vec<core_types::OrgFileMetadata>, core_types::CoreError> {
+    core_types::OrgWorkspace::new(vec![repo.clone()])?.query(&[
+        core_types::CoreQuery::File { query: core_types::FileQuery { include_ignored: true, ..Default::default() } }
+    ]).await?.remove(0).into_files()
+}

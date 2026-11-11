@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit'
-import { CoreAddressLink, CoreTask, NativeCoreService } from '../services/NativeCoreService'
+import { CoreAddressLink, CoreTask, NativeCoreService, taskResult } from '../services/NativeCoreService'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
@@ -90,7 +90,7 @@ struct ShareLocation {
       for (const repository of config.repos) {
         if (request !== this.loadRequest) return
         const query = shareLocationTaskQuery(memoTarget?.repository.id === repository.id ? memoTarget.path : '')
-        const result = (await NativeCoreService.queryTasks([repository], [query], config.todoDefaults))[0]
+        const result = taskResult((await NativeCoreService.query([repository], [{ type: 'task', query }], config.todoDefaults))[0])
         for (const task of result.tasks) { results.push(task); repositories.set(task.id, repository) }
       }
       if (request !== this.loadRequest) return
@@ -143,8 +143,8 @@ struct ShareLocation {
           queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
         }, this.config.todoDefaults)
-        const refreshed = (await NativeCoreService.queryTasks([repository],
-          [{ includeDone: true, includeComposeTasks: true }], this.config.todoDefaults))[0]
+        const refreshed = taskResult((await NativeCoreService.query([repository],
+          [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }], this.config.todoDefaults))[0])
         this.updatedTask = refreshed.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(task.fullPath))
         if (!this.updatedTask) throw new Error('无法读取更新后的任务')
       }

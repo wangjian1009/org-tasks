@@ -1,6 +1,6 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
-import { CoreTask, CoreTaskModification, NativeCoreService } from './NativeCoreService'
+import { CoreTask, CoreTaskModification, NativeCoreService, taskResult } from './NativeCoreService'
 
 // 只组装字段操作和快照版本；保真修改、校验与通知由 Core 完成。
 export class TaskInlineService {
@@ -21,7 +21,7 @@ export class TaskInlineService {
   static async reload(context: Context, task: CoreTask): Promise<CoreTask> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-    const tasks = (await workspace.query([{ includeDone: true, includeComposeTasks: true }]))[0].tasks
+    const tasks = taskResult((await workspace.query([{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }]))[0]).tasks
     const current = tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
       (task.taskId ? item.taskId === task.taskId : item.id === task.id))
     if (!current) throw new Error('任务已删除或改名，请返回列表重新打开')

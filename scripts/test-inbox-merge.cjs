@@ -28,6 +28,8 @@ function fixture() {
   let loaded = false;
   const repo = { rootDirectory: '/repo', get id() { return loaded ? 'core' : ''; }, async load() { loaded = true; } };
   const workspace = {
+    async query(batch) { queries++; if (queryFailure) throw new Error('读取失败'); return batch.map(request =>
+      request.type === 'task' ? {type:'task',result:{tasks:records,categories:[]}} : {type:'file',result:[{path:'inbox.org'}]}); },
     async repos() { return [repo]; },
     async taskMergeOperations(request) {
       assert.equal(loaded, true);
@@ -42,13 +44,15 @@ function fixture() {
     async executeTaskOperations(group) { requests.push({ kind: 'commit', group }); if (commitWait) await commitWait; if (failure) throw failure; }
   };
   const appConfig = { AppConfigService: { async load() { return config; } } };
-  const core = { NativeCoreService: { async workspaceFor() { return workspace; } }, coreErrorMessage: e => e.message };
-  const target = { configuredFileTarget: c => ({ repoId: c.inboxRepoId, path: c.inboxFile }), FileTargetService: { async query() {
-    queries++; if (queryFailure) throw new Error('读取失败'); return { tasks: records };
-  } } };
+  const core = { taskResult:value=>value.result, NativeCoreService: { async workspaceFor() { return workspace; } }, coreErrorMessage: e => e.message };
+  const target = { configuredFileTarget: c => ({ repoId: c.inboxRepoId, path: c.inboxFile }), FileTargetService: {
+    prepare() { return {reference:{repoId:'core',path:'inbox.org'},task:{type:'task',query:{}},file:{type:'file',query:{}}}; },
+    result(task) { return task.result; }
+  } };
   const servicePath = path.resolve('entry/src/main/ets/services/InboxService.ets');
   const { InboxService } = compile(fs.readFileSync(servicePath, 'utf8'), servicePath, {
-    './AppConfigService': appConfig, './NativeCoreService': core, './FileTargetService': target
+    './AppConfigService': appConfig, './NativeCoreService': core, './FileTargetService': target,
+    './PageQueryService':{PageQueryService:{query:(_,batch)=>workspace.query(batch)}}
   });
   const filename = path.resolve('entry/src/main/ets/pages/Inbox.ets');
   const full = fs.readFileSync(filename, 'utf8');
@@ -60,6 +64,7 @@ function fixture() {
     '../services/CoreNotificationService': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
     '@kit.ArkUI': { KeyboardAvoidMode: { OFFSET: 0 } },
     '../services/InboxService': { InboxService },
+    '../ui/InboxPresentation': { recentDays: () => [] },
     '../services/AppConfigService': appConfig, '../services/FileTargetService': target,
     '../services/NativeCoreService': core
   });

@@ -877,7 +877,7 @@ mod tests {
         repo.id = "repo".into();
         { let value = file; crate::model::test_support::push_file(&mut repo, value); };
         let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
-        let task = workspace.query(&[crate::TaskQuery::default()]).await.unwrap().remove(0).tasks.remove(0);
+        let task = workspace.query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.remove(0);
         let rendered = task.render_content();
         assert!(rendered.body_html.contains("<b>粗体</b>"));
         assert!(rendered.body_html.contains("链接</a>"));

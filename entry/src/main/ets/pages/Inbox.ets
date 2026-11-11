@@ -16,7 +16,6 @@ import { InboxService, InboxAction } from '../services/InboxService'
 import { RefileSection, RecentDay, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
-import { FileTargetService } from '../services/FileTargetService'
 import { CoreBridgeError, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
@@ -64,7 +63,7 @@ struct Inbox {
   private captureFocusTimer: number = -1
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
-  onPageShow() { this.visible = true; this.loadRecords() }
+  onPageShow() { this.visible = true }
   onPageHide() { this.visible = false; clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
     clearTimeout(this.captureFocusTimer)
@@ -337,19 +336,6 @@ struct Inbox {
     if (total !== this.rowTotalHeight) this.rowTotalHeight = total
   }
 
-  async loadRecentRecords(request: number) {
-    this.recentLoading = this.recentGroups.length === 0
-    this.recentMessage = ''
-    try {
-      const tasks = await InboxService.recent(this.getUIContext().getHostContext()!)
-      if (request === this.requestId) this.recentGroups = recentDays(tasks)
-    } catch (e) {
-      if (request === this.requestId) this.recentMessage = `近期记录读取失败：${coreErrorMessage(e as CoreBridgeError)}`
-    } finally {
-      if (request === this.requestId) this.recentLoading = false
-    }
-  }
-
   @Builder
   plannedDivider() {
     Column() {
@@ -375,14 +361,17 @@ struct Inbox {
     if (TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
     const request = ++this.requestId
     clearTimeout(this.refreshTimer)
-    this.loadRecentRecords(request)
+    this.recentLoading = this.recentGroups.length === 0
+    this.recentMessage = ''
     this.loading = this.records.length === 0
     this.message = ''
     this.needsConfiguration = false
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const result = await FileTargetService.query(config, 'inbox')
+      const snapshot = await InboxService.load(config)
+      const result = snapshot.inbox
       if (request !== this.requestId) return
+      this.recentGroups = recentDays(snapshot.recent)
       if (!result) {
         this.closeTargetPopup()
         this.needsConfiguration = true
@@ -394,17 +383,20 @@ struct Inbox {
       if (this.selected) {
         const selected = this.records.find((record: CoreTask) => record.id === this.selected?.id)
         if (!selected) this.closeTargetPopup()
-        else { this.selected = selected; this.loadTargets() }
+        else this.selected = selected
       }
     } catch (e) {
       if (request === this.requestId) {
         this.closeTargetPopup()
         this.records = []
         this.message = `读取收件箱失败：${coreErrorMessage(e as CoreBridgeError)}`
+        this.recentGroups = []
+        this.recentMessage = `近期记录读取失败：${coreErrorMessage(e as CoreBridgeError)}`
       }
     } finally {
       if (request === this.requestId) {
         this.loading = false
+        this.recentLoading = false
         if (this.visible) this.refreshTimer = setTimeout((): void => { this.loadRecords() }, 60000)
       }
     }
@@ -412,7 +404,7 @@ struct Inbox {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ title: this.selectingRecords ? `已选 ${this.selectedRecordIds.length} 条` : '收件箱', titleIcon: $r('app.media.nav_inbox'),
+      AppShell({ refreshOnPageShow: true, title: this.selectingRecords ? `已选 ${this.selectedRecordIds.length} 条` : '收件箱', titleIcon: $r('app.media.nav_inbox'),
         actionLabel: this.selectingRecords ? '退出多选' : '多选收件箱记录', actionText: this.selectingRecords ? '取消' : '多选',
         action: (): void => { if (this.selectingRecords) this.cancelSelection(); else this.startSelection() },
         synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,

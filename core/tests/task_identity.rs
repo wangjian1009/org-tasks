@@ -9,7 +9,7 @@ fn workspace(root: &str, path: &str, source: &str) -> OrgWorkspace {
 }
 
 async fn tasks(source: &str) -> Vec<FilterTask> {
-    workspace("/repo", "inbox.org", source).query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks
+    workspace("/repo", "inbox.org", source).query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks
 }
 
 #[tokio::test]
@@ -105,17 +105,17 @@ async fn repo_path_file_path_and_task_ancestors_scope_the_identity() {
     let id = tasks(source).await[1].id().to_owned();
     assert_ne!(
         id,
-        workspace("/other", "inbox.org", source).query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks[1].id()
+        workspace("/other", "inbox.org", source).query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
     );
     assert_ne!(
         id,
-        workspace("/repo", "other/inbox.org", source).query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks[1].id()
+        workspace("/repo", "other/inbox.org", source).query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
     );
     assert_ne!(id, tasks("* TODO Other project\n** TODO Child\n").await[1].id());
     let mut rebuilt = workspace("/repo", "inbox.org", source);
     rebuilt.repos[0].id = support::id("new-repo-id");
     std::fs::write(std::path::Path::new(&rebuilt.repos[0].root_directory).join(".sync/id"), format!("{}\n", rebuilt.repos[0].id)).unwrap();
-    assert_eq!(id, rebuilt.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks[1].id());
+    assert_eq!(id, rebuilt.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id());
 }
 
 #[tokio::test]
@@ -125,11 +125,11 @@ async fn duplicate_paths_are_distinct_and_ids_do_not_depend_on_query_filters() {
     assert_ne!(all[1].id(), all[2].id());
     let ws = workspace("/repo", "inbox.org", source);
     let done = ws
-        .query(&[TaskQuery {
+        .query(&[(TaskQuery {
             expression: "it.done".into(),
             ..Default::default()
-        }]).await
-        .unwrap().remove(0);
+        }).into()]).await
+        .unwrap().remove(0).into_task().unwrap();
     assert_eq!(done.tasks[0].id(), all[2].id());
     assert_eq!(
         all[2].id(),
@@ -143,7 +143,7 @@ async fn display_content_changes_keep_identity_without_rewriting_source() {
     let source =
         "* DONE [#C] Project [1/1] :new:\r\nSCHEDULED: <2026-11-06 Fri>\r\nChanged body\r\n";
     let ws = workspace("/repo", "inbox.org", source);
-    let after = ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let after = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(before[0].id(), after[0].id());
     assert_ne!(before[0].body(), after[0].body());
     assert_eq!(ws.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes(), source.as_bytes());

@@ -3,7 +3,7 @@ import { preferences } from '@kit.ArkData'
 import { formInfo } from '@kit.FormKit'
 import { AppConfigService } from './AppConfigService'
 import { fileTargetRepository, FileTargetService } from './FileTargetService'
-import { CoreTask, NativeCoreService } from './NativeCoreService'
+import { CoreTask, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 import { PreferencesStore } from './PreferencesStore'
 import { memoRecordQuery } from './TaskViewQueries'
 import { taskTagOptions } from '../ui/TaskTagFilterPresentation'
@@ -74,11 +74,14 @@ export class MemoCardService {
     if (!fileTargetRepository(config, 'memo')) {
       return { data: memoCardData([], tag, '请先在应用中选择备忘文件'), tags: [], available: false }
     }
-    const target = await FileTargetService.resolve(config, 'memo')
-    if (!target) {
-      return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
-    }
-    const result = (await NativeCoreService.queryTasks([target.repository], [memoRecordQuery(target.path, tag)], config.todoDefaults))[0]
-    return { data: memoCardData(result.tasks, tag), tags: taskTagOptions(result.tasks, target.tagOptions), available: true }
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const target = FileTargetService.prepare(config, await workspace.repos(), 'memo')
+    if (!target) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
+    const results = await workspace.query([{ type: 'task', repoIds: [target.reference.repoId],
+      query: memoRecordQuery(target.reference.path, tag) }, target.file])
+    const metadata = fileResult(results[1])[0]
+    if (!metadata) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
+    const result = taskResult(results[0])
+    return { data: memoCardData(result.tasks, tag), tags: taskTagOptions(result.tasks, metadata.tagOptions), available: true }
   }
 }

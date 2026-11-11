@@ -28,105 +28,59 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function fixture() {
-  const writes = [];
-  const context = {};
-  const config = { repos: [
-    { id: 'config-a', name: '个人仓库', rootDirectory: '/a' },
-    { id: 'config-b', name: '工作资料', rootDirectory: '/b' }
-  ], todoDefaults: '' };
-  let coreId = 'core-a', loads = 0, events = [], query = null;
-  const repo = { get id() { return coreId; }, async load() { loads++; } };
-  let observer;
-  const workspace = { async watchNotifications(callback) { observer = callback; }, stopWatchingNotifications() { observer = undefined; } };
-  const service = load('services/CoreNotificationService', {
-    './AppConfigService': { AppConfigService: { async load(actual, credentials) {
-      assert.equal(actual, context); assert.equal(credentials, false); return structuredClone(config);
-    } } },
-    './NativeCoreService': { NativeCoreService: {
-      async workspaceFor() { return workspace; },
-      async notifications() { return query ? query() : events; },
-      async repository(repositories, configured) { assert.equal(configured.id, 'config-a'); return repo; }
-    } },
-    '../ui/Theme': { repositoryLabel(repository) { return repository.name; } }
-  }, { setOrCreate(key, value) { assert.equal(key, 'coreNotifications'); writes.push(value); } });
-  return { ...service, writes, context, config, setEvents(value) { events = value; },
-    setQuery(value) { query = value; }, emit() { observer(); }, setCoreId(value) { coreId = value; }, loads: () => loads };
+  const writes=[],context={},config={repos:[{id:'config-a',name:'个人仓库',rootDirectory:'/a'},{id:'config-b',name:'工作资料',rootDirectory:'/b'}]};
+  let observer,coreId='core-a',loads=0,invalidations=0;
+  const repo={get id(){return coreId;},async load(){loads++;}};
+  const workspace={async watchNotifications(callback){observer=callback;},stopWatchingNotifications(){}};
+  const service=load('services/CoreNotificationService',{
+    './AppConfigService':{AppConfigService:{async load(){return config;}}},
+    './CoreDataChangeService':{CoreDataChangeService:{invalidate(){invalidations++;}}},
+    './NativeCoreService':{NativeCoreService:{async repository(_,configured){assert.equal(configured.id,'config-a');return repo;}}},
+    '../ui/Theme':{repositoryLabel:repo=>repo.name}
+  },{setOrCreate(key,value){assert.equal(key,'coreNotifications');writes.push(value);}});
+  return {...service,config,context,workspace,writes,loads:()=>loads,invalidations:()=>invalidations,
+    emit(event={type:'globalNotificationsChanged'}){observer(event);},setCoreId(value){coreId=value;},
+    publish(events){service.CoreNotificationService.publish(config,events,service.CoreNotificationService.begin());}};
 }
-const conflict = (repoId = 'core-a', paths = ['same.org']) => ({ type: 'syncConflict', repoId, rootDirectory: repoId === 'core-a' ? '/a' : '/b', path: paths[0] });
+const conflict=(repoId='core-a',paths=['same.org'])=>({type:'syncConflict',repoId,rootDirectory:repoId==='core-a'?'/a':'/b',path:paths[0]});
 
-test('多仓库同名文件保持独立，展示名称仅由通知及本地配置得到，不查询其他 Core 接口', async () => {
-  const f = fixture(), events = [conflict(), conflict('core-b')];
-  f.setEvents(events); await f.CoreNotificationService.refresh(f.context);
-  const state = f.writes[0];
-  assert.deepEqual(state.notifications, events);
-  assert.deepEqual(Object.keys(state.notifications[0]), ['type', 'repoId', 'rootDirectory', 'path']);
-  assert.deepEqual(state.repositories.map(repo => [repo.coreRepoId, repo.configRepoId]), [['core-a', 'config-a'], ['core-b', 'config-b']]);
+test('从混合查询结果发布通知，多仓库同名文件与宿主身份保持隔离',()=>{
+  const f=fixture(),events=[conflict(),conflict('core-b')];f.publish(events);
+  assert.deepEqual(f.writes[0].notifications,events);
+  assert.deepEqual(f.writes[0].repositories.map(repo=>[repo.coreRepoId,repo.configRepoId]),[['core-a','config-a'],['core-b','config-b']]);
 });
 
-test('解决按钮使用配置身份与精确文件路径，仓库替换后拒绝旧通知', async () => {
-  const f = fixture(), notice = conflict();
-  f.setEvents([notice]); await f.CoreNotificationService.refresh(f.context);
-  assert.deepEqual(await f.CoreNotificationService.syncConflictTarget(f.context, notice), { repoId: 'config-a', path: 'same.org' });
-  assert.equal(f.loads(), 1);
-  f.setCoreId('replacement');
-  await assert.rejects(f.CoreNotificationService.syncConflictTarget(f.context, notice), /发生变化/);
-  f.config.repos = [];
-  await assert.rejects(f.CoreNotificationService.syncConflictTarget(f.context, notice), /不存在/);
+test('较早批次的结果不能恢复已经清除的通知',()=>{
+  const f=fixture(),old=f.CoreNotificationService.begin(),current=f.CoreNotificationService.begin();
+  f.CoreNotificationService.publish(f.config,[],current);
+  f.CoreNotificationService.publish(f.config,[conflict()],old);
+  assert.equal(f.writes.length,1);assert.deepEqual(f.writes[0].notifications,[]);
 });
 
-test('较早的慢响应不能恢复已经解决的通知', async () => {
-  const f = fixture(), started = deferred(), first = deferred();
-  let calls = 0;
-  f.setQuery(() => { if (++calls === 1) { started.resolve(); return first.promise; } return []; });
-  const old = f.CoreNotificationService.refresh(f.context); await started.promise;
-  await f.CoreNotificationService.refresh(f.context); first.resolve([conflict()]); await old;
-  assert.equal(f.writes.length, 1); assert.deepEqual(f.writes[0].notifications, []);
+test('通知订阅只标记失效，不发起独立查询，仓库事件交给数据订阅',async()=>{
+  const f=fixture();await f.CoreNotificationService.connect(f.workspace);
+  f.emit({type:'repositoryChanged',repoId:'core-a'});assert.equal(f.invalidations(),0);
+  f.emit();assert.equal(f.invalidations(),1);assert.equal(f.writes.length,0);
+  await f.CoreNotificationService.connect(f.workspace);assert.equal(f.writes.length,0);
 });
 
-test('读取失败保留最近成功快照，并向调用方报告错误', async () => {
-  const f = fixture(); f.setEvents([conflict()]); await f.CoreNotificationService.refresh(f.context);
-  f.setQuery(() => { throw new Error('读取失败'); });
-  await assert.rejects(f.CoreNotificationService.refresh(f.context), /读取失败/);
-  assert.equal(f.writes.length, 1); assert.equal(f.writes[0].notifications.length, 1);
+test('解决按钮使用配置身份与精确文件路径，仓库替换后拒绝旧通知',async()=>{
+  const f=fixture(),notice=conflict();f.publish([notice]);
+  assert.deepEqual(await f.CoreNotificationService.syncConflictTarget(f.context,notice),{repoId:'config-a',path:'same.org'});
+  assert.equal(f.loads(),1);f.setCoreId('replacement');
+  await assert.rejects(f.CoreNotificationService.syncConflictTarget(f.context,notice),/发生变化/);
+  f.config.repos=[];await assert.rejects(f.CoreNotificationService.syncConflictTarget(f.context,notice),/不存在/);
 });
 
-test('较早请求的失败不覆盖新快照，也不干扰新页面', async () => {
-  const f = fixture(), started = deferred(), first = deferred(); let calls = 0;
-  f.setQuery(() => { if (++calls === 1) { started.resolve(); return first.promise; } return []; });
-  const old = f.CoreNotificationService.refresh(f.context); await started.promise;
-  await f.CoreNotificationService.refresh(f.context); first.reject(new Error('过期失败')); await old;
-  assert.equal(f.writes.length, 1); assert.deepEqual(f.writes[0].notifications, []);
+test('全局同步提示按 Core 结果发布，不生成、去重或消费通知',()=>{
+  const f=fixture(),events=[{type:'syncRequired'},conflict()];f.publish(events);f.publish(events);
+  assert.deepEqual(f.writes.at(-1).notifications,events);assert.equal(f.writes.at(-1).repositories.length,1);
 });
 
-test('冲突路径更新改变渲染键，仓库改名采用新的宿主上下文', () => {
-  const view = load('ui/CoreNotificationPresentation', {}, {});
-  const notice = conflict();
-  assert.notEqual(view.coreNotificationRenderKey(notice), view.coreNotificationRenderKey(conflict('core-a', ['other.org'])));
-  assert.equal(view.syncConflictRepositoryName(notice, [{ coreRepoId: 'core-a', name: '新名字' }]), '新名字');
-});
-
-test('只有通知更新回调提高数据版本，空通知也触发页面数据失效', async () => {
-  const f=fixture();
-  await f.CoreNotificationService.refresh(f.context);
-  assert.equal(f.writes.at(-1).revision,0);
-  f.emit();
-  assert.equal(f.writes.at(-1).revision,1);
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(f.writes.at(-1).revision,1);
-  assert.deepEqual(f.writes.at(-1).notifications,[]);
-  await f.CoreNotificationService.refresh(f.context);
-  assert.equal(f.writes.at(-1).revision,1,'手动读取通知不伪造数据更新事件');
-});
-
-test('全局同步提示无需仓库或日志身份，重新读取不在宿主生成或消费通知', async () => {
-  const f = fixture();
-  const events = [{ type: 'syncRequired' }, conflict()];
-  f.setEvents(events);
-  await f.CoreNotificationService.refresh(f.context);
-  await f.CoreNotificationService.refresh(f.context);
-  assert.deepEqual(f.writes.at(-1).notifications, events);
-  assert.equal(f.writes.at(-1).repositories.length, 1);
-  assert.deepEqual(f.writes.at(-1).notifications[0], { type: 'syncRequired' });
+test('冲突路径更新改变渲染键，仓库改名采用新的宿主上下文',()=>{
+  const view=load('ui/CoreNotificationPresentation',{},{}),notice=conflict();
+  assert.notEqual(view.coreNotificationRenderKey(notice),view.coreNotificationRenderKey(conflict('core-a',['other.org'])));
+  assert.equal(view.syncConflictRepositoryName(notice,[{coreRepoId:'core-a',name:'新名字'}]),'新名字');
 });
 
 test('点击同步提示调用共享同步 service，忙碌或连续点击不会并发，也不在页面清除提示', async () => {

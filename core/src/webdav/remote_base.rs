@@ -184,43 +184,53 @@ fn entry_path(path: &str, entry: &Entry) -> Result<String, CoreError> {
     ))
 }
 
-impl crate::OrgRepo {
-    /// 仅比较索引中的已确认 hash 与当前字节，不读取基线正文、不运行三方合并或访问网络。
-    pub async fn has_local_changes(&self) -> Result<bool, CoreError> {
-        let root = Path::new(&self.root_directory);
-        let _guard = crate::model::access::enter(root, &self.id).await?;
-        let bytes = transaction::read(root, INDEX).await?;
-        let index: Index = match bytes {
-            Some(bytes) => serde_json::from_slice(&bytes)
-                .map_err(|_| CoreError::Store("远端基线索引无效".into()))?,
-            None => Index {
-                version: 1,
-                ..Default::default()
-            },
-        };
-        if index.version != 1 {
-            return Err(CoreError::InvalidState("不支持的远端基线版本"));
-        }
-        let mut paths = self
-            .load_files_unlocked(&[]).await?
-            .iter()
-            .map(|file| file.path.clone())
-            .collect::<std::collections::BTreeSet<_>>();
-        paths.extend(index.entries.keys().cloned());
-        for path in paths {
-            super::validate_path(&path)?;
-            let current = transaction::read(root, &path).await?;
-            let current_hash = current
-                .as_deref()
-                .map(|bytes| LocalFileVersion::from_bytes(bytes).content_hash);
-            let baseline_hash = index
-                .entries
-                .get(&path)
-                .and_then(|entry| entry.hash.clone());
-            if current_hash != baseline_hash {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+/// 在仓库锁内复用本批 Org 文件字节，仅额外读取基线索引及非 Org 控制内容。
+pub(crate) async fn local_changes_from_files(
+    root: &Path,
+    files: &[crate::OrgFile],
+) -> Result<bool, CoreError> {
+    let bytes = transaction::read(root, INDEX).await?;
+    let index: Index = match bytes {
+        Some(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|_| CoreError::Store("远端基线索引无效".into()))?,
+        None => Index {
+            version: 1,
+            ..Default::default()
+        },
+    };
+    if index.version != 1 {
+        return Err(CoreError::InvalidState("不支持的远端基线版本"));
     }
+    let current = files
+        .iter()
+        .map(|file| {
+            (
+                file.path.as_str(),
+                LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut paths = current
+        .keys()
+        .map(|path| (*path).to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    paths.extend(index.entries.keys().cloned());
+    let mut changed = false;
+    for path in paths {
+        super::validate_path(&path)?;
+        let hash = if path.ends_with(".org") {
+            current.get(path.as_str()).cloned()
+        } else {
+            transaction::read(root, &path)
+                .await?
+                .as_deref()
+                .map(|bytes| LocalFileVersion::from_bytes(bytes).content_hash)
+        };
+        let baseline = index
+            .entries
+            .get(&path)
+            .and_then(|entry| entry.hash.as_ref());
+        changed |= hash.as_ref() != baseline;
+    }
+    Ok(changed)
 }

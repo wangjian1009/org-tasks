@@ -19,7 +19,6 @@ extern "C" char* org_tasks_harmony_repo_file(uint64_t handle, const char* root, 
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
-extern "C" char* org_tasks_harmony_workspace_notifications(uint64_t handle);
 extern "C" uint64_t org_tasks_harmony_workspace_watch_notifications(uint64_t handle, uint64_t monitor);
 extern "C" void org_tasks_harmony_workspace_unwatch_notifications(uint64_t subscription);
 extern "C" int32_t org_tasks_harmony_workspace_reload(uint64_t handle);
@@ -47,7 +46,6 @@ extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const ch
     int64_t started_at);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
 extern "C" char* org_tasks_harmony_repo_load_files(uint64_t workspace_handle, const char* root, const char* ignore_files_json);
-extern "C" char* org_tasks_harmony_repo_file_metadata(uint64_t workspace_handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_webdav_test_connection(
     const char* webdav_url, const char* username, const char* password);
 extern "C" char* org_tasks_harmony_repo_conflicts(uint64_t handle, const char* root_directory);
@@ -100,7 +98,6 @@ struct WebDavConnectionWork {
 
 struct WorkspaceStringWork {
     std::string preview_action;
-    bool notifications = false;
     bool watch_notifications = false;
     bool watch_data_changes = false;
     bool reload = false;
@@ -161,7 +158,7 @@ struct RepoSnapshotWork {
     std::string task_json;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, Reset, History, HistoryDetail, Conflicts, File, FileMetadata, HistoryFile, LastEffectSync } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, Load, Reset, History, HistoryDetail, Conflicts, File, HistoryFile, LastEffectSync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -414,6 +411,56 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     return result;
 }
 
+bool ProjectTaskResult(napi_env env, napi_value result)
+{
+    napi_value source_tasks, tasks;
+    uint32_t length = 0;
+    if (napi_get_named_property(env, result, "tasks", &source_tasks) != napi_ok ||
+        napi_get_array_length(env, source_tasks, &length) != napi_ok ||
+        napi_create_array_with_length(env, length, &tasks) != napi_ok) return false;
+    for (uint32_t index = 0; index < length; index++) {
+        napi_value source;
+        if (napi_get_element(env, source_tasks, index, &source) != napi_ok) return false;
+        napi_value task = CreateTaskObject(env, source);
+        if (task == nullptr || napi_set_element(env, tasks, index, task) != napi_ok) return false;
+    }
+    return napi_set_named_property(env, result, "tasks", tasks) == napi_ok;
+}
+
+bool ProjectFileResult(napi_env env, napi_value files)
+{
+    uint32_t length = 0;
+    if (napi_get_array_length(env, files, &length) != napi_ok) return false;
+    for (uint32_t index = 0; index < length; index++) {
+        napi_value metadata, project_name;
+        if (napi_get_element(env, files, index, &metadata) != napi_ok ||
+            napi_get_named_property(env, metadata, "projectName", &project_name) != napi_ok) return false;
+        napi_property_descriptor properties[] = {
+            {"projectName", nullptr, nullptr, nullptr, nullptr, project_name, napi_enumerable, nullptr},
+            {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
+        };
+        if (napi_define_properties(env, metadata, 2, properties) != napi_ok) return false;
+    }
+    return true;
+}
+
+bool ProjectQueryResults(napi_env env, napi_value results)
+{
+    uint32_t length = 0;
+    if (napi_get_array_length(env, results, &length) != napi_ok) return false;
+    for (uint32_t index = 0; index < length; index++) {
+        napi_value item, type, result;
+        std::string kind;
+        if (napi_get_element(env, results, index, &item) != napi_ok ||
+            napi_get_named_property(env, item, "type", &type) != napi_ok || !ReadString(env, type, &kind) ||
+            napi_get_named_property(env, item, "result", &result) != napi_ok) return false;
+        if (kind == "task") { if (!ProjectTaskResult(env, result)) return false; }
+        else if (kind == "file") { if (!ProjectFileResult(env, result)) return false; }
+        else if (kind != "notification") return false;
+    }
+    return true;
+}
+
 void RejectFileProjection(napi_env env, napi_deferred deferred)
 {
     bool pending = false;
@@ -631,8 +678,7 @@ void ExecuteWorkspaceString(napi_env, void* data)
         if (work->subscription_id != 0) work->response = std::to_string(work->subscription_id);
     } else if (work->reload) {
         if (org_tasks_harmony_workspace_reload(work->handle) == 0) work->response = "{}";
-    } else if (work->notifications) {
-        work->response = TakeRustString(org_tasks_harmony_workspace_notifications(work->handle));
+
     } else if (work->refile_targets) {
         work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle, work->expression.c_str()));
     } else if (work->execute_operations) {
@@ -703,28 +749,8 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             else if (work->preview_action == "file" || work->preview_action == "sourceFile" || work->preview_action == "fileAt") projected = CreateOrgFileObject(env, result);
             if (projected != nullptr) napi_resolve_deferred(env, work->deferred, projected);
             else RejectFileProjection(env, work->deferred);
-        } else if (!work->notifications && !work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
-            uint32_t count = 0;
-            bool valid = napi_get_array_length(env, result, &count) == napi_ok;
-            for (uint32_t item = 0; valid && item < count; item++) {
-                napi_value query_result;
-                napi_value source_tasks;
-                napi_value tasks;
-                uint32_t length = 0;
-                valid = napi_get_element(env, result, item, &query_result) == napi_ok &&
-                    napi_get_named_property(env, query_result, "tasks", &source_tasks) == napi_ok &&
-                    napi_get_array_length(env, source_tasks, &length) == napi_ok &&
-                    napi_create_array_with_length(env, length, &tasks) == napi_ok;
-                for (uint32_t index = 0; valid && index < length; index++) {
-                    napi_value source;
-                    valid = napi_get_element(env, source_tasks, index, &source) == napi_ok;
-                    if (!valid) break;
-                    napi_value task = CreateTaskObject(env, source);
-                    valid = task != nullptr && napi_set_element(env, tasks, index, task) == napi_ok;
-                }
-                if (valid) valid = napi_set_named_property(env, query_result, "tasks", tasks) == napi_ok;
-            }
-            if (valid) napi_resolve_deferred(env, work->deferred, result);
+        } else if (!work->refile_targets && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
+            if (ProjectQueryResults(env, result)) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {
             napi_resolve_deferred(env, work->deferred, result);
@@ -829,10 +855,6 @@ void ExecuteRepoSnapshot(napi_env, void* data)
             work->response = TakeRustString(org_tasks_harmony_repo_history_operation(work->workspace_handle,
                 work->root_directory.c_str(), work->task_json.c_str()));
             break;
-        case RepoSnapshotWork::Operation::FileMetadata:
-            work->response = TakeRustString(org_tasks_harmony_repo_file_metadata(
-                work->workspace_handle, work->root_directory.c_str()));
-            break;
         case RepoSnapshotWork::Operation::File:
             work->response = TakeRustString(org_tasks_harmony_repo_file(work->workspace_handle,
                 work->root_directory.c_str(), work->task_path.c_str()));
@@ -883,7 +905,6 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
         RejectCoreError(env, work->deferred, work->error,
             work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
             work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
-            work->operation == RepoSnapshotWork::Operation::FileMetadata ? "读取文件元信息失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" :
             work->operation == RepoSnapshotWork::Operation::Reset ? "Repo.reset 失败" :
             work->operation == RepoSnapshotWork::Operation::History ? "读取同步历史失败" :
@@ -903,22 +924,6 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
         } else if (work->operation == RepoSnapshotWork::Operation::File || work->operation == RepoSnapshotWork::Operation::HistoryFile) {
             napi_value file = CreateOrgFileObject(env, result);
             if (file != nullptr) napi_resolve_deferred(env, work->deferred, file);
-            else RejectFileProjection(env, work->deferred);
-        } else if (work->operation == RepoSnapshotWork::Operation::FileMetadata) {
-            uint32_t length = 0;
-            bool valid = napi_get_array_length(env, result, &length) == napi_ok;
-            for (uint32_t index = 0; valid && index < length; index++) {
-                napi_value metadata, project_name;
-                valid = napi_get_element(env, result, index, &metadata) == napi_ok &&
-                    napi_get_named_property(env, metadata, "projectName", &project_name) == napi_ok;
-                if (!valid) break;
-                napi_property_descriptor properties[] = {
-                    {"projectName", nullptr, nullptr, nullptr, nullptr, project_name, napi_enumerable, nullptr},
-                    {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
-                };
-                valid = napi_define_properties(env, metadata, 2, properties) == napi_ok;
-            }
-            if (valid) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else if (work->operation == RepoSnapshotWork::Operation::Snapshot) {
             napi_value files, objects;
@@ -1262,16 +1267,6 @@ napi_value WorkspaceReload(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceReload", self);
 }
 
-napi_value WorkspaceNotifications(napi_env env, napi_callback_info info)
-{
-    WorkspaceWrap* workspace = nullptr;
-    napi_value self;
-    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
-    auto* work = new WorkspaceStringWork();
-    work->handle = workspace->handle;
-    work->notifications = true;
-    return QueueWorkspaceString(env, work, "OrgTasksNotifications", self);
-}
 
 napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
 {
@@ -1496,14 +1491,12 @@ napi_value RepoLoadFiles(napi_env env, napi_callback_info info)
     RepoWrap* repo = nullptr;
     napi_value self;
     if (!UnwrapRepo(env, info, &repo, &self)) return nullptr;
-    void* metadata = nullptr;
     size_t argc = 1;
     napi_value args[1] = {nullptr};
-    napi_get_cb_info(env, info, &argc, args, nullptr, &metadata);
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     auto* work = new RepoSnapshotWork();
-    if (metadata != nullptr) work->operation = RepoSnapshotWork::Operation::FileMetadata;
     work->task_json = "[]";
-    if (metadata == nullptr && argc == 1) {
+    if (argc == 1) {
         napi_valuetype argument_type;
         bool is_array = false;
         if (napi_typeof(env, args[0], &argument_type) != napi_ok ||
@@ -1868,7 +1861,6 @@ static napi_value Init(napi_env env, napi_value exports)
         {"watchDataChanges", nullptr, WorkspaceWatchDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stopWatchingDataChanges", nullptr, WorkspaceStopWatchingDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"reload", nullptr, WorkspaceReload, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"notifications", nullptr, WorkspaceNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value workspace_class;
     napi_define_class(env, "Workspace", NAPI_AUTO_LENGTH, WorkspaceConstructor, nullptr,
@@ -1887,7 +1879,6 @@ static napi_value Init(napi_env env, napi_value exports)
         {"historyFile", nullptr, RepoHistoryOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("file")},
         {"historyDetail", nullptr, RepoHistoryDetail, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"loadFiles", nullptr, RepoLoadFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"fileMetadata", nullptr, RepoLoadFiles, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("metadata")},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"conflicts", nullptr, RepoConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

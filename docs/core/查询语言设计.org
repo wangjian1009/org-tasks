@@ -7,9 +7,9 @@
 
 本查询语言用于从 ~OrgRepo~ 的任务快照中选择和排序任务。语法以参考项目 Orgzly Android Revived 的 ~DottedQueryParser~ 、~QueryTokenizer~ 、~QueryInterval~ 及其 ~QueryTest~ 和 ~QueryTokenizerTest~ 为准；本项目在 ~core::filter~ 中实现同一套 dotted expression，而不使用 Android 的 SQLite 表达式实现。
 
-对外唯一任务查询入口为异步 ~OrgWorkspace.query(&[TaskQuery])~ ，只接受批量形式，单查询也提交单项数组。同批每个仓库只加锁一次、加载文件一次，全部查询共享本次快照；仓库不缓存业务文件。对每个仓库取各请求 ~excluded_files~ 中相对路径集合的交集，交给底层在正文读取和解析前排除；其余文件加载后，分别按每项排除条件过滤，再求值表达式。
+对外唯一任务查询入口为异步 ~OrgWorkspace.query(&[CoreQuery])~ ，只接受批量形式，单查询也提交单项数组。同批每个仓库只加锁一次、加载文件一次，全部查询共享本次快照；仓库不缓存业务文件。TaskQuery 放入 CoreQuery 的 Task 分支。只有所有查询种类都不需要的文件才交给底层排除；File 或 Notification 需要的文件仍加载一次，然后在 Task 求值前应用该项 excluded_files。
 
-结果数组与输入按下标一一对应，空命中与重复查询均保留结果位置，排序只影响各项内部任务。任一参数、公共加载或查询失败则整批返回 ~Err~ ，Harmony 对整个 Promise 执行 reject；空批次返回空数组且不加业务锁、不加载文件。完整执行边界见 [[file:批量查询接口设计.org][批量查询接口设计]]。
+结果数组与输入按下标一一对应，空命中与重复查询均保留结果位置，排序只影响各项内部任务。任一参数、公共加载或查询失败则整批返回 ~Err~ ，Harmony 对整个 Promise 执行 reject；空批次返回空数组且不加业务锁、不加载文件。完整类型与执行边界见 [[file:统一批量查询接口设计.org][统一批量查询接口设计]]。
 
 表达式在 Core 内部解析为 ~Filter~ ：它由可选布尔表达式、零个或多个排序项和可选 agenda 天数构成。无法识别为操作符的 token 按普通文本条件处理，保持参考实现的宽容输入行为。
 
@@ -149,7 +149,7 @@ pub struct TaskQueryResult {
 }
 
 impl OrgWorkspace {
-    pub async fn query(&self, queries: &[TaskQuery]) -> Result<Vec<TaskQueryResult>, CoreError>;
+    pub async fn query(&self, queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError>;
 }
 #+end_src
 
@@ -173,4 +173,4 @@ UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRe
 
 * 分享地址候选查询
 
-~ShareLocation~ 通过 ~NativeCoreService.queryTasks -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与任务／备忘文件条件，并设置 ~includeDone=false~ ；页面不再按标题、地址或条数过滤返回结果。
+~ShareLocation~ 通过 ~NativeCoreService.query -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与任务／备忘文件条件，并设置 ~includeDone=false~ ；页面不再按标题、地址或条数过滤返回结果。

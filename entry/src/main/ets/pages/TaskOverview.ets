@@ -10,11 +10,12 @@ import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
+import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { NoteService } from '../services/NoteService'
 import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreTask, CoreTaskQueryResult, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTask, CoreTaskQueryResult, taskResult, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups } from '../ui/PlannedPresentation'
@@ -54,7 +55,6 @@ struct TaskOverview {
       (this.entryView === 'memo' ? 'memo' : 'today')
   }
 
-  onPageShow() { this.loadTasks() }
 
   onBackPress(): boolean {
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
@@ -145,7 +145,7 @@ struct TaskOverview {
           configuredGroups = fileResult?.tagGroups ?? []
         }
       } else {
-        result = (await NativeCoreService.queryTasks(config.repos, [overviewTaskQuery(this.view)], config.todoDefaults))[0]
+        result = taskResult((await PageQueryService.query(config, [{ type: 'task', query: overviewTaskQuery(this.view) }]))[0])
       }
       if (request !== this.requestId) return
       if (!result) {
@@ -266,7 +266,7 @@ struct TaskOverview {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
+      AppShell({ refreshOnPageShow: true, title: overviewTitle(this.view), synchronized: (): void => { this.loadTasks() }, activeRoute: 'pages/TaskOverview', activeOverview: this.view,
         titleIcon: this.overviewIcon(),
         drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo }) {
         this.overviewContent()

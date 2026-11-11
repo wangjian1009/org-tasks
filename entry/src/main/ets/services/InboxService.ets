@@ -1,8 +1,12 @@
 import { Context } from '@kit.AbilityKit'
-import { RepoConfig } from '../models/OrgTask'
+import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { configuredFileTarget } from './FileTargetService'
-import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, CoreOrgFileRef, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService } from './NativeCoreService'
+import { configuredFileTarget, FileTargetService, FileTargetQueryResult } from './FileTargetService'
+import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, CoreOrgFileRef, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
+
+import { PageQueryService } from './PageQueryService'
+
+export interface InboxSnapshot { inbox: FileTargetQueryResult | undefined; recent: CoreTask[] }
 
 export type InboxAction = 'move' | 'memo' | 'delete' | 'someday'
 export interface InboxTargets { targets: CoreRefileTarget[]; somedayTarget: CoreRefileTarget | undefined; somedayHint: string }
@@ -53,7 +57,7 @@ export class InboxService {
     let first: CoreRefileTarget | undefined = undefined
     let hint = '请在设置中选择“某天”文件，作为将来，也许的目标'
     if (someday && selected.path) {
-      const files = await someday.fileMetadata()
+      const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId: someday.id, path: selected.path }] } }]))[0])
       if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
         first = undefined
         hint = '将来，也许文件已失效，请在设置中重新选择'
@@ -65,17 +69,15 @@ export class InboxService {
     return { targets: normal, somedayTarget: first, somedayHint: hint }
   }
 
-  static async recent(context: Context): Promise<CoreTask[]> {
-    const config = await AppConfigService.load(context, false)
+  static async load(config: AppConfig): Promise<InboxSnapshot> {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-    const selected = configuredFileTarget(config, 'inbox')
-    const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
-    const repos = await workspace.repos()
-    const inbox = repos.find(repo => repo.rootDirectory === settings?.rootDirectory)
-    if (inbox) await inbox.load()
-    const query: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created', includeDone: true, includeComposeTasks: true,
-      excludedFiles: inbox && selected.path ? [{ repoId: inbox.id, path: selected.path }] : [] }
-    return (await workspace.query([query]))[0].tasks
+    const prepared = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
+    const recent: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created', includeDone: true,
+      includeComposeTasks: true, excludedFiles: prepared ? [prepared.reference] : [] }
+    const results = await PageQueryService.query(config, prepared
+      ? [prepared.task, prepared.file, { type: 'task', query: recent }] : [{ type: 'task', query: recent }])
+    return { inbox: prepared ? FileTargetService.result(results[0], results[1]) : undefined,
+      recent: taskResult(results[prepared ? 2 : 0]).tasks }
   }
 
   static async perform(context: Context, task: CoreTask, action: InboxAction,
@@ -99,7 +101,7 @@ export class InboxService {
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
       const repo = repos.find(item => item.rootDirectory === settings?.rootDirectory)
       if (!repo || !selected.path) throw new Error('请在设置中选择“某天”文件，作为将来，也许的目标')
-      const files = await repo.fileMetadata()
+      const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId: repo.id, path: selected.path }] } }]))[0])
       if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
         throw new Error('将来，也许文件已失效，请在设置中重新选择')
       }
@@ -116,7 +118,7 @@ export class InboxService {
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
       const repo = repos.find(item => item.rootDirectory === settings?.rootDirectory)
       if (!repo || !selected.path) throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
-      const files = await repo.fileMetadata()
+      const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId: repo.id, path: selected.path }] } }]))[0])
       if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
         throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
       }

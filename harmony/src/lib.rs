@@ -95,11 +95,6 @@ pub extern "C" fn org_tasks_harmony_workspace_repo_roots(handle: u64) -> *mut c_
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_notifications(handle: u64) -> *mut c_char {
-    string_result(bridge::workspace_notifications_json(handle))
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_remove_repo(
     handle: u64,
     root_directory: *const c_char,
@@ -276,17 +271,6 @@ pub extern "C" fn org_tasks_harmony_repo_load_files(
     })())
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_file_metadata(
-    workspace_handle: u64,
-    root_directory: *const c_char,
-) -> *mut c_char {
-    string_result(
-        read_c_string(root_directory)
-            .and_then(|root| bridge::repo_file_metadata_json(workspace_handle, root)),
-    )
-}
-
 fn string_result(result: Result<String, CoreError>) -> *mut c_char {
     clear_last_error();
     match result.and_then(|value| {
@@ -318,15 +302,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ffi_notifications_uses_existing_string_lifetime_and_error_contract() {
+    fn ffi_mixed_query_uses_existing_string_lifetime_and_error_contract() {
         let handle = org_tasks_harmony_workspace_create();
-        let value = org_tasks_harmony_workspace_notifications(handle);
+        let request = CString::new(r#"[{"type":"notification","query":{}}]"#).unwrap();
+        let value = org_tasks_harmony_workspace_query(handle, request.as_ptr());
         assert!(!value.is_null());
-        assert_eq!(unsafe { CStr::from_ptr(value) }.to_str().unwrap(), "[]");
+        let result: serde_json::Value = serde_json::from_str(unsafe { CStr::from_ptr(value) }.to_str().unwrap()).unwrap();
+        assert_eq!(result[0]["result"], serde_json::json!([]));
         // value 来自上面的 bridge 请求，内容只读且尚未释放。
         unsafe { org_tasks_harmony_free_string(value) };
         org_tasks_harmony_workspace_release(handle);
-        assert!(org_tasks_harmony_workspace_notifications(u64::MAX).is_null());
+        assert!(org_tasks_harmony_workspace_query(u64::MAX, request.as_ptr()).is_null());
         let error = org_tasks_harmony_last_error();
         let json: serde_json::Value =
             serde_json::from_str(unsafe { CStr::from_ptr(error) }.to_str().unwrap()).unwrap();

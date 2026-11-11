@@ -1,8 +1,10 @@
+import { AppConfigService } from '../services/AppConfigService'
+import { PageQueryService } from '../services/PageQueryService'
 import { CoreTask } from '../services/NativeCoreService'
 import { NoteService } from '../services/NoteService'
 import { MemoEditor } from '../components/MemoEditor'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationService, CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { EmptyState } from '../components/Controls'
 import { UiColor } from '../ui/Theme'
@@ -33,7 +35,7 @@ struct MemoEdit {
 
   async refreshNotifications() {
     try {
-      await CoreNotificationService.refresh(this.getUIContext().getHostContext()!)
+      await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), [])
     } catch (e) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: `读取通知失败：${coreErrorMessage(e as CoreBridgeError)}` })

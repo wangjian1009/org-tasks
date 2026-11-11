@@ -1,5 +1,6 @@
-import { RepoConfig } from '../models/OrgTask'
-import { CoreBridgeError, CoreOrgFile, CoreOrgFileMetadata, NativeCoreService, coreErrorMessage } from './NativeCoreService'
+import { AppConfig, RepoConfig } from '../models/OrgTask'
+import { CoreBridgeError, CoreOrgFile, CoreOrgFileMetadata, NativeCoreService, fileResult, coreErrorMessage } from './NativeCoreService'
+import { PageQueryService } from './PageQueryService'
 import { repositoryLabel } from '../ui/Theme'
 
 export interface NotebookGroup {
@@ -14,16 +15,17 @@ export interface NotebookGroup {
 // 文件清单与完整内容均由 Core 提供，ArkTS 只组装页面请求。
 export class NotebookService {
   // 列表只取 Core 文件元信息，不解码原文或生成任务列表。
-  static async list(repositories: RepoConfig[], todoDefaults?: string): Promise<NotebookGroup[]> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+  static async list(config: AppConfig): Promise<NotebookGroup[]> {
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    let files: CoreOrgFileMetadata[] = []
+    let message: string = ''
+    try { files = fileResult((await PageQueryService.query(config, [{ type: 'file', query: { includeIgnored: true } }]))[0]) }
+    catch (e) { message = `读取文件失败：${coreErrorMessage(e as CoreBridgeError)}` }
     const groups: NotebookGroup[] = []
     for (const repo of await workspace.repos()) {
-      const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
-      let files: CoreOrgFileMetadata[] = []
-      let message: string = ''
-      try { files = await repo.fileMetadata() }
-      catch (e) { message = `读取文件失败：${coreErrorMessage(e as CoreBridgeError)}` }
-      groups.push({ repoId: repo.id, configId: config?.id || '', name: repositoryLabel(config), rootDirectory: repo.rootDirectory, files, message })
+      const repository = config.repos.find(item => item.rootDirectory === repo.rootDirectory)
+      groups.push({ repoId: repo.id, configId: repository?.id || '', name: repositoryLabel(repository),
+        rootDirectory: repo.rootDirectory, files: files.filter(file => file.repoId === repo.id), message })
     }
     return groups
   }
@@ -34,7 +36,8 @@ export class NotebookService {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
     const repo = (await workspace.repos()).find((item) => item.id === repoId)
     if (!repo) return undefined
-    const files = await repo.fileMetadata()
+    const files = fileResult((await workspace.query([{ type: 'file', query: {
+      includeFiles: [{ repoId, path }], includeIgnored: true } }]))[0])
     if (!files.some((file: CoreOrgFileMetadata) => file.path === path)) return undefined
     return await repo.file(path)
   }

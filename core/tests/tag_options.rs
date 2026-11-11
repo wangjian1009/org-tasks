@@ -15,9 +15,9 @@ async fn header_tag_options_include_unused_choices_and_ignore_shortcuts_groups_a
     let file = &ws.repos()[0].load_files(&[]).await.unwrap()[0];
     assert_eq!(file.tag_options(), ["@work", "@home", "家居", "unused", "project", "child", "ref宜"]);
     assert_eq!(file.tag_groups(), vec![vec!["@work", "@home"]]);
-    assert_eq!(ws.repos()[0].file_metadata().await.unwrap()[0].tag_options, file.tag_options());
+    assert_eq!(support::query_files(&ws.repos()[0]).await.unwrap()[0].tag_options, file.tag_options());
     assert_eq!(file.source_bytes(), source.as_bytes());
-    let result = ws.query(&[TaskQuery { expression: "t.unused".into(), ..Default::default() }]).await.unwrap().remove(0);
+    let result = ws.query(&[(TaskQuery { expression: "t.unused".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap();
     assert!(result.tasks.is_empty(), "TAGS 候选不能作为任务实际标签");
 }
 
@@ -31,7 +31,7 @@ async fn example_tag_configuration_preserves_three_exclusive_groups_and_tags_wit
         vec!["SDK", "COOL", "COOLITE", "NOW", "VStar", "SEEK", "SVR"]]);
     assert_eq!(file.tag_options().len(), 15);
     assert!(file.tag_options().contains(&"SVR".to_owned()));
-    assert_eq!(ws.repos()[0].file_metadata().await.unwrap()[0].tag_groups, file.tag_groups());
+    assert_eq!(support::query_files(&ws.repos()[0]).await.unwrap()[0].tag_groups, file.tag_groups());
     assert_eq!(file.source_bytes(), source.as_bytes());
 }
 
@@ -39,14 +39,14 @@ async fn example_tag_configuration_preserves_three_exclusive_groups_and_tags_wit
 async fn configured_choices_do_not_change_record_tags_or_query_matching() {
     let source = "#+TAGS: unused(u) 家居(j) REFILE ARCHIVE\n* Parent :家居:\n** TODO Child :own:\n* Note\n";
     let ws = workspace(source);
-    let tasks = ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let tasks = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(tasks[0].own_tags(), ["家居"]);
     assert_eq!(tasks[1].own_tags(), ["own"]);
     assert_eq!(tasks[1].inherited_tags(), ["家居"]);
     assert!(tasks[2].own_tags().is_empty());
     assert!(tasks[2].inherited_tags().is_empty());
     for expression in ["t.unused", "t.REFILE", "t.ARCHIVE"] {
-        assert!(ws.query(&[TaskQuery { expression: expression.into(), ..Default::default() }]).await.unwrap().remove(0).tasks.is_empty());
+        assert!(ws.query(&[(TaskQuery { expression: expression.into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.is_empty());
     }
     assert!(ws.refile_targets().await.unwrap().is_empty());
     assert_eq!(ws.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes(), source.as_bytes());
@@ -56,11 +56,11 @@ async fn configured_choices_do_not_change_record_tags_or_query_matching() {
 async fn an_empty_file_keeps_configured_options_and_peer_files_do_not_share_tags() {
     let mut ws = workspace("#+TAGS: unused(u)\n#+FILETAGS: :file:\n");
     { let value = OrgFile::new("repo".into(), "other.org".into(), b"* Other\n".to_vec()).unwrap(); support::push_file(&mut ws.repos[0], value); };
-    let info = ws.repos()[0].file_metadata().await.unwrap();
+    let info = support::query_files(&ws.repos()[0]).await.unwrap();
     assert_eq!(info[0].tag_options, ["unused"]);
     assert_eq!(info[0].task_count, 0);
     assert!(info[1].tag_options.is_empty());
-    let tasks = ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let tasks = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(tasks.len(), 1);
     assert!(tasks[0].inherited_tags().is_empty());
 }
@@ -69,7 +69,7 @@ async fn an_empty_file_keeps_configured_options_and_peer_files_do_not_share_tags
 async fn task_file_metadata_is_shared_and_remains_an_independent_snapshot() {
     let mut ws = workspace("#+TITLE: Original\n#+TAGS: { iOS Android } 工作\n* TODO First\n* TODO Second\n");
     { let value = OrgFile::new("repo".into(), "other.org".into(), b"* TODO Other\n".to_vec()).unwrap(); support::push_file(&mut ws.repos[0], value); };
-    let tasks = ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let tasks = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     let first = tasks.iter().find(|task| task.title() == "First").unwrap();
     let second = tasks.iter().find(|task| task.title() == "Second").unwrap();
     let other = tasks.iter().find(|task| task.title() == "Other").unwrap();
@@ -87,9 +87,9 @@ async fn task_file_metadata_is_shared_and_remains_an_independent_snapshot() {
 #[tokio::test]
 async fn supported_tags_distinguish_absent_configuration_from_explicit_empty_configuration() {
     let ws = workspace("* TODO No configuration :existing:\n");
-    assert!(ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks[0].support_tags().is_none());
+    assert!(ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[0].support_tags().is_none());
     let ws = workspace("#+TAGS:\n* TODO Explicit empty\n");
-    let tasks = ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let tasks = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     let config = tasks[0].support_tags().unwrap();
     assert!(config.tags.is_empty());
     assert!(config.groups.is_empty());
@@ -99,7 +99,7 @@ async fn supported_tags_distinguish_absent_configuration_from_explicit_empty_con
 async fn supported_tags_preserve_exclusive_groups_and_are_scoped_to_the_origin_file() {
     let mut ws = workspace("#+TAGS: { iOS(i) Android(a) } { BUG(b) FEAT(f) } 工作 REFILE ARCHIVE\n* TODO First\n** TODO Child\n");
     { let value = OrgFile::new("repo".into(), "other.org".into(), b"#+TAGS: unrelated\n* TODO Other\n".to_vec()).unwrap(); support::push_file(&mut ws.repos[0], value); };
-    let tasks = ws.query(&[TaskQuery::default()]).await.unwrap().remove(0).tasks;
+    let tasks = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     let first = tasks.iter().find(|task| task.title() == "First").unwrap();
     let child = tasks.iter().find(|task| task.title() == "Child").unwrap();
     let config = first.support_tags().unwrap();

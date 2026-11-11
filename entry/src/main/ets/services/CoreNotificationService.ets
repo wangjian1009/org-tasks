@@ -1,4 +1,6 @@
 import { Context } from '@kit.AbilityKit'
+import { AppConfig } from '../models/OrgTask'
+import { CoreDataChangeService } from './CoreDataChangeService'
 import { AppConfigService } from './AppConfigService'
 import { CoreNotification, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { repositoryLabel } from '../ui/Theme'
@@ -31,18 +33,14 @@ export class CoreNotificationService {
   private static workspace: CoreWorkspace | undefined = undefined
   private static monitoring: Promise<void> = Promise.resolve()
 
-  private static async monitor(context: Context, workspace: CoreWorkspace): Promise<void> {
+  static async connect(workspace: CoreWorkspace): Promise<void> {
     if (CoreNotificationService.workspace === workspace) { await CoreNotificationService.monitoring; return }
     CoreNotificationService.workspace?.stopWatchingNotifications()
     CoreNotificationService.workspace = workspace
-    CoreNotificationService.monitoring = workspace.watchNotifications((): void => {
+    CoreNotificationService.monitoring = workspace.watchNotifications((event): void => {
       if (CoreNotificationService.workspace !== workspace) return
-      const previous = CoreNotificationService.state
-      const updated: CoreNotificationsState = { notifications: previous.notifications, repositories: previous.repositories,
-        revision: previous.revision + 1 }
-      CoreNotificationService.state = updated
-      AppStorage.setOrCreate<CoreNotificationsState>('coreNotifications', updated)
-      CoreNotificationService.refresh(context).catch((): void => { console.error('通知更新后重新读取失败，保留已有快照') })
+      // 仓库变更由数据订阅负责；全局通知失效也交给页面统一重查。
+      if (event.type === 'globalNotificationsChanged') CoreDataChangeService.invalidate()
     }).catch((error: Error): void => {
       if (CoreNotificationService.workspace === workspace) CoreNotificationService.workspace = undefined
       throw error
@@ -50,28 +48,22 @@ export class CoreNotificationService {
     await CoreNotificationService.monitoring
   }
 
-  static async refresh(context: Context): Promise<void> {
-    const request = ++CoreNotificationService.requestId
-    try {
-      const config = await AppConfigService.load(context, false)
-      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-      await CoreNotificationService.monitor(context, workspace)
-      const notifications = await NativeCoreService.notifications(config.repos, config.todoDefaults)
-      const repositories: NotificationRepository[] = []
-      for (const notification of notifications) {
-        if (notification.type !== 'syncConflict') continue
-        const configured = config.repos.find((item) => item.rootDirectory === notification.rootDirectory)
-        if (configured && !repositories.some((item) => item.coreRepoId === notification.repoId)) {
-          repositories.push({ coreRepoId: notification.repoId, configRepoId: configured.id, name: repositoryLabel(configured) })
-        }
+  static begin(): number { return ++CoreNotificationService.requestId }
+
+  static publish(config: AppConfig, notifications: CoreNotification[], request: number): void {
+    if (request !== CoreNotificationService.requestId) return
+    const repositories: NotificationRepository[] = []
+    for (const notification of notifications) {
+      if (notification.type !== 'syncConflict') continue
+      const configured = config.repos.find(item => item.rootDirectory === notification.rootDirectory)
+      if (configured && !repositories.some(item => item.coreRepoId === notification.repoId)) {
+        repositories.push({ coreRepoId: notification.repoId, configRepoId: configured.id, name: repositoryLabel(configured) })
       }
-      if (request !== CoreNotificationService.requestId) return
-      const snapshot: CoreNotificationsState = { notifications: notifications.slice(), repositories, revision: CoreNotificationService.state.revision }
-      CoreNotificationService.state = snapshot
-      AppStorage.setOrCreate<CoreNotificationsState>('coreNotifications', snapshot)
-    } catch (e) {
-      if (request === CoreNotificationService.requestId) throw e as Error
     }
+    const snapshot: CoreNotificationsState = { notifications: notifications.slice(), repositories,
+      revision: CoreNotificationService.state.revision + 1 }
+    CoreNotificationService.state = snapshot
+    AppStorage.setOrCreate<CoreNotificationsState>('coreNotifications', snapshot)
   }
 
   static async syncConflictTarget(context: Context, notification: CoreSyncConflictNotification): Promise<SyncConflictTarget> {

@@ -15,7 +15,7 @@ fn local(value: &str) -> i64 {
 async fn modified_time_uses_only_own_valid_last_modified_property() {
     let source = "#+PROPERTY: LAST_MODIFIED [2026-11-09 Mon 12:00]\n* Parent\n:PROPERTIES:\n:last_modified: [2026-11-08 Sun 09:30]\n:END:\n** Child\nBody [2026-11-09 Mon 12:00]\n* DateOnly\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-07 Sat]\n:END:\n* CreatedOnly\n:PROPERTIES:\n:CREATED: [2026-11-09 Mon 10:00]\n:END:\n* BadDate\n:PROPERTIES:\n:LAST_MODIFIED: [2026-02-30 Mon 12:00]\n:END:\n* BadTime\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 25:00]\n:END:\n* Text\n:PROPERTIES:\n:LAST_MODIFIED: prefix [2026-11-08 Sun 12:00]\n:END:\n* Range\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun]--[2026-11-09 Mon]\n:END:\n* Literal\n#+begin_src org\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 12:00]\n:END:\n#+end_src\n";
     let workspace = OrgWorkspace::new(vec![repo("a", &[("notes.org", source)])]).unwrap();
-    let tasks = workspace.query(&[TaskQuery { expression: ".o.modified".into(), ..Default::default() }]).await.unwrap().remove(0).tasks;
+    let tasks = workspace.query(&[(TaskQuery { expression: ".o.modified".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(tasks[0].title(), "Parent");
     assert_eq!(tasks[0].modified_at(), Some(local("2026-11-08 09:30")));
     assert_eq!(tasks[1].title(), "DateOnly");
@@ -40,7 +40,7 @@ fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
 async fn created_properties_project_own_valid_dates_times_and_sort_by_time() {
     let source = "#+PROPERTY: CREATED [2026-11-08 Sun 11:00]\n* Parent\n:PROPERTIES:\n:created: [2026-11-08 Sun 10:00]\n:END:\n** Child\nBody [2026-11-08 Sun 12:00]\n* TODO Morning\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\n* DONE Noon\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n* Note\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun]\n:END:\n* BadDate\n:PROPERTIES:\n:CREATED: [2026-02-30 Mon 12:00]\n:END:\n* BadTime\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 25:00]\n:END:\n* Text\n:PROPERTIES:\n:CREATED: prefix [2026-11-08 Sun 12:00]\n:END:\n* Fake\n#+begin_src org\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n#+end_src\n";
     let w = OrgWorkspace::new(vec![repo("a", &[("inbox.org", source)])]).unwrap();
-    let tasks = w.query(&[TaskQuery { expression: ".o.created".into(), ..Default::default() }]).await.unwrap().remove(0).tasks;
+    let tasks = w.query(&[(TaskQuery { expression: ".o.created".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     let valid = tasks
         .iter()
         .filter(|task| task.created_at().is_some())
@@ -81,7 +81,7 @@ async fn three_calendar_days_include_full_dates_done_memo_and_cancelled() {
         expression: "cr.ge.-2d cr.le.today .o.created".into(),
         ..Default::default()
     };
-    let tasks = w.query(std::slice::from_ref(&query)).await.unwrap().remove(0).tasks;
+    let tasks = w.query(&[(&query).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(
         tasks
             .iter()
@@ -116,11 +116,11 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
         }],
         ..Default::default()
     };
-    let tasks = w.query(std::slice::from_ref(&q)).await.unwrap().remove(0).tasks;
+    let tasks = w.query(&[(&q).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].repo_id(), support::id("b"));
     assert!(
-        w.query(&[TaskQuery {
+        w.query(&[(TaskQuery {
             excluded_files: vec![
                 OrgFileRef {
                     repo_id: support::id("a"),
@@ -132,8 +132,8 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
                 }
             ],
             ..Default::default()
-        }]).await
-        .unwrap().remove(0)
+        }).into()]).await
+        .unwrap().remove(0).into_task().unwrap()
         .tasks
         .is_empty()
     );
@@ -142,23 +142,23 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
         serde_json::from_str::<TaskQuery>(r#"{"excludedFiles":[{"path":"inbox.org"}]}"#).is_err()
     );
     assert!(
-        w.query(&[TaskQuery {
+        w.query(&[(TaskQuery {
             excluded_files: vec![OrgFileRef {
                 repo_id: "".into(),
                 path: "inbox.org".into()
             }],
             ..Default::default()
-        }]).await
+        }).into()]).await
         .is_err()
     );
     assert!(
-        w.query(&[TaskQuery {
+        w.query(&[(TaskQuery {
             excluded_files: vec![OrgFileRef {
                 repo_id: support::id("a"),
                 path: "../x.org".into()
             }],
             ..Default::default()
-        }]).await
+        }).into()]).await
         .is_err()
     );
     let legacy: TaskQuery = serde_json::from_str(r#"{"includeDone":true}"#).unwrap();

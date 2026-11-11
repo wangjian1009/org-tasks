@@ -35,14 +35,21 @@ function fixture() {
       async deletePreferences(_, name) { disk.delete(name); }
     } },
     './AppConfigService': { AppConfigService: { async load(_, credentials) { assert.equal(credentials, false); return config; } } },
-    './FileTargetService': { fileTargetRepository: () => repository, FileTargetService: { async resolve(_, kind) {
-      assert.equal(kind, 'memo'); return available ? { repository, path: '备忘.org', tagOptions: ['未使用标签'] } : undefined;
+    './FileTargetService': { fileTargetRepository: () => repository, FileTargetService: { prepare(_, __, kind) {
+      assert.equal(kind, 'memo'); return available ? { reference: {repoId:'core', path:'备忘.org'}, file:{type:'file', query:{includeFiles:[{repoId:'core',path:'备忘.org'}]}} } : undefined;
     } } },
-    './NativeCoreService': { NativeCoreService: { async queryTasks(repos, batch, defaults) {
-      assert.ok(Array.isArray(batch));
-      assert.equal(repos[0], repository); assert.equal(defaults, 'defaults');
-      return batch.map(query => { queries.push(query); return { tasks }; });
-    } } },
+    './NativeCoreService': { taskResult: value => value.result, fileResult: value => value.result, NativeCoreService: {
+      async workspaceFor(repos, defaults) {
+        assert.equal(repos[0], repository); assert.equal(defaults, 'defaults');
+        return { async repos() { return []; }, async query(batch) {
+          assert.equal(batch.length, 2);
+          return batch.map(request => {
+            if (request.type === 'task') { queries.push(request.query); return {type:'task', result:{tasks, categories:[]}}; }
+            return {type:'file', result:[{tagOptions:['未使用标签'], tagGroups:[]}]};
+          });
+        } };
+      }
+    } },
     './PreferencesStore': { PreferencesStore: { async open(_, name) {
       const local = new Map(disk.get(name));
       return { async get(key, fallback) { return local.get(key) ?? fallback; }, async put(key, value) { local.set(key, value); },

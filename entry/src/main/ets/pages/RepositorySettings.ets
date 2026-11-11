@@ -1,3 +1,4 @@
+import { PageQueryService } from '../services/PageQueryService'
 import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
@@ -6,7 +7,6 @@ import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreServ
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/Controls'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
-import { CoreNotificationService } from '../services/CoreNotificationService'
 
 interface RepositoryParams { repoId?: string; webdav?: boolean }
 
@@ -154,7 +154,7 @@ struct RepositorySettings {
     this.deleting = true
     try {
       await AppConfigService.removeRepository(this.getUIContext().getHostContext()!, this.repoId)
-      try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) } catch (_) {}
+      try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
       this.getUIContext().getRouter().back()
     } catch (e) { this.message = `删除存储库失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.deleting = false }
@@ -184,7 +184,7 @@ struct RepositorySettings {
       if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
       await repo.reset()
-      try { await CoreNotificationService.refresh(this.getUIContext().getHostContext()!) } catch (_) {}
+      try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
       this.getUIContext().getPromptAction().showToast({ message: '本地目录已重置' })
     } catch (e) { this.message = `重置失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.resetting = false }

@@ -109,6 +109,25 @@ function fixture() {
     async put(key, value) { values.set(key, value); },
     async flush() {}
   };
+  const batches = [];
+  async function executeBatch(repos, batch) {
+    batches.push(batch);
+    return batch.map(request => {
+      if (request.type === 'notification') return { type: 'notification', result: [] };
+      if (request.type === 'file') {
+        reads++;
+        const files = repos.flatMap(repo => (fileLists.get(repo.id) || []).map(file => ({ repoId: 'core-' + repo.id,
+          tagOptions: [], tagGroups: [], ...file }))).filter(file => !file.isIgnore &&
+          (!request.query.includeFiles?.length || request.query.includeFiles.some(ref => ref.repoId === file.repoId && ref.path === file.path)));
+        return { type: 'file', result: files };
+      }
+      queries.push({ repos, query: request.query, repoIds: request.repoIds });
+      return { type: 'task', result: { tasks: repos.filter(repo => !request.repoIds?.length || request.repoIds.includes('core-' + repo.id))
+        .map(repo => ({ id: repo.id + ':inbox.org', heading: repo.name })), categories: [] } };
+    });
+  }
+  function workspace(repos) { return { async repos() { return repos.map(repo => ({ id: 'core-' + repo.id, rootDirectory: repo.rootDirectory })); },
+    query: batch => executeBatch(repos, batch) }; }
   const load = etsLoader({
     '@kit.NaturalLanguageKit': { EntityType: { LOCATION: 'location', DATETIME: 'datetime' }, textProcessing: {
       async getEntity(title, options) {
@@ -121,11 +140,13 @@ function fixture() {
     '@kit.ArkData': { preferences: { async getPreferences() { return store; } } },
     '../services/AppConfigService': {},
     './AppConfigService': { AppConfigService: { async load() { return structuredClone(config); }, async save(context, value) { Object.assign(config, value); } } },
-    './NativeCoreService': { NativeCoreService: {
+    './PageQueryService': { PageQueryService: { async query(config, batch) {
+      const values = await executeBatch(config.repos, [...batch, { type: 'notification', query: {} }]); return values.slice(0, batch.length);
+    } } },
+    './NativeCoreService': { taskResult: value => value.result, fileResult: value => value.result, NativeCoreService: {
       async repository(repos, selected) {
-        assert.deepEqual(repos.map(repo => repo.id), [selected.id]);
+        assert.ok(repos.some(repo => repo.id === selected.id));
         return {
-          async fileMetadata() { reads++; return fileLists.get(selected.id) || []; },
           id: 'core-' + selected.id,
           async file(path) {
             return { fullPath: { repoId: 'core-' + selected.id, file: path, titles: [] },
@@ -136,19 +157,15 @@ function fixture() {
       async executeTaskOperations(repos, group, todoDefaults) {
         calls.push({ repos, group, todoDefaults });
       },
-      async queryTasks(repos, batch) {
-        assert.ok(Array.isArray(batch));
-        return batch.map(query => {
-          queries.push({ repos, query });
-          return { tasks: repos.map(repo => ({ id: repo.id + ':inbox.org', heading: repo.name })), categories: [] };
-        });
-      }
+      async workspaceFor(repos) { return workspace(repos); },
+      query: executeBatch
+
     } }
   }, { canIUse: capability => {
     assert.equal(capability, 'SystemCapability.AI.NaturalLanguage.TextProcessing');
     return supported;
   } });
-  return { ...load('services/CaptureService'), ...load('services/FileTargetService'), config, calls, queries, fileLists, values,
+  return { ...load('services/CaptureService'), ...load('services/FileTargetService'), config, calls, queries, batches, fileLists, values,
     reads: () => reads, failRead() { failNextRead = true; }, recognitionCalls, releases: () => releases,
     entities(value) { entityResults = value; }, failRecognition(error) { entityError = error; },
     failRelease(error) { releaseError = error; }, unsupported() { supported = false; } };
@@ -192,7 +209,8 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   f.config.inboxRepoId = 'work';
   const result = await f.FileTargetService.query(f.config, 'inbox');
   assert.deepEqual(result.tasks.map(task => task.heading), ['work']);
-  assert.deepEqual(f.queries[0].repos.map(repo => repo.id), ['work']);
+  assert.deepEqual(f.queries[0].repos.map(repo => repo.id), ['personal', 'work']);
+  assert.deepEqual(f.queries[0].repoIds, ['core-work']);
   assert.equal(f.queries[0].query.expression, 'b."inbox.org"');
   await f.CaptureService.save({}, '标题');
   assert.deepEqual(f.calls[0].group.operations[0].data.position.parent, { repoId: 'core-work', file: 'inbox.org', titles: [] });
@@ -217,7 +235,7 @@ test('备忘文件候选标签只取所选文件的 Core 元信息，不混入�
   assert.equal(f.queries[0].query.expression, 'b."inbox.org" .o.modified');
 });
 
-test('文件已删除或被忽略时不查询、不创建同名文件，保留原目标供重新选择', async () => {
+test('同批查询识别已删除或忽略文件，不创建同名文件，保留原目标供重新选择', async () => {
   const f = fixture();
   for (const files of [[], [{ path: 'inbox.org', isIgnore: true }]]) {
     f.fileLists.set('personal', files);
@@ -227,7 +245,7 @@ test('文件已删除或被忽略时不查询、不创建同名文件，保留�
   }
   assert.equal(f.config.inboxFile, 'inbox.org');
   assert.equal(f.calls.length, 0);
-  assert.equal(f.queries.length, 0);
+  assert.equal(f.queries.length, 2);
 });
 
 test('选择与清除只修改对应文件入口，保留其他设置和新选中的目标', async () => {
