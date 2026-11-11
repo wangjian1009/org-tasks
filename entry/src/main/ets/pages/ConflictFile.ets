@@ -4,7 +4,7 @@ import { EmptyState } from '../components/Controls'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreConflictTarget, CoreFileConflict,
-  CoreOrgFile, CoreTask, CoreTaskOperation, CoreTaskOperationGroup, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+  CoreOrgFile, CoreTask, CoreTaskOperation, CoreTaskOperationGroup, CoreTitlePart, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 
 interface ConflictParams { repoId: string; path: string }
@@ -21,6 +21,8 @@ struct ConflictFile {
   @State content: string = ''
   @State html: string = ''
   @State path: string = ''
+  @State title: string = ''
+  @State titleParts: CoreTitlePart[] = []
   @State fileContext: string = ''
   @State sourceMode: boolean = false
   @State showBefore: boolean = false
@@ -100,6 +102,8 @@ struct ConflictFile {
       this.configRepoId = repository.id
       this.sourceRootDirectory = repository.rootDirectory
       this.path = params.path
+      this.title = file.title() || this.path
+      this.titleParts = file.titleParts()
       this.fileContext = `${repositoryLabel(repository)} / ${params.path}`
       this.sourceMode = config.fileDisplayMode === 'source'
       this.file = file
@@ -441,7 +445,8 @@ struct ConflictFile {
 
   build() {
     Column() {
-      AppShell({ title: '解决冲突', back: true, drawerOpen: $drawerOpen, busy: this.saving,
+      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_conflict_resolve'),
+        back: true, drawerOpen: $drawerOpen, busy: this.saving,
         backAction: (): void => { this.exit() },
         actionIcon: $r('app.media.ui_more'), actionLabel: this.conflicts.length > 0 ? '更多操作' : '',
         actionMenuItems: [{ title: '丢弃全部冲突…', action: (): void => { this.confirmDiscard() } },
@@ -510,9 +515,10 @@ struct ConflictFile {
             }
           }
         }.width('100%').height('100%')
+          // 每个宿主组件只绑定一个面板，避免目标面板覆盖冲突列表绑定。
+          .bindSheet($$this.listVisible, this.conflictList, { height: '35%', detents: ['35%', '65%'], preferType: SheetType.BOTTOM, backgroundColor: UiColor.container, showClose: true })
       }
     }.width('100%').height('100%')
-      .bindSheet($$this.listVisible, this.conflictList, { height: '35%', detents: ['35%', '65%'], preferType: SheetType.BOTTOM, backgroundColor: UiColor.container, showClose: true })
       .bindSheet($$this.targetsVisible, this.targetList, { height: '65%', detents: ['65%', '85%'], preferType: SheetType.BOTTOM, backgroundColor: UiColor.container, showClose: true })
   }
 }

@@ -19,7 +19,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
   let failure, submitWait, stageFailure, coreId='core', backs=0, creates=0;
   const makeFile = (repoId='core', file='a.org', version='v1', ids=['first','second'], text) => ({
     repoId, path:file, fullPath:{repoId,file,titles:[],occurrence:1}, fileVersion:version, conflictIds:ids,
-    hasConflict:ids.length>0, sourceBytes:()=>Buffer.from(text ?? ('* TODO Task\nremote\n' + (ids.length ? '\n* 同步冲突 :CONFLICT:ARCHIVE:\n** 候选\n:CONFILICT_ID: hidden\n' : ''))), renderHtml:()=>'<details class="heading"><summary>Task</summary></details>' + (ids.length ? '<details><summary>同步冲突</summary></details>' : ''), title:()=>null,
+    hasConflict:ids.length>0, sourceBytes:()=>Buffer.from(text ?? ('* TODO Task\nremote\n' + (ids.length ? '\n* 同步冲突 :CONFLICT:ARCHIVE:\n** 候选\n:CONFILICT_ID: hidden\n' : ''))), renderHtml:()=>'<details class="heading"><summary>Task</summary></details>' + (ids.length ? '<details><summary>同步冲突</summary></details>' : ''), title:()=>null, titleParts:()=>[],
     conflicts:()=>conflicts.filter(c=>ids.includes(c.id)).map(c=>({...c,suggestedTarget:{type:'existing',data:{...nodePath,repoId,file}}})),
     nodes:()=>[{repoId,filePath:file,fullPath:{...nodePath,repoId,file},fileVersion:version,heading:'Task'}], editableNodePaths:()=>[{...nodePath,repoId,file}], insertionPositions:()=>[]
   });
