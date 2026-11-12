@@ -17,7 +17,8 @@ export struct PopupMenu {
   activate: (item: PopupMenuItem) => void = () => {}
 
   hasIcons(): boolean { return this.items.some(item => item.icon !== undefined) }
-  hasSelection(): boolean { return this.items.some(item => item.checked !== undefined) }
+  // 仅为可见勾选保留一列，未选中的短菜单不产生空白尾列。
+  hasSelection(): boolean { return this.items.some(item => item.checked === true) }
 
   onMeasureSize(self: GeometryInfo, children: Measurable[], constraint: ConstraintSizeOptions): SizeResult {
     const maximumWidth = Math.max(0, Math.min(this.maximumWidth, Number(constraint.maxWidth)))

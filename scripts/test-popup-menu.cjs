@@ -124,10 +124,41 @@ test('不同屏幕密度与窗口回退均保留两侧安全边距，极窄窗�
     await f.menu.toggle(); f.viewport(32); await f.menu.toggle(); assert.equal(f.menu.visible, false);
   }
 });
-test('勾选前后使用同一实际行宽，不因选中标记出现而跳变', async () => {
-  const f = fixture(); await f.menu.toggle(); const before = measure([nativeRow(96)]);
-  await f.menu.toggle(); f.menu.items[0].checked = true; await f.menu.toggle();
-  assert.deepEqual(measure([nativeRow(96)]), before);
+test('未选中的无标签菜单紧贴文字，选中后仅增加可见勾选及间距', () => {
+  const menu = new PopupMenu();
+  menu.maximumWidth = 328;
+  menu.items = [{ title: '无标签', checked: false, action() {} }];
+  for (const textWidth of [48, 72, 96]) {
+    for (const checked of [false, true, false]) {
+      menu.items[0].checked = checked;
+      const row = new PopupMenuRow();
+      row.selectionColumn = menu.hasSelection();
+      const text = nativeLeaf(textWidth, 24);
+      const button = nativeLeaf(0, 0);
+      const children = [text, ...(row.selectionColumn ? [nativeLeaf(16, 16)] : []), button];
+      const measurable = {
+        measureResult: {},
+        measure(constraint) {
+          this.measureResult = row.onMeasureSize({}, children, constraint);
+          return this.measureResult;
+        }
+      };
+      const size = menu.onMeasureSize({}, [measurable], { maxWidth: 328 });
+      row.onPlaceChildren(size, children, {});
+      assert.deepEqual(size, { width: textWidth + 24 + (checked ? 24 : 0), height: 44 });
+      assert.equal(text.position.x, 12);
+      assert.deepEqual(text.measureResult, { width: textWidth, height: 24 });
+      assert.deepEqual(button.measureResult, size);
+    }
+  }
+});
+test('多项菜单存在可见勾选时统一对齐，没有勾选时移除空尾列', () => {
+  const menu = new PopupMenu();
+  menu.items = [{ title: '无标签', checked: false, action() {} },
+    { title: '阅读', checked: true, action() {} }];
+  assert.equal(menu.hasSelection(), true);
+  menu.items[1].checked = false;
+  assert.equal(menu.hasSelection(), false);
 });
 test('路由移除或等待期间禁用，不显示迟到的菜单', async () => {
   for (const disable of [false, true]) {
