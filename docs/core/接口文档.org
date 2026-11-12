@@ -831,7 +831,7 @@ impl OrgFile {
 
 * 冲突预览接口
 
-完整规则见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]，字段见 [[file:数据模型.org::*冲突预览模型][数据模型]]。preview 不提供真实写回接口；finish 返回普通操作组，应用通过 execute_task_operations 提交。
+FileConflict 同时返回完整候选原文、候选 HTML、主树展示锚点和是否直接匹配；展示锚点仅用于文档排版，不表示提交目标。新冲突保留祖先身份，旧材料无法定位时回退文件根部。完整规则见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]，字段见 [[file:数据模型.org::*冲突预览模型][数据模型]]。preview 不提供真实写回接口；finish 返回普通操作组，应用通过 execute_task_operations 提交。
 
 #+begin_src rust
 impl OrgWorkspace {

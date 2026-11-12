@@ -6,6 +6,8 @@ import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService
 import { UiColor } from '../ui/Theme'
 import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
 
+interface ConflictCardHit { id: string; action: string }
+
 // 复用只读文档的加载顺序；嵌入编辑内容时按实际内容高度参与页面滚动。
 @Component
 export struct OrgContentView {
@@ -22,6 +24,7 @@ export struct OrgContentView {
   @Prop fileContext: string = ''
   controller: webview.WebviewController = new webview.WebviewController()
   nodeActivated: ((index: number) => void) | undefined = undefined
+  conflictCardActivated: ((id: string, action: string) => void) | undefined = undefined
   activate: (() => void) | undefined = undefined
   horizontalSwipe: (left: boolean) => void = () => {}
   private tapX: number = 0
@@ -58,11 +61,26 @@ export struct OrgContentView {
   }
 
   async activateAt(x: number, y: number) {
-    if ((!this.activate && !this.nodeActivated) || !this.loaded || !this.active || this.widthVp <= 0) return
+    if ((!this.activate && !this.nodeActivated && !this.conflictCardActivated) || !this.loaded || !this.active || this.widthVp <= 0) return
     const generation = this.documentGeneration
     try {
-      const result = await this.controller.runJavaScript(`Boolean(document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp})?.closest('a, summary'))`)
+      const result = await this.controller.runJavaScript(`(() => {
+        const node = document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp});
+        const action = node?.closest('[data-conflict-action]');
+        if (action) return JSON.stringify({ id: action.getAttribute('data-conflict-id') || '', action: action.getAttribute('data-conflict-action') || '' });
+        const card = node?.closest('[data-conflict-card]');
+        if (card) return JSON.stringify({ id: card.getAttribute('data-conflict-card') || '', action: 'focus' });
+        return Boolean(node?.closest('a, summary')) ? 'true' : 'false';
+      })()`)
       if (generation !== this.documentGeneration) return
+      if (result !== 'false' && result !== 'true') {
+        try {
+          const payload = result.startsWith('\"') ? JSON.parse(result) as string : result
+          const card = JSON.parse(payload) as ConflictCardHit
+          if (this.active && card.id.length > 0) this.conflictCardActivated?.(card.id, card.action)
+        } catch (_) { /* 卡片命中信息异常时忽略本次点击。 */ }
+        return
+      }
       if (this.active && result === 'false') this.activate?.()
       if (this.active && this.nodeActivated && result === 'false') {
         const selected = await this.controller.runJavaScript(`(() => {
@@ -95,8 +113,9 @@ export struct OrgContentView {
       const result = await this.controller.runJavaScript('document.body.getBoundingClientRect().height / window.innerWidth')
       if (generation !== this.documentGeneration || !this.active || !this.loaded) return
       const ratio = Number(result)
-      if (this.active && Number.isFinite(ratio) && ratio > 0) this.contentHeight = Math.max(40, Math.ceil(ratio * this.widthVp))
-      if (this.active) this.measured()
+      const height = Number.isFinite(ratio) && ratio > 0 ? Math.max(40, Math.ceil(ratio * this.widthVp)) : this.contentHeight
+      if (height !== this.contentHeight) this.contentHeight = height
+      else if (this.active) this.measured()
     } catch (e) {
       // 页面已离开时不再更新嵌入内容的尺寸。
       if (this.active) this.reportError(e as CoreBridgeError)
@@ -160,6 +179,7 @@ export struct OrgContentView {
         .onAreaChange((oldArea: Area, newArea: Area) => {
           const width = parseFloat(newArea.width.toString())
           if (width !== this.widthVp) { this.widthVp = width; this.measure() }
+          else if (this.embedded && this.loaded && Math.abs(Number(newArea.height) - this.contentHeight) < 1) this.measured()
         })
         .onTouch((event: TouchEvent) => {
           const point = event.changedTouches[0]
@@ -173,7 +193,7 @@ export struct OrgContentView {
             // Web 会消费横向手势；转交条目原生侧滑菜单，不把拖动当成链接点击。
             this.horizontalSwipe(point.x < this.tapX)
           }
-          if (event.type === TouchType.Up && (this.embedded || this.nodeActivated)) {
+          if (event.type === TouchType.Up && (this.embedded || this.nodeActivated || this.conflictCardActivated)) {
             setTimeout(() => { this.measure() }, 100)
             if (point && !this.tapMoved && Date.now() - this.tapTime < 500) this.activateAt(point.x, point.y)
           }

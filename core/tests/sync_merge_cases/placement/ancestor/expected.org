@@ -8,6 +8,7 @@
 :CONFILICT_ID: <conflict-1>
 :END:
 #+CONFLICT_REASON: modify-missing
+#+CONFLICT_ANCESTORS: ["path:[[\"path:[[],\\\"Grand\\\"]:0\"],\"Parent\"]:0","path:[[],\"Grand\"]:0"]
 *** TODO A
 :PROPERTIES:
 :ID: task-a

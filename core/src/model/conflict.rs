@@ -127,12 +127,15 @@ use orgize::{
 };
 
 fn reason(point: &Headline) -> Option<String> {
+    keyword(point, "CONFLICT_REASON")
+}
+fn keyword(point: &Headline, key: &str) -> Option<String> {
     point
         .section()?
         .syntax()
         .descendants()
         .filter_map(Keyword::cast)
-        .find(|k| k.key().eq_ignore_ascii_case("CONFLICT_REASON"))
+        .find(|k| k.key().eq_ignore_ascii_case(key))
         .map(|k| k.value().trim().into())
 }
 fn property(headline: &Headline, key: &str) -> Option<String> {
@@ -259,6 +262,46 @@ fn describe(
 ) -> Result<FileConflict, CoreError> {
     let why = reason(point).ok_or(CoreError::InvalidInput("冲突点缺少原因"))?;
     let suggested_target = target_for(main, point, &why);
+    let target_headline = match &suggested_target {
+        Some(ConflictTarget::Existing(path)) => main
+            .path_headlines()
+            .into_iter()
+            .find(|(candidate, _)| candidate == path)
+            .map(|(_, headline)| headline),
+        _ => None,
+    };
+    let ancestors = keyword(point, "CONFLICT_ANCESTORS")
+        .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+        .unwrap_or_default();
+    let anchor = target_headline
+        .clone()
+        .or_else(|| crate::merge::conflict_display_parent(main, &ancestors));
+    let display_anchor = anchor.as_ref().map(|headline| {
+        super::conflict_preview::source_range(
+            main,
+            usize::from(headline.start()),
+            usize::from(headline.end()),
+        )
+    });
+    let candidate_bytes = if why == "delete" {
+        target_headline
+            .as_ref()
+            .map(|headline| headline.raw().into_bytes())
+            .or_else(|| candidate(main, point, &why).ok())
+    } else {
+        candidate(main, point, &why).ok()
+    };
+    let candidate_content = candidate_bytes
+        .map(|bytes| String::from_utf8(bytes).expect("UTF-8"))
+        .unwrap_or_default();
+    let candidate_html = OrgFile::with_todo_defaults_and_setup(
+        main.repo_id.clone(),
+        main.path.clone(),
+        candidate_content.as_bytes().to_vec(),
+        main.todo_defaults.clone(),
+        main.todo_setup.clone(),
+    )?
+    .render_html();
     let mut available_actions = vec![TaskConfilictAction::Discard];
     if matches!(
         why.as_str(),
@@ -285,6 +328,10 @@ fn describe(
         requires_target: suggested_target.is_none(),
         suggested_target,
         available_actions,
+        display_anchor,
+        display_at_target: target_headline.is_some(),
+        candidate_content,
+        candidate_html,
     })
 }
 

@@ -100,6 +100,25 @@ fn by_key(doc: &Document) -> BTreeMap<String, Node> {
         .map(|n| (n.key.clone(), n))
         .collect()
 }
+
+/// 使用合并时保存的祖先身份定位最近仍存在的父节点；只用于展示。
+pub(crate) fn conflict_display_parent(file: &OrgFile, ancestors: &[String]) -> Option<Headline> {
+    let document = parse(file);
+    let headlines = file
+        .syntax()
+        .document()
+        .syntax()
+        .descendants()
+        .filter_map(Headline::cast)
+        .collect::<Vec<_>>();
+    ancestors.iter().find_map(|key| {
+        document
+            .nodes
+            .iter()
+            .position(|node| &node.key == key)
+            .and_then(|index| headlines.get(index).cloned())
+    })
+}
 fn same(a: &Node, b: &Node) -> bool {
     a.source == b.source && a.parent == b.parent && a.level == b.level
 }
@@ -1062,6 +1081,28 @@ fn merge_with_container(
             "** {title}{newline}:PROPERTIES:{newline}:CONFILICT_ID: {id}{newline}:END:{newline}#+CONFLICT_REASON: {}{newline}",
             point.reason
         );
+        let local_nodes = by_key(&parse(&l));
+        let base_nodes = by_key(&parse(&b));
+        let lookup = if local_nodes.contains_key(&point.origin) {
+            &local_nodes
+        } else {
+            &base_nodes
+        };
+        let mut ancestor = lookup
+            .get(&point.origin)
+            .and_then(|node| node.parent.clone());
+        let mut ancestors = Vec::new();
+        while let Some(key) = ancestor {
+            if ancestors.contains(&key) {
+                break;
+            }
+            ancestor = lookup.get(&key).and_then(|node| node.parent.clone());
+            ancestors.push(key);
+        }
+        source.push_str(&format!(
+            "#+CONFLICT_ANCESTORS: {}{newline}",
+            serde_json::to_string(&ancestors).expect("祖先身份可序列化")
+        ));
         if matches!(point.reason.as_str(), "structure" | "reorder") {
             source.push_str(&format!("#+begin_example{newline}"));
             for line in point.source.split_inclusive('\n') {

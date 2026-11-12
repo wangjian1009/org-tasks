@@ -687,6 +687,7 @@ napi_value CreatePreviewObject(napi_env env, napi_value data, uint64_t handle)
 
 napi_value OrgFileConflicts(napi_env env, napi_callback_info info)
 {
+    // FileConflict 的候选 HTML 与主树展示锚点由 Core 编码，保持结构化字段原样透传。
     napi_value self, data, message, value; OrgFileWrap* file = nullptr; std::string error;
     if (napi_get_cb_info(env, info, nullptr, nullptr, &self, nullptr) != napi_ok ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&file)) != napi_ok || file == nullptr ||

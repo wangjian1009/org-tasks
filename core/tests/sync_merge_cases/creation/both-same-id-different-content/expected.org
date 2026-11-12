@@ -12,6 +12,7 @@ remote
 :CONFILICT_ID: <conflict-1>
 :END:
 #+CONFLICT_REASON: create
+#+CONFLICT_ANCESTORS: []
 *** TODO A
 :PROPERTIES:
 :ID: task-a

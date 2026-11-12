@@ -14,7 +14,7 @@ vm.runInThisContext('(function(require,module,exports){'+ts.transpileModule(fs.r
 const targetTree=treeModule.exports;
 const sourcePath = { repoId: 'core', file: 'a.org', titles: [], occurrence: 1 };
 const nodePath = { ...sourcePath, titles: ['Task'] };
-const conflicts = ['first', 'second'].map(id => ({ id, title: id, reason: 'modify', availableActions: ['discard','useLocal'], suggestedTarget: { type: 'existing', data: nodePath }, requiresTarget: false }));
+const conflicts = ['first', 'second'].map(id => ({ id, title: id, reason: 'modify', availableActions: ['discard','useLocal'], suggestedTarget: { type: 'existing', data: nodePath }, requiresTarget: false, candidateContent:'local '+id, candidateHtml:'<p>local '+id+'</p>', displayAnchor:null, displayAtTarget:false }));
 function fixture(params = {repoId:'config',path:'a.org'}) {
   const filename = path.resolve('entry/src/main/ets/pages/ConflictFile.ets');
   const source = fs.readFileSync(filename,'utf8').split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State /g,'').replace('struct ConflictFile','class ConflictFile')+'}\nmodule.exports=ConflictFile;';
@@ -85,7 +85,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
   };
   const dependencies={
     '@kit.ArkTS':{util:{TextDecoder:{create:()=>({decodeToString:value=>Buffer.from(value).toString('utf8')})}}},
-    '../components/OrgFilePreviewView':{OrgFilePreviewNavigation:class{closePanel(){return false;}focusChange(){} focusFooter(){} async capturePosition(){return 240;}restorePosition(){};}},
+    '../components/OrgFilePreviewView':{OrgFilePreviewNavigation:class{closePanel(){return false;}focusChange(){} focusFooter(){} focusConflictCard(id){this.focused=id;} async capturePosition(){return 240;}restorePosition(){};}},
     '../ui/ConflictTargetTree':targetTree,
     '../services/AppConfigService':{AppConfigService:{async load(){return config;}}},
     '../services/NativeCoreService':{coreErrorMessage:e=>e.message,NativeCoreService:{async workspaceFor(){return workspace;},async repository(){return repo;},async executeTaskOperations(repos,group){return workspace.executeTaskOperations(group);}}},
@@ -101,14 +101,15 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
 
 test('进入页面创建纯主树预览，独立读取冲突列表且不提交源文件',async()=>{
  const f=fixture();await f.page.load();assert.equal(f.page.conflicts.length,2);assert.equal(f.creates(),1);assert.equal(f.requests.length,0);assert.equal(f.page.baseFile.hasConflict,false);assert.equal(f.page.previewFile.conflicts().length,0);
- assert.equal(f.page.selectedId,'first');assert.equal(f.page.beforeText,'remote\n');assert.equal(f.page.afterText,'local first\n');assert.equal(f.page.stagedAction,'');assert.equal(f.page.canApply(),false);
+ assert.equal(f.page.selectedId,'first');assert.equal(f.page.beforeText,'');assert.equal(f.page.afterText,'');assert.equal(f.events.includes('project'),false);assert.equal(f.page.stagedAction,'');assert.equal(f.page.canApply(),false);
 });
-test('切换冲突直接替换差异和正文，不执行取舍或累计上一个候选',async()=>{
- const f=fixture();await f.page.load();f.page.selectConflict(f.page.conflicts[1]);await tick();
- assert.equal(f.page.selectedId,'second');assert.equal(f.page.afterText,'local second\n');assert.match(f.page.content,/local second/);assert.doesNotMatch(f.page.content,/local first/);
- assert.equal(f.requests.length,0);assert.equal(f.creates(),1);assert.equal(f.page.canApply(),false);
- assert.match(f.page.baseFile.sourceBytes().toString('utf8'),/remote/);
- assert.match(f.page.content,/local second/);assert.equal(f.requests.length,0);
+test('定位卡片保留全部文档和卡片，不读取投影、不执行取舍',async()=>{
+ const f=fixture();await f.page.load();const html=f.page.html,content=f.page.content,revision=f.page.renderRevision;
+ f.page.selectConflict(f.page.conflicts[1]);await tick();
+ assert.equal(f.page.selectedId,'second');assert.equal(f.page.navigation.focused,'second');
+ assert.equal(f.page.content,content);assert.equal(f.page.html,html);assert.equal(f.page.renderRevision,revision);
+ assert.equal(f.events.includes('project'),false);assert.equal(f.requests.length,0);assert.equal(f.creates(),1);
+ assert.equal(f.page.conflictCards().length,2);
 });
 test('底部左右按钮循环切换当前冲突',async()=>{
  const f=fixture();await f.page.load();f.page.selectAdjacent(1);await tick();assert.equal(f.page.selectedId,'second');
@@ -121,18 +122,18 @@ test('详情卡应用按钮按冲突原因显示插入放置删除',async()=>{
  f.page.conflicts[0].reason='delete';assert.equal(f.page.applyLabel(),'删除');
 });
 test('差异读取失败保留冲突身份与当前主树，重试不提前取舍',async()=>{
- const f=fixture();await f.page.load();f.projectionFail(new Error('差异读取失败'));f.page.selectConflict(f.page.conflicts[1]);await tick();
+ const f=fixture();await f.page.load();f.projectionFail(new Error('差异读取失败'));f.page.selectConflict(f.page.conflicts[1]);await f.page.applyChoice();
  assert.equal(f.page.selectedId,'second');assert.equal(f.page.projection,undefined);assert.equal(f.page.afterText,'');assert.match(f.page.content,/remote/);assert.match(f.page.message,/差异读取失败/);
  assert.equal(f.page.canApply(),false);f.projectionFail(undefined);await f.page.retryPreview();assert.equal(f.page.afterText,'local second\n');assert.equal(f.requests.length,0);
 });
 test('过期的异步差异不会覆盖新冲突详情',async()=>{
  const f=fixture();await f.page.load();let release;f.projectionWait(new Promise(resolve=>release=resolve));
  const old=f.page.readProjection();f.page.requestId++;f.page.selectedId='second';release();await old;
- assert.equal(f.page.selectedId,'second');assert.equal(f.page.afterText,'local first\n');
+ assert.equal(f.page.selectedId,'second');assert.equal(f.page.afterText,'');
  f.projectionWait(undefined);await f.page.readProjection();assert.equal(f.page.afterText,'local second\n');
 });
 test('目标未确定时展示候选，选择目标只读取差异，确认采用才记录操作',async()=>{
- const f=fixture();f.requireTarget();await f.page.load();
+ const f=fixture();f.requireTarget();await f.page.load();await f.page.readProjection();
  assert.equal(f.page.projection.status,'targetRequired');assert.equal(f.page.summaryText(true),'待选择目标后比较');assert.equal(f.page.mainChangeCount(),0);assert.equal(f.requests.length,0);
  f.page.openTargets();await f.page.chooseTarget(f.page.targetRows().find(row=>row.target));
  assert.equal(f.page.projection.status,'ready');assert.equal(f.page.canApply(),false);assert.equal(f.requests.length,0);
@@ -233,8 +234,8 @@ test('副本取舍失败时不 finish、不提交，原文件与其他冲突保�
  f.stageFail(undefined);f.page.message='';await f.page.applyChoice();
  assert.equal(f.events.filter(e=>e==='submit').length,1);assert.equal(f.page.conflicts.length,1);
 });
-test('未选目标只展开正文下方的树，选择只投影，之后单次应用提交',async()=>{
- const f=fixture();f.requireTarget();await f.page.load();
+test('未选目标时卡片操作才打开目标面板，选择不提交，之后单次应用提交',async()=>{
+ const f=fixture();f.requireTarget();await f.page.load();assert.equal(f.page.targetsVisible,false);await f.page.applyChoice();
  assert.equal(f.page.targetsVisible,true);assert.ok(f.page.targetRoot);
  await f.page.applyChoice();assert.equal(f.requests.length,0);
  const row=f.page.targetRows().find(row=>row.target);await f.page.chooseTarget(row);

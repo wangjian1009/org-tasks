@@ -1466,6 +1466,10 @@ pub struct FileConflict {
     pub available_actions: Vec<TaskConfilictAction>,
     pub suggested_target: Option<ConflictTarget>,
     pub requires_target: bool,
+    pub display_anchor: Option<SourceRange>,
+    pub display_at_target: bool,
+    pub candidate_content: String,
+    pub candidate_html: String,
 }
 pub struct ConflictPreviewChanges {
     pub source_version: String,
@@ -1492,6 +1496,8 @@ pub struct ConflictPreviewDiffLine {
 ConflictPreviewProjection 是不持久化的只读候选投影。working_version 绑定创建投影时的工作主树；changes.preview_version 绑定投影正文，不能拿它代替工作版本提交操作。状态为 ready、targetRequired 或 unavailable。ready 的 before_text／after_text 来自变化片段；targetRequired 的 after_text 仅为解包后的本地候选，content 保持当前主树且 changes 为空，不虚构已定位结果。删除候选的应用后为空。读取投影不改变 PreviewState，也不能激活 finish。
 
 内部 PreviewState 的 original 保存剥离冲突区后的原始主树，conflicts 独立保存 ~Vec<ConflictPoint>~ ，resolved 保存已经选择的 ID 集合；当前工作文件也只有主树。创建时的完整源版本由 ConflictPreview.source_version 保留，用于真实提交约束。成功操作记录仍为 ~Vec<TaskOperation>~ 。完成对象缓存返回的操作组；同一最终版本重复 finish 不重复记录或提交。状态在 Active、Finished、Discarded 与失效之间变化。
+
+FileConflict 的 candidate_content 与 candidate_html 提供解包后的完整候选，删除优先使用当前待删子树。display_anchor 是当前主树中的节点范围，display_at_target 表示直接匹配原节点；否则范围对应最近仍匹配的祖先，空值表示文档根部。展示锚点不替代 suggested_target；候选材料包装可用 CONFLICT_ANCESTORS 保存从近到远的祖先身份，旧材料缺失时不猜测。
 
 变化 kind 使用 insert／delete／replace，无法可靠确定的移动按源范围差异表达；preview 的 area 只输出 main；冲突材料的选择与移除不会作为正文变化输出。FileConflict.source_range 属于单个独立材料，不用于主树导航。行 kind 为 added／removed。所有源范围与标题锚点绑定两端版本。Rust 字段经 Serde 使用 camelCase，ConflictTarget 使用 ~{ type, data }~ 标签形式，ReplaceMain 没有 data。
 
@@ -1525,6 +1531,11 @@ status: ready / targetRequired / unavailable \\
 content: String \\
 changes: ConflictPreviewChanges}{}
 \umldep{ConflictPreview}{ConflictPreviewProjection}
+\umlclass[x=16,y=-5]{FileConflict}{display\_anchor: Option\textless SourceRange\textgreater \\
+ display\_at\_target: bool \\
+ candidate\_content: String \\
+ candidate\_html: String}{}
+\umldep{ConflictPreview}{FileConflict}
 \umldep{ConflictPreview}{TaskOperationGroup}
 \umldep{OrgWorkspace}{TaskOperationGroup}
 \end{tikzpicture}}

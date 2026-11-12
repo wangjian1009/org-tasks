@@ -12,6 +12,7 @@ remote
 :CONFILICT_ID: <conflict-1>
 :END:
 #+CONFLICT_REASON: delete
+#+CONFLICT_ANCESTORS: []
 *** Parent
 **** TODO A
 :PROPERTIES:

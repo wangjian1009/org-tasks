@@ -312,6 +312,7 @@ export interface ConflictPreviewRequest { file: TaskPath; conflictId: string; so
 export interface FileConflict {
   id: string; title: string; reason: string; sourceRange: SourceRange;
   availableActions: ('discard' | 'useLocal')[]; suggestedTarget: ConflictTarget | null; requiresTarget: boolean;
+  displayAnchor: SourceRange | null; displayAtTarget: boolean; candidateContent: string; candidateHtml: string;
 }
 export interface ConflictPreviewDiffLine { kind: 'context' | 'added' | 'removed'; beforeLine: number | null; afterLine: number | null; text: string; }
 export interface ConflictPreviewChange {

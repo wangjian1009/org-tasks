@@ -26,6 +26,7 @@ next
 :CONFILICT_ID: <conflict-1>
 :END:
 #+CONFLICT_REASON: modify
+#+CONFLICT_ANCESTORS: ["path:[[],\"Project\"]:0"]
 *** TODO A
 :PROPERTIES:
 :ID: task-a

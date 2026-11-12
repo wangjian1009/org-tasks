@@ -107,5 +107,22 @@ html { background: ${backgroundColor}; }
 .file-reading li.checkbox-item .checkbox { position: absolute; left: 0; top: 0; color: #91A89D; }
 .file-reading .drawer { margin: 17px 0 20px; padding: 10px 0; border-top: 1px solid ${UiColor.divider}; border-bottom: 1px solid ${UiColor.divider}; font-size: 12px; }
 .file-reading .drawer > summary { min-height: 24px; }
+.conflict-card { margin: 18px 0 22px; padding: 16px; border: 1px solid #455B52; border-left: 3px solid #79B99A; border-radius: 14px; background: #2C3630; font-size: 14px; line-height: 1.65; }
+.conflict-card-header { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 12px; }
+.conflict-card-badge { flex-shrink: 0; padding: 2px 8px; border-radius: 5px; background: #395044; color: #A5D9B6; font-size: 11px; line-height: 1.8; }
+.conflict-card-title { min-width: 0; font-size: 17px; color: #E5E6DF; font-weight: 600; line-height: 1.6; }
+.conflict-card-body { color: #CDD3CA; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; }
+.file-reading .conflict-card-body .drawer { margin: 8px 0 12px; padding: 0; border: 0; }
+.conflict-card-body p:last-child { margin-bottom: 0; }
+.conflict-card-body details { margin: 12px 0; }
+.conflict-card-body summary { list-style: none; }
+.conflict-card-actions { display: flex; gap: 10px; margin-top: 16px; }
+.conflict-card-actions button { flex: 1; min-height: 42px; padding: 8px 14px; border: 0; border-radius: 9px; background: #73B8A8; color: #15342C; font: 600 13px/1.4 sans-serif; }
+.conflict-card-actions button:last-child { background: #3B443D; color: #D3D8CF; }
+.conflict-delete { border-color: #654650; border-left-color: #D98899; background: #3B2E33; }
+.conflict-delete .conflict-card-badge { background: #593A44; color: #EDACBA; }
+.conflict-delete .conflict-card-actions button:first-child { background: #D695A4; color: #44202A; }
+.conflict-modify { border-color: #5B5541; border-left-color: #CAB57D; background: #37352C; }
+.conflict-modify .conflict-card-badge { background: #504B38; color: #E4D2A1; }
 </style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
 }

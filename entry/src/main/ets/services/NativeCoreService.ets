@@ -68,6 +68,7 @@ export type CoreConflictPreviewProjection = NativeConflictPreviewProjection
 export type CoreConflictPreviewChange = NativeConflictPreviewChange
 export type CoreConflictPreviewDiffLine = NativeConflictPreviewDiffLine
 export type CoreConflictTarget = NativeConflictTarget
+// 候选内容与展示锚点由 Core 提供；展示锚点不等同于提交目标。
 export type CoreFileConflict = NativeFileConflict
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata

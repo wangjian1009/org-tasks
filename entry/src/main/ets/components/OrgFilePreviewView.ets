@@ -6,11 +6,25 @@ import { OrgDocumentChapter, OrgDocumentOutline, documentOutlineScript, document
 
 interface PreviewMarkedRange { start: number; end: number; removed: string; added: string }
 
+export interface OrgConflictCard {
+  id: string
+  title: string
+  kind: string
+  kindLabel: string
+  applyLabel: string
+  content: string
+  anchorStart: number
+  atTarget: boolean
+  html: string
+  available: boolean
+}
+
 export class OrgFilePreviewNavigation {
   controller: webview.WebviewController = new webview.WebviewController()
   openOutline: () => void = () => {}
   expandAll: (expand: boolean) => void = () => {}
   focusChange: (index: number) => void = () => {}
+  focusConflictCard: (id: string) => void = () => {}
   focusFooter: () => void = () => {}
   capturePosition: () => Promise<number> = async (): Promise<number> => 0
   restorePosition: (offset: number) => void = () => {}
@@ -27,6 +41,8 @@ export struct OrgFilePreviewView {
   @Prop title: string = ''
   @Prop @Watch('snapshotChanged') revision: string = ''
   @Prop changes: CoreConflictPreviewChanges | undefined = undefined
+  @Prop conflictCards: OrgConflictCard[] = []
+  conflictCardActivated: ((id: string, action: string) => void) | undefined = undefined
   @Prop showBefore: boolean = false
   @Prop flowContent: boolean = false
   @BuilderParam footer: () => void = this.emptyFooter
@@ -49,6 +65,7 @@ export struct OrgFilePreviewView {
   private contentWidth: number = 0
   private footerOffset: number = 0
   private pendingFlowFocus: boolean = false
+  private pendingFlowOffset: number | undefined = undefined
 
   aboutToAppear() {
     this.active = true
@@ -56,6 +73,7 @@ export struct OrgFilePreviewView {
     this.navigation.openOutline = (): void => { this.openOutline() }
     this.navigation.expandAll = (expand: boolean): void => { this.expandAll(expand) }
     this.navigation.focusChange = (index: number): void => { this.focusChange(index) }
+    this.navigation.focusConflictCard = (id: string): void => { this.focusConflictCard(id) }
     this.navigation.focusFooter = (): void => { this.focusFooter() }
     this.navigation.capturePosition = async (): Promise<number> => {
       if (this.flowContent || this.displayMode === 'source') return this.sourceScroller.currentOffset().yOffset
@@ -76,21 +94,20 @@ export struct OrgFilePreviewView {
   aboutToDisappear() { this.active = false; this.lifecycle++; this.outlineRequest++; this.renderReady = false; this.outlineVisible = false }
   snapshotChanged() {
     this.lifecycle++; this.renderReady = false; this.outlineRequest++; this.outlineVisible = false
-    this.sourceOffsets.clear(); this.lineOffsets.clear(); this.pendingFlowFocus = true
+    this.sourceOffsets.clear(); this.lineOffsets.clear(); this.pendingFlowFocus = true; this.pendingFlowOffset = undefined
   }
   async documentReady() {
     if (!this.active) return
     this.renderReady = true
     const revision = this.lifecycle
-    if (!this.changes) { this.ready(); return }
     try {
-      const ranges = this.changes.changes.filter(change => change.area === 'main').map((change: CoreConflictPreviewChange): PreviewMarkedRange => ({
+      const ranges = (this.changes?.changes ?? []).filter(change => change.area === 'main').map((change: CoreConflictPreviewChange): PreviewMarkedRange => ({
         start: (this.showBefore ? change.before : change.after)?.start.byte_offset ?? 0,
         end: (this.showBefore ? change.before : change.after)?.end.byte_offset ?? 0,
         removed: change.lines.filter(line => line.kind === 'removed').map(line => line.text).join(''),
         added: change.lines.filter(line => line.kind === 'added').map(line => line.text).join('')
       }))
-      await this.navigation.controller.runJavaScript(`(() => {
+      if (ranges.length > 0) await this.navigation.controller.runJavaScript(`(() => {
         document.querySelectorAll('[data-preview-marker]').forEach(n => n.remove());
         document.querySelectorAll('[data-preview-change]').forEach(n => n.removeAttribute('data-preview-change'));
         const blocks = [...document.querySelectorAll('[data-org-start]')];
@@ -120,11 +137,83 @@ export struct OrgFilePreviewView {
         });
         return true;
       })()`)
+      await this.injectConflictCards()
       if (this.flowContent) this.contentMeasureRevision++
-      if (revision === this.lifecycle) await this.focusChange(0)
+      if (revision === this.lifecycle && ranges.length > 0) await this.focusChange(0)
       if (revision === this.lifecycle) this.ready()
     } catch (e) { if (revision === this.lifecycle) this.readingError(e as CoreBridgeError) }
   }
+  async injectConflictCards() {
+    if (!this.flowContent || this.displayMode !== 'rendered' || this.conflictCards.length === 0) return
+    await this.navigation.controller.runJavaScript(`(() => {
+      document.querySelectorAll('[data-conflict-card]').forEach(n => n.remove());
+      const cards = ${JSON.stringify(this.conflictCards)};
+      const headings = [...document.querySelectorAll('details.heading')];
+      const anchorOf = card => headings.find(node => +node.dataset.orgStart === card.anchorStart);
+      const groups = new Map();
+      cards.forEach(card => {
+        const anchor = anchorOf(card);
+        const box = document.createElement('aside'); box.dataset.conflictCard = card.id;
+        box.className = 'conflict-card conflict-' + card.kind;
+        const header = document.createElement('div'); header.className = 'conflict-card-header';
+        const badge = document.createElement('span'); badge.className = 'conflict-card-badge'; badge.textContent = card.kindLabel || '冲突';
+        const title = document.createElement('strong'); title.className = 'conflict-card-title'; title.textContent = card.title || '未命名节点';
+        header.append(badge, title); box.append(header);
+        const body = document.createElement('div'); body.className = 'conflict-card-body';
+        body.innerHTML = card.html;
+        const candidateRoot = body.querySelector('details.heading');
+        const candidateSummary = candidateRoot?.querySelector(':scope > summary');
+        const candidateTitle = candidateSummary?.querySelector('.heading-title');
+        if (candidateTitle) title.innerHTML = candidateTitle.innerHTML;
+        if (candidateRoot && candidateSummary) {
+          candidateSummary.remove(); candidateRoot.replaceWith(...candidateRoot.childNodes);
+        }
+        body.querySelectorAll('details.heading').forEach(node => node.classList.remove('heading'));
+        body.querySelectorAll('[data-org-start]').forEach(node => { node.removeAttribute('data-org-start'); node.removeAttribute('data-org-end'); node.removeAttribute('id'); });
+        if (!body.textContent.trim()) body.textContent = card.content || '候选材料不可用，可丢弃此冲突';
+        box.append(body);
+        const actions = document.createElement('div'); actions.className = 'conflict-card-actions';
+        if (card.available) {
+          const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.conflictAction = 'apply'; apply.dataset.conflictId = card.id; apply.textContent = card.applyLabel || '应用'; actions.append(apply);
+        }
+        const discard = document.createElement('button'); discard.type = 'button'; discard.dataset.conflictAction = 'discard'; discard.dataset.conflictId = card.id; discard.textContent = '丢弃'; actions.append(discard); box.append(actions);
+        const key = String(card.anchorStart) + ':' + String(card.atTarget);
+        let group = groups.get(key);
+        if (!group) {
+          group = document.createElement('div'); groups.set(key, group);
+          const hiddenAncestor = anchor?.closest('details.heading[hidden]');
+          if (hiddenAncestor) hiddenAncestor.after(group);
+          else if (anchor && card.atTarget) { anchor.before(group); anchor.hidden = true; }
+          else if (anchor) {
+            const child = anchor.querySelector(':scope > details.heading'); anchor.insertBefore(group, child);
+          } else document.body.appendChild(group);
+        }
+        group.appendChild(box);
+      });
+      return true;
+    })()`)
+  }
+
+  async focusConflictCard(id: string) {
+    if (!this.renderReady || !this.flowContent || this.displayMode !== 'rendered') return
+    const revision = this.lifecycle
+    try {
+      const result = await this.navigation.controller.runJavaScript(`(() => {
+        const card = [...document.querySelectorAll('[data-conflict-card]')].find(node => node.dataset.conflictCard === ${JSON.stringify(id)});
+        if (!card) return false;
+        for (let p = card.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+        return (card.getBoundingClientRect().top + window.scrollY) / window.innerWidth;
+      })()`)
+      if (revision !== this.lifecycle || !this.active) return
+      const ratio = Number(result)
+      if (Number.isFinite(ratio) && ratio >= 0 && this.contentWidth > 0) {
+        this.pendingFlowOffset = Math.max(0, ratio * this.contentWidth - 16)
+        this.pendingFlowFocus = false
+        this.contentMeasureRevision++
+      }
+    } catch (e) { this.readingError(e as CoreBridgeError) }
+  }
+
   async focusChange(index: number) {
     if (this.flowContent && this.displayMode === 'source') {
       const change = this.changes?.changes[index]
@@ -169,7 +258,10 @@ export struct OrgFilePreviewView {
   async restorePosition(offset: number) {
     if (!Number.isFinite(offset) || offset < 0 || !this.active) return
     this.pendingFlowFocus = false
-    if (this.flowContent || this.displayMode === 'source') {
+    if (this.flowContent && this.displayMode === 'rendered') {
+      this.pendingFlowOffset = offset
+      this.contentMeasureRevision++
+    } else if (this.flowContent || this.displayMode === 'source') {
       this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
     } else if (this.renderReady) {
       try { await this.navigation.controller.runJavaScript(`window.scrollTo(0, ${offset})`) }
@@ -182,9 +274,16 @@ export struct OrgFilePreviewView {
   }
 
   flowMeasured() {
+    if (this.pendingFlowOffset !== undefined && this.flowContent && this.renderReady) {
+      const offset = this.pendingFlowOffset
+      this.pendingFlowOffset = undefined
+      this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+      return
+    }
     if (!this.pendingFlowFocus || !this.flowContent) return
     if (this.displayMode !== 'source' && !this.renderReady) return
     this.pendingFlowFocus = false
+    if (this.conflictCards.length > 0) return
     if (this.changes?.changes.length) this.focusChange(0)
     else this.focusFooter()
   }
@@ -270,7 +369,7 @@ export struct OrgFilePreviewView {
           OrgContentView({ fragment: this.renderedHtml, revision: this.revision, empty: this.content.trim().length === 0,
             controller: this.navigation.controller, embedded: true, flowReading: true, fileReading: true,
             layoutRevision: this.contentMeasureRevision,
-            fileContext: this.fileContext, nodeActivated: this.nodeActivated,
+            fileContext: this.fileContext, nodeActivated: this.nodeActivated, conflictCardActivated: this.conflictCardActivated,
             ready: (): void => { this.documentReady() }, measured: (): void => { this.flowMeasured() }, failed: this.failed })
             .width('100%')
         }

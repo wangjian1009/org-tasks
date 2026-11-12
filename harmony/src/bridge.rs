@@ -2288,6 +2288,7 @@ pub fn workspace_preview_operation(handle: u64, request: String) -> Result<Strin
                 Request::SourceFile { .. } => {
                     encode(&file_snapshot(&runtime.block_on(preview.source_file())?)?)
                 }
+                // 保留 Core 返回的候选渲染与主树展示坐标，宿主不推断匹配规则。
                 Request::Conflicts { .. } => encode(&runtime.block_on(preview.conflicts())?),
                 Request::Changes { .. } => encode(&runtime.block_on(preview.changes())?),
                 Request::Project { request, .. } => {

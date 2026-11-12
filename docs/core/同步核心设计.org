@@ -60,7 +60,7 @@
 
 ** 冲突容器与设计原则
 
-使用文件末尾唯一的一级标题“同步冲突”作为容器，自身同时带有大写 ~CONFLICT~ 与标准 ~ARCHIVE~ 标签，整个子树都是冲突区。旧文件只有 CONFLICT 标签时仍可识别；新生成容器统一使用 ~:CONFLICT:ARCHIVE:~ 。原先设计中的 ~CONFILICT~ 标签拼写统一为 ~CONFLICT~ 。容器的每个直接子标题是一个冲突点，仅增加定位属性 ~CONFILICT_ID~ 与节点内关键字 ~#+CONFLICT_REASON:~ ； ~CONFILICT_ID~ 按已确认的拼写保留，和旧的 ~CONFLICT_ID~ 不同。容器不另设属性，冲突点的完整原文作为其可见后代或 example 块保存，不再生成 ~CONFLICT_SOURCE~ 、 ~CONFLICT_ORIGIN~ 、 ~CONFLICT_PARENT~ 、 ~CONFLICT_PATH~ 或 ~CONFLICT_OPERATION~ 。用户原有属性与代码块字面文本保留，不按前缀清理。
+使用文件末尾唯一的一级标题“同步冲突”作为容器，自身同时带有大写 ~CONFLICT~ 与标准 ~ARCHIVE~ 标签，整个子树都是冲突区。旧文件只有 CONFLICT 标签时仍可识别；新生成容器统一使用 ~:CONFLICT:ARCHIVE:~ 。原先设计中的 ~CONFILICT~ 标签拼写统一为 ~CONFLICT~ 。容器的每个直接子标题是一个冲突点，增加定位属性 ~CONFILICT_ID~ 、节点内关键字 ~#+CONFLICT_REASON:~ 与展示祖先关键字 ~#+CONFLICT_ANCESTORS:~ ； ~CONFILICT_ID~ 按已确认的拼写保留，和旧的 ~CONFLICT_ID~ 不同。容器不另设属性，冲突点的完整原文作为其可见后代或 example 块保存，不再生成 ~CONFLICT_SOURCE~ 、 ~CONFLICT_ORIGIN~ 、 ~CONFLICT_PARENT~ 、 ~CONFLICT_PATH~ 或 ~CONFLICT_OPERATION~ 。用户原有属性与代码块字面文本保留，不按前缀清理。
 
 #+begin_example
 * 普通任务
@@ -236,3 +236,7 @@ NotificationQuery 通过 ~OrgWorkspace.query(&[CoreQuery])~ 汇总文件冲突�
 * 逐点预览与统一操作提交
 
 [[file:冲突预览与合并设计.org][冲突预览与合并设计]] 定义仓库外唯一临时副本、共享全文控件与逐点交互。副本在保留地址域中定位，finish 返回映射为真实源路径的原操作序列；它本身不提交仓库。应用通过 execute_task_operations 完成真实修改，基线、历史和通知继续按本文定义维护。
+
+* 冲突卡片的展示祖先
+
+新生成的冲突通过 CONFLICT_ANCESTORS 保存从近到远的合并祖先身份 JSON 数组，供 Core 在主树中寻找最近仍存在的父节点。该信息只决定卡片展示位置，不自动确认插入或替换目标。旧材料不回填该关键字；无法定位时显示在文档根部，其他材料与重放规则保持。

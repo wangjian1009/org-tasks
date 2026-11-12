@@ -10,6 +10,7 @@ remote
 :CONFILICT_ID: <conflict-1>
 :END:
 #+CONFLICT_REASON: modify
+#+CONFLICT_ANCESTORS: []
 *** TODO A
 :PROPERTIES:
 :ID: task-a

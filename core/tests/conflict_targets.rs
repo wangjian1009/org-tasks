@@ -77,3 +77,48 @@ fn explicit_id_matches_renamed_tasks_and_never_falls_back_to_another_identity() 
     )
     .is_none());
 }
+
+#[test]
+fn cards_locate_existing_deletions_and_keep_the_current_subtree_visible() {
+    let source = org_tasks_core::merge(
+        b"* Group\n** TODO Old\n:PROPERTIES:\n:ID: old\n:END:\nbase\n",
+        b"* Group\n",
+        b"* Group\n** TODO Old\n:PROPERTIES:\n:ID: old\n:END:\nremote changed\n",
+    )
+    .unwrap();
+    let file = OrgFile::new("repo".into(), "a.org".into(), source).unwrap();
+    let point = file.conflicts().unwrap().remove(0);
+    assert_eq!(point.reason, "delete");
+    assert!(point.display_at_target);
+    assert_eq!(point.display_anchor.unwrap().start.byte_offset, 8);
+    assert!(point.candidate_html.contains("remote changed"));
+    assert!(!point.candidate_html.contains("CONFILICT_ID"));
+}
+
+#[test]
+fn cards_fall_back_to_the_nearest_surviving_ancestor_without_choosing_an_apply_target() {
+    let base = "* Root\n:PROPERTIES:\n:ID: root\n:END:\n** Gone\n:PROPERTIES:\n:ID: gone\n:END:\n*** TODO Child\n:PROPERTIES:\n:ID: child\n:END:\nbase\n";
+    let local = base.replace("base", "local changed");
+    let remote = "* Root\n:PROPERTIES:\n:ID: root\n:END:\nremote introduction\n";
+    let source =
+        org_tasks_core::merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
+    let file = OrgFile::new("repo".into(), "a.org".into(), source).unwrap();
+    let point = file.conflicts().unwrap().remove(0);
+    assert_eq!(point.reason, "modify-missing");
+    assert!(!point.display_at_target);
+    assert_eq!(point.display_anchor.unwrap().start.byte_offset, 0);
+    assert!(point.suggested_target.is_none());
+    assert!(point.requires_target);
+    assert!(point.candidate_html.contains("local changed"));
+    assert!(!point.candidate_html.contains("CONFLICT_ANCESTORS"));
+}
+
+#[test]
+fn legacy_material_without_ancestor_information_stays_at_document_root() {
+    let file = OrgFile::new("repo".into(), "a.org".into(),
+        "* Unrelated\n\n* 同步冲突 :CONFLICT:ARCHIVE:\n** New\n:PROPERTIES:\n:CONFILICT_ID: new\n:END:\n#+CONFLICT_REASON: create\n*** TODO New\ntext\n".as_bytes().to_vec()).unwrap();
+    let point = file.conflicts().unwrap().remove(0);
+    assert!(point.display_anchor.is_none());
+    assert!(!point.display_at_target);
+    assert!(point.candidate_html.contains("text"));
+}

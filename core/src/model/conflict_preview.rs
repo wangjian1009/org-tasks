@@ -76,6 +76,11 @@ pub struct FileConflict {
     pub available_actions: Vec<TaskConfilictAction>,
     pub suggested_target: Option<ConflictTarget>,
     pub requires_target: bool,
+    /// 展示锚点属于主树；不代表已经确认了应用目标。
+    pub display_anchor: Option<SourceRange>,
+    pub display_at_target: bool,
+    pub candidate_content: String,
+    pub candidate_html: String,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

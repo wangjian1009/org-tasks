@@ -24,5 +24,6 @@ SCHEDULED: <2026-11-10 Tue>
 :CONFILICT_ID: <conflict-2>
 :END:
 #+CONFLICT_REASON: modify
+#+CONFLICT_ANCESTORS: ["path:[[\"path:[[],\\\"项目\\\"]:0\"],\"任务编辑\"]:0","path:[[],\"项目\"]:0"]
 *** TODO 其他任务
 本轮本地备注

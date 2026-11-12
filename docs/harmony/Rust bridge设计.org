@@ -539,3 +539,7 @@ Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一�
 JSON 请求按 ~type~ 区分 task、file、notification，结果使用对应 type 与 result。C++ 只在 Task 结果中包装原生 Task，在 File 结果中为元信息注册项目访问方法，Notification 结果直接透传。一次 async work 调用整个批次，整个结果组装成功后才 resolve，任一包装失败 reject 整个 Promise。
 
 页面统一通过 PageQueryService 组装请求并从同批发布通知；AppShell 生命周期只注册数据订阅，不再自行查询通知。收件箱本页与最近新增、目标元信息和通知一次返回；今天等通用视图和某天、备忘各自使用一个批次，侧边栏同样只调用一次 query。请求类型、过滤与锁边界见 [[file:../core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+
+* 文档内冲突卡片投影
+
+FileConflict 经既有 conflicts 结果原样传递 displayAnchor、displayAtTarget、candidateContent 和 candidateHtml，不新增阻塞调用或另建解析器。Core 负责候选解包与祖先匹配；C++ 保留 JSON 结构，NativeCoreService 类型别名与声明同步。ArkTS 只按主树字节锚点排版，卡片按钮通过受控 DOM 命中回调触发现有操作；文内脚本和网络仍禁用。

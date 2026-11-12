@@ -1,7 +1,7 @@
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
-import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
+import { OrgFilePreviewView, OrgFilePreviewNavigation, OrgConflictCard } from '../components/OrgFilePreviewView'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreConflictPreviewProjection, CoreConflictTarget, CoreFileConflict,
   CoreOrgFile, CoreTask, CoreTaskOperation, CoreTaskOperationGroup, CoreTitlePart, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
@@ -109,8 +109,10 @@ struct ConflictFile {
       this.title = file.title() || this.path
       this.titleParts = file.titleParts()
       this.fileContext = `${repositoryLabel(repository)} / ${params.path}`
-      this.sourceMode = config.fileDisplayMode === 'source'
+      this.sourceMode = false
       this.file = file
+      conflicts.sort((a: CoreFileConflict, b: CoreFileConflict): number =>
+        (a.displayAnchor?.start.byte_offset ?? Number.MAX_SAFE_INTEGER) - (b.displayAnchor?.start.byte_offset ?? Number.MAX_SAFE_INTEGER))
       this.conflicts = conflicts
       this.preview = createdPreview
       this.baseFile = baseFile
@@ -130,12 +132,8 @@ struct ConflictFile {
       this.stagedAction = ''
       this.initialized = true
       this.present(baseFile)
-      if (selectFirst && conflicts.length > 0) {
-        this.selectedId = conflicts[0].id
-        // 读取失败也保留主树、冲突标题和保留当前入口。
-        try { await this.readProjection() }
-        catch (e) { if (request === this.requestId) this.handleError(e as CoreBridgeError, '读取差异失败') }
-      }
+      if (conflicts.length > 0) this.selectedId = conflicts[0].id
+
     } catch (e) {
       if (createdPreview) await createdPreview.discard().catch((): void => {})
       if (request === this.requestId) this.message = `读取冲突文件失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -170,8 +168,7 @@ struct ConflictFile {
       this.changes = projection.changes
       this.beforeText = projection.beforeText
       this.afterText = projection.afterText
-      this.presentProjection()
-      if (projection.status === 'targetRequired') this.openTargets()
+      // 只在卡片操作需要目标时打开选择器，定位不改变正文。
     } finally { if (request === this.requestId && conflictId === this.selectedId) this.comparisonLoading = false }
   }
 
@@ -217,10 +214,44 @@ struct ConflictFile {
     }
   }
 
+  conflictCards(): OrgConflictCard[] {
+    return this.conflicts.map((conflict: CoreFileConflict): OrgConflictCard => {
+      const kind = conflict.reason === 'delete' ? 'delete' :
+        ['create', 'missing-parent', 'modify-missing'].includes(conflict.reason) ? 'create' : 'modify'
+      return { id: conflict.id, title: conflict.title, kind,
+        kindLabel: kind === 'delete' ? '删除' : kind === 'create' ? '新增' : '修改',
+        applyLabel: conflict.reason === 'delete' ? '删除' : kind === 'create' ? '插入' : '应用',
+        content: conflict.candidateContent, html: conflict.candidateHtml,
+        anchorStart: conflict.displayAnchor?.start.byte_offset ?? -1, atTarget: conflict.displayAtTarget,
+        available: conflict.availableActions.includes('useLocal') }
+    })
+  }
+
   selectConflict(conflict: CoreFileConflict) {
     if (this.saving || this.stale || this.pendingGroup) return
-    if (this.selectedId === conflict.id && this.preview && !this.stale) { this.navigation.focusChange(0); return }
-    this.confirmAbandon((): void => { this.prepare(conflict, '') })
+    if (this.selectedId === conflict.id) { this.navigation.focusConflictCard(conflict.id); return }
+    if (this.stagedAction || this.manuallyEdited) {
+      this.confirmAbandon((): void => { this.prepare(conflict, '') })
+      return
+    }
+    this.selectedId = conflict.id
+    this.selectedTarget = undefined
+    this.projection = undefined
+    this.targetRoot = undefined
+    this.navigation.focusConflictCard(conflict.id)
+  }
+
+  async activateCard(id: string, action: string) {
+    if (this.saving || this.comparisonLoading || this.stale || this.pendingGroup) return
+    const conflict = this.conflicts.find(item => item.id === id)
+    if (!conflict) return
+    if (this.selectedId !== id) this.selectConflict(conflict)
+    if (this.selectedId !== id) return
+    if (action === 'focus') { this.selectedId = id; return }
+    if (action === 'discard') { await this.discardChoice(); return }
+    try {
+      await this.applyChoice()
+    } catch (e) { this.handleError(e as CoreBridgeError, '读取候选失败') }
   }
 
   selectAdjacent(delta: number) {
@@ -323,6 +354,10 @@ struct ConflictFile {
     if (this.saving || this.stale || this.pendingGroup) return
     const conflict = this.selectedConflict()
     if (!conflict?.availableActions.includes('useLocal') || this.comparisonLoading || this.message) return
+    if (!this.stagedAction && !this.projection) {
+      try { await this.readProjection(this.selectedTarget) }
+      catch (e) { this.handleError(e as CoreBridgeError, '读取候选失败'); return }
+    }
     if (!this.stagedAction && this.projection?.status !== 'ready') { this.openTargets(); return }
     if (['reorder', 'structure'].includes(conflict.reason)) {
       this.getUIContext().showAlertDialog({ title: '用本地内容替换主树？',
@@ -367,7 +402,7 @@ struct ConflictFile {
       this.expandedTargetKeys = [this.targetRoot.key, ...this.targetRoot.children.map(node => node.key)]
     }
     this.targetsVisible = true
-    this.navigation.focusFooter()
+
   }
 
   targetRows(): ConflictTargetRow[] {
@@ -551,51 +586,11 @@ struct ConflictFile {
   }
 
   @Builder
-  comparisonCard() {
-    Column({ space: 8 }) {
-      Row({ space: 8 }) {
-        Text(this.selectedConflict()?.title ?? '').fontSize(16).fontWeight(FontWeight.Medium)
-          .fontColor(UiColor.text).layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.detailsExpanded ? '⌃' : '⌄').fontSize(18).fontColor(UiColor.secondary).width(32)
-      }.width('100%').constraintSize({ minHeight: 44 })
-        .onClick((): void => { this.detailsExpanded = !this.detailsExpanded })
-        .accessibilityText(`${this.selectedConflict()?.title ?? ''}，${this.detailsExpanded ? '收起' : '展开'}冲突细节`)
-      Text(this.reasonLabel(this.selectedConflict()?.reason ?? '')).fontSize(12).fontColor(UiColor.secondary).width('100%')
-      if (this.detailsExpanded) {
-        Row({ space: 8 }) {
-          Column({ space: 4 }) {
-            Text('− 应用前').fontSize(12).fontColor(UiColor.error).width('100%')
-            Text(this.summaryText(true)).fontSize(13).fontColor(UiColor.text).width('100%')
-              .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.LocalDevice)
-          }.layoutWeight(1).padding(10).borderRadius(8).backgroundColor('#422B33').alignSelf(ItemAlign.Stretch)
-          Column({ space: 4 }) {
-            Text(this.projection?.status === 'targetRequired' ? '本地候选 · 待选目标' : '＋ 应用后')
-              .fontSize(12).fontColor(this.projection?.status === 'targetRequired' ? UiColor.warning : UiColor.done).width('100%')
-            Text(this.summaryText(false)).fontSize(13).fontColor(UiColor.text).width('100%')
-              .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.LocalDevice)
-          }.layoutWeight(1).padding(10).borderRadius(8).backgroundColor(this.projection?.status === 'targetRequired' ? UiColor.field : '#203D33')
-            .alignSelf(ItemAlign.Stretch)
-        }.width('100%').alignItems(VerticalAlign.Top)
-        Row({ space: 8 }) {
-          Button(this.applyLabel()).fontSize(13).height(44).layoutWeight(1).fontColor(UiColor.onPrimary)
-            .backgroundColor(UiColor.primary)
-            .enabled(this.selectedConflict()?.availableActions.includes('useLocal') === true && !this.comparisonLoading &&
-              !this.message && this.projection?.status !== 'unavailable')
-            .onClick((): void => { this.applyChoice() })
-          Button('丢弃').fontSize(13).height(44).layoutWeight(1).fontColor(UiColor.text)
-            .backgroundColor(UiColor.field).onClick((): void => { this.discardChoice() })
-        }.width('100%').padding({ top: 8 }).enabled(!this.saving && !this.stale && !this.pendingGroup)
-      }
-    }.width('100%').padding(12).backgroundColor(UiColor.container).borderRadius(12)
-      .accessibilityDescription('应用前后内容为预览，点击操作后提交当前冲突')
-  }
-
-  @Builder
   targetTree() {
     Column({ space: 8 }) {
       Text(['modify', 'delete'].includes(this.selectedConflict()?.reason ?? '') ? '选择对应节点' : '选择放置位置')
-        .fontSize(15).fontColor(UiColor.text).width('100%')
-      Text('展开父节点查看子节点，点击标题选择目标').fontSize(12).fontColor(UiColor.secondary).width('100%')
+        .fontSize(15).fontColor(UiColor.text).width('100%').padding({ right: 48 })
+      Text('展开父节点，点击标题选择位置').fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ right: 48 })
       Scroll() {
         Column() {
           ForEach(this.targetRows(), (row: ConflictTargetRow) => {
@@ -611,28 +606,8 @@ struct ConflictFile {
             }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: Math.min(row.depth, 8) * 16, right: 4 })
           }, (row: ConflictTargetRow) => row.key)
         }.width('100%')
-      }.width('100%').height(220)
+      }.width('100%').height(Math.min(220, this.targetRows().length * 44)).align(Alignment.TopStart)
     }.width('100%').padding(12).backgroundColor(UiColor.container).borderRadius(12)
-  }
-
-  @Builder
-  detailsFooter() {
-    if (this.preview && this.selectedId) {
-      Column({ space: 12 }) {
-        this.comparisonCard()
-        if (this.targetsVisible) {
-          this.targetTree()
-        } else if (this.selectedTarget || this.selectedConflict()?.suggestedTarget) {
-          Row() {
-            Text('目标').fontSize(12).fontColor(UiColor.secondary).margin({ right: 12 })
-            Text(this.selectedTargetLabel()).fontSize(13).fontColor(UiColor.primary).layoutWeight(1)
-              .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text('›').fontSize(20).fontColor(UiColor.primary).margin({ left: 8 })
-          }.width('100%').constraintSize({ minHeight: 44 }).padding(12).borderRadius(10).backgroundColor(UiColor.container)
-            .onClick((): void => { this.openTargets() }).enabled(!this.saving && !this.stale && !this.stagedAction)
-        }
-      }.width('100%').padding({ left: 20, right: 20, top: 12, bottom: 16 })
-    }
   }
 
   build() {
@@ -663,8 +638,9 @@ struct ConflictFile {
             }
             OrgFilePreviewView({ content: this.content, renderedHtml: this.html, displayMode: this.sourceMode ? 'source' : 'rendered',
               fileContext: '', title: this.file.title() || this.path, revision: `${this.renderRevision}`,
-              changes: this.changes, navigation: this.navigation,
-              flowContent: true, footer: this.detailsFooter,
+              conflictCards: this.conflictCards(), navigation: this.navigation,
+              flowContent: true,
+              conflictCardActivated: (id: string, action: string): void => { this.activateCard(id, action) },
               ready: (): void => {
                 if (this.restoredPosition !== undefined) {
                   const position = this.restoredPosition
@@ -672,7 +648,6 @@ struct ConflictFile {
                   this.navigation.restorePosition(position)
                 }
               },
-              nodeActivated: (index: number): void => { this.activateNode(index) },
               failed: (message: string): void => { this.message = message } }).width('100%').layoutWeight(1)
             if (this.conflicts.length === 0) {
               Text('此文件的冲突已全部处理').fontSize(14).fontColor(UiColor.secondary).padding(12)
@@ -696,5 +671,8 @@ struct ConflictFile {
         }.width('100%').height('100%')
       }
     }.width('100%').height('100%')
+      .bindSheet($$this.targetsVisible, this.targetTree, {
+        height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM, backgroundColor: UiColor.container, showClose: true
+      })
   }
 }
