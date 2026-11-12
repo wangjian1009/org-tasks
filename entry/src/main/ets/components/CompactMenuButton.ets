@@ -52,7 +52,9 @@ export struct CompactMenuButton {
     })
     const adornments = (this.hasIcons() ? UiSize.menuIcon + UiSize.menuGap : 0) +
       (this.hasSelection() ? UiSize.menuIcon + UiSize.menuGap : 0)
-    this.menuWidth = Math.min(Math.max(0, availableWidth), Math.ceil(textWidth + UiSize.menuPadding * 2 + adornments))
+    // 外层边框占用内容宽度，必须与两侧内边距一起计入，避免最长文字被挤到下一行。
+    this.menuWidth = Math.min(Math.max(0, availableWidth),
+      Math.ceil(textWidth + UiSize.menuPadding * 2 + adornments + UiSize.menuBorder * 2))
     this.visible = this.menuWidth > 0
   }
 
@@ -92,7 +94,7 @@ export struct CompactMenuButton {
           .onClick(() => { this.activate(item) })
       }, (item: CompactMenuItem) => item.title)
     }.width(this.menuWidth).backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
-      .border({ width: 0.5, color: UiColor.menuOutline }).clip(true)
+      .border({ width: UiSize.menuBorder, color: UiColor.menuOutline }).clip(true)
   }
 
   build() {

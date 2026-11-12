@@ -16,7 +16,7 @@ function load(source, mocks) {
   vm.runInThisContext('(function(require,module,exports,$r){' + code + '\n})')(name => mocks[name] ?? {}, module, module.exports, name => name);
   return module.exports;
 }
-function fixture() {
+function fixture(density = 1) {
   let width = 360, scale = 1, gate;
   const focus = [], actions = [], measured = [];
   const theme = load(fs.readFileSync('entry/src/main/ets/ui/Theme.ets', 'utf8'), {});
@@ -25,12 +25,12 @@ function fixture() {
     '../ui/Theme': theme,
     '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({ width: 360 }) }, window: { async getLastWindow() {
       if (gate) await gate;
-      return { getWindowProperties: () => ({ windowRect: { width } }) };
+      return { getWindowProperties: () => ({ windowRect: { width: width * density } }) };
     } } }
   });
   Object.assign(CompactMenuButton.prototype, { getUniqueId: () => 1, getUIContext: () => ({
-    px2vp: v => v, getHostContext: () => ({}),
-    getMeasureUtils: () => ({ measureTextSize(options) { measured.push(options); return { width: 48 * scale }; } }),
+    px2vp: v => v / density, getHostContext: () => ({}),
+    getMeasureUtils: () => ({ measureTextSize(options) { measured.push(options); return { width: 48 * scale * density }; } }),
     getFocusController: () => ({ requestFocus: id => focus.push(id) })
   }) });
   const menu = new CompactMenuButton(); menu.aboutToAppear();
@@ -39,8 +39,8 @@ function fixture() {
     defer() { let resolve; gate = new Promise(done => { resolve = done; }); return resolve; } };
 }
 test('字号增大按重新测量的文字自然增宽，窄窗口限制在安全边界内', async () => {
-  const f = fixture(); await f.menu.toggle(); assert.equal(f.menu.menuWidth, 96);
-  await f.menu.toggle(); f.scale(2); await f.menu.toggle(); assert.equal(f.menu.menuWidth, 144);
+  const f = fixture(); await f.menu.toggle(); assert.equal(f.menu.menuWidth, 97);
+  await f.menu.toggle(); f.scale(2); await f.menu.toggle(); assert.equal(f.menu.menuWidth, 145);
   await f.menu.toggle(); f.viewport(110); await f.menu.toggle(); assert.equal(f.menu.menuWidth, 78);
   assert.ok(f.measured.every(v => v.fontSize === '16fp'));
 });
@@ -48,7 +48,24 @@ test('可选标记保留宽度，选中与取消不会让同一菜单忽宽忽�
   const f = fixture(); f.menu.items = [{ title: '无标签', checked: false, action() {} }];
   await f.menu.toggle(); const width = f.menu.menuWidth;
   await f.menu.toggle(); f.menu.items[0].checked = true; await f.menu.toggle();
-  assert.equal(f.menu.menuWidth, width); assert.equal(width, 96);
+  assert.equal(f.menu.menuWidth, width); assert.equal(width, 97);
+});
+test('边框、内边距与装饰扣除后，最长文字仍有完整单行宽度', async () => {
+  for (const density of [1, 2, 3.5]) {
+    for (const scale of [1, 1.3, 2]) {
+      for (const icon of [false, true]) {
+        for (const selection of [false, true]) {
+          const f = fixture(density); f.scale(scale);
+          f.menu.items = [{ title: '重复…', ...(icon ? { icon: 'repeat' } : {}),
+            ...(selection ? { checked: false } : {}), action() {} }];
+          await f.menu.toggle();
+          // 0.5vp 描边、12vp 内边距、16vp 图标和 8vp 间距来自布局设计。
+          const contentWidth = f.menu.menuWidth - 1 - 24 - (icon ? 24 : 0) - (selection ? 24 : 0);
+          assert.ok(contentWidth >= 48 * scale, `文字被挤窄：density=${density}, scale=${scale}, icon=${icon}, selection=${selection}`);
+        }
+      }
+    }
+  }
 });
 test('路由移除或等待期间禁用，不显示迟到的菜单', async () => {
   for (const disable of [false, true]) {

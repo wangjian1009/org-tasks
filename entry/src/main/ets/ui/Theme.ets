@@ -50,6 +50,7 @@ export class UiSize {
   static readonly menuGap: number = 8
   static readonly menuRow: number = 44
   static readonly menuRadius: number = 10
+  static readonly menuBorder: number = 0.5
 }
 
 export function dateLabel(value: string): string {
