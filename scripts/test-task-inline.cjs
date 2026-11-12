@@ -183,6 +183,26 @@ test('事件刷新保留正在输入的标题和备注', async () => {
   assert.equal(f.state.notes, '尚未保存的备注');
 });
 
+test('清单文字草稿遇到文件变化时保留原快照，防止旧条目 ID 指向另一条记录', async () => {
+  const f=cardRefreshFixture(false);
+  const original={...f.original,editContent:{notes:'备注',checklist:[
+    {id:'10',text:'第一条'},{id:'20',text:'第二条'}]}};
+  f.state.editTask=original;f.state.checkId='20';f.state.checkText='第二条的未保存草稿';
+  f.setCurrent({...f.updated,editContent:{notes:'外部备注',checklist:[
+    {id:'20',text:'第一条'},{id:'30',text:'第二条'}]}});
+  f.emit();await f.state.pending;
+  assert.equal(f.state.editTask,original);assert.equal(f.state.checkText,'第二条的未保存草稿');
+  assert.equal(f.state.snapshotBlocked,true);assert.match(f.state.message,/清单输入已保留/);
+  assert.equal(await f.state.persist([{field:'CHECKLIST',value:{type:'edit',id:'20',text:f.state.checkText}}]),false);
+  assert.deepEqual(f.writes,[]);
+});
+
+test('本次清单保存后的快照更新不被当作外部冲突', async () => {
+  const f=cardRefreshFixture(false);f.state.checkId='10';f.state.checkText='已保存文字';
+  assert.equal(await f.state.persist([{field:'CHECKLIST',value:{type:'edit',id:'10',text:'已保存文字'}}]),true);
+  assert.equal(f.state.editTask,f.updated);assert.equal(f.state.snapshotBlocked,false);assert.equal(f.state.message,'');
+});
+
 test('正在编辑的字段跨多次外部更新保持草稿，其他字段继续更新',async()=>{
   const f=cardRefreshFixture(false);
   f.state.heading='本地草稿';f.state.headingEditing=true;
