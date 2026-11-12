@@ -107,12 +107,14 @@ export struct TaskListItem {
   }
   value(): CoreTask { return this.editTask ?? this.task }
   async complete() {
-    if (this.completing || this.working || this.snapshotBlocked || (this.value().state === null || this.value().isDone()) || !this.value().taskStateOf(TaskStateCategory.Done)) return
+    const reopen = this.value().isDone()
+    const category = reopen ? TaskStateCategory.Todo : TaskStateCategory.Done
+    if (this.completing || this.working || this.snapshotBlocked || this.value().state === null || !this.value().taskStateOf(category)) return
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
-      const state = this.value().taskStateOf(TaskStateCategory.Done)
-      if ((this.value().state === null || this.value().isDone()) || !state) return
+      const state = this.value().taskStateOf(category)
+      if (this.value().state === null || this.value().isDone() !== reopen || !state) return
       if (await this.persist([{ field: 'TODO', value: state.name }])) {
         this.expanded = false
       }
@@ -544,25 +546,23 @@ export struct TaskListItem {
 
   @Builder
   completionState() {
-    if (this.value().state?.category === TaskStateCategory.Done) {
-      Image($r('app.media.ui_task_done')).width(18).height(18)
-        .accessibilityText('已完成，只读')
-    } else if (this.value().state !== null && !this.value().isDone()) {
-      Button({ type: ButtonType.Normal }) {
+    Button({ type: ButtonType.Normal }) {
+      if (this.value().state?.category === TaskStateCategory.Done) {
+        Image($r('app.media.ui_task_done')).width(18).height(18)
+      } else if (this.value().state?.category === TaskStateCategory.Cancle) {
+        Text('−').width(18).height(18).fontSize(13)
+          .textAlign(TextAlign.Center).fontColor(UiColor.disabled)
+          .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+      } else {
         Text(this.value().state?.category === TaskStateCategory.Doing ? '▶' : this.value().state?.category === TaskStateCategory.Wait ? 'Ⅱ' : '')
           .fontSize(10).fontColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.primary : UiColor.warning)
           .textAlign(TextAlign.Center).width(18).height(18)
           .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
-      }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
-        .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
-        .enabled(!this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(TaskStateCategory.Done))
-        .accessibilityText(`${taskStateCategoryLabel(this.value().state?.category)}，点击完成任务`).onClick(() => { this.complete() })
-    } else {
-      Text((this.value().state?.category === TaskStateCategory.Cancle) ? '−' : '').width(18).height(18).fontSize(13)
-        .textAlign(TextAlign.Center).fontColor(UiColor.disabled)
-        .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
-        .accessibilityText((this.value().state?.category === TaskStateCategory.Cancle) ? '已取消，只读' : '未完成，只读')
-    }
+      }
+    }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
+      .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
+      .enabled(!this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
+      .accessibilityText(`${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
   }
 
   @Builder

@@ -1098,6 +1098,8 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 应用默认关闭完成、普通状态及重复日志：没有对应配置时不生成关闭时间或新的日志项，已有日志保持原样。重复任务的 ~LAST_REPEAT~ 仅在重复日志启用或已有真实 CLOCK 时按 Org 规则更新。关键词 ~!~ 记录进入状态时间， ~@~ 记录带时间的说明，斜线后的标记记录离开状态；目标状态有进入日志时优先使用目标配置，不重复记录来源日志。当前接口不接收说明文本， ~@~ 按 Org 允许的空说明确认方式记录。清除为无状态不写状态日志；显式重复设置同一状态时，按 Org 的关键词配置记录。
 
+重新打开完成或取消任务时，宿主仅提交有效待办状态；Core 清理自身 ~CLOSED~ ，保留已有状态日志、关闭说明和 CLOCK，不修改计划、截止、重复日期或 ~LAST_REPEAT~ 。是否新增重新打开日志仅由目标进入标记或来源离开标记决定，只有关闭日志配置时不自动新增状态日志。即使日志已禁用，本应用仍清理旧关闭时间；这是与 org-mode 在关闭日志禁用时保留旧 ~CLOSED~ 的明确差异。
+
 文件 ~#+STARTUP: logrepeat~ 、 ~lognoterepeat~ 、 ~nologrepeat~ 控制重复日志；重复日志启用或当前记录含真实 CLOCK 时更新 ~LAST_REPEAT~ 。 ~LOGGING~ 属性从当前标题向祖先继承，也可来自文件 ~#+PROPERTY~ ；非空值先清空已有状态、完成与重复日志配置，再应用属性中指定的日志选项及状态标记， ~LOGGING: nil~ 禁用全部日志。
 
 ~#+STARTUP: logdrawer~ 将日志写入 ~LOGBOOK~ ， ~nologdrawer~ 写入正文；继承的 ~LOG_INTO_DRAWER~ 可指定自定义 drawer 或以 ~nil~ 覆盖。 ~logstatesreversed~ 默认新记录在前， ~nologstatesreversed~ 按时间追加。已有 drawer 原样保留，不把源码中的 drawer 样式文字当成日志容器。

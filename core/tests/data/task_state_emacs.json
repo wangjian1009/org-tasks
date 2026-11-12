@@ -312,6 +312,36 @@
           "expected": "#+TODO: TODO WAIT | DONE\n#+PROPERTY: LOGGING WAIT(!) DONE(!)\n#+PROPERTY: LOG_INTO_DRAWER HISTORY\n* DONE Task\n:HISTORY:\n- State \"DONE\"       from \"WAIT\"       [2026-11-11 Wed 12:34]\n- State \"WAIT\"       from \"TODO\"       [2026-11-11 Wed 12:34]\n:END:\nBody\n"
         }
       ]
+    },
+    {
+      "name": "重新打开仅移除关闭时间并保留历史",
+      "source": "#+TODO: TODO | DONE(d!) CNCL(c!)\n#+STARTUP: logdone logrepeat logdrawer\n* DONE Task\nCLOSED: [2026-11-01 Sun 09:00] SCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n",
+      "actions": [
+        {
+          "state": "TODO",
+          "expected": "#+TODO: TODO | DONE(d!) CNCL(c!)\n#+STARTUP: logdone logrepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n"
+        }
+      ]
+    },
+    {
+      "name": "重新打开取消状态记录离开日志",
+      "source": "#+TODO: TODO | DONE CNCL(c@/!)\n#+STARTUP: logdone logdrawer\n* CNCL Task\nCLOSED: [2026-11-01 Sun 09:00] SCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n",
+      "actions": [
+        {
+          "state": "TODO",
+          "expected": "#+TODO: TODO | DONE CNCL(c@/!)\n#+STARTUP: logdone logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"TODO\"       from \"CNCL\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n"
+        }
+      ]
+    },
+    {
+      "name": "重新打开记录目标进入日志",
+      "source": "#+TODO: TODO(t@) | DONE(d!/!)\n#+STARTUP: logdone logdrawer\n* DONE Task\nCLOSED: [2026-11-01 Sun 09:00] SCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n",
+      "actions": [
+        {
+          "state": "TODO",
+          "expected": "#+TODO: TODO(t@) | DONE(d!/!)\n#+STARTUP: logdone logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"TODO\"       from \"DONE\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n"
+        }
+      ]
     }
   ],
   "defaults": {

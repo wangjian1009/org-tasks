@@ -481,9 +481,10 @@ function completionFixture() {
   const module = { exports: {} };
   const writes = [], released = [];
   vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(
-    module, module.exports, { release: key => released.push(key) }, { Done: 'Done' });
+    module, module.exports, { release: key => released.push(key) }, { Done: 'Done', Todo: 'Todo' });
   const task = { state: { name: 'ACTIVE', category: 'Doing' }, targetState: { name: 'FINISHED', category: 'Done' },
-    taskStateOf(category) { assert.equal(category, 'Done'); return this.targetState; },
+    reopenState: { name: 'READY', category: 'Todo' },
+    taskStateOf(category) { return category === 'Todo' ? this.reopenState : this.targetState; },
     isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancle'; } };
   const state = Object.assign(new module.exports.Completion(), {
     completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task',
@@ -518,13 +519,66 @@ test('完成任务重复点击只提交一次，写入失败保留展开态', as
   finishWrite(false); await pending;
   assert.equal(f.state.expanded, true); assert.equal(f.state.completing, false);
 });
-test('无状态、已完成、无完成配置或不可用快照不提交', async () => {
-  for (const changes of [{ state: null }, { state: { name: 'FINISHED', category: 'Done' } }, { state: { name: 'STOP', category: 'Cancle' } }, { targetState: null }]) {
+test('无状态、无目标状态配置或不可用快照不提交', async () => {
+  for (const changes of [{ state: null }, { targetState: null },
+    { state: { name: 'FINISHED', category: 'Done' }, reopenState: null },
+    { state: { name: 'STOP', category: 'Cancle' }, reopenState: null }]) {
     const f = completionFixture(); Object.assign(f.task, changes);
     await f.state.complete(); assert.equal(f.writes.length, 0);
   }
   const f = completionFixture(); f.state.snapshotBlocked = true;
   await f.state.complete(); assert.equal(f.writes.length, 0);
+});
+
+
+test('完成和取消任务点击 checkbox 均使用 Core 的 Todo 目标重新打开', async () => {
+  for (const category of ['Done', 'Cancle']) {
+    const f = completionFixture();
+    f.task.state = { name: category === 'Done' ? 'FINISHED' : 'STOP', category };
+    f.state.expanded = true;
+    await f.state.complete();
+    assert.deepEqual(f.writes, [[{ field: 'TODO', value: 'READY' }]]);
+    assert.equal(f.state.expanded, false);
+    assert.ok(f.released.includes('task'));
+  }
+});
+test('重新打开时草稿保存失败、提交失败和重复点击均沿用完成操作的保护', async () => {
+  const f = completionFixture();
+  f.task.state = { name: 'FINISHED', category: 'Done' };
+  f.state.expanded = true;
+  f.state.finish = async () => false;
+  await f.state.complete();
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.state.expanded, true);
+  let finishWrite;
+  f.state.finish = async () => true;
+  f.state.persist = async changes => { f.writes.push(changes); return new Promise(resolve => { finishWrite = resolve; }); };
+  const pending = f.state.complete();
+  await Promise.resolve(); await Promise.resolve();
+  await f.state.complete();
+  assert.deepEqual(f.writes, [[{ field: 'TODO', value: 'READY' }]]);
+  finishWrite(false); await pending;
+  assert.equal(f.state.expanded, true);
+  assert.equal(f.state.completing, false);
+});
+test('保存草稿期间任务被外部完成或重新打开时，不反向切换状态', async () => {
+  for (const closed of [false, true]) {
+    const f = completionFixture();
+    if (closed) f.task.state = { name: 'FINISHED', category: 'Done' };
+    f.state.finish = async () => {
+      f.task.state = closed ? { name: 'READY', category: 'Todo' } : { name: 'FINISHED', category: 'Done' };
+      return true;
+    };
+    await f.state.complete();
+    assert.equal(f.writes.length, 0);
+  }
+});
+test('保存草稿后重新检查 Core 目标状态，配置消失时不提交', async () => {
+  const f = completionFixture();
+  f.task.state = { name: 'FINISHED', category: 'Done' };
+  f.state.finish = async () => { f.task.reopenState = null; return true; };
+  await f.state.complete();
+  assert.equal(f.writes.length, 0);
 });
 
 const repeats = load('entry/src/main/ets/ui/TaskRepeatPresentation.ets');

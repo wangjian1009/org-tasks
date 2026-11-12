@@ -290,6 +290,41 @@ async fn state_changes_without_logging_configuration_only_replace_the_state() {
 }
 
 #[tokio::test]
+async fn reopening_closed_tasks_preserves_history_dates_and_version_guards() {
+    for (keywords, initial, logs) in [
+        ("#+TODO: READY | FINISHED(f!) STOP(s!)\n#+STARTUP: logdone logdrawer logrepeat\n", "FINISHED", false),
+        ("#+TODO: READY | FINISHED STOP(s@/!)\n#+STARTUP: logdone logdrawer\n", "STOP", true),
+        ("#+TODO: READY(r@) | FINISHED(f!/!) STOP\n#+STARTUP: logdone logdrawer\n", "FINISHED", true),
+        ("#+TODO: READY(r!) | FINISHED(f!/!) STOP\n#+STARTUP: logdone logdrawer\n#+PROPERTY: LOGGING nil\n", "FINISHED", false),
+        ("#+TODO: READY | FINISHED STOP\n", "FINISHED", false),
+    ] {
+        let body = "SCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\r\n:PROPERTIES:\r\n:CREATED: [2026-10-01 Thu 08:00]\r\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\r\n:END:\r\n";
+        let history = "- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\r\n  历史说明保留  \r\n:END:\r\n正文  \r\n* Other\r\n不受影响  \r\n";
+        let source = format!("{keywords}* {initial} Task\r\nCLOSED: [2026-11-01 Sun 09:00]\r\n{body}:LOGBOOK:\r\n{history}");
+        let mut f = Fixture::new(&source).await;
+        let events = Arc::new(Mutex::new(0));
+        let observed = events.clone();
+        let _subscription = f.workspace.watch_data_changes(move |_| *observed.lock().unwrap() += 1);
+        let group = f.group("Task", vec![TaskModification::Todo(Some("READY".into()))]).await;
+        f.workspace.execute_task_operations(&group).await.unwrap();
+        let saved = f.source();
+        assert!(saved.starts_with(&format!("{keywords}* READY Task\r\n{body}:LOGBOOK:\r\n")), "{saved}");
+        assert!(saved.ends_with(history), "{saved}");
+        assert!(!saved.contains("CLOSED:"));
+        assert_eq!(saved.matches("- State ").count(), if logs { 2 } else { 1 }, "{saved}");
+        if logs {
+            assert!(saved.contains(&format!("- State \"READY\"      from \"{initial}\"")), "{saved}");
+        }
+        assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+        assert_eq!(f.workspace.repos()[0].pending_writes().await.unwrap().len(), 1);
+        assert_eq!(*events.lock().unwrap(), 1);
+        assert!(f.workspace.execute_task_operations(&group).await.is_err());
+        assert_eq!(f.source(), saved);
+        assert_eq!(*events.lock().unwrap(), 1);
+    }
+}
+
+#[tokio::test]
 async fn created_completed_tasks_record_closing_information_only_when_enabled() {
     for (prefix, closed, note) in [
         ("", false, false),
