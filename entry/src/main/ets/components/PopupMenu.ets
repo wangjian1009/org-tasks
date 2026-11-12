@@ -5,6 +5,7 @@ export interface PopupMenuItem {
   icon?: Resource
   checked?: boolean
   dangerous?: boolean
+  disabled?: boolean
   action: () => void
 }
 
@@ -103,7 +104,7 @@ struct PopupMenuRow {
         }
       }
       Text(this.item.title).fontSize(UiSize.menuFont).fontWeight(FontWeight.Normal)
-        .fontColor(this.item.dangerous ? UiColor.error : UiColor.text).wordBreak(WordBreak.BREAK_WORD)
+        .fontColor(this.item.disabled ? UiColor.disabled : this.item.dangerous ? UiColor.error : UiColor.text).wordBreak(WordBreak.BREAK_WORD)
         .accessibilityLevel('no')
       if (this.selectionColumn) {
         if (this.item.checked) {
@@ -114,9 +115,9 @@ struct PopupMenuRow {
       }
       // 透明原生按钮覆盖整行，统一触摸、键盘焦点、按压反馈与无障碍名称。
       Button({ type: ButtonType.Normal }) {}.padding(0).backgroundColor(Color.Transparent).borderRadius(UiSize.menuRadius)
-          .enabled(!this.disabled).defaultFocus(this.first)
+          .enabled(!this.disabled && !this.item.disabled).defaultFocus(this.first)
           .accessibilityText(`${this.item.title}${this.item.checked === undefined ? '' : this.item.checked ? '，已选中' : '，未选中'}`)
-          .onClick((): void => { if (!this.disabled) this.activate(this.item) })
+          .onClick((): void => { if (!this.disabled && !this.item.disabled) this.activate(this.item) })
     }, (item: PopupMenuItem) => item.title)
   }
 }

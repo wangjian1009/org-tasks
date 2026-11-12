@@ -183,7 +183,7 @@ export class CalendarSync {
     return JSON.stringify([
       task.heading,
       (task.state?.name || ''),
-      task.priority,
+      task.priority?.name ?? null,
       task.scheduled,
       task.deadline,
       task.tags,
@@ -227,7 +227,7 @@ export class CalendarSync {
       ? new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()).getTime()
       : parsedDate.getTime()
     const endTime = startTime + (isAllDay ? 24 : 1) * 60 * 60 * 1000
-    const title = task.priority ? `[#${task.priority}] ${task.heading}` : task.heading
+    const title = task.priority ? `[#${task.priority.name}] ${task.heading}` : task.heading
     const description = this.taskDescription(task)
     const reminderTime = task.deadline
       ? [startTime - 24 * 60 * 60 * 1000, startTime - 60 * 60 * 1000]

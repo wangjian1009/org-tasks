@@ -271,8 +271,7 @@ fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {
     for task in tasks {
         let priority = task
             .priority()
-            .as_deref()
-            .map(|value| format!("[#{value}]"))
+            .map(|value| format!("[#{}]", value.name))
             .unwrap_or_else(|| "-".into());
         let tags = task
             .own_tags()
@@ -840,7 +839,7 @@ mod tests {
             tasks[0].state().map(|state| state.name.as_str()),
             Some("TODO")
         );
-        assert_eq!(tasks[0].priority(), Some("A"));
+        assert_eq!(tasks[0].priority().map(|value| value.name.as_str()), Some("A"));
         assert_eq!(tasks[0].own_tags(), ["work"]);
         assert_eq!(
             tasks[1].state().map(|state| state.name.as_str()),

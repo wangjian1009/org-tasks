@@ -1,3 +1,4 @@
+#+PRIORITIES: A C B
 * TODO First
 * TODO Task
 :PROPERTIES:

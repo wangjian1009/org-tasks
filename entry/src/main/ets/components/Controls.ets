@@ -1,3 +1,4 @@
+import { priorityColor, priorityBackground } from '../ui/TaskPriorityPresentation'
 import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { TitleText } from './TitleText'
 import { UiColor } from '../ui/Theme'
@@ -117,8 +118,9 @@ export struct TaskRow {
             Text((this.task.state?.name || '')).fontSize(13).fontWeight(FontWeight.Medium)
               .fontColor(this.task.isDone() ? UiColor.done : UiColor.error)
           }
-          if (this.task.priority.length > 0) {
-            Text(`[#${this.task.priority}]`).fontSize(13).fontColor(UiColor.secondary)
+          if (this.task.priority) {
+            Text(this.task.priority!.name).fontSize(12).fontColor(priorityColor(this.task.priority!.category))
+              .padding({ left: 5, right: 5, top: 2, bottom: 2 }).backgroundColor(priorityBackground(this.task.priority!.category)).borderRadius(6)
           }
           TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3, cancelled: this.task.state?.category === TaskStateCategory.Cancel }).layoutWeight(1)
         }.width('100%').alignItems(VerticalAlign.Top)

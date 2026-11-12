@@ -86,7 +86,9 @@ pub struct HarmonyBridgeTask {
     pub created_at: Option<TimestampMs>,
     pub closed_at: Option<TimestampMs>,
     pub modified_at: Option<TimestampMs>,
-    pub priority: String,
+    pub priority: Option<org_tasks_core::TaskPriority>,
+    pub priority_options: Vec<org_tasks_core::TaskPriority>,
+    pub task_priority_options: BTreeMap<String, Option<org_tasks_core::TaskPriority>>,
     pub scheduled: String,
     pub deadline: String,
     pub tags: Vec<String>,
@@ -271,7 +273,9 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         created_at: task.created_at(),
         closed_at: task.closed_at(),
         modified_at: task.modified_at(),
-        priority: task.priority().unwrap_or_default().to_owned(),
+        priority: task.priority().cloned(),
+        priority_options: task.priority_options(),
+        task_priority_options: priority_options(|category| task.task_priority_of(category)),
         scheduled: task
             .scheduled()
             .map(|date| date.date().to_string())
@@ -785,17 +789,28 @@ fn state_options(
         .collect()
 }
 
+fn priority_options(
+    mut lookup: impl FnMut(org_tasks_core::PeriodCategory) -> Option<org_tasks_core::TaskPriority>,
+) -> BTreeMap<String, Option<org_tasks_core::TaskPriority>> {
+    use org_tasks_core::PeriodCategory::*;
+    [Hight, Middle, Low].into_iter()
+        .map(|category| (format!("{category:?}"), lookup(category))).collect()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HarmonyBridgeFileMetadata {
     #[serde(flatten)]
     metadata: org_tasks_core::OrgFileMetadata,
+    task_priority_options: BTreeMap<String, Option<org_tasks_core::TaskPriority>>,
     task_state_options: BTreeMap<String, Option<org_tasks_core::TaskState>>,
 }
 
 fn file_metadata_snapshot(metadata: org_tasks_core::OrgFileMetadata) -> HarmonyBridgeFileMetadata {
     let task_state_options = state_options(|category| metadata.task_state_of(category));
+    let task_priority_options = priority_options(|category| metadata.task_priority_of(category));
     HarmonyBridgeFileMetadata {
+        task_priority_options,
         metadata,
         task_state_options,
     }
@@ -819,6 +834,26 @@ fn sync_result_label(result: Option<OrgRepoSyncResult>) -> Result<String, CoreEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn priority_objects_and_targets_are_core_snapshots_for_tasks_and_metadata() {
+        let handle = create_workspace().unwrap();
+        let root = std::env::temp_dir().join(format!("org-priority-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.org"), "#+PRIORITIES: B D C\n* TODO [#C] Task\n* TODO Plain\n").unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
+        let response = workspace_query_json(handle, r#"[{"type":"file","query":{}},{"type":"task","query":{}}]"#.into()).unwrap();
+        let values: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let file = &values[0]["result"][0];
+        let tasks = &values[1]["result"]["tasks"];
+        assert_eq!(file["priorityOptions"], tasks[0]["priorityOptions"]);
+        assert_eq!(file["taskPriorityOptions"], tasks[0]["taskPriorityOptions"]);
+        assert_eq!(tasks[0]["priority"], serde_json::json!({"name":"C","category":"Middle"}));
+        assert_eq!(tasks[0]["taskPriorityOptions"]["Hight"]["name"], "B");
+        assert_eq!(tasks[0]["taskPriorityOptions"]["Low"]["name"], "D");
+        assert!(tasks[1]["priority"].is_null());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn unified_query_json_dispatches_all_kinds_and_rejects_the_old_task_array_protocol() {

@@ -683,7 +683,7 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
 
 #[tokio::test]
 async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event() {
-    let source = "#+STARTUP: logdone\r\n* TODO Root [/] [%]\r\n:PROPERTIES:\r\n:COOKIE_DATA: todo recursive\r\n:END:\r\n** TODO Parent [/]\r\n*** TODO Child\r\nOld notes  \r\n";
+    let source = "#+PRIORITIES: A C B\r\n#+STARTUP: logdone\r\n* TODO Root [/] [%]\r\n:PROPERTIES:\r\n:COOKIE_DATA: todo recursive\r\n:END:\r\n** TODO Parent [/]\r\n*** TODO Child\r\nOld notes  \r\n";
     let mut f = Fixture::new(source).await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events = observed.clone();

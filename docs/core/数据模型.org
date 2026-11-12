@@ -164,7 +164,7 @@ pub struct FilterTask {
     level: u32,
     state: Option<TaskState>,
     state_type: FilterStateType,
-    priority: Option<String>,
+    priority: Option<TaskPriority>,
     own_tags: Vec<String>,
     inherited_tags: Vec<String>,
     title: String,
@@ -204,7 +204,9 @@ impl FilterTask {
     pub fn level(&self) -> u32;
     pub fn state(&self) -> Option<&TaskState>;
     pub fn task_state_of(&self, category: TaskStateCategory) -> Option<TaskState>;
-    pub fn priority(&self) -> Option<&str>;
+    pub fn priority(&self) -> Option<&TaskPriority>;
+    pub fn priority_options(&self) -> Vec<TaskPriority>;
+    pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
     pub fn own_tags(&self) -> &[String];
     pub fn inherited_tags(&self) -> &[String];
     pub fn title(&self) -> &str;
@@ -1066,7 +1068,7 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 | ~TITLE~ | 字符串修改标题文字；空值清除文字，不改变 TODO、优先级或标签。 |
 | ~BODY~ | 字符串替换当前标题自身正文；空值清空。保留规划、属性 drawer 和子标题；拒绝正文引入额外标题。 |
 | ~TODO~ | 设置目标文件已配置状态；空值清除状态。进入有效完成状态时仅按显式关闭日志配置生成 CLOSED，恢复未完成或清除状态自动清理已有 CLOSED。 |
-| ~PRIORITY~ | 单个大写字母；空值清除优先级。 |
+| ~PRIORITY~ | 当前文件有效分级中的单个大写字母；空值清除优先级，允许清除已不在配置中的原值。 |
 | ~TAGS~ | 标签数组；空值或空数组清除自身标签，不修改继承来源。 |
 | ~SCHEDULE~ 、 ~DEADLINE~ | 完整有效 Org 时间戳，保留重复器等表达式；空值清除对应规划项。 |
 | ~ADDRESS_LINK~ | 提交新旧 URI，仅替换子树中首个匹配的真实链接，保留描述及其他字节；空值拒绝，不把源码块中的伪链接当成真实链接。 |
@@ -1575,4 +1577,35 @@ pub enum TaskRepeatUnit { Hour, Day, Week, Month, Year }
 \umlclass[x=0,y=-4]{TaskEditContent}{scheduled\_repeat: Option \\ deadline\_repeat: Option}{}
 \umlcompo[mult2=0..1]{TaskRepeatInfo}{TaskRepeatRule}
 \umlcompo[mult2=0..2]{TaskEditContent}{TaskRepeatInfo}
+\end{tikzpicture}
+
+* 任务优先级对象与分类
+
+优先级采用与 TaskState 相同的值对象边界，当前值与候选均由 Core 生成。原文仍保存 Org 字母，不持久化分类或颜色。
+
+#+begin_src rust
+pub enum PeriodCategory { Hight, Middle, Low }
+pub struct TaskPriority {
+    pub name: String,
+    pub category: Option<PeriodCategory>,
+}
+#+end_src
+
+文件及 SETUPFILE 中有效的 ~#+PRIORITIES: A C B~ 按 Org 的最高、最低、默认顺序解析；可选字母为最高至最低的闭区间，文件头配置覆盖 SETUPFILE。最高与最低必须为单个大写字母且范围有序，默认字母必须位于范围内；正文与源码中的字面配置不参与。无配置时返回空候选；无效声明拒绝读取，不把配置错误转换为默认选项。配置默认字母用于 Org 的优先级循环，不给未设置优先级的任务回填显式字母。
+
+~OrgFileMetadata.priority_options~ 保存可序列化的候选值对象；~priority_options()~ 返回独立副本。最小字母归为 ~Hight~ ，最大字母归为 ~Low~ ，中间字母均为 ~Middle~ ；只有一项时归为 ~Hight~ ，两项时没有 ~Middle~ 。~task_priority_of(category)~ 返回候选中按字母升序排列的首个匹配副本，没有匹配项时为空。
+
+~FilterTask.priority()~ 返回当前显式 ~TaskPriority~ 的可空引用；原值不在候选中时保留 ~name~ 且 ~category=None~ ，未设置时整个对象为空。任务的 ~priority_options()~ 和 ~task_priority_of(category)~ 委托同一共享文件元信息，因此与文件结果使用相同配置和版本。取得的旧快照不受文件重载影响。PeriodCategory 仅表示优先级，与循环、习惯和状态分类独立。
+
+创建和字段修改统一校验目标字母属于当前文件有效候选；候选为空时不能新设字母，清除原值始终允许。非法分级使整个操作组回滚，不产生部分字段修改、历史或上传意图。现有优先级查询与排序仍按字母求值，不以分类代替实际字母；TRIGGER 的优先级循环使用文件有效范围与默认字母。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0,type=enumeration]{PeriodCategory}{Hight \\ Middle \\ Low}{}
+\umlclass[x=6,y=0]{TaskPriority}{name: String \\ category: Option\textless PeriodCategory\textgreater}{}
+\umlclass[x=0,y=-5]{FilterTask}{priority: Option\textless TaskPriority\textgreater}{priority() \\ priority\_options() \\ task\_priority\_of(category)}
+\umlclass[x=9,y=-5]{OrgFileMetadata}{priority\_options: Vec\textless TaskPriority\textgreater}{priority\_options() \\ task\_priority\_of(category)}
+\umlassoc{TaskPriority}{PeriodCategory}
+\umldep{FilterTask}{TaskPriority}
+\umluniassoc{FilterTask}{OrgFileMetadata}
+\umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TaskPriority}
 \end{tikzpicture}

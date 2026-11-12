@@ -40,7 +40,7 @@ export struct PopupMenuButton {
   }
 
   activate(item: PopupMenuItem) {
-    if (this.disabled) return
+    if (this.disabled || item.disabled) return
     this.visible = false
     item.action()
   }

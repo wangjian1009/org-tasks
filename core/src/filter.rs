@@ -142,7 +142,7 @@ pub struct FilterTask {
     pub(crate) level: u32,
     pub(crate) state: Option<crate::TaskState>,
     pub(crate) state_type: FilterStateType,
-    pub(crate) priority: Option<String>,
+    pub(crate) priority: Option<crate::TaskPriority>,
     pub(crate) own_tags: Vec<String>,
     pub(crate) inherited_tags: Vec<String>,
     pub(crate) title: String,
@@ -250,9 +250,16 @@ impl FilterTask {
         self.state_type
     }
 
-    pub fn priority(&self) -> Option<&str> {
-        self.priority.as_deref()
+    pub fn priority(&self) -> Option<&crate::TaskPriority> { self.priority.as_ref() }
+
+    pub fn priority_options(&self) -> Vec<crate::TaskPriority> { self.file_metadata.priority_options() }
+
+    pub fn task_priority_of(&self, category: crate::PeriodCategory) -> Option<crate::TaskPriority> {
+        self.file_metadata.task_priority_of(category)
     }
+
+    fn priority_name(&self) -> Option<&str> { self.priority.as_ref().map(|item| item.name.as_str()) }
+
 
     pub fn own_tags(&self) -> &[String] {
         &self.own_tags
@@ -519,7 +526,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             level: level as u32,
             state,
             state_type,
-            priority: headline.priority().map(|value| value.to_string()),
+            priority: headline.priority().map(|value| file_metadata.priority_value(value.as_ref())),
             own_tags,
             inherited_tags,
             title: headline.title_raw().trim_end().to_owned(),
@@ -826,15 +833,13 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             apply_negation(matches, *negated)
         }
         FilterExpression::Priority { value, negated } => apply_negation(
-            task.priority
-                .as_deref()
+            task.priority_name()
                 .unwrap_or("B")
                 .eq_ignore_ascii_case(value),
             *negated,
         ),
         FilterExpression::SetPriority { value, negated } => apply_negation(
-            task.priority
-                .as_deref()
+            task.priority_name()
                 .is_some_and(|priority| priority.eq_ignore_ascii_case(value)),
             *negated,
         ),
@@ -1017,7 +1022,7 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
     match field {
         FilterSortField::Book => left.path().cmp(right.path()),
         FilterSortField::Title => left.title.cmp(&right.title),
-        FilterSortField::Priority => left.priority.cmp(&right.priority),
+        FilterSortField::Priority => left.priority_name().cmp(&right.priority_name()),
         FilterSortField::State => state_category_order(left).cmp(&state_category_order(right)),
         FilterSortField::Scheduled => left.scheduled.cmp(&right.scheduled),
         FilterSortField::Deadline => left.deadline.cmp(&right.deadline),

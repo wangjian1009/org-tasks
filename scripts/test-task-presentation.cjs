@@ -23,7 +23,7 @@ const { taskRenderKey } = exported;
 function task(id, values = {}) {
   const result = Object.create({ taskStateOf(category) { return category === 'Done' ? { name: 'DONE', category } : null; }, isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancel'; }, project() { return this.projectName ?? null; } });
   for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
-    state: { name: 'TODO', category: 'Todo' }, projectName: null, priority: '', scheduled: '', deadline: '', tags: [],
+    state: { name: 'TODO', category: 'Todo' }, projectName: null, priority: null, priorityOptions: [], scheduled: '', deadline: '', tags: [],
     filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '',
     hasList: false, hasText: true, isRepeating: false, isHabit: false, progress: -1, ...values })) {
     Object.defineProperty(result, key, { value, enumerable: true });
@@ -80,7 +80,7 @@ test('只修改目标分类设置时，即使当前任务内容不变也更新�
 test('计划、标签、链接及详情正文更新都能刷新点击参数，相同快照继续复用', () => {
   const before = task('same-id');
   assert.equal(taskRenderKey(before), taskRenderKey(task('same-id')));
-  for (const changes of [{ scheduled: '2026-11-06' }, { deadline: '2026-11-07' }, { priority: 'A' },
+  for (const changes of [{ scheduled: '2026-11-06' }, { deadline: '2026-11-07' }, { priority: { name: 'A', category: 'Hight' } },
     { tags: ['work'] }, { category: '生活' }, { headingParts: [{ text: '链接', href: 'https://example.org', isLink: true }] },
     { state: { name: 'ACTIVE', category: 'Doing' } }, { state: { name: 'STOP', category: 'Cancel' } }, { bodyHtml: '<p>新正文</p>' }, { logbookHtml: '<p>新日志</p>' }]) {
     const after = task('same-id', changes);

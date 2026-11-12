@@ -923,3 +923,23 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 #+end_src
 
 元信息的只读投影字段 ~project_name: Option<String>~ 承载该值，JSON 对应 ~projectName~ ，所有同文件任务共享该元信息。项目名称变更后重新查询取得新快照，已返回对象保持旧值。字段不写入同步记录或 outbox，不改变原 Org 文件字节。 ~TaskQuery~ 与 ~TaskQueryResult~ 定义保持不变。
+
+* 文件优先级与分类查找
+
+#+begin_src rust
+pub enum PeriodCategory { Hight, Middle, Low }
+pub struct TaskPriority { pub name: String, pub category: Option<PeriodCategory> }
+impl FilterTask {
+    pub fn priority(&self) -> Option<&TaskPriority>;
+    pub fn priority_options(&self) -> Vec<TaskPriority>;
+    pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
+}
+impl OrgFileMetadata {
+    pub fn priority_options(&self) -> Vec<TaskPriority>;
+    pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
+}
+#+end_src
+
+~priority()~ 返回当前显式值对象，未设置时为空；已有字母不在当前候选中时分类为空，仍可显示和清除原值。~priority_options()~ 在任务与文件元信息上返回所属文件的相同候选快照，~task_priority_of(Hight)~ 即最高优先级接口。查找返回独立副本，UI 不自行从字母推导分类或最高值。
+
+配置语法、SETUPFILE 继承与分类规则见 [[file:数据模型.org::*任务优先级对象与分类][任务优先级对象与分类]]。~PRIORITY~ 字段仍只接收候选对象的 ~name~ 或空值，Core 校验当前文件有效候选，配置变化和版本冲突不自动换版本重试。创建为无优先级时不写入默认字母；未涉及的正文、换行、规划和属性保持原字节。

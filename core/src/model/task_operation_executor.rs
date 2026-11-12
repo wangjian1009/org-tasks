@@ -446,7 +446,7 @@ fn execute_inner(
             let (offset, level) = position(&item.file, &data.position)?;
             validate_title(&data.title)?;
             validate_state(&item.file, data.state.as_deref())?;
-            validate_priority(data.priority.as_deref())?;
+            item.file.validate_priority(data.priority.as_deref())?;
             validate_tags(&data.tags)?;
             let mut content = format!(
                 "{} {}{}{}{}{}",
@@ -705,12 +705,6 @@ pub(super) fn validate_state(file: &OrgFile, value: Option<&str>) -> Result<(), 
     }
     Ok(())
 }
-fn validate_priority(value: Option<&str>) -> Result<(), CoreError> {
-    if value.is_some_and(|value| value.len() != 1 || !value.as_bytes()[0].is_ascii_uppercase()) {
-        return Err(CoreError::InvalidInput("优先级必须是单个大写字母"));
-    }
-    Ok(())
-}
 fn validate_tags(values: &[String]) -> Result<(), CoreError> {
     if values.iter().any(|value| {
         value.is_empty()
@@ -858,7 +852,7 @@ pub(super) fn modify(
         }
         TaskModification::Todo(value) => super::task_state::modify(file, headline, value.as_deref()),
         TaskModification::Priority(value) => {
-            validate_priority(value.as_deref())?;
+            file.validate_priority(value.as_deref())?;
             if let Some(node) = headline
                 .syntax()
                 .children()

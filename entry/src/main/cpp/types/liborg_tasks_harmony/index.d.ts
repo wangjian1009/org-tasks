@@ -93,7 +93,9 @@ export class Task {
   readonly createdAt: number | null;
   readonly closedAt: number | null;
   readonly modifiedAt: number | null;
-  readonly priority: string;
+  readonly priority: TaskPriority | null;
+  readonly priorityOptions: TaskPriority[];
+  taskPriorityOf(category: PeriodCategory): TaskPriority | null;
   readonly scheduled: string;
   readonly deadline: string;
   readonly tags: string[];
@@ -258,6 +260,8 @@ export class Repo {
 }
 
 export interface OrgFileMetadata {
+  readonly priorityOptions: TaskPriority[];
+  taskPriorityOf(category: PeriodCategory): TaskPriority | null;
   taskStateOf(category: TaskStateCategory): TaskState | null;
   project(): string | null;
   readonly projectName: string | null;
@@ -280,6 +284,9 @@ export interface ConflictSync { syncId: string; paths: string[]; }
 
 export interface SourcePosition { line: number; column: number; byte_offset: number; }
 export interface SourceRange { start: SourcePosition; end: SourcePosition; }
+export type PeriodCategory = 'Hight' | 'Middle' | 'Low';
+export interface TaskPriority { name: string; category: PeriodCategory | null; }
+
 export type TaskStateCategory = 'Todo' | 'Doing' | 'Wait' | 'Done' | 'Cancel';
 export interface TaskState { name: string; category: TaskStateCategory | null; }
 export interface CoreSettings { additionStates: TaskState[]; }

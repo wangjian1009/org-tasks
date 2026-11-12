@@ -1,2 +1,3 @@
+#+PRIORITIES: A C B
 * Note
 Body

@@ -1,3 +1,5 @@
+import { TaskPriorityChoices } from './TaskPriorityChoices'
+import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { CoreTask } from '../services/NativeCoreService'
 import { EmptyState } from './Controls'
@@ -20,12 +22,51 @@ export struct TaskEditor {
   headingChanged: (value: string) => void = () => {}
   bodyChanged: (value: string) => void = () => {}
   editRepeat: () => void = () => {}
+  changePriority: (name: string | null) => Promise<boolean> = async () => false
+  @State priorityOpen: boolean = false
+  @State priorityMaximumWidth: number = 310
   @State metadataExpanded: boolean = true
   @State bodyExpanded: boolean = true
   @State logbookExpanded: boolean = false
 
   editingChanged() {
-    if (this.editable) this.bodyExpanded = true
+    if (this.editable) { this.bodyExpanded = true; this.priorityOpen = false }
+  }
+
+  async choosePriority(name: string | null) {
+    if (this.disabled || this.editable) return
+    if ((this.task?.priority?.name ?? null) === name || await this.changePriority(name)) this.priorityOpen = false
+  }
+
+  @Builder
+  priorityPopup() {
+    TaskPriorityChoices({ options: this.task?.priorityOptions ?? [], current: this.task?.priority ?? null,
+      disabled: this.disabled, maximumWidth: this.priorityMaximumWidth, choose: (name: string | null): void => { this.choosePriority(name) } })
+  }
+
+  @Builder
+  priorityMetadata() {
+    Row({ space: 24 }) {
+      Image($r('app.media.ui_priority')).width(24).height(24)
+      Column({ space: 4 }) {
+        Text('优先级').fontSize(12).fontColor(UiColor.secondary).width('100%')
+        if (this.task?.priority) {
+          Text(this.task!.priority!.name).fontSize(14).fontColor(priorityColor(this.task!.priority!.category))
+            .padding({ left: 10, right: 10, top: 4, bottom: 4 }).borderRadius(8)
+            .backgroundColor(priorityBackground(this.task!.priority!.category))
+        } else {
+          Text('无').fontSize(16).fontColor(UiColor.secondary)
+        }
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      Image($r('app.media.ui_next')).width(20).height(20).accessibilityLevel('no')
+    }.width('100%').padding(16).constraintSize({ minHeight: 64 })
+      .onAreaChange((_old: Area, area: Area) => { this.priorityMaximumWidth = Math.max(60, parseFloat(area.width.toString()) - 32) })
+      .enabled(!this.disabled && !this.editable).accessibilityText(`${priorityLabel(this.task?.priority ?? null)}，点击修改`)
+      .onClick(() => { this.priorityOpen = true })
+      .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
+        targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE,
+        mask: { color: Color.Transparent }, focusable: true, autoCancel: !this.disabled, onWillDismiss: !this.disabled,
+        onStateChange: (event): void => { this.priorityOpen = event.isVisible } })
   }
 
   @Builder
@@ -72,7 +113,7 @@ export struct TaskEditor {
           if (this.metadataExpanded) {
             this.metadata($r('app.media.ui_tags'), '标签', this.task!.tags.join('  '))
             this.metadata($r('app.media.ui_state'), '状态', (this.task!.state?.name || '') ? `${taskStateCategoryLabel(this.task!.state?.category)} · ${(this.task!.state?.name || '')}` : '备忘')
-            this.metadata($r('app.media.ui_priority'), '优先级', this.task!.priority ? `[#${this.task!.priority}]` : '')
+            this.priorityMetadata()
             this.metadata($r('app.media.ui_calendar'), '计划时间', this.task!.scheduled)
             this.metadata($r('app.media.ui_deadline'), '截止时间', this.task!.deadline)
             Row({ space: 12 }) {

@@ -189,7 +189,7 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 取消分类的运行时名称、 ~TaskState.category~ 和 ~taskStateOf~ 参数统一为 ~Cancel~ ，Rust 输出的分类目标映射使用同名键；旧 ~Cancle~ 只在 Core 配置输入的兼容读取中接受，不再作为运行时分类输出。
 
-任务快照的 ~taskStateOf~ 、 ~isDone~ 与 ~project~ 方法绑定创建时的原生对象，并作为只读、可枚举的实例函数随字段传递。ArkUI 的 ~@Prop~ 深拷贝只复制字段与原型，不复制 ~napi_wrap~ 绑定；复制后的方法必须仍访问原生快照，不能对复制对象执行解包。绑定函数持有原对象，保证跨多层分组、卡片属性和原对象离开调用方作用域后仍可调用；JSON 序列化自动忽略函数，数据字段的序列化结果不变。状态选择仍由 Core 计算，C++ 不重建规则。
+任务快照的 ~taskStateOf~ 、 ~taskPriorityOf~ 、 ~isDone~ 与 ~project~ 方法绑定创建时的原生对象，并作为只读、可枚举的实例函数随字段传递。ArkUI 的 ~@Prop~ 深拷贝只复制字段与原型，不复制 ~napi_wrap~ 绑定；复制后的方法必须仍访问原生快照，不能对复制对象执行解包。绑定函数持有原对象，保证跨多层分组、卡片属性和原对象离开调用方作用域后仍可调用；JSON 序列化自动忽略函数，数据字段的序列化结果不变。状态选择仍由 Core 计算，C++ 不重建规则。
 
 ~Workspace.query~ 在 Task 结果分支的 ~result.tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照与各分类的 ~taskStateOf~ 返回值生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
 
@@ -544,3 +544,13 @@ JSON 请求按 ~type~ 区分 task、file、notification，结果使用对应 typ
 * 文档内冲突卡片投影
 
 FileConflict 经既有 conflicts 结果原样传递 displayAnchor、displayAtTarget、candidateContent 和 candidateHtml，不新增阻塞调用或另建解析器。Core 负责候选解包与祖先匹配；C++ 保留 JSON 结构，NativeCoreService 类型别名与声明同步。ArkTS 只按主树字节锚点排版，卡片按钮通过受控 DOM 命中回调触发现有操作；文内脚本和网络仍禁用。
+
+* 优先级值对象与分类目标
+
+~Task.priority~ 从字符串调整为 ~TaskPriority | null~ ，~TaskPriority~ 包含 ~name: string~ 与 ~category: PeriodCategory | null~ 。~PeriodCategory~ 的值为 ~Hight~ 、 ~Middle~ 、 ~Low~ ，大小写与 Core 序列化一致；枚举名仅指优先级，不表达循环或习惯。
+
+Task 与 OrgFileMetadata 均公开只读 ~priorityOptions: TaskPriority[]~ 和 ~taskPriorityOf(category): TaskPriority | null~ 。Rust 从 Core 的文件配置快照生成候选与各分类的首个目标；C++ 持有私有目标快照，参数非法时报错，合法但无匹配项时返回空，每次返回独立对象。文件元信息的私有目标映射不进入公开 JSON。
+
+Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，并作为可枚举实例方法穿过 ArkUI 属性深拷贝；方法不依赖拷贝对象上的 napi_wrap，JSON 序列化仍只包含数据。Core 的候选与当前对象均随查询结果投影，ArkTS wrapper 只导出类型，不解析 Org 或重新分类。
+
+界面按 ~priority.category~ 选择字母色块的前景及底色；点击候选提交原有 ~PRIORITY~ 字段，值为 ~name~ 或空值。快捷设置从 ~taskPriorityOf(Hight)~ 取目标，不在 ArkTS 中排序字母。卡片与详情共用紧凑标签式选择器；完整交互见 [[file:任务优先级界面设计.org][任务优先级接口与界面设计]]。

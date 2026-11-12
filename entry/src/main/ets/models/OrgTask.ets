@@ -1,11 +1,11 @@
-import { CoreSettings, TaskState } from 'liborg_tasks_harmony.so'
+import { CoreSettings, TaskState, TaskPriority } from 'liborg_tasks_harmony.so'
 // Org 任务数据模型
 
 export interface OrgTask {
   id: string           // Core 根据仓库路径、文件路径和任务标题链生成的 MD5
   heading: string      // 任务标题
   state: TaskState | null // 文件有效状态及其分类
-  priority: string     // A/B/C 或空
+  priority: TaskPriority | null // Core 提供的字母及分类
   scheduled: string    // ISO 日期字符串 或空
   deadline: string     // ISO 日期字符串 或空
   tags: string[]       // 标签列表

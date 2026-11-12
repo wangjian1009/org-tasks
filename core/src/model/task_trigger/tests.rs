@@ -67,10 +67,12 @@ fn local_triggers_match_org_edna_reference() {
             "参考输出不能为空"
         );
         let source = case["source"].as_str().unwrap();
-        let mut file = OrgFile::new(
+        let mut file = OrgFile::with_todo_defaults_and_setup(
             "repo".into(),
             "tasks.org".into(),
             source.as_bytes().to_vec(),
+            super::super::TodoConfig::default(),
+            "#+PRIORITIES: A C B\n".into(),
         )
         .unwrap();
         let actions = case["actions"]

@@ -28,6 +28,8 @@ import {
   defaultTodoSettings,
   CoreSettings,
   TaskState,
+  TaskPriority,
+  PeriodCategory,
   ConflictSync as NativeConflictSync,
   RefileTarget as NativeRefileTarget,
   RefileTargetQuery as NativeRefileTargetQuery,
@@ -110,6 +112,8 @@ export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
 export type CoreTaskState = TaskState
+export type CoreTaskPriority = TaskPriority
+export type CorePeriodCategory = PeriodCategory
 export type CoreSettingsObject = CoreSettings
 export type CoreTodoMetadata = NativeTodoMetadata
 

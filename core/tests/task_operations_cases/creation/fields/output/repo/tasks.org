@@ -1,3 +1,4 @@
+#+PRIORITIES: A C B
 #+TODO: NEXT | FINISHED
 * NEXT [#B] New :工作:home:
 SCHEDULED: <2026-11-09 Mon>

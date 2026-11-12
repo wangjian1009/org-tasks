@@ -67,7 +67,7 @@ impl Context<'_> {
                 let tags = node.tags().map(|tag| tag.to_string()).collect::<Vec<_>>();
                 (!tags.is_empty()).then(|| format!(":{}:", tags.join(":")))
             }
-            "PRIORITY" => Some(node.priority().map_or("B".into(), |v| v.to_string())),
+            "PRIORITY" => Some(node.priority().map(|v| v.to_string()).or_else(|| self.file.priority_default()).unwrap_or("B".into())),
             "SCHEDULED" => super::task_repeat::planning_timestamp(
                 self.file,
                 &node,
@@ -711,19 +711,22 @@ impl Context<'_> {
             "set-priority!" => {
                 let value = arg(args, 0)?;
                 let current = self.prop(target, "PRIORITY")?.unwrap_or("B".into());
+                let options = self.file.priority_options();
+                let high = options.first().and_then(|p| p.name.bytes().next()).unwrap_or(b'A');
+                let low = options.last().and_then(|p| p.name.bytes().next()).unwrap_or(b'C');
                 let priority = match value {
                     " " => None,
-                    "up" | "down" if self.node(target)?.priority().is_none() => Some("B".into()),
+                    "up" | "down" if self.node(target)?.priority().is_none() => self.file.priority_default().or_else(|| Some("B".into())),
                     "up" | "down" => {
                         let now = current.bytes().next().unwrap_or(b'B');
                         // Org 在最高、最低和无显式优先级之间循环。
                         if value == "up" {
-                            if now <= b'A' {
+                            if now <= high {
                                 None
                             } else {
                                 Some(char::from(now - 1).to_string())
                             }
-                        } else if now >= b'C' {
+                        } else if now >= low {
                             None
                         } else {
                             Some(char::from(now + 1).to_string())

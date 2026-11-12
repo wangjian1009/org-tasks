@@ -11,6 +11,7 @@ mod file_keywords;
 mod merge;
 pub(crate) mod notification;
 mod project;
+mod priority;
 pub(crate) mod properties;
 mod query;
 mod refile;
@@ -40,6 +41,7 @@ pub use editor::*;
 pub use merge::*;
 pub use notification::*;
 pub use query::*;
+pub use priority::{PeriodCategory, TaskPriority};
 pub use refile::*;
 pub use render::*;
 pub use service::*;
@@ -79,6 +81,7 @@ pub struct OrgFileMetadata {
     pub title_parts: Vec<TitlePart>,
     pub project_name: Option<String>,
     pub tag_options: Vec<String>,
+    pub priority_options: Vec<TaskPriority>,
     pub tag_groups: Vec<Vec<String>>,
     pub has_conflict: bool,
     pub is_ignore: bool,
@@ -90,6 +93,17 @@ pub struct OrgFileMetadata {
 }
 
 impl OrgFileMetadata {
+    pub fn priority_options(&self) -> Vec<TaskPriority> { self.priority_options.clone() }
+
+    pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority> {
+        self.priority_options.iter().find(|item| item.category == Some(category)).cloned()
+    }
+
+    pub(crate) fn priority_value(&self, name: &str) -> TaskPriority {
+        self.priority_options.iter().find(|item| item.name == name).cloned()
+            .unwrap_or_else(|| TaskPriority { name: name.into(), category: None })
+    }
+
     pub fn task_state_of(&self, category: TaskStateCategory) -> Option<TaskState> {
         self.task_states
             .iter()
@@ -133,6 +147,7 @@ pub struct OrgFile {
     pub(crate) scan_ignored: bool,
     syntax: orgize::Org,
     file_keywords: file_keywords::FileKeywords,
+    priority_options: Vec<TaskPriority>,
 }
 
 impl OrgFile {
@@ -146,6 +161,7 @@ impl OrgFile {
             title_parts: self.title_parts(),
             project_name: self.project_name(),
             tag_options: self.tag_options(),
+            priority_options: self.priority_options(),
             tag_groups: self.tag_groups(),
             is_ignore,
             task_count: if is_ignore {
@@ -196,6 +212,7 @@ impl OrgFile {
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
         let (todo, syntax) = TodoMetadata::parse_with_setup(source, &defaults, &todo_setup)?;
         let file_keywords = file_keywords::FileKeywords::parse(&syntax, &todo_setup);
+        let priority_options = priority::parse(&syntax, &todo_setup)?;
         Ok(Self {
             repo_id,
             path,
@@ -207,6 +224,7 @@ impl OrgFile {
             scan_ignored: false,
             syntax,
             file_keywords,
+            priority_options,
         })
     }
 
@@ -251,6 +269,8 @@ impl OrgFile {
         let (todo, syntax) =
             TodoMetadata::parse_with_setup(source, &self.todo_defaults, &self.todo_setup)?;
         let file_keywords = file_keywords::FileKeywords::parse(&syntax, &self.todo_setup);
+        let priority_options = priority::parse(&syntax, &self.todo_setup)?;
+        self.priority_options = priority_options;
         self.todo = todo;
         self.syntax = syntax;
         self.file_keywords = file_keywords;
@@ -636,7 +656,8 @@ mod tests {
                 source.as_bytes()
             );
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 12);
+            assert_eq!(value.as_object().unwrap().len(), 13);
+            assert_eq!(value["priorityOptions"], serde_json::json!([]));
             assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));
             assert_eq!(value["tagGroups"], serde_json::json!([]));

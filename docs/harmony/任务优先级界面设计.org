@@ -1,0 +1,160 @@
+#+TITLE: 任务优先级接口与界面设计
+#+DATE: 2026-11-12
+#+STARTUP: showall
+#+LANGUAGE: zh-CN
+
+* 实现状态与入口
+
+本方案已接入 Core、bridge 与现有任务界面，接口形态参考 TaskStateCategory、TaskState 和 taskStateOf；分类名使用 PeriodCategory，枚举值为 Hight、Middle、Low。已通过自动化验证和 HarmonyOS Debug 构建，尚未进行本轮真机视觉验收。
+
+设计维护于 [[file:../../design/Orgzly界面细节.fig][界面图谱]] 的“Harmony 当前实现”页，画板为“56 Harmony 任务优先级 · 交互主稿（当前实现）”与“56 Harmony 任务优先级 · 补充状态（当前实现）”。
+
+- [[file:../../design/previews/56 Harmony 任务优先级.png][交互主稿：收起任务、展开编辑与原位修改]]。
+- [[file:../../design/previews/56 Harmony 任务优先级补充状态.png][补充状态：详情、空选项与配置变化]]。
+
+* 接口契约
+
+** 值对象与分类
+
+#+begin_src rust
+pub enum PeriodCategory { Hight, Middle, Low }
+
+pub struct TaskPriority {
+    pub name: String,
+    pub category: Option<PeriodCategory>,
+}
+
+impl FilterTask {
+    pub fn priority(&self) -> Option<&TaskPriority>;
+    pub fn priority_options(&self) -> Vec<TaskPriority>;
+    pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
+}
+
+impl OrgFileMetadata {
+    pub fn priority_options(&self) -> Vec<TaskPriority>;
+    pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
+}
+#+end_src
+
+~name~ 为任务实际保存的字母， ~category~ 为 Core 根据所属文件有效配置产生的语义分类。当前任务没有显式优先级时， ~priority()~ 返回 ~None~ ；已有原值不在有效配置范围时仍返回对象，但分类为空。优先级与循环、习惯类型独立，PeriodCategory 不承担重复任务或习惯任务的分类。
+
+~priority_options()~ 返回有效候选对象，按字母升序排列。任务与共享文件元信息的结果来自同一文件配置快照。~task_priority_of(category)~ 返回首个匹配分类的候选副本，没有匹配项时返回 ~None~ ，与现有 ~task_state_of~ 的使用方式一致。
+
+最高优先级通过 ~task_priority_of(PeriodCategory::Hight)~ 取得。UI 不自行求最小字母，不增加另一套最高值计算规则。
+
+** 宿主投影
+
+#+begin_src typescript
+export type PeriodCategory = 'Hight' | 'Middle' | 'Low';
+
+export interface TaskPriority {
+  name: string;
+  category: PeriodCategory | null;
+}
+
+// 以下仅列出加入现有对象的优先级成员。
+export interface Task {
+  readonly priority: TaskPriority | null;
+  readonly priorityOptions: TaskPriority[];
+  taskPriorityOf(category: PeriodCategory): TaskPriority | null;
+}
+
+export interface OrgFileMetadata {
+  readonly priorityOptions: TaskPriority[];
+  taskPriorityOf(category: PeriodCategory): TaskPriority | null;
+}
+#+end_src
+
+Task 的当前优先级由原字符串投影调整为可空值对象；现有调用方在实施时统一改为读取 ~priority.name~ 和 ~priority.category~ ，不保留平行的字符串判断。Bridge 仅传递 Core 生成的快照及分类查找结果，方法返回独立副本，不执行额外 I/O。
+
+选择或清除继续提交既有 ~PRIORITY~ 字段，值为目标对象的 ~name~ 或空值；操作协议保持字母值，不提交分类或颜色。Core 在实际写入时依据当前文件配置校验，复用文件版本约束、操作组回滚、outbox 和数据变化事件。
+
+** 配置与分类规则
+
+配置由 Core 从文件及 SETUPFILE 的有效配置读取，文件内声明优先。不新增宿主自定义分级、字母或颜色配置。任务默认无显式优先级；读取配置不会给任务写入默认字母。
+
+Org 原生 ~#+PRIORITIES: A C B~ 的三个位置分别表示最高、最低和默认优先级，候选为最高至最低之间的字母范围；不是任意三个候选字母。Core 按 Org 语义解析范围，第三项不使本应用未设置的任务自动获得优先级。当前写入模型仅支持单个大写字母，本方案不扩大为数字优先级。
+
+Core 使用以下分类规则：
+
+| 有效候选（升序） | 分类结果 |
+|-
+| A、B、C | A 为 Hight，B 为 Middle，C 为 Low。 |
+| B、C、D | B 为 Hight，C 为 Middle，D 为 Low。 |
+| A、B、C、D、E | A 为 Hight，B、C、D 为 Middle，E 为 Low。 |
+| 两档 | 最小字母为 Hight，最大字母为 Low；Middle 查找返回空。 |
+| 一档 | 唯一字母为 Hight；Middle 与 Low 查找返回空。 |
+| 无候选 | 所有分类查找返回空；已有显式值的分类为空。 |
+
+候选数量来自 Core 对有效配置的解析；表中少量候选同时定义投影与选择器的退化行为，不放宽 Org 配置校验。未提供有效优先级声明时，返回空候选；不把固定 A、B、C 当成文件配置。无效声明在读取选项时返回中文配置错误，不自动补全或静默改写原文。
+
+** 对象关系
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0,type=enumeration]{PeriodCategory}{Hight \\ Middle \\ Low}{}
+\umlclass[x=6,y=0]{TaskPriority}{name: String \\ category: Option\textless PeriodCategory\textgreater}{}
+\umlclass[x=0,y=-5]{FilterTask}{priority: Option\textless TaskPriority\textgreater}{priority() \\ priority\_options() \\ task\_priority\_of(category)}
+\umlclass[x=9,y=-5]{OrgFileMetadata}{}{priority\_options() \\ task\_priority\_of(category)}
+\umlassoc{TaskPriority}{PeriodCategory}
+\umldep{FilterTask}{TaskPriority}
+\umldep{OrgFileMetadata}{TaskPriority}
+\end{tikzpicture}
+
+* 任务展示
+
+** 在现有标题行中显示
+
+优先级显示为类似标签的小底色色块，内容只包含 A、B、C 这样的实际字母。展示顺序为“状态框 → 原有计划日期（如有）→ 循环／习惯图标 → 优先级色块 → 标题”。没有任务类型图标时，色块仍位于标题之前；没有显式优先级时不占位。
+
+沿用当前类型标记规则：习惯优先显示习惯图标，否则循环任务显示重复图标。优先级紧随此图标，与任务类型保持两个独立信息。收起任务行和展开编辑卡片保持相同顺序；标题输入框只编辑标题文字，色块是独立控件。
+
+色块采用 12fp 中等字重、最小 24vp 视觉宽度、22vp 视觉高度、6vp 圆角，与相邻图标或标题间距约 6～8vp。操作入口使用至少 44vp 点击高度，不通过扩大标题行的水平占位实现点击区。大字号时尺寸随文字自然增大，字母不裁切。
+
+类型图标保留现有颜色。优先级色块的文字与底色由 ~TaskPriority.category~ 决定，具体色值如下；选择器与详情中出现同一优先级时使用同一颜色。
+
+| PeriodCategory | 字母颜色 | 底色 | 语义 |
+|-
+| Hight | #F2C96D | #4A4435 | 最重要 |
+| Middle | #78CEC4 | #304A45 | 中等 |
+| Low | #C1BFBC | #454443 | 较低 |
+| 空分类 | #AEACA9 | #454443 | 原值未能归类 |
+
+配色依据分类，字母只决定显示内容。更换文件配置后，例如 B 成为最高项时，B 使用 Hight 配色，不能因为字母为 B 而在 UI 固定为 Middle。
+
+** 融入现有列表与原位编辑
+
+收起行的色块位于标题之前。标题、标签、统计、正文提示、持续时间与右侧截止信息继续遵循共享任务行的宽度预算；优先级是固定的语义标记，先为其预留紧凑宽度，再按现有规则分配标题及其他提示。来源文字位置保持原规则。
+
+展开卡片的色块保留在标题行，循环／习惯标记位于其前。备注、清单、标签、计划日期、截止和底部工具行保持现有布局；优先级不放入标签区域。点击色块打开原位选择浮层。
+
+普通点击收起行的标题或色块均先展开，避免滑动浏览时误开选择器；展开后色块成为独立编辑入口。无障碍文案为“优先级 A，最重要”等内容，不依赖颜色。
+
+* 修改界面
+
+** 入口与选择器
+
+已有优先级时，展开卡片点击色块修改；未设置时从现有“更多 → 优先级…”进入。更多菜单同时保留“设为最重要”快捷操作和原“重复…”操作。“设为最重要”使用 ~taskPriorityOf(Hight)~ 返回对象的名称，无可用目标时置灰，当前已为目标时勾选并禁用重复设置。
+
+选择器采用紧凑的标签式单选，只展示“无”和 Core 返回的字母色块，按 ~priorityOptions~ 的顺序排列；不显示“优先级”标题、分类说明、分隔线或确认按钮。“无”清除显式值，不向任务写入默认字母。选中项保留分类底色，增加青绿色描边和右上角小勾；所有选项尺寸固定，不因选中而移动。分类描述与选中状态保留在无障碍文案中。
+
+点击不同选项即保存，成功后关闭浮层并保持卡片展开；点击当前项只关闭。点击外部或系统返回关闭，未选择不改变值。进入前先保存现有文字草稿，保存失败时保留草稿与原优先级。
+
+浮层依附当前入口，默认向下，空间不足向上避让；不与更多菜单叠加。沿用标签选择的胶囊样式：字母 14fp、标签视觉宽 44vp、高 32vp、圆角 16vp，每项点击区域为 44vp × 44vp，选项之间间距 6vp。浮层内边距 8vp、圆角 10vp、描边 0.5vp；四个选项时约为 210vp × 60vp，按内容收紧，最多为窗口宽减 32vp。候选较多时按每行最多六项换行，超过三行时在浮层内滚动。
+
+** 详情页
+
+沿用现有“优先级”元数据行，将当前字母改为同款色块；未设置显示“无”。整行可点击并显示进入箭头，打开同一选择器。详情与原位卡片使用相同任务快照和 Core 接口。
+
+* 边界与反馈
+
+| 场景 | 界面行为 |
+|-
+| 没有可选分级 | 最高快捷动作置灰，选择器仅保留“无”标签，不补充候选或说明文字。 |
+| 当前值不在配置中 | 在任务标题前以空分类的中性色块显示原字母；浮层仅展示“无”和有效候选，不把原字母加入选项，可清除或改选，不自动替换。 |
+| 多于三档 | 展示全部字母，不把相同分类的选项合并；相同分类使用相同配色。 |
+| 分级较多 | “无”为首个标签，与候选一起按行排列；每行最多六项，超过三行时在浮层内滚动。 |
+| 读取配置失败 | 保留任务原值，显示读取失败与重试入口，不提供固定候选替代。 |
+| 保存期间 | 禁止重复操作，原位等待；数据更新仍通过既有通知与快照机制接入。 |
+| 保存或版本校验失败 | 保留原值、卡片和错误，不自动重试覆盖；提供重新载入或重试入口。 |
+
+优先级编辑复用现有数据变化通知与快照刷新，不改变任务排序。

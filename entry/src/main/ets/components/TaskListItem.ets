@@ -1,3 +1,5 @@
+import { TaskPriorityChoices } from './TaskPriorityChoices'
+import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../services/TaskInlineService'
@@ -57,6 +59,8 @@ export struct TaskListItem {
   @State typing: boolean = false
   @State working: boolean = false
   @State completing: boolean = false
+  @State priorityOpen: boolean = false
+  @State priorityBusy: boolean = false
   @State moveOpen: boolean = false
   @State moveSource: CoreTask | undefined = undefined
   @State moveSections: RefileSection[] = []
@@ -287,6 +291,7 @@ export struct TaskListItem {
     this.snapshotBlocked = false
   }
   removeDeletedTask() {
+    this.priorityOpen = false
     ++this.moveRequest
     this.moveOpen = false; this.moveSource = undefined
     this.removed = true; this.snapshotBlocked = true
@@ -304,6 +309,7 @@ export struct TaskListItem {
     this.dataRevision = this.dataChanges.revision
   }
   aboutToDisappear() {
+    this.priorityOpen = false
     this.appeared = false
     ++this.moveRequest
     this.moveOpen = false; this.moveSource = undefined
@@ -355,6 +361,7 @@ export struct TaskListItem {
     if (!this.newCheck.trim() && !this.checkId) this.addingCheck = false
     if (!this.snapshotBlocked) this.message = ''
     if (collapse) {
+      this.priorityOpen = false
       this.expanded = false
       TaskInlineSession.release(this.ownerKey)
     }
@@ -485,6 +492,45 @@ export struct TaskListItem {
     })
     this.dateDialog.open()
   }
+  async priorities() {
+    if (this.readOnly) return
+    if (this.working || this.snapshotBlocked || !await this.prepare() || !await this.finish(false)) return
+    this.priorityOpen = true
+  }
+  async choosePriority(name: string | null) {
+    if (this.readOnly) return
+    if (this.working || this.priorityBusy || this.snapshotBlocked) return
+    if ((this.value().priority?.name ?? null) === name) { this.priorityOpen = false; return }
+    this.priorityBusy = true
+    try {
+      if (await this.persist([{ field: 'PRIORITY', value: name }])) this.priorityOpen = false
+    } finally { this.priorityBusy = false }
+  }
+  async highestPriority() {
+    if (this.readOnly) return
+    if (!await this.prepare() || !await this.finish(false)) return
+    const target = this.value().taskPriorityOf('Hight')
+    if (target && target.name !== this.value().priority?.name) await this.persist([{ field: 'PRIORITY', value: target.name }])
+  }
+  @Builder
+  priorityPopup() {
+    TaskPriorityChoices({ options: this.value().priorityOptions, current: this.value().priority,
+      disabled: this.working || this.priorityBusy || this.snapshotBlocked, maximumWidth: Math.max(60, this.rowWidth - 32),
+      choose: (name: string | null): void => { this.choosePriority(name) } })
+  }
+  @Builder
+  priorityBadge(editable: boolean = false) {
+    if (this.value().priority) {
+      Text(this.value().priority!.name).fontSize(12).fontWeight(FontWeight.Medium)
+        .fontColor(priorityColor(this.value().priority!.category)).textAlign(TextAlign.Center)
+        .constraintSize({ minWidth: 24, minHeight: 22 }).padding({ left: 5, right: 5, top: 2, bottom: 2 })
+        .backgroundColor(priorityBackground(this.value().priority!.category)).borderRadius(6).flexShrink(0)
+        .responseRegion({ x: 0, y: -11, width: '100%', height: 44 })
+        .accessibilityText(`${priorityLabel(this.value().priority)}，点击${editable ? '修改' : '展开'}`)
+        .onClick(() => { if (editable) this.priorities(); else this.toggle() })
+    }
+  }
+
   async repeats(deadline: boolean = false) {
     if (this.readOnly) return
     if (!await this.prepare() || !await this.finish(false)) return
@@ -689,11 +735,11 @@ export struct TaskListItem {
   }
 
   countBudget(): number {
-    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - 126))
+    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - (this.value().priority ? 32 : 0) - 126))
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth(), this.value().tags.length, taskIndicators(this.value()).length,
+    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 32 : 0), this.value().tags.length, taskIndicators(this.value()).length,
       this.duration(), this.value().deadline.length > 0 ? this.deadlineWidth : 0,
       titleCountsWidth(this.value().headingParts, this.countBudget()))
   }
@@ -917,6 +963,12 @@ export struct TaskListItem {
   editorContent() {
     Row({ space: 9 }) {
       this.stateIndicator()
+      if (this.value().isHabit) {
+        Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
+      } else if (this.value().isRepeating) {
+        Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
+      }
+      this.priorityBadge(true)
       TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
         .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
@@ -928,6 +980,11 @@ export struct TaskListItem {
         .onFocus(() => { this.headingEditing = true; this.inputFocus() })
         .onBlur(() => { this.saveText() })
     }.width('100%').alignItems(VerticalAlign.Top)
+      .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
+        targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu,
+        backgroundBlurStyle: BlurStyle.NONE, mask: { color: Color.Transparent }, focusable: true,
+        autoCancel: !this.working && !this.priorityBusy, onWillDismiss: !this.working && !this.priorityBusy,
+        onStateChange: (event): void => { this.priorityOpen = event.isVisible } })
     Column({ space: 12 }) {
       TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
@@ -1042,7 +1099,10 @@ export struct TaskListItem {
           .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
         PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
           buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
-          items: [{ title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } }] })
+          items: [{ title: '设为最重要', icon: $r('app.media.ui_priority'), checked: this.value().priority?.category === 'Hight',
+            disabled: !this.value().taskPriorityOf('Hight') || this.value().priority?.category === 'Hight', action: () => { this.highestPriority() } },
+            { title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
+            { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } }] })
       }.width('100%')
     }.width('100%').padding({ left: 27 })
   }
@@ -1060,6 +1120,12 @@ export struct TaskListItem {
   readOnlyContent() {
     Row({ space: 9 }) {
       this.stateIndicator()
+      if (this.value().isHabit) {
+        Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
+      } else if (this.value().isRepeating) {
+        Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
+      }
+      this.priorityBadge()
       TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
         cancelled: this.value().state?.category === TaskStateCategory.Cancel })
         .layoutWeight(1).onClick(() => { this.toggle() })
@@ -1112,6 +1178,7 @@ export struct TaskListItem {
         Row({ space: 8 }) {
           this.stateIndicator()
           this.compactLeadingInfo()
+          this.priorityBadge()
           this.compactTitle()
           if (this.value().deadline) { this.compactDeadline() }
         }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })

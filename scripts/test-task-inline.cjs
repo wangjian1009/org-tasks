@@ -791,3 +791,49 @@ test('卡片离开后，排队事件不读取，在途删除或错误不再改�
     assert.equal(f.state.removed,false);assert.deepEqual(f.released,['task']);assert.equal(f.invalidations(),0);
   }
 });
+
+
+function priorityFixture() {
+  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const methods = source.slice(source.indexOf('  async priorities()'), source.indexOf('  @Builder\n  priorityPopup()'));
+  const code = ts.transpileModule('export class Priority {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} };
+  vm.runInThisContext('(function(module,exports){' + code + '\n})', { filename })(module,module.exports);
+  const writes = [];
+  const value = { priority: { name: 'D', category: 'Low' }, taskPriorityOf(category) {
+    assert.equal(category,'Hight'); return { name: 'B', category: 'Hight' };
+  } };
+  const state = { priorityOpen: false, priorityBusy: false, working: false, snapshotBlocked: false,
+    value: () => value, prepare: async () => true, finish: async () => true,
+    persist: async changes => { writes.push(changes); return true; } };
+  return { state, writes, proto: module.exports.Priority.prototype };
+}
+test('优先级选择先保存草稿；最高项只使用 Core 返回的目标字母',async()=>{
+  const f=priorityFixture(); f.state.finish=async()=>false;
+  await f.proto.priorities.call(f.state); assert.equal(f.state.priorityOpen,false);
+  await f.proto.highestPriority.call(f.state); assert.equal(f.writes.length,0);
+  f.state.finish=async()=>true;
+  await f.proto.priorities.call(f.state); assert.equal(f.state.priorityOpen,true);
+  await f.proto.highestPriority.call(f.state);
+  assert.deepEqual(f.writes,[[{field:'PRIORITY',value:'B'}]]);
+});
+test('选择同一优先级只关闭；清除写入null；保存失败保留选择器',async()=>{
+  const f=priorityFixture();f.state.priorityOpen=true;
+  await f.proto.choosePriority.call(f.state,'D');assert.equal(f.writes.length,0);assert.equal(f.state.priorityOpen,false);
+  f.state.priorityOpen=true;await f.proto.choosePriority.call(f.state,null);
+  assert.deepEqual(f.writes,[[{field:'PRIORITY',value:null}]]);assert.equal(f.state.priorityOpen,false);
+  f.state.priorityOpen=true;f.state.persist=async()=>false;
+  await f.proto.choosePriority.call(f.state,'B');assert.equal(f.state.priorityOpen,true);assert.equal(f.state.priorityBusy,false);
+});
+test('优先级保存进行中禁止重复提交，失效快照不写入',async()=>{
+  const f=priorityFixture();let resolve;
+  f.state.persist=()=>new Promise(r=>{resolve=r});
+  const first=f.proto.choosePriority.call(f.state,'B');
+  await f.proto.choosePriority.call(f.state,'C');assert.equal(f.state.priorityBusy,true);
+  resolve(true);await first;assert.equal(f.state.priorityBusy,false);
+  f.state.snapshotBlocked=true;f.state.persist=async changes=>{f.writes.push(changes);return true};
+  await f.proto.choosePriority.call(f.state,'C');assert.equal(f.writes.length,0);
+});

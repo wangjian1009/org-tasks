@@ -18,6 +18,8 @@ const cpp = path.join(directory, 'snapshot.cpp');
 const addon = path.join(directory, 'snapshot.node');
 // 直接编译生产回调，保留 napi_wrap 与引用管理，避免用普通 JS 对象掩盖原生绑定丢失。
 const callbacks = source.slice(source.indexOf('void FinalizeTask('), source.indexOf('struct MetadataStates'));
+const metadataCallbacks = source.slice(source.indexOf('struct MetadataStates'), source.indexOf('napi_value CreateTaskObject('));
+const metadataProjection = source.slice(source.indexOf('bool ProjectFileResult('), source.indexOf('bool ProjectQueryResults('));
 const creation = source.slice(source.indexOf('napi_value CreateTaskObject('), source.indexOf('bool ProjectTaskResult('));
 const registration = source.slice(source.indexOf('    napi_property_descriptor task_descriptors[]'), source.indexOf('    napi_property_descriptor file_descriptors[]'));
 fs.writeFileSync(cpp, `
@@ -36,16 +38,28 @@ bool ReadString(napi_env env, napi_value value, std::string* result) {
 }
 ${callbacks}
 ${creation}
+${metadataCallbacks}
+${metadataProjection}
 napi_value Create(napi_env env, napi_callback_info info) {
     size_t argc = 1; napi_value data;
     napi_get_cb_info(env, info, &argc, &data, nullptr, nullptr);
     return CreateTaskObject(env, data);
+}
+napi_value CreateMetadata(napi_env env, napi_callback_info info) {
+    size_t argc = 1; napi_value data, files;
+    napi_get_cb_info(env, info, &argc, &data, nullptr, nullptr);
+    napi_create_array_with_length(env, 1, &files);
+    napi_set_element(env, files, 0, data);
+    return ProjectFileResult(env, files) ? data : nullptr;
 }
 napi_value Init(napi_env env, napi_value exports) {
 ${registration}
     napi_value create;
     napi_create_function(env, "create", NAPI_AUTO_LENGTH, Create, nullptr, &create);
     napi_set_named_property(env, exports, "create", create);
+    napi_value metadata;
+    napi_create_function(env, "metadata", NAPI_AUTO_LENGTH, CreateMetadata, nullptr, &metadata);
+    napi_set_named_property(env, exports, "metadata", metadata);
     return exports;
 }
 NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
@@ -56,6 +70,8 @@ const native = require(addon);
 
 function snapshot(name = 'DONE', done = false) {
   return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
+    priority: { name: 'B', category: 'Hight' }, priorityOptions: [{ name: 'B', category: 'Hight' }, { name: 'C', category: 'Low' }],
+    taskPriorityOptions: { Hight: { name: 'B', category: 'Hight' }, Middle: null, Low: { name: 'C', category: 'Low' } },
     state: { name: 'TODO', category: 'Todo' }, taskStateOptions: {
       Todo: { name: 'TODO', category: 'Todo' }, Doing: null, Wait: null,
       Done: { name, category: 'Done' }, Cancel: null
@@ -106,4 +122,36 @@ test('旧快照不受新查询影响，复制方法持有原快照直至释放',
   assert.equal(newer.closedAt, 1700003600000);
   assert.equal(newer.createdAt, 1700000000000);
   assert.ok(Object.keys(newer).includes('closedAt'));
+});
+
+
+test('优先级查找在 ArkUI 深拷贝后仍使用 Core 的原始快照', () => {
+  const original = snapshot();
+  const task = copy(original);
+  assert.deepEqual(task.priority, { name: 'B', category: 'Hight' });
+  assert.deepEqual(task.taskPriorityOf('Hight'), { name: 'B', category: 'Hight' });
+  assert.equal(task.taskPriorityOf('Middle'), null);
+  const priority = task.taskPriorityOf('Hight');
+  priority.name = 'A';
+  task.priorityOptions[0].name = 'Z';
+  assert.equal(task.taskPriorityOf('Hight').name, 'B');
+  assert.equal(original.priorityOptions[0].name, 'B');
+  assert.throws(() => task.taskPriorityOf('High'), /优先级分类无效/);
+  assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(task)), 'taskPriorityOf'), false);
+});
+
+
+test('文件元信息按分类返回独立优先级对象，不暴露私有查找快照',()=>{
+  const data={projectName:null,priorityOptions:[{name:'D',category:'Hight'}],
+    taskStateOptions:{Todo:null,Doing:null,Wait:null,Done:null,Cancel:null},
+    taskPriorityOptions:{Hight:{name:'D',category:'Hight'},Middle:null,Low:null}};
+  const metadata=native.metadata(data);
+  assert.deepEqual(metadata.taskPriorityOf('Hight'),{name:'D',category:'Hight'});
+  assert.equal(metadata.taskPriorityOf('Middle'),null);
+  metadata.taskPriorityOf('Hight').name='A';
+  assert.equal(metadata.taskPriorityOf('Hight').name,'D');
+  assert.throws(()=>metadata.taskPriorityOf('High'),/优先级分类无效/);
+  assert.equal(Object.hasOwn(metadata,'taskPriorityOptions'),false);
+  assert.equal(Object.hasOwn(metadata,'taskStateOptions'),false);
+  assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(metadata)),'taskPriorityOf'),false);
 });

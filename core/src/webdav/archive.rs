@@ -282,6 +282,7 @@ fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {
         title_parts: file.title_parts(),
         project_name: file.project_name(),
         tag_options: file.tag_options(),
+        priority_options: file.priority_options(),
         tag_groups: file.tag_groups(),
         has_conflict: file.has_conflict(),
         is_ignore: false,

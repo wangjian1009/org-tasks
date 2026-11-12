@@ -974,7 +974,7 @@ async fn load_setup_settings_cached(
         for (key, value) in file_keywords(&current_bytes)? {
             if matches!(
                 key.as_str(),
-                "TODO" | "SEQ_TODO" | "TYP_TODO" | "TASK_STATE_CATEGORY" | "STARTUP" | "PROPERTY"
+                "TODO" | "SEQ_TODO" | "TYP_TODO" | "TASK_STATE_CATEGORY" | "STARTUP" | "PROPERTY" | "PRIORITIES"
             ) {
                 settings.push(format!("#+{key}: {value}"));
                 continue;
@@ -1582,6 +1582,8 @@ pub(crate) fn file_keywords(source: &[u8]) -> Result<Vec<(String, String)>, Core
         .syntax()
         .descendants()
         .filter_map(orgize::ast::Keyword::cast)
+        .filter(|keyword| !keyword.key().eq_ignore_ascii_case("PRIORITIES") ||
+            syntax.document().keywords().any(|header| header.start() == keyword.start()))
         .map(|keyword| {
             (
                 keyword.key().to_ascii_uppercase(),

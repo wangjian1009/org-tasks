@@ -399,11 +399,11 @@ napi_value SnapshotProject(napi_env env, napi_callback_info info)
     return value;
 }
 
-napi_value StateOption(napi_env env, napi_value options, napi_value category)
+napi_value StateOption(napi_env env, napi_value options, napi_value category, const char* error = "状态分类无效")
 {
     bool found = false; std::string name;
     if (!ReadString(env, category, &name) || napi_has_own_property(env, options, category, &found) != napi_ok || !found) {
-        napi_throw_error(env, nullptr, "状态分类无效"); return nullptr;
+        napi_throw_error(env, nullptr, error); return nullptr;
     }
     napi_value source, result; napi_valuetype type;
     if (napi_get_named_property(env, options, name.c_str(), &source) != napi_ok ||
@@ -430,11 +430,23 @@ napi_value TaskTaskStateOf(napi_env env, napi_callback_info info)
     return StateOption(env, options, args[0]);
 }
 
+napi_value TaskTaskPriorityOf(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self, data, options; TaskWrap* task = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&task)) != napi_ok || task == nullptr ||
+        napi_get_reference_value(env, task->data, &data) != napi_ok ||
+        napi_get_named_property(env, data, "taskPriorityOptions", &options) != napi_ok) {
+        napi_throw_error(env, nullptr, "Task.taskPriorityOf 参数无效"); return nullptr;
+    }
+    return StateOption(env, options, args[0], "优先级分类无效");
+}
+
 bool BindTaskSnapshotMethods(napi_env env, napi_value task)
 {
     // ArkUI @Prop 会深拷贝字段与原型，但不会复制 napi_wrap。绑定函数保留原快照及其生命周期。
     // 方法必须可枚举才能随字段复制；JSON.stringify 仍会自动忽略函数。
-    for (const char* name : {"taskStateOf", "isDone", "project"}) {
+    for (const char* name : {"taskStateOf", "taskPriorityOf", "isDone", "project"}) {
         napi_value method, bind, bound;
         if (napi_get_named_property(env, task, name, &method) != napi_ok ||
             napi_get_named_property(env, method, "bind", &bind) != napi_ok ||
@@ -445,11 +457,12 @@ bool BindTaskSnapshotMethods(napi_env env, napi_value task)
     return true;
 }
 
-struct MetadataStates { napi_ref options = nullptr; };
+struct MetadataStates { napi_ref options = nullptr; napi_ref priorities = nullptr; };
 void FinalizeMetadataStates(napi_env env, void* data, void*)
 {
     auto* states = static_cast<MetadataStates*>(data);
     if (states->options != nullptr) napi_delete_reference(env, states->options);
+    if (states->priorities != nullptr) napi_delete_reference(env, states->priorities);
     delete states;
 }
 
@@ -464,13 +477,24 @@ napi_value MetadataTaskStateOf(napi_env env, napi_callback_info info)
     return StateOption(env, options, args[0]);
 }
 
+napi_value MetadataTaskPriorityOf(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self, options; MetadataStates* states = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&states)) != napi_ok || states == nullptr ||
+        napi_get_reference_value(env, states->priorities, &options) != napi_ok) {
+        napi_throw_error(env, nullptr, "FileMetadata.taskPriorityOf 参数无效"); return nullptr;
+    }
+    return StateOption(env, options, args[0], "优先级分类无效");
+}
+
 napi_value CreateTaskObject(napi_env env, napi_value data)
 {
     napi_value constructor, result;
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // id 为 Core 的明文逻辑路径；editContent 的 checklist、scheduledRepeat 与 deadlineRepeat 嵌套结构原样透传。
-    for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "scheduled",
+    for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "priorityOptions", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "progress", "hasList", "hasText", "isRepeating", "isHabit"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
@@ -504,21 +528,26 @@ bool ProjectFileResult(napi_env env, napi_value files)
         napi_value metadata, project_name;
         if (napi_get_element(env, files, index, &metadata) != napi_ok ||
             napi_get_named_property(env, metadata, "projectName", &project_name) != napi_ok) return false;
-        napi_value options, key; bool deleted;
+        napi_value options, priorities, key; bool deleted;
         auto* states = new MetadataStates();
         if (napi_get_named_property(env, metadata, "taskStateOptions", &options) != napi_ok ||
             napi_create_reference(env, options, 1, &states->options) != napi_ok ||
+            napi_get_named_property(env, metadata, "taskPriorityOptions", &priorities) != napi_ok ||
+            napi_create_reference(env, priorities, 1, &states->priorities) != napi_ok ||
             napi_wrap(env, metadata, states, FinalizeMetadataStates, nullptr, nullptr) != napi_ok) {
             FinalizeMetadataStates(env, states, nullptr); return false;
         }
         if (napi_create_string_utf8(env, "taskStateOptions", NAPI_AUTO_LENGTH, &key) != napi_ok ||
             napi_delete_property(env, metadata, key, &deleted) != napi_ok) return false;
+        if (napi_create_string_utf8(env, "taskPriorityOptions", NAPI_AUTO_LENGTH, &key) != napi_ok ||
+            napi_delete_property(env, metadata, key, &deleted) != napi_ok) return false;
         napi_property_descriptor properties[] = {
+            {"taskPriorityOf", nullptr, MetadataTaskPriorityOf, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"taskStateOf", nullptr, MetadataTaskStateOf, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"projectName", nullptr, nullptr, nullptr, nullptr, project_name, napi_enumerable, nullptr},
             {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
         };
-        if (napi_define_properties(env, metadata, 3, properties) != napi_ok) return false;
+        if (napi_define_properties(env, metadata, 4, properties) != napi_ok) return false;
     }
     return true;
 }
@@ -1904,6 +1933,7 @@ static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor task_descriptors[] = {
         // 原型允许拷贝器以赋值建立同名实例函数；正式快照上的绑定函数仍只读。
+        {"taskPriorityOf", nullptr, TaskTaskPriorityOf, nullptr, nullptr, nullptr, napi_default_method, nullptr},
         {"taskStateOf", nullptr, TaskTaskStateOf, nullptr, nullptr, nullptr, napi_default_method, nullptr},
         {"isDone", nullptr, TaskIsDone, nullptr, nullptr, nullptr, napi_default_method, nullptr},
         {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default_method, nullptr},

@@ -47,6 +47,24 @@ struct TaskEdit {
     this.repeatDialog.open()
   }
 
+  async changePriority(name: string | null): Promise<boolean> {
+    if (!this.task || this.working || this.committed || this.editing) return false
+    this.working = true; this.message = ''
+    try {
+      const context = this.getUIContext().getHostContext()!
+      await NoteService.modify(context, this.task, [{ field: 'PRIORITY', value: name }])
+      this.committed = true
+      const config = await AppConfigService.load(context, false)
+      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+      this.task = (await workspace.fileAt(this.task.fullPath)).node(this.task.fullPath)
+      this.committed = false
+      return true
+    } catch (error) {
+      this.message = `${this.committed ? '优先级已保存，重新读取失败，请返回列表' : '保存失败'}：${coreErrorMessage(error as CoreBridgeError)}`
+      return this.committed
+    } finally { this.working = false }
+  }
+
   aboutToAppear() {
     const params = this.getUIContext().getRouter().getParams() as TaskParams | undefined
     this.task = params?.task
@@ -120,6 +138,7 @@ struct TaskEdit {
             disabled: this.working || this.committed, headingValue: this.heading, bodyValue: this.body,
             headingChanged: (value: string): void => { this.heading = value },
             editRepeat: () => { this.editRepeat() },
+            changePriority: async (name: string | null): Promise<boolean> => await this.changePriority(name),
             bodyChanged: (value: string): void => { this.body = value } }).layoutWeight(1)
         }.width('100%').height('100%')
       }
