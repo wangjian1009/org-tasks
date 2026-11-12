@@ -75,6 +75,71 @@ function actionFixture() {
     saveWith:callback=>finish=callback,failFind:error=>findError=error};
 }
 
+function captureFixture() {
+  const filename = 'entry/src/main/ets/pages/Inbox.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const method = source.match(/  async capture\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const visibility = source.slice(source.indexOf("}.id('inbox_capture')")).match(/\.visibility\(([^\n]+)\)/)[1];
+  const code = ts.transpileModule('export class InboxCapture {' + method + '\nbuttonVisibility() { return ' + visibility + '; }\n}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} }, messages = [], calls = [];
+  let finish = async () => true, keyboardMode = 'offset';
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,KeyboardAvoidMode,Visibility,coreErrorMessage){' + code + '\n})', { filename })(
+    module, module.exports, { end: async collapse => { calls.push(collapse); return await finish(); } },
+    { RESIZE: 'resize' }, { Hidden: 'hidden', Visible: 'visible' }, error => error.message);
+  const state = Object.assign(new module.exports.InboxCapture(), {
+    visible: true, captureOpen: false, drawerOpen: false, actionBusy: false, selected: undefined,
+    selectingRecords: false, selectionStarting: false, inlineActive: '', inlineTyping: false,
+    captureTitle: '保留的捕捉草稿',
+    getUIContext: () => ({ getKeyboardAvoidMode: () => keyboardMode, setKeyboardAvoidMode: mode => { keyboardMode = mode; },
+      getPromptAction: () => ({ showToast: ({ message }) => messages.push(message) }) })
+  });
+  return { state, calls, messages, saveWith: callback => { finish = callback; } };
+}
+
+test('收件箱结束文字输入后恢复新增按钮，卡片仍展开也可保存后进入捕捉', async () => {
+  const f = captureFixture();
+  assert.equal(f.state.buttonVisibility(), 'visible');
+  f.state.inlineActive = 'expanded-task'; f.state.inlineTyping = true;
+  assert.equal(f.state.buttonVisibility(), 'hidden');
+  f.state.inlineTyping = false;
+  assert.equal(f.state.buttonVisibility(), 'visible');
+  let saved;
+  f.saveWith(() => new Promise(resolve => { saved = resolve; }));
+  const pending = f.state.capture();
+  assert.equal(f.state.captureOpen, false); assert.equal(f.state.actionBusy, true);
+  await f.state.capture(); assert.deepEqual(f.calls, [true]);
+  f.state.inlineActive = ''; saved(true); await pending;
+  assert.equal(f.state.captureOpen, true); assert.equal(f.state.actionBusy, false);
+  assert.equal(f.state.captureTitle, '保留的捕捉草稿');
+  assert.equal(f.state.buttonVisibility(), 'hidden');
+  f.state.captureOpen = false;
+  assert.equal(f.state.buttonVisibility(), 'visible');
+});
+
+test('原位编辑保存失败或页面离开时不打开捕捉，异常可反馈并重试', async () => {
+  const f = captureFixture();
+  f.saveWith(async () => false);
+  await f.state.capture(); assert.equal(f.state.captureOpen, false); assert.equal(f.state.actionBusy, false);
+  f.saveWith(async () => { throw new Error('保存失败'); });
+  await f.state.capture(); assert.deepEqual(f.messages, ['保存失败']); assert.equal(f.state.actionBusy, false);
+  f.saveWith(async () => { f.state.visible = false; return true; });
+  await f.state.capture(); assert.equal(f.state.captureOpen, false);
+  f.state.visible = true; f.saveWith(async () => true);
+  await f.state.capture(); assert.equal(f.state.captureOpen, true);
+});
+
+test('抽屉、移动浮层与多选期间继续隐藏新增按钮，关闭后恢复', () => {
+  const f = captureFixture();
+  for (const [key, value] of [['drawerOpen', true], ['selected', {}], ['selectingRecords', true], ['selectionStarting', true]]) {
+    const previous = f.state[key]; f.state[key] = value;
+    assert.equal(f.state.buttonVisibility(), 'hidden');
+    f.state[key] = previous;
+    assert.equal(f.state.buttonVisibility(), 'visible');
+  }
+});
+
 test('原位保存后从侧滑菜单移动或删除，提交新源版本并保留目标版本校验',async()=>{
   for(const action of ['move','delete']) {
     const f=actionFixture(),targetSnapshot=target('core-id','Work');

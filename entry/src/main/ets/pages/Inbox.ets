@@ -32,6 +32,7 @@ struct Inbox {
   @State @Watch('drawerChanged') drawerOpen: boolean = false
   @State needsConfiguration: boolean = false
   @StorageLink('taskInlineActive') inlineActive: string = ''
+  @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   @State captureOpen: boolean = false
   @State captureTitle: string = ''
@@ -301,12 +302,18 @@ struct Inbox {
     } finally { this.actionBusy = false }
   }
 
-  capture() {
+  async capture() {
     if (this.captureOpen || this.drawerOpen || this.actionBusy || this.selectingRecords || this.selectionStarting) return
-    this.keyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
-    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
-    this.captureMessage = ''
-    this.captureOpen = true
+    this.actionBusy = true
+    try {
+      if (!await TaskInlineSession.end(true) || !this.visible || this.drawerOpen) return
+      this.keyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
+      this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+      this.captureMessage = ''
+      this.captureOpen = true
+    } catch (e) {
+      this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+    } finally { this.actionBusy = false }
   }
 
   focusCapture() {
@@ -546,14 +553,13 @@ struct Inbox {
           }
         }.width('100%').height('100%')
       }
-      if (!this.drawerOpen && !this.captureOpen && !this.selected && !this.inlineActive && !this.selectingRecords && !this.selectionStarting) {
-        Button({ type: ButtonType.Circle }) {
-          Image($r('app.media.ui_add_primary')).width(28).height(28)
-        }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
-          .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
-          .accessibilityText('记一条')
-          .onClick((): void => { this.capture() })
-      }
+      Button({ type: ButtonType.Circle }) {
+        Image($r('app.media.ui_add_primary')).width(28).height(28)
+      }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
+        .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
+        .visibility(this.drawerOpen || this.captureOpen || this.selected || this.inlineTyping || this.selectingRecords || this.selectionStarting ? Visibility.Hidden : Visibility.Visible)
+        .enabled(!this.actionBusy).accessibilityText('记一条')
+        .onClick((): void => { this.capture() })
       if (this.selectingRecords) {
         Column({ space: 8 }) {
           if (this.mergeMessage) { Text(this.mergeMessage).fontSize(13).fontColor(UiColor.error).width('100%') }
