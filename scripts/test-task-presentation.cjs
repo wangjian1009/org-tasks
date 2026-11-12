@@ -117,15 +117,16 @@ test('标签按名称保持配色，不同常用标签可区分，浅色文字�
   }
 });
 
-test('持续天数优先使用计划日期，无计划时回退截止日期；当天与未来不显示', () => {
+test('持续天数仅使用有效计划日期，无计划、当天与未来不显示', () => {
   const today = new Date(2026, 10, 6, 23, 59);
   for (const [values, expected] of [
     [{ scheduled: '2026-11-03', deadline: '2026-11-01' }, 3],
     [{ scheduled: '2026-11-06', deadline: '2026-11-01' }, 0],
     [{ scheduled: '2026-11-20' }, 0],
-    [{ deadline: '2026-11-03' }, 3],
+    [{ deadline: '2026-11-03' }, 0],
     [{ scheduled: '2026-02-30' }, 0],
-    [{ scheduled: '无效', deadline: '2026-11-03' }, 3],
+    [{ scheduled: '2026-02-30', deadline: '2026-11-03' }, 0],
+    [{ scheduled: '无效', deadline: '2026-11-03' }, 0],
     [{}, 0]
   ]) assert.equal(taskDurationDays(task('id', values), today), expected);
 });

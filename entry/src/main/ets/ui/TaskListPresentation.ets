@@ -19,8 +19,7 @@ function dayNumber(value: string): number {
 }
 
 export function taskDurationDays(task: CoreTask, today: Date = new Date()): number {
-  const start: string = Number.isFinite(dayNumber(task.scheduled)) ? task.scheduled : task.deadline
-  const duration = dayNumber(localDate(today)) - dayNumber(start)
+  const duration = dayNumber(localDate(today)) - dayNumber(task.scheduled)
   return Number.isFinite(duration) ? Math.max(0, duration) : 0
 }
 
