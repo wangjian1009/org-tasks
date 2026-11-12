@@ -430,6 +430,21 @@ napi_value TaskTaskStateOf(napi_env env, napi_callback_info info)
     return StateOption(env, options, args[0]);
 }
 
+bool BindTaskSnapshotMethods(napi_env env, napi_value task)
+{
+    // ArkUI @Prop 会深拷贝字段与原型，但不会复制 napi_wrap。绑定函数保留原快照及其生命周期。
+    // 方法必须可枚举才能随字段复制；JSON.stringify 仍会自动忽略函数。
+    for (const char* name : {"taskStateOf", "isDone", "project"}) {
+        napi_value method, bind, bound;
+        if (napi_get_named_property(env, task, name, &method) != napi_ok ||
+            napi_get_named_property(env, method, "bind", &bind) != napi_ok ||
+            napi_call_function(env, method, bind, 1, &task, &bound) != napi_ok) return false;
+        napi_property_descriptor property = {name, nullptr, nullptr, nullptr, nullptr, bound, napi_enumerable, nullptr};
+        if (napi_define_properties(env, task, 1, &property) != napi_ok) return false;
+    }
+    return true;
+}
+
 struct MetadataStates { napi_ref options = nullptr; };
 void FinalizeMetadataStates(napi_env env, void* data, void*)
 {
@@ -462,7 +477,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
         napi_property_descriptor property = {name, nullptr, nullptr, nullptr, nullptr, value, napi_enumerable, nullptr};
         if (napi_define_properties(env, result, 1, &property) != napi_ok) return nullptr;
     }
-    return result;
+    return BindTaskSnapshotMethods(env, result) ? result : nullptr;
 }
 
 bool ProjectTaskResult(napi_env env, napi_value result)
@@ -1887,9 +1902,10 @@ EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor task_descriptors[] = {
-        {"taskStateOf", nullptr, TaskTaskStateOf, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"isDone", nullptr, TaskIsDone, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
+        // 原型允许拷贝器以赋值建立同名实例函数；正式快照上的绑定函数仍只读。
+        {"taskStateOf", nullptr, TaskTaskStateOf, nullptr, nullptr, nullptr, napi_default_method, nullptr},
+        {"isDone", nullptr, TaskIsDone, nullptr, nullptr, nullptr, napi_default_method, nullptr},
+        {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default_method, nullptr},
     };
     napi_value task_class;
     napi_define_class(env, "Task", NAPI_AUTO_LENGTH, TaskConstructor, nullptr,
