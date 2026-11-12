@@ -245,7 +245,7 @@ struct TaskOverview {
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
         } else if (this.view === 'logbook') {
-          LogbookTaskList({ groups: this.eventGroups, referenceTime: this.referenceTime })
+          LogbookTaskList({ groups: this.eventGroups, referenceTime: this.referenceTime, refresh: (): void => { this.loadTasks() } })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {

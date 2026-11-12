@@ -75,9 +75,10 @@ test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测
 test('页面策略分别定义右滑、左滑、批量入口和批量菜单，不共享可变数组', () => {
   const inbox = taskPageActionPolicy('inbox');
   assert.deepEqual(inbox, { rightSwipeAction: 'move', swipeActions: ['someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] });
-  for (const [page, rightSwipeAction] of Object.entries({ today: 'doing', planned: 'schedule', anytime: 'schedule', someday: 'move', logbook: 'none', recent: 'schedule' })) {
+  for (const [page, rightSwipeAction] of Object.entries({ today: 'doing', planned: 'schedule', anytime: 'schedule', someday: 'move', recent: 'schedule' })) {
     assert.deepEqual(taskPageActionPolicy(page), { rightSwipeAction, swipeActions: [], batchEditing: false, batchActions: [] });
   }
+  assert.deepEqual(taskPageActionPolicy('logbook'), { rightSwipeAction: 'none', swipeActions: ['delete', 'select'], batchEditing: true, batchActions: ['delete'] });
   inbox.swipeActions.reverse(); inbox.batchActions.length = 0;
   assert.equal(taskPageActionPolicy('inbox').swipeActions[0], 'someday');
   assert.deepEqual(taskPageActionPolicy('inbox').batchActions, ['merge']);

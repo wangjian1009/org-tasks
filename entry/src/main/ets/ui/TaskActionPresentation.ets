@@ -1,6 +1,6 @@
 export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someday' | 'logbook' | 'recent'
 export type TaskSwipeAction = 'move' | 'someday' | 'memo' | 'delete' | 'select'
-export type TaskBatchAction = 'merge'
+export type TaskBatchAction = 'merge' | 'delete'
 export type TaskRightSwipeAction = 'schedule' | 'doing' | 'move' | 'none'
 
 export interface TaskPageActionPolicy {
@@ -29,7 +29,7 @@ export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy
     case 'planned': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
     case 'anytime': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
     case 'someday': return { rightSwipeAction: 'move', swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'logbook': return { rightSwipeAction: 'none', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'logbook': return { rightSwipeAction: 'none', swipeActions: ['delete', 'select'], batchEditing: true, batchActions: ['delete'] }
     case 'recent': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
   }
 }
@@ -51,10 +51,11 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {
   if (!policy.batchEditing) return []
-  return policy.batchActions.map((id: TaskBatchAction): TaskActionItem => {
-    return { id, title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),
-      minimumSelection: 2, busyTitle: '合并中…', action: () => activate(id) }
-  })
+  return policy.batchActions.map((id: TaskBatchAction): TaskActionItem => id === 'delete'
+    ? { id, title: '删除', label: '删除所选记录', icon: $r('app.media.ui_delete'), style: 'danger',
+      busyTitle: '删除中…', action: () => activate(id) }
+    : { id, title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),
+      minimumSelection: 2, busyTitle: '合并中…', action: () => activate(id) })
 }
 
 export function taskBatchActionEnabled(item: TaskActionItem, count: number, busy: boolean, invalid: boolean): boolean {

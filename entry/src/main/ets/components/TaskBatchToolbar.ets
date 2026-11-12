@@ -11,7 +11,9 @@ export struct TaskBatchToolbar {
   @Prop message: string = ''
   @Prop caption: string = ''
   @Prop idPrefix: string = 'task_batch'
+  @Prop cancelLabel: string = ''
   retry: () => void = () => {}
+  cancel: () => void = () => {}
 
   activate(item: TaskActionItem) {
     if (taskBatchActionEnabled(item, this.count, this.busy, this.invalid)) item.action()
@@ -25,6 +27,10 @@ export struct TaskBatchToolbar {
           .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 12, right: 12 })
       }
       Row({ space: 12 }) {
+        if (this.cancelLabel) {
+          Button(this.cancelLabel).height(44).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+            .enabled(!this.busy).onClick(() => { this.cancel() })
+        }
         Text(`已选 ${this.count} 条`).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
         if (this.invalid) {
           Button('刷新重选').height(44).fontColor(UiColor.selection).backgroundColor(Color.Transparent)

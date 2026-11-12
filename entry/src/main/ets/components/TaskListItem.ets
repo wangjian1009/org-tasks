@@ -41,6 +41,7 @@ export struct TaskListItem {
   @Prop task: CoreTask
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
+  @Prop allowCompletion: boolean = false
   @Prop instanceKey: string = ''
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop showCategory: boolean = false
@@ -127,7 +128,7 @@ export struct TaskListItem {
   }
   value(): CoreTask { return this.editTask ?? this.task }
   horizontalSwipe(offsetX: number) {
-    if (this.readOnly || this.typing || this.checklistTouch || this.draggingCheck) return
+    if ((this.readOnly && !this.allowCompletion) || this.typing || this.checklistTouch || this.draggingCheck) return
     if (offsetX > 48) this.rightSwipe()
     else if (offsetX < -48 && this.enableSwipeActions) this.swipe(true)
   }
@@ -242,7 +243,7 @@ export struct TaskListItem {
     }
   }
   async complete() {
-    if (this.readOnly) return
+    if (this.readOnly && !this.allowCompletion) return
     const reopen = this.value().isDone()
     const category = reopen ? TaskStateCategory.Todo : TaskStateCategory.Done
     if (this.completing || this.working || this.snapshotBlocked || this.value().state === null || !this.value().taskStateOf(category)) return
@@ -373,7 +374,7 @@ export struct TaskListItem {
     this.typing = true; AppStorage.setOrCreate('taskInlineTyping', true)
   }
   async persist(modifications: CoreTaskModification[]): Promise<boolean> {
-    if (this.readOnly) return false
+    if (this.readOnly && !this.allowCompletion) return false
     if (this.snapshotBlocked) return false
     let success: boolean = false
     const operation = this.pending.then(async () => {
@@ -800,8 +801,8 @@ export struct TaskListItem {
     }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
       .stateEffect(false)
       .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
-      .enabled(!this.readOnly && !this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
-      .accessibilityText(this.readOnly ? taskStateCategoryLabel(this.value().state?.category) : `${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
+      .enabled((!this.readOnly || this.allowCompletion) && !this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
+      .accessibilityText(this.readOnly && !this.allowCompletion ? taskStateCategoryLabel(this.value().state?.category) : `${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
   }
 
   @Builder
