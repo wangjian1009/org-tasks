@@ -263,6 +263,12 @@ struct Inbox {
   }
 
   @Builder
+  swipeMoveIndicator() {
+    // 右滑只作为直接移动手势，不显示额外提示栏。
+    Row().width(1).height(1).opacity(0)
+  }
+
+  @Builder
   targetPopup() {
     MoveToTarget({ sections: this.targetSections,
       selectionKey: this.selected ? JSON.stringify([this.selected.fullPath, this.selected.fileVersion]) : '',
@@ -556,6 +562,10 @@ struct Inbox {
                       this.measureRows()
                     })
                 }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
+                  start: this.actionPolicy.rightSwipeAction === 'move' ? {
+                    builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
+                    onAction: (): void => { this.swipeAction(record, 'move') }
+                  } : undefined,
                   end: this.actionPolicy.swipeActions.length > 0 ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))

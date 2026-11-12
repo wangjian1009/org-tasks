@@ -35,7 +35,8 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.equal(typeof value.end.builder, 'function');
     value.end.builder();
     assert.deepEqual(renders, [[page, record]]);
-    assert.equal(value.start, undefined, '右滑不挂载原生提示栏，使用共享任务卡片手势');
+    assert.equal(typeof value.start?.onAction, 'function', '右滑应注册移动动作');
+    assert.equal(value.start.actionAreaDistance, 48);
     renders.length = 0;
     page.actionPolicy.swipeActions = [];
     assert.equal(options.call(page, record).end, undefined);
