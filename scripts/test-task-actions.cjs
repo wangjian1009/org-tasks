@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-actions.cjs\n验证各页面菜单配置、显示顺序、批量入口开关、自定义动作与禁用条件。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-actions.cjs\n验证各页面菜单配置、显示顺序、批量入口开关、自定义动作与禁用条件，以及收件箱菜单延迟创建。存在 make build 产物时同时验证编译后的菜单配置。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents',
@@ -20,6 +20,52 @@ function compile(source, filename, mocks = {}) {
 const filename = 'entry/src/main/ets/ui/TaskActionPresentation.ets';
 const actions = compile(fs.readFileSync(filename, 'utf8'), filename);
 const { taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth } = actions;
+
+function checkDeferredSwipeMenu(expression, filename) {
+  const { options } = compile('export function options(record) { return ' + expression + '; }', filename,
+    {});
+  const renders = [], record = { id: 'source-record' };
+  const page = { selectingRecords: false, actionPolicy: taskPageActionPolicy('inbox'),
+    scheduleHint() {}, requestSchedule() {}, swipeMenu(value) { renders.push([this, value]); } };
+  // 只注入框架常量，执行产品表达式本身：普通布局阶段不得产生菜单节点。
+  global.SwipeEdgeEffect = { None: 0 };
+  try {
+    const value = options.call(page, record);
+    assert.deepEqual(renders, []);
+    assert.equal(typeof value.end.builder, 'function');
+    value.end.builder();
+    assert.deepEqual(renders, [[page, record]]);
+    renders.length = 0;
+    page.actionPolicy.swipeActions = [];
+    assert.equal(options.call(page, record).end, undefined);
+    page.selectingRecords = true;
+    assert.deepEqual(options.call(page, record), {});
+    assert.deepEqual(renders, []);
+  } finally { delete global.SwipeEdgeEffect; }
+}
+
+test('收件箱普通布局不执行左滑菜单，打开菜单才为当前记录创建节点', () => {
+  const filename = 'entry/src/main/ets/pages/Inbox.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const expression = source.match(/\.swipeAction\((this\.selectingRecords[\s\S]*?)\)\.enabled\(!this\.selectionStarting\)/)[1];
+  checkDeferredSwipeMenu(expression, filename);
+});
+
+const emittedInbox = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/pages/Inbox.ts';
+test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测量', { skip: !fs.existsSync(emittedInbox) }, () => {
+  const source = ts.createSourceFile(emittedInbox, fs.readFileSync(emittedInbox, 'utf8'), ts.ScriptTarget.Latest, true);
+  let checked = 0;
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'swipeAction' && node.arguments[0]?.getText(source).startsWith('this.selectingRecords')) {
+      checkDeferredSwipeMenu(node.arguments[0].getText(source), emittedInbox);
+      checked++;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(checked > 0, '缺少收件箱 swipeAction 编译产物');
+});
 
 test('页面策略分别定义左滑、批量入口和批量菜单，不共享可变数组', () => {
   const inbox = taskPageActionPolicy('inbox');

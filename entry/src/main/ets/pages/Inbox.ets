@@ -515,7 +515,8 @@ struct Inbox {
                       this.measureRows()
                     })
                 }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords ? {} : { start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
-                  end: this.actionPolicy.swipeActions.length > 0 ? this.swipeMenu(record) : undefined, edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
+                  end: this.actionPolicy.swipeActions.length > 0 ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
+                  edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
