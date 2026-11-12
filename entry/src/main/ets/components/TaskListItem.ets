@@ -608,7 +608,11 @@ export struct TaskListItem {
     const finger = event.fingerList[0]
     const node = this.getUIContext().getFrameNodeById(`inline_checks_${this.ownerKey}`)
     if (!finger || !node) return
-    this.checkScroller.closeAllSwipeActions()
+    try {
+      this.checkScroller.closeAllSwipeActions()
+    } catch (_) {
+      // 尚未完成布局时无需关闭已不存在的侧滑操作。
+    }
     this.checkFocus.cancel()
     const localY = finger.globalY - node.getPositionToWindow().y
     this.checkDrag = new TaskChecklistDrag(this.value().editContent.checklist, item.id, this.checkHeights, localY)

@@ -68,7 +68,11 @@ export struct RepositorySyncView {
       if (!await this.beforePull() || !this.canPull()) return
       await RepositorySyncService.start(this.getUIContext().getHostContext()!)
     } catch (_) {
-      this.getUIContext().getPromptAction().showToast({ message: '保存任务失败，请重试。' })
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: '保存任务失败，请重试。' })
+      } catch (_) {
+        // 页面退出时提示可能不可用。
+      }
     } finally {
       this.preparingPull = false
     }

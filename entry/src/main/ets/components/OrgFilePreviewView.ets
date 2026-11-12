@@ -145,7 +145,8 @@ export struct OrgFilePreviewView {
   }
   async injectConflictCards() {
     if (this.displayMode !== 'rendered' || this.conflictCards.length === 0) return
-    await this.navigation.controller.runJavaScript(`(() => {
+    try {
+      await this.navigation.controller.runJavaScript(`(() => {
       document.querySelectorAll('[data-conflict-card]').forEach(n => n.remove());
       const cards = ${JSON.stringify(this.conflictCards)};
       const headings = [...document.querySelectorAll('details.heading')];
@@ -191,7 +192,10 @@ export struct OrgFilePreviewView {
         group.appendChild(box);
       });
       return true;
-    })()`)
+      })()`)
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error))
+    }
   }
 
   async focusConflictCard(id: string) {

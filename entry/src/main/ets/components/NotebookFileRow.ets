@@ -11,10 +11,14 @@ export struct NotebookFileRow {
   @Prop usages: FileTargetKind[] = []
 
   openFile() {
-    this.getUIContext().getRouter().pushUrl({
-      url: this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
-      params: { repoId: this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
-    })
+    try {
+      this.getUIContext().getRouter().pushUrl({
+        url: this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
+        params: { repoId: this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
+      })
+    } catch (_) {
+      // 页面退出或路由失效时忽略此次导航。
+    }
   }
 
   build() {

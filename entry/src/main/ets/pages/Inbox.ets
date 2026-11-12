@@ -110,7 +110,11 @@ struct Inbox {
     try {
       if (!await TaskInlineSession.end(true)) return
       this.closeTargetPopup()
-      this.listScroller.closeAllSwipeActions()
+      try {
+        this.listScroller.closeAllSwipeActions()
+      } catch (_) {
+        // 尚未完成布局时没有需要关闭的侧滑操作。
+      }
       await this.loadRecords()
       if (!this.visible || this.needsConfiguration || this.message) return
       if (!this.records.some(item => item.id === record.id)) return
@@ -194,7 +198,11 @@ struct Inbox {
       else if (action === 'delete') this.confirmDelete(current)
       else await this.perform(action, undefined, current)
     } catch (e) {
-      this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+      } catch (_) {
+        // 页面退出时提示可能不可用。
+      }
     } finally { this.actionBusy = false }
   }
 
@@ -211,8 +219,16 @@ struct Inbox {
     if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting ||
       this.mergeBusy || this.checklistDragging || this.inlineTyping || this.selected) return
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
-    if (node) ListItemSwipeActionManager.collapse(node)
-    this.listScroller.closeAllSwipeActions()
+    try {
+      if (node) ListItemSwipeActionManager.collapse(node)
+    } catch (_) {
+      // 节点已销毁时忽略归位操作。
+    }
+    try {
+      this.listScroller.closeAllSwipeActions()
+    } catch (_) {
+      // 尚未完成布局时没有需要关闭的侧滑操作。
+    }
     clearTimeout(this.actionTimer)
     // 正文触发的程序化侧滑不会触发 ListScroller 的完成回调，待归位后再锚定浮层。
     this.actionTimer = setTimeout((): void => {
@@ -225,7 +241,13 @@ struct Inbox {
     if (this.actionBusy || this.selected || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
     if (!node) return
-    if (left) ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
+    if (left) {
+      try {
+        ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
+      } catch (_) {
+        // 节点已销毁时忽略展开操作。
+      }
+    }
     else this.swipeAction(record, 'move')
   }
 
@@ -291,7 +313,13 @@ struct Inbox {
     } catch (e) {
       const message = coreErrorMessage(e as CoreBridgeError)
       if (this.selected) this.popupMessage = message
-      else this.getUIContext().getPromptAction().showToast({ message, duration: 3000 })
+      else {
+        try {
+          this.getUIContext().getPromptAction().showToast({ message, duration: 3000 })
+        } catch (_) {
+          // 页面退出时提示可能不可用。
+        }
+      }
     } finally { this.actionBusy = false }
   }
 
@@ -305,7 +333,11 @@ struct Inbox {
       this.captureMessage = ''
       this.captureOpen = true
     } catch (e) {
-      this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+      } catch (_) {
+        // 页面退出时提示可能不可用。
+      }
     } finally { this.actionBusy = false }
   }
 

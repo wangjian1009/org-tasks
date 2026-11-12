@@ -50,7 +50,11 @@ function settingsName(formId: string): string {
 export class MemoCardService {
   static async loadTag(context: Context, formId: string): Promise<string> {
     const name = settingsName(formId)
-    await preferences.removePreferencesFromCache(context, name)
+    try {
+      await preferences.removePreferencesFromCache(context, name)
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error))
+    }
     const store = await PreferencesStore.open(context, name)
     const tag = await store.get('tag', '')
     if (typeof tag !== 'string') throw new Error('卡片标签设置无效，请重新选择')
@@ -59,14 +63,22 @@ export class MemoCardService {
 
   static async saveTag(context: Context, formId: string, tag: string): Promise<void> {
     const name = settingsName(formId)
-    await preferences.removePreferencesFromCache(context, name)
+    try {
+      await preferences.removePreferencesFromCache(context, name)
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error))
+    }
     const store = await PreferencesStore.open(context, name)
     await store.put('tag', tag)
     await store.flush()
   }
 
   static async remove(context: Context, formId: string): Promise<void> {
-    await preferences.deletePreferences(context, settingsName(formId))
+    try {
+      await preferences.deletePreferences(context, settingsName(formId))
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error))
+    }
   }
 
   static async snapshot(context: Context, tag: string): Promise<MemoCardSnapshot> {

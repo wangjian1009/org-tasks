@@ -78,15 +78,23 @@ struct TaskOverview {
   async openEntryMemo(): Promise<void> {
     if (this.view !== 'memo' || this.entryMemoOpened || !this.entryMemoAction) return
     this.entryMemoOpened = true
-    if (this.entryMemoAction === 'create') {
-      await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } })
-    } else if (this.entryMemoAction === 'edit') {
-      const task = this.tasks.find((item: CoreTask): boolean => item.id === this.entryMemoId)
-      if (task) {
-        await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { task } })
-      } else {
-        this.getUIContext().getPromptAction().showToast({ message: '此备忘已变更或删除，请从列表重新选择' })
+    try {
+      if (this.entryMemoAction === 'create') {
+        await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } })
+      } else if (this.entryMemoAction === 'edit') {
+        const task = this.tasks.find((item: CoreTask): boolean => item.id === this.entryMemoId)
+        if (task) {
+          await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { task } })
+        } else {
+          try {
+            this.getUIContext().getPromptAction().showToast({ message: '此备忘已变更或删除，请从列表重新选择' })
+          } catch (_) {
+            // 页面退出时提示可能不可用。
+          }
+        }
       }
+    } catch (_) {
+      this.entryMemoOpened = false
     }
   }
 
