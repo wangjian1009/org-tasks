@@ -1066,9 +1066,9 @@ export struct TaskListItem {
         mask: { color: '#2E000000' }, autoCancel: !this.moveBusy, onWillDismiss: !this.moveBusy, focusable: true,
         onStateChange: (event): void => { if (!event.isVisible && this.moveOpen) this.closeMove() }
       })
-      .priorityGesture(PanGesture({ direction: PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
+      .priorityGesture(PanGesture({ direction: this.enableSwipeActions ? PanDirection.Right : PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
         this.horizontalSwipe(event.offsetX)
       }))
-      .onGestureJudgeBegin(() => this.checklistTouch || this.typing || this.enableSwipeActions ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
+      .onGestureJudgeBegin(() => this.checklistTouch || this.typing ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }
 }

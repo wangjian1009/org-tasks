@@ -24,9 +24,8 @@ const { taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth }
 function checkDeferredSwipeMenu(expression, filename) {
   const { options } = compile('export function options(record) { return ' + expression + '; }', filename,
     {});
-  const renders = [], moves = [], record = { id: 'source-record' };
+  const renders = [], record = { id: 'source-record' };
   const page = { selectingRecords: false, actionPolicy: taskPageActionPolicy('inbox'),
-    moveHint() {}, swipeAction(value, action) { moves.push([this, value, action]); },
     swipeMenu(value) { renders.push([this, value]); } };
   // 只注入框架常量，执行产品表达式本身：普通布局阶段不得产生菜单节点。
   global.SwipeEdgeEffect = { None: 0 };
@@ -36,8 +35,7 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.equal(typeof value.end.builder, 'function');
     value.end.builder();
     assert.deepEqual(renders, [[page, record]]);
-    value.start.onAction();
-    assert.deepEqual(moves, [[page, record, 'move']]);
+    assert.equal(value.start, undefined, '右滑不挂载原生提示栏，使用共享任务卡片手势');
     renders.length = 0;
     page.actionPolicy.swipeActions = [];
     assert.equal(options.call(page, record).end, undefined);

@@ -229,13 +229,6 @@ struct Inbox {
   }
 
   @Builder
-  moveHint() {
-    Row() { Image($r('app.media.ui_move_to')).width(24).height(24) }
-      .width(56).height('100%').justifyContent(FlexAlign.Center).backgroundColor('#344A47')
-      .accessibilityText('右滑移动')
-  }
-
-  @Builder
   swipeMenu(record: CoreTask) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy, idPrefix: 'inbox_swipe',
       items: taskSwipeMenu(this.actionPolicy, (action: TaskSwipeAction): void => {
@@ -510,7 +503,7 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : { start: { builder: this.moveHint, actionAreaDistance: 48, onAction: () => { this.swipeAction(record, 'move') } },
+                }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
                   end: this.actionPolicy.swipeActions.length > 0 ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
