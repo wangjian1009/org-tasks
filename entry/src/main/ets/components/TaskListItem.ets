@@ -13,10 +13,11 @@ import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 import { PopupMenuButton } from './PopupMenuButton'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
-import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
+import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDateForDisplay, TaskDateDisplay,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText, taskSourceText } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
+import { OrgContentView } from './OrgContentView'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
 import { TaskInlineFocus } from '../ui/TaskInlineFocus'
@@ -36,7 +37,9 @@ class ChecklistFocusFrame extends FrameCallback {
 export struct TaskListItem {
   @Prop task: CoreTask
   @Prop enableCompletionState: boolean = true
-  @Prop showDate: boolean = false
+  @Prop readOnly: boolean = false
+  @Prop instanceKey: string = ''
+  @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop showCategory: boolean = false
   @Prop enableSwipeActions: boolean = false
   @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
@@ -119,12 +122,13 @@ export struct TaskListItem {
   }
   value(): CoreTask { return this.editTask ?? this.task }
   horizontalSwipe(offsetX: number) {
-    if (this.typing || this.checklistTouch || this.draggingCheck) return
+    if (this.readOnly || this.typing || this.checklistTouch || this.draggingCheck) return
     if (offsetX > 48) this.rightSwipe()
     else if (offsetX < -48 && this.enableSwipeActions) this.swipe(true)
   }
 
   rightSwipe() {
+    if (this.readOnly) return
     if (this.completing || this.working || this.moveBusy || this.moveOpen || this.snapshotBlocked || this.removed ||
       this.typing || this.checklistTouch || this.draggingCheck) return
     switch (this.rightSwipeAction) {
@@ -136,6 +140,7 @@ export struct TaskListItem {
   }
 
   async openMove() {
+    if (this.readOnly) return
     if (this.rightSwipeAction !== 'move' || this.completing || this.working || this.moveBusy || this.snapshotBlocked || this.draggingCheck || this.typing) return
     this.completing = true
     try {
@@ -215,6 +220,7 @@ export struct TaskListItem {
   }
 
   async toggleDoing() {
+    if (this.readOnly) return
     const previous = this.value().state?.category
     const category = previous === TaskStateCategory.Doing ? TaskStateCategory.Todo : TaskStateCategory.Doing
     if (this.rightSwipeAction !== 'doing' || this.completing || this.working || this.draggingCheck || this.typing || this.snapshotBlocked ||
@@ -231,6 +237,7 @@ export struct TaskListItem {
     }
   }
   async complete() {
+    if (this.readOnly) return
     const reopen = this.value().isDone()
     const category = reopen ? TaskStateCategory.Todo : TaskStateCategory.Done
     if (this.completing || this.working || this.snapshotBlocked || this.value().state === null || !this.value().taskStateOf(category)) return
@@ -292,7 +299,7 @@ export struct TaskListItem {
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
-    this.ownerKey = this.task.id
+    this.ownerKey = this.instanceKey || this.task.id
     this.appeared = true
     this.dataRevision = this.dataChanges.revision
   }
@@ -309,9 +316,10 @@ export struct TaskListItem {
   }
   async prepare(): Promise<boolean> {
     if (this.removed) return false
-    if (!this.ownerKey) this.ownerKey = this.task.id
+    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.task.id
     if (!await TaskInlineSession.begin(this.ownerKey, async (collapse: boolean) => await this.finish(collapse))) return false
     if (!this.editTask) { this.editTask = this.task; this.heading = this.task.heading; this.notes = this.task.editContent.notes.trimEnd() }
+    if (this.readOnly) return true
     if (!this.hostWindow) {
       try {
         this.hostWindow = await window.getLastWindow(this.getUIContext().getHostContext()!)
@@ -328,6 +336,10 @@ export struct TaskListItem {
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
   }
   async finish(collapse: boolean): Promise<boolean> {
+    if (this.readOnly) {
+      if (collapse) { this.expanded = false; TaskInlineSession.release(this.ownerKey) }
+      return true
+    }
     if (this.moveBusy) return false
     if (collapse && this.moveOpen) this.closeMove()
     this.cancelCheckDrag()
@@ -349,9 +361,11 @@ export struct TaskListItem {
     return true
   }
   inputFocus() {
+    if (this.readOnly) return
     this.typing = true; AppStorage.setOrCreate('taskInlineTyping', true)
   }
   async persist(modifications: CoreTaskModification[]): Promise<boolean> {
+    if (this.readOnly) return false
     if (this.snapshotBlocked) return false
     let success: boolean = false
     const operation = this.pending.then(async () => {
@@ -391,6 +405,7 @@ export struct TaskListItem {
     return success
   }
   async saveText(): Promise<boolean> {
+    if (this.readOnly) return true
     await this.pending
     if (this.removed) return false
     if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
@@ -402,6 +417,7 @@ export struct TaskListItem {
     return true
   }
   async saveCheck(next: boolean): Promise<boolean> {
+    if (this.readOnly) return true
     if (next) this.continueCheck = true
     if (this.checkSaving) return await this.checkSaving
     this.checkSaving = this.commitCheck()
@@ -428,6 +444,7 @@ export struct TaskListItem {
     return true
   }
   async changeCheck(change: CoreTaskChecklistChange) {
+    if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     const id = change.type === 'add' ? '' : change.id
     const index = this.value().editContent.checklist.findIndex(item => item.id === id)
@@ -438,6 +455,7 @@ export struct TaskListItem {
     await this.persist([{ field: 'CHECKLIST', value: change }])
   }
   async editCheck(item: CoreTaskChecklistItem) {
+    if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     const index = this.value().editContent.checklist.findIndex(current => current.id === item.id)
     if (!await this.saveText() || !await this.saveCheck(false)) return
@@ -447,12 +465,14 @@ export struct TaskListItem {
     this.checkFocus.request(`inline_check_${current.id}`)
   }
   async addCheck() {
+    if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.saveText() || !await this.saveCheck(false)) return
     this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
   }
   async dates(deadline: boolean) {
+    if (this.readOnly) return
     if (!await this.prepare() || !await this.finish(false)) return
     const wasExpanded = this.expanded
     this.dateDialog = new CustomDialogController({
@@ -466,6 +486,7 @@ export struct TaskListItem {
     this.dateDialog.open()
   }
   async repeats(deadline: boolean = false) {
+    if (this.readOnly) return
     if (!await this.prepare() || !await this.finish(false)) return
     this.repeatDialog = new CustomDialogController({
       builder: TaskRepeatDialog({ task: this.value(), initialDeadline: deadline,
@@ -495,6 +516,7 @@ export struct TaskListItem {
       } } })
   }
   async tags() {
+    if (this.readOnly) return
     if (!await this.prepare() || !await this.finish(false)) return
     try {
       this.tagsDialog = new CustomDialogController({
@@ -535,6 +557,7 @@ export struct TaskListItem {
     this.checkPreview = []
   }
   startCheckDrag(item: CoreTaskChecklistItem, event: GestureEvent) {
+    if (this.readOnly) return
     if (this.gripPress !== item.id || !this.canSortCheck() || this.draggingCheck || checklistSiblings(this.value().editContent.checklist, item.id).length < 2) return
     const finger = event.fingerList[0]
     const node = this.getUIContext().getFrameNodeById(`inline_checks_${this.ownerKey}`)
@@ -651,10 +674,10 @@ export struct TaskListItem {
 
   duration(): number { return taskDurationDays(this.value(), new Date(this.referenceTime)) }
 
-  leadingDate(): string { return taskDateText(taskDisplayDate(this.value()), true, new Date(this.referenceTime)) }
+  leadingDate(): string { return taskDateText(taskDateForDisplay(this.value(), this.dateDisplay), true, new Date(this.referenceTime)) }
 
   leadingWidth(): number {
-    return (this.showDate && taskDisplayDate(this.value()).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
+    return (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 28 : 0)
   }
 
@@ -710,8 +733,8 @@ export struct TaskListItem {
     }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
       .stateEffect(false)
       .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
-      .enabled(!this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
-      .accessibilityText(`${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
+      .enabled(!this.readOnly && !this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
+      .accessibilityText(this.readOnly ? taskStateCategoryLabel(this.value().state?.category) : `${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
   }
 
   @Builder
@@ -808,7 +831,7 @@ export struct TaskListItem {
   }
   @Builder
   compactLeadingInfo() {
-    if (this.showDate && taskDisplayDate(this.value())) {
+    if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
     }
@@ -1033,12 +1056,54 @@ export struct TaskListItem {
     }.width('100%').constraintSize({ minHeight: 44 }).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
       .accessibilityText(`编辑${deadline ? '截止' : '计划'}重复规则`).onClick(() => { this.repeats(deadline) })
   }
+  @Builder
+  readOnlyContent() {
+    Row({ space: 9 }) {
+      this.stateIndicator()
+      TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+        cancelled: this.value().state?.category === TaskStateCategory.Cancel })
+        .layoutWeight(1).onClick(() => { this.toggle() })
+    }.width('100%').alignItems(VerticalAlign.Top)
+    if (this.value().bodyHtml) {
+      OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
+        contentBackground: UiColor.taskCard }).width('100%')
+    }
+    if (this.value().logbookHtml) {
+      Text('日志').fontSize(12).fontColor(UiColor.secondary).width('100%')
+      OrgContentView({ fragment: this.value().logbookHtml, embedded: true, embeddedPadding: 0,
+        contentBackground: UiColor.taskCard }).width('100%')
+    }
+    if (this.value().tags.length > 0) {
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.value().tags, (tag: string) => {
+          Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10).backgroundColor(taskTagColor(tag))
+            .margin({ right: 6, bottom: 6 })
+        }, (tag: string) => tag)
+      }.width('100%')
+    }
+    if (this.value().scheduled || this.value().deadline) {
+      Text(`${this.value().scheduled ? `计划：${inlineDateLabel(this.value().scheduled)}` : ''}${this.value().scheduled && this.value().deadline ? '    ' : ''}${this.value().deadline ? `截止：${inlineDateLabel(this.value().deadline)}` : ''}`)
+        .fontSize(12).fontColor(UiColor.secondary).width('100%')
+    }
+    if (this.value().editContent.scheduledRepeat?.rule) {
+      Text(`计划重复：${repeatSummary(this.value().editContent.scheduledRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+    }
+    if (this.value().editContent.deadlineRepeat?.rule) {
+      Text(`截止重复：${repeatSummary(this.value().editContent.deadlineRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+    }
+  }
+
   build() {
     Column() {
       if (this.expanded) {
         Column({ space: 8 }) {
-          Column({ space: 12 }) { this.editorContent() }.width('100%')
-          this.attributes()
+          if (this.readOnly) {
+            this.readOnlyContent()
+          } else {
+            Column({ space: 12 }) { this.editorContent() }.width('100%')
+            this.attributes()
+          }
         }.width('100%').padding(12)
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
         Text(taskSourceText(this.value(), true)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
@@ -1069,6 +1134,6 @@ export struct TaskListItem {
       .priorityGesture(PanGesture({ direction: this.enableSwipeActions ? PanDirection.Right : PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
         this.horizontalSwipe(event.offsetX)
       }))
-      .onGestureJudgeBegin(() => this.checklistTouch || this.typing ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
+      .onGestureJudgeBegin(() => this.readOnly || this.rightSwipeAction === 'none' || this.checklistTouch || this.typing ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }
 }

@@ -29,7 +29,7 @@ export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy
     case 'planned': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
     case 'anytime': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
     case 'someday': return { rightSwipeAction: 'move', swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'logbook': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'logbook': return { rightSwipeAction: 'none', swipeActions: [], batchEditing: false, batchActions: [] }
     case 'recent': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
   }
 }

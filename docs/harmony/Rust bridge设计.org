@@ -118,7 +118,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgFile.category()~ | ~file.category()~ | 未配置或文件分类为 ~ARCHIVE~ 时为 ~null~ ，显式空声明为空字符串。 |
 | ~FilterTask.is_habit()~ | ~task.isHabit~ | 只读、可枚举的布尔查询快照；Core 判断标题自身的 ~STYLE=habit~ ，C++ 与 ArkTS 仅透传。 |
 | ~FilterTask.category()~ 、 ~is_repeating()~ | ~task.category~ 、 ~task.isRepeating~ | 只读、可枚举的查询快照；分类保留 ~null~ 与空字符串，重复标志来自 Core 的时间戳解析。 |
-| ~FilterTask.created_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
+| ~FilterTask.created_at()~ 、 ~closed_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.closedAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，关闭时间来自标题自身的真实 ~CLOSED~ 规划节点，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
 | ~OrgWorkspace.query(&[CoreQuery])~ | ~workspace.query(queries)~ | 结构化请求数组在一次 worker 调用中透传 Core，按输入顺序返回任务及分类统计数组。 |
@@ -208,6 +208,7 @@ class Task {
   readonly state: TaskState | null
   taskStateOf(category: TaskStateCategory): TaskState | null
   readonly createdAt: number | null
+  readonly closedAt: number | null
   readonly modifiedAt: number | null
   isDone(): boolean
 }
@@ -342,7 +343,7 @@ interface TitleCount {
 
 * Query 文件引用与创建日期扩展
 
-~TaskQuery.excludedFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
+~TaskQuery.excludedFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
 
 ~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeDone=true~ 和 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 

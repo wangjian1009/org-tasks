@@ -8,6 +8,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
+import { TaskDateDisplay } from '../ui/TaskListPresentation'
 import { InboxTargetPopup } from '../components/InboxTargetPopup'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
@@ -375,7 +376,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskListItem({ task, showDate: true, showCategory: true, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
+    TaskListItem({ task, dateDisplay: TaskDateDisplay.Creation, showCategory: true, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
     } }).enabled(!this.selectingRecords && !this.mergeBusy)
   }

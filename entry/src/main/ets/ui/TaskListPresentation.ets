@@ -10,6 +10,13 @@ export interface TaskRowLayout {
   durationWidth: number
 }
 
+export enum TaskDateDisplay {
+  Creation = 'Creation',
+  Schedule = 'Schedule',
+  Deadline = 'Deadline',
+  None = 'None'
+}
+
 // 这里只计算展示日期，不参与任务筛选；自然日序号避免跨夏令时产生误差。
 function dayNumber(value: string): number {
   const date = value.slice(0, 10)
@@ -27,7 +34,19 @@ export function taskDateIsToday(value: string, today: Date = new Date()): boolea
   return Number.isFinite(dayNumber(value)) && value.slice(0, 10) === localDate(today)
 }
 
-// 折叠态前部日期与计划分组共用较早日期，仅计算展示，不参与筛选。
+// 按调用方选择读取日期；缺失时隐藏，不借用其他类型的日期。
+export function taskDateForDisplay(task: CoreTask, display: TaskDateDisplay): string {
+  if (display === TaskDateDisplay.Creation) {
+    if (task.createdAt === null || !Number.isFinite(task.createdAt)) return ''
+    const date = new Date(task.createdAt)
+    return Number.isFinite(date.getTime()) ? localDate(date) : ''
+  }
+  const value = display === TaskDateDisplay.Schedule ? task.scheduled :
+    display === TaskDateDisplay.Deadline ? task.deadline : ''
+  return Number.isFinite(dayNumber(value)) ? value.slice(0, 10) : ''
+}
+
+// 计划分组使用有效计划／截止日期中较早的一天，仅计算展示，不参与筛选。
 export function taskDisplayDate(task: CoreTask): string {
   const scheduled = dayNumber(task.scheduled)
   const deadline = dayNumber(task.deadline)

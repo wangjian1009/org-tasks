@@ -155,7 +155,6 @@ pub struct FilterTask {
     full_path: TaskPath,
     file_metadata: Arc<OrgFileMetadata>,
     file_version: String,
-    done_keywords: Arc<Vec<String>>,
     edit_content: TaskEditContent,
     support_tags: Option<Arc<SupportTags>>,
     category: Option<String>,
@@ -176,6 +175,7 @@ pub struct FilterTask {
     scheduled: Option<FilterDate>,
     deadline: Option<FilterDate>,
     closed: Option<FilterDate>,
+    closed_at: Option<TimestampMs>,
     created: Option<FilterDate>,
     created_at: Option<TimestampMs>,
     modified_at: Option<TimestampMs>,
@@ -185,7 +185,7 @@ pub struct FilterTask {
 
 ~FilterTask.state()~ 返回 ~Option<&TaskState>~ ，其中包含状态名称与可空分类。任务与共享文件元信息均提供 ~task_state_of(category) -> Option<TaskState>~ ；返回首个有效匹配状态的独立副本，找不到时为空。
 
-~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值：~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 仅从当前标题自身的 ~LAST_MODIFIED~ 属性解析 Unix 毫秒时间，属性名不区分大小写，不继承、不扫描正文或文件前言。两者缺失或不可解析时均返回 ~None~ ，任务修改时间不读取文件 mtime，也不使用创建时间补齐；读取不生成或回填属性。
+~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值： ~closed_at()~ 从当前标题自己的 ~CLOSED~ 规划节点读取完成／取消时间，按设备本地时区解释为 Unix 毫秒；缺失、无效或时间范围返回 ~None~ ，不读取日志或文件时间。只有日期按零点解释，夏令时回拨取较早时刻，不存在的本地时刻忽略。 ~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 仅从当前标题自身的 ~LAST_MODIFIED~ 属性解析 Unix 毫秒时间，属性名不区分大小写，不继承、不扫描正文或文件前言。两者缺失或不可解析时均返回 ~None~ ，任务修改时间不读取文件 mtime，也不使用创建时间补齐；读取不生成或回填属性。
 
 #+begin_src rust
 impl FilterTask {
@@ -215,6 +215,7 @@ impl FilterTask {
     pub fn scheduled(&self) -> Option<FilterDate>;
     pub fn deadline(&self) -> Option<FilterDate>;
     pub fn closed(&self) -> Option<FilterDate>;
+    pub fn closed_at(&self) -> Option<TimestampMs>;
     pub fn created(&self) -> Option<FilterDate>;
     pub fn created_at(&self) -> Option<TimestampMs>;
     pub fn modified_at(&self) -> Option<TimestampMs>;
@@ -835,7 +836,9 @@ pub struct OrgFileRef {
 path: String}{}
 \umlclass[x=0,y=-4]{FilterTask}{created: Option\textless FilterDate\textgreater \\
 created\_at: Option\textless TimestampMs\textgreater \\
+closed\_at: Option\textless TimestampMs\textgreater \\
 modified\_at: Option\textless TimestampMs\textgreater}{created\_at(): Option\textless TimestampMs\textgreater \\
+closed\_at(): Option\textless TimestampMs\textgreater \\
 modified\_at(): Option\textless TimestampMs\textgreater \\
 is\_cancelled(): bool}
 \umlclass[x=7,y=-4]{TaskQuery}{excluded\_files: Vec\textless OrgFileRef\textgreater}{}

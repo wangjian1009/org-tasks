@@ -91,6 +91,7 @@ export class Task {
   readonly state: TaskState | null;
   taskStateOf(category: TaskStateCategory): TaskState | null;
   readonly createdAt: number | null;
+  readonly closedAt: number | null;
   readonly modifiedAt: number | null;
   readonly priority: string;
   readonly scheduled: string;

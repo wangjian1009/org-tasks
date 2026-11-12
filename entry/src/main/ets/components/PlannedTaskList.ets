@@ -1,7 +1,8 @@
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
-import { PlannedGroup, PlannedTaskItem } from '../ui/PlannedPresentation'
+import { PlannedGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
+import { TaskDateDisplay } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskListItem } from './TaskListItem'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
@@ -41,7 +42,8 @@ export struct PlannedTaskList {
         this.monthHeader(group)
       }
       ForEach(group.items, (item: PlannedTaskItem) => {
-        TaskListItem({ task: item.task, showDate: group.kind !== 'day', showCategory: true,
+        TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
+          plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline, showCategory: true,
           rightSwipeAction: this.rightSwipeAction,
           scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
           referenceTime: this.referenceTime, open: (): void => {

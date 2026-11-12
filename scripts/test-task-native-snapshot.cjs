@@ -55,7 +55,7 @@ execFileSync('c++', ['-std=c++17', '-shared', '-undefined', 'dynamic_lookup',
 const native = require(addon);
 
 function snapshot(name = 'DONE', done = false) {
-  return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done,
+  return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
     state: { name: 'TODO', category: 'Todo' }, taskStateOptions: {
       Todo: { name: 'TODO', category: 'Todo' }, Doing: null, Wait: null,
       Done: { name, category: 'Done' }, Cancel: null
@@ -102,4 +102,8 @@ test('旧快照不受新查询影响，复制方法持有原快照直至释放',
   assert.equal(task.isDone(), false);
   assert.equal(newer.taskStateOf('Done').name, 'FINISHED');
   assert.equal(newer.isDone(), true);
+  assert.equal(task.closedAt, null);
+  assert.equal(newer.closedAt, 1700003600000);
+  assert.equal(newer.createdAt, 1700000000000);
+  assert.ok(Object.keys(newer).includes('closedAt'));
 });

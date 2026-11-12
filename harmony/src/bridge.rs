@@ -84,6 +84,7 @@ pub struct HarmonyBridgeTask {
     pub task_state_options: BTreeMap<String, Option<org_tasks_core::TaskState>>,
     pub is_done: bool,
     pub created_at: Option<TimestampMs>,
+    pub closed_at: Option<TimestampMs>,
     pub modified_at: Option<TimestampMs>,
     pub priority: String,
     pub scheduled: String,
@@ -268,6 +269,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         task_state_options: state_options(|category| task.task_state_of(category)),
         is_done,
         created_at: task.created_at(),
+        closed_at: task.closed_at(),
         modified_at: task.modified_at(),
         priority: task.priority().unwrap_or_default().to_owned(),
         scheduled: task
@@ -1426,7 +1428,7 @@ mod tests {
     fn created_date_expression_and_cancelled_projection_cross_existing_query_bridge() {
         let root = std::env::temp_dir().join(format!("org-created-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("tasks.org"), "#+TODO: TODO | STOP DONE\n#+TASK_STATE_CATEGORY: Cancel STOP\n* STOP Cancelled\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 10:00]\n:END:\n* DONE Finished\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n").unwrap();
+        std::fs::write(root.join("tasks.org"), "#+TODO: TODO | STOP DONE\n#+TASK_STATE_CATEGORY: Cancel STOP\n* STOP Cancelled\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 10:00]\n:END:\n* DONE Finished\nCLOSED: [2026-11-09 Mon 15:45]\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n").unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
         let all: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
@@ -1443,6 +1445,8 @@ mod tests {
         assert_eq!(tasks[0]["state"]["category"], "Done");
         assert_eq!(tasks[1]["taskStateOptions"]["Done"]["name"], "DONE");
         assert!(tasks[0]["createdAt"].as_i64().is_some());
+        assert!(tasks[0]["closedAt"].as_i64().unwrap() > tasks[0]["createdAt"].as_i64().unwrap());
+        assert!(tasks[1]["closedAt"].is_null());
         assert!(tasks[0]["modifiedAt"].is_null());
         let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created", "includeDone": true });
         let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(

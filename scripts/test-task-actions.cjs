@@ -74,7 +74,7 @@ test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测
 test('页面策略分别定义右滑、左滑、批量入口和批量菜单，不共享可变数组', () => {
   const inbox = taskPageActionPolicy('inbox');
   assert.deepEqual(inbox, { rightSwipeAction: 'move', swipeActions: ['someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] });
-  for (const [page, rightSwipeAction] of Object.entries({ today: 'doing', planned: 'schedule', anytime: 'schedule', someday: 'move', logbook: 'schedule', recent: 'schedule' })) {
+  for (const [page, rightSwipeAction] of Object.entries({ today: 'doing', planned: 'schedule', anytime: 'schedule', someday: 'move', logbook: 'none', recent: 'schedule' })) {
     assert.deepEqual(taskPageActionPolicy(page), { rightSwipeAction, swipeActions: [], batchEditing: false, batchActions: [] });
   }
   inbox.swipeActions.reverse(); inbox.batchActions.length = 0;
@@ -84,6 +84,20 @@ test('页面策略分别定义右滑、左滑、批量入口和批量菜单，�
 
 const cardFile = 'entry/src/main/ets/components/TaskListItem.ets';
 const cardSource = fs.readFileSync(cardFile, 'utf8');
+test('收件箱左滑交给原生菜单且保留右滑，日志簿只读模式拒绝卡片手势', () => {
+  const direction = cardSource.match(/\.priorityGesture\(PanGesture\(\{ direction: ([^,\n]+), distance: 48/)[1];
+  const decision = cardSource.match(/\.onGestureJudgeBegin\(\(\) => ([^\n]+)\)/)[1];
+  const { gesture } = compile(`const PanDirection = { Right:'right', Horizontal:'horizontal' };
+    const GestureJudgeResult = { REJECT:'reject', CONTINUE:'continue' };
+    export function gesture() { return { direction: ${direction}, decision: ${decision} }; }`, cardFile);
+  const inbox = { enableSwipeActions:true, rightSwipeAction:'move', readOnly:false };
+  assert.deepEqual(gesture.call(inbox), {direction:'right',decision:'continue'});
+  assert.deepEqual(gesture.call({enableSwipeActions:false,rightSwipeAction:'schedule'}), {direction:'horizontal',decision:'continue'});
+  for (const blocked of [{readOnly:true}, {rightSwipeAction:'none'}, {checklistTouch:true}, {typing:true}]) {
+    assert.equal(gesture.call({...inbox,...blocked}).decision, 'reject');
+  }
+});
+
 function cardMethod(name, async = false) {
   return cardSource.match(new RegExp('  ' + (async ? 'async ' : '') + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
 }

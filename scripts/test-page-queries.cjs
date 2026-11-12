@@ -95,6 +95,25 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
   });
 }
 
+test('日志簿仅向 Core 请求终态分类，直接展示返回任务的创建与关闭事件', async () => {
+  const f = fixture(), page = f.page('pages/TaskOverview', ['loadTasks','supportsTagFilter','applyTagFilter']);
+  const tasks = [
+    { id:'finished', state:{name:'CUSTOM_FINISH',category:'Done'}, createdAt:1_700_000_000_000, closedAt:1_700_003_600_000 },
+    { id:'cancelled', state:{name:'CUSTOM_ABORT',category:'Cancel'}, createdAt:null, closedAt:null }
+  ];
+  f.query(batch => batch.map(request => request.type === 'task' ?
+    {type:'task',result:{tasks,categories:[]}} : {type:'notification',result:[]}));
+  page.view = 'logbook';
+  await page.loadTasks();
+  assert.equal(page.message, '');
+  assert.equal(f.batches.length, 1);
+  assert.deepEqual(f.batches[0][0].query, {expression:'it.done',includeDone:true,includeComposeTasks:true});
+  assert.equal(page.tasks, tasks);
+  const events = page.eventGroups.flatMap(group => group.events);
+  assert.deepEqual(events.map(event => event.label), ['完成','创建','取消']);
+  assert.equal(events[0].task, tasks[0]);
+});
+
 test('收件箱本页、最近新增、文件元信息与通知只调用一次批量查询',async()=>{
   const f=fixture(),page=f.page('pages/Inbox',['loadRecords']);
   await page.loadRecords();

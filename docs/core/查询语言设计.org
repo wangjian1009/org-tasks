@@ -22,8 +22,8 @@
 空白表示隐式 ~AND~ 。关键字 ~and~ / ~AND~ 与 ~or~ / ~OR~ 不区分大小写；~AND~ 的优先级高于 ~OR~ 。圆括号可改变分组。双引号把带空白、圆括号或操作符外观的文本视作一个 token；反斜杠转义引号和反斜杠。
 
 #+begin_example
-i.todo t.work or i.next t.home
-i.todo (i.next or t.work)
+i.todo t.work or i.doing t.home
+i.todo (i.doing or t.work)
 b."book(1) name"
 #+end_example
 
@@ -34,7 +34,7 @@ b."book(1) name"
 | 形式 | 含义 |
 |-
 | ~b.<name>~ | 文件路径等于 name。 |
-| ~i.<state>~ | TODO 状态等于 state。 |
+| ~i.<category>~ | 按状态分类精确匹配： ~todo~ 、 ~doing~ 、 ~wait~ 、 ~done~ 、 ~cancel~ 或 ~none~ ，不区分分类名大小写。 ~none~ 表示没有分类，包含无状态标题和显式未分类任务。 |
 | ~it.todo~ / ~it.done~ / ~it.none~ | 按状态类别筛选。 |
 | ~p.<letter>~ | 优先级；未设置时使用默认 ~B~ 。 |
 | ~ps.<letter>~ | 显式设置的优先级。 |
@@ -54,6 +54,8 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 * 排序与选项
 
 排序 token 为 ~o.<field>~ ；在前面增加点号表示降序。field 可为 ~book~ / ~b~ 、~title~ / ~t~ 、~scheduled~ / ~s~ 、~deadline~ / ~d~ 、~event~ / ~e~ 、~closed~ / ~c~ 、~created~ / ~cr~ 、 ~modified~ 、~priority~ / ~p~ 、~state~ / ~st~ 和 ~position~ / ~pos~ 。未指定排序时，任务按相对文件路径与源字节位置排序。
+
+~o.state~ / ~o.st~ 按分类顺序排列：未分类、 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ ；降序反转分类顺序。同分类继续按文件与源位置排序，不按状态名称排序。
 
 ~o.modified~ 与 ~.o.modified~ 按任务的 ~modified_at()~ 分别升序和降序排列；缺失修改时间的记录在两种方向下均置末，不使用创建时间替代。相同时间继续按文件与源位置排序。
 
@@ -89,12 +91,13 @@ core 测试从参考项目移植了 tokenizer 的括号和引号场景、~AND~ /
 
 * 任务完成判断
 
-~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancel~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~include_done=false~ 统一排除两类终态。状态值仍可通过 ~i.<state>~ 精确匹配。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancel~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
+~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancel~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~include_done=false~ 统一排除两类终态。所有状态条件只比较 ~TaskState.category~ ，不比较 ~TaskState.name~ 。 ~i.done~ 仅匹配完成分类， ~i.cancel~ 仅匹配取消分类； ~it.done~ 匹配两者。自定义状态名不再是 ~i.*~ 的合法分类值，按未知 token 的既有规则作为文本处理。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancel~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
 
 #+begin_src rust
 impl FilterTask {
     pub fn is_done(&self) -> bool {
-        self.state_type == FilterStateType::Done
+        self.state.as_ref().and_then(|state| state.category)
+            .is_some_and(TaskStateCategory::is_done)
     }
 }
 #+end_src

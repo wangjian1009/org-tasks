@@ -9,6 +9,7 @@ import { TaskListItem } from '../components/TaskListItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
+import { LogbookTaskList } from '../components/LogbookTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
 import { PageQueryService } from '../services/PageQueryService'
@@ -20,6 +21,7 @@ import { CoreBridgeError, CoreTask, CoreTaskQueryResult, taskResult, coreErrorMe
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups } from '../ui/PlannedPresentation'
+import { LogbookGroup, logbookGroups } from '../ui/LogbookPresentation'
 import { filterTasksByTags, reconcileTaskTags, taskTagOptions, TaskTagSelection } from '../ui/TaskTagFilterPresentation'
 
 interface OverviewParams { view?: OverviewKind }
@@ -42,6 +44,7 @@ struct TaskOverview {
   @State includeUntagged: boolean = false
   @State sections: TodaySection[] = []
   @State planGroups: PlannedGroup[] = []
+  @State eventGroups: LogbookGroup[] = []
   @State referenceTime: number = Date.now()
   @State loading: boolean = true
   @State message: string = ''
@@ -161,6 +164,7 @@ struct TaskOverview {
         this.tagGroups = []
         this.sections = []
         this.planGroups = []
+        this.eventGroups = []
         return
       }
       let planGroups: PlannedGroup[] = []
@@ -173,6 +177,7 @@ struct TaskOverview {
         this.tagOptions, this.tagGroups))
       this.referenceTime = Date.now()
       this.planGroups = planGroups
+      this.eventGroups = this.view === 'logbook' ? logbookGroups(result.tasks, new Date(this.referenceTime)) : []
       await this.openEntryMemo()
     } catch (e) {
       if (request === this.requestId) {
@@ -182,6 +187,7 @@ struct TaskOverview {
         this.tagGroups = []
         this.sections = []
         this.planGroups = []
+        this.eventGroups = []
         this.message = `读取任务失败：${coreErrorMessage(e as CoreBridgeError)}`
       }
     } finally {
@@ -221,7 +227,7 @@ struct TaskOverview {
             } })
         }
         if (this.view === 'logbook') {
-          Text(`${this.tasks.length} 个已完成任务`)
+          Text(`${this.tasks.length} 个已完成或取消任务`)
             .fontSize(13).fontColor(UiColor.secondary).width('100%').padding(16).backgroundColor(UiColor.container)
         }
         if (this.tasks.length === 0) {
@@ -234,6 +240,8 @@ struct TaskOverview {
           TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
+        } else if (this.view === 'logbook') {
+          LogbookTaskList({ groups: this.eventGroups, referenceTime: this.referenceTime })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {

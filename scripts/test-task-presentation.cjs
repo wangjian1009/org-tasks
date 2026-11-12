@@ -227,7 +227,7 @@ test('窄屏与多个长计数退回图标，仍为日期和标题预留空间',
 });
 
 
-test('折叠日期与计划分组使用有效日期中较早的一天', () => {
+test('计划分组使用有效日期中较早的一天', () => {
   for (const [values, expected] of [
     [{ scheduled: '2026-11-12', deadline: '2026-11-18' }, '2026-11-12'],
     [{ scheduled: '2026-11-18', deadline: '2026-11-12' }, '2026-11-12'],
@@ -236,6 +236,29 @@ test('折叠日期与计划分组使用有效日期中较早的一天', () => {
     [{ deadline: '2027-01-01' }, '2027-01-01'],
     [{}, '']
   ]) assert.equal(presentation.taskDisplayDate(task('id', values)), expected);
+});
+
+test('前部日期严格按创建、计划、截止或隐藏策略展示', () => {
+  const { TaskDateDisplay, taskDateForDisplay } = presentation;
+  const value = task('dates', { createdAt: new Date(2026, 10, 10, 23, 55).getTime(),
+    scheduled: '2026-11-12', deadline: '2026-11-18' });
+  for (const [strategy, expected] of [[TaskDateDisplay.Creation, '2026-11-10'],
+    [TaskDateDisplay.Schedule, '2026-11-12'], [TaskDateDisplay.Deadline, '2026-11-18'], [TaskDateDisplay.None, '']]) {
+    assert.equal(taskDateForDisplay(value, strategy), expected);
+  }
+  assert.equal(taskDateForDisplay(task('epoch', { createdAt: 0 }), TaskDateDisplay.Creation), localDate(new Date(0)));
+});
+
+test('选中日期缺失或无效时隐藏，不回退到其他有效日期', () => {
+  const { TaskDateDisplay, taskDateForDisplay } = presentation;
+  for (const createdAt of [null, NaN, Infinity, 9e15]) {
+    assert.equal(taskDateForDisplay(task('missing', { createdAt, scheduled: '2026-11-12', deadline: '2026-11-18' }),
+      TaskDateDisplay.Creation), '');
+  }
+  assert.equal(taskDateForDisplay(task('missing', { scheduled: '', deadline: '2026-11-18' }), TaskDateDisplay.Schedule), '');
+  assert.equal(taskDateForDisplay(task('invalid', { scheduled: '2026-02-30', deadline: '2026-11-18' }), TaskDateDisplay.Schedule), '');
+  assert.equal(taskDateForDisplay(task('missing', { scheduled: '2026-11-12', deadline: '' }), TaskDateDisplay.Deadline), '');
+  assert.equal(taskDateForDisplay(task('invalid', { scheduled: '2026-11-12', deadline: '2026-02-30' }), TaskDateDisplay.Deadline), '');
 });
 
 test('截止日期的未来、当天、逾期、已完成与无效状态使用一致文案和颜色', () => {

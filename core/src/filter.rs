@@ -22,7 +22,7 @@ enum FilterExpression {
         negated: bool,
     },
     State {
-        value: String,
+        value: Option<crate::TaskStateCategory>,
         negated: bool,
     },
     StateType {
@@ -158,6 +158,7 @@ pub struct FilterTask {
     pub(crate) scheduled_warning: Option<NaiveDate>,
     pub(crate) deadline_warning: Option<NaiveDate>,
     pub(crate) closed: Option<FilterDate>,
+    pub(crate) closed_at: Option<crate::TimestampMs>,
     pub(crate) created: Option<FilterDate>,
     pub(crate) created_at: Option<crate::TimestampMs>,
     pub(crate) modified_at: Option<crate::TimestampMs>,
@@ -291,6 +292,11 @@ impl FilterTask {
 
     pub fn closed(&self) -> Option<FilterDate> {
         self.closed
+    }
+
+    /// 当前标题 CLOSED 规划时间，按本地时区解释；不从日志或文件时间补值。
+    pub fn closed_at(&self) -> Option<crate::TimestampMs> {
+        self.closed_at
     }
 
     pub fn created(&self) -> Option<FilterDate> {
@@ -526,6 +532,10 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
             deadline_warning: planning_warning(&headline, "DEADLINE", headline.deadline()),
             closed: planning_date(&headline, "CLOSED", headline.closed()),
+            closed_at: headline
+                .closed()
+                .and_then(timestamp_to_time)
+                .map(|value| value.1),
             created: created.map(|value| value.0),
             created_at: created.map(|value| value.1),
             modified_at: property_time(&headline, "LAST_MODIFIED").map(|value| value.1),
@@ -541,6 +551,13 @@ fn property_time(headline: &Headline, property: &str) -> Option<(FilterDate, cra
     let value = value.trim();
     let timestamp = orgize::Org::parse(value).first_node::<Timestamp>()?;
     if timestamp.raw() != value || timestamp.is_range() {
+        return None;
+    }
+    timestamp_to_time(timestamp)
+}
+
+fn timestamp_to_time(timestamp: Timestamp) -> Option<(FilterDate, crate::TimestampMs)> {
+    if timestamp.is_range() {
         return None;
     }
     let date = timestamp_to_date(timestamp.clone())?;
@@ -797,12 +814,16 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             apply_negation(task.path() == *value, *negated)
         }
         FilterExpression::State { value, negated } => apply_negation(
-            task.state_name()
-                .is_some_and(|state| state.eq_ignore_ascii_case(value)),
+            task.state.as_ref().and_then(|state| state.category) == *value,
             *negated,
         ),
         FilterExpression::StateType { value, negated } => {
-            apply_negation(task.state_type == *value, *negated)
+            let matches = match value {
+                FilterStateType::Done => task.is_done(),
+                FilterStateType::Todo => task.state.is_some() && !task.is_done(),
+                FilterStateType::None => task.state.is_none(),
+            };
+            apply_negation(matches, *negated)
         }
         FilterExpression::Priority { value, negated } => apply_negation(
             task.priority
@@ -981,12 +1002,23 @@ fn sort_tasks(tasks: &mut [FilterTask], orders: &[FilterSort]) {
     });
 }
 
+fn state_category_order(task: &FilterTask) -> u8 {
+    match task.state.as_ref().and_then(|state| state.category) {
+        None => 0,
+        Some(crate::TaskStateCategory::Todo) => 1,
+        Some(crate::TaskStateCategory::Doing) => 2,
+        Some(crate::TaskStateCategory::Wait) => 3,
+        Some(crate::TaskStateCategory::Done) => 4,
+        Some(crate::TaskStateCategory::Cancel) => 5,
+    }
+}
+
 fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -> Ordering {
     match field {
         FilterSortField::Book => left.path().cmp(right.path()),
         FilterSortField::Title => left.title.cmp(&right.title),
         FilterSortField::Priority => left.priority.cmp(&right.priority),
-        FilterSortField::State => left.state_name().cmp(&right.state_name()),
+        FilterSortField::State => state_category_order(left).cmp(&state_category_order(right)),
         FilterSortField::Scheduled => left.scheduled.cmp(&right.scheduled),
         FilterSortField::Deadline => left.deadline.cmp(&right.deadline),
         FilterSortField::Closed => left.closed.cmp(&right.closed),
@@ -1167,10 +1199,21 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
                     value: unquote(value),
                     negated,
                 }),
-                4 => Some(FilterExpression::State {
-                    value: unquote(value),
-                    negated,
-                }),
+                4 => {
+                    let category = match unquote(value).to_ascii_lowercase().as_str() {
+                        "todo" => Some(crate::TaskStateCategory::Todo),
+                        "doing" => Some(crate::TaskStateCategory::Doing),
+                        "wait" => Some(crate::TaskStateCategory::Wait),
+                        "done" => Some(crate::TaskStateCategory::Done),
+                        "cancel" => Some(crate::TaskStateCategory::Cancel),
+                        "none" => None,
+                        _ => return None,
+                    };
+                    Some(FilterExpression::State {
+                        value: category,
+                        negated,
+                    })
+                }
                 5 => {
                     single_letter(value).map(|value| FilterExpression::Priority { value, negated })
                 }
@@ -1332,6 +1375,106 @@ mod tests {
     use crate::OrgFile;
 
     #[test]
+    fn state_conditions_and_sort_use_categories_instead_of_keyword_names() {
+        let source = "#+TODO: ZPENDING APENDING ZRUN ZWAIT | ZFINISHED ASTOP\n#+TASK_STATE_CATEGORY: Todo ZPENDING APENDING\n#+TASK_STATE_CATEGORY: Doing ZRUN\n#+TASK_STATE_CATEGORY: Wait ZWAIT\n#+TASK_STATE_CATEGORY: Done ZFINISHED\n#+TASK_STATE_CATEGORY: Cancel ASTOP\n* ASTOP cancelled\n* ZFINISHED completed\n* ZWAIT waiting\n* ZRUN running\n* ZPENDING first pending\n* APENDING second pending\n* plain\n";
+        let file = OrgFile::new(
+            "repo".into(),
+            "states.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        let repo = OrgRepo::new("/tmp/state-category-query".into()).unwrap();
+        let tasks = tasks_from_file(&repo, &file);
+        for (query, expected) in [
+            ("i.todo", vec!["first pending", "second pending"]),
+            ("i.DOING", vec!["running"]),
+            ("i.wait", vec!["waiting"]),
+            ("i.done", vec!["completed"]),
+            ("i.cancel", vec!["cancelled"]),
+            ("i.none", vec!["plain"]),
+            ("it.done", vec!["cancelled", "completed"]),
+            (
+                "it.todo",
+                vec!["waiting", "running", "first pending", "second pending"],
+            ),
+            ("it.none", vec!["plain"]),
+            (
+                ".it.done",
+                vec![
+                    "waiting",
+                    "running",
+                    "first pending",
+                    "second pending",
+                    "plain",
+                ],
+            ),
+            ("i.ZFINISHED", vec![]),
+        ] {
+            let mut actual = tasks.clone();
+            Filter::parse(query).filter_tasks(&mut actual);
+            assert_eq!(
+                actual.iter().map(FilterTask::title).collect::<Vec<_>>(),
+                expected,
+                "{query}"
+            );
+        }
+        let mut sorted = tasks.clone();
+        Filter::parse("o.state").filter_tasks(&mut sorted);
+        assert_eq!(
+            sorted.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            [
+                "plain",
+                "first pending",
+                "second pending",
+                "running",
+                "waiting",
+                "completed",
+                "cancelled"
+            ]
+        );
+        Filter::parse(".o.st").filter_tasks(&mut sorted);
+        assert_eq!(
+            sorted.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            [
+                "cancelled",
+                "completed",
+                "waiting",
+                "running",
+                "first pending",
+                "second pending",
+                "plain"
+            ]
+        );
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn closed_time_uses_own_planning_timestamp_without_changing_source() {
+        let source = "* DONE Parent\nCLOSED: [2026-11-12 Thu 18:42]\n:PROPERTIES:\n:CREATED: [2026-11-10 Tue 09:15]\n:END:\n** DONE Child\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-11 Wed 10:00]\n:END:\n* DONE Date only\nCLOSED: [2026-11-09 Mon]\n* DONE Invalid time\nCLOSED: [2026-11-08 Sun 25:99]\n";
+        let file = OrgFile::new(
+            "repo".into(),
+            "events.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        let repo = OrgRepo::new("/tmp/closed-time".into()).unwrap();
+        let tasks = tasks_from_file(&repo, &file);
+        let local = |year, month, day, hour, minute| {
+            Local
+                .with_ymd_and_hms(year, month, day, hour, minute, 0)
+                .earliest()
+                .unwrap()
+                .timestamp_millis()
+        };
+        assert_eq!(tasks[0].closed_at(), Some(local(2026, 11, 12, 18, 42)));
+        assert_eq!(tasks[0].created_at(), Some(local(2026, 11, 10, 9, 15)));
+        assert_eq!(tasks[1].closed_at(), None);
+        assert_eq!(tasks[2].closed_at(), Some(local(2026, 11, 9, 0, 0)));
+        assert_eq!(tasks[3].closed_at(), None);
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
     fn task_done_keywords_follow_effective_file_configuration() {
         let mut repo = OrgRepo::new("/unused/done-keywords".into()).unwrap();
         repo.id = "repo".into();
@@ -1407,17 +1550,17 @@ mod tests {
 
     #[test]
     fn ports_reference_boolean_precedence_and_quotes() {
-        let filter = Filter::parse("i.todo or i.next t.work");
+        let filter = Filter::parse("i.todo or i.doing t.work");
         assert_eq!(
             filter.expression,
             Some(FilterExpression::Or(vec![
                 FilterExpression::State {
-                    value: "todo".into(),
+                    value: Some(crate::TaskStateCategory::Todo),
                     negated: false
                 },
                 FilterExpression::And(vec![
                     FilterExpression::State {
-                        value: "next".into(),
+                        value: Some(crate::TaskStateCategory::Doing),
                         negated: false
                     },
                     FilterExpression::Tag {
