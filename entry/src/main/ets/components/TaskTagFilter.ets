@@ -1,6 +1,6 @@
 import { TaskTagSelection, toggleTaskTag, groupedTaskTags } from '../ui/TaskTagFilterPresentation'
 import { UiColor } from '../ui/Theme'
-import { CompactMenuButton } from './CompactMenuButton'
+import { PopupMenuButton } from './PopupMenuButton'
 
 @Component
 struct TaskTagChip {
@@ -68,7 +68,7 @@ export struct TaskTagFilter {
         }.alignItems(VerticalAlign.Center)
       }.layoutWeight(1).scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.None).align(Alignment.Start)
-      CompactMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多标签筛选，无标签',
+      PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多标签筛选，无标签',
         buttonWidth: 40, buttonHeight: 44, iconSize: 20,
         items: [{ title: '无标签', checked: this.includeUntagged, action: (): void => {
           this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged })

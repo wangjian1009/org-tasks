@@ -10,7 +10,7 @@ import { InboxTargetPopup } from './InboxTargetPopup'
 import { InboxService } from '../services/InboxService'
 import { RefileSection, refileSections, targetPopupHeight } from '../ui/InboxPresentation'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
-import { CompactMenuButton } from './CompactMenuButton'
+import { PopupMenuButton } from './PopupMenuButton'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDisplayDate,
@@ -1017,7 +1017,7 @@ export struct TaskListItem {
           }
         }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
           .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
-        CompactMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
+        PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
           buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
           items: [{ title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } }] })
       }.width('100%')

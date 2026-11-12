@@ -3,7 +3,8 @@ import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
-import { CompactMenuButton, CompactMenuItem } from './CompactMenuButton'
+import { PopupMenuButton } from './PopupMenuButton'
+import { PopupMenuItem } from './PopupMenu'
 import { RepositorySyncView } from './RepositorySyncView'
 import { uiObserver } from '@kit.ArkUI'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
@@ -13,8 +14,6 @@ import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService, fileTargetRepository } from '../services/FileTargetService'
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreQuery, NativeCoreService, taskResult, coreErrorMessage } from '../services/NativeCoreService'
-
-export interface AppMenuItem extends CompactMenuItem {}
 
 @Component
 export struct AppShell {
@@ -34,7 +33,7 @@ export struct AppShell {
   @Prop busy: boolean = false
   @Prop pullToSync: boolean = false
   @Prop pullDisabled: boolean = false
-  @Prop actionMenuItems: AppMenuItem[] = []
+  @Prop actionMenuItems: PopupMenuItem[] = []
   @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
   action: () => void = () => {}
@@ -344,7 +343,7 @@ export struct AppShell {
                 .backgroundColor(this.actionProminent ? UiColor.selection : Color.Transparent).borderRadius(22).enabled(!this.busy)
                 .accessibilityText(this.actionLabel).onClick((): void => { this.action() })
             } else if (this.actionMenuItems.length > 0) {
-              CompactMenuButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy,
+              PopupMenuButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy,
                 items: this.actionMenuItems })
             } else {
               IconButton({ icon: this.actionIcon, label: this.actionLabel, disabled: this.busy, action: this.action })
