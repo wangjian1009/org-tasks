@@ -105,6 +105,7 @@ pub struct HarmonyBridgeTask {
     pub address_links: Vec<org_tasks_core::AddressLink>,
     pub body_html: String,
     pub logbook_html: String,
+    pub logs: Vec<org_tasks_core::TaskLog>,
     pub progress: i32,
     pub has_list: bool,
     pub has_text: bool,
@@ -297,6 +298,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         address_links: task.address_links().to_vec(),
         body_html: content.body_html,
         logbook_html: content.logbook_html,
+        logs: content.logs,
         progress: -1,
         has_list: content.has_list,
         has_text: content.has_text,
@@ -1932,7 +1934,7 @@ mod todo_tests {
             let value = org_tasks_core::OrgFile::new(
                 repo.id.clone(),
                 "tasks.org".into(),
-                b"#+CATEGORY: Work\n* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n:PROPERTIES:\n:STYLE: habit\n:END:\n- [ ] First\n"
+                b"#+CATEGORY: Work\n* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n:PROPERTIES:\n:STYLE: habit\n:END:\n- [ ] First\n:LOGBOOK:\n- Note taken on [2026-11-13 Fri 09:00] \\\\\n  *Note*\n:END:\n"
                     .to_vec(),
             )
             .unwrap();
@@ -1958,6 +1960,11 @@ mod todo_tests {
         assert_eq!(value["state"]["category"], "Todo");
         assert_eq!(value["hasList"], true);
         assert_eq!(value["hasText"], false);
+        assert_eq!(value["logs"][0]["type"], "taskNote");
+        assert_eq!(value["logs"][0]["timestamp"], "2026-11-13 09:00");
+        assert!(value["logs"][0]["noteHtml"].as_str().unwrap().contains("<b>Note</b>"));
+        assert!(value["logbookHtml"].as_str().unwrap().contains("Note"));
+        assert!(!value["bodyHtml"].as_str().unwrap().contains("Note"));
         assert_eq!(value["isRepeating"], true);
         assert_eq!(value["isHabit"], true);
         assert_eq!(value["category"], "Work");

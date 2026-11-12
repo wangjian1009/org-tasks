@@ -18,6 +18,7 @@ export struct OrgContentView {
   @Prop horizontalParentFirst: boolean = false
   @Prop @Watch('backgroundChanged') contentBackground: string = UiColor.surface
   @Prop embeddedPadding: number = 16
+  @Prop compactLogs: boolean = false
   @Prop fileReading: boolean = false
   @Prop flowReading: boolean = false
   @Prop @Watch('measure') layoutRevision: number = 0
@@ -113,7 +114,7 @@ export struct OrgContentView {
       const result = await this.controller.runJavaScript('document.body.getBoundingClientRect().height / window.innerWidth')
       if (generation !== this.documentGeneration || !this.active || !this.loaded) return
       const ratio = Number(result)
-      const height = Number.isFinite(ratio) && ratio > 0 ? Math.max(40, Math.ceil(ratio * this.widthVp)) : this.contentHeight
+      const height = Number.isFinite(ratio) && ratio > 0 ? Math.max(this.compactLogs ? 1 : 40, Math.ceil(ratio * this.widthVp)) : this.contentHeight
       if (height !== this.contentHeight) this.contentHeight = height
       else if (this.active) this.measured()
     } catch (e) {
@@ -139,7 +140,7 @@ export struct OrgContentView {
     this.requestedGeneration = this.documentGeneration
     try {
       this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
-        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext, this.flowReading)), 'text/html', 'UTF-8')
+        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext, this.flowReading, this.compactLogs)), 'text/html', 'UTF-8')
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 

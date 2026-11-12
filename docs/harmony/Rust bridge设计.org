@@ -554,3 +554,10 @@ Task 与 OrgFileMetadata 均公开只读 ~priorityOptions: TaskPriority[]~ 和 ~
 Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，并作为可枚举实例方法穿过 ArkUI 属性深拷贝；方法不依赖拷贝对象上的 napi_wrap，JSON 序列化仍只包含数据。Core 的候选与当前对象均随查询结果投影，ArkTS wrapper 只导出类型，不解析 Org 或重新分类。
 
 界面按 ~priority.category~ 选择字母色块的前景及底色；点击候选提交原有 ~PRIORITY~ 字段，值为 ~name~ 或空值。快捷设置从 ~taskPriorityOf(Hight)~ 取目标，不在 ArkTS 中排序字母。卡片与详情共用紧凑标签式选择器；完整交互见 [[file:任务优先级界面设计.org][任务优先级接口与界面设计]]。
+
+
+* 结构化任务日志接入
+
+~Task.logs: TaskLog[]~ 直接投影 Core 的枚举，JSON 采用 ~type~ 标签和 camelCase 字段；原 ~logbookHtml~ 保留兼容。Rust 随既有任务查询和文件节点快照生成日志，C++ 将 ~logs~ 注册为只读可枚举字段，ArkTS wrapper 仅导出 ~CoreTaskLog~ 别名，调用不新增 I/O、线程入口或 Org 解析。 ~TaskStateChange~ 和 ~TaskNote~ 等声明与 Core 分支保持一致；完整字段见 [[file:../core/数据模型.org::*结构化任务日志][数据模型]]。
+
+~TaskLogView~ 依类型生成展示结构，附注及未知日志使用 Core 已生成的安全 HTML；状态名、原日期和时间等文字在组装时进行 HTML 转义。日志继续沿用 ~OrgContentView~ 的禁网、外链显式点击与自然高度机制；紧凑模式移除正文底部留白和 40vp 最小高度，全部日志聚合为一个阅读视图。

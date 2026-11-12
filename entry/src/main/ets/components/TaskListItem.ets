@@ -20,6 +20,7 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
   TaskRowLayout, taskTitleText, taskSourceText } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
 import { OrgContentView } from './OrgContentView'
+import { TaskLogView } from './TaskLogView'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
 import { TaskInlineFocus } from '../ui/TaskInlineFocus'
@@ -1138,11 +1139,6 @@ export struct TaskListItem {
       OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
         contentBackground: UiColor.taskCard }).width('100%')
     }
-    if (this.value().logbookHtml) {
-      Text('日志').fontSize(12).fontColor(UiColor.secondary).width('100%')
-      OrgContentView({ fragment: this.value().logbookHtml, embedded: true, embeddedPadding: 0,
-        contentBackground: UiColor.taskCard }).width('100%')
-    }
     if (this.value().tags.length > 0) {
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.value().tags, (tag: string) => {
@@ -1173,6 +1169,9 @@ export struct TaskListItem {
           } else {
             Column({ space: 12 }) { this.editorContent() }.width('100%')
             this.attributes()
+          }
+          if (this.value().logs.length > 0) {
+            TaskLogView({ logs: this.value().logs }).width('100%')
           }
         }.width('100%').padding(12)
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)

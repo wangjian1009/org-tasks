@@ -103,6 +103,7 @@ impl OrgFile {
 pub struct RenderedTaskContent {
     pub body_html: String,
     pub logbook_html: String,
+    pub logs: Vec<super::TaskLog>,
     /// 正文中存在真实列表，不包含 LOGBOOK 或源码中的字面列表。
     pub has_list: bool,
     /// 正文中存在列表之外的可读文本，不包含规划、drawer、源码和日志。
@@ -155,14 +156,22 @@ impl FilterTask {
             false,
             false,
         );
-        orgize::Org::parse(&body).traverse(&mut view);
+        let org = orgize::Org::parse(&body);
+        org.traverse(&mut view);
         RenderedTaskContent {
             body_html: view.0.finish(),
             logbook_html: view.2.unwrap_or_default(),
+            logs: super::task_log::task_logs(&org),
             has_list: view.3,
             has_text: view.5,
         }
     }
+}
+
+pub(super) fn render_fragment(source: &str) -> String {
+    let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
+    orgize::Org::parse(source).traverse(&mut view);
+    view.0.finish()
 }
 
 // 任务的规划行属于标题元数据，独立展示在任务字段区域，不重复塞进正文。
@@ -958,6 +967,9 @@ mod tests {
         assert!(!rendered.body_html.contains("第二条记录"));
         assert!(rendered.logbook_html.contains("CLOCK:"));
         assert!(rendered.logbook_html.contains("第二条记录"));
+        assert_eq!(rendered.logs, task.logs());
+        assert_eq!(rendered.logs.len(), 3);
+        assert!(matches!(rendered.logs[0], super::super::TaskLog::TaskStateChange { .. }));
         assert!(task.body.contains(":LOGBOOK:"));
         assert_eq!(
             workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes(),

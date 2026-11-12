@@ -74,6 +74,19 @@ export class OrgFile {
   readonly conflictIds: string[];
 }
 
+export interface TaskLogEntry { timestamp: string; noteHtml: string; }
+export interface TaskStateChange extends TaskLogEntry { type: 'taskStateChange'; from: string; to: string; }
+export interface TaskNote extends TaskLogEntry { type: 'taskNote'; }
+export interface TaskClosingNote extends TaskLogEntry { type: 'taskClosingNote'; }
+export interface TaskPlanningLog extends TaskLogEntry {
+  type: 'taskReschedule' | 'taskScheduleRemoval' | 'taskDeadlineChange' | 'taskDeadlineRemoval';
+  previous: string;
+}
+export interface TaskRefile extends TaskLogEntry { type: 'taskRefile'; }
+export interface TaskClock { type: 'taskClock'; start: string; end: string | null; duration: string | null; }
+export interface TaskLogOther { type: 'other'; html: string; }
+export type TaskLog = TaskStateChange | TaskNote | TaskClosingNote | TaskPlanningLog | TaskRefile | TaskClock | TaskLogOther;
+
 export class Task {
   private constructor();
   isDone(): boolean;
@@ -111,6 +124,7 @@ export class Task {
   readonly addressLinks: AddressLink[];
   readonly bodyHtml: string;
   readonly logbookHtml: string;
+  readonly logs: TaskLog[];
   readonly progress: number;
   readonly hasList: boolean;
   readonly hasText: boolean;

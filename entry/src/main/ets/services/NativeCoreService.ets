@@ -48,6 +48,7 @@ import {
   SyncFileRecord as NativeSyncFileRecord,
   SyncHistoryError as NativeSyncHistoryError,
   Task as NativeTask,
+  TaskLog as NativeTaskLog,
   TitlePart as NativeTitlePart,
   AddressLink as NativeAddressLink,
   TitleCount as NativeTitleCount,
@@ -85,6 +86,7 @@ export type CoreTaskRepeatMode = NativeTaskRepeatMode
 export type CoreTaskRepeatUnit = NativeTaskRepeatUnit
 export type CoreSupportTags = NativeSupportTags
 export type CoreTask = NativeTask
+export type CoreTaskLog = NativeTaskLog
 // createdAt 与 closedAt 由 Core 按本地时区解析，日志簿不从正文推算事件时间。
 export type CoreTitlePart = NativeTitlePart
 export type CoreAddressLink = NativeAddressLink

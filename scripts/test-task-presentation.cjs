@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、侧边栏批量查询计数、项目区块与来源文字和同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、侧边栏批量查询计数、项目区块与来源文字及任务／同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -24,7 +24,7 @@ function task(id, values = {}) {
   const result = Object.create({ taskStateOf(category) { return category === 'Done' ? { name: 'DONE', category } : null; }, isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancel'; }, project() { return this.projectName ?? null; } });
   for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
     state: { name: 'TODO', category: 'Todo' }, projectName: null, priority: null, priorityOptions: [], scheduled: '', deadline: '', tags: [],
-    filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '',
+    filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '', logs: [],
     hasList: false, hasText: true, isRepeating: false, isHabit: false, progress: -1, ...values })) {
     Object.defineProperty(result, key, { value, enumerable: true });
   }
@@ -556,4 +556,35 @@ test('来源文字追加项目名，分类缺失时单独显示项目，非项�
   assert.equal(taskSourceText(task('e', { category: null })), '');
   assert.equal(taskSourceText(task('f', { category: null }), true), 'inbox.org');
   assert.notEqual(taskRenderKey(task('same', { projectName: '旧项目' })), taskRenderKey(task('same', { projectName: '新项目' })));
+});
+
+test('任务日志按类型显示摘要、时间和附注，保留顺序与安全富文本', () => {
+  const { taskLogsHtml } = loadGrouping('TaskLogPresentation', {});
+  const html = taskLogsHtml([
+    { type: 'taskStateChange', from: '', to: '<img src=x onerror=alert(1)>', timestamp: '2026-11-13 10:00', noteHtml: '<p>等待<b>确认</b></p>' },
+    { type: 'taskNote', timestamp: '2026-11-12', noteHtml: '<p>笔记<a class="link" href="https://example.com">链接</a></p>' },
+    { type: 'taskReschedule', previous: '<2026-11-10 Tue +1w>', timestamp: '2026-11-11', noteHtml: '' },
+    { type: 'taskClock', start: '2026-11-10 23:00', end: '2026-11-11 01:00', duration: '2:00' },
+    { type: 'taskClock', start: '2026-11-10 08:00', end: null, duration: null },
+    { type: 'other', html: '<p>自定义记录</p>' }
+  ]);
+  assert.ok(html.includes('无状态 → &lt;img'));
+  assert.ok(!html.includes('<img'));
+  assert.ok(html.includes('<p>等待<b>确认</b></p>'));
+  assert.ok(html.includes('href="https://example.com"'));
+  assert.ok(html.includes('原计划 &lt;2026-11-10 Tue +1w&gt;'));
+  assert.ok(html.includes('计时 · 2:00'));
+  assert.ok(html.includes('2026-11-10 23:00 – 2026-11-11 01:00'));
+  assert.ok(html.includes('计时中'));
+  assert.ok(html.includes('自定义记录'));
+  assert.ok(html.indexOf('taskStateChange') < html.indexOf('taskNote'));
+  assert.ok(html.indexOf('taskNote') < html.indexOf('taskReschedule'));
+});
+
+test('日志变化使任务行采用新快照，空日志不生成条目', () => {
+  const { taskLogsHtml } = loadGrouping('TaskLogPresentation', {});
+  assert.ok(!taskLogsHtml([]).includes('<article'));
+  const previous = task('log-task');
+  const updated = task('log-task', { logs: [{ type: 'taskNote', timestamp: '2026-11-13', noteHtml: '<p>追加记录</p>' }] });
+  assert.notEqual(taskRenderKey(previous), taskRenderKey(updated));
 });

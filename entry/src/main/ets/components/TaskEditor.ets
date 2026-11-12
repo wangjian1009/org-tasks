@@ -7,6 +7,7 @@ import { TitleText } from './TitleText'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts } from '../ui/TitleCountPresentation'
 import { OrgContentView } from './OrgContentView'
+import { TaskLogView } from './TaskLogView'
 import { UiColor } from '../ui/Theme'
 import { repeatSummary } from '../ui/TaskRepeatPresentation'
 
@@ -149,7 +150,7 @@ export struct TaskEditor {
                 .padding({ left: 16, right: 16, top: 4, bottom: 24 })
             }
           }
-          if (!this.editable && this.task!.logbookHtml) {
+          if (!this.editable && this.task!.logs.length > 0) {
             Divider().color(UiColor.outline)
             Row({ space: 24 }) {
               Image($r('app.media.ui_body')).width(24).height(24)
@@ -158,7 +159,8 @@ export struct TaskEditor {
             }.width('100%').padding({ left: 16, right: 4 }).height(52)
               .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
             if (this.logbookExpanded) {
-              OrgContentView({ fragment: this.task!.logbookHtml, embedded: true }).width('100%')
+              TaskLogView({ logs: this.task!.logs, contentBackground: UiColor.surface })
+                .width('100%').padding({ left: 16, right: 16, bottom: 12 })
             }
           }
           Divider().color(UiColor.outline)

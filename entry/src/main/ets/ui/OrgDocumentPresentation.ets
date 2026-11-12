@@ -3,7 +3,8 @@ import { UiColor } from './Theme'
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
 export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false,
   backgroundColor: string = UiColor.surface, embeddedPadding: number = 16,
-  fileReading: boolean = false, fileContext: string = '', flowReading: boolean = false): string {
+  fileReading: boolean = false, fileContext: string = '', flowReading: boolean = false,
+  compactLogs: boolean = false): string {
   const reading = fileReading && (!embedded || flowReading)
   const context = fileContext.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -124,5 +125,20 @@ html { background: ${backgroundColor}; }
 .conflict-delete .conflict-card-actions button:first-child { background: #D695A4; color: #44202A; }
 .conflict-modify { border-color: #5B5541; border-left-color: #CAB57D; background: #37352C; }
 .conflict-modify .conflict-card-badge { background: #504B38; color: #E4D2A1; }
-</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
+body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans-serif; }
+.task-logs { display: grid; gap: 6px; }
+.task-log { min-width: 0; }
+.task-log-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+.task-log-time { color: ${UiColor.disabled}; font-size: 11px; }
+.task-log-detail { color: ${UiColor.disabled}; font-size: 11px; }
+.task-log-note { margin-top: 2px; font-size: 13px; }
+.task-log.taskStateChange .task-log-note { padding-left: 8px; }
+.task-log :is(p, ul, ol, pre, blockquote, .source, .drawer, .table-scroll) { margin-top: 2px; margin-bottom: 2px; }
+.task-log :is(p, li, pre, code, table, .source-code, .heading-title) { font-size: 13px; line-height: 1.5; color: inherit; }
+.task-log :is(ul, ol) { padding-left: 18px; }
+.task-log :is(.timestamp, .link) { color: inherit; }
+.task-log .timestamp { text-decoration: none; }
+.task-log .source { padding: 4px 8px; background: transparent; }
+.task-log blockquote { padding-left: 8px; border-left: 1px solid ${UiColor.outline}; }
+</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
 }

@@ -70,6 +70,7 @@ const native = require(addon);
 
 function snapshot(name = 'DONE', done = false) {
   return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
+    logs: [{ type: 'taskStateChange', from: 'TODO', to: name, timestamp: '2026-11-13 09:00', noteHtml: '<p>附注</p>' }],
     priority: { name: 'B', category: 'Hight' }, priorityOptions: [{ name: 'B', category: 'Hight' }, { name: 'C', category: 'Low' }],
     taskPriorityOptions: { Hight: { name: 'B', category: 'Hight' }, Middle: null, Low: { name: 'C', category: 'Low' } },
     state: { name: 'TODO', category: 'Todo' }, taskStateOptions: {
@@ -83,6 +84,19 @@ function copy(value) {
   for (const key of Object.keys(value)) result[key] = copy(value[key]);
   return result;
 }
+
+test('结构化日志穿过 N-API 与 ArkUI 深拷贝后保留类型和附注，快照互不影响', () => {
+  const original = snapshot();
+  const cloned = copy(original);
+  assert.deepEqual(cloned.logs, original.logs);
+  assert.ok(Object.keys(original).includes('logs'));
+  assert.equal(Object.getOwnPropertyDescriptor(original, 'logs').writable, false);
+  cloned.logs[0].to = 'WAIT';
+  cloned.logs[0].noteHtml = '<p>新附注</p>';
+  assert.equal(original.logs[0].to, 'DONE');
+  assert.equal(original.logs[0].noteHtml, '<p>附注</p>');
+  assert.equal(JSON.parse(JSON.stringify(original)).logs[0].type, 'taskStateChange');
+});
 
 test('仅复制字段和原型会丢失原生绑定，复现启动异常', () => {
   const task = snapshot();

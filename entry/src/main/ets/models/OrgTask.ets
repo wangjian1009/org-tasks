@@ -1,4 +1,4 @@
-import { CoreSettings, TaskState, TaskPriority } from 'liborg_tasks_harmony.so'
+import { CoreSettings, TaskState, TaskPriority, TaskLog } from 'liborg_tasks_harmony.so'
 // Org 任务数据模型
 
 export interface OrgTask {
@@ -15,6 +15,7 @@ export interface OrgTask {
   body: string         // 正文内容
   bodyHtml: string      // Core 渲染的正文，不包含 LOGBOOK
   logbookHtml: string   // Core 提取并渲染的 LOGBOOK
+  logs: TaskLog[]       // Core 按 Org 日志语义生成的只读条目
   progress: number     // 预留投影字段；当前 bridge 固定返回 -1
 }
 

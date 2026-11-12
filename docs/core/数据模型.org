@@ -1613,3 +1613,38 @@ pub struct TaskPriority {
 \umluniassoc{FilterTask}{OrgFileMetadata}
 \umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TaskPriority}
 \end{tikzpicture}
+
+
+* 结构化任务日志
+
+~TaskLog~ 是 ~FilterTask.logs()~ 与 ~RenderedTaskContent.logs~ 返回的只读枚举，不是新的解析 AST 或持久化实体。解析语义依据 Org 9.8 manual 的 Progress Logging、Closing items、Tracking TODO state changes、Deadlines and Scheduling、Clocking Work Time 和 Refile and Copy；记录标题按默认 ~org-log-note-headings~ 模板识别。
+
+| 枚举分支 | 标准记录 | 专属字段 |
+|-
+| ~TaskStateChange~ | State "新状态" from "原状态" | ~from~ 、 ~to~ |
+| ~TaskNote~ | Note taken on | 无 |
+| ~TaskClosingNote~ | CLOSING NOTE | 无 |
+| ~TaskReschedule~ | Rescheduled from | ~previous~ |
+| ~TaskScheduleRemoval~ | Not scheduled, was | ~previous~ |
+| ~TaskDeadlineChange~ | New deadline from | ~previous~ |
+| ~TaskDeadlineRemoval~ | Removed deadline, was | ~previous~ |
+| ~TaskRefile~ | Refiled on | 无 |
+| ~TaskClock~ | CLOCK 计时间隔或运行中的计时 | ~start~ 、可空 ~end~ 、可空 ~duration~ |
+| ~Other~ | 自定义模板、无效时间或其他内容 | 安全富文本 ~html~ |
+
+除 ~TaskClock~ 与 ~Other~ 外，各分支均包含 ~timestamp: String~ 和 ~note_html: String~ 。时间使用 ~YYYY-MM-DD~ 或 ~YYYY-MM-DD HH:MM~ ，保持 Org 本地日历时间，不补造时区或缺失时刻；计时的 ~start~ 、 ~end~ 使用同一格式。 ~previous~ 保留原规划时间戳，包括重复器； ~duration~ 保留 Org CLOCK 已记录的时长，不重新计算。
+
+只遍历当前任务正文中的真实 LOGBOOK drawer，名称不区分大小写；源码、示例和其他 drawer 中的字面标记不生成日志。每个直接列表项是一条记录，续行与嵌套列表归属当前记录的附注；不把附注中的日志样式文字再次拆分。多个 LOGBOOK 按原文顺序合并，空 drawer 返回空数组，重复记录保留。标题要求完整匹配默认模板且时间有效，自定义模板整体回退为 ~Other~ 。附注与回退内容复用 Core 的安全 HTML 投影，保留行内样式、链接、列表和代码，不执行脚本或加载外部资源。
+
+JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskNote~ 、 ~noteHtml~ 。旧 ~logbook_html~ 继续供既有宿主消费，手机任务日志改用结构化枚举；所有投影均不改写源文件、同步记录或 outbox。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{FilterTask}{}{logs(): Vec\textless TaskLog\textgreater}
+\umlclass[x=7,y=0]{RenderedTaskContent}{logs: Vec\textless TaskLog\textgreater}{}
+\umlclass[x=3.5,y=-4,type=enumeration]{TaskLog}{TaskStateChange \\ TaskNote \\ TaskClosingNote \\ TaskReschedule \\ TaskScheduleRemoval \\ TaskDeadlineChange \\ TaskDeadlineRemoval \\ TaskRefile \\ TaskClock \\ Other}{}
+\umldep{FilterTask}{TaskLog}
+\umluniassoc[mult1=1,mult2=0..*]{RenderedTaskContent}{TaskLog}
+\end{tikzpicture}
+\end{center}

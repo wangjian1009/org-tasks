@@ -676,15 +676,20 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 pub struct RenderedTaskContent {
     pub body_html: String,
     pub logbook_html: String,
+    pub logs: Vec<TaskLog>,
     pub has_list: bool,
     pub has_text: bool,
 }
 impl FilterTask {
     pub fn render_content(&self) -> RenderedTaskContent;
+    pub fn logs(&self) -> Vec<TaskLog>;
 }
 #+end_src
 
 render_content() 只处理当前任务的 body，使用同一 orgize 解析器生成安全 HTML；不改变原始 body 的查询语义或源文件。真实 LOGBOOK drawer 的内容从 body_html 中排除并按出现顺序聚合到 logbook_html，普通文字、源码和示例块中的同名标记不提取。其他 drawer 保持默认折叠，内部按真实 Org 节点渲染行内格式、链接、列表与代码块，配置关键字继续隐藏且不执行文内代码；属性 drawer 按解析后的名称和合并值展示，不输出冒号或追加标记。日志本身渲染列表、时间与 CLOCK 内容；只有日志时 body_html 为空。 ~has_list~ 标记真实列表，~has_text~ 标记列表之外的可读正文，二者均排除日志、drawer、源码和字面块，不在宿主通过原文或 HTML 推断。输出仅供运行时展示，不保存到同步记录或 outbox。
+
+~logs()~ 和 ~RenderedTaskContent.logs~ 从真实 LOGBOOK drawer 的直接内容生成 ~TaskLog~ 枚举，按原文出现顺序返回，不重新按时间排序。枚举包含 ~TaskStateChange~ 、 ~TaskNote~ 、 ~TaskClosingNote~ 、 ~TaskReschedule~ 、 ~TaskScheduleRemoval~ 、 ~TaskDeadlineChange~ 、 ~TaskDeadlineRemoval~ 、 ~TaskRefile~ 、 ~TaskClock~ 与 ~Other~ ，字段和识别规则见 [[file:数据模型.org::*结构化任务日志][数据模型]]。附注继续使用同一安全富文本渲染器；未知模板或无效时间回退为 ~Other~ ，不猜测或丢弃原文。此接口只提供运行时投影，不改变 Org 字节及既有 ~logbook_html~ 契约。
+
 
 ** 正文首行投影
 
