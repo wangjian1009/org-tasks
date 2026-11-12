@@ -1,10 +1,10 @@
 import { CoreRefileTarget } from '../services/NativeCoreService'
-import { RefileSection } from '../ui/InboxPresentation'
+import { RefileSection } from '../ui/MoveToTargetPresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { TitleText } from './TitleText'
 
 @Component
-export struct InboxTargetPopup {
+export struct MoveToTarget {
   @Prop @Watch('sectionsChanged') sections: RefileSection[] = []
   @Prop @Watch('resetSelection') selectionKey: string = ''
   @Prop loading: boolean = false
@@ -41,14 +41,20 @@ export struct InboxTargetPopup {
   }
 
   @Builder
-  categoryTab(section: RefileSection, index: number) {
+  targetTab(section: RefileSection, index: number) {
     Column({ space: 4 }) {
-      Text(section.category || '未分类').fontSize(UiSize.taskFont).fontWeight(this.activeTabIndex === index ? FontWeight.Medium : FontWeight.Normal)
-        .fontColor(this.activeTabIndex === index ? UiColor.primary : UiColor.secondary)
-        .maxLines(1).constraintSize({ maxWidth: 160 }).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row({ space: 4 }) {
+        if (section.kind === 'project') {
+          Image($r('app.media.ui_folder')).width(16).height(16)
+            .fillColor(this.activeTabIndex === index ? UiColor.primary : UiColor.secondary).accessibilityLevel('no')
+        }
+        Text(section.name || '未分类').fontSize(UiSize.taskFont).fontWeight(this.activeTabIndex === index ? FontWeight.Medium : FontWeight.Normal)
+          .fontColor(this.activeTabIndex === index ? UiColor.primary : UiColor.secondary)
+          .maxLines(1).constraintSize({ maxWidth: 160 }).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
       Row().height(2).width(28).backgroundColor(this.activeTabIndex === index ? UiColor.primary : Color.Transparent).borderRadius(1)
     }.height(40).padding({ left: 14, right: 14, top: 6 }).justifyContent(FlexAlign.Center)
-      .accessibilityText(`${section.category || '未分类'}${this.activeTabIndex === index ? '，已选择' : ''}`)
+      .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}${this.activeTabIndex === index ? '，已选择' : ''}`)
   }
 
   @Builder
@@ -58,7 +64,7 @@ export struct InboxTargetPopup {
         textSize: UiSize.taskFont, lineLimit: 1, weight: this.isSelected(target) ? FontWeight.Medium : FontWeight.Normal,
         activate: (): void => this.select(target) }).layoutWeight(1).constraintSize({ minWidth: 0 })
       if (this.isSelected(target)) {
-        Button('移动').id('inbox_move_target').width(58).height(32).padding(0).borderRadius(10)
+        Button('移动').id('move_to_target').width(58).height(32).padding(0).borderRadius(10)
           .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(UiSize.taskFont).enabled(!this.busy && !this.loading)
           .accessibilityText(`移动到${target.headingPath[target.headingPath.length - 1] || ''}`)
           .onClick((): void => this.move(target))
@@ -105,7 +111,7 @@ export struct InboxTargetPopup {
               }.width('100%').height('100%').padding({ left: 12, right: 12, top: 4, bottom: 4 })
                 .edgeEffect(EdgeEffect.None)
                 .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
-            }.tabBar(this.categoryTab(section, index))
+            }.tabBar(this.targetTab(section, index))
           }, (section: RefileSection) => JSON.stringify(section))
         }.width('100%').layoutWeight(1).barHeight(40).barMode(BarMode.Scrollable)
           .scrollable(!this.busy).enabled(!this.busy).onChange((index: number): void => {

@@ -1,25 +1,4 @@
-import { CoreRefileTarget, CoreTask } from '../services/NativeCoreService'
-import { UiSize } from './Theme'
-
-export interface RefileSection { category: string; targets: CoreRefileTarget[] }
-
-// 文件 CATEGORY 只用于分组；每个 Core 目标及其快照身份均予以保留。
-export function refileSections(targets: CoreRefileTarget[]): RefileSection[] {
-  const groups = new Map<string, RefileSection>()
-  for (const target of targets) {
-    const category = target.category || ''
-    let section = groups.get(category)
-    if (!section) { section = { category, targets: [] }; groups.set(category, section) }
-    section.targets.push(target)
-  }
-  const sections: RefileSection[] = []
-  groups.forEach((section: RefileSection) => sections.push(section))
-  return sections.sort((left: RefileSection, right: RefileSection): number => {
-    if (!left.category) return right.category ? 1 : 0
-    if (!right.category) return -1
-    return left.category < right.category ? -1 : left.category > right.category ? 1 : 0
-  })
-}
+import { CoreTask } from '../services/NativeCoreService'
 
 export interface RecentTaskGroup { key: string; project: string | null; tasks: CoreTask[] }
 export interface RecentDay { key: string; date: string; weekday: string; tasks: CoreTask[]; groups: RecentTaskGroup[] }
@@ -64,14 +43,4 @@ export function recentDays(tasks: CoreTask[], reference: Date = new Date()): Rec
 
 export function unplannedSpacer(viewHeight: number, rowsHeight: number): number {
   return Math.max(48, viewHeight * 0.75 - rowsHeight)
-}
-
-// 以最多目标的分类计算高度，最多显示四行；小窗口为锚点和系统栏留出空间。
-export function targetPopupHeight(sections: RefileSection[], availableHeight: number,
-  loading: boolean = false, message: string = '', busy: boolean = false): number {
-  let count = 0
-  for (const section of sections) count = Math.max(count, section.targets.length)
-  const body = loading ? 64 : count > 0 ? 40 + 8 + Math.min(4, count) * UiSize.taskRow : 80
-  const height = 48 + 1 + 8 + body + (message ? 124 : 0) + (busy ? 40 : 0)
-  return Math.min(height, Math.max(160, availableHeight - 104))
 }

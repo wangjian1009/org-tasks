@@ -320,11 +320,14 @@ pub struct RefileTarget {
     pub heading_path: Vec<String>,
     pub position: SourcePosition,
     pub category: Option<String>,
+    pub project_name: Option<String>,
     pub file_version: String,
 }
 #+end_src
 
 ~heading_path~ 保留从根祖先到自身的全部标题分段，包括无状态祖先；各段使用剥离状态、优先级及标签后的标题 Org 原文并去除首尾空白。标题中的斜杠属于标题文字，不拆分层级；相对文件路径同样独立保存。 ~display_path()~ 返回“仓库 ID / 文件相对路径 / 标题1 / 标题2”，仅供展示，宿主可将仓库 ID 映射为显示名。
+
+~project_name~ 复用文件元信息的项目识别与名称回退，非项目为 ~None~ ，未命名项目为 ~Some("")~ ；它与 CATEGORY、文件版本属于同一快照，只用于宿主展示分组，不进入持久化。
 
 ~position~ 复用 ~SourcePosition~ ，定位当前快照中的标题起点。相同仓库、文件及标题链可有多个目标，不能按展示路径去重，也不能将源位置作为跨编辑的稳定身份。结果按仓库 ID、文件路径和字节偏移排序；文件修改后重新遍历当前树，不维护目标缓存。标签必须精确为大写 ~REFILE~ ，标记不继承；目标不进入同步记录、outbox 或其他持久化状态。
 
@@ -338,6 +341,7 @@ path: String \\
 heading\_path: Vec\textless String\textgreater \\
 position: SourcePosition \\
 category: Option\textless String\textgreater \\
+project\_name: Option\textless String\textgreater \\
 file\_version: String}{display\_path(): String}
 \umlclass[x=8,y=-4]{SourcePosition}{line: u32 \\
 column: u32 \\

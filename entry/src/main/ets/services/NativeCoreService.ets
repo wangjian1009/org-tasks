@@ -121,6 +121,7 @@ export interface CoreConflict { repoId: string; syncId: string; paths: string[] 
 
 export type CoreOrgFileRef = NativeOrgFileRef
 export type CoreRefileTargetQuery = NativeRefileTargetQuery
+// 目标元信息直接使用 Core 快照，包含用于平级项目分类的 projectName。
 export type CoreRefileTarget = NativeRefileTarget
 export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion

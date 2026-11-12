@@ -866,6 +866,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             if (ProjectQueryResults(env, result)) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {
+            // REFILE 目标完整透传 Core 快照，保留 projectName 的 null 与空字符串语义。
             napi_resolve_deferred(env, work->deferred, result);
         }
     }

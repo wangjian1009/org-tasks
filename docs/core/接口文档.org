@@ -617,10 +617,12 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 #+begin_src rust
 pub struct RefileTarget {
     pub repo_id: OrgRepoId,
+    pub full_path: TaskPath,
     pub path: String,
     pub heading_path: Vec<String>,
     pub position: SourcePosition,
     pub category: Option<String>,
+    pub project_name: Option<String>,
     pub file_version: String,
 }
 
@@ -632,6 +634,8 @@ impl RefileTarget {
 只返回标题自身显式带有 ~:REFILE:~ 的真实标题，祖先标签和文件头 ~FILETAGS~ 不把子标题隐式变成放置目标； ~refile~ 、 ~PREFILE~ 等仍是普通标签。无 TODO 状态、已完成及命中 ~.orgzlyignore~ 的文件中的显式目标均返回，因为这里枚举完整文件中的放置位置，不应用任务查询的过滤条件。
 
 ~heading_path~ 按从外到内的顺序包含所有祖先标题及目标自身，不因祖先没有 TODO 状态而省略。每段保留标题的 Org 行内原文，去掉首尾空白，不包含星号、TODO 状态、优先级和标签。 ~path~ 是完整的仓库相对文件路径，不使用文件 ~TITLE~ 替换。 ~display_path()~ 将仓库 ID、文件路径及各级标题用 ~" / "~ 连接，例如“work / projects/tasks.org / 项目 / 研发”。Core 不持有宿主配置中的仓库显示名，宿主可根据 ~repo_id~ 替换首段的展示文字。
+
+~project_name~ 与 CATEGORY、文件版本取自同一文件快照，复用文件元信息的项目识别和名称优先级：非项目为 ~None~ ，未命名项目为 ~Some("")~ ，宿主只组织展示，不自行识别文件标签。跨语言字段为 ~projectName: string | null~ 。
 
 结果按仓库 ID、相对文件路径和源字节偏移依次排序。相同标题链的多个目标不去重，由 ~repo_id~ 、 ~path~ 与 ~position~ 区分当前快照中的位置；展示字符串不能作为标识或反向解析的输入。文件编辑或重新加载后需重新获取目标，源位置不保证跨快照稳定。此接口只枚举放置位置，不执行任务移动。
 

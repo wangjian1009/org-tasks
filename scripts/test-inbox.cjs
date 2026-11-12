@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-inbox.cjs\n验证收件箱 CATEGORY 分组、目标身份、移动、将来，也许、备忘与删除请求。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-inbox.cjs\n验证移动目标 CATEGORY 与项目平级分组、目标身份、移动、将来，也许、备忘与删除请求。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -24,15 +24,32 @@ function load(file, mocks) {
   return module.exports;
 }
 const target = (id, category) => ({ repoId: id, path: 'projects.org', fullPath: { repoId: id, file: 'projects.org', titles: ['Parent', 'Same'], occurrence: 1 }, headingPath: ['Parent', 'Same'],
-  position: { line: 1, column: 0, byte_offset: 0 }, category, fileVersion: 'target-version' });
+  position: { line: 1, column: 0, byte_offset: 0 }, category, projectName: null, fileVersion: 'target-version' });
 test('按文件 CATEGORY 合并分组，同名目标保持独立，未分类置后', () => {
-  const { refileSections } = load('ui/InboxPresentation', {});
+  const { refileSections } = load('ui/MoveToTargetPresentation', {});
   const targets = [target('a', null), target('b', 'Work'), target('c', 'Work'), target('d', '')];
   const sections = refileSections(targets);
-  assert.deepEqual(sections.map(s => s.category), ['Work', '']);
+  assert.deepEqual(sections.map(s => s.name), ['Work', '']);
   assert.deepEqual(sections[0].targets, [targets[1], targets[2]]);
   assert.deepEqual(sections[1].targets, [targets[0], targets[3]]);
   assert.equal(targets.length, 4);
+});
+test('项目名与 CATEGORY 平级，不重复归类，同名项目与分类保留独立 Tab', () => {
+  const { refileSections } = load('ui/MoveToTargetPresentation', {});
+  const values = [target('plain', 'Work'),
+    { ...target('project-a', 'Work'), projectName: 'Website' },
+    { ...target('project-b', 'Home'), projectName: 'Website' },
+    { ...target('same-name', 'Home'), projectName: 'Work' },
+    { ...target('unnamed', null), projectName: '' }, target('uncategorized', null)];
+  const sections = refileSections(values);
+  assert.deepEqual(sections.map(s => [s.kind, s.name, s.targets.map(t => t.repoId)]), [
+    ['project', 'Website', ['project-a', 'project-b']], ['category', 'Work', ['plain']],
+    ['project', 'Work', ['same-name']], ['project', '未命名项目', ['unnamed']],
+    ['category', '', ['uncategorized']]
+  ]);
+  assert.equal(new Set(sections.map(s => s.key)).size, sections.length);
+  assert.deepEqual(sections.flatMap(s => s.targets).sort((a, b) => a.repoId.localeCompare(b.repoId)),
+    [...values].sort((a, b) => a.repoId.localeCompare(b.repoId)));
 });
 function fixture() {
   const requests = [];
@@ -263,27 +280,110 @@ test('收件箱与近期记录在同一批次，最近三天表达式及精确�
   assert.deepEqual(queries[0][2].query,{expression:'cr.ge.-2d cr.le.today .o.created',includeDone:true,includeComposeTasks:true,excludedFiles:[{repoId:'core-id',path:'inbox.org'}]});
 });
 
-test('普通 CATEGORY 查询在 Core 排除收件箱和某天文件，快捷入口独立查询具体文件', async () => {
+test('通用目标查询仅排除配置的具体文件，不为某天快捷入口额外读取元信息', async () => {
   const queries = [];
-  const normal = [target('core-a', 'Work')];
-  const first = { ...target('core-a', '必须排除的分类'), path: 'someday.org', headingPath: ['Later'], position: { line: 1, column: 0, byte_offset: 0 } };
-  const second = { ...first, headingPath: ['Other'], position: { line: 2, column: 0, byte_offset: 40 } };
-  const repo = { id: 'core-a', rootDirectory: '/a', async load() {},  };
-  const { InboxService } = load('services/InboxService', {
-    './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-a', rootDirectory: '/a' }],
+  const normal = [target('core-a', 'Work'), { ...target('core-b', 'Home'), projectName: 'Website' }];
+  const repos = [{ id: 'core-a', rootDirectory: '/a', async load() {} },
+    { id: 'core-b', rootDirectory: '/b', async load() {} }];
+  const { MoveToTargetService } = load('services/MoveToTargetService', {
+    './AppConfigService': { AppConfigService: { async load() { return { repos: [
+      { id: 'host-a', rootDirectory: '/a' }, { id: 'host-b', rootDirectory: '/b' }],
       inboxRepoId: 'host-a', inboxFile: 'inbox.org', somedayRepoId: 'host-a', somedayFile: 'someday.org' }; } } },
     './FileTargetService': { configuredFileTarget: (config, kind) => ({ repoId: config[kind + 'RepoId'], path: config[kind + 'File'] }) },
-    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false,taskStateOf(category){ assert.equal(category,'Todo'); return initialState ? {name:initialState,category} : null; }}]}));},
-      async refileTargets(query) { queries.push(query); return query.files ? [first, second] : normal; } }; } } }
+    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return {
+      async repos() { return repos; },
+      async query() { throw new Error('普通移动不应查询某天文件元信息'); },
+      async refileTargets(query) { queries.push(query); return normal; }
+    }; } } }
   });
-  const result = await InboxService.targets({});
-  assert.deepEqual(queries, [
-    { excludedFiles: [{ repoId: 'core-a', path: 'inbox.org' }, { repoId: 'core-a', path: 'someday.org' }] },
-    { files: [{ repoId: 'core-a', path: 'someday.org' }] }
-  ]);
-  assert.equal(result.targets, normal);
-  assert.equal(result.somedayTarget, first);
-  assert.equal(result.somedayHint, '');
+  assert.equal(await MoveToTargetService.targets({}), normal);
+  assert.deepEqual(queries, [{ excludedFiles: [
+    { repoId: 'core-a', path: 'inbox.org' }, { repoId: 'core-a', path: 'someday.org' }
+  ] }]);
+});
+
+test('通用移动保留跨仓库源目标版本与身份，只为启用同步的仓库排队', async () => {
+  const requests = [];
+  const { MoveToTargetService } = load('services/MoveToTargetService', {
+    './AppConfigService': { AppConfigService: { async load() { return { repos: [
+      { id: 'host-a', rootDirectory: '/a', webdavEnabled: true },
+      { id: 'host-b', rootDirectory: '/b', webdavEnabled: false }
+    ] }; } } },
+    './FileTargetService': {},
+    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return {
+      async repos() { return [{ id: 'core-a', rootDirectory: '/a', async load() {} },
+        { id: 'core-b', rootDirectory: '/b', async load() {} }]; },
+      async executeTaskOperations(group) { requests.push(group); }
+    }; } } }
+  });
+  const source = { repoId: 'core-a', filePath: 'inbox.org', fileVersion: 'source-version',
+    fullPath: { repoId: 'core-a', file: 'inbox.org', titles: ['Source'] } };
+  const selected = { ...target('core-b', 'Home'), projectName: 'Website' };
+  await MoveToTargetService.move({}, source, selected);
+  assert.deepEqual(requests, [{
+    operations: [{ type: 'Movement', data: { path: source.fullPath, position: { parent: selected.fullPath } } }],
+    queueRepoIds: ['core-a'], fileVersions: [
+      { repoId: 'core-a', file: 'inbox.org', version: 'source-version' },
+      { repoId: 'core-b', file: 'projects.org', version: 'target-version' }
+    ]
+  }]);
+});
+
+function moveRetryFixture() {
+  const filename = 'entry/src/main/ets/pages/Inbox.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const methods = ['refreshMoveTargets', 'loadTargets', 'closeTargetPopup'].map(name =>
+    source.match(new RegExp(`  (?:async )?${name}\\(\\) \\{[\\s\\S]*?\\n  \\}\\n`))[0]).join('');
+  const code = ts.transpileModule('export class MoveRetry {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} }, calls = [];
+  const current = { id: 'source', fileVersion: 'fresh-source-version' };
+  const freshTarget = { ...target('r', 'Work'), projectName: 'Website', fileVersion: 'fresh-target-version' };
+  let find = async () => current, targets = async () => [freshTarget];
+  vm.runInThisContext('(function(module,exports,TaskInlineService,MoveToTargetService,refileSections,coreErrorMessage){' + code + '\n})', { filename })(
+    module, module.exports,
+    { async find(_context, source) { calls.push(['source', source]); return await find(); } },
+    { async targets() { calls.push(['targets']); return await targets(); } },
+    load('ui/MoveToTargetPresentation', {}).refileSections, error => error.message);
+  const original = { id: 'source', fileVersion: 'stale-source-version' };
+  const state = Object.assign(new module.exports.MoveRetry(), {
+    selected: original, actionBusy: false, targetsLoading: false, targetRequest: 0, visible: true,
+    targetSections: [], popupMessage: '文件版本冲突', getUIContext: () => ({ getHostContext: () => ({}) })
+  });
+  return { state, calls, original, current, freshTarget, findWith: fn => find = fn, targetsWith: fn => targets = fn };
+}
+
+test('收件箱移动重试按顺序重读源与目标版本，刷新后归入项目 Tab', async () => {
+  const f = moveRetryFixture();
+  await f.state.refreshMoveTargets();
+  assert.deepEqual(f.calls, [['source', f.original], ['targets']]);
+  assert.equal(f.state.selected, f.current);
+  assert.equal(f.state.targetSections[0].kind, 'project');
+  assert.equal(f.state.targetSections[0].targets[0], f.freshTarget);
+  assert.equal(f.state.popupMessage, '');
+  assert.equal(f.state.actionBusy, false);
+  assert.equal(f.state.targetsLoading, false);
+});
+
+test('移动重试在源消失或读取失败时停止，保留错误并阻止重复重读', async () => {
+  const missing = moveRetryFixture(); missing.findWith(async () => undefined);
+  await missing.state.refreshMoveTargets();
+  assert.equal(missing.state.selected, undefined);
+  assert.deepEqual(missing.state.targetSections, []);
+  assert.equal(missing.calls.length, 1);
+  const failed = moveRetryFixture(); failed.findWith(async () => { throw new Error('源读取失败'); });
+  await failed.state.refreshMoveTargets();
+  assert.equal(failed.state.selected, failed.original);
+  assert.equal(failed.state.popupMessage, '源读取失败');
+  assert.equal(failed.calls.length, 1);
+  const busy = moveRetryFixture(); let finish;
+  busy.findWith(() => new Promise(resolve => { finish = resolve; }));
+  const pending = busy.state.refreshMoveTargets();
+  await busy.state.refreshMoveTargets();
+  assert.equal(busy.calls.length, 1);
+  finish(busy.current); await pending;
+  assert.equal(busy.calls.length, 2);
 });
 
 test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与清除规划选项', async () => {
@@ -321,7 +421,7 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
 });
 
 test('位置浮层按最大分类计算高度，最多四行且小窗口限制高度', () => {
-  const { targetPopupHeight } = load('ui/InboxPresentation', {});
+  const { targetPopupHeight } = load('ui/MoveToTargetPresentation', {});
   const section = size => ({ category: String(size), targets: Array.from({ length: size }, () => target('r', 'Work')) });
   const small = targetPopupHeight([section(1)], 800);
   const large = targetPopupHeight([section(2), section(5)], 800);

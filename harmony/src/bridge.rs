@@ -1619,7 +1619,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             root.join("normal.org"),
-            "#+CATEGORY: Work\n* Work :REFILE:\n",
+            "#+CATEGORY: Work\n#+FILETAGS: :project:\n#+PROJECT_NAME: 官网改版\n* Work :REFILE:\n",
         )
         .unwrap();
         let handle = create_workspace().unwrap();
@@ -1642,6 +1642,7 @@ mod tests {
         .unwrap();
         assert_eq!(targets.as_array().unwrap().len(), 1);
         assert_eq!(targets[0]["category"], "Work");
+        assert_eq!(targets[0]["projectName"], "官网改版");
         let query =
             serde_json::json!({ "files": [{"repoId":task["repoId"],"path":"someday.org"}] });
         let targets: serde_json::Value = serde_json::from_str(

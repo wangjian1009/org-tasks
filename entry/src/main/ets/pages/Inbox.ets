@@ -9,14 +9,16 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { TaskDateDisplay } from '../ui/TaskListPresentation'
-import { InboxTargetPopup } from '../components/InboxTargetPopup'
+import { MoveToTarget } from '../components/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
 import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
 import { TaskPageActionPolicy, taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
 import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
-import { RefileSection, RecentDay, RecentTaskGroup, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
+import { MoveToTargetService } from '../services/MoveToTargetService'
+import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
+import { RefileSection, refileSections, targetPopupHeight } from '../ui/MoveToTargetPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
 import { CoreBridgeError, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
@@ -262,11 +264,11 @@ struct Inbox {
 
   @Builder
   targetPopup() {
-    InboxTargetPopup({ sections: this.targetSections,
-      selectionKey: this.selected ? JSON.stringify(this.selected.fullPath) : '',
+    MoveToTarget({ sections: this.targetSections,
+      selectionKey: this.selected ? JSON.stringify([this.selected.fullPath, this.selected.fileVersion]) : '',
       loading: this.targetsLoading, busy: this.actionBusy, message: this.popupMessage,
       choose: (target: CoreRefileTarget): void => { this.perform('move', target) },
-      retry: (): void => { this.loadRecords() } })
+      retry: (): void => { this.refreshMoveTargets() } })
       .width(this.popupWidth)
       .height(targetPopupHeight(this.targetSections, this.listHeight, this.targetsLoading, this.popupMessage, this.actionBusy))
   }
@@ -277,9 +279,9 @@ struct Inbox {
     this.targetsLoading = true
     this.popupMessage = ''
     try {
-      const targets = await InboxService.targets(this.getUIContext().getHostContext()!)
+      const targets = await MoveToTargetService.targets(this.getUIContext().getHostContext()!)
       if (request === this.targetRequest) {
-        this.targetSections = refileSections(targets.targets)
+        this.targetSections = refileSections(targets)
       }
     } catch (e) {
       if (request === this.targetRequest) {
@@ -289,6 +291,23 @@ struct Inbox {
     } finally {
       if (request === this.targetRequest) this.targetsLoading = false
     }
+  }
+
+  async refreshMoveTargets() {
+    if (!this.selected || this.actionBusy || this.targetsLoading) return
+    const request = ++this.targetRequest
+    this.actionBusy = true
+    this.popupMessage = ''
+    try {
+      const current = await TaskInlineService.find(this.getUIContext().getHostContext()!, this.selected)
+      if (request !== this.targetRequest || !this.visible) return
+      this.actionBusy = false
+      if (!current) { this.closeTargetPopup(); return }
+      this.selected = current
+      await this.loadTargets()
+    } catch (e) {
+      if (request === this.targetRequest) this.popupMessage = coreErrorMessage(e as CoreBridgeError)
+    } finally { this.actionBusy = false }
   }
 
   confirmDelete(record: CoreTask) {

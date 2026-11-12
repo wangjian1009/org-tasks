@@ -51,7 +51,7 @@ export type DataChangeMonitor = (event: DataChangeEvent) => void;
 export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; }
 export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
-  category: string | null; fileVersion: string;
+  category: string | null; projectName: string | null; fileVersion: string;
 }
 export class OrgFile {
   private constructor();

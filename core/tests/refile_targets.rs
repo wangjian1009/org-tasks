@@ -17,6 +17,25 @@ fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
 }
 
 #[tokio::test]
+async fn targets_include_project_names_from_the_same_file_snapshot() {
+    for (header, expected) in [
+        ("#+FILETAGS: :project:\n#+PROJECT_NAME: 官网改版\n#+TITLE: 备用名称\n", Some("官网改版")),
+        ("#+FILETAGS: :project:\n#+TITLE: 家庭旅行\n", Some("家庭旅行")),
+        ("#+FILETAGS: :project:\n", Some("")),
+        ("#+TITLE: 普通文件\n#+PROJECT_NAME: 无效项目名\n", None),
+    ] {
+        let source = format!("{header}#+CATEGORY: Work\n* 目标 :REFILE:project:\n");
+        let repository = repo("r", &[("targets.org", &source)]);
+        let targets = repository.refile_targets().await.unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].project_name.as_deref(), expected);
+        assert_eq!(targets[0].category.as_deref(), Some("Work"));
+        assert_eq!(serde_json::to_value(&targets[0]).unwrap()["projectName"], serde_json::json!(expected));
+        assert_eq!(serialize_file(&repository.load_files(&[]).await.unwrap()[0]), source.as_bytes());
+    }
+}
+
+#[tokio::test]
 async fn targets_use_explicit_tags_and_full_outline_including_plain_and_done_headings() {
     let source = "#+FILETAGS: :REFILE:\r\n\
 #+begin_src org\r\n,* 源码中的假目标 :REFILE:\r\n#+end_src\r\n\

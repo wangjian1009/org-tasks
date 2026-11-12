@@ -139,15 +139,15 @@ function moveCard() {
   const saved = { id: 'task', fileVersion: 'saved', fullPath: { titles: ['改后的标题'] } };
   const target = { fileVersion: 'target-version', fullPath: { titles: ['目标'] }, category: '工作' };
   const calls = [], released = [];
-  let save = async () => true, write = async () => {}, read = async () => saved, targets = async () => ({ targets: [target] });
+  let save = async () => true, write = async () => {}, read = async () => saved, targets = async () => [target];
   // 方法按产品依赖运行，保留源与目标快照以检验保存、取消和版本冲突。
   const code = 'export class MoveCard {' + ['openMove', 'loadMoveTargets', 'moveTo'].map(name => cardMethod(name, true)).join('') + cardMethod('closeMove') + '}';
   const output = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   class Missing extends Error {}
-  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,InboxService,refileSections,TaskInlineMissingError,coreErrorMessage){' + output + '\n})', { filename: cardFile })(
+  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,MoveToTargetService,refileSections,TaskInlineMissingError,coreErrorMessage){' + output + '\n})', { filename: cardFile })(
     module, module.exports, { reload: () => read() }, { release: key => released.push(key) },
-    { targets: () => targets(), perform: async (_context, source, action, selected) => { calls.push({ source, action, target: selected }); await write(); } },
+    { targets: () => targets(), move: async (_context, source, selected) => { calls.push({ source, action: 'move', target: selected }); await write(); } },
     values => [{ category: '工作', targets: values }], Missing, error => error.message);
   const state = Object.assign(new module.exports.MoveCard(), {
     rightSwipeAction: 'move', appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
@@ -187,7 +187,7 @@ test('移动浮层取消后丢弃在途目标结果，卡片离开后不打开�
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   assert.equal(f.state.moveOpen, true); f.state.closeMove();
   assert.equal(f.state.completing, false);
-  finishTargets({ targets: [f.target] }); await pending;
+  finishTargets([f.target]); await pending;
   assert.equal(f.state.moveOpen, false); assert.deepEqual(f.state.moveSections, []); assert.deepEqual(f.calls, []);
   const left = moveCard(); left.readWith(async () => { left.state.appeared = false; return left.saved; });
   await left.state.openMove(); assert.equal(left.state.moveOpen, false);

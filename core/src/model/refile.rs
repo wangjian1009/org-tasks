@@ -43,6 +43,8 @@ pub struct RefileTarget {
     /// 同名同路径的标题仍以当前快照的源位置区分。
     pub position: SourcePosition,
     pub category: Option<String>,
+    /// 与文件元信息使用相同的项目识别；空字符串表示未命名项目。
+    pub project_name: Option<String>,
     pub file_version: String,
 }
 
@@ -72,6 +74,7 @@ impl OrgRepo {
             .filter(|file| query.includes(&self.id, &file.path))
         {
             let category = file.category();
+            let project_name = file.project_name();
             let file_version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
             let mut ancestors: Vec<(usize, String)> = Vec::new();
             for (full_path, headline) in file.path_headlines() {
@@ -87,6 +90,7 @@ impl OrgRepo {
                         repo_id: self.id.clone(),
                         full_path,
                         category: category.clone(),
+                        project_name: project_name.clone(),
                         file_version: file_version.clone(),
                         path: file.path.clone(),
                         heading_path: ancestors.iter().map(|(_, title)| title.clone()).collect(),

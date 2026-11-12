@@ -8,9 +8,9 @@ import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
-import { InboxTargetPopup } from './InboxTargetPopup'
-import { InboxService } from '../services/InboxService'
-import { RefileSection, refileSections, targetPopupHeight } from '../ui/InboxPresentation'
+import { MoveToTarget } from './MoveToTarget'
+import { MoveToTargetService } from '../services/MoveToTargetService'
+import { RefileSection, refileSections, targetPopupHeight } from '../ui/MoveToTargetPresentation'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 import { PopupMenuButton } from './PopupMenuButton'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
@@ -172,8 +172,8 @@ export struct TaskListItem {
     this.moveMessage = ''
     this.moveSections = []
     try {
-      const targets = await InboxService.targets(this.getUIContext().getHostContext()!)
-      if (request === this.moveRequest && this.moveOpen) this.moveSections = refileSections(targets.targets)
+      const targets = await MoveToTargetService.targets(this.getUIContext().getHostContext()!)
+      if (request === this.moveRequest && this.moveOpen) this.moveSections = refileSections(targets)
     } catch (error) {
       if (request === this.moveRequest && this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
     } finally {
@@ -198,7 +198,7 @@ export struct TaskListItem {
     this.moveBusy = true
     this.moveMessage = ''
     try {
-      await InboxService.perform(this.getUIContext().getHostContext()!, source, 'move', target)
+      await MoveToTargetService.move(this.getUIContext().getHostContext()!, source, target)
       this.moveBusy = false
       this.closeMove()
       this.removeDeletedTask()
@@ -217,7 +217,7 @@ export struct TaskListItem {
 
   @Builder
   movePopup() {
-    InboxTargetPopup({ sections: this.moveSections, selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
+    MoveToTarget({ sections: this.moveSections, selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
       loading: this.moveLoading, busy: this.moveBusy, message: this.moveMessage,
       choose: (target: CoreRefileTarget): void => { this.moveTo(target) }, retry: (): void => { this.openMove() } })
       .width(Math.min(350, this.rowWidth)).height(this.movePopupHeight())
