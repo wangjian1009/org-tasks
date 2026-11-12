@@ -532,6 +532,9 @@ fn execute_inner(
                 return Err(CoreError::InvalidInput("字段修改列表不能为空"));
             }
             for modification in &data.modifications {
+                let ordinal = item.file.path_headlines().iter()
+                    .position(|(_, node)| start(node) == offset)
+                    .ok_or(CoreError::InvalidState("修改前标题无法定位"))?;
                 let headline = item
                     .file
                     .path_headlines()
@@ -541,11 +544,10 @@ fn execute_inner(
                     .ok_or(CoreError::InvalidState("修改后标题无法定位"))?;
                 modify(&mut item.file, &headline, modification)?;
                 // 各字段在写入处校验边界；重复调度允许更新标题内的真实时间戳。
-                item.file.path_headlines().into_iter().map(|(_, node)| node)
-                    .find(|node| start(node) == offset)
-                    .ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?;
+                let updated = item.file.path_headlines().into_iter().nth(ordinal)
+                    .ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?.1;
                 // 字段修改期间保留本标题起点，父级统计在全部字段完成后更新。
-                offset = start(&headline);
+                offset = start(&updated);
             }
             if data
                 .modifications
@@ -1344,10 +1346,13 @@ pub(super) fn planning(
             continue;
         }
         for (_, a, b) in matching {
+            let leading = file.source_bytes()[*a..*b].iter()
+                .take_while(|byte| matches!(byte, b' ' | b'\t')).count();
+            let prefix = std::str::from_utf8(&file.source_bytes()[*a..*a + leading]).expect("ASCII");
             let content = if !found {
                 value
                     .as_ref()
-                    .map(|value| format!("{name}: {value}"))
+                    .map(|value| format!("{prefix}{name}: {value}"))
                     .unwrap_or_default()
             } else {
                 String::new()

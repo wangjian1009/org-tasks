@@ -25,7 +25,7 @@ fn keywords(file: &OrgFile) -> Result<Vec<(String, String)>, CoreError> {
     Ok(settings)
 }
 
-fn property(
+pub(super) fn property(
     file: &OrgFile,
     headline: &Headline,
     name: &str,
@@ -199,7 +199,16 @@ pub(super) fn log_created_completion(
     Ok(())
 }
 
-fn modify_at(
+pub(super) fn modify_at(
+    file: &mut OrgFile,
+    headline: &Headline,
+    value: Option<&str>,
+    now: NaiveDateTime,
+) -> Result<(), CoreError> {
+    super::task_trigger::modify_at(file, headline, value, now)
+}
+
+pub(super) fn modify_without_triggers(
     file: &mut OrgFile,
     headline: &Headline,
     value: Option<&str>,
@@ -322,6 +331,9 @@ fn repeat_state(
     {
         return Ok(Some(state));
     }
+    if previous.is_none() {
+        return Ok(None);
+    }
     let flow = file.todo.workflows.iter().find(|flow| {
         flow.states
             .iter()
@@ -336,7 +348,7 @@ fn repeat_state(
         .or_else(|| file.todo.initial_state.clone()))
 }
 
-fn metadata_node(file: &OrgFile, headline: &Headline) -> Headline {
+pub(super) fn metadata_node(file: &OrgFile, headline: &Headline) -> Headline {
     let source = std::str::from_utf8(file.source_bytes()).expect("UTF-8");
     let masked = mask_repeater_windows(source);
     if masked == source {
@@ -379,7 +391,7 @@ fn insert_line(file: &mut OrgFile, at: usize, content: &str) -> Result<(), CoreE
     )
 }
 
-fn set_property(
+pub(super) fn set_property(
     file: &mut OrgFile,
     headline: &Headline,
     name: &str,

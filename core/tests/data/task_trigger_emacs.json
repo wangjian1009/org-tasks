@@ -1,0 +1,1034 @@
+{
+  "utcOffset": 28800,
+  "ednaVersion": "1.1.2",
+  "orgVersion": "9.8.10",
+  "now": "2026-11-11 12:34",
+  "cases": [
+    {
+      "name": "self-date-after-repeat",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "next-state",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(NEXT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(NEXT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "self-state",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: self todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* WAIT Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: self todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "quoted-state",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(\"WAIT\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(\"WAIT\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "clear-state",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(\"\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(\"\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "ids",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: ids(12345678-1234-1234-1234-123456789abc) todo!(NEXT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: ids(12345678-1234-1234-1234-123456789abc) todo!(NEXT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "id-prefix",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: ids(id:12345678-1234-1234-1234-123456789abc) todo!(NEXT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: ids(id:12345678-1234-1234-1234-123456789abc) todo!(NEXT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "union-dedup",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: self self next-sibling set-property!(\"N\" \"0\") set-property!(\"N\" inc)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: self self next-sibling set-property!(\"N\" \"0\") set-property!(\"N\" inc)\n:CHAIN: copied\n:N:        1\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N:        1\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scope-reset",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(NEXT) self todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* WAIT Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(NEXT) self todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "tags",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling tag!(\":a:b:\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling tag!(\":a:b:\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :a:b:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "priority",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(\"A\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(\"A\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO [#A] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "priority-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO [#B] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "priority-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO [#B] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-inc",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"N\" inc)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"N\" inc)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N:        4\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-dec",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"N\" dec)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"N\" dec)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N:        2\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-next",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" next)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" next)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE:   c\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-prev",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" prev)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" prev)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE:   a\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-previous",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" previous)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" previous)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE:   a\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-put",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"VALUE\" \"中文引号 \\\"text\\\"\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"VALUE\" \"中文引号 \\\"text\\\"\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:VALUE:    中文引号 \"text\"\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "property-delete",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling delete-property!(\"N\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling delete-property!(\"N\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "chain",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling chain!(\"CHAIN\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling chain!(\"CHAIN\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:CHAIN:    copied\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "effort-1:15",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(\"1:15\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(\"1:15\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:Effort:   1:15\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "effort-1",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(1)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(1)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:Effort:   0:15\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "effort-0",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(0)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(0)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:Effort:   1:00\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "effort-increment",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(increment)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(increment)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:Effort:   1:00\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-rm",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(rm)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(rm)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-remove",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(remove)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(remove)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-cp",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(cp)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(cp)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-11 Wed 09:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-copy",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(copy)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(copy)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-11 Wed 09:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"2026-12-18 14:30\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"2026-12-18 14:30\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"2026-12-18 14:30\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-12-18 Fri 22:30> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"+2d\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-03 Tue 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"-1m\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"-1m\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"-1m\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-10-01 Thu 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"++2d\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-13 Fri 12:34> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"--1d\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"--1d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"--1d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-10 Tue 12:34> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"+90M\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 11:30> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"++2h\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2h\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2h\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-11 Wed 14:34> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"+1d +wkdy\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1d +wkdy\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1d +wkdy\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-02 Mon 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"+1m -wknd\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m -wknd\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m -wknd\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-29 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"+2mon\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+2mon\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+2mon\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-09 Mon 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"float +2 tue\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"float +2 tue\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"float +2 tue\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-12-08 Tue 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "scheduled-\"float --1 fri 12\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"float --1 fri 12\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"float --1 fri 12\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2025-12-26 Fri 12:34> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-rm",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(rm)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(rm)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-remove",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(remove)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(remove)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"2026-12-18 14:30\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"2026-12-18 14:30\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"2026-12-18 14:30\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-18 Fri 22:30 -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"+2d\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-03 Thu -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"-1m\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"-1m\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"-1m\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-11-01 Sun -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"++2d\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-11-13 Fri -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"--1d\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"--1d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"--1d\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-11-10 Tue -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"+90M\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-01 Tue -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"++2h\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"++2h\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"++2h\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-11-11 Wed -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"+1d +wkdy\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+1d +wkdy\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+1d +wkdy\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-02 Wed -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"+1m -wknd\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+1m -wknd\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+1m -wknd\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-27 Sun -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"+2mon\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+2mon\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"+2mon\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2026-12-14 Mon -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"float +2 tue\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"float +2 tue\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"float +2 tue\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2027-01-12 Tue -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "deadline-\"float --1 fri 12\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"float --1 fri 12\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling deadline!(\"float --1 fri 12\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nDEADLINE: <2025-12-26 Fri -2d> SCHEDULED: <2026-11-01 Sun 10:00>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self !done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self todo-state?(TODO)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self todo-state?(TODO) then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self todo-state?(TODO) then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self todo-state?(DONE)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self todo-state?(DONE) then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self todo-state?(DONE) then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self has-property?(\"CHAIN\" \"copied\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self has-property?(\"CHAIN\" \"copied\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self has-property?(\"CHAIN\" \"copied\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self !has-property?(\"CHAIN\" \"missing\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self !has-property?(\"CHAIN\" \"missing\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self !has-property?(\"CHAIN\" \"missing\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-next-sibling has-tags?(\"work\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if next-sibling has-tags?(\"work\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if next-sibling has-tags?(\"work\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-next-sibling !has-tags?(\"absent\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if next-sibling !has-tags?(\"absent\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if next-sibling !has-tags?(\"absent\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self re-search?(\"原文\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self re-search?(\"原文\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self re-search?(\"原文\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-self matches?(\"work\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self matches?(\"work\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self matches?(\"work\") then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "condition-siblings(todo-only) consider(all) !done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings(todo-only) consider(all) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings(todo-only) consider(all) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "condition-siblings consider(2) !done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(2) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(2) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "condition-siblings consider(0.5) done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(0.5) done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(0.5) done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "condition-next-sibling",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if next-sibling then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if next-sibling then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "nested-if",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self done? then self todo!(WAIT) else if next-sibling has-tags?(\"work\") then self todo!(NEXT) else self todo!(WAIT) endif endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* WAIT Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if self done? then self todo!(WAIT) else if next-sibling has-tags?(\"work\") then self todo!(NEXT) else self todo!(WAIT) endif endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "inherit-targets",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling if self done? then todo!(WAIT) else todo!(NEXT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling if self done? then todo!(WAIT) else todo!(NEXT) endif\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-siblings(todo-only -1)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(todo-only -1) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(todo-only -1) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:FOUND:    yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "finder-rest-of-siblings",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: rest-of-siblings set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: rest-of-siblings set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:FOUND:    yes\n:END:\n"
+    },
+    {
+      "name": "finder-rest-of-siblings-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: rest-of-siblings-wrap set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: rest-of-siblings-wrap set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:FOUND:    yes\n:END:\n"
+    },
+    {
+      "name": "finder-next-sibling-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling-wrap set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling-wrap set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "finder-previous-sibling-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: previous-sibling-wrap set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: previous-sibling-wrap set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:FOUND:    yes\n:END:\n"
+    },
+    {
+      "name": "finder-first-child",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: first-child set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: first-child set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n:PROPERTIES:\n:FOUND:    yes\n:END:\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-children",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: children set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: children set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n:PROPERTIES:\n:FOUND:    yes\n:END:\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-ancestors",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: ancestors set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: ancestors set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-descendants",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: descendants set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: descendants set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n:PROPERTIES:\n:FOUND:    yes\n:END:\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-relatives(from-bottom todo-only priority-up 1)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-bottom todo-only priority-up 1) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-bottom todo-only priority-up 1) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n:PROPERTIES:\n:FOUND:    yes\n:END:\n"
+    },
+    {
+      "name": "finder-relatives(from-top \"work\" todo-only)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-top \"work\" todo-only) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-top \"work\" todo-only) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-match(\"work\" buffer)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-match(\"work/!TODO\" buffer)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work/!TODO\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work/!TODO\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-match(\"N>=3\" buffer)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"N>=3\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"N>=3\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "finder-match(\"work|missing\" buffer)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work|missing\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work|missing\" buffer) set-property!(\"FOUND\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:FOUND:    yes\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "cascade",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:TRIGGER: next-sibling todo!(NEXT)\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* DONE Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:TRIGGER: next-sibling todo!(NEXT)\n:END:\n原文保留\n* NEXT Last\n"
+    },
+    {
+      "name": "done-to-done-no-trigger",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* DONE Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "CNCL",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* CNCL Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "memo-no-trigger",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(WAIT)\n:CHAIN: copied\n:END:\n备注  \n** Note\n无状态子标题\n* TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n* TODO Last\n"
+    },
+    {
+      "name": "selection-from-top",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-top) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-top) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-from-bottom",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-bottom) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-bottom) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-from-current",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-current) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(from-current) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-no-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(no-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(no-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-forward-no-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(forward-no-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(forward-no-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-forward-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(forward-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(forward-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-backward-no-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(backward-no-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(backward-no-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "selection-backward-wrap",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(backward-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(backward-wrap) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "selection-walk-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "selection-walk-up-with-self",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-up-with-self) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-up-with-self) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "selection-walk-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:SELECTED: yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "selection-walk-down-with-self",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-down-with-self) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(walk-down-with-self) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:SELECTED: yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "selection-step-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(step-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: relatives(step-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:SELECTED: yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "relative-option-\"+work\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(\"+work\") set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(\"+work\") set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "relative-option-\"-work\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(\"-work\") set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(\"-work\") set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-\"Target\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(\"Target\") set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(\"Target\") set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "relative-option-no-comment",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(no-comment) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(no-comment) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-no-archive",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(no-archive) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(no-archive) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-todo-and-done-only",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(todo-and-done-only) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(todo-and-done-only) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-1",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "relative-option-99",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(99) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(99) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option--1",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(-1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(-1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "relative-option-priority-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-priority-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-effort-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 0:15\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 1:00\n:END:\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 0:15\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 1:00\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-effort-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 0:15\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 1:00\n:END:\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 0:15\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 1:00\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-scheduled-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-scheduled-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-deadline-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-deadline-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-timestamp-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-up) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-timestamp-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-down) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-reverse-sort",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(reverse-sort) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(reverse-sort) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-priority-up reverse-sort",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up reverse-sort) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up reverse-sort) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "relative-option-priority-up no-sort",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up no-sort) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up no-sort) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "date-edge-2026-01-31 Sat-+1m",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-01-31 Sat> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-03-03 Tue> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-01-31 Sat-+1y",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-01-31 Sat> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2027-01-31 Sun> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-01-31 Sat-+90M",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-01-31 Sat> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-01-31 Sat> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2024-02-29 Thu-+1m",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2024-02-29 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2024-03-29 Fri> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2024-02-29 Thu-+1y",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2024-02-29 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2025-03-01 Sat> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2024-02-29 Thu-+90M",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2024-02-29 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2024-02-29 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-12-31 Thu-+1m",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-12-31 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2027-01-31 Sun> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-12-31 Thu-+1y",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-12-31 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2027-12-31 Fri> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-12-31 Thu-+90M",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-12-31 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-12-31 Thu> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-11-01 Sun 10:00-11:00-+1m",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00-11:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1m\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-12-01 Tue 10:00-11:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-11-01 Sun 10:00-11:00-+1y",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00-11:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+1y\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2027-11-01 Mon 10:00-11:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "date-edge-2026-11-01 Sun 10:00-11:00-+90M",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00-11:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+90M\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 11:30-12:30> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "new-stamp-format-short",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nDEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:EDNA_TS_FORMAT: short\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-13 Fri> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:EDNA_TS_FORMAT: short\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "new-stamp-format-long",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nDEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:EDNA_TS_FORMAT: long\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-13 Fri 12:34> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:EDNA_TS_FORMAT: long\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "match-work+missing",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work+missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work+missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "match-work-missing",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work-missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work-missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "match-work&missing",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work&missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work&missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "match-work|missing",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work|missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"work|missing\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "match-LEVEL=2",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"LEVEL=2\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"LEVEL=2\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:MATCHED:  yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n"
+    },
+    {
+      "name": "match-TODO=\"TODO\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"TODO=\\\"TODO\\\"\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"TODO=\\\"TODO\\\"\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:MATCHED:  yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n"
+    },
+    {
+      "name": "match-PRIORITY=\"B\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"PRIORITY=\\\"B\\\"\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"PRIORITY=\\\"B\\\"\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:MATCHED:  yes\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n"
+    },
+    {
+      "name": "match-N<4",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"N<4\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"N<4\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:MATCHED:  yes\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n"
+    },
+    {
+      "name": "match-N<>3",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"N<>3\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"N<>3\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:MATCHED:  yes\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n"
+    },
+    {
+      "name": "match-{wo.*}",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"{wo.*}\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"{wo.*}\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:MATCHED:  yes\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "match--work",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"-work\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: match(\"-work\" buffer) set-property!(\"MATCHED\" \"yes\")\n:CHAIN: copied\n:MATCHED:  yes\n:END:\n备注  \n*** Note\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:MATCHED:  yes\n:END:\n"
+    },
+    {
+      "name": "scheduled-retains-rule-+2d",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00 +1w> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"+2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-03 Tue 10:00 +1w> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "scheduled-retains-rule-++2d",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00 +1w> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"++2d\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-13 Fri 12:34 +1w> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "scheduled-retains-rule-2026-12-01",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"2026-12-01\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00 +1w> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling scheduled!(\"2026-12-01\")\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-12-01 Tue +1w> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "priority-cycle-upA",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#A] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "priority-cycle-upB",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#B] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#A] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "priority-cycle-upC",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(up)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#B] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "priority-cycle-downA",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#A] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#B] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "priority-cycle-downB",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#B] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "priority-cycle-downC",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling set-priority!(down)\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n"
+    },
+    {
+      "name": "sort-first-priority-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-priority-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(priority-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-effort-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:SELECTED: yes\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-effort-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(effort-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-scheduled-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:SELECTED: yes\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-scheduled-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(scheduled-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-deadline-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:SELECTED: yes\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-deadline-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(deadline-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-timestamp-up",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-up 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:SELECTED: yes\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "sort-first-timestamp-down",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO [#A] Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: siblings(timestamp-down 1) set-property!(\"SELECTED\" \"yes\")\n:CHAIN: copied\n:EFFORT: 1h 15min\n:SELECTED: yes\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO [#C] Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** TODO Last\n:PROPERTIES:\n:EFFORT: 2:00\n:END:\n<2026-12-30 Wed>\n"
+    },
+    {
+      "name": "consider-integer-one",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(1) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(1) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** WAIT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n"
+    },
+    {
+      "name": "consider-float-one",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(1.0) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(1.0) !done? then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n"
+    },
+    {
+      "name": "consider-inherited",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(all) if self done? then !done? else todo-state?(TODO) endif then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(all) if self done? then !done? else todo-state?(TODO) endif then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n"
+    }
+  ]
+}

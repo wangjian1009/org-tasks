@@ -317,3 +317,127 @@ async fn created_completed_tasks_record_closing_information_only_when_enabled() 
         assert!(!source.contains("- State"), "创建状态不模拟一次状态切换：{source}");
     }
 }
+
+#[tokio::test]
+async fn repeating_completion_runs_local_trigger_after_repeat_and_refreshes_the_saved_dates() {
+    let original = "#+TODO: NEXT WAIT | FINISHED\r\n#+STARTUP: logrepeat logdrawer\r\n* NEXT Task\r\nSCHEDULED: <2000-01-01 Sat .+1d/3d>\r\n:PROPERTIES:\r\n:TRIGGER: self scheduled!(\"+2d\") next-sibling todo!(WAIT)\r\n:CREATED: [2000-01-01 Sat 09:00]\r\n:END:\r\n备注  \r\n* NEXT Other\r\nBody  \r\n";
+    let mut f = Fixture::new(original).await;
+    let group = f
+        .group(
+            "Task",
+            vec![TaskModification::Todo(Some("FINISHED".into()))],
+        )
+        .await;
+    let before = chrono::Local::now().date_naive();
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let after = chrono::Local::now().date_naive();
+    let saved = f.source();
+    let expected_date = |day: chrono::NaiveDate| {
+        format!(
+            "SCHEDULED: <{} .+1d/3d>",
+            (day + chrono::Duration::days(3)).format("%Y-%m-%d %a")
+        )
+    };
+    assert!(
+        saved.contains(&expected_date(before)) || saved.contains(&expected_date(after)),
+        "{saved}"
+    );
+    assert!(saved.contains("* NEXT Task\r\n"));
+    assert!(saved.contains("* WAIT Other\r\nBody  \r\n"));
+    assert!(saved.contains(":LAST_REPEAT: ["));
+    assert_eq!(saved.matches("- State ").count(), 1);
+    assert!(!saved.contains("CLOSED:"));
+    assert!(!saved.replace("\r\n", "").contains('\n'));
+    let repo = &f.workspace.repos()[0];
+    let file = repo.file("tasks.org").await.unwrap();
+    let task = file.task_edit_content(&file.node_paths()[0]).unwrap();
+    assert_eq!(
+        task.scheduled_repeat.unwrap().rule.unwrap().mode,
+        TaskRepeatMode::AfterCompletion
+    );
+    assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(f.source(), saved);
+}
+
+#[tokio::test]
+async fn trigger_targets_stay_local_and_unsupported_actions_do_not_interrupt_supported_ones() {
+    let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: self clock-in! archive! future-action!(anything) scheduled!(\"next week\") if self variable-set?(unknown t) then todo!(INVALID) else todo!(INVALID) endif set-property!(\"LOCAL\" \"yes\") ids(\"outside\") todo!(DONE) file(\"other.org\") todo!(DONE) next-sibling todo!(DONE)\n:END:\n* TODO Other\n";
+    let mut f = Fixture::new(source).await;
+    let other = "* TODO External\n:PROPERTIES:\n:ID: outside\n:END:\n";
+    tokio::fs::write(f.root.join("other.org"), other)
+        .await
+        .unwrap();
+    let group = f
+        .group("Task", vec![TaskModification::Todo(Some("DONE".into()))])
+        .await;
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let saved = f.source();
+    assert!(saved.contains("* DONE Task\n"));
+    assert!(saved.contains(":LOCAL: yes\n"));
+    assert!(saved.ends_with("* DONE Other\n"));
+    assert_eq!(
+        std::fs::read_to_string(f.root.join("other.org")).unwrap(),
+        other
+    );
+    let fallback = &f.workspace.task_operation_history.entries[0]
+        .fallback_group
+        .files;
+    assert_eq!(fallback.len(), 1);
+    assert_eq!(fallback[0].file, "tasks.org");
+}
+
+#[tokio::test]
+async fn trigger_changes_before_the_source_keep_following_modifications_on_the_source() {
+    let source = "* TODO First\n* TODO Task\n:PROPERTIES:\n:TRIGGER: previous-sibling todo!(DONE) set-property!(\"PADDING\" \"some text before source\")\n:END:\nNotes\n";
+    let mut f = Fixture::new(source).await;
+    let group = f
+        .group(
+            "Task",
+            vec![
+                TaskModification::Todo(Some("DONE".into())),
+                TaskModification::Notes(Some("新备注\n".into())),
+            ],
+        )
+        .await;
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let saved = f.source();
+    assert!(
+        saved.starts_with(
+            "* DONE First\n:PROPERTIES:\n:PADDING: some text before source\n:END:\n* DONE Task\n"
+        ),
+        "{saved}"
+    );
+    assert!(saved.ends_with("新备注\n"));
+}
+
+#[tokio::test]
+async fn malformed_failed_and_recursive_triggers_roll_back_the_entire_operation_group() {
+    for trigger in [
+        "next-sibling todo!(DONE) self scheduled!(\"+1d\")",
+        "self todo!(TODO) todo!(DONE)",
+        "if self done? then next-sibling todo!(DONE)",
+        "next-sibling todo!(DONE) self set-property!(\"CREATED\" \"changed\")",
+    ] {
+        let source =
+            format!("* TODO Task\n:PROPERTIES:\n:TRIGGER: {trigger}\n:END:\n* TODO Other\n");
+        let mut f = Fixture::new(&source).await;
+        let group = f
+            .group("Task", vec![TaskModification::Todo(Some("DONE".into()))])
+            .await;
+        assert!(
+            f.workspace.execute_task_operations(&group).await.is_err(),
+            "{trigger}"
+        );
+        assert_eq!(f.source(), source);
+        assert!(f.workspace.task_operation_history.entries.is_empty());
+        assert!(
+            f.workspace.repos()[0]
+                .pending_writes()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+}

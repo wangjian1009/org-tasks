@@ -28,6 +28,7 @@ mod task_path;
 mod task_repeat;
 mod task_scan;
 mod task_state;
+mod task_trigger;
 mod title_statistics;
 mod todo;
 mod workspace;
