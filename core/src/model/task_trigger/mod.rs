@@ -109,6 +109,7 @@ impl Context<'_> {
     }
     fn todo(&mut self, index: usize, state: Option<&str>) -> Result<()> {
         let node = self.node(index)?;
+        let previous = node.todo_keyword().map(|value| value.to_string());
         let pending = node.todo_keyword().is_some_and(|old| {
             self.file
                 .todo
@@ -117,6 +118,16 @@ impl Context<'_> {
         });
         let completed = state.is_some_and(|s| self.file.todo.is_done(s));
         super::task_state::modify_without_triggers(self.file, &node, state, self.now)?;
+        let updated = self.node(index)?;
+        let current = updated.todo_keyword().map(|value| value.to_string());
+        if (previous != current || completed)
+            && !current
+                .as_deref()
+                .is_some_and(|s| self.file.todo.is_done(s))
+            && (previous.is_some() || current.is_some())
+        {
+            self.reopen_ancestors(index)?;
+        }
         // 与 org-trigger-hook 一致，依据本次请求的状态，而不是重复恢复后的状态判断。
         if pending && completed {
             if let Some(trigger) = self
@@ -138,6 +149,59 @@ impl Context<'_> {
             .rev()
         {
             replace(self.file, range, value.as_bytes())?;
+        }
+        Ok(())
+    }
+    fn reopen_ancestors(&mut self, index: usize) -> Result<()> {
+        // 标题序号在状态、日志与统计改写期间稳定，不能沿用祖先修改前的字节偏移。
+        let nodes = self.file.path_headlines();
+        let ancestors = self
+            .node(index)?
+            .syntax()
+            .ancestors()
+            .skip(1)
+            .filter_map(Headline::cast)
+            .filter_map(|ancestor| {
+                nodes
+                    .iter()
+                    .position(|(_, node)| start(node) == start(&ancestor))
+            })
+            .collect::<Vec<_>>();
+        for ancestor in ancestors {
+            let node = self.node(ancestor)?;
+            let Some(previous) = node
+                .todo_keyword()
+                .filter(|s| self.file.todo.is_done(s.as_ref()))
+            else {
+                continue;
+            };
+            let state = self
+                .file
+                .todo
+                .workflows
+                .iter()
+                .find(|flow| flow.states.iter().any(|s| s.name == previous.as_ref()))
+                .and_then(|flow| {
+                    flow.states
+                        .iter()
+                        .find(|s| s.category == Some(super::TaskStateCategory::Todo))
+                        .or_else(|| {
+                            flow.states
+                                .iter()
+                                .find(|s| !self.file.todo.is_done(&s.name))
+                        })
+                })
+                .map(|s| s.name.clone())
+                .or_else(|| self.file.todo.initial_state.clone())
+                .ok_or(error("父任务没有可用的未完成状态"))?;
+            super::task_state::modify_without_triggers(self.file, &node, Some(&state), self.now)?;
+            let node = self.node(ancestor)?;
+            for (range, value) in super::title_statistics::parent_edits(self.file, &node)
+                .into_iter()
+                .rev()
+            {
+                replace(self.file, range, value.as_bytes())?;
+            }
         }
         Ok(())
     }

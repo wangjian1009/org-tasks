@@ -216,7 +216,7 @@ async fn duplicate_ids_and_task_dependencies_are_validated_for_trigger_targets()
         ),
         (
             "ids(\"parent\") todo!(DONE)",
-            "* TODO Parent\n:PROPERTIES:\n:ID: parent\n:END:\n** DONE Child\n",
+            "* TODO Parent\n:PROPERTIES:\n:ID: parent\n:END:\n** TODO Child\n",
             "子任务",
         ),
     ] {

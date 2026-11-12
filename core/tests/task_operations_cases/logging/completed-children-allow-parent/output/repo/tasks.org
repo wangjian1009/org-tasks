@@ -1,6 +1,10 @@
 #+TITLE: 日志验收
 #+SETUPFILE: ./.setup.org
-* TODO Task [2/2]
+* DONE Task [2/2]
+CLOSED: {{TIMESTAMP}}
+:LOGBOOK:
+- State "DONE"       from "TODO"       {{TIMESTAMP}}
+:END:
 ** DONE First
 CLOSED: [2026-11-01 Sun 09:00]
 :LOGBOOK:

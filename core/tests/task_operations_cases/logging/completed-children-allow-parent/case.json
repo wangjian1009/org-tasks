@@ -1,0 +1,14 @@
+{
+  "purpose": "子任务全部完成后允许完成父任务，并按配置记录日志",
+  "inspect": [
+    {
+      "titles": [
+        "Task"
+      ],
+      "task": true
+    }
+  ],
+  "outbox": {
+    "repo": 1
+  }
+}

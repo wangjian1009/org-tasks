@@ -227,13 +227,19 @@ pub(super) fn modify_without_triggers(
     validate_state(file, value)?;
     let previous = headline.todo_keyword().map(|token| token.to_string());
     if previous.as_deref() != value
+        && value.is_some_and(|state| file.todo.is_done(state))
         && headline
             .syntax()
             .descendants()
             .filter_map(Headline::cast)
-            .any(|child| start(&child) != start(headline) && child.todo_keyword().is_some())
+            .any(|child| {
+                start(&child) != start(headline)
+                    && child
+                        .todo_keyword()
+                        .is_some_and(|state| !file.todo.is_done(state.as_ref()))
+            })
     {
-        return Err(CoreError::InvalidInput("存在子任务时不能修改父任务状态"));
+        return Err(CoreError::InvalidInput("存在未完成子任务，不能完成父任务"));
     }
     let settings = Logging::load(file, headline)?;
     let was_done = previous
