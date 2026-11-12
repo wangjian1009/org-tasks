@@ -1029,6 +1029,542 @@
       "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-10 Tue 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(all) if self done? then !done? else todo-state?(TODO) endif then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** TODO Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n",
       "state": "DONE",
       "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Task\nSCHEDULED: <2026-11-11 Wed 09:00 +1d>\n:PROPERTIES:\n:TRIGGER: if siblings consider(all) if self done? then !done? else todo-state?(TODO) endif then next-sibling todo!(NEXT) else next-sibling todo!(WAIT) endif\n:CHAIN: copied\n:END:\n备注  \n*** Note\n无状态子标题\n** NEXT Target :work:\nSCHEDULED: <2026-11-01 Sun 10:00> DEADLINE: <2026-12-01 Tue -2d>\n:PROPERTIES:\n:ID: 12345678-1234-1234-1234-123456789abc\n:N: 3\n:CHOICE: b\n:CHOICE_ALL: a b c\n:EFFORT: 0:30\n:EFFORT_ALL: 0:15 0:30 1:00\n:END:\n原文保留\n** DONE Last\n"
+    },
+    {
+      "name": "supplement-finder-chain-find(from-top todo-only 1)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: chain-find(from-top todo-only 1) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: chain-find(from-top todo-only 1) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-siblings-wrap(todo-only 2)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: siblings-wrap(todo-only 2) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: siblings-wrap(todo-only 2) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-previous-sibling",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: previous-sibling set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: previous-sibling set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-parent",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: parent set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: parent set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-ancestors",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: ancestors set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: ancestors set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-children",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: children set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: children set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-first-child",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: first-child set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: first-child set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-next-sibling",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top no-comment)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top no-comment) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top no-comment) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:SELECTED: yes\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** COMMENT Commented\n** Memo\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top no-archive)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top no-archive) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top no-archive) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:SELECTED: yes\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** Memo\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top todo-only)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top todo-only) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top todo-only) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top todo-and-done-only)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top todo-and-done-only) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top todo-and-done-only) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:SELECTED: yes\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top \"+keep\" \"-ARCHIVE\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top \"+keep\" \"-ARCHIVE\") set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top \"+keep\" \"-ARCHIVE\") set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top 0)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top 0) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top 0) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:SELECTED: yes\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** COMMENT Commented\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** Memo\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top 99)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top 99) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top 99) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:SELECTED: yes\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** COMMENT Commented\n:PROPERTIES:\n:SELECTED: yes\n:END:\n** Memo\n:PROPERTIES:\n:SELECTED: yes\n:END:\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-bottom from-top 1)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-bottom from-top 1) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-bottom from-top 1) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-relatives(from-top 1 2)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top 1 2) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:SELECTED: yes\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: relatives(from-top 1 2) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:SELECTED: yes\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-finder-ids(12345678-1234-1234-1234-123456789abc id:12345678-1234-1234-1234-123456789abc)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: ids(12345678-1234-1234-1234-123456789abc id:12345678-1234-1234-1234-123456789abc) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: ids(12345678-1234-1234-1234-123456789abc id:12345678-1234-1234-1234-123456789abc) set-property!(\"SELECTED\" \"yes\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:SELECTED: yes\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self headings?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self headings? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self headings? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self !headings?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self !headings? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self !headings? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self has-tags?(\"absent\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self has-tags?(\"absent\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self has-tags?(\"absent\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self todo-state?(DONE)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self todo-state?(DONE) then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self todo-state?(DONE) then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self !todo-state?(DONE)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self !todo-state?(DONE) then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self !todo-state?(DONE) then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self has-property?(\"ABSENT\" \"\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self has-property?(\"ABSENT\" \"\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self has-property?(\"ABSENT\" \"\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self !has-property?(\"COUNT\" \"0\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self !has-property?(\"COUNT\" \"0\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self !has-property?(\"COUNT\" \"0\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self re-search?(\"目标.*\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self re-search?(\"目标.*\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self re-search?(\"目标.*\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self !re-search?(\"不存在\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self !re-search?(\"不存在\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self !re-search?(\"不存在\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-self matches?(\"COUNT=0\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self matches?(\"COUNT=0\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if self matches?(\"COUNT=0\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-siblings consider(0) done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(0) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(0) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-siblings consider(99) done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(99) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(99) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-siblings consider(1.0) done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(1.0) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(1.0) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :then:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-siblings consideration(any) done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if siblings consideration(any) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if siblings consideration(any) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-condition-siblings consider(0.0) done?",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(0.0) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: if siblings consider(0.0) done? then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :else:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-tag!(\"\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling tag!(\"\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling tag!(\"\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-chain!(\"ABSENT\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling chain!(\"ABSENT\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling chain!(\"ABSENT\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-chain!(\"TAGS\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling chain!(\"TAGS\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling chain!(\"TAGS\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-delete-property!(\"ABSENT\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling delete-property!(\"ABSENT\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling delete-property!(\"ABSENT\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-set-property!(\"CHOICE\" next)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" next)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" next)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE:   a\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-set-property!(\"CHOICE\" prev)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" prev)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" prev)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE:   b\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-set-property!(\"CHOICE\" previous)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" previous)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"CHOICE\" previous)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE:   b\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-set-effort!(99)",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(99)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-effort!(99)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-action-set-property!(\"TEXT\" \"括号 (a) 与 \\\"引号\\\"\")",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"TEXT\" \"括号 (a) 与 \\\"引号\\\"\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"TEXT\" \"括号 (a) 与 \\\"引号\\\"\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:TEXT:     括号 (a) 与 \"引号\"\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-property-number-\"-10.5\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"NUMBER\" \"-10.5\") set-property!(\"NUMBER\" inc) set-property!(\"NUMBER\" dec)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"NUMBER\" \"-10.5\") set-property!(\"NUMBER\" inc) set-property!(\"NUMBER\" dec)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:NUMBER:   -10.5\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-property-number-\"0\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"NUMBER\" \"0\") set-property!(\"NUMBER\" inc) set-property!(\"NUMBER\" dec)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"NUMBER\" \"0\") set-property!(\"NUMBER\" inc) set-property!(\"NUMBER\" dec)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:NUMBER:   0\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-property-number-\"9.25\"",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"NUMBER\" \"9.25\") set-property!(\"NUMBER\" inc) set-property!(\"NUMBER\" dec)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"NUMBER\" \"9.25\") set-property!(\"NUMBER\" inc) set-property!(\"NUMBER\" dec)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:NUMBER:   9.25\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-conditions-no-else",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: if self done? then next-sibling tag!(\":wrong:\") endif self tag!(\":after:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task :after:\n:PROPERTIES:\n:TRIGGER: if self done? then next-sibling tag!(\":wrong:\") endif self tag!(\":after:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-multiple-scopes-and-branches",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling if self !done? then tag!(\":then:\") else tag!(\":else:\") endif previous-sibling tag!(\":previous:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :previous:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: next-sibling if self !done? then tag!(\":then:\") else tag!(\":else:\") endif previous-sibling tag!(\":previous:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :previous:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+    },
+    {
+      "name": "supplement-default-file-property",
+      "source": "#+PROPERTY: TRIGGER self tag!(\":default:\")\n* TODO Task\n正文\n",
+      "state": "DONE",
+      "expected": "#+PROPERTY: TRIGGER self tag!(\":default:\")\n* DONE Task\n正文\n"
+    },
+    {
+      "name": "supplement-no-parent-inheritance",
+      "source": "* Parent\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:END:\n** TODO Task\n正文\n",
+      "state": "DONE",
+      "expected": "* Parent\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:END:\n** DONE Task\n正文\n"
+    },
+    {
+      "name": "supplement-noop-pending-to-pending",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** WAIT Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "actions": [
+        "NEXT",
+        "WAIT"
+      ],
+      "steps": [
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** NEXT Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** WAIT Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+      ]
+    },
+    {
+      "name": "supplement-reopen-and-complete",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT:    2\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "actions": [
+        "DONE",
+        "DONE",
+        "CNCL",
+        "TODO",
+        "DONE"
+      ],
+      "steps": [
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT:    1\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT:    1\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** CNCL Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT:    1\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT:    1\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** DONE Task\n:PROPERTIES:\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:COUNT:    2\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+      ]
+    },
+    {
+      "name": "supplement-clear-state-no-trigger",
+      "source": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** TODO Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n",
+      "actions": [
+        null
+      ],
+      "steps": [
+        "#+TODO: TODO NEXT WAIT | DONE CNCL\n* Group\n** TODO Before :keep:\n:PROPERTIES:\n:COUNT: 0\n:END:\n** Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":wrong:\")\n:COUNT: 0\n:CHOICE: a\n:CHOICE_ALL: a b c\n:END:\n任务正文  \n** TODO Target :keep:work:\n:PROPERTIES:\n:COUNT: 0\n:CHOICE: c\n:CHOICE_ALL: a b c\n:EFFORT: 1:00\n:EFFORT_ALL: 0:30 1:00\n:ID: 12345678-1234-1234-1234-123456789abc\n:END:\n目标正文  \n** DONE Finished :keep:ARCHIVE:\n** COMMENT Commented\n** Memo\n"
+      ]
+    },
+    {
+      "name": "supplement-repeated-completions",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-01 Sun +1d>\n:PROPERTIES:\n:COUNT: 0\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:END:\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nSCHEDULED: <2026-11-04 Wed +1d>\n:PROPERTIES:\n:COUNT:    3\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:END:\n",
+      "actions": [
+        "DONE",
+        "DONE",
+        "DONE"
+      ],
+      "steps": [
+        "* TODO Task\nSCHEDULED: <2026-11-02 Mon +1d>\n:PROPERTIES:\n:COUNT:    1\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:END:\n",
+        "* TODO Task\nSCHEDULED: <2026-11-03 Tue +1d>\n:PROPERTIES:\n:COUNT:    2\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:END:\n",
+        "* TODO Task\nSCHEDULED: <2026-11-04 Wed +1d>\n:PROPERTIES:\n:COUNT:    3\n:TRIGGER: self set-property!(\"COUNT\" inc)\n:END:\n"
+      ]
+    },
+    {
+      "name": "supplement-inherited-allowed-property-values",
+      "source": "* Parent\n:PROPERTIES:\n:CHOICE_ALL: a b c\n:END:\n** TODO Task\n:PROPERTIES:\n:CHOICE: c\n:TRIGGER: self set-property!(\"CHOICE\" next)\n:END:\n",
+      "state": "DONE",
+      "expected": "* Parent\n:PROPERTIES:\n:CHOICE_ALL: a b c\n:END:\n** DONE Task\n:PROPERTIES:\n:CHOICE:   a\n:TRIGGER: self set-property!(\"CHOICE\" next)\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled--90M",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"-90M\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-10 Tue 08:00-09:00> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"-90M\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled---90M",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"--90M\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-11 Wed 11:04> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"--90M\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-+3d -fri",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+3d -fri\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+3d -fri\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-+1wkdy",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+1wkdy\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-11 Wed 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+1wkdy\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled--1wkdy",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"-1wkdy\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-09 Mon 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"-1wkdy\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-+1d +weekend",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+1d +weekend\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-14 Sat 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"+1d +weekend\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled--1mon",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"-1mon\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-09 Mon 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"-1mon\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-float +1 wed 11 15",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"float +1 wed 11 15\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2027-11-17 Wed 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"float +1 wed 11 15\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-float -1 mon 0 20",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"float -1 mon 0 20\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-10-19 Mon 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"float -1 mon 0 20\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-2026-11-15",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"2026-11-15\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-15 Sun> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"2026-11-15\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-scheduled-Mon",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"Mon\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-16 Mon> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self scheduled!(\"Mon\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline--90M",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"-90M\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-10 Tue 08:00-09:00> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"-90M\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline---90M",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"--90M\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-11 Wed 11:04> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"--90M\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-+3d -fri",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"+3d -fri\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-13 Fri 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"+3d -fri\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-+1wkdy",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"+1wkdy\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-11 Wed 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"+1wkdy\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline--1wkdy",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"-1wkdy\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-09 Mon 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"-1wkdy\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-+1d +weekend",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"+1d +weekend\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-14 Sat 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"+1d +weekend\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline--1mon",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"-1mon\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-09 Mon 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"-1mon\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-float +1 wed 11 15",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"float +1 wed 11 15\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2027-11-17 Wed 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"float +1 wed 11 15\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-float -1 mon 0 20",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"float -1 mon 0 20\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-10-19 Mon 09:30-10:30> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"float -1 mon 0 20\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-2026-11-15",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"2026-11-15\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-15 Sun> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"2026-11-15\")\n:END:\n"
+    },
+    {
+      "name": "supplement-date-deadline-Mon",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-10 Tue 09:30-10:30> DEADLINE: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"Mon\")\n:END:\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-16 Mon> SCHEDULED: <2026-11-10 Tue 09:30-10:30>\n:PROPERTIES:\n:TRIGGER: self deadline!(\"Mon\")\n:END:\n"
+    },
+    {
+      "name": "supplement-file-property-not-an-action-default",
+      "source": "#+PROPERTY: VALUE from_file\n* TODO Task\n:PROPERTIES:\n:TRIGGER: self chain!(\"VALUE\") if self has-property?(\"VALUE\" \"from_file\") then self tag!(\":then:\") else self tag!(\":else:\") endif\n:END:\n",
+      "state": "DONE",
+      "expected": "#+PROPERTY: VALUE from_file\n* DONE Task :then:\n:PROPERTIES:\n:TRIGGER: self chain!(\"VALUE\") if self has-property?(\"VALUE\" \"from_file\") then self tag!(\":then:\") else self tag!(\":else:\") endif\n:END:\n"
+    },
+    {
+      "name": "supplement-own-appended-trigger",
+      "source": "#+PROPERTY: TRIGGER self tag!(\":global:\")\n* TODO Task\n:PROPERTIES:\n:TRIGGER+: self tag!(\":local:\")\n:END:\n",
+      "state": "DONE",
+      "expected": "#+PROPERTY: TRIGGER self tag!(\":global:\")\n* DONE Task :local:\n:PROPERTIES:\n:TRIGGER+: self tag!(\":local:\")\n:END:\n"
+    },
+    {
+      "name": "supplement-own-trigger-overrides-ignored-default",
+      "source": "#+PROPERTY: TRIGGER self tag!(\":global:\")\n* TODO Task\n:PROPERTIES:\n:TRIGGER: self tag!(\":local:\")\n:END:\n",
+      "state": "DONE",
+      "expected": "#+PROPERTY: TRIGGER self tag!(\":global:\")\n* DONE Task :local:\n:PROPERTIES:\n:TRIGGER: self tag!(\":local:\")\n:END:\n"
+    },
+    {
+      "name": "supplement-special-property-SCHEDULED-<2026-11-10 Tue 09:00>",
+      "source": "* TODO Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"SCHEDULED\" \"<2026-11-10 Tue 09:00>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"SCHEDULED\" \"<2026-11-10 Tue 09:00>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target :then:\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n"
+    },
+    {
+      "name": "supplement-special-property-SCHEDULED-<2026-11-10 Tue 09:00 -2d>",
+      "source": "* TODO Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"SCHEDULED\" \"<2026-11-10 Tue 09:00 -2d>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"SCHEDULED\" \"<2026-11-10 Tue 09:00 -2d>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target :else:\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n"
+    },
+    {
+      "name": "supplement-special-property-DEADLINE-<2026-12-01 Tue>",
+      "source": "* TODO Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"DEADLINE\" \"<2026-12-01 Tue>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"DEADLINE\" \"<2026-12-01 Tue>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target :then:\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n"
+    },
+    {
+      "name": "supplement-special-property-DEADLINE-<2026-12-01 Tue -2d>",
+      "source": "* TODO Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"DEADLINE\" \"<2026-12-01 Tue -2d>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\n:PROPERTIES:\n:TRIGGER: if next-sibling has-property?(\"DEADLINE\" \"<2026-12-01 Tue -2d>\") then next-sibling tag!(\":then:\") else next-sibling tag!(\":else:\") endif\n:END:\n* TODO Target :else:\nSCHEDULED: <2026-11-10 Tue 09:00 -2d> DEADLINE: <2026-12-01 Tue -2d>\n"
     }
   ]
 }

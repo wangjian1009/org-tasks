@@ -1,0 +1,5 @@
+* TODO Task
+:PROPERTIES:
+:TRIGGER: self clock-in! clock-out! archive! future! scheduled!("next week") if self variable-set?(unknown t) then todo!(INVALID) else todo!(INVALID) endif ids("external") todo!(INVALID) file("other.org") todo!(INVALID) self tag!(":after:")
+:END:
+原文  

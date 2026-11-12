@@ -5535,6 +5535,741 @@ SCHEDULED: <{{DATE+28d}} .+4w/5w>
 ]
 #+end_example
 
+* 文件内 TRIGGER 回归
+
+** local-chain
+
+目的：文件内两级联动以一次事务提交，保留各节点正文。
+
+目录： ~core/tests/task_operations_cases/trigger/local-chain~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: TODO NEXT | DONE
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(DONE)
+:END:
+原文␠␠
+,* TODO Other
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(NEXT)
+:END:
+目标␠␠
+,* TODO Last
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+TODO: TODO NEXT | DONE
+,* DONE Task
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(DONE)
+:END:
+原文␠␠
+,* DONE Other
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(NEXT)
+:END:
+目标␠␠
+,* NEXT Last
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** repeat-before-trigger
+
+目的：重复器先推进一天，再由触发器以新日期推进两天。
+
+目录： ~core/tests/task_operations_cases/trigger/repeat-before-trigger~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+SCHEDULED: <2026-11-10 Tue +1d>
+:PROPERTIES:
+:TRIGGER: self scheduled!("+2d")
+:END:
+Body␠␠
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+SCHEDULED: <2026-11-13 Fri +1d>
+:PROPERTIES:
+:TRIGGER: self scheduled!("+2d")
+:END:
+Body␠␠
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** unsupported-and-cross-file
+
+目的：未知动作和跨文件目标静默跳过，后续动作继续且外部文件不变。
+
+目录： ~core/tests/task_operations_cases/trigger/unsupported-and-cross-file~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: self clock-in! clock-out! archive! future! scheduled!("next week") if self variable-set?(unknown t) then todo!(INVALID) else todo!(INVALID) endif ids("external") todo!(INVALID) file("other.org") todo!(INVALID) self tag!(":after:")
+:END:
+原文␠␠
+#+end_example
+
+文件： ~repo/other.org~ 。
+
+#+begin_example
+,* TODO External
+:PROPERTIES:
+:ID: external
+:END:
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* DONE Task :after:
+:PROPERTIES:
+:TRIGGER: self clock-in! clock-out! archive! future! scheduled!("next week") if self variable-set?(unknown t) then todo!(INVALID) else todo!(INVALID) endif ids("external") todo!(INVALID) file("other.org") todo!(INVALID) self tag!(":after:")
+:END:
+原文␠␠
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** source-offset
+
+目的：前方目标修改导致来源偏移后，同组备注仍写入原来源节点。
+
+目录： ~core/tests/task_operations_cases/trigger/source-offset~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO First
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: previous-sibling todo!(DONE) set-priority!("A")
+:END:
+Old notes
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          },
+          {
+            "field": "NOTES",
+            "value": "新备注\n"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* DONE [#A] First
+,* DONE Task
+:PROPERTIES:
+:TRIGGER: previous-sibling todo!(DONE) set-priority!("A")
+:END:
+新备注
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** conditional-scopes
+
+目的：条件分支继承目标，分支内动作不终止外层查找作用域。
+
+目录： ~core/tests/task_operations_cases/trigger/conditional-scopes~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Before
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: next-sibling if self !done? then tag!(":then:") else tag!(":else:") endif previous-sibling tag!(":before:")
+:END:
+,* TODO Target
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Before :before:
+,* DONE Task
+:PROPERTIES:
+:TRIGGER: next-sibling if self !done? then tag!(":then:") else tag!(":else:") endif previous-sibling tag!(":before:")
+:END:
+,* TODO Target :before:
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** empty-targets
+
+目的：不存在的本文件 ID 不生成目标，不执行无目标动作。
+
+目录： ~core/tests/task_operations_cases/trigger/empty-targets~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: ids("missing") todo!(INVALID)
+:END:
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* DONE Task
+:PROPERTIES:
+:TRIGGER: ids("missing") todo!(INVALID)
+:END:
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** setup-default
+
+目的：SETUP 提供有效完成状态，但其中的文件级 TRIGGER 默认值不继承。
+
+目录： ~core/tests/task_operations_cases/trigger/setup-default~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+SETUPFILE: .setup.org
+,* NEXT Task
+原文␠␠
+#+end_example
+
+文件： ~repo/.setup.org~ 。
+
+#+begin_example
+,#+TODO: NEXT WAIT | FINISHED
+,#+PROPERTY: TRIGGER self set-priority!("A")
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "FINISHED"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期输出
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,#+SETUPFILE: .setup.org
+,* FINISHED Task
+原文␠␠
+#+end_example
+
+其他输入文件保持原样，仅当前任务文件登记一次上传意图。
+
+** duplicate-id
+
+目的：重复目标 ID 拒绝整个状态操作，文件与同步控制数据不变。
+
+目录： ~core/tests/task_operations_cases/trigger/duplicate-id~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: ids("same") todo!(DONE)
+:END:
+,* TODO A
+:PROPERTIES:
+:ID: same
+:END:
+,* TODO B
+:PROPERTIES:
+:ID: same
+:END:
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期结果
+
+操作失败，错误包含“不唯一”；所有输入文件与同步控制数据保持原样。
+
+** rollback-after-target
+
+目的：目标已完成后来源动作失败，所有修改一起回滚。
+
+目录： ~core/tests/task_operations_cases/trigger/rollback-after-target~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(DONE) self todo!(INVALID)
+:END:
+,* TODO Other
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期结果
+
+操作失败，错误包含“状态”；所有输入文件与同步控制数据保持原样。
+
+** cycle
+
+目的：循环触发拒绝执行，不留下部分状态、日志或上传意图。
+
+目录： ~core/tests/task_operations_cases/trigger/cycle~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: self todo!(TODO) todo!(DONE)
+:END:
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期结果
+
+操作失败，错误包含“循环”；所有输入文件与同步控制数据保持原样。
+
+** malformed-if
+
+目的：缺少 endif 时拒绝操作，保留全部输入字节。
+
+目录： ~core/tests/task_operations_cases/trigger/malformed-if~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: if self !done? then self tag!(":x:")
+:END:
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期结果
+
+操作失败，错误包含“endif”；所有输入文件与同步控制数据保持原样。
+
+** immutable-created
+
+目的：触发器不能删除创建时间，状态修改一起回滚。
+
+目录： ~core/tests/task_operations_cases/trigger/immutable-created~ 。
+
+*** 输入文件
+
+文件： ~repo/tasks.org~ 。
+
+#+begin_example
+,* TODO Task
+:PROPERTIES:
+:TRIGGER: self delete-property!("CREATED")
+:CREATED: [2026-01-01 Thu]
+:END:
+#+end_example
+
+*** 操作组
+
+#+begin_src json
+{
+  "operations": [
+    {
+      "type": "Modification",
+      "data": {
+        "path": {
+          "repoId": "repo",
+          "file": "tasks.org",
+          "titles": [
+            "Task"
+          ]
+        },
+        "modifications": [
+          {
+            "field": "TODO",
+            "value": "DONE"
+          }
+        ]
+      }
+    }
+  ],
+  "queueRepoIds": [
+    "repo"
+  ]
+}
+#+end_src
+
+*** 预期结果
+
+操作失败，错误包含“时间”；所有输入文件与同步控制数据保持原样。
+
 * Rust 层补充验证
 
 - 成功操作组连续追加准确 before、after；末尾操作失败不改变 workspace、历史或已有 outbox。
@@ -5555,6 +6290,10 @@ SCHEDULED: <{{DATE+28d}} .+4w/5w>
 
 仓库级补充验证包括带引号路径的嵌套 SETUP、仅含 STARTUP 时保留默认 TODO、设置文件修改后立即生效、CRLF 与原正文保真、单次通知与完整回退、过期版本拒绝、无效重复器整组失败、标题重复时间戳通过公开执行器修改，以及有效子任务对父任务状态的限制。子任务限制遵循本应用的显式约束，已完成子任务仍会阻止父任务状态变化。
 
+* TRIGGER 的补充验证
+
+新增文件内场景的完整输入、操作与输出见本文“文件内 TRIGGER 回归”；其他验证矩阵见 [[file:TRIGGER触发器设计.org::*回归覆盖矩阵][TRIGGER 回归覆盖矩阵]] 。Emacs 参考端逐步保存重复完成、重新打开和清除状态的输出，日期与所属标题一起比较；不把日期换到其他任务视为等价。应用专属的空目标、跨文件静默跳过、执行上限、版本拒绝、提交失败和通知边界在真实仓库快照上核对。
+
 * 交付记录
 
-当前目录用例总数：75。验证结果在实施计划中记录。
+当前目录用例总数：87。验证结果在实施计划中记录。

@@ -1,0 +1,6 @@
+* TODO Before :before:
+* DONE Task
+:PROPERTIES:
+:TRIGGER: next-sibling if self !done? then tag!(":then:") else tag!(":else:") endif previous-sibling tag!(":before:")
+:END:
+* TODO Target :before:

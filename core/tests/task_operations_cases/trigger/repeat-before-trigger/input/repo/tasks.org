@@ -1,0 +1,6 @@
+* TODO Task
+SCHEDULED: <2026-11-10 Tue +1d>
+:PROPERTIES:
+:TRIGGER: self scheduled!("+2d")
+:END:
+Body  

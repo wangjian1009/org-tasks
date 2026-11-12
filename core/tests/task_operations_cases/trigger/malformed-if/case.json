@@ -1,0 +1,4 @@
+{
+  "purpose": "缺少 endif 时拒绝操作，保留全部输入字节",
+  "error": "endif"
+}

@@ -2,3 +2,6 @@
 core/tests/sync_merge_cases/**/*.org -text
 core/tests/sync_merge_cases/bytes/crlf/*.org whitespace=-blank-at-eol,cr-at-eol
 core/tests/sync_merge_cases/fields/in-buffer-todo/*.org whitespace=cr-at-eol
+
+# TRIGGER 回归样例以原始字节验证事务与正文保真。
+core/tests/task_operations_cases/trigger/**/*.org -text whitespace=-blank-at-eol,cr-at-eol

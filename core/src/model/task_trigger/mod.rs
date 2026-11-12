@@ -100,7 +100,8 @@ impl Context<'_> {
                             .is_some_and(|parent| start(&parent) == start(&node))
                 })
                 .map(|ts| ts.raw()),
-            _ => property(self.file, &node, name, false)?.filter(|value| value != "nil"),
+            _ => super::properties::own(&metadata_node(self.file, &node), name)
+                .filter(|value| value != "nil"),
         })
     }
     fn own_tags(&self, index: usize) -> Result<Vec<String>> {
@@ -876,101 +877,4 @@ fn effort(raw: &str) -> Result<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn normalized(source: &str) -> (Vec<String>, Vec<String>) {
-        let mut lines = Vec::new();
-        let mut planning = Vec::new();
-        let mut properties: Option<Vec<String>> = None;
-        for line in source.lines() {
-            if line.trim() == ":PROPERTIES:" {
-                properties = Some(Vec::new());
-                lines.push(line.into());
-                continue;
-            }
-            if let Some(props) = &mut properties {
-                if line.trim() == ":END:" {
-                    props.sort();
-                    lines.extend(props.iter().cloned());
-                    properties = None;
-                    lines.push(line.into());
-                } else if let Some((key, value)) =
-                    line.trim().trim_start_matches(':').split_once(':')
-                {
-                    props.push(format!("{}:{}", key.to_ascii_uppercase(), value.trim()));
-                }
-                continue;
-            }
-            if ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
-                .iter()
-                .any(|s| line.trim_start().starts_with(s))
-            {
-                let mut at = ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
-                    .iter()
-                    .filter_map(|s| line.find(s))
-                    .collect::<Vec<_>>();
-                at.sort_unstable();
-                at.push(line.len());
-                for pair in at.windows(2) {
-                    planning.push(line[pair[0]..pair[1]].trim().into());
-                }
-            } else {
-                lines.push(line.trim_end().into());
-            }
-        }
-        planning.sort();
-        (lines, planning)
-    }
-    #[test]
-    fn local_triggers_match_org_edna_reference() {
-        let data: serde_json::Value =
-            serde_json::from_str(include_str!("../../../tests/data/task_trigger_emacs.json"))
-                .unwrap();
-        let now =
-            NaiveDateTime::parse_from_str(data["now"].as_str().unwrap(), "%Y-%m-%d %H:%M").unwrap();
-        let mut failures = Vec::new();
-        for case in data["cases"].as_array().unwrap() {
-            let source = case["source"].as_str().unwrap();
-            let mut file = OrgFile::new(
-                "repo".into(),
-                "tasks.org".into(),
-                source.as_bytes().to_vec(),
-            )
-            .unwrap();
-            let node = file
-                .path_headlines()
-                .into_iter()
-                .find(|(_, node)| node.title_raw().trim() == "Task")
-                .unwrap()
-                .1;
-            let index = file
-                .path_headlines()
-                .iter()
-                .position(|(_, n)| start(n) == start(&node))
-                .unwrap();
-            let offset = data["utcOffset"].as_i64().unwrap() as i32;
-            match (Context {
-                file: &mut file,
-                now,
-                utc_offset: offset,
-                steps: 0,
-                stack: Vec::new(),
-            })
-            .todo(index, case["state"].as_str())
-            {
-                Err(error) => failures.push(format!("{}: {error}", case["name"])),
-                Ok(()) => {
-                    let actual = std::str::from_utf8(file.source_bytes()).unwrap();
-                    let expected = case["expected"].as_str().unwrap();
-                    if normalized(actual) != normalized(expected) {
-                        failures.push(format!(
-                            "{}:\n实际:\n{actual}\n预期:\n{expected}",
-                            case["name"]
-                        ));
-                    }
-                }
-            }
-        }
-        assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    }
-}
+mod tests;

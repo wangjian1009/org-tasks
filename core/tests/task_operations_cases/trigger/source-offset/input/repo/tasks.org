@@ -1,0 +1,6 @@
+* TODO First
+* TODO Task
+:PROPERTIES:
+:TRIGGER: previous-sibling todo!(DONE) set-priority!("A")
+:END:
+Old notes

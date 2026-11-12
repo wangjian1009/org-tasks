@@ -1,0 +1,12 @@
+* TODO Task
+:PROPERTIES:
+:TRIGGER: ids("same") todo!(DONE)
+:END:
+* TODO A
+:PROPERTIES:
+:ID: same
+:END:
+* TODO B
+:PROPERTIES:
+:ID: same
+:END:

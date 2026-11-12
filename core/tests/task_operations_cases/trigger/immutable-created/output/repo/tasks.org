@@ -1,0 +1,5 @@
+* TODO Task
+:PROPERTIES:
+:TRIGGER: self delete-property!("CREATED")
+:CREATED: [2026-01-01 Thu]
+:END:

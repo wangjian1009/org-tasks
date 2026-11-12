@@ -1,0 +1,2 @@
+#+TODO: NEXT WAIT | FINISHED
+#+PROPERTY: TRIGGER self set-priority!("A")

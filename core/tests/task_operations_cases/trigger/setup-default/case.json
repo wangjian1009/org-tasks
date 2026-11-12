@@ -1,0 +1,6 @@
+{
+  "purpose": "SETUP 提供有效完成状态，但其中的文件级 TRIGGER 默认值不继承",
+  "outbox": {
+    "repo": 1
+  }
+}

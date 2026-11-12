@@ -1,0 +1,4 @@
+* DONE Task
+:PROPERTIES:
+:TRIGGER: ids("missing") todo!(INVALID)
+:END:

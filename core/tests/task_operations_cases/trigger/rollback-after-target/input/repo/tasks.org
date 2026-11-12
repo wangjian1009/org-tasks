@@ -1,0 +1,5 @@
+* TODO Task
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(DONE) self todo!(INVALID)
+:END:
+* TODO Other

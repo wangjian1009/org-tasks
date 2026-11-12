@@ -1,0 +1,12 @@
+#+TODO: TODO NEXT | DONE
+* TODO Task
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(DONE)
+:END:
+原文  
+* TODO Other
+:PROPERTIES:
+:TRIGGER: next-sibling todo!(NEXT)
+:END:
+目标  
+* TODO Last

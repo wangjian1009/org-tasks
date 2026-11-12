@@ -1,0 +1,4 @@
+* TODO Task
+:PROPERTIES:
+:TRIGGER: if self !done? then self tag!(":x:")
+:END:
