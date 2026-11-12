@@ -1,6 +1,6 @@
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
-import { LogbookEvent, LogbookGroup, logbookEventTime } from '../ui/LogbookPresentation'
+import { LogbookEvent, LogbookEventGroup, LogbookGroup, logbookEventTime } from '../ui/LogbookPresentation'
 import { TaskListItem } from './TaskListItem'
 import { UiColor } from '../ui/Theme'
 
@@ -27,6 +27,36 @@ export struct LogbookTaskList {
     }
   }
 
+  @Builder
+  eventItem(event: LogbookEvent, group: LogbookGroup) {
+    Column({ space: 2 }) {
+      Row({ space: 8 }) {
+        Text(event.label).fontSize(12).fontColor(event.kind === 'created' ? UiColor.secondary : UiColor.done)
+        if (group.kind !== 'day') {
+          Text(logbookEventTime(event, group)).fontSize(12).fontColor(UiColor.secondary)
+        }
+      }.width('100%').padding({ left: 8, top: 6 })
+      TaskListItem({ task: event.task, readOnly: true, instanceKey: event.key, dateDisplay: event.dateDisplay,
+        rightSwipeAction: 'none', enableSwipeActions: false, showCategory: true,
+        referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
+    }.width('100%').margin({ bottom: 8 })
+  }
+
+  @Builder
+  eventGroup(group: LogbookGroup, projectGroup: LogbookEventGroup) {
+    Column({ space: 2 }) {
+      if (projectGroup.project !== null) {
+        Text(projectGroup.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8, top: 8 })
+      }
+      ForEach(projectGroup.events, (event: LogbookEvent) => {
+        this.eventItem(event, group)
+      }, (event: LogbookEvent) => event.key)
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
+      .backgroundColor(UiColor.projectBlock).borderRadius(12)
+      .border({ width: 0.75, color: UiColor.projectOutline }).margin({ top: 12 })
+  }
+
   build() {
     List({ scroller: this.listScroller }) {
       if (this.notificationState.notifications.length > 0) {
@@ -36,17 +66,15 @@ export struct LogbookTaskList {
         ListItem() {
           Column() {
             this.groupHeader(group)
-            ForEach(group.events, (event: LogbookEvent) => {
-              Column({ space: 2 }) {
-                Row({ space: 8 }) {
-                  Text(event.label).fontSize(12).fontColor(event.kind === 'created' ? UiColor.secondary : UiColor.done)
-                  Text(logbookEventTime(event, group)).fontSize(12).fontColor(UiColor.secondary)
-                }.width('100%').padding({ left: 8, top: 6 })
-                TaskListItem({ task: event.task, readOnly: true, instanceKey: event.key,
-                  rightSwipeAction: 'none', enableSwipeActions: false, showCategory: true,
-                  referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
-              }.width('100%').margin({ bottom: 8 })
-            }, (event: LogbookEvent) => event.key)
+            if (group.kind === 'day') {
+              ForEach(group.groups, (projectGroup: LogbookEventGroup) => {
+                this.eventGroup(group, projectGroup)
+              }, (projectGroup: LogbookEventGroup) => projectGroup.key)
+            } else {
+              ForEach(group.events, (event: LogbookEvent) => {
+                this.eventItem(event, group)
+              }, (event: LogbookEvent) => event.key)
+            }
           }.width('100%')
         }
       }, (group: LogbookGroup) => group.key)

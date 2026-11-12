@@ -14,6 +14,7 @@ export enum TaskDateDisplay {
   Creation = 'Creation',
   Schedule = 'Schedule',
   Deadline = 'Deadline',
+  Closed = 'Closed',
   None = 'None'
 }
 
@@ -42,7 +43,8 @@ export function taskDateForDisplay(task: CoreTask, display: TaskDateDisplay): st
     return Number.isFinite(date.getTime()) ? localDate(date) : ''
   }
   const value = display === TaskDateDisplay.Schedule ? task.scheduled :
-    display === TaskDateDisplay.Deadline ? task.deadline : ''
+    display === TaskDateDisplay.Deadline ? task.deadline : display === TaskDateDisplay.Closed ?
+      (task.closedAt === null || !Number.isFinite(task.closedAt) ? '' : localDate(new Date(task.closedAt))) : ''
   return Number.isFinite(dayNumber(value)) ? value.slice(0, 10) : ''
 }
 

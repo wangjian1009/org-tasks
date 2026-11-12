@@ -6,6 +6,12 @@ export interface PlannedTaskItem {
   task: CoreTask
 }
 
+export interface PlannedTaskGroup {
+  key: string
+  project: string | null
+  items: PlannedTaskItem[]
+}
+
 export type PlannedGroupKind = 'day' | 'range' | 'month' | 'year' | 'unknown'
 
 export interface PlannedGroup {
@@ -15,6 +21,7 @@ export interface PlannedGroup {
   title: string
   subtitle: string
   items: PlannedTaskItem[]
+  groups: PlannedTaskGroup[]
 }
 
 const monthNames: string[] = ['一月', '二月', '三月', '四月', '五月', '六月',
@@ -76,7 +83,7 @@ function groupFor(groups: PlannedGroup[], key: string, kind: PlannedGroupKind, d
   title: string, subtitle: string = ''): PlannedGroup {
   let group = groups.find((item: PlannedGroup) => item.key === key)
   if (!group) {
-    group = { key, kind, date, title, subtitle, items: [] }
+    group = { key, kind, date, title, subtitle, items: [], groups: [] }
     groups.push(group)
   }
   return group
@@ -129,6 +136,25 @@ export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
     } else {
       groupFor(groups, `year:${date.slice(0, 4)}`, 'year', `${date.slice(0, 4)}-01-01`, yearTitle(date)).items.push(item)
     }
+  }
+  for (const group of groups) {
+    if (group.kind !== 'day') continue
+    const projects = new Map<string, PlannedTaskGroup>()
+    group.items.forEach((item: PlannedTaskItem, index: number) => {
+      const project = typeof item.task.project === 'function' ? item.task.project() : null
+      if (project !== null) {
+        const key = JSON.stringify(['project', item.task.category || null, project])
+        let projectGroup = projects.get(key)
+        if (!projectGroup) {
+          projectGroup = { key, project, items: [] }
+          projects.set(key, projectGroup)
+          group.groups.push(projectGroup)
+        }
+        projectGroup.items.push(item)
+      } else {
+        group.groups.push({ key: JSON.stringify(['task', index, item.task.id]), project: null, items: [item] })
+      }
+    })
   }
   return groups
 }

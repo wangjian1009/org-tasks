@@ -1,5 +1,6 @@
 import { CoreTask } from '../services/NativeCoreService'
 import { TaskStateCategory } from './TaskStatePresentation'
+import { TaskDateDisplay } from './TaskListPresentation'
 import { localDate } from './Theme'
 
 export interface LogbookEvent {
@@ -7,7 +8,14 @@ export interface LogbookEvent {
   kind: 'created' | 'closed'
   label: string
   timestamp: number | null
+  dateDisplay: TaskDateDisplay
   task: CoreTask
+}
+
+export interface LogbookEventGroup {
+  key: string
+  project: string | null
+  events: LogbookEvent[]
 }
 
 export interface LogbookGroup {
@@ -17,6 +25,7 @@ export interface LogbookGroup {
   title: string
   subtitle: string
   events: LogbookEvent[]
+  groups: LogbookEventGroup[]
 }
 
 const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
@@ -41,22 +50,42 @@ export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): Logboo
       const title = !valid ? '时间未记录' : kind === 'day' ? `${date!.getDate()}日` : kind === 'month' ?
         `${date!.getFullYear() === now.getFullYear() ? '' : `${date!.getFullYear()}年`}${date!.getMonth() + 1}月` : `${date!.getFullYear()}年`
       const subtitle = kind !== 'day' ? '' : day === today ? '今天' : day === yesterday ? '昨天' : weekdays[date!.getDay()]
-      group = { key, kind, date: day, title, subtitle, events: [] }
+      group = { key, kind, date: day, title, subtitle, events: [], groups: [] }
       groups.push(group)
     }
     group.events.push(event)
   }
   for (const task of tasks) {
     if (task.createdAt !== null) {
-      add({ key: `${task.id}\ncreated`, kind: 'created', label: '创建', timestamp: task.createdAt, task })
+      add({ key: `${task.id}\ncreated`, kind: 'created', label: '创建', timestamp: task.createdAt,
+        dateDisplay: TaskDateDisplay.None, task })
     }
     add({ key: `${task.id}\nclosed`, kind: 'closed',
-      label: task.state?.category === TaskStateCategory.Cancel ? '取消' : '完成', timestamp: task.closedAt, task })
+      label: task.state?.category === TaskStateCategory.Cancel ? '取消' : '完成', timestamp: task.closedAt,
+      dateDisplay: TaskDateDisplay.Closed, task })
   }
   for (const group of groups) {
     group.events.sort((left: LogbookEvent, right: LogbookEvent) => {
       return (right.timestamp ?? -Infinity) - (left.timestamp ?? -Infinity) || left.key.localeCompare(right.key)
     })
+    if (group.kind === 'day') {
+      const projects = new Map<string, LogbookEventGroup>()
+      group.events.forEach((event: LogbookEvent, index: number) => {
+        const project = typeof event.task.project === 'function' ? event.task.project() : null
+        if (project !== null) {
+          const key = JSON.stringify(['project', event.task.category || null, project])
+          let projectGroup = projects.get(key)
+          if (!projectGroup) {
+            projectGroup = { key, project, events: [] }
+            projects.set(key, projectGroup)
+            group.groups.push(projectGroup)
+          }
+          projectGroup.events.push(event)
+        } else {
+          group.groups.push({ key: JSON.stringify(['event', index, event.key]), project: null, events: [event] })
+        }
+      })
+    }
   }
   groups.sort((left: LogbookGroup, right: LogbookGroup) => {
     if (left.kind === 'unknown') return 1

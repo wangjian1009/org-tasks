@@ -17,13 +17,14 @@ function compile(source, mocks = {}) {
 }
 const { logbookGroups, logbookEventTime } = compile(fs.readFileSync('entry/src/main/ets/ui/LogbookPresentation.ets', 'utf8'), {
   './TaskStatePresentation': { TaskStateCategory: { Cancel: 'Cancel' } },
+  './TaskListPresentation': { TaskDateDisplay: { None: 'None', Closed: 'Closed' } },
   './Theme': { localDate: d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 });
 const time = (value) => new Date(value).getTime();
 const now = new Date('2026-11-12T12:00:00');
-function task(id, created, closed, category = 'Done') {
+function task(id, created, closed, category = 'Done', project = null) {
   return { id, heading: id, createdAt: created ? time(created) : null, closedAt: closed ? time(closed) : null,
-    state: { name: '任意自定义名字', category }, editContent: { notes: '', checklist: [] } };
+    state: { name: '任意自定义名字', category }, project: () => project, editContent: { notes: '', checklist: [] } };
 }
 test('同一任务保留创建与关闭两件事件，同日按时刻倒序并区分取消分类', () => {
   const groups = logbookGroups([task('A', '2026-11-12T09:00', '2026-11-12T11:30'),
@@ -33,6 +34,13 @@ test('同一任务保留创建与关闭两件事件，同日按时刻倒序并�
   assert.deepEqual(groups[0].events.map(e => [e.task.id, e.label, logbookEventTime(e, groups[0])]),
     [['A', '完成', '11:30'], ['B', '取消', '10:00'], ['A', '创建', '09:00'], ['B', '创建', '08:00']]);
   assert.equal(new Set(groups[0].events.map(e => e.key)).size, 4);
+});
+test('按日事件按项目归并，未归入项目的事件保持独立', () => {
+  const groups = logbookGroups([task('A', '2026-11-12T09:00', '2026-11-12T11:30', 'Done', '项目甲'),
+    task('B', '2026-11-12T08:00', '2026-11-12T10:00', 'Done', '项目甲'),
+    task('C', '2026-11-12T07:00', '2026-11-12T09:00')], now);
+  assert.deepEqual(groups[0].groups.map(group => [group.project, group.events.length]), [['项目甲', 4], [null, 1], [null, 1]]);
+  assert.equal(groups[0].events.every(event => event.dateDisplay === (event.kind === 'closed' ? 'Closed' : 'None')), true);
 });
 test('最近七天按日，更早按月与年，跨年和月末保持倒序', () => {
   const groups = logbookGroups([task('A', '2025-01-02T09:00', '2026-11-11T11:30'),

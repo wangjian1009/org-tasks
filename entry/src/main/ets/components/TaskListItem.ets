@@ -727,8 +727,24 @@ export struct TaskListItem {
 
   leadingDate(): string { return taskDateText(taskDateForDisplay(this.value(), this.dateDisplay), true, new Date(this.referenceTime)) }
 
+  expandedDateLabel(display: TaskDateDisplay): string {
+    const value = taskDateForDisplay(this.value(), display)
+    return value ? inlineDateLabel(value) : ''
+  }
+
+  expandedPlanningText(): string {
+    const parts: string[] = []
+    if (this.value().scheduled) parts.push(`计划：${inlineDateLabel(this.value().scheduled)}`)
+    if (this.value().deadline) parts.push(`截止：${inlineDateLabel(this.value().deadline)}`)
+    if (this.dateDisplay === TaskDateDisplay.Closed) {
+      const closed = this.expandedDateLabel(TaskDateDisplay.Closed)
+      if (closed) parts.push(`完成：${closed}`)
+    }
+    return parts.join('    ')
+  }
+
   leadingWidth(): number {
-    return (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
+    return (!this.readOnly && taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 28 : 0)
   }
 
@@ -882,7 +898,7 @@ export struct TaskListItem {
   }
   @Builder
   compactLeadingInfo() {
-    if (taskDateForDisplay(this.value(), this.dateDisplay)) {
+    if (!this.readOnly && taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
     }
@@ -1148,8 +1164,8 @@ export struct TaskListItem {
         }, (tag: string) => tag)
       }.width('100%')
     }
-    if (this.value().scheduled || this.value().deadline) {
-      Text(`${this.value().scheduled ? `计划：${inlineDateLabel(this.value().scheduled)}` : ''}${this.value().scheduled && this.value().deadline ? '    ' : ''}${this.value().deadline ? `截止：${inlineDateLabel(this.value().deadline)}` : ''}`)
+    if (this.expandedPlanningText()) {
+      Text(this.expandedPlanningText())
         .fontSize(12).fontColor(UiColor.secondary).width('100%')
     }
     if (this.value().editContent.scheduledRepeat?.rule) {

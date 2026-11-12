@@ -1,7 +1,7 @@
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
-import { PlannedGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
+import { PlannedGroup, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
 import { TaskDateDisplay } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskListItem } from './TaskListItem'
@@ -34,6 +34,32 @@ export struct PlannedTaskList {
   }
 
   @Builder
+  taskItem(item: PlannedTaskItem, group: PlannedGroup) {
+    TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
+      plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline, showCategory: true,
+      rightSwipeAction: this.rightSwipeAction,
+      scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
+      referenceTime: this.referenceTime, open: (): void => {
+        this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
+      } })
+  }
+
+  @Builder
+  projectGroup(group: PlannedGroup, project: PlannedTaskGroup) {
+    Column({ space: 2 }) {
+      if (project.project !== null) {
+        Text(project.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8, top: 8 })
+      }
+      ForEach(project.items, (item: PlannedTaskItem) => {
+        this.taskItem(item, group)
+      }, (item: PlannedTaskItem) => taskRenderKey(item.task))
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
+      .backgroundColor(UiColor.projectBlock).borderRadius(12)
+      .border({ width: 0.75, color: UiColor.projectOutline }).margin({ top: 12 })
+  }
+
+  @Builder
   groupContent(group: PlannedGroup) {
     Column() {
       if (group.kind === 'day') {
@@ -41,15 +67,15 @@ export struct PlannedTaskList {
       } else {
         this.monthHeader(group)
       }
-      ForEach(group.items, (item: PlannedTaskItem) => {
-        TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
-          plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline, showCategory: true,
-          rightSwipeAction: this.rightSwipeAction,
-          scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
-          referenceTime: this.referenceTime, open: (): void => {
-            this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
-          } })
-      }, (item: PlannedTaskItem) => taskRenderKey(item.task))
+      if (group.kind === 'day') {
+        ForEach(group.groups, (project: PlannedTaskGroup) => {
+          this.projectGroup(group, project)
+        }, (project: PlannedTaskGroup) => project.key)
+      } else {
+        ForEach(group.items, (item: PlannedTaskItem) => {
+          this.taskItem(item, group)
+        }, (item: PlannedTaskItem) => taskRenderKey(item.task))
+      }
       if (group.kind === 'day' && group.items.length === 0) {
         Blank().height(32)
       }

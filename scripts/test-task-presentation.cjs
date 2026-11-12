@@ -241,9 +241,10 @@ test('计划分组使用有效日期中较早的一天', () => {
 test('前部日期严格按创建、计划、截止或隐藏策略展示', () => {
   const { TaskDateDisplay, taskDateForDisplay } = presentation;
   const value = task('dates', { createdAt: new Date(2026, 10, 10, 23, 55).getTime(),
-    scheduled: '2026-11-12', deadline: '2026-11-18' });
+    closedAt: new Date(2026, 10, 13, 9, 30).getTime(), scheduled: '2026-11-12', deadline: '2026-11-18' });
   for (const [strategy, expected] of [[TaskDateDisplay.Creation, '2026-11-10'],
-    [TaskDateDisplay.Schedule, '2026-11-12'], [TaskDateDisplay.Deadline, '2026-11-18'], [TaskDateDisplay.None, '']]) {
+    [TaskDateDisplay.Schedule, '2026-11-12'], [TaskDateDisplay.Deadline, '2026-11-18'],
+    [TaskDateDisplay.Closed, '2026-11-13'], [TaskDateDisplay.None, '']]) {
     assert.equal(taskDateForDisplay(value, strategy), expected);
   }
   assert.equal(taskDateForDisplay(task('epoch', { createdAt: 0 }), TaskDateDisplay.Creation), localDate(new Date(0)));
@@ -317,6 +318,17 @@ test('计划按日期组织原任务快照，保留空日期、月分组与分�
     assert.equal(groups.find(group => group.key === key).items[0].task, task);
   }
   assert.equal(groups.flatMap(group => group.items).length, tasks.length);
+});
+
+test('计划日按项目归并任务，未归入项目的任务保持独立', () => {
+  const { plannedGroups } = loadGrouping('PlannedPresentation', {
+    './Theme': { localDate }, './TaskListPresentation': presentation
+  });
+  const tasks = [task('project-a', { scheduled: '2026-11-08', projectName: '项目甲' }),
+    task('project-b', { scheduled: '2026-11-08', projectName: '项目甲' }),
+    task('plain', { scheduled: '2026-11-08' })];
+  const day = plannedGroups(tasks).find(group => group.key === 'day:2026-11-08');
+  assert.deepEqual(day.groups.map(group => [group.project, group.items.length]), [['项目甲', 2], [null, 1]]);
 });
 
 const tagFilters = loadGrouping('TaskTagFilterPresentation', {});

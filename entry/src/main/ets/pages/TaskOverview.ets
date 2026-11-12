@@ -234,10 +234,6 @@ struct TaskOverview {
               this.applyTagFilter(selection)
             } })
         }
-        if (this.view === 'logbook') {
-          Text(`${this.tasks.length} 个已完成或取消任务`)
-            .fontSize(13).fontColor(UiColor.secondary).width('100%').padding(16).backgroundColor(UiColor.container)
-        }
         if (this.tasks.length === 0) {
           NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
             detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
