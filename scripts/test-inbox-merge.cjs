@@ -66,6 +66,7 @@ function fixture() {
     '@kit.ArkUI': { KeyboardAvoidMode: { OFFSET: 0 } },
     '../services/InboxService': { InboxService },
     '../ui/InboxPresentation': { recentDays: () => [] },
+    '../ui/TaskActionPresentation': compile(fs.readFileSync('entry/src/main/ets/ui/TaskActionPresentation.ets', 'utf8'), 'TaskActionPresentation.ets', {}),
     '../services/AppConfigService': appConfig, '../services/FileTargetService': target,
     '../services/NativeCoreService': core
   });
@@ -179,4 +180,20 @@ test('过期文件拒绝后保留原选择顺序，禁止用原版本重复合�
   assert.equal(f.page.mergeInvalid, true);
   assert.equal(f.requests.filter(r => r.kind === 'commit').length, 1);
   assert.equal(f.notices.length, 0);
+});
+
+
+test('页面关闭批量编辑或移除合并菜单时，不进入选择或提交隐藏操作', async () => {
+  const f = fixture();
+  f.page.actionPolicy.batchEditing = false;
+  await f.page.startSelection(f.records[0]);
+  assert.equal(f.page.selectingRecords, false);
+  assert.equal(f.queries, 0);
+  f.page.selectedRecordIds = ['main', 'source'];
+  await f.page.mergeSelected();
+  assert.equal(f.requests.length, 0);
+  f.page.actionPolicy.batchEditing = true;
+  f.page.actionPolicy.batchActions = [];
+  await f.page.mergeSelected();
+  assert.equal(f.requests.length, 0);
 });

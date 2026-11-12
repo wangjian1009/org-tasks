@@ -9,7 +9,10 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { InboxTargetPopup } from '../components/InboxTargetPopup'
-import { InboxSwipeActions } from '../components/InboxSwipeActions'
+import { TaskSwipeActions } from '../components/TaskSwipeActions'
+import { TaskSelectionRow } from '../components/TaskSelectionRow'
+import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
+import { TaskPageActionPolicy, taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
 import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { RefileSection, RecentDay, RecentTaskGroup, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
@@ -57,6 +60,7 @@ struct Inbox {
   private visible: boolean = true
   private targetRequest: number = 0
   private actionTimer: number = -1
+  private actionPolicy: TaskPageActionPolicy = taskPageActionPolicy('inbox')
   private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()
   private requestId: number = 0
@@ -97,7 +101,7 @@ struct Inbox {
   }
 
   async startSelection(record: CoreTask) {
-    if (this.checklistDragging) return
+    if (!this.actionPolicy.batchEditing || this.checklistDragging) return
     if (this.selectingRecords || this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
     clearTimeout(this.actionTimer)
@@ -138,7 +142,7 @@ struct Inbox {
 
   async mergeSelected() {
     const records = this.selectedRecords()
-    if (records.length < 2 || this.mergeBusy || this.mergeInvalid) return
+    if (!this.actionPolicy.batchEditing || !this.actionPolicy.batchActions.includes('merge') || records.length < 2 || this.mergeBusy || this.mergeInvalid) return
     this.mergeBusy = true
     this.mergeMessage = ''
     let merged: CoreTaskPath
@@ -237,12 +241,11 @@ struct Inbox {
 
   @Builder
   swipeMenu(record: CoreTask) {
-    InboxSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy,
-      select: (): void => { this.startSelection(record) },
-      move: (): void => { this.swipeAction(record, 'move') },
-      someday: (): void => { this.swipeAction(record, 'someday') },
-      memo: (): void => { this.swipeAction(record, 'memo') },
-      remove: (): void => { this.swipeAction(record, 'delete') } })
+    TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy, idPrefix: 'inbox_swipe',
+      items: taskSwipeMenu(this.actionPolicy, (action: TaskSwipeAction): void => {
+        if (action === 'select') this.startSelection(record)
+        else this.swipeAction(record, action)
+      }) })
   }
 
   @Builder
@@ -482,37 +485,21 @@ struct Inbox {
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
                   Row() {
-                    Column() {
-                    TaskListItem({ task: record, enableSwipeActions: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
-                      swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
-                      this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
-                    } })
-                    if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
-                      OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
-                        .width('100%').padding({ left: 27 })
+                    TaskSelectionRow({ batchEditing: this.actionPolicy.batchEditing, selecting: this.selectingRecords,
+                      busy: this.mergeBusy || this.actionBusy || this.selectionStarting,
+                      selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading, horizontalInset: 12,
+                      highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
+                      begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
+                      TaskListItem({ task: record, enableSwipeActions: this.actionPolicy.swipeActions.length > 0, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                        swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
+                          this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
+                        } })
+                      if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
+                        OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
+                          .width('100%').padding({ left: 27 })
+                      }
                     }
-                    }.layoutWeight(1).constraintSize({ minWidth: 0 })
-                      .enabled(!this.selectingRecords)
-                      .hitTestBehavior(this.selectingRecords ? HitTestMode.None : HitTestMode.Default)
-                      .accessibilityLevel(this.selectingRecords ? 'no-hide-descendants' : 'auto')
-                    if (this.selectingRecords) {
-                      Row() {
-                        if (this.selectedRecordIds.includes(record.id)) {
-                          Text(`${this.selectedRecordIds.indexOf(record.id) + 1}`).fontSize(12).fontColor(Color.White)
-                        }
-                      }.width(24).height(24).margin({ left: 8 }).borderRadius(12)
-                        .border({ width: 1.5, color: this.selectedRecordIds.includes(record.id) ? UiColor.selection : UiColor.secondary })
-                        .backgroundColor(this.selectedRecordIds.includes(record.id) ? UiColor.selection : Color.Transparent)
-                        .justifyContent(FlexAlign.Center).accessibilityLevel('no')
-                    }
-                  }.width('100%').padding({ left: 12, right: 12 })
-                    .backgroundColor(this.selectingRecords ? (this.selectedRecordIds.includes(record.id) ? UiColor.selectionTint : Color.Transparent) :
-                      this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath) ? '#323D3A' : Color.Transparent)
-                    .borderRadius(this.selectingRecords ? 8 : 12)
-                    .border({ width: !this.selectingRecords && (this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath)) ? 1 : 0, color: UiColor.primary })
-                    .accessibilityText(this.selectingRecords ? `${record.heading}，${this.selectedRecordIds.includes(record.id) ? `已选择，第 ${this.selectedRecordIds.indexOf(record.id) + 1} 条` : '未选择'}` : '')
-                    .onClick((): void => { if (this.selectingRecords) this.toggleRecord(record) })
-                    .gesture(LongPressGesture({ repeat: false }).onAction((): void => { this.startSelection(record) }))
+                  }.width('100%')
                     .bindPopup(this.selected?.id === record.id, {
                       builder: this.targetPopup, placement: Placement.Bottom, targetSpace: 10,
                       enableArrow: false, width: this.popupWidth, radius: 16,
@@ -528,7 +515,7 @@ struct Inbox {
                       this.measureRows()
                     })
                 }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords ? {} : { start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
-                  end: this.swipeMenu(record), edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
+                  end: this.actionPolicy.swipeActions.length > 0 ? this.swipeMenu(record) : undefined, edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
@@ -583,31 +570,12 @@ struct Inbox {
         .visibility(this.drawerOpen || this.captureOpen || this.selected || this.inlineTyping || this.selectingRecords || this.selectionStarting ? Visibility.Hidden : Visibility.Visible)
         .enabled(!this.actionBusy).accessibilityText('记一条')
         .onClick((): void => { this.capture() })
-      if (this.selectingRecords) {
-        Column({ space: 8 }) {
-          if (this.mergeMessage) { Text(this.mergeMessage).fontSize(13).fontColor(UiColor.error).width('100%') }
-          Text(this.selectedRecordIds.length > 0 ? `合并: ${this.selectedRecords()[0]?.heading || ''}` : '请选择至少两条记录')
-            .fontSize(12).fontColor(UiColor.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-            .padding({ left: 12, right: 12 })
-          Row({ space: 12 }) {
-            Text(`已选 ${this.selectedRecordIds.length} 条`).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
-            if (this.mergeInvalid) {
-              Button('刷新重选').height(44).fontColor(UiColor.selection).backgroundColor(Color.Transparent)
-                .enabled(!this.mergeBusy).onClick((): void => { this.cancelSelection() })
-            } else {
-              Button({ type: ButtonType.Normal }) {
-                Row({ space: 6 }) {
-                  Image($r('app.media.ui_merge_records')).width(20).height(20)
-                  Text(this.mergeBusy ? '合并中…' : '合并').fontSize(15).fontColor(Color.White)
-                }.opacity(this.selectedRecordIds.length >= 2 ? 1 : 0.4)
-              }.id('inbox_merge').height(44).padding({ left: 12, right: 8 })
-                .backgroundColor(Color.Transparent).enabled(this.selectedRecordIds.length >= 2 && !this.mergeBusy)
-                .accessibilityText('按选择顺序合并记录')
-                .onClick((): void => { this.mergeSelected() })
-            }
-          }.width('100%').height(52).padding({ left: 18, right: 8 }).backgroundColor('#25282E').borderRadius(26)
-            .shadow({ radius: 8, color: '#40000000', offsetY: 3 })
-        }.width('92%').constraintSize({ maxWidth: 420 }).margin({ bottom: 24 })
+      if (this.selectingRecords && this.actionPolicy.batchEditing) {
+        TaskBatchToolbar({ items: taskBatchMenu(this.actionPolicy, (action: TaskBatchAction): void => {
+            if (action === 'merge') this.mergeSelected()
+          }), count: this.selectedRecordIds.length, busy: this.mergeBusy, busyAction: this.mergeBusy ? 'merge' : '', invalid: this.mergeInvalid,
+          message: this.mergeMessage, caption: this.selectedRecordIds.length > 0 ? `合并: ${this.selectedRecords()[0]?.heading || ''}` : '请选择至少两条记录',
+          idPrefix: 'inbox', retry: (): void => { this.cancelSelection() } })
       }
       if (this.captureOpen) {
         Column().width('100%').height('100%').backgroundColor('#66000000')
