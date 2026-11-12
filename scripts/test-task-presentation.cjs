@@ -21,9 +21,9 @@ const { taskRenderKey } = exported;
 
 // 与 native Task 一样，数据字段只读且可枚举，行为位于原型上。
 function task(id, values = {}) {
-  const result = Object.create({ isDone() { return this.todoKind === 'done'; }, project() { return this.projectName ?? null; } });
+  const result = Object.create({ taskStateOf(category) { return category === 'Done' ? { name: 'DONE', category } : null; }, isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancle'; }, project() { return this.projectName ?? null; } });
   for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
-    todoState: 'TODO', todoKind: 'pending', projectName: null, priority: '', scheduled: '', deadline: '', tags: [],
+    state: { name: 'TODO', category: 'Todo' }, projectName: null, priority: '', scheduled: '', deadline: '', tags: [],
     filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '',
     hasList: false, hasText: true, isRepeating: false, progress: -1, ...values })) {
     Object.defineProperty(result, key, { value, enumerable: true });
@@ -54,7 +54,7 @@ test('删除前两条记录后，剩余行与点击对象对应最新结果', ()
 
 test('逻辑 ID 稳定时，状态、进度标题和正文仍更新；仅用 ID 会复现旧行残留', () => {
   const before = task('same-id', { heading: '项目 [0/2]' });
-  const after = task('same-id', { heading: '项目 [2/2]', todoState: 'DONE', todoKind: 'done', body: '新正文' });
+  const after = task('same-id', { heading: '项目 [2/2]', state: { name: 'DONE', category: 'Done' }, body: '新正文' });
   const legacy = refresh(refresh(new Map(), [before], task => task.id), [after], task => task.id);
   assert.equal([...legacy.values()][0].open(), before);
   const rows = refresh(refresh(new Map(), [before]), [after]);
@@ -65,12 +65,24 @@ test('逻辑 ID 稳定时，状态、进度标题和正文仍更新；仅用 ID 
   assert.equal(row.open(), after);
 });
 
+test('只修改目标分类设置时，即使当前任务内容不变也更新点击对象', () => {
+  const before = task('same-id');
+  const after = task('same-id');
+  Object.setPrototypeOf(after, { ...Object.getPrototypeOf(after), taskStateOf(category) {
+    return category === 'Done' ? { name: 'FINISHED', category } : null;
+  } });
+  assert.equal(JSON.stringify(before), JSON.stringify(after));
+  assert.notEqual(taskRenderKey(before), taskRenderKey(after));
+  const rows = refresh(refresh(new Map(), [before]), [after]);
+  assert.equal([...rows.values()][0].open(), after);
+});
+
 test('计划、标签、链接及详情正文更新都能刷新点击参数，相同快照继续复用', () => {
   const before = task('same-id');
   assert.equal(taskRenderKey(before), taskRenderKey(task('same-id')));
   for (const changes of [{ scheduled: '2026-11-06' }, { deadline: '2026-11-07' }, { priority: 'A' },
     { tags: ['work'] }, { category: '生活' }, { headingParts: [{ text: '链接', href: 'https://example.org', isLink: true }] },
-    { bodyHtml: '<p>新正文</p>' }, { logbookHtml: '<p>新日志</p>' }]) {
+    { state: { name: 'ACTIVE', category: 'Doing' } }, { state: { name: 'STOP', category: 'Cancle' } }, { bodyHtml: '<p>新正文</p>' }, { logbookHtml: '<p>新日志</p>' }]) {
     const after = task('same-id', changes);
     const rows = refresh(refresh(new Map(), [before]), [after]);
     assert.equal([...rows.values()][0].open(), after);
@@ -228,7 +240,7 @@ test('截止日期的未来、当天、逾期、已完成与无效状态使用�
     [{ deadline: '2026-11-18' }, '剩下 6 天', '#AEACA9'],
     [{ deadline: '2026-11-12' }, '今天截止', '#FF3869'],
     [{ deadline: '2026-11-06' }, '逾期 6 天', '#FF3869'],
-    [{ deadline: '2026-11-06', todoKind: 'done' }, '11/6', '#AEACA9'],
+    [{ deadline: '2026-11-06', state: { name: 'DONE', category: 'Done' } }, '11/6', '#AEACA9'],
     [{ deadline: '2026-02-30' }, '日期不可用', '#AEACA9'],
     [{ deadline: '' }, '日期不可用', '#AEACA9']
   ]) {

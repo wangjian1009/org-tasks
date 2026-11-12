@@ -34,7 +34,7 @@ struct TaskEdit {
           await NoteService.modify(context, this.task, changes)
           this.committed = true
           const config = await AppConfigService.load(context, false)
-          const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+          const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
           this.task = (await workspace.fileAt(this.task.fullPath)).node(this.task.fullPath)
           this.committed = false
           return true

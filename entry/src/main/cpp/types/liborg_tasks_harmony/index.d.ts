@@ -88,12 +88,10 @@ export class Task {
   readonly heading: string;
   readonly category: string | null;
   readonly headingParts: TitlePart[];
-  readonly todoState: string;
-  readonly doneKeywords: string[];
-  readonly isCancelled: boolean;
+  readonly state: TaskState | null;
+  taskStateOf(category: TaskStateCategory): TaskState | null;
   readonly createdAt: number | null;
   readonly modifiedAt: number | null;
-  readonly todoKind: 'pending' | 'done' | null;
   readonly priority: string;
   readonly scheduled: string;
   readonly deadline: string;
@@ -220,6 +218,8 @@ export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
 export class Workspace {
   constructor();
+  getSettings(): Promise<CoreSettings>;
+  setSettings(settings: CoreSettings): Promise<void>;
   setTodoDefaults(settings: string): Promise<void>;
   setPreviewRoot(root: string): Promise<void>;
   createConflictPreview(request: ConflictPreviewRequest): Promise<ConflictPreview>;
@@ -256,6 +256,7 @@ export class Repo {
 }
 
 export interface OrgFileMetadata {
+  taskStateOf(category: TaskStateCategory): TaskState | null;
   project(): string | null;
   readonly projectName: string | null;
   readonly repoId: string;
@@ -277,10 +278,15 @@ export interface ConflictSync { syncId: string; paths: string[]; }
 
 export interface SourcePosition { line: number; column: number; byte_offset: number; }
 export interface SourceRange { start: SourcePosition; end: SourcePosition; }
+export type TaskStateCategory = 'Todo' | 'Doing' | 'Wait' | 'Done' | 'Cancle';
+export interface TaskState { name: string; category: TaskStateCategory | null; }
+export interface CoreSettings { additionStates: TaskState[]; }
+
 export interface TodoDeclaration { keyword: string; value: string; range: SourceRange; }
 export interface TodoStateMetadata {
   name: string;
   kind: 'pending' | 'done';
+  category: TaskStateCategory | null;
   fastKey: string | null;
   enterLog: 'time' | 'note' | null;
   leaveLog: 'time' | 'note' | null;
@@ -291,7 +297,6 @@ export interface TodoMetadata {
   declarations: TodoDeclaration[];
   workflows: TodoWorkflow[];
   pendingKeywords: string[];
-  doneKeywords: string[];
   initialState: string | null;
 }
 

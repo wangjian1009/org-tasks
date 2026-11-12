@@ -71,7 +71,7 @@ export class CoreNotificationService {
     const config = await AppConfigService.load(context, false)
     const configured = config.repos.find((repo) => repo.id === known?.configRepoId)
     if (!configured) throw new Error('此存储库已不存在，请刷新后重试')
-    const repo = await NativeCoreService.repository(config.repos, configured, config.todoDefaults)
+    const repo = await NativeCoreService.repository(config.repos, configured, config.todoDefaults, config.coreSettings)
     await repo.load()
     if (repo.id !== notification.repoId) throw new Error('存储库已发生变化，请刷新后重试')
     return { repoId: configured.id, path: notification.path }

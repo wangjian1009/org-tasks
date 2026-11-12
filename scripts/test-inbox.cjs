@@ -190,7 +190,7 @@ test('普通 CATEGORY 查询在 Core 排除收件箱和某天文件，快捷入�
     './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-a', rootDirectory: '/a' }],
       inboxRepoId: 'host-a', inboxFile: 'inbox.org', somedayRepoId: 'host-a', somedayFile: 'someday.org' }; } } },
     './FileTargetService': { configuredFileTarget: (config, kind) => ({ repoId: config[kind + 'RepoId'], path: config[kind + 'File'] }) },
-    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false}]}));},
+    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false,taskStateOf(category){ assert.equal(category,'Todo'); return initialState ? {name:initialState,category} : null; }}]}));},
       async refileTargets(query) { queries.push(query); return query.files ? [first, second] : normal; } }; } } }
   });
   const result = await InboxService.targets({});
@@ -208,11 +208,12 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
   const queries = [];
   let hasTargets = true;
   const first = { ...target('core-id', 'Later'), path: 'someday.org', fullPath: { repoId: 'core-id', file: 'someday.org', titles: ['Later'], occurrence: 2 } };
-  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {},  };
+  let initialState = 'OPEN';
+  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {} };
   const { InboxService } = load('services/InboxService', {
     './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-id', rootDirectory: '/repo', webdavEnabled: true }], somedayRepoId: 'host-id', somedayFile: 'someday.org' }; } } },
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.somedayRepoId, path: config.somedayFile }) },
-    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false}]}));},
+    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false,taskStateOf(category){ assert.equal(category,'Todo'); return initialState ? {name:initialState,category} : null; }}]}));},
       async refileTargets(query) { queries.push(query); return hasTargets ? [first] : []; }, async executeTaskOperations(group) { requests.push(group); } }; } } }
   });
   const task = { repoId: 'source', filePath: 'inbox.org', fileVersion: 'old', fullPath: { repoId: 'source', file: 'inbox.org', titles: ['Item'], occurrence: 2 } };
@@ -220,7 +221,7 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
   assert.deepEqual(queries[0], { files: [{ repoId: 'core-id', path: 'someday.org' }] });
   assert.deepEqual(requests[0], { operations: [
     { type: 'Modification', data: { path: task.fullPath, modifications: [
-      { field: 'TODO', value: 'TODO' }, { field: 'SCHEDULE', value: null },
+      { field: 'TODO', value: 'OPEN' }, { field: 'SCHEDULE', value: null },
       { field: 'DEADLINE', value: null }
     ] } },
     { type: 'Movement', data: { path: task.fullPath, position: { parent: first.fullPath } } }
@@ -228,6 +229,9 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
     { repoId: 'source', file: 'inbox.org', version: 'old' },
     { repoId: 'core-id', file: 'someday.org', version: 'target-version' }
   ], queueRepoIds: ['core-id'] });
+  initialState = null;
+  await assert.rejects(InboxService.perform({}, task, 'someday'), /待办状态/);
+  initialState = 'OPEN';
   hasTargets = false;
   await assert.rejects(InboxService.perform({}, task, 'someday'), /REFILE/);
   assert.equal(requests.length, 1);

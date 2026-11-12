@@ -1,6 +1,6 @@
 // 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
-import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, Workspace } from 'liborg_tasks_harmony.so'
+import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, CoreSettings, Workspace } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { PreferencesStore } from './PreferencesStore'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
@@ -27,6 +27,8 @@ export class AppConfigService {
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
+    const savedCoreSettings = await store.get('coreSettings', '') as string
+    const coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await new Workspace().getSettings()
     const fileDisplayMode = await store.get('fileDisplayMode', DEFAULT_CONFIG.fileDisplayMode) as string
     return {
       repos,
@@ -39,6 +41,7 @@ export class AppConfigService {
       calendarName,
       syncInterval,
       todoDefaults,
+      coreSettings,
       fileDisplayMode: fileDisplayMode === 'source' ? 'source' : 'rendered'
     }
   }
@@ -53,6 +56,7 @@ export class AppConfigService {
     }
     const validation: Workspace = new Workspace()
     await validation.setTodoDefaults(config.todoDefaults)
+    await validation.setSettings(config.coreSettings)
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
@@ -81,6 +85,7 @@ export class AppConfigService {
     await store.put('calendarName', config.calendarName.trim())
     await store.put('syncInterval', config.syncInterval)
     await store.put('todoDefaults', config.todoDefaults)
+    await store.put('coreSettings', JSON.stringify(config.coreSettings))
     await store.put('fileDisplayMode', config.fileDisplayMode)
     await store.flush()
     AppConfigService.changeListeners.forEach((listener: () => void): void => { listener() })
@@ -92,7 +97,7 @@ export class AppConfigService {
       repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
       inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile,
       somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId,
-      calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults,
+      calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings,
       fileDisplayMode: current.fileDisplayMode
     })
     await CredentialService.clearWebDavPassword(configId)

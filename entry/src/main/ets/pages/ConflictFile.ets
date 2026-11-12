@@ -87,8 +87,8 @@ struct ConflictFile {
       const config = await AppConfigService.load(context, false)
       const repository = config.repos.find(repo => repo.id === params.repoId)
       if (!repository) throw new Error('此存储库已不存在')
-      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       await workspace.setPreviewRoot(`${context.cacheDir}/org-conflict-previews`)
       const file = await repo.file(params.path)
       let conflicts = file.conflicts()
@@ -465,7 +465,7 @@ struct ConflictFile {
       const repository = config.repos.find(item => item.id === this.configRepoId)
       if (!repository) throw new Error('此存储库已不存在')
       if (repository.rootDirectory !== this.sourceRootDirectory) throw new Error('仓库目录已改变，请重新读取')
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       if (repo.id !== this.coreRepoId) throw new Error('仓库已改变，请重新读取')
       const group = this.pendingGroup ?? await preview.finish({ previewVersion: file.fileVersion })
       this.pendingGroup = group
@@ -523,7 +523,7 @@ struct ConflictFile {
       const repository = config.repos.find(item => item.id === this.configRepoId)
       if (!repository) throw new Error('此存储库已不存在')
       if (repository.rootDirectory !== this.sourceRootDirectory) throw new Error('仓库目录已改变，请重新读取')
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       if (repo.id !== this.coreRepoId) throw new Error('仓库已改变，请重新读取')
       if (this.preview) await this.preview.discard()
       this.preview = undefined
@@ -531,7 +531,7 @@ struct ConflictFile {
         operations: file.conflictIds.map((id: string): CoreTaskOperation => ({ type: 'ConfilictSelection', data: { path: file.fullPath, id, action: 'discard' } })),
         fileVersions: [{ repoId: this.coreRepoId, file: this.path, version: file.fileVersion }],
         queueRepoIds: repository.webdavEnabled ? [this.coreRepoId] : []
-      }, config.todoDefaults)
+      }, config.todoDefaults, config.coreSettings)
       this.manuallyEdited = false
       await this.load()
     } catch (e) { this.handleError(e as CoreBridgeError, '丢弃失败') }

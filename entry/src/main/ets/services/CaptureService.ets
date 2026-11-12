@@ -1,3 +1,4 @@
+import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
@@ -15,7 +16,7 @@ export function captureRepository(config: AppConfig): RepoConfig | undefined {
 export class CaptureService {
   static async prepare(context: Context): Promise<void> {
     const config = await AppConfigService.load(context, false)
-    await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
   }
 
   static drafts(context: Context): Promise<CaptureDraft[]> { return CaptureDraftStore.drafts(context) }
@@ -30,13 +31,14 @@ export class CaptureService {
     const target = await FileTargetService.resolve(config, 'inbox')
     if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
     const file = await target.repo.file(target.path)
-    if (!file.todo.initialState) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
+    const state = target.metadata.taskStateOf(TaskStateCategory.Todo)
+    if (!state) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
     await NativeCoreService.executeTaskOperations(config.repos, {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: normalizedTitle,
-        body: entities.body, scheduled: entities.scheduled, state: file.todo.initialState } }],
+        body: entities.body, scheduled: entities.scheduled, state: state.name } }],
       queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
-    }, config.todoDefaults)
+    }, config.todoDefaults, config.coreSettings)
     await DeviceBadgeService.refresh(context)
   }
 }

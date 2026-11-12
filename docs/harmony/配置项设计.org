@@ -58,7 +58,8 @@ interface RepoConfig {
 | 配置范围 | 当前字段 | 保存位置 | 约束 |
 |-
 | 全局日历 | ~calendarName~ | Preferences | 默认 ~Org Tasks~ ；由 CalendarSync 创建/选择应用日历。 |
-| 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
+| 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存 TODO 流程声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
+| Core 状态分类设置 | ~coreSettings~ | Preferences | 结构化 ~CoreSettings~ JSON；保存 ~additionStates~ ，固定默认状态由 Core 内部管理。 |
 | 文件展示 | ~fileDisplayMode~ | Preferences | 默认 ~rendered~ ，可选 ~source~ ；旧配置缺失或值无效时使用渲染。 |
 | 后台调度 | ~syncInterval~ | Preferences | 默认 20 分钟；由 BackgroundSyncService 配置 WorkScheduler。 |
 | 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
@@ -154,7 +155,15 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 
 每次取得 workspace 时由外部显式传入默认配置。目录不变时沿用 session；设置变化时更新同一 native workspace 并重解析文件。文件自己的声明整组覆盖全局值，查询、后台同步、日程、笔记本与新增任务共用相同配置。合并提交前重新读取外部配置，使旧对象受到 core 版本校验。
 
-空全局配置表示默认不识别 TODO；文件仍可用声明启用自己的流程。文件内空 ~#+TODO:~ 则清空该文件的状态。输入错误明确显示，不能静默改成固定 TODO/DONE。快捷键和日志标记只作为元信息返回，当前不自动写状态变更日志。
+空全局配置表示默认不识别 TODO；文件仍可用声明启用自己的流程。文件内空 ~#+TODO:~ 则清空该文件的状态。输入错误明确显示；分类、快捷键和日志标记由 Core 解释，状态日志按有效配置触发。
+
+** 任务状态分类设置
+
+“设置 → 笔记与笔记本 → 任务状态分类”逐一展示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancle~ 。默认状态作为只读文本展示，附加状态提供输入、添加与移除；非法状态或重复归属显示中文错误并保留输入。分类用于识别运行状态，与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 配置独立。
+
+~CoreSettings~ 通过 ~Workspace.getSettings()~ 与 ~Workspace.setSettings()~ 读写，Preferences 的 ~org_tasks_config.coreSettings~ 以 JSON 保存 ~{ additionStates: [{ name, category }] }~ ，与原有 TODO 流程文本独立。缺失时从空 Workspace 获取默认对象，不将固定默认状态复制到 ArkTS。设置页按五类组织附加值，每组显示“内置默认状态不可修改”；添加与移除只修改附加列表，错误保留输入。分类设置随全部前后台 Core 请求传入。恢复 TODO 流程默认值不清除附加状态。
+
+Core 固定默认值、跨配置来源合并顺序与分隔规则见 [[file:../core/数据模型.org::*任务运行状态分类][任务运行状态分类]]。文件或 ~SETUPFILE~ 可携带相同声明，随原 Org 配置读取；手机设置编辑的仅为全局附加值。
 
 * WebDAV 同步过滤目录
 

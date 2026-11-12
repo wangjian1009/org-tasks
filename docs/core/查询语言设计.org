@@ -89,7 +89,7 @@ core 测试从参考项目移植了 tokenizer 的括号和引号场景、~AND~ /
 
 * 任务完成判断
 
-~FilterTask.is_done() -> bool~ 根据任务投影的 ~state_type~ 判断是否完成。该类型在所属文件的有效 TODO 元信息中计算，受文件内 ~TODO~ 、 ~SEQ_TODO~ 、 ~TYP_TODO~ 声明及已加载的 ~SETUPFILE~ 影响；无文件覆盖时沿用全局默认。同一个 ~CNCL~ 在不同文件可分别为完成、待办或普通标题，接口不按字面名称推断。无 TODO 状态的标题返回 ~false~ 。重新加载或修改默认设置后取得的新任务使用新配置，已返回任务保留取得时的状态。
+~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancle~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancle~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~include_done=false~ 统一排除两类终态。状态值仍可通过 ~i.<state>~ 精确匹配。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancle~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
 
 #+begin_src rust
 impl FilterTask {

@@ -1,10 +1,10 @@
+import { CoreSettings, TaskState } from 'liborg_tasks_harmony.so'
 // Org 任务数据模型
 
 export interface OrgTask {
   id: string           // Core 根据仓库路径、文件路径和任务标题链生成的 MD5
   heading: string      // 任务标题
-  todoState: string    // 文件有效 TODO 关键词
-  todoKind: 'pending' | 'done' | null
+  state: TaskState | null // 文件有效状态及其分类
   priority: string     // A/B/C 或空
   scheduled: string    // ISO 日期字符串 或空
   deadline: string     // ISO 日期字符串 或空
@@ -57,6 +57,7 @@ export interface AppConfig {
   memoRepoId: string
   calendarName: string // 日历名称
   syncInterval: number // 同步间隔（分钟）
+  coreSettings: CoreSettings
   todoDefaults: string // 外部保存的全局默认声明，缺省值由 Rust 提供
   fileDisplayMode: 'rendered' | 'source' // 文件展示方式
 }
@@ -72,6 +73,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   memoRepoId: '',
   calendarName: 'Org Tasks',
   syncInterval: 20,
+  coreSettings: { additionStates: [] },
   todoDefaults: '', // 配置加载前的占位，实际默认值从 Rust 获取
   fileDisplayMode: 'rendered'
 }

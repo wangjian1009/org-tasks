@@ -74,7 +74,7 @@ export class MemoCardService {
     if (!fileTargetRepository(config, 'memo')) {
       return { data: memoCardData([], tag, '请先在应用中选择备忘文件'), tags: [], available: false }
     }
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const target = FileTargetService.prepare(config, await workspace.repos(), 'memo')
     if (!target) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
     const results = await workspace.query([{ type: 'task', repoIds: [target.reference.repoId],

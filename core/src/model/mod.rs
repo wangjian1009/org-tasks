@@ -2,17 +2,17 @@ use crate::{CoreError, TimestampMs};
 use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
-pub(crate) mod conflict;
 pub(crate) mod access;
+pub(crate) mod conflict;
 mod conflict_preview;
-mod editor;
 mod data_changes;
+mod editor;
 mod file_keywords;
 mod merge;
 pub(crate) mod notification;
-mod query;
 mod project;
 pub(crate) mod properties;
+mod query;
 mod refile;
 mod render;
 pub(crate) mod reset;
@@ -35,8 +35,8 @@ mod workspace;
 pub(crate) mod write_intent;
 
 pub use conflict_preview::*;
-pub use editor::*;
 pub use data_changes::*;
+pub use editor::*;
 pub use merge::*;
 pub use notification::*;
 pub use query::*;
@@ -85,6 +85,17 @@ pub struct OrgFileMetadata {
     pub task_count: usize,
     pub byte_length: usize,
     pub modified_at: Option<TimestampMs>,
+    #[serde(skip)]
+    pub(crate) task_states: Vec<TaskState>,
+}
+
+impl OrgFileMetadata {
+    pub fn task_state_of(&self, category: TaskStateCategory) -> Option<TaskState> {
+        self.task_states
+            .iter()
+            .find(|state| state.category == Some(category))
+            .cloned()
+    }
 }
 
 impl OrgRepo {
@@ -108,8 +119,6 @@ impl OrgRepo {
     pub fn contains_path(&self, path: &str) -> bool {
         validate_relative_path(path).is_ok()
     }
-
-
 }
 
 #[derive(Debug)]
@@ -152,6 +161,7 @@ impl OrgFile {
             },
             byte_length: self.source_bytes().len(),
             modified_at: self.modified_at,
+            task_states: self.todo.task_states(),
         }
     }
 
@@ -221,7 +231,11 @@ impl OrgFile {
     }
 
     pub(crate) fn header_metadata(&self) -> (Option<String>, bool) {
-        let conflict = self.syntax.document().syntax().descendants()
+        let conflict = self
+            .syntax
+            .document()
+            .syntax()
+            .descendants()
             .filter_map(orgize::ast::Headline::cast)
             .any(|headline| headline.tags().any(|tag| tag == CONFLICT_TAG));
         (self.file_keywords.title(), conflict)
@@ -533,11 +547,15 @@ mod tests {
 
     #[test]
     fn workspace_rejects_duplicate_repo_ids() {
-        let repo = crate::model::test_support::with_files(OrgRepo {
-            id: "repo-1".into(),
-            root_directory: "/data/org".into(),
-            todo_defaults: TodoConfig::default(),
-        }, Vec::new(), Default::default());
+        let repo = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo-1".into(),
+                root_directory: "/data/org".into(),
+                todo_defaults: TodoConfig::default(),
+            },
+            Vec::new(),
+            Default::default(),
+        );
         assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
     }
 
@@ -604,11 +622,19 @@ mod tests {
                 OrgFile::new("repo".into(), "work.org".into(), source.as_bytes().to_vec()).unwrap();
             assert_eq!(file.title().as_deref(), expected);
             let mut repo = OrgRepo::new("/unused".into()).unwrap();
-            { let value = file; crate::model::test_support::push_file(&mut repo, value); };
-            let metadata = crate::model::test_support::query_files(&repo).await.unwrap();
+            {
+                let value = file;
+                crate::model::test_support::push_file(&mut repo, value);
+            };
+            let metadata = crate::model::test_support::query_files(&repo)
+                .await
+                .unwrap();
             assert_eq!(metadata[0].title.as_deref(), expected);
             assert_eq!(metadata[0].path, "work.org");
-            assert_eq!(repo.load_files(&[]).await.unwrap()[0].source_bytes(), source.as_bytes());
+            assert_eq!(
+                repo.load_files(&[]).await.unwrap()[0].source_bytes(),
+                source.as_bytes()
+            );
             let value = serde_json::to_value(&metadata[0]).unwrap();
             assert_eq!(value.as_object().unwrap().len(), 12);
             assert!(value["projectName"].is_null());
@@ -670,13 +696,15 @@ mod tests {
         repo.id = "repo".into();
         repo.set_todo_defaults(TodoConfig::from_settings("#+TODO: NEXT | CLOSED").unwrap())
             .unwrap();
-        { let value =
-            OrgFile::new(
+        {
+            let value = OrgFile::new(
                 "repo".into(),
                 "work.org".into(),
                 b"#+CATEGORY: Work\n".to_vec(),
             )
-            .unwrap(); crate::model::test_support::push_file(&mut repo, value); };
+            .unwrap();
+            crate::model::test_support::push_file(&mut repo, value);
+        };
         let file = repo.file("work.org").await.unwrap();
         crate::model::test_support::clear_files(&mut repo);
         assert_eq!(file.category().as_deref(), Some("Work"));

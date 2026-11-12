@@ -170,9 +170,13 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 * 默认 TODO、查询与结果投影
 
-~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并用于后续每次文件解析；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~todoKind~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
+~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并用于后续每次文件解析；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~state.category~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
 ~Workspace.query~ 将结构化请求交给 ~OrgWorkspace.query~ ，由 Core 内部解析表达式并求值。返回结果中的 ~tasks~ 为原生 ~Task~ 对象，用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
+
+~Workspace.getSettings()~ 与 ~Workspace.setSettings(CoreSettings)~ 由 C++ 通过 ~napi_create_async_work~ 在工作线程调用 Core，ArkTS wrapper 透传 ~CoreSettings~ 。
+
+~Task.state: TaskState | null~ 透传当前状态，~Task.taskStateOf(category)~ 与 ~OrgFileMetadata.taskStateOf(category)~ 返回所属文件首个有效目标状态或 ~null~。Core 负责选择，C++ 只持有私有快照并透传结果，每次返回独立值。UI 使用 ~state.category~ 判断样式、使用返回值的 ~name~ 提交修改；~isDone()~ 保留既有查询行为。
 
 * 错误与扩展
 
@@ -182,7 +186,7 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 * 任务完成对象
 
-~Workspace.query~ 在 Task 结果分支的 ~result.tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
+~Workspace.query~ 在 Task 结果分支的 ~result.tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照与各分类的 ~taskStateOf~ 返回值生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。
 
 #+begin_src ts
 class Task {
@@ -195,7 +199,8 @@ class Task {
   readonly category: string | null
   readonly isRepeating: boolean
   readonly todoState: string
-  readonly todoKind: 'pending' | 'done' | null
+  readonly state: TaskState | null
+  taskStateOf(category: TaskStateCategory): TaskState | null
   readonly createdAt: number | null
   readonly modifiedAt: number | null
   isDone(): boolean
@@ -331,7 +336,7 @@ interface TitleCount {
 
 * Query 文件引用与创建日期扩展
 
-~TaskQuery.excludedFiles~ 统一改为 ~OrgFileRef[]~ ，元素使用 Core 仓库 ID 与文件相对路径；旧字符串数组输入拒绝，不保留平行的路径排除接口。 创建日期条件继续使用 ~expression~ ，最近三天请求为 ~cr.ge.-2d cr.le.today .o.created~ ，按今天及前两天三个本地自然日匹配。ArkTS wrapper 原样透传，C++ 通过既有 JSON 编组进入 Rust ~TaskQuery~ ，不实施过滤。查询得到的 ~Task.createdAt: number | null~ 、 ~Task.modifiedAt: number | null~ 和 ~Task.isCancelled: boolean~ 为只读可枚举属性，分别由 Core 的 ~FilterTask.created_at()~ 、 ~FilterTask.modified_at()~ 和 ~FilterTask.is_cancelled()~ 投影；时间值缺失时保留 ~null~ 。取消标记由 Core 根据实际识别的 ~CNCL~ 状态投影；它不改变文件 TODO 定义或 ~isDone()~ 结果。
+~TaskQuery.excludedFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
 
 ~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeDone=true~ 和 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 
@@ -497,7 +502,7 @@ Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的�
 
 * 任务完成状态接入
 
-Rust bridge 将 ~FilterTask.done_keywords()~ 投影为 ~HarmonyBridgeTask.done_keywords~ ，C++ 在 ~Task~ 注册只读、可枚举的 ~doneKeywords: string[]~ 属性，ArkTS 的 ~CoreTask~ 类型别名直接透传。列表前部 checkbox 仅对待办任务开放完成操作，使用 ~doneKeywords[0]~ 组装 ~TODO~ 修改，经原有异步 ~Workspace.executeTaskOperations~ 提交文件版本约束；不在宿主解析文件或硬编码完成关键词。空列表禁用操作，提交期间阻止重复点击，失败显示 Core 错误；成功释放编辑会话，由数据通知刷新当前视图。
+列表完成操作使用 ~Task.taskStateOf(Done)~ 取得目标，组装 ~TODO~ 修改并通过原有异步操作组携带文件版本提交。没有匹配时禁用完成按钮；正在提交时阻止重复点击，失败保留输入并显示原因，成功由数据通知刷新。分类解析和目标选择只在 Core 实现。
 
 * 批量查询与锁边界
 

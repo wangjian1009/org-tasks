@@ -1,3 +1,4 @@
+import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { CoreTask } from '../services/NativeCoreService'
 import { EmptyState } from './Controls'
 import { TitleText } from './TitleText'
@@ -55,7 +56,7 @@ export struct TaskEditor {
               .margin({ bottom: 20 }).enabled(!this.disabled)
               .onChange((value: string): void => { this.headingChanged(value) })
           } else {
-            TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false })
+            TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false, cancelled: this.task!.state?.category === TaskStateCategory.Cancle })
               .width('100%').padding({ left: 16, right: 16, top: 8, bottom: 20 })
           }
           if (!this.editable && titleCounts(this.task!.headingParts).length > 0) {
@@ -70,7 +71,7 @@ export struct TaskEditor {
             .onClick(() => { this.metadataExpanded = !this.metadataExpanded })
           if (this.metadataExpanded) {
             this.metadata($r('app.media.ui_tags'), '标签', this.task!.tags.join('  '))
-            this.metadata($r('app.media.ui_state'), '状态', this.task!.todoState)
+            this.metadata($r('app.media.ui_state'), '状态', (this.task!.state?.name || '') ? `${taskStateCategoryLabel(this.task!.state?.category)} · ${(this.task!.state?.name || '')}` : '备忘')
             this.metadata($r('app.media.ui_priority'), '优先级', this.task!.priority ? `[#${this.task!.priority}]` : '')
             this.metadata($r('app.media.ui_calendar'), '计划时间', this.task!.scheduled)
             this.metadata($r('app.media.ui_deadline'), '截止时间', this.task!.deadline)

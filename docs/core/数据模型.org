@@ -163,7 +163,7 @@ pub struct FilterTask {
     column: u32,
     byte_offset: u64,
     level: u32,
-    state: Option<String>,
+    state: Option<TaskState>,
     state_type: FilterStateType,
     priority: Option<String>,
     own_tags: Vec<String>,
@@ -182,7 +182,7 @@ pub struct FilterTask {
 }
 #+end_src
 
-~FilterTask.done_keywords()~ 返回所属文件有效的完成状态名称，保持 Core 配置顺序并去除快捷键与日志后缀；同一文件的任务通过 ~Arc~ 共享该快照。文件未声明时沿用全局默认配置，显式清空时返回空列表。宿主完成任务时选择第一项，仍通过带文件版本约束的状态修改操作提交，不硬编码 ~DONE~ 。
+~FilterTask.state()~ 返回 ~Option<&TaskState>~ ，其中包含状态名称与可空分类。任务与共享文件元信息均提供 ~task_state_of(category) -> Option<TaskState>~ ；返回首个有效匹配状态的独立副本，找不到时为空。
 
 ~FilterTask~ 的字段不作为跨模块结构契约公开；宿主和其他 crate 通过访问方法读取查询快照。时间方法返回可空值：~created_at()~ 是标题自身 ~CREATED~ 属性解析出的 Unix 毫秒时间， ~modified_at()~ 仅从当前标题自身的 ~LAST_MODIFIED~ 属性解析 Unix 毫秒时间，属性名不区分大小写，不继承、不扫描正文或文件前言。两者缺失或不可解析时均返回 ~None~ ，任务修改时间不读取文件 mtime，也不使用创建时间补齐；读取不生成或回填属性。
 
@@ -194,7 +194,6 @@ impl FilterTask {
     pub fn path(&self) -> &str;
     pub fn file_metadata(&self) -> &OrgFileMetadata;
     pub fn file_version(&self) -> &str;
-    pub fn done_keywords(&self) -> &[String];
     pub fn edit_content(&self) -> &TaskEditContent;
     pub fn support_tags(&self) -> Option<&SupportTags>;
     pub fn category(&self) -> Option<&str>;
@@ -202,8 +201,8 @@ impl FilterTask {
     pub fn column(&self) -> u32;
     pub fn byte_offset(&self) -> u64;
     pub fn level(&self) -> u32;
-    pub fn state(&self) -> Option<&str>;
-    pub fn state_type(&self) -> FilterStateType;
+    pub fn state(&self) -> Option<&TaskState>;
+    pub fn task_state_of(&self, category: TaskStateCategory) -> Option<TaskState>;
     pub fn priority(&self) -> Option<&str>;
     pub fn own_tags(&self) -> &[String];
     pub fn inherited_tags(&self) -> &[String];
@@ -261,9 +260,8 @@ pub struct SupportTags {
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{file\_metadata: Arc\textless OrgFileMetadata\textgreater \\
   file\_version: String \\
-  done\_keywords: Arc\textless Vec\textless String\textgreater\textgreater \\
   edit\_content: TaskEditContent \\
-  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ file\_version(): String \\ done\_keywords(): [String] \\ edit\_content(): TaskEditContent \\ support\_tags(): Option\textless SupportTags\textgreater}
+  support\_tags: Option\textless Arc\textless SupportTags\textgreater\textgreater}{file\_metadata(): OrgFileMetadata \\ file\_version(): String \\ edit\_content(): TaskEditContent \\ support\_tags(): Option\textless SupportTags\textgreater}
 \umlclass[x=8,y=0]{OrgFileMetadata}{repo\_id: OrgRepoId \\ path: String}{}
 \umlclass[x=8,y=-4]{SupportTags}{tags: Vec\textless String\textgreater \\ groups: Vec\textless Vec\textless String\textgreater\textgreater}{}
 \umluniassoc[mult1=0..*,mult2=1]{FilterTask}{OrgFileMetadata}
@@ -557,6 +555,14 @@ pub struct WebDavSyncFileDetail {
 pub enum TodoSource { GlobalDefault, InBuffer }
 pub enum TodoWorkflowKind { Sequence, Type }
 pub enum TodoStateKind { Pending, Done }
+pub enum TaskStateCategory { Todo, Doing, Wait, Done, Cancle }
+pub struct TaskState {
+    pub name: String,
+    pub category: Option<TaskStateCategory>,
+}
+pub struct CoreSettings {
+    pub addition_states: Vec<TaskState>,
+}
 pub enum TodoLogAction { Time, Note }
 
 pub struct TodoWorkflowSpec {
@@ -574,6 +580,7 @@ pub struct TodoDeclaration {
 pub struct TodoStateMetadata {
     pub name: String,
     pub kind: TodoStateKind,
+    pub category: Option<TaskStateCategory>,
     pub fast_key: Option<char>,
     pub enter_log: Option<TodoLogAction>,
     pub leave_log: Option<TodoLogAction>,
@@ -605,6 +612,7 @@ pub struct TodoMetadata {
 \umlclass[x=0,y=-3.2]{TodoWorkflow}{kind: TodoWorkflowKind}{}
 \umlclass[x=7.8,y=-3.2]{TodoStateMetadata}{name: String \\
   kind: TodoStateKind \\
+  category: Option\textless TaskStateCategory\textgreater \\
   fast\_key: Option\textless char\textgreater \\
   enter\_log: Option\textless TodoLogAction\textgreater \\
   leave\_log: Option\textless TodoLogAction\textgreater}{}
@@ -615,13 +623,68 @@ pub struct TodoMetadata {
 }
 \end{center}
 
+** 任务运行状态分类
+
+~TaskStateCategory~ 枚举定义 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 和 ~Cancle~ 。其中 ~Done~ 与 ~Cancle~ 为终态，其余为未完成状态； ~Cancle~ 保留公开接口拼写。任务的 ~state()~ 返回可空 ~TaskState~，无状态标题返回 ~None~；状态自身的 ~category~ 也可以为空 。它与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 候选标签相互独立。
+
+| 分类 | 展示名称 | 不可修改的默认状态值 |
+|-
+| ~Todo~ | 待办 | ~TODO~ 、 ~NEXT~ |
+| ~Doing~ | 进行中 | ~INPROGRESS~ |
+| ~Wait~ | 等待 | ~WAIT~ |
+| ~Done~ | 已完成 | ~DONE~ |
+| ~Cancle~ | 已取消 | ~CNCL~ |
+
+默认状态与分类映射由 Core 内部固定维护，不提供额外的默认值或映射操作接口。~CoreSettings.addition_states~ 保存附加的 ~TaskState~ 列表；通过 Workspace 的 ~get_settings()~ 与 ~set_settings()~ 获取和整体替换，附加值的 ~category~ 可以为空。默认名称不可加入附加列表，附加名称不可重复，名称大小写敏感。
+
+全局 ~CoreSettings~ 提供附加分类；仓库内 ~SETUPFILE~ 和文件的真实 ~#+TASK_STATE_CATEGORY:~ 声明仍由 Core 内部读取。文件覆盖 TODO 流程时继续使用同一份 Core 设置。示例：
+
+#+begin_src org
+,#+TODO: OPEN ACTIVE HOLD | FINISHED ABORTED
+,#+TASK_STATE_CATEGORY: Todo OPEN
+,#+TASK_STATE_CATEGORY: Doing ACTIVE
+,#+TASK_STATE_CATEGORY: Wait HOLD
+,#+TASK_STATE_CATEGORY: Done FINISHED
+,#+TASK_STATE_CATEGORY: Cancle ABORTED
+#+end_src
+
+声明来自 ~orgize~ CST，源码与示例块的字面文本不参与配置。分类只解释有效 TODO 流程中已识别的状态，不自动增加文件关键词。默认状态按固定分类判断；未配置分类的自定义流程状态沿用 Org 分隔规则归为 ~Todo~ 或 ~Done~。通过 ~CoreSettings~ 显式设置为 ~None~ 的状态保留未分类，仍为任务，但不作为完成或取消终态，也不匹配任何 ~task_state_of(category)~ 目标。查询、HTML、日志、重复调度、TRIGGER 与标题统计共用分类结果。
+
+任务修改目标通过 ~Task.task_state_of(category)~ 或 ~OrgFileMetadata.task_state_of(category)~ 获取。完成使用首个 ~Done~ 状态，捕捉与“将来，也许”使用首个 ~Todo~ 状态；缺失时禁用或返回中文错误，不替换为其他分类。重复任务恢复优先使用所属流程的 ~Todo~ 状态，其次为其他未完成状态；显式 ~REPEAT_TO_STATE~ 与类型流程沿用既有语义。
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0,type=enumeration]{TaskStateCategory}{Todo \\
+  Doing \\
+  Wait \\
+  Done \\
+  Cancle}{}
+\umlclass[x=7,y=0]{TaskState}{name: String \\
+  category: Option\textless TaskStateCategory\textgreater}{}
+\umlclass[x=14,y=0]{CoreSettings}{addition\_states: Vec\textless TaskState\textgreater}{}
+\umlassoc{TaskState}{TaskStateCategory}
+\umluniassoc[mult1=1,mult2=0..*]{CoreSettings}{TaskState}
+\umlclass[x=0,y=-6]{FilterTask}{state: Option\textless TaskState\textgreater}{state() \\
+  task\_state\_of(category)}
+\umlclass[x=7,y=-6]{OrgFileMetadata}{}{task\_state\_of(category)}
+\umlclass[x=14,y=-6]{OrgWorkspace}{}{get\_settings() \\
+  set\_settings(settings)}
+\umldep{OrgWorkspace}{CoreSettings}
+\umldep{FilterTask}{TaskState}
+\umluniassoc{FilterTask}{OrgFileMetadata}
+\end{tikzpicture}%
+}
+\end{center}
+
 ** 文内覆盖规则
 
 ~#+TODO:~ 、 ~#+SEQ_TODO:~ 和 ~#+TYP_TODO:~ 多行共同组成文件配置，整组覆盖全局默认。前两者表示顺序流程，后者表示类型。与 Emacs 一致，混用时依次汇集 ~TYP_TODO~ 、 ~TODO~ 、 ~SEQ_TODO~ ，同类保持出现顺序。声明名不区分大小写，状态名区分大小写。
 
-~|~ 后为完成状态；无分隔符时，每套流程最后一个状态为完成状态。若全部流程都没有给出完成状态，则文件最后一个关键词作为完成状态。跨流程同名状态的完成归属以文件有效完成集合为准。空 ~#+TODO:~ 也是覆盖，表示清空文件 TODO 识别。
+未显式映射分类的状态按 Org 规则归类： ~|~ 后为完成状态；无分隔符时，每套流程最后一个状态为完成状态。若全部流程都没有给出完成状态，则文件最后一个关键词作为完成状态。跨流程同名状态的完成归属以文件有效完成集合为准。空 ~#+TODO:~ 也是覆盖，表示清空文件 TODO 识别。
 
-设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。文件未直接声明时，仓库加载会按相对路径展开仓库内的 ~SETUPFILE~ ，提取其中的 TODO 声明、 ~STARTUP~ 和 ~PROPERTY~ 作为该文件的有效设置；不执行 Emacs Lisp，也忽略仓库外或不存在的设置文件。
+设置影响整份文件，允许位于标题后面；源码块和示例块中的同名文本不构成声明。Rust 从 ~orgize~ CST 的真实 keyword 节点收集声明及来源区间，再用有效 ~ParseConfig.todo_keywords~ 解析整个文件，不通过逐行正则另建解析器。文件未直接声明时，仓库加载会按相对路径展开仓库内的 ~SETUPFILE~ ，提取其中的 TODO 与 ~TASK_STATE_CATEGORY~ 声明、 ~STARTUP~ 和 ~PROPERTY~ 作为该文件的有效设置；不执行 Emacs Lisp，也忽略仓库外或不存在的设置文件。
 
 非法配置报告错误，不静默回退全局值。未修改文件直接返回原始字节；编辑声明后重算元信息，重新解析失败时回滚此次局部编辑。新增任务使用 ~initial_state~ ，即有效配置首个未完成状态；文件尚不存在时使用外部默认。没有可用未完成状态则拒绝保存。
 

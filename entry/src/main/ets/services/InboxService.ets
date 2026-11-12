@@ -1,3 +1,4 @@
+import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
@@ -25,7 +26,7 @@ export class InboxService {
       throw new InboxMergeChangedError('只能合并同一文件的同一版本，请刷新后重新选择')
     }
     const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const selected = configuredFileTarget(config, 'inbox')
     const settings = config.repos.find(item => item.id === selected.repoId)
     const repo = (await workspace.repos()).find(item => item.rootDirectory === settings?.rootDirectory)
@@ -41,7 +42,7 @@ export class InboxService {
 
   static async targets(context: Context): Promise<InboxTargets> {
     const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const selected = configuredFileTarget(config, 'someday')
     const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
     const repos = await workspace.repos()
@@ -70,7 +71,7 @@ export class InboxService {
   }
 
   static async load(config: AppConfig): Promise<InboxSnapshot> {
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const prepared = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
     const recent: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created', includeDone: true,
       includeComposeTasks: true, excludedFiles: prepared ? [prepared.reference] : [] }
@@ -83,7 +84,7 @@ export class InboxService {
   static async perform(context: Context, task: CoreTask, action: InboxAction,
     target?: CoreRefileTarget): Promise<void> {
     const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repos = await workspace.repos()
     const queueRepoIds: string[] = []
     for (const repo of repos) {
@@ -102,15 +103,16 @@ export class InboxService {
       const repo = repos.find(item => item.rootDirectory === settings?.rootDirectory)
       if (!repo || !selected.path) throw new Error('请在设置中选择“某天”文件，作为将来，也许的目标')
       const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId: repo.id, path: selected.path }] } }]))[0])
-      if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
-        throw new Error('将来，也许文件已失效，请在设置中重新选择')
-      }
+      const metadata = files.find(file => file.path === selected.path && !file.isIgnore)
+      if (!metadata) throw new Error('将来，也许文件已失效，请在设置中重新选择')
       const first = (await workspace.refileTargets({ files: [{ repoId: repo.id, path: selected.path }] }))[0]
       if (!first) throw new Error('请在将来，也许文件中添加 REFILE 标题')
       target = first
       parent = first.fullPath
+      const state = metadata.taskStateOf(TaskStateCategory.Todo)
+      if (!state) throw new Error('目标文件没有可用的待办状态，请检查状态分类与 TODO 流程')
       operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
-        { field: 'TODO', value: 'TODO' }, { field: 'SCHEDULE', value: null },
+        { field: 'TODO', value: state.name }, { field: 'SCHEDULE', value: null },
         { field: 'DEADLINE', value: null }
       ] } })
     } else if (action === 'memo') {

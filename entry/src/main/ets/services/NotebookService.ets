@@ -1,3 +1,4 @@
+import { CoreSettings } from 'liborg_tasks_harmony.so'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { CoreBridgeError, CoreOrgFile, CoreOrgFileMetadata, NativeCoreService, fileResult, coreErrorMessage } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
@@ -16,7 +17,7 @@ export interface NotebookGroup {
 export class NotebookService {
   // 列表只取 Core 文件元信息，不解码原文或生成任务列表。
   static async list(config: AppConfig): Promise<NotebookGroup[]> {
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     let files: CoreOrgFileMetadata[] = []
     let message: string = ''
     try { files = fileResult((await PageQueryService.query(config, [{ type: 'file', query: { includeIgnored: true } }]))[0]) }
@@ -32,8 +33,8 @@ export class NotebookService {
 
   // 完整阅读只打开目标仓库和文件，不查询或过滤任务列表。
   static async open(repositories: RepoConfig[], repoId: string, path: string,
-    todoDefaults?: string): Promise<CoreOrgFile | undefined> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreOrgFile | undefined> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repo = (await workspace.repos()).find((item) => item.id === repoId)
     if (!repo) return undefined
     const files = fileResult((await workspace.query([{ type: 'file', query: {

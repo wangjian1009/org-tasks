@@ -52,11 +52,11 @@ struct FileDetail {
       let historyLabel = ''
       if (params.syncId) {
         if (!repository) throw new Error('此存储库已不存在')
-        const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+        const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
         file = await repo.historyFile(params.syncId, this.path, false)
         historyLabel = `历史备份 · ${params.backupPath || this.path}\n${params.repositoryName || ''}${params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''}`
       } else {
-        file = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults)
+        file = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults, config.coreSettings)
       }
       if (revision !== this.loadRevision) return
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }

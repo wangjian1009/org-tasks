@@ -23,9 +23,22 @@ impl OrgWorkspace {
         })
     }
 
+    pub fn get_settings(&self) -> super::CoreSettings {
+        self.todo_defaults.core_settings.clone()
+    }
+
+    pub fn set_settings(&mut self, settings: super::CoreSettings) -> Result<(), CoreError> {
+        settings.validate()?;
+        let mut defaults = self.todo_defaults.clone();
+        defaults.core_settings = settings;
+        self.set_todo_defaults(defaults)
+    }
+
     pub fn set_todo_defaults(&mut self, defaults: TodoConfig) -> Result<(), CoreError> {
         defaults.validate()?;
-        if self.todo_defaults == defaults { return Ok(()); }
+        if self.todo_defaults == defaults {
+            return Ok(());
+        }
         self.preview.invalidate();
         let mut repos = self.repos.clone();
         for repo in &mut repos {
@@ -93,7 +106,11 @@ fn validate_repositories(repos: &[OrgRepo]) -> Result<(), CoreError> {
             return Err(CoreError::InvalidInput("仓库根目录必须唯一"));
         }
         if !repo.id.is_empty() {
-            if repo.id == "<preview>" { return Err(CoreError::InvalidInput("仓库 ID 不能使用 <preview> 保留身份")); }
+            if repo.id == "<preview>" {
+                return Err(CoreError::InvalidInput(
+                    "仓库 ID 不能使用 <preview> 保留身份",
+                ));
+            }
             validate_id(&repo.id, "仓库 ID 不能为空")?;
             if repos[..index]
                 .iter()
@@ -113,32 +130,51 @@ mod tests {
 
     #[tokio::test]
     async fn query_combines_repositories_and_keeps_repository_identity() {
-        let first = crate::model::test_support::with_files(OrgRepo {
-            id: "repo-1".into(),
-            root_directory: "/tmp/one".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, vec![
+        let first = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo-1".into(),
+                root_directory: "/tmp/one".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            vec![
                 OrgFile::new(
                     "repo-1".into(),
                     "tasks.org".into(),
                     b"* TODO First\n".to_vec(),
                 )
                 .unwrap(),
-            ], Default::default());
-        let second = crate::model::test_support::with_files(OrgRepo {
-            id: "repo-2".into(),
-            root_directory: "/tmp/two".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, vec![
+            ],
+            Default::default(),
+        );
+        let second = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo-2".into(),
+                root_directory: "/tmp/two".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            vec![
                 OrgFile::new(
                     "repo-2".into(),
                     "tasks.org".into(),
                     b"* TODO Second\n".to_vec(),
                 )
                 .unwrap(),
-            ], Default::default());
+            ],
+            Default::default(),
+        );
         let workspace = OrgWorkspace::new(vec![first, second]).unwrap();
-        let tasks = workspace.query(&[(crate::TaskQuery { expression: "i.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
+        let tasks = workspace
+            .query(&[(crate::TaskQuery {
+                expression: "i.todo".into(),
+                ..Default::default()
+            })
+            .into()])
+            .await
+            .unwrap()
+            .remove(0)
+            .into_task()
+            .unwrap()
+            .tasks;
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].repo_id(), crate::model::test_support::id("repo-1"));
@@ -147,17 +183,27 @@ mod tests {
 
     #[test]
     fn repo_mut_returns_only_the_repository_with_matching_identity() {
-        let mut workspace = OrgWorkspace::new(vec![crate::model::test_support::with_files(OrgRepo {
-            id: "repo-1".into(),
-            root_directory: "/tmp/one".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, Vec::new(), Default::default())])
+        let mut workspace = OrgWorkspace::new(vec![crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo-1".into(),
+                root_directory: "/tmp/one".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            Vec::new(),
+            Default::default(),
+        )])
         .unwrap();
 
-        workspace.repo_mut(&crate::model::test_support::id("repo-1")).unwrap().root_directory = "/tmp/updated".into();
+        workspace
+            .repo_mut(&crate::model::test_support::id("repo-1"))
+            .unwrap()
+            .root_directory = "/tmp/updated".into();
 
         assert_eq!(
-            workspace.repo(&crate::model::test_support::id("repo-1")).unwrap().root_directory,
+            workspace
+                .repo(&crate::model::test_support::id("repo-1"))
+                .unwrap()
+                .root_directory,
             "/tmp/updated"
         );
         assert!(workspace.repo_mut(&"unknown".into()).is_none());
@@ -165,11 +211,15 @@ mod tests {
 
     #[test]
     fn add_repo_rejects_duplicate_repository_identity() {
-        let repo = crate::model::test_support::with_files(OrgRepo {
-            id: "repo-1".into(),
-            root_directory: "/tmp/one".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, Vec::new(), Default::default());
+        let repo = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo-1".into(),
+                root_directory: "/tmp/one".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            Vec::new(),
+            Default::default(),
+        );
         let mut workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
 
         assert!(workspace.add_repo(repo).is_err());
@@ -198,28 +248,66 @@ mod tests {
     async fn workspace_updates_external_defaults_for_loaded_and_new_repos() {
         let mut repo = OrgRepo::new("/tmp/one".into()).unwrap();
         repo.id = "repo".into();
-        { let value =
-            OrgFile::new("repo".into(), "default.org".into(), b"* OPEN A\n".to_vec()).unwrap(); crate::model::test_support::push_file(&mut repo, value); };
-        { let value =
-            OrgFile::new(
+        {
+            let value =
+                OrgFile::new("repo".into(), "default.org".into(), b"* OPEN A\n".to_vec()).unwrap();
+            crate::model::test_support::push_file(&mut repo, value);
+        };
+        {
+            let value = OrgFile::new(
                 "repo".into(),
                 "override.org".into(),
                 b"#+TODO: OWN | CLOSED\n* OWN B\n".to_vec(),
             )
-            .unwrap(); crate::model::test_support::push_file(&mut repo, value); };
+            .unwrap();
+            crate::model::test_support::push_file(&mut repo, value);
+        };
         let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OPEN | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.query(&[(crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.len(), 2);
+        assert_eq!(
+            workspace
+                .query(&[(crate::TaskQuery {
+                    expression: "it.todo".into(),
+                    ..Default::default()
+                })
+                .into()])
+                .await
+                .unwrap()
+                .remove(0)
+                .into_task()
+                .unwrap()
+                .tasks
+                .len(),
+            2
+        );
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OTHER | END").unwrap())
             .unwrap();
-        assert_eq!(workspace.query(&[(crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.len(), 1);
+        assert_eq!(
+            workspace
+                .query(&[(crate::TaskQuery {
+                    expression: "it.todo".into(),
+                    ..Default::default()
+                })
+                .into()])
+                .await
+                .unwrap()
+                .remove(0)
+                .into_task()
+                .unwrap()
+                .tasks
+                .len(),
+            1
+        );
         workspace
             .add_repo(OrgRepo::new("/tmp/two".into()).unwrap())
             .unwrap();
         assert_eq!(workspace.repos[1].todo_defaults, workspace.todo_defaults);
-        assert_eq!(workspace.repos[0].load_files(&[]).await.unwrap()[0].source_bytes(), b"* OPEN A\n");
+        assert_eq!(
+            workspace.repos[0].load_files(&[]).await.unwrap()[0].source_bytes(),
+            b"* OPEN A\n"
+        );
     }
 }

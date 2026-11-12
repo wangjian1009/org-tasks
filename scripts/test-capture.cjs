@@ -119,7 +119,7 @@ function fixture() {
       if (request.type === 'file') {
         reads++;
         const files = repos.flatMap(repo => (fileLists.get(repo.id) || []).map(file => ({ repoId: 'core-' + repo.id,
-          tagOptions: [], tagGroups: [], ...file }))).filter(file => !file.isIgnore &&
+          tagOptions: [], tagGroups: [], taskStateOf(category) { assert.equal(category,'Todo'); return {name:'TODO',category}; }, ...file }))).filter(file => !file.isIgnore &&
           (!request.query.includeFiles?.length || request.query.includeFiles.some(ref => ref.repoId === file.repoId && ref.path === file.path)));
         return { type: 'file', result: files };
       }
@@ -459,7 +459,7 @@ test('旧路径配置不猜测仓库，明确绑定能持久化，删除仓库�
   ]);
   const load = etsLoader({
     'liborg_tasks_harmony.so': {
-      Workspace: class { async setTodoDefaults() {} },
+      Workspace: class { async setTodoDefaults() {} async getSettings(){return {additionStates:[]};} async setSettings(){} },
       async defaultTodoSettings() { return '#+TODO: TODO | DONE'; },
       async defaultSyncOptions() { return { excludedDirectories: [] }; },
       async normalizeSyncOptions(value) { return value; }
@@ -498,6 +498,8 @@ test('两个窗口冷启动只创建一个共享 workspace，继续复用同一�
   class Workspace {
     constructor() { created++; this.repositories = []; }
     async setTodoDefaults() { await new Promise(resolve => setImmediate(resolve)); }
+    async getSettings(){ return { additionStates: [] }; }
+    async setSettings(settings){ this.settings = settings; }
     async addRepo(rootDirectory) { const repo = { rootDirectory }; this.repositories.push(repo); return repo; }
     async repos() { return this.repositories; }
   }
@@ -515,7 +517,7 @@ test('仅捕捉本地标题时不读取安全存储，常规配置读取仍保�
   repo.webdavEnabled = true;
   let credentialReads = 0;
   const load = etsLoader({
-    'liborg_tasks_harmony.so': { async defaultTodoSettings() { return '#+TODO: TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
+    'liborg_tasks_harmony.so': { Workspace: class {async getSettings(){return {additionStates:[]};}}, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
     '@kit.ArkData': { preferences: { async getPreferences() { return { async get(key, fallback) { return key === 'repos' ? JSON.stringify([repo]) : fallback; } }; } } },
     './CredentialService': { CredentialService: { async getWebDavPassword() { credentialReads++; return 'test-password'; } } }
   });

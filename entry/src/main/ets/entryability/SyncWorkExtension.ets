@@ -15,8 +15,8 @@ export default class SyncWorkExtension extends WorkSchedulerExtensionAbility {
       await preferences.removePreferencesFromCache(this.context, APP_CONFIG_PREFERENCES)
       const config = await AppConfigService.load(this.context)
       const tasks = config.repos.some((repository) => repository.webdavEnabled)
-        ? await NativeCoreService.syncWorkspaceWebDav(config.repos, undefined, config.todoDefaults)
-        : await NativeCoreService.loadWorkspace(config.repos, config.todoDefaults)
+        ? await NativeCoreService.syncWorkspaceWebDav(config.repos, undefined, config.todoDefaults, config.coreSettings)
+        : await NativeCoreService.loadWorkspace(config.repos, config.todoDefaults, config.coreSettings)
       console.info(`core workspace 提供 ${tasks.length} 个任务`)
 
       // 同步到日历

@@ -112,12 +112,10 @@ impl Context<'_> {
         let pending = node.todo_keyword().is_some_and(|old| {
             self.file
                 .todo
-                .pending_keywords
-                .iter()
-                .any(|s| s == old.as_ref())
+                .category(old.as_ref())
+                .is_some_and(|category| !category.is_done())
         });
-        let completed =
-            state.is_some_and(|s| self.file.todo.done_keywords.iter().any(|done| done == s));
+        let completed = state.is_some_and(|s| self.file.todo.is_done(s));
         super::task_state::modify_without_triggers(self.file, &node, state, self.now)?;
         // 与 org-trigger-hook 一致，依据本次请求的状态，而不是重复恢复后的状态判断。
         if pending && completed {
@@ -499,9 +497,14 @@ impl Context<'_> {
                             Value::String(s) => {
                                 matching::regex(s)?.is_match(nodes[i].1.title_raw().trim())
                             }
-                            Value::Symbol(s) if s == "todo-only" => self
-                                .prop(i, "TODO")?
-                                .is_some_and(|s| self.file.todo.pending_keywords.contains(&s)),
+                            Value::Symbol(s) if s == "todo-only" => {
+                                self.prop(i, "TODO")?.is_some_and(|s| {
+                                    self.file
+                                        .todo
+                                        .category(&s)
+                                        .is_some_and(|category| !category.is_done())
+                                })
+                            }
                             Value::Symbol(s) if s == "todo-and-done-only" => {
                                 self.prop(i, "TODO")?.is_some()
                             }
@@ -545,9 +548,12 @@ impl Context<'_> {
                 let state = self.prop(target, "TODO")?;
                 return Ok(Some(state.is_some_and(|s| {
                     if neg {
-                        self.file.todo.pending_keywords.contains(&s)
+                        self.file
+                            .todo
+                            .category(&s)
+                            .is_some_and(|category| !category.is_done())
                     } else {
-                        self.file.todo.done_keywords.contains(&s)
+                        self.file.todo.is_done(&s)
                     }
                 })));
             }

@@ -130,7 +130,8 @@ impl OrgRepo {
 
     pub async fn pending_sync_conflicts(&self) -> Result<Vec<WebDavConflictSync>, CoreError> {
         Ok(self
-            .load_files(&[]).await?
+            .load_files(&[])
+            .await?
             .iter()
             .filter(|file| file.has_conflict())
             .map(|file| WebDavConflictSync {
@@ -293,6 +294,7 @@ fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {
             .count(),
         byte_length: file.source_bytes().len(),
         modified_at: file.modified_at,
+        task_states: file.todo.task_states(),
     }
 }
 fn archive_io(e: std::io::Error) -> CoreError {

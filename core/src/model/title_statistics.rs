@@ -15,8 +15,12 @@ pub(super) enum Trigger {
 }
 
 fn options(headline: &Headline) -> Option<Vec<String>> {
-    super::properties::own(headline, "COOKIE_DATA")
-        .map(|value| value.split_whitespace().map(str::to_ascii_lowercase).collect())
+    super::properties::own(headline, "COOKIE_DATA").map(|value| {
+        value
+            .split_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect()
+    })
 }
 
 fn has(options: &[String], word: &str) -> bool {
@@ -115,18 +119,8 @@ fn edits(
             let Some(state) = child.todo_keyword() else {
                 continue;
             };
-            let done = file
-                .todo
-                .done_keywords
-                .iter()
-                .any(|keyword| keyword == state.as_ref());
-            if done
-                || file
-                    .todo
-                    .pending_keywords
-                    .iter()
-                    .any(|keyword| keyword == state.as_ref())
-            {
+            let done = file.todo.is_done(state.as_ref());
+            if file.todo.category(state.as_ref()).is_some() {
                 total += 1;
                 completed += usize::from(done);
             }

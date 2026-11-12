@@ -16,7 +16,7 @@ export class NoteService {
         state: null } }],
       queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
-    }, config.todoDefaults)
+    }, config.todoDefaults, config.coreSettings)
   }
 
   static async update(context: Context, note: CoreTask, title: string, body: string): Promise<void> {
@@ -38,7 +38,7 @@ export class NoteService {
 
   private static async execute(context: Context, note: CoreTask, operation: CoreTaskOperation): Promise<void> {
     const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     if (note.repoId === '<preview>') {
       await workspace.executeTaskOperations({ operations: [operation], queueRepoIds: [],
         fileVersions: [{ repoId: note.repoId, file: note.filePath, version: note.fileVersion }] })

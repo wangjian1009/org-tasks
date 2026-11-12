@@ -8,9 +8,9 @@ use org_tasks_core::webdav::{
     WebDavEndpoint, WebDavSyncContextDetail, WebDavSyncFileDetail, WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    FilterTask, OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction,
-    OrgRepoSyncFileRecord, OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress,
-    OrgRepoSyncRecord, OrgRepoSyncSnapshot, OrgWorkspace,
+    FilterTask, OrgRepo, OrgRepoSyncController, OrgRepoSyncFileAction, OrgRepoSyncFileRecord,
+    OrgRepoSyncFileState, OrgRepoSyncLifecycle, OrgRepoSyncProgress, OrgRepoSyncRecord,
+    OrgRepoSyncSnapshot, OrgWorkspace,
 };
 use orgize::ast::Headline;
 use orgize::rowan::ast::AstNode;
@@ -174,7 +174,10 @@ pub async fn run() -> Result<(), String> {
             SyncTarget::Webdav(args) => sync_webdav(repo, args).await,
         },
         Command::Conflict(command) => crate::conflict::run(repo, history_records, command).await,
-        Command::History(command) => history(repo.webdav_history().await.map_err(|e| e.to_string())?, command),
+        Command::History(command) => history(
+            repo.webdav_history().await.map_err(|e| e.to_string())?,
+            command,
+        ),
         Command::File(command) => file(repo, command).await,
         Command::Task(command) => task(repo, command).await,
     }
@@ -185,8 +188,12 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
     match command.target {
         TaskTarget::All => print_tasks(
             workspace
-                .query(&[(org_tasks_core::TaskQuery::default()).into()]).await
-                .map_err(|error| error.to_string())?.remove(0).into_task().map_err(|error| error.to_string())?
+                .query(&[(org_tasks_core::TaskQuery::default()).into()])
+                .await
+                .map_err(|error| error.to_string())?
+                .remove(0)
+                .into_task()
+                .map_err(|error| error.to_string())?
                 .tasks,
         ),
         TaskTarget::Search(args) => print_tasks(
@@ -194,21 +201,35 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
                 .query(&[(org_tasks_core::TaskQuery {
                     expression: args.expression,
                     ..Default::default()
-                }).into()]).await
-                .map_err(|error| error.to_string())?.remove(0).into_task().map_err(|error| error.to_string())?
+                })
+                .into()])
+                .await
+                .map_err(|error| error.to_string())?
+                .remove(0)
+                .into_task()
+                .map_err(|error| error.to_string())?
                 .tasks,
         ),
         TaskTarget::Paths => print_json(&task_nodes(&workspace).await?),
         TaskTarget::Apply(args) => {
             for directory in args.repository {
                 let mut repo = open_repo(directory)?;
-                repo.set_todo_defaults(workspace.repos()[0].todo_defaults.clone()).map_err(|e|e.to_string())?;
-                repo.load::<WebDavSyncPolicy>().await.map_err(|e|e.to_string())?;
-                workspace.add_repo(repo).map_err(|e|e.to_string())?;
+                repo.set_todo_defaults(workspace.repos()[0].todo_defaults.clone())
+                    .map_err(|e| e.to_string())?;
+                repo.load::<WebDavSyncPolicy>()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                workspace.add_repo(repo).map_err(|e| e.to_string())?;
             }
-            let bytes = tokio::fs::read(args.operations).await.map_err(|e|format!("无法读取操作组: {e}"))?;
-            let group: org_tasks_core::TaskOperationGroup = serde_json::from_slice(&bytes).map_err(|e|format!("操作组格式无效: {e}"))?;
-            workspace.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
+            let bytes = tokio::fs::read(args.operations)
+                .await
+                .map_err(|e| format!("无法读取操作组: {e}"))?;
+            let group: org_tasks_core::TaskOperationGroup =
+                serde_json::from_slice(&bytes).map_err(|e| format!("操作组格式无效: {e}"))?;
+            workspace
+                .execute_task_operations(&group)
+                .await
+                .map_err(|e| e.to_string())?;
             print_json(&serde_json::json!({
                 "history": workspace.task_operation_history, "nodes": task_nodes(&workspace).await?}))
         }
@@ -216,17 +237,21 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
 }
 
 async fn task_nodes(workspace: &OrgWorkspace) -> Result<Vec<serde_json::Value>, String> {
-    let mut nodes=Vec::new();
+    let mut nodes = Vec::new();
     for repo in workspace.repos() {
-        nodes.push(serde_json::json!({"kind":"repository","fullPath":repo.full_path(),"taskId":null}));
-        let records=repo.nodes().await.map_err(|e|e.to_string())?;
-        for file in repo.load_files(&[]).await.map_err(|e|e.to_string())? {
+        nodes.push(
+            serde_json::json!({"kind":"repository","fullPath":repo.full_path(),"taskId":null}),
+        );
+        let records = repo.nodes().await.map_err(|e| e.to_string())?;
+        for file in repo.load_files(&[]).await.map_err(|e| e.to_string())? {
             nodes.push(serde_json::json!({"kind":"file","fullPath":file.full_path(),"taskId":null,
                 "fileVersion":org_tasks_core::LocalFileVersion::from_bytes(file.source_bytes()).content_hash}));
             // 路径与身份均来自 Core 投影，CLI 不解析或重建标题树。
             for task in records.iter().filter(|task| task.path() == file.path) {
-                nodes.push(serde_json::json!({"kind":if task.task_id().is_some(){"task"}else{"heading"},
-                    "fullPath":task.full_path(),"taskId":task.task_id()}));
+                nodes.push(
+                    serde_json::json!({"kind":if task.task_id().is_some(){"task"}else{"heading"},
+                    "fullPath":task.full_path(),"taskId":task.task_id()}),
+                );
             }
         }
     }
@@ -234,7 +259,10 @@ async fn task_nodes(workspace: &OrgWorkspace) -> Result<Vec<serde_json::Value>, 
 }
 
 fn print_json(value: &impl serde::Serialize) -> Result<(), String> {
-    println!("{}",serde_json::to_string_pretty(value).map_err(|e|e.to_string())?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).map_err(|e| e.to_string())?
+    );
     Ok(())
 }
 
@@ -262,7 +290,7 @@ fn print_tasks(tasks: Vec<FilterTask>) -> Result<(), String> {
             task.path(),
             task.line(),
             task.column(),
-            task.state().unwrap_or("-"),
+            task.state().map(|state| state.name.as_str()).unwrap_or("-"),
             priority,
             task.title(),
             tags,
@@ -279,7 +307,7 @@ async fn file(repo: OrgRepo, command: FileCommand) -> Result<(), String> {
 }
 
 async fn list_files(repo: &OrgRepo) -> Result<(), String> {
-    let files = repo.load_files(&[]).await.map_err(|e|e.to_string())?;
+    let files = repo.load_files(&[]).await.map_err(|e| e.to_string())?;
     if files.is_empty() {
         println!("没有 Org 文件。");
         return Ok(());
@@ -308,7 +336,7 @@ async fn list_files(repo: &OrgRepo) -> Result<(), String> {
 }
 
 async fn dump_file(repo: &OrgRepo, path: &str) -> Result<(), String> {
-    let file = repo.file(path).await.map_err(|e|e.to_string())?;
+    let file = repo.file(path).await.map_err(|e| e.to_string())?;
     println!("{}", file.path);
     println!(
         "TODO 元信息: {}",
@@ -789,18 +817,35 @@ mod tests {
             b"* TODO [#A] Parent :work:\n** DONE Child :done:\n".to_vec(),
         )
         .unwrap();
-        let repo = super::test_support::with_files(OrgRepo {
-            id: "repo-1".into(),
-            root_directory: "/tmp/org".into(),
-            todo_defaults: org_tasks_core::TodoConfig::default(),
-        }, vec![file], Default::default());
+        let repo = super::test_support::with_files(
+            OrgRepo {
+                id: "repo-1".into(),
+                root_directory: "/tmp/org".into(),
+                todo_defaults: org_tasks_core::TodoConfig::default(),
+            },
+            vec![file],
+            Default::default(),
+        );
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let tasks = workspace.query(&[(org_tasks_core::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
+        let tasks = workspace
+            .query(&[(org_tasks_core::TaskQuery::default()).into()])
+            .await
+            .unwrap()
+            .remove(0)
+            .into_task()
+            .unwrap()
+            .tasks;
         assert_eq!(tasks.len(), 2);
-        assert_eq!(tasks[0].state(), Some("TODO"));
+        assert_eq!(
+            tasks[0].state().map(|state| state.name.as_str()),
+            Some("TODO")
+        );
         assert_eq!(tasks[0].priority(), Some("A"));
         assert_eq!(tasks[0].own_tags(), ["work"]);
-        assert_eq!(tasks[1].state(), Some("DONE"));
+        assert_eq!(
+            tasks[1].state().map(|state| state.name.as_str()),
+            Some("DONE")
+        );
         assert_eq!(tasks[1].inherited_tags(), ["work"]);
     }
 

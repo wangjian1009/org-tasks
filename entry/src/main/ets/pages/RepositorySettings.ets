@@ -133,7 +133,7 @@ struct RepositorySettings {
       const repos = current.repos.slice()
       const index = repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
       if (index < 0) repos.push(repository); else repos[index] = repository
-      await AppConfigService.save(this.getUIContext().getHostContext()!, { repos, inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile, somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults, fileDisplayMode: current.fileDisplayMode })
+      await AppConfigService.save(this.getUIContext().getHostContext()!, { repos, inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile, somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId, calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings, fileDisplayMode: current.fileDisplayMode })
       this.getUIContext().getRouter().back()
     } catch (e) { this.cannotSave(`保存失败：${coreErrorMessage(e as CoreBridgeError)}`) }
     finally { this.saving = false }
@@ -182,7 +182,7 @@ struct RepositorySettings {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const repository = config.repos.find((item: RepoConfig) => item.id === this.repoId)
       if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       await repo.reset()
       try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
       this.getUIContext().getPromptAction().showToast({ message: '本地目录已重置' })

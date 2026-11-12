@@ -52,7 +52,7 @@ export class DeviceBadgeService {
       const revision = DeviceBadgeService.revision
       try {
         const config = await AppConfigService.load(context, false)
-        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
         if (DeviceBadgeService.foreground) await DeviceBadgeService.connect(workspace)
         const inbox = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
         const queries: CoreQuery[] = [

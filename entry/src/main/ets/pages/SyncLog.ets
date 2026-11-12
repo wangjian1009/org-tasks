@@ -56,7 +56,7 @@ struct SyncLog {
       if (!repository) throw new Error('此存储库已不存在，请返回存储库列表')
       this.repositoryName = repositoryLabel(repository)
       this.repoId = repository.id
-      const items = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults)
+      const items = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults, config.coreSettings)
       if (request !== this.requestId) return
       items.sort((left: CoreSyncRecord, right: CoreSyncRecord): number => right.started_at - left.started_at)
       if (params?.syncId && !items.some((item: CoreSyncRecord) => item.id === params.syncId)) {

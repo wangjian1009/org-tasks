@@ -1,3 +1,4 @@
+import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { TitleText } from './TitleText'
 import { UiColor } from '../ui/Theme'
 import { CoreTask } from '../services/NativeCoreService'
@@ -112,14 +113,14 @@ export struct TaskRow {
       }
       Column({ space: 5 }) {
         Row({ space: 6 }) {
-          if (this.task.todoState.length > 0) {
-            Text(this.task.todoState).fontSize(13).fontWeight(FontWeight.Medium)
-              .fontColor(this.task.todoKind === 'done' ? UiColor.done : UiColor.error)
+          if ((this.task.state?.name || '').length > 0) {
+            Text((this.task.state?.name || '')).fontSize(13).fontWeight(FontWeight.Medium)
+              .fontColor(this.task.isDone() ? UiColor.done : UiColor.error)
           }
           if (this.task.priority.length > 0) {
             Text(`[#${this.task.priority}]`).fontSize(13).fontColor(UiColor.secondary)
           }
-          TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3 }).layoutWeight(1)
+          TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3, cancelled: this.task.state?.category === TaskStateCategory.Cancle }).layoutWeight(1)
         }.width('100%').alignItems(VerticalAlign.Top)
         if (this.showBody && this.task.body.trim().length > 0) {
           Text(this.task.body.trim()).fontSize(14).fontColor(UiColor.secondary).maxLines(2)

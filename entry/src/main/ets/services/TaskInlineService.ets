@@ -15,7 +15,7 @@ export class TaskInlineService {
   static async modify(context: Context, task: CoreTask, modifications: CoreTaskModification[]): Promise<void> {
     if (modifications.length === 0) return
     const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repo = (await workspace.repos()).find(item => item.id === task.repoId)
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
     if (!repository) throw new Error('目标仓库不可用')

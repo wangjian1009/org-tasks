@@ -306,7 +306,7 @@ function finishFixture(textSaved = true, checkSaved = true) {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} }, released = [];
-  vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) });
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) }, { Done: 'Done' });
   let checkCalls = 0;
   const state = { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
     pending: Promise.resolve(), cancelCheckDrag() {}, checkFocus: { cancel() {} }, headingController: { stopEditing() {} }, notesController: { stopEditing() {} },
@@ -480,9 +480,11 @@ function completionFixture() {
   }).outputText;
   const module = { exports: {} };
   const writes = [], released = [];
-  vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(
-    module, module.exports, { release: key => released.push(key) });
-  const task = { todoKind: 'pending', doneKeywords: ['FINISHED', 'CANCELLED'] };
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(
+    module, module.exports, { release: key => released.push(key) }, { Done: 'Done' });
+  const task = { state: { name: 'ACTIVE', category: 'Doing' }, targetState: { name: 'FINISHED', category: 'Done' },
+    taskStateOf(category) { assert.equal(category, 'Done'); return this.targetState; },
+    isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancle'; } };
   const state = Object.assign(new module.exports.Completion(), {
     completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task',
     value: () => task, prepare: async () => true, finish: async () => true,
@@ -490,7 +492,7 @@ function completionFixture() {
   });
   return { state, task, writes, released };
 }
-test('任务 checkbox 使用文件第一个完成状态，成功后结束会话', async () => {
+test('任务 checkbox 使用 Core 的 Done 分类目标而不误选在前的取消状态，成功后结束会话', async () => {
   const f = completionFixture();
   await f.state.complete();
   assert.deepEqual(f.writes, [[{ field: 'TODO', value: 'FINISHED' }]]);
@@ -517,7 +519,7 @@ test('完成任务重复点击只提交一次，写入失败保留展开态', as
   assert.equal(f.state.expanded, true); assert.equal(f.state.completing, false);
 });
 test('无状态、已完成、无完成配置或不可用快照不提交', async () => {
-  for (const changes of [{ todoKind: null }, { todoKind: 'done' }, { doneKeywords: [] }]) {
+  for (const changes of [{ state: null }, { state: { name: 'FINISHED', category: 'Done' } }, { state: { name: 'STOP', category: 'Cancle' } }, { targetState: null }]) {
     const f = completionFixture(); Object.assign(f.task, changes);
     await f.state.complete(); assert.equal(f.writes.length, 0);
   }
@@ -552,8 +554,8 @@ const eventTick = () => new Promise(resolve => setImmediate(resolve));
 
 test('同次联动事件的来源、目标和后续关联行共享一次任务与通知查询', async () => {
   const f = fixture();
-  const source = {...f.task,todoKind:'pending',scheduled:'2026-11-13',fileVersion:'linked'};
-  const target = {...f.task,id:'target',todoKind:'done',scheduled:'2026-11-14',fileVersion:'linked'};
+  const source = {...f.task,state:{name:'OPEN',category:'Todo'},scheduled:'2026-11-13',fileVersion:'linked'};
+  const target = {...f.task,id:'target',state:{name:'FINISHED',category:'Done'},scheduled:'2026-11-14',fileVersion:'linked'};
   f.setCurrent([source,target]);
   const values = await Promise.all([
     f.TaskInlineService.findChanged({},f.task,10),
@@ -606,7 +608,7 @@ test('旧版本读取失败不会清除较新联动事件的共享快照', async
 
 test('联动后从任务变为无状态条目时，按同一记录身份继续刷新', async () => {
   const f=fixture();
-  const original={...f.task,taskId:'identity'},updated={...f.task,taskId:null,todoKind:null};
+  const original={...f.task,taskId:'identity'},updated={...f.task,taskId:null,state:null};
   f.setCurrent([{...updated,repoId:'other'},{...updated,filePath:'other.org'},updated]);
   assert.equal(await f.TaskInlineService.findChanged({},original,1),updated);
   assert.equal(await f.TaskInlineService.reload({},original),updated);
@@ -615,12 +617,12 @@ test('联动后从任务变为无状态条目时，按同一记录身份继续�
 test('未展开过的关联行也由事件更新状态、日期和计数，保持收起状态', async () => {
   const f=cardRefreshFixture(false);
   f.state.editTask=undefined; f.state.heading=''; f.state.notes='';
-  const updated={...f.updated,todoKind:'done',scheduled:'2026-11-13',deadline:'2026-11-20',tags:['联动']};
+  const updated={...f.updated,state:{name:'FINISHED',category:'Done'},scheduled:'2026-11-13',deadline:'2026-11-20',tags:['联动']};
   f.setCurrent(updated); f.emit(); await f.state.pending;
   assert.equal(f.state.editTask,updated);
   assert.equal(f.state.heading,'任务 [1/2]');
   assert.equal(f.state.value().scheduled,'2026-11-13');
-  assert.equal(f.state.value().todoKind,'done');
+  assert.equal(f.state.value().state.category,'Done');
   assert.deepEqual(f.state.value().tags,['联动']);
   assert.equal(f.state.expanded,false); assert.equal(f.reads(),1);
 });

@@ -569,7 +569,37 @@ let metadata = &file.todo;
 
 ~OrgFile::new~ 使用 Rust 缺省配置， ~with_todo_defaults~ 使用外部默认配置。 ~OrgRepo.parse_file~ 在扫描、下载、创建与合并时统一传递配置。 ~OrgWorkspace.set_todo_defaults~ 校验并更新全部仓库与已加载文件， ~add_repo~ 将配置传给后续加入的仓库。配置更新失败时不产生部分重解析的状态。
 
-每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。现有 ~FilterTask.state_type()~ 来自有效配置后的语法树，宿主不得用 DONE/CNCL 字面值推测完成状态。
+每个文件快照公开 ~todo~ ，包含来源、带来源区间的文内声明、流程、状态类型、显式快捷键和日志要求、待办/完成集合与初始状态。~FilterTask.state()~ 返回可空的 ~TaskState { name, category }~；~is_done()~ 从分类派生。宿主使用 ~taskStateOf(Done)~ 取得完成目标，不使用状态字面值推测。
+
+默认状态与文件分类声明见 [[file:数据模型.org::*任务运行状态分类][任务运行状态分类]]。宿主通过 ~TaskState.category~ 消费分类，并通过任务或文件元信息的 ~task_state_of(category)~ 选择修改目标。
+
+分类设置只公开以下对象与方法；文件声明解析、默认映射、合并与类别校验均为内部实现：
+
+#+begin_src rust
+pub enum TaskStateCategory { Todo, Doing, Wait, Done, Cancle }
+pub struct TaskState {
+    pub name: String,
+    pub category: Option<TaskStateCategory>,
+}
+pub struct CoreSettings {
+    pub addition_states: Vec<TaskState>,
+}
+impl OrgWorkspace {
+    pub fn get_settings(&self) -> CoreSettings;
+    pub fn set_settings(&mut self, settings: CoreSettings) -> Result<(), CoreError>;
+}
+impl FilterTask {
+    pub fn state(&self) -> Option<&TaskState>;
+    pub fn task_state_of(&self, category: TaskStateCategory) -> Option<TaskState>;
+}
+impl OrgFileMetadata {
+    pub fn task_state_of(&self, category: TaskStateCategory) -> Option<TaskState>;
+}
+#+end_src
+
+~get_settings()~ 返回独立设置副本；~set_settings()~ 在校验成功后整体替换设置并向已有与后续新增仓库传播。非法状态、默认状态覆盖、附加名称重复时返回错误且保留旧设置。~category=None~ 表示附加状态尚未分类。设置由宿主保存，Core 不读取 Preferences。
+
+~state()~ 返回当前任务实际状态对象；无状态标题返回 ~None~。任务与文件元信息的 ~task_state_of(category)~ 均按该文件有效流程顺序返回首个匹配状态；缺失时返回 ~None~ 。返回目标状态为值副本，与所属快照的文件版本一致。界面提交修改时使用目标的 ~name~ 。
 
 Creation 的显式状态按目标文件有效配置验证；文件尚不存在时使用外部默认。调用方需要创建任务时从文件元信息取得初始状态，无状态标题则不传状态。冲突重组也使用当前配置重新解析并验证输出，来源正文和层级校验均由 Core 执行。
 
@@ -864,7 +894,7 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 
 * 任务完成状态访问
 
-~FilterTask.done_keywords() -> &[String]~ 返回所属文件有效的完成状态列表，顺序与 ~OrgFile.todo.done_keywords~ 一致，名称不含快捷键和日志后缀。文件没有声明时继承全局默认配置，显式清空配置时返回空列表。调用方完成任务时使用第一项，通过 ~TaskModification::Todo~ 提交并携带当前文件版本；Core 继续负责状态校验、完成日志与重复任务调度。该快照与 ~file_version()~ 来自同一次读取。
+任务修改目标通过 ~Task.taskStateOf(Done)~ 或 ~OrgFileMetadata.taskStateOf(Done)~ 获取；返回的是 ~TaskState~ 对象，调用方只提交其 ~name~ ，Core 负责状态校验、日志与重复任务调度。
 
 * 批量任务查询
 

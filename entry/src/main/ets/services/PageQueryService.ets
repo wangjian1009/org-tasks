@@ -7,7 +7,7 @@ import { CoreDataChangeService } from './CoreDataChangeService'
 export class PageQueryService {
   static async query(config: AppConfig, queries: CoreQuery[]): Promise<CoreQueryResult[]> {
     const request = CoreNotificationService.begin()
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     await Promise.all([CoreNotificationService.connect(workspace), CoreDataChangeService.connect(workspace)])
     const notificationIndex = queries.findIndex(item => item.type === 'notification')
     const batch: CoreQuery[] = queries.slice()

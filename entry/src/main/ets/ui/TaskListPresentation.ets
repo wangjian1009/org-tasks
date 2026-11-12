@@ -41,14 +41,14 @@ export function taskDisplayDate(task: CoreTask): string {
 
 export function taskDeadlineColor(task: CoreTask, today: Date = new Date()): string {
   const remaining = dayNumber(task.deadline) - dayNumber(localDate(today))
-  return task.todoKind !== 'done' && Number.isFinite(remaining) && remaining <= 0
+  return !task.isDone() && Number.isFinite(remaining) && remaining <= 0
     ? UiColor.deadline : UiColor.secondary
 }
 
 export function taskDeadlineText(task: CoreTask, today: Date = new Date()): string {
   const remaining = dayNumber(task.deadline) - dayNumber(localDate(today))
   if (!Number.isFinite(remaining)) return '日期不可用'
-  if (task.todoKind === 'done') return taskDateText(task.deadline, true, today)
+  if (task.isDone()) return taskDateText(task.deadline, true, today)
   if (remaining > 0) return `剩下 ${remaining} 天`
   return remaining === 0 ? '今天截止' : `逾期 ${-remaining} 天`
 }

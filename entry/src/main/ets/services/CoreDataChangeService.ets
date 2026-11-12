@@ -16,7 +16,7 @@ export class CoreDataChangeService {
 
   static async refresh(context: Context): Promise<void> {
     const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     await CoreDataChangeService.connect(workspace)
   }
 

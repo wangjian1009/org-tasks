@@ -51,6 +51,7 @@ function fixture() {
   } };
   const servicePath = path.resolve('entry/src/main/ets/services/InboxService.ets');
   const { InboxService } = compile(fs.readFileSync(servicePath, 'utf8'), servicePath, {
+    '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo' } },
     './AppConfigService': appConfig, './NativeCoreService': core, './FileTargetService': target,
     './PageQueryService':{PageQueryService:{query:(_,batch)=>workspace.query(batch)}}
   });

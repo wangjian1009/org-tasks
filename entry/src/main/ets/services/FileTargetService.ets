@@ -1,13 +1,13 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
+import { CoreOrgFileMetadata, CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
 import { inboxRecordQuery, memoRecordQuery, overviewTaskQuery } from './TaskViewQueries'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }
-export interface ResolvedFileTarget { repository: RepoConfig; repo: CoreRepo; path: string; tagOptions: string[]; tagGroups: string[][] }
+export interface ResolvedFileTarget { repository: RepoConfig; repo: CoreRepo; path: string; metadata: CoreOrgFileMetadata; tagOptions: string[]; tagGroups: string[][] }
 export interface PreparedFileTarget { task: CoreQuery; file: CoreQuery; reference: CoreOrgFileRef }
 export interface FileTargetQueryResult extends CoreTaskQueryResult { tagOptions: string[]; tagGroups: string[][] }
 
@@ -33,12 +33,12 @@ export class FileTargetService {
     const repository = fileTargetRepository(config, kind)
     if (!repository) return undefined
     const target = configuredFileTarget(config, kind)
-    const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+    const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
     const files = fileResult((await NativeCoreService.query(config.repos, [{ type: 'file',
-      query: { includeFiles: [{ repoId: repo.id, path: target.path }] } }], config.todoDefaults))[0])
+      query: { includeFiles: [{ repoId: repo.id, path: target.path }] } }], config.todoDefaults, config.coreSettings))[0])
     const file = files.find(file => file.path === target.path && !file.isIgnore)
     if (!file) return undefined
-    return { repository, repo, path: target.path, tagOptions: file.tagOptions ?? [], tagGroups: file.tagGroups ?? [] }
+    return { repository, repo, path: target.path, metadata: file, tagOptions: file.tagOptions ?? [], tagGroups: file.tagGroups ?? [] }
   }
 
   static prepare(config: AppConfig, repos: CoreRepo[], kind: FileTargetKind): PreparedFileTarget | undefined {
@@ -64,7 +64,7 @@ export class FileTargetService {
   }
 
   static async query(config: AppConfig, kind: FileTargetKind): Promise<FileTargetQueryResult | undefined> {
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const prepared = FileTargetService.prepare(config, await workspace.repos(), kind)
     const results = await PageQueryService.query(config, prepared ? [prepared.task, prepared.file] : [])
     return prepared ? FileTargetService.result(results[0], results[1]) : undefined

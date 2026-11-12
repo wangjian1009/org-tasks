@@ -91,7 +91,7 @@ struct ShareLocation {
       for (const repository of config.repos) {
         if (request !== this.loadRequest) return
         const query = shareLocationTaskQuery(memoTarget?.repository.id === repository.id ? memoTarget.path : '')
-        const result = taskResult((await NativeCoreService.query([repository], [{ type: 'task', query }], config.todoDefaults))[0])
+        const result = taskResult((await NativeCoreService.query([repository], [{ type: 'task', query }], config.todoDefaults, config.coreSettings))[0])
         for (const task of result.tasks) { results.push(task); repositories.set(task.id, repository) }
       }
       if (request !== this.loadRequest) return
@@ -117,7 +117,7 @@ struct ShareLocation {
             title: `到${this.request.title || label}`, body, state: file.todo.initialState } }],
           queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
           fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
-        }, this.config.todoDefaults)
+        }, this.config.todoDefaults, this.config.coreSettings)
         this.created = true
         await DeviceBadgeService.refresh(this.getUIContext().getHostContext()!)
       }
@@ -144,9 +144,9 @@ struct ShareLocation {
             modifications: [{ field: 'ADDRESS_LINK', value: { oldUri, newUri: uri } }] } }],
           queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
-        }, this.config.todoDefaults)
+        }, this.config.todoDefaults, this.config.coreSettings)
         const refreshed = taskResult((await NativeCoreService.query([repository],
-          [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }], this.config.todoDefaults))[0])
+          [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }], this.config.todoDefaults, this.config.coreSettings))[0])
         this.updatedTask = refreshed.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(task.fullPath))
         if (!this.updatedTask) throw new Error('无法读取更新后的任务')
       }

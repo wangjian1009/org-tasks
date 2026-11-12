@@ -1,12 +1,13 @@
-import { defaultTodoSettings } from 'liborg_tasks_harmony.so'
+import { defaultTodoSettings, Workspace } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreBridgeError, coreErrorMessage, NativeCoreService } from '../services/NativeCoreService'
+import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar, PreferenceRow, SectionHeading } from '../components/Controls'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
+import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { common } from '@kit.AbilityKit'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
 
@@ -20,6 +21,10 @@ struct Settings {
   @State calendarName: string = 'Org Tasks'
   @State syncInterval: string = '20'
   @State todoDefaults: string = ''
+  @State coreSettings: CoreSettingsObject = { additionStates: [] }
+  private stateCategories: TaskStateCategory[] = [TaskStateCategory.Todo, TaskStateCategory.Doing, TaskStateCategory.Wait, TaskStateCategory.Done, TaskStateCategory.Cancle]
+  @State categoryDrafts: string[] = ['', '', '', '', '']
+  @State categoryBusy: boolean = false
   @State fileDisplayMode: 'rendered' | 'source' = 'rendered'
   @State saving: boolean = false
   @State loaded: boolean = false
@@ -103,7 +108,7 @@ struct Settings {
       this.save()
       return true
     }
-    if (this.saving) return true
+    if (this.saving || this.categoryBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.section) { this.section = ''; this.message = ''; return true }
     return false
@@ -116,6 +121,7 @@ struct Settings {
         const params = this.getUIContext().getRouter().getParams() as SettingsParams | undefined
         if (params?.section) this.section = params.section
         this.todoDefaults = this.config.todoDefaults
+        this.coreSettings = this.config.coreSettings
         this.fileDisplayMode = this.config.fileDisplayMode
         this.calendarName = this.config.calendarName
         this.syncInterval = Math.max(20, this.config.syncInterval).toString()
@@ -156,13 +162,17 @@ struct Settings {
           break
         }
         const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
-        const todoChanged = current.todoDefaults !== this.todoDefaults
+        const todoChanged = current.todoDefaults !== this.todoDefaults || JSON.stringify(current.coreSettings) !== JSON.stringify(this.coreSettings)
         current.calendarName = this.calendarName.trim()
         current.syncInterval = interval
         current.todoDefaults = this.todoDefaults
+        current.coreSettings = this.coreSettings
         current.fileDisplayMode = this.fileDisplayMode
         await AppConfigService.save(this.getUIContext().getHostContext()!, current)
-        if (todoChanged) await NativeCoreService.workspaceFor(current.repos, this.todoDefaults)
+        if (todoChanged) {
+          await NativeCoreService.workspaceFor(current.repos, this.todoDefaults, this.coreSettings)
+          this.config = current
+        }
         this.message = '设置已保存'
         try { await BackgroundSyncService.configure(interval) }
         catch (e) { this.message = `设置已保存，后台调度更新失败：${coreErrorMessage(e as CoreBridgeError)}` }
@@ -172,6 +182,28 @@ struct Settings {
       this.saving = false
       if (this.saveRequested) this.save()
     }
+  }
+
+  categoryExtras(index: number): CoreTaskState[] {
+    return this.coreSettings.additionStates.filter(state => state.category === this.stateCategories[index])
+  }
+
+  async changeCategory(index: number, remove?: string): Promise<void> {
+    if (this.categoryBusy) return
+    const name = this.categoryDrafts[index].trim()
+    if (!remove && !name) { this.message = '请输入状态值'; return }
+    this.categoryBusy = true
+    try {
+      const additions = this.coreSettings.additionStates.filter(state => state.name !== remove)
+      if (!remove) additions.push({ name, category: this.stateCategories[index] })
+      const candidate: CoreSettingsObject = { additionStates: additions }
+      const workspace = new Workspace()
+      await workspace.setSettings(candidate)
+      this.coreSettings = await workspace.getSettings()
+      this.categoryDrafts = this.categoryDrafts.map((value, position) => position === index ? '' : value)
+      this.scheduleSave()
+    } catch (error) { this.message = `更新状态分类失败：${coreErrorMessage(error as CoreBridgeError)}` }
+    finally { this.categoryBusy = false }
   }
 
   build() {
@@ -199,7 +231,7 @@ struct Settings {
                   TextArea({ text: this.todoDefaults, placeholder: '从 Rust 获取的默认设置，可按 Org 声明编辑' }).width('100%').height(180)
                     .fontFamily('monospace').backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).borderRadius(6)
                     .onChange((value: string) => { this.todoDefaults = value; this.scheduleSave() })
-                  Text('使用 TODO、SEQ_TODO 或 TYP_TODO 声明，每行一套流程；| 后为完成状态。文件内声明会整体覆盖此默认值。留空表示默认不识别 TODO 状态。')
+                  Text('使用 TODO、SEQ_TODO 或 TYP_TODO 声明，每行一套流程；文件内流程整体覆盖默认流程。状态分类通过下方配置项设置；文件可用 TASK_STATE_CATEGORY 声明分类。留空表示默认不识别 TODO 状态。')
                     .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
                   Button('恢复默认 TODO 设置').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
                     .onClick(async (): Promise<void> => {
@@ -207,6 +239,33 @@ struct Settings {
                       catch (e) { this.message = `读取默认设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
                     })
                 }.width('100%').padding({ left: 24, right: 24 })
+                SectionHeading({ title: '任务状态分类' })
+                Column({ space: 20 }) {
+                  Text('默认状态不可修改；可为每个分类添加其他状态值。状态还需出现在文件或默认 TODO 流程中，才会识别为任务。')
+                    .fontSize(13).fontColor(UiColor.secondary).lineHeight(21).width('100%')
+                  ForEach(this.stateCategories, (category: TaskStateCategory, index: number) => {
+                    Column({ space: 8 }) {
+                      Text(`${taskStateCategoryLabel(category)} · ${category}`)
+                        .fontSize(16).fontColor(UiColor.text).width('100%')
+                      Text('内置默认状态不可修改')
+                        .fontSize(13).fontColor(UiColor.secondary).width('100%')
+                      ForEach(this.categoryExtras(index), (state: CoreTaskState) => {
+                        Row() {
+                          Text(state.name).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+                          Button('移除').fontSize(13).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+                            .onClick(() => { this.changeCategory(index, state.name) })
+                        }.width('100%')
+                      }, (state: CoreTaskState) => state.name)
+                      Row({ space: 8 }) {
+                        TextInput({ text: this.categoryDrafts[index], placeholder: '添加状态值' })
+                          .layoutWeight(1).backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
+                          .onChange((value: string) => { this.categoryDrafts = this.categoryDrafts.map((draft, position) => position === index ? value : draft) })
+                        Button('添加').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
+                          .onClick(() => { this.changeCategory(index) })
+                      }.width('100%')
+                    }.width('100%')
+                  }, (category: TaskStateCategory) => category)
+                }.width('100%').padding({ left: 24, right: 24 }).enabled(!this.categoryBusy)
                 SectionHeading({ title: '文件入口' })
                 Column({ space: 16 }) {
                   PreferenceRow({ title: '收件箱文件', detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/FileTargetPicker', params: { kind: 'inbox' } }) } })

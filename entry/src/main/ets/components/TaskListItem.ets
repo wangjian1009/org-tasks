@@ -1,3 +1,4 @@
+import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../services/TaskInlineService'
 import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
@@ -106,13 +107,13 @@ export struct TaskListItem {
   }
   value(): CoreTask { return this.editTask ?? this.task }
   async complete() {
-    if (this.completing || this.working || this.snapshotBlocked || this.value().todoKind !== 'pending' || this.value().doneKeywords.length === 0) return
+    if (this.completing || this.working || this.snapshotBlocked || (this.value().state === null || this.value().isDone()) || !this.value().taskStateOf(TaskStateCategory.Done)) return
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
-      const state = this.value().doneKeywords[0]
-      if (this.value().todoKind !== 'pending' || !state) return
-      if (await this.persist([{ field: 'TODO', value: state }])) {
+      const state = this.value().taskStateOf(TaskStateCategory.Done)
+      if ((this.value().state === null || this.value().isDone()) || !state) return
+      if (await this.persist([{ field: 'TODO', value: state.name }])) {
         this.expanded = false
       }
     } finally {
@@ -543,28 +544,30 @@ export struct TaskListItem {
 
   @Builder
   completionState() {
-    if (this.value().todoKind === 'done' && !this.value().isCancelled) {
+    if (this.value().state?.category === TaskStateCategory.Done) {
       Image($r('app.media.ui_task_done')).width(18).height(18)
         .accessibilityText('已完成，只读')
-    } else if (this.value().todoKind === 'pending') {
+    } else if (this.value().state !== null && !this.value().isDone()) {
       Button({ type: ButtonType.Normal }) {
-        Text('').width(18).height(18)
+        Text(this.value().state?.category === TaskStateCategory.Doing ? '▶' : this.value().state?.category === TaskStateCategory.Wait ? 'Ⅱ' : '')
+          .fontSize(10).fontColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.primary : UiColor.warning)
+          .textAlign(TextAlign.Center).width(18).height(18)
           .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
       }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
         .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
-        .enabled(!this.completing && !this.working && !this.snapshotBlocked && this.value().doneKeywords.length > 0)
-        .accessibilityText('完成任务').onClick(() => { this.complete() })
+        .enabled(!this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(TaskStateCategory.Done))
+        .accessibilityText(`${taskStateCategoryLabel(this.value().state?.category)}，点击完成任务`).onClick(() => { this.complete() })
     } else {
-      Text(this.value().isCancelled ? '−' : '').width(18).height(18).fontSize(13)
+      Text((this.value().state?.category === TaskStateCategory.Cancle) ? '−' : '').width(18).height(18).fontSize(13)
         .textAlign(TextAlign.Center).fontColor(UiColor.disabled)
         .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
-        .accessibilityText(this.value().isCancelled ? '已取消，只读' : '未完成，只读')
+        .accessibilityText((this.value().state?.category === TaskStateCategory.Cancle) ? '已取消，只读' : '未完成，只读')
     }
   }
 
   @Builder
   stateIndicator() {
-    if (this.value().todoKind === null) {
+    if (this.value().state === null) {
       Image($r('app.media.ui_note')).width(18).height(18)
         .accessibilityText('笔记，无任务状态')
     } else {
@@ -622,7 +625,7 @@ export struct TaskListItem {
   compactTitle() {
     Row({ space: 6 }) {
       Column({ space: 2 }) {
-        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: this.value().isCancelled })
+        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancle) })
           .width('100%').constraintSize({ minWidth: 0 })
         if (this.showCategory && (this.value().category || this.value().project() !== null)) {
           this.categoryProject()

@@ -164,7 +164,7 @@ export struct AppShell {
     this.inboxCount = -1
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults)
+      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
       const repos = await workspace.repos()
       const queries: CoreQuery[] = [
         { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: overdueTaskQuery() },

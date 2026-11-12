@@ -1158,7 +1158,10 @@ async fn separated_preview_preserves_setupfile_context_when_adopting_a_candidate
     assert!(!baseline.has_conflict());
     f.choose(&preview, TaskConfilictAction::UseLocal).await;
     let edited = preview.file().await.unwrap();
-    assert_eq!(edited.nodes()[0].state(), Some("OPEN"));
+    assert_eq!(
+        edited.nodes()[0].state().map(|state| state.name.as_str()),
+        Some("OPEN")
+    );
     assert_eq!(edited.node_paths()[0].titles, vec!["Work"]);
     let operations = preview
         .finish(ConflictPreviewFinishOptions {

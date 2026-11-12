@@ -1,3 +1,4 @@
+import { CoreSettings } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { RepoConfig } from '../models/OrgTask'
@@ -60,10 +61,12 @@ export class RepositorySyncService {
     RepositorySyncService.publish()
     let repos: RepoConfig[] = []
     let todoDefaults: string = ''
+    let coreSettings: CoreSettings = { additionStates: [] }
     try {
       const config = await AppConfigService.load(context)
       repos = config.repos
       todoDefaults = config.todoDefaults
+      coreSettings = config.coreSettings
       if (repos.length === 0) {
         state.error = true
         state.needsRepository = true
@@ -80,8 +83,8 @@ export class RepositorySyncService {
         ? NativeCoreService.syncWorkspaceWebDav(repos,
           (event: CoreWebDavSyncEvent) => {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
-          }, todoDefaults)
-        : NativeCoreService.loadWorkspace(repos, todoDefaults))
+          }, todoDefaults, coreSettings)
+        : NativeCoreService.loadWorkspace(repos, todoDefaults, coreSettings))
       state.progress = 100
       state.determinate = true
       state.message = ''

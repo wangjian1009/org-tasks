@@ -267,7 +267,11 @@ pub extern "C" fn org_tasks_harmony_repo_load_files(
     ignore_files_json: *const c_char,
 ) -> *mut c_char {
     string_result((|| {
-        bridge::repo_load_files_json(workspace_handle, read_c_string(root_directory)?, read_c_string(ignore_files_json)?)
+        bridge::repo_load_files_json(
+            workspace_handle,
+            read_c_string(root_directory)?,
+            read_c_string(ignore_files_json)?,
+        )
     })())
 }
 
@@ -307,7 +311,8 @@ mod tests {
         let request = CString::new(r#"[{"type":"notification","query":{}}]"#).unwrap();
         let value = org_tasks_harmony_workspace_query(handle, request.as_ptr());
         assert!(!value.is_null());
-        let result: serde_json::Value = serde_json::from_str(unsafe { CStr::from_ptr(value) }.to_str().unwrap()).unwrap();
+        let result: serde_json::Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(value) }.to_str().unwrap()).unwrap();
         assert_eq!(result[0]["result"], serde_json::json!([]));
         // value 来自上面的 bridge 请求，内容只读且尚未释放。
         unsafe { org_tasks_harmony_free_string(value) };
@@ -368,7 +373,6 @@ pub extern "C" fn org_tasks_harmony_repo_conflicts(
     )
 }
 
-
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_set_todo_defaults(
     handle: u64,
@@ -407,6 +411,27 @@ pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_get_settings(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_get_settings_json(handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_set_settings(
+    handle: u64,
+    settings_json: *const c_char,
+) -> i32 {
+    clear_last_error();
+    match read_c_string(settings_json).and_then(|json| bridge::workspace_set_settings(handle, json))
+    {
+        Ok(()) => 0,
+        Err(error) => {
+            remember_error(&error);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_default_sync_options() -> *mut c_char {
     string_result(
         serde_json::to_string(&org_tasks_core::default_sync_options())
@@ -427,55 +452,116 @@ pub extern "C" fn org_tasks_harmony_normalize_sync_options(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_refile_targets(handle: u64, query_json: *const c_char) -> *mut c_char {
-    string_result(read_c_string(query_json).and_then(|query| bridge::workspace_refile_targets_json(handle, query)))
+pub extern "C" fn org_tasks_harmony_workspace_refile_targets(
+    handle: u64,
+    query_json: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(query_json)
+            .and_then(|query| bridge::workspace_refile_targets_json(handle, query)),
+    )
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_execute_task_operations(handle:u64,request:*const c_char)->*mut c_char{
-    string_result(read_c_string(request).and_then(|request|bridge::workspace_execute_task_operations(handle,request)))
+pub extern "C" fn org_tasks_harmony_workspace_execute_task_operations(
+    handle: u64,
+    request: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(request)
+            .and_then(|request| bridge::workspace_execute_task_operations(handle, request)),
+    )
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_task_merge_operations(handle: u64, request: *const c_char) -> *mut c_char {
-    string_result(read_c_string(request).and_then(|request| bridge::workspace_task_merge_operations(handle, request)))
+pub extern "C" fn org_tasks_harmony_workspace_task_merge_operations(
+    handle: u64,
+    request: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(request)
+            .and_then(|request| bridge::workspace_task_merge_operations(handle, request)),
+    )
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_full_path(handle:u64,root:*const c_char)->*mut c_char{
-    string_result(read_c_string(root).and_then(|root|bridge::repo_full_path_json(handle,root)))
+pub extern "C" fn org_tasks_harmony_repo_full_path(
+    handle: u64,
+    root: *const c_char,
+) -> *mut c_char {
+    string_result(read_c_string(root).and_then(|root| bridge::repo_full_path_json(handle, root)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_history_operation(handle: u64, root: *const c_char, request: *const c_char) -> *mut c_char {
-    string_result(read_c_string(root).and_then(|root| bridge::repo_history_operation(handle, root, read_c_string(request)?)))
+pub extern "C" fn org_tasks_harmony_repo_history_operation(
+    handle: u64,
+    root: *const c_char,
+    request: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(root)
+            .and_then(|root| bridge::repo_history_operation(handle, root, read_c_string(request)?)),
+    )
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_watch_notifications(handle:u64, monitor:u64)->u64 {
+pub extern "C" fn org_tasks_harmony_workspace_watch_notifications(
+    handle: u64,
+    monitor: u64,
+) -> u64 {
     clear_last_error();
-    match bridge::workspace_watch_notifications(handle,monitor) {Ok(id)=>id,Err(e)=>{remember_error(&e);0}}
+    match bridge::workspace_watch_notifications(handle, monitor) {
+        Ok(id) => id,
+        Err(e) => {
+            remember_error(&e);
+            0
+        }
+    }
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_unwatch_notifications(id:u64) {bridge::workspace_unwatch_notifications(id);}
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_watch_data_changes(handle:u64, monitor:u64)->u64 {
-    clear_last_error();
-    match bridge::workspace_watch_data_changes(handle,monitor) {Ok(id)=>id,Err(e)=>{remember_error(&e);0}}
+pub extern "C" fn org_tasks_harmony_workspace_unwatch_notifications(id: u64) {
+    bridge::workspace_unwatch_notifications(id);
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_unwatch_data_changes(id:u64) {bridge::workspace_unwatch_data_changes(id);}
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_reload(handle:u64)->i32 {
+pub extern "C" fn org_tasks_harmony_workspace_watch_data_changes(handle: u64, monitor: u64) -> u64 {
     clear_last_error();
-    match bridge::workspace_reload(handle) {Ok(())=>0,Err(e)=>{remember_error(&e);-1}}
+    match bridge::workspace_watch_data_changes(handle, monitor) {
+        Ok(id) => id,
+        Err(e) => {
+            remember_error(&e);
+            0
+        }
+    }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_unwatch_data_changes(id: u64) {
+    bridge::workspace_unwatch_data_changes(id);
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_reload(handle: u64) -> i32 {
+    clear_last_error();
+    match bridge::workspace_reload(handle) {
+        Ok(()) => 0,
+        Err(e) => {
+            remember_error(&e);
+            -1
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_preview_operation(handle:u64, request:*const c_char)->*mut c_char {
-    string_result(read_c_string(request).and_then(|request|bridge::workspace_preview_operation(handle,request)))
+pub extern "C" fn org_tasks_harmony_preview_operation(
+    handle: u64,
+    request: *const c_char,
+) -> *mut c_char {
+    string_result(
+        read_c_string(request)
+            .and_then(|request| bridge::workspace_preview_operation(handle, request)),
+    )
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_preview_release(handle:u64,id:*const c_char) {
-    if let Ok(id)=read_c_string(id) {bridge::release_preview(handle,&id);}
+pub extern "C" fn org_tasks_harmony_preview_release(handle: u64, id: *const c_char) {
+    if let Ok(id) = read_c_string(id) {
+        bridge::release_preview(handle, &id);
+    }
 }

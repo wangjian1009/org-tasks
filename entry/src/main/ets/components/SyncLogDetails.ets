@@ -26,7 +26,7 @@ export struct SyncLogDetails {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const repository = config.repos.find((repo) => repo.id === this.repoId)
       if (!repository) throw new Error('此存储库已不存在')
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults)
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       const detail = await repo.historyDetail(this.syncId)
       if (request === this.requestId) this.detail = detail
     } catch (e) {

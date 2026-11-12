@@ -182,7 +182,7 @@ export class CalendarSync {
   private taskFingerprint(task: OrgTask): string {
     return JSON.stringify([
       task.heading,
-      task.todoState,
+      (task.state?.name || ''),
       task.priority,
       task.scheduled,
       task.deadline,
@@ -246,7 +246,7 @@ export class CalendarSync {
   }
 
   private taskDescription(task: OrgTask): string {
-    let description = `来源: ${task.fileName}\n状态: ${task.todoState}\n`
+    let description = `来源: ${task.fileName}\n状态: ${(task.state?.name || '')}\n`
     if (task.tags.length > 0) {
       description += `标签: ${task.tags.join(', ')}\n`
     }

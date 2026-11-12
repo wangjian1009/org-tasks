@@ -172,6 +172,8 @@ function settingsFixture() {
   const timers = new Map();
   let state = 'enabled', refreshed = 0, reads = 0, readGate, nextId = 1, foreground = true;
   const Settings = load('pages/Settings', {
+    'liborg_tasks_harmony.so': { Workspace: class {} },
+    '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancle: 'Cancle' } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
     '../services/BackgroundSyncService': {}, '../services/AppConfigService': {},
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },

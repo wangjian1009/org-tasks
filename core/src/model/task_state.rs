@@ -33,8 +33,12 @@ pub(super) fn property(
 ) -> Result<Option<String>, CoreError> {
     let headline = metadata_node(file, headline);
     Ok(super::properties::resolve(
-        &headline, name,
-        file.file_keywords.properties.get(&name.to_ascii_uppercase()).map(String::as_str),
+        &headline,
+        name,
+        file.file_keywords
+            .properties
+            .get(&name.to_ascii_uppercase())
+            .map(String::as_str),
         inherit,
     ))
 }
@@ -175,9 +179,10 @@ pub(super) fn log_created_completion(
     headline: &Headline,
     now: NaiveDateTime,
 ) -> Result<(), CoreError> {
-    if !headline.todo_keyword().is_some_and(|state| {
-        file.todo.done_keywords.iter().any(|done| done == state.as_ref())
-    }) {
+    if !headline
+        .todo_keyword()
+        .is_some_and(|state| file.todo.is_done(state.as_ref()))
+    {
         return Ok(());
     }
     let settings = Logging::load(file, headline)?;
@@ -187,12 +192,17 @@ pub(super) fn log_created_completion(
     let timestamp = now.format("[%Y-%m-%d %a %H:%M]").to_string();
     let offset = start(headline);
     planning(
-        file, headline, "CLOSED", SyntaxKind::PLANNING_CLOSED,
+        file,
+        headline,
+        "CLOSED",
+        SyntaxKind::PLANNING_CLOSED,
         &Some(timestamp.clone()),
     )?;
     if settings.done == Some(TodoLogAction::Note) {
         add_log(
-            file, &node_at(file, offset)?, &settings,
+            file,
+            &node_at(file, offset)?,
+            &settings,
             &format!("- CLOSING NOTE {timestamp}"),
         )?;
     }
@@ -228,13 +238,8 @@ pub(super) fn modify_without_triggers(
     let settings = Logging::load(file, headline)?;
     let was_done = previous
         .as_ref()
-        .is_some_and(|state| file.todo.done_keywords.contains(state));
-    let is_done = value.is_some_and(|state| {
-        file.todo
-            .done_keywords
-            .iter()
-            .any(|keyword| keyword == state)
-    });
+        .is_some_and(|state| file.todo.is_done(state));
+    let is_done = value.is_some_and(|state| file.todo.is_done(state));
     let entered_done = is_done && !was_done;
     let timestamp = now.format("[%Y-%m-%d %a %H:%M]").to_string();
     let offset = start(headline);
@@ -343,7 +348,18 @@ fn repeat_state(
         return Ok(previous.map(str::to_owned));
     }
     Ok(flow
-        .and_then(|flow| flow.states.first())
+        .and_then(|flow| {
+            flow.states
+                .iter()
+                .find(|state| state.category == Some(super::TaskStateCategory::Todo))
+                .or_else(|| {
+                    flow.states.iter().find(|state| {
+                        !state
+                            .category
+                            .is_some_and(super::TaskStateCategory::is_done)
+                    })
+                })
+        })
         .map(|state| state.name.clone())
         .or_else(|| file.todo.initial_state.clone()))
 }
@@ -820,11 +836,30 @@ mod property_tests {
     #[test]
     fn logging_properties_combine_file_defaults_ancestors_and_local_additions() {
         let source = ":PROPERTIES:\n:LOGGING+: logrepeat\n:END:\n#+PROPERTY: LOGGING logdone\n* Parent\n:PROPERTIES:\n:LOGGING+: TODO(!)\n:END:\n** Child\n:PROPERTIES:\n:LOGGING+: DONE(!)\n:END:\n";
-        let file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
-        let child = file.syntax().document().syntax().descendants().filter_map(Headline::cast)
-            .find(|node| node.title_raw().trim() == "Child").unwrap();
-        assert_eq!(property(&file, &child, "logging", true).unwrap().as_deref(), Some("logdone logrepeat TODO(!) DONE(!)"));
-        assert_eq!(property(&file, &child, "LOGGING", false).unwrap().as_deref(), Some("logdone logrepeat DONE(!)"));
+        let file = OrgFile::new(
+            "repo".into(),
+            "tasks.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        let child = file
+            .syntax()
+            .document()
+            .syntax()
+            .descendants()
+            .filter_map(Headline::cast)
+            .find(|node| node.title_raw().trim() == "Child")
+            .unwrap();
+        assert_eq!(
+            property(&file, &child, "logging", true).unwrap().as_deref(),
+            Some("logdone logrepeat TODO(!) DONE(!)")
+        );
+        assert_eq!(
+            property(&file, &child, "LOGGING", false)
+                .unwrap()
+                .as_deref(),
+            Some("logdone logrepeat DONE(!)")
+        );
         let logging = Logging::load(&file, &child).unwrap();
         assert_eq!(logging.done, Some(TodoLogAction::Time));
         assert_eq!(logging.repeat, Some(TodoLogAction::Time));
@@ -834,11 +869,30 @@ mod property_tests {
     #[test]
     fn updating_an_empty_property_preserves_its_drawer_and_unrelated_bytes() {
         let source = "* TODO Task\r\n:PROPERTIES:\r\n:LAST_REPEAT:   \r\n:Genres: Classic\r\n:Genres+: Baroque\r\n:END:\r\n正文  \r\n";
-        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let mut file = OrgFile::new(
+            "repo".into(),
+            "tasks.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
         let headline = file.syntax().first_node::<Headline>().unwrap();
-        set_property(&mut file, &headline, "LAST_REPEAT", "[2026-11-11 Wed 10:00]").unwrap();
-        assert_eq!(file.source_bytes(), source.replace(":LAST_REPEAT:   ", ":LAST_REPEAT:   [2026-11-11 Wed 10:00]").as_bytes());
+        set_property(
+            &mut file,
+            &headline,
+            "LAST_REPEAT",
+            "[2026-11-11 Wed 10:00]",
+        )
+        .unwrap();
+        assert_eq!(
+            file.source_bytes(),
+            source
+                .replace(":LAST_REPEAT:   ", ":LAST_REPEAT:   [2026-11-11 Wed 10:00]")
+                .as_bytes()
+        );
         let headline = file.syntax().first_node::<Headline>().unwrap();
-        assert_eq!(super::super::properties::own(&headline, "Genres").as_deref(), Some("Classic Baroque"));
+        assert_eq!(
+            super::super::properties::own(&headline, "Genres").as_deref(),
+            Some("Classic Baroque")
+        );
     }
 }

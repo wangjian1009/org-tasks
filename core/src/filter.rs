@@ -132,7 +132,6 @@ pub struct FilterTask {
     pub(crate) full_path: crate::TaskPath,
     pub(crate) file_metadata: Arc<crate::OrgFileMetadata>,
     file_version: String,
-    done_keywords: Arc<Vec<String>>,
     edit_content: crate::TaskEditContent,
     pub(crate) support_tags: Option<Arc<crate::SupportTags>>,
     /// 所属文件的 CATEGORY；保留缺失与显式空值的区别。
@@ -141,7 +140,7 @@ pub struct FilterTask {
     pub(crate) column: u32,
     pub(crate) byte_offset: u64,
     pub(crate) level: u32,
-    pub(crate) state: Option<String>,
+    pub(crate) state: Option<crate::TaskState>,
     pub(crate) state_type: FilterStateType,
     pub(crate) priority: Option<String>,
     pub(crate) own_tags: Vec<String>,
@@ -171,10 +170,12 @@ pub struct AddressLink {
 }
 
 impl FilterTask {
-    /// 所属文件的有效完成状态，保持配置顺序；无文件声明时使用全局默认值。
-    pub fn done_keywords(&self) -> &[String] { &self.done_keywords }
-    pub fn file_version(&self) -> &str { &self.file_version }
-    pub fn edit_content(&self) -> &crate::TaskEditContent { &self.edit_content }
+    pub fn file_version(&self) -> &str {
+        &self.file_version
+    }
+    pub fn edit_content(&self) -> &crate::TaskEditContent {
+        &self.edit_content
+    }
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -229,11 +230,20 @@ impl FilterTask {
         self.level
     }
 
-    pub fn state(&self) -> Option<&str> {
-        self.state.as_deref()
+    pub fn state(&self) -> Option<&crate::TaskState> {
+        self.state.as_ref()
     }
 
-    pub fn state_type(&self) -> FilterStateType {
+    pub fn task_state_of(&self, category: crate::TaskStateCategory) -> Option<crate::TaskState> {
+        self.file_metadata.task_state_of(category)
+    }
+
+    pub(crate) fn state_name(&self) -> Option<&str> {
+        self.state.as_ref().map(|state| state.name.as_str())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn state_type(&self) -> FilterStateType {
         self.state_type
     }
 
@@ -296,11 +306,10 @@ impl FilterTask {
 
     /// 完成类型来自所属文件的有效 TODO 配置，不按状态名称推断。
     pub fn is_done(&self) -> bool {
-        self.state_type == FilterStateType::Done
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.state.as_deref() == Some("CNCL")
+        self.state
+            .as_ref()
+            .and_then(|state| state.category)
+            .is_some_and(crate::TaskStateCategory::is_done)
     }
 
     /// 查询匹配结束后移除系统用途标签，保留其余标签的原始顺序。
@@ -410,10 +419,15 @@ impl FilterInterval {
 }
 
 #[cfg(test)]
-pub(crate) async fn tasks_from_repo(repository: &OrgRepo) -> Result<Vec<FilterTask>, crate::CoreError> {
+pub(crate) async fn tasks_from_repo(
+    repository: &OrgRepo,
+) -> Result<Vec<FilterTask>, crate::CoreError> {
     let files = repository.load_files(&[]).await?;
-    Ok(files.iter().filter(|file| !file.scan_ignored)
-        .flat_map(|file| tasks_from_file(repository, file)).collect())
+    Ok(files
+        .iter()
+        .filter(|file| !file.scan_ignored)
+        .flat_map(|file| tasks_from_file(repository, file))
+        .collect())
 }
 
 pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Vec<FilterTask> {
@@ -421,13 +435,14 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
     let file_metadata = Arc::new(file.metadata(file.scan_ignored));
     let file_version = crate::LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
     let support_tags = file.support_tags().map(Arc::new);
-    let done_keywords = Arc::new(file.todo.done_keywords.clone());
     let category = file.category();
     let mut ancestors: Vec<(usize, Vec<String>)> = Vec::new();
     let mut identities =
         crate::model::task_identity::TaskIdentity::new(&repository.root_directory, &file.path);
     for (full_path, headline) in file.path_headlines() {
-        if crate::OrgFile::is_conflict_headline(&headline) { continue; }
+        if crate::OrgFile::is_conflict_headline(&headline) {
+            continue;
+        }
         let level = headline.level();
         while ancestors
             .last()
@@ -458,33 +473,27 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             .filter(|timestamp| timestamp.is_active())
             .filter_map(timestamp_to_date)
             .collect();
-        let state = headline.todo_keyword().map(|value| value.to_string());
-        let state_type = match state.as_deref() {
-            Some(value)
-                if file
-                    .todo
-                    .done_keywords
-                    .iter()
-                    .any(|keyword| keyword == value) =>
+        let state = headline.todo_keyword().map(|value| crate::TaskState {
+            name: value.to_string(),
+            category: file.todo.category(value.as_ref()),
+        });
+        let state_type = match state.as_ref() {
+            Some(state)
+                if state
+                    .category
+                    .is_some_and(crate::TaskStateCategory::is_done) =>
             {
                 FilterStateType::Done
             }
-            Some(value)
-                if file
-                    .todo
-                    .pending_keywords
-                    .iter()
-                    .any(|keyword| keyword == value) =>
-            {
-                FilterStateType::Todo
-            }
-            _ => FilterStateType::None,
+            Some(_) => FilterStateType::Todo,
+            None => FilterStateType::None,
         };
         let address_links = extract_address_links(&headline);
         let created = property_time(&headline, "CREATED");
-        let edit_content = file.task_edit_content(&full_path).expect("同一语法树生成的任务路径必须可定位");
+        let edit_content = file
+            .task_edit_content(&full_path)
+            .expect("同一语法树生成的任务路径必须可定位");
         tasks.push(FilterTask {
-            done_keywords: Arc::clone(&done_keywords),
             file_version: file_version.clone(),
             edit_content,
             id: identities.id_for(&headline, state_type != FilterStateType::None),
@@ -534,7 +543,13 @@ fn property_time(headline: &Headline, property: &str) -> Option<(FilterDate, cra
         _ => return None,
     };
     let local = date.date.and_hms_opt(hour, minute, 0)?;
-    Some((date, Local.from_local_datetime(&local).earliest()?.timestamp_millis()))
+    Some((
+        date,
+        Local
+            .from_local_datetime(&local)
+            .earliest()?
+            .timestamp_millis(),
+    ))
 }
 
 fn extract_address_links(headline: &Headline) -> Vec<AddressLink> {
@@ -638,7 +653,10 @@ fn has_org_repeater(part: &str) -> bool {
     let deadline_unit = &deadline[deadline_digits..];
     deadline_unit.is_empty()
         || (deadline_unit.len() == 1
-            && matches!(deadline_unit.as_bytes()[0], b'h' | b'd' | b'w' | b'm' | b'y'))
+            && matches!(
+                deadline_unit.as_bytes()[0],
+                b'h' | b'd' | b'w' | b'm' | b'y'
+            ))
 }
 
 fn planning_date(
@@ -718,7 +736,9 @@ fn parse_planning_warning(line: &str, keyword: &str) -> Option<NaiveDate> {
 }
 
 fn parse_warning_token(token: &str) -> Option<(u32, TimeUnit)> {
-    let value = token.strip_prefix("--").or_else(|| token.strip_prefix('-'))?;
+    let value = token
+        .strip_prefix("--")
+        .or_else(|| token.strip_prefix('-'))?;
     let digits = value.bytes().take_while(u8::is_ascii_digit).count();
     if digits == 0 {
         return None;
@@ -770,8 +790,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             apply_negation(task.path() == *value, *negated)
         }
         FilterExpression::State { value, negated } => apply_negation(
-            task.state
-                .as_deref()
+            task.state_name()
                 .is_some_and(|state| state.eq_ignore_ascii_case(value)),
             *negated,
         ),
@@ -853,22 +872,16 @@ fn dates_for_field(
     interval: FilterInterval,
 ) -> Vec<FilterDate> {
     match field {
-        FilterDateField::Scheduled => adjusted_planning_date(
-            task.scheduled,
-            task.scheduled_warning,
-            relation,
-            interval,
-        )
-        .into_iter()
-        .collect(),
-        FilterDateField::Deadline => adjusted_planning_date(
-            task.deadline,
-            task.deadline_warning,
-            relation,
-            interval,
-        )
-        .into_iter()
-        .collect(),
+        FilterDateField::Scheduled => {
+            adjusted_planning_date(task.scheduled, task.scheduled_warning, relation, interval)
+                .into_iter()
+                .collect()
+        }
+        FilterDateField::Deadline => {
+            adjusted_planning_date(task.deadline, task.deadline_warning, relation, interval)
+                .into_iter()
+                .collect()
+        }
         FilterDateField::Closed => task.closed.into_iter().collect(),
         FilterDateField::Created => task.created.into_iter().collect(),
         FilterDateField::Event => task.events.clone(),
@@ -884,9 +897,7 @@ fn adjusted_planning_date(
     let mut date = date?;
     let today_interval = matches!(interval.unit, FilterIntervalUnit::Now)
         || (matches!(interval.unit, FilterIntervalUnit::Day) && interval.value == 0);
-    if today_interval
-        && matches!(relation, FilterRelation::Lt | FilterRelation::Le)
-        && date.active
+    if today_interval && matches!(relation, FilterRelation::Lt | FilterRelation::Le) && date.active
     {
         if let Some(warning) = warning {
             date.date = warning;
@@ -968,7 +979,7 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
         FilterSortField::Book => left.path().cmp(right.path()),
         FilterSortField::Title => left.title.cmp(&right.title),
         FilterSortField::Priority => left.priority.cmp(&right.priority),
-        FilterSortField::State => left.state.cmp(&right.state),
+        FilterSortField::State => left.state_name().cmp(&right.state_name()),
         FilterSortField::Scheduled => left.scheduled.cmp(&right.scheduled),
         FilterSortField::Deadline => left.deadline.cmp(&right.deadline),
         FilterSortField::Closed => left.closed.cmp(&right.closed),
@@ -1319,16 +1330,24 @@ mod tests {
         repo.id = "repo".into();
         for (source, setup, expected) in [
             ("* TODO Task\n", "", vec!["DONE"]),
-            ("#+TODO: OPEN | FINISHED(f!) CANCELLED(c)\n#+TODO: NEXT | ACCEPTED\n* OPEN Task\n", "", vec!["FINISHED", "CANCELLED", "ACCEPTED"]),
+            (
+                "#+TODO: OPEN | FINISHED(f!) CANCELLED(c)\n#+TODO: NEXT | ACCEPTED\n* OPEN Task\n",
+                "",
+                vec!["FINISHED", "CANCELLED", "ACCEPTED"],
+            ),
             ("* NEXT Task\n", "#+TODO: NEXT | CLOSED", vec!["CLOSED"]),
             ("#+TODO:\n* Plain\n", "", vec![]),
         ] {
             let file = OrgFile::with_todo_defaults_and_setup(
-                repo.id.clone(), "tasks.org".into(), source.as_bytes().to_vec(),
-                crate::TodoConfig::default(), setup.into(),
-            ).unwrap();
-            let task = tasks_from_file(&repo, &file).remove(0);
-            assert_eq!(task.done_keywords(), expected, "{source}");
+                repo.id.clone(),
+                "tasks.org".into(),
+                source.as_bytes().to_vec(),
+                crate::TodoConfig::default(),
+                setup.into(),
+            )
+            .unwrap();
+            assert_eq!(tasks_from_file(&repo, &file).len(), 1);
+            assert_eq!(file.todo.done_keywords, expected, "{source}");
             assert_eq!(file.source_bytes(), source.as_bytes());
         }
     }
@@ -1343,11 +1362,15 @@ mod tests {
         let mut tasks = tasks_from_file(&repo, &file);
         assert!(tasks[0].modified_at().is_none());
         Filter::parse(".o.modified").filter_tasks(&mut tasks);
-        assert_eq!(tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
-            ["New", "Same time", "Old", "Missing"]);
+        assert_eq!(
+            tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            ["New", "Same time", "Old", "Missing"]
+        );
         Filter::parse("o.modified").filter_tasks(&mut tasks);
-        assert_eq!(tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
-            ["Old", "New", "Same time", "Missing"]);
+        assert_eq!(
+            tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            ["Old", "New", "Same time", "Missing"]
+        );
     }
 
     #[test]
@@ -1447,11 +1470,15 @@ mod tests {
     #[tokio::test]
     async fn filters_tasks_with_reference_state_tag_and_date_semantics() {
         let file = OrgFile::new("repo".into(), "work.org".into(), b"* TODO Parent :work:\n** DONE Child :home:\nSCHEDULED: <2024-01-03 Wed>\n* TODO Other\n* Plain heading\n".to_vec()).unwrap();
-        let repository = crate::model::test_support::with_files(OrgRepo {
-            id: "repo".into(),
-            root_directory: "/tmp".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, vec![file], Default::default());
+        let repository = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo".into(),
+                root_directory: "/tmp".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            vec![file],
+            Default::default(),
+        );
         let tasks = tasks_from_repo(&repository).await.unwrap();
         assert_eq!(tasks.len(), 4);
         assert_eq!(
@@ -1505,13 +1532,17 @@ mod tests {
             crate::TodoConfig::default(),
         )
         .unwrap();
-        let repository = crate::model::test_support::with_files(OrgRepo {
-            id: "repo".into(),
-            root_directory: "/tmp".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, vec![file], Default::default());
+        let repository = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo".into(),
+                root_directory: "/tmp".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            vec![file],
+            Default::default(),
+        );
         let task = tasks_from_repo(&repository).await.unwrap().pop().unwrap();
-        assert_eq!(task.state.as_deref(), Some("CNCL"));
+        assert_eq!(task.state_name(), Some("CNCL"));
         assert_eq!(task.state_type, FilterStateType::Done);
     }
 
@@ -1527,17 +1558,19 @@ mod tests {
             (
                 "pending.org",
                 "#+TODO: CNCL | FINISHED\n* CNCL Pending\n",
-                false,
+                true,
             ),
             ("cleared.org", "#+TODO:\n* CNCL Plain\n", false),
             ("global.org", "* CNCL Done by default\n", true),
             ("plain.org", "* No state\n", false),
         ];
-        let repository = crate::model::test_support::with_files(OrgRepo {
-            id: "repo".into(),
-            root_directory: "/tmp".into(),
-            todo_defaults: defaults.clone(),
-        }, sources
+        let repository = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo".into(),
+                root_directory: "/tmp".into(),
+                todo_defaults: defaults.clone(),
+            },
+            sources
                 .iter()
                 .map(|(path, source, _)| {
                     OrgFile::with_todo_defaults(
@@ -1548,7 +1581,9 @@ mod tests {
                     )
                     .unwrap()
                 })
-                .collect(), Default::default());
+                .collect(),
+            Default::default(),
+        );
         let tasks = tasks_from_repo(&repository).await.unwrap();
         for (path, _, expected) in sources {
             let task = tasks.iter().find(|task| task.path() == path).unwrap();
@@ -1565,11 +1600,15 @@ mod tests {
             b"* TODO Repeated\nSCHEDULED: <2026-09-27 Sun .+4w/5w>\n".to_vec(),
         )
         .unwrap();
-        let repository = crate::model::test_support::with_files(OrgRepo {
-            id: "repo".into(),
-            root_directory: "/tmp".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, vec![file], Default::default());
+        let repository = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo".into(),
+                root_directory: "/tmp".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            vec![file],
+            Default::default(),
+        );
         let task = tasks_from_repo(&repository).await.unwrap().pop().unwrap();
         assert_eq!(
             task.scheduled,
@@ -1585,15 +1624,20 @@ mod tests {
         let file = OrgFile::new(
             "repo".into(),
             "mortgage.org".into(),
-            "* TODO 中信银行-房贷（春风湖滨） 利率(2.90)\nDEADLINE: <2026-11-10 Mon -2d>\n".as_bytes()
+            "* TODO 中信银行-房贷（春风湖滨） 利率(2.90)\nDEADLINE: <2026-11-10 Mon -2d>\n"
+                .as_bytes()
                 .to_vec(),
         )
         .unwrap();
-        let repository = crate::model::test_support::with_files(OrgRepo {
-            id: "repo".into(),
-            root_directory: "/tmp".into(),
-            todo_defaults: crate::TodoConfig::default(),
-        }, vec![file], Default::default());
+        let repository = crate::model::test_support::with_files(
+            OrgRepo {
+                id: "repo".into(),
+                root_directory: "/tmp".into(),
+                todo_defaults: crate::TodoConfig::default(),
+            },
+            vec![file],
+            Default::default(),
+        );
         let task = tasks_from_repo(&repository).await.unwrap().pop().unwrap();
         assert_eq!(
             task.deadline.unwrap().date,
@@ -1605,25 +1649,16 @@ mod tests {
         );
         let today = NaiveDate::from_ymd_opt(2026, 11, 8).unwrap();
         assert!(Filter::parse("d.le.today").matches_at(&task, today));
-        assert!(!Filter::parse("d.le.today").matches_at(
-            &task,
-            NaiveDate::from_ymd_opt(2026, 11, 7).unwrap()
-        ));
+        assert!(
+            !Filter::parse("d.le.today")
+                .matches_at(&task, NaiveDate::from_ymd_opt(2026, 11, 7).unwrap())
+        );
         assert!(!Filter::parse("d.le.yesterday").matches_at(&task, today));
         assert!(Filter::parse("d.ge.tomorrow").matches_at(&task, today));
         let badge_filter = Filter::parse("it.todo d.lt.tomorrow");
         assert!(!badge_filter.matches_at(&task, today));
-        assert!(!badge_filter.matches_at(
-            &task,
-            NaiveDate::from_ymd_opt(2026, 11, 9).unwrap()
-        ));
-        assert!(badge_filter.matches_at(
-            &task,
-            NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()
-        ));
-        assert!(badge_filter.matches_at(
-            &task,
-            NaiveDate::from_ymd_opt(2026, 11, 11).unwrap()
-        ));
+        assert!(!badge_filter.matches_at(&task, NaiveDate::from_ymd_opt(2026, 11, 9).unwrap()));
+        assert!(badge_filter.matches_at(&task, NaiveDate::from_ymd_opt(2026, 11, 10).unwrap()));
+        assert!(badge_filter.matches_at(&task, NaiveDate::from_ymd_opt(2026, 11, 11).unwrap()));
     }
 }

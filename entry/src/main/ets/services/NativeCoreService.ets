@@ -26,6 +26,8 @@ import {
   TodoMetadata as NativeTodoMetadata,
   defaultSyncOptions,
   defaultTodoSettings,
+  CoreSettings,
+  TaskState,
   ConflictSync as NativeConflictSync,
   RefileTarget as NativeRefileTarget,
   RefileTargetQuery as NativeRefileTargetQuery,
@@ -70,7 +72,7 @@ export type CoreFileConflict = NativeFileConflict
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
-// 逻辑身份、doneKeywords、category、hasList、hasText 与 isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
+// 逻辑身份、state、category、hasList、hasText 与 isRepeating 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTaskChecklistItem = NativeTaskChecklistItem
 // 包含 move / beforeId；与 siblingGroup 一起透传，排序规则由 Core 验证。
 export type CoreTaskChecklistChange = NativeTaskChecklistChange
@@ -105,6 +107,8 @@ export type CoreSyncRequiredNotification = NativeSyncRequiredNotification
 export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
+export type CoreTaskState = TaskState
+export type CoreSettingsObject = CoreSettings
 export type CoreTodoMetadata = NativeTodoMetadata
 
 export interface CoreConflict { repoId: string; syncId: string; paths: string[] }
@@ -214,6 +218,8 @@ export class CoreWorkspace {
   }
 
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
+  async getSettings(): Promise<CoreSettings> { return await this.native.getSettings() }
+  async setSettings(settings: CoreSettings): Promise<void> { await this.native.setSettings(settings) }
   async setPreviewRoot(root: string): Promise<void> { await this.native.setPreviewRoot(root) }
   async createConflictPreview(request: CoreConflictPreviewRequest): Promise<CoreConflictPreview> { return await this.native.createConflictPreview(request) }
   async fileAt(path: CoreTaskPath): Promise<CoreOrgFile> { return await this.native.fileAt(path) }
@@ -248,33 +254,34 @@ export class CoreWorkspace {
 let activeWorkspace: CoreWorkspace | undefined = undefined
 let activeWorkspaceKey: string = ''
 let activeTodoDefaults: string | undefined = undefined
+let activeCoreSettings: string = ''
 let workspaceQueue: Promise<void> = Promise.resolve()
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
-  static async query(repositories: RepoConfig[], queries: CoreQuery[], todoDefaults?: string): Promise<CoreQueryResult[]> {
+  static async query(repositories: RepoConfig[], queries: CoreQuery[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreQueryResult[]> {
     if (queries.length === 0) return []
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     return await workspace.query(queries)
   }
-  static async repository(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreRepo> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+  static async repository(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreRepo> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
     const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     return repo
   }
 
-  static async repositoryHistory(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string): Promise<CoreSyncRecord[]> {
-    const repo = await NativeCoreService.repository(repositories, repository, todoDefaults)
+  static async repositoryHistory(repositories: RepoConfig[], repository: RepoConfig, todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreSyncRecord[]> {
+    const repo = await NativeCoreService.repository(repositories, repository, todoDefaults, coreSettings)
     return await repo.history()
   }
 
-  static async conflicts(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreConflict[]> {
+  static async conflicts(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreConflict[]> {
     const result: CoreConflict[] = []
     for (const repository of repositories) {
       if (!repository.webdavEnabled) continue
-      const repo = await NativeCoreService.repository(repositories, repository, todoDefaults)
+      const repo = await NativeCoreService.repository(repositories, repository, todoDefaults, coreSettings)
       const conflicts = await repo.conflicts()
       for (const conflict of conflicts) result.push({ repoId: repository.id, syncId: conflict.syncId, paths: conflict.paths })
     }
@@ -287,38 +294,45 @@ export class NativeCoreService {
     await repo.load()
   }
 
-  static async workspaceFor(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreWorkspace> {
+  static async workspaceFor(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreWorkspace> {
     const request = workspaceQueue.then(async (): Promise<CoreWorkspace> => {
       const settings = todoDefaults ?? await defaultTodoSettings()
+      const encodedCoreSettings = JSON.stringify(coreSettings ?? { additionStates: [] } as CoreSettings)
       const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
       if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
         if (activeTodoDefaults !== settings) {
           await activeWorkspace.setTodoDefaults(settings)
           activeTodoDefaults = settings
         }
+        if (activeCoreSettings !== encodedCoreSettings) {
+          await activeWorkspace.setSettings(coreSettings ?? { additionStates: [] })
+          activeCoreSettings = encodedCoreSettings
+        }
         return activeWorkspace
       }
       const workspace = new CoreWorkspace(new NativeWorkspace())
       await workspace.setTodoDefaults(settings)
+      await workspace.setSettings(coreSettings ?? { additionStates: [] })
       for (const repository of repositories) {
         await workspace.addRepo(repository.rootDirectory)
       }
       activeWorkspace = workspace
       activeWorkspaceKey = workspaceKey
       activeTodoDefaults = settings
+      activeCoreSettings = encodedCoreSettings
       return activeWorkspace
     })
     workspaceQueue = request.then((): void => {}, (): void => {})
     return await request
   }
 
-  static async executeTaskOperations(repositories: RepoConfig[], group: CoreTaskOperationGroup, todoDefaults?: string): Promise<void> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+  static async executeTaskOperations(repositories: RepoConfig[], group: CoreTaskOperationGroup, todoDefaults?: string, coreSettings?: CoreSettings): Promise<void> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     await workspace.executeTaskOperations(group)
   }
 
-  static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string): Promise<CoreTask[]> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+  static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreTask[]> {
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     await workspace.reload()
     return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
   }
@@ -326,9 +340,10 @@ export class NativeCoreService {
   static async syncWorkspaceWebDav(
     repositories: RepoConfig[],
     monitor?: CoreWebDavSyncMonitor,
-    todoDefaults?: string
+    todoDefaults?: string,
+    coreSettings?: CoreSettings
   ): Promise<CoreTask[]> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults)
+    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
     for (const repo of repos) {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)

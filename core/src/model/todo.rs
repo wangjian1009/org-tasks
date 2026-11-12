@@ -4,6 +4,145 @@ use crate::CoreError;
 use orgize::{ParseConfig, ast::Keyword, rowan::ast::AstNode};
 use serde::{Deserialize, Serialize};
 
+/// 任务运行状态分类；Cancle 保留公开协议中的拼写。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskStateCategory {
+    Todo,
+    Doing,
+    Wait,
+    Done,
+    Cancle,
+}
+
+impl TaskStateCategory {
+    pub(crate) fn is_done(self) -> bool {
+        matches!(self, Self::Done | Self::Cancle)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskState {
+    pub name: String,
+    pub category: Option<TaskStateCategory>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CoreSettings {
+    pub addition_states: Vec<TaskState>,
+}
+
+impl CoreSettings {
+    pub(crate) fn validate(&self) -> Result<(), CoreError> {
+        let defaults = default_task_state_categories();
+        let mut names = std::collections::HashSet::new();
+        for state in &self.addition_states {
+            if parse_state(&state.name)?.name != state.name {
+                return Err(CoreError::InvalidInput("附加状态不能包含快捷键或日志后缀"));
+            }
+            if defaults
+                .iter()
+                .any(|mapping| mapping.states.contains(&state.name))
+            {
+                return Err(CoreError::InvalidInput(
+                    "默认状态不可修改，也不能加入附加状态",
+                ));
+            }
+            if !names.insert(&state.name) {
+                return Err(CoreError::InvalidInput("附加状态名称不能重复"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TaskStateCategoryMapping {
+    pub category: TaskStateCategory,
+    pub states: Vec<String>,
+}
+
+/// 默认映射只在 Core 定义，外部配置只能增加状态。
+pub(crate) fn default_task_state_categories() -> Vec<TaskStateCategoryMapping> {
+    use TaskStateCategory::*;
+    [
+        (Todo, &["TODO", "NEXT"][..]),
+        (Doing, &["INPROGRESS"][..]),
+        (Wait, &["WAIT"][..]),
+        (Done, &["DONE"][..]),
+        (Cancle, &["CNCL"][..]),
+    ]
+    .into_iter()
+    .map(|(category, states)| TaskStateCategoryMapping {
+        category,
+        states: states.iter().map(|value| (*value).into()).collect(),
+    })
+    .collect()
+}
+
+fn category_declarations(syntax: &orgize::Org) -> Result<Vec<TaskStateCategoryMapping>, CoreError> {
+    syntax
+        .document()
+        .syntax()
+        .descendants()
+        .filter_map(Keyword::cast)
+        .filter(|node| node.key().eq_ignore_ascii_case("TASK_STATE_CATEGORY"))
+        .map(|node| {
+            let value = node.value();
+            let mut words = value.split_whitespace();
+            let category = match words.next() {
+                Some("Todo") => TaskStateCategory::Todo,
+                Some("Doing") => TaskStateCategory::Doing,
+                Some("Wait") => TaskStateCategory::Wait,
+                Some("Done") => TaskStateCategory::Done,
+                Some("Cancle") => TaskStateCategory::Cancle,
+                _ => {
+                    return Err(CoreError::InvalidInput(
+                        "状态分类必须为 Todo、Doing、Wait、Done 或 Cancle",
+                    ));
+                }
+            };
+            Ok(TaskStateCategoryMapping {
+                category,
+                states: words.map(str::to_owned).collect(),
+            })
+        })
+        .collect()
+}
+
+fn effective_categories(
+    additions: &[TaskStateCategoryMapping],
+) -> Result<Vec<TaskStateCategoryMapping>, CoreError> {
+    let mut result = default_task_state_categories();
+    for mapping in additions {
+        for name in &mapping.states {
+            if parse_state(name)?.name != *name {
+                return Err(CoreError::InvalidInput(
+                    "分类中的状态不能包含快捷键或日志后缀",
+                ));
+            }
+            if result
+                .iter()
+                .any(|entry| entry.category != mapping.category && entry.states.contains(name))
+            {
+                return Err(CoreError::InvalidInput(
+                    "同一状态只能属于一个分类，默认状态不能更改分类",
+                ));
+            }
+            let entry = result
+                .iter_mut()
+                .find(|entry| entry.category == mapping.category)
+                .unwrap();
+            if !entry.states.contains(name) {
+                entry.states.push(name.clone());
+            }
+        }
+    }
+    Ok(result)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TodoSource {
@@ -39,11 +178,17 @@ pub struct TodoWorkflowSpec {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TodoConfig {
+    #[serde(skip)]
+    pub(crate) categories: Vec<TaskStateCategoryMapping>,
+    #[serde(skip)]
+    pub(crate) core_settings: CoreSettings,
     pub workflows: Vec<TodoWorkflowSpec>,
 }
 impl Default for TodoConfig {
     fn default() -> Self {
         Self {
+            categories: Vec::new(),
+            core_settings: CoreSettings::default(),
             workflows: vec![TodoWorkflowSpec {
                 kind: TodoWorkflowKind::Sequence,
                 keywords: vec!["TODO".into(), "|".into(), "DONE".into()],
@@ -63,6 +208,7 @@ pub struct TodoDeclaration {
 pub struct TodoStateMetadata {
     pub name: String,
     pub kind: TodoStateKind,
+    pub category: Option<TaskStateCategory>,
     pub fast_key: Option<char>,
     pub enter_log: Option<TodoLogAction>,
     pub leave_log: Option<TodoLogAction>,
@@ -76,6 +222,8 @@ pub struct TodoWorkflow {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoMetadata {
+    #[serde(skip)]
+    pub(crate) categories: Vec<TaskStateCategoryMapping>,
     pub source: TodoSource,
     pub declarations: Vec<TodoDeclaration>,
     pub workflows: Vec<TodoWorkflow>,
@@ -130,7 +278,8 @@ fn specs(declarations: &[TodoDeclaration]) -> Vec<TodoWorkflowSpec> {
 impl TodoConfig {
     /// 外部设置界面可从 Default 获取默认值，并用原生 Org 声明文本编辑。
     pub fn to_settings(&self) -> String {
-        self.workflows
+        let mut lines = self
+            .workflows
             .iter()
             .map(|flow| {
                 format!(
@@ -143,8 +292,15 @@ impl TodoConfig {
                     flow.keywords.join(" ")
                 )
             })
-            .collect::<Vec<_>>()
-            .join("\n")
+            .collect::<Vec<_>>();
+        lines.extend(self.categories.iter().map(|entry| {
+            format!(
+                "#+TASK_STATE_CATEGORY: {:?} {}",
+                entry.category,
+                entry.states.join(" ")
+            )
+        }));
+        lines.join("\n")
     }
 
     /// 设置编辑器使用原生 Org 声明；空白输入表示清空全局 TODO 识别。
@@ -159,12 +315,23 @@ impl TodoConfig {
                 *byte = b' ';
             }
         }
+        for node in syntax
+            .document()
+            .syntax()
+            .descendants()
+            .filter_map(Keyword::cast)
+            .filter(|node| node.key().eq_ignore_ascii_case("TASK_STATE_CATEGORY"))
+        {
+            remainder[u32::from(node.start()) as usize..u32::from(node.end()) as usize].fill(b' ');
+        }
         if remainder.iter().any(|byte| !byte.is_ascii_whitespace()) {
             return Err(CoreError::InvalidInput(
-                "TODO 默认设置只允许 TODO、SEQ_TODO、TYP_TODO 声明",
+                "默认设置只允许 TODO、SEQ_TODO、TYP_TODO、TASK_STATE_CATEGORY 声明",
             ));
         }
         let config = Self {
+            categories: category_declarations(&syntax)?,
+            core_settings: CoreSettings::default(),
             workflows: specs(&items),
         };
         config.validate()?;
@@ -181,6 +348,20 @@ impl TodoConfig {
         source: TodoSource,
         declarations: Vec<TodoDeclaration>,
     ) -> Result<TodoMetadata, CoreError> {
+        self.core_settings.validate()?;
+        let mut additions = self.categories.clone();
+        additions.extend(
+            self.core_settings
+                .addition_states
+                .iter()
+                .filter_map(|state| {
+                    state.category.map(|category| TaskStateCategoryMapping {
+                        category,
+                        states: vec![state.name.clone()],
+                    })
+                }),
+        );
+        let categories = effective_categories(&additions)?;
         let mut workflows = Vec::new();
         let mut done_keywords = Vec::new();
         for spec in &self.workflows {
@@ -224,21 +405,59 @@ impl TodoConfig {
                 done_keywords.push(last.name.clone());
             }
         }
+        let org_done = done_keywords;
+        let mut done_keywords = Vec::new();
         let mut pending_keywords = Vec::new();
         for flow in &mut workflows {
             for state in &mut flow.states {
-                if done_keywords.contains(&state.name) {
-                    state.kind = TodoStateKind::Done;
-                } else if !pending_keywords.contains(&state.name) {
-                    pending_keywords.push(state.name.clone());
+                state.category = if let Some(addition) = self
+                    .core_settings
+                    .addition_states
+                    .iter()
+                    .find(|entry| entry.name == state.name)
+                {
+                    addition.category
+                } else {
+                    Some(
+                        categories
+                            .iter()
+                            .find(|entry| entry.states.contains(&state.name))
+                            .map(|entry| entry.category)
+                            .unwrap_or_else(|| {
+                                if org_done.contains(&state.name) {
+                                    TaskStateCategory::Done
+                                } else {
+                                    TaskStateCategory::Todo
+                                }
+                            }),
+                    )
+                };
+                state.kind = if state.category.is_some_and(TaskStateCategory::is_done) {
+                    TodoStateKind::Done
+                } else {
+                    TodoStateKind::Pending
+                };
+                let keywords = if state.category.is_some_and(TaskStateCategory::is_done) {
+                    &mut done_keywords
+                } else {
+                    &mut pending_keywords
+                };
+                if !keywords.contains(&state.name) {
+                    keywords.push(state.name.clone());
                 }
             }
         }
         Ok(TodoMetadata {
+            categories,
             source,
             declarations,
+            initial_state: workflows
+                .iter()
+                .flat_map(|flow| &flow.states)
+                .find(|state| state.category == Some(TaskStateCategory::Todo))
+                .map(|state| state.name.clone())
+                .or_else(|| pending_keywords.first().cloned()),
             workflows,
-            initial_state: pending_keywords.first().cloned(),
             pending_keywords,
             done_keywords,
         })
@@ -246,6 +465,34 @@ impl TodoConfig {
 }
 
 impl TodoMetadata {
+    pub(crate) fn category(&self, state: &str) -> Option<TaskStateCategory> {
+        self.workflows
+            .iter()
+            .flat_map(|flow| &flow.states)
+            .find(|entry| entry.name == state)
+            .and_then(|entry| entry.category)
+    }
+
+    pub(crate) fn is_done(&self, state: &str) -> bool {
+        self.category(state).is_some_and(TaskStateCategory::is_done)
+    }
+
+    pub(crate) fn task_states(&self) -> Vec<TaskState> {
+        let mut result = Vec::new();
+        for entry in self.workflows.iter().flat_map(|flow| &flow.states) {
+            if !result
+                .iter()
+                .any(|state: &TaskState| state.name == entry.name)
+            {
+                result.push(TaskState {
+                    name: entry.name.clone(),
+                    category: entry.category,
+                });
+            }
+        }
+        result
+    }
+
     pub(crate) fn parse_with_setup(
         source: &str,
         defaults: &TodoConfig,
@@ -255,17 +502,33 @@ impl TodoMetadata {
         let local_declarations = declarations(source, &initial);
         let setup_syntax = orgize::Org::parse(setup_settings);
         let setup_declarations = declarations(setup_settings, &setup_syntax);
-        let metadata = if local_declarations.is_empty() && !setup_declarations.is_empty() {
-            TodoConfig { workflows: specs(&setup_declarations) }
-                .metadata(TodoSource::InBuffer, Vec::new())?
+        let mut config = if local_declarations.is_empty() && !setup_declarations.is_empty() {
+            TodoConfig {
+                workflows: specs(&setup_declarations),
+                categories: Vec::new(),
+                core_settings: defaults.core_settings.clone(),
+            }
         } else if local_declarations.is_empty() {
-            defaults.metadata(TodoSource::GlobalDefault, local_declarations)?
+            defaults.clone()
         } else {
             TodoConfig {
                 workflows: specs(&local_declarations),
+                categories: Vec::new(),
+                core_settings: defaults.core_settings.clone(),
             }
-            .metadata(TodoSource::InBuffer, local_declarations)?
         };
+        config.core_settings = defaults.core_settings.clone();
+        config.categories = defaults.categories.clone();
+        config
+            .categories
+            .extend(category_declarations(&setup_syntax)?);
+        config.categories.extend(category_declarations(&initial)?);
+        let source_kind = if local_declarations.is_empty() && setup_declarations.is_empty() {
+            TodoSource::GlobalDefault
+        } else {
+            TodoSource::InBuffer
+        };
+        let metadata = config.metadata(source_kind, local_declarations)?;
         let syntax = ParseConfig {
             todo_keywords: (
                 metadata.pending_keywords.clone(),
@@ -302,6 +565,7 @@ pub(super) fn parse_state(word: &str) -> Result<TodoStateMetadata, CoreError> {
     let mut state = TodoStateMetadata {
         name: name.into(),
         kind: TodoStateKind::Pending,
+        category: Some(TaskStateCategory::Todo),
         fast_key: None,
         enter_log: None,
         leave_log: None,
@@ -418,7 +682,10 @@ mod tests {
             .filter_map(orgize::ast::Headline::cast)
             .next()
             .unwrap();
-        assert_eq!(headline.todo_keyword().map(|value| value.to_string()), Some("CNCL".into()));
+        assert_eq!(
+            headline.todo_keyword().map(|value| value.to_string()),
+            Some("CNCL".into())
+        );
         assert_eq!(headline.todo_type(), Some(orgize::ast::TodoType::Done));
     }
 
@@ -444,16 +711,45 @@ mod tests {
         );
         let mut repo = OrgRepo::new("/tmp/todo".into()).unwrap();
         repo.id = "repo".into();
-        { let value = vec![f]; crate::model::test_support::write_files(&mut repo, value); }
+        {
+            let value = vec![f];
+            crate::model::test_support::write_files(&mut repo, value);
+        }
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let done = workspace.query(&[(crate::TaskQuery { expression: "it.done".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
+        let done = workspace
+            .query(&[(crate::TaskQuery {
+                expression: "it.done".into(),
+                ..Default::default()
+            })
+            .into()])
+            .await
+            .unwrap()
+            .remove(0)
+            .into_task()
+            .unwrap()
+            .tasks;
         assert_eq!(
             done.iter()
-                .map(|task| task.state.as_deref().unwrap())
+                .map(|task| task
+                    .state
+                    .as_ref()
+                    .map(|state| state.name.as_str())
+                    .unwrap())
                 .collect::<Vec<_>>(),
             ["FINISHED", "CANCELED"]
         );
-        let pending = workspace.query(&[(crate::TaskQuery { expression: "it.todo".into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
+        let pending = workspace
+            .query(&[(crate::TaskQuery {
+                expression: "it.todo".into(),
+                ..Default::default()
+            })
+            .into()])
+            .await
+            .unwrap()
+            .remove(0)
+            .into_task()
+            .unwrap()
+            .tasks;
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].title, "Before");
     }
@@ -530,11 +826,20 @@ mod tests {
             let mut repo = OrgRepo::new("/tmp/oracle".into()).unwrap();
             repo.id = "repo".into();
             repo.todo_defaults = file.todo_defaults.clone();
-            { let value = file.clone(); crate::model::test_support::push_file(&mut repo, value); };
+            {
+                let value = file.clone();
+                crate::model::test_support::push_file(&mut repo, value);
+            };
             let actual = OrgWorkspace::new(vec![repo])
                 .unwrap()
-                .query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
-            let headlines = actual.iter().map(|task| serde_json::json!({ "title": task.title, "state": task.state,
+                .query(&[(crate::TaskQuery::default()).into()])
+                .await
+                .unwrap()
+                .remove(0)
+                .into_task()
+                .unwrap()
+                .tasks;
+            let headlines = actual.iter().map(|task| serde_json::json!({ "title": task.title, "state": task.state_name(),
                 "kind": match task.state_type { crate::FilterStateType::Todo => Some("pending"), crate::FilterStateType::Done => Some("done"), _ => None },
             })).collect::<Vec<_>>();
             assert_eq!(serde_json::json!(headlines), case["headlines"], "{source}");

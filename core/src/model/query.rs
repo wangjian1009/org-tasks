@@ -516,7 +516,7 @@ mod tests {
             (
                 "r2",
                 "work.org",
-                "#+CATEGORY: Work\n#+TODO: CNCL | FINISHED\n* CNCL Pending cancel\n",
+                "#+CATEGORY: Work\n#+TODO: OPEN | FINISHED\n* OPEN Pending cancel\n",
             ),
             (
                 "r2",
