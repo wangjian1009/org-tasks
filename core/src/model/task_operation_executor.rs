@@ -467,14 +467,19 @@ fn execute_inner(
                 },
                 newline(&item.file)
             );
+            let mut planning_fields = Vec::new();
             for (field, value) in [
                 ("SCHEDULED", &data.scheduled),
                 ("DEADLINE", &data.deadline),
             ] {
                 if let Some(value) = value {
                     validate_timestamp(value)?;
-                    content.push_str(&format!("{field}: {value}{}", newline(&item.file)));
+                    planning_fields.push(format!("{field}: {value}"));
                 }
+            }
+            if !planning_fields.is_empty() {
+                content.push_str(&planning_fields.join(" "));
+                content.push_str(newline(&item.file));
             }
             validate_body(&data.body)?;
             let now = chrono::Local::now().naive_local();
@@ -1326,7 +1331,7 @@ pub(super) fn planning(
     let lines = planning_lines(file, headline);
     let mut edits = Vec::new();
     let mut found = false;
-    for (a, b, fields) in &lines {
+    for (line_start, line_end, fields) in &lines {
         let matching = fields
             .iter()
             .filter(|(field, _, _)| *field == kind)
@@ -1335,14 +1340,14 @@ pub(super) fn planning(
             continue;
         }
         if value.is_none() && matching.len() == fields.len() {
-            edits.push((*a, *b, String::new()));
+            edits.push((*line_start, *line_end, String::new()));
             found = true;
             continue;
         }
-        for (_, a, b) in matching {
-            let leading = file.source_bytes()[*a..*b].iter()
+        for (_, field_start, field_end) in matching {
+            let leading = file.source_bytes()[*field_start..*field_end].iter()
                 .take_while(|byte| matches!(byte, b' ' | b'\t')).count();
-            let prefix = std::str::from_utf8(&file.source_bytes()[*a..*a + leading]).expect("ASCII");
+            let prefix = std::str::from_utf8(&file.source_bytes()[*field_start..*field_start + leading]).expect("ASCII");
             let content = if !found {
                 value
                     .as_ref()
@@ -1351,25 +1356,39 @@ pub(super) fn planning(
             } else {
                 String::new()
             };
-            let trailing = file.source_bytes()[*a..*b]
+            let trailing = file.source_bytes()[*field_start..*field_end]
                 .iter()
                 .rev()
                 .take_while(|byte| matches!(byte, b' ' | b'\t'))
                 .count();
-            edits.push((*a, *b - trailing, content));
+            let mut edit_start = *field_start;
+            let mut edit_end = *field_end - trailing;
+            if value.is_none() {
+                let is_first = fields
+                    .first()
+                    .is_some_and(|(_, first_start, _)| *first_start == *field_start);
+                if is_first {
+                    while edit_end < *line_end
+                        && matches!(file.source_bytes()[edit_end], b' ' | b'\t')
+                    {
+                        edit_end += 1;
+                    }
+                } else {
+                    while edit_start > *line_start
+                        && matches!(file.source_bytes()[edit_start - 1], b' ' | b'\t')
+                    {
+                        edit_start -= 1;
+                    }
+                }
+            }
+            edits.push((edit_start, edit_end, content));
             found = true;
         }
     }
     if !found {
         if let Some(value) = value {
             if let Some((a, _, _)) = lines.first() {
-                // 自动添加的 CLOSED 独占一行，恢复状态时可完整移除，避免累积空格。
-                let separator = if kind == SyntaxKind::PLANNING_CLOSED {
-                    newline(file)
-                } else {
-                    " "
-                };
-                edits.push((*a, *a, format!("{name}: {value}{separator}")));
+                edits.push((*a, *a, format!("{name}: {value} ")));
             } else {
                 let a = file.source_bytes()[start(headline)..]
                     .iter()
@@ -1386,10 +1405,75 @@ pub(super) fn planning(
         }
     }
     edits.sort_by_key(|(a, _, _)| std::cmp::Reverse(*a));
+    let changed = !edits.is_empty();
     for (a, b, content) in edits {
         replace(file, a..b, content.as_bytes())?;
     }
+    if changed {
+        compact_planning_lines(file, start(headline))?;
+    }
     Ok(())
+}
+
+/// 状态或规划字段发生写入后，将连续的规划行收拢为 Org 常用的单行形式。
+/// 仅在行内没有其他正文时合并，避免改动规划行后附带的用户内容。
+fn compact_planning_lines(file: &mut OrgFile, offset: usize) -> Result<(), CoreError> {
+    let headline = file
+        .path_headlines()
+        .into_iter()
+        .map(|(_, node)| node)
+        .find(|node| start(node) == offset)
+        .ok_or(CoreError::InvalidInput("规划字段修改破坏了标题结构"))?;
+    let lines = planning_lines(file, &headline);
+    if lines.len() < 2 {
+        return Ok(());
+    }
+    let source = file.source_bytes();
+    let mut fields = Vec::new();
+    for (a, b, line_fields) in &lines {
+        let first = line_fields
+            .first()
+            .map(|(_, field_start, _)| *field_start)
+            .unwrap_or(*a);
+        let last = line_fields
+            .last()
+            .map(|(_, _, field_end)| *field_end)
+            .unwrap_or(*b);
+        if source[*a..first].iter().any(|byte| !byte.is_ascii_whitespace())
+            || source[last..*b]
+                .iter()
+                .any(|byte| !byte.is_ascii_whitespace())
+        {
+            return Ok(());
+        }
+        for (_, field_start, field_end) in line_fields {
+            let field = std::str::from_utf8(&source[*field_start..*field_end])
+                .expect("已解析 UTF-8")
+                .trim();
+            if !field.is_empty() {
+                fields.push(field.to_owned());
+            }
+        }
+    }
+    let (first_start, _, _) = lines.first().expect("至少存在两行规划");
+    let (_, last_end, last_fields) = lines.last().expect("至少存在两行规划");
+    let first_field_start = lines
+        .first()
+        .and_then(|(_, _, line_fields)| line_fields.first().map(|(_, a, _)| *a))
+        .unwrap_or(*first_start);
+    let last_field_end = last_fields
+        .last()
+        .map(|(_, _, b)| *b)
+        .unwrap_or(*last_end);
+    let mut content = std::str::from_utf8(&source[*first_start..first_field_start])
+        .expect("已解析 UTF-8")
+        .to_owned();
+    content.push_str(&fields.join(" "));
+    content.push_str(
+        std::str::from_utf8(&source[last_field_end..*last_end])
+            .expect("已解析 UTF-8"),
+    );
+    replace(file, *first_start..*last_end, content.as_bytes())
 }
 
 struct Prepared {

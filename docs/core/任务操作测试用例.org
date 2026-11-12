@@ -389,8 +389,7 @@
 #+begin_example
 ,#+TODO: NEXT | FINISHED
 ,* NEXT [#B] New :工作:home:
-SCHEDULED: <2026-11-09 Mon>
-DEADLINE: <2026-11-10 Tue>
+SCHEDULED: <2026-11-09 Mon> DEADLINE: <2026-11-10 Tue>
 :PROPERTIES:
 :CREATED: {{TIMESTAMP}}
 :END:
@@ -1618,8 +1617,7 @@ Body
 
 #+begin_example
 ,* TODO Note
-SCHEDULED: <2026-11-09 Mon>
-DEADLINE: <2026-11-11 Wed>
+SCHEDULED: <2026-11-09 Mon> DEADLINE: <2026-11-11 Wed>
 Body
 #+end_example
 
@@ -4529,8 +4527,7 @@ SCHEDULED: <2026-11-11 Wed>
 ,#+TITLE: 日志验收
 ,#+SETUPFILE: ./.setup.org
 ,* CNCL Task
-CLOSED: {{TIMESTAMP}}
-SCHEDULED: <2026-11-11 Wed>
+CLOSED: {{TIMESTAMP}} SCHEDULED: <2026-11-11 Wed>
 :LOGBOOK:
 - State "CNCL"       from "TODO"       {{TIMESTAMP}}
 :END:
@@ -5382,8 +5379,7 @@ SCHEDULED: <2026-11-11 Wed>
 ,#+STARTUP: show3levels
 ,* Project
 ,** DONE Task :feature:
-CLOSED: {{TIMESTAMP}}
-SCHEDULED: <2026-11-11 Wed>
+CLOSED: {{TIMESTAMP}} SCHEDULED: <2026-11-11 Wed>
 :PROPERTIES:
 :CREATED: [2026-10-01 Thu 09:00]
 :END:

@@ -1,8 +1,7 @@
 #+TITLE: 日志验收
 #+SETUPFILE: ./.setup.org
 * CNCL Task
-CLOSED: {{TIMESTAMP}}
-SCHEDULED: <2026-11-11 Wed>
+CLOSED: {{TIMESTAMP}} SCHEDULED: <2026-11-11 Wed>
 :LOGBOOK:
 - State "CNCL"       from "TODO"       {{TIMESTAMP}}
 :END:

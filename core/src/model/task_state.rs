@@ -833,6 +833,42 @@ mod tests {
         }
         assert!(errors.is_empty(), "{}", errors.join("\n\n"));
     }
+
+    #[test]
+    fn completion_keeps_planning_on_one_line_and_places_logbook_after_properties() {
+        let source = "#+TODO: TODO | DONE(d!)\n#+STARTUP: logdone logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue>\nDEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-11-01 Sun 09:00]\n:END:\nBody\n";
+        let mut file = OrgFile::new(
+            "repo".into(),
+            "tasks.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        let headline = file.path_headlines()[0].1.clone();
+        modify_at(
+            &mut file,
+            &headline,
+            Some("DONE"),
+            NaiveDateTime::parse_from_str("2026-11-12 12:34", "%Y-%m-%d %H:%M").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            std::str::from_utf8(file.source_bytes()).unwrap(),
+            "#+TODO: TODO | DONE(d!)\n#+STARTUP: logdone logdrawer\n* DONE Task\nCLOSED: [2026-11-12 Thu 12:34] SCHEDULED: <2026-11-10 Tue> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-11-01 Sun 09:00]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-12 Thu 12:34]\n:END:\nBody\n"
+        );
+        let headline = file.path_headlines()[0].1.clone();
+        modify_at(
+            &mut file,
+            &headline,
+            Some("TODO"),
+            NaiveDateTime::parse_from_str("2026-11-12 12:35", "%Y-%m-%d %H:%M").unwrap(),
+        )
+        .unwrap();
+        assert!(
+            std::str::from_utf8(file.source_bytes())
+                .unwrap()
+                .contains("* TODO Task\nSCHEDULED: <2026-11-10 Tue> DEADLINE: <2026-11-20 Fri>\n")
+        );
+    }
 }
 
 #[cfg(test)]

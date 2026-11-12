@@ -938,7 +938,7 @@ async fn completion_tracks_file_states_and_preserves_created_children_and_other_
             .replacen("* OPEN Item", "* FINISHED Item", 1)
             .replacen(
                 "SCHEDULED:",
-                &format!("CLOSED: {timestamp}\r\nSCHEDULED:"),
+                &format!("CLOSED: {timestamp} SCHEDULED:"),
                 1
             )
     );

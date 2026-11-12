@@ -1087,7 +1087,7 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 *** 完成与关闭时间
 
-应用默认使用 ~org-log-done=nil~ ，没有完成日志配置时只改变状态，不生成 ~CLOSED~ 。文件 ~#+STARTUP: logdone~ 或 ~lognotedone~ ，以及有效 ~LOGGING~ 中的对应设置，才启用关闭记录；从未完成状态进入文件定义的任意完成状态时，写入当前本地非活动 ~CLOSED~ 时间戳；恢复未完成或清除状态时移除自身关闭时间，保留子标题和其他规划。已完成状态之间切换保留已有关闭时间，只有关闭记录启用时，旧完成任务缺少关闭时间才会在显式设置状态时补齐。文件 ~#+STARTUP: logdone~ 、 ~lognotedone~ 、 ~nologdone~ 及有效 ~LOGGING~ 属性可覆盖关闭记录策略。新增的关闭项独占一行，恢复时完整移除，不累积规划行空格。
+应用默认使用 ~org-log-done=nil~ ，没有完成日志配置时只改变状态，不生成 ~CLOSED~ 。文件 ~#+STARTUP: logdone~ 或 ~lognotedone~ ，以及有效 ~LOGGING~ 中的对应设置，才启用关闭记录；从未完成状态进入文件定义的任意完成状态时，写入当前本地非活动 ~CLOSED~ 时间戳；恢复未完成或清除状态时移除自身关闭时间，保留子标题和其他规划。已完成状态之间切换保留已有关闭时间，只有关闭记录启用时，旧完成任务缺少关闭时间才会在显式设置状态时补齐。文件 ~#+STARTUP: logdone~ 、 ~lognotedone~ 、 ~nologdone~ 及有效 ~LOGGING~ 属性可覆盖关闭记录策略。状态修改生成的 ~SCHEDULED~ 、 ~DEADLINE~ 与 ~CLOSED~ 共用一行，恢复时完整移除关闭项；存在 ~PROPERTIES~ drawer 时，自动创建的 ~LOGBOOK~ drawer 放在其后。
 
 *** 重复完成与重新调度
 
