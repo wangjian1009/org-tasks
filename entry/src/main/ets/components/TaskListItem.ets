@@ -142,8 +142,13 @@ export struct TaskListItem {
     })
     this.pending = refresh
   }
-  applySnapshot(current: CoreTask | undefined) {
+  applySnapshot(current: CoreTask | undefined, savedCheck: boolean = false) {
     if (!current) { this.removeDeletedTask(); return }
+    if (this.checkId && current.fileVersion !== this.value().fileVersion && !savedCheck) {
+      this.snapshotBlocked = true
+      this.message = '文件已变化，清单输入已保留，请重新载入后继续编辑'
+      return
+    }
     if (!this.headingEditing) this.heading = current.heading
     if (!this.notesEditing) this.notes = current.editContent.notes.trimEnd()
     this.editTask = current
@@ -233,7 +238,12 @@ export struct TaskListItem {
         // 提交后的快照是下一次编辑的起点，不依赖原生事件先于 Promise 送达。
         ++this.refreshRequest
         const current = await TaskInlineService.findChanged(context, this.value(), this.dataChanges.revision)
-        if (this.appeared && !this.removed) this.applySnapshot(current)
+        const savedCheck = modifications.some((modification: CoreTaskModification): boolean => {
+          if (modification.field !== 'CHECKLIST') return false
+          const change = modification.value as CoreTaskChecklistChange
+          return change.type === 'edit' && change.id === this.checkId && change.text === this.checkText
+        })
+        if (this.appeared && !this.removed) this.applySnapshot(current, savedCheck)
       } catch (error) {
         // 移动或删除的事件可能晚于保存前读取；源节点已消失时直接结束原会话。
         if (error instanceof TaskInlineMissingError) this.removeDeletedTask()

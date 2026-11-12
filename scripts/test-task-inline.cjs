@@ -63,7 +63,7 @@ function cardRefreshFixture(emit = true, backend) {
   const filename = 'entry/src/main/ets/components/TaskListItem.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const refresh = source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const apply = source.match(/  applySnapshot\(current: CoreTask \| undefined\) \{[\s\S]*?\n  \}\n/)[0];
+  const apply = source.match(/  applySnapshot\(current: CoreTask \| undefined, savedCheck: boolean = false\) \{[\s\S]*?\n  \}\n/)[0];
   const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\]\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
@@ -201,6 +201,17 @@ test('本次清单保存后的快照更新不被当作外部冲突', async () =>
   const f=cardRefreshFixture(false);f.state.checkId='10';f.state.checkText='已保存文字';
   assert.equal(await f.state.persist([{field:'CHECKLIST',value:{type:'edit',id:'10',text:'已保存文字'}}]),true);
   assert.equal(f.state.editTask,f.updated);assert.equal(f.state.snapshotBlocked,false);assert.equal(f.state.message,'');
+});
+
+test('保存其他字段后仍保留清单草稿原版本，不能将旧条目 ID 带入新快照', async () => {
+  const f=cardRefreshFixture(false);
+  f.state.checkId='20';f.state.checkText='未保存的清单文字';
+  assert.equal(await f.state.persist([{field:'TITLE',value:'新标题'}]),true);
+  assert.equal(f.state.editTask,f.original);
+  assert.equal(f.state.snapshotBlocked,true);
+  assert.equal(f.state.checkText,'未保存的清单文字');
+  assert.equal(await f.state.persist([{field:'CHECKLIST',value:{type:'edit',id:'20',text:f.state.checkText}}]),false);
+  assert.deepEqual(f.writes,[[{field:'TITLE',value:'新标题'}]]);
 });
 
 test('正在编辑的字段跨多次外部更新保持草稿，其他字段继续更新',async()=>{

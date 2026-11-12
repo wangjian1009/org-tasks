@@ -915,6 +915,58 @@ mod tests {
     }
 
     #[test]
+    fn reopening_and_completion_keep_logging_after_each_bridge_query() {
+        let root = std::env::temp_dir().join(format!("org-reopen-logs-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let history = "- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n";
+        let source = format!(
+            "#+SETUPFILE: .setup.org\n#+TODO: TODO(t!) INPROGRESS(p) WAIT(w) | DONE(d!)\n* DONE Task\nCLOSED: [2026-11-01 Sun 09:00]\n:LOGBOOK:\n{history}"
+        );
+        std::fs::write(root.join("tasks.org"), source).unwrap();
+        std::fs::write(
+            root.join(".setup.org"),
+            "#+STARTUP: logdone logdrawer logrepeat\n",
+        )
+        .unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let mut previous_version = serde_json::Value::Null;
+        for (index, (category, expected)) in [
+            ("Todo", "TODO"),
+            ("Done", "DONE"),
+            ("Todo", "TODO"),
+            ("Done", "DONE"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let result: serde_json::Value = serde_json::from_str(
+                &query_task_results_json(handle, "[{\"includeDone\":true}]".into()).unwrap(),
+            )
+            .unwrap();
+            let task = &result[0]["tasks"][0];
+            assert_ne!(task["fileVersion"], previous_version);
+            previous_version = task["fileVersion"].clone();
+            assert_eq!(task["taskStateOptions"][category]["name"], expected);
+            let request = serde_json::json!({
+                "operations": [{"type":"Modification", "data": {"path":task["fullPath"], "modifications":[{"field":"TODO", "value":task["taskStateOptions"][category]["name"]}]}}],
+                "fileVersions": [{"repoId":task["repoId"], "file":task["filePath"], "version":task["fileVersion"]}]
+            });
+            workspace_execute_task_operations(handle, request.to_string()).unwrap();
+            let saved = std::fs::read_to_string(root.join("tasks.org")).unwrap();
+            assert!(saved.contains(&format!("* {expected} Task\n")), "{saved}");
+            assert_eq!(saved.matches("- State ").count(), index + 2, "{saved}");
+            assert!(
+                saved.contains(&format!(":LOGBOOK:\n- State \"{expected}\"")),
+                "{saved}"
+            );
+            assert!(saved.ends_with(history), "{saved}");
+        }
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn workspace_query_only_accepts_batches_and_preserves_result_positions() {
         let handle = create_workspace().unwrap();
         let root = std::env::temp_dir().join(format!("org-batch-bridge-{}", std::process::id()));

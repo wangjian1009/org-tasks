@@ -325,6 +325,35 @@ async fn reopening_closed_tasks_preserves_history_dates_and_version_guards() {
 }
 
 #[tokio::test]
+async fn repeated_reopening_and_completion_append_logs_from_local_keyword_markers() {
+    let mut f = Fixture::new(
+        "#+SETUPFILE: .setup.org\r\n#+TODO: TODO(t!) INPROGRESS(p) WAIT(w) | DONE(d!)\r\n* DONE Task\r\nCLOSED: [2026-11-01 Sun 09:00]\r\n:LOGBOOK:\r\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\r\n  历史说明保留  \r\n:END:\r\n正文  \r\n* Other\r\n不受影响  \r\n",
+    ).await;
+    tokio::fs::write(
+        f.root.join(".setup.org"),
+        "#+TODO: TODO(t) NEXT(n) INPROGRESS(p) WAIT(w) | DONE(d!)\n#+TODO: | CNCL(c!)\n#+STARTUP: show2levels hidestars indent logdone logdrawer logrepeat hideblocks\n",
+    ).await.unwrap();
+    let history = "- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\r\n  历史说明保留  \r\n:END:\r\n正文  \r\n* Other\r\n不受影响  \r\n";
+    for (index, state) in ["TODO", "DONE", "TODO", "DONE"].iter().enumerate() {
+        let group = f
+            .group("Task", vec![TaskModification::Todo(Some((*state).into()))])
+            .await;
+        f.workspace.execute_task_operations(&group).await.unwrap();
+        let saved = f.source();
+        assert!(saved.contains(&format!("* {state} Task\r\n")), "{saved}");
+        assert_eq!(saved.matches("- State ").count(), index + 2, "{saved}");
+        assert_eq!(saved.matches(":LOGBOOK:").count(), 1, "{saved}");
+        assert!(
+            saved.contains(&format!(":LOGBOOK:\r\n- State \"{state}\"")),
+            "{saved}"
+        );
+        assert_eq!(saved.contains("CLOSED:"), *state == "DONE", "{saved}");
+        assert!(saved.ends_with(history), "{saved}");
+        assert!(!saved.replace("\r\n", "").contains('\n'), "{saved}");
+    }
+}
+
+#[tokio::test]
 async fn created_completed_tasks_record_closing_information_only_when_enabled() {
     for (prefix, closed, note) in [
         ("", false, false),
