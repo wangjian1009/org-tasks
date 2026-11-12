@@ -106,6 +106,7 @@ pub struct HarmonyBridgeTask {
     pub has_list: bool,
     pub has_text: bool,
     pub is_repeating: bool,
+    pub is_habit: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -294,6 +295,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         has_list: content.has_list,
         has_text: content.has_text,
         is_repeating: task.is_repeating(),
+        is_habit: task.is_habit(),
     })
 }
 
@@ -1838,7 +1840,7 @@ mod todo_tests {
             let value = org_tasks_core::OrgFile::new(
                 repo.id.clone(),
                 "tasks.org".into(),
-                b"#+CATEGORY: Work\n* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n- [ ] First\n"
+                b"#+CATEGORY: Work\n* TODO Task [1/2] :work:\nSCHEDULED: <2026-11-06 Fri +1d>\n:PROPERTIES:\n:STYLE: habit\n:END:\n- [ ] First\n"
                     .to_vec(),
             )
             .unwrap();
@@ -1865,6 +1867,7 @@ mod todo_tests {
         assert_eq!(value["hasList"], true);
         assert_eq!(value["hasText"], false);
         assert_eq!(value["isRepeating"], true);
+        assert_eq!(value["isHabit"], true);
         assert_eq!(value["category"], "Work");
         assert_eq!(value["scheduled"], "2026-11-06");
         assert_eq!(

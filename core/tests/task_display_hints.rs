@@ -32,6 +32,33 @@ async fn body_first_line_ignores_leading_blank_lines_and_metadata() {
 }
 
 #[tokio::test]
+async fn habit_hint_uses_only_own_style_property_and_is_independent_of_repeaters() {
+    for (properties, expected) in [
+        (":PROPERTIES:\n:STYLE:    habit\n:END:\n", true),
+        (":properties:\n:style: habit\n:end:\n", true),
+        (":PROPERTIES:\n:STYLE: Habit\n:END:\n", false),
+        (":PROPERTIES:\n:STYLE: routine\n:END:\n", false),
+        (":PROPERTIES:\n:STYLE:\n:END:\n", false),
+        ("正文中的 :STYLE: habit\n", false),
+        ("#+begin_example\n:PROPERTIES:\n:STYLE: habit\n:END:\n#+end_example\n", false),
+        ("", false),
+    ] {
+        let source = format!(
+            "#+PROPERTY: STYLE habit\n* TODO Parent\n:PROPERTIES:\n:STYLE: habit\n:END:\n** TODO Child\n{properties}*** TODO Grandchild\nSCHEDULED: <2026-11-06 Fri +1d>\n"
+        );
+        let records = tasks(&source).await;
+        assert!(records[0].is_habit());
+        assert_eq!(records[1].is_habit(), expected, "{properties}");
+        assert!(!records[1].is_repeating());
+        assert!(!records[2].is_habit());
+        assert!(records[2].is_repeating());
+    }
+    let habit = tasks("* TODO Habit\nSCHEDULED: <2026-11-06 Fri .+1d>\n:PROPERTIES:\n:STYLE: habit\n:END:\n").await.remove(0);
+    assert!(habit.is_habit());
+    assert!(habit.is_repeating());
+}
+
+#[tokio::test]
 async fn repetition_hint_uses_only_current_headline_planning() {
     for (planning, expected) in [
         ("SCHEDULED: <2026-11-06 Fri +1d>", true),

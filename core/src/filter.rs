@@ -150,6 +150,8 @@ pub struct FilterTask {
     pub(crate) address_links: Vec<AddressLink>,
     /// 当前任务的计划或截止时间含重复器；不展开重复日期。
     pub(crate) is_repeating: bool,
+    /// 当前标题自身的 STYLE 属性为 habit；不继承父标题或文件默认值。
+    pub(crate) is_habit: bool,
     pub(crate) scheduled: Option<FilterDate>,
     pub(crate) deadline: Option<FilterDate>,
     /// Org-mode 规划时间预警期的起始日期，仅供 Core 的 <= 日期查询使用。
@@ -273,6 +275,10 @@ impl FilterTask {
 
     pub fn is_repeating(&self) -> bool {
         self.is_repeating
+    }
+
+    pub fn is_habit(&self) -> bool {
+        self.is_habit
     }
 
     pub fn scheduled(&self) -> Option<FilterDate> {
@@ -514,6 +520,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             body,
             address_links,
             is_repeating: planning_repeats(&headline),
+            is_habit: crate::model::properties::own(&headline, "STYLE").as_deref() == Some("habit"),
             scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
             deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
             scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),

@@ -172,6 +172,7 @@ pub struct FilterTask {
     body: String,
     address_links: Vec<AddressLink>,
     is_repeating: bool,
+    is_habit: bool,
     scheduled: Option<FilterDate>,
     deadline: Option<FilterDate>,
     closed: Option<FilterDate>,
@@ -210,6 +211,7 @@ impl FilterTask {
     pub fn body(&self) -> &str;
     pub fn address_links(&self) -> &[AddressLink];
     pub fn is_repeating(&self) -> bool;
+    pub fn is_habit(&self) -> bool;
     pub fn scheduled(&self) -> Option<FilterDate>;
     pub fn deadline(&self) -> Option<FilterDate>;
     pub fn closed(&self) -> Option<FilterDate>;
@@ -224,6 +226,8 @@ impl FilterDate {
 }
 #+end_src
 
+~FilterTask.is_habit()~ 返回当前标题自身属性抽屉的 ~STYLE~ 值是否为 ~habit~ ，复用 Core 属性解析；属性名不区分大小写，属性值区分大小写。不继承父标题或文件默认属性，不读取正文、日志或子标题中的字面文本，也不要求 TODO 状态或重复器。该只读快照与 ~is_repeating()~ 独立，习惯任务可以同时为循环任务；仅在展示时由习惯图标优先占用标记位置，不写入持久化记录或修改原文。
+
 ~FilterTask.is_repeating~ 表示当前标题的计划或截止时间包含 Org-mode 重复器，由 Core 从 ~orgize~ 时间戳取得；对解析器尚未识别的写法仅在标题紧邻的规划行内兜底识别。重复器支持 ~+Nunit~ 、 ~++Nunit~ 和 ~.+Nunit~ ，其中 ~unit~ 为 ~h~ 、 ~d~ 、 ~w~ 、 ~m~ 或 ~y~ ，并支持可选的重复截止部分 ~/N~ 或 ~/Nunit~ 。正文、源码、日志和子标题中的重复器不使父任务成为循环任务。该字段只供运行时展示，不展开重复日期，不修改查询与持久化边界。
 
 Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划行中的 ~-Nunit~ 或 ~--Nunit~ 按 Org-mode 规则从实际日期向前计算；仅 ~s.le.today~ 与 ~d.le.today~ 使用该起始日匹配今天入口，任务投影中的 ~scheduled~ 与 ~deadline~ 仍保留实际日期供 UI 展示和其他关系查询。
@@ -236,7 +240,7 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{OrgFile}{}{category(): Option\textless String\textgreater}
 \umlclass[x=7,y=0]{FilterTask}{category: Option\textless String\textgreater \\
-  is\_repeating: bool \\ address\_links: Vec\textless AddressLink\textgreater}{}
+  is\_repeating: bool \\ is\_habit: bool \\ address\_links: Vec\textless AddressLink\textgreater}{}
 \umlclass[x=7,y=-3]{AddressLink}{uri: String \\ label: String}{}
 \umldep{FilterTask}{OrgFile}
 \umldep{FilterTask}{AddressLink}

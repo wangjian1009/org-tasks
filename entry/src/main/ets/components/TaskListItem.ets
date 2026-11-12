@@ -515,7 +515,7 @@ export struct TaskListItem {
 
   leadingWidth(): number {
     return (this.showDate && taskDisplayDate(this.value()).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
-      + (this.value().isRepeating ? 28 : 0)
+      + (this.value().isHabit || this.value().isRepeating ? 28 : 0)
   }
 
   deadlineColor(): string { return taskDeadlineColor(this.value(), new Date(this.referenceTime)) }
@@ -672,7 +672,11 @@ export struct TaskListItem {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
     }
-    if (this.value().isRepeating) { Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0) }
+    if (this.value().isHabit) {
+      Image($r('app.media.ui_task_habit')).width(20).height(20).flexShrink(0).accessibilityText('习惯任务')
+    } else if (this.value().isRepeating) {
+      Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0).accessibilityText('循环任务')
+    }
   }
   @Builder
   checkGripLines() {
@@ -882,7 +886,7 @@ export struct TaskListItem {
   @Builder
   repeatRule(deadline: boolean) {
     Row({ space: 7 }) {
-      Image($r('app.media.ui_task_repeat')).width(18).height(18)
+      if (!this.value().isHabit) { Image($r('app.media.ui_task_repeat')).width(18).height(18) }
       Text(`${deadline ? '截止' : '计划'} · ${repeatSummary(deadline ? this.value().editContent.deadlineRepeat?.rule : this.value().editContent.scheduledRepeat?.rule)}`)
         .fontSize(13).fontColor(UiColor.primary).layoutWeight(1)
       Image($r('app.media.ui_next')).width(18).height(18).accessibilityLevel('no')

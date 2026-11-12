@@ -112,6 +112,7 @@ export class Task {
   readonly hasList: boolean;
   readonly hasText: boolean;
   readonly isRepeating: boolean;
+  readonly isHabit: boolean;
 }
 
 export interface SyncRecord {
