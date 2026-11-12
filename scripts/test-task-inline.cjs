@@ -63,11 +63,12 @@ function cardRefreshFixture(emit = true, backend) {
   const filename = 'entry/src/main/ets/components/TaskListItem.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const refresh = source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const apply = source.match(/  applySnapshot\(current: CoreTask \| undefined\) \{[\s\S]*?\n  \}\n/)[0];
   const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\]\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
   const disappear = source.match(/  aboutToDisappear\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const code = ts.transpileModule('export class CardRefresh {' + refresh + persist + save + remove + disappear + '\n}', {
+  const code = ts.transpileModule('export class CardRefresh {' + refresh + apply + persist + save + remove + disappear + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -101,14 +102,75 @@ test('数据事件在写入之后重查卡片，标题草稿同步新进度，�
   assert.equal(f.state.heading, '任务 [1/2]');
   assert.equal(f.state.editTask.fileVersion, 'new');
 });
-test('提交完成本身不触发重查，延后到达的数据事件仍刷新进度', async () => {
+test('提交成功立即读取新快照，事件延迟时也能继续编辑', async () => {
   const f = cardRefreshFixture(false);
   assert.equal(await f.state.persist([{ field: 'TAGS', value: [] }]), true);
-  assert.equal(f.reads(), 0);
-  assert.equal(f.state.editTask, f.original);
+  assert.equal(f.reads(), 1);
+  assert.equal(f.state.editTask, f.updated);
   f.emit();
   await f.state.pending;
   assert.equal(f.state.heading, '任务 [1/2]');
+});
+
+test('连续两次清单修改在事件到达前使用上次提交后的版本和条目 ID', async () => {
+  const backend=fixture();
+  backend.task.editContent.checklist=[{id:'10',text:'条目',checked:false}];
+  let current=backend.task;
+  backend.query(batch=>taskBatch(batch,[current]));
+  backend.workspace.executeTaskOperations=async group=>{
+    assert.equal(group.fileVersions[0].version,current.fileVersion,'不得复用上次保存前的版本');
+    backend.requests.push(group);
+    current={...current,fileVersion:`version-${backend.requests.length}`,
+      editContent:{...current.editContent,checklist:[{id:`${10+backend.requests.length}`,text:'条目',checked:true}]}};
+  };
+  const card=cardRefreshFixture(false,backend);
+  for(let index=0;index<2;index++) {
+    const id=card.state.value().editContent.checklist[0].id;
+    assert.equal(await card.state.persist([{field:'CHECKLIST',value:{type:'setChecked',id,checked:true}}]),true);
+  }
+  assert.deepEqual(backend.requests.map(group=>group.fileVersions[0].version),['old','version-1']);
+  assert.deepEqual(backend.requests.map(group=>group.operations[0].data.modifications[0].value.id),['10','11']);
+  assert.equal(card.state.editTask.fileVersion,'version-2');
+  assert.equal(card.state.message,'');
+});
+
+test('本次提交清除同一事件中已缓存的旧任务快照', async () => {
+  const backend=fixture();
+  await backend.TaskInlineService.findChanged({},backend.task,0);
+  backend.workspace.executeTaskOperations=async group=>{
+    backend.requests.push(group);backend.setCurrent({...backend.task,fileVersion:'after-save'});
+  };
+  const card=cardRefreshFixture(false,backend);
+  assert.equal(await card.state.persist([{field:'TAGS',value:[]}]),true);
+  assert.equal(card.state.editTask.fileVersion,'after-save');
+});
+
+test('已排队的下一次修改也等待上次提交后的快照更新', async () => {
+  const backend=fixture();let current=backend.task;
+  backend.query(batch=>taskBatch(batch,[current]));
+  backend.workspace.executeTaskOperations=async group=>{
+    assert.equal(group.fileVersions[0].version,current.fileVersion);
+    backend.requests.push(group);current={...current,fileVersion:`version-${backend.requests.length}`};
+  };
+  const card=cardRefreshFixture(false,backend);
+  assert.deepEqual(await Promise.all([
+    card.state.persist([{field:'TAGS',value:['标签']}]),
+    card.state.persist([{field:'CHECKLIST',value:{type:'add',text:'条目'}}])
+  ]),[true,true]);
+  assert.deepEqual(backend.requests.map(group=>group.fileVersions[0].version),['old','version-1']);
+});
+
+test('修改已提交但重读失败时阻止旧版本继续写入，事件读成功后恢复', async () => {
+  const card=cardRefreshFixture(false);card.fail(new Error('读取失败'));
+  const results=await Promise.all([
+    card.state.persist([{field:'TAGS',value:['标签']}]),
+    card.state.persist([{field:'CHECKLIST',value:{type:'add',text:'条目'}}])
+  ]);
+  assert.deepEqual(results,[true,false]);assert.equal(card.writes.length,1);
+  assert.equal(card.state.snapshotBlocked,true);assert.match(card.state.message,/修改已保存/);
+  card.fail(undefined);card.emit();await card.state.pending;
+  assert.equal(card.state.snapshotBlocked,false);assert.equal(card.state.editTask,card.updated);assert.equal(card.state.message,'');
+  assert.equal(await card.state.persist([{field:'CHECKLIST',value:{type:'add',text:'条目'}}]),true);
 });
 test('事件刷新保留正在输入的标题和备注', async () => {
   const f = cardRefreshFixture();
@@ -259,6 +321,12 @@ test('结束编辑必须检查保存结果，任一保存失败均保留展开�
     assert.equal(await f.finish(), false); assert.equal(f.state.expanded, true); assert.deepEqual(f.released, []);
     if (!textSaved) assert.equal(f.checkCalls(), 0);
   }
+});
+
+test('保存后快照仍不可用时，结束编辑不能放行后续操作', async () => {
+  const f=finishFixture();f.state.snapshotBlocked=true;f.state.message='修改已保存，读取最新内容失败';
+  assert.equal(await f.finish(),false);assert.equal(f.state.expanded,true);
+  assert.match(f.state.message,/读取最新内容失败/);assert.deepEqual(f.released,[]);
 });
 
 test('校验错误修正为原内容后，成功保存可以清除旧错误并结束会话', async () => {

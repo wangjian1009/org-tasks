@@ -27,6 +27,8 @@ export class TaskInlineService {
       queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
       fileVersions: [{ repoId: current.repoId, file: current.filePath, version: current.fileVersion }]
     })
+    // 同一数据事件的共享查询可能早于本次提交，不能再用于后续编辑。
+    TaskInlineService.changeSnapshot = undefined
   }
 
   static async reload(context: Context, task: CoreTask): Promise<CoreTask> {

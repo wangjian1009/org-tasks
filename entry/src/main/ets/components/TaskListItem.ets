@@ -132,15 +132,20 @@ export struct TaskListItem {
       try {
         const current = await TaskInlineService.findChanged(this.getUIContext().getHostContext()!, previous, revision)
         if (!this.appeared || this.removed || request !== this.refreshRequest) return
-        if (!current) { this.removeDeletedTask(); return }
-        if (!this.headingEditing) this.heading = current.heading
-        if (!this.notesEditing) this.notes = current.editContent.notes.trimEnd()
-        this.editTask = current
+        this.applySnapshot(current)
       } catch (error) {
         if (this.appeared && request === this.refreshRequest) this.message = coreErrorMessage(error as CoreBridgeError)
       }
     })
     this.pending = refresh
+  }
+  applySnapshot(current: CoreTask | undefined) {
+    if (!current) { this.removeDeletedTask(); return }
+    if (!this.headingEditing) this.heading = current.heading
+    if (!this.notesEditing) this.notes = current.editContent.notes.trimEnd()
+    this.editTask = current
+    if (this.snapshotBlocked) this.message = ''
+    this.snapshotBlocked = false
   }
   removeDeletedTask() {
     this.removed = true; this.snapshotBlocked = true
@@ -196,6 +201,7 @@ export struct TaskListItem {
     if (!await this.saveText() || !await this.saveCheck(false)) return false
     await this.pending
     this.checkFocus.cancel()
+    if (this.snapshotBlocked) return false
     if (!this.newCheck.trim() && !this.checkId) this.addingCheck = false
     if (!this.snapshotBlocked) this.message = ''
     if (collapse) {
@@ -211,7 +217,7 @@ export struct TaskListItem {
     if (this.snapshotBlocked) return false
     let success: boolean = false
     const operation = this.pending.then(async () => {
-      if (this.removed) return
+      if (this.removed || this.snapshotBlocked) return
       this.working = true; this.message = ''
       try {
         const context = this.getUIContext().getHostContext()!
@@ -221,10 +227,18 @@ export struct TaskListItem {
           if (modification.field === 'NOTES' && this.notes === modification.value) this.notesEditing = false
         }
         success = true
+        // 提交后的快照是下一次编辑的起点，不依赖原生事件先于 Promise 送达。
+        ++this.refreshRequest
+        const current = await TaskInlineService.findChanged(context, this.value(), this.dataChanges.revision)
+        if (this.appeared && !this.removed) this.applySnapshot(current)
       } catch (error) {
         // 移动或删除的事件可能晚于保存前读取；源节点已消失时直接结束原会话。
         if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
-        else this.message = coreErrorMessage(error as CoreBridgeError)
+        else {
+          if (success) this.snapshotBlocked = true
+          this.message = success ? `修改已保存，读取最新内容失败：${coreErrorMessage(error as CoreBridgeError)}` :
+            coreErrorMessage(error as CoreBridgeError)
+        }
       }
       finally { this.working = false }
     })

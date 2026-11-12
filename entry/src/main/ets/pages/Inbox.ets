@@ -1,4 +1,4 @@
-import { TaskInlineSession } from '../services/TaskInlineService'
+import { TaskInlineSession, TaskInlineService } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
@@ -175,6 +175,22 @@ struct Inbox {
     this.loadTargets()
   }
 
+  async prepareAction(record: CoreTask, action: InboxAction) {
+    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
+    this.actionBusy = true
+    try {
+      if (!await TaskInlineSession.end(false) || !this.visible) return
+      const current = await TaskInlineService.find(this.getUIContext().getHostContext()!, record)
+      if (!current || !this.visible) return
+      this.actionBusy = false
+      if (action === 'move') this.selectRecord(current)
+      else if (action === 'delete') this.confirmDelete(current)
+      else await this.perform(action, undefined, current)
+    } catch (e) {
+      this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
+    } finally { this.actionBusy = false }
+  }
+
   closeTargetPopup() {
     if (this.actionBusy) return
     ++this.targetRequest
@@ -193,9 +209,7 @@ struct Inbox {
     // 正文触发的程序化侧滑不会触发 ListScroller 的完成回调，待归位后再锚定浮层。
     this.actionTimer = setTimeout((): void => {
       if (!this.visible) return
-      if (action === 'move') this.selectRecord(record)
-      else if (action === 'delete') this.confirmDelete(record)
-      else this.perform(action, undefined, record)
+      this.prepareAction(record, action)
     }, 260)
   }
 

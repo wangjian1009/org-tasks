@@ -47,8 +47,75 @@ function fixture() {
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.memoRepoId, path: config.memoFile }) },
     './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return workspace; } } }
   });
-  return { InboxService, requests, task, setIgnored() { ignored = true; } };
+  return { InboxService, requests, task, workspace, setIgnored() { ignored = true; } };
 }
+
+function actionFixture() {
+  const backend=fixture(), actions=[], messages=[];
+  let current={...backend.task,fileVersion:'saved-version'}, finish=async()=>true, findError, reads=0;
+  const filename='entry/src/main/ets/pages/Inbox.ets';
+  const source=fs.readFileSync(filename,'utf8');
+  const method=source.match(/  async prepareAction\(record: CoreTask, action: InboxAction\) \{[\s\S]*?\n  \}\n/)[0];
+  const code=ts.transpileModule('export class InboxActions {'+method+'\n}',{
+    compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}
+  }).outputText;
+  const module={exports:{}};
+  const session={end:async collapse=>{assert.equal(collapse,false);return await finish();}};
+  const service={find:async()=>{reads++;if(findError)throw findError;return current;}};
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskInlineService,coreErrorMessage){'+code+'\n})', {filename})(
+    module,module.exports,session,service,error=>error.message);
+  const state=Object.assign(new module.exports.InboxActions(),{
+    visible:true,actionBusy:false,drawerOpen:false,captureOpen:false,selectingRecords:false,selectionStarting:false,
+    getUIContext:()=>({getHostContext:()=>({}),getPromptAction:()=>({showToast:({message})=>messages.push(message)})}),
+    selectRecord:record=>actions.push({action:'move',record}),
+    confirmDelete:record=>actions.push({action:'delete',record}),
+    perform:async(action,target,record)=>actions.push({action,record})
+  });
+  return {backend,state,actions,messages,reads:()=>reads,setCurrent:value=>current=value,
+    saveWith:callback=>finish=callback,failFind:error=>findError=error};
+}
+
+test('原位保存后从侧滑菜单移动或删除，提交新源版本并保留目标版本校验',async()=>{
+  for(const action of ['move','delete']) {
+    const f=actionFixture(),targetSnapshot=target('core-id','Work');
+    f.backend.workspace.executeTaskOperations=async group=>{
+      assert.equal(group.fileVersions[0].version,'saved-version','侧滑操作不能使用页面最初加载的版本');
+      f.backend.requests.push(group);
+    };
+    await f.state.prepareAction(f.backend.task,action);
+    assert.equal(f.actions.length,1);
+    await f.backend.InboxService.perform({},f.actions[0].record,action,action==='move'?targetSnapshot:undefined);
+    if(action==='move')assert.equal(f.backend.requests[0].fileVersions[1].version,'target-version');
+    assert.equal(f.state.actionBusy,false);
+  }
+});
+
+test('侧滑动作先等待草稿保存，再读取源任务，保存失败不打开菜单或提交',async()=>{
+  for(const action of ['move','delete','memo','someday']) {
+    const f=actionFixture();let finish;
+    f.saveWith(()=>new Promise(resolve=>finish=resolve));
+    const pending=f.state.prepareAction(f.backend.task,action);
+    assert.equal(f.state.actionBusy,true);assert.equal(f.reads(),0);assert.equal(f.actions.length,0);
+    f.setCurrent({...f.backend.task,fileVersion:'after-draft'});finish(true);await pending;
+    assert.equal(f.actions[0].record.fileVersion,'after-draft');
+    const failed=actionFixture();failed.saveWith(async()=>false);
+    await failed.state.prepareAction(failed.backend.task,action);
+    assert.equal(failed.reads(),0);assert.deepEqual(failed.actions,[]);assert.equal(failed.state.actionBusy,false);
+  }
+});
+
+test('源任务已移走或读取失败时不提交旧记录，准备动作不会重复执行',async()=>{
+  const missing=actionFixture();missing.setCurrent(undefined);
+  await missing.state.prepareAction(missing.backend.task,'move');assert.deepEqual(missing.actions,[]);
+  const failed=actionFixture();failed.failFind(new Error('读取失败'));
+  await failed.state.prepareAction(failed.backend.task,'delete');
+  assert.deepEqual(failed.actions,[]);assert.deepEqual(failed.messages,['读取失败']);assert.equal(failed.state.actionBusy,false);
+  const busy=actionFixture();let finish;busy.saveWith(()=>new Promise(resolve=>finish=resolve));
+  const pending=busy.state.prepareAction(busy.backend.task,'move');
+  await busy.state.prepareAction(busy.backend.task,'move');finish(true);await pending;
+  assert.equal(busy.actions.length,1);
+});
+
 test('直接移动使用原目标位置和双端版本，上传身份来自 Core 仓库', async () => {
   const f = fixture(); const t = target('core-id', 'Work');
   await f.InboxService.perform({}, f.task, 'move', t);
