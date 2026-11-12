@@ -1,8 +1,10 @@
 export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someday' | 'logbook' | 'recent'
 export type TaskSwipeAction = 'move' | 'someday' | 'memo' | 'delete' | 'select'
 export type TaskBatchAction = 'merge'
+export type TaskRightSwipeAction = 'schedule' | 'doing' | 'move' | 'none'
 
 export interface TaskPageActionPolicy {
+  rightSwipeAction: TaskRightSwipeAction
   swipeActions: TaskSwipeAction[]
   batchEditing: boolean
   batchActions: TaskBatchAction[]
@@ -22,13 +24,13 @@ export interface TaskActionItem {
 // 各页面独立声明开放范围；返回新数组，页面调整不能污染其他页面。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'inbox': return { swipeActions: ['move', 'someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] }
-    case 'today': return { swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'planned': return { swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'anytime': return { swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'someday': return { swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'logbook': return { swipeActions: [], batchEditing: false, batchActions: [] }
-    case 'recent': return { swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'inbox': return { rightSwipeAction: 'move', swipeActions: ['someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] }
+    case 'today': return { rightSwipeAction: 'doing', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'planned': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'anytime': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'someday': return { rightSwipeAction: 'move', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'logbook': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
+    case 'recent': return { rightSwipeAction: 'schedule', swipeActions: [], batchEditing: false, batchActions: [] }
   }
 }
 

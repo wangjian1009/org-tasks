@@ -61,6 +61,7 @@ struct Inbox {
   private targetRequest: number = 0
   private actionTimer: number = -1
   private actionPolicy: TaskPageActionPolicy = taskPageActionPolicy('inbox')
+  private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()
   private requestId: number = 0
@@ -206,7 +207,8 @@ struct Inbox {
   }
 
   swipeAction(record: CoreTask, action: InboxAction) {
-    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords) return
+    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting ||
+      this.mergeBusy || this.checklistDragging || this.inlineTyping || this.selected) return
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
     if (node) ListItemSwipeActionManager.collapse(node)
     this.listScroller.closeAllSwipeActions()
@@ -223,20 +225,14 @@ struct Inbox {
     const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
     if (!node) return
     if (left) ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
-    else ListItemSwipeActionManager.collapse(node)
+    else this.swipeAction(record, 'move')
   }
 
   @Builder
-  scheduleHint() {
-    Row() { Image($r('app.media.ui_task_calendar')).width(24).height(24) }
+  moveHint() {
+    Row() { Image($r('app.media.ui_move_to')).width(24).height(24) }
       .width(56).height('100%').justifyContent(FlexAlign.Center).backgroundColor('#344A47')
-  }
-
-  requestSchedule(record: CoreTask) {
-    if (this.selectingRecords || this.mergeBusy) return
-    const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
-    if (node) ListItemSwipeActionManager.collapse(node)
-    AppStorage.setOrCreate('taskInlineDateRequest', `${record.id}\n${Date.now()}`)
+      .accessibilityText('右滑移动')
   }
 
   @Builder
@@ -386,7 +382,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskListItem({ task, showDate: true, showCategory: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
+    TaskListItem({ task, showDate: true, showCategory: true, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
     } }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
@@ -490,7 +486,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading, horizontalInset: 12,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskListItem({ task: record, enableSwipeActions: this.actionPolicy.swipeActions.length > 0, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskListItem({ task: record, enableSwipeActions: this.actionPolicy.swipeActions.length > 0, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
                           this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
                         } })
@@ -514,7 +510,7 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords ? {} : { start: { builder: this.scheduleHint, actionAreaDistance: 48, onAction: () => { this.requestSchedule(record) } },
+                }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : { start: { builder: this.moveHint, actionAreaDistance: 48, onAction: () => { this.swipeAction(record, 'move') } },
                   end: this.actionPolicy.swipeActions.length > 0 ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))

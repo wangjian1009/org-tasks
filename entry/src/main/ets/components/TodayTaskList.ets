@@ -5,6 +5,7 @@ import { TodaySection, TodayTaskItem, TodayTaskGroup } from '../ui/TodayPresenta
 import { ListSectionHeader } from './Controls'
 import { TaskListItem } from './TaskListItem'
 import { UiColor } from '../ui/Theme'
+import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
 export struct TodayTaskList {
@@ -13,6 +14,7 @@ export struct TodayTaskList {
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop sections: TodaySection[] = []
   @Prop referenceTime: number = Date.now()
+  @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
 
   @Builder
   sectionHeader(section: TodaySection) {
@@ -21,7 +23,7 @@ export struct TodayTaskList {
 
   @Builder
   taskItem(item: TodayTaskItem) {
-    TaskListItem({ task: item.task, referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'today_task_list', open: (): void => {
+    TaskListItem({ task: item.task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'today_task_list', open: (): void => {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
     } })
   }

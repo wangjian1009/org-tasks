@@ -24,9 +24,10 @@ const { taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth }
 function checkDeferredSwipeMenu(expression, filename) {
   const { options } = compile('export function options(record) { return ' + expression + '; }', filename,
     {});
-  const renders = [], record = { id: 'source-record' };
+  const renders = [], moves = [], record = { id: 'source-record' };
   const page = { selectingRecords: false, actionPolicy: taskPageActionPolicy('inbox'),
-    scheduleHint() {}, requestSchedule() {}, swipeMenu(value) { renders.push([this, value]); } };
+    moveHint() {}, swipeAction(value, action) { moves.push([this, value, action]); },
+    swipeMenu(value) { renders.push([this, value]); } };
   // 只注入框架常量，执行产品表达式本身：普通布局阶段不得产生菜单节点。
   global.SwipeEdgeEffect = { None: 0 };
   try {
@@ -35,11 +36,16 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.equal(typeof value.end.builder, 'function');
     value.end.builder();
     assert.deepEqual(renders, [[page, record]]);
+    value.start.onAction();
+    assert.deepEqual(moves, [[page, record, 'move']]);
     renders.length = 0;
     page.actionPolicy.swipeActions = [];
     assert.equal(options.call(page, record).end, undefined);
-    page.selectingRecords = true;
-    assert.deepEqual(options.call(page, record), {});
+    for (const flag of ['selectingRecords', 'actionBusy', 'selectionStarting', 'mergeBusy', 'checklistDragging', 'selected', 'inlineTyping']) {
+      page[flag] = true;
+      assert.deepEqual(options.call(page, record), {}, flag);
+      page[flag] = false;
+    }
     assert.deepEqual(renders, []);
   } finally { delete global.SwipeEdgeEffect; }
 }
@@ -67,15 +73,112 @@ test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测
   assert.ok(checked > 0, '缺少收件箱 swipeAction 编译产物');
 });
 
-test('页面策略分别定义左滑、批量入口和批量菜单，不共享可变数组', () => {
+test('页面策略分别定义右滑、左滑、批量入口和批量菜单，不共享可变数组', () => {
   const inbox = taskPageActionPolicy('inbox');
-  assert.deepEqual(inbox, { swipeActions: ['move', 'someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] });
-  for (const page of ['today', 'planned', 'anytime', 'someday', 'logbook', 'recent']) {
-    assert.deepEqual(taskPageActionPolicy(page), { swipeActions: [], batchEditing: false, batchActions: [] });
+  assert.deepEqual(inbox, { rightSwipeAction: 'move', swipeActions: ['someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] });
+  for (const [page, rightSwipeAction] of Object.entries({ today: 'doing', planned: 'schedule', anytime: 'schedule', someday: 'move', logbook: 'schedule', recent: 'schedule' })) {
+    assert.deepEqual(taskPageActionPolicy(page), { rightSwipeAction, swipeActions: [], batchEditing: false, batchActions: [] });
   }
   inbox.swipeActions.reverse(); inbox.batchActions.length = 0;
-  assert.equal(taskPageActionPolicy('inbox').swipeActions[0], 'move');
+  assert.equal(taskPageActionPolicy('inbox').swipeActions[0], 'someday');
   assert.deepEqual(taskPageActionPolicy('inbox').batchActions, ['merge']);
+});
+
+const cardFile = 'entry/src/main/ets/components/TaskListItem.ets';
+const cardSource = fs.readFileSync(cardFile, 'utf8');
+function cardMethod(name, async = false) {
+  return cardSource.match(new RegExp('  ' + (async ? 'async ' : '') + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
+}
+
+function swipeCard(page) {
+  const { Card } = compile('export class Card {' + cardMethod('horizontalSwipe') + cardMethod('rightSwipe') + '}', cardFile);
+  const calls = [], policy = taskPageActionPolicy(page);
+  const state = Object.assign(new Card(), {
+    rightSwipeAction: policy.rightSwipeAction, enableSwipeActions: policy.swipeActions.length > 0,
+    dates: deadline => calls.push(deadline ? 'deadline' : 'schedule'),
+    toggleDoing: () => calls.push('doing'), openMove: () => calls.push('move'), swipe: left => calls.push(left ? 'menu' : 'right')
+  });
+  return { state, calls };
+}
+
+test('六个区域右滑分别执行移动、日期或进行中，左滑不执行右滑动作', () => {
+  for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'doing', inbox: 'move', recent: 'schedule' })) {
+    const f = swipeCard(page);
+    f.state.horizontalSwipe(60); assert.deepEqual(f.calls, [action], page);
+    f.calls.length = 0;
+    f.state.horizontalSwipe(-60); assert.deepEqual(f.calls, page === 'inbox' ? ['menu'] : [], page);
+    f.calls.length = 0;
+    for (const offset of [-48, 0, 48]) f.state.horizontalSwipe(offset);
+    assert.deepEqual(f.calls, [], page);
+  }
+  const inboxMenu = taskSwipeMenu(taskPageActionPolicy('inbox'), () => {});
+  assert.deepEqual(inboxMenu.map(item => item.id), ['someday', 'memo', 'delete', 'select']);
+  assert.equal(taskSwipeMenuWidth(inboxMenu), 208);
+});
+
+test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
+  for (const flag of ['typing', 'checklistTouch', 'draggingCheck', 'completing', 'working', 'moveBusy', 'moveOpen', 'snapshotBlocked', 'removed']) {
+    const f = swipeCard('today'); f.state[flag] = true;
+    f.state.horizontalSwipe(60); assert.deepEqual(f.calls, [], flag);
+  }
+});
+
+function moveCard() {
+  const saved = { id: 'task', fileVersion: 'saved', fullPath: { titles: ['改后的标题'] } };
+  const target = { fileVersion: 'target-version', fullPath: { titles: ['目标'] }, category: '工作' };
+  const calls = [], released = [];
+  let save = async () => true, write = async () => {}, read = async () => saved, targets = async () => ({ targets: [target] });
+  // 方法按产品依赖运行，保留源与目标快照以检验保存、取消和版本冲突。
+  const code = 'export class MoveCard {' + ['openMove', 'loadMoveTargets', 'moveTo'].map(name => cardMethod(name, true)).join('') + cardMethod('closeMove') + '}';
+  const output = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const module = { exports: {} };
+  class Missing extends Error {}
+  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,InboxService,refileSections,TaskInlineMissingError,coreErrorMessage){' + output + '\n})', { filename: cardFile })(
+    module, module.exports, { reload: () => read() }, { release: key => released.push(key) },
+    { targets: () => targets(), perform: async (_context, source, action, selected) => { calls.push({ source, action, target: selected }); await write(); } },
+    values => [{ category: '工作', targets: values }], Missing, error => error.message);
+  const state = Object.assign(new module.exports.MoveCard(), {
+    rightSwipeAction: 'move', appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
+    value: () => ({ fileVersion: 'old' }), prepare: async () => true, finish: () => save(),
+    applySnapshot: task => { state.current = task; }, getUIContext: () => ({ getHostContext: () => ({}) }),
+    removeDeletedTask: () => { state.removed = true; }
+  });
+  return { state, saved, target, calls, released, saveWith: fn => save = fn, writeWith: fn => write = fn, readWith: fn => read = fn, targetsWith: fn => targets = fn };
+}
+
+test('某天右滑先保存并读取最新源快照，确认移动携带原目标版本且防止重复提交', async () => {
+  const f = moveCard(); let finishWrite;
+  await f.state.openMove();
+  assert.equal(f.state.moveOpen, true); assert.equal(f.state.moveSource, f.saved);
+  f.writeWith(() => new Promise(resolve => { finishWrite = resolve; }));
+  const pending = f.state.moveTo(f.target);
+  await f.state.moveTo(f.target);
+  assert.deepEqual(f.calls, [{ source: f.saved, action: 'move', target: f.target }]);
+  finishWrite(); await pending;
+  assert.equal(f.state.moveOpen, false); assert.equal(f.state.removed, true); assert.equal(f.state.moveBusy, false);
+});
+
+test('移动草稿保存失败不打开浮层，版本冲突保留源与目标会话供显式刷新', async () => {
+  const failed = moveCard(); failed.saveWith(async () => false);
+  await failed.state.openMove(); assert.equal(failed.state.moveOpen, false); assert.deepEqual(failed.calls, []);
+  const f = moveCard(); await f.state.openMove();
+  f.writeWith(async () => { throw new Error('文件版本冲突'); });
+  await f.state.moveTo(f.target);
+  assert.equal(f.state.moveOpen, true); assert.equal(f.state.moveMessage, '文件版本冲突');
+  assert.equal(f.state.moveSource, f.saved); assert.equal(f.state.removed, undefined); assert.equal(f.calls.length, 1);
+});
+
+test('移动浮层取消后丢弃在途目标结果，卡片离开后不打开浮层', async () => {
+  const f = moveCard(); let finishTargets;
+  f.targetsWith(() => new Promise(resolve => { finishTargets = resolve; }));
+  const pending = f.state.openMove();
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(f.state.moveOpen, true); f.state.closeMove();
+  assert.equal(f.state.completing, false);
+  finishTargets({ targets: [f.target] }); await pending;
+  assert.equal(f.state.moveOpen, false); assert.deepEqual(f.state.moveSections, []); assert.deepEqual(f.calls, []);
+  const left = moveCard(); left.readWith(async () => { left.state.appeared = false; return left.saved; });
+  await left.state.openMove(); assert.equal(left.state.moveOpen, false);
 });
 
 test('页面可以裁剪与重排左滑按钮，动态宽度与动作回调对应实际菜单', () => {
@@ -95,7 +198,7 @@ test('页面可以裁剪与重排左滑按钮，动态宽度与动作回调对�
 
 test('关闭批量入口时隐藏左滑多选和批量菜单，其余按钮按原序保留', () => {
   const policy = taskPageActionPolicy('inbox'); policy.batchEditing = false;
-  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete']);
+  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['someday', 'memo', 'delete']);
   assert.deepEqual(taskBatchMenu(policy, () => {}), []);
   policy.swipeActions = []; policy.batchEditing = true; policy.batchActions = [];
   assert.deepEqual(taskSwipeMenu(policy, () => {}), []);

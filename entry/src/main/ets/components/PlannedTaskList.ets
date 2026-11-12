@@ -4,6 +4,7 @@ import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedTaskItem } from '../ui/PlannedPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskListItem } from './TaskListItem'
+import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
 export struct PlannedTaskList {
@@ -12,6 +13,7 @@ export struct PlannedTaskList {
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop groups: PlannedGroup[] = []
   @Prop referenceTime: number = Date.now()
+  @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
 
   @Builder
   dayHeader(group: PlannedGroup) {
@@ -40,6 +42,7 @@ export struct PlannedTaskList {
       }
       ForEach(group.items, (item: PlannedTaskItem) => {
         TaskListItem({ task: item.task, showDate: group.kind !== 'day', showCategory: true,
+          rightSwipeAction: this.rightSwipeAction,
           scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
           referenceTime: this.referenceTime, open: (): void => {
             this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })

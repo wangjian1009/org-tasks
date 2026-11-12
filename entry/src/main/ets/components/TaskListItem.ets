@@ -1,11 +1,15 @@
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
-import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../services/TaskInlineService'
 import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
+import { InboxTargetPopup } from './InboxTargetPopup'
+import { InboxService } from '../services/InboxService'
+import { RefileSection, refileSections, targetPopupHeight } from '../ui/InboxPresentation'
+import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 import { CompactMenuButton } from './CompactMenuButton'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
@@ -35,6 +39,7 @@ export struct TaskListItem {
   @Prop showDate: boolean = false
   @Prop showCategory: boolean = false
   @Prop enableSwipeActions: boolean = false
+  @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
   open: () => void = () => {}
   swipe: (left: boolean) => void = () => {}
   scrollHost: Scroller | undefined = undefined
@@ -49,6 +54,13 @@ export struct TaskListItem {
   @State typing: boolean = false
   @State working: boolean = false
   @State completing: boolean = false
+  @State moveOpen: boolean = false
+  @State moveSource: CoreTask | undefined = undefined
+  @State moveSections: RefileSection[] = []
+  @State moveLoading: boolean = false
+  @State moveBusy: boolean = false
+  @State moveMessage: string = ''
+  private moveRequest: number = 0
   @State message: string = ''
   @State rowWidth: number = 366
   @State deadlineWidth: number = 0
@@ -106,6 +118,118 @@ export struct TaskListItem {
     if (this.dateRequest.startsWith(`${this.task.id}\n`)) this.dates(false)
   }
   value(): CoreTask { return this.editTask ?? this.task }
+  horizontalSwipe(offsetX: number) {
+    if (this.typing || this.checklistTouch || this.draggingCheck) return
+    if (offsetX > 48) this.rightSwipe()
+    else if (offsetX < -48 && this.enableSwipeActions) this.swipe(true)
+  }
+
+  rightSwipe() {
+    if (this.completing || this.working || this.moveBusy || this.moveOpen || this.snapshotBlocked || this.removed ||
+      this.typing || this.checklistTouch || this.draggingCheck) return
+    switch (this.rightSwipeAction) {
+      case 'schedule': this.dates(false); break
+      case 'doing': this.toggleDoing(); break
+      case 'move': this.openMove(); break
+      case 'none': break
+    }
+  }
+
+  async openMove() {
+    if (this.rightSwipeAction !== 'move' || this.completing || this.working || this.moveBusy || this.snapshotBlocked || this.draggingCheck || this.typing) return
+    this.completing = true
+    try {
+      if (!await this.prepare() || !await this.finish(false)) return
+      const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value())
+      if (!this.appeared || this.removed) return
+      this.applySnapshot(current)
+      this.moveSource = current
+      this.moveOpen = true
+    } catch (error) {
+      if (!this.appeared) return
+      if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
+      else if (this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
+      else this.message = coreErrorMessage(error as CoreBridgeError)
+    } finally {
+      this.completing = false
+      if (!this.moveOpen && !this.expanded) TaskInlineSession.release(this.ownerKey)
+    }
+    if (this.moveOpen) await this.loadMoveTargets()
+  }
+
+  async loadMoveTargets() {
+    const request = ++this.moveRequest
+    this.moveLoading = true
+    this.moveMessage = ''
+    this.moveSections = []
+    try {
+      const targets = await InboxService.targets(this.getUIContext().getHostContext()!)
+      if (request === this.moveRequest && this.moveOpen) this.moveSections = refileSections(targets.targets)
+    } catch (error) {
+      if (request === this.moveRequest && this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
+    } finally {
+      if (request === this.moveRequest) this.moveLoading = false
+    }
+  }
+
+  closeMove() {
+    if (this.moveBusy) return
+    ++this.moveRequest
+    this.moveOpen = false
+    this.moveSource = undefined
+    this.moveSections = []
+    this.moveLoading = false
+    this.moveMessage = ''
+    if (!this.expanded) TaskInlineSession.release(this.ownerKey)
+  }
+
+  async moveTo(target: CoreRefileTarget) {
+    const source = this.moveSource
+    if (!source || !this.moveOpen || this.moveLoading || this.moveBusy || this.completing || this.snapshotBlocked) return
+    this.moveBusy = true
+    this.moveMessage = ''
+    try {
+      await InboxService.perform(this.getUIContext().getHostContext()!, source, 'move', target)
+      this.moveBusy = false
+      this.closeMove()
+      this.removeDeletedTask()
+    } catch (error) {
+      if (this.appeared && this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
+    } finally { this.moveBusy = false }
+  }
+
+  movePopupHeight(): number {
+    let height = 800
+    try {
+      if (this.hostWindow) height = this.getUIContext().px2vp(this.hostWindow.getWindowProperties().windowRect.height)
+    } catch (_) {}
+    return targetPopupHeight(this.moveSections, height, this.moveLoading, this.moveMessage, this.moveBusy)
+  }
+
+  @Builder
+  movePopup() {
+    InboxTargetPopup({ sections: this.moveSections, selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
+      loading: this.moveLoading, busy: this.moveBusy, message: this.moveMessage,
+      choose: (target: CoreRefileTarget): void => { this.moveTo(target) }, retry: (): void => { this.openMove() } })
+      .width(Math.min(350, this.rowWidth)).height(this.movePopupHeight())
+  }
+
+  async toggleDoing() {
+    const previous = this.value().state?.category
+    const category = previous === TaskStateCategory.Doing ? TaskStateCategory.Todo : TaskStateCategory.Doing
+    if (this.rightSwipeAction !== 'doing' || this.completing || this.working || this.draggingCheck || this.typing || this.snapshotBlocked ||
+      this.value().state === null || this.value().isDone() || !this.value().taskStateOf(category)) return
+    this.completing = true
+    try {
+      if (!await this.prepare() || !await this.finish(false)) return
+      const state = this.value().taskStateOf(category)
+      if (this.value().state?.category !== previous || !state) return
+      await this.persist([{ field: 'TODO', value: state.name }])
+    } finally {
+      this.completing = false
+      if (!this.expanded) TaskInlineSession.release(this.ownerKey)
+    }
+  }
   async complete() {
     const reopen = this.value().isDone()
     const category = reopen ? TaskStateCategory.Todo : TaskStateCategory.Done
@@ -156,6 +280,8 @@ export struct TaskListItem {
     this.snapshotBlocked = false
   }
   removeDeletedTask() {
+    ++this.moveRequest
+    this.moveOpen = false; this.moveSource = undefined
     this.removed = true; this.snapshotBlocked = true
     this.expanded = false; this.typing = false; this.message = ''
     this.headingEditing = false; this.notesEditing = false
@@ -172,6 +298,8 @@ export struct TaskListItem {
   }
   aboutToDisappear() {
     this.appeared = false
+    ++this.moveRequest
+    this.moveOpen = false; this.moveSource = undefined
     ++this.refreshRequest
     this.cancelCheckDrag()
     this.checkFocus.dispose()
@@ -200,6 +328,8 @@ export struct TaskListItem {
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
   }
   async finish(collapse: boolean): Promise<boolean> {
+    if (this.moveBusy) return false
+    if (collapse && this.moveOpen) this.closeMove()
     this.cancelCheckDrag()
     this.continueCheck = false
     this.checkFocus.cancel()
@@ -929,9 +1059,15 @@ export struct TaskListItem {
         this.rowWidth = parseFloat(area.width.toString())
       })
       .onClick(() => {})
+      .bindPopup(this.moveOpen, {
+        builder: this.movePopup, placement: Placement.Bottom, targetSpace: 10,
+        enableArrow: false, width: Math.min(350, this.rowWidth), radius: 16,
+        popupColor: '#363A38', backgroundBlurStyle: BlurStyle.NONE,
+        mask: { color: '#2E000000' }, autoCancel: !this.moveBusy, onWillDismiss: !this.moveBusy, focusable: true,
+        onStateChange: (event): void => { if (!event.isVisible && this.moveOpen) this.closeMove() }
+      })
       .priorityGesture(PanGesture({ direction: PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
-        if (event.offsetX > 48 && !this.typing && !this.checklistTouch) this.dates(false)
-        else if (event.offsetX < -48 && this.enableSwipeActions && !this.typing && !this.checklistTouch) this.swipe(true)
+        this.horizontalSwipe(event.offsetX)
       }))
       .onGestureJudgeBegin(() => this.checklistTouch || this.typing || this.enableSwipeActions ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }

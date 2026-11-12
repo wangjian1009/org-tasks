@@ -502,28 +502,73 @@ test('排序已写入但重读失败时停用后续写入，防止旧条目ID重
   await f.sort();assert.equal(f.requests.length,1);assert.deepEqual(f.state.checkPreview,[]);
 });
 
-function completionFixture() {
+function completionFixture(methodName = 'complete') {
   const filename = 'entry/src/main/ets/components/TaskListItem.ets';
   const source = fs.readFileSync(filename, 'utf8');
-  const method = source.match(/  async complete\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const method = source.match(new RegExp('  async ' + methodName + '\\(\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
   const code = ts.transpileModule('export class Completion {' + method + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
   const writes = [], released = [];
   vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(
-    module, module.exports, { release: key => released.push(key) }, { Done: 'Done', Todo: 'Todo' });
+    module, module.exports, { release: key => released.push(key) }, { Done: 'Done', Todo: 'Todo', Doing: 'Doing' });
   const task = { state: { name: 'ACTIVE', category: 'Doing' }, targetState: { name: 'FINISHED', category: 'Done' },
-    reopenState: { name: 'READY', category: 'Todo' },
-    taskStateOf(category) { return category === 'Todo' ? this.reopenState : this.targetState; },
+    reopenState: { name: 'READY', category: 'Todo' }, doingState: { name: 'ACTIVE', category: 'Doing' },
+    taskStateOf(category) { return category === 'Todo' ? this.reopenState : category === 'Doing' ? this.doingState : this.targetState; },
     isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancel'; } };
   const state = Object.assign(new module.exports.Completion(), {
-    completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task',
+    completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task', rightSwipeAction: 'doing',
     value: () => task, prepare: async () => true, finish: async () => true,
     persist: async changes => { writes.push(changes); return true; }
   });
   return { state, task, writes, released };
 }
+test('今天右滑按 Core 分类切换进行中和待办，保留卡片展开状态', async () => {
+  for (const category of ['Todo', 'Doing', 'Wait']) {
+    const f = completionFixture('toggleDoing');
+    f.task.state = { name: 'CUSTOM', category }; f.state.expanded = true;
+    await f.state.toggleDoing();
+    assert.deepEqual(f.writes, [[{ field: 'TODO', value: category === 'Doing' ? 'READY' : 'ACTIVE' }]]);
+    assert.equal(f.state.expanded, true); assert.equal(f.state.completing, false);
+    assert.deepEqual(f.released, []);
+  }
+});
+test('今天右滑缺少状态、已关闭、未启用或编辑忙碌时不提交', async () => {
+  for (const changes of [{ state: null }, { state: { name: 'DONE', category: 'Done' } },
+    { state: { name: 'CNCL', category: 'Cancel' } }, { reopenState: null },
+    { state: { name: 'READY', category: 'Todo' }, doingState: null }]) {
+    const f = completionFixture('toggleDoing'); Object.assign(f.task, changes);
+    await f.state.toggleDoing(); assert.deepEqual(f.writes, []);
+  }
+  for (const changes of [{ rightSwipeAction: 'schedule' }, { rightSwipeAction: 'move' }, { rightSwipeAction: 'none' }, { completing: true }, { working: true },
+    { snapshotBlocked: true }, { draggingCheck: true }, { typing: true }]) {
+    const f = completionFixture('toggleDoing'); Object.assign(f.state, changes);
+    await f.state.toggleDoing(); assert.deepEqual(f.writes, []);
+  }
+});
+test('今天右滑在草稿失败或保存期间状态与配置变化时停止提交', async () => {
+  for (const finish of [async () => false,
+    async f => { f.task.state = { name: 'READY', category: 'Todo' }; return true; },
+    async f => { f.task.state = null; return true; },
+    async f => { f.task.reopenState = null; return true; }]) {
+    const f = completionFixture('toggleDoing'); f.state.expanded = true;
+    f.state.finish = () => finish(f);
+    await f.state.toggleDoing(); assert.deepEqual(f.writes, []);
+    assert.equal(f.state.expanded, true); assert.equal(f.state.completing, false);
+  }
+});
+test('今天连续右滑只提交一次，失败释放收起卡片会话并允许重试', async () => {
+  const f = completionFixture('toggleDoing'); let finishWrite;
+  f.state.persist = async changes => { f.writes.push(changes); return new Promise(resolve => { finishWrite = resolve; }); };
+  const pending = f.state.toggleDoing();
+  await Promise.resolve(); await Promise.resolve();
+  await f.state.toggleDoing(); assert.equal(f.writes.length, 1);
+  finishWrite(false); await pending;
+  assert.equal(f.state.completing, false); assert.deepEqual(f.released, ['task']);
+  f.state.persist = async changes => { f.writes.push(changes); return true; };
+  await f.state.toggleDoing(); assert.equal(f.writes.length, 2);
+});
 test('任务 checkbox 使用 Core 的 Done 分类目标而不误选在前的取消状态，成功后结束会话', async () => {
   const f = completionFixture();
   await f.state.complete();

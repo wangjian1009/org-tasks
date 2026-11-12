@@ -10,6 +10,7 @@ import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
+import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
 import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
@@ -88,6 +89,10 @@ struct TaskOverview {
 
   supportsTagFilter(): boolean {
     return this.view === 'today' || this.view === 'anytime' || this.view === 'someday' || this.view === 'memo'
+  }
+
+  rightSwipeAction(): TaskRightSwipeAction {
+    return this.view === 'memo' ? 'none' : taskPageActionPolicy(this.view).rightSwipeAction
   }
 
   confirmDeleteMemo(task: CoreTask) {
@@ -226,9 +231,9 @@ struct TaskOverview {
           NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime') {
-          TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime })
+          TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
         } else if (this.view === 'planned') {
-          PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime })
+          PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {
@@ -245,7 +250,7 @@ struct TaskOverview {
               } else {
                 ListItem() {
                   if (this.view === 'someday') {
-                    TaskListItem({ task, referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'overview_task_list', open: this.openTask(task) })
+                    TaskListItem({ task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list', open: this.openTask(task) })
                   } else {
                     TaskRow({ task, showBody: true, open: this.openTask(task) })
                   }
