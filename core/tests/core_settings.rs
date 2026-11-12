@@ -21,6 +21,51 @@ fn state(name: &str, category: Option<TaskStateCategory>) -> TaskState {
 }
 
 #[test]
+fn categories_serialize_canonical_names_and_read_legacy_cancel() {
+    use TaskStateCategory::*;
+    for (category, name) in [
+        (Todo, "Todo"),
+        (Doing, "Doing"),
+        (Wait, "Wait"),
+        (Done, "Done"),
+        (Cancel, "Cancel"),
+    ] {
+        assert_eq!(serde_json::to_value(category).unwrap(), name);
+        assert_eq!(
+            serde_json::from_value::<TaskStateCategory>(name.into()).unwrap(),
+            category
+        );
+    }
+    let legacy = r#"{"additionStates":[{"name":"STOP","category":"Cancle"}]}"#;
+    let settings: CoreSettings = serde_json::from_str(legacy).unwrap();
+    assert_eq!(settings.addition_states[0].category, Some(Cancel));
+    assert_eq!(
+        serde_json::to_value(settings).unwrap()["additionStates"][0]["category"],
+        "Cancel"
+    );
+}
+
+#[test]
+fn legacy_cancel_declarations_preserve_source_and_normalize_settings() {
+    let source =
+        b"#+TODO: TODO STOP | DONE\n#+TASK_STATE_CATEGORY: Cancle STOP\n* STOP Cancelled\n";
+    let file = OrgFile::new("repo".into(), "tasks.org".into(), source.to_vec()).unwrap();
+    assert_eq!(
+        file.nodes()[0].state().unwrap().category,
+        Some(TaskStateCategory::Cancel)
+    );
+    assert!(file.nodes()[0].is_done());
+    assert_eq!(file.source_bytes(), source);
+    let settings = org_tasks_core::TodoConfig::from_settings(
+        "#+TODO: TODO STOP | DONE\n#+TASK_STATE_CATEGORY: Cancle STOP\n",
+    )
+    .unwrap()
+    .to_settings();
+    assert!(settings.contains("#+TASK_STATE_CATEGORY: Cancel STOP"));
+    assert!(!settings.contains("Cancle"));
+}
+
+#[test]
 fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
     let mut workspace = workspace();
     assert_eq!(
@@ -71,7 +116,7 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
         addition_states: vec![
             state("RUN", Some(Doing)),
             state("HOLD", Some(Wait)),
-            state("STOP", Some(Cancle)),
+            state("STOP", Some(Cancel)),
             state("FINISH", Some(Done)),
         ],
     };
@@ -88,7 +133,7 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
     let tasks = results[0].clone().into_task().unwrap().tasks;
     let metadata = tasks[0].file_metadata();
     assert_eq!(tasks[1].state(), Some(&state("RUN", Some(Doing))));
-    assert_eq!(tasks[3].state(), Some(&state("STOP", Some(Cancle))));
+    assert_eq!(tasks[3].state(), Some(&state("STOP", Some(Cancel))));
     assert!(tasks[3].is_done());
     assert!(tasks[6].state().is_none());
     for (category, name) in [
@@ -96,7 +141,7 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
         (Doing, "RUN"),
         (Wait, "HOLD"),
         (Done, "FINISH"),
-        (Cancle, "STOP"),
+        (Cancel, "STOP"),
     ] {
         assert_eq!(
             tasks[0].task_state_of(category),
@@ -137,7 +182,7 @@ async fn added_repositories_inherit_settings_and_query_filters_use_categories() 
     let mut workspace = workspace();
     workspace
         .set_settings(CoreSettings {
-            addition_states: vec![state("STOP", Some(Cancle))],
+            addition_states: vec![state("STOP", Some(Cancel))],
         })
         .unwrap();
     let mut other = OrgRepo::new("/unused/add-settings".into()).unwrap();
@@ -165,7 +210,7 @@ async fn added_repositories_inherit_settings_and_query_filters_use_categories() 
     assert_eq!(
         tasks
             .iter()
-            .filter(|task| task.state().unwrap().category == Some(Cancle))
+            .filter(|task| task.state().unwrap().category == Some(Cancel))
             .count(),
         2
     );

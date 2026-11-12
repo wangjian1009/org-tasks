@@ -22,7 +22,7 @@ struct Settings {
   @State syncInterval: string = '20'
   @State todoDefaults: string = ''
   @State coreSettings: CoreSettingsObject = { additionStates: [] }
-  private stateCategories: TaskStateCategory[] = [TaskStateCategory.Todo, TaskStateCategory.Doing, TaskStateCategory.Wait, TaskStateCategory.Done, TaskStateCategory.Cancle]
+  private stateCategories: TaskStateCategory[] = [TaskStateCategory.Todo, TaskStateCategory.Doing, TaskStateCategory.Wait, TaskStateCategory.Done, TaskStateCategory.Cancel]
   @State categoryDrafts: string[] = ['', '', '', '', '']
   @State categoryBusy: boolean = false
   @State fileDisplayMode: 'rendered' | 'source' = 'rendered'

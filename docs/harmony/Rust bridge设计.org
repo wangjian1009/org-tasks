@@ -186,6 +186,8 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 * 任务完成对象
 
+取消分类的运行时名称、 ~TaskState.category~ 和 ~taskStateOf~ 参数统一为 ~Cancel~ ，Rust 输出的分类目标映射使用同名键；旧 ~Cancle~ 只在 Core 配置输入的兼容读取中接受，不再作为运行时分类输出。
+
 任务快照的 ~taskStateOf~ 、 ~isDone~ 与 ~project~ 方法绑定创建时的原生对象，并作为只读、可枚举的实例函数随字段传递。ArkUI 的 ~@Prop~ 深拷贝只复制字段与原型，不复制 ~napi_wrap~ 绑定；复制后的方法必须仍访问原生快照，不能对复制对象执行解包。绑定函数持有原对象，保证跨多层分组、卡片属性和原对象离开调用方作用域后仍可调用；JSON 序列化自动忽略函数，数据字段的序列化结果不变。状态选择仍由 Core 计算，C++ 不重建规则。
 
 ~Workspace.query~ 在 Task 结果分支的 ~result.tasks~ 中返回原生 ~Task~ 对象。 ~Task.isDone(): boolean~ 对应 ~FilterTask.is_done()~ ，结果由 Rust 根据文件有效配置计算；C++ 只保存并返回布尔值，ArkTS 不另行检查 DONE/CNCL 名称。任务的标题、状态和来源保留为只读、可枚举字段，路由仍能传递到详情页；序列化的数据不包含方法。已取得任务的完成状态不随仓库重载而改变，需要最新状态时重新查询。逻辑 ~id~ 相同不表示内容相同；ArkUI 列表用可枚举任务快照与各分类的 ~taskStateOf~ 返回值生成渲染键，使状态、进度、正文和路由参数同步更新。C++ 不计算任务身份，ArkTS 不按标题或位置重建任务身份。

@@ -452,6 +452,39 @@ test('草稿存储失败会显式拒绝，后续写入仍可恢复', async () =>
   assert.deepEqual(await f.CaptureService.drafts({}), [{ id: 'draft', title: '恢复保存' }]);
 });
 
+test('旧取消分类交给 Core 规范化，读取不改写配置，保存使用规范结果', async () => {
+  const legacy = { additionStates: [{ name: 'STOP', category: 'Cancle' }] };
+  const canonical = { additionStates: [{ name: 'STOP', category: 'Cancel' }] };
+  const values = new Map([['coreSettings', JSON.stringify(legacy)]]);
+  const requests = [];
+  const load = etsLoader({
+    'liborg_tasks_harmony.so': {
+      Workspace: class {
+        async setTodoDefaults() {}
+        async setSettings(settings) { requests.push(settings); }
+        async getSettings() { return structuredClone(canonical); }
+      },
+      async defaultTodoSettings() { return '#+TODO: TODO | DONE'; },
+      async defaultSyncOptions() { return { excludedDirectories: [] }; }
+    },
+    '@kit.ArkData': { preferences: { async getPreferences() {
+      return { async get(key, fallback) { return values.has(key) ? values.get(key) : fallback; },
+        async put(key, value) { values.set(key, value); }, async flush() {} };
+    } } },
+    './CredentialService': { CredentialService: {} }
+  });
+  const { AppConfigService } = load('services/AppConfigService');
+  const config = await AppConfigService.load({}, false);
+  assert.deepEqual(requests, [legacy]);
+  assert.deepEqual(config.coreSettings, canonical);
+  assert.equal(values.get('coreSettings'), JSON.stringify(legacy));
+  await AppConfigService.save({}, config);
+  assert.equal(values.get('coreSettings'), JSON.stringify(canonical));
+  const count = requests.length;
+  await AppConfigService.load({}, false);
+  assert.equal(requests.length, count);
+});
+
 test('旧路径配置不猜测仓库，明确绑定能持久化，删除仓库后保持失效身份', async () => {
   const values = new Map([
     ['repos', JSON.stringify([repository('personal')])],

@@ -89,7 +89,7 @@ core 测试从参考项目移植了 tokenizer 的括号和引号场景、~AND~ /
 
 * 任务完成判断
 
-~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancle~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancle~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~include_done=false~ 统一排除两类终态。状态值仍可通过 ~i.<state>~ 精确匹配。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancle~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
+~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancel~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~include_done=false~ 统一排除两类终态。状态值仍可通过 ~i.<state>~ 精确匹配。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancel~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
 
 #+begin_src rust
 impl FilterTask {

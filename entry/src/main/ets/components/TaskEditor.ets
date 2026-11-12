@@ -56,7 +56,7 @@ export struct TaskEditor {
               .margin({ bottom: 20 }).enabled(!this.disabled)
               .onChange((value: string): void => { this.headingChanged(value) })
           } else {
-            TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false, cancelled: this.task!.state?.category === TaskStateCategory.Cancle })
+            TitleText({ text: this.task!.heading, parts: this.task!.headingParts, textSize: 24, weight: FontWeight.Medium, copyable: true, showCounts: false, cancelled: this.task!.state?.category === TaskStateCategory.Cancel })
               .width('100%').padding({ left: 16, right: 16, top: 8, bottom: 20 })
           }
           if (!this.editable && titleCounts(this.task!.headingParts).length > 0) {

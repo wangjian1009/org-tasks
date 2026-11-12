@@ -278,7 +278,7 @@ export interface ConflictSync { syncId: string; paths: string[]; }
 
 export interface SourcePosition { line: number; column: number; byte_offset: number; }
 export interface SourceRange { start: SourcePosition; end: SourcePosition; }
-export type TaskStateCategory = 'Todo' | 'Doing' | 'Wait' | 'Done' | 'Cancle';
+export type TaskStateCategory = 'Todo' | 'Doing' | 'Wait' | 'Done' | 'Cancel';
 export interface TaskState { name: string; category: TaskStateCategory | null; }
 export interface CoreSettings { additionStates: TaskState[]; }
 

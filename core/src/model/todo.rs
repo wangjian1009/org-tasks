@@ -4,19 +4,20 @@ use crate::CoreError;
 use orgize::{ParseConfig, ast::Keyword, rowan::ast::AstNode};
 use serde::{Deserialize, Serialize};
 
-/// 任务运行状态分类；Cancle 保留公开协议中的拼写。
+/// 任务运行状态分类；旧拼写仅作为读取兼容别名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStateCategory {
     Todo,
     Doing,
     Wait,
     Done,
-    Cancle,
+    #[serde(alias = "Cancle")]
+    Cancel,
 }
 
 impl TaskStateCategory {
     pub(crate) fn is_done(self) -> bool {
-        matches!(self, Self::Done | Self::Cancle)
+        matches!(self, Self::Done | Self::Cancel)
     }
 }
 
@@ -72,7 +73,7 @@ pub(crate) fn default_task_state_categories() -> Vec<TaskStateCategoryMapping> {
         (Doing, &["INPROGRESS"][..]),
         (Wait, &["WAIT"][..]),
         (Done, &["DONE"][..]),
-        (Cancle, &["CNCL"][..]),
+        (Cancel, &["CNCL"][..]),
     ]
     .into_iter()
     .map(|(category, states)| TaskStateCategoryMapping {
@@ -97,10 +98,10 @@ fn category_declarations(syntax: &orgize::Org) -> Result<Vec<TaskStateCategoryMa
                 Some("Doing") => TaskStateCategory::Doing,
                 Some("Wait") => TaskStateCategory::Wait,
                 Some("Done") => TaskStateCategory::Done,
-                Some("Cancle") => TaskStateCategory::Cancle,
+                Some("Cancel" | "Cancle") => TaskStateCategory::Cancel,
                 _ => {
                     return Err(CoreError::InvalidInput(
-                        "状态分类必须为 Todo、Doing、Wait、Done 或 Cancle",
+                        "状态分类必须为 Todo、Doing、Wait、Done 或 Cancel",
                     ));
                 }
             };

@@ -13,6 +13,7 @@ export class UiColor {
   static readonly projectOutline: string = '#424843'
   static readonly projectLabel: string = '#9DA69F'
   static readonly taskCard: string = '#3A3938'
+  static readonly taskDoingTint: string = '#18F2C96D'
   static readonly notificationCard: string = '#373635'
   static readonly deadline: string = '#FF3869'
   static readonly container: string = '#343635'

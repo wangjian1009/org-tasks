@@ -555,7 +555,7 @@ pub struct WebDavSyncFileDetail {
 pub enum TodoSource { GlobalDefault, InBuffer }
 pub enum TodoWorkflowKind { Sequence, Type }
 pub enum TodoStateKind { Pending, Done }
-pub enum TaskStateCategory { Todo, Doing, Wait, Done, Cancle }
+pub enum TaskStateCategory { Todo, Doing, Wait, Done, Cancel }
 pub struct TaskState {
     pub name: String,
     pub category: Option<TaskStateCategory>,
@@ -625,7 +625,7 @@ pub struct TodoMetadata {
 
 ** 任务运行状态分类
 
-~TaskStateCategory~ 枚举定义 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 和 ~Cancle~ 。其中 ~Done~ 与 ~Cancle~ 为终态，其余为未完成状态； ~Cancle~ 保留公开接口拼写。任务的 ~state()~ 返回可空 ~TaskState~，无状态标题返回 ~None~；状态自身的 ~category~ 也可以为空 。它与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 候选标签相互独立。
+~TaskStateCategory~ 枚举定义 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 和 ~Cancel~ 。其中 ~Done~ 与 ~Cancel~ 为终态，其余为未完成状态； 统一输出 ~Cancel~ ；旧 JSON 分类值和 Org 分类声明中的 ~Cancle~ 仅作为读取兼容别名，原文件未涉及的字节不改写。任务的 ~state()~ 返回可空 ~TaskState~，无状态标题返回 ~None~；状态自身的 ~category~ 也可以为空 。它与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 候选标签相互独立。
 
 | 分类 | 展示名称 | 不可修改的默认状态值 |
 |-
@@ -633,7 +633,7 @@ pub struct TodoMetadata {
 | ~Doing~ | 进行中 | ~INPROGRESS~ |
 | ~Wait~ | 等待 | ~WAIT~ |
 | ~Done~ | 已完成 | ~DONE~ |
-| ~Cancle~ | 已取消 | ~CNCL~ |
+| ~Cancel~ | 已取消 | ~CNCL~ |
 
 默认状态与分类映射由 Core 内部固定维护，不提供额外的默认值或映射操作接口。~CoreSettings.addition_states~ 保存附加的 ~TaskState~ 列表；通过 Workspace 的 ~get_settings()~ 与 ~set_settings()~ 获取和整体替换，附加值的 ~category~ 可以为空。默认名称不可加入附加列表，附加名称不可重复，名称大小写敏感。
 
@@ -645,7 +645,7 @@ pub struct TodoMetadata {
 ,#+TASK_STATE_CATEGORY: Doing ACTIVE
 ,#+TASK_STATE_CATEGORY: Wait HOLD
 ,#+TASK_STATE_CATEGORY: Done FINISHED
-,#+TASK_STATE_CATEGORY: Cancle ABORTED
+,#+TASK_STATE_CATEGORY: Cancel ABORTED
 #+end_src
 
 声明来自 ~orgize~ CST，源码与示例块的字面文本不参与配置。分类只解释有效 TODO 流程中已识别的状态，不自动增加文件关键词。默认状态按固定分类判断；未配置分类的自定义流程状态沿用 Org 分隔规则归为 ~Todo~ 或 ~Done~。通过 ~CoreSettings~ 显式设置为 ~None~ 的状态保留未分类，仍为任务，但不作为完成或取消终态，也不匹配任何 ~task_state_of(category)~ 目标。查询、HTML、日志、重复调度、TRIGGER 与标题统计共用分类结果。
@@ -660,7 +660,7 @@ pub struct TodoMetadata {
   Doing \\
   Wait \\
   Done \\
-  Cancle}{}
+  Cancel}{}
 \umlclass[x=7,y=0]{TaskState}{name: String \\
   category: Option\textless TaskStateCategory\textgreater}{}
 \umlclass[x=14,y=0]{CoreSettings}{addition\_states: Vec\textless TaskState\textgreater}{}

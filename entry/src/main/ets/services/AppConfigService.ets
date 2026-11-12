@@ -28,7 +28,13 @@ export class AppConfigService {
     const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
     const savedCoreSettings = await store.get('coreSettings', '') as string
-    const coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await new Workspace().getSettings()
+    let coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await new Workspace().getSettings()
+    // 旧分类拼写交给 Core 的兼容反序列化处理，设置界面与后续保存只接收规范名称。
+    if (savedCoreSettings.includes('"Cancle"')) {
+      const migration = new Workspace()
+      await migration.setSettings(coreSettings)
+      coreSettings = await migration.getSettings()
+    }
     const fileDisplayMode = await store.get('fileDisplayMode', DEFAULT_CONFIG.fileDisplayMode) as string
     return {
       repos,

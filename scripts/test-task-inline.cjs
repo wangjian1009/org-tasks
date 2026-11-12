@@ -505,7 +505,7 @@ function completionFixture() {
   const task = { state: { name: 'ACTIVE', category: 'Doing' }, targetState: { name: 'FINISHED', category: 'Done' },
     reopenState: { name: 'READY', category: 'Todo' },
     taskStateOf(category) { return category === 'Todo' ? this.reopenState : this.targetState; },
-    isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancle'; } };
+    isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancel'; } };
   const state = Object.assign(new module.exports.Completion(), {
     completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task',
     value: () => task, prepare: async () => true, finish: async () => true,
@@ -542,7 +542,7 @@ test('完成任务重复点击只提交一次，写入失败保留展开态', as
 test('无状态、无目标状态配置或不可用快照不提交', async () => {
   for (const changes of [{ state: null }, { targetState: null },
     { state: { name: 'FINISHED', category: 'Done' }, reopenState: null },
-    { state: { name: 'STOP', category: 'Cancle' }, reopenState: null }]) {
+    { state: { name: 'STOP', category: 'Cancel' }, reopenState: null }]) {
     const f = completionFixture(); Object.assign(f.task, changes);
     await f.state.complete(); assert.equal(f.writes.length, 0);
   }
@@ -552,7 +552,7 @@ test('无状态、无目标状态配置或不可用快照不提交', async () =>
 
 
 test('完成和取消任务点击 checkbox 均使用 Core 的 Todo 目标重新打开', async () => {
-  for (const category of ['Done', 'Cancle']) {
+  for (const category of ['Done', 'Cancel']) {
     const f = completionFixture();
     f.task.state = { name: category === 'Done' ? 'FINISHED' : 'STOP', category };
     f.state.expanded = true;

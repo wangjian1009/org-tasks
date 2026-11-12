@@ -120,7 +120,7 @@ export struct TaskRow {
           if (this.task.priority.length > 0) {
             Text(`[#${this.task.priority}]`).fontSize(13).fontColor(UiColor.secondary)
           }
-          TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3, cancelled: this.task.state?.category === TaskStateCategory.Cancle }).layoutWeight(1)
+          TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3, cancelled: this.task.state?.category === TaskStateCategory.Cancel }).layoutWeight(1)
         }.width('100%').alignItems(VerticalAlign.Top)
         if (this.showBody && this.task.body.trim().length > 0) {
           Text(this.task.body.trim()).fontSize(14).fontColor(UiColor.secondary).maxLines(2)

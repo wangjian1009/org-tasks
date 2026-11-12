@@ -576,7 +576,7 @@ let metadata = &file.todo;
 分类设置只公开以下对象与方法；文件声明解析、默认映射、合并与类别校验均为内部实现：
 
 #+begin_src rust
-pub enum TaskStateCategory { Todo, Doing, Wait, Done, Cancle }
+pub enum TaskStateCategory { Todo, Doing, Wait, Done, Cancel }
 pub struct TaskState {
     pub name: String,
     pub category: Option<TaskStateCategory>,

@@ -126,13 +126,13 @@ async fn three_calendar_days_include_full_dates_done_memo_and_cancelled() {
     );
     assert!(
         tasks[1].state().and_then(|state| state.category)
-            == Some(org_tasks_core::TaskStateCategory::Cancle)
+            == Some(org_tasks_core::TaskStateCategory::Cancel)
     );
     assert!(tasks[2].is_done());
     assert!(tasks[0].state().is_none());
     assert!(
         tasks[2].state().and_then(|state| state.category)
-            != Some(org_tasks_core::TaskStateCategory::Cancle)
+            != Some(org_tasks_core::TaskStateCategory::Cancel)
     );
     let json = serde_json::to_value(&query).unwrap();
     assert!(json.get("createdRange").is_none());

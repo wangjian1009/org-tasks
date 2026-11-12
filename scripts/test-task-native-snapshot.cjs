@@ -58,7 +58,7 @@ function snapshot(name = 'DONE', done = false) {
   return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done,
     state: { name: 'TODO', category: 'Todo' }, taskStateOptions: {
       Todo: { name: 'TODO', category: 'Todo' }, Doing: null, Wait: null,
-      Done: { name, category: 'Done' }, Cancle: null
+      Done: { name, category: 'Done' }, Cancel: null
     } });
 }
 function copy(value) {

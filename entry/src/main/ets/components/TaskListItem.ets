@@ -548,18 +548,27 @@ export struct TaskListItem {
   completionState() {
     Button({ type: ButtonType.Normal }) {
       if (this.value().state?.category === TaskStateCategory.Done) {
-        Image($r('app.media.ui_task_done')).width(18).height(18)
-      } else if (this.value().state?.category === TaskStateCategory.Cancle) {
-        Text('−').width(18).height(18).fontSize(13)
-          .textAlign(TextAlign.Center).fontColor(UiColor.disabled)
-          .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+        Image($r('app.media.ui_task_done')).width(18).height(18).syncLoad(true)
+      } else if (this.value().state?.category === TaskStateCategory.Cancel) {
+        Stack() {
+          Text('').width(18).height(18)
+            .border({ width: 1.4, color: UiColor.disabled }).borderRadius(4)
+          Divider().width(18).strokeWidth(1.4).color(UiColor.disabled)
+        }.width(18).height(18)
       } else {
-        Text(this.value().state?.category === TaskStateCategory.Doing ? '▶' : this.value().state?.category === TaskStateCategory.Wait ? 'Ⅱ' : '')
-          .fontSize(10).fontColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.primary : UiColor.warning)
-          .textAlign(TextAlign.Center).width(18).height(18)
-          .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+        Stack() {
+          Text('').width(18).height(18)
+            .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+          if (this.value().state?.category === TaskStateCategory.Wait) {
+            Row({ space: 3 }) {
+              Rect().width(1.4).height(8).fill(UiColor.text)
+              Rect().width(1.4).height(8).fill(UiColor.text)
+            }
+          }
+        }.width(18).height(18)
       }
     }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
+      .stateEffect(false)
       .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
       .enabled(!this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
       .accessibilityText(`${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
@@ -625,7 +634,7 @@ export struct TaskListItem {
   compactTitle() {
     Row({ space: 6 }) {
       Column({ space: 2 }) {
-        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancle) })
+        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
           .width('100%').constraintSize({ minWidth: 0 })
         if (this.showCategory && (this.value().category || this.value().project() !== null)) {
           this.categoryProject()
@@ -744,7 +753,9 @@ export struct TaskListItem {
       TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
         .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
-        .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).borderRadius(0)
+        .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
+        .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
+        .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
         .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
         .onChange((value: string) => { this.heading = value; this.headingEditing = true })
         .onFocus(() => { this.headingEditing = true; this.inputFocus() })
@@ -884,7 +895,8 @@ export struct TaskListItem {
         Column({ space: 8 }) {
           Column({ space: 12 }) { this.editorContent() }.width('100%')
           this.attributes()
-        }.width('100%').padding(12).backgroundColor(UiColor.taskCard).borderRadius(12)
+        }.width('100%').padding(12)
+          .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
         Text(taskSourceText(this.value(), true)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
           .width('100%').textAlign(TextAlign.End).padding({ top: 6, right: 12, bottom: 4 })
       } else {
@@ -897,6 +909,7 @@ export struct TaskListItem {
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       }
     }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)
+      .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.taskDoingTint : Color.Transparent).borderRadius(12)
       .alignItems(HorizontalAlign.Start).margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
       .onAreaChange((oldArea: Area, area: Area) => {
         this.rowWidth = parseFloat(area.width.toString())

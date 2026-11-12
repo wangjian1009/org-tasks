@@ -1177,7 +1177,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join(".setup.org"),
-            b"#+TODO: TODO(t) NEXT(n) WAIT(w) STOP | DONE(d!)\n#+TODO: | CNCL(c!)\n#+TASK_STATE_CATEGORY: Cancle STOP\n",
+            b"#+TODO: TODO(t) NEXT(n) WAIT(w) STOP | DONE(d!)\n#+TODO: | CNCL(c!)\n#+TASK_STATE_CATEGORY: Cancel STOP\n",
         )
         .unwrap();
         std::fs::write(
@@ -1193,7 +1193,7 @@ mod tests {
         assert!(tasks[2].is_done());
         assert_eq!(
             tasks[2].state().and_then(|state| state.category),
-            Some(crate::TaskStateCategory::Cancle)
+            Some(crate::TaskStateCategory::Cancel)
         );
         assert_eq!(
             repo.load_files(&[]).await.unwrap()[0].todo.done_keywords,

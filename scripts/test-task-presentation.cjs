@@ -21,7 +21,7 @@ const { taskRenderKey } = exported;
 
 // 与 native Task 一样，数据字段只读且可枚举，行为位于原型上。
 function task(id, values = {}) {
-  const result = Object.create({ taskStateOf(category) { return category === 'Done' ? { name: 'DONE', category } : null; }, isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancle'; }, project() { return this.projectName ?? null; } });
+  const result = Object.create({ taskStateOf(category) { return category === 'Done' ? { name: 'DONE', category } : null; }, isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancel'; }, project() { return this.projectName ?? null; } });
   for (const [key, value] of Object.entries({ id, repoId: 'repo', heading: '记录', headingParts: [], category: null,
     state: { name: 'TODO', category: 'Todo' }, projectName: null, priority: '', scheduled: '', deadline: '', tags: [],
     filePath: 'inbox.org', fileName: 'inbox.org', level: 1, body: '正文', bodyHtml: '<p>正文</p>', logbookHtml: '',
@@ -82,7 +82,7 @@ test('计划、标签、链接及详情正文更新都能刷新点击参数，�
   assert.equal(taskRenderKey(before), taskRenderKey(task('same-id')));
   for (const changes of [{ scheduled: '2026-11-06' }, { deadline: '2026-11-07' }, { priority: 'A' },
     { tags: ['work'] }, { category: '生活' }, { headingParts: [{ text: '链接', href: 'https://example.org', isLink: true }] },
-    { state: { name: 'ACTIVE', category: 'Doing' } }, { state: { name: 'STOP', category: 'Cancle' } }, { bodyHtml: '<p>新正文</p>' }, { logbookHtml: '<p>新日志</p>' }]) {
+    { state: { name: 'ACTIVE', category: 'Doing' } }, { state: { name: 'STOP', category: 'Cancel' } }, { bodyHtml: '<p>新正文</p>' }, { logbookHtml: '<p>新日志</p>' }]) {
     const after = task('same-id', changes);
     const rows = refresh(refresh(new Map(), [before]), [after]);
     assert.equal([...rows.values()][0].open(), after);

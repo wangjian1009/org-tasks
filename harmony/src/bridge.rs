@@ -775,7 +775,7 @@ fn state_options(
     mut lookup: impl FnMut(org_tasks_core::TaskStateCategory) -> Option<org_tasks_core::TaskState>,
 ) -> BTreeMap<String, Option<org_tasks_core::TaskState>> {
     use org_tasks_core::TaskStateCategory::*;
-    [Todo, Doing, Wait, Done, Cancle]
+    [Todo, Doing, Wait, Done, Cancel]
         .into_iter()
         .map(|category| (format!("{category:?}"), lookup(category)))
         .collect()
@@ -1372,7 +1372,7 @@ mod tests {
     fn created_date_expression_and_cancelled_projection_cross_existing_query_bridge() {
         let root = std::env::temp_dir().join(format!("org-created-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("tasks.org"), "#+TODO: TODO | STOP DONE\n#+TASK_STATE_CATEGORY: Cancle STOP\n* STOP Cancelled\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 10:00]\n:END:\n* DONE Finished\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n").unwrap();
+        std::fs::write(root.join("tasks.org"), "#+TODO: TODO | STOP DONE\n#+TASK_STATE_CATEGORY: Cancel STOP\n* STOP Cancelled\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 10:00]\n:END:\n* DONE Finished\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n").unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
         let all: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
@@ -1383,9 +1383,9 @@ mod tests {
         let tasks = all["tasks"].as_array().unwrap();
         assert_eq!(tasks[0]["heading"], "Finished");
         assert_eq!(tasks[1]["heading"], "Cancelled");
-        assert_ne!(tasks[0]["state"]["category"], "Cancle");
-        assert_eq!(tasks[1]["state"]["category"], "Cancle");
-        assert_eq!(tasks[1]["state"]["category"], "Cancle");
+        assert_ne!(tasks[0]["state"]["category"], "Cancel");
+        assert_eq!(tasks[1]["state"]["category"], "Cancel");
+        assert_eq!(tasks[1]["state"]["category"], "Cancel");
         assert_eq!(tasks[0]["state"]["category"], "Done");
         assert_eq!(tasks[1]["taskStateOptions"]["Done"]["name"], "DONE");
         assert!(tasks[0]["createdAt"].as_i64().is_some());
@@ -2551,7 +2551,7 @@ mod settings_object_tests {
             .unwrap(),
             serde_json::json!({"additionStates":[]})
         );
-        let settings = serde_json::json!({"additionStates":[{"name":"ACTIVE","category":"Doing"},{"name":"STOP","category":"Cancle"},{"name":"FINISH","category":"Done"}]});
+        let settings = serde_json::json!({"additionStates":[{"name":"ACTIVE","category":"Doing"},{"name":"STOP","category":"Cancel"},{"name":"FINISH","category":"Done"}]});
         workspace_set_settings(handle, settings.to_string()).unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
         let response: serde_json::Value = serde_json::from_str(
@@ -2573,6 +2573,8 @@ mod settings_object_tests {
             serde_json::json!({"name":"FINISH","category":"Done"})
         );
         assert_eq!(task["taskStateOptions"], metadata["taskStateOptions"]);
+        assert_eq!(task["taskStateOptions"]["Cancel"]["category"], "Cancel");
+        assert!(task["taskStateOptions"].get("Cancle").is_none());
         assert!(task["taskStateOptions"]["Wait"].is_null());
         for field in [
             "todoState",

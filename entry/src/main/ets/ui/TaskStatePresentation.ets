@@ -5,7 +5,7 @@ export enum TaskStateCategory {
   Doing = 'Doing',
   Wait = 'Wait',
   Done = 'Done',
-  Cancle = 'Cancle'
+  Cancel = 'Cancel'
 }
 
 export function taskStateCategoryLabel(category: NativeTaskStateCategory | null | undefined): string {
@@ -14,7 +14,7 @@ export function taskStateCategoryLabel(category: NativeTaskStateCategory | null 
     case TaskStateCategory.Doing: return '进行中'
     case TaskStateCategory.Wait: return '等待'
     case TaskStateCategory.Done: return '已完成'
-    case TaskStateCategory.Cancle: return '已取消'
+    case TaskStateCategory.Cancel: return '已取消'
     default: return '未分类'
   }
 }
