@@ -366,7 +366,7 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 ~Workspace.watchNotifications(monitor): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications~ 。回调通过独立 TSFN 转发 ~NotificationUpdate~ 联合类型 ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
 
-~CoreNotificationService~ 统一持有通知订阅并发布页面批次中的通知结果，不再独立读取。仓库事件由数据订阅触发页面重查，全局通知事件也只标记数据失效，避免同一更新发起两次查询。 ~AppShell~ 只按通知模块的数据版本使当前可见页面重新查询；隐藏页面恢复时检查遗漏版本。同步区域不再持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面；解决结果保存后同样由 Core 通知触发。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。
+~CoreNotificationService~ 统一持有通知订阅并发布页面批次中的通知结果，不再独立读取。仓库事件由数据订阅触发页面重查，全局通知事件也只标记数据失效，避免同一更新发起两次查询。 ~AppShell~ 只按通知模块的数据版本使当前可见页面重新查询；隐藏页面恢复时检查遗漏版本。同步区域不再持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面；解决结果保存后同样由 Core 通知触发。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。 TRIGGER 的来源与全部关联目标共用这一事件。 ~TaskInlineService.findChanged~ 按数据版本合并可见任务行的查询，包含已完成与无状态条目并同批读取通知；新版本替换事件快照，失败允许重读，同版本共享结果不用于写入前校验。卡片保留输入草稿，只应用最新事件且在离开后丢弃结果，节点失效不再追加数据失效通知。
 
 ~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源是统一查询的 Notification 结果分支 。
 

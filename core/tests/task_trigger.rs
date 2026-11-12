@@ -476,3 +476,52 @@ async fn local_match_defaults_and_missing_target_conditions_do_not_escape_the_fi
         f.assert_one_commit(&source).await;
     }
 }
+
+#[tokio::test]
+async fn linked_change_event_observes_all_committed_nodes_and_is_not_emitted_for_noop_or_failure() {
+    let source = "#+TODO: TODO NEXT | DONE\n* TODO Task\nSCHEDULED: <2026-11-01 Sun +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(NEXT)\n:END:\n* TODO Last\n";
+    let mut f = Fixture::new(&[("tasks.org", source)]).await;
+    let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = observations.clone();
+    let disk = f.root.join("tasks.org");
+    let _watcher = f.workspace.watch_data_changes(move |event| {
+        observed
+            .lock()
+            .unwrap()
+            .push((event, std::fs::read_to_string(&disk).unwrap()));
+    });
+    let group = f.group().await;
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let committed = f.source();
+    assert!(committed.contains("* TODO Task\nSCHEDULED: <2026-11-02 Mon +1d>\n"));
+    assert!(committed.contains("* DONE Other\n"));
+    assert!(committed.ends_with("* NEXT Last\n"));
+    assert_eq!(
+        *observations.lock().unwrap(),
+        vec![(
+            DataChangeEvent::RepositoryChanged {
+                repo_id: f.workspace.repos()[0].id.clone(),
+            },
+            committed
+        )]
+    );
+    f.assert_one_commit(source).await;
+    let snapshot = f.snapshot();
+    let mut noop = f.group().await;
+    let TaskOperation::Modification(change) = &mut noop.operations[0] else {
+        unreachable!()
+    };
+    change.modifications = vec![TaskModification::Priority(None)];
+    f.workspace.execute_task_operations(&noop).await.unwrap();
+    assert_eq!(f.snapshot(), snapshot);
+    assert_eq!(observations.lock().unwrap().len(), 1);
+    let mut failed = f.group().await;
+    let TaskOperation::Modification(change) = &mut failed.operations[0] else {
+        unreachable!()
+    };
+    change.modifications = vec![TaskModification::Todo(Some("INVALID".into()))];
+    assert!(f.workspace.execute_task_operations(&failed).await.is_err());
+    assert_eq!(f.snapshot(), snapshot);
+    assert_eq!(observations.lock().unwrap().len(), 1);
+    assert_eq!(f.events.load(Ordering::Relaxed), 1);
+}

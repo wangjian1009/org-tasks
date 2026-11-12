@@ -1,6 +1,6 @@
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession } from '../services/TaskInlineService'
-import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
+import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../ui/TaskRepeatPresentation'
@@ -69,6 +69,9 @@ export struct TaskListItem {
   @StorageLink('coreDataChanges') @Watch('dataChanged') dataChanges: CoreDataChangeState = emptyCoreDataChangeState()
   @Prop referenceTime: number = Date.now()
   private ownerKey: string = ''
+  private appeared: boolean = false
+  private dataRevision: number = -1
+  private refreshRequest: number = 0
   private dateDialog: CustomDialogController | undefined = undefined
   private tagsDialog: CustomDialogController | undefined = undefined
   private repeatDialog: CustomDialogController | undefined = undefined
@@ -118,17 +121,24 @@ export struct TaskListItem {
     }
   }
   dataChanged() {
-    if (!this.editTask || this.removed) return
-    // 操作提交与数据事件各自排队，读取新快照由事件触发，并保留未保存的文字。
+    if (!this.appeared || this.removed || this.dataRevision === this.dataChanges.revision) return
+    const revision = this.dataChanges.revision
+    this.dataRevision = revision
+    const request = ++this.refreshRequest
+    // 关联任务与当前卡片共用事件快照；同一任务的写入与刷新仍顺序执行。
     const refresh = this.pending.then(async () => {
+      if (!this.appeared || this.removed || request !== this.refreshRequest) return
       const previous = this.value()
       try {
-        const current = await TaskInlineService.find(this.getUIContext().getHostContext()!, previous)
+        const current = await TaskInlineService.findChanged(this.getUIContext().getHostContext()!, previous, revision)
+        if (!this.appeared || this.removed || request !== this.refreshRequest) return
         if (!current) { this.removeDeletedTask(); return }
         if (!this.headingEditing) this.heading = current.heading
         if (!this.notesEditing) this.notes = current.editContent.notes.trimEnd()
         this.editTask = current
-      } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+      } catch (error) {
+        if (this.appeared && request === this.refreshRequest) this.message = coreErrorMessage(error as CoreBridgeError)
+      }
     })
     this.pending = refresh
   }
@@ -137,10 +147,15 @@ export struct TaskListItem {
     this.cancelCheckDrag()
     this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
     TaskInlineSession.release(this.ownerKey)
-    CoreDataChangeService.invalidate()
   }
-  aboutToAppear() { this.ownerKey = this.task.id }
+  aboutToAppear() {
+    this.ownerKey = this.task.id
+    this.appeared = true
+    this.dataRevision = this.dataChanges.revision
+  }
   aboutToDisappear() {
+    this.appeared = false
+    ++this.refreshRequest
     this.cancelCheckDrag()
     this.checkFocus.dispose()
     this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()

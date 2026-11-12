@@ -5,6 +5,9 @@ import { PageQueryService } from './PageQueryService'
 
 // 只组装字段操作和快照版本；保真修改、校验与通知由 Core 完成。
 export class TaskInlineService {
+  private static changeRevision: number = -1
+  private static changeSnapshot: Promise<CoreTask[]> | undefined = undefined
+
   static async modify(context: Context, task: CoreTask, modifications: CoreTaskModification[]): Promise<void> {
     if (modifications.length === 0) return
     const config = await AppConfigService.load(context, false)
@@ -32,7 +35,28 @@ export class TaskInlineService {
     const config = await AppConfigService.load(context, false)
     const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }]))[0]).tasks
     return tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
-      (task.taskId ? item.taskId === task.taskId : item.id === task.id))
+      ((!!task.taskId && item.taskId === task.taskId) || item.id === task.id))
+  }
+
+  static async findChanged(context: Context, task: CoreTask, revision: number): Promise<CoreTask | undefined> {
+    // 同一数据版本的可见任务行共用一次批量查询；写入前的 reload 仍独立读取最新文件。
+    if (TaskInlineService.changeRevision !== revision || !TaskInlineService.changeSnapshot) {
+      TaskInlineService.changeRevision = revision
+      TaskInlineService.changeSnapshot = TaskInlineService.changedTasks(context).catch((error: Error): never => {
+        if (TaskInlineService.changeRevision === revision) TaskInlineService.changeSnapshot = undefined
+        throw error
+      })
+    }
+    const tasks = await TaskInlineService.changeSnapshot
+    return tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
+      ((!!task.taskId && item.taskId === task.taskId) || item.id === task.id))
+  }
+
+  private static async changedTasks(context: Context): Promise<CoreTask[]> {
+    const config = await AppConfigService.load(context, false)
+    return taskResult((await PageQueryService.query(config, [{ type: 'task', query: {
+      includeDone: true, includeComposeTasks: true
+    } }]))[0]).tasks
   }
 
 }

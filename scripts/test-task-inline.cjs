@@ -24,13 +24,13 @@ function fixture() {
   const requests=[];
   const task={id:'stable',repoId:'core',filePath:'task.org',fileVersion:'old',fullPath:{repoId:'core',file:'task.org',titles:['Original'],occurrence:1},heading:'Original',tags:['local'],editContent:{notes:'notes',checklist:[]}};
   const updated={...task,heading:'New',fileVersion:'new',fullPath:{...task.fullPath,titles:['New']}};
-  let conflict=false, current=task;
+  let conflict=false, current=task, queryOverride;
   const batches=[];
   const config={repos:[{rootDirectory:'/repo',webdavEnabled:true}],todoDefaults:''};
   const workspace={
     repos:async()=>[{id:'core',rootDirectory:'/repo'}],
-    query:async batch=>{batches.push(batch);return batch.map(request=>request.type==='notification' ?
-      {type:'notification',result:[]} : {type:'task',result:{tasks:current?[current]:[]}})},
+    query:async batch=>{batches.push(batch);if(queryOverride)return queryOverride(batch);return batch.map(request=>request.type==='notification' ?
+      {type:'notification',result:[]} : {type:'task',result:{tasks:Array.isArray(current)?current:current?[current]:[]}})},
     executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');}
   };
   const service=load('entry/src/main/ets/services/TaskInlineService.ets',{
@@ -38,7 +38,7 @@ function fixture() {
     './PageQueryService':{PageQueryService:{query:async(_,batch)=>workspace.query([...batch,{type:'notification',query:{}}])}},
     './NativeCoreService':{taskResult:value=>value.result,NativeCoreService:{workspaceFor:async()=>workspace}}
   });
-  return {task,updated,config,requests,batches,...service,conflict:()=>conflict=true,setCurrent:value=>current=value};
+  return {task,updated,config,requests,batches,workspace,query:handler=>queryOverride=handler,...service,conflict:()=>conflict=true,setCurrent:value=>current=value};
 }
 test('标题修改使用原路径版本并只等待 Core 成功',async()=>{
   const f=fixture();await f.TaskInlineService.modify({},f.task,[{field:'TITLE',value:'New'}]);
@@ -66,29 +66,31 @@ function cardRefreshFixture(emit = true) {
   const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\]\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const code = ts.transpileModule('export class CardRefresh {' + refresh + persist + save + remove + '\n}', {
+  const disappear = source.match(/  aboutToDisappear\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const code = ts.transpileModule('export class CardRefresh {' + refresh + persist + save + remove + disappear + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
   let reads = 0, state;
-  const original = { heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
+  const original = { id:'task', heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
   const updated = { ...original, heading: '任务 [1/2]', fileVersion: 'new' };
-  let current=updated, readError;
+  let current=updated, readError, readOverride;
   const writes=[], released=[];
   let invalidations=0;
   const service = {
-    async modify(_context,_task,changes) { writes.push(changes); if (emit) state.dataChanged(); },
-    async find() { reads++; if(readError)throw readError; return current; }
+    async modify(_context,_task,changes) { writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } },
+    async findChanged(_context,_task,revision) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return current; }
   };
   vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,CoreDataChangeService,coreErrorMessage){' + code + '\n})', { filename })(module, module.exports, service,
     {release:key=>released.push(key)},{invalidate:()=>invalidations++},error => error.message);
   state = Object.assign(new module.exports.CardRefresh(), {
-    editTask: original, heading: original.heading, notes: '备注', headingEditing:false,notesEditing:false,
-    ownerKey:'task',removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',
-    value() { return this.editTask; }, getUIContext: () => ({ getHostContext: () => ({}) })
+    task:original,editTask: original, expanded:false,checkFocus:{dispose(){}},heading: original.heading, notes: '备注', headingEditing:false,notesEditing:false,
+    ownerKey:'task',appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',
+    value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
-    setCurrent:value=>current=value,fail:error=>readError=error };
+    setCurrent:value=>current=value,fail:error=>readError=error,readWith:fn=>readOverride=fn,
+    emit() { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } };
 }
 test('数据事件在写入之后重查卡片，标题草稿同步新进度，后续保存使用新版本', async () => {
   const f = cardRefreshFixture();
@@ -103,7 +105,7 @@ test('提交完成本身不触发重查，延后到达的数据事件仍刷新�
   assert.equal(await f.state.persist([{ field: 'TAGS', value: [] }]), true);
   assert.equal(f.reads(), 0);
   assert.equal(f.state.editTask, f.original);
-  f.state.dataChanged();
+  f.emit();
   await f.state.pending;
   assert.equal(f.state.heading, '任务 [1/2]');
 });
@@ -112,7 +114,7 @@ test('事件刷新保留正在输入的标题和备注', async () => {
   f.state.heading = '尚未保存的标题';
   f.state.notes = '尚未保存的备注';
   f.state.headingEditing = true; f.state.notesEditing = true;
-  f.state.dataChanged();
+  f.emit();
   await f.state.pending;
   assert.equal(f.state.heading, '尚未保存的标题');
   assert.equal(f.state.notes, '尚未保存的备注');
@@ -122,9 +124,9 @@ test('正在编辑的字段跨多次外部更新保持草稿，其他字段继�
   const f=cardRefreshFixture(false);
   f.state.heading='本地草稿';f.state.headingEditing=true;
   f.setCurrent({...f.updated,heading:'本地草稿',tags:['标签甲'],editContent:{notes:'外部备注甲',checklist:[]}});
-  f.state.dataChanged();await f.state.pending;
+  f.emit();await f.state.pending;
   f.setCurrent({...f.updated,heading:'外部标题乙',tags:['标签乙'],fileVersion:'latest',editContent:{notes:'外部备注乙',checklist:[]}});
-  f.state.dataChanged();await f.state.pending;
+  f.emit();await f.state.pending;
   assert.equal(f.state.heading,'本地草稿');assert.equal(f.state.notes,'外部备注乙');
   assert.deepEqual(f.state.editTask.tags,['标签乙']);assert.equal(f.state.editTask.fileVersion,'latest');
   await f.state.saveText();
@@ -142,19 +144,19 @@ test('保存只覆盖指定字段，使用外部变化后的最新路径和文�
 
 test('外部删除结束卡片会话，草稿不再提交；读取失败保留卡片',async()=>{
   const deleted=cardRefreshFixture(false);deleted.state.notesEditing=true;deleted.state.notes='未保存备注';
-  deleted.setCurrent(undefined);deleted.state.dataChanged();await deleted.state.pending;
+  deleted.setCurrent(undefined);deleted.emit();await deleted.state.pending;
   assert.equal(deleted.state.removed,true);assert.equal(deleted.state.snapshotBlocked,true);
-  assert.deepEqual(deleted.released,['task']);assert.equal(deleted.invalidations(),1);
+  assert.deepEqual(deleted.released,['task']);assert.equal(deleted.invalidations(),0);
   assert.equal(await deleted.state.saveText(),false);assert.deepEqual(deleted.writes,[]);
   const failed=cardRefreshFixture(false);failed.fail(new Error('读取失败'));
-  failed.state.dataChanged();await failed.state.pending;
+  failed.emit();await failed.state.pending;
   assert.equal(failed.state.removed,false);assert.equal(failed.state.editTask,failed.original);
   assert.equal(failed.state.message,'读取失败');
 });
 
 test('删除事件前已排队的字段保存也不会重新提交节点',async()=>{
   const f=cardRefreshFixture(false);f.setCurrent(undefined);
-  f.state.dataChanged();
+  f.emit();
   assert.equal(await f.state.persist([{field:'NOTES',value:'已排队草稿'}]),false);
   assert.deepEqual(f.writes,[]);assert.equal(f.state.removed,true);
 });
@@ -435,4 +437,124 @@ test('重复编辑把新日期和规则一次提交给 Core，停止只清除当
     { field: 'DEADLINE_REPEAT', value: null }
   ]);
   assert.equal(repeats.repeatSummary({ mode: 'catchUp', interval: 1, unit: 'month' }), '每 1 月 · 跳过已错过的日期');
+});
+
+function deferredRead() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function taskBatch(batch, tasks) {
+  return batch.map(item => item.type === 'notification' ? {type:'notification',result:[]} : {type:'task',result:{tasks}});
+}
+const eventTick = () => new Promise(resolve => setImmediate(resolve));
+
+test('同次联动事件的来源、目标和后续关联行共享一次任务与通知查询', async () => {
+  const f = fixture();
+  const source = {...f.task,todoKind:'pending',scheduled:'2026-11-13',fileVersion:'linked'};
+  const target = {...f.task,id:'target',todoKind:'done',scheduled:'2026-11-14',fileVersion:'linked'};
+  f.setCurrent([source,target]);
+  const values = await Promise.all([
+    f.TaskInlineService.findChanged({},f.task,10),
+    f.TaskInlineService.findChanged({},target,10)
+  ]);
+  assert.deepEqual(values,[source,target]);
+  assert.equal(await f.TaskInlineService.findChanged({},target,10),target);
+  assert.equal(f.batches.length,1);
+  assert.deepEqual(f.batches[0],[{type:'task',query:{includeDone:true,includeComposeTasks:true}},{type:'notification',query:{}}]);
+  f.setCurrent({...source,fileVersion:'next'});
+  assert.equal((await f.TaskInlineService.findChanged({},f.task,11)).fileVersion,'next');
+  assert.equal(f.batches.length,2);
+});
+
+test('事件快照只用于刷新，后续写入仍重新读取当前路径和版本', async () => {
+  const f = fixture();
+  await f.TaskInlineService.findChanged({},f.task,1);
+  f.setCurrent({...f.task,fileVersion:'outside'});
+  await f.TaskInlineService.modify({},f.task,[{field:'NOTES',value:'草稿'}]);
+  assert.equal(f.batches.length,2);
+  assert.equal(f.requests[0].fileVersions[0].version,'outside');
+});
+
+test('同次事件读取失败由所有行接收，重试同一版本会重新读取', async () => {
+  const f = fixture(); let attempts=0;
+  f.query(async batch => { if (++attempts===1) throw new Error('共享读取失败'); return taskBatch(batch,[f.updated]); });
+  const values=await Promise.allSettled([
+    f.TaskInlineService.findChanged({},f.task,1), f.TaskInlineService.findChanged({},f.task,1)
+  ]);
+  assert.ok(values.every(value=>value.status==='rejected' && /共享读取失败/.test(value.reason.message)));
+  assert.equal(f.batches.length,1);
+  assert.equal(await f.TaskInlineService.findChanged({},f.task,1),f.updated);
+  assert.equal(f.batches.length,2);
+});
+
+test('旧版本读取失败不会清除较新联动事件的共享快照', async () => {
+  const f=fixture(),old=deferredRead(),fresh=deferredRead();
+  f.query(batch=>f.batches.length===1?old.promise:fresh.promise);
+  const first=f.TaskInlineService.findChanged({},f.task,1);
+  const failure=assert.rejects(first,/旧读取失败/);
+  await eventTick();
+  const second=f.TaskInlineService.findChanged({},f.task,2);
+  await eventTick();
+  fresh.resolve(taskBatch(f.batches[1],[f.updated]));
+  assert.equal(await second,f.updated);
+  old.reject(new Error('旧读取失败')); await failure;
+  assert.equal(await f.TaskInlineService.findChanged({},f.task,2),f.updated);
+  assert.equal(f.batches.length,2);
+});
+
+test('联动后从任务变为无状态条目时，按同一记录身份继续刷新', async () => {
+  const f=fixture();
+  const original={...f.task,taskId:'identity'},updated={...f.task,taskId:null,todoKind:null};
+  f.setCurrent([{...updated,repoId:'other'},{...updated,filePath:'other.org'},updated]);
+  assert.equal(await f.TaskInlineService.findChanged({},original,1),updated);
+  assert.equal(await f.TaskInlineService.reload({},original),updated);
+});
+
+test('未展开过的关联行也由事件更新状态、日期和计数，保持收起状态', async () => {
+  const f=cardRefreshFixture(false);
+  f.state.editTask=undefined; f.state.heading=''; f.state.notes='';
+  const updated={...f.updated,todoKind:'done',scheduled:'2026-11-13',deadline:'2026-11-20',tags:['联动']};
+  f.setCurrent(updated); f.emit(); await f.state.pending;
+  assert.equal(f.state.editTask,updated);
+  assert.equal(f.state.heading,'任务 [1/2]');
+  assert.equal(f.state.value().scheduled,'2026-11-13');
+  assert.equal(f.state.value().todoKind,'done');
+  assert.deepEqual(f.state.value().tags,['联动']);
+  assert.equal(f.state.expanded,false); assert.equal(f.reads(),1);
+});
+
+test('已排队但尚未读取的连续事件只查询最新版本，同一版本不重复消费', async () => {
+  const f=cardRefreshFixture(false); const revisions=[];
+  f.readWith(revision=>{revisions.push(revision);return f.updated;});
+  f.emit(); f.emit(); f.emit(); await f.state.pending;
+  assert.deepEqual(revisions,[3]); assert.equal(f.reads(),1);
+  f.state.dataChanged(); await f.state.pending;
+  assert.equal(f.reads(),1);
+});
+
+test('旧联动读取完成时不回写旧值，较新事件继续刷新且保留文字草稿', async () => {
+  const f=cardRefreshFixture(false),old=deferredRead(),fresh=deferredRead();
+  f.state.heading='未保存草稿';f.state.headingEditing=true;
+  f.readWith(revision=>revision===1?old.promise:fresh.promise);
+  f.emit(); await eventTick(); const first=f.state.pending;
+  f.emit(); const second=f.state.pending;
+  old.resolve({...f.updated,heading:'旧标题',editContent:{notes:'旧备注'}}); await first;
+  assert.equal(f.state.editTask,f.original); assert.equal(f.state.notes,'备注');
+  fresh.resolve({...f.updated,editContent:{notes:'新备注'}}); await second;
+  assert.equal(f.state.heading,'未保存草稿');assert.equal(f.state.notes,'新备注');
+  assert.equal(f.state.editTask.fileVersion,'new');assert.equal(f.reads(),2);
+});
+
+test('卡片离开后，排队事件不读取，在途删除或错误不再改写状态或结束新会话', async () => {
+  const queued=cardRefreshFixture(false);queued.emit();queued.state.aboutToDisappear();await queued.state.pending;
+  assert.equal(queued.reads(),0);assert.equal(queued.state.removed,false);
+  for(const error of [false,true]) {
+    const f=cardRefreshFixture(false),read=deferredRead();f.readWith(()=>read.promise);
+    f.emit();await eventTick();f.state.aboutToDisappear();
+    if(error)read.reject(new Error('离开后失败'));else read.resolve(undefined);
+    await f.state.pending;
+    assert.equal(f.state.editTask,f.original);assert.equal(f.state.message,'');
+    assert.equal(f.state.removed,false);assert.deepEqual(f.released,['task']);assert.equal(f.invalidations(),0);
+  }
 });
