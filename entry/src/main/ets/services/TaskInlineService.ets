@@ -3,6 +3,10 @@ import { AppConfigService } from './AppConfigService'
 import { CoreTask, CoreTaskModification, NativeCoreService, taskResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
 
+export class TaskInlineMissingError extends Error {
+  constructor() { super('任务已删除或改名，请返回列表重新打开') }
+}
+
 // 只组装字段操作和快照版本；保真修改、校验与通知由 Core 完成。
 export class TaskInlineService {
   private static changeRevision: number = -1
@@ -27,7 +31,7 @@ export class TaskInlineService {
 
   static async reload(context: Context, task: CoreTask): Promise<CoreTask> {
     const current = await TaskInlineService.find(context, task)
-    if (!current) throw new Error('任务已删除或改名，请返回列表重新打开')
+    if (!current) throw new TaskInlineMissingError()
     return current
   }
 

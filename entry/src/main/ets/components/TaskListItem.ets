@@ -1,5 +1,5 @@
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
-import { TaskInlineService, TaskInlineSession } from '../services/TaskInlineService'
+import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../services/TaskInlineService'
 import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
@@ -144,6 +144,10 @@ export struct TaskListItem {
   }
   removeDeletedTask() {
     this.removed = true; this.snapshotBlocked = true
+    this.expanded = false; this.typing = false; this.message = ''
+    this.headingEditing = false; this.notesEditing = false
+    this.continueCheck = false
+    this.checkFocus.cancel()
     this.cancelCheckDrag()
     this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
     TaskInlineSession.release(this.ownerKey)
@@ -163,6 +167,7 @@ export struct TaskListItem {
     TaskInlineSession.release(this.ownerKey)
   }
   async prepare(): Promise<boolean> {
+    if (this.removed) return false
     if (!this.ownerKey) this.ownerKey = this.task.id
     if (!await TaskInlineSession.begin(this.ownerKey, async (collapse: boolean) => await this.finish(collapse))) return false
     if (!this.editTask) { this.editTask = this.task; this.heading = this.task.heading; this.notes = this.task.editContent.notes.trimEnd() }
@@ -216,7 +221,11 @@ export struct TaskListItem {
           if (modification.field === 'NOTES' && this.notes === modification.value) this.notesEditing = false
         }
         success = true
-      } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+      } catch (error) {
+        // 移动或删除的事件可能晚于保存前读取；源节点已消失时直接结束原会话。
+        if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
+        else this.message = coreErrorMessage(error as CoreBridgeError)
+      }
       finally { this.working = false }
     })
     this.pending = operation
@@ -321,7 +330,10 @@ export struct TaskListItem {
           this.headingEditing = false; this.notesEditing = false
           this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.message = ''
           this.snapshotBlocked = false; this.checkPreview = []
-        } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+        } catch (error) {
+          if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
+          else this.message = coreErrorMessage(error as CoreBridgeError)
+        }
         finally { this.working = false }
       } } })
   }
@@ -449,6 +461,7 @@ export struct TaskListItem {
         this.editTask = await TaskInlineService.reload(context, task)
         this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
       } catch (error) {
+        if (error instanceof TaskInlineMissingError) { this.removeDeletedTask(); return }
         const message = coreErrorMessage(error as CoreBridgeError)
         if (committed) {
           this.snapshotBlocked = true
@@ -459,7 +472,10 @@ export struct TaskListItem {
             this.editTask = await TaskInlineService.reload(context, task)
             this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           }
-          catch (_) { this.snapshotBlocked = true; this.message += '；读取失败，请重新载入' }
+          catch (error) {
+            if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
+            else { this.snapshotBlocked = true; this.message += '；读取失败，请重新载入' }
+          }
         } else { this.message = '排序未保存，请重试' }
       } finally { this.checkPreview = []; this.working = false }
     })

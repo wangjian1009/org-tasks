@@ -59,7 +59,7 @@ test('无 TODO 标题的进度与完整路径出现次序变化后，按 Core �
   await assert.rejects(f.TaskInlineService.reload({}, { ...f.task, id: 'another-task' }), /任务已删除或改名/);
 });
 
-function cardRefreshFixture(emit = true) {
+function cardRefreshFixture(emit = true, backend) {
   const filename = 'entry/src/main/ets/components/TaskListItem.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const refresh = source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}\n/)[0];
@@ -72,20 +72,21 @@ function cardRefreshFixture(emit = true) {
   }).outputText;
   const module = { exports: {} };
   let reads = 0, state;
-  const original = { id:'task', heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
+  const original = backend?.task ?? { id:'task', heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
   const updated = { ...original, heading: '任务 [1/2]', fileVersion: 'new' };
   let current=updated, readError, readOverride;
   const writes=[], released=[];
   let invalidations=0;
+  const TaskInlineMissingError = (backend ?? fixture()).TaskInlineMissingError;
   const service = {
-    async modify(_context,_task,changes) { writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } },
-    async findChanged(_context,_task,revision) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return current; }
+    async modify(_context,_task,changes) { if(backend)await backend.TaskInlineService.modify(_context,_task,changes); writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } },
+    async findChanged(_context,_task,revision) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return backend ? backend.TaskInlineService.findChanged(_context,_task,revision) : current; }
   };
-  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,CoreDataChangeService,coreErrorMessage){' + code + '\n})', { filename })(module, module.exports, service,
-    {release:key=>released.push(key)},{invalidate:()=>invalidations++},error => error.message);
+  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,TaskInlineMissingError,CoreDataChangeService,coreErrorMessage){' + code + '\n})', { filename })(module, module.exports, service,
+    {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message);
   state = Object.assign(new module.exports.CardRefresh(), {
-    task:original,editTask: original, expanded:false,checkFocus:{dispose(){}},heading: original.heading, notes: '备注', headingEditing:false,notesEditing:false,
-    ownerKey:'task',appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',
+    task:original,editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
+    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
@@ -165,6 +166,38 @@ test('保存前发现节点已经删除时不执行任何操作',async()=>{
   const f=fixture();f.setCurrent(undefined);
   await assert.rejects(f.TaskInlineService.modify({},f.task,[{field:'NOTES',value:'草稿'}]),/任务已删除/);
   assert.deepEqual(f.requests,[]);
+});
+
+test('任务移动后数据事件移除源卡片，不按保留的 Org ID 承接目标任务',async()=>{
+  const backend=fixture();backend.task.taskId='org-id';
+  const card=cardRefreshFixture(false,backend);
+  card.state.expanded=true;card.state.headingEditing=true;card.state.heading='未保存标题';
+  const moved={...backend.task,filePath:'projects.org',fullPath:{...backend.task.fullPath,file:'projects.org',titles:['项目','Original']}};
+  backend.setCurrent(moved);card.emit();await card.state.pending;
+  assert.equal(card.state.removed,true);assert.equal(card.state.expanded,false);
+  assert.equal(card.state.message,'');assert.deepEqual(card.released,[backend.task.id]);
+  assert.deepEqual(backend.requests,[]);assert.equal(moved.heading,'Original');
+});
+
+test('移动事件尚未送达时保存发现源任务消失，立即关闭卡片且不提交旧草稿',async()=>{
+  const backend=fixture(),card=cardRefreshFixture(false,backend);
+  card.state.expanded=true;card.state.notesEditing=true;card.state.notes='未保存备注';
+  backend.setCurrent({...backend.task,filePath:'projects.org'});
+  assert.equal(await card.state.saveText(),false);
+  assert.equal(card.state.removed,true);assert.equal(card.state.expanded,false);
+  assert.equal(card.state.message,'');assert.deepEqual(card.released,[backend.task.id]);
+  assert.deepEqual(backend.requests,[]);
+  card.emit();await card.state.pending;
+  assert.deepEqual(card.released,[backend.task.id]);
+});
+
+test('保存遇到版本冲突保留卡片与草稿',async()=>{
+  const backend=fixture(),card=cardRefreshFixture(false,backend);backend.conflict();
+  card.state.expanded=true;card.state.notesEditing=true;card.state.notes='未保存备注';
+  assert.equal(await card.state.saveText(),false);
+  assert.equal(card.state.removed,false);assert.equal(card.state.expanded,true);
+  assert.equal(card.state.notes,'未保存备注');assert.match(card.state.message,/版本冲突/);
+  assert.deepEqual(card.released,[]);
 });
 
 test('清单操作含快照条目 ID，仍使用原文件版本以防并发改动后误操作',async()=>{
@@ -346,7 +379,7 @@ function sortFixture({writeError,reloadError}={}) {
   const updated={fileVersion:'new',heading:'Changed title',editContent:{notes:'Changed notes',checklist:[items[1],items[0]]}};
   let reloadCalls=0;
   const service={modify:async(context,task,changes)=>{requests.push({task,changes});if(writeError)throw new Error(writeError);},reload:async()=>{reloadCalls++;if(reloadError)throw new Error(reloadError);return updated;}};
-  vm.runInThisContext('(function(module,exports,TaskInlineService,checklistMovePreview,coreErrorMessage){'+code+'\n})',{filename})(module,module.exports,service,reorder.checklistMovePreview,error=>error.message);
+  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineMissingError,checklistMovePreview,coreErrorMessage){'+code+'\n})',{filename})(module,module.exports,service,fixture().TaskInlineMissingError,reorder.checklistMovePreview,error=>error.message);
   const state={pending:Promise.resolve(),working:false,snapshotBlocked:false,draggingCheck:false,checkPreview:[],message:'',
     heading:'Title',notes:'Notes',canSortCheck(){return !this.snapshotBlocked&&!this.working;},
     value(){return this.editTask??current;},getUIContext:()=>({getHostContext:()=>({})})};
