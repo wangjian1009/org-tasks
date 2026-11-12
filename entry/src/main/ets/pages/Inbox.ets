@@ -12,7 +12,7 @@ import { InboxTargetPopup } from '../components/InboxTargetPopup'
 import { InboxSwipeActions } from '../components/InboxSwipeActions'
 import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
-import { RefileSection, RecentDay, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
+import { RefileSection, RecentDay, RecentTaskGroup, refileSections, recentDays, unplannedSpacer, targetPopupHeight } from '../ui/InboxPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
 import { CoreBridgeError, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
@@ -381,6 +381,27 @@ struct Inbox {
     }.width('100%').height(48).padding({ left: 20, right: 20 }).backgroundColor('#282C29')
   }
 
+  @Builder
+  recentTask(task: CoreTask) {
+    TaskListItem({ task, showDate: true, showCategory: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
+      this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
+    } }).enabled(!this.selectingRecords && !this.mergeBusy)
+  }
+
+  @Builder
+  recentProject(group: RecentTaskGroup) {
+    Column({ space: 8 }) {
+      Text(group.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8 })
+        .accessibilityText(group.project || '未命名项目')
+      Column() {
+        ForEach(group.tasks, (task: CoreTask) => { this.recentTask(task) }, (task: CoreTask) => taskRenderKey(task))
+      }.width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
+      .backgroundColor(UiColor.projectBlock).borderRadius(12)
+      .border({ width: 0.75, color: UiColor.projectOutline }).margin({ top: 12 })
+  }
+
   async loadRecords() {
     if (TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
     const request = ++this.requestId
@@ -520,15 +541,17 @@ struct Inbox {
                 ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }
                 ForEach(this.recentGroups, (day: RecentDay) => {
                   ListItemGroup({ header: this.recentHeader(day) }) {
-                    ForEach(day.tasks, (task: CoreTask) => {
+                    ForEach(day.groups, (group: RecentTaskGroup) => {
                       ListItem() {
                         Row() {
-                          TaskListItem({ task, showDate: true, showCategory: true, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
-                            this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
-                          } }).enabled(!this.selectingRecords && !this.mergeBusy)
+                          if (group.project !== null) {
+                            this.recentProject(group)
+                          } else {
+                            this.recentTask(group.tasks[0])
+                          }
                         }.width('100%').padding({ left: 20, right: 20 }).backgroundColor('#282C29')
                       }
-                    }, (task: CoreTask) => taskRenderKey(task))
+                    }, (group: RecentTaskGroup) => JSON.stringify(group))
                     ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }
                   }
                 }, (day: RecentDay) => JSON.stringify(day))

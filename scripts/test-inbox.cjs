@@ -216,9 +216,9 @@ test('删除只提交源快照，不伪造目标；无目标移动不提交', as
 test('近期日期分组只组织返回快照，保留完成与 CNCL、跨年日期和当天顺序', () => {
   const { recentDays, unplannedSpacer } = load('ui/InboxPresentation', {});
   const tasks = [
-    { id: 'done', todoKind: 'done', createdAt: new Date(2026, 0, 1, 12).getTime() },
-    { id: 'cancelled', isCancelled: true, createdAt: new Date(2026, 0, 1, 11).getTime() },
-    { id: 'memo', todoKind: null, createdAt: new Date(2025, 11, 31, 20).getTime() }
+    { id: 'done', todoKind: 'done', project: () => null, createdAt: new Date(2026, 0, 1, 12).getTime() },
+    { id: 'cancelled', isCancelled: true, project: () => null, createdAt: new Date(2026, 0, 1, 11).getTime() },
+    { id: 'memo', todoKind: null, project: () => null, createdAt: new Date(2025, 11, 31, 20).getTime() }
   ];
   const groups = recentDays(tasks, new Date(2026, 0, 2));
   assert.deepEqual(groups.map(g => g.date), ['1月1日', '2025年12月31日']);
@@ -227,6 +227,24 @@ test('近期日期分组只组织返回快照，保留完成与 CNCL、跨年日
   assert.equal(unplannedSpacer(800, 100), 500);
   assert.equal(unplannedSpacer(800, 900), 48);
   assert.equal(unplannedSpacer(400, 80), 220);
+});
+
+test('最近新增在创建日期内按分类与项目组织区块，保留普通任务、完成记录和原快照', () => {
+  const { recentDays } = load('ui/InboxPresentation', {});
+  const record = (id, category, project, day = 12, values = {}) => ({ id, category, project: () => project,
+    createdAt: new Date(2026, 10, day, 12).getTime(), ...values });
+  const tasks = [record('plain', '工作', null), record('first', '工作', '项目甲'),
+    record('memo', '工作', null, 12, { todoKind: null }), record('second', '工作', '项目甲', 12, { todoKind: 'done' }),
+    record('other-category', '生活', '项目甲'), record('unnamed', null, ''),
+    record('unnamed-again', '', ''), record('yesterday', '工作', '项目甲', 11)];
+  const days = recentDays(tasks, new Date(2026, 10, 12));
+  assert.deepEqual(days[0].groups.map(group => [group.project, group.tasks.map(task => task.id)]),
+    [[null, ['plain']], ['项目甲', ['first', 'second']], [null, ['memo']], ['项目甲', ['other-category']], ['', ['unnamed', 'unnamed-again']]]);
+  assert.deepEqual(days[1].groups.map(group => group.tasks), [[tasks[7]]]);
+  const displayed = days.flatMap(day => day.groups.flatMap(group => group.tasks));
+  assert.equal(displayed.length, tasks.length);
+  for (const task of tasks) assert.equal(displayed.filter(item => item === task).length, 1);
+  assert.deepEqual(recentDays([], new Date(2026, 10, 12)), []);
 });
 
 test('收件箱与近期记录在同一批次，最近三天表达式及精确排除保持原样', async () => {
