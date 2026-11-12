@@ -144,7 +144,7 @@ export struct OrgFilePreviewView {
     } catch (e) { if (revision === this.lifecycle) this.readingError(e as CoreBridgeError) }
   }
   async injectConflictCards() {
-    if (!this.flowContent || this.displayMode !== 'rendered' || this.conflictCards.length === 0) return
+    if (this.displayMode !== 'rendered' || this.conflictCards.length === 0) return
     await this.navigation.controller.runJavaScript(`(() => {
       document.querySelectorAll('[data-conflict-card]').forEach(n => n.remove());
       const cards = ${JSON.stringify(this.conflictCards)};
@@ -195,18 +195,19 @@ export struct OrgFilePreviewView {
   }
 
   async focusConflictCard(id: string) {
-    if (!this.renderReady || !this.flowContent || this.displayMode !== 'rendered') return
+    if (!this.renderReady || this.displayMode !== 'rendered') return
     const revision = this.lifecycle
     try {
       const result = await this.navigation.controller.runJavaScript(`(() => {
         const card = [...document.querySelectorAll('[data-conflict-card]')].find(node => node.dataset.conflictCard === ${JSON.stringify(id)});
-        if (!card) return false;
+        if (!card) return -1;
         for (let p = card.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+        if (!${this.flowContent}) { card.scrollIntoView({block:'start'}); return -1; }
         return (card.getBoundingClientRect().top + window.scrollY) / window.innerWidth;
       })()`)
       if (revision !== this.lifecycle || !this.active) return
       const ratio = Number(result)
-      if (Number.isFinite(ratio) && ratio >= 0 && this.contentWidth > 0) {
+      if (this.flowContent && Number.isFinite(ratio) && ratio >= 0 && this.contentWidth > 0) {
         this.pendingFlowOffset = Math.max(0, ratio * this.contentWidth - 16)
         this.pendingFlowFocus = false
         this.contentMeasureRevision++
@@ -455,7 +456,7 @@ export struct OrgFilePreviewView {
       } else {
         OrgContentView({ fragment: this.renderedHtml, revision: this.revision, empty: this.content.trim().length === 0,
           controller: this.navigation.controller, fileReading: true, fileContext: this.fileContext,
-          nodeActivated: this.nodeActivated,
+          nodeActivated: this.nodeActivated, conflictCardActivated: this.conflictCardActivated,
           ready: (): void => { this.documentReady() }, failed: this.failed }).width('100%').layoutWeight(1)
       }
     }.width('100%').height('100%')

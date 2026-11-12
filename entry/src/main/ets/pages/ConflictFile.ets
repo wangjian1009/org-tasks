@@ -639,7 +639,6 @@ struct ConflictFile {
             OrgFilePreviewView({ content: this.content, renderedHtml: this.html, displayMode: this.sourceMode ? 'source' : 'rendered',
               fileContext: '', title: this.file.title() || this.path, revision: `${this.renderRevision}`,
               conflictCards: this.conflictCards(), navigation: this.navigation,
-              flowContent: true,
               conflictCardActivated: (id: string, action: string): void => { this.activateCard(id, action) },
               ready: (): void => {
                 if (this.restoredPosition !== undefined) {

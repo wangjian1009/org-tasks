@@ -201,7 +201,7 @@ test('正文随外层滚动时仍保持整篇阅读版式和安全边界', () =>
 test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域可以选中节点', async () => {
   let hit='true';const selected=[];
   const { Content }=load(base+'components/OrgContentView.ets',{
-    '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(script){return script.startsWith('Boolean')?hit:'0';}}}},
+    '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(script){return script.includes('const action =')?hit:'0';}}}},
     '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
     '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'../services/ExternalLinkService':{}
   },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
@@ -209,4 +209,25 @@ test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域�
   const view=new Content();view.loaded=true;view.widthVp=390;view.nodeActivated=index=>selected.push(index);
   await view.activateAt(20,20);assert.deepEqual(selected,[]);
   hit='false';await view.activateAt(20,20);assert.deepEqual(selected,[0]);
+});
+
+test('长文档冲突卡片使用 Web 视口定位，保留浏览器滚动位置并展开父章节', async () => {
+  const f=fixture();
+  const browser={scrollY:0,scrollTo(x,y){this.scrollY=y;}};
+  const parent={tagName:'DETAILS',open:false,parentElement:null};
+  const card={dataset:{conflictCard:'far-card'},parentElement:parent,
+    scrollIntoView(options){assert.equal(options.block,'start');browser.scrollY=240000;}};
+  const document={querySelectorAll:()=>[card]};
+  f.evaluate(async script=>String(vm.runInNewContext(script,{document,window:browser})));
+  await f.page.focusConflictCard('far-card');
+  assert.equal(browser.scrollY,240000);
+  assert.equal(parent.open,true);
+  assert.equal(f.page.sourceScroller.lastScroll,undefined);
+  assert.equal(f.page.contentMeasureRevision,0);
+  assert.equal(await f.page.navigation.capturePosition(),240000);
+  await f.page.navigation.restorePosition(123000);
+  assert.equal(browser.scrollY,123000);
+  await f.page.focusConflictCard('missing-card');
+  assert.equal(browser.scrollY,123000);
+  assert.deepEqual(f.toasts,[]);
 });
