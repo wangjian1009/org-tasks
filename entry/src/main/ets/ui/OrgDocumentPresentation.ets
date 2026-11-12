@@ -3,8 +3,8 @@ import { UiColor } from './Theme'
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
 export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false,
   backgroundColor: string = UiColor.surface, embeddedPadding: number = 16,
-  fileReading: boolean = false, fileContext: string = ''): string {
-  const reading = fileReading && !embedded
+  fileReading: boolean = false, fileContext: string = '', flowReading: boolean = false): string {
+  const reading = fileReading && (!embedded || flowReading)
   const context = fileContext.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -107,5 +107,5 @@ html { background: ${backgroundColor}; }
 .file-reading li.checkbox-item .checkbox { position: absolute; left: 0; top: 0; color: #91A89D; }
 .file-reading .drawer { margin: 17px 0 20px; padding: 10px 0; border-top: 1px solid ${UiColor.divider}; border-bottom: 1px solid ${UiColor.divider}; font-size: 12px; }
 .file-reading .drawer > summary { min-height: 24px; }
-</style></head><body class="${embedded ? 'embedded' : reading ? 'file-reading' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
+</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
 }

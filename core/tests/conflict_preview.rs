@@ -586,6 +586,28 @@ async fn missing_stable_id_requires_explicit_target_and_finish_remaps_it() {
 }
 
 #[tokio::test]
+async fn task_without_stable_id_finds_unique_task_with_same_title() {
+    let mut f = Fixture::new().await;
+    f.source = merge(
+        b"* TODO Work\nbase\n",
+        b"* TODO Work\nlocal\n",
+        b"* TODO Work\nremote\n",
+    )
+    .unwrap();
+    std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
+    f.workspace.repos[0]
+        .load::<WebDavSyncPolicy>()
+        .await
+        .unwrap();
+    let p = f.preview().await;
+    let conflict = p.conflicts().await.unwrap().remove(0);
+    assert!(!conflict.requires_target);
+    assert!(matches!(conflict.suggested_target, Some(ConflictTarget::Existing(_))));
+    f.choose(&p, TaskConfilictAction::UseLocal).await;
+    assert_eq!(p.file().await.unwrap().source_bytes(), b"* TODO Work\nlocal\n");
+}
+
+#[tokio::test]
 async fn creation_movement_and_deletion_are_recorded_in_order_with_all_paths_remapped() {
     let mut f = Fixture::new().await;
     let p = f.preview().await;

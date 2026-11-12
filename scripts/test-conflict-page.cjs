@@ -8,6 +8,10 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log('用法: node scripts/test-conflict-page.cjs\n验证逐点预览、finish 返回操作组、统一提交、编辑返回与失败保护。'); process.exit(0);
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents','sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const treeModule={exports:{}};
+vm.runInThisContext('(function(require,module,exports){'+ts.transpileModule(fs.readFileSync('entry/src/main/ets/ui/ConflictTargetTree.ets','utf8'),
+ {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText+'\n})')(()=>({}),treeModule,treeModule.exports);
+const targetTree=treeModule.exports;
 const sourcePath = { repoId: 'core', file: 'a.org', titles: [], occurrence: 1 };
 const nodePath = { ...sourcePath, titles: ['Task'] };
 const conflicts = ['first', 'second'].map(id => ({ id, title: id, reason: 'modify', availableActions: ['discard','useLocal'], suggestedTarget: { type: 'existing', data: nodePath }, requiresTarget: false }));
@@ -81,7 +85,8 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
   };
   const dependencies={
     '@kit.ArkTS':{util:{TextDecoder:{create:()=>({decodeToString:value=>Buffer.from(value).toString('utf8')})}}},
-    '../components/OrgFilePreviewView':{OrgFilePreviewNavigation:class{closePanel(){return false;}focusChange(){} async capturePosition(){return 240;}restorePosition(){};}},
+    '../components/OrgFilePreviewView':{OrgFilePreviewNavigation:class{closePanel(){return false;}focusChange(){} focusFooter(){} async capturePosition(){return 240;}restorePosition(){};}},
+    '../ui/ConflictTargetTree':targetTree,
     '../services/AppConfigService':{AppConfigService:{async load(){return config;}}},
     '../services/NativeCoreService':{coreErrorMessage:e=>e.message,NativeCoreService:{async workspaceFor(){return workspace;},async repository(){return repo;},async executeTaskOperations(repos,group){return workspace.executeTaskOperations(group);}}},
     '../ui/Theme':{repositoryLabel:()=> '测试仓库', UiColor:{error:'#FF7592'}}
@@ -102,8 +107,18 @@ test('切换冲突直接替换差异和正文，不执行取舍或累计上一�
  const f=fixture();await f.page.load();f.page.selectConflict(f.page.conflicts[1]);await tick();
  assert.equal(f.page.selectedId,'second');assert.equal(f.page.afterText,'local second\n');assert.match(f.page.content,/local second/);assert.doesNotMatch(f.page.content,/local first/);
  assert.equal(f.requests.length,0);assert.equal(f.creates(),1);assert.equal(f.page.canApply(),false);
- await f.page.toggleBefore(true);assert.match(f.page.content,/remote/);
- await f.page.toggleBefore(false);assert.match(f.page.content,/local second/);assert.equal(f.requests.length,0);
+ assert.match(f.page.baseFile.sourceBytes().toString('utf8'),/remote/);
+ assert.match(f.page.content,/local second/);assert.equal(f.requests.length,0);
+});
+test('底部左右按钮循环切换当前冲突',async()=>{
+ const f=fixture();await f.page.load();f.page.selectAdjacent(1);await tick();assert.equal(f.page.selectedId,'second');
+ f.page.selectAdjacent(1);await tick();assert.equal(f.page.selectedId,'first');assert.equal(f.requests.length,0);
+});
+test('详情卡应用按钮按冲突原因显示插入放置删除',async()=>{
+ const f=fixture();await f.page.load();assert.equal(f.page.applyLabel(),'应用');
+ f.page.conflicts[0].reason='create';assert.equal(f.page.applyLabel(),'插入');
+ f.page.conflicts[0].reason='missing-parent';assert.equal(f.page.applyLabel(),'放置');
+ f.page.conflicts[0].reason='delete';assert.equal(f.page.applyLabel(),'删除');
 });
 test('差异读取失败保留冲突身份与当前主树，重试不提前取舍',async()=>{
  const f=fixture();await f.page.load();f.projectionFail(new Error('差异读取失败'));f.page.selectConflict(f.page.conflicts[1]);await tick();
@@ -119,10 +134,9 @@ test('过期的异步差异不会覆盖新冲突详情',async()=>{
 test('目标未确定时展示候选，选择目标只读取差异，确认采用才记录操作',async()=>{
  const f=fixture();f.requireTarget();await f.page.load();
  assert.equal(f.page.projection.status,'targetRequired');assert.equal(f.page.summaryText(true),'待选择目标后比较');assert.equal(f.page.mainChangeCount(),0);assert.equal(f.requests.length,0);
- f.page.openTargets();await f.page.chooseTarget(f.page.placements[0]);
+ f.page.openTargets();await f.page.chooseTarget(f.page.targetRows().find(row=>row.target));
  assert.equal(f.page.projection.status,'ready');assert.equal(f.page.canApply(),false);assert.equal(f.requests.length,0);
- f.page.changeChoice('useLocal');await tick();assert.equal(f.requests.length,1);assert.equal(f.page.canApply(),true);
- const creates=f.creates();f.page.changeChoice('useLocal');await tick();assert.equal(f.creates(),creates);assert.equal(f.requests.length,1);
+ await f.page.stage('useLocal',f.page.selectedTarget);assert.equal(f.requests.length,1);assert.equal(f.page.canApply(),true);
 });
 test('逐点预览只编辑副本，finish 后才经统一接口提交源操作',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'useLocal');
@@ -177,6 +191,72 @@ test('正文、当前文件和预览只展示主树，原文件的候选仍由�
  assert.doesNotMatch(f.page.html,/同步冲突/);
  assert.equal(f.page.conflicts.length,2);
  await f.page.prepare(f.page.conflicts[0],'useLocal');
- await f.page.toggleBefore(true);assert.match(f.page.content,/remote/);assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
- await f.page.toggleBefore(false);assert.match(f.page.content,/local/);assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
+ assert.match(f.page.baseFile.sourceBytes().toString('utf8'),/remote/);assert.doesNotMatch(f.page.baseFile.sourceBytes().toString('utf8'),/同步冲突|CONFILICT_ID/);
+ assert.match(f.page.content,/local/);assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
+});
+
+test('已读取差异时点击一次应用即完成真实提交，且保留其他冲突',async()=>{
+ const f=fixture();await f.page.load();await f.page.applyChoice();
+ assert.deepEqual(f.events.filter(e=>['stage','finish','submit'].includes(e)),['stage','finish','submit']);
+ assert.equal(f.page.conflicts.length,1);assert.equal(f.page.conflicts[0].id,'second');
+ f.page.selectAdjacent(1);await tick();assert.equal(f.page.selectedId,'second');
+});
+test('单次丢弃只移除当前冲突，失败可重试且不重复 finish',async()=>{
+ const f=fixture();await f.page.load();f.fail(new Error('存储失败'));await f.page.discardChoice();
+ assert.match(f.page.message,/存储失败/);assert.ok(f.page.pendingGroup);
+ assert.equal(f.requests.at(-1).operations[0].data.action,'discard');
+ f.fail(undefined);f.page.message='';await f.page.applyPreview();
+ assert.equal(f.events.filter(e=>e==='finish').length,1);assert.equal(f.page.conflicts.length,1);
+});
+test('替换主树明确确认范围，确认一次即提交；提交期间阻止重复点击',async()=>{
+ const f=fixture();await f.page.load();f.page.conflicts[0].reason='structure';
+ assert.equal(f.page.applyLabel(),'替换主树');await f.page.applyChoice();assert.equal(f.requests.length,0);
+ let release;f.wait(new Promise(resolve=>release=resolve));f.dialogs[0].secondaryButton.action();await tick();
+ assert.equal(f.page.saving,true);await f.page.applyChoice();assert.equal(f.events.filter(e=>e==='submit').length,1);
+ assert.deepEqual(f.requests.at(-1).operations[0].data.target,{type:'replaceMain'});
+ release();await tick();await tick();assert.equal(f.page.conflicts.length,1);
+});
+test('手动编辑后丢弃先确认，只提交当前冲突的丢弃而不提交手动内容',async()=>{
+ const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'useLocal');
+ f.handles.at(-1).change();await f.page.refreshPreview();assert.equal(f.page.manuallyEdited,true);
+ await f.page.discardChoice();assert.equal(f.events.includes('submit'),false);assert.equal(f.dialogs.length,1);
+ f.dialogs[0].primaryButton.action();assert.equal(f.page.manuallyEdited,true);
+ await f.page.discardChoice();f.dialogs[1].secondaryButton.action();await tick();await tick();
+ assert.equal(f.events.filter(e=>e==='submit').length,1);
+ assert.deepEqual(f.requests.at(-1).operations.map(op=>op.data.action),['discard']);
+ assert.equal(f.page.conflicts.length,1);
+});
+test('副本取舍失败时不 finish、不提交，原文件与其他冲突保持原样',async()=>{
+ const f=fixture();await f.page.load();f.stageFail(new Error('副本写入失败'));await f.page.applyChoice();
+ assert.equal(f.events.includes('finish'),false);assert.equal(f.events.includes('submit'),false);
+ assert.match(f.page.message,/副本写入失败/);assert.equal(f.page.conflicts.length,2);
+ f.stageFail(undefined);f.page.message='';await f.page.applyChoice();
+ assert.equal(f.events.filter(e=>e==='submit').length,1);assert.equal(f.page.conflicts.length,1);
+});
+test('未选目标只展开正文下方的树，选择只投影，之后单次应用提交',async()=>{
+ const f=fixture();f.requireTarget();await f.page.load();
+ assert.equal(f.page.targetsVisible,true);assert.ok(f.page.targetRoot);
+ await f.page.applyChoice();assert.equal(f.requests.length,0);
+ const row=f.page.targetRows().find(row=>row.target);await f.page.chooseTarget(row);
+ assert.equal(f.requests.length,0);assert.equal(f.page.targetsVisible,false);
+ assert.equal(f.page.selectedTargetLabel(),'Task');await f.page.applyChoice();
+ assert.equal(f.events.filter(e=>e==='submit').length,1);
+});
+test('树形目标保留重名父级身份及所有 Core 插入位置，折叠只影响展示',()=>{
+ const path=(titles,occurrence=1)=>({...nodePath,titles,occurrence});
+ const paths=[path(['分组']),path(['分组','子任务']),path(['分组'],2),path(['分组','子任务'],2)];
+ const positions=[{parent:sourcePath}];
+ for(let i=0;i<paths.length;i++)positions.push({parent:paths[i]},{parent:i%2?paths[i-1]:sourcePath,after:paths[i]});
+ const file={fullPath:sourcePath,path:'a.org',title:()=> 'A',
+  nodes:()=>paths.map(p=>({fullPath:p,heading:p.titles.at(-1)})),insertionPositions:()=>positions};
+ const root=targetTree.conflictTargetTree(file,'missing-parent');
+ assert.equal(root.children.length,2);assert.equal(root.children[0].children.length,1);
+ assert.equal(root.children[1].children[0].path.occurrence,2);
+ const expanded=[root.key,...root.children.map(n=>n.key),...root.children.flatMap(n=>n.children.map(c=>c.key))];
+ const rows=targetTree.conflictTargetRows(root,expanded);assert.equal(new Set(rows.map(r=>r.key)).size,rows.length);
+ assert.deepEqual(rows.filter(r=>r.target).map(r=>r.target.data),[
+  positions[0],positions[1],positions[3],positions[4],positions[2],positions[5],positions[7],positions[8],positions[6]]);
+ assert.equal(targetTree.conflictTargetRows(root,[]).length,1);
+ const existing=targetTree.conflictTargetTree(file,'modify');
+ assert.equal(existing.target,undefined);assert.equal(existing.children[1].target.data.occurrence,2);
 });

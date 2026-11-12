@@ -11,6 +11,7 @@ export class OrgFilePreviewNavigation {
   openOutline: () => void = () => {}
   expandAll: (expand: boolean) => void = () => {}
   focusChange: (index: number) => void = () => {}
+  focusFooter: () => void = () => {}
   capturePosition: () => Promise<number> = async (): Promise<number> => 0
   restorePosition: (offset: number) => void = () => {}
   closePanel: () => boolean = () => false
@@ -27,6 +28,8 @@ export struct OrgFilePreviewView {
   @Prop @Watch('snapshotChanged') revision: string = ''
   @Prop changes: CoreConflictPreviewChanges | undefined = undefined
   @Prop showBefore: boolean = false
+  @Prop flowContent: boolean = false
+  @BuilderParam footer: () => void = this.emptyFooter
   navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
   ready: () => void = () => {}
   failed: (message: string) => void = () => {}
@@ -35,19 +38,27 @@ export struct OrgFilePreviewView {
   @State outlineVisible: boolean = false
   @State chapters: OrgDocumentChapter[] = []
   @State activeChapter: number = -1
+  @State contentMeasureRevision: number = 0
   private outlineRequest: number = 0
   private lifecycle: number = 0
   private active: boolean = true
   private sourceScroller: Scroller = new Scroller()
   private sourceOffsets: Map<number, number> = new Map()
+  private lineOffsets: Map<number, number> = new Map()
+  private viewportHeight: number = 0
+  private contentWidth: number = 0
+  private footerOffset: number = 0
+  private pendingFlowFocus: boolean = false
 
   aboutToAppear() {
     this.active = true
+    this.pendingFlowFocus = this.flowContent
     this.navigation.openOutline = (): void => { this.openOutline() }
     this.navigation.expandAll = (expand: boolean): void => { this.expandAll(expand) }
     this.navigation.focusChange = (index: number): void => { this.focusChange(index) }
+    this.navigation.focusFooter = (): void => { this.focusFooter() }
     this.navigation.capturePosition = async (): Promise<number> => {
-      if (this.displayMode === 'source') return this.sourceScroller.currentOffset().yOffset
+      if (this.flowContent || this.displayMode === 'source') return this.sourceScroller.currentOffset().yOffset
       if (!this.renderReady) return 0
       try {
         const offset = Number(await this.navigation.controller.runJavaScript('window.scrollY'))
@@ -63,7 +74,10 @@ export struct OrgFilePreviewView {
     }
   }
   aboutToDisappear() { this.active = false; this.lifecycle++; this.outlineRequest++; this.renderReady = false; this.outlineVisible = false }
-  snapshotChanged() { this.lifecycle++; this.renderReady = false; this.outlineRequest++; this.outlineVisible = false; this.sourceOffsets.clear() }
+  snapshotChanged() {
+    this.lifecycle++; this.renderReady = false; this.outlineRequest++; this.outlineVisible = false
+    this.sourceOffsets.clear(); this.lineOffsets.clear(); this.pendingFlowFocus = true
+  }
   async documentReady() {
     if (!this.active) return
     this.renderReady = true
@@ -106,17 +120,43 @@ export struct OrgFilePreviewView {
         });
         return true;
       })()`)
+      if (this.flowContent) this.contentMeasureRevision++
       if (revision === this.lifecycle) await this.focusChange(0)
       if (revision === this.lifecycle) this.ready()
     } catch (e) { if (revision === this.lifecycle) this.readingError(e as CoreBridgeError) }
   }
   async focusChange(index: number) {
+    if (this.flowContent && this.displayMode === 'source') {
+      const change = this.changes?.changes[index]
+      const line = (this.showBefore ? change?.before : change?.after)?.start.line
+      const offset = line === undefined ? undefined : this.lineOffsets.get(line - 1)
+      if (offset !== undefined) this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+      else this.focusFooter()
+      return
+    }
     if (this.displayMode === 'source') {
       const offset = this.sourceOffsets.get(index)
       if (offset !== undefined) this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
       return
     }
     if (!this.renderReady || !Number.isInteger(index) || index < 0) return
+    if (this.flowContent) {
+      const revision = this.lifecycle
+      try {
+        const result = await this.navigation.controller.runJavaScript(`(() => {
+          const marker = document.querySelector('[data-preview-marker="${index}"]');
+          if (!marker) return -1;
+          for (let p = marker.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+          return (marker.getBoundingClientRect().top + window.scrollY) / window.innerWidth;
+        })()`)
+        if (revision !== this.lifecycle || !this.active) return
+        const ratio = Number(result)
+        if (Number.isFinite(ratio) && ratio >= 0 && this.contentWidth > 0) {
+          this.sourceScroller.scrollTo({ xOffset: 0, yOffset: Math.max(0, ratio * this.contentWidth - this.viewportHeight * 0.2), animation: false })
+        } else this.focusFooter()
+      } catch (e) { if (revision === this.lifecycle) this.readingError(e as CoreBridgeError) }
+      return
+    }
     try {
       await this.navigation.controller.runJavaScript(`(() => {
         const marker = document.querySelector('[data-preview-marker="${index}"]');
@@ -128,18 +168,32 @@ export struct OrgFilePreviewView {
   }
   async restorePosition(offset: number) {
     if (!Number.isFinite(offset) || offset < 0 || !this.active) return
-    if (this.displayMode === 'source') {
+    this.pendingFlowFocus = false
+    if (this.flowContent || this.displayMode === 'source') {
       this.sourceScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
     } else if (this.renderReady) {
       try { await this.navigation.controller.runJavaScript(`window.scrollTo(0, ${offset})`) }
       catch (e) { this.readingError(e as CoreBridgeError) }
     }
   }
+  focusFooter() {
+    if (!this.flowContent || !this.active) return
+    this.sourceScroller.scrollTo({ xOffset: 0, yOffset: Math.max(0, this.footerOffset - this.viewportHeight * 0.35), animation: false })
+  }
+
+  flowMeasured() {
+    if (!this.pendingFlowFocus || !this.flowContent) return
+    if (this.displayMode !== 'source' && !this.renderReady) return
+    this.pendingFlowFocus = false
+    if (this.changes?.changes.length) this.focusChange(0)
+    else this.focusFooter()
+  }
   async expandAll(expand: boolean) {
     if (!this.renderReady || this.displayMode !== 'rendered' || false) return
     const revision = this.lifecycle
     try {
       await this.navigation.controller.runJavaScript(documentExpandScript(expand))
+      if (this.flowContent) this.contentMeasureRevision++
       if (revision === this.lifecycle && this.outlineVisible) await this.openOutline()
     } catch (e) {
       if (revision === this.lifecycle) this.readingError(e as CoreBridgeError)
@@ -171,17 +225,67 @@ export struct OrgFilePreviewView {
 
   async openChapter(chapter: OrgDocumentChapter) {
     if (!this.renderReady || this.displayMode !== 'rendered' || false) return
+    if (!Number.isInteger(chapter.index) || chapter.index < 0) return
     const revision = this.lifecycle
     this.outlineRequest++
     try {
-      const result = await this.navigation.controller.runJavaScript(documentChapterScript(chapter.index))
+      const result = await this.navigation.controller.runJavaScript(this.flowContent ? `(() => {
+        const node = document.querySelectorAll('details.heading')[${chapter.index}];
+        if (!node) return -1;
+        for (let p = node; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+        return (node.getBoundingClientRect().top + window.scrollY) / window.innerWidth;
+      })()` : documentChapterScript(chapter.index))
       if (revision !== this.lifecycle) return
-      if (result !== 'true') throw new Error('目录已失效，请重新打开文件')
+      if (this.flowContent) {
+        const ratio = Number(result)
+        if (!Number.isFinite(ratio) || ratio < 0) throw new Error('目录已失效，请重新打开文件')
+        this.sourceScroller.scrollTo({ xOffset: 0, yOffset: ratio * this.contentWidth, animation: false })
+        this.contentMeasureRevision++
+      } else if (result !== 'true') throw new Error('目录已失效，请重新打开文件')
       this.activeChapter = chapter.index
       this.outlineVisible = false
     } catch (e) {
       if (revision === this.lifecycle) this.readingError(e as CoreBridgeError)
     }
+  }
+
+  @Builder
+  emptyFooter() {}
+
+  @Builder
+  flowingDocument() {
+    Scroll(this.sourceScroller) {
+      Column() {
+        if (this.displayMode === 'source') {
+          Column() {
+            ForEach(this.content.split('\n'), (line: string, index: number) => {
+              Text(line || ' ').width('100%').fontSize(14).fontFamily('monospace').fontColor(UiColor.text)
+                .copyOption(CopyOptions.LocalDevice)
+                .onAreaChange((oldArea: Area, newArea: Area): void => {
+                  this.lineOffsets.set(index, Number(newArea.position.y))
+                })
+            }, (line: string, index: number) => `${this.revision}-${index}`)
+          }.width('100%').padding(20)
+        } else {
+          OrgContentView({ fragment: this.renderedHtml, revision: this.revision, empty: this.content.trim().length === 0,
+            controller: this.navigation.controller, embedded: true, flowReading: true, fileReading: true,
+            layoutRevision: this.contentMeasureRevision,
+            fileContext: this.fileContext, nodeActivated: this.nodeActivated,
+            ready: (): void => { this.documentReady() }, measured: (): void => { this.flowMeasured() }, failed: this.failed })
+            .width('100%')
+        }
+        Column() { this.footer() }.width('100%')
+          .onAreaChange((oldArea: Area, newArea: Area): void => {
+            this.footerOffset = Number(newArea.position.y)
+            this.flowMeasured()
+            if (this.displayMode === 'source') this.ready()
+          })
+      }.width('100%').constraintSize({ minHeight: this.viewportHeight }).justifyContent(FlexAlign.SpaceBetween)
+    }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+      .onAreaChange((oldArea: Area, newArea: Area): void => {
+        this.viewportHeight = Number(newArea.height)
+        this.contentWidth = Number(newArea.width)
+      })
   }
 
   @Builder
@@ -223,7 +327,9 @@ export struct OrgFilePreviewView {
 
   build() {
     Column() {
-      if (this.displayMode === 'source') {
+      if (this.flowContent) {
+        this.flowingDocument()
+      } else if (this.displayMode === 'source') {
         Scroll(this.sourceScroller) {
           Column({ space: 12 }) {
             if (this.changes) {

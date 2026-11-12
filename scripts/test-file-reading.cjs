@@ -38,7 +38,7 @@ function fixture() {
     '../ui/SyncLogPresentation': {},
     '../ui/Theme': theme,
     '../ui/OrgDocumentNavigation': navigation
-  }, source => source.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+  }, source => source.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State |@BuilderParam |@Prop(?: @Watch\('[^']+'\))? /g, '')
     .replace('export struct OrgFilePreviewView', 'class FileDetail') + '}\nmodule.exports = { FileDetail };');
   const page = new FileDetail();
   page.aboutToAppear();
@@ -166,4 +166,47 @@ test('文档载入中切换相同正文的版本，完成回调仍只发布最�
   view.revision = '2';view.documentChanged();view.pageEnded();
   assert.equal(ready.length, 2);
   view.aboutToDisappear();view.pageEnded();assert.equal(ready.length, 2);
+});
+
+test('正文带详情卡时在原生滚动容器中定位，离开后的旧定位不会滚动新快照', async () => {
+  const f=fixture();f.page.flowContent=true;f.page.contentWidth=390;f.page.viewportHeight=600;
+  f.page.footerOffset=900;f.evaluate(async()=> '2');
+  await f.page.focusChange(0);
+  assert.deepEqual(f.page.sourceScroller.lastScroll,{xOffset:0,yOffset:660,animation:false});
+  assert.ok(!f.calls.at(-1).includes('scrollIntoView'));
+  let release;f.evaluate(()=>new Promise(resolve=>release=resolve));const pending=f.page.focusChange(0);
+  f.page.snapshotChanged();release('9');await pending;
+  assert.equal(f.page.sourceScroller.lastScroll.yOffset,660);
+  f.page.focusFooter();assert.equal(f.page.sourceScroller.lastScroll.yOffset,690);
+  assert.equal(await f.page.navigation.capturePosition(),690);
+});
+
+test('原文与详情卡共用滚动位置；缺少变化锚点时定位详情卡', async () => {
+  const f=fixture();f.page.flowContent=true;f.page.displayMode='source';f.page.viewportHeight=600;f.page.footerOffset=900;
+  f.page.changes={changes:[{after:{start:{line:4}}}]};f.page.lineOffsets.set(3,128);
+  await f.page.focusChange(0);assert.equal(f.page.sourceScroller.lastScroll.yOffset,128);
+  f.page.snapshotChanged();assert.equal(f.page.lineOffsets.size,0);
+  await f.page.focusChange(0);assert.equal(f.page.sourceScroller.lastScroll.yOffset,690);
+  assert.deepEqual(f.calls,[]);
+});
+
+test('正文随外层滚动时仍保持整篇阅读版式和安全边界', () => {
+  const doc=presentation.orgDocumentPage('<p>正文</p>',false,true,theme.UiColor.surface,16,true,'',true);
+  assert.ok(doc.includes('<body class="file-reading">'));
+  assert.ok(doc.includes("script-src 'none'"));
+  const task=presentation.orgDocumentPage('<p>任务</p>',false,true,theme.UiColor.surface,16,true);
+  assert.ok(task.includes('<body class="embedded">'));
+});
+
+test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域可以选中节点', async () => {
+  let hit='true';const selected=[];
+  const { Content }=load(base+'components/OrgContentView.ets',{
+    '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(script){return script.startsWith('Boolean')?hit:'0';}}}},
+    '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
+    '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'../services/ExternalLinkService':{}
+  },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
+    .replace('export struct OrgContentView','class Content')+'}\nmodule.exports={Content};');
+  const view=new Content();view.loaded=true;view.widthVp=390;view.nodeActivated=index=>selected.push(index);
+  await view.activateAt(20,20);assert.deepEqual(selected,[]);
+  hit='false';await view.activateAt(20,20);assert.deepEqual(selected,[0]);
 });

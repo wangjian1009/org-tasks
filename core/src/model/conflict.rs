@@ -190,17 +190,49 @@ fn target_for(file: &OrgFile, point: &Headline, why: &str) -> Option<ConflictTar
         .into_iter()
         .filter(|(_, h)| !OrgFile::is_conflict_headline(h))
         .collect::<Vec<_>>();
-    let id = property(&child, "ID")?;
-    let matches = nodes
-        .into_iter()
-        .filter(|(_, h)| property(h, "ID").as_ref() == Some(&id))
-        .collect::<Vec<_>>();
-    // 缺少稳定 ID 时无法从包装还原原父级，必须由用户明确选择目标。
-    if matches.len() == 1 {
-        Some(ConflictTarget::Existing(matches[0].0.clone()))
-    } else {
-        None
+    if let Some(id) = property(&child, "ID").filter(|id| !id.trim().is_empty()) {
+        let matches = nodes
+            .iter()
+            .filter(|(_, h)| property(h, "ID").as_ref() == Some(&id))
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            return Some(ConflictTarget::Existing(matches[0].0.clone()));
+        }
+        // 显式身份失配或重复时不能退回同名任务，以免替换另一个节点。
+        return None;
     }
+
+    // 无 Org ID 的有效任务按规范化标题尝试唯一定位；普通笔记仍需明确选择。
+    let is_task = child.todo_keyword().is_some_and(|state| {
+        let state = state.to_string();
+        file.todo
+            .pending_keywords
+            .iter()
+            .any(|value| value == &state)
+            || file.todo.done_keywords.iter().any(|value| value == &state)
+    });
+    if is_task {
+        let title = crate::model::task_identity::path_title(&child);
+        let title_matches = nodes
+            .iter()
+            .filter(|(_, headline)| {
+                headline.todo_keyword().is_some_and(|state| {
+                    let state = state.to_string();
+                    file.todo
+                        .pending_keywords
+                        .iter()
+                        .any(|value| value == &state)
+                        || file.todo.done_keywords.iter().any(|value| value == &state)
+                }) && crate::model::task_identity::path_title(headline) == title
+            })
+            .collect::<Vec<_>>();
+        if title_matches.len() == 1 {
+            return Some(ConflictTarget::Existing(title_matches[0].0.clone()));
+        }
+    }
+
+    // 缺少稳定 ID 或唯一任务定位时必须由用户明确选择目标。
+    None
 }
 impl OrgFile {
     pub fn conflicts(&self) -> Result<Vec<FileConflict>, CoreError> {

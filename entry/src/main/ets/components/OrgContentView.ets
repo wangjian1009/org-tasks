@@ -17,6 +17,8 @@ export struct OrgContentView {
   @Prop @Watch('backgroundChanged') contentBackground: string = UiColor.surface
   @Prop embeddedPadding: number = 16
   @Prop fileReading: boolean = false
+  @Prop flowReading: boolean = false
+  @Prop @Watch('measure') layoutRevision: number = 0
   @Prop fileContext: string = ''
   controller: webview.WebviewController = new webview.WebviewController()
   nodeActivated: ((index: number) => void) | undefined = undefined
@@ -27,6 +29,7 @@ export struct OrgContentView {
   private tapTime: number = 0
   private tapMoved: boolean = false
   ready: () => void = () => {}
+  measured: () => void = () => {}
   failed: (message: string) => void = () => {}
   @State contentHeight: number = 100
   @State error: string = ''
@@ -61,7 +64,7 @@ export struct OrgContentView {
       const result = await this.controller.runJavaScript(`Boolean(document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp})?.closest('a, summary'))`)
       if (generation !== this.documentGeneration) return
       if (this.active && result === 'false') this.activate?.()
-      if (this.active && this.nodeActivated) {
+      if (this.active && this.nodeActivated && result === 'false') {
         const selected = await this.controller.runJavaScript(`(() => {
           const node = document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp});
           if (!node || node.closest('a')) return -1;
@@ -87,10 +90,13 @@ export struct OrgContentView {
 
   async measure() {
     if (!this.active || !this.embedded || !this.loaded || this.widthVp <= 0) return
+    const generation = this.documentGeneration
     try {
       const result = await this.controller.runJavaScript('document.body.getBoundingClientRect().height / window.innerWidth')
+      if (generation !== this.documentGeneration || !this.active || !this.loaded) return
       const ratio = Number(result)
       if (this.active && Number.isFinite(ratio) && ratio > 0) this.contentHeight = Math.max(40, Math.ceil(ratio * this.widthVp))
+      if (this.active) this.measured()
     } catch (e) {
       // 页面已离开时不再更新嵌入内容的尺寸。
       if (this.active) this.reportError(e as CoreBridgeError)
@@ -114,7 +120,7 @@ export struct OrgContentView {
     this.requestedGeneration = this.documentGeneration
     try {
       this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
-        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext)), 'text/html', 'UTF-8')
+        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext, this.flowReading)), 'text/html', 'UTF-8')
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 
