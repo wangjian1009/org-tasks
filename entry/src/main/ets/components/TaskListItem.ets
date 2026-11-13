@@ -1144,7 +1144,7 @@ export struct TaskListItem {
       items.push({ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
         { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
-    if (!this.documentMode && this.value().logs.length > 0) {
+    if (this.value().logs.length > 0) {
       items.push({ title: '日志',
         icon: this.logbookExpanded ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
         action: () => { this.logbookExpanded = !this.logbookExpanded } })
@@ -1250,7 +1250,7 @@ export struct TaskListItem {
               this.attributes()
             }
           }.width('100%')
-          if (!this.documentMode && this.value().logs.length > 0) {
+          if (this.value().logs.length > 0) {
             TaskLogView({ logs: this.value().logs, expanded: this.logbookExpanded,
               contentBackground: this.value().state?.category === TaskStateCategory.Doing
                 ? '#00000000' : UiColor.taskCard }).width('100%').padding({ left: 27 })

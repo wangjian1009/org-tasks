@@ -455,3 +455,23 @@ test('项目返回先保存原位编辑，保存失败不离开页面', async ()
   await f.page.leaveProject(); assert.deepEqual(f.routes, []);
   f.setEnd(async () => true); await f.page.leaveProject(); assert.deepEqual(f.routes, ['back']);
 });
+
+test('项目任务展开后可从更多菜单查看和收起日志，没有日志时隐藏入口', () => {
+  const filename = base + 'components/TaskListItem.ets';
+  const { Card } = load(filename, {}, source => {
+    const start = source.indexOf('  moreItems():');
+    const end = source.indexOf('  @Builder\n  attributes()', start);
+    return 'function $r(name: string): string { return name }\nexport class Card {\n' + source.slice(start, end) + '\n}';
+  });
+  const card = new Card();
+  let logs = [{ type: 'taskNote', timestamp: '2026-11-14 09:00', noteHtml: '<p>任务日志</p>' }];
+  card.documentMode = true; card.readOnly = false; card.logbookExpanded = false;
+  card.value = () => ({ logs });
+  const show = card.moreItems().find(item => item.title === '日志');
+  assert.ok(show);
+  show.action(); assert.equal(card.logbookExpanded, true);
+  const hide = card.moreItems().find(item => item.title === '日志');
+  assert.notEqual(hide.icon, show.icon);
+  hide.action(); assert.equal(card.logbookExpanded, false);
+  logs = []; assert.ok(!card.moreItems().some(item => item.title === '日志'));
+});

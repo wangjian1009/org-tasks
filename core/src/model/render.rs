@@ -94,14 +94,11 @@ impl TitleCount {
 }
 
 impl OrgFile {
-    /// 将同一语法树拆为前言和各标题的直属正文，保留表格、清单、属性与日志。
+    /// 将同一语法树拆为前言和各标题的直属正文，保留表格和清单，排除属性与日志抽屉。
     /// 不包含标题或后代正文，不应用任务查询过滤；受保护的冲突子树除外。
     pub fn document_sections(&self) -> Vec<DocumentSection> {
-        let render = |section: Option<orgize::ast::Section>, properties: Option<orgize::ast::PropertyDrawer>| {
-            let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, Some(self.todo.clone()));
-            if let Some(properties) = properties {
-                view.element(properties.syntax().clone().into(), &mut TraversalContext::default());
-            }
+        let render = |section: Option<orgize::ast::Section>| {
+            let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, Some(self.todo.clone()), true);
             if let Some(section) = section {
                 for element in section.syntax().children_with_tokens() {
                     if element.kind() != SyntaxKind::PLANNING {
@@ -111,10 +108,10 @@ impl OrgFile {
             }
             view.0.finish()
         };
-        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section(), None) }];
+        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()) }];
         sections.extend(self.path_headlines().into_iter()
             .filter(|(_, headline)| !Self::is_conflict_headline(headline))
-            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section(), headline.properties()) }));
+            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()) }));
         sections
     }
 
@@ -124,14 +121,14 @@ impl OrgFile {
 
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None);
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None, false);
         self.syntax().traverse(&mut view);
         view.0.finish()
     }
 
     /// 完整文档的语义投影；宿主决定哪些任务可折叠，不新增页面领域状态。
     pub fn render_document_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, Some(self.todo.clone()));
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, Some(self.todo.clone()), false);
         view.0.push_str("<header class=\"document-header\">");
         if let Some(name) = self.project_name() {
             view.0.push_str(format!("<div class=\"document-project-name\">{}</div>", HtmlEscape(name)));
@@ -227,6 +224,7 @@ impl FilterTask {
             false,
             false,
             None,
+            false,
         );
         let org = orgize::Org::parse(&body);
         org.traverse(&mut view);
@@ -241,7 +239,7 @@ impl FilterTask {
 }
 
 pub(super) fn render_fragment(source: &str) -> String {
-    let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None);
+    let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None, false);
     orgize::Org::parse(source).traverse(&mut view);
     view.0.finish()
 }
@@ -380,7 +378,8 @@ impl Traverser for TitleView {
     }
 }
 
-struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool, bool, Option<super::TodoMetadata>);
+// 最后一项仅用于分段正文：隐藏属性与日志抽屉，通用文件预览继续保留它们。
+struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool, bool, Option<super::TodoMetadata>, bool);
 
 impl ReadingView {
     fn literal(&mut self, class: &str, text: impl AsRef<str>) {
@@ -468,7 +467,7 @@ impl Traverser for ReadingView {
             Event::Leave(Container::Headline(_)) => self.0.push_str(if self.6.is_some() { "</div></section>" } else { "</details>" }),
             Event::Enter(Container::PropertyDrawer(drawer)) => {
                 let document = self.6.is_some();
-                if document && !drawer.syntax().ancestors().any(|node| node.kind() == SyntaxKind::HEADLINE) {
+                if self.7 || (document && !drawer.syntax().ancestors().any(|node| node.kind() == SyntaxKind::HEADLINE)) {
                     ctx.skip();
                     return;
                 }
@@ -485,9 +484,13 @@ impl Traverser for ReadingView {
                 ctx.skip();
             }
             Event::Enter(Container::Drawer(drawer)) => {
+                if self.7 && ["PROPERTIES", "LOGBOOK"].iter().any(|name| drawer.name().eq_ignore_ascii_case(name)) {
+                    ctx.skip();
+                    return;
+                }
                 if drawer.name().eq_ignore_ascii_case("LOGBOOK") && self.2.is_some() {
                     let mut log =
-                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None);
+                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None, false);
                     for element in drawer
                         .syntax()
                         .children()
@@ -504,7 +507,7 @@ impl Traverser for ReadingView {
                 self.0.push_str(if document {
                     format!("<section class=\"drawer\"><div class=\"drawer-title\">{}</div>", HtmlEscape(drawer.name()))
                 } else { format!("<details class=\"drawer\"><summary>{}</summary>", HtmlEscape(drawer.name())) });
-                let mut content = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, self.6.clone());
+                let mut content = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, self.6.clone(), self.7);
                 for element in drawer.syntax().children()
                     .filter(|node| node.kind() == SyntaxKind::DRAWER_CONTENT)
                     .flat_map(|node| node.children_with_tokens()) {
@@ -763,10 +766,16 @@ mod tests {
             assert!(node.is_some(), "正文必须能在同版本节点中定位");
         }
         let body = &sections[2].html;
-        for text in ["正文文字", "checkbox-item", "保留清单", "<table>", "数据", "keep-id", "LOGBOOK", "记录"] {
+        for text in ["正文文字", "checkbox-item", "保留清单", "<table>", "数据"] {
             assert!(body.contains(text), "缺少 {text}: {body}");
         }
-        assert!(!body.contains("子任务文字") && !body.contains("SCHEDULED"));
+        for hidden in ["子任务文字", "SCHEDULED", "PROPERTIES", "keep-id", "LOGBOOK", "记录"] {
+            assert!(!body.contains(hidden), "正文不应包含 {hidden}: {body}");
+        }
+        let task = file.nodes().into_iter().find(|node| node.full_path() == sections[2].path.as_ref().unwrap()).unwrap();
+        assert!(task.render_content().logbook_html.contains("记录"));
+        assert!(!task.render_content().logs.is_empty());
+        assert!(file.render_html().contains("keep-id"));
         assert!(!sections.iter().any(|section| section.html.contains("私有候选文字")));
         assert_eq!(file.file_tags(), ["project", "work", "ARCHIVE"]);
         assert_eq!(file.special_tags(), ["project", "REFILE", "ARCHIVE", "CONFLICT"]);
@@ -781,6 +790,26 @@ mod tests {
         assert!(sections[1].html.trim().is_empty());
         assert!(sections[2].html.contains("&lt;script&gt;"));
         assert!(!sections[2].html.contains("<script>"));
+    }
+
+    #[test]
+    fn document_body_hides_real_metadata_drawers_but_preserves_literals_and_other_drawers() {
+        let source = "#+FILETAGS: :project:\n:LOGBOOK:\n文件日志应隐藏\n:END:\n* TODO 仅元数据\n:PROPERTIES:\n:ID: task-only-metadata\n:END:\n:logbook:\nCLOCK: [2026-11-13 Fri 09:00]--[2026-11-13 Fri 10:00] => 1:00\n:END:\n** 普通标题\n:PROPERTIES:\n:CUSTOM: 隐藏章节属性\n:END:\n:LOGBOOK:\n隐藏章节日志\n:END:\n:NOTES:\n保留其他抽屉\n:END:\n#+begin_src text\n:PROPERTIES:\n:ID: literal-property\n:END:\n:LOGBOOK:\nliteral-logbook\n:END:\n#+end_src\n";
+        let file = file(source);
+        let sections = file.document_sections();
+        assert!(sections[0].html.trim().is_empty());
+        assert!(sections[1].html.trim().is_empty());
+        let html = &sections[2].html;
+        for visible in ["保留其他抽屉", "literal-property", "literal-logbook", ":PROPERTIES:", ":LOGBOOK:"] {
+            assert!(html.contains(visible), "缺少 {visible}: {html}");
+        }
+        for hidden in ["文件日志应隐藏", "隐藏章节属性", "隐藏章节日志", "CLOCK:", "task-only-metadata"] {
+            assert!(!sections.iter().any(|section| section.html.contains(hidden)), "正文不应包含 {hidden}");
+        }
+        let task = file.nodes().into_iter().find(|node| node.full_path() == sections[1].path.as_ref().unwrap()).unwrap();
+        assert_eq!(task.render_content().logs.len(), 1);
+        assert!(file.render_html().contains("隐藏章节属性"));
+        assert_eq!(file.source_bytes(), source.as_bytes());
     }
 
     #[test]
@@ -1203,6 +1232,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         );
         orgize::Org::parse(
             ":LOGBOOK:\nCLOCK: [2026-11-05 Thu 09:00]--[2026-11-05 Thu 10:00] => 1:00\n:END:\n",

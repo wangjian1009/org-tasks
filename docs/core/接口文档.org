@@ -714,7 +714,7 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 
 ** 文档分段与特殊标签
 
-~OrgFile.document_sections()~ 返回按文件顺序排列的 ~Vec<DocumentSection>~ ，每项包含 ~path: Option<TaskPath>~ 和安全 HTML 字符串 ~html~ 。首项为前言，路径为空；后续项对应同版本 ~nodes()~ 的完整标题路径，保留重名标题的出现次序。各项只含当前节点直属正文，不含标题、规划行与后代正文，保留自身属性、日志、表格和 checkbox；受保护冲突子树排除。前言不输出文件头配置与属性。空文件仍返回一项空前言。宿主可复用既有节点接口渲染标题，不解析 Org 或 HTML 来判断任务。
+~OrgFile.document_sections()~ 返回按文件顺序排列的 ~Vec<DocumentSection>~ ，每项包含 ~path: Option<TaskPath>~ 和安全 HTML 字符串 ~html~ 。首项为前言，路径为空；后续项对应同版本 ~nodes()~ 的完整标题路径，保留重名标题的出现次序。各项只含当前节点直属正文，不含标题、规划行与后代正文，保留表格和 checkbox，跳过真实的 PROPERTIES 与 LOGBOOK 抽屉；受保护冲突子树排除。代码与示例中的同名字面内容保持可读，其他普通 drawer 继续渲染；节点的结构化日志、属性和源字节保持完整。前言不输出文件头配置与属性。空文件仍返回一项空前言。宿主可复用既有节点接口渲染标题，不解析 Org 或 HTML 来判断任务。
 
 ~file_tags()~ 返回当前有效 FILETAGS，按来源顺序去重并保留内部标签。 ~special_tags()~ 返回展示时应隐藏的内部用途标签，当前为 ~project~ 、 ~REFILE~ 、 ~ARCHIVE~ 和 ~CONFLICT~ ，大小写精确匹配。列表只用于展示，隐藏不改变原始标签、候选配置、任务查询或项目身份；修改普通标签必须保留内部标签。
 

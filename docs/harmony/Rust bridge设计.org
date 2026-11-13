@@ -628,7 +628,7 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 
 ~OrgFile.documentSections()~ 、 ~fileTags()~ 和 ~specialTags()~ 分别读取 Rust bridge 在同一文件工作线程中通过 Core 的 ~document_sections()~ 、 ~file_tags()~ 和 ~special_tags()~ 生成的快照。 ~DocumentSection { path: TaskPath | null, html: string }~ 按文件顺序排列，前言路径为空；标题项路径关联同版本 ~nodes()~ ，不在 ArkTS 解释 Org 或筛选任务。C++ 注册快照方法，类型声明和 ArkTS wrapper 同步维护，不新增同步 FFI 请求。
 
-~ProjectDetail~ 使用 ~ProjectDocumentView~ 将原生 ~TaskListItem~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注、清单和日志，正文持续可见。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
+~ProjectDetail~ 使用 ~ProjectDocumentView~ 将原生 ~TaskListItem~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注和清单编辑，正文持续可见；Core 的正文分段不输出真实的 PROPERTIES 与 LOGBOOK，Task 的完整属性与结构化日志仍来自原快照。任务展开后通过“更多 → 日志”查看或收起日志，默认收起。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
 
 * 默认优先级快照
 
