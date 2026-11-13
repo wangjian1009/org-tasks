@@ -23,6 +23,7 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
 import { TitleText } from './TitleText'
 import { OrgContentView } from './OrgContentView'
 import { TaskLogView } from './TaskLogView'
+import { TaskChecklistView } from './TaskChecklistView'
 import { TitleCounts } from './TitleCounts'
 import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
 import { TaskInlineFocus } from '../ui/TaskInlineFocus'
@@ -465,6 +466,7 @@ export struct TaskListItem {
   async changeCheck(change: CoreTaskChecklistChange) {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
+    if (!await this.prepare()) return
     const id = change.type === 'add' ? '' : change.id
     const index = this.value().editContent.checklist.findIndex(item => item.id === id)
     if (!await this.saveText() || !await this.saveCheck(false)) return
@@ -476,6 +478,7 @@ export struct TaskListItem {
   async editCheck(item: CoreTaskChecklistItem) {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
+    if (!await this.prepare()) return
     const index = this.value().editContent.checklist.findIndex(current => current.id === item.id)
     if (!await this.saveText() || !await this.saveCheck(false)) return
     const current = this.value().editContent.checklist[index]
@@ -486,6 +489,7 @@ export struct TaskListItem {
   async addCheck() {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
+    if (!await this.prepare()) return
     if (!await this.saveText() || !await this.saveCheck(false)) return
     this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
@@ -1007,6 +1011,32 @@ export struct TaskListItem {
       .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).accessibilityText(`删除清单条目：${item.text}`)
       .onClick(() => { this.changeCheck({ type: 'remove', id: item.id }) })
   }
+
+  // 项目文档使用原生正文滚动，清单控件复用任务卡的快照与保存回调。
+  @Builder
+  documentChecklist() {
+    if (this.value().editContent.checklist.length > 0 || this.addingCheck) {
+      TaskChecklistView({ items: this.checkItems(), editable: !this.readOnly, working: this.working,
+        snapshotBlocked: this.snapshotBlocked, editingId: this.checkId, editingText: this.checkText,
+        adding: this.addingCheck, newText: this.newCheck, showAdd: true,
+        ownerKey: this.ownerKey,
+        toggle: (change: CoreTaskChecklistChange): void => { this.changeCheck(change) },
+        edit: (item: CoreTaskChecklistItem): void => { this.editCheck(item) },
+        editChanged: (text: string): void => { this.checkText = text },
+        editBlur: (): void => { this.saveCheck(false) },
+        editSubmit: (): void => { this.saveCheck(true) },
+        remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
+        add: (): void => { this.addCheck() },
+        newChanged: (text: string): void => { this.newCheck = text },
+        newBlur: (): void => { this.saveCheck(false) },
+        newSubmit: (): void => { this.saveCheck(true) },
+        focused: (): void => { this.inputFocus() },
+        inputAppeared: (id: string): void => { this.checkFocus.appeared(id) },
+        inputDisappeared: (id: string): void => { this.checkFocus.disappeared(id) },
+        inputVisible: (id: string): void => { this.checkFocus.visible(id) } })
+        .width('100%')
+    }
+  }
   @Builder
   editorContent() {
     Row({ space: 6 }) {
@@ -1046,7 +1076,9 @@ export struct TaskListItem {
         autoCancel: !this.working && !this.priorityBusy, onWillDismiss: !this.working && !this.priorityBusy,
         onStateChange: (event): void => { this.priorityOpen = event.isVisible } })
     Column({ space: 12 }) {
-      if (!this.documentMode) {
+      if (this.documentMode) {
+        this.documentChecklist()
+      } else {
       TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
         .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
@@ -1287,6 +1319,7 @@ export struct TaskListItem {
           Text(this.expandedPlanningText()).fontSize(12).fontColor(UiColor.secondary)
             .width('100%').padding({ left: 26, bottom: 8 })
         }
+        this.documentChecklist()
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       } else {
         Row({ space: 6 }) {
