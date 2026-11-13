@@ -7,7 +7,7 @@ export function prepareProjectDocumentScript(): string {
     const name = header.querySelector('.document-project-name');
     const category = header.querySelector('.document-category') || document.createElement('div');
     category.className = 'document-category';
-    category.textContent = '项目' + (category.textContent ? ' · ' + category.textContent : '');
+    category.textContent = '项目' + (category.textContent ? ' / ' + category.textContent : '');
     header.prepend(category);
     if (name) { if (!name.textContent.trim()) name.textContent = '未命名项目'; name.setAttribute('role', 'heading'); name.setAttribute('aria-level', '1'); }
     const title = header.querySelector('.document-file-title');
@@ -31,18 +31,31 @@ export function prepareProjectDocumentScript(): string {
     document.querySelectorAll('section.heading[data-org-task="true"]').forEach(node => {
       node.classList.add('task-heading');
       if (node.dataset.orgFoldable !== 'true') return;
+      const body = node.querySelector(':scope > .heading-content > .heading-body');
+      if (!body) return;
       const details = document.createElement('details');
-      for (const attr of node.attributes) details.setAttribute(attr.name, attr.value);
-      const heading = node.querySelector(':scope > .heading-summary');
+      details.className = 'task-description';
+      details.id = node.id + '-description';
       const summary = document.createElement('summary');
-      summary.className = 'heading-summary';
-      while (heading.firstChild) summary.appendChild(heading.firstChild);
-      heading.remove();
+      summary.className = 'description-summary';
+      const collapsed = document.createElement('span');
+      collapsed.className = 'description-expand'; collapsed.textContent = '展开描述';
+      const expanded = document.createElement('span');
+      expanded.className = 'description-collapse'; expanded.textContent = '收起描述';
+      summary.append(collapsed, expanded);
       details.appendChild(summary);
-      while (node.firstChild) details.appendChild(node.firstChild);
-      node.replaceWith(details);
+      body.replaceWith(details);
+      details.appendChild(body);
     });
-    const hasContent = document.querySelector('.heading, .table-scroll, .source, .drawer, body > p, body > blockquote, body > ul, body > ol');
+    document.querySelectorAll('.heading[data-org-start]').forEach(node => {
+      let depth = 0;
+      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        if (parent.matches('.heading')) depth++;
+      }
+      node.style.setProperty('--heading-indent', depth <= 2 ? '12px' : '0px');
+      node.style.setProperty('--heading-guide', depth <= 2 ? '#494B48' : 'transparent');
+    });
+    const hasContent = document.querySelector('main .heading, main .heading-body > *');
     if (!hasContent) {
       const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '项目还没有内容'; document.body.appendChild(empty);
     }
@@ -55,7 +68,7 @@ export function captureProjectReadingScript(): string {
     const nodes = Array.from(document.querySelectorAll('.heading[data-org-start]'));
     const visible = nodes.filter(n => n.getClientRects().length && n.getBoundingClientRect().top <= 48);
     const anchor = visible[visible.length - 1];
-    return JSON.stringify({ open: Array.from(document.querySelectorAll('details.task-heading[open]')).map(n => n.id),
+    return JSON.stringify({ open: Array.from(document.querySelectorAll('details.task-description[open]')).map(n => n.id),
       anchor: anchor?.id || '', offset: anchor?.getBoundingClientRect().top || 0, scroll: window.scrollY });
   })()`
 }
@@ -64,10 +77,10 @@ export function restoreProjectReadingScript(state: string): string {
   return `(() => {
     try {
       const state = JSON.parse(${JSON.stringify(state)});
-      document.querySelectorAll('details.task-heading').forEach(n => { n.open = state.open.includes(n.id); });
+      document.querySelectorAll('details.task-description').forEach(n => { n.open = state.open.includes(n.id); });
       const anchor = document.getElementById(state.anchor);
       window.scrollTo(0, anchor ? window.scrollY + anchor.getBoundingClientRect().top - state.offset : state.scroll || 0);
-    } catch (_) { /* 缺少有效会话状态时保留任务默认折叠。 */ }
+    } catch (_) { /* 缺少有效会话状态时保留描述默认收起。 */ }
     return true;
   })()`
 }

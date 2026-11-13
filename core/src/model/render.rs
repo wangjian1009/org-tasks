@@ -357,6 +357,13 @@ impl Traverser for ReadingView {
             Event::Enter(Container::Document(_) | Container::Section(_))
             | Event::Leave(Container::Document(_) | Container::Section(_))
                 if self.2.is_some() => {}
+            // Section 仅包含当前标题的直属正文；后代 Headline 是它的兄弟节点。
+            Event::Enter(Container::Section(_)) if self.6.is_some() => {
+                self.0.push_str("<div class=\"heading-body\">");
+            }
+            Event::Leave(Container::Section(_)) if self.6.is_some() => {
+                self.0.push_str("</div>");
+            }
             Event::Enter(Container::Headline(headline)) => {
                 if self.6.is_some() && OrgFile::is_conflict_headline(&headline) {
                     ctx.skip();
@@ -369,8 +376,7 @@ impl Traverser for ReadingView {
                 self.0.push_str(format!("<{tag} class=\"heading level-{level}\" data-org-start=\"{}\" data-org-end=\"{}\" id=\"org-node-{}\"", u32::from(headline.start()), u32::from(headline.end()), u32::from(headline.start())));
                 if let Some(todo) = headline.todo_keyword().filter(|_| document) {
                     let state = self.6.as_ref().and_then(|metadata| metadata.category(todo.as_ref()));
-                    let content = headline.syntax().children().any(|node| node.kind() == SyntaxKind::HEADLINE)
-                        || headline.section().is_some_and(|section| section.syntax().children().any(|node| node.kind() != SyntaxKind::PLANNING));
+                    let content = headline.section().is_some_and(|section| section.syntax().children().any(|node| node.kind() != SyntaxKind::PLANNING));
                     self.0.push_str(format!(" data-org-task=\"true\" data-org-state=\"{}\" data-org-foldable=\"{content}\"", state.map(|value| format!("{value:?}")).unwrap_or_default()));
                 }
                 self.0.push_str(if document { ">" } else { " open>" });
@@ -736,6 +742,22 @@ mod tests {
         assert!(html.contains("CUSTOM</dt><dd>preserve"));
         let only_date = super::tests::file("* TODO 只有日期\nSCHEDULED: <2026-11-13 Fri>\n").render_document_html();
         assert!(only_date.contains("data-org-foldable=\"false\""), "{only_date}");
+    }
+
+    #[test]
+    fn document_description_ends_before_children_and_does_not_fold_child_only_tasks() {
+        let source = "#+FILETAGS: :project:\n* TODO 父任务\n父描述\n** TODO 子任务\n子描述\n** 普通下级章节\n始终可读\n* TODO 只有子任务\nSCHEDULED: <2026-11-13 Fri>\n** TODO 叶子任务\n";
+        let file = file(source);
+        let html = file.render_document_html();
+        assert!(html.contains("<div class=\"heading-body\"><p>父描述\n</p></div><section"), "{html}");
+        assert!(html.contains("<div class=\"heading-body\"><p>子描述\n</p></div>"), "{html}");
+        let child_only = html.find("只有子任务").unwrap();
+        let start = html[..child_only].rfind("<section class=\"heading").unwrap();
+        assert!(html[start..child_only].contains("data-org-foldable=\"false\""), "{html}");
+        assert_eq!(html.matches("data-org-foldable=\"true\"").count(), 2);
+        assert!(html.contains("始终可读"));
+        assert!(!html.contains("<details"));
+        assert_eq!(file.source_bytes(), source.as_bytes());
     }
 
     #[test]

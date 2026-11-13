@@ -37,14 +37,14 @@ export function documentChapterScript(index: number, project: boolean = false): 
   return `(function() {
     var node = document.querySelectorAll('${project ? '.heading[data-org-start]' : 'details.heading'}')[${index}];
     if (!node) return false;
-    for (var parent = node; parent; parent = parent.parentElement) {
+    ${project ? '' : `for (var parent = node; parent; parent = parent.parentElement) {
       if (parent.matches('details.heading')) parent.open = true;
-    }
+    }`}
     node.scrollIntoView({ block: 'start', behavior: 'auto' });
     return true;
   })()`
 }
 
 export function documentExpandScript(expand: boolean, project: boolean = false): string {
-  return `document.querySelectorAll('${project ? 'details.task-heading' : 'details.heading'}').forEach(function(node) { node.open = ${expand ? 'true' : 'false'}; })`
+  return `document.querySelectorAll('${project ? 'details.task-description' : 'details.heading'}').forEach(function(node) { node.open = ${expand ? 'true' : 'false'}; })`
 }

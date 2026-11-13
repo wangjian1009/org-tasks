@@ -702,7 +702,7 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 
 ~OrgFile.render_document_html()~ 基于同一语法树提供完整文件的语义 HTML，供需要连续阅读的宿主使用。与既有 ~render_html()~ 分离，保留普通文件和历史预览的原有行为。文件头提供项目名称、文档标题、分类、标签、有效属性、其他头关键字的语义键值以及同一快照的字节数与可用修改时间；未知内容转义保留，不执行 HTML、脚本或 Babel。真实标题与前言按源顺序完整输出；自有或祖先带 ~CONFLICT~ 标签的受保护子树不进入文档投影，原始字节与既有通用渲染保持完整，供原文与冲突处理使用。
 
-所有标题先以 ~section.heading~ 输出，标题摘要与内容分别使用 ~heading-summary~ 和 ~heading-content~ 。有效 TODO 标题携带 ~data-org-task~ 、Core 状态分类 ~data-org-state~ 与真实正文／后代存在标记 ~data-org-foldable~ ；仅有规划行而没有正文或后代的任务不标记为可折叠。任务分类包含文件自定义流程，普通标题不误判为任务；属性与日志 drawer 直接完整展示。 ~data-org-start~ 、 ~data-org-end~ 与标题 ID 属于当前文件版本，版本变化后不能直接复用。
+所有标题先以 ~section.heading~ 输出，标题摘要与内容分别使用 ~heading-summary~ 和 ~heading-content~ ；直属正文使用 ~heading-body~ ，与后代标题节点互为兄弟。有效 TODO 标题携带 ~data-org-task~ 、Core 状态分类 ~data-org-state~ 与直属正文存在标记 ~data-org-foldable~ ；仅有规划行或子标题、没有直属正文的任务不标记为可折叠。任务分类包含文件自定义流程，普通标题不误判为任务；属性与日志 drawer 直接完整展示。 ~data-org-start~ 、 ~data-org-end~ 与标题 ID 属于当前文件版本，版本变化后不能直接复用。
 
 宿主消费这些语义标记决定排版与交互，不在 Core 添加页面、折叠偏好或阅读位置。原文仍由 ~source_bytes~ 提供，渲染不改写任何源字节。 ~OrgFile.project()~ 直接返回当前文件项目名称，非项目为 ~None~ ，未命名项目保留空字符串。
 

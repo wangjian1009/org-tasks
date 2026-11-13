@@ -120,8 +120,8 @@ struct ProjectDetail {
         actionMenuItems: this.sourceMode ? [
           { title: '返回项目文档', action: (): void => { this.toggleSource() } }
         ] : [
-          { title: '展开全部任务', disabled: !this.renderReady, action: (): void => { this.navigation.expandAll(true) } },
-          { title: '收起全部任务', disabled: !this.renderReady, action: (): void => { this.navigation.expandAll(false) } },
+          { title: '展开全部描述', disabled: !this.renderReady, action: (): void => { this.navigation.expandAll(true) } },
+          { title: '收起全部描述', disabled: !this.renderReady, action: (): void => { this.navigation.expandAll(false) } },
           { title: '查看原文', action: (): void => { this.toggleSource() } }
         ] }) {
         Column() {

@@ -140,6 +140,21 @@ test('正文包装保留安全边界，路径按文本转义，新版式只在�
   for (const invalid of [-1, 1.5, NaN, Infinity]) assert.equal(navigation.documentChapterScript(invalid), 'false');
 });
 
+test('项目目录只定位标题，不改变当前任务或祖先的展开状态', () => {
+  const ancestor = { open: false, matches: () => true, parentElement: null };
+  let position;
+  const target = { open: false, parentElement: ancestor, matches: () => true,
+    scrollIntoView: options => { position = options; } };
+  const document = { querySelectorAll: () => [target] };
+  assert.equal(vm.runInNewContext(navigation.documentChapterScript(0, true), { document }), true);
+  assert.equal(target.open, false);
+  assert.equal(ancestor.open, false);
+  assert.equal(position.block, 'start');
+  assert.equal(vm.runInNewContext(navigation.documentChapterScript(0), { document }), true);
+  assert.equal(target.open, true);
+  assert.equal(ancestor.open, true);
+});
+
 test('原文变化定位使用当前快照坐标，切换快照清除旧坐标', async () => {
   const f = fixture();f.page.displayMode = 'source';
   f.page.sourceOffsets.set(1, 284);
