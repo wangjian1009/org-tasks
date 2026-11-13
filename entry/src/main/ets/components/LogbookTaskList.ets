@@ -22,10 +22,12 @@ export struct LogbookTaskList {
   refresh: () => void = () => {}
   @State selectingTasks: boolean = false
   @State selectedTaskKeys: string[] = []
+  @State selectionSnapshot: LogbookTaskItem[] = []
   @State actionBusy: boolean = false
+  @State busyAction: string = ''
   @State selectionStarting: boolean = false
 
-  policy() { return taskActionPolicy({ enableDelete: true, enableSelect: true, enableBulkDelete: true }) }
+  policy() { return taskActionPolicy({ enableDelete: true, enableSelect: true, enableBulkDelete: true, enableBulkRestore: true }) }
 
   allItems(): LogbookTaskItem[] {
     const result: LogbookTaskItem[] = []
@@ -34,7 +36,7 @@ export struct LogbookTaskList {
   }
 
   selectedItems(): LogbookTaskItem[] {
-    return this.allItems().filter((item: LogbookTaskItem) => this.selectedTaskKeys.includes(item.key))
+    return this.selectionSnapshot.filter((item: LogbookTaskItem) => this.selectedTaskKeys.includes(item.key))
   }
 
   @Builder
@@ -60,12 +62,13 @@ export struct LogbookTaskList {
       if (!await TaskInlineSession.end(true)) return
       try { this.listScroller.closeAllSwipeActions() } catch (_) {}
       this.selectingTasks = true
+      this.selectionSnapshot = this.allItems()
       this.selectedTaskKeys = [item.key]
     } finally { this.selectionStarting = false }
   }
 
   toggleSelection(item: LogbookTaskItem) {
-    if (this.actionBusy) return
+    if (this.actionBusy || !this.selectionSnapshot.some((source: LogbookTaskItem) => source.key === item.key)) return
     this.selectedTaskKeys = this.selectedTaskKeys.includes(item.key)
       ? this.selectedTaskKeys.filter((key: string) => key !== item.key)
       : [...this.selectedTaskKeys, item.key]
@@ -74,6 +77,7 @@ export struct LogbookTaskList {
   resetSelection() {
     this.selectingTasks = false
     this.selectedTaskKeys = []
+    this.selectionSnapshot = []
   }
 
   confirmDelete(items: LogbookTaskItem[]) {
@@ -88,18 +92,29 @@ export struct LogbookTaskList {
   }
 
   async removeTasks(tasks: CoreTask[]) {
-    if (this.actionBusy || tasks.length === 0) return
     if (this.selectingTasks ? !this.policy().enableBulkDelete : !this.policy().enableDelete) return
+    await this.performTasks(tasks, 'delete')
+  }
+
+  async restoreTasks() {
+    if (!this.selectingTasks || !this.policy().enableBulkRestore) return
+    await this.performTasks(this.selectedItems().map((item: LogbookTaskItem): CoreTask => item.task), 'restore')
+  }
+
+  async performTasks(tasks: CoreTask[], action: 'delete' | 'restore') {
+    if (this.actionBusy || tasks.length === 0) return
     this.actionBusy = true
+    this.busyAction = action
     try {
       if (!await TaskInlineSession.end(true)) return
-      await LogbookService.remove(this.getUIContext().getHostContext()!, tasks)
+      if (action === 'restore') await LogbookService.restore(this.getUIContext().getHostContext()!, tasks)
+      else await LogbookService.remove(this.getUIContext().getHostContext()!, tasks)
       this.resetSelection()
       this.refresh()
     } catch (error) {
       try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(error as CoreBridgeError), duration: 3000 }) }
       catch (_) {}
-    } finally { this.actionBusy = false }
+    } finally { this.actionBusy = false; this.busyAction = '' }
   }
 
   activateSwipe(item: LogbookTaskItem, action: TaskSwipeAction) {
@@ -153,8 +168,9 @@ export struct LogbookTaskList {
     if (this.selectingTasks) {
       TaskBatchToolbar({ items: taskBatchMenu(this.policy(), (action: TaskBatchAction): void => {
           if (action === 'delete') this.confirmDelete(this.selectedItems())
-        }), count: this.selectedTaskKeys.length, busy: this.actionBusy, busyAction: this.actionBusy ? 'delete' : '',
-        caption: this.selectedTaskKeys.length > 0 ? `删除：${this.selectedTaskKeys.length} 条任务` : '请选择记录',
+          else if (action === 'restore') this.restoreTasks()
+        }), count: this.selectedTaskKeys.length, busy: this.actionBusy, busyAction: this.busyAction,
+        caption: this.selectedTaskKeys.length > 0 ? '可删除记录或恢复为待办' : '请选择记录',
         cancelLabel: '完成', cancel: (): void => { this.resetSelection() }, idPrefix: 'logbook' })
     }
   }
@@ -169,7 +185,7 @@ export struct LogbookTaskList {
           ListItem() { this.groupHeader(group) }
           this.groupItems(group)
         }, (group: LogbookGroup) => group.key)
-      }.id('logbook_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
+      }.id('logbook_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: this.selectingTasks ? 196 : 16 })
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
         .edgeEffect(EdgeEffect.None)
       this.batchToolbar()

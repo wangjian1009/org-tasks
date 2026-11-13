@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
-  console.log('用法: node scripts/test-logbook.cjs\n验证完成任务的时间分组、分类／项目平级分组、顺序、缺失时间与只读卡片的交互边界。');
+  console.log('用法: node scripts/test-logbook.cjs\n验证完成任务的时间分组、分类／项目平级分组、顺序、缺失时间、只读卡片及批量删除与恢复的交互边界。');
   process.exit(0);
 }
 const ts = require(path.join('/Applications/DevEco-Studio.app/Contents', 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
@@ -128,4 +128,98 @@ test('只读模式阻止所有编辑、完成、清单修改与左右滑动，�
   assert.equal(await card.persist([{ field: 'TITLE', value: '不允许的修改' }]), false);
   assert.equal(await card.saveText(), true); assert.equal(await card.saveCheck(false), true);
   assert.equal(card.editTask, undefined); assert.equal(card.typing, undefined);
+});
+
+function batchService() {
+  const submissions = [], loaded = [];
+  const repos = [{ id: 'repo', rootDirectory: '/sync', load: async () => loaded.push('repo') },
+    { id: 'local', rootDirectory: '/local', load: async () => loaded.push('local') }];
+  const workspace = { repos: async () => repos, executeTaskOperations: async group => submissions.push(group) };
+  const { LogbookService } = compile(fs.readFileSync('entry/src/main/ets/services/LogbookService.ets', 'utf8'), {
+    './AppConfigService': { AppConfigService: { load: async () => ({ repos: [
+      { rootDirectory: '/sync', webdavEnabled: true }, { rootDirectory: '/local', webdavEnabled: false }
+    ] }) } },
+    './NativeCoreService': { NativeCoreService: { workspaceFor: async () => workspace } },
+    '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo' } }
+  });
+  return { service: LogbookService, submissions, loaded };
+}
+function batchTask(id, state = 'TODO', filePath = 'task.org', repoId = 'repo') {
+  return { id, heading: id, repoId, filePath, fileVersion: 'version-' + filePath,
+    fullPath: { repoId, file: filePath, titles: [id] },
+    taskStateOf(category) { assert.equal(category, 'Todo'); return state === null ? null : { name: state }; } };
+}
+test('批量恢复按各文件有效待办状态一次提交，沿用源版本与同步队列', async () => {
+  const f = batchService(), a = batchTask('A', 'NEXT'), b = batchTask('B', 'TODO'),
+    c = batchTask('C', 'OPEN', 'other.org', 'local');
+  await f.service.restore({}, [a, b, c]);
+  assert.equal(f.submissions.length, 1);
+  const group = f.submissions[0];
+  assert.deepEqual(group.operations, [a, b, c].map((task, i) => ({ type: 'Modification', data: {
+    path: task.fullPath, modifications: [{ field: 'TODO', value: ['NEXT', 'TODO', 'OPEN'][i] }]
+  } })));
+  assert.deepEqual(group.fileVersions, [
+    { repoId: 'repo', file: 'task.org', version: 'version-task.org' },
+    { repoId: 'local', file: 'other.org', version: 'version-other.org' }
+  ]);
+  assert.deepEqual(group.queueRepoIds, ['repo']);
+});
+test('任一任务缺少待办状态时不提交部分恢复，空选择不发起请求', async () => {
+  const f = batchService();
+  await f.service.restore({}, []); assert.deepEqual(f.loaded, []);
+  await assert.rejects(() => f.service.restore({}, [batchTask('A'), batchTask('B', null)]), /没有可用的待办状态/);
+  assert.deepEqual(f.submissions, []);
+});
+test('批量删除仍一次提交删除操作与去重后的源文件版本', async () => {
+  const f = batchService(), tasks = [batchTask('A'), batchTask('B')];
+  await f.service.remove({}, tasks);
+  assert.equal(f.submissions.length, 1);
+  assert.deepEqual(f.submissions[0].operations, tasks.map(task => ({ type: 'Deletion', data: { path: task.fullPath } })));
+  assert.equal(f.submissions[0].fileVersions.length, 1);
+});
+function batchList() {
+  const source = fs.readFileSync('entry/src/main/ets/components/LogbookTaskList.ets', 'utf8');
+  const chunks = ['allItems', 'selectedItems', 'startSelection', 'toggleSelection', 'resetSelection', 'restoreTasks', 'removeTasks', 'performTasks']
+    .map(name => source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'))[0]);
+  const calls = [], messages = [];
+  let perform = async () => {};
+  const { List } = compile(`import { LogbookService } from 'service';
+    import { coreErrorMessage } from 'errors'; export class List { ${chunks.join('\n')} }`, {
+    session: { end: async () => true },
+    service: { LogbookService: { restore: async (_, tasks) => { calls.push(['restore', tasks]); await perform(); },
+      remove: async (_, tasks) => { calls.push(['delete', tasks]); await perform(); } } },
+    errors: { coreErrorMessage: error => error.message }
+  });
+  const items = [batchTask('A'), batchTask('B')].map(task => ({ key: task.id, task }));
+  const list = Object.assign(new List(), { groups: [{ items }], selectedTaskKeys: [], selectingTasks: false,
+    actionBusy: false, selectionSnapshot: [], listScroller: { closeAllSwipeActions() {} },
+    policy: () => ({ enableBulkRestore: true, enableBulkDelete: true, enableDelete: true }),
+    refresh() { this.refreshed = true; }, getUIContext: () => ({ getHostContext: () => ({}),
+      getPromptAction: () => ({ showToast: value => messages.push(value.message) }) }) });
+  return { list, items, calls, messages, performWith: value => perform = value };
+}
+test('左滑多选选中当前任务，批量恢复期间防重复提交，成功退出并刷新', async () => {
+  const f = batchList(); await f.list.startSelection(f.items[0]);
+  assert.deepEqual(f.list.selectedTaskKeys, ['A']);
+  f.list.toggleSelection(f.items[1]);
+  let finish;
+  f.performWith(() => new Promise(resolve => { finish = resolve; }));
+  const pending = f.list.restoreTasks();
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(f.list.busyAction, 'restore');
+  await f.list.restoreTasks(); assert.equal(f.calls.length, 1);
+  finish(); await pending;
+  assert.equal(f.list.selectingTasks, false); assert.equal(f.list.refreshed, true);
+  assert.deepEqual(f.list.selectedTaskKeys, []); assert.equal(f.list.actionBusy, false);
+});
+test('刷新不替换多选源版本，失败保留选择并显示错误，关闭开关后不提交', async () => {
+  const f = batchList(); await f.list.startSelection(f.items[0]);
+  f.list.groups = [{ items: [{ key: 'A', task: batchTask('A', 'NEW') }] }];
+  f.performWith(async () => { throw new Error('文件版本已变化'); });
+  await f.list.restoreTasks();
+  assert.equal(f.calls[0][1][0], f.items[0].task);
+  assert.deepEqual(f.list.selectedTaskKeys, ['A']); assert.equal(f.list.selectingTasks, true);
+  assert.deepEqual(f.messages, ['文件版本已变化']); assert.equal(f.list.refreshed, undefined);
+  f.list.policy = () => ({ enableBulkRestore: false });
+  await f.list.restoreTasks(); assert.equal(f.calls.length, 1);
 });

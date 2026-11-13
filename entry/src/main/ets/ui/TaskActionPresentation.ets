@@ -1,6 +1,6 @@
 export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someday' | 'logbook' | 'recent'
 export type TaskSwipeAction = 'move' | 'schedule' | 'deadline' | 'someday' | 'memo' | 'delete' | 'select'
-export type TaskBatchAction = 'move' | 'schedule' | 'deadline' | 'someday' | 'memo' | 'delete' | 'merge'
+export type TaskBatchAction = 'move' | 'schedule' | 'deadline' | 'someday' | 'memo' | 'delete' | 'restore' | 'merge'
 export type TaskRightSwipeAction = 'schedule' | 'doing' | 'move' | 'none'
 
 export interface TaskActionEnables {
@@ -16,6 +16,7 @@ export interface TaskActionEnables {
   enableBulkSomeday?: boolean
   enableBulkMemo?: boolean
   enableBulkDelete?: boolean
+  enableBulkRestore?: boolean
   enableSelect?: boolean
   enableMerge?: boolean
 }
@@ -43,6 +44,7 @@ export function taskActionPolicy(enables: TaskActionEnables = {}, rightSwipeActi
     enableBulkMove: enables.enableBulkMove ?? false, enableBulkSchedule: enables.enableBulkSchedule ?? false,
     enableBulkDeadline: enables.enableBulkDeadline ?? false, enableBulkSomeday: enables.enableBulkSomeday ?? false,
     enableBulkMemo: enables.enableBulkMemo ?? false, enableBulkDelete: enables.enableBulkDelete ?? false,
+    enableBulkRestore: enables.enableBulkRestore ?? false,
     enableSelect: enables.enableSelect ?? false, enableMerge: enables.enableMerge ?? false }
 }
 
@@ -68,7 +70,7 @@ function taskCommonMenu(policy: TaskActionEnables, activate: (action: TaskBatchA
 }
 
 export function taskSwipeMenu(policy: TaskActionEnables, activate: (action: TaskSwipeAction) => void): TaskActionItem[] {
-  const items = taskCommonMenu(policy, (action: TaskBatchAction): void => { if (action !== 'merge') activate(action) })
+  const items = taskCommonMenu(policy, (action: TaskBatchAction): void => { if (action !== 'merge' && action !== 'restore') activate(action) })
   if (policy.enableSelect) items.push({ id: 'select', title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action: () => activate('select') })
   return items
 }
@@ -78,6 +80,8 @@ export function taskBatchMenu(policy: TaskActionEnables, activate: (action: Task
   const items = taskCommonMenu({ enableMove: policy.enableBulkMove, enableSchedule: policy.enableBulkSchedule,
     enableDeadline: policy.enableBulkDeadline, enableSomeday: policy.enableBulkSomeday,
     enableMemo: policy.enableBulkMemo, enableDelete: policy.enableBulkDelete }, activate)
+  if (policy.enableBulkRestore) items.push({ id: 'restore', title: '恢复', label: '恢复为待办', icon: $r('app.media.ui_restore'),
+    busyTitle: '恢复中…', action: () => activate('restore') })
   if (policy.enableMerge) items.push({ id: 'merge', title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),
     minimumSelection: 2, busyTitle: '合并中…', action: () => activate('merge') })
   return items

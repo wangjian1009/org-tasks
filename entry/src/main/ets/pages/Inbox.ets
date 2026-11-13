@@ -382,6 +382,7 @@ struct Inbox {
   }
 
   activateBatch(action: TaskBatchAction) {
+    if (action === 'restore') return
     if (this.mergeBusy || this.mergeInvalid || this.batchTargetOpen ||
       !taskBatchMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return
     if (action === 'merge') { this.mergeSelected(); return }

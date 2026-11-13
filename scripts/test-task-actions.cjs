@@ -88,7 +88,7 @@ test('菜单默认全部关闭，页面显式启用且配置互不污染', () =>
   const inbox = pagePolicy('inbox');
   assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'select']);
   assert.deepEqual(taskBatchMenu(inbox, () => {}).map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'merge']);
-  assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete']);
+  assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete', 'restore']);
   inbox.enableDelete = false;
   assert.equal(pagePolicy('inbox').enableDelete, true);
   for (const page of ['today', 'planned', 'anytime', 'someday', 'recent']) assert.equal(taskHasSwipeActions(pagePolicy(page)), false, page);
@@ -279,4 +279,16 @@ test('共享选择行按页面开关处理长按与点按，选中状态或忙�
   row.toggleSelection(); assert.equal(toggles, 1);
   row.busy = true; row.beginSelection(); row.toggleSelection();
   assert.equal(begins, 1); assert.equal(toggles, 1);
+});
+
+test('日志簿左滑进入多选，恢复仅由独立批量开关开启', () => {
+  const policy = pagePolicy('logbook'), invoked = [];
+  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['delete', 'select']);
+  const menu = taskBatchMenu(policy, action => invoked.push(action));
+  assert.deepEqual(menu.map(item => item.title), ['删除', '恢复']);
+  menu[1].action(); assert.deepEqual(invoked, ['restore']);
+  policy.enableBulkRestore = false;
+  assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['delete']);
+  policy.enableBulkRestore = true; policy.enableSelect = false;
+  assert.deepEqual(taskBatchMenu(policy, () => {}), []);
 });
