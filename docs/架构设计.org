@@ -96,7 +96,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 设计与交付同步
 
-页面布局、侧边栏入口位置或交互范围变化，必须同时更新 ArkUI 实现、 ~design/Orgzly界面细节.fig~ 的当前 Harmony 画板、 [[file:harmony/UI导航设计.org][UI 导航设计]] 与 [[file:手机应用功能清单.org][手机应用功能清单]]。配置项、保存位置或凭据处理变化，同步更新 [[file:harmony/配置项设计.org][配置项设计]]。
+页面布局、侧边栏入口位置或交互范围变化，必须同时更新 ArkUI 实现、 [[file:harmony/设计文件索引.org][设计文件索引]] 中对应功能的当前 Harmony 画板、 [[file:harmony/UI导航设计.org][UI 导航设计]] 与 [[file:手机应用功能清单.org][手机应用功能清单]]。配置项、保存位置或凭据处理变化，同步更新 [[file:harmony/配置项设计.org][配置项设计]]。
 
 手机应用功能清单只记录手机用户可见的功能范围、实现状态与验收要点；Core、CLI、HTTP 与测试程序的能力不记录在其中。HTTP 宿主的命令行、监听、认证、数据目录和并发约束单独遵循 [[file:http/服务命令行设计.org][服务命令行设计]]。
 

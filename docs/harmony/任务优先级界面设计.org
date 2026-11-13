@@ -7,7 +7,7 @@
 
 本方案已接入 Core、bridge 与现有任务界面，接口形态参考 TaskStateCategory、TaskState 和 taskStateOf；分类名使用 PeriodCategory，枚举值为 Hight、Middle、Low。已通过自动化验证和 HarmonyOS Debug 构建，尚未进行本轮真机视觉验收。
 
-设计维护于 [[file:../../design/Orgzly界面细节.fig][界面图谱]] 的“Harmony 当前实现”页，画板为“56 Harmony 任务优先级 · 交互主稿（当前实现）”与“56 Harmony 任务优先级 · 补充状态（当前实现）”。
+设计维护于 [[file:../../design/当前实现/任务优先级.fig][任务优先级]] 的“Harmony 当前实现”页，画板为“56 Harmony 任务优先级 · 交互主稿（当前实现）”与“56 Harmony 任务优先级 · 补充状态（当前实现）”。
 
 - [[file:../../design/previews/56 Harmony 任务优先级.png][交互主稿：收起任务、展开编辑与原位修改]]。
 - [[file:../../design/previews/56 Harmony 任务优先级补充状态.png][补充状态：详情、默认候选与配置变化]]。
