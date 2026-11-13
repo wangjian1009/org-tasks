@@ -7,10 +7,12 @@ import { RepositorySyncState } from './RepositorySyncService'
 export class BackgroundSyncPresentation {
   private task: backgroundTaskManager.ContinuousTaskNotification | undefined = undefined
   private notification: notificationManager.NotificationRequest | undefined = undefined
+  private agent: object | undefined = undefined
   private pending: RepositorySyncState | undefined = undefined
   private timer: number = -1
   private queue: Promise<void> = Promise.resolve()
   private closing: boolean = false
+  private published: boolean = false
   private context: common.UIAbilityContext
 
   constructor(context: common.UIAbilityContext) { this.context = context }
@@ -23,6 +25,7 @@ export class BackgroundSyncPresentation {
         requestCode: 1002,
         wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
       })
+      this.agent = agent
       this.task = await backgroundTaskManager.startBackgroundRunning(this.context, ['dataTransfer'], agent)
     } catch (error) {
       throw error as Error
@@ -38,8 +41,14 @@ export class BackgroundSyncPresentation {
 
   update(state: RepositorySyncState): void {
     if (this.closing || !this.task) return
+    // 订阅时可能先收到上一轮的完成快照；等本轮真正进入运行态再创建首个展示。
+    if (!this.published && !state.running) return
     this.pending = state
     if (this.timer !== -1) return
+    if (state.running && !this.published) {
+      this.flush()
+      return
+    }
     // 文件事件可能连续到达；仅保留最新快照，每秒最多更新一次。
     this.timer = setTimeout((): void => {
       this.timer = -1
@@ -51,6 +60,7 @@ export class BackgroundSyncPresentation {
     const state = this.pending
     this.pending = undefined
     if (!state) return
+    this.published = true
     this.queue = this.queue.then(async (): Promise<void> => {
       try { await this.publish(state) }
       catch (_) { console.error('更新后台同步实况窗失败') }
@@ -61,34 +71,41 @@ export class BackgroundSyncPresentation {
     const task = this.task
     if (!task) return
     // 系统通知创建或查询可能稍晚于长时任务，后续进度允许重新取得通知。
-    if (!this.notification) {
-      try {
-        const active = await notificationManager.getActiveNotifications()
-        this.notification = active.find((item: notificationManager.NotificationRequest) => item.id === task.notificationId)
-      } catch (error) {
-        throw error as Error
-      }
-    }
+    await this.loadNotification(task.notificationId)
     const original = this.notification
-    if (!original) return
     const title = state.running ? '正在同步' : state.error ? '同步失败' : '同步完成'
     const text = state.message || title
     const capsule = state.running && state.determinate ? `同步 ${state.progress}%` : title
     const content: notificationManager.NotificationContent = task.contentType ===
-      notificationManager.ContentType.NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW && original.content.systemLiveView
+      notificationManager.ContentType.NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW
       ? { notificationContentType: task.contentType, systemLiveView: {
-        typeCode: original.content.systemLiveView.typeCode, title: title, text: text,
+        // 任务类型由系统代理返回；通知尚未出现在列表时也先提交更新，系统登记后会接收同一 ID。
+        typeCode: original?.content.systemLiveView?.typeCode ?? 0, title: title, text: text,
         capsule: { title: capsule },
         progress: { maxValue: 100, currentValue: state.progress, isPercentage: state.determinate }
       } }
       : { notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
         normal: { title: title, text: text } }
     try {
-      await notificationManager.publish({ id: task.notificationId, label: original.label,
-        notificationSlotType: task.slotType, content: content, wantAgent: original.wantAgent,
+      await notificationManager.publish({ id: task.notificationId, label: original?.label,
+        notificationSlotType: task.slotType, content: content, wantAgent: original?.wantAgent ?? this.agent,
         isAlertOnce: true })
     } catch (error) {
       throw error as Error
+    }
+  }
+
+  private async loadNotification(id: number): Promise<void> {
+    if (this.notification) return
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const active = await notificationManager.getActiveNotifications()
+        this.notification = active.find((item: notificationManager.NotificationRequest) => item.id === id)
+        if (this.notification) return
+      } catch (error) {
+        if (attempt === 4) throw error as Error
+      }
+      if (attempt < 4) await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 100) })
     }
   }
 
@@ -110,6 +127,7 @@ export class BackgroundSyncPresentation {
     } finally {
       this.task = undefined
       this.notification = undefined
+      this.agent = undefined
     }
   }
 }
