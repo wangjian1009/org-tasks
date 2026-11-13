@@ -53,6 +53,7 @@ export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; projectName: string | null; fileVersion: string;
 }
+export interface DocumentSection { path: TaskPath | null; html: string; }
 export class OrgFile {
   private constructor();
   readonly repoId: string;
@@ -66,6 +67,9 @@ export class OrgFile {
   sourceBytes(): Uint8Array;
   renderHtml(): string;
   renderDocumentHtml(): string;
+  documentSections(): DocumentSection[];
+  fileTags(): string[];
+  specialTags(): string[];
   project(): string | null;
   conflicts(): FileConflict[];
   nodes(): Task[];

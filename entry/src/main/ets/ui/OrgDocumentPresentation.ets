@@ -140,6 +140,7 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-log .source { padding: 4px 8px; background: transparent; }
 .task-log blockquote { padding-left: 8px; border-left: 1px solid ${UiColor.outline}; }
 .project-reading { line-height: 1.75; padding: 16px 24px 60px; }
+.embedded.project-reading, .file-reading.project-reading.embedded-section { padding: 0; max-width: none; }
 .project-reading .document-header { margin-bottom: 24px; padding-bottom: 22px; border-bottom: 1px solid #454746; }
 .project-reading .document-category { font-size: 12px; color: ${UiColor.secondary}; margin-bottom: 12px; }
 .project-reading .document-project-name { font-size: 28px; font-weight: 650; line-height: 1.35; color: #F0EFED; margin-bottom: 12px; }
@@ -189,5 +190,5 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .project-reading .metadata { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 340px) { .project-reading { padding-left: 16px; padding-right: 16px; } }
 
-</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? (projectReading ? fragment + '<p class="empty">项目还没有内容</p>' : '<p class="empty">空白 Org 文件</p>') : fragment}</body></html>`
+</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? (projectReading ? fragment + '<p class="empty">项目还没有内容</p>' : '<p class="empty">空白 Org 文件</p>') : fragment}</body></html>`
 }

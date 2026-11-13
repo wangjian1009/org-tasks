@@ -9,6 +9,7 @@ export struct TaskTagsDialog {
   ownTags: string[] = []
   visibleTags: string[] = []
   inheritedTags: string[] = []
+  hiddenTags: string[] = []
   change: (tags: string[]) => Promise<boolean> = async () => false
   @State names: string[] = []
   @State selected: string[] = []
@@ -17,7 +18,13 @@ export struct TaskTagsDialog {
   @State busy: boolean = false
   @State message: string = ''
 
-  aboutToAppear() { this.names = editableTagNames(this.supportTags, this.visibleTags, this.inheritedTags); this.selected = [...this.ownTags] }
+  aboutToAppear() {
+    this.names = editableTagNames(this.supportTags, this.visibleTags, this.inheritedTags).filter(tag => !this.hiddenTags.includes(tag))
+    this.selected = [...this.ownTags]
+  }
+  selectedNames(): string[] {
+    return selectedTagNames(this.selected, this.inheritedTags, this.names).filter(tag => !this.hiddenTags.includes(tag))
+  }
   async toggle(tag: string) {
     if (this.busy || this.inheritedTags.includes(tag)) return
     const inherited = inheritedTagConflict(tag, this.inheritedTags, this.supportTags)
@@ -26,15 +33,17 @@ export struct TaskTagsDialog {
   }
   async apply(tags: string[]): Promise<boolean> {
     this.busy = true; this.message = ''
+    const next = Array.from(new Set<string>([...tags, ...this.ownTags.filter(tag => this.hiddenTags.includes(tag))]))
     try {
-      if (!await this.change(tags)) { this.message = '未能修改，请检查任务卡片上的错误提示'; return false }
-      this.selected = tags
+      if (!await this.change(next)) { this.message = '未能修改，请检查任务卡片上的错误提示'; return false }
+      this.selected = next
       return true
     } finally { this.busy = false }
   }
   async create() {
     const name = this.name.trim()
     if (!name || this.busy) return
+    if (this.hiddenTags.includes(name)) { this.message = '该标签由系统管理'; return }
     if (this.inheritedTags.includes(name)) { this.message = '该标签已从父标题继承'; return }
     const inherited = inheritedTagConflict(name, this.inheritedTags, this.supportTags)
     if (inherited) { this.message = `该组已继承“${inherited}”，请在父标题修改`; return }
@@ -82,9 +91,9 @@ export struct TaskTagsDialog {
       } else {
         Scroll() {
           Column({ space: 8 }) {
-            if (selectedTagNames(this.selected, this.inheritedTags, this.names).length > 0) {
+            if (this.selectedNames().length > 0) {
               Flex({ wrap: FlexWrap.Wrap }) {
-                ForEach(selectedTagNames(this.selected, this.inheritedTags, this.names), (tag: string) => {
+                ForEach(this.selectedNames(), (tag: string) => {
                   this.tagChip(tag, true)
                 }, (tag: string) => tag)
               }.width('100%')

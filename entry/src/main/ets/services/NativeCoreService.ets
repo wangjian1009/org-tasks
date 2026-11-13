@@ -43,6 +43,7 @@ import {
   CoreNotification as NativeCoreNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
   OrgFile as NativeOrgFile,
+  DocumentSection as NativeDocumentSection,
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
   SyncTriggerReason,
@@ -77,6 +78,7 @@ export type CoreConflictTarget = NativeConflictTarget
 export type CoreFileConflict = NativeFileConflict
 // project() 与 renderDocumentHtml() 均读取 Native OrgFile 的同版本 Core 快照。
 export type CoreOrgFile = NativeOrgFile
+export type CoreDocumentSection = NativeDocumentSection
 // 文件 category 与 projectName 来自同一 Core 快照，供导航展示分区。
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 

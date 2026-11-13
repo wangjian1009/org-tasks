@@ -59,6 +59,12 @@ pub struct HarmonyBridgeFile {
     pub rendered_html: String,
     #[serde(rename = "documentHtml")]
     pub document_html: String,
+    #[serde(rename = "documentSections")]
+    pub document_sections: Vec<org_tasks_core::DocumentSection>,
+    #[serde(rename = "fileTags")]
+    pub file_tags: Vec<String>,
+    #[serde(rename = "specialTags")]
+    pub special_tags: Vec<String>,
     #[serde(rename = "projectName")]
     pub project_name: Option<String>,
     pub conflicts: Vec<org_tasks_core::FileConflict>,
@@ -740,6 +746,9 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         title_parts: file.title_parts(),
         rendered_html: file.render_html(),
         document_html: file.render_document_html(),
+        document_sections: file.document_sections(),
+        file_tags: file.file_tags(),
+        special_tags: file.special_tags(),
         project_name: file.project(),
         conflicts,
         conflict_error,
@@ -906,6 +915,11 @@ mod tests {
             std::fs::read(root.join("project.org")).unwrap()).unwrap();
         let snapshot = serde_json::to_value(file_snapshot(&source_file).unwrap()).unwrap();
         assert_eq!(snapshot["projectName"], "Shared Project");
+        assert_eq!(snapshot["fileTags"], serde_json::json!(["project"]));
+        assert_eq!(snapshot["specialTags"], serde_json::json!(["project", "REFILE", "ARCHIVE", "CONFLICT"]));
+        assert_eq!(snapshot["documentSections"].as_array().unwrap().len(), 3);
+        assert!(snapshot["documentSections"][0]["path"].is_null());
+        assert_eq!(snapshot["documentSections"][1]["path"], snapshot["nodes"][0]["fullPath"]);
         assert!(snapshot["documentHtml"].as_str().unwrap().contains("document-project-name"));
         assert!(snapshot["documentHtml"].as_str().unwrap().contains("data-org-task=\"true\""));
         assert_eq!(metadata[0]["projectName"], "Shared Project");

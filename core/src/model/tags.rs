@@ -31,6 +31,23 @@ fn configured_tag(token: &str) -> Option<&str> {
 }
 
 impl OrgFile {
+    /// 具有内部用途的标签；宿主可隐藏展示，但不得据此改写原文或查询条件。
+    pub fn special_tags(&self) -> Vec<String> {
+        ["project", super::REFILE_TAG, super::ARCHIVE_TAG, super::CONFLICT_TAG]
+            .into_iter().map(str::to_owned).collect()
+    }
+
+    /// 当前文件的有效 FILETAGS，保留内部标签供调用方区分用途。
+    pub fn file_tags(&self) -> Vec<String> {
+        let mut tags = Vec::new();
+        for value in self.file_keywords.values("FILETAGS") {
+            for tag in value.split(':').map(str::trim) {
+                push_unique(&mut tags, tag);
+            }
+        }
+        tags
+    }
+
     /// 文件头定义的候选标签；TAGS 只提供候选，不为任务赋标签。
     pub fn tag_options(&self) -> Vec<String> {
         self.support_tags().map_or_else(Vec::new, |config| config.tags)

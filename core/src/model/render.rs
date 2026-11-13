@@ -23,6 +23,14 @@ pub struct TitleCount {
     pub total: Option<u32>,
 }
 
+/// 按文件顺序排列的直属正文；path 为空表示文件前言，标题由现有节点接口提供。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSection {
+    pub path: Option<super::TaskPath>,
+    pub html: String,
+}
+
 impl TitleCount {
     fn from_cookie(cookie: &orgize::ast::Cookie) -> Option<Self> {
         if cookie.syntax().ancestors().skip(1).any(|node| {
@@ -86,6 +94,30 @@ impl TitleCount {
 }
 
 impl OrgFile {
+    /// 将同一语法树拆为前言和各标题的直属正文，保留表格、清单、属性与日志。
+    /// 不包含标题或后代正文，不应用任务查询过滤；受保护的冲突子树除外。
+    pub fn document_sections(&self) -> Vec<DocumentSection> {
+        let render = |section: Option<orgize::ast::Section>, properties: Option<orgize::ast::PropertyDrawer>| {
+            let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, Some(self.todo.clone()));
+            if let Some(properties) = properties {
+                view.element(properties.syntax().clone().into(), &mut TraversalContext::default());
+            }
+            if let Some(section) = section {
+                for element in section.syntax().children_with_tokens() {
+                    if element.kind() != SyntaxKind::PLANNING {
+                        view.element(element, &mut TraversalContext::default());
+                    }
+                }
+            }
+            view.0.finish()
+        };
+        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section(), None) }];
+        sections.extend(self.path_headlines().into_iter()
+            .filter(|(_, headline)| !Self::is_conflict_headline(headline))
+            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section(), headline.properties()) }));
+        sections
+    }
+
     pub fn title_parts(&self) -> Vec<TitlePart> {
         title_parts(&self.title().unwrap_or_default())
     }
@@ -700,6 +732,42 @@ mod tests {
             source.as_bytes().to_vec(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn document_sections_keep_direct_content_and_exact_node_paths_without_header_metadata() {
+        let source = "#+TITLE: 文件标题\r\n#+FILETAGS: :project:work:work:ARCHIVE:\r\n#+PROPERTY: OWNER 文件所有者\r\n前言\r\n| 前言表格 |\r\n| 内容 |\r\n* 普通章节 :REFILE:work:\r\n章节文字\r\n** TODO 重名\r\nSCHEDULED: <2026-11-13 Fri>\r\n:PROPERTIES:\r\n:ID: keep-id\r\n:END:\r\n正文文字\r\n- [ ] 保留清单\r\n| 标题 |\r\n| 数据 |\r\n:LOGBOOK:\r\n- Note taken on [2026-11-13 Fri] 记录\r\n:END:\r\n*** TODO 子任务\r\n子任务文字\r\n** TODO 重名\r\n第二段文字\r\n* 冲突 :CONFLICT:\r\n** TODO 候选\r\n私有候选文字\r\n";
+        let file = file(source);
+        let sections = file.document_sections();
+        assert_eq!(sections.len(), 5);
+        assert_eq!(sections[0].path, None);
+        assert!(sections[0].html.contains("前言") && sections[0].html.contains("<table>"));
+        assert!(!sections[0].html.contains("文件所有者") && !sections[0].html.contains("FILETAGS"));
+        assert_eq!(sections[2].path.as_ref().unwrap().occurrence, 1);
+        assert_eq!(sections[4].path.as_ref().unwrap().occurrence, 2);
+        for section in sections.iter().skip(1) {
+            let node = file.nodes().into_iter().find(|node| Some(node.full_path()) == section.path.as_ref());
+            assert!(node.is_some(), "正文必须能在同版本节点中定位");
+        }
+        let body = &sections[2].html;
+        for text in ["正文文字", "checkbox-item", "保留清单", "<table>", "数据", "keep-id", "LOGBOOK", "记录"] {
+            assert!(body.contains(text), "缺少 {text}: {body}");
+        }
+        assert!(!body.contains("子任务文字") && !body.contains("SCHEDULED"));
+        assert!(!sections.iter().any(|section| section.html.contains("私有候选文字")));
+        assert_eq!(file.file_tags(), ["project", "work", "ARCHIVE"]);
+        assert_eq!(file.special_tags(), ["project", "REFILE", "ARCHIVE", "CONFLICT"]);
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn document_sections_include_empty_and_literal_content_without_executing_html() {
+        let empty = file("").document_sections();
+        assert_eq!(empty, [DocumentSection { path: None, html: String::new() }]);
+        let sections = file("* TODO 空任务\n** 普通标题\n#+begin_export html\n<script>bad()</script>\n#+end_export\n").document_sections();
+        assert!(sections[1].html.trim().is_empty());
+        assert!(sections[2].html.contains("&lt;script&gt;"));
+        assert!(!sections[2].html.contains("<script>"));
     }
 
     #[test]

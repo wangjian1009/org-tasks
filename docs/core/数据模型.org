@@ -885,6 +885,23 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 
 ~render_document_html()~ 为完整文档提供额外的文件头语义、普通标题／任务区分、状态分类及直属正文存在标记； ~heading-body~ 仅承载当前标题的直属正文，不包含后代标题，只有子任务的任务不标记为可折叠。所有内容先以非折叠语义结构输出，由宿主选择阅读交互。属性、日志和未知内容安全保留，不新增持久化字段。 ~project()~ 复用现有项目名称计算，和两个渲染方法读取同一个文件快照。
 
+** 文档分段投影
+
+~DocumentSection~ 是只读运行时投影，包含可空完整节点路径 ~path~ 与安全正文 ~html~ 。 ~OrgFile.document_sections()~ 返回前言及按文件顺序排列的直属正文；前言路径为空，标题项路径与同版本节点接口一致，重名标题通过出现次序区分。投影不含标题、规划行、后代正文与受保护冲突材料，保留当前标题属性和日志，前言隐藏文件头配置与属性；不新增持久化数据。 ~file_tags()~ 保留有效文件标签， ~special_tags()~ 提供隐藏展示的内部标签列表，不改变查询或源字节。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgFile}{}{document\_sections(): Vec\textless DocumentSection\textgreater \\
+file\_tags(): Vec\textless String\textgreater \\
+special\_tags(): Vec\textless String\textgreater}
+\umlclass[x=8,y=0]{DocumentSection}{path: Option\textless TaskPath\textgreater \\
+html: String}{}
+\umldep{OrgFile}{DocumentSection}
+\umlclass[x=8,y=-4]{TaskPath}{repo\_id \\ file \\ titles \\ occurrence}{}
+\umluniassoc[mult1=1,mult2=0..1]{DocumentSection}{TaskPath}
+\end{tikzpicture}
+\end{center}
+
 ** 任务正文展示投影
 
 RenderedTaskContent 是 FilterTask.render_content() 的运行时返回值，包含 body_html 与 logbook_html；两者均为安全 HTML，不持久化。它使用既有 body 和 orgize 语法树区分真正的 LOGBOOK drawer 与字面文本，并从正文投影中移除标题开头的 SCHEDULED、DEADLINE 与 CLOSED 规划行；原始 body 及源字节不变。新增 ~has_list: bool~ 表示正文中实际渲染的列表，新增 ~has_text: bool~ 表示列表之外的可读正文文字；两者均不包含 LOGBOOK、drawer、源码、示例块及字面抽屉内容，在同一次语法树遍历中取得，不在宿主分析 HTML。文件渲染不再合成 TITLE 标题，由宿主工具栏负责展示。

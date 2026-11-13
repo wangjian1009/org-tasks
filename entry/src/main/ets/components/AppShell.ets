@@ -21,6 +21,7 @@ import { CoreBridgeError, CoreOrgFileMetadata, CoreQuery, NativeCoreService, tas
 @Component
 export struct AppShell {
   @Prop title: string = ''
+  @Prop titleContext: string = ''
   @Prop titleParts: CoreTitlePart[] = []
   @Prop titleIcon: ResourceStr = ''
   @Prop activeRoute: string = ''
@@ -379,6 +380,10 @@ export struct AppShell {
             TitleText({ text: this.title, parts: this.titleParts, textSize: 22, weight: FontWeight.Medium, lineLimit: 1 }).flexShrink(1)
               .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`).enabled(!this.busy)
               .onClick((): void => { this.openDrawer() })
+            if (this.titleContext) {
+              Text(this.titleContext).fontSize(11).fontColor(UiColor.secondary).maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(2)
+            }
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
           if (this.inlineTyping) {
             Button('完成').height(48).width(64).fontColor(UiColor.primary).backgroundColor(Color.Transparent)

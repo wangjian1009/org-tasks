@@ -4,8 +4,11 @@ import { EmptyState } from '../components/Controls'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
-import { UiColor, repositoryLabel } from '../ui/Theme'
+import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { UiColor } from '../ui/Theme'
+import { ProjectDocumentView } from '../components/ProjectDocumentView'
+import { ProjectReadingSection, projectReadingSections } from '../ui/ProjectReadingPresentation'
+import { TaskInlineSession } from '../services/TaskInlineService'
 
 interface ProjectParams { repoId?: string; path?: string }
 
@@ -13,9 +16,11 @@ interface ProjectParams { repoId?: string; path?: string }
 @Component
 struct ProjectDetail {
   @State title: string = ''
-  @State fileContext: string = ''
+  @State titleContext: string = ''
+  @State sections: ProjectReadingSection[] = []
+  @State fileTags: string[] = []
+  @State specialTags: string[] = []
   @State content: string = ''
-  @State renderedHtml: string = ''
   @State sourceMode: boolean = false
   @State loading: boolean = true
   @State refreshing: boolean = false
@@ -23,21 +28,26 @@ struct ProjectDetail {
   @State refreshMessage: string = ''
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
-  @State headerPassed: boolean = false
-  @State readingState: string = ''
+  private readingState: string = ''
   @State renderRevision: number = 0
   private navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
+  private sourceNavigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
   private loadRevision: number = 0
   private fileVersion: string = ''
   private fileIdentity: string = ''
 
   onPageShow() { this.loadFile() }
-  // 页面退出时只使读取失效，避免向正在销毁的 ArkWeb 再发送脚本。
+  // 页面退出时使进行中的文件读取失效。
   onPageHide() { this.loadRevision++ }
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
     if (this.sourceMode) { this.toggleSource(); return true }
+    if (TaskInlineSession.active()) { this.leaveProject(); return true }
     return false
+  }
+
+  async leaveProject() {
+    if (await TaskInlineSession.end(true)) this.getUIContext().getRouter().back()
   }
 
   async rememberReading(): Promise<string> {
@@ -46,17 +56,20 @@ struct ProjectDetail {
     try {
       const state = await this.navigation.captureReadingState()
       if (version === this.fileVersion && identity === this.fileIdentity && state) this.readingState = state
-    } catch (_) { /* Web 已销毁时保留最近一次有效阅读状态。 */ }
+    } catch (_) { /* 阅读组件已离开时保留最近一次有效位置。 */ }
     return this.readingState
   }
 
   async toggleSource() {
-    if (this.refreshing) return
+    if (this.refreshing || !await TaskInlineSession.end(false)) return
     if (!this.sourceMode) await this.rememberReading()
     this.navigation.closePanel()
     this.sourceMode = !this.sourceMode
-    this.renderReady = false
-    this.renderRevision++
+  }
+
+  async refreshFile() {
+    if (this.refreshing || !await TaskInlineSession.end(true)) return
+    await this.loadFile()
   }
 
   async loadFile() {
@@ -73,23 +86,23 @@ struct ProjectDetail {
       const file = await NotebookService.open(config.repos, repoId, path, config.todoDefaults, config.coreSettings)
       if (revision !== this.loadRevision) return
       if (!file) throw new Error('项目文件已不存在，请返回存储库列表。')
-      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-      const repository = (await workspace.repos()).find(item => item.id === repoId)
-      const host = config.repos.find(item => item.rootDirectory === repository?.rootDirectory)
-      if (revision !== this.loadRevision) return
       if (file.project() === null) {
         await this.getUIContext().getRouter().replaceUrl({ url: 'pages/FileDetail', params: { repoId, path } })
         return
       }
+      const sections = projectReadingSections(file)
+      const fileTags = file.fileTags()
+      const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
       const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion
       this.title = file.project() || '未命名项目'
-      this.fileContext = `${repositoryLabel(host)} / ${path}`
+      this.titleContext = file.category() || ''
+      this.sections = sections
+      this.fileTags = fileTags
+      this.specialTags = specialTags
       this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
-      this.renderedHtml = file.renderDocumentHtml()
       if (changed) {
         this.readingState = ''
-        this.headerPassed = false
         this.fileIdentity = identity
         this.fileVersion = file.fileVersion
         this.renderReady = false
@@ -109,7 +122,8 @@ struct ProjectDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.headerPassed || this.sourceMode ? this.title : '项目', back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.title || '项目', titleContext: this.titleContext, back: true, drawerOpen: $drawerOpen,
+        pullToSync: true, pullDisabled: this.refreshing,
         backAction: (): void => { if (!this.onBackPress()) this.getUIContext().getRouter().back() },
         synchronized: (): void => { this.loadFile() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
@@ -118,10 +132,10 @@ struct ProjectDetail {
         actionIcon: $r('app.media.ui_more'),
         actionLabel: this.loading || this.message || this.refreshing ? '' : '更多阅读操作',
         actionMenuItems: this.sourceMode ? [
-          { title: '返回项目文档', action: (): void => { this.toggleSource() } }
+          { title: '返回项目文档', action: (): void => { this.toggleSource() } },
+          { title: '刷新项目', action: (): void => { this.refreshFile() } }
         ] : [
-          { title: '展开全部描述', disabled: !this.renderReady, action: (): void => { this.navigation.expandAll(true) } },
-          { title: '收起全部描述', disabled: !this.renderReady, action: (): void => { this.navigation.expandAll(false) } },
+          { title: '刷新项目', action: (): void => { this.refreshFile() } },
           { title: '查看原文', action: (): void => { this.toggleSource() } }
         ] }) {
         Column() {
@@ -130,16 +144,30 @@ struct ProjectDetail {
           } else if (this.message) {
             EmptyState({ title: '无法打开项目', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile() } })
           } else {
+            if (this.refreshing) {
+              Row({ space: 8 }) {
+                LoadingProgress().width(16).height(16).color(UiColor.primary)
+                Text('正在刷新项目').fontSize(12).fontColor(UiColor.secondary)
+              }.width('100%').padding({ left: 20, top: 8, bottom: 8 })
+            }
             if (this.refreshMessage) {
               Text(this.refreshMessage).fontSize(12).fontColor(UiColor.error).width('100%').padding(12)
                 .onClick((): void => { this.loadFile() })
             }
-            OrgFilePreviewView({ content: this.content, renderedHtml: this.renderedHtml,
-              displayMode: this.sourceMode ? 'source' : 'rendered', fileContext: this.fileContext, title: this.title,
-              projectReading: true, readingState: this.readingState, revision: `${this.fileIdentity}:${this.renderRevision}`,
-              navigation: this.navigation, scrolled: (offset: number): void => { this.headerPassed = offset > 130 },
-              ready: (): void => { this.renderReady = true },
-              failed: (message: string): void => { this.message = message } }).width('100%').layoutWeight(1)
+            Stack() {
+              ProjectDocumentView({ sections: this.sections, fileTags: this.fileTags, specialTags: this.specialTags,
+                revision: `${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
+                readingState: this.readingState, showing: !this.sourceMode,
+                scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
+                ready: (): void => { this.renderReady = true } })
+                .width('100%').height('100%').visibility(this.sourceMode ? Visibility.None : Visibility.Visible)
+              if (this.sourceMode) {
+                OrgFilePreviewView({ content: this.content, displayMode: 'source',
+                  title: this.title,
+                  revision: `${this.fileIdentity}:${this.renderRevision}`, navigation: this.sourceNavigation })
+                  .width('100%').height('100%')
+              }
+            }.width('100%').layoutWeight(1)
           }
         }.width('100%').height('100%')
       }

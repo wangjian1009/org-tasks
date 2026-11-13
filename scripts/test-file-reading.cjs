@@ -25,6 +25,7 @@ function load(filename, mocks = {}, transform = source => source) {
 const base = 'entry/src/main/ets/';
 const navigation = load(base + 'ui/OrgDocumentNavigation.ets');
 const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
+const projectReading = load(base + 'ui/ProjectReadingPresentation.ets');
 const theme = load(base + 'ui/Theme.ets');
 const presentation = load(base + 'ui/OrgDocumentPresentation.ets', { './Theme': theme });
 function fixture() {
@@ -251,9 +252,10 @@ test('长文档冲突卡片使用 Web 视口定位，保留浏览器滚动位置
 
 function projectPageFixture() {
   let open = async () => file();
+  let end = async () => true;
   let capture = '{"open":["org-node-12"],"anchor":"org-node-12","offset":0,"scroll":80}';
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
-    project: () => '项目', sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
+    nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
     '../components/AppShell': {}, '../components/Controls': {},
@@ -264,14 +266,15 @@ function projectPageFixture() {
     '../services/NotebookService': { NotebookService: { open: (...args) => open(...args) } },
     '../services/NativeCoreService': { coreErrorMessage: error => error.message,
       NativeCoreService: { async workspaceFor() { return { async repos() { return [{ id: 'core', rootDirectory: '/repo' }]; } }; } } },
-    '../ui/Theme': theme
+    '../ui/Theme': theme, '../ui/ProjectReadingPresentation': projectReading,
+    '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => end(...args) } }
   }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@State /g, '')
     .replace('struct ProjectDetail', 'class ProjectDetail') + '}\nmodule.exports = { ProjectDetail };');
   const page = new ProjectDetail(), routes = [];
   page.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
-    getParams: () => ({ repoId: 'core', path: 'project.org' }), replaceUrl: async route => routes.push(route)
+    getParams: () => ({ repoId: 'core', path: 'project.org' }), replaceUrl: async route => routes.push(route), back: () => routes.push('back')
   }) });
-  return { page, file, routes, setOpen: fn => { open = fn; } };
+  return { page, file, routes, setOpen: fn => { open = fn; }, setEnd: fn => { end = fn; } };
 }
 
 test('项目刷新保持同版本阅读状态，新版本清除旧展开锚点', async () => {
@@ -296,7 +299,7 @@ test('项目原文切换保留文档状态，刷新失败保留上次全文与�
   f.setOpen(async () => { throw new Error('离线'); });
   await f.page.loadFile();
   assert.equal(f.page.content, '项目原文');
-  assert.equal(f.page.renderedHtml, '<p>完整文档</p>');
+  assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
   assert.match(f.page.refreshMessage, /离线/);
   assert.equal(f.page.message, '');
 });
@@ -334,7 +337,7 @@ test('项目文件改为普通文件时跳转，含冲突的项目仍展示文�
   f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
   await f.page.loadFile(); assert.equal(f.routes.length, 1);
   assert.equal(f.page.content, '项目原文');
-  assert.equal(f.page.renderedHtml, '<p>完整文档</p>');
+  assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
 });
 
 test('项目跳转等待草稿保存成功，失败保留页面，成功使用真实文件身份', async () => {
@@ -349,4 +352,106 @@ test('项目跳转等待草稿保存成功，失败保留页面，成功使用�
   saved = true;
   assert.equal(await ProjectNavigation.open(context, 'core', 'folder/project.org'), true);
   assert.deepEqual(routes, [{ url: 'pages/ProjectDetail', params: { repoId: 'core', path: 'folder/project.org' } }]);
+});
+
+test('项目分段一次批量关联全部节点，保留重名标题与无状态章节', () => {
+  const first = { fullPath: { repoId: 'r', file: 'p.org', titles: ['重名'], occurrence: 1 }, state: null };
+  const second = { fullPath: { ...first.fullPath, occurrence: 2 }, state: { name: 'NEXT' } };
+  let reads = 0;
+  const file = { nodes() { reads++; return [first, second]; }, documentSections() { return [
+    { path: null, html: '<p>前言</p>' }, { path: first.fullPath, html: '<table>章节</table>' },
+    { path: second.fullPath, html: '<p>任务正文</p>' }
+  ]; } };
+  const sections = projectReading.projectReadingSections(file);
+  assert.equal(reads, 1);
+  assert.equal(sections[0].node, null);
+  assert.equal(sections[1].node, first);
+  assert.equal(sections[2].node, second);
+  assert.notEqual(sections[1].key, sections[2].key);
+  assert.equal(sections[2].html, '<p>任务正文</p>');
+  assert.throws(() => projectReading.projectReadingSections({ ...file, nodes: () => [first] }), /版本不一致/);
+  const tags = ['project', 'work', 'REFILE', 'ARCHIVE', 'CONFLICT', 'Project'];
+  assert.deepEqual(projectReading.visibleProjectTags(tags, ['project', 'REFILE', 'ARCHIVE', 'CONFLICT']), ['work', 'Project']);
+  assert.equal(tags.length, 6);
+});
+
+test('主动刷新等待任务草稿保存，失败保留当前快照且不读取文件', async () => {
+  const f = projectPageFixture(); await f.page.loadFile();
+  const snapshot = f.page.sections;
+  let reads = 0, finish;
+  f.setOpen(async () => { reads++; return f.file('v2'); });
+  f.setEnd(() => new Promise(resolve => { finish = resolve; }));
+  const pending = f.page.refreshFile();
+  assert.equal(reads, 0);
+  finish(false); await pending;
+  assert.equal(reads, 0); assert.equal(f.page.sections, snapshot);
+  f.setEnd(async collapse => { assert.equal(collapse, true); return true; });
+  await f.page.refreshFile();
+  assert.equal(reads, 1); assert.equal(f.page.fileVersion, 'v2');
+});
+
+function nativeProjectFixture() {
+  let save = async () => true;
+  const { View } = load(base + 'components/ProjectDocumentView.ets', {
+    './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
+    '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args) } }
+  }, source => source.split('  @Builder\n')[0]
+    .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    .replace('export struct ProjectDocumentView', 'class View') + '}\nmodule.exports = { View };');
+  const view = new View(); view.aboutToAppear();
+  return { view, save: fn => { save = fn; } };
+}
+
+test('原生项目目录保存草稿后按完整路径定位，不改变任务卡片展开状态', async () => {
+  const f = nativeProjectFixture(); f.view.outlineVisible = true;
+  f.view.offsets.set('second-occurrence', 300);
+  f.save(async collapse => { assert.equal(collapse, false); return true; });
+  await f.view.openChapter({ key: 'second-occurrence' });
+  assert.equal(f.view.scroller.lastScroll.yOffset, 288);
+  assert.equal(f.view.outlineVisible, false);
+  f.view.outlineVisible = true; f.save(async () => false);
+  await f.view.openChapter({ key: 'second-occurrence' });
+  assert.equal(f.view.outlineVisible, true);
+});
+
+test('原生项目离开或切换版本后，迟到目录定位失效；切回正文恢复原位置', async () => {
+  const f = nativeProjectFixture(); let finish;
+  f.view.offsets.set('old', 999); f.save(() => new Promise(resolve => { finish = resolve; }));
+  const pending = f.view.openChapter({ key: 'old' });
+  f.view.revision = 'new'; f.view.snapshotChanged(); finish(true); await pending;
+  assert.equal(f.view.scroller.lastScroll.yOffset, 0);
+  assert.equal(f.view.offsets.size, 0);
+  f.view.readingState = '{"scroll":345}'; f.view.showing = false; f.view.visibilityChanged();
+  assert.equal(f.view.pendingOffset, 0);
+  f.view.showing = true; f.view.visibilityChanged(); assert.equal(f.view.pendingOffset, 345);
+  f.view.aboutToDisappear();
+  assert.equal(f.view.active, false);
+});
+
+test('标签窗口隐藏内部标签，修改普通互斥组仍保留原有项目和系统标记', async () => {
+  const tagPresentation = load(base + 'ui/TaskTagsPresentation.ets');
+  const { Dialog } = load(base + 'components/TaskTagsDialog.ets', {
+    '../ui/TaskTagsPresentation': tagPresentation
+  }, source => source.split('  @Builder\n')[0].replace(/@CustomDialog\n|@State /g, '')
+    .replace('export struct TaskTagsDialog', 'class Dialog') + '}\nmodule.exports = { Dialog };');
+  const dialog = new Dialog();
+  dialog.ownTags = ['project', 'REFILE', 'home']; dialog.inheritedTags = ['ARCHIVE'];
+  dialog.visibleTags = [...dialog.ownTags]; dialog.hiddenTags = ['project', 'REFILE', 'ARCHIVE', 'CONFLICT'];
+  dialog.supportTags = { tags: ['work', 'home', 'project'], groups: [['work', 'home', 'project']] };
+  let written; dialog.change = async tags => { written = tags; return true; };
+  dialog.aboutToAppear();
+  assert.deepEqual(dialog.names, ['work', 'home']); assert.deepEqual(dialog.selectedNames(), ['home']);
+  await dialog.toggle('work');
+  assert.ok(written.includes('project') && written.includes('REFILE') && written.includes('work'));
+  assert.ok(!written.includes('home'));
+  dialog.creating = true; dialog.name = 'CONFLICT'; await dialog.create();
+  assert.match(dialog.message, /系统管理/); assert.ok(!written.includes('CONFLICT'));
+});
+
+
+test('项目返回先保存原位编辑，保存失败不离开页面', async () => {
+  const f = projectPageFixture();
+  f.setEnd(async collapse => { assert.equal(collapse, true); return false; });
+  await f.page.leaveProject(); assert.deepEqual(f.routes, []);
+  f.setEnd(async () => true); await f.page.leaveProject(); assert.deepEqual(f.routes, ['back']);
 });

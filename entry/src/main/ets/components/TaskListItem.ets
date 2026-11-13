@@ -43,6 +43,8 @@ export struct TaskListItem {
   @Prop task: CoreTask
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
+  @Prop documentMode: boolean = false
+  @Prop hiddenTags: string[] = []
   @Prop allowCompletion: boolean = false
   @Prop instanceKey: string = ''
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
@@ -579,8 +581,8 @@ export struct TaskListItem {
     if (!await this.prepare() || !await this.finish(false)) return
     try {
       this.tagsDialog = new CustomDialogController({
-        builder: TaskTagsDialog({ supportTags: this.value().supportTags, ownTags: this.value().ownTags, visibleTags: this.value().tags,
-          inheritedTags: this.value().inheritedTags,
+        builder: TaskTagsDialog({ supportTags: this.value().supportTags, ownTags: this.value().ownTags, visibleTags: this.displayTags(),
+          inheritedTags: this.value().inheritedTags, hiddenTags: this.hiddenTags,
           change: async (tags: string[]): Promise<boolean> => await this.persist([{ field: 'TAGS', value: tags }]) }),
         customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
         onWillDismiss: (action: DismissDialogAction) => { if (!this.working) action.dismiss() }
@@ -772,7 +774,7 @@ export struct TaskListItem {
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 28 : 0), this.value().tags.length, taskIndicators(this.value()).length,
+    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 28 : 0), this.displayTags().length, taskIndicators(this.value()).length,
       this.duration(), this.value().deadline.length > 0 ? this.deadlineWidth : 0,
       titleCountsWidth(this.value().headingParts, this.countBudget()))
   }
@@ -826,19 +828,21 @@ export struct TaskListItem {
     }
   }
 
+  displayTags(): string[] { return this.value().tags.filter(tag => !this.hiddenTags.includes(tag)) }
+
   @Builder
   compactTags() {
     Row({ space: 4 }) {
-      Text(this.value().tags[0]).fontSize(11).fontColor('#F5F5F5').maxLines(1)
+      Text(this.displayTags()[0]).fontSize(11).fontColor('#F5F5F5').maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-        .backgroundColor(taskTagColor(this.value().tags[0])).borderRadius(10)
+        .backgroundColor(taskTagColor(this.displayTags()[0])).borderRadius(10)
         .constraintSize({ maxWidth: this.layout().firstTagWidth }).flexShrink(0)
       if (this.layout().showMoreTags) {
         Text('…').fontSize(12).fontColor(UiColor.secondary).width(22).height(21).textAlign(TextAlign.Center)
           .border({ width: 1, color: '#686561' }).borderRadius(10)
       }
     }.constraintSize({ maxWidth: this.layout().tagWidth }).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`标签：${this.value().tags.join('、')}`)
+      .accessibilityText(`标签：${this.displayTags().join('、')}`)
       .onClick((): void => { this.toggle() })
   }
 
@@ -909,7 +913,7 @@ export struct TaskListItem {
           .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
           .onClick((): void => { this.toggle() })
       }
-      if (this.value().tags.length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
+      if (this.displayTags().length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
       if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
       if (this.layout().durationWidth > 0) {
         Text(`${this.duration()}天`).fontSize(11).fontColor(UiColor.secondary)
@@ -1051,6 +1055,7 @@ export struct TaskListItem {
         autoCancel: !this.working && !this.priorityBusy, onWillDismiss: !this.working && !this.priorityBusy,
         onStateChange: (event): void => { this.priorityOpen = event.isVisible } })
     Column({ space: 12 }) {
+      if (!this.documentMode) {
       TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
         .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
@@ -1111,9 +1116,10 @@ export struct TaskListItem {
         }
         }.id(`inline_checks_${this.ownerKey}`).width('100%').height(this.checkHeight(this.checkLayoutRevision))
       }
-      if (this.value().tags.length > 0) {
+      }
+      if (this.displayTags().length > 0) {
         Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(this.value().tags, (tag: string) => {
+          ForEach(this.displayTags(), (tag: string) => {
             Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
               .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10).backgroundColor(taskTagColor(tag))
               .constraintSize({ maxWidth: this.rowWidth - 64 }).margin({ right: 6, bottom: 6 })
@@ -1147,7 +1153,7 @@ export struct TaskListItem {
       items.push({ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
         { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
-    if (this.value().logs.length > 0) {
+    if (!this.documentMode && this.value().logs.length > 0) {
       items.push({ title: '日志',
         icon: this.logbookExpanded ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
         action: () => { this.logbookExpanded = !this.logbookExpanded } })
@@ -1173,7 +1179,7 @@ export struct TaskListItem {
           .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
         Blank().layoutWeight(1)
         this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
-        this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() })
+        if (!this.documentMode) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
         Button({ type: ButtonType.Normal }) {
           Row({ space: 4 }) {
             Image(this.deadlineIcon()).width(16).height(16)
@@ -1212,13 +1218,13 @@ export struct TaskListItem {
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
     Column({ space: 8 }) {
-      if (this.value().bodyHtml) {
+      if (!this.documentMode && this.value().bodyHtml) {
         OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
           contentBackground: UiColor.taskCard }).width('100%')
       }
-      if (this.value().tags.length > 0) {
+      if (this.displayTags().length > 0) {
         Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(this.value().tags, (tag: string) => {
+          ForEach(this.displayTags(), (tag: string) => {
             Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
               .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10).backgroundColor(taskTagColor(tag))
               .margin({ right: 6, bottom: 6 })
@@ -1253,7 +1259,7 @@ export struct TaskListItem {
               this.attributes()
             }
           }.width('100%')
-          if (this.value().logs.length > 0) {
+          if (!this.documentMode && this.value().logs.length > 0) {
             TaskLogView({ logs: this.value().logs, expanded: this.logbookExpanded,
               contentBackground: this.value().state?.category === TaskStateCategory.Doing
                 ? '#00000000' : UiColor.taskCard }).width('100%').padding({ left: 27 })
@@ -1269,6 +1275,28 @@ export struct TaskListItem {
               if (this.regionArea().project !== null) this.openProject()
             })
         }
+      } else if (this.documentMode) {
+        Row({ space: 8 }) {
+          this.stateIndicator()
+          this.priorityBadge()
+          TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+            weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+            activate: (): void => { this.toggle() } }).layoutWeight(1)
+        }.width('100%').constraintSize({ minHeight: 48 }).alignItems(VerticalAlign.Center)
+        if (this.displayTags().length > 0) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(this.displayTags(), (tag: string) => {
+              Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
+                .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10)
+                .backgroundColor(taskTagColor(tag)).margin({ right: 6, bottom: 6 })
+            }, (tag: string) => tag)
+          }.width('100%').padding({ left: 26 })
+        }
+        if (this.expandedPlanningText()) {
+          Text(this.expandedPlanningText()).fontSize(12).fontColor(UiColor.secondary)
+            .width('100%').padding({ left: 26, bottom: 8 })
+        }
+        if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       } else {
         Row({ space: 6 }) {
           this.stateIndicator()
