@@ -58,7 +58,7 @@ async fn an_empty_file_keeps_configured_options_and_peer_files_do_not_share_tags
     { let value = OrgFile::new("repo".into(), "other.org".into(), b"* Other\n".to_vec()).unwrap(); support::push_file(&mut ws.repos[0], value); };
     let info = support::query_files(&ws.repos()[0]).await.unwrap();
     assert_eq!(info[0].tag_options, ["unused"]);
-    assert_eq!(info[0].task_count, 0);
+    assert_eq!(info[0].task_state_counts.iter().map(|item| item.count).sum::<usize>(), 0);
     assert!(info[1].tag_options.is_empty());
     let tasks = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(tasks.len(), 1);
@@ -81,7 +81,7 @@ async fn task_file_metadata_is_shared_and_remains_an_independent_snapshot() {
     drop(ws);
     assert_eq!(first.file_metadata().title.as_deref(), Some("Original"));
     assert_eq!(first.support_tags().unwrap().groups, vec![vec!["iOS", "Android"]]);
-    assert_eq!(first.file_metadata().task_count, 2);
+    assert_eq!(first.file_metadata().task_state_counts.iter().map(|item| item.count).sum::<usize>(), 2);
 }
 
 #[tokio::test]

@@ -3,6 +3,7 @@ import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './Controls'
+import { ProjectProgressIcon } from './ProjectProgressIcon'
 import { PopupMenuButton } from './PopupMenuButton'
 import { PopupMenuItem } from './PopupMenu'
 import { RepositorySyncView } from './RepositorySyncView'
@@ -12,8 +13,10 @@ import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } 
 import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService, fileTargetRepository } from '../services/FileTargetService'
+import { ProjectNavigation } from '../services/ProjectNavigation'
+import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
 import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreQuery, NativeCoreService, taskResult, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreOrgFileMetadata, CoreQuery, NativeCoreService, taskResult, fileResult, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
 export struct AppShell {
@@ -48,6 +51,8 @@ export struct AppShell {
   @State somedayCount: number = -1
   @State memoCount: number = -1
   @State logbookCount: number = -1
+  @State projects: CoreOrgFileMetadata[] = []
+  @State projectGroups: ProjectSection[] = []
   @State navMessage: string = ''
   @StorageLink('coreNotifications') @Watch('notificationUpdated') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @StorageLink('coreDataChanges') @Watch('dataChanged') dataChangeState: CoreDataChangeState = emptyCoreDataChangeState()
@@ -168,7 +173,8 @@ export struct AppShell {
       const queries: CoreQuery[] = [
         { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: overdueTaskQuery() },
         { type: 'task', query: overviewTaskQuery('planned') }, { type: 'task', query: overviewTaskQuery('anytime') },
-        { type: 'task', query: overviewTaskQuery('logbook') }
+        { type: 'task', query: overviewTaskQuery('logbook') },
+        { type: 'file', query: { isProject: true } }
       ]
       const prepared = [FileTargetService.prepare(config, repos, 'inbox'), FileTargetService.prepare(config, repos, 'someday'),
         FileTargetService.prepare(config, repos, 'memo')]
@@ -183,6 +189,7 @@ export struct AppShell {
       const planned = taskResult(results[2])
       const anytime = taskResult(results[3])
       const logbook = taskResult(results[4])
+      const projects = fileResult(results[5])
       const inbox = positions[0] < 0 ? undefined : FileTargetService.result(results[positions[0]], results[positions[0] + 1])
       const someday = positions[1] < 0 ? undefined : FileTargetService.result(results[positions[1]], results[positions[1] + 1])
       const memo = positions[2] < 0 ? undefined : FileTargetService.result(results[positions[2]], results[positions[2] + 1])
@@ -195,6 +202,8 @@ export struct AppShell {
       this.somedayCount = someday?.tasks.length ?? -1
       this.memoCount = memo?.tasks.length ?? -1
       this.logbookCount = logbook.tasks.length
+      this.projects = projects
+      this.projectGroups = projectSections(projects)
     } catch (e) {
       if (request === this.navigationRequest) this.navMessage = `读取导航失败：${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
@@ -236,6 +245,13 @@ export struct AppShell {
     }
   }
 
+  async openProject(file: CoreOrgFileMetadata) {
+    if (await ProjectNavigation.open(this.getUIContext(), file.repoId, file.path)) {
+      this.pageRefreshDeferred = false
+      this.drawerOpen = false
+    }
+  }
+
 
   primaryCount(view: TaskOverview | 'inbox'): number {
     switch (view) {
@@ -270,6 +286,33 @@ export struct AppShell {
   }
 
   @Builder
+  projectItem(file: CoreOrgFileMetadata) {
+    Row({ space: 12 }) {
+      ProjectProgressIcon({ completed: fileCompletedTaskCount(file), total: fileTaskCount(file) }).flexShrink(0)
+      Text(file.project() || '未命名项目').fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
+        .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+    }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)
+      .accessibilityGroup(true).accessibilityText(`${file.project() || '未命名项目'}，已完成/总任务数 ${fileTaskProgress(file)}`)
+      .onClick((): void => { this.openProject(file) })
+  }
+
+  @Builder
+  projectSection(section: ProjectSection) {
+    Column() {
+      Row({ space: 12 }) {
+        Image($r('app.media.nav_project_category')).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
+          .accessibilityLevel('no')
+        Text(section.category || '未分类').fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
+          .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%').height(40).padding({ left: 12, right: 12 }).margin({ bottom: 4 })
+        .accessibilityText(`项目分类，${section.category || '未分类'}`)
+      ForEach(section.files, (file: CoreOrgFileMetadata) => {
+        this.projectItem(file)
+      }, (file: CoreOrgFileMetadata) => JSON.stringify([file.repoId, file.path, file.project(), file.taskStateCounts]))
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   navItem(title: string, icon: Resource, route: string, selected: boolean = false, count: number = -1) {
     Row({ space: 12 }) {
       Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
@@ -298,6 +341,14 @@ export struct AppShell {
           Row().height(12)
           this.primaryItem('日志簿', $r('app.media.nav_logbook'), 'logbook')
           Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
+          if (this.projectGroups.length > 0) {
+            Column({ space: 32 }) {
+              ForEach(this.projectGroups, (section: ProjectSection) => {
+                this.projectSection(section)
+              }, (section: ProjectSection) => JSON.stringify(section))
+            }.width('100%').padding({ top: 8, bottom: 8 })
+            Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
+          }
           this.navItem('存储库', $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
           if (this.navMessage.length > 0) {
             Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)

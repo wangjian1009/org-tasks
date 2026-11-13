@@ -254,6 +254,7 @@ Rust 默认不限制表达式、分类和文件，两个包含开关均为真。
 interface OrgFileMetadata {
   project(): string | null
   readonly projectName: string | null
+  readonly category: string | null
   readonly repoId: string
   readonly path: string
   readonly title: string | null
@@ -261,15 +262,24 @@ interface OrgFileMetadata {
   readonly tagOptions: string[]
   readonly tagGroups: string[][]
   readonly isIgnore: boolean
-  readonly taskCount: number
+  readonly taskStateCounts: TaskStateCount[]
   readonly byteLength: number
   readonly modifiedAt: number | null
 }
+interface TaskStateCount {
+  readonly state: string
+  readonly category: TaskStateCategory | null
+  readonly count: number
+}
 #+end_src
+
+~OrgFileMetadata.category~ 透传 Core 的文件级 CATEGORY，~null~ 与空字符串保留原义；ArkTS 只按该字段组织分类分区，缺失或空值在界面统一显示“未分类”并置末。项目行使用圆形进度表达完成比例，数值计数保留在辅助功能说明中。
 
 FileQuery 在同一次 worker 调用中复用批次文件快照，只返回文件元信息，不传递 ~source~ 、 ~todo~ 或原始字节。完整文件继续通过 ~repo.file(path)~ 获取， ~file.title()~ 返回取得该对象时 Core 提取的标题，旧对象不随仓库刷新变化。两个接口都由 Core 读取文件头语法树，Bridge 和 ArkTS 不解析 TITLE。
 
-~OrgFileMetadata.taskCount~ 由 Core 对有效文件语法树统计标题数，沿用任务扫描忽略规则；不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
+~OrgFileMetadata.taskStateCounts~ 由 Core 对完整文件语法树按有效任务状态聚合，只返回出现过的状态并保留声明顺序；普通标题与受保护的冲突子树不计入，空文件或忽略文件返回空数组；不返回单一 ~taskCount~ ，不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
+
+~TaskStateCount~ 是按 Core 有效 TODO 状态聚合的数组项：~state~ 保留原始状态名，~category~ 为 Core 分类，~count~ 为该状态在完整任务树中的数量。Bridge 透传数组顺序与字段，不转换为 ~Map~ ，不在 C++ 或 ArkTS 重新统计。项目侧边栏将数组中所有项的 ~count~ 相加得到总任务树数，以 ~category = Done~ 的项作为已完成数，作为圆形进度的已完成量与总量；空项目显示中性空圆环，辅助功能读取“已完成/总任务数”。
 
 Core 的 ~is_ignore~ 通过现有 Rust 元信息序列化、C++ worker 的结构化 JSON 投影映射为 ~isIgnore~ ，无需新增 native 方法或 getter。文件入口选择页据此排除忽略文件；常规存储库浏览仍取得完整元信息。选择提交、入口查询和捕捉写入前都通过统一 File 查询重新取得元信息 ，拒绝已经不存在或被忽略的确切目标，不能根据同名路径重新选择仓库。
 
@@ -566,6 +576,6 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 
 * 完整文件的文档阅读接入
 
-~OrgFile.project()~ 与 ~OrgFile.renderDocumentHtml()~ 分别读取 Rust 完整文件快照中的 ~projectName~ 和 ~documentHtml~ 。Rust bridge 在原有仓库文件工作线程内调用 Core 的 ~project()~ 与 ~render_document_html()~ ，C++ 注册两个只读方法，类型声明与 ArkTS 的 ~CoreOrgFile~ 别名沿用同一对象边界，不增加正文解析或 I/O。源字节、文件版本、项目身份、完整语义 HTML 和原有 ~renderedHtml~ 均来自同一快照。
+~OrgFile.project()~ 与 ~OrgFile.renderDocumentHtml()~ 分别读取 Rust 完整文件快照中的 ~projectName~ 和 ~documentHtml~ 。Rust bridge 在原有仓库文件工作线程内调用 Core 的 ~project()~ 与 ~render_document_html()~ ，C++ 注册两个只读方法，类型声明与 ArkTS 的 ~CoreOrgFile~ 别名沿用同一对象边界，不增加正文解析或 I/O。源字节、文件版本、项目身份、完整语义 HTML 和原有 ~renderedHtml~ 均来自同一快照。Core 的文档投影排除受保护的冲突子树；项目阅读不跳转冲突页，原文和冲突处理仍消费完整文件。
 
 ~ProjectDetail~ 消费完整语义 HTML，普通文件和历史备份继续使用原有 ~renderHtml()~ 。宿主仅按 Core 的任务与状态属性将有内容的任务包装成原生 HTML disclosure；普通节点与 drawer 始终展开。项目阅读状态只在页面会话中保存，并以真实仓库 ID、路径和文件版本隔离；版本变化后清空旧坐标与展开状态。

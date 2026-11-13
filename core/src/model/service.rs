@@ -1139,7 +1139,10 @@ mod tests {
         let info = &crate::model::test_support::query_files(&repo)
             .await
             .unwrap()[0];
-        assert_eq!(info.task_count, 3);
+        assert_eq!(info.task_state_counts, vec![
+            crate::TaskStateCount { state: "TODO".into(), category: Some(crate::TaskStateCategory::Todo), count: 1 },
+            crate::TaskStateCount { state: "DONE".into(), category: Some(crate::TaskStateCategory::Done), count: 1 },
+        ]);
         assert!(!info.is_ignore);
         assert_eq!(info.byte_length, source.len());
         assert_eq!(info.modified_at, Some(1_700_000_000_123));
@@ -1163,7 +1166,7 @@ mod tests {
         let ignored = &crate::model::test_support::query_files(&repo)
             .await
             .unwrap()[0];
-        assert_eq!(ignored.task_count, 0);
+        assert!(ignored.task_state_counts.is_empty());
         assert!(ignored.is_ignore);
         assert_eq!(ignored.byte_length, source.len());
         assert_eq!(ignored.modified_at, Some(1_700_000_000_123));

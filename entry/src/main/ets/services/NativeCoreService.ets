@@ -28,6 +28,7 @@ import {
   defaultTodoSettings,
   CoreSettings,
   TaskState,
+  TaskStateCount,
   TaskPriority,
   PeriodCategory,
   ConflictSync as NativeConflictSync,
@@ -75,6 +76,7 @@ export type CoreConflictTarget = NativeConflictTarget
 export type CoreFileConflict = NativeFileConflict
 // project() 与 renderDocumentHtml() 均读取 Native OrgFile 的同版本 Core 快照。
 export type CoreOrgFile = NativeOrgFile
+// 文件 category 与 projectName 来自同一 Core 快照，供导航展示分区。
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
 // 逻辑身份、state、category、hasList、hasText、isRepeating 与 isHabit 均由 Core 投影，宿主不解析 Org 或重新计算。
@@ -115,6 +117,7 @@ export type CoreSyncFileRecord = NativeSyncFileRecord
 export type CoreSyncHistoryError = NativeSyncHistoryError
 
 export type CoreTaskState = TaskState
+export type CoreTaskStateCount = TaskStateCount
 export type CoreTaskPriority = TaskPriority
 export type CorePeriodCategory = PeriodCategory
 export type CoreSettingsObject = CoreSettings

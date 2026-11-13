@@ -12,9 +12,10 @@ export struct NotebookFileRow {
 
   openFile() {
     try {
+      const project = this.file.project() !== null
       this.getUIContext().getRouter().pushUrl({
-        url: this.file.hasConflict ? 'pages/ConflictFile' : this.file.project() !== null ? 'pages/ProjectDetail' : 'pages/FileDetail',
-        params: { repoId: this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
+        url: project ? 'pages/ProjectDetail' : this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
+        params: { repoId: !project && this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
       })
     } catch (_) {
       // 页面退出或路由失效时忽略此次导航。

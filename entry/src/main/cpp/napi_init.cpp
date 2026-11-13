@@ -525,9 +525,11 @@ bool ProjectFileResult(napi_env env, napi_value files)
     uint32_t length = 0;
     if (napi_get_array_length(env, files, &length) != napi_ok) return false;
     for (uint32_t index = 0; index < length; index++) {
-        napi_value metadata, project_name;
+        napi_value metadata, project_name, category, task_state_counts;
         if (napi_get_element(env, files, index, &metadata) != napi_ok ||
-            napi_get_named_property(env, metadata, "projectName", &project_name) != napi_ok) return false;
+            napi_get_named_property(env, metadata, "projectName", &project_name) != napi_ok ||
+            napi_get_named_property(env, metadata, "category", &category) != napi_ok ||
+            napi_get_named_property(env, metadata, "taskStateCounts", &task_state_counts) != napi_ok) return false;
         napi_value options, priorities, key; bool deleted;
         auto* states = new MetadataStates();
         if (napi_get_named_property(env, metadata, "taskStateOptions", &options) != napi_ok ||
@@ -545,9 +547,12 @@ bool ProjectFileResult(napi_env env, napi_value files)
             {"taskPriorityOf", nullptr, MetadataTaskPriorityOf, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"taskStateOf", nullptr, MetadataTaskStateOf, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"projectName", nullptr, nullptr, nullptr, nullptr, project_name, napi_enumerable, nullptr},
+            {"category", nullptr, nullptr, nullptr, nullptr, category, napi_enumerable, nullptr},
+            // 状态、分类与计数来自 Core 同次文件快照，嵌套数组原样透传。
+            {"taskStateCounts", nullptr, nullptr, nullptr, nullptr, task_state_counts, napi_enumerable, nullptr},
             {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
         };
-        if (napi_define_properties(env, metadata, 4, properties) != napi_ok) return false;
+        if (napi_define_properties(env, metadata, sizeof(properties) / sizeof(properties[0]), properties) != napi_ok) return false;
     }
     return true;
 }

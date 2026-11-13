@@ -82,16 +82,26 @@ pub struct OrgFileMetadata {
     pub title: Option<String>,
     pub title_parts: Vec<TitlePart>,
     pub project_name: Option<String>,
+    pub category: Option<String>,
     pub tag_options: Vec<String>,
     pub priority_options: Vec<TaskPriority>,
     pub tag_groups: Vec<Vec<String>>,
     pub has_conflict: bool,
     pub is_ignore: bool,
-    pub task_count: usize,
+    pub task_state_counts: Vec<TaskStateCount>,
     pub byte_length: usize,
     pub modified_at: Option<TimestampMs>,
     #[serde(skip)]
     pub(crate) task_states: Vec<TaskState>,
+}
+
+/// 完整文件任务树中各有效 TODO 状态的计数，顺序沿用状态声明。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskStateCount {
+    pub state: String,
+    pub category: Option<TaskStateCategory>,
+    pub count: usize,
 }
 
 impl OrgFileMetadata {
@@ -162,25 +172,35 @@ impl OrgFile {
             has_conflict,
             title_parts: self.title_parts(),
             project_name: self.project_name(),
+            category: self.category(),
             tag_options: self.tag_options(),
             priority_options: self.priority_options(),
             tag_groups: self.tag_groups(),
             is_ignore,
-            task_count: if is_ignore {
-                0
-            } else {
-                self.syntax()
-                    .document()
-                    .syntax()
-                    .descendants()
-                    .filter_map(orgize::ast::Headline::cast)
-                    .filter(|headline| !OrgFile::is_conflict_headline(headline))
-                    .count()
-            },
+            task_state_counts: if is_ignore { Vec::new() } else { self.task_state_counts() },
             byte_length: self.source_bytes().len(),
             modified_at: self.modified_at,
             task_states: self.todo.task_states(),
         }
+    }
+
+    fn task_state_counts(&self) -> Vec<TaskStateCount> {
+        let mut counts: Vec<_> = self.todo.task_states().into_iter().map(|state| TaskStateCount {
+            state: state.name,
+            category: state.category,
+            count: 0,
+        }).collect();
+        for headline in self.syntax().document().syntax().descendants()
+            .filter_map(orgize::ast::Headline::cast)
+            .filter(|headline| !Self::is_conflict_headline(headline))
+        {
+            let Some(keyword) = headline.todo_keyword() else { continue };
+            if let Some(item) = counts.iter_mut().find(|item| item.state == keyword.as_ref()) {
+                item.count += 1;
+            }
+        }
+        counts.retain(|item| item.count > 0);
+        counts
     }
 
     pub fn new(
@@ -592,6 +612,26 @@ mod tests {
     }
 
     #[test]
+    fn file_state_counts_cover_nested_tasks_in_declaration_order_without_conflict_candidates() {
+        let source = "#+TODO: HOLD NEXT MYSTERY | FINISHED ABORT\r\n#+TASK_STATE_CATEGORY: Wait HOLD\r\n#+TASK_STATE_CATEGORY: Done FINISHED\r\n#+TASK_STATE_CATEGORY: Cancel ABORT\r\n* 普通章节\r\n** FINISHED 已完成\r\n*** NEXT 下一步\r\n*** FINISHED 子任务已完成\r\n* MYSTERY 未分类状态\r\n* HOLD 等待\r\n* ABORT 已取消\r\n* UNKNOWN 不属于有效状态\r\n* 同步冲突 :CONFLICT:ARCHIVE:\r\n** FINISHED 冲突候选\r\n*** NEXT 候选子任务\r\n";
+        let mut defaults = TodoConfig::default();
+        defaults.core_settings.addition_states.push(TaskState { name: "MYSTERY".into(), category: None });
+        let file = OrgFile::with_todo_defaults("repo".into(), "project.org".into(), source.as_bytes().to_vec(), defaults).unwrap();
+        let counts = file.metadata(false).task_state_counts;
+        assert_eq!(counts, vec![
+            TaskStateCount { state: "HOLD".into(), category: Some(TaskStateCategory::Wait), count: 1 },
+            TaskStateCount { state: "NEXT".into(), category: Some(TaskStateCategory::Todo), count: 1 },
+            TaskStateCount { state: "MYSTERY".into(), category: None, count: 1 },
+            TaskStateCount { state: "FINISHED".into(), category: Some(TaskStateCategory::Done), count: 2 },
+            TaskStateCount { state: "ABORT".into(), category: Some(TaskStateCategory::Cancel), count: 1 },
+        ]);
+        assert!(file.metadata(true).task_state_counts.is_empty());
+        assert_eq!(file.source_bytes(), source.as_bytes());
+        let empty = OrgFile::new("repo".into(), "empty.org".into(), b"* Plain\n".to_vec()).unwrap();
+        assert!(empty.metadata(false).task_state_counts.is_empty());
+    }
+
+    #[test]
     fn category_reads_only_real_keywords_in_file_header() {
         for (source, expected) in [
             ("", None),
@@ -623,6 +663,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(file.category().as_deref(), expected, "{source}");
+            assert_eq!(file.metadata(false).category.as_deref(), expected, "{source}");
             assert_eq!(serialize_file(&file), source.as_bytes());
         }
     }
@@ -658,7 +699,7 @@ mod tests {
                 source.as_bytes()
             );
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 13);
+            assert_eq!(value.as_object().unwrap().len(), 14);
             assert_eq!(value["priorityOptions"], serde_json::json!([]));
             assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));

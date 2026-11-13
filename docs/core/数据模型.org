@@ -87,16 +87,20 @@ task\_merge\_operations(request): TaskMergePlan}
   repo\_id: OrgRepoId \\
   path: String \\
   title: Option\textless String\textgreater \\
+  category: Option\textless String\textgreater \\
   title\_parts: Vec\textless TitlePart\textgreater \\
   tag\_options: Vec\textless String\textgreater \\
   tag\_groups: Vec\textless Vec\textless String\textgreater\textgreater \\
   is\_ignore: bool \\
   has\_conflict: bool \\
-  task\_count: usize \\
+  task\_state\_counts: Vec\textless TaskStateCount\textgreater \\
   byte\_length: usize \\
   modified\_at: Option\textless TimestampMs\textgreater
 }{}
 
+\umlclass[x=16,y=-7.0]{TaskStateCount}{state: String \\
+category: Option\textless TaskStateCategory\textgreater \\
+count: usize}{}
 \begin{umlpackage}[x=8.5,y=-1.4]{Synchronization}
 \umlclass[x=0,y=0]{OrgRepoSyncRecord}{
   id: OrgRepoSyncRecordId \\
@@ -131,6 +135,7 @@ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 \umluniassoc[mult1=1,mult2=0..*]{OrgRepoSyncRecord}{OrgRepoSyncFileRecord}
 \umldep{OrgRepoSyncFileRecord}{OrgFile}
 \umldep{OrgRepo}{OrgFileMetadata}
+\umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TaskStateCount}
 \end{tikzpicture}%
 }
 \end{center}
@@ -146,6 +151,10 @@ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
 | 相对路径 | ~relativePath~ 相对于所属 ~OrgRepo.rootDirectory~ ，不能是绝对路径或包含 ~..~ 。 |
 | 源位置 | ~SourceRange~ 是引用 ~OrgFile.sourceBytes~ 的半开区间 ~[start, end)~ 。 ~SourcePosition~ 同时记录 1-based 行号、0-based UTF-8 字节列号与 0-based UTF-8 字节偏移；它仅在当前文件快照内有效，不能作为跨版本稳定 ID。 |
 | 内容与版本 | ~OrgFile.sourceBytes~ 保存当前解析/编辑会话的完整源字节，用于保真写回；它不写入 core 持久化状态或同步记录。内容树可由文件重新解析； ~LocalFileVersion~ 只保存内容哈希， 策略专属的文件 ~detail~ 保存远端 ETag、修改时间和大小等信息。 |
+
+~OrgFileMetadata.category~ 是同一文件快照的文件级 CATEGORY，保留缺失与显式空值，不进入持久化。
+
+~OrgFileMetadata.task_state_counts~ 是完整文件快照的运行时聚合，不持久化。~TaskStateCount~ 保留原始状态名、Core 状态分类与数量，只返回出现过的状态并沿用有效 TODO 声明顺序；统计全部层级，排除无状态标题、忽略文件和受保护冲突子树。项目进度使用全部数量之和作为总数，仅 ~Done~ 分类计入已完成数，~Cancel~ 只计入总数。
 
 * 查询投影中的标题层级
 

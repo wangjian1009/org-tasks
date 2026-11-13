@@ -302,13 +302,24 @@ test('项目读取迟到或页面退出，不覆盖最新文档', async () => {
   assert.equal(f.page.fileVersion, 'new');
 });
 
-test('项目文件改为普通文件或含冲突时，按真实身份返回对应入口', async () => {
+test('项目页面离开时不再向可能销毁的 Web 发送阅读状态脚本', () => {
+  const f = projectPageFixture();
+  let captures = 0;
+  f.page.navigation.captureReadingState = async () => { captures++; return ''; };
+  const revision = f.page.loadRevision;
+  f.page.onPageHide();
+  assert.equal(captures, 0);
+  assert.equal(f.page.loadRevision, revision + 1);
+});
+
+test('项目文件改为普通文件时跳转，含冲突的项目仍展示文档快照', async () => {
   const f = projectPageFixture();
   f.setOpen(async () => ({ ...f.file(), project: () => null }));
   await f.page.loadFile(); assert.equal(f.routes[0].url, 'pages/FileDetail');
   f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
-  await f.page.loadFile(); assert.equal(f.routes[1].url, 'pages/ConflictFile');
-  assert.equal(f.routes[1].params.repoId, 'config');
+  await f.page.loadFile(); assert.equal(f.routes.length, 1);
+  assert.equal(f.page.content, '项目原文');
+  assert.equal(f.page.renderedHtml, '<p>完整文档</p>');
 });
 
 test('项目跳转等待草稿保存成功，失败保留页面，成功使用真实文件身份', async () => {
@@ -318,9 +329,9 @@ test('项目跳转等待草稿保存成功，失败保留页面，成功使用�
     './TaskInlineService': { TaskInlineSession: { async end(collapse) { assert.equal(collapse, true); return saved; } } }
   });
   const context = { getRouter: () => ({ async pushUrl(route) { routes.push(route); } }), getPromptAction: () => ({ showToast() {} }) };
-  await ProjectNavigation.open(context, 'core', 'folder/project.org');
+  assert.equal(await ProjectNavigation.open(context, 'core', 'folder/project.org'), false);
   assert.deepEqual(routes, []);
   saved = true;
-  await ProjectNavigation.open(context, 'core', 'folder/project.org');
+  assert.equal(await ProjectNavigation.open(context, 'core', 'folder/project.org'), true);
   assert.deepEqual(routes, [{ url: 'pages/ProjectDetail', params: { repoId: 'core', path: 'folder/project.org' } }]);
 });

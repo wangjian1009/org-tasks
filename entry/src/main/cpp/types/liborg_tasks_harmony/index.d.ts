@@ -281,6 +281,7 @@ export interface OrgFileMetadata {
   taskStateOf(category: TaskStateCategory): TaskState | null;
   project(): string | null;
   readonly projectName: string | null;
+  readonly category: string | null;
   readonly repoId: string;
   readonly path: string;
   readonly title: string | null;
@@ -289,7 +290,7 @@ export interface OrgFileMetadata {
   readonly tagGroups: string[][];
   readonly isIgnore: boolean;
   readonly hasConflict: boolean;
-  readonly taskCount: number;
+  readonly taskStateCounts: TaskStateCount[];
   readonly byteLength: number;
   readonly modifiedAt: number | null;
 }
@@ -305,6 +306,7 @@ export interface TaskPriority { name: string; category: PeriodCategory | null; }
 
 export type TaskStateCategory = 'Todo' | 'Doing' | 'Wait' | 'Done' | 'Cancel';
 export interface TaskState { name: string; category: TaskStateCategory | null; }
+export interface TaskStateCount { readonly state: string; readonly category: TaskStateCategory | null; readonly count: number; }
 export interface CoreSettings { additionStates: TaskState[]; }
 
 export interface TodoDeclaration { keyword: string; value: string; range: SourceRange; }

@@ -107,7 +107,7 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
         .unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].heading_path, vec!["Normal"]);
-    assert_eq!(support::query_files(&f.workspace.repos()[0]).await.unwrap()[0].task_count, 3);
+    assert_eq!(support::query_files(&f.workspace.repos()[0]).await.unwrap()[0].task_state_counts.iter().map(|item| item.count).sum::<usize>(), 2);
     assert_eq!(f.workspace.repos()[0].nodes().await.unwrap().len(), 3);
 }
 

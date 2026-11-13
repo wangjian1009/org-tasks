@@ -16,7 +16,7 @@ async fn file_conflict_state_comes_from_real_node_tags_not_headers_or_block_lite
     { let value = file; support::push_file(&mut repo, value); };
     let metadata = serde_json::to_value(&support::query_files(&repo).await.unwrap()[0]).unwrap();
     assert_eq!(metadata["hasConflict"], true);
-    assert_eq!(metadata["taskCount"], 1);
+    assert_eq!(metadata["taskStateCounts"], serde_json::json!([]));
     for source in [
         "#+CONFLICT: true\n* A\n",
         "* A :conflict:\n",

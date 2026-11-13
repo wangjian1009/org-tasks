@@ -125,14 +125,51 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
   assert.equal(page.needsConfiguration,false);
 });
 
-test('侧边栏八项任务、三个文件和通知合为一个批次，跨仓库同名文件保持隔离',async()=>{
+test('侧边栏任务、项目、入口文件和通知合为一个批次，跨仓库同名文件保持隔离',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   await page.loadNavigation();
-  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,12);
-  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['task','file','task','file','task','file','notification']);
-  assert.deepEqual(f.batches[0][5].repoIds,['core-a']);assert.deepEqual(f.batches[0][7].repoIds,['core-b']);
-  assert.deepEqual(f.batches[0][7].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
+  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,13);
+  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','file','task','file','task','file','notification']);
+  assert.deepEqual(f.batches[0][5].query,{isProject:true});
+  assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
+  assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
+});
+
+test('项目按 Core 文件结果保留顺序、空名称和同名身份，新快照清除已删除入口',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  const projects=[{repoId:'core-a',path:'one.org',projectName:'同名项目'},
+    {repoId:'core-b',path:'one.org',projectName:'同名项目'},
+    {repoId:'core-a',path:'two.org',projectName:''}];
+  let current=projects;
+  f.query(batch=>batch.map(request=>request.type==='task'?{type:'task',result:{tasks:[],categories:[]}}:
+    request.type==='notification'?{type:'notification',result:[]}:
+    {type:'file',result:request.query.isProject?current:[]}));
+  await page.loadNavigation();
+  assert.equal(page.projects,current);
+  current=[];await page.loadNavigation();
+  assert.deepEqual(page.projects,[]);
+  assert.deepEqual(page.projectGroups,[]);
+});
+
+test('项目按文件 CATEGORY 展示分区，保留同名身份与组内顺序，未分类置末',()=>{
+  const f=fixture(),{projectSections}=f.load('ui/NotebookPresentation');
+  const files=[{repoId:'a',path:'empty.org',category:null},{repoId:'a',path:'work.org',category:'工作',projectName:'同名'},
+    {repoId:'b',path:'personal.org',category:'个人'}, {repoId:'b',path:'work.org',category:'工作',projectName:'同名'},
+    {repoId:'a',path:'blank.org',category:''},{repoId:'a',path:'named.org',category:'未分类'}];
+  const groups=projectSections(files);
+  assert.deepEqual(groups.map(group=>group.category),['工作','个人','未分类','']);
+  assert.deepEqual(groups[0].files,[files[1],files[3]]);
+  assert.deepEqual(groups[3].files,[files[0],files[4]]);
+  assert.deepEqual(projectSections([]),[]);
+});
+
+test('项目进度按 Core 分类汇总，取消和未分类状态只计入总数',()=>{
+  const f=fixture(),{fileTaskCount,fileTaskProgress}=f.load('ui/NotebookPresentation');
+  const file={taskStateCounts:[{state:'FINISHED',category:'Done',count:3},{state:'DONE',category:null,count:2},
+    {state:'ABORT',category:'Cancel',count:1},{state:'NEXT',category:'Todo',count:4}]};
+  assert.equal(fileTaskCount(file),10);assert.equal(fileTaskProgress(file),'3/10');
+  assert.equal(fileTaskProgress({taskStateCounts:[]}),'0/0');
 });
 
 test('失效文件和未配置文件不退回全仓库任务，通知仍在同一个批次内加载',async()=>{
@@ -226,7 +263,7 @@ test('恢复页面时侧边栏仍打开，只加载侧边栏并复用首次出�
   await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,1);
   observer.pageChanged({index:0,state:'hide'});observer.pageChanged({index:0,state:'show'});
   await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,2);
-  assert.ok(f.batches.every(batch=>batch.length===12));
+  assert.ok(f.batches.every(batch=>batch.length===13));
 });
 
 test('存储库清单的全部仓库文件元信息与通知也使用同一批次',async()=>{

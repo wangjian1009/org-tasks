@@ -358,6 +358,10 @@ impl Traverser for ReadingView {
             | Event::Leave(Container::Document(_) | Container::Section(_))
                 if self.2.is_some() => {}
             Event::Enter(Container::Headline(headline)) => {
+                if self.6.is_some() && OrgFile::is_conflict_headline(&headline) {
+                    ctx.skip();
+                    return;
+                }
                 let level = headline.level().min(6);
                 let document = self.6.is_some();
                 let tag = if document { "section" } else { "details" };
@@ -690,6 +694,20 @@ mod tests {
             source.as_bytes().to_vec(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn document_reading_omits_protected_conflict_material_without_changing_source() {
+        let source = "#+FILETAGS: :project:\n前言\n* TODO 当前任务\n正文\n* 同步冲突 :CONFLICT:ARCHIVE:\n** 候选\n:PROPERTIES:\n:CONFILICT_ID: private-id\n:END:\n*** DONE 远端材料\n候选正文\n";
+        let file = file(source);
+        let html = file.render_document_html();
+        assert!(html.contains("当前任务") && html.contains("前言"));
+        for hidden in ["同步冲突", "CONFLICT", "CONFILICT_ID", "private-id", "远端材料", "候选正文"] {
+            assert!(!html.contains(hidden), "文档阅读不应暴露 {hidden}: {html}");
+        }
+        assert_eq!(html.matches("<section").count(), html.matches("</section>").count());
+        assert!(file.render_html().contains("远端材料"));
+        assert_eq!(file.source_bytes(), source.as_bytes());
     }
 
     #[test]

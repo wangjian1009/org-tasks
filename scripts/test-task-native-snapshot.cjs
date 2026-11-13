@@ -156,10 +156,12 @@ test('优先级查找在 ArkUI 深拷贝后仍使用 Core 的原始快照', () =
 
 
 test('文件元信息按分类返回独立优先级对象，不暴露私有查找快照',()=>{
-  const data={projectName:null,priorityOptions:[{name:'D',category:'Hight'}],
+  const data={projectName:null,category:'个人',taskStateCounts:[{state:'FINISHED',category:'Done',count:2},{state:'CUSTOM',category:null,count:1}],priorityOptions:[{name:'D',category:'Hight'}],
     taskStateOptions:{Todo:null,Doing:null,Wait:null,Done:null,Cancel:null},
     taskPriorityOptions:{Hight:{name:'D',category:'Hight'},Middle:null,Low:null}};
   const metadata=native.metadata(data);
+  assert.deepEqual(metadata.taskStateCounts,data.taskStateCounts);
+  assert.equal(metadata.category,'个人');
   assert.deepEqual(metadata.taskPriorityOf('Hight'),{name:'D',category:'Hight'});
   assert.equal(metadata.taskPriorityOf('Middle'),null);
   metadata.taskPriorityOf('Hight').name='A';

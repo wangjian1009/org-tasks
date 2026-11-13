@@ -1,6 +1,6 @@
 import { CoreOrgFileMetadata, CoreTitlePart } from '../services/NativeCoreService'
 import { FileTargetKind, fileTargetName } from '../services/FileTargetService'
-import { fileModifiedLabel, fileSizeLabel } from '../ui/NotebookPresentation'
+import { fileModifiedLabel, fileSizeLabel, fileTaskCount } from '../ui/NotebookPresentation'
 import { UiColor } from '../ui/Theme'
 import { TitleText } from './TitleText'
 
@@ -22,7 +22,7 @@ export struct FileItem {
       ? this.file.titleParts.map((part: CoreTitlePart): string => part.text).join('')
       : this.file.title || this.file.path
     const usages = this.usages.map((kind: FileTargetKind): string => fileTargetName(kind)).join('、')
-    return `${title}${this.status ? `，${this.status}` : ''}${usages ? `，用途 ${usages}` : ''}，文件 ${this.file.path}，${this.file.taskCount} 条笔记，${fileSizeLabel(this.file.byteLength)}，${fileModifiedLabel(this.file.modifiedAt)}`
+    return `${title}${this.status ? `，${this.status}` : ''}${usages ? `，用途 ${usages}` : ''}，文件 ${this.file.path}，${fileTaskCount(this.file)} 个任务，${fileSizeLabel(this.file.byteLength)}，${fileModifiedLabel(this.file.modifiedAt)}`
   }
 
   build() {
@@ -46,7 +46,7 @@ export struct FileItem {
             }.margin({ left: 6 }).flexShrink(0)
           }
         }.layoutWeight(1).constraintSize({ minWidth: 0 })
-        Text(`${this.file.taskCount} 条`).fontSize(12).fontColor(UiColor.secondary).maxLines(1).flexShrink(0)
+        Text(`${fileTaskCount(this.file)} 个任务`).fontSize(12).fontColor(UiColor.secondary).maxLines(1).flexShrink(0)
       }.width('100%').height(24).alignItems(VerticalAlign.Center)
       Row({ space: 8 }) {
         Row({ space: 4 }) {

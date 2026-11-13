@@ -274,29 +274,7 @@ impl OrgRepo {
 }
 
 fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {
-    use orgize::rowan::ast::AstNode;
-    OrgFileMetadata {
-        repo_id: file.repo_id.clone(),
-        path: file.path.clone(),
-        title: file.title(),
-        title_parts: file.title_parts(),
-        project_name: file.project_name(),
-        tag_options: file.tag_options(),
-        priority_options: file.priority_options(),
-        tag_groups: file.tag_groups(),
-        has_conflict: file.has_conflict(),
-        is_ignore: false,
-        task_count: file
-            .syntax()
-            .document()
-            .syntax()
-            .descendants()
-            .filter_map(orgize::ast::Headline::cast)
-            .count(),
-        byte_length: file.source_bytes().len(),
-        modified_at: file.modified_at,
-        task_states: file.todo.task_states(),
-    }
+    file.metadata(false)
 }
 fn archive_io(e: std::io::Error) -> CoreError {
     CoreError::Store(format!("无法读写同步日志备份：{e}"))

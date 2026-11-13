@@ -32,7 +32,8 @@ struct ProjectDetail {
   private fileIdentity: string = ''
 
   onPageShow() { this.loadFile() }
-  onPageHide() { this.loadRevision++; this.rememberReading() }
+  // 页面退出时只使读取失效，避免向正在销毁的 ArkWeb 再发送脚本。
+  onPageHide() { this.loadRevision++ }
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
     if (this.sourceMode) { this.toggleSource(); return true }
@@ -76,11 +77,6 @@ struct ProjectDetail {
       const repository = (await workspace.repos()).find(item => item.id === repoId)
       const host = config.repos.find(item => item.rootDirectory === repository?.rootDirectory)
       if (revision !== this.loadRevision) return
-      if (file.hasConflict) {
-        if (!host) throw new Error('此存储库配置已不存在')
-        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/ConflictFile', params: { repoId: host.id, path } })
-        return
-      }
       if (file.project() === null) {
         await this.getUIContext().getRouter().replaceUrl({ url: 'pages/FileDetail', params: { repoId, path } })
         return

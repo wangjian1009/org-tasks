@@ -808,6 +808,7 @@ fn priority_options(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HarmonyBridgeFileMetadata {
+    // category 与 taskStateCounts 随 Core 元信息原样序列化，不在宿主解析或统计。
     #[serde(flatten)]
     metadata: org_tasks_core::OrgFileMetadata,
     task_priority_options: BTreeMap<String, Option<org_tasks_core::TaskPriority>>,
@@ -1265,6 +1266,10 @@ mod tests {
         assert_eq!(metadata[0]["title"], "工作计划");
         assert_eq!(metadata[0]["path"], "work.org");
         assert_eq!(metadata[0]["isIgnore"], false);
+        assert_eq!(metadata[0]["taskStateCounts"], serde_json::json!([
+            { "state": "TODO", "category": "Todo", "count": 1 }
+        ]));
+        assert!(metadata[0].get("taskCount").is_none());
         assert_eq!(
             metadata[0]["tagOptions"],
             serde_json::json!(["家居", "unused"])
@@ -1303,7 +1308,7 @@ mod tests {
             serde_json::from_str(&query_files_json(handle, root.to_string_lossy().into()).unwrap())
                 .unwrap();
         assert_eq!(ignored[0]["isIgnore"], true);
-        assert_eq!(ignored[0]["taskCount"], 0);
+        assert_eq!(ignored[0]["taskStateCounts"], serde_json::json!([]));
         assert_eq!(metadata[0]["title"], "工作计划");
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
@@ -1330,6 +1335,10 @@ mod tests {
             )
             .unwrap();
             assert_eq!(category["category"], expected);
+            let metadata: serde_json::Value = serde_json::from_str(
+                &query_files_json(handle, directory.clone()).unwrap(),
+            ).unwrap();
+            assert_eq!(metadata.as_array().unwrap().iter().find(|file| file["path"] == path).unwrap()["category"], expected);
             let snapshot: serde_json::Value =
                 serde_json::from_str(&repo_snapshot_json(handle, directory.clone()).unwrap())
                     .unwrap();
