@@ -2,7 +2,7 @@ import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPresentation'
 import { TaskListItem } from './TaskListItem'
-import { TaskGroup } from './TaskGroup'
+import { TaskRegion } from './TaskRegion'
 import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
@@ -134,7 +134,7 @@ export struct LogbookTaskList {
   groupItems(group: LogbookGroup) {
     if (group.kind === 'day') {
       ForEach(group.groups, (region: LogbookTaskGroup) => {
-        TaskGroup({ region, category: true, project: true, listMode: true }) {
+        TaskRegion({ category: region.category || '未分类', project: region.kind === 'project' ? region : null }) {
           ForEach(region.items, (item: LogbookTaskItem) => {
             this.itemRow(item, group)
           }, (item: LogbookTaskItem) => item.key)

@@ -1,6 +1,6 @@
 import { CoreTask } from '../services/NativeCoreService'
 
-export interface TaskRegion {
+export interface TaskRegionData {
   key: string
   kind: 'category' | 'project'
   title: string
@@ -9,11 +9,11 @@ export interface TaskRegion {
   filePath: string
 }
 
-export interface TaskRegionGroup<T> extends TaskRegion {
+export interface TaskRegionGroup<T> extends TaskRegionData {
   items: T[]
 }
 
-export function taskRegion(task: CoreTask): TaskRegion {
+export function taskRegion(task: CoreTask): TaskRegionData {
   const project = task.project()
   const category = task.category || null
   return {
@@ -24,10 +24,9 @@ export function taskRegion(task: CoreTask): TaskRegion {
   }
 }
 
-export function taskRegionTitle(region: TaskRegion, category: boolean, project: boolean): string {
-  const categoryTitle = category ? region.category || '未分类' : ''
-  const projectTitle = project && region.kind === 'project' ? region.title : ''
-  return categoryTitle && projectTitle ? `${categoryTitle} · ${projectTitle}` : categoryTitle || projectTitle
+export function taskRegionTitle(category: string | null, project: TaskRegionData | null): string {
+  const projectTitle = project?.title || ''
+  return category && projectTitle ? `${category} · ${projectTitle}` : category || projectTitle
 }
 
 // 项目优先归组，其余任务按分类归组；只组织已有快照，不筛选或复制任务。

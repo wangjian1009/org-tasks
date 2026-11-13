@@ -135,7 +135,9 @@ export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
     }
   }
   for (const group of groups) {
-    group.groups = taskRegionGroups(group.items, (item: PlannedTaskItem): CoreTask => item.task)
+    if (group.kind === 'day') {
+      group.groups = taskRegionGroups(group.items, (item: PlannedTaskItem): CoreTask => item.task)
+    }
   }
   return groups
 }

@@ -2,7 +2,7 @@ import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
-import { TaskGroup } from './TaskGroup'
+import { TaskRegion } from './TaskRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskListItem } from './TaskListItem'
@@ -37,7 +37,8 @@ export struct PlannedTaskList {
   @Builder
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
     TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
-      plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline, regionAreaPolicy: RegionAreaPolicy.None,
+      plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline,
+      regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
       rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       referenceTime: this.referenceTime, open: (): void => {
@@ -47,28 +48,34 @@ export struct PlannedTaskList {
 
   @Builder
   regionGroup(group: PlannedGroup, region: PlannedTaskGroup) {
-    TaskGroup({ region, category: true, project: true }) {
+    TaskRegion({ category: region.category || '未分类', project: region.kind === 'project' ? region : null }) {
       ForEach(region.items, (item: PlannedTaskItem) => {
-        this.taskItem(item, group)
+        ListItem() { this.taskItem(item, group) }
       }, (item: PlannedTaskItem) => taskRenderKey(item.task))
     }
   }
 
   @Builder
   groupContent(group: PlannedGroup) {
-    Column() {
+    ListItem() {
       if (group.kind === 'day') {
         this.dayHeader(group)
       } else {
         this.monthHeader(group)
       }
+    }
+    if (group.kind === 'day') {
       ForEach(group.groups, (region: PlannedTaskGroup) => {
         this.regionGroup(group, region)
       }, (region: PlannedTaskGroup) => region.key)
-      if (group.kind === 'day' && group.items.length === 0) {
-        Blank().height(32)
-      }
-    }.width('100%').padding({ left: 0, right: 0 })
+    } else {
+      ForEach(group.items, (item: PlannedTaskItem) => {
+        ListItem() { this.taskItem(item, group) }
+      }, (item: PlannedTaskItem) => taskRenderKey(item.task))
+    }
+    if (group.kind === 'day' && group.items.length === 0) {
+      ListItem() { Column().width('100%').height(32) }
+    }
   }
 
   build() {
@@ -77,7 +84,7 @@ export struct PlannedTaskList {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
       ForEach(this.groups, (group: PlannedGroup) => {
-        ListItem() { this.groupContent(group) }
+        this.groupContent(group)
       }, (group: PlannedGroup) => JSON.stringify(group))
     }.id('planned_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
       .enableScrollInteraction(!this.checklistDragging)

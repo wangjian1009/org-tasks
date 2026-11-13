@@ -8,7 +8,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
-import { TaskGroup } from '../components/TaskGroup'
+import { TaskRegion } from '../components/TaskRegion'
 import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
@@ -441,9 +441,17 @@ struct Inbox {
 
   @Builder
   recentRegion(group: RecentTaskGroup) {
-    TaskGroup({ region: group, category: true, project: true }) {
-      ForEach(group.items, (task: CoreTask) => { this.recentTask(task) }, (task: CoreTask) => taskRenderKey(task))
+    TaskRegion({ category: group.category || '未分类', project: group.kind === 'project' ? group : null }) {
+      ForEach(group.items, (task: CoreTask) => {
+        ListItem() { this.recentTask(task) }
+      }, (task: CoreTask) => taskRenderKey(task))
     }
+  }
+
+  // 分组由 List 的内边距定位；通栏条目扩展回页面宽度，避免包装原生列表分组。
+  @Styles
+  fullWidthItem() {
+    .width('calc(100% + 40vp)').margin({ left: -20, right: -20 })
   }
 
   async loadRecords() {
@@ -505,7 +513,7 @@ struct Inbox {
           } else {
             List({ scroller: this.listScroller }) {
               if (this.notificationState.notifications.length > 0) {
-                ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
+                ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }.fullWidthItem()
               }
               if (this.records.length === 0) {
                 ListItem() {
@@ -521,7 +529,7 @@ struct Inbox {
                     }
                   }.padding(16).width('100%').constraintSize({ minHeight: 80 })
                     .onAreaChange((oldArea: Area, newArea: Area): void => { this.emptyHeight = parseFloat(newArea.height.toString()) })
-                }
+                }.fullWidthItem()
               }
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
@@ -555,7 +563,7 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
+                }.fullWidthItem().id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
                   start: this.actionPolicy.rightSwipeAction === 'move' ? {
                     builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
                     onAction: (): void => { this.swipeAction(record, 'move') }
@@ -567,35 +575,31 @@ struct Inbox {
                 ListItem() {
                   Column().width('100%').height(unplannedSpacer(this.listHeight,
                     this.records.length > 0 ? this.rowTotalHeight : this.emptyHeight))
-                }
+                }.fullWidthItem()
               }
               if (this.recentGroups.length > 0) {
-                ListItem() { this.plannedDivider() }
-                ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }
+                ListItem() { this.plannedDivider() }.fullWidthItem()
+                ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }.fullWidthItem()
                 ForEach(this.recentGroups, (day: RecentDay) => {
-                  ListItemGroup({ header: this.recentHeader(day) }) {
-                    ForEach(day.groups, (group: RecentTaskGroup) => {
-                      ListItem() {
-                        Row() {
-                          this.recentRegion(group)
-                        }.width('100%').padding({ left: 20, right: 20 }).backgroundColor('#282C29')
-                      }
-                    }, (group: RecentTaskGroup) => JSON.stringify(group))
-                    ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }
-                  }
+                  ListItem() { this.recentHeader(day) }.fullWidthItem()
+                  ForEach(day.groups, (group: RecentTaskGroup) => {
+                    this.recentRegion(group)
+                  }, (group: RecentTaskGroup) => JSON.stringify(group))
+                  ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }.fullWidthItem()
                 }, (day: RecentDay) => JSON.stringify(day))
               }
               if (this.recentLoading) {
-                ListItem() { Text('正在读取近期记录…').fontSize(14).fontColor(UiColor.secondary).padding(16) }
+                ListItem() { Text('正在读取近期记录…').fontSize(14).fontColor(UiColor.secondary).padding(16) }.fullWidthItem()
               }
               if (this.recentMessage) {
                 ListItem() {
                   Text(this.recentMessage + '，点击重试').fontSize(14).fontColor(UiColor.error).padding(16)
                     .onClick((): void => { this.loadRecords() })
-                }
+                }.fullWidthItem()
               }
-              ListItem() { Column().height(104) }
-            }.id('inbox_task_list').width('100%').layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
+              ListItem() { Column().height(104) }.fullWidthItem()
+            }.id('inbox_task_list').width('100%').padding({ left: 20, right: 20 })
+              .layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
                 this.listHeight = parseFloat(newArea.height.toString())
                 this.popupWidth = Math.min(350, Math.max(0, parseFloat(newArea.width.toString()) - 40))

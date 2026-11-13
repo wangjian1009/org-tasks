@@ -87,7 +87,7 @@ export struct ListSectionHeader {
           .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)
-    }.width('100%').padding({ top: 24, bottom: 8 }).backgroundColor(UiColor.surface)
+    }.width('100%').padding({ top: 24, bottom: 8 })
   }
 }
 

@@ -641,7 +641,7 @@ test('分类与项目同名时保持平级，同名项目按仓库文件隔离�
   assert.equal(groups.flatMap(group => group.items).length, tasks.length);
 });
 
-test('计划所有时间段都按分类与项目平级组织，原任务对象各出现一次', () => {
+test('计划仅按日区域合并分类与项目，其他时间段按日期逐项保留任务', () => {
   const { plannedGroups } = loadGrouping('PlannedPresentation', {
     './Theme': { localDate }, './TaskListPresentation': presentation
   });
@@ -653,11 +653,34 @@ test('计划所有时间段都按分类与项目平级组织，原任务对象�
   const groups = plannedGroups(tasks).filter(group => group.items.length);
   assert.deepEqual(groups.map(group => group.kind), ['day', 'range', 'month', 'year']);
   for (const group of groups) {
-    assert.equal(group.groups.length, 2);
-    assert.deepEqual(group.groups.map(region => region.kind).sort(), ['category', 'project']);
-    assert.equal(group.groups.flatMap(region => region.items).length, 3);
-    assert.ok(group.groups.flatMap(region => region.items).every(item => tasks.includes(item.task)));
+    if (group.kind === 'day') {
+      assert.equal(group.groups.length, 2);
+      assert.deepEqual(group.groups.map(region => region.kind).sort(), ['category', 'project']);
+      assert.equal(group.groups.flatMap(region => region.items).length, 3);
+    } else {
+      assert.deepEqual(group.groups, []);
+    }
+    assert.equal(group.items.length, 3);
+    assert.ok(group.items.every(item => tasks.includes(item.task)));
   }
+});
+
+test('计划区间、月年区域保留交错项目的日期顺序，不因同名分类或项目合并', () => {
+  const { plannedGroups } = loadGrouping('PlannedPresentation', {
+    './Theme': { localDate }, './TaskListPresentation': presentation
+  });
+  const tasks = [['range', '2026-11'], ['month', '2026-12'], ['year', '2027-11']].flatMap(([kind, month]) => [
+    task(`${kind}-late`, { scheduled: `${month}-18`, category: '工作', projectName: '项目甲' }),
+    task(`${kind}-early`, { scheduled: `${month}-16`, category: '工作', projectName: '项目甲' }),
+    task(`${kind}-middle`, { scheduled: `${month}-17`, category: '工作' })
+  ]);
+  const groups = plannedGroups(tasks).filter(group => group.items.length);
+  for (const group of groups) {
+    assert.deepEqual(group.groups, []);
+    assert.deepEqual(group.items.map(item => item.task.id),
+      [`${group.kind}-early`, `${group.kind}-middle`, `${group.kind}-late`]);
+  }
+  assert.equal(groups.flatMap(group => group.items).length, tasks.length);
 });
 
 test('分组标题独立控制分类与项目，平铺项目保留分类且不改变归组身份', () => {
@@ -665,14 +688,18 @@ test('分组标题独立控制分类与项目，平铺项目保留分类且不�
   const values = [task('p', { category: '工作', projectName: '官网改版' }),
     task('c', { category: '工作' }), task('u', { projectName: '', filePath: 'unnamed.org' }), task('n')];
   const groups = taskRegionGroups(values, value => value);
-  const title = (category, project) => groups.map(group => taskRegionTitle(group, category, project));
+  const title = (category, project) => groups.map(group => taskRegionTitle(
+    category ? group.category || '未分类' : '', project && group.kind === 'project' ? group : null));
   assert.deepEqual(title(true, true), ['工作 · 官网改版', '工作', '未分类 · 未命名项目', '未分类']);
   assert.deepEqual(title(false, true), ['官网改版', '', '未命名项目', '']);
   assert.deepEqual(title(true, false), ['工作', '工作', '未分类', '未分类']);
   assert.deepEqual(title(false, false), ['', '', '', '']);
   assert.deepEqual(groups.flatMap(group => group.items), values);
   const sameName = taskRegionGroups([task('same', { category: '工作', projectName: '工作' })], value => value)[0];
-  assert.equal(taskRegionTitle(sameName, true, true), '工作 · 工作');
+  assert.equal(taskRegionTitle('工作', sameName), '工作 · 工作');
+  assert.equal(taskRegionTitle('', null), '');
+  assert.equal(taskRegionTitle(null, null), '');
+  assert.equal(taskRegionTitle(null, sameName), '工作');
 });
 
 test('regionAreaPolicy 精确控制分类、项目、组合与完全隐藏，None 不显示文件名回退', () => {

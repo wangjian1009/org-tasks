@@ -56,6 +56,24 @@ test('最近七天按日，更早按月与年，分组只使用完成日期', ()
   assert.equal(groups[0].subtitle, '昨天');
   assert.equal(groups[1].groups.length, 0);
 });
+test('月年区域不合并分类或项目，混合任务严格按完成日期倒序', () => {
+  const tasks = [
+    task('month-old', '2026-11-12T12:00', '2026-11-02T09:00', 'Done', '项目甲'),
+    task('year-old', '2026-11-12T13:00', '2025-01-02T09:00', 'Done', '项目甲'),
+    task('month-latest', '2025-01-01T08:00', '2026-11-05T10:00', 'Done', '项目甲'),
+    task('month-between', null, '2026-11-04T11:00', 'Done', null, '其他分类'),
+    task('month-same-day', null, '2026-11-05T09:00', 'Done', '项目乙'),
+    task('year-latest', '2025-01-01T08:00', '2025-12-03T10:00', 'Done', '项目甲'),
+    task('year-between', null, '2025-06-10T11:00', 'Done', null, '其他分类')
+  ];
+  const groups = logbookGroups(tasks, now);
+  assert.deepEqual(groups.map(g => [g.kind, g.key]), [['month', '2026-11'], ['year', '2025']]);
+  assert.deepEqual(groups[0].items.map(item => item.task.id),
+    ['month-latest', 'month-same-day', 'month-between', 'month-old']);
+  assert.deepEqual(groups[1].items.map(item => item.task.id), ['year-latest', 'year-between', 'year-old']);
+  for (const group of groups) assert.deepEqual(group.groups, []);
+  assert.equal(groups.flatMap(group => group.items).length, tasks.length);
+});
 test('缺失或无效完成时间放在末尾，不借用创建时间，空快照不生成分组', () => {
   const groups = logbookGroups([task('A', '2026-11-12T08:00', null), task('B', null, null),
     task('C', null, '2026-11-12T10:00')], now);
