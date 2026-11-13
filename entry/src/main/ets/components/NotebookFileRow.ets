@@ -13,7 +13,7 @@ export struct NotebookFileRow {
   openFile() {
     try {
       this.getUIContext().getRouter().pushUrl({
-        url: this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
+        url: this.file.hasConflict ? 'pages/ConflictFile' : this.file.project() !== null ? 'pages/ProjectDetail' : 'pages/FileDetail',
         params: { repoId: this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
       })
     } catch (_) {

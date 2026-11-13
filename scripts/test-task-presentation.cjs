@@ -600,3 +600,14 @@ test('日志变化使任务行采用新快照，空日志不生成条目', () =>
   const updated = task('log-task', { logs: [{ type: 'taskNote', timestamp: '2026-11-13', noteHtml: '<p>追加记录</p>' }] });
   assert.notEqual(taskRenderKey(previous), taskRenderKey(updated));
 });
+
+
+test('项目名称相同但仓库或文件不同，区块保持真实文件身份', () => {
+  const { todaySections } = loadGrouping('TodayPresentation', {});
+  const values = [task('a', { category: '工作', projectName: '同名项目', repoId: 'one', filePath: 'a.org' }),
+    task('b', { category: '工作', projectName: '同名项目', repoId: 'two', filePath: 'a.org' }),
+    task('c', { category: '工作', projectName: '同名项目', repoId: 'one', filePath: 'b.org' }),
+    task('d', { category: '工作', projectName: '同名项目', repoId: 'one', filePath: 'a.org' })];
+  const groups = todaySections(values, true)[0].groups;
+  assert.deepEqual(groups.map(group => group.items.map(item => item.task.id)), [['a', 'd'], ['b'], ['c']]);
+});

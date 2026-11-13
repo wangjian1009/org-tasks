@@ -1,3 +1,4 @@
+import { ProjectNavigation } from '../services/ProjectNavigation'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { LogbookEvent, LogbookEventGroup, LogbookGroup, logbookEventTime } from '../ui/LogbookPresentation'
@@ -147,10 +148,14 @@ export struct LogbookTaskList {
   }
 
   @Builder
-  projectHeader(project: string) {
+  projectHeader(project: LogbookEventGroup) {
     ListItem() {
-      Text(project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
+      Text(project.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8, top: 8, bottom: 2 })
+        .constraintSize({ minHeight: 48 }).onClick((): void => {
+          const task = project.events[0].task
+          ProjectNavigation.open(this.getUIContext(), task.repoId, task.filePath)
+        })
     }
   }
 
@@ -158,7 +163,7 @@ export struct LogbookTaskList {
   groupItems(group: LogbookGroup) {
     if (group.kind === 'day') {
       ForEach(group.groups, (projectGroup: LogbookEventGroup) => {
-        if (projectGroup.project !== null) this.projectHeader(projectGroup.project)
+        if (projectGroup.project !== null) this.projectHeader(projectGroup)
         ForEach(projectGroup.events, (event: LogbookEvent) => {
           this.eventRow(event, group)
         }, (event: LogbookEvent) => event.key)

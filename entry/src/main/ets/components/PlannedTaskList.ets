@@ -1,3 +1,4 @@
+import { ProjectNavigation } from '../services/ProjectNavigation'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
@@ -50,6 +51,10 @@ export struct PlannedTaskList {
       if (project.project !== null) {
         Text(project.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8, top: 8 })
+          .constraintSize({ minHeight: 48 }).onClick((): void => {
+            const task = project.items[0].task
+            ProjectNavigation.open(this.getUIContext(), task.repoId, task.filePath)
+          })
       }
       ForEach(project.items, (item: PlannedTaskItem) => {
         this.taskItem(item, group)

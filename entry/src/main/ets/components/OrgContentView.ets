@@ -21,6 +21,8 @@ export struct OrgContentView {
   @Prop compactLogs: boolean = false
   @Prop fileReading: boolean = false
   @Prop flowReading: boolean = false
+  @Prop projectReading: boolean = false
+  scrolled: (offset: number) => void = () => {}
   @Prop @Watch('measure') layoutRevision: number = 0
   @Prop fileContext: string = ''
   controller: webview.WebviewController = new webview.WebviewController()
@@ -140,7 +142,7 @@ export struct OrgContentView {
     this.requestedGeneration = this.documentGeneration
     try {
       this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
-        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext, this.flowReading, this.compactLogs)), 'text/html', 'UTF-8')
+        this.contentBackground, this.embeddedPadding, this.fileReading, this.fileContext, this.flowReading, this.compactLogs, this.projectReading)), 'text/html', 'UTF-8')
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 
@@ -175,6 +177,7 @@ export struct OrgContentView {
           if (this.active && request.isMainFrame()) this.openLink(href)
           return true
         })
+        .onScroll((event: OnScrollEvent): void => { this.scrolled(event.yOffset) })
         .onControllerAttached(() => { this.active = true; this.loadRequested = false; this.loaded = false })
         .onPageEnd(() => { this.pageEnded() })
         .onAreaChange((oldArea: Area, newArea: Area) => {

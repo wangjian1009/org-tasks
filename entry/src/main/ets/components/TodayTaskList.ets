@@ -1,3 +1,4 @@
+import { ProjectNavigation } from '../services/ProjectNavigation'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
@@ -33,7 +34,11 @@ export struct TodayTaskList {
     Column({ space: 8 }) {
       Text(group.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8 })
-        .accessibilityText(group.project || '未命名项目')
+        .accessibilityText(group.project || '未命名项目').constraintSize({ minHeight: 48 })
+        .onClick((): void => {
+          const task = group.items[0].task
+          ProjectNavigation.open(this.getUIContext(), task.repoId, task.filePath)
+        })
       Column() {
         ForEach(group.items, (item: TodayTaskItem) => {
           this.taskItem(item)

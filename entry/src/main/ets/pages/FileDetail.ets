@@ -60,6 +60,11 @@ struct FileDetail {
       }
       if (revision !== this.loadRevision) return
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }
+      if (!params.syncId && file.project() !== null) {
+        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/ProjectDetail',
+          params: { repoId: params.repoId, path: this.path } })
+        return
+      }
       this.historyLabel = historyLabel
       this.fileContext = `${repositoryLabel(repository)} / ${this.path}`
       this.displayMode = config.fileDisplayMode

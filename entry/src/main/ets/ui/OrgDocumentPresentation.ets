@@ -4,7 +4,7 @@ import { UiColor } from './Theme'
 export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false,
   backgroundColor: string = UiColor.surface, embeddedPadding: number = 16,
   fileReading: boolean = false, fileContext: string = '', flowReading: boolean = false,
-  compactLogs: boolean = false): string {
+  compactLogs: boolean = false, projectReading: boolean = false): string {
   const reading = fileReading && (!embedded || flowReading)
   const context = fileContext.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -140,5 +140,42 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-log .timestamp { text-decoration: none; }
 .task-log .source { padding: 4px 8px; background: transparent; }
 .task-log blockquote { padding-left: 8px; border-left: 1px solid ${UiColor.outline}; }
-</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
+.project-reading { line-height: 1.75; padding-top: 16px; }
+.project-reading .document-header { margin-bottom: 24px; padding-bottom: 22px; border-bottom: 1px solid #454746; }
+.project-reading .document-category { font-size: 12px; color: #5AC4B9; margin-bottom: 16px; }
+.project-reading .document-project-name { font-size: 28px; font-weight: 650; line-height: 1.35; color: #F0EFED; margin-bottom: 18px; }
+.project-reading .document-file-title { font-size: 13px; margin: 8px 0; }
+.project-reading .document-file-title::before { content: '文档　'; color: #AEACA9; }
+.project-reading .file-context { font-size: 12px; margin: 18px 0 8px; user-select: text; }
+.project-reading .document-file-stats { font-size: 11px; color: #AEACA9; margin-top: 14px; }
+.project-reading .file-properties { display: grid; grid-template-columns: minmax(72px, 30%) minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin: 16px 0 0; }
+.project-reading .file-properties:empty { display: none; }
+.project-reading dt { color: #AEACA9; font-weight: 400; }
+.project-reading dd { margin: 0; min-width: 0; }
+.project-reading .heading { margin: 28px 0 0; scroll-margin-top: 18px; }
+.project-reading .heading-summary { margin-bottom: 12px; }
+.project-reading .heading-title { color: #F0EFED; font-size: 18px; line-height: 1.5; }
+.project-reading .level-1 > .heading-summary .heading-title { font-size: 24px; }
+.project-reading .level-2 > .heading-summary .heading-title { font-size: 21px; }
+.project-reading .task-heading > .heading-summary .heading-title { font-size: 17px; color: #D8D8D8; }
+.project-reading details.task-heading > summary { min-height: 48px; padding: 9px 0 4px 18px; margin-bottom: 12px; line-height: 1.5; }
+.project-reading details.task-heading > summary::after { display: none; }
+.project-reading details.task-heading > summary::before { content: ''; position: absolute; left: 0; top: 18px; border-left: 6px solid #AEACA9; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.project-reading details.task-heading[open] > summary::before { transform: rotate(90deg); }
+.project-reading .task-heading .planning { margin: 7px 0 0; }
+.project-reading [data-org-state="Doing"] > .heading-summary .todo { background: #32423F; color: #5AC4B9; }
+.project-reading [data-org-state="Wait"] > .heading-summary .todo { background: #403D33; color: #E3C98B; }
+.project-reading [data-org-state="Done"] > .heading-summary .todo { background: #333F36; color: #8FCCA1; }
+.project-reading [data-org-state="Cancel"] > .heading-summary .heading-title { color: #AEACA9; text-decoration: line-through; }
+.project-reading .table-scroll { border: 0; border-radius: 0; }
+.project-reading table { min-width: 100%; white-space: normal; }
+.project-reading td { min-width: 6em; max-width: 22em; text-align: left; }
+.project-reading .table-scroll::after { content: '表格较宽时可左右滑动'; display: block; color: #92938F; font-size: 11px; margin-top: 6px; }
+.project-reading .drawer { border: 0; padding: 0; }
+.project-reading .drawer-title { font-size: 12px; margin-bottom: 8px; color: #AEACA9; }
+.project-reading .drawer dl { display: grid; grid-template-columns: minmax(72px,30%) minmax(0,1fr); gap: 8px 12px; }
+.project-reading .metadata { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 340px) { .project-reading { padding-left: 16px; padding-right: 16px; } }
+
+</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? (projectReading ? fragment + '<p class="empty">项目还没有内容</p>' : '<p class="empty">空白 Org 文件</p>') : fragment}</body></html>`
 }

@@ -1,3 +1,4 @@
+import { prepareProjectDocumentScript, captureProjectReadingScript, restoreProjectReadingScript } from '../ui/ProjectDocumentPresentation'
 import { webview } from '@kit.ArkWeb'
 import { CoreBridgeError, CoreConflictPreviewChanges, CoreConflictPreviewChange, CoreConflictPreviewDiffLine, coreErrorMessage } from '../services/NativeCoreService'
 import { OrgContentView } from './OrgContentView'
@@ -21,6 +22,7 @@ export interface OrgConflictCard {
 
 export class OrgFilePreviewNavigation {
   controller: webview.WebviewController = new webview.WebviewController()
+  captureReadingState: () => Promise<string> = async (): Promise<string> => ''
   openOutline: () => void = () => {}
   expandAll: (expand: boolean) => void = () => {}
   focusChange: (index: number) => void = () => {}
@@ -45,6 +47,9 @@ export struct OrgFilePreviewView {
   conflictCardActivated: ((id: string, action: string) => void) | undefined = undefined
   @Prop showBefore: boolean = false
   @Prop flowContent: boolean = false
+  @Prop projectReading: boolean = false
+  @Prop readingState: string = ''
+  scrolled: (offset: number) => void = () => {}
   @BuilderParam footer: () => void = this.emptyFooter
   navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
   ready: () => void = () => {}
@@ -70,6 +75,11 @@ export struct OrgFilePreviewView {
   aboutToAppear() {
     this.active = true
     this.pendingFlowFocus = this.flowContent
+    this.navigation.captureReadingState = async (): Promise<string> => {
+      if (!this.projectReading || !this.renderReady || this.displayMode === 'source') return ''
+      const result = await this.navigation.controller.runJavaScript(captureProjectReadingScript())
+      return result.startsWith('"') ? JSON.parse(result) as string : result
+    }
     this.navigation.openOutline = (): void => { this.openOutline() }
     this.navigation.expandAll = (expand: boolean): void => { this.expandAll(expand) }
     this.navigation.focusChange = (index: number): void => { this.focusChange(index) }
@@ -101,6 +111,11 @@ export struct OrgFilePreviewView {
     this.renderReady = true
     const revision = this.lifecycle
     try {
+      if (this.projectReading) {
+        await this.navigation.controller.runJavaScript(prepareProjectDocumentScript())
+        if (this.readingState) await this.navigation.controller.runJavaScript(restoreProjectReadingScript(this.readingState))
+        if (revision !== this.lifecycle || !this.active) return
+      }
       const ranges = (this.changes?.changes ?? []).filter(change => change.area === 'main').map((change: CoreConflictPreviewChange): PreviewMarkedRange => ({
         start: (this.showBefore ? change.before : change.after)?.start.byte_offset ?? 0,
         end: (this.showBefore ? change.before : change.after)?.end.byte_offset ?? 0,
@@ -141,7 +156,13 @@ export struct OrgFilePreviewView {
       if (this.flowContent) this.contentMeasureRevision++
       if (revision === this.lifecycle && ranges.length > 0) await this.focusChange(0)
       if (revision === this.lifecycle) this.ready()
-    } catch (e) { if (revision === this.lifecycle) this.readingError(e as CoreBridgeError) }
+    } catch (e) {
+      if (revision !== this.lifecycle) return
+      if (this.projectReading) {
+        this.renderReady = false
+        this.failed(`项目阅读初始化失败：${coreErrorMessage(e as CoreBridgeError)}`)
+      } else this.readingError(e as CoreBridgeError)
+    }
   }
   async injectConflictCards() {
     if (this.displayMode !== 'rendered' || this.conflictCards.length === 0) return
@@ -296,7 +317,7 @@ export struct OrgFilePreviewView {
     if (!this.renderReady || this.displayMode !== 'rendered' || false) return
     const revision = this.lifecycle
     try {
-      await this.navigation.controller.runJavaScript(documentExpandScript(expand))
+      await this.navigation.controller.runJavaScript(documentExpandScript(expand, this.projectReading))
       if (this.flowContent) this.contentMeasureRevision++
       if (revision === this.lifecycle && this.outlineVisible) await this.openOutline()
     } catch (e) {
@@ -314,7 +335,7 @@ export struct OrgFilePreviewView {
     const revision = this.lifecycle
     const request = ++this.outlineRequest
     try {
-      const result = await this.navigation.controller.runJavaScript(documentOutlineScript())
+      const result = await this.navigation.controller.runJavaScript(documentOutlineScript(this.projectReading))
       if (revision !== this.lifecycle || request !== this.outlineRequest) return
       // 兼容 Web 引擎将字符串结果作为 JSON 字符串再次编码的返回形式。
       const payload = result.startsWith('"') ? JSON.parse(result) as string : result
@@ -338,7 +359,7 @@ export struct OrgFilePreviewView {
         if (!node) return -1;
         for (let p = node; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
         return (node.getBoundingClientRect().top + window.scrollY) / window.innerWidth;
-      })()` : documentChapterScript(chapter.index))
+      })()` : documentChapterScript(chapter.index, this.projectReading))
       if (revision !== this.lifecycle) return
       if (this.flowContent) {
         const ratio = Number(result)
@@ -397,10 +418,12 @@ export struct OrgFilePreviewView {
     Column() {
       Row() {
         Text('文档目录').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+        if (!this.projectReading) {
         Button('全部展开').fontSize(12).fontColor(UiColor.primary).backgroundColor(Color.Transparent).height(44)
           .onClick((): void => { this.expandAll(true) })
         Button('全部收起').fontSize(12).fontColor(UiColor.primary).backgroundColor(Color.Transparent).height(44)
           .onClick((): void => { this.expandAll(false) })
+        }
       }.width('100%')
       Text(`${this.title} · ${this.chapters.length} 个章节`).fontSize(12).fontColor(UiColor.secondary)
         .width('100%').margin({ top: 2, bottom: 16 })
@@ -460,6 +483,7 @@ export struct OrgFilePreviewView {
       } else {
         OrgContentView({ fragment: this.renderedHtml, revision: this.revision, empty: this.content.trim().length === 0,
           controller: this.navigation.controller, fileReading: true, fileContext: this.fileContext,
+          projectReading: this.projectReading, scrolled: this.scrolled,
           nodeActivated: this.nodeActivated, conflictCardActivated: this.conflictCardActivated,
           ready: (): void => { this.documentReady() }, failed: this.failed }).width('100%').layoutWeight(1)
       }

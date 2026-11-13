@@ -239,6 +239,8 @@ impl OrgFile {
     pub fn title_parts(&self) -> Vec<TitlePart>;
 
     pub fn render_html(&self) -> String;
+    pub fn render_document_html(&self) -> String;
+    pub fn project(&self) -> Option<String>;
 }
 #+end_src
 
@@ -669,6 +671,14 @@ pub struct OrgFileMetadata {
 OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主样式的 HTML 文档片段。文件 TITLE 由宿主工具栏展示，片段不重复生成文件标题；真实标题节点照常保留。它是运行时展示投影，不是新的解析模型，不修改 source_bytes，也不写入同步记录。标题层级及其子树、TODO 完成类型、优先级、标签、计划时间、属性抽屉、正文行内样式、链接文字、列表、表格与代码块均按语法节点生成；没有标题的文件仍呈现文件前言。未专门排版的 HTML 导出块、snippet、LaTeX 等以转义后的字面文本呈现，不执行其内容。
 
 标题使用嵌套 details，默认展开；drawer 默认收起，折叠只改变阅读状态。表格和代码块由宿主提供横向滚动容器，表格公式不在阅读正文展示，也不求值。支持的外部链接显示文字并提供锚点，图片引用不自动加载；不加载远端资源或本地附件，也不提供状态修改或复选框写回行为。完整原文始终可从 source_bytes 获取。
+
+** 完整文档语义投影
+
+~OrgFile.render_document_html()~ 基于同一语法树提供完整文件的语义 HTML，供需要连续阅读的宿主使用。与既有 ~render_html()~ 分离，保留普通文件和历史预览的原有行为。文件头提供项目名称、文档标题、分类、标签、有效属性、其他头关键字的语义键值以及同一快照的字节数与可用修改时间；未知内容转义保留，不执行 HTML、脚本或 Babel。真实标题与前言按源顺序完整输出。
+
+所有标题先以 ~section.heading~ 输出，标题摘要与内容分别使用 ~heading-summary~ 和 ~heading-content~ 。有效 TODO 标题携带 ~data-org-task~ 、Core 状态分类 ~data-org-state~ 与真实正文／后代存在标记 ~data-org-foldable~ ；仅有规划行而没有正文或后代的任务不标记为可折叠。任务分类包含文件自定义流程，普通标题不误判为任务；属性与日志 drawer 直接完整展示。 ~data-org-start~ 、 ~data-org-end~ 与标题 ID 属于当前文件版本，版本变化后不能直接复用。
+
+宿主消费这些语义标记决定排版与交互，不在 Core 添加页面、折叠偏好或阅读位置。原文仍由 ~source_bytes~ 提供，渲染不改写任何源字节。 ~OrgFile.project()~ 直接返回当前文件项目名称，非项目为 ~None~ ，未命名项目保留空字符串。
 
 ** 任务正文渲染与日志提取
 

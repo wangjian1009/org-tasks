@@ -77,7 +77,9 @@ task\_merge\_operations(request): TaskMergePlan}
   title(): Option\textless String\textgreater \\
   has\_conflict(): bool \\
   title\_parts(): Vec\textless TitlePart\textgreater \\
-  render\_html(): String
+  render\_html(): String \\
+  render\_document\_html(): String \\
+  project(): Option\textless String\textgreater
 }
 \end{umlpackage}
 
@@ -284,7 +286,8 @@ pub struct SupportTags {
 
 \begin{center}
 \begin{tikzpicture}
-\umlclass[x=0,y=0]{OrgFile}{syntax: orgize::Org}{project\_name(): Option\textless String\textgreater}
+\umlclass[x=0,y=0]{OrgFile}{syntax: orgize::Org}{project\_name(): Option\textless String\textgreater \\
+project(): Option\textless String\textgreater}
 \umlclass[x=7,y=0]{OrgFileMetadata}{project\_name: Option\textless String\textgreater}{project(): Option\textless \&str\textgreater}
 \umlclass[x=7,y=-3]{FilterTask}{file\_metadata: Arc\textless OrgFileMetadata\textgreater}{project(): Option\textless \&str\textgreater}
 \umldep{OrgFileMetadata}{OrgFile}
@@ -855,6 +858,8 @@ is\_cancelled(): bool}
 * 只读展示投影
 
 OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件投影为安全 HTML 片段；不新增持久化字段、解析 AST 或同步记录。宿主负责主题、滚动和折叠交互，源字节仍是唯一保真序列化来源。
+
+~render_document_html()~ 为完整文档提供额外的文件头语义、普通标题／任务区分、状态分类及正文存在标记；所有内容先以非折叠语义结构输出，由宿主选择阅读交互。属性、日志和未知内容安全保留，不新增持久化字段。 ~project()~ 复用现有项目名称计算，和两个渲染方法读取同一个文件快照。
 
 ** 任务正文展示投影
 

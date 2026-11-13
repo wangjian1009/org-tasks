@@ -57,6 +57,10 @@ pub struct HarmonyBridgeFile {
     pub title_parts: Vec<org_tasks_core::TitlePart>,
     #[serde(rename = "renderedHtml")]
     pub rendered_html: String,
+    #[serde(rename = "documentHtml")]
+    pub document_html: String,
+    #[serde(rename = "projectName")]
+    pub project_name: Option<String>,
     pub conflicts: Vec<org_tasks_core::FileConflict>,
     #[serde(rename = "conflictError")]
     pub conflict_error: Option<serde_json::Value>,
@@ -730,6 +734,8 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         title: file.title(),
         title_parts: file.title_parts(),
         rendered_html: file.render_html(),
+        document_html: file.render_document_html(),
+        project_name: file.project(),
         conflicts,
         conflict_error,
         nodes: file
@@ -888,6 +894,12 @@ mod tests {
             serde_json::from_str(&query_files_json(handle, directory).unwrap()).unwrap();
         let results: serde_json::Value =
             serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
+        let source_file = org_tasks_core::OrgFile::new("repo".into(), "project.org".into(),
+            std::fs::read(root.join("project.org")).unwrap()).unwrap();
+        let snapshot = serde_json::to_value(file_snapshot(&source_file).unwrap()).unwrap();
+        assert_eq!(snapshot["projectName"], "Shared Project");
+        assert!(snapshot["documentHtml"].as_str().unwrap().contains("document-project-name"));
+        assert!(snapshot["documentHtml"].as_str().unwrap().contains("data-org-task=\"true\""));
         assert_eq!(metadata[0]["projectName"], "Shared Project");
         assert_eq!(
             results[0]["tasks"][0]["projectName"],

@@ -1960,6 +1960,8 @@ static napi_value Init(napi_env env, napi_value exports)
         {"titleParts", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("titleParts")},
         {"hasConflict", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("hasConflict")},
         {"conflictIds", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("conflictIds")},
+        {"project", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("projectName")},
+        {"renderDocumentHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("documentHtml")},
         {"renderHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("renderedHtml")},
         {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

@@ -1,3 +1,4 @@
+import { ProjectNavigation } from '../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
@@ -845,6 +846,13 @@ export struct TaskListItem {
       .accessibilityText(`${this.value().hasText ? '有正文；' : ''}${this.value().hasList ? '有列表' : ''}`)
   }
 
+  async openProject() {
+    try {
+      if (this.value().project() === null) return
+      await ProjectNavigation.open(this.getUIContext(), this.value().repoId, this.value().filePath)
+    } catch (_) { this.message = '暂时无法打开项目，请重试。' }
+  }
+
   @Builder
   categoryProject() {
     Row({ space: 4 }) {
@@ -857,6 +865,7 @@ export struct TaskListItem {
         if (this.value().category) { Text('·').fontSize(12).fontColor(UiColor.secondary) }
         Text(this.value().project() || '未命名项目').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          .constraintSize({ minHeight: 48 }).onClick((): void => { this.openProject() })
       }
     }.width('100%').accessibilityText(taskSourceText(this.value()))
   }
@@ -1194,6 +1203,8 @@ export struct TaskListItem {
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
         Text(taskSourceText(this.value(), true)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
           .width('100%').textAlign(TextAlign.End).padding({ top: 6, right: 12, bottom: 4 })
+          .constraintSize({ minHeight: this.value().project() !== null ? 48 : 0 })
+          .onClick((): void => { this.openProject() })
       } else {
         Row({ space: 8 }) {
           this.stateIndicator()

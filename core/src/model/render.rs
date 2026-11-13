@@ -92,10 +92,49 @@ impl OrgFile {
 
     /// 返回不含脚本、样式或外部资源的只读文档片段，样式由宿主提供。
     pub fn render_html(&self) -> String {
-        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None);
         self.syntax().traverse(&mut view);
         view.0.finish()
     }
+
+    /// 完整文档的语义投影；宿主决定哪些任务可折叠，不新增页面领域状态。
+    pub fn render_document_html(&self) -> String {
+        let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, Some(self.todo.clone()));
+        view.0.push_str("<header class=\"document-header\">");
+        if let Some(name) = self.project_name() {
+            view.0.push_str(format!("<div class=\"document-project-name\">{}</div>", HtmlEscape(name)));
+        }
+        if let Some(category) = self.category().filter(|value| !value.is_empty()) {
+            view.0.push_str(format!("<div class=\"document-category\">{}</div>", HtmlEscape(category)));
+        }
+        if let Some(title) = self.title() {
+            let title = title_parts(&title).into_iter().map(|part| part.text).collect::<String>();
+            view.0.push_str(format!("<div class=\"document-file-title\">{}</div>", HtmlEscape(title)));
+        }
+        view.0.push_str("<div class=\"file-tags\">");
+        for value in self.file_keywords.values("FILETAGS") {
+            for tag in value.split(':').map(str::trim).filter(|tag| !tag.is_empty()) {
+                view.0.push_str(format!("<span class=\"tag\">{}</span>", HtmlEscape(tag)));
+            }
+        }
+        view.0.push_str("</div><dl class=\"file-properties\">");
+        for keyword in self.syntax().document().keywords() {
+            if !["TITLE", "PROJECT_NAME", "FILETAGS", "CATEGORY", "PROPERTY"].iter().any(|key| keyword.key().eq_ignore_ascii_case(key)) {
+                view.0.push_str(format!("<dt>{}</dt><dd>{}</dd>", HtmlEscape(keyword.key()), HtmlEscape(keyword.value().trim())));
+            }
+        }
+        for (name, value) in &self.file_keywords.properties {
+            view.0.push_str(format!("<dt>{}</dt><dd>{}</dd>", HtmlEscape(name), HtmlEscape(value)));
+        }
+        view.0.push_str(format!("</dl><div class=\"document-file-stats\" data-byte-length=\"{}\"", self.source_bytes().len()));
+        if let Some(modified) = self.modified_at {
+            view.0.push_str(format!(" data-modified-at=\"{modified}\""));
+        }
+        view.0.push_str("></div></header>");
+        self.syntax().traverse(&mut view);
+        view.0.finish()
+    }
+
 }
 
 /// 任务详情的运行时展示投影，原始 body 仍用于查询和其他宿主。
@@ -155,6 +194,7 @@ impl FilterTask {
             false,
             false,
             false,
+            None,
         );
         let org = orgize::Org::parse(&body);
         org.traverse(&mut view);
@@ -169,7 +209,7 @@ impl FilterTask {
 }
 
 pub(super) fn render_fragment(source: &str) -> String {
-    let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
+    let mut view = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None);
     orgize::Org::parse(source).traverse(&mut view);
     view.0.finish()
 }
@@ -295,7 +335,7 @@ impl Traverser for TitleView {
     }
 }
 
-struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool, bool);
+struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool, bool, Option<super::TodoMetadata>);
 
 impl ReadingView {
     fn literal(&mut self, class: &str, text: impl AsRef<str>) {
@@ -319,7 +359,18 @@ impl Traverser for ReadingView {
                 if self.2.is_some() => {}
             Event::Enter(Container::Headline(headline)) => {
                 let level = headline.level().min(6);
-                self.0.push_str(format!("<details class=\"heading level-{level}\" data-org-start=\"{}\" data-org-end=\"{}\" id=\"org-node-{}\" open><summary><span role=\"heading\" aria-level=\"{level}\" class=\"heading-title\">", u32::from(headline.start()), u32::from(headline.end()),u32::from(headline.start())));
+                let document = self.6.is_some();
+                let tag = if document { "section" } else { "details" };
+                let summary = if document { "div class=\"heading-summary\"" } else { "summary" };
+                self.0.push_str(format!("<{tag} class=\"heading level-{level}\" data-org-start=\"{}\" data-org-end=\"{}\" id=\"org-node-{}\"", u32::from(headline.start()), u32::from(headline.end()), u32::from(headline.start())));
+                if let Some(todo) = headline.todo_keyword().filter(|_| document) {
+                    let state = self.6.as_ref().and_then(|metadata| metadata.category(todo.as_ref()));
+                    let content = headline.syntax().children().any(|node| node.kind() == SyntaxKind::HEADLINE)
+                        || headline.section().is_some_and(|section| section.syntax().children().any(|node| node.kind() != SyntaxKind::PLANNING));
+                    self.0.push_str(format!(" data-org-task=\"true\" data-org-state=\"{}\" data-org-foldable=\"{content}\"", state.map(|value| format!("{value:?}")).unwrap_or_default()));
+                }
+                self.0.push_str(if document { ">" } else { " open>" });
+                self.0.push_str(format!("<{summary}><span role=\"heading\" aria-level=\"{level}\" class=\"heading-title\">"));
                 if let Some(todo) = headline.todo_keyword() {
                     let kind = if headline.is_done() {
                         "done"
@@ -347,7 +398,7 @@ impl Traverser for ReadingView {
                     self.0
                         .push_str(format!("<span class=\"tag\">{}</span>", HtmlEscape(tag)));
                 }
-                self.0.push_str("</span></summary>");
+                self.0.push_str(if document { "</span>" } else { "</span></summary>" });
                 for (label, timestamp) in [
                     ("SCHEDULED", headline.scheduled()),
                     ("DEADLINE", headline.deadline()),
@@ -357,11 +408,17 @@ impl Traverser for ReadingView {
                         self.0.push_str(format!("<div class=\"planning\"><span>{label}: </span><span class=\"timestamp\">{}</span></div>", HtmlEscape(timestamp.raw().trim())));
                     }
                 }
+                if document { self.0.push_str("</div><div class=\"heading-content\">"); }
             }
-            Event::Leave(Container::Headline(_)) => self.0.push_str("</details>"),
+            Event::Leave(Container::Headline(_)) => self.0.push_str(if self.6.is_some() { "</div></section>" } else { "</details>" }),
             Event::Enter(Container::PropertyDrawer(drawer)) => {
-                self.0
-                    .push_str("<details class=\"drawer\"><summary>PROPERTIES</summary><dl>");
+                let document = self.6.is_some();
+                if document && !drawer.syntax().ancestors().any(|node| node.kind() == SyntaxKind::HEADLINE) {
+                    ctx.skip();
+                    return;
+                }
+                self.0.push_str(if document { "<section class=\"drawer\"><div class=\"drawer-title\">PROPERTIES</div><dl>" }
+                    else { "<details class=\"drawer\"><summary>PROPERTIES</summary><dl>" });
                 for (key, value) in super::properties::Properties::from_drawer(&drawer).iter() {
                     self.0.push_str(format!(
                         "<dt>{}</dt><dd>{}</dd>",
@@ -369,13 +426,13 @@ impl Traverser for ReadingView {
                         HtmlEscape(value)
                     ));
                 }
-                self.0.push_str("</dl></details>");
+                self.0.push_str(if document { "</dl></section>" } else { "</dl></details>" });
                 ctx.skip();
             }
             Event::Enter(Container::Drawer(drawer)) => {
                 if drawer.name().eq_ignore_ascii_case("LOGBOOK") && self.2.is_some() {
                     let mut log =
-                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
+                        ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, None);
                     for element in drawer
                         .syntax()
                         .children()
@@ -388,18 +445,18 @@ impl Traverser for ReadingView {
                     ctx.skip();
                     return;
                 }
-                self.0.push_str(format!(
-                    "<details class=\"drawer\"><summary>{}</summary>",
-                    HtmlEscape(drawer.name())
-                ));
-                let mut content = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false);
+                let document = self.6.is_some();
+                self.0.push_str(if document {
+                    format!("<section class=\"drawer\"><div class=\"drawer-title\">{}</div>", HtmlEscape(drawer.name()))
+                } else { format!("<details class=\"drawer\"><summary>{}</summary>", HtmlEscape(drawer.name())) });
+                let mut content = ReadingView(HtmlExport::default(), Vec::new(), None, false, false, false, self.6.clone());
                 for element in drawer.syntax().children()
                     .filter(|node| node.kind() == SyntaxKind::DRAWER_CONTENT)
                     .flat_map(|node| node.children_with_tokens()) {
                     content.element(element, &mut TraversalContext::default());
                 }
                 self.0.push_str(format!("<div class=\"drawer-content\">{}</div>", content.0.finish()));
-                self.0.push_str("</details>");
+                self.0.push_str(if document { "</section>" } else { "</details>" });
                 ctx.skip();
             }
             Event::Enter(Container::SourceBlock(block)) => {
@@ -446,6 +503,13 @@ impl Traverser for ReadingView {
                 ctx.skip();
             }
             Event::Enter(Container::Keyword(keyword)) => {
+                if self.6.is_some() {
+                    if keyword.syntax().ancestors().any(|node| node.kind() == SyntaxKind::HEADLINE) {
+                        self.literal("metadata", keyword.raw());
+                    }
+                    ctx.skip();
+                    return;
+                }
                 if keyword.key().eq_ignore_ascii_case("FILETAGS") {
                     self.0.push_str("<div class=\"file-tags\">");
                     for tag in keyword
@@ -577,7 +641,10 @@ impl Traverser for ReadingView {
                 self.literal("literal", block.raw());
                 ctx.skip();
             }
-            Event::Enter(Container::BabelCall(_)) => ctx.skip(),
+            Event::Enter(Container::BabelCall(call)) => {
+                if self.6.is_some() { self.literal("metadata", call.raw()); }
+                ctx.skip();
+            }
             Event::Snippet(value) => self.0.push_str(format!("{}", HtmlEscape(value.raw()))),
             Event::LatexFragment(value) => self.0.push_str(format!("{}", HtmlEscape(value.raw()))),
             Event::LatexEnvironment(value) => self.literal("literal", value.raw()),
@@ -623,6 +690,34 @@ mod tests {
             source.as_bytes().to_vec(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn complete_document_projects_file_identity_custom_states_and_visible_drawers() {
+        let source = "#+TITLE: 文档标题\r\n#+FILETAGS: :project:work:\r\n#+PROJECT_NAME: 项目 <一>\r\n#+PROPERTY: OWNER 张三\r\n#+TODO: TODO INPROGRESS WAIT | DONE CNCL\r\n前言\r\n* 普通章节\r\n完整文字\r\n** INPROGRESS 执行\r\nSCHEDULED: <2026-11-13 Fri>\r\n:PROPERTIES:\r\n:ID: task-one\r\n:END:\r\n| 项目 | 结果 |\r\n|------+------|\r\n| 内容 | 完整 |\r\n:LOGBOOK:\r\n- Note taken on [2026-11-13 Fri]\r\n:END:\r\n*** 普通子章节\r\n子文字\r\n* DONE 完成\r\n* WAIT 等待\r\n";
+        let file = file(source);
+        let html = file.render_document_html();
+        assert_eq!(file.project().as_deref(), Some("项目 <一>"));
+        for text in ["项目 &lt;一&gt;", "文档标题", "OWNER</dt><dd>张三", "data-org-state=\"Doing\"", "data-org-state=\"Wait\"", "data-org-state=\"Done\"", "data-org-foldable=\"true\"", "data-org-foldable=\"false\"", "完整文字", "子文字", "<table>", "LOGBOOK", "task-one</dd>"] {
+            assert!(html.contains(text), "缺少 {text}: {html}");
+        }
+        assert!(!html.contains("<details"), "宿主决定折叠，不在语义投影中隐藏任何内容");
+        assert_eq!(html.matches("data-org-task=\"true\"").count(), 3);
+        assert!(html.find("前言").unwrap() < html.find("普通章节").unwrap());
+        assert!(html.find("</span><div class=\"planning\"").is_some());
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn complete_document_preserves_unknown_content_and_escapes_active_metadata() {
+        let file = file("#+FILETAGS: :project:\n#+PROJECT_NAME: <img src=x onerror=alert(1)>\n#+PROPERTY: CUSTOM <script>bad()</script>\n#+CUSTOM: preserve\n* TODO 元数据任务\nSCHEDULED: <2026-11-13 Fri>\n#+begin_export html\n<script>bad()</script>\n#+end_export\n");
+        let html = file.render_document_html();
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("CUSTOM</dt><dd>preserve"));
+        let only_date = super::tests::file("* TODO 只有日期\nSCHEDULED: <2026-11-13 Fri>\n").render_document_html();
+        assert!(only_date.contains("data-org-foldable=\"false\""), "{only_date}");
     }
 
     #[test]
@@ -986,6 +1081,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         orgize::Org::parse(
             ":LOGBOOK:\nCLOCK: [2026-11-05 Thu 09:00]--[2026-11-05 Thu 10:00] => 1:00\n:END:\n",

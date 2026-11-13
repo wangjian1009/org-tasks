@@ -73,7 +73,7 @@ export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): Logboo
       group.events.forEach((event: LogbookEvent, index: number) => {
         const project = typeof event.task.project === 'function' ? event.task.project() : null
         if (project !== null) {
-          const key = JSON.stringify(['project', event.task.category || null, project])
+          const key = JSON.stringify(['project', event.task.repoId, event.task.filePath, event.task.category || null, project])
           let projectGroup = projects.get(key)
           if (!projectGroup) {
             projectGroup = { key, project, events: [] }

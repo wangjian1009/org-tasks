@@ -24,6 +24,7 @@ function load(filename, mocks = {}, transform = source => source) {
 }
 const base = 'entry/src/main/ets/';
 const navigation = load(base + 'ui/OrgDocumentNavigation.ets');
+const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
 const theme = load(base + 'ui/Theme.ets');
 const presentation = load(base + 'ui/OrgDocumentPresentation.ets', { './Theme': theme });
 function fixture() {
@@ -37,7 +38,8 @@ function fixture() {
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/SyncLogPresentation': {},
     '../ui/Theme': theme,
-    '../ui/OrgDocumentNavigation': navigation
+    '../ui/OrgDocumentNavigation': navigation,
+    '../ui/ProjectDocumentPresentation': projectPresentation
   }, source => source.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State |@BuilderParam |@Prop(?: @Watch\('[^']+'\))? /g, '')
     .replace('export struct OrgFilePreviewView', 'class FileDetail') + '}\nmodule.exports = { FileDetail };');
   const page = new FileDetail();
@@ -230,4 +232,95 @@ test('长文档冲突卡片使用 Web 视口定位，保留浏览器滚动位置
   await f.page.focusConflictCard('missing-card');
   assert.equal(browser.scrollY,123000);
   assert.deepEqual(f.toasts,[]);
+});
+
+function projectPageFixture() {
+  let open = async () => file();
+  let capture = '{"open":["org-node-12"],"anchor":"org-node-12","offset":0,"scroll":80}';
+  const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
+    project: () => '项目', sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
+  const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
+    '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
+    '../components/AppShell': {}, '../components/Controls': {},
+    '../components/OrgFilePreviewView': { OrgFilePreviewNavigation: class {
+      async captureReadingState() { return capture; } closePanel() { return false; }
+    } },
+    '../services/AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'config', rootDirectory: '/repo', name: '仓库' }] }; } } },
+    '../services/NotebookService': { NotebookService: { open: (...args) => open(...args) } },
+    '../services/NativeCoreService': { coreErrorMessage: error => error.message,
+      NativeCoreService: { async workspaceFor() { return { async repos() { return [{ id: 'core', rootDirectory: '/repo' }]; } }; } } },
+    '../ui/Theme': theme
+  }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@State /g, '')
+    .replace('struct ProjectDetail', 'class ProjectDetail') + '}\nmodule.exports = { ProjectDetail };');
+  const page = new ProjectDetail(), routes = [];
+  page.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
+    getParams: () => ({ repoId: 'core', path: 'project.org' }), replaceUrl: async route => routes.push(route)
+  }) });
+  return { page, file, routes, setOpen: fn => { open = fn; } };
+}
+
+test('项目刷新保持同版本阅读状态，新版本清除旧展开锚点', async () => {
+  const f = projectPageFixture(); await f.page.loadFile();
+  assert.equal(f.page.content, '项目原文');
+  const revision = f.page.renderRevision;
+  await f.page.loadFile();
+  assert.match(f.page.readingState, /org-node-12/);
+  assert.equal(f.page.renderRevision, revision);
+  f.setOpen(async () => f.file('v2'));
+  await f.page.loadFile();
+  assert.equal(f.page.readingState, '');
+  assert.ok(f.page.renderRevision > revision);
+});
+
+test('项目原文切换保留文档状态，刷新失败保留上次全文与错误', async () => {
+  const f = projectPageFixture(); await f.page.loadFile();
+  await f.page.toggleSource(); assert.equal(f.page.sourceMode, true);
+  const reading = f.page.readingState;
+  await f.page.toggleSource(); assert.equal(f.page.sourceMode, false);
+  assert.equal(f.page.readingState, reading);
+  f.setOpen(async () => { throw new Error('离线'); });
+  await f.page.loadFile();
+  assert.equal(f.page.content, '项目原文');
+  assert.equal(f.page.renderedHtml, '<p>完整文档</p>');
+  assert.match(f.page.refreshMessage, /离线/);
+  assert.equal(f.page.message, '');
+});
+
+test('项目读取迟到或页面退出，不覆盖最新文档', async () => {
+  const f = projectPageFixture(), pending = [];
+  f.setOpen(() => new Promise(resolve => pending.push(resolve)));
+  const first = f.page.loadFile(), second = f.page.loadFile();
+  await new Promise(resolve => setImmediate(resolve));
+  pending[1](f.file('new')); await second;
+  const revision = f.page.renderRevision;
+  pending[0](f.file('old')); await first;
+  assert.equal(f.page.fileVersion, 'new');
+  assert.equal(f.page.renderRevision, revision);
+  const third = f.page.loadFile();
+  await new Promise(resolve => setImmediate(resolve));
+  f.page.onPageHide(); pending[2](f.file('late')); await third;
+  assert.equal(f.page.fileVersion, 'new');
+});
+
+test('项目文件改为普通文件或含冲突时，按真实身份返回对应入口', async () => {
+  const f = projectPageFixture();
+  f.setOpen(async () => ({ ...f.file(), project: () => null }));
+  await f.page.loadFile(); assert.equal(f.routes[0].url, 'pages/FileDetail');
+  f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
+  await f.page.loadFile(); assert.equal(f.routes[1].url, 'pages/ConflictFile');
+  assert.equal(f.routes[1].params.repoId, 'config');
+});
+
+test('项目跳转等待草稿保存成功，失败保留页面，成功使用真实文件身份', async () => {
+  const routes = [];
+  let saved = false;
+  const { ProjectNavigation } = load(base + 'services/ProjectNavigation.ets', {
+    './TaskInlineService': { TaskInlineSession: { async end(collapse) { assert.equal(collapse, true); return saved; } } }
+  });
+  const context = { getRouter: () => ({ async pushUrl(route) { routes.push(route); } }), getPromptAction: () => ({ showToast() {} }) };
+  await ProjectNavigation.open(context, 'core', 'folder/project.org');
+  assert.deepEqual(routes, []);
+  saved = true;
+  await ProjectNavigation.open(context, 'core', 'folder/project.org');
+  assert.deepEqual(routes, [{ url: 'pages/ProjectDetail', params: { repoId: 'core', path: 'folder/project.org' } }]);
 });

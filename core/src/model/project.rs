@@ -8,6 +8,9 @@ impl OrgFileMetadata {
 }
 
 impl OrgFile {
+    /// 返回当前文件快照的项目身份，保留非项目与显式空名称的区别。
+    pub fn project(&self) -> Option<String> { self.project_name() }
+
     /// 只读取文件头的有效关键字，不解释标题标签或源码块中的字面文本。
     pub(crate) fn project_name(&self) -> Option<String> {
         let is_project = self

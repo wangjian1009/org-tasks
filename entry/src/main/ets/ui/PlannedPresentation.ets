@@ -143,7 +143,7 @@ export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
     group.items.forEach((item: PlannedTaskItem, index: number) => {
       const project = typeof item.task.project === 'function' ? item.task.project() : null
       if (project !== null) {
-        const key = JSON.stringify(['project', item.task.category || null, project])
+        const key = JSON.stringify(['project', item.task.repoId, item.task.filePath, item.task.category || null, project])
         let projectGroup = projects.get(key)
         if (!projectGroup) {
           projectGroup = { key, project, items: [] }

@@ -165,14 +165,14 @@ test('本地仓库提交不排队上传，取消预览不提交真实操作',asy
  const g=fixture();await g.page.load();await g.page.prepare(g.page.conflicts[0],'useLocal');await g.page.leave();assert.equal(g.events.includes('submit'),false);assert.equal(g.backs(),1);
 });
 
-function repositoryRow(hasConflict) {
+function repositoryRow(hasConflict, project = null) {
  const filename=path.resolve('entry/src/main/ets/components/NotebookFileRow.ets');
  const source=fs.readFileSync(filename,'utf8').split('  build()')[0].replace(/@Component\n|@Prop /g,'').replace('export struct NotebookFileRow','class NotebookFileRow')+'}\nmodule.exports=NotebookFileRow;';
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};
  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(()=>({}),module,module.exports);
  const row=new module.exports();
- row.file={repoId:'core',path:'a.org',hasConflict};row.configRepoId='config';
+ row.file={repoId:'core',path:'a.org',hasConflict,project:()=>project};row.configRepoId='config';
  let target;row.getUIContext=()=>({getRouter:()=>({pushUrl(value){target=value;}})});
  row.openFile();return target;
 }
@@ -260,4 +260,12 @@ test('树形目标保留重名父级身份及所有 Core 插入位置，折叠�
  assert.equal(targetTree.conflictTargetRows(root,[]).length,1);
  const existing=targetTree.conflictTargetTree(file,'modify');
  assert.equal(existing.target,undefined);assert.equal(existing.children[1].target.data.occurrence,2);
+});
+
+
+test('仓库项目文件使用 Core 身份进入项目文档，冲突入口优先',()=>{
+ assert.equal(repositoryRow(false,'项目').url,'pages/ProjectDetail');
+ assert.deepEqual(repositoryRow(false,'项目').params,{repoId:'core',path:'a.org'});
+ assert.equal(repositoryRow(false,'').url,'pages/ProjectDetail');
+ assert.equal(repositoryRow(true,'项目').url,'pages/ConflictFile');
 });

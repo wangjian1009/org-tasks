@@ -84,6 +84,8 @@ class OrgFile {
   titleParts(): TitlePart[]
   sourceBytes(): Uint8Array
   renderHtml(): string
+  renderDocumentHtml(): string
+  project(): string | null
 }
 
 class WebDavSyncPolicy {
@@ -561,3 +563,9 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 ~Task.logs: TaskLog[]~ 直接投影 Core 的枚举，JSON 采用 ~type~ 标签和 camelCase 字段；原 ~logbookHtml~ 保留兼容。Rust 随既有任务查询和文件节点快照生成日志，C++ 将 ~logs~ 注册为只读可枚举字段，ArkTS wrapper 仅导出 ~CoreTaskLog~ 别名，调用不新增 I/O、线程入口或 Org 解析。 ~TaskStateChange~ 和 ~TaskNote~ 等声明与 Core 分支保持一致；完整字段见 [[file:../core/数据模型.org::*结构化任务日志][数据模型]]。
 
 ~TaskLogView~ 依类型生成展示结构，附注及未知日志使用 Core 已生成的安全 HTML；状态名、原日期和时间等文字在组装时进行 HTML 转义。日志继续沿用 ~OrgContentView~ 的禁网、外链显式点击与自然高度机制；紧凑模式移除正文底部留白和 40vp 最小高度，全部日志聚合为一个阅读视图。
+
+* 完整文件的文档阅读接入
+
+~OrgFile.project()~ 与 ~OrgFile.renderDocumentHtml()~ 分别读取 Rust 完整文件快照中的 ~projectName~ 和 ~documentHtml~ 。Rust bridge 在原有仓库文件工作线程内调用 Core 的 ~project()~ 与 ~render_document_html()~ ，C++ 注册两个只读方法，类型声明与 ArkTS 的 ~CoreOrgFile~ 别名沿用同一对象边界，不增加正文解析或 I/O。源字节、文件版本、项目身份、完整语义 HTML 和原有 ~renderedHtml~ 均来自同一快照。
+
+~ProjectDetail~ 消费完整语义 HTML，普通文件和历史备份继续使用原有 ~renderHtml()~ 。宿主仅按 Core 的任务与状态属性将有内容的任务包装成原生 HTML disclosure；普通节点与 drawer 始终展开。项目阅读状态只在页面会话中保存，并以真实仓库 ID、路径和文件版本隔离；版本变化后清空旧坐标与展开状态。

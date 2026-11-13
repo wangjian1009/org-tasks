@@ -37,10 +37,11 @@ export function todaySections(tasks: CoreTask[], groupProjects: boolean = false)
     section.items.forEach((item: TodayTaskItem, index: number) => {
       const project = groupProjects ? item.task.project() : null
       if (project !== null) {
-        let group = projects.get(project)
+        const projectKey = JSON.stringify([item.task.repoId, item.task.filePath, project])
+        let group = projects.get(projectKey)
         if (!group) {
-          group = { key: JSON.stringify(['project', project]), project, items: [] }
-          projects.set(project, group)
+          group = { key: JSON.stringify(['project', projectKey]), project, items: [] }
+          projects.set(projectKey, group)
           section.groups.push(group)
         }
         group.items.push(item)

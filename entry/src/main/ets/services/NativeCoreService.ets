@@ -73,6 +73,7 @@ export type CoreConflictPreviewDiffLine = NativeConflictPreviewDiffLine
 export type CoreConflictTarget = NativeConflictTarget
 // 候选内容与展示锚点由 Core 提供；展示锚点不等同于提交目标。
 export type CoreFileConflict = NativeFileConflict
+// project() 与 renderDocumentHtml() 均读取 Native OrgFile 的同版本 Core 快照。
 export type CoreOrgFile = NativeOrgFile
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 

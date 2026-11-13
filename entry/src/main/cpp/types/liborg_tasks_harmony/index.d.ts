@@ -65,6 +65,8 @@ export class OrgFile {
   titleParts(): TitlePart[];
   sourceBytes(): Uint8Array;
   renderHtml(): string;
+  renderDocumentHtml(): string;
+  project(): string | null;
   conflicts(): FileConflict[];
   nodes(): Task[];
   node(path: TaskPath): Task;

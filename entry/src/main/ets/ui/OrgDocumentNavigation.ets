@@ -10,11 +10,11 @@ export interface OrgDocumentOutline {
   activeIndex: number
 }
 
-export function documentOutlineScript(): string {
+export function documentOutlineScript(project: boolean = false): string {
   return `(function() {
     var activeIndex = -1;
-    var chapters = Array.from(document.querySelectorAll('details.heading')).map(function(node, index) {
-      var summary = node.querySelector(':scope > summary');
+    var chapters = Array.from(document.querySelectorAll('${project ? '.heading[data-org-start]' : 'details.heading'}')).map(function(node, index) {
+      var summary = node.querySelector('${project ? ':scope > .heading-summary' : ':scope > summary'}');
       var heading = summary.querySelector('.heading-title');
       var title = heading.cloneNode(true);
       title.querySelectorAll('.todo, .priority, .title-count').forEach(function(part) { part.remove(); });
@@ -31,11 +31,11 @@ export function documentOutlineScript(): string {
   })()`
 }
 
-export function documentChapterScript(index: number): string {
+export function documentChapterScript(index: number, project: boolean = false): string {
   // 序号只由当前目录提供；仍拒绝无效值，避免进入脚本文本。
   if (!Number.isInteger(index) || index < 0) return 'false'
   return `(function() {
-    var node = document.querySelectorAll('details.heading')[${index}];
+    var node = document.querySelectorAll('${project ? '.heading[data-org-start]' : 'details.heading'}')[${index}];
     if (!node) return false;
     for (var parent = node; parent; parent = parent.parentElement) {
       if (parent.matches('details.heading')) parent.open = true;
@@ -45,6 +45,6 @@ export function documentChapterScript(index: number): string {
   })()`
 }
 
-export function documentExpandScript(expand: boolean): string {
-  return `document.querySelectorAll('details.heading').forEach(function(node) { node.open = ${expand ? 'true' : 'false'}; })`
+export function documentExpandScript(expand: boolean, project: boolean = false): string {
+  return `document.querySelectorAll('${project ? 'details.task-heading' : 'details.heading'}').forEach(function(node) { node.open = ${expand ? 'true' : 'false'}; })`
 }
