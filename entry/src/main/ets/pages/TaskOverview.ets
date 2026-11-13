@@ -9,7 +9,7 @@ import { TaskListItem } from '../components/TaskListItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
-import { PlannedTaskFilter } from '../components/PlannedTaskFilter'
+import { RegionProjectFilter } from '../components/RegionProjectFilter'
 import { LogbookTaskList } from '../components/LogbookTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
@@ -260,7 +260,7 @@ struct TaskOverview {
         NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
       } else {
         if (this.view === 'planned') {
-          PlannedTaskFilter({ options: this.planRegionOptions, selectedKey: this.selectedPlanRegion?.key ?? '',
+          RegionProjectFilter({ options: this.planRegionOptions, selectedKey: this.selectedPlanRegion?.key ?? '',
             changed: (region: TaskRegionData | null): void => { this.selectPlanRegion(region) } })
         }
         if (this.supportsTagFilter()) {
