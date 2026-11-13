@@ -57,7 +57,6 @@ export interface AppConfig {
   memoFile: string     // “备忘”入口对应的相对文件路径，可为空
   memoRepoId: string
   calendarName: string // 日历名称
-  syncInterval: number // 同步间隔（分钟）
   coreSettings: CoreSettings
   todoDefaults: string // 外部保存的全局默认声明，缺省值由 Rust 提供
   fileDisplayMode: 'rendered' | 'source' // 文件展示方式
@@ -73,7 +72,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   memoFile: '',
   memoRepoId: '',
   calendarName: 'Org Tasks',
-  syncInterval: 20,
   coreSettings: { additionStates: [] },
   todoDefaults: '', // 配置加载前的占位，实际默认值从 Rust 获取
   fileDisplayMode: 'rendered'

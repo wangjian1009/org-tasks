@@ -145,8 +145,8 @@ test('主窗口与前台两个条件均满足才检查授权，后台及销毁�
   const starts = [], stops = [], loads = [];
   const Ability = load('entryability/EntryAbility', {
     '@kit.AbilityKit': { UIAbility: class {} },
-    '@kit.ArkData': { preferences: {} },
-    '../services/BackgroundSyncService': { BackgroundSyncService: {} },
+    '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
+    '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
     '../services/DeviceBadgeService': { DeviceBadgeService: { start() {}, stop() {} } },
     '../services/NotificationPermissionService': { NotificationPermissionService: {
@@ -175,7 +175,7 @@ function settingsFixture() {
     'liborg_tasks_harmony.so': { Workspace: class {} },
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
-    '../services/BackgroundSyncService': {}, '../services/AppConfigService': {},
+    '../services/AppConfigService': {},
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/Theme': {}, '../services/FileTargetService': {},
     '../services/NotificationPermissionService': { NotificationPermissionService: {

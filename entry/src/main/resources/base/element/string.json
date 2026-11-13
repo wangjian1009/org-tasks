@@ -2,7 +2,7 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "小清单任务与日历同步"
+      "value": "小清单任务管理与 WebDAV 同步"
     },
     {
       "name": "EntryAbility_desc",
@@ -22,7 +22,7 @@
     },
     {
       "name": "background_permission_reason",
-      "value": "用于定时自动同步任务"
+      "value": "用于退出到后台后同步本地修改"
     },
     {
       "name": "capture_label",

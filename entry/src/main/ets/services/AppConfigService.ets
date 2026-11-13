@@ -25,7 +25,6 @@ export class AppConfigService {
     const memoFile = await store.get('memoFile', DEFAULT_CONFIG.memoFile) as string
     const memoRepoId = await store.get('memoRepoId', DEFAULT_CONFIG.memoRepoId) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-    const syncInterval = await store.get('syncInterval', DEFAULT_CONFIG.syncInterval) as number
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
     const savedCoreSettings = await store.get('coreSettings', '') as string
     let coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await new Workspace().getSettings()
@@ -45,7 +44,6 @@ export class AppConfigService {
       memoFile,
       memoRepoId,
       calendarName,
-      syncInterval,
       todoDefaults,
       coreSettings,
       fileDisplayMode: fileDisplayMode === 'source' ? 'source' : 'rendered'
@@ -89,7 +87,6 @@ export class AppConfigService {
     await store.put('memoFile', config.memoFile.trim())
     await store.put('memoRepoId', config.memoRepoId)
     await store.put('calendarName', config.calendarName.trim())
-    await store.put('syncInterval', config.syncInterval)
     await store.put('todoDefaults', config.todoDefaults)
     await store.put('coreSettings', JSON.stringify(config.coreSettings))
     await store.put('fileDisplayMode', config.fileDisplayMode)
@@ -103,7 +100,7 @@ export class AppConfigService {
       repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
       inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile,
       somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId,
-      calendarName: current.calendarName, syncInterval: current.syncInterval, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings,
+      calendarName: current.calendarName, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings,
       fileDisplayMode: current.fileDisplayMode
     })
     await CredentialService.clearWebDavPassword(configId)

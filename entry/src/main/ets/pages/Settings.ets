@@ -1,6 +1,5 @@
 import { defaultTodoSettings, Workspace } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
-import { BackgroundSyncService } from '../services/BackgroundSyncService'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
@@ -18,8 +17,6 @@ interface SettingsParams { section?: string }
 struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
   @State section: string = ''
-  @State calendarName: string = 'Org Tasks'
-  @State syncInterval: string = '20'
   @State todoDefaults: string = ''
   @State coreSettings: CoreSettingsObject = { additionStates: [] }
   private stateCategories: TaskStateCategory[] = [TaskStateCategory.Todo, TaskStateCategory.Doing, TaskStateCategory.Wait, TaskStateCategory.Done, TaskStateCategory.Cancel]
@@ -123,8 +120,6 @@ struct Settings {
         this.todoDefaults = this.config.todoDefaults
         this.coreSettings = this.config.coreSettings
         this.fileDisplayMode = this.config.fileDisplayMode
-        this.calendarName = this.config.calendarName
-        this.syncInterval = Math.max(20, this.config.syncInterval).toString()
       }
       this.loaded = true
     } catch (e) { this.message = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
@@ -156,15 +151,8 @@ struct Settings {
     try {
       while (this.saveRequested) {
         this.saveRequested = false
-        const interval = Number(this.syncInterval)
-        if (!this.calendarName.trim() || !Number.isInteger(interval) || interval < 20) {
-          this.message = '请填写日历名称，同步间隔应为至少 20 的整数'
-          break
-        }
         const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
         const todoChanged = current.todoDefaults !== this.todoDefaults || JSON.stringify(current.coreSettings) !== JSON.stringify(this.coreSettings)
-        current.calendarName = this.calendarName.trim()
-        current.syncInterval = interval
         current.todoDefaults = this.todoDefaults
         current.coreSettings = this.coreSettings
         current.fileDisplayMode = this.fileDisplayMode
@@ -174,8 +162,6 @@ struct Settings {
           this.config = current
         }
         this.message = '设置已保存'
-        try { await BackgroundSyncService.configure(interval) }
-        catch (e) { this.message = `设置已保存，后台调度更新失败：${coreErrorMessage(e as CoreBridgeError)}` }
       }
     } catch (e) { this.message = `保存设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally {
@@ -277,7 +263,7 @@ struct Settings {
                 }.width('100%').padding(24)
               } else {
                 SectionHeading({ title: '小清单' })
-                Text('浏览 Org 笔记本、按日期查看任务，并将任务同步到 HarmonyOS 系统日历。')
+                Text('浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。')
                   .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(24)
                 SectionHeading({ title: '通知与角标' })
                 PreferenceRow({ title: '通知与角标', detail: this.notificationDetail(), icon: $r('app.media.ui_info'),

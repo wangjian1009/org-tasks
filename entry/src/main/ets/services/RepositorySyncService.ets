@@ -19,7 +19,7 @@ export function emptyRepositorySyncState(): RepositorySyncState {
     needsRepository: false }
 }
 
-// 前台同步会话独立于页面；这里只编排宿主调用并投影 Core 进度，不实现同步规则。
+// 同步会话独立于页面和前后台；这里只编排宿主调用并投影 Core 进度。
 export class RepositorySyncService {
   private static state: RepositorySyncState = emptyRepositorySyncState()
   private static failurePending: boolean = false
@@ -28,6 +28,19 @@ export class RepositorySyncService {
   private static completedRepositories: number = 0
   private static fileTotal: number = 0
   private static processedFiles: number = 0
+  private static operation: Promise<void> | undefined = undefined
+  private static observers: Set<(state: RepositorySyncState) => void> = new Set()
+
+  static runningOperation(): Promise<void> | undefined { return RepositorySyncService.operation }
+
+  static watch(observer: (state: RepositorySyncState) => void): void {
+    RepositorySyncService.observers.add(observer)
+    observer(RepositorySyncService.snapshot())
+  }
+
+  static stopWatching(observer: (state: RepositorySyncState) => void): void {
+    RepositorySyncService.observers.delete(observer)
+  }
 
   private static snapshot(): RepositorySyncState {
     const state = RepositorySyncService.state
@@ -37,6 +50,9 @@ export class RepositorySyncService {
 
   private static publish() {
     AppStorage.setOrCreate<RepositorySyncState>('repositorySync', RepositorySyncService.snapshot())
+    RepositorySyncService.observers.forEach((observer: (state: RepositorySyncState) => void): void => {
+      observer(RepositorySyncService.snapshot())
+    })
   }
 
   // 由当前可见页面领取一次错误，避免共享会话在多页重复弹窗。
@@ -46,9 +62,17 @@ export class RepositorySyncService {
     return RepositorySyncService.snapshot()
   }
 
-  static async start(context: Context): Promise<void> {
-    if (RepositorySyncService.state.running) return
-    console.info('前台文件同步开始')
+  static start(context: Context): Promise<void> {
+    if (!RepositorySyncService.operation) {
+      RepositorySyncService.operation = RepositorySyncService.run(context).finally((): void => {
+        RepositorySyncService.operation = undefined
+      })
+    }
+    return RepositorySyncService.operation
+  }
+
+  private static async run(context: Context): Promise<void> {
+    console.info('文件同步开始')
     RepositorySyncService.failurePending = false
     const generation = ++RepositorySyncService.generation
     const state = RepositorySyncService.state
@@ -94,7 +118,7 @@ export class RepositorySyncService {
 
     } finally {
       state.running = false
-      console.info(state.error ? '前台文件同步失败' : '前台文件同步完成')
+      console.info(state.error ? '文件同步失败' : '文件同步完成')
       RepositorySyncService.failurePending = state.error
       RepositorySyncService.publish()
       await DeviceBadgeService.refresh(context)

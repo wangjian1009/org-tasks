@@ -20,11 +20,11 @@
 
 配置、捕捉草稿和日历映射通过 ~PreferencesStore~ 处理 Preferences 的同步异常与异步失败。封装将读取、写入和刷新失败统一作为 Promise 拒绝交给调用方，不在存储层返回缺省值或报告保存成功；日历映射读取失败仍由原调用方决定恢复方式。错误摘要仅包含操作说明与平台错误码，不包含键值、文件路径或凭据；既有存储名称、字段和保存顺序保持原样。
 
-~OrgWorkspace~ 是应用级核心结构；一个应用通常只构造一个。WorkScheduler 调度、CalendarKit 映射、N-API service 实例和活动同步任务都是 Harmony 运行时概念，不是 ~OrgWorkspace~ 或 ~OrgRepo~ 的字段。
+~OrgWorkspace~ 是应用级核心结构；一个应用通常只构造一个。CalendarKit 映射、N-API service 实例和退出同步的后台运行任务都是 Harmony 运行时概念，不是 ~OrgWorkspace~ 或 ~OrgRepo~ 的字段。
 
 * 配置模型
 
-当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、入口文件路径及其仓库 ID、 ~calendarName~ 、 ~syncInterval~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个入口由仓库 ID 与相对文件路径共同确定；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。手机用户可见配置与交付范围见 [[file:../手机应用功能清单.org][手机应用功能清单]]。
+当前运行代码使用 ~AppConfig~ ，直接将 ~repos~ 、入口文件路径及其仓库 ID、 ~calendarName~ 、 ~todoDefaults~ 和 ~fileDisplayMode~ 作为 Preferences 键保存，没有 ~version~ 字段或嵌套的日历、调度对象。每个入口由仓库 ID 与相对文件路径共同确定；统一存储库文件页与配置表单负责增删改，core 在加载目录时读取或创建 ~.sync/id~ 。手机用户可见配置与交付范围见 [[file:../手机应用功能清单.org][手机应用功能清单]]。
 
 #+begin_src ts
 interface AppConfig {
@@ -36,7 +36,6 @@ interface AppConfig {
   memoFile: string
   memoRepoId: string
   calendarName: string
-  syncInterval: number
   todoDefaults: string
   fileDisplayMode: 'rendered' | 'source'
 }
@@ -57,11 +56,10 @@ interface RepoConfig {
 
 | 配置范围 | 当前字段 | 保存位置 | 约束 |
 |-
-| 全局日历 | ~calendarName~ | Preferences | 默认 ~Org Tasks~ ；由 CalendarSync 创建/选择应用日历。 |
+| 全局日历 | ~calendarName~ | Preferences | 保留旧日历名称，默认 ~Org Tasks~ ；当前无日历同步入口，设置页不编辑该值。 |
 | 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存 TODO 流程声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
 | Core 状态分类设置 | ~coreSettings~ | Preferences | 结构化 ~CoreSettings~ JSON；保存 ~additionStates~ ，固定默认状态由 Core 内部管理。 |
 | 文件展示 | ~fileDisplayMode~ | Preferences | 默认 ~rendered~ ，可选 ~source~ ；旧配置缺失或值无效时使用渲染。 |
-| 后台调度 | ~syncInterval~ | Preferences | 默认 20 分钟；由 BackgroundSyncService 配置 WorkScheduler。 |
 | 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
 | 仓库显示名 | ~repos[].name~ | Preferences | 可为空，保存时去除首尾空白；旧配置缺失时按空值处理，显示时回退根目录末级名称，不改变仓库或凭据身份。 |
 | 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
@@ -102,9 +100,9 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 | 桌面备忘卡片 | Harmony | 每个卡片独立的 ~org_tasks_memo_card_<formId>~ Preferences | ~tag~ 保存此实例选择的一个标签，空字符串表示全部备忘；不保存任务内容、凭据或文件副本，移除卡片时清理。 |
 | WebDAV 缓存与旧写入队列 | 旧实现 | 不属于当前配置 | 当前接口不读取或转换这些数据。 |
 
-日历映射中的任务 ID 直接使用 Core 的明文逻辑路径编码，不再采用“仓库 ID、文件路径、字节偏移”的旧格式。已有映射保留读取；下一次后台日历同步按现有规则为新 ID 创建/匹配事件，并清理旧 ID 对应的已跟踪事件，不增加配置键、不猜测旧偏移与新标题的对应关系。状态、首尾进度和无关记录增删不再因位置变化重建日历身份；仓库根路径、文件路径或任务祖先标题变更仍会产生新身份。
+日历映射中的任务 ID 直接使用 Core 的明文逻辑路径编码，不再采用“仓库 ID、文件路径、字节偏移”的旧格式。已有映射保留，定时日历同步入口已移除；后续重新接入日历同步时仍须遵循 Core 逻辑身份，不猜测旧偏移与新标题的对应关系。状态、首尾进度和无关记录增删不再因位置变化重建日历身份；仓库根路径、文件路径或任务祖先标题变更仍会产生新身份。
 
-~lastSyncTime~ 不是配置。后台日历同步把完成时间写入 ~org_tasks_config~ ；当前不提供独立日历同步页面。它不是按仓库的 core 同步历史。后续应隔离日历同步状态，并从 core 历史展示仓库同步状态，不能直接删除现有键。
+~lastSyncTime~ 是旧版日历同步留下的状态，不是配置或按仓库的 Core 同步历史。移除定时同步后不再读取或写入该键，保留原值和 ~calendar_sync_state~ ，不因关闭调度删除用户已有的系统日历事件。
 
 * 设置、更新与删除
 
@@ -126,11 +124,13 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 
 * 界面配置入口
 
-本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑收件箱、某天、备忘文件、日历与后台间隔，字段修改后自动保存且不显示保存按钮； ~Files.ets~ 管理存储库与文件列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
+本轮界面将全局设置与单个存储库草稿分开： ~Settings.ets~ 编辑文件展示、TODO 默认流程与任务状态分类，字段修改后自动保存且不显示保存按钮； ~Files.ets~ 管理存储库与文件列表； ~RepositorySettings.ets~ 编辑目录和 WebDAV。保存时重新载入其他配置，保持未编辑字段的最新值。新建 WebDAV 默认使用应用私有目录，宿主只创建该目录，扫描、仓库身份和内容加载仍由 core 验证。
 
-当前不提供独立的手动日历操作入口。后台作业使用已保存的日历名称与本地任务，先同步文件再写入日历；今天页下拉仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。
+当前不提供日历同步入口。下拉和退出同步仅执行存储库文件同步，不读取或更新 ~lastSyncTime~ ，也不请求日历权限。
 
-后台间隔默认及输入下限均为 20 分钟，以匹配当前 HarmonyOS 的系统约束。低于下限的既有值在显示与调度时按 20 分钟处理。保存后由 ~BackgroundSyncService.configure~ 比较现有 WorkScheduler 作业，必要时替换同一作业。调度配置不进入 core 同步记录。
+定时同步策略已移除：不注册 WorkScheduler 作业，不提供同步间隔配置，旧 ~syncInterval~ Preferences 键不再读取或写入。应用启动时仅由 ~LegacySyncScheduleService~ 枚举并取消旧版 ~workId=1001~ 且目标为 ~SyncWorkExtension~ 的持久化作业；不影响其他作业，清理失败时下次启动重试。旧扩展入口已从模块清单删除。
+
+主界面退后台后按本地变化执行单次文件同步，不依赖时间间隔，不新增自动同步开关或 Preferences 字段。先不读取凭据，仅对已启用 WebDAV 的仓库查询 Core 本地变化；需要执行时由原共享同步入口读取 Asset Store 凭据。变化状态来自 Core 文件与基线比较，不持久化宿主 dirty 标记、最后上传时间或实况窗进度；失败不清除本地变化。该触发仅同步文件，不写 ~lastSyncTime~ 或日历映射。实况窗复用已有通知授权与数据传输后台任务，不在后台申请用户授权。
 
 * 保存前连接测试
 

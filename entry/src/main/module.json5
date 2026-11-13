@@ -14,6 +14,7 @@
     "abilities": [
       {
         "name": "EntryAbility",
+        "backgroundModes": ["dataTransfer"],
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
         "icon": "$media:app_icon",
@@ -92,12 +93,6 @@
       }
     ],
     "extensionAbilities": [
-      {
-        "name": "SyncWorkExtension",
-        "srcEntry": "./ets/entryability/SyncWorkExtension.ets",
-        "type": "workScheduler",
-        "description": "后台定时同步 org 任务到日历"
-      },
       {
         "name": "CaptureFormExtension",
         "srcEntry": "./ets/entryability/CaptureFormExtension.ets",

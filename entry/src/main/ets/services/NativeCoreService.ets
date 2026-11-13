@@ -347,6 +347,18 @@ export class NativeCoreService {
     return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
   }
 
+  // 使用独立的只读查询范围，避免替换页面正在使用的 workspace 和订阅。
+  static async hasLocalWebDavChanges(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<boolean> {
+    const enabled = repositories.filter((repo: RepoConfig) => repo.webdavEnabled)
+    if (enabled.length === 0) return false
+    const workspace = new CoreWorkspace(new NativeWorkspace())
+    await workspace.setTodoDefaults(todoDefaults ?? await defaultTodoSettings())
+    await workspace.setSettings(coreSettings ?? { additionStates: [] })
+    for (const repo of enabled) await workspace.addRepo(repo.rootDirectory)
+    const results = await workspace.query([{ type: 'notification', query: {} }])
+    return notificationResult(results[0]).some((item: CoreNotification) => item.type === 'syncRequired')
+  }
+
   static async syncWorkspaceWebDav(
     repositories: RepoConfig[],
     monitor?: CoreWebDavSyncMonitor,

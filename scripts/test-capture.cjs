@@ -45,8 +45,8 @@ function repository(id) {
 test('分享后的收件箱与任务编辑跳转使用 Want 参数，窗口之间不依赖共享 AppStorage', async () => {
   const EntryAbility = etsLoader({
     '@kit.AbilityKit': { UIAbility: class {} },
-    '@kit.ArkData': { preferences: {} },
-    '../services/BackgroundSyncService': { BackgroundSyncService: {} },
+    '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
+    '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
     '../ui/Theme': { UiColor: {} }
   }, { LocalStorage: class { constructor(values) { this.values = values; } } })('entryability/EntryAbility').default;
