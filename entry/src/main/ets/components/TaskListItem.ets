@@ -53,6 +53,7 @@ export struct TaskListItem {
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
   @State expanded: boolean = false
+  @State logbookExpanded: boolean = false
   @State editTask: CoreTask | undefined = undefined
   @State heading: string = ''
   @State notes: string = ''
@@ -341,6 +342,7 @@ export struct TaskListItem {
   async toggle() {
     if (this.expanded) { await this.finish(true); return }
     if (!await this.prepare()) return
+    this.logbookExpanded = false
     this.referenceTime = Date.now()
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
   }
@@ -1197,7 +1199,20 @@ export struct TaskListItem {
             this.attributes()
           }
           if (this.value().logs.length > 0) {
-            TaskLogView({ logs: this.value().logs }).width('100%')
+            if (this.readOnly) {
+              Button({ type: ButtonType.Normal }) {
+                Row({ space: 8 }) {
+                  Text('日志').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+                  Image(this.logbookExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down'))
+                    .width(18).height(18).accessibilityLevel('no')
+                }.width('100%')
+              }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
+                .accessibilityText(this.logbookExpanded ? '收起日志' : '展开日志')
+                .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
+            }
+            if (!this.readOnly || this.logbookExpanded) {
+              TaskLogView({ logs: this.value().logs }).width('100%')
+            }
           }
         }.width('100%').padding(12)
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
