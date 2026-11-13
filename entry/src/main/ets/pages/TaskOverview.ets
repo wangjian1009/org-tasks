@@ -44,7 +44,7 @@ struct TaskOverview {
   @State includeUntagged: boolean = false
   @State sections: TodaySection[] = []
   @State planGroups: PlannedGroup[] = []
-  @State eventGroups: LogbookGroup[] = []
+  @State logbookTaskGroups: LogbookGroup[] = []
   @State referenceTime: number = Date.now()
   @State loading: boolean = true
   @State message: string = ''
@@ -172,7 +172,7 @@ struct TaskOverview {
         this.tagGroups = []
         this.sections = []
         this.planGroups = []
-        this.eventGroups = []
+        this.logbookTaskGroups = []
         return
       }
       let planGroups: PlannedGroup[] = []
@@ -185,7 +185,7 @@ struct TaskOverview {
         this.tagOptions, this.tagGroups))
       this.referenceTime = Date.now()
       this.planGroups = planGroups
-      this.eventGroups = this.view === 'logbook' ? logbookGroups(result.tasks, new Date(this.referenceTime)) : []
+      this.logbookTaskGroups = this.view === 'logbook' ? logbookGroups(result.tasks, new Date(this.referenceTime)) : []
       await this.openEntryMemo()
     } catch (e) {
       if (request === this.requestId) {
@@ -195,7 +195,7 @@ struct TaskOverview {
         this.tagGroups = []
         this.sections = []
         this.planGroups = []
-        this.eventGroups = []
+        this.logbookTaskGroups = []
         this.message = `读取任务失败：${coreErrorMessage(e as CoreBridgeError)}`
       }
     } finally {
@@ -245,7 +245,7 @@ struct TaskOverview {
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
         } else if (this.view === 'logbook') {
-          LogbookTaskList({ groups: this.eventGroups, referenceTime: this.referenceTime, refresh: (): void => { this.loadTasks() } })
+          LogbookTaskList({ groups: this.logbookTaskGroups, referenceTime: this.referenceTime, refresh: (): void => { this.loadTasks() } })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {

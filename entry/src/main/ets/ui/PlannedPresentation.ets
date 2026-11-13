@@ -1,16 +1,13 @@
 import { CoreTask } from '../services/NativeCoreService'
 import { taskDisplayDate } from './TaskListPresentation'
 import { localDate } from './Theme'
+import { TaskRegionGroup, taskRegionGroups } from './TaskRegionPresentation'
 
 export interface PlannedTaskItem {
   task: CoreTask
 }
 
-export interface PlannedTaskGroup {
-  key: string
-  project: string | null
-  items: PlannedTaskItem[]
-}
+export type PlannedTaskGroup = TaskRegionGroup<PlannedTaskItem>
 
 export type PlannedGroupKind = 'day' | 'range' | 'month' | 'year' | 'unknown'
 
@@ -138,23 +135,7 @@ export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
     }
   }
   for (const group of groups) {
-    if (group.kind !== 'day') continue
-    const projects = new Map<string, PlannedTaskGroup>()
-    group.items.forEach((item: PlannedTaskItem, index: number) => {
-      const project = typeof item.task.project === 'function' ? item.task.project() : null
-      if (project !== null) {
-        const key = JSON.stringify(['project', item.task.repoId, item.task.filePath, item.task.category || null, project])
-        let projectGroup = projects.get(key)
-        if (!projectGroup) {
-          projectGroup = { key, project, items: [] }
-          projects.set(key, projectGroup)
-          group.groups.push(projectGroup)
-        }
-        projectGroup.items.push(item)
-      } else {
-        group.groups.push({ key: JSON.stringify(['task', index, item.task.id]), project: null, items: [item] })
-      }
-    })
+    group.groups = taskRegionGroups(group.items, (item: PlannedTaskItem): CoreTask => item.task)
   }
   return groups
 }

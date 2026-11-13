@@ -1,9 +1,10 @@
 import { CoreTask } from '../services/NativeCoreService'
+import { TaskRegionGroup, taskRegionGroups } from './TaskRegionPresentation'
 
-export interface RecentTaskGroup { key: string; project: string | null; tasks: CoreTask[] }
+export type RecentTaskGroup = TaskRegionGroup<CoreTask>
 export interface RecentDay { key: string; date: string; weekday: string; tasks: CoreTask[]; groups: RecentTaskGroup[] }
 
-// 查询已由 Core 排序与筛选；这里只按本地创建日期及项目组织展示，不丢弃记录。
+// 查询已由 Core 排序与筛选；这里只按本地创建日期及平级分类／项目组织展示，不丢弃记录。
 export function recentDays(tasks: CoreTask[], reference: Date = new Date()): RecentDay[] {
   const days = new Map<string, RecentDay>()
   const weekdays: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -20,22 +21,7 @@ export function recentDays(tasks: CoreTask[], reference: Date = new Date()): Rec
   }
   const result: RecentDay[] = []
   days.forEach((day: RecentDay) => {
-    const projects = new Map<string, RecentTaskGroup>()
-    day.tasks.forEach((task: CoreTask, index: number) => {
-      const project = task.project()
-      if (project !== null) {
-        const key = JSON.stringify(['project', task.category || null, project])
-        let group = projects.get(key)
-        if (!group) {
-          group = { key, project, tasks: [] }
-          projects.set(key, group)
-          day.groups.push(group)
-        }
-        group.tasks.push(task)
-      } else {
-        day.groups.push({ key: JSON.stringify(['task', index, task.id]), project: null, tasks: [task] })
-      }
-    })
+    day.groups = taskRegionGroups(day.tasks, (task: CoreTask): CoreTask => task)
     result.push(day)
   })
   return result

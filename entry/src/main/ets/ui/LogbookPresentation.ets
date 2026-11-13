@@ -1,22 +1,14 @@
 import { CoreTask } from '../services/NativeCoreService'
-import { TaskStateCategory } from './TaskStatePresentation'
-import { TaskDateDisplay } from './TaskListPresentation'
 import { localDate } from './Theme'
+import { TaskRegionGroup, taskRegionGroups } from './TaskRegionPresentation'
 
-export interface LogbookEvent {
+export interface LogbookTaskItem {
   key: string
-  kind: 'created' | 'closed'
-  label: string
   timestamp: number | null
-  dateDisplay: TaskDateDisplay
   task: CoreTask
 }
 
-export interface LogbookEventGroup {
-  key: string
-  project: string | null
-  events: LogbookEvent[]
-}
+export type LogbookTaskGroup = TaskRegionGroup<LogbookTaskItem>
 
 export interface LogbookGroup {
   key: string
@@ -24,21 +16,21 @@ export interface LogbookGroup {
   date: string
   title: string
   subtitle: string
-  events: LogbookEvent[]
-  groups: LogbookEventGroup[]
+  items: LogbookTaskItem[]
+  groups: LogbookTaskGroup[]
 }
 
 const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 
-// 任务范围由 Core 的 it.done 决定；这里只把返回快照排成事件时间线。
+// 任务范围由 Core 的 i.done 决定；每个完成任务仅按 closedAt 编排一次。
 export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): LogbookGroup[] {
   const groups: LogbookGroup[] = []
   const dailyStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)
   const monthlyStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 180)
   const today = localDate(now)
   const yesterday = localDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))
-  const add = (event: LogbookEvent): void => {
-    const time = event.timestamp
+  const add = (item: LogbookTaskItem): void => {
+    const time = item.timestamp
     const date = time === null ? undefined : new Date(time)
     const valid = date !== undefined && Number.isFinite(date.getTime())
     const day = valid ? localDate(date!) : ''
@@ -50,55 +42,27 @@ export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): Logboo
       const title = !valid ? '时间未记录' : kind === 'day' ? `${date!.getDate()}日` : kind === 'month' ?
         `${date!.getFullYear() === now.getFullYear() ? '' : `${date!.getFullYear()}年`}${date!.getMonth() + 1}月` : `${date!.getFullYear()}年`
       const subtitle = kind !== 'day' ? '' : day === today ? '今天' : day === yesterday ? '昨天' : weekdays[date!.getDay()]
-      group = { key, kind, date: day, title, subtitle, events: [], groups: [] }
+      group = { key, kind, date: day, title, subtitle, items: [], groups: [] }
       groups.push(group)
     }
-    group.events.push(event)
+    group.items.push(item)
   }
   for (const task of tasks) {
-    if (task.createdAt !== null) {
-      add({ key: `${task.id}\ncreated`, kind: 'created', label: '创建', timestamp: task.createdAt,
-        dateDisplay: TaskDateDisplay.None, task })
-    }
-    add({ key: `${task.id}\nclosed`, kind: 'closed',
-      label: task.state?.category === TaskStateCategory.Cancel ? '取消' : '完成', timestamp: task.closedAt,
-      dateDisplay: TaskDateDisplay.Closed, task })
+    add({ key: task.id, timestamp: task.closedAt, task })
   }
   for (const group of groups) {
-    group.events.sort((left: LogbookEvent, right: LogbookEvent) => {
+    group.items.sort((left: LogbookTaskItem, right: LogbookTaskItem) => {
       return (right.timestamp ?? -Infinity) - (left.timestamp ?? -Infinity) || left.key.localeCompare(right.key)
     })
     if (group.kind === 'day') {
-      const projects = new Map<string, LogbookEventGroup>()
-      group.events.forEach((event: LogbookEvent, index: number) => {
-        const project = typeof event.task.project === 'function' ? event.task.project() : null
-        if (project !== null) {
-          const key = JSON.stringify(['project', event.task.repoId, event.task.filePath, event.task.category || null, project])
-          let projectGroup = projects.get(key)
-          if (!projectGroup) {
-            projectGroup = { key, project, events: [] }
-            projects.set(key, projectGroup)
-            group.groups.push(projectGroup)
-          }
-          projectGroup.events.push(event)
-        } else {
-          group.groups.push({ key: JSON.stringify(['event', index, event.key]), project: null, events: [event] })
-        }
-      })
+      group.groups = taskRegionGroups(group.items, (item: LogbookTaskItem): CoreTask => item.task)
     }
   }
+
   groups.sort((left: LogbookGroup, right: LogbookGroup) => {
     if (left.kind === 'unknown') return 1
     if (right.kind === 'unknown') return -1
     return right.key.localeCompare(left.key)
   })
   return groups
-}
-
-export function logbookEventTime(event: LogbookEvent, group: LogbookGroup): string {
-  if (event.timestamp === null) return '时间未记录'
-  const date = new Date(event.timestamp)
-  if (!Number.isFinite(date.getTime())) return '时间未记录'
-  const clock = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
-  return group.kind === 'day' ? clock : `${date.getMonth() + 1}月${date.getDate()}日 ${clock}`
 }

@@ -18,7 +18,7 @@ import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDateForDisplay, TaskDateDisplay,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
-  TaskRowLayout, taskTitleText, taskSourceText } from '../ui/TaskListPresentation'
+  TaskRowLayout, taskTitleText, taskSourceText, RegionAreaPolicy, TaskRegionArea, taskRegionArea } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
 import { OrgContentView } from './OrgContentView'
 import { TaskLogView } from './TaskLogView'
@@ -45,7 +45,7 @@ export struct TaskListItem {
   @Prop allowCompletion: boolean = false
   @Prop instanceKey: string = ''
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
-  @Prop showCategory: boolean = false
+  @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
   @Prop enableSwipeActions: boolean = false
   @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
   open: () => void = () => {}
@@ -748,7 +748,7 @@ export struct TaskListItem {
   }
 
   leadingWidth(): number {
-    return (!this.readOnly && taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
+    return (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 28 : 0)
   }
 
@@ -858,18 +858,27 @@ export struct TaskListItem {
   @Builder
   categoryProject() {
     Row({ space: 4 }) {
-      if (this.value().category) {
-        Text(this.value().category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+      if (this.regionArea().category) {
+        Text(this.regionArea().category).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: this.value().project() === null ? '100%' : '40%' })
+          .constraintSize({ maxWidth: this.regionArea().project === null ? '100%' : '40%' })
       }
-      if (this.value().project() !== null) {
-        if (this.value().category) { Text('·').fontSize(12).fontColor(UiColor.secondary) }
-        Text(this.value().project() || '未命名项目').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+      if (this.regionArea().project !== null) {
+        if (this.regionArea().category) { Text('·').fontSize(12).fontColor(UiColor.secondary) }
+        Text(this.regionArea().project || '未命名项目').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           .constraintSize({ minHeight: 48 }).onClick((): void => { this.openProject() })
       }
-    }.width('100%').accessibilityText(taskSourceText(this.value()))
+    }.width('100%').accessibilityText(taskSourceText(this.value(), false, this.regionPolicy()))
+  }
+
+  regionArea(): TaskRegionArea {
+    return taskRegionArea(this.value(), this.regionPolicy())
+  }
+
+  regionPolicy(): RegionAreaPolicy {
+    // 未显式配置的旧调用方保留原折叠／展开布局；显式策略同时控制两种状态。
+    return this.regionAreaPolicy ?? (this.expanded ? RegionAreaPolicy.CategoryProject : RegionAreaPolicy.None)
   }
 
   @Builder
@@ -878,7 +887,7 @@ export struct TaskListItem {
       Column({ space: 2 }) {
         TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
           .width('100%').constraintSize({ minWidth: 0 })
-        if (this.showCategory && (this.value().category || this.value().project() !== null)) {
+        if (taskSourceText(this.value(), false, this.regionPolicy())) {
           this.categoryProject()
         }
       }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
@@ -910,7 +919,7 @@ export struct TaskListItem {
   }
   @Builder
   compactLeadingInfo() {
-    if (!this.readOnly && taskDateForDisplay(this.value(), this.dateDisplay)) {
+    if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
     }
@@ -1216,10 +1225,14 @@ export struct TaskListItem {
           }
         }.width('100%').padding(12)
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
-        Text(taskSourceText(this.value(), true)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
-          .width('100%').textAlign(TextAlign.End).padding({ top: 6, right: 12, bottom: 4 })
-          .constraintSize({ minHeight: this.value().project() !== null ? 48 : 0 })
-          .onClick((): void => { this.openProject() })
+        if (taskSourceText(this.value(), true, this.regionPolicy())) {
+          Text(taskSourceText(this.value(), true, this.regionPolicy())).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
+            .width('100%').textAlign(TextAlign.End).padding({ top: 6, right: 12, bottom: 4 })
+            .constraintSize({ minHeight: this.regionArea().project !== null ? 48 : 0 })
+            .onClick((): void => {
+              if (this.regionArea().project !== null) this.openProject()
+            })
+        }
       } else {
         Row({ space: 8 }) {
           this.stateIndicator()

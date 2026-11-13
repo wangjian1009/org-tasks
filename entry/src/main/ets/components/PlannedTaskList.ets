@@ -1,9 +1,9 @@
-import { ProjectNavigation } from '../services/ProjectNavigation'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
-import { TaskDateDisplay } from '../ui/TaskListPresentation'
+import { TaskRegionHeader } from './TaskRegionHeader'
+import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskListItem } from './TaskListItem'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
@@ -37,7 +37,7 @@ export struct PlannedTaskList {
   @Builder
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
     TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
-      plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline, showCategory: true,
+      plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline, regionAreaPolicy: RegionAreaPolicy.None,
       rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       referenceTime: this.referenceTime, open: (): void => {
@@ -46,17 +46,10 @@ export struct PlannedTaskList {
   }
 
   @Builder
-  projectGroup(group: PlannedGroup, project: PlannedTaskGroup) {
+  regionGroup(group: PlannedGroup, region: PlannedTaskGroup) {
     Column({ space: 2 }) {
-      if (project.project !== null) {
-        Text(project.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8, top: 8 })
-          .constraintSize({ minHeight: 48 }).onClick((): void => {
-            const task = project.items[0].task
-            ProjectNavigation.open(this.getUIContext(), task.repoId, task.filePath)
-          })
-      }
-      ForEach(project.items, (item: PlannedTaskItem) => {
+      TaskRegionHeader({ region })
+      ForEach(region.items, (item: PlannedTaskItem) => {
         this.taskItem(item, group)
       }, (item: PlannedTaskItem) => taskRenderKey(item.task))
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
@@ -72,15 +65,9 @@ export struct PlannedTaskList {
       } else {
         this.monthHeader(group)
       }
-      if (group.kind === 'day') {
-        ForEach(group.groups, (project: PlannedTaskGroup) => {
-          this.projectGroup(group, project)
-        }, (project: PlannedTaskGroup) => project.key)
-      } else {
-        ForEach(group.items, (item: PlannedTaskItem) => {
-          this.taskItem(item, group)
-        }, (item: PlannedTaskItem) => taskRenderKey(item.task))
-      }
+      ForEach(group.groups, (region: PlannedTaskGroup) => {
+        this.regionGroup(group, region)
+      }, (region: PlannedTaskGroup) => region.key)
       if (group.kind === 'day' && group.items.length === 0) {
         Blank().height(32)
       }

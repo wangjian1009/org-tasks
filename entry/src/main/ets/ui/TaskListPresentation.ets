@@ -18,6 +18,25 @@ export enum TaskDateDisplay {
   None = 'None'
 }
 
+export enum RegionAreaPolicy {
+  None = 'None',
+  Category = 'Category',
+  Project = 'Project',
+  CategoryProject = 'CategoryProject'
+}
+
+export interface TaskRegionArea {
+  category: string
+  project: string | null
+}
+
+export function taskRegionArea(task: CoreTask, policy: RegionAreaPolicy): TaskRegionArea {
+  return {
+    category: policy === RegionAreaPolicy.Category || policy === RegionAreaPolicy.CategoryProject ? task.category || '' : '',
+    project: policy === RegionAreaPolicy.Project || policy === RegionAreaPolicy.CategoryProject ? task.project() : null
+  }
+}
+
 // 这里只计算展示日期，不参与任务筛选；自然日序号避免跨夏令时产生误差。
 function dayNumber(value: string): number {
   const date = value.slice(0, 10)
@@ -127,12 +146,14 @@ export function taskRowLayout(width: number, tagCount: number, indicatorCount: n
 }
 
 // 仅组合 Core 已提供的来源名称，不判断文件标签或项目属性。
-export function taskSourceText(task: CoreTask, fallbackFile: boolean = false): string {
-  const category = task.category || ''
-  const project = task.project()
+export function taskSourceText(task: CoreTask, fallbackFile: boolean = false,
+  policy: RegionAreaPolicy = RegionAreaPolicy.CategoryProject): string {
+  const area = taskRegionArea(task, policy)
+  const category = area.category
+  const project = area.project
   if (project !== null) {
     const name = project || '未命名项目'
     return category ? `${category} · ${name}` : name
   }
-  return category || (fallbackFile ? task.fileName : '')
+  return category || (fallbackFile && policy === RegionAreaPolicy.CategoryProject ? task.fileName : '')
 }

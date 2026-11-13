@@ -278,7 +278,18 @@ test('截止日期的未来、当天、逾期、已完成与无效状态使用�
   }
 });
 
+function loadRegionPresentation() {
+  const filename = path.resolve(__dirname, '../entry/src/main/ets/ui/TaskRegionPresentation.ets');
+  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  });
+  const result = {};
+  vm.runInThisContext('(function(exports){' + code.outputText + '\n})', { filename })(result);
+  return result;
+}
+
 function loadGrouping(name, dependencies) {
+  dependencies = { './TaskRegionPresentation': loadRegionPresentation(), ...dependencies };
   const filename = path.resolve(__dirname, `../entry/src/main/ets/ui/${name}.ets`);
   const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
@@ -320,7 +331,7 @@ test('计划按日期组织原任务快照，保留空日期、月分组与分�
   assert.equal(groups.flatMap(group => group.items).length, tasks.length);
 });
 
-test('计划日按项目归并任务，未归入项目的任务保持独立', () => {
+test('计划日将项目与分类平级归组', () => {
   const { plannedGroups } = loadGrouping('PlannedPresentation', {
     './Theme': { localDate }, './TaskListPresentation': presentation
   });
@@ -328,7 +339,7 @@ test('计划日按项目归并任务，未归入项目的任务保持独立', ()
     task('project-b', { scheduled: '2026-11-08', projectName: '项目甲' }),
     task('plain', { scheduled: '2026-11-08' })];
   const day = plannedGroups(tasks).find(group => group.key === 'day:2026-11-08');
-  assert.deepEqual(day.groups.map(group => [group.project, group.items.length]), [['项目甲', 2], [null, 1]]);
+  assert.deepEqual(day.groups.map(group => [group.kind, group.title, group.items.length]), [['project', '项目甲', 2], ['category', '未分类', 1]]);
 });
 
 const tagFilters = loadGrouping('TaskTagFilterPresentation', {});
@@ -610,4 +621,54 @@ test('项目名称相同但仓库或文件不同，区块保持真实文件身�
     task('d', { category: '工作', projectName: '同名项目', repoId: 'one', filePath: 'a.org' })];
   const groups = todaySections(values, true)[0].groups;
   assert.deepEqual(groups.map(group => group.items.map(item => item.task.id)), [['a', 'd'], ['b'], ['c']]);
+});
+
+
+test('分类与项目同名时保持平级，同名项目按仓库文件隔离，缺失与字面分类互不合并', () => {
+  const { taskRegionGroups } = loadRegionPresentation();
+  const tasks = [task('a', { category: '同名' }), task('b', { category: '同名', projectName: '同名' }),
+    task('c', { category: '其他' }), task('d', { category: '同名' }),
+    task('e', { projectName: '同名', filePath: 'other.org' }),
+    task('f', { projectName: '同名', repoId: 'other' }), task('g', { projectName: '', filePath: 'unnamed.org' }),
+    task('h'), task('i', { category: '未分类' })];
+  const groups = taskRegionGroups(tasks, task => task);
+  assert.deepEqual(groups.map(group => [group.kind, group.title, group.items.map(item => item.id)]), [
+    ['category', '同名', ['a', 'd']], ['project', '同名', ['b']], ['category', '其他', ['c']],
+    ['project', '同名', ['e']], ['project', '同名', ['f']], ['project', '未命名项目', ['g']],
+    ['category', '未分类', ['h']], ['category', '未分类', ['i']]
+  ]);
+  assert.equal(new Set(groups.map(group => group.key)).size, groups.length);
+  assert.equal(groups.flatMap(group => group.items).length, tasks.length);
+});
+
+test('计划所有时间段都按分类与项目平级组织，原任务对象各出现一次', () => {
+  const { plannedGroups } = loadGrouping('PlannedPresentation', {
+    './Theme': { localDate }, './TaskListPresentation': presentation
+  });
+  const tasks = ['2026-11-08', '2026-11-16', '2026-12-01', '2027-11-01'].flatMap((scheduled, i) => [
+    task(`plain-${i}`, { scheduled, category: '工作' }),
+    task(`project-${i}`, { scheduled, category: '工作', projectName: '项目甲' }),
+    task(`other-${i}`, { scheduled, category: '工作' })
+  ]);
+  const groups = plannedGroups(tasks).filter(group => group.items.length);
+  assert.deepEqual(groups.map(group => group.kind), ['day', 'range', 'month', 'year']);
+  for (const group of groups) {
+    assert.equal(group.groups.length, 2);
+    assert.deepEqual(group.groups.map(region => region.kind).sort(), ['category', 'project']);
+    assert.equal(group.groups.flatMap(region => region.items).length, 3);
+    assert.ok(group.groups.flatMap(region => region.items).every(item => tasks.includes(item.task)));
+  }
+});
+
+test('regionAreaPolicy 精确控制分类、项目、组合与完全隐藏，None 不显示文件名回退', () => {
+  const { RegionAreaPolicy: policy, taskSourceText, taskRegionArea } = presentation;
+  const value = task('region', { category: '工作', projectName: '项目甲' });
+  for (const [strategy, text] of [[policy.None, ''], [policy.Category, '工作'],
+    [policy.Project, '项目甲'], [policy.CategoryProject, '工作 · 项目甲']]) {
+    assert.equal(taskSourceText(value, true, strategy), text);
+  }
+  assert.deepEqual(taskRegionArea(value, policy.Category), { category: '工作', project: null });
+  assert.deepEqual(taskRegionArea(value, policy.Project), { category: '', project: '项目甲' });
+  assert.equal(taskSourceText(task('empty'), true, policy.None), '');
+  assert.equal(taskSourceText(task('unnamed', { projectName: '' }), false, policy.Project), '未命名项目');
 });

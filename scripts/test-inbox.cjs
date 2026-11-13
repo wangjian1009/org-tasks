@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-inbox.cjs\n验证移动目标 CATEGORY 与项目平级分组、目标身份、移动、将来，也许、备忘与删除请求。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-inbox.cjs\n验证移动目标与最近新增的 CATEGORY／项目平级分组、目标身份、移动、将来，也许、备忘与删除请求。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -246,19 +246,19 @@ test('近期日期分组只组织返回快照，保留完成与 CNCL、跨年日
   assert.equal(unplannedSpacer(400, 80), 220);
 });
 
-test('最近新增在创建日期内按分类与项目组织区块，保留普通任务、完成记录和原快照', () => {
+test('最近新增按日将分类与项目平级归组，保留普通任务、完成记录与独立项目身份', () => {
   const { recentDays } = load('ui/InboxPresentation', {});
-  const record = (id, category, project, day = 12, values = {}) => ({ id, category, project: () => project,
+  const record = (id, category, project, day = 12, values = {}) => ({ id, category, project: () => project, repoId: 'repo', filePath: project === null ? 'plain.org' : `${category || 'unnamed'}-${project}.org`,
     createdAt: new Date(2026, 10, day, 12).getTime(), ...values });
   const tasks = [record('plain', '工作', null), record('first', '工作', '项目甲'),
     record('memo', '工作', null, 12, { todoKind: null }), record('second', '工作', '项目甲', 12, { todoKind: 'done' }),
     record('other-category', '生活', '项目甲'), record('unnamed', null, ''),
     record('unnamed-again', '', ''), record('yesterday', '工作', '项目甲', 11)];
   const days = recentDays(tasks, new Date(2026, 10, 12));
-  assert.deepEqual(days[0].groups.map(group => [group.project, group.tasks.map(task => task.id)]),
-    [[null, ['plain']], ['项目甲', ['first', 'second']], [null, ['memo']], ['项目甲', ['other-category']], ['', ['unnamed', 'unnamed-again']]]);
-  assert.deepEqual(days[1].groups.map(group => group.tasks), [[tasks[7]]]);
-  const displayed = days.flatMap(day => day.groups.flatMap(group => group.tasks));
+  assert.deepEqual(days[0].groups.map(group => [group.kind, group.title, group.items.map(task => task.id)]),
+    [['category', '工作', ['plain', 'memo']], ['project', '项目甲', ['first', 'second']], ['project', '项目甲', ['other-category']], ['project', '未命名项目', ['unnamed', 'unnamed-again']]]);
+  assert.deepEqual(days[1].groups.map(group => group.items), [[tasks[7]]]);
+  const displayed = days.flatMap(day => day.groups.flatMap(group => group.items));
   assert.equal(displayed.length, tasks.length);
   for (const task of tasks) assert.equal(displayed.filter(item => item === task).length, 1);
   assert.deepEqual(recentDays([], new Date(2026, 10, 12)), []);

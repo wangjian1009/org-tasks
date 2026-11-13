@@ -1,11 +1,11 @@
-// 验证日志簿事件编排，以及共享卡片只读会话不会打开编辑入口或写入。
+// 验证日志簿完成任务编排，以及共享卡片只读会话不会打开编辑入口或写入。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
-  console.log('用法: node scripts/test-logbook.cjs\n验证创建、完成／取消事件的时间分组、顺序、缺失时间与只读卡片的交互边界。');
+  console.log('用法: node scripts/test-logbook.cjs\n验证完成任务的时间分组、分类／项目平级分组、顺序、缺失时间与只读卡片的交互边界。');
   process.exit(0);
 }
 const ts = require(path.join('/Applications/DevEco-Studio.app/Contents', 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
@@ -15,44 +15,52 @@ function compile(source, mocks = {}) {
   vm.runInThisContext('(function(require,module,exports,TaskInlineSession){' + code + '\n})')(name => mocks[name], module, module.exports, mocks.session);
   return module.exports;
 }
-const { logbookGroups, logbookEventTime } = compile(fs.readFileSync('entry/src/main/ets/ui/LogbookPresentation.ets', 'utf8'), {
-  './TaskStatePresentation': { TaskStateCategory: { Cancel: 'Cancel' } },
-  './TaskListPresentation': { TaskDateDisplay: { None: 'None', Closed: 'Closed' } },
+const regions = compile(fs.readFileSync('entry/src/main/ets/ui/TaskRegionPresentation.ets', 'utf8'));
+const { logbookGroups } = compile(fs.readFileSync('entry/src/main/ets/ui/LogbookPresentation.ets', 'utf8'), {
+  './TaskRegionPresentation': regions,
   './Theme': { localDate: d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 });
 const time = (value) => new Date(value).getTime();
 const now = new Date('2026-11-12T12:00:00');
-function task(id, created, closed, category = 'Done', project = null) {
-  return { id, heading: id, createdAt: created ? time(created) : null, closedAt: closed ? time(closed) : null,
+function task(id, created, closed, category = 'Done', project = null, region = '工作', repoId = 'repo', filePath = 'task.org') {
+  return { id, repoId, filePath, category: region, heading: id, createdAt: created ? time(created) : null, closedAt: closed ? time(closed) : null,
     state: { name: '任意自定义名字', category }, project: () => project, editContent: { notes: '', checklist: [] } };
 }
-test('同一任务保留创建与关闭两件事件，同日按时刻倒序并区分取消分类', () => {
-  const groups = logbookGroups([task('A', '2026-11-12T09:00', '2026-11-12T11:30'),
-    task('B', '2026-11-12T08:00', '2026-11-12T10:00', 'Cancel')], now);
+test('日志簿请求仅完成分类，由 Core 排除取消和未完成任务', () => {
+  const { overviewTaskQuery } = compile(fs.readFileSync('entry/src/main/ets/services/TaskViewQueries.ets', 'utf8'));
+  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'i.done', includeDone: true, includeComposeTasks: true });
+});
+test('每个任务只按完成时间出现一次，创建时间不增加记录或改变顺序', () => {
+  const a = task('A', '2026-11-12T09:00', '2026-11-12T11:30');
+  const b = task('B', '2025-01-01T08:00', '2026-11-12T10:00');
+  const groups = logbookGroups([b, a], now);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].subtitle, '今天');
-  assert.deepEqual(groups[0].events.map(e => [e.task.id, e.label, logbookEventTime(e, groups[0])]),
-    [['A', '完成', '11:30'], ['B', '取消', '10:00'], ['A', '创建', '09:00'], ['B', '创建', '08:00']]);
-  assert.equal(new Set(groups[0].events.map(e => e.key)).size, 4);
+  assert.deepEqual(groups[0].items.map(item => item.task), [a, b]);
+  assert.equal(new Set(groups[0].items.map(item => item.key)).size, 2);
 });
-test('按日事件按项目归并，未归入项目的事件保持独立', () => {
-  const groups = logbookGroups([task('A', '2026-11-12T09:00', '2026-11-12T11:30', 'Done', '项目甲'),
-    task('B', '2026-11-12T08:00', '2026-11-12T10:00', 'Done', '项目甲'),
-    task('C', '2026-11-12T07:00', '2026-11-12T09:00')], now);
-  assert.deepEqual(groups[0].groups.map(group => [group.project, group.events.length]), [['项目甲', 4], [null, 1], [null, 1]]);
-  assert.equal(groups[0].events.every(event => event.dateDisplay === (event.kind === 'closed' ? 'Closed' : 'None')), true);
+test('按日任务将项目与分类平级分组，普通任务按分类合并且不丢失任务', () => {
+  const tasks = [task('A', null, '2026-11-12T11:30', 'Done', '工作'),
+    task('B', null, '2026-11-12T11:00'),
+    task('C', null, '2026-11-12T10:30', 'Done', '工作'),
+    task('D', null, '2026-11-12T10:00')];
+  const day = logbookGroups(tasks, now)[0];
+  assert.deepEqual(day.groups.map(group => [group.kind, group.title, group.items.map(item => item.task.id)]),
+    [['project', '工作', ['A', 'C']], ['category', '工作', ['B', 'D']]]);
+  assert.equal(day.groups.flatMap(group => group.items).length, tasks.length);
 });
-test('最近七天按日，更早按月与年，跨年和月末保持倒序', () => {
+test('最近七天按日，更早按月与年，分组只使用完成日期', () => {
   const groups = logbookGroups([task('A', '2025-01-02T09:00', '2026-11-11T11:30'),
-    task('B', '2026-10-31T08:00', '2026-11-05T10:00')], now);
-  assert.deepEqual(groups.map(g => [g.key, g.kind]), [['2026-11-11', 'day'], ['2026-11', 'month'], ['2026-10', 'month'], ['2025', 'year']]);
+    task('B', '2026-10-31T08:00', '2026-11-05T10:00'), task('C', null, '2025-01-02T09:00')], now);
+  assert.deepEqual(groups.map(g => [g.key, g.kind]), [['2026-11-11', 'day'], ['2026-11', 'month'], ['2025', 'year']]);
   assert.equal(groups[0].subtitle, '昨天');
-  assert.equal(logbookEventTime(groups[1].events[0], groups[1]), '11月5日 10:00');
+  assert.equal(groups[1].groups.length, 0);
 });
-test('缺失创建时间不伪造事件，缺失完成时间放在末尾且不借用创建时间', () => {
-  const groups = logbookGroups([task('A', '2026-11-12T08:00', null), task('B', null, null, 'Cancel')], now);
+test('缺失或无效完成时间放在末尾，不借用创建时间，空快照不生成分组', () => {
+  const groups = logbookGroups([task('A', '2026-11-12T08:00', null), task('B', null, null),
+    task('C', null, '2026-11-12T10:00')], now);
   assert.deepEqual(groups.map(g => g.kind), ['day', 'unknown']);
-  assert.deepEqual(groups[1].events.map(e => [e.task.id, e.label, e.timestamp]), [['A', '完成', null], ['B', '取消', null]]);
+  assert.deepEqual(groups[1].items.map(item => [item.task.id, item.timestamp]), [['A', null], ['B', null]]);
   assert.equal(logbookGroups([], now).length, 0);
 });
 const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
@@ -72,11 +80,11 @@ function readOnlyCard(instanceKey = 'event-A') {
   card.aboutToAppear();
   return { card, released: () => released };
 }
-test('只读卡片可展开收起，同一任务不同事件使用独立会话身份', async () => {
-  const a = readOnlyCard('A-created'), b = readOnlyCard('A-closed');
+test('只读卡片可展开收起，任务实例保持独立会话身份', async () => {
+  const a = readOnlyCard('A'), b = readOnlyCard('B');
   await a.card.toggle(); assert.equal(a.card.expanded, true);
-  await a.card.toggle(); assert.equal(a.card.expanded, false); assert.equal(a.released(), 'A-created');
-  await b.card.toggle(); assert.equal(b.card.ownerKey, 'A-closed');
+  await a.card.toggle(); assert.equal(a.card.expanded, false); assert.equal(a.released(), 'A');
+  await b.card.toggle(); assert.equal(b.card.ownerKey, 'B');
   assert.notEqual(a.card.ownerKey, b.card.ownerKey);
 });
 test('只读模式阻止所有编辑、完成、清单修改与左右滑动，保存不产生请求', async () => {

@@ -1,8 +1,9 @@
-import { ProjectNavigation } from '../services/ProjectNavigation'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
-import { LogbookEvent, LogbookEventGroup, LogbookGroup, logbookEventTime } from '../ui/LogbookPresentation'
+import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPresentation'
 import { TaskListItem } from './TaskListItem'
+import { TaskRegionHeader } from './TaskRegionHeader'
+import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskSwipeActions } from './TaskSwipeActions'
@@ -19,32 +20,21 @@ export struct LogbookTaskList {
   @Prop groups: LogbookGroup[] = []
   @Prop referenceTime: number = Date.now()
   refresh: () => void = () => {}
-  @State selectingEvents: boolean = false
-  @State selectedEventKeys: string[] = []
+  @State selectingTasks: boolean = false
+  @State selectedTaskKeys: string[] = []
   @State actionBusy: boolean = false
   @State selectionStarting: boolean = false
 
   policy() { return taskPageActionPolicy('logbook') }
 
-  allEvents(): LogbookEvent[] {
-    const result: LogbookEvent[] = []
-    for (const group of this.groups) result.push(...group.events)
+  allItems(): LogbookTaskItem[] {
+    const result: LogbookTaskItem[] = []
+    for (const group of this.groups) result.push(...group.items)
     return result
   }
 
-  selectedEvents(): LogbookEvent[] {
-    return this.allEvents().filter((event: LogbookEvent) => this.selectedEventKeys.includes(event.key))
-  }
-
-  uniqueTasks(events: LogbookEvent[]): CoreTask[] {
-    const result: CoreTask[] = []
-    const ids = new Set<string>()
-    for (const event of events) {
-      if (ids.has(event.task.id)) continue
-      ids.add(event.task.id)
-      result.push(event.task)
-    }
-    return result
+  selectedItems(): LogbookTaskItem[] {
+    return this.allItems().filter((item: LogbookTaskItem) => this.selectedTaskKeys.includes(item.key))
   }
 
   @Builder
@@ -63,32 +53,32 @@ export struct LogbookTaskList {
     }
   }
 
-  async startSelection(event: LogbookEvent) {
-    if (this.selectingEvents || this.actionBusy || this.selectionStarting) return
+  async startSelection(item: LogbookTaskItem) {
+    if (this.selectingTasks || this.actionBusy || this.selectionStarting) return
     this.selectionStarting = true
     try {
       if (!await TaskInlineSession.end(true)) return
       try { this.listScroller.closeAllSwipeActions() } catch (_) {}
-      this.selectingEvents = true
-      this.selectedEventKeys = [event.key]
+      this.selectingTasks = true
+      this.selectedTaskKeys = [item.key]
     } finally { this.selectionStarting = false }
   }
 
-  toggleSelection(event: LogbookEvent) {
+  toggleSelection(item: LogbookTaskItem) {
     if (this.actionBusy) return
-    this.selectedEventKeys = this.selectedEventKeys.includes(event.key)
-      ? this.selectedEventKeys.filter((key: string) => key !== event.key)
-      : [...this.selectedEventKeys, event.key]
+    this.selectedTaskKeys = this.selectedTaskKeys.includes(item.key)
+      ? this.selectedTaskKeys.filter((key: string) => key !== item.key)
+      : [...this.selectedTaskKeys, item.key]
   }
 
   resetSelection() {
-    this.selectingEvents = false
-    this.selectedEventKeys = []
+    this.selectingTasks = false
+    this.selectedTaskKeys = []
   }
 
-  confirmDelete(events: LogbookEvent[]) {
-    if (this.actionBusy || events.length === 0) return
-    const tasks = this.uniqueTasks(events)
+  confirmDelete(items: LogbookTaskItem[]) {
+    if (this.actionBusy || items.length === 0) return
+    const tasks = items.map((item: LogbookTaskItem): CoreTask => item.task)
     this.getUIContext().showAlertDialog({
       title: tasks.length === 1 ? '删除这条记录？' : `删除 ${tasks.length} 条记录？`,
       message: tasks.length === 1 ? `“${tasks[0].heading}”及其子记录将从文件中删除。` : '所选任务及其子记录将从文件中删除。',
@@ -111,77 +101,58 @@ export struct LogbookTaskList {
     } finally { this.actionBusy = false }
   }
 
-  activateSwipe(event: LogbookEvent, action: TaskSwipeAction) {
-    if (action === 'select') this.startSelection(event)
-    else if (action === 'delete') this.confirmDelete([event])
+  activateSwipe(item: LogbookTaskItem, action: TaskSwipeAction) {
+    if (action === 'select') this.startSelection(item)
+    else if (action === 'delete') this.confirmDelete([item])
   }
 
   @Builder
-  swipeMenu(event: LogbookEvent) {
+  swipeMenu(item: LogbookTaskItem) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting, idPrefix: 'logbook_swipe',
-      items: taskSwipeMenu(this.policy(), (action: TaskSwipeAction): void => { this.activateSwipe(event, action) }) })
+      items: taskSwipeMenu(this.policy(), (action: TaskSwipeAction): void => { this.activateSwipe(item, action) }) })
   }
 
   @Builder
-  eventRow(event: LogbookEvent, group: LogbookGroup) {
+  itemRow(item: LogbookTaskItem, group: LogbookGroup) {
     ListItem() {
-      TaskSelectionRow({ batchEditing: this.policy().batchEditing, selecting: this.selectingEvents,
-        busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedEventKeys.indexOf(event.key),
-        heading: event.task.heading, horizontalInset: 0,
-        begin: (): void => { this.startSelection(event) }, toggle: (): void => { this.toggleSelection(event) } }) {
-          Column({ space: 2 }) {
-            Row({ space: 8 }) {
-              Text(event.label).fontSize(12).fontColor(event.kind === 'created' ? UiColor.secondary : UiColor.done)
-              if (group.kind !== 'day') {
-                Text(logbookEventTime(event, group)).fontSize(12).fontColor(UiColor.secondary)
-              }
-            }.width('100%').padding({ left: 8, top: 6 })
-            TaskListItem({ task: event.task, readOnly: true, allowCompletion: true, instanceKey: event.key,
-              dateDisplay: event.dateDisplay, rightSwipeAction: 'none', enableSwipeActions: false,
-              showCategory: true, referenceTime: this.referenceTime, scrollHost: this.listScroller,
-              scrollHostId: 'logbook_task_list' })
-          }.width('100%').margin({ bottom: 8 })
+      TaskSelectionRow({ batchEditing: this.policy().batchEditing, selecting: this.selectingTasks,
+        busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
+        heading: item.task.heading, horizontalInset: 0,
+        begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
+          TaskListItem({ task: item.task, readOnly: true, allowCompletion: true, instanceKey: item.key,
+            dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
+            rightSwipeAction: 'none', enableSwipeActions: false,
+            regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
+            referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
         }
-    }.id(`logbook_event_${event.key}`).swipeAction(this.selectingEvents || this.actionBusy || this.selectionStarting ? {} : {
-      end: { builder: (): void => { this.swipeMenu(event) } }, edgeEffect: SwipeEdgeEffect.None
+    }.id(`logbook_item_${item.key}`).swipeAction(this.selectingTasks || this.actionBusy || this.selectionStarting ? {} : {
+      end: { builder: (): void => { this.swipeMenu(item) } }, edgeEffect: SwipeEdgeEffect.None
     })
-  }
-
-  @Builder
-  projectHeader(project: LogbookEventGroup) {
-    ListItem() {
-      Text(project.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8, top: 8, bottom: 2 })
-        .constraintSize({ minHeight: 48 }).onClick((): void => {
-          const task = project.events[0].task
-          ProjectNavigation.open(this.getUIContext(), task.repoId, task.filePath)
-        })
-    }
   }
 
   @Builder
   groupItems(group: LogbookGroup) {
     if (group.kind === 'day') {
-      ForEach(group.groups, (projectGroup: LogbookEventGroup) => {
-        if (projectGroup.project !== null) this.projectHeader(projectGroup)
-        ForEach(projectGroup.events, (event: LogbookEvent) => {
-          this.eventRow(event, group)
-        }, (event: LogbookEvent) => event.key)
-      }, (projectGroup: LogbookEventGroup) => projectGroup.key)
+      ForEach(group.groups, (region: LogbookTaskGroup) => {
+        ListItem() { TaskRegionHeader({ region }) }
+        ForEach(region.items, (item: LogbookTaskItem) => {
+          this.itemRow(item, group)
+        }, (item: LogbookTaskItem) => item.key)
+      }, (region: LogbookTaskGroup) => region.key)
     } else {
-      ForEach(group.events, (event: LogbookEvent) => {
-        this.eventRow(event, group)
-      }, (event: LogbookEvent) => event.key)
+      ForEach(group.items, (item: LogbookTaskItem) => {
+        this.itemRow(item, group)
+      }, (item: LogbookTaskItem) => item.key)
     }
   }
 
   @Builder
   batchToolbar() {
-    if (this.selectingEvents) {
+    if (this.selectingTasks) {
       TaskBatchToolbar({ items: taskBatchMenu(this.policy(), (action: TaskBatchAction): void => {
-          if (action === 'delete') this.confirmDelete(this.selectedEvents())
-        }), count: this.selectedEventKeys.length, busy: this.actionBusy, busyAction: this.actionBusy ? 'delete' : '',
-        caption: this.selectedEventKeys.length > 0 ? `删除：${this.uniqueTasks(this.selectedEvents()).length} 条任务` : '请选择记录',
+          if (action === 'delete') this.confirmDelete(this.selectedItems())
+        }), count: this.selectedTaskKeys.length, busy: this.actionBusy, busyAction: this.actionBusy ? 'delete' : '',
+        caption: this.selectedTaskKeys.length > 0 ? `删除：${this.selectedTaskKeys.length} 条任务` : '请选择记录',
         cancelLabel: '完成', cancel: (): void => { this.resetSelection() }, idPrefix: 'logbook' })
     }
   }

@@ -8,7 +8,8 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
-import { TaskDateDisplay } from '../ui/TaskListPresentation'
+import { TaskRegionHeader } from '../components/TaskRegionHeader'
+import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
@@ -433,19 +434,17 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskListItem({ task, dateDisplay: TaskDateDisplay.Creation, showCategory: true, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
+    TaskListItem({ task, dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
     } }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
-  recentProject(group: RecentTaskGroup) {
+  recentRegion(group: RecentTaskGroup) {
     Column({ space: 8 }) {
-      Text(group.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8 })
-        .accessibilityText(group.project || '未命名项目')
+      TaskRegionHeader({ region: group })
       Column() {
-        ForEach(group.tasks, (task: CoreTask) => { this.recentTask(task) }, (task: CoreTask) => taskRenderKey(task))
+        ForEach(group.items, (task: CoreTask) => { this.recentTask(task) }, (task: CoreTask) => taskRenderKey(task))
       }.width('100%')
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
       .backgroundColor(UiColor.projectBlock).borderRadius(12)
@@ -583,11 +582,7 @@ struct Inbox {
                     ForEach(day.groups, (group: RecentTaskGroup) => {
                       ListItem() {
                         Row() {
-                          if (group.project !== null) {
-                            this.recentProject(group)
-                          } else {
-                            this.recentTask(group.tasks[0])
-                          }
+                          this.recentRegion(group)
                         }.width('100%').padding({ left: 20, right: 20 }).backgroundColor('#282C29')
                       }
                     }, (group: RecentTaskGroup) => JSON.stringify(group))

@@ -39,7 +39,7 @@ export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', 
     case 'anytime': expression = 'it.todo s.none d.none'; break
     case 'someday': expression = `${inboxRecordQuery(somedayFile).expression} it.todo`; break
     case 'memo': return memoRecordQuery(memoFile)
-    case 'logbook': expression = 'it.done'; break
+    case 'logbook': expression = 'i.done'; break
   }
   return { expression, includeDone: view === 'logbook', includeComposeTasks: true }
 }
