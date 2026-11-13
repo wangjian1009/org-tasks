@@ -14,6 +14,7 @@
 
 - Git 提交信息使用中文，遵循 Conventional Commits 的类型前缀，例如 `feat: 接入 Rust 核心服务`。
 - Git 提交信息用修改的功能点进行描述
+- Git 提交前需要确保没有编译告警
 
 ## 项目概述
 
