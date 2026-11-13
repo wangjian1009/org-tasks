@@ -69,10 +69,8 @@ struct Inbox {
   private targetRequest: number = 0
   private actionTimer: number = -1
   private actionPolicy: TaskPageActionPolicy = taskActionPolicy({
-    singleOperations: [TaskOperation.Move, TaskOperation.Schedule, TaskOperation.Deadline,
-      TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete],
-    bulkOperations: [TaskOperation.Move, TaskOperation.Schedule, TaskOperation.Deadline,
-      TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete, TaskOperation.Merge]
+    singleOperations: [TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete],
+    bulkOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete, TaskOperation.Merge]
   }, 'move')
   private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()
