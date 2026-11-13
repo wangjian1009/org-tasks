@@ -960,7 +960,7 @@ pub(super) fn modify(
         TaskModification::Notes(value) => {
             let value = value.as_deref().unwrap_or("");
             validate_body(value)?;
-            let ranges = super::task_inline::note_ranges(headline);
+            let ranges = super::task_inline::note_ranges(file, headline);
             let at = ranges
                 .first()
                 .map(|range| range.start)

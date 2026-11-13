@@ -109,6 +109,18 @@ async fn planning_text_after_body_content_is_not_removed_from_rendering() {
 }
 
 #[tokio::test]
+async fn expanded_task_uses_link_labels_and_keeps_repeater_planning_out_of_notes() {
+    let title = "测量尿酸 [[id:F6E86A8B-282B-46F8-8450-0C95B51FCE34][并记录]]";
+    let source = format!("* TODO {title} :健康:\nSCHEDULED: <2026-11-14 Sat .+1w/2w>\n:PROPERTIES:\n:ID: measure\n:END:\n");
+    let task = tasks(&source).await.remove(0);
+    assert_eq!(task.title(), title);
+    assert_eq!(task.title_parts().iter().map(|part| part.text.as_str()).collect::<String>(), "测量尿酸 并记录");
+    assert!(task.edit_content().notes.is_empty());
+    assert!(!task.render_content().body_html.contains("SCHEDULED"));
+    assert_eq!(task.edit_content().scheduled_repeat.as_ref().unwrap().date, "2026-11-14");
+}
+
+#[tokio::test]
 async fn body_list_hint_excludes_logbook_and_literal_blocks() {
     for (body, expected) in [
         ("- [ ] 条目\n- 第二项\n", true),

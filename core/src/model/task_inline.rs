@@ -78,8 +78,13 @@ pub(crate) fn checklist_lists(headline: &Headline) -> Vec<List> {
         .collect()
 }
 
-pub(crate) fn note_ranges(headline: &Headline) -> Vec<Range<usize>> {
+pub(crate) fn note_ranges(file: &OrgFile, headline: &Headline) -> Vec<Range<usize>> {
     let lists = checklist_lists(headline);
+    // 重复窗口可能使 orgize 将规划行并入普通段落；读写备注共用规划识别范围。
+    let planning_end = super::task_operation_executor::planning_lines(file, headline)
+        .last()
+        .map(|(_, end, _)| *end)
+        .unwrap_or(0);
     headline
         .section()
         .into_iter()
@@ -98,9 +103,10 @@ pub(crate) fn note_ranges(headline: &Headline) -> Vec<Range<usize>> {
                             .any(|list| list.syntax().text_range() == node.text_range())
                 })
                 .map(|node| {
-                    u32::from(node.text_range().start()) as usize
+                    (u32::from(node.text_range().start()) as usize).max(planning_end)
                         ..u32::from(node.text_range().end()) as usize
                 })
+                .filter(|range| range.start < range.end)
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -145,7 +151,7 @@ impl OrgFile {
             .find(|(candidate, _)| candidate == path)
             .map(|(_, headline)| headline)
             .ok_or(CoreError::InvalidInput("任务不存在或已改变"))?;
-        let notes = note_ranges(&headline)
+        let notes = note_ranges(self, &headline)
             .iter()
             .map(|range| std::str::from_utf8(&self.source_bytes()[range.clone()]).expect("UTF-8"))
             .collect::<String>();
@@ -197,6 +203,36 @@ mod tests {
     }
     fn projection(file: &OrgFile) -> TaskEditContent {
         file.task_edit_content(&file.path_headlines()[0].0).unwrap()
+    }
+
+    #[test]
+    fn repeater_window_planning_is_not_notes_and_notes_edits_preserve_it() {
+        for nl in ["\n", "\r\n"] {
+            let source = "* TODO 测量尿酸 [[id:F6E86A8B-282B-46F8-8450-0C95B51FCE34][并记录]] :健康:\nSCHEDULED: <2026-11-14 Sat .+1w/2w>\n:PROPERTIES:\n:ID: measure\n:END:\n原备注\n- [ ] 并记录\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-06 Fri 10:14]\n:END:\n** 子记录\n保持原样\n".replace('\n', nl);
+            let mut file = file(&source);
+            let edit = projection(&file);
+            assert_eq!(edit.notes, format!("原备注{nl}"));
+            assert_eq!(edit.checklist.len(), 1);
+            assert_eq!(edit.scheduled_repeat.unwrap().rule.unwrap().interval, 1);
+            assert_eq!(file.source_bytes(), source.as_bytes());
+            let headline = file.path_headlines()[0].1.clone();
+            modify(&mut file, &headline, &TaskModification::Notes(Some("新备注".into()))).unwrap();
+            assert_eq!(file.source_bytes(), source.replace("原备注", "新备注").as_bytes());
+        }
+    }
+
+    #[test]
+    fn repeater_window_without_notes_stays_empty_and_later_planning_text_is_retained() {
+        let mut document = file("* TODO Task\nSCHEDULED: <2026-11-14 Sat .+1w/2w>\n");
+        assert!(projection(&document).notes.is_empty());
+        let headline = document.path_headlines()[0].1.clone();
+        modify(&mut document, &headline, &TaskModification::Notes(Some("备注".into()))).unwrap();
+        assert_eq!(document.source_bytes(), "* TODO Task\nSCHEDULED: <2026-11-14 Sat .+1w/2w>\n备注\n".as_bytes());
+        let headline = document.path_headlines()[0].1.clone();
+        modify(&mut document, &headline, &TaskModification::Notes(None)).unwrap();
+        assert_eq!(document.source_bytes(), b"* TODO Task\nSCHEDULED: <2026-11-14 Sat .+1w/2w>\n");
+        let document = file("* TODO Task\nSCHEDULED: <2026-11-14 Sat .+1w/2w>\n正文\nSCHEDULED: <2026-11-15 Sun>\n");
+        assert_eq!(projection(&document).notes, "正文\nSCHEDULED: <2026-11-15 Sun>\n");
     }
     fn apply(file: &mut OrgFile, change: TaskModification) {
         let headline = file.path_headlines()[0].1.clone();

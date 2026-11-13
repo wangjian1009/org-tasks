@@ -1383,7 +1383,7 @@ after: Option\textless Bytes\textgreater}{}
 
 * 卡片编辑正文与检查清单
 
-~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
+~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。规划范围与任务操作器共用，兼容重复窗口（如 ~.+1w/2w~ ）导致规划行被语法树并入段落的情况；备注投影与备注修改使用同一范围，未修改的规划字节保持原样。正文内容开始后出现的同名普通文本继续作为备注保留。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
 
 #+begin_src rust
 pub struct TaskEditContent {

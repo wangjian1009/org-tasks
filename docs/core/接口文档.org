@@ -833,7 +833,7 @@ impl OrgFile {
 }
 #+end_src
 
-卡片通过该接口取得备注和检查清单；标题使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选、删除或同级排序； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
+卡片通过该接口取得备注和检查清单；备注读取与 ~NOTES~ 写入共用规划行识别范围，带重复窗口（如 ~.+1w/2w~ ）的规划行不进入备注，保存或清空备注也保留规划行原始字节。标题显示使用 ~FilterTask.title_parts()~ 的可读投影，进入文字编辑后使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选、删除或同级排序； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
 
 ~TITLE~ 更新后，Core 识别标题中已有或新输入的分数与百分比统计并重算；先校验标题没有被重新解释为状态、优先级或标签，再改写派生统计。~CHECKLIST~ 的新增、删除和完成状态切换更新 checkbox 统计；~TODO~ 设置、清除与切换更新父标题的子任务统计，按 ~COOKIE_DATA~ 的 ~recursive~ 配置向上更新。来源混合、递归继承边界与完成状态规则见 [[file:数据模型.org::*标题统计更新][标题统计更新]]，语义依据 [[info:org#Breaking Down Tasks][Org Info：任务分解]] 与 [[info:org#Checkboxes][Org Info：checkbox]] 。
 

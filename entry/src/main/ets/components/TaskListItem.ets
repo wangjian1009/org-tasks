@@ -56,6 +56,7 @@ export struct TaskListItem {
   @State logbookExpanded: boolean = false
   @State editTask: CoreTask | undefined = undefined
   @State heading: string = ''
+  @State headingInput: boolean = false
   @State notes: string = ''
   private headingEditing: boolean = false
   private notesEditing: boolean = false
@@ -301,6 +302,7 @@ export struct TaskListItem {
     this.removed = true; this.snapshotBlocked = true
     this.expanded = false; this.typing = false; this.message = ''
     this.headingEditing = false; this.notesEditing = false
+    this.headingInput = false
     this.continueCheck = false
     this.checkFocus.cancel()
     this.cancelCheckDrag()
@@ -364,6 +366,7 @@ export struct TaskListItem {
     this.checkFocus.cancel()
     if (this.snapshotBlocked) return false
     if (!this.newCheck.trim() && !this.checkId) this.addingCheck = false
+    this.headingInput = false
     if (!this.snapshotBlocked) this.message = ''
     if (collapse) {
       this.priorityOpen = false
@@ -375,6 +378,16 @@ export struct TaskListItem {
   inputFocus() {
     if (this.readOnly) return
     this.typing = true; AppStorage.setOrCreate('taskInlineTyping', true)
+  }
+
+  editHeading() {
+    if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
+    this.headingInput = true
+    this.checkFocus.request(`inline_title_${this.ownerKey}`)
+  }
+
+  async finishHeading() {
+    if (await this.saveText()) this.headingInput = false
   }
   async persist(modifications: CoreTaskModification[]): Promise<boolean> {
     if (this.readOnly && !this.allowCompletion) return false
@@ -1011,16 +1024,26 @@ export struct TaskListItem {
         Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
       }
       this.priorityBadge(true)
-      TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
-        .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-        .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
-        .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
-        .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
-        .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
-        .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
-        .onChange((value: string) => { this.heading = value; this.headingEditing = true })
-        .onFocus(() => { this.headingEditing = true; this.inputFocus() })
-        .onBlur(() => { this.saveText() })
+      if (this.headingInput) {
+        TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
+          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
+          .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
+          .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
+          .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
+          .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
+          .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
+          .onChange((value: string) => { this.heading = value; this.headingEditing = true })
+          .onFocus(() => { this.headingEditing = true; this.inputFocus() })
+          .onBlur(() => { this.finishHeading() })
+          .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
+          .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
+          .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
+      } else {
+        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+          weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+          activate: (): void => { this.editHeading() } })
+          .layoutWeight(1).constraintSize({ minHeight: 24 }).onClick(() => { this.editHeading() })
+      }
     }.width('100%').alignItems(VerticalAlign.Top)
       .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
         targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu,

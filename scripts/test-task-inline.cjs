@@ -330,6 +330,40 @@ test('上一编辑会话保存失败时不允许切换任务',async()=>{
   assert.equal(await s.begin('second',async()=>true),false);assert.equal(storage.get('taskInlineActive'),'first');s.release('first');
 });
 
+test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留输入', async () => {
+  const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+  const methods = ['editHeading', 'finishHeading'].map(name => {
+    const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}'));
+    assert.ok(match, name);
+    return match[0];
+  }).join('\n');
+  const code = ts.transpileModule('export class Card {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} };
+  vm.runInThisContext('(function(module,exports){' + code + '\n})')(module, module.exports);
+  const requests = [];
+  const raw = '测量尿酸 [[id:stable][并记录]]';
+  let saved = false;
+  const card = Object.assign(new module.exports.Card(), { heading: raw, ownerKey: 'task', headingInput: false,
+    checkFocus: { request: key => requests.push(key) }, saveText: async () => saved });
+  card.editHeading();
+  assert.deepEqual(requests, ['inline_title_task']);
+  assert.equal(card.heading, raw);
+  await card.finishHeading();
+  assert.equal(card.headingInput, true);
+  saved = true;
+  await card.finishHeading();
+  assert.equal(card.headingInput, false);
+  assert.equal(card.heading, raw);
+  for (const blocked of ['readOnly', 'working', 'draggingCheck', 'snapshotBlocked']) {
+    card[blocked] = true;
+    card.editHeading();
+    assert.equal(card.headingInput, false, blocked);
+    card[blocked] = false;
+  }
+});
+
 function finishFixture(textSaved = true, checkSaved = true) {
   const filename = 'entry/src/main/ets/components/TaskListItem.ets';
   const method = fs.readFileSync(filename, 'utf8').match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];
