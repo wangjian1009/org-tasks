@@ -45,6 +45,12 @@ export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', 
   return { expression, includeDone: view === 'logbook', includeComposeTasks: true }
 }
 
+export function todayPriorityQuery(): CoreTaskQuery {
+  const query = overviewTaskQuery('today')
+  query.expression += ' o.priority'
+  return query
+}
+
 export function overdueTaskQuery(): CoreTaskQuery {
   return { expression: '(s.le.yesterday or d.le.yesterday)', includeDone: false, includeComposeTasks: true }
 }

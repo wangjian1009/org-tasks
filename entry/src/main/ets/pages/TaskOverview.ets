@@ -17,7 +17,7 @@ import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { NoteService } from '../services/NoteService'
-import { overviewTaskQuery, overviewTitle, plannedRegionQuery, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
+import { overviewTaskQuery, todayPriorityQuery, overviewTitle, plannedRegionQuery, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreQuery, CoreTask, CoreTaskQueryResult, taskResult, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
@@ -40,6 +40,7 @@ struct TaskOverview {
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
   @State visibleTasks: CoreTask[] = []
+  @State priorityOrder: string[] = []
   @State tagOptions: string[] = []
   @State tagGroups: string[][] = []
   @State selectedTags: string[] = []
@@ -144,7 +145,7 @@ struct TaskOverview {
     this.selectedTags = selection.tags
     this.includeUntagged = selection.includeUntagged
     this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
-    this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks, this.view === 'today') : []
+    this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks, this.view === 'today', this.view === 'today' ? this.priorityOrder : []) : []
   }
 
   async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
@@ -161,6 +162,7 @@ struct TaskOverview {
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       let result: CoreTaskQueryResult | undefined = undefined
+      let priorityOrder: string[] = []
       let configuredTags: string[] = []
       let configuredGroups: string[][] = []
       let regionOptions: TaskRegionData[] = []
@@ -173,9 +175,11 @@ struct TaskOverview {
         }
       } else {
         const queries: CoreQuery[] = [{ type: 'task', query: overviewTaskQuery(this.view) }]
+        if (this.view === 'today') queries.push({ type: 'task', query: todayPriorityQuery() })
         if (this.view === 'planned' && selectedRegion !== null) queries.push(plannedRegionQuery(selectedRegion))
         const results = await PageQueryService.query(config, queries)
         result = taskResult(results[0])
+        if (this.view === 'today') priorityOrder = taskResult(results[1]).tasks.map((task: CoreTask): string => task.id)
         if (this.view === 'planned') {
           regionOptions = plannedRegionOptions(result.tasks)
           if (selectedRegion !== null && regionOptions.some((region: TaskRegionData) => region.key === selectedRegion.key)) {
@@ -186,6 +190,7 @@ struct TaskOverview {
       if (request !== this.requestId) return
       if (!result) {
         this.needsConfiguration = true
+        this.priorityOrder = []
         this.tasks = []
         this.visibleTasks = []
         this.tagOptions = []
@@ -198,6 +203,7 @@ struct TaskOverview {
       let planGroups: PlannedGroup[] = []
       if (this.view === 'planned') planGroups = plannedGroups(result.tasks)
       if (request !== this.requestId) return
+      this.priorityOrder = priorityOrder
       this.tasks = result.tasks
       if (this.view === 'planned') {
         this.planRegionOptions = regionOptions
@@ -213,6 +219,7 @@ struct TaskOverview {
       await this.openEntryMemo()
     } catch (e) {
       if (request === this.requestId) {
+        this.priorityOrder = []
         this.tasks = []
         this.visibleTasks = []
         this.tagOptions = []

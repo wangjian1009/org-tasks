@@ -767,11 +767,11 @@ export struct TaskListItem {
   }
 
   countBudget(): number {
-    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - (this.value().priority ? 30 : 0) - 126))
+    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - (this.value().priority ? 28 : 0) - 126))
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 30 : 0), this.value().tags.length, taskIndicators(this.value()).length,
+    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 28 : 0), this.value().tags.length, taskIndicators(this.value()).length,
       this.duration(), this.value().deadline.length > 0 ? this.deadlineWidth : 0,
       titleCountsWidth(this.value().headingParts, this.countBudget()))
   }
@@ -891,15 +891,18 @@ export struct TaskListItem {
   @Builder
   compactTitle() {
     Row({ space: 6 }) {
-      Column({ space: 2 }) {
-        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
-          .width('100%').constraintSize({ minWidth: 0 })
-        if (taskSourceText(this.value(), false, this.regionPolicy())) {
-          this.categoryProject()
-        }
-      }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Start)
-        .onClick((): void => { this.toggle() })
+      Row({ space: 4 }) {
+        this.priorityBadge()
+        Column({ space: 2 }) {
+          TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
+            .width('100%').constraintSize({ minWidth: 0 })
+          if (taskSourceText(this.value(), false, this.regionPolicy())) {
+            this.categoryProject()
+          }
+        }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Start)
+          .onClick((): void => { this.toggle() })
+      }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Center)
       if (titleCounts(this.value().headingParts).length > 0) {
         TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
           .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
@@ -1017,27 +1020,29 @@ export struct TaskListItem {
       } else if (this.value().isRepeating) {
         Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
       }
-      this.priorityBadge(true)
-      if (this.headingInput) {
-        TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
-          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-          .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
-          .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
-          .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
-          .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
-          .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
-          .onChange((value: string) => { this.heading = value; this.headingEditing = true })
-          .onFocus(() => { this.headingEditing = true; this.inputFocus() })
-          .onBlur(() => { this.finishHeading() })
-          .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
-          .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
-          .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
-      } else {
-        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-          weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
-          activate: (): void => { this.editHeading() } })
-          .layoutWeight(1).constraintSize({ minHeight: 24 }).onClick(() => { this.editHeading() })
-      }
+      Row({ space: 4 }) {
+        this.priorityBadge(true)
+        if (this.headingInput) {
+          TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
+            .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
+            .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
+            .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
+            .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
+            .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
+            .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
+            .onChange((value: string) => { this.heading = value; this.headingEditing = true })
+            .onFocus(() => { this.headingEditing = true; this.inputFocus() })
+            .onBlur(() => { this.finishHeading() })
+            .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
+            .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
+            .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
+        } else {
+          TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+            weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+            activate: (): void => { this.editHeading() } })
+            .layoutWeight(1).constraintSize({ minHeight: 24 }).onClick(() => { this.editHeading() })
+        }
+      }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
       .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
         targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu,
@@ -1182,10 +1187,12 @@ export struct TaskListItem {
       } else if (this.value().isRepeating) {
         Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
       }
-      this.priorityBadge()
-      TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-        cancelled: this.value().state?.category === TaskStateCategory.Cancel })
-        .layoutWeight(1).onClick(() => { this.toggle() })
+      Row({ space: 4 }) {
+        this.priorityBadge()
+        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+          cancelled: this.value().state?.category === TaskStateCategory.Cancel })
+          .layoutWeight(1).onClick(() => { this.toggle() })
+      }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
     if (this.value().bodyHtml) {
       OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
@@ -1254,7 +1261,6 @@ export struct TaskListItem {
         Row({ space: 6 }) {
           this.stateIndicator()
           this.compactLeadingInfo()
-          this.priorityBadge()
           this.compactTitle()
           if (this.value().deadline) { this.compactDeadline() }
         }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })

@@ -739,3 +739,20 @@ test('regionAreaPolicy 精确控制分类、项目、组合与完全隐藏，Non
   assert.equal(taskSourceText(task('empty'), true, policy.None), '');
   assert.equal(taskSourceText(task('unnamed', { projectName: '' }), false, policy.Project), '未命名项目');
 });
+
+
+test('今天按 Core 顺序排列分类内普通任务和各项目，区块位置与任务范围稳定', () => {
+  const { todaySections }=loadGrouping('TodayPresentation',{});
+  const values=[task('low',{category:'工作'}),task('p-low',{category:'工作',projectName:'项目甲',filePath:'a.org'}),
+    task('default',{category:'工作'}),task('q-low',{category:'工作',projectName:'项目乙',filePath:'b.org'}),
+    task('p-high',{category:'工作',projectName:'项目甲',filePath:'a.org'}),task('high',{category:'工作'}),
+    task('other',{category:'生活'}),task('q-high',{category:'工作',projectName:'项目乙',filePath:'b.org'}),
+    task('uncategorized',{category:null})];
+  const order=['p-high','high','q-high','other','default','uncategorized','p-low','q-low','low'];
+  const sections=todaySections(values,true,order);
+  assert.deepEqual(sections.map(section=>section.category),['工作','生活',null]);
+  assert.deepEqual(sections[0].groups.map(group=>[group.project,group.items.map(item=>item.task.id)]),
+    [[null,['high']],['项目甲',['p-high','p-low']],[null,['default']],['项目乙',['q-high','q-low']],[null,['low']]]);
+  assert.deepEqual(sections.flatMap(section=>section.groups.flatMap(group=>group.items.map(item=>item.task.id))).sort(),values.map(task=>task.id).sort());
+  assert.deepEqual(values.map(task=>task.id),['low','p-low','default','q-low','p-high','high','other','q-high','uncategorized']);
+});

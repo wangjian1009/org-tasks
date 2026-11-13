@@ -174,14 +174,33 @@ async fn setup_configuration_snapshots_and_priority_writes_are_atomic_and_lossle
 #[tokio::test]
 async fn repository_loader_ignores_body_and_source_block_priority_keywords() {
     let source =
-        "#+begin_src org\n#+PRIORITIES: A C B\n#+end_src\n* TODO Task\n#+PRIORITIES: B D C\n";
+        "#+begin_src org\n#+PRIORITIES: D F E\n#+end_src\n* TODO Task\n#+PRIORITIES: B D C\n";
     let mut f = Fixture::new(source).await;
     let file = f.workspace.repos()[0].file("tasks.org").await.unwrap();
-    assert!(file.nodes()[0].priority_options().is_empty());
+    assert_eq!(
+        file.nodes()[0]
+            .priority_options()
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["A", "B", "C"]
+    );
+    assert_eq!(
+        file.nodes()[0].default_priority().category,
+        Some(PeriodCategory::Middle)
+    );
     let group = f
         .group("Task", vec![TaskModification::Priority(Some("A".into()))])
         .await;
-    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(
+        f.source(),
+        source.replacen("* TODO Task", "* TODO [#A] Task", 1)
+    );
+    let clear = f
+        .group("Task", vec![TaskModification::Priority(None)])
+        .await;
+    f.workspace.execute_task_operations(&clear).await.unwrap();
     assert_eq!(f.source(), source);
 }
 

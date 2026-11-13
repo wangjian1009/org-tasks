@@ -708,8 +708,12 @@ mod tests {
             );
             let value = serde_json::to_value(&metadata[0]).unwrap();
             assert_eq!(value.as_object().unwrap().len(), 15);
-            assert_eq!(value["defaultPriority"], serde_json::json!({"name": "B", "category": null}));
-            assert_eq!(value["priorityOptions"], serde_json::json!([]));
+            assert_eq!(value["defaultPriority"], serde_json::json!({"name": "B", "category": "Middle"}));
+            assert_eq!(value["priorityOptions"], serde_json::json!([
+                {"name": "A", "category": "Hight"},
+                {"name": "B", "category": "Middle"},
+                {"name": "C", "category": "Low"}
+            ]));
             assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));
             assert_eq!(value["tagGroups"], serde_json::json!([]));

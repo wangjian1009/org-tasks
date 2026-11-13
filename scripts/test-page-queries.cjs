@@ -83,7 +83,7 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','notification']:['task','notification']);
+    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','notification']:view==='today'?['task','task','notification']:['task','notification']);
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
@@ -386,4 +386,24 @@ test('首次出现已加载时不重复读，加载期间的新数据版本仍�
   observer.pageChanged({index:0,state:'show'});await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,1);
   observer.bodyLoadedOnAppear=true;observer.dataChangeState={revision:2};
   observer.pageChanged({index:0,state:'show'});await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,2);
+});
+
+
+test('今天同批读取来源顺序与优先级顺序，标签切换只重组当前快照', async () => {
+  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const values=[plannedTask('low','core-a','plain.org','工作'), plannedTask('high','core-a','project.org','工作','项目'),
+    plannedTask('default','core-a','plain.org','工作'), plannedTask('project-low','core-a','project.org','工作','项目')];
+  values.forEach(task=>{task.tags=task.id==='default'?['隐藏']:['显示'];});
+  f.query(batch=>batch.map(request=>request.type==='notification'?{type:'notification',result:[]}:
+    {type:'task',result:{tasks:request.query.expression.endsWith('o.priority')?[values[1],values[2],values[3],values[0]]:values,categories:[]}}));
+  page.view='today'; await page.loadTasks();
+  assert.equal(page.message,'');
+  assert.equal(f.batches.length,1);
+  assert.equal(f.batches[0][1].query.expression,'(s.le.today or d.le.today) o.priority');
+  assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
+    [['default'],['high','project-low'],['low']]);
+  page.applyTagFilter({tags:['显示'],includeUntagged:false});
+  assert.equal(f.batches.length,1);
+  assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
+    [['low'],['high','project-low']]);
 });

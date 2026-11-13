@@ -16,21 +16,19 @@ pub struct TaskPriority {
     pub category: Option<PeriodCategory>,
 }
 
+// Org 原生默认范围与默认值；文件与 SETUPFILE 均未声明时使用。
+const DEFAULT_PRIORITIES: &str = "A C B";
+
 pub(super) fn parse(
     syntax: &orgize::Org,
     setup: &str,
 ) -> Result<(Vec<TaskPriority>, TaskPriority), CoreError> {
     let local = FileKeywords::parse(syntax, "");
     let setup = FileKeywords::parse(&orgize::Org::parse(setup), "");
-    let Some(value) = local.get("PRIORITIES").or_else(|| setup.get("PRIORITIES")) else {
-        return Ok((
-            Vec::new(),
-            TaskPriority {
-                name: "B".into(),
-                category: None,
-            },
-        ));
-    };
+    let value = local
+        .get("PRIORITIES")
+        .or_else(|| setup.get("PRIORITIES"))
+        .unwrap_or(DEFAULT_PRIORITIES);
     let fields = value.split_whitespace().collect::<Vec<_>>();
     if fields.len() != 3
         || fields
@@ -145,15 +143,35 @@ mod tests {
         assert_eq!(file.default_priority().name, "D");
     }
     #[test]
-    fn unconfigured_and_literal_keywords_do_not_create_candidates() {
+    fn unconfigured_and_literal_keywords_use_org_defaults() {
         for source in [
             "* TODO [#A] Existing\n",
-            "#+begin_src org\n#+PRIORITIES: A C B\n#+end_src\n* TODO Task\n",
-            "* Heading\n#+PRIORITIES: A C B\n",
+            "#+begin_src org\n#+PRIORITIES: D F E\n#+end_src\n* TODO Task\n",
+            "* Heading\n#+PRIORITIES: D F E\n",
         ] {
             let file =
                 OrgFile::new("repo".into(), "a.org".into(), source.as_bytes().to_vec()).unwrap();
-            assert!(file.priority_options().is_empty());
+            assert_eq!(
+                file.priority_options(),
+                vec![
+                    TaskPriority {
+                        name: "A".into(),
+                        category: Some(PeriodCategory::Hight)
+                    },
+                    TaskPriority {
+                        name: "B".into(),
+                        category: Some(PeriodCategory::Middle)
+                    },
+                    TaskPriority {
+                        name: "C".into(),
+                        category: Some(PeriodCategory::Low)
+                    },
+                ]
+            );
+            assert_eq!(
+                file.default_priority().category,
+                Some(PeriodCategory::Middle)
+            );
             assert_eq!(file.default_priority().name, "B");
             assert_eq!(file.nodes()[0].default_priority().name, "B");
             assert_eq!(file.source_bytes(), source.as_bytes());

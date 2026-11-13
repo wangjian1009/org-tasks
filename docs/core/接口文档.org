@@ -991,4 +991,4 @@ impl OrgFileMetadata {
 
 配置语法、SETUPFILE 继承与分类规则见 [[file:数据模型.org::*任务优先级对象与分类][任务优先级对象与分类]]。~PRIORITY~ 字段仍只接收候选对象的 ~name~ 或空值，Core 校验当前文件有效候选，配置变化和版本冲突不自动换版本重试。创建为无优先级时不写入默认字母；未涉及的正文、换行、规划和属性保持原字节。
 
-默认优先级来自 [[info:org#Priorities][Org Info：Priorities]]：未声明时使用 B，文件头 ~#+PRIORITIES~ 的第三项覆盖 SETUPFILE 默认值。Core 在同次解析中生成 ~OrgFileMetadata.default_priority~ ，任务通过 ~default_priority()~ 读取共享快照， ~effective_priority()~ 取显式值或此默认值；Harmony 投影为任务和文件元信息的只读 ~defaultPriority: TaskPriority~ 。无声明时候选仍为空、默认 B 的分类为空；默认值不产生标题色块、不写入 Org 原文。优先级升降序与 ~p.<letter>~ 使用有效字母， ~ps.<letter>~ 只查询显式值，相同优先级沿用源次序。
+默认优先级来自 [[info:org#Priorities][Org Info：Priorities]]：未声明时使用 B，文件头 ~#+PRIORITIES~ 的第三项覆盖 SETUPFILE 默认值。Core 在同次解析中生成 ~OrgFileMetadata.default_priority~ ，任务通过 ~default_priority()~ 读取共享快照， ~effective_priority()~ 取显式值或此默认值；Harmony 投影为任务和文件元信息的只读 ~defaultPriority: TaskPriority~ 。文件与 SETUPFILE 均未声明时使用 Core 内置 ~A C B~ 配置，候选 A、B、C 分别归为 ~Hight~ 、 ~Middle~ 、 ~Low~ ，默认 B 归为 ~Middle~ ；默认值不产生标题色块、不写入 Org 原文。优先级升降序与 ~p.<letter>~ 使用有效字母， ~ps.<letter>~ 只查询显式值，相同优先级沿用源次序。
