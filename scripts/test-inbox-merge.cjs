@@ -52,6 +52,7 @@ function fixture() {
   const servicePath = path.resolve('entry/src/main/ets/services/InboxService.ets');
   const { InboxService } = compile(fs.readFileSync(servicePath, 'utf8'), servicePath, {
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo' } },
+    './MoveToTargetService': {},
     './AppConfigService': appConfig, './NativeCoreService': core, './FileTargetService': target,
     './PageQueryService':{PageQueryService:{query:(_,batch)=>workspace.query(batch)}}
   });
@@ -61,6 +62,7 @@ function fixture() {
     .replace(/@(State|StorageLink\([^)]*\)|Watch\([^)]*\))\s*/g, '').replace('struct Inbox', 'class Inbox');
   const loading = full.slice(full.indexOf('  async loadRecords()'), full.indexOf('  build()'));
   const Page = compile(prefix + loading + '}\nmodule.exports = Inbox;', filename, {
+    '../components/TaskDateDialog': {},
     '../services/TaskInlineService': { TaskInlineSession: { active: () => false, async end() { return saveResult; } } },
     '../services/CoreNotificationService': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
     '@kit.ArkUI': { KeyboardAvoidMode: { OFFSET: 0 } },
@@ -185,15 +187,15 @@ test('过期文件拒绝后保留原选择顺序，禁止用原版本重复合�
 
 test('页面关闭批量编辑或移除合并菜单时，不进入选择或提交隐藏操作', async () => {
   const f = fixture();
-  f.page.actionPolicy.batchEditing = false;
+  f.page.actionPolicy.enableSelect = false;
   await f.page.startSelection(f.records[0]);
   assert.equal(f.page.selectingRecords, false);
   assert.equal(f.queries, 0);
   f.page.selectedRecordIds = ['main', 'source'];
   await f.page.mergeSelected();
   assert.equal(f.requests.length, 0);
-  f.page.actionPolicy.batchEditing = true;
-  f.page.actionPolicy.batchActions = [];
+  f.page.actionPolicy.enableSelect = true;
+  f.page.actionPolicy.enableMerge = false;
   await f.page.mergeSelected();
   assert.equal(f.requests.length, 0);
 });

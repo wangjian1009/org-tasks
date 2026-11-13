@@ -4,13 +4,13 @@ import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { MoveToTargetService } from './MoveToTargetService'
 import { configuredFileTarget, FileTargetService, FileTargetQueryResult } from './FileTargetService'
-import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
+import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 
 import { PageQueryService } from './PageQueryService'
 
 export interface InboxSnapshot { inbox: FileTargetQueryResult | undefined; recent: CoreTask[] }
 
-export type InboxAction = 'move' | 'memo' | 'delete' | 'someday'
+export type InboxAction = 'move' | 'memo' | 'delete' | 'someday' | 'schedule' | 'deadline'
 
 class InboxMergeChangedError extends Error {
   readonly code: string = 'invalidState'
@@ -58,6 +58,15 @@ export class InboxService {
       await MoveToTargetService.move(context, task, target)
       return
     }
+    await InboxService.performMany(context, [task], action, target)
+  }
+
+  // 一次提交整组选中快照；任一版本或操作失效均由 Core 拒绝整组。
+  static async performMany(context: Context, tasks: CoreTask[], action: InboxAction,
+    target?: CoreRefileTarget, date?: string): Promise<void> {
+    if (tasks.length === 0) return
+    if (action === 'move' && !target) throw new Error('请选择任务目标')
+    if ((action === 'schedule' || action === 'deadline') && date === undefined) throw new Error('请选择日期')
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repos = await workspace.repos()
@@ -67,9 +76,12 @@ export class InboxService {
       const settings = config.repos.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (settings?.webdavEnabled) queueRepoIds.push(repo.id)
     }
-    let parent: CoreTaskPath | undefined = undefined
+    let parent: CoreTaskPath | undefined = action === 'move' ? target!.fullPath : undefined
     const operations: CoreTaskOperation[] = []
-    if (action === 'someday') {
+    let modifications: CoreTaskModification[] = []
+    if (action === 'schedule' || action === 'deadline') {
+      modifications = [{ field: action === 'deadline' ? 'DEADLINE_DATE' : 'SCHEDULE_DATE', value: date || null }]
+    } else if (action === 'someday') {
       const selected = configuredFileTarget(config, 'someday')
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
       const repo = repos.find(item => item.rootDirectory === settings?.rootDirectory)
@@ -83,10 +95,10 @@ export class InboxService {
       parent = first.fullPath
       const state = metadata.taskStateOf(TaskStateCategory.Todo)
       if (!state) throw new Error('目标文件没有可用的待办状态，请检查状态分类与 TODO 流程')
-      operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
+      modifications = [
         { field: 'TODO', value: state.name }, { field: 'SCHEDULE', value: null },
         { field: 'DEADLINE', value: null }
-      ] } })
+      ]
     } else if (action === 'memo') {
       const selected = configuredFileTarget(config, 'memo')
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
@@ -97,15 +109,20 @@ export class InboxService {
         throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
       }
       parent = (await repo.file(selected.path)).fullPath
-      operations.push({ type: 'Modification', data: { path: task.fullPath, modifications: [
+      modifications = [
         { field: 'TODO', value: null }, { field: 'PRIORITY', value: null },
         { field: 'SCHEDULE', value: null }, { field: 'DEADLINE', value: null }
-      ] } })
+      ]
     }
-    operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
+    for (const task of tasks) {
+      if (modifications.length > 0) operations.push({ type: 'Modification', data: { path: task.fullPath, modifications } })
+      if (action === 'schedule' || action === 'deadline') continue
+      operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
       { type: 'Deletion', data: { path: task.fullPath } })
-    const fileVersions: CoreTaskFileVersion[] = [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
-    if (target && action === 'someday') fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
+    }
+    const fileVersions: CoreTaskFileVersion[] = tasks.map((task: CoreTask): CoreTaskFileVersion =>
+      ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion }))
+    if (target && (action === 'someday' || action === 'move')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
     await workspace.executeTaskOperations({ operations, queueRepoIds, fileVersions })
   }
 }

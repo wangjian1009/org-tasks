@@ -9,7 +9,7 @@ import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskSwipeActions } from './TaskSwipeActions'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { LogbookService } from '../services/LogbookService'
-import { taskBatchMenu, taskPageActionPolicy, taskSwipeMenu, TaskBatchAction, TaskSwipeAction } from '../ui/TaskActionPresentation'
+import { taskBatchMenu, taskActionPolicy, taskSwipeMenu, TaskBatchAction, TaskSwipeAction } from '../ui/TaskActionPresentation'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
@@ -25,7 +25,7 @@ export struct LogbookTaskList {
   @State actionBusy: boolean = false
   @State selectionStarting: boolean = false
 
-  policy() { return taskPageActionPolicy('logbook') }
+  policy() { return taskActionPolicy({ enableDelete: true, enableSelect: true, enableBulkDelete: true }) }
 
   allItems(): LogbookTaskItem[] {
     const result: LogbookTaskItem[] = []
@@ -89,6 +89,7 @@ export struct LogbookTaskList {
 
   async removeTasks(tasks: CoreTask[]) {
     if (this.actionBusy || tasks.length === 0) return
+    if (this.selectingTasks ? !this.policy().enableBulkDelete : !this.policy().enableDelete) return
     this.actionBusy = true
     try {
       if (!await TaskInlineSession.end(true)) return
@@ -115,7 +116,7 @@ export struct LogbookTaskList {
   @Builder
   itemRow(item: LogbookTaskItem, group: LogbookGroup) {
     ListItem() {
-      TaskSelectionRow({ batchEditing: this.policy().batchEditing, selecting: this.selectingTasks,
+      TaskSelectionRow({ batchEditing: this.policy().enableSelect, selecting: this.selectingTasks,
         busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
         heading: item.task.heading, horizontalInset: 0,
         begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {

@@ -1,3 +1,4 @@
+import { TaskDateDialog } from '../components/TaskDateDialog'
 import { TaskInlineSession, TaskInlineService } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -14,7 +15,7 @@ import { MoveToTarget } from '../components/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
 import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
-import { TaskPageActionPolicy, taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
+import { TaskPageActionPolicy, taskActionPolicy, taskPageActionPolicy, taskHasSwipeActions, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
 import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { MoveToTargetService } from '../services/MoveToTargetService'
@@ -56,6 +57,9 @@ struct Inbox {
   @State selectedRecordIds: string[] = []
   @State selectionStarting: boolean = false
   @State mergeBusy: boolean = false
+  @State batchAction: string = ''
+  @State batchTargetOpen: boolean = false
+  private dateDialog?: CustomDialogController
   @State mergeMessage: string = ''
   @State mergeInvalid: boolean = false
   @State mergedPath: string = ''
@@ -64,7 +68,10 @@ struct Inbox {
   private visible: boolean = true
   private targetRequest: number = 0
   private actionTimer: number = -1
-  private actionPolicy: TaskPageActionPolicy = taskPageActionPolicy('inbox')
+  private actionPolicy: TaskPageActionPolicy = taskActionPolicy({ enableMove: true, enableSchedule: true, enableDeadline: true,
+    enableSomeday: true, enableMemo: true, enableDelete: true, enableSelect: true, enableMerge: true,
+    enableBulkMove: true, enableBulkSchedule: true, enableBulkDeadline: true,
+    enableBulkSomeday: true, enableBulkMemo: true, enableBulkDelete: true }, 'move')
   private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()
@@ -73,8 +80,9 @@ struct Inbox {
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
   onPageShow() { this.visible = true }
-  onPageHide() { this.visible = false; clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
+  onPageHide() { this.visible = false; this.dateDialog?.close(); clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
+    this.dateDialog?.close()
     clearTimeout(this.captureFocusTimer)
     clearTimeout(this.actionTimer)
     clearTimeout(this.mergeFocusTimer)
@@ -86,6 +94,7 @@ struct Inbox {
 
   onBackPress(): boolean {
     if (this.mergeBusy || this.selectionStarting) return true
+    if (this.batchTargetOpen) { this.closeTargetPopup(); return true }
     if (this.selectingRecords) { this.cancelSelection(); return true }
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.captureOpen) { this.closeCapture(); return true }
@@ -106,7 +115,7 @@ struct Inbox {
   }
 
   async startSelection(record: CoreTask) {
-    if (!this.actionPolicy.batchEditing || this.checklistDragging) return
+    if (!this.actionPolicy.enableSelect || this.checklistDragging) return
     if (this.selectingRecords || this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
     clearTimeout(this.actionTimer)
@@ -131,6 +140,8 @@ struct Inbox {
   }
 
   resetSelection() {
+    this.closeTargetPopup()
+    this.batchAction = ''
     this.selectingRecords = false
     this.selectedRecordIds = []
     this.mergeMessage = ''
@@ -139,20 +150,22 @@ struct Inbox {
 
   cancelSelection() {
     if (this.mergeBusy) return
+    this.dateDialog?.close()
     this.resetSelection()
     if (this.visible) this.loadRecords()
   }
 
   toggleRecord(record: CoreTask) {
-    if (this.mergeBusy) return
+    if (this.mergeBusy || this.batchTargetOpen) return
     this.selectedRecordIds = this.selectedRecordIds.includes(record.id) ?
       this.selectedRecordIds.filter(id => id !== record.id) : [...this.selectedRecordIds, record.id]
   }
 
   async mergeSelected() {
     const records = this.selectedRecords()
-    if (!this.actionPolicy.batchEditing || !this.actionPolicy.batchActions.includes('merge') || records.length < 2 || this.mergeBusy || this.mergeInvalid) return
+    if (!this.actionPolicy.enableSelect || !this.actionPolicy.enableMerge || records.length < 2 || this.mergeBusy || this.mergeInvalid) return
     this.mergeBusy = true
+    this.batchAction = 'merge'
     this.mergeMessage = ''
     let merged: CoreTaskPath
     try {
@@ -198,6 +211,7 @@ struct Inbox {
       if (!current || !this.visible) return
       this.actionBusy = false
       if (action === 'move') this.selectRecord(current)
+      else if (action === 'schedule' || action === 'deadline') this.chooseDate(action, [current])
       else if (action === 'delete') this.confirmDelete(current)
       else await this.perform(action, undefined, current)
     } catch (e) {
@@ -210,9 +224,10 @@ struct Inbox {
   }
 
   closeTargetPopup() {
-    if (this.actionBusy) return
+    if (this.actionBusy || this.mergeBusy) return
     ++this.targetRequest
     this.selected = undefined
+    this.batchTargetOpen = false
     this.targetSections = []
     this.popupMessage = ''
     this.targetsLoading = false
@@ -273,11 +288,14 @@ struct Inbox {
   targetPopup() {
     MoveToTarget({ sections: this.targetSections,
       selectionKey: this.selected ? JSON.stringify([this.selected.fullPath, this.selected.fileVersion]) : '',
-      loading: this.targetsLoading, busy: this.actionBusy, message: this.popupMessage,
-      choose: (target: CoreRefileTarget): void => { this.perform('move', target) },
+      loading: this.targetsLoading, busy: this.actionBusy || this.mergeBusy, message: this.popupMessage,
+      choose: (target: CoreRefileTarget): void => {
+        if (this.batchTargetOpen) this.performSelected('move', target)
+        else this.perform('move', target)
+      },
       retry: (): void => { this.refreshMoveTargets() } })
       .width(this.popupWidth)
-      .height(targetPopupHeight(this.targetSections, this.listHeight, this.targetsLoading, this.popupMessage, this.actionBusy))
+      .height(targetPopupHeight(this.targetSections, this.listHeight, this.targetsLoading, this.popupMessage, this.actionBusy || this.mergeBusy))
   }
 
   async loadTargets() {
@@ -302,6 +320,7 @@ struct Inbox {
 
   async refreshMoveTargets() {
     if (!this.selected || this.actionBusy || this.targetsLoading) return
+    if (this.batchTargetOpen) { this.closeTargetPopup(); this.cancelSelection(); return }
     const request = ++this.targetRequest
     this.actionBusy = true
     this.popupMessage = ''
@@ -347,6 +366,69 @@ struct Inbox {
         }
       }
     } finally { this.actionBusy = false }
+  }
+
+  chooseDate(action: InboxAction, records: CoreTask[]) {
+    if (records.length === 0 || this.mergeBusy) return
+    if (!this.selectingRecords) { this.mergeMessage = ''; this.mergeInvalid = false }
+    this.dateDialog = new CustomDialogController({
+      builder: TaskDateDialog({ deadline: action === 'deadline', failureMessage: (): string => this.mergeMessage,
+        selected: records.length === 1 ? (action === 'deadline' ? records[0].deadline : records[0].scheduled) : '',
+        choose: async (date: string): Promise<boolean> => {
+          return await this.performSelected(action, undefined, date, records)
+        } }), customStyle: true, autoCancel: false, alignment: DialogAlignment.Center
+    })
+    this.dateDialog.open()
+  }
+
+  activateBatch(action: TaskBatchAction) {
+    if (this.mergeBusy || this.mergeInvalid || this.batchTargetOpen ||
+      !taskBatchMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return
+    if (action === 'merge') { this.mergeSelected(); return }
+    const records = this.selectedRecords()
+    if (records.length === 0) return
+    if (action === 'move') {
+      this.batchTargetOpen = true
+      this.selected = records[0]
+      this.popupMessage = ''
+      this.loadTargets()
+    } else if (action === 'schedule' || action === 'deadline') this.chooseDate(action, records)
+    else if (action === 'delete') {
+      this.getUIContext().showAlertDialog({ title: `删除 ${records.length} 条记录？`, message: '所选记录及其子记录将从文件中删除。',
+        primaryButton: { value: '取消', action: (): void => {} },
+        secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.performSelected('delete') } } })
+    } else this.performSelected(action)
+  }
+
+  async performSelected(action: InboxAction, target?: CoreRefileTarget, date?: string, sources?: CoreTask[]): Promise<boolean> {
+    if (this.mergeBusy || this.actionBusy || this.mergeInvalid) return false
+    if (this.selectingRecords) {
+      if (!taskBatchMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return false
+    } else if (!taskSwipeMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return false
+    const records = sources || this.selectedRecords()
+    if (records.length === 0) return false
+    this.mergeBusy = true
+    this.batchAction = action
+    this.mergeMessage = ''
+    try {
+      // 沿当前源快照逆序删除或移出，避免同名记录的后续 occurrence 前移。
+      const ordered = [...records].sort((a: CoreTask, b: CoreTask): number =>
+        this.records.findIndex(item => item.id === b.id) - this.records.findIndex(item => item.id === a.id))
+      await InboxService.performMany(this.getUIContext().getHostContext()!, ordered, action, target, date)
+      this.mergeBusy = false
+      this.resetSelection()
+      await this.loadRecords()
+      return true
+    } catch (e) {
+      const message = coreErrorMessage(e as CoreBridgeError)
+      this.mergeMessage = message
+      this.mergeInvalid = this.selectingRecords && (e as CoreBridgeError).code === 'invalidState'
+      this.popupMessage = message
+      if (!this.selectingRecords) {
+        try { this.getUIContext().getPromptAction().showToast({ message, duration: 3000 }) } catch (_) {}
+      }
+      return false
+    } finally { this.mergeBusy = false }
   }
 
   async capture() {
@@ -534,12 +616,12 @@ struct Inbox {
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
                   Row() {
-                    TaskSelectionRow({ batchEditing: this.actionPolicy.batchEditing, selecting: this.selectingRecords,
+                    TaskSelectionRow({ batchEditing: this.actionPolicy.enableSelect, selecting: this.selectingRecords,
                       busy: this.mergeBusy || this.actionBusy || this.selectionStarting,
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading, horizontalInset: 12,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskListItem({ task: record, enableSwipeActions: this.actionPolicy.swipeActions.length > 0, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskListItem({ task: record, enableSwipeActions: taskHasSwipeActions(this.actionPolicy), rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
                           this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
                         } })
@@ -553,8 +635,8 @@ struct Inbox {
                       builder: this.targetPopup, placement: Placement.Bottom, targetSpace: 10,
                       enableArrow: false, width: this.popupWidth, radius: 16,
                       popupColor: '#363A38', backgroundBlurStyle: BlurStyle.NONE,
-                      mask: { color: '#2E000000' }, autoCancel: !this.actionBusy,
-                      onWillDismiss: !this.actionBusy, focusable: true,
+                      mask: { color: '#2E000000' }, autoCancel: !this.actionBusy && !this.mergeBusy,
+                      onWillDismiss: !this.actionBusy && !this.mergeBusy, focusable: true,
                       onStateChange: (event): void => {
                         if (!event.isVisible && this.selected?.id === record.id) this.closeTargetPopup()
                       }
@@ -568,7 +650,7 @@ struct Inbox {
                     builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
                     onAction: (): void => { this.swipeAction(record, 'move') }
                   } : undefined,
-                  end: this.actionPolicy.swipeActions.length > 0 ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
+                  end: taskHasSwipeActions(this.actionPolicy) ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
@@ -616,11 +698,12 @@ struct Inbox {
         .visibility(this.drawerOpen || this.captureOpen || this.selected || this.inlineTyping || this.selectingRecords || this.selectionStarting ? Visibility.Hidden : Visibility.Visible)
         .enabled(!this.actionBusy).accessibilityText('记一条')
         .onClick((): void => { this.capture() })
-      if (this.selectingRecords && this.actionPolicy.batchEditing) {
+      if (this.selectingRecords && this.actionPolicy.enableSelect) {
         TaskBatchToolbar({ items: taskBatchMenu(this.actionPolicy, (action: TaskBatchAction): void => {
-            if (action === 'merge') this.mergeSelected()
-          }), count: this.selectedRecordIds.length, busy: this.mergeBusy, busyAction: this.mergeBusy ? 'merge' : '', invalid: this.mergeInvalid,
-          message: this.mergeMessage, caption: this.selectedRecordIds.length > 0 ? `合并: ${this.selectedRecords()[0]?.heading || ''}` : '请选择至少两条记录',
+            this.activateBatch(action)
+          }), count: this.selectedRecordIds.length, busy: this.mergeBusy, busyAction: this.mergeBusy ? this.batchAction : '', invalid: this.mergeInvalid,
+          message: this.mergeMessage, caption: this.selectedRecordIds.length > 0 ? `首选: ${this.selectedRecords()[0]?.heading || ''}` : '请选择记录',
+          cancelLabel: '完成', cancel: (): void => { this.cancelSelection() },
           idPrefix: 'inbox', retry: (): void => { this.cancelSelection() } })
       }
       if (this.captureOpen) {

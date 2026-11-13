@@ -7,6 +7,7 @@ export struct TaskDateDialog {
   selected: string = ''
   deadline: boolean = false
   allowClear: boolean = true
+  failureMessage: () => string = () => '未能修改，请检查任务卡片上的错误提示'
   closed: () => void = () => {}
   choose: (value: string) => Promise<boolean> = async () => false
   @State year: number = new Date().getFullYear()
@@ -31,7 +32,7 @@ export struct TaskDateDialog {
     this.message = ''
     try {
       if (await this.choose(value)) { this.controller.close(); this.closed() }
-      else this.message = '未能修改，请检查任务卡片上的错误提示'
+      else this.message = this.failureMessage()
     } finally { this.busy = false }
   }
   @Builder

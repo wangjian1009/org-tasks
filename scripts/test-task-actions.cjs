@@ -19,13 +19,21 @@ function compile(source, filename, mocks = {}) {
 }
 const filename = 'entry/src/main/ets/ui/TaskActionPresentation.ets';
 const actions = compile(fs.readFileSync(filename, 'utf8'), filename);
-const { taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth } = actions;
+const { taskActionPolicy, taskHasSwipeActions, taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth } = actions;
+
+function pagePolicy(page) {
+  const file = page === 'inbox' ? 'entry/src/main/ets/pages/Inbox.ets' : 'entry/src/main/ets/components/LogbookTaskList.ets';
+  if (!['inbox', 'logbook'].includes(page)) return taskPageActionPolicy(page);
+  const source = fs.readFileSync(file, 'utf8');
+  const call = source.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, '([^']+)')?\)/);
+  return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')'), call[2]);
+}
 
 function checkDeferredSwipeMenu(expression, filename) {
-  const { options } = compile('export function options(record) { return ' + expression + '; }', filename,
-    {});
+  const { options } = compile('import { taskHasSwipeActions } from "actions"; export function options(record) { return ' + expression + '; }', filename,
+    { actions });
   const renders = [], record = { id: 'source-record' };
-  const page = { selectingRecords: false, actionPolicy: taskPageActionPolicy('inbox'),
+  const page = { selectingRecords: false, actionPolicy: pagePolicy('inbox'),
     swipeMenu(value) { renders.push([this, value]); } };
   // 只注入框架常量，执行产品表达式本身：普通布局阶段不得产生菜单节点。
   global.SwipeEdgeEffect = { None: 0 };
@@ -38,7 +46,7 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.equal(typeof value.start?.onAction, 'function', '右滑应注册移动动作');
     assert.equal(value.start.actionAreaDistance, 48);
     renders.length = 0;
-    page.actionPolicy.swipeActions = [];
+    page.actionPolicy = taskActionPolicy();
     assert.equal(options.call(page, record).end, undefined);
     for (const flag of ['selectingRecords', 'actionBusy', 'selectionStarting', 'mergeBusy', 'checklistDragging', 'selected', 'inlineTyping']) {
       page[flag] = true;
@@ -72,16 +80,18 @@ test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测
   assert.ok(checked > 0, '缺少收件箱 swipeAction 编译产物');
 });
 
-test('页面策略分别定义右滑、左滑、批量入口和批量菜单，不共享可变数组', () => {
-  const inbox = taskPageActionPolicy('inbox');
-  assert.deepEqual(inbox, { rightSwipeAction: 'move', swipeActions: ['someday', 'memo', 'delete', 'select'], batchEditing: true, batchActions: ['merge'] });
-  for (const [page, rightSwipeAction] of Object.entries({ today: 'doing', planned: 'schedule', anytime: 'schedule', someday: 'move', recent: 'schedule' })) {
-    assert.deepEqual(taskPageActionPolicy(page), { rightSwipeAction, swipeActions: [], batchEditing: false, batchActions: [] });
-  }
-  assert.deepEqual(taskPageActionPolicy('logbook'), { rightSwipeAction: 'none', swipeActions: ['delete', 'select'], batchEditing: true, batchActions: ['delete'] });
-  inbox.swipeActions.reverse(); inbox.batchActions.length = 0;
-  assert.equal(taskPageActionPolicy('inbox').swipeActions[0], 'someday');
-  assert.deepEqual(taskPageActionPolicy('inbox').batchActions, ['merge']);
+test('菜单默认全部关闭，页面显式启用且配置互不污染', () => {
+  const defaults = taskActionPolicy();
+  assert.deepEqual(taskSwipeMenu(defaults, () => {}), []);
+  assert.deepEqual(taskBatchMenu(defaults, () => {}), []);
+  for (const key of Object.keys(defaults).filter(key => key.startsWith('enable'))) assert.equal(defaults[key], false, key);
+  const inbox = pagePolicy('inbox');
+  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'select']);
+  assert.deepEqual(taskBatchMenu(inbox, () => {}).map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'merge']);
+  assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete']);
+  inbox.enableDelete = false;
+  assert.equal(pagePolicy('inbox').enableDelete, true);
+  for (const page of ['today', 'planned', 'anytime', 'someday', 'recent']) assert.equal(taskHasSwipeActions(pagePolicy(page)), false, page);
 });
 
 const cardFile = 'entry/src/main/ets/components/TaskListItem.ets';
@@ -106,9 +116,9 @@ function cardMethod(name, async = false) {
 
 function swipeCard(page) {
   const { Card } = compile('export class Card {' + cardMethod('horizontalSwipe') + cardMethod('rightSwipe') + '}', cardFile);
-  const calls = [], policy = taskPageActionPolicy(page);
+  const calls = [], policy = pagePolicy(page);
   const state = Object.assign(new Card(), {
-    rightSwipeAction: policy.rightSwipeAction, enableSwipeActions: policy.swipeActions.length > 0,
+    rightSwipeAction: policy.rightSwipeAction, enableSwipeActions: taskHasSwipeActions(policy),
     dates: deadline => calls.push(deadline ? 'deadline' : 'schedule'),
     toggleDoing: () => calls.push('doing'), openMove: () => calls.push('move'), swipe: left => calls.push(left ? 'menu' : 'right')
   });
@@ -125,9 +135,9 @@ test('六个区域右滑分别执行移动、日期或进行中，左滑不执�
     for (const offset of [-48, 0, 48]) f.state.horizontalSwipe(offset);
     assert.deepEqual(f.calls, [], page);
   }
-  const inboxMenu = taskSwipeMenu(taskPageActionPolicy('inbox'), () => {});
-  assert.deepEqual(inboxMenu.map(item => item.id), ['someday', 'memo', 'delete', 'select']);
-  assert.equal(taskSwipeMenuWidth(inboxMenu), 208);
+  const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
+  assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'select']);
+  assert.equal(taskSwipeMenuWidth(inboxMenu), 304);
 });
 
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
@@ -195,38 +205,43 @@ test('移动浮层取消后丢弃在途目标结果，卡片离开后不打开�
   await left.state.openMove(); assert.equal(left.state.moveOpen, false);
 });
 
-test('页面可以裁剪与重排左滑按钮，动态宽度与动作回调对应实际菜单', () => {
-  const policy = taskPageActionPolicy('inbox'), invoked = [];
-  policy.swipeActions = ['select', 'delete', 'move'];
-  const menu = taskSwipeMenu(policy, id => invoked.push(id));
-  assert.deepEqual(menu.map(item => item.id), policy.swipeActions);
-  menu.forEach(item => item.action());
-  assert.deepEqual(invoked, ['select', 'delete', 'move']);
-  assert.equal(menu[0].style, 'selection');
-  assert.equal(menu[1].style, 'danger');
-  assert.equal(taskSwipeMenuWidth(menu), 160);
-  policy.swipeActions = ['delete'];
-  assert.equal(taskSwipeMenuWidth(taskSwipeMenu(policy, () => {})), 64);
+test('左滑开关与 enableBulk 系列分别控制能力，单独开启互不影响', () => {
+  const flags = { Move: 'move', Schedule: 'schedule', Deadline: 'deadline', Someday: 'someday', Memo: 'memo', Delete: 'delete' };
+  for (const [suffix, id] of Object.entries(flags)) {
+    const invoked = [], policy = taskActionPolicy({ ['enable' + suffix]: true, enableSelect: true });
+    const swipe = taskSwipeMenu(policy, id => invoked.push(id));
+    assert.deepEqual(swipe.map(item => item.id), [id, 'select']);
+    assert.deepEqual(taskBatchMenu(policy, () => {}), []);
+    policy['enable' + suffix] = false;
+    policy['enableBulk' + suffix] = true;
+    assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['select']);
+    const batch = taskBatchMenu(policy, id => invoked.push(id));
+    assert.deepEqual(batch.map(item => item.id), [id]);
+    assert.equal(swipe[0].icon.name, batch[0].icon.name);
+    assert.equal(swipe[0].style, batch[0].style);
+    swipe[0].action(); batch[0].action(); assert.deepEqual(invoked, [id, id]);
+    policy['enableBulk' + suffix] = false;
+    assert.deepEqual(taskBatchMenu(policy, () => {}), []);
+    policy['enableBulk' + suffix] = true;
+    policy.enableSelect = false;
+    assert.deepEqual(taskBatchMenu(policy, () => {}), []);
+    assert.equal(taskHasSwipeActions(policy), false);
+  }
+  const policy = taskActionPolicy({ enableSelect: true, enableMerge: true });
+  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['select']);
+  assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['merge']);
+  policy.enableMerge = false;
+  assert.deepEqual(taskBatchMenu(policy, () => {}), []);
   assert.equal(taskSwipeMenuWidth([]), 0);
 });
 
-test('关闭批量入口时隐藏左滑多选和批量菜单，其余按钮按原序保留', () => {
-  const policy = taskPageActionPolicy('inbox'); policy.batchEditing = false;
-  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['someday', 'memo', 'delete']);
-  assert.deepEqual(taskBatchMenu(policy, () => {}), []);
-  policy.swipeActions = []; policy.batchEditing = true; policy.batchActions = [];
-  assert.deepEqual(taskSwipeMenu(policy, () => {}), []);
-  assert.deepEqual(taskBatchMenu(policy, () => {}), []);
-});
-
-const toolbarFile = 'entry/src/main/ets/components/TaskBatchToolbar.ets';
+const toolbarFile = 'entry/src/main/ets/components/TaskActionMenu.ets';
 const toolbarSource = fs.readFileSync(toolbarFile, 'utf8');
-const method = toolbarSource.match(/  activate\(item: TaskActionItem\) \{[\s\S]*?\n  \}/)[0];
-// 独立编译方法的依赖通过词法参数注入，直接执行产品中的事件处理。
+const methods = toolbarSource.slice(toolbarSource.indexOf('  actionEnabled('), toolbarSource.indexOf('  build()'));
 function toolbar(state) {
-  const source = 'import { taskBatchActionEnabled } from "actions"; export class Toolbar {' + method + '}';
+  const source = 'import { taskBatchActionEnabled } from "actions"; export class Toolbar {' + methods + '}';
   const { Toolbar } = compile(source, toolbarFile, { actions });
-  return Object.assign(new Toolbar(), { count: 0, busy: false, invalid: false }, state);
+  return Object.assign(new Toolbar(), { count: 0, selecting: true, busy: false, invalid: false }, state);
 }
 
 test('批量栏支持页面自定义按钮与最少选择数，忙碌或失效时不执行回调', () => {
@@ -240,7 +255,7 @@ test('批量栏支持页面自定义按钮与最少选择数，忙碌或失效�
 });
 
 test('收件箱合并按钮至少选择两条，使用配置的回调', () => {
-  const invoked = [], menu = taskBatchMenu(taskPageActionPolicy('inbox'), id => invoked.push(id));
+  const invoked = [], menu = taskBatchMenu(taskActionPolicy({ enableSelect: true, enableMerge: true }), id => invoked.push(id));
   const state = toolbar({ count: 1 });
   state.activate(menu[0]); assert.deepEqual(invoked, []);
   state.count = 2; state.activate(menu[0]); assert.deepEqual(invoked, ['merge']);

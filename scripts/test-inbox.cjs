@@ -16,11 +16,11 @@ function load(file, mocks) {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
-  vm.runInThisContext('(function(require,module,exports){' + output + '\n})', { filename })(name => {
+  vm.runInThisContext('(function(require,module,exports,$r){' + output + '\n})', { filename })(name => {
     if (Object.hasOwn(mocks, name)) return mocks[name];
     if (name.startsWith('.')) return load(path.relative(path.resolve('entry/src/main/ets'), path.resolve(path.dirname(filename), name)), mocks);
     throw new Error('缺少替身: ' + name);
-  }, module, module.exports);
+  }, module, module.exports, name => ({ name }));
   return module.exports;
 }
 const target = (id, category) => ({ repoId: id, path: 'projects.org', fullPath: { repoId: id, file: 'projects.org', titles: ['Parent', 'Same'], occurrence: 1 }, headingPath: ['Parent', 'Same'],
@@ -432,4 +432,103 @@ test('位置浮层按最大分类计算高度，最多四行且小窗口限制�
   assert.ok(targetPopupHeight([section(100)], 320) <= 320 - 104);
   assert.ok(targetPopupHeight([], 800, true) > 48);
   assert.ok(targetPopupHeight([], 800, false, '目标读取失败') > targetPopupHeight([], 800));
+});
+
+test('批量分配与截止只提交一次，携带全部源版本并使用日期字段保留已有时刻与重复规则', async () => {
+  for (const [action, field] of [['schedule', 'SCHEDULE_DATE'], ['deadline', 'DEADLINE_DATE']]) {
+    const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+    await f.InboxService.performMany({}, tasks, action, undefined, '2026-11-20');
+    assert.equal(f.requests.length, 1);
+    assert.deepEqual(f.requests[0].operations, tasks.map(task => ({ type: 'Modification', data: {
+      path: task.fullPath, modifications: [{ field, value: '2026-11-20' }]
+    } })));
+    assert.deepEqual(f.requests[0].fileVersions, tasks.map(task => ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion })));
+    await assert.rejects(f.InboxService.performMany({}, tasks, action), /请选择日期/);
+    assert.equal(f.requests.length, 1);
+  }
+});
+
+test('批量移动一次提交所有源与共同目标，取消目标时不写入', async () => {
+  const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+  const selected = target('core-id', 'Work');
+  await assert.rejects(f.InboxService.performMany({}, tasks, 'move'), /请选择任务目标/);
+  assert.equal(f.requests.length, 0);
+  await f.InboxService.performMany({}, tasks, 'move', selected);
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.requests[0].operations, tasks.map(task => ({ type: 'Movement', data: { path: task.fullPath, position: { parent: selected.fullPath } } })));
+  assert.deepEqual(f.requests[0].fileVersions.at(-1), { repoId: selected.repoId, file: selected.path, version: selected.fileVersion });
+});
+
+test('批量备忘只读取一次共同目标；批量删除不拆成多次提交', async () => {
+  for (const action of ['memo', 'delete']) {
+    const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+    let queries = 0;
+    const query = f.workspace.query;
+    f.workspace.query = async batch => { queries++; return await query(batch); };
+    await f.InboxService.performMany({}, tasks, action);
+    assert.equal(f.requests.length, 1);
+    assert.equal(queries, action === 'memo' ? 1 : 0);
+    assert.deepEqual(f.requests[0].operations.map(op => op.type), action === 'memo' ? ['Modification', 'Movement', 'Modification', 'Movement'] : ['Deletion', 'Deletion']);
+  }
+});
+
+function batchFixture() {
+  const filename = 'entry/src/main/ets/pages/Inbox.ets', full = fs.readFileSync(filename, 'utf8');
+  const method = full.match(/  async performSelected\([^\n]+\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
+  const code = ts.transpileModule('export class Batch {' + method + '}', { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const module = { exports: {} }, calls = [];
+  let write = async () => {};
+  vm.runInThisContext('(function(module,exports,InboxService,coreErrorMessage,taskBatchMenu,taskSwipeMenu){' + code + '\n})', { filename })(module, module.exports,
+    { performMany: async (...args) => { calls.push(args); await write(); } }, error => error.message,
+    load('ui/TaskActionPresentation', {}).taskBatchMenu, load('ui/TaskActionPresentation', {}).taskSwipeMenu);
+  const records = ['first', 'second', 'third'].map(id => ({ id, fileVersion: 'snapshot' }));
+  const state = Object.assign(new module.exports.Batch(), { records, mergeBusy: false, actionBusy: false, mergeInvalid: false,
+    selectingRecords: true, selectedRecordIds: ['third', 'first'], refreshes: 0,
+    actionPolicy: { enableSelect: true, enableBulkMove: true, enableBulkSchedule: true, enableBulkDeadline: true,
+      enableBulkSomeday: true, enableBulkMemo: true, enableBulkDelete: true },
+    selectedRecords() { return this.selectedRecordIds.map(id => this.records.find(record => record.id === id)); },
+    resetSelection() { this.selectedRecordIds = []; this.selectingRecords = false; },
+    async loadRecords() { this.refreshes++; }, getUIContext: () => ({ getHostContext: () => ({}) }) });
+  return { state, calls, writeWith(fn) { write = fn; } };
+}
+
+test('批量提交防止连续点击，成功后退出选择并刷新，移出按源顺序逆序执行', async () => {
+  const f = batchFixture(); let finish;
+  f.writeWith(() => new Promise(resolve => { finish = resolve; }));
+  const first = f.state.performSelected('delete');
+  assert.equal(await f.state.performSelected('delete'), false);
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(f.calls[0][1].map(record => record.id), ['third', 'first']);
+  finish(); assert.equal(await first, true);
+  assert.equal(f.state.mergeBusy, false); assert.equal(f.state.selectingRecords, false); assert.equal(f.state.refreshes, 1);
+});
+
+test('批量提交失败保留选择顺序和版本，版本失效不能直接重复提交', async () => {
+  const f = batchFixture();
+  f.writeWith(async () => { throw Object.assign(new Error('文件版本已变化'), { code: 'invalidState' }); });
+  assert.equal(await f.state.performSelected('deadline', undefined, '2026-11-20'), false);
+  assert.deepEqual(f.state.selectedRecordIds, ['third', 'first']);
+  assert.equal(f.state.mergeMessage, '文件版本已变化'); assert.equal(f.state.popupMessage, '文件版本已变化');
+  assert.equal(f.state.mergeInvalid, true); assert.equal(f.state.mergeBusy, false); assert.equal(f.state.refreshes, 0);
+  assert.equal(await f.state.performSelected('delete'), false); assert.equal(f.calls.length, 1);
+});
+
+
+test('批量动作提交时再次检查 enableBulk 开关，禁用后不写入；单条日期不依赖批量开关', async () => {
+  const flags = { Move: 'move', Schedule: 'schedule', Deadline: 'deadline', Someday: 'someday', Memo: 'memo', Delete: 'delete' };
+  for (const [suffix, action] of Object.entries(flags)) {
+    const f = batchFixture();
+    f.state.actionPolicy['enable' + suffix] = true;
+    f.state.actionPolicy['enableBulk' + suffix] = false;
+    assert.equal(await f.state.performSelected(action), false, action);
+    assert.deepEqual(f.calls, []);
+    f.state.actionPolicy['enable' + suffix] = false;
+    f.state.actionPolicy['enableBulk' + suffix] = true;
+    assert.equal(await f.state.performSelected(action), true, action);
+    assert.equal(f.calls.length, 1);
+  }
+  const single = batchFixture(); single.state.selectingRecords = false;
+  single.state.actionPolicy = { enableSchedule: true };
+  assert.equal(await single.state.performSelected('schedule', undefined, '2026-11-20', [single.state.records[0]]), true);
+  assert.equal(single.calls.length, 1);
 });
