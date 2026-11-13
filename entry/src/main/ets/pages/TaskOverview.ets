@@ -9,6 +9,7 @@ import { TaskListItem } from '../components/TaskListItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
+import { PlannedTaskFilter } from '../components/PlannedTaskFilter'
 import { LogbookTaskList } from '../components/LogbookTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
@@ -16,11 +17,12 @@ import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { NoteService } from '../services/NoteService'
-import { overviewTaskQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreTask, CoreTaskQueryResult, taskResult, coreErrorMessage } from '../services/NativeCoreService'
+import { overviewTaskQuery, overviewTitle, plannedRegionQuery, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
+import { CoreBridgeError, CoreQuery, CoreTask, CoreTaskQueryResult, taskResult, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, todaySections } from '../ui/TodayPresentation'
-import { PlannedGroup, plannedGroups } from '../ui/PlannedPresentation'
+import { PlannedGroup, plannedGroups, plannedRegionOptions } from '../ui/PlannedPresentation'
+import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { LogbookGroup, logbookGroups } from '../ui/LogbookPresentation'
 import { filterTasksByTags, reconcileTaskTags, taskTagOptions, TaskTagSelection } from '../ui/TaskTagFilterPresentation'
 
@@ -44,6 +46,8 @@ struct TaskOverview {
   @State includeUntagged: boolean = false
   @State sections: TodaySection[] = []
   @State planGroups: PlannedGroup[] = []
+  @State planRegionOptions: TaskRegionData[] = []
+  @State selectedPlanRegion: TaskRegionData | null = null
   @State logbookTaskGroups: LogbookGroup[] = []
   @State referenceTime: number = Date.now()
   @State loading: boolean = true
@@ -143,8 +147,14 @@ struct TaskOverview {
     this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks, this.view === 'today') : []
   }
 
+  async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
+    this.selectedPlanRegion = region
+    await this.loadTasks()
+  }
+
   async loadTasks() {
     const request = ++this.requestId
+    const selectedRegion = this.selectedPlanRegion ?? null
     this.loading = this.tasks.length === 0
     this.message = ''
     this.needsConfiguration = false
@@ -153,6 +163,7 @@ struct TaskOverview {
       let result: CoreTaskQueryResult | undefined = undefined
       let configuredTags: string[] = []
       let configuredGroups: string[][] = []
+      let regionOptions: TaskRegionData[] = []
       if (this.view === 'someday' || this.view === 'memo') {
         const fileResult = await FileTargetService.query(config, this.view)
         result = fileResult
@@ -161,7 +172,16 @@ struct TaskOverview {
           configuredGroups = fileResult?.tagGroups ?? []
         }
       } else {
-        result = taskResult((await PageQueryService.query(config, [{ type: 'task', query: overviewTaskQuery(this.view) }]))[0])
+        const queries: CoreQuery[] = [{ type: 'task', query: overviewTaskQuery(this.view) }]
+        if (this.view === 'planned' && selectedRegion !== null) queries.push(plannedRegionQuery(selectedRegion))
+        const results = await PageQueryService.query(config, queries)
+        result = taskResult(results[0])
+        if (this.view === 'planned') {
+          regionOptions = plannedRegionOptions(result.tasks)
+          if (selectedRegion !== null && regionOptions.some((region: TaskRegionData) => region.key === selectedRegion.key)) {
+            result = taskResult(results[1])
+          }
+        }
       }
       if (request !== this.requestId) return
       if (!result) {
@@ -179,6 +199,10 @@ struct TaskOverview {
       if (this.view === 'planned') planGroups = plannedGroups(result.tasks)
       if (request !== this.requestId) return
       this.tasks = result.tasks
+      if (this.view === 'planned') {
+        this.planRegionOptions = regionOptions
+        this.selectedPlanRegion = regionOptions.find((region: TaskRegionData) => region.key === selectedRegion?.key) ?? null
+      }
       this.tagOptions = this.supportsTagFilter() ? taskTagOptions(result.tasks, configuredTags) : []
       this.tagGroups = configuredGroups
       this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged },
@@ -228,6 +252,10 @@ struct TaskOverview {
       } else if (this.message) {
         NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadTasks() } })
       } else {
+        if (this.view === 'planned') {
+          PlannedTaskFilter({ options: this.planRegionOptions, selectedKey: this.selectedPlanRegion?.key ?? '',
+            changed: (region: TaskRegionData | null): void => { this.selectPlanRegion(region) } })
+        }
         if (this.supportsTagFilter()) {
           TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags, exclusiveGroups: this.tagGroups,
             includeUntagged: this.includeUntagged, changed: (selection: TaskTagSelection): void => {

@@ -95,6 +95,111 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
   });
 }
 
+function plannedTask(id, repoId, filePath, category, projectName = null) {
+  return { id, repoId, filePath, category, project: () => projectName, heading: id,
+    scheduled: '2099-01-01', deadline: '', tags: [] };
+}
+
+test('计划分类与项目单选互斥，候选保持完整，结果直接使用 Core 快照', async () => {
+  const f = fixture(), page = f.page('pages/TaskOverview',
+    ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
+  const tasks = [plannedTask('a','core-a','project.org','工作','项目甲'),
+    plannedTask('b','core-b','project.org','生活','项目甲'), plannedTask('c','core-a','plain.org',null)];
+  // 故意返回不符合分类的任务，确认页面不会重新执行分类过滤。
+  const categoryTasks = [tasks[2]], projectTasks = [tasks[0]];
+  f.query(batch => batch.map((request, index) => request.type === 'notification' ?
+    {type:'notification',result:[]} : {type:'task',result:{tasks:index === 0 ? tasks :
+      request.repoIds ? projectTasks : categoryTasks,categories:[]}}));
+  page.view = 'planned';
+  await page.loadTasks();
+  const keys = page.planRegionOptions.map(region => region.key);
+  const category = page.planRegionOptions.find(region => region.kind === 'category' && region.category === '工作');
+  const project = page.planRegionOptions.find(region => region.kind === 'project' && region.repoId === 'core-a');
+  await page.selectPlanRegion(category);
+  assert.equal(page.tasks, categoryTasks);
+  assert.deepEqual(f.batches[1].map(item => item.type), ['task','task','notification']);
+  assert.deepEqual(f.batches[1][1].query.categories, ['工作']);
+  assert.equal(f.batches[1][1].repoIds, undefined);
+  assert.deepEqual(page.planRegionOptions.map(region => region.key), keys);
+  await page.selectPlanRegion(project);
+  assert.equal(page.selectedPlanRegion.key, project.key);
+  assert.equal(page.tasks, projectTasks);
+  assert.equal(f.batches[2][1].query.categories, undefined, '项目选择替换分类条件');
+  assert.deepEqual(f.batches[2][1].repoIds, ['core-a']);
+  assert.ok(f.batches[2][1].query.expression.endsWith('b."project.org"'));
+  assert.ok(f.batches[2][1].query.expression.includes('.is.habit'));
+  await page.selectPlanRegion(null);
+  assert.equal(page.tasks, tasks);
+  assert.equal(page.selectedPlanRegion, null);
+  assert.deepEqual(f.batches[3].map(item => item.type), ['task','notification']);
+});
+
+test('计划未分类与字面同名分类保持独立，项目路径正确转义', () => {
+  const f = fixture(), { plannedRegionQuery } = f.load('services/TaskViewQueries');
+  const region = { key:'category',kind:'category',category:null,title:'未分类',repoId:'',filePath:'' };
+  assert.deepEqual(plannedRegionQuery(region).query.categories, [null]);
+  assert.deepEqual(plannedRegionQuery({...region,category:'未分类'}).query.categories, ['未分类']);
+  const project = plannedRegionQuery({...region,kind:'project',repoId:'core-b',filePath:'项目 (a) "b"\\c.org'});
+  assert.deepEqual(project.repoIds, ['core-b']);
+  assert.ok(project.query.expression.endsWith('b."项目 (a) \\"b\\"\\\\c.org"'));
+});
+
+test('计划刷新清除已消失的选择，同批回退全部，读取失败后可重试', async () => {
+  const f = fixture(), page = f.page('pages/TaskOverview',
+    ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
+  let tasks = [plannedTask('a','core-a','project.org','工作','项目甲')];
+  f.query(batch => batch.map(request => request.type === 'notification' ?
+    {type:'notification',result:[]} : {type:'task',result:{tasks,categories:[]}}));
+  page.view = 'planned';
+  await page.loadTasks();
+  const selected = page.planRegionOptions.find(region => region.kind === 'project');
+  await page.selectPlanRegion(selected);
+  tasks = [plannedTask('b','core-b','plain.org','生活')];
+  await page.loadTasks();
+  assert.equal(f.batches.length, 3);
+  assert.equal(page.selectedPlanRegion, null);
+  assert.equal(page.tasks, tasks);
+  let fail = true;
+  f.query(batch => {
+    if (fail) throw new Error('读取失败');
+    return batch.map(request => request.type === 'notification' ? {type:'notification',result:[]} :
+      {type:'task',result:{tasks,categories:[]}});
+  });
+  await page.selectPlanRegion(page.planRegionOptions[0]);
+  assert.match(page.message, /读取失败/);
+  fail = false;
+  await page.loadTasks();
+  assert.equal(page.message, '');
+  assert.equal(page.tasks, tasks);
+});
+
+test('计划快速切换时迟到结果不覆盖最后一次选择与任务', async () => {
+  const f = fixture(), page = f.page('pages/TaskOverview',
+    ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
+  const tasks = [plannedTask('a','core-a','a.org','工作','项目甲'),
+    plannedTask('b','core-b','b.org','生活','项目乙')];
+  let release;
+  f.query(async batch => {
+    const selected = batch.length === 3 ? batch[1] : null;
+    if (selected?.query.categories) await new Promise(resolve => { release = resolve; });
+    return batch.map((request,index) => request.type === 'notification' ? {type:'notification',result:[]} :
+      {type:'task',result:{tasks:index === 0 ? tasks : [selected?.repoIds ? tasks[1] : tasks[0]],categories:[]}});
+  });
+  page.view = 'planned';
+  await page.loadTasks();
+  const category = page.planRegionOptions.find(region => region.kind === 'category');
+  const project = page.planRegionOptions.find(region => region.kind === 'project' && region.repoId === 'core-b');
+  const first = page.selectPlanRegion(category);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(typeof release, 'function');
+  await page.selectPlanRegion(project);
+  release();
+  await first;
+  assert.equal(page.selectedPlanRegion.key, project.key);
+  assert.deepEqual(page.tasks, [tasks[1]]);
+  assert.equal(page.loading, false);
+});
+
 test('日志簿仅向 Core 请求 Done 分类，每个返回任务只展示一次完成记录', async () => {
   const f = fixture(), page = f.page('pages/TaskOverview', ['loadTasks','supportsTagFilter','applyTagFilter']);
   const tasks = [

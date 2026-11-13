@@ -342,6 +342,28 @@ test('计划日将项目与分类平级归组', () => {
   assert.deepEqual(day.groups.map(group => [group.kind, group.title, group.items.length]), [['project', '项目甲', 2], ['category', '未分类', 1]]);
 });
 
+test('计划筛选汇总所有分类与项目，项目仅显示名字且来源身份独立', () => {
+  const { plannedRegionOptions } = loadGrouping('PlannedPresentation', {
+    './Theme': { localDate }, './TaskListPresentation': presentation
+  });
+  const tasks = [task('a', { category:'工作',projectName:'官网改版' }),
+    task('b', { category:'工作',projectName:'官网改版' }),
+    task('c', { category:'工作',projectName:'官网改版',repoId:'other' }),
+    task('d', { category:'工作',projectName:'官网改版',filePath:'other.org' }),
+    task('e', { category:null,projectName:'',filePath:'unnamed.org' }),
+    task('f', { category:'未分类' }), task('g', { category:'' })];
+  const options = plannedRegionOptions(tasks);
+  assert.deepEqual(options.map(region => [region.kind,region.title]), [
+    ['category','工作'],['category','未分类'],['category','未分类'],
+    ['project','官网改版'],['project','官网改版'],['project','官网改版'],['project','未命名项目']
+  ]);
+  assert.equal(new Set(options.map(region => region.key)).size, options.length);
+  assert.deepEqual(options.slice(0,3).map(region => region.category), ['工作',null,'未分类']);
+  assert.equal(options[3].repoId, tasks[0].repoId);
+  assert.equal(options[4].repoId, tasks[2].repoId);
+  assert.equal(options[5].filePath, 'other.org');
+});
+
 const tagFilters = loadGrouping('TaskTagFilterPresentation', {});
 
 test('备忘 TAGS 花括号组互斥切换，跨组匹配交集，未分组标签保留并集', () => {

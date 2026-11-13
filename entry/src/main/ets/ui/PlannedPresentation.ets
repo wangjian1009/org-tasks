@@ -1,7 +1,26 @@
 import { CoreTask } from '../services/NativeCoreService'
 import { taskDisplayDate } from './TaskListPresentation'
 import { localDate } from './Theme'
-import { TaskRegionGroup, taskRegionGroups } from './TaskRegionPresentation'
+import { TaskRegionData, TaskRegionGroup, taskRegion, taskRegionGroups } from './TaskRegionPresentation'
+
+// 候选来自未筛选的计划快照；只汇总来源，不在展示层筛选任务。
+export function plannedRegionOptions(tasks: CoreTask[]): TaskRegionData[] {
+  const categories = new Map<string, TaskRegionData>()
+  const projects = new Map<string, TaskRegionData>()
+  for (const task of tasks) {
+    const source = taskRegion(task)
+    const key = JSON.stringify(['category', source.category])
+    if (!categories.has(key)) {
+      categories.set(key, { key, kind: 'category', title: source.category || '未分类',
+        category: source.category, repoId: '', filePath: '' })
+    }
+    if (source.kind === 'project' && !projects.has(source.key)) projects.set(source.key, source)
+  }
+  const options: TaskRegionData[] = []
+  categories.forEach((region: TaskRegionData) => { options.push(region) })
+  projects.forEach((region: TaskRegionData) => { options.push(region) })
+  return options
+}
 
 export interface PlannedTaskItem {
   task: CoreTask

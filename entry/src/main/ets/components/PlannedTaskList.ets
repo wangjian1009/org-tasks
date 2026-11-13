@@ -38,7 +38,8 @@ export struct PlannedTaskList {
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
     TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
       plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline,
-      regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
+      regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None :
+        item.task.project() !== null ? RegionAreaPolicy.Project : RegionAreaPolicy.Category,
       rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       referenceTime: this.referenceTime, open: (): void => {
@@ -48,7 +49,8 @@ export struct PlannedTaskList {
 
   @Builder
   regionGroup(group: PlannedGroup, region: PlannedTaskGroup) {
-    TaskRegion({ category: region.category || '未分类', project: region.kind === 'project' ? region : null }) {
+    TaskRegion({ category: region.kind === 'project' ? null : region.category || '未分类',
+      project: region.kind === 'project' ? region : null }) {
       ForEach(region.items, (item: PlannedTaskItem) => {
         ListItem() { this.taskItem(item, group) }
       }, (item: PlannedTaskItem) => taskRenderKey(item.task))

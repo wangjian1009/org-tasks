@@ -1,4 +1,5 @@
-import { CoreTaskQuery } from './NativeCoreService'
+import { CoreQuery, CoreTaskQuery } from './NativeCoreService'
+import { TaskRegionData } from '../ui/TaskRegionPresentation'
 
 // 只组装界面所需的查询请求；任务筛选、完成类型与父子关系均由 core 求值。
 export function inboxRecordQuery(inboxFile: string): CoreTaskQuery {
@@ -46,4 +47,16 @@ export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', 
 
 export function overdueTaskQuery(): CoreTaskQuery {
   return { expression: '(s.le.yesterday or d.le.yesterday)', includeDone: false, includeComposeTasks: true }
+}
+
+// 分类与项目共用一个选择；项目由仓库和文件定位，避免跨仓库同名文件混入。
+export function plannedRegionQuery(region: TaskRegionData | null): CoreQuery {
+  const query = overviewTaskQuery('planned')
+  if (region?.kind === 'category') {
+    query.categories = [region.category]
+  } else if (region?.kind === 'project') {
+    query.expression = `(${query.expression}) ${inboxRecordQuery(region.filePath).expression}`
+    return { type: 'task', query, repoIds: [region.repoId] }
+  }
+  return { type: 'task', query }
 }
