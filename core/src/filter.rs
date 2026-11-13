@@ -241,6 +241,7 @@ impl FilterTask {
         self.file_metadata.task_state_of(category)
     }
 
+    #[cfg(test)]
     pub(crate) fn state_name(&self) -> Option<&str> {
         self.state.as_ref().map(|state| state.name.as_str())
     }
