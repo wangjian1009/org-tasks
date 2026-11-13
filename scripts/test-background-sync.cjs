@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-background-sync.cjs\n验证退后台的本地变化检查、共享同步、系统实况窗进度、资源释放、失败重试与旧版定时作业清理。');
+  console.log('用法: node scripts/test-background-sync.cjs\n验证同步启动策略、非阻塞队列、退后台本地变化检查、系统实况窗、资源释放与失败重试。');
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
@@ -28,7 +28,9 @@ function compile(name, dependencies, globals = {}) {
   return module.exports;
 }
 function fixture() {
-  const calls = [], notifications = [], timers = new Map(), states = [], reasons = [];
+  const calls = [], notifications = [], timers = new Map(), states = [], reasons = [], inputs = [];
+  const syncSteps = [];
+  let badgeFailure = false;
   let changed = true, syncFailure = false, publishFailure = false, retainFailure = false;
   let notificationMisses = 0;
   let checkGate, syncGate, retainGate, expiry;
@@ -51,11 +53,13 @@ function fixture() {
     NativeCoreService: {
       async hasLocalWebDavChanges() { calls.push('check'); if (checkGate) await checkGate.promise; return changed; },
       async syncWorkspaceWebDav(repos, callback, todoDefaults, coreSettings, triggerReason) {
-        reasons.push(triggerReason);
+        reasons.push(triggerReason); inputs.push(todoDefaults);
         calls.push('sync'); monitor = callback;
         callback({ type: 'fileStarted', index: 0, total: 2, path: 'a.org' });
         callback({ type: 'fileProcessed', path: 'a.org' });
-        if (syncGate) await syncGate.promise;
+        const step = syncSteps.shift();
+        if (step) { await step.gate.promise; if (step.failed) throw new Error('网络不可用'); }
+        else if (syncGate) await syncGate.promise;
         if (syncFailure) throw new Error('网络不可用');
         changed = false;
         callback({ type: 'finished', result: 'succeeded' });
@@ -84,7 +88,7 @@ function fixture() {
     if (dependency === './AppConfigService') return { AppConfigService: { async load(context, credentials) {
       calls.push(credentials === false ? 'configWithoutCredentials' : 'configWithCredentials'); return config;
     } } };
-    if (dependency === './DeviceBadgeService') return { DeviceBadgeService: { async refresh() { calls.push('badge'); } } };
+    if (dependency === './DeviceBadgeService') return { DeviceBadgeService: { async refresh() { calls.push('badge'); if (badgeFailure) throw new Error('角标失败'); } } };
     if (dependency === './NativeCoreService') return native;
     if (dependency === '../models/OrgTask') return {};
     if (dependency.startsWith('./')) {
@@ -99,7 +103,9 @@ function fixture() {
   }
   return { service: load('./BackgroundRepositorySyncService').BackgroundRepositorySyncService,
     repository: load('./RepositorySyncService').RepositorySyncService,
-    calls, notifications, timers, states, reasons, context: { abilityInfo: { bundleName: 'com.example.orgtasks' } },
+    calls, notifications, timers, states, reasons, inputs, config, syncSteps,
+    badgeFail() { badgeFailure = true; },
+    context: { abilityInfo: { bundleName: 'com.example.orgtasks' } },
     change(value) { changed = value; }, syncFail(value) { syncFailure = value; }, publishFail() { publishFailure = true; },
     retainFail() { retainFailure = true; }, holdCheck(gate) { checkGate = gate; }, holdSync(gate) { syncGate = gate; },
     delayNotification() { notificationMisses = 1; },
@@ -112,15 +118,108 @@ function fixture() {
 test('共享同步保留最初触发原因，退后台新会话使用后台原因', async () => {
   for (const reason of ['appStartup', 'manual']) {
     const f = fixture(), gate = deferred(); f.holdSync(gate);
-    const running = f.repository.start(f.context, reason);
+    const running = f.repository.start(f.context, { triggerReason: reason, policy: 'Reuse' }).handle;
     await tick();
     const background = f.service.start(f.context);
-    assert.equal(f.repository.start(f.context, 'appBackground'), running);
-    gate.resolve(); await Promise.all([running, background]);
+    const rejected = f.repository.start(f.context, { triggerReason: 'appBackground', policy: 'Reject' });
+    assert.equal(rejected.kind, 'rejected'); assert.equal(rejected.active, running);
+    gate.resolve(); await Promise.all([running.completion, background]);
     assert.deepEqual(f.reasons, [reason]);
   }
   const f = fixture(); await f.service.start(f.context);
   assert.deepEqual(f.reasons, ['appBackground']);
+});
+
+test('start 立即受理并保留会话，Reuse 与 Reject 不再启动新同步', async () => {
+  const f = fixture(), gate = deferred(); f.holdSync(gate);
+  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
+  assert.equal(first.kind, 'started'); assert.equal(first.then, undefined);
+  assert.equal(f.repository.runningSync(), first.handle);
+  assert.equal(f.calls.length, 0, '请求受理时不读取配置或执行同步');
+  const reused = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' });
+  const rejected = f.repository.start(f.context, { triggerReason: 'appBackground', policy: 'Reject' });
+  assert.equal(reused.kind, 'reused'); assert.equal(reused.handle, first.handle);
+  assert.equal(rejected.kind, 'rejected'); assert.equal(rejected.active, first.handle);
+  await tick(); assert.deepEqual(f.reasons, ['appStartup']);
+  assert(!f.calls.includes('retain')); assert.equal(f.notifications.length, 0);
+  gate.resolve(); assert.equal((await first.handle.completion).status, 'succeeded');
+  assert.equal(f.repository.runningSync(), undefined);
+});
+
+test('Wait 立即返回独立句柄并按顺序执行，轮到时读取最新配置', async () => {
+  const f = fixture(), gates = [deferred(), deferred(), deferred()];
+  gates.forEach(gate => f.syncSteps.push({ gate }));
+  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
+  const second = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  const third = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  assert.equal(second.kind, 'queued'); assert.equal(third.kind, 'queued');
+  assert.notEqual(second.handle.id, third.handle.id);
+  let completed = false; second.handle.completion.then(() => { completed = true; });
+  await tick(); assert.equal(completed, false); assert.equal(f.reasons.length, 1);
+  f.config.todoDefaults = '第二轮配置'; gates[0].resolve(); await first.handle.completion;
+  await tick(); assert.deepEqual(f.inputs, ['TODO DONE', '第二轮配置']);
+  assert.equal(f.repository.runningSync(), second.handle); assert.equal(completed, false);
+  f.config.todoDefaults = '第三轮配置'; gates[1].resolve(); await second.handle.completion;
+  await tick(); assert.equal(f.repository.runningSync(), third.handle);
+  assert.deepEqual(f.inputs, ['TODO DONE', '第二轮配置', '第三轮配置']);
+  gates[2].resolve(); await third.handle.completion;
+  assert.deepEqual(f.reasons, ['appStartup', 'manual', 'manual']);
+});
+
+test('前一轮失败仍继续排队请求，错误快照不会被下一轮清除', async () => {
+  const f = fixture(), firstGate = deferred(), secondGate = deferred();
+  f.syncSteps.push({ gate: firstGate, failed: true }, { gate: secondGate });
+  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
+  const second = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  firstGate.resolve();
+  const failed = await first.handle.completion;
+  assert.equal(failed.status, 'failed'); assert.match(failed.message, /网络不可用/);
+  await tick(); assert.equal(f.reasons.length, 2);
+  assert.match(f.repository.takeFailure().message, /网络不可用/);
+  assert.equal(f.repository.takeFailure(), undefined);
+  secondGate.resolve(); assert.equal((await second.handle.completion).status, 'succeeded');
+});
+
+test('观察者重入时复用已保留的会话，角标失败不改变同步结果或阻塞队列', async () => {
+  const f = fixture(); f.badgeFail();
+  let reused;
+  f.repository.watch(state => {
+    if (state.running) reused = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' });
+  });
+  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
+  const next = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  assert.equal((await first.handle.completion).status, 'succeeded');
+  assert.equal((await next.handle.completion).status, 'succeeded');
+  assert.equal(reused.handle, next.handle); assert.equal(f.reasons.length, 2);
+});
+
+test('主界面首次显示且在前台时同步一次，恢复前台和重新路由不重复启动', async () => {
+  for (const contentFirst of [true, false]) {
+    const requests = [], callbacks = [], context = {};
+    const Ability = compile('../entryability/EntryAbility', name => {
+      if (name === '@kit.AbilityKit') return { UIAbility: class {} };
+      if (name === '../services/RepositorySyncService') return {
+        SyncStartPolicy: { Reuse: 'Reuse' }, emptyRepositorySyncState() {},
+        RepositorySyncService: { start(actual, options) { requests.push({ actual, ...options }); } }
+      };
+      if (name === '../services/DeviceBadgeService') return { DeviceBadgeService: { start() {}, stop() {} } };
+      if (name === '../services/NotificationPermissionService') return { NotificationPermissionService: { async start() {}, stop() {} } };
+      if (name === '../services/BackgroundRepositorySyncService') return { BackgroundRepositorySyncService: { async start() {} } };
+      if (name === '../ui/Theme') return { UiColor: {} };
+      return {};
+    }, { LocalStorage: class {} }).default;
+    const ability = new Ability(); ability.context = context;
+    const stage = { async getMainWindow() { return { async setWindowSystemBarProperties() {} }; },
+      loadContent(page, storage, done) { callbacks.push(done); } };
+    await ability.onWindowStageCreate(stage);
+    if (contentFirst) callbacks[0]({ code: 0 }); else ability.onForeground();
+    assert.equal(requests.length, 0);
+    if (contentFirst) ability.onForeground(); else callbacks[0]({ code: 0 });
+    assert.deepEqual(requests, [{ actual: context, triggerReason: 'appStartup', policy: 'Reuse' }]);
+    ability.onBackground(); ability.onForeground();
+    ability.onNewWant({ parameters: { page: 'inbox' } }); callbacks[1]({ code: 0 });
+    assert.equal(requests.length, 1);
+  }
 });
 
 test('没有本地变化时只查询，不申请长时任务或访问凭据', async () => {
@@ -146,25 +245,36 @@ test('退后台同步共享进度，沿用系统通知的 ID、类型码并释�
   assert(f.calls.indexOf('retain') < f.calls.indexOf('sync'));
 });
 
-test('快速反复退后台和手动同步共用同一 Promise，不重复上传', async () => {
+test('快速反复退后台与 Reuse 请求只保留同一轮同步', async () => {
   const f = fixture(), gate = deferred(); f.holdSync(gate);
   const first = f.service.start(f.context), second = f.service.start(f.context);
   assert.equal(first, second); await tick();
-  const manual = f.repository.start(f.context);
-  assert.equal(manual, f.repository.start(f.context));
-  gate.resolve(); await Promise.all([first, manual]);
+  const manual = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' }).handle;
+  assert.equal(manual, f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' }).handle);
+  gate.resolve(); await Promise.all([first, manual.completion]);
   assert.equal(f.calls.filter(x => x === 'sync').length, 1);
   assert.equal(f.calls.filter(x => x === 'retain').length, 1);
 });
 
 test('前台同步在准备实况窗期间结束，也不会再启动第二轮同步', async () => {
   const f = fixture(), sync = deferred(), retain = deferred(); f.holdSync(sync); f.holdRetain(retain);
-  const manual = f.repository.start(f.context); await tick();
+  const manual = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' }).handle; await tick();
   const background = f.service.start(f.context); await tick();
-  sync.resolve(); await manual; retain.resolve(); await background;
+  sync.resolve(); await manual.completion; retain.resolve(); await background;
   assert.equal(f.calls.filter(x => x === 'sync').length, 1);
   assert(!f.calls.includes('check'));
   assert.equal(f.calls.at(-1), 'release');
+});
+
+test('退后台准备期间出现手动同步时 Reject 拒绝另建会话', async () => {
+  const f = fixture(), retain = deferred(), sync = deferred(); f.holdRetain(retain); f.holdSync(sync);
+  const background = f.service.start(f.context); await tick();
+  const manual = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  assert.equal(manual.kind, 'started'); await tick();
+  retain.resolve(); await tick();
+  assert.deepEqual(f.reasons, ['manual']);
+  sync.resolve(); await Promise.all([background, manual.handle.completion]);
+  assert.equal(f.calls.filter(call => call === 'sync').length, 1);
 });
 
 test('同步失败显示失败并释放资源，下次退后台重新检查并重试', async () => {

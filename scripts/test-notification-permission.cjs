@@ -147,7 +147,8 @@ test('主窗口与前台两个条件均满足才检查授权，后台及销毁�
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
-    '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
+    '../services/RepositorySyncService': { emptyRepositorySyncState() {},
+      SyncStartPolicy: { Reuse: 'Reuse' }, RepositorySyncService: { start() {} } },
     '../services/DeviceBadgeService': { DeviceBadgeService: { start() {}, stop() {} } },
     '../services/NotificationPermissionService': { NotificationPermissionService: {
       async start(context) { starts.push(context); }, stop() { stops.push(true); }

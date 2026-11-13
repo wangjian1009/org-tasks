@@ -1,6 +1,6 @@
 import { uiObserver } from '@kit.ArkUI'
 import { RepositorySyncBanner } from './RepositorySyncBanner'
-import { RepositorySyncService, RepositorySyncState, emptyRepositorySyncState } from '../services/RepositorySyncService'
+import { RepositorySyncService, RepositorySyncState, SyncStartPolicy, emptyRepositorySyncState } from '../services/RepositorySyncService'
 
 // 统一同步手势、进度与错误；正文刷新由通知模块驱动。
 @Component
@@ -55,7 +55,7 @@ export struct RepositorySyncView {
   }
 
   private canPull(): boolean {
-    return this.pullEnabled && !this.disabled && !this.checklistDragging && this.pageVisible && !this.syncState.running &&
+    return this.pullEnabled && !this.disabled && !this.checklistDragging && this.pageVisible &&
       this.getUIContext().getRouter().getState().index === this.pageIndex
   }
 
@@ -66,7 +66,7 @@ export struct RepositorySyncView {
     this.preparingPull = true
     try {
       if (!await this.beforePull() || !this.canPull()) return
-      await RepositorySyncService.start(this.getUIContext().getHostContext()!, 'manual')
+      RepositorySyncService.start(this.getUIContext().getHostContext()!, { triggerReason: 'manual', policy: SyncStartPolicy.Wait })
     } catch (_) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: '保存任务失败，请重试。' })
@@ -91,7 +91,7 @@ export struct RepositorySyncView {
           Refresh({ refreshing: $$this.refreshing, builder: this.pullIndicator }) {
             this.content()
           }.width('100%').height('100%').refreshOffset(64).pullDownRatio(0.4)
-            .pullToRefresh(!this.disabled && !this.checklistDragging && !this.syncState.running)
+            .pullToRefresh(!this.disabled && !this.checklistDragging)
             .onRefreshing((): void => { this.syncFromPull() })
         } else {
           this.content()

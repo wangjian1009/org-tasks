@@ -136,7 +136,48 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
 
-~SyncRecord.triggerReason~ 为 ~SyncTriggerReason | null~ ，同步返回值、历史列表和详情摘要均透传 Core 的原因，旧记录返回 ~null~ 。 ~RepositorySyncService.start~ 接受本轮原因并传给 ~syncWorkspaceWebDav~ 与 ~Repo.sync~ ；退后台新会话显式使用 ~appBackground~ ，下拉和同步提示点击使用 ~manual~ ，复用会话保持首次原因。原因不进入 Preferences 或凭据存储。
+~SyncRecord.triggerReason~ 为 ~SyncTriggerReason | null~ ，同步返回值、历史列表和详情摘要均透传 Core 的原因，旧记录返回 ~null~ 。 ~RepositorySyncService.start(context, options)~ 从 ~options.triggerReason~ 接受本轮原因并传给 ~syncWorkspaceWebDav~ 与 ~Repo.sync~ ；退后台新会话显式使用 ~appBackground~ ，下拉和同步提示点击使用 ~manual~ ，复用会话保持首次原因。原因不进入 Preferences 或凭据存储。
+
+Harmony 共享同步入口同步返回受理结果，Core 的单仓库接口不承载应用会话队列。接口为：
+
+#+begin_src ts
+enum SyncStartPolicy {
+  Reuse = 'Reuse',
+  Reject = 'Reject',
+  Wait = 'Wait'
+}
+interface SyncStartOptions {
+  triggerReason: SyncTriggerReason
+  policy: SyncStartPolicy
+}
+interface SyncCompletion {
+  status: 'succeeded' | 'failed'
+  message?: string
+}
+interface SyncHandle {
+  readonly id: number
+  readonly triggerReason: SyncTriggerReason
+  readonly completion: Promise<SyncCompletion>
+}
+interface SyncAccepted {
+  kind: 'started' | 'reused' | 'queued'
+  handle: SyncHandle
+}
+interface SyncRejected {
+  kind: 'rejected'
+  active: SyncHandle
+}
+type SyncStartResult = SyncAccepted | SyncRejected
+class RepositorySyncService {
+  static start(context: Context, options: SyncStartOptions): SyncStartResult
+  static runningSync(): SyncHandle | undefined
+}
+#+end_src
+
+空闲时三种策略都返回 ~started~ ，先保留会话再异步执行。存在会话时， ~Reuse~ 返回 ~reused~ 与同一个句柄， ~Reject~ 返回 ~rejected~ 与当前句柄， ~Wait~ 返回 ~queued~ 与独立句柄，按受理顺序执行。复用不改变原触发原因；拒绝不是同步错误，不创建历史或失败提示。配置、凭据与文件在每轮实际执行时读取，不在排队时固定快照。
+
+~completion~ 在本轮同步与角标刷新结束后返回成功或失败，不以 Promise 拒绝表达普通同步错误；角标刷新失败不改变文件同步结果。前一轮失败仍继续处理队列，失败快照独立保留供当前可见页面领取，不能被下一轮准备状态覆盖。手动入口只等待原位编辑保存，提交 ~Wait~ 请求后立即释放入口状态，不等待 ~completion~ 或禁用后续 UI 操作。同步启动接口不申请系统后台任务或发布通知，退后台保护由宿主单独管理；已有会话在保护准备期间完成时，不再补开一轮同步。
+
 
 同步记录保留原有 ~result~ 、 ~conflicts~ 、时间与文件数，另增 ~executionResult~ 、 ~transfer~ 、 ~downloadedFiles~ 、 ~uploadedFiles~  、 ~errorCategory~ 与 ~errorMessage~ 。 ~result~ 继续承载原始作业结果，避免改变现有同步编排；日志行按 ~executionResult~ 展示结果图标，只有冲突而无执行错误时为 ~succeeded~ 。 ~transfer~ 为 ~unchanged~ 、 ~download~ 、 ~upload~ 或 ~bidirectional~ ，只统计 Core 已确认成功的文件动作。冲突路径仅反映当次固定结果，UI 显示固定冲突数，不再提供待处理／已解决计数。
 

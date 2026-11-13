@@ -83,31 +83,29 @@ test('冲突路径更新改变渲染键，仓库改名采用新的宿主上下�
   assert.equal(view.syncConflictRepositoryName(notice,[{coreRepoId:'core-a',name:'新名字'}]),'新名字');
 });
 
-test('点击同步提示调用共享同步 service，忙碌或连续点击不会并发，也不在页面清除提示', async () => {
+test('点击同步提示以 Wait 提交请求，排队期间立即释放 UI，页面禁用时跳过', async () => {
   const filename = path.resolve('entry/src/main/ets/components/SyncRequiredNotificationView.ets');
   const source = fs.readFileSync(filename, 'utf8').split('  build()')[0]
     .replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) /g, '')
     .replace('export struct SyncRequiredNotificationView', 'export class SyncRequiredNotificationView') + '}';
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
-  const pending = deferred();
   let calls = 0;
   const context = {};
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename })(() => ({
-    emptyRepositorySyncState: () => ({ running: false }),
-    RepositorySyncService: { async start(actual) { assert.equal(actual, context); calls++; await pending.promise; } }
+    SyncStartPolicy: { Wait: 'Wait' },
+    RepositorySyncService: { start(actual, options) {
+      assert.equal(actual, context); assert.deepEqual(options, { triggerReason: 'manual', policy: 'Wait' });
+      calls++; return { kind: 'queued', handle: { completion: new Promise(() => {}) } };
+    } }
   }), module, module.exports);
   const view = new module.exports.SyncRequiredNotificationView();
   view.getUIContext = () => ({ getHostContext: () => context });
-  const first = view.synchronize();
-  await view.synchronize();
+  view.synchronize();
   assert.equal(calls, 1);
-  pending.resolve(); await first;
   assert.equal(view.starting, false);
-  view.syncState.running = true;
-  await view.synchronize();
-  assert.equal(calls, 1);
-  assert.equal(view.syncState.running, true);
+  view.synchronize(); assert.equal(calls, 2);
+  view.disabled = true; view.synchronize(); assert.equal(calls, 2);
 });
 
 function pullFixture() {
@@ -120,7 +118,11 @@ function pullFixture() {
   let pageIndex = 0;
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename })(() => ({
     emptyRepositorySyncState: () => ({ running: false }),
-    RepositorySyncService: { async start(actual) { starts.push(actual); } }
+    SyncStartPolicy: { Wait: 'Wait' },
+    RepositorySyncService: { start(actual, options) {
+      assert.deepEqual(options, { triggerReason: 'manual', policy: 'Wait' });
+      starts.push(actual); return { kind: 'queued', handle: { completion: new Promise(() => {}) } };
+    } }
   }), module, module.exports);
   const view = new module.exports.RepositorySyncView();
   view.pullEnabled = true;
@@ -150,12 +152,19 @@ test('下拉前保存失败不发起同步，后续修正后仍可重试', async
 });
 
 test('等待保存时离开页面或页面变忙，不在旧页面启动同步', async () => {
-  for (const change of [f => f.leave(), f => f.view.disabled = true, f => f.view.syncState.running = true]) {
+  for (const change of [f => f.leave(), f => f.view.disabled = true]) {
     const f = pullFixture(), saved = deferred();
     f.view.beforePull = () => saved.promise;
     const first = f.view.syncFromPull(); change(f); saved.resolve(true); await first;
     assert.equal(f.starts.length, 0);
   }
+});
+
+test('已有同步时仍可下拉排队，未完成的同步不会持有 UI 保存锁', async () => {
+  const f = pullFixture(); f.view.syncState.running = true;
+  await f.view.syncFromPull(); assert.equal(f.starts.length, 1);
+  assert.equal(f.view.preparingPull, false);
+  await f.view.syncFromPull(); assert.equal(f.starts.length, 2);
 });
 
 test('保存意外失败有反馈并释放下拉锁，禁用时不结束编辑会话', async () => {

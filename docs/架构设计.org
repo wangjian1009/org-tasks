@@ -84,9 +84,11 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 文件同步由 Harmony 的 service 编排，经 C++ N-API 与 ~harmony~ bridge 调用 Core 的仓库和策略对象；系统日历适配由 Harmony 的 ~CalendarSync~ 保留，当前无调用入口。日历、凭据、调度和 SDK 生命周期属于平台能力，不进入 Core 领域模型。
 
-定时同步已移除，不注册或启动 WorkScheduler 作业。应用启动时仅清理旧版持久化的同步作业，已删除其扩展注册；同步间隔不再属于宿主配置。桌面卡片定时刷新只读取本地快照，不是同步策略。
+定时同步已移除，不注册或启动 WorkScheduler 作业。应用启动时清理旧版持久化的同步作业，已删除其扩展注册；同步间隔不再属于宿主配置。桌面卡片定时刷新只读取本地快照，不是同步策略。
 
-主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主用独立、仅包含已启用 WebDAV 仓库的 workspace 执行现有通知查询，以 ~syncRequired~ 判断本地变化，不替换页面活动 workspace 或维护 dirty 标记；比较文件与远端基线的规则仍由 Core 实现。短时任务保护配置读取及检查，数据传输长时任务保护实际同步。 ~RepositorySyncService~ 保存共享 Promise 与进度快照，使手动同步和退后台同步沿用同一会话；返回前台不打断当前同步。
+主界面首次加载成功且进入前台后，通过 ~RepositorySyncService.start~ 请求一次 ~appStartup~ 同步，使用 ~SyncStartPolicy.Reuse~ ；恢复前台、重复窗口回调与路由切换不重复触发。启动入口不等待同步完成、不申请后台任务、不发布同步通知。
+
+主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主用独立、仅包含已启用 WebDAV 仓库的 workspace 执行现有通知查询，以 ~syncRequired~ 判断本地变化，不替换页面活动 workspace 或维护 dirty 标记；比较文件与远端基线的规则仍由 Core 实现。短时任务保护配置读取及检查，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
 
 ~BackgroundSyncPresentation~ 使用后台任务返回的通知 ID 更新系统代理创建的实况窗，保留系统类型码与通知槽，胶囊和展开内容复用共享进度。连续事件只保留最新快照，每秒最多更新一次，最终状态写入完成后再释放长时任务，避免迟到更新重建提示；无变化、失败和短时任务到期路径均清理宿主资源。退后台触发不写入日历同步状态、不新增配置、不在后台请求授权；同步失败后仍以 Core 读盘结果决定下次是否重试。
 

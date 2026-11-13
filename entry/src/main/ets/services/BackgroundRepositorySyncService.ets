@@ -3,7 +3,7 @@ import { backgroundTaskManager } from '@kit.BackgroundTasksKit'
 import { AppConfigService } from './AppConfigService'
 import { BackgroundSyncPresentation } from './BackgroundSyncPresentation'
 import { NativeCoreService } from './NativeCoreService'
-import { RepositorySyncService, RepositorySyncState } from './RepositorySyncService'
+import { RepositorySyncService, RepositorySyncState, SyncStartPolicy, SyncStartResult } from './RepositorySyncService'
 
 // 每次退后台至多一个会话；本地变化由 Core 读盘判断，不缓存 dirty 标记。
 export class BackgroundRepositorySyncService {
@@ -33,20 +33,26 @@ export class BackgroundRepositorySyncService {
           delayId = -1
         }
       }).requestId
-      let existing = RepositorySyncService.runningOperation()
-      if (!existing) {
+      let requested: SyncStartResult | undefined = undefined
+      if (RepositorySyncService.runningSync()) {
+        requested = RepositorySyncService.start(context, { triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
+      } else {
         const config = await AppConfigService.load(context, false)
         const changed = await NativeCoreService.hasLocalWebDavChanges(config.repos, config.todoDefaults, config.coreSettings)
         if (!changed || expired) return
-        existing = RepositorySyncService.runningOperation()
+        if (RepositorySyncService.runningSync()) {
+          requested = RepositorySyncService.start(context, { triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
+        }
       }
       await presentation.start()
       if (expired) return
       backgroundTaskManager.cancelSuspendDelay(delayId)
       delayId = -1
-      // 已有前台同步沿用同一个 Promise；返回前台也不打断本轮同步。
+      // 已有会话仅延续后台保护；新请求用 Reject，防止准备期间出现并发同步。
       RepositorySyncService.watch(observer)
-      await (existing ?? RepositorySyncService.start(context, 'appBackground'))
+      const result = requested ?? RepositorySyncService.start(context, {
+        triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
+      await (result.kind === 'rejected' ? result.active.completion : result.handle.completion)
     } catch (_) {
       // 不在后台弹授权或错误窗口，也不把失败标记为已同步；下次退后台可重试。
       console.error('退后台自动同步失败')

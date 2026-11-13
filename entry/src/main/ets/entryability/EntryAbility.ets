@@ -4,7 +4,7 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.Ab
 import { window } from '@kit.ArkUI'
 import { LegacySyncScheduleService } from '../services/LegacySyncScheduleService'
 import { BackgroundRepositorySyncService } from '../services/BackgroundRepositorySyncService'
-import { emptyRepositorySyncState } from '../services/RepositorySyncService'
+import { RepositorySyncService, SyncStartPolicy, emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { UiColor } from '../ui/Theme'
 import { CoreTask } from '../services/NativeCoreService'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
@@ -21,12 +21,13 @@ export default class EntryAbility extends UIAbility {
   private memoId: string = ''
   private foreground: boolean = false
   private contentReady: boolean = false
+  private startupSyncRequested: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }
-    AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())
+    if (!AppStorage.has('repositorySync')) AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())
     await LegacySyncScheduleService.remove()
   }
 
@@ -72,6 +73,7 @@ export default class EntryAbility extends UIAbility {
         return
       }
       this.contentReady = true
+      this.startStartupSync()
       this.checkNotificationPermission()
     })
   }
@@ -98,8 +100,15 @@ export default class EntryAbility extends UIAbility {
     })
   }
 
+  private startStartupSync(): void {
+    if (!this.foreground || !this.contentReady || this.startupSyncRequested) return
+    this.startupSyncRequested = true
+    RepositorySyncService.start(this.context, { triggerReason: 'appStartup', policy: SyncStartPolicy.Reuse })
+  }
+
   onForeground(): void {
     this.foreground = true
+    this.startStartupSync()
     DeviceBadgeService.start(this.context)
     this.checkNotificationPermission()
   }
