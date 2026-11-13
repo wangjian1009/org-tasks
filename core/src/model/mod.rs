@@ -337,6 +337,8 @@ impl Eq for OrgFile {}
 pub struct OrgRepoSyncRecord<C = serde_json::Value, F = serde_json::Value> {
     pub id: OrgRepoSyncRecordId,
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_reason: Option<SyncTriggerReason>,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub result: Option<OrgRepoSyncResult>,
@@ -353,6 +355,7 @@ impl<C: Default, F: Default> OrgRepoSyncRecord<C, F> {
         Ok(Self {
             id,
             kind: String::new(),
+            trigger_reason: None,
             started_at,
             finished_at: None,
             result: None,

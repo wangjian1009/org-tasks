@@ -28,7 +28,7 @@ function compile(name, dependencies, globals = {}) {
   return module.exports;
 }
 function fixture() {
-  const calls = [], notifications = [], timers = new Map(), states = [];
+  const calls = [], notifications = [], timers = new Map(), states = [], reasons = [];
   let changed = true, syncFailure = false, publishFailure = false, retainFailure = false;
   let notificationMisses = 0;
   let checkGate, syncGate, retainGate, expiry;
@@ -50,7 +50,8 @@ function fixture() {
   const native = {
     NativeCoreService: {
       async hasLocalWebDavChanges() { calls.push('check'); if (checkGate) await checkGate.promise; return changed; },
-      async syncWorkspaceWebDav(repos, callback) {
+      async syncWorkspaceWebDav(repos, callback, todoDefaults, coreSettings, triggerReason) {
+        reasons.push(triggerReason);
         calls.push('sync'); monitor = callback;
         callback({ type: 'fileStarted', index: 0, total: 2, path: 'a.org' });
         callback({ type: 'fileProcessed', path: 'a.org' });
@@ -98,7 +99,7 @@ function fixture() {
   }
   return { service: load('./BackgroundRepositorySyncService').BackgroundRepositorySyncService,
     repository: load('./RepositorySyncService').RepositorySyncService,
-    calls, notifications, timers, states, context: { abilityInfo: { bundleName: 'com.example.orgtasks' } },
+    calls, notifications, timers, states, reasons, context: { abilityInfo: { bundleName: 'com.example.orgtasks' } },
     change(value) { changed = value; }, syncFail(value) { syncFailure = value; }, publishFail() { publishFailure = true; },
     retainFail() { retainFailure = true; }, holdCheck(gate) { checkGate = gate; }, holdSync(gate) { syncGate = gate; },
     delayNotification() { notificationMisses = 1; },
@@ -107,6 +108,20 @@ function fixture() {
     async flushTimers() { for (const [id, callback] of [...timers]) { timers.delete(id); callback(); } await tick(); }
   };
 }
+
+test('共享同步保留最初触发原因，退后台新会话使用后台原因', async () => {
+  for (const reason of ['appStartup', 'manual']) {
+    const f = fixture(), gate = deferred(); f.holdSync(gate);
+    const running = f.repository.start(f.context, reason);
+    await tick();
+    const background = f.service.start(f.context);
+    assert.equal(f.repository.start(f.context, 'appBackground'), running);
+    gate.resolve(); await Promise.all([running, background]);
+    assert.deepEqual(f.reasons, [reason]);
+  }
+  const f = fixture(); await f.service.start(f.context);
+  assert.deepEqual(f.reasons, ['appBackground']);
+});
 
 test('没有本地变化时只查询，不申请长时任务或访问凭据', async () => {
   const f = fixture(); f.change(false); await f.service.start(f.context);

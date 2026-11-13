@@ -1,4 +1,4 @@
-import { CoreSettings, TaskState, TaskPriority, TaskLog } from 'liborg_tasks_harmony.so'
+import { CoreSettings, TaskState, TaskPriority, TaskLog, SyncTriggerReason } from 'liborg_tasks_harmony.so'
 // Org 任务数据模型
 
 export interface OrgTask {
@@ -45,6 +45,7 @@ export interface RepoConfig {
 
 export interface SyncOptions {
   excludedDirectories: string[]
+  triggerReason?: SyncTriggerReason
 }
 
 // 应用配置

@@ -79,7 +79,7 @@ WebDAV 报告列举、下载、上传和请求响应的脱敏进度，不将运�
 
 * 同步过滤目录
 
-本次同步参数通过 ~OrgRepo.sync_with_options~ 传入 ~SyncContext.options~ ，不保存在 ~WebDavSyncPolicy~ 或 ~OrgRepo~ 中。 ~SyncOptions::default()~ 默认排除 ~archive~ 目录；显式空列表关闭目录过滤。目录名按大小写敏感的路径组件匹配，可匹配任意层级的同名目录，文件名不参与匹配。
+本次同步参数通过 ~OrgRepo.sync_with_options~ 传入 ~SyncContext.options~ ，不保存在 ~WebDavSyncPolicy~ 或 ~OrgRepo~ 中。 ~trigger_reason~ 使用通用 ~SyncTriggerReason~ 枚举，由宿主按应用启动、退到后台或手动入口传入；仓库服务将其写入本轮完成历史，WebDAV 不推断或改变原因。 ~SyncOptions::default()~ 默认排除 ~archive~ 目录；显式空列表关闭目录过滤。目录名按大小写敏感的路径组件匹配，可匹配任意层级的同名目录，文件名不参与匹配。
 
 WebDAV 在处理文件前同时过滤远端列举结果与本地候选路径，避免被排除文件的下载、上传、冲突和远端删除判断。过滤路径不生成本轮文件记录，不消费其 outbox，也不删除已有本地文件。远端目录以 ~Depth: 1~ 逐层校验并递归列举，路径范围与删除决策统一由 Core 管理。
 

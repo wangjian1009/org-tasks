@@ -46,7 +46,7 @@ export class BackgroundRepositorySyncService {
       delayId = -1
       // 已有前台同步沿用同一个 Promise；返回前台也不打断本轮同步。
       RepositorySyncService.watch(observer)
-      await (existing ?? RepositorySyncService.start(context))
+      await (existing ?? RepositorySyncService.start(context, 'appBackground'))
     } catch (_) {
       // 不在后台弹授权或错误窗口，也不把失败标记为已同步；下次退后台可重试。
       console.error('退后台自动同步失败')

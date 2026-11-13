@@ -121,6 +121,8 @@ pub struct HarmonyBridgeTask {
 #[derive(Debug, Serialize)]
 pub struct HarmonyBridgeSync {
     pub id: String,
+    #[serde(rename = "triggerReason")]
+    pub trigger_reason: Option<org_tasks_core::SyncTriggerReason>,
     pub result: String,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
@@ -659,6 +661,7 @@ fn bridge_sync_summary(
 ) -> Result<HarmonyBridgeSync, CoreError> {
     Ok(HarmonyBridgeSync {
         id: summary.id,
+        trigger_reason: summary.trigger_reason,
         result: sync_result_label(Some(summary.result))?,
         execution_result: sync_result_label(Some(summary.execution_result))?,
         started_at: summary.started_at,
@@ -1184,6 +1187,7 @@ mod tests {
         )
         .unwrap()
         .with_kind("webdav");
+        conflict.trigger_reason = Some(org_tasks_core::SyncTriggerReason::AppBackground);
         for path in ["a.org", "b.org"] {
             conflict
                 .append_file(
@@ -1228,12 +1232,14 @@ mod tests {
         let history: serde_json::Value =
             serde_json::from_str(&repo_history_json(handle, directory.clone()).unwrap()).unwrap();
         assert_eq!(history[0]["result"], "failed");
+        assert_eq!(history[0]["triggerReason"], "appBackground");
         assert_eq!(history[0]["executionResult"], "succeeded");
         assert_eq!(history[0]["transfer"], "unchanged");
         assert_eq!(history[0]["conflicts"].as_array().unwrap().len(), 2);
         assert!(history[0].get("resolvedConflicts").is_none());
         assert!(history[0]["errorCategory"].is_null());
         assert_eq!(history[1]["transfer"], "download");
+        assert_eq!(history[1]["triggerReason"], serde_json::Value::Null);
         assert_eq!(history[1]["downloadedFiles"], 1);
         assert_eq!(history[1]["uploadedFiles"], 0);
         let detail: serde_json::Value = serde_json::from_str(
@@ -1241,6 +1247,7 @@ mod tests {
         )
         .unwrap();
         assert!(detail["summary"].get("pendingConflicts").is_none());
+        assert_eq!(detail["summary"]["triggerReason"], "appBackground");
         assert_eq!(detail["files"][0]["outcome"], "conflict");
         assert_eq!(detail["files"][1]["outcome"], "conflict");
         assert_eq!(detail["errors"].as_array().unwrap().len(), 0);

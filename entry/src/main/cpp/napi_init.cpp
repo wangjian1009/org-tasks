@@ -1849,8 +1849,10 @@ napi_value RepoSync(napi_env env, napi_callback_info info)
         }
     }
     napi_valuetype options_type = napi_undefined;
+    // triggerReason 与过滤规则作为结构化参数透传，由 Core 校验枚举并写入历史。
     if (argc == 3 && (napi_typeof(env, args[2], &options_type) != napi_ok ||
-        (options_type != napi_undefined && !EncodeJson(env, args[2], &work->sync_options_json)))) {
+        (options_type != napi_undefined && (options_type != napi_object ||
+            !EncodeJson(env, args[2], &work->sync_options_json))))) {
         if (work->monitor != nullptr) napi_release_threadsafe_function(work->monitor, napi_tsfn_abort);
         delete work;
         napi_throw_error(env, nullptr, "Repo.sync 同步参数无效");

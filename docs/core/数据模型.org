@@ -105,6 +105,7 @@ count: usize}{}
 \umlclass[x=0,y=0]{OrgRepoSyncRecord}{
   id: OrgRepoSyncRecordId \\
   kind: String \\
+  trigger\_reason: Option\textless SyncTriggerReason\textgreater \\
   result: Option\textless OrgRepoSyncResult\textgreater \\
   started\_at: TimestampMs \\
   finished\_at: Option\textless TimestampMs\textgreater
@@ -484,12 +485,15 @@ pub struct OrgRepoWriteIntent {
 
 ~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它由 ~OrgRepo.load::<P>~ 返回或由同步策略产生，不作为 ~OrgRepo~ 的字段保存，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
 
+~OrgRepoSyncRecord.trigger_reason~ 保存本轮调用的触发原因，独立于策略和执行结果；新完成记录均由仓库服务写入 ~Some~ ，失败、取消和中断记录同样保留。旧 JSON 缺失该字段时读取为 ~None~ ，不推断或补写原因，列表摘要与详情保持一致。
+
 ~OrgRepoSyncFileRecord~ 记录一次同步中一个相对路径的结果。WebDAV 成功文件在 ~detail.synced_source~ 中保存完整同步后文件快照；其他元数据、错误摘要与 outbox 不保存正文，所有记录均不保存绝对路径、远端 URL、认证 header 或配置凭据。
 
 #+begin_src rust
 pub struct OrgRepoSyncRecord<C, F> {
     pub id: OrgRepoSyncRecordId,
     pub kind: String,
+    pub trigger_reason: Option<SyncTriggerReason>,
     pub started_at: TimestampMs,
     pub finished_at: Option<TimestampMs>,
     pub result: Option<OrgRepoSyncResult>,
@@ -755,14 +759,18 @@ pub struct TodoMetadata {
 
 * 同步运行时参数
 
-~SyncOptions~ 由同步调用传入 ~SyncContext~ ，不保存在仓库实体、同步历史或 outbox 中。目录过滤是当前的同步规则，后续可扩展其他规则。Rust 默认排除 ~archive~ ，显式空列表表示不过滤。 ~excluded_directories~ 只接受单个目录名，匹配任意层级的目录路径组件。
+~SyncOptions~ 由同步调用传入 ~SyncContext~ ，不保存在仓库实体或 outbox 中；仅将 ~trigger_reason~ 复制到完成的同步历史，目录过滤规则不写入历史。Rust 默认排除 ~archive~ ，显式空列表表示不过滤。 ~excluded_directories~ 只接受单个目录名，匹配任意层级的目录路径组件。
 
 #+begin_src rust
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct SyncOptions {
     pub excluded_directories: Vec<String>,
+    pub trigger_reason: SyncTriggerReason,
 }
+
+#[serde(rename_all = "camelCase")]
+pub enum SyncTriggerReason { AppStartup, AppBackground, Manual }
 #+end_src
 
 \begin{center}
@@ -771,10 +779,15 @@ pub struct SyncOptions {
 started\_at: TimestampMs \\
 base: PathBuf \\
 options: SyncOptions}{}
-\umlclass[x=7,y=0]{SyncOptions}{excluded\_directories: Vec\textless String\textgreater}{}
+\umlclass[x=7,y=0]{SyncOptions}{excluded\_directories: Vec\textless String\textgreater \\
+trigger\_reason: SyncTriggerReason}{}
+\umlclass[x=7,y=-3]{SyncTriggerReason}{AppStartup \\ AppBackground \\ Manual}{}
+\umldep{SyncOptions}{SyncTriggerReason}
 \umluniassoc[mult1=1,mult2=1]{SyncContext}{SyncOptions}
 \end{tikzpicture}
 \end{center}
+
+~SyncTriggerReason~ 只有 ~AppStartup~ （应用启动）、 ~AppBackground~ （退到后台）与 ~Manual~ （手动同步），JSON 值分别为 ~appStartup~ 、 ~appBackground~ 与 ~manual~ 。省略调用原因时默认 ~Manual~ ，未知值拒绝，不作为宿主持久化配置。
 
 * 通用批量查询模型
 

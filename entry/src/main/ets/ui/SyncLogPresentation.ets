@@ -57,11 +57,20 @@ export function syncLogRenderKey(record: CoreSyncRecord): string {
   return JSON.stringify(record)
 }
 
+export function syncLogTriggerLabel(record: CoreSyncRecord): string {
+  switch (record.triggerReason) {
+    case 'appStartup': return '应用启动'
+    case 'appBackground': return '退到后台'
+    case 'manual': return '手动同步'
+    default: return '未记录触发原因'
+  }
+}
+
 export function syncLogTitle(record: CoreSyncRecord): string {
   const error = syncLogErrorLabel(record).replace(/[\r\n]+/g, ' ')
-  if (!error) return syncLogTransferLabel(record)
-  return record.transfer !== 'unchanged'
+  const title = !error ? syncLogTransferLabel(record) : record.transfer !== 'unchanged'
     ? `${error} · ${syncLogTransferLabel(record)}` : error
+  return record.triggerReason ? `${syncLogTriggerLabel(record)} · ${title}` : title
 }
 
 export function syncLogFileOutcomeLabel(file: CoreSyncFileRecord): string {

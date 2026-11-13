@@ -137,6 +137,7 @@ export class Task {
 
 export interface SyncRecord {
   id: string;
+  triggerReason: SyncTriggerReason | null;
   result: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
   started_at: number;
   finished_at: number | null;
@@ -177,7 +178,8 @@ export type WebDavSyncEvent =
 
 export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
-export interface SyncOptions { excludedDirectories: string[]; }
+export type SyncTriggerReason = 'appStartup' | 'appBackground' | 'manual';
+export interface SyncOptions { excludedDirectories: string[]; triggerReason?: SyncTriggerReason; }
 
 export interface OrgFileRef { repoId: string; path: string; }
 

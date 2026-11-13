@@ -228,6 +228,78 @@ async fn offline(repo: &mut OrgRepo, path: &str) {
 }
 
 #[tokio::test]
+async fn trigger_reason_is_persisted_for_success_failure_and_cancellation() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Task\n")]).await;
+    for (time, trigger_reason, expected) in [
+        (
+            1,
+            crate::SyncTriggerReason::AppStartup,
+            OrgRepoSyncResult::Succeeded,
+        ),
+        (
+            2,
+            crate::SyncTriggerReason::AppBackground,
+            OrgRepoSyncResult::Failed,
+        ),
+        (
+            3,
+            crate::SyncTriggerReason::Manual,
+            OrgRepoSyncResult::Cancelled,
+        ),
+    ] {
+        state.lock().unwrap().invalid_listing = expected == OrgRepoSyncResult::Failed;
+        let cancellation = SyncCancellation::default();
+        if expected == OrgRepoSyncResult::Cancelled {
+            cancellation.cancel();
+        }
+        let record = repo
+            .sync_with_options(
+                &policy,
+                time,
+                &cancellation,
+                &SyncProgressReporter::default(),
+                crate::SyncOptions {
+                    trigger_reason,
+                    ..crate::SyncOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(record.result, Some(expected));
+        assert_eq!(record.trigger_reason, Some(trigger_reason));
+        let stored: serde_json::Value = serde_json::from_slice(
+            &tokio::fs::read(root.join(format!(".sync/history/{time}.json")))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            stored["trigger_reason"],
+            serde_json::to_value(trigger_reason).unwrap()
+        );
+        let summary = repo
+            .history_summaries()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|item| item.id == record.id)
+            .unwrap();
+        assert_eq!(summary.trigger_reason, Some(trigger_reason));
+        assert_eq!(
+            repo.history_detail(&record.id)
+                .await
+                .unwrap()
+                .summary
+                .trigger_reason,
+            Some(trigger_reason)
+        );
+    }
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
 async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_idempotent() {
     let (mut repo, root) = repo().await;
     let base = b"* TODO Project [/]\r\n- [ ] First\r\n- [X] Second\r\n** TODO Child [%]\r\nNotes\r\n";
@@ -989,6 +1061,7 @@ async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() 
             &SyncProgressReporter::default(),
             crate::SyncOptions {
                 excluded_directories: vec!["private".into()],
+                ..crate::SyncOptions::default()
             },
         )
         .await
@@ -1031,6 +1104,7 @@ async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() 
             &SyncProgressReporter::default(),
             crate::SyncOptions {
                 excluded_directories: Vec::new(),
+                ..crate::SyncOptions::default()
             },
         )
         .await

@@ -1,4 +1,4 @@
-import { CoreSettings } from 'liborg_tasks_harmony.so'
+import { CoreSettings, SyncTriggerReason } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { RepoConfig } from '../models/OrgTask'
@@ -62,16 +62,16 @@ export class RepositorySyncService {
     return RepositorySyncService.snapshot()
   }
 
-  static start(context: Context): Promise<void> {
+  static start(context: Context, triggerReason: SyncTriggerReason = 'manual'): Promise<void> {
     if (!RepositorySyncService.operation) {
-      RepositorySyncService.operation = RepositorySyncService.run(context).finally((): void => {
+      RepositorySyncService.operation = RepositorySyncService.run(context, triggerReason).finally((): void => {
         RepositorySyncService.operation = undefined
       })
     }
     return RepositorySyncService.operation
   }
 
-  private static async run(context: Context): Promise<void> {
+  private static async run(context: Context, triggerReason: SyncTriggerReason): Promise<void> {
     console.info('文件同步开始')
     RepositorySyncService.failurePending = false
     const generation = ++RepositorySyncService.generation
@@ -107,7 +107,7 @@ export class RepositorySyncService {
         ? NativeCoreService.syncWorkspaceWebDav(repos,
           (event: CoreWebDavSyncEvent) => {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
-          }, todoDefaults, coreSettings)
+          }, todoDefaults, coreSettings, triggerReason)
         : NativeCoreService.loadWorkspace(repos, todoDefaults, coreSettings))
       state.progress = 100
       state.determinate = true

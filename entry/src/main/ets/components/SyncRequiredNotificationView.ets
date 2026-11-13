@@ -12,7 +12,7 @@ export struct SyncRequiredNotificationView {
     if (this.disabled || this.starting || this.syncState.running) return
     this.starting = true
     try {
-      await RepositorySyncService.start(this.getUIContext().getHostContext()!)
+      await RepositorySyncService.start(this.getUIContext().getHostContext()!, 'manual')
     } finally { this.starting = false }
   }
 

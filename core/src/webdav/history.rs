@@ -13,6 +13,7 @@ pub enum WebDavSyncTransfer {
 #[derive(Clone, Debug)]
 pub struct WebDavSyncRecordSummary {
     pub id: String,
+    pub trigger_reason: Option<crate::SyncTriggerReason>,
     pub result: OrgRepoSyncResult,
     pub execution_result: OrgRepoSyncResult,
     pub started_at: TimestampMs,
@@ -94,6 +95,7 @@ impl WebDavSyncRecordSummary {
             };
         Ok(Self {
             id: record.id.clone(),
+            trigger_reason: record.trigger_reason,
             result,
             execution_result,
             started_at: record.started_at,
@@ -251,6 +253,31 @@ mod tests {
         state: OrgRepoSyncFileState,
     ) -> OrgRepoSyncFileRecord<WebDavSyncFileDetail> {
         OrgRepoSyncFileRecord::new(path.into(), action, state).unwrap()
+    }
+
+    #[test]
+    fn trigger_reason_is_projected_without_inventing_legacy_values() {
+        let original = make_record("legacy", OrgRepoSyncResult::Failed, vec![]);
+        let mut json = serde_json::to_value(&original).unwrap();
+        json.as_object_mut().unwrap().remove("trigger_reason");
+        let mut decoded = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            WebDavSyncRecordSummary::from_record(&decoded)
+                .unwrap()
+                .trigger_reason,
+            None
+        );
+        for reason in [
+            crate::SyncTriggerReason::AppStartup,
+            crate::SyncTriggerReason::AppBackground,
+            crate::SyncTriggerReason::Manual,
+        ] {
+            decoded.trigger_reason = Some(reason);
+            let summary = WebDavSyncRecordSummary::from_record(&decoded).unwrap();
+            assert_eq!(summary.trigger_reason, Some(reason));
+            let detail = sync_history_detail(&[decoded.clone()], "legacy").unwrap();
+            assert_eq!(detail.summary.trigger_reason, Some(reason));
+        }
     }
 
     #[test]

@@ -45,6 +45,7 @@ import {
   OrgFile as NativeOrgFile,
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
+  SyncTriggerReason,
   SyncRecordDetail as NativeSyncRecordDetail,
   SyncFileRecord as NativeSyncFileRecord,
   SyncHistoryError as NativeSyncHistoryError,
@@ -366,7 +367,8 @@ export class NativeCoreService {
     repositories: RepoConfig[],
     monitor?: CoreWebDavSyncMonitor,
     todoDefaults?: string,
-    coreSettings?: CoreSettings
+    coreSettings?: CoreSettings,
+    triggerReason: SyncTriggerReason = 'manual'
   ): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
@@ -374,7 +376,7 @@ export class NativeCoreService {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
-        const sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories })
+        const sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories, triggerReason })
         if (sync.result !== 'succeeded') {
           throw new Error('WebDAV 同步未完成，请重试')
         }

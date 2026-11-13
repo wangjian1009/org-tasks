@@ -1,7 +1,7 @@
 import { CoreBridgeError, CoreSyncFileRecord, CoreSyncHistoryError, CoreSyncRecordDetail,
   NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { AppConfigService } from '../services/AppConfigService'
-import { syncLogFileOutcomeLabel, syncLogTimeLabel, syncLogErrorLabel } from '../ui/SyncLogPresentation'
+import { syncLogFileOutcomeLabel, syncLogTimeLabel, syncLogErrorLabel, syncLogTriggerLabel } from '../ui/SyncLogPresentation'
 import { UiColor } from '../ui/Theme'
 
 // 展开项按日志身份请求 Core 投影，包含无变化文件；不在页面推导同步状态。
@@ -80,7 +80,7 @@ export struct SyncLogDetails {
         Button('重试').height(44).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
           .onClick((): void => { this.load() })
       } else if (this.detail) {
-        Text(syncLogTimeLabel(this.detail.summary.started_at)).fontSize(12).fontColor(UiColor.secondary)
+        Text(`${syncLogTimeLabel(this.detail.summary.started_at)} · ${syncLogTriggerLabel(this.detail.summary)}`).fontSize(12).fontColor(UiColor.secondary)
           .width('100%').padding({ left: 8, right: 8, top: 4 })
         ForEach(this.detail.files, (file: CoreSyncFileRecord) => {
           this.fileRow(file)

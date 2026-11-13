@@ -90,6 +90,17 @@ impl<'a> SyncContext<'a> {
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct SyncOptions {
     pub excluded_directories: Vec<String>,
+    pub trigger_reason: SyncTriggerReason,
+}
+
+/// 宿主发起本轮同步的原因，与同步策略和执行结果独立。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncTriggerReason {
+    AppStartup,
+    AppBackground,
+    #[default]
+    Manual,
 }
 
 pub fn default_sync_options() -> SyncOptions {
@@ -100,6 +111,7 @@ impl Default for SyncOptions {
     fn default() -> Self {
         Self {
             excluded_directories: vec!["archive".into()],
+            trigger_reason: SyncTriggerReason::Manual,
         }
     }
 }
@@ -140,7 +152,27 @@ impl SyncOptions {
 
 #[cfg(test)]
 mod sync_options_tests {
-    use super::SyncOptions;
+    use super::{SyncOptions, SyncTriggerReason};
+
+    #[test]
+    fn trigger_reason_uses_stable_wire_values_and_rejects_unknown_values() {
+        for (trigger_reason, value) in [
+            (SyncTriggerReason::AppStartup, "appStartup"),
+            (SyncTriggerReason::AppBackground, "appBackground"),
+            (SyncTriggerReason::Manual, "manual"),
+        ] {
+            let options: SyncOptions = serde_json::from_value(serde_json::json!({
+                "triggerReason": value,
+            }))
+            .unwrap();
+            assert_eq!(options.trigger_reason, trigger_reason);
+            assert_eq!(
+                serde_json::to_value(options).unwrap()["triggerReason"],
+                value
+            );
+        }
+        assert!(serde_json::from_str::<SyncOptions>(r#"{"triggerReason":"scheduled"}"#).is_err());
+    }
 
     #[test]
     fn default_and_directory_component_filtering() {
@@ -169,6 +201,7 @@ mod sync_options_tests {
                 "archive".into(),
                 "私有".into(),
             ],
+            ..SyncOptions::default()
         }
         .normalized()
         .unwrap();
@@ -176,7 +209,8 @@ mod sync_options_tests {
         for value in ["/archive", "../archive", "a/b", "a\\b", ".", "..", "a\0b"] {
             assert!(
                 SyncOptions {
-                    excluded_directories: vec![value.into()]
+                    excluded_directories: vec![value.into()],
+                    ..SyncOptions::default()
                 }
                 .normalized()
                 .is_err()
@@ -625,11 +659,13 @@ impl OrgRepo {
             Path::new(&self.root_directory),
             started_at,
         );
+        let trigger_reason = options.trigger_reason;
         let mut context = SyncContext::with_options(self, started_at, options);
         let mut record = policy
             .synchronize(&mut context, cancellation, progress)
             .await?;
         drop(context);
+        record.trigger_reason = Some(trigger_reason);
         let guard = crate::webdav::session::enter(
             Path::new(&root_directory),
             &self.id,
@@ -1372,6 +1408,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+        assert_eq!(record.trigger_reason, Some(SyncTriggerReason::Manual));
         assert!(
             tokio::fs::try_exists(root.join(".sync/history/10.json"))
                 .await
@@ -1384,6 +1421,39 @@ mod tests {
             vec![record]
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn sync_trigger_reason_survives_failure_and_history_reload() {
+        for trigger_reason in [
+            SyncTriggerReason::AppStartup,
+            SyncTriggerReason::AppBackground,
+            SyncTriggerReason::Manual,
+        ] {
+            let root = test_root(&format!("sync-trigger-{trigger_reason:?}"));
+            let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+            let record = repo
+                .sync_with_options(
+                    &FailedSync,
+                    10,
+                    &SyncCancellation::default(),
+                    &SyncProgressReporter::default(),
+                    SyncOptions {
+                        trigger_reason,
+                        ..SyncOptions::default()
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(record.result, Some(OrgRepoSyncResult::Failed));
+            assert_eq!(record.trigger_reason, Some(trigger_reason));
+            let reloaded = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+            assert_eq!(
+                reloaded.sync_history::<FailedSync>().await.unwrap(),
+                vec![record]
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[tokio::test]

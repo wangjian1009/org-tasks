@@ -94,6 +94,19 @@ test('仅远端删除备份可打开，其余历史文件不产生导航', async
   assert.equal(f.toasts.length, 6);
 });
 
+test('新日志标题显示触发原因，旧日志保留原始标题并明确原因未记录', () => {
+  const record = { transfer: 'upload', uploadedFiles: 2, executionResult: 'succeeded' };
+  for (const [triggerReason, label] of Object.entries({ appStartup: '应用启动', appBackground: '退到后台', manual: '手动同步' })) {
+    const current = { ...record, triggerReason };
+    assert.equal(presentation.syncLogTriggerLabel(current), label);
+    assert.equal(presentation.syncLogTitle(current), `${label} · 上传2个文件`);
+  }
+  assert.equal(presentation.syncLogTitle(record), '上传2个文件');
+  assert.equal(presentation.syncLogTriggerLabel({ ...record, triggerReason: null }), '未记录触发原因');
+  assert.equal(presentation.syncLogTitle({ ...record, triggerReason: 'appBackground', executionResult: 'failed', errorMessage: '连接被重置' }),
+    '退到后台 · 连接被重置 · 上传2个文件');
+});
+
 test('展示六类持久化文件状态及本地上传状态', () => {
   for (const [outcome, label] of Object.entries({ created: '新增', deleted: '删除', unchanged: '无变化', updated: '更新', merged: '合并', conflict: '冲突', uploaded: '本地上传' })) {
     assert.equal(presentation.syncLogFileOutcomeLabel({ outcome }), label);

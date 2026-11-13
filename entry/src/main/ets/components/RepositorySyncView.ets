@@ -66,7 +66,7 @@ export struct RepositorySyncView {
     this.preparingPull = true
     try {
       if (!await this.beforePull() || !this.canPull()) return
-      await RepositorySyncService.start(this.getUIContext().getHostContext()!)
+      await RepositorySyncService.start(this.getUIContext().getHostContext()!, 'manual')
     } catch (_) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: '保存任务失败，请重试。' })
