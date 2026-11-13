@@ -27,7 +27,7 @@ HAP_DIR := entry/build/default/outputs/default
 BUNDLE_NAME := com.example.orgtasks
 ABILITY_NAME := EntryAbility
 
-.PHONY: all build release clean install install-only run deploy log log-all deps check-sdk docs-export icons setup-hooks help
+.PHONY: all build release clean install install-only run deploy log log-all deps check-sdk docs-export setup-hooks help
 
 # 默认目标：编译
 all: build
@@ -164,11 +164,6 @@ docs-export:
 	done
 	@echo ">>> 已按 Org 导出设置创建 output/docs 下的目录"
 
-# 重新生成应用使用的两套 HarmonyOS 图标资源。
-icons:
-	@echo ">>> 导出 HarmonyOS App 图标..."
-	@python3 scripts/export-harmony-icons.py
-
 # 启用 WorkTree 配置 hook，使新 WorkTree 自动链接主工作树的 AGENTS.local.md。
 setup-hooks:
 	@./scripts/install-git-hooks.sh
@@ -191,5 +186,4 @@ help:
 	@echo "  make deploy       部署到唯一连接设备（多设备时可设置 HDC_TARGET）"
 	@echo "  make docs-export  按 Org 设置创建 output/docs 下的导出目录"
 	@echo "  make clean         清理构建产物"
-	@echo "  make icons         导出 HarmonyOS App 图标资源"
 	@echo "  make setup-hooks   启用 WorkTree 本地配置软链接 hook"

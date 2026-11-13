@@ -3,10 +3,10 @@
 
 * 设计来源与方案
 
-本机参考应用为 =/Applications/Things3.app= ，图标位于其 =Contents/Resources/AppIcon.icns= 。项目借鉴应用主色渐变底板、白色任务卡片和深色描边的视觉语言，以独立 SVG 源文件维护，未将参考应用的位图复制进项目。当前主色渐变使用浅青绿 ~#9BE7E0~ 、应用强调色 ~#5AC4B9~ 和深色主色 ~#174C47~ ，与进入应用后的主色体系一致。
+本机参考应用为 =/Applications/Things3.app= ，图标位于其 =Contents/Resources/AppIcon.icns= 。项目借鉴应用主色渐变底板、白色任务卡片和深色描边的视觉语言，未将参考应用的位图复制进项目。当前主色渐变使用浅青绿 ~#9BE7E0~ 、应用强调色 ~#5AC4B9~ 和深色主色 ~#174C47~ ，与进入应用后的主色体系一致。当前设计统一见 [[file:视觉设计规范.org][视觉设计规范]] 的品牌与保留资源部分。
 
-- 主方案：[[file:../../design/icons/org_tasks_check.svg][勾选卡片]]，以勾选与浅色文本线表达任务完成。
-- 备用方案：[[file:../../design/icons/org_tasks_outline.svg][层级卡片]]，以树形节点表达 Org 标题层级。
+- 主方案：[[file:../../AppScope/resources/base/media/app_icon.png][勾选卡片]]，以勾选与浅色文本线表达任务完成。
+- 备用方案：[[file:../../AppScope/resources/base/media/app_icon_outline.png][层级卡片]]，以树形节点表达 Org 标题层级。
 
 两套方案保持相同卡片边距、轮廓和阴影位置，小尺寸下仍以深色符号和白色卡片保持对比度；勾选和层级图形同步采用主色体系。
 
@@ -20,8 +20,6 @@
 
 * 资源接入
 
-[[file:../../scripts/export-harmony-icons.py][导出脚本]]将 SVG 渲染为 PNG。依赖 Python 3，以及 librsvg 提供的 =rsvg-convert= 或 ImageMagick 提供的 =magick= ，优先使用前者。
-
-运行 =make icons= 可重新生成两套方案的 256、512 和 1024 像素资源；自定义尺寸与输出目录通过脚本的 =--help= 查看。
+旧版独立 SVG 设计资产及配套导出入口已清理，现有 PNG 资源继续用于应用与备用方案。
 
 资源统一位于 =AppScope/resources/base/media/= ，供应用与 entry 模块共享，避免同名资源重复定义。主方案的 256 像素资源名为 =app_icon.png= ，由应用清单、桌面入口及启动窗口的 =$media:app_icon= 引用；备用方案为 =app_icon_outline.png= 。较大尺寸使用 =_512= 和 =_1024= 后缀，未作为默认入口。备用方案作为设计资产交付，应用内未提供图标切换设置。
