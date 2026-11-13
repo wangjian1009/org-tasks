@@ -3,6 +3,10 @@ use org_tasks_core::TaskQuery;
 use org_tasks_core::{FilterTask, OrgFile, OrgRepo, OrgWorkspace};
 
 async fn tasks(source: &str) -> Vec<FilterTask> {
+    query_tasks(source, "").await
+}
+
+async fn query_tasks(source: &str, expression: &str) -> Vec<FilterTask> {
     let mut repo = OrgRepo::new("/tmp/task-display-hints".into()).unwrap();
     repo.id = "display".into();
     { let value =
@@ -13,7 +17,7 @@ async fn tasks(source: &str) -> Vec<FilterTask> {
         )
         .unwrap(); support::push_file(&mut repo, value); };
     let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-    let result = workspace.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
+    let result = workspace.query(&[(TaskQuery { expression: expression.into(), ..Default::default() }).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(
         workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes(),
         source.as_bytes()
@@ -97,6 +101,39 @@ async fn repetition_with_org_repeater_deadline_is_a_task_hint_and_not_body_text(
     assert!(rendered.body_html.contains("正文"), "{}", rendered.body_html);
     assert!(!rendered.body_html.contains("SCHEDULED:"), "{}", rendered.body_html);
     assert!(!rendered.body_html.contains(".+1d/3d"), "{}", rendered.body_html);
+}
+
+#[tokio::test]
+async fn habit_with_repeater_window_keeps_own_style_property() {
+    for newline in ["\n", "\r\n"] {
+        let source = "* 快速阅读\n** TODO 阅读RSS和资料\nSCHEDULED: <2026-11-13 Fri .+1d/3d>\n:PROPERTIES:\n:STYLE:    habit\n:LAST_REPEAT: [2026-11-12 Thu 14:01]\n:END:\n** TODO 普通循环\nSCHEDULED: <2026-11-13 Fri .+1d/3d>\n".replace('\n', newline);
+        let records = tasks(&source).await;
+        assert!(records[1].is_repeating());
+        assert!(records[1].is_habit());
+        assert!(records[2].is_repeating());
+        assert!(!records[2].is_habit());
+    }
+}
+
+#[tokio::test]
+async fn habit_queries_compose_with_all_future_planning_branches() {
+    let tomorrow = chrono::Local::now().date_naive().succ_opt().unwrap();
+    let mut source = String::from("#+PROPERTY: STYLE habit\n");
+    for (name, planning) in [
+        ("Scheduled", format!("SCHEDULED: <{tomorrow} .+1d/3d>")),
+        ("Deadline", format!("DEADLINE: <{tomorrow} +1w>")),
+        ("Both", format!("SCHEDULED: <{tomorrow}> DEADLINE: <{tomorrow}>")),
+    ] {
+        source.push_str(&format!("* TODO Habit{name}\n{planning}\n:PROPERTIES:\n:STYLE: habit\n:END:\n* TODO Regular{name}\n{planning}\n"));
+    }
+    source.push_str("* TODO Undated\n:PROPERTIES:\n:STYLE: habit\n:END:\n* TODO Literal is.habit\n");
+    let planned = ".is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))";
+    assert_eq!(query_tasks(&source, planned).await.iter().map(FilterTask::title).collect::<Vec<_>>(),
+        ["RegularScheduled", "RegularDeadline", "RegularBoth"]);
+    assert_eq!(query_tasks(&source, "is.habit").await.iter().map(FilterTask::title).collect::<Vec<_>>(),
+        ["HabitScheduled", "HabitDeadline", "HabitBoth", "Undated"]);
+    assert_eq!(query_tasks(&source, "\"is.habit\"").await.iter().map(FilterTask::title).collect::<Vec<_>>(),
+        ["Literal is.habit"]);
 }
 
 #[tokio::test]

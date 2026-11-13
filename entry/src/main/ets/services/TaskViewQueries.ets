@@ -35,7 +35,7 @@ export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', 
   let expression = ''
   switch (view) {
     case 'today': expression = '(s.le.today or d.le.today)'; break
-    case 'planned': expression = '(s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow)'; break
+    case 'planned': expression = '.is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'; break
     case 'anytime': expression = 'it.todo s.none d.none'; break
     case 'someday': expression = `${inboxRecordQuery(somedayFile).expression} it.todo`; break
     case 'memo': return memoRecordQuery(memoFile)

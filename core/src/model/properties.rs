@@ -58,6 +58,34 @@ pub(crate) struct Properties {
 }
 
 impl Properties {
+    fn from_headline(headline: &Headline) -> Option<Self> {
+        if let Some(drawer) = headline.properties() {
+            return Some(Self::from_drawer(&drawer));
+        }
+        // orgize 未识别带重复窗口的规划行时，紧随其后的属性抽屉会落入 section。
+        // 仅跳过标题开头连续的规划行，再由 orgize 读取属性；不改写原树或原文字节，
+        // 也不将投影树的位置用于编辑，避免误读正文、示例或子标题中的属性。
+        let raw = headline.raw();
+        let mut lines = raw.split_inclusive('\n');
+        let title = lines.next()?;
+        let mut offset = title.len();
+        for line in lines {
+            if !["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+                .iter()
+                .any(|keyword| line.trim_start().starts_with(keyword))
+            {
+                break;
+            }
+            offset += line.len();
+        }
+        if offset == title.len() || !raw[offset..].trim_start().starts_with(":") {
+            return None;
+        }
+        let projection = orgize::Org::parse(&format!("* Properties\n{}", &raw[offset..]));
+        let drawer = projection.first_node::<Headline>()?.properties()?;
+        Some(Self::from_drawer(&drawer))
+    }
+
     pub(crate) fn from_drawer(drawer: &PropertyDrawer) -> Self {
         let mut result = Self::default();
         for entry in entries(drawer) {
@@ -103,7 +131,7 @@ impl Properties {
 }
 
 pub(crate) fn own(headline: &Headline, name: &str) -> Option<String> {
-    Properties::from_drawer(&headline.properties()?).get(name)
+    Properties::from_headline(headline)?.get(name)
 }
 
 /// SETUPFILE 与 PROPERTY 声明按顺序生效，文件顶层属性 drawer 再覆盖或追加。
@@ -167,8 +195,8 @@ pub(crate) fn resolve(
         ancestors.truncate(1);
     }
     for node in ancestors.iter().rev() {
-        if let Some(drawer) = node.properties() {
-            value = Properties::from_drawer(&drawer).resolve(name, value.as_deref());
+        if let Some(properties) = Properties::from_headline(node) {
+            value = properties.resolve(name, value.as_deref());
         }
     }
     value
@@ -246,5 +274,24 @@ mod tests {
             defaults.get("GENRES").map(String::as_str),
             Some("Setup File Drawer")
         );
+    }
+
+    #[test]
+    fn repeater_window_properties_preserve_inheritance_and_body_boundaries() {
+        for suffix in [
+            "正文\n:PROPERTIES:\n:STYLE: habit\n:END:\n",
+            "#+begin_example\n:PROPERTIES:\n:STYLE: habit\n:END:\n#+end_example\n",
+            "** Child\n:PROPERTIES:\n:STYLE: habit\n:END:\n",
+        ] {
+            let source = format!("* Parent\nSCHEDULED: <2026-11-13 Fri .+1d/3d>\n{suffix}");
+            let syntax = orgize::Org::parse(&source);
+            assert_eq!(own(&syntax.first_node::<Headline>().unwrap(), "STYLE"), None);
+        }
+        let source = "* Parent\nSCHEDULED: <2026-11-13 Fri .+1d/3d>\n:PROPERTIES:\n:STYLE: habit\n:GENRES: Classic\n:END:\n** Child\n:PROPERTIES:\n:GENRES+: Baroque\n:END:\n";
+        let syntax = orgize::Org::parse(source);
+        let child = syntax.document().syntax().descendants().filter_map(Headline::cast).nth(1).unwrap();
+        assert_eq!(own(&child, "STYLE"), None);
+        assert_eq!(resolve(&child, "GENRES", None, true).as_deref(), Some("Classic Baroque"));
+        assert_eq!(syntax.to_org(), source);
     }
 }

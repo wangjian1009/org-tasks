@@ -40,6 +40,7 @@ b."book(1) name"
 | ~ps.<letter>~ | 显式设置的优先级。 |
 | ~t.<tag>~ | 自身或祖先继承的标签。 |
 | ~tn.<tag>~ | 仅自身标签。 |
+| ~is.habit~ / ~.is.habit~ | 当前标题自身具有／不具有 ~STYLE=habit~ 属性；独立于重复器。 |
 | ~has.address~ / ~.has.address~ | 当前标题或自身正文包含／不包含真实的 ~geo:~ 或 ~addr:~ 链接；不包含子标题的链接。 |
 | ~e.<interval>~ | 正文中的活动 timestamp。 |
 | ~s.<interval>~ / ~d.<interval>~ / ~c.<interval>~ / ~cr.<interval>~ | 计划、截止、关闭、创建时间。 |
@@ -50,6 +51,8 @@ b."book(1) name"
 interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~ / ~tom~ 、~yesterday~ ，以及带正负号的 ~<number><unit>~ 。unit 为 ~h~ 、~d~ 、~w~ 、~m~ 和 ~y~ 。日期比较以运行时本地日期的自然日边界进行。
 
 ~has.address~ 为项目扩展条件，使用既有 ~orgize~ 语法树中的链接节点与 ~FilterTask.address_links~ 投影求值；源码、示例、注释和行内字面文本中的链接样式字符串不参与匹配。带描述和无描述的链接均识别，协议后的目标不能为空。它可与文件、状态及其他条件组合，也可前置点号取反；带双引号的 ~"has.address"~ 仍作为普通文本查询。
+
+~is.habit~ 为项目扩展条件，直接使用 Core 的 ~FilterTask.is_habit()~ 快照；支持前置点号取反，与日期、状态和布尔条件组合。带双引号的 ~"is.habit"~ 仍作为普通文本查询。计划页及其侧边栏计数在完整未来日期条件外追加 ~.is.habit~ ，由 Core 统一排除习惯任务；普通循环任务继续按日期命中。
 
 * 排序与选项
 

@@ -48,6 +48,9 @@ enum FilterExpression {
     HasAddressLink {
         negated: bool,
     },
+    IsHabit {
+        negated: bool,
+    },
     Date {
         field: FilterDateField,
         relation: FilterRelation,
@@ -858,6 +861,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
         FilterExpression::HasAddressLink { negated } => {
             apply_negation(!task.address_links.is_empty(), *negated)
         }
+        FilterExpression::IsHabit { negated } => apply_negation(task.is_habit(), *negated),
         FilterExpression::Date {
             field,
             relation,
@@ -1165,6 +1169,9 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
         .map_or((false, token), |value| (true, value));
     if token == "has.address" {
         return Some(FilterExpression::HasAddressLink { negated });
+    }
+    if token == "is.habit" {
+        return Some(FilterExpression::IsHabit { negated });
     }
     for (prefix, constructor) in [
         ("it.", 0),

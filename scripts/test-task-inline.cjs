@@ -446,6 +446,12 @@ test('快速切换输入时只聚焦最后一次请求，不复活旧输入', ()
 });
 
 const { overviewTaskQuery } = load('entry/src/main/ets/services/TaskViewQueries.ets');
+test('计划请求在整个未来日期范围排除习惯任务，由 Core 求值', () => {
+  assert.deepEqual(overviewTaskQuery('planned'), {
+    expression:'.is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))',
+    includeDone:false,includeComposeTasks:true
+  });
+});
 test('随时请求只匹配无计划和无截止的待办任务，由 Core 求值', () => {
   assert.deepEqual(overviewTaskQuery('anytime'), {
     expression:'it.todo s.none d.none',includeDone:false,includeComposeTasks:true
