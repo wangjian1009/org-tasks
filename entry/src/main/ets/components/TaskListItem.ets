@@ -1231,20 +1231,22 @@ export struct TaskListItem {
             this.attributes()
           }
           if (this.value().logs.length > 0) {
-            if (this.readOnly) {
-              Button({ type: ButtonType.Normal }) {
-                Row({ space: 8 }) {
-                  Text('日志').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
-                  Image(this.logbookExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down'))
-                    .width(18).height(18).accessibilityLevel('no')
-                }.width('100%')
-              }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
-                .accessibilityText(this.logbookExpanded ? '收起日志' : '展开日志')
-                .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
-            }
-            if (!this.readOnly || this.logbookExpanded) {
-              TaskLogView({ logs: this.value().logs }).width('100%')
-            }
+            Column() {
+              if (this.readOnly) {
+                Button({ type: ButtonType.Normal }) {
+                  Row({ space: 8 }) {
+                    Text('日志').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+                    Image(this.logbookExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down'))
+                      .width(18).height(18).accessibilityLevel('no')
+                  }.width('100%')
+                }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
+                  .accessibilityText(this.logbookExpanded ? '收起日志' : '展开日志')
+                  .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
+              }
+              TaskLogView({ logs: this.value().logs, expanded: !this.readOnly || this.logbookExpanded,
+                contentBackground: this.value().state?.category === TaskStateCategory.Doing
+                  ? '#00000000' : UiColor.taskCard }).width('100%')
+            }.width('100%')
           }
         }.width('100%').padding(12)
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)

@@ -158,10 +158,8 @@ export struct TaskEditor {
               Image(this.logbookExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down')).width(24).height(24).margin({ right: 16 })
             }.width('100%').padding({ left: 16, right: 4 }).height(52)
               .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
-            if (this.logbookExpanded) {
-              TaskLogView({ logs: this.task!.logs, contentBackground: UiColor.surface })
-                .width('100%').padding({ left: 16, right: 16, bottom: 12 })
-            }
+            TaskLogView({ logs: this.task!.logs, expanded: this.logbookExpanded, contentBackground: UiColor.surface })
+              .width('100%').padding({ left: 16, right: 16, bottom: this.logbookExpanded ? 4 : 0 })
           }
           Divider().color(UiColor.outline)
           if (this.editable) {
