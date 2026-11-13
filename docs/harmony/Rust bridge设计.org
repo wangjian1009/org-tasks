@@ -579,3 +579,7 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 ~OrgFile.project()~ 与 ~OrgFile.renderDocumentHtml()~ 分别读取 Rust 完整文件快照中的 ~projectName~ 和 ~documentHtml~ 。Rust bridge 在原有仓库文件工作线程内调用 Core 的 ~project()~ 与 ~render_document_html()~ ，C++ 注册两个只读方法，类型声明与 ArkTS 的 ~CoreOrgFile~ 别名沿用同一对象边界，不增加正文解析或 I/O。源字节、文件版本、项目身份、完整语义 HTML 和原有 ~renderedHtml~ 均来自同一快照。Core 的文档投影排除受保护的冲突子树；项目阅读不跳转冲突页，原文和冲突处理仍消费完整文件。
 
 ~ProjectDetail~ 消费完整语义 HTML，普通文件和历史备份继续使用原有 ~renderHtml()~ 。宿主仅按 Core 的任务与状态属性将有内容的任务包装成原生 HTML disclosure；普通节点与 drawer 始终展开。项目阅读状态只在页面会话中保存，并以真实仓库 ID、路径和文件版本隔离；版本变化后清空旧坐标与展开状态。
+
+* 默认优先级快照
+
+~OrgFileMetadata.default_priority~ 与 ~FilterTask.default_priority()~ 映射为文件元信息及 Task 的只读 ~defaultPriority: TaskPriority~ ，与 ~priorityOptions~ 来自同次 Core 配置解析。Rust bridge 直接复制 Core 值，C++ 将任务字段注册为可枚举只读属性，文件元信息随原对象透传；ArkTS wrapper 沿用 native 类型，不另设默认值或排序。~priority~ 继续表达显式值，未设置时为 ~null~ 。默认值解析、优先级排序与有效优先级查询均由 Core 处理，见 [[file:../core/查询语言设计.org][查询语言设计]]。

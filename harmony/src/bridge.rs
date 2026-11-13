@@ -92,6 +92,7 @@ pub struct HarmonyBridgeTask {
     pub modified_at: Option<TimestampMs>,
     pub priority: Option<org_tasks_core::TaskPriority>,
     pub priority_options: Vec<org_tasks_core::TaskPriority>,
+    pub default_priority: org_tasks_core::TaskPriority,
     pub task_priority_options: BTreeMap<String, Option<org_tasks_core::TaskPriority>>,
     pub scheduled: String,
     pub deadline: String,
@@ -280,6 +281,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         modified_at: task.modified_at(),
         priority: task.priority().cloned(),
         priority_options: task.priority_options(),
+        default_priority: task.default_priority().clone(),
         task_priority_options: priority_options(|category| task.task_priority_of(category)),
         scheduled: task
             .scheduled()
@@ -861,6 +863,8 @@ mod tests {
         assert_eq!(tasks[0]["taskPriorityOptions"]["Hight"]["name"], "B");
         assert_eq!(tasks[0]["taskPriorityOptions"]["Low"]["name"], "D");
         assert!(tasks[1]["priority"].is_null());
+        assert_eq!(file["defaultPriority"], serde_json::json!({"name":"C","category":"Middle"}));
+        assert_eq!(tasks[1]["defaultPriority"], file["defaultPriority"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 

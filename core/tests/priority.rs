@@ -85,6 +85,8 @@ async fn setup_configuration_snapshots_and_priority_writes_are_atomic_and_lossle
         .find(|item| item.path == "tasks.org")
         .unwrap();
     assert_eq!(metadata.priority_options(), old[0].priority_options());
+    assert_eq!(&metadata.default_priority, old[0].default_priority());
+    assert_eq!(old[0].default_priority().name, "C");
     assert_eq!(
         metadata.task_priority_of(PeriodCategory::Low).unwrap().name,
         "D"
@@ -156,6 +158,8 @@ async fn setup_configuration_snapshots_and_priority_writes_are_atomic_and_lossle
             .name,
         "C"
     );
+    assert_eq!(old[0].default_priority().name, "C");
+    assert_eq!(current[0].default_priority().name, "D");
     assert_eq!(
         old[0].task_priority_of(PeriodCategory::Hight).unwrap().name,
         "B"
@@ -179,4 +183,53 @@ async fn repository_loader_ignores_body_and_source_block_priority_keywords() {
         .await;
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(f.source(), source);
+}
+
+#[tokio::test]
+async fn priority_sort_and_queries_use_each_files_default_without_writing_cookies() {
+    let source = "#+PRIORITIES: A F D\n* TODO Unset D\n* TODO [#A] High\n* TODO [#D] Explicit D\n* TODO [#F] Low\n";
+    let f = Fixture::new(source).await;
+    std::fs::write(f.root.join("setup.org"), "#+PRIORITIES: A F C\n").unwrap();
+    std::fs::write(
+        f.root.join("inherited.org"),
+        "#+SETUPFILE: setup.org\n* TODO Unset C\n",
+    )
+    .unwrap();
+    std::fs::write(f.root.join("plain.org"), "* TODO Unset B\n").unwrap();
+    let queries = ["o.priority", ".o.priority", "p.D", "ps.D", "p.C", "p.B"].map(|expression| {
+        CoreQuery::from(TaskQuery {
+            expression: expression.into(),
+            ..Default::default()
+        })
+    });
+    let results = f.workspace.query(&queries).await.unwrap();
+    for (result, expected) in results.into_iter().zip([
+        vec!["High", "Unset B", "Unset C", "Unset D", "Explicit D", "Low"],
+        vec!["Low", "Unset D", "Explicit D", "Unset C", "Unset B", "High"],
+        vec!["Unset D", "Explicit D"],
+        vec!["Explicit D"],
+        vec!["Unset C"],
+        vec!["Unset B"],
+    ]) {
+        let tasks = result.into_task().unwrap().tasks;
+        assert_eq!(
+            tasks.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            expected
+        );
+        for task in tasks
+            .iter()
+            .filter(|task| task.title().starts_with("Unset"))
+        {
+            assert!(task.priority().is_none());
+            assert_eq!(task.effective_priority(), task.default_priority());
+        }
+    }
+    assert_eq!(f.source(), source);
+    assert!(
+        f.workspace.repos()[0]
+            .pending_writes()
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

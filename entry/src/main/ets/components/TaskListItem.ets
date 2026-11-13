@@ -524,12 +524,6 @@ export struct TaskListItem {
       if (await this.persist([{ field: 'PRIORITY', value: name }])) this.priorityOpen = false
     } finally { this.priorityBusy = false }
   }
-  async highestPriority() {
-    if (this.readOnly) return
-    if (!await this.prepare() || !await this.finish(false)) return
-    const target = this.value().taskPriorityOf('Hight')
-    if (target && target.name !== this.value().priority?.name) await this.persist([{ field: 'PRIORITY', value: target.name }])
-  }
   @Builder
   priorityPopup() {
     TaskPriorityChoices({ options: this.value().priorityOptions, current: this.value().priority,
@@ -762,7 +756,7 @@ export struct TaskListItem {
 
   leadingWidth(): number {
     return (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
-      + (this.value().isHabit || this.value().isRepeating ? 28 : 0)
+      + (this.value().isHabit || this.value().isRepeating ? 26 : 0)
   }
 
   deadlineColor(): string { return taskDeadlineColor(this.value(), new Date(this.referenceTime)) }
@@ -773,11 +767,11 @@ export struct TaskListItem {
   }
 
   countBudget(): number {
-    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - (this.value().priority ? 32 : 0) - 126))
+    return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - (this.value().priority ? 30 : 0) - 126))
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 32 : 0), this.value().tags.length, taskIndicators(this.value()).length,
+    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 30 : 0), this.value().tags.length, taskIndicators(this.value()).length,
       this.duration(), this.value().deadline.length > 0 ? this.deadlineWidth : 0,
       titleCountsWidth(this.value().headingParts, this.countBudget()))
   }
@@ -1016,7 +1010,7 @@ export struct TaskListItem {
   }
   @Builder
   editorContent() {
-    Row({ space: 9 }) {
+    Row({ space: 6 }) {
       this.stateIndicator()
       if (this.value().isHabit) {
         Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
@@ -1164,9 +1158,7 @@ export struct TaskListItem {
           .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
         PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
           buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
-          items: [{ title: '设为最重要', icon: $r('app.media.ui_priority'), checked: this.value().priority?.category === 'Hight',
-            disabled: !this.value().taskPriorityOf('Hight') || this.value().priority?.category === 'Hight', action: () => { this.highestPriority() } },
-            { title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
+          items: [{ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
             { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } }] })
       }.width('100%')
     }.width('100%').padding({ left: 27 })
@@ -1183,7 +1175,7 @@ export struct TaskListItem {
   }
   @Builder
   readOnlyContent() {
-    Row({ space: 9 }) {
+    Row({ space: 6 }) {
       this.stateIndicator()
       if (this.value().isHabit) {
         Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
@@ -1259,7 +1251,7 @@ export struct TaskListItem {
             })
         }
       } else {
-        Row({ space: 8 }) {
+        Row({ space: 6 }) {
           this.stateIndicator()
           this.compactLeadingInfo()
           this.priorityBadge()

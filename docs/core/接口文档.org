@@ -962,6 +962,8 @@ pub enum PeriodCategory { Hight, Middle, Low }
 pub struct TaskPriority { pub name: String, pub category: Option<PeriodCategory> }
 impl FilterTask {
     pub fn priority(&self) -> Option<&TaskPriority>;
+    pub fn default_priority(&self) -> &TaskPriority;
+    pub fn effective_priority(&self) -> &TaskPriority;
     pub fn priority_options(&self) -> Vec<TaskPriority>;
     pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
 }
@@ -974,3 +976,5 @@ impl OrgFileMetadata {
 ~priority()~ 返回当前显式值对象，未设置时为空；已有字母不在当前候选中时分类为空，仍可显示和清除原值。~priority_options()~ 在任务与文件元信息上返回所属文件的相同候选快照，~task_priority_of(Hight)~ 即最高优先级接口。查找返回独立副本，UI 不自行从字母推导分类或最高值。
 
 配置语法、SETUPFILE 继承与分类规则见 [[file:数据模型.org::*任务优先级对象与分类][任务优先级对象与分类]]。~PRIORITY~ 字段仍只接收候选对象的 ~name~ 或空值，Core 校验当前文件有效候选，配置变化和版本冲突不自动换版本重试。创建为无优先级时不写入默认字母；未涉及的正文、换行、规划和属性保持原字节。
+
+默认优先级来自 [[info:org#Priorities][Org Info：Priorities]]：未声明时使用 B，文件头 ~#+PRIORITIES~ 的第三项覆盖 SETUPFILE 默认值。Core 在同次解析中生成 ~OrgFileMetadata.default_priority~ ，任务通过 ~default_priority()~ 读取共享快照， ~effective_priority()~ 取显式值或此默认值；Harmony 投影为任务和文件元信息的只读 ~defaultPriority: TaskPriority~ 。无声明时候选仍为空、默认 B 的分类为空；默认值不产生标题色块、不写入 Org 原文。优先级升降序与 ~p.<letter>~ 使用有效字母， ~ps.<letter>~ 只查询显式值，相同优先级沿用源次序。

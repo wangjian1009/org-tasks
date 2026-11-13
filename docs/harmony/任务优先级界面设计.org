@@ -26,6 +26,8 @@ pub struct TaskPriority {
 
 impl FilterTask {
     pub fn priority(&self) -> Option<&TaskPriority>;
+    pub fn default_priority(&self) -> &TaskPriority;
+    pub fn effective_priority(&self) -> &TaskPriority;
     pub fn priority_options(&self) -> Vec<TaskPriority>;
     pub fn task_priority_of(&self, category: PeriodCategory) -> Option<TaskPriority>;
 }
@@ -55,11 +57,13 @@ export interface TaskPriority {
 // 以下仅列出加入现有对象的优先级成员。
 export interface Task {
   readonly priority: TaskPriority | null;
+  readonly defaultPriority: TaskPriority;
   readonly priorityOptions: TaskPriority[];
   taskPriorityOf(category: PeriodCategory): TaskPriority | null;
 }
 
 export interface OrgFileMetadata {
+  readonly defaultPriority: TaskPriority;
   readonly priorityOptions: TaskPriority[];
   taskPriorityOf(category: PeriodCategory): TaskPriority | null;
 }
@@ -73,7 +77,9 @@ Task 的当前优先级由原字符串投影调整为可空值对象；现有调
 
 配置由 Core 从文件及 SETUPFILE 的有效配置读取，文件内声明优先。不新增宿主自定义分级、字母或颜色配置。任务默认无显式优先级；读取配置不会给任务写入默认字母。
 
-Org 原生 ~#+PRIORITIES: A C B~ 的三个位置分别表示最高、最低和默认优先级，候选为最高至最低之间的字母范围；不是任意三个候选字母。Core 按 Org 语义解析范围，第三项不使本应用未设置的任务自动获得优先级。当前写入模型仅支持单个大写字母，本方案不扩大为数字优先级。
+Org 原生 ~#+PRIORITIES: A C B~ 的三个位置分别表示最高、最低和默认优先级，候选为最高至最低之间的字母范围；不是任意三个候选字母。Core 按 Org 语义解析范围，第三项作为未设置任务的有效值参与排序，不回写显式标记。当前写入模型仅支持单个大写字母，本方案不扩大为数字优先级。
+
+默认优先级来自 [[info:org#Priorities][Org Info：Priorities]]：未声明时使用 B，文件头 ~#+PRIORITIES~ 的第三项覆盖 SETUPFILE 默认值。Core 在同次解析中生成 ~OrgFileMetadata.default_priority~ ，任务通过 ~default_priority()~ 读取共享快照， ~effective_priority()~ 取显式值或此默认值；Harmony 投影为任务和文件元信息的只读 ~defaultPriority: TaskPriority~ 。无声明时候选仍为空、默认 B 的分类为空；默认值不产生标题色块、不写入 Org 原文。优先级升降序与 ~p.<letter>~ 使用有效字母， ~ps.<letter>~ 只查询显式值，相同优先级沿用源次序。
 
 Core 使用以下分类规则：
 
@@ -93,8 +99,8 @@ Core 使用以下分类规则：
 \begin{tikzpicture}
 \umlclass[x=0,y=0,type=enumeration]{PeriodCategory}{Hight \\ Middle \\ Low}{}
 \umlclass[x=6,y=0]{TaskPriority}{name: String \\ category: Option\textless PeriodCategory\textgreater}{}
-\umlclass[x=0,y=-5]{FilterTask}{priority: Option\textless TaskPriority\textgreater}{priority() \\ priority\_options() \\ task\_priority\_of(category)}
-\umlclass[x=9,y=-5]{OrgFileMetadata}{}{priority\_options() \\ task\_priority\_of(category)}
+\umlclass[x=0,y=-5]{FilterTask}{priority: Option\textless TaskPriority\textgreater}{priority() \\ default\_priority() \\ effective\_priority() \\ priority\_options() \\ task\_priority\_of(category)}
+\umlclass[x=9,y=-5]{OrgFileMetadata}{default\_priority: TaskPriority}{priority\_options() \\ task\_priority\_of(category)}
 \umlassoc{TaskPriority}{PeriodCategory}
 \umldep{FilterTask}{TaskPriority}
 \umldep{OrgFileMetadata}{TaskPriority}
@@ -108,7 +114,7 @@ Core 使用以下分类规则：
 
 沿用当前类型标记规则：习惯优先显示习惯图标，否则循环任务显示重复图标。优先级紧随此图标，与任务类型保持两个独立信息。收起任务行和展开编辑卡片保持相同顺序；标题输入框只编辑标题文字，色块是独立控件。
 
-色块采用 12fp 中等字重、最小 24vp 视觉宽度、22vp 视觉高度、6vp 圆角，与相邻图标或标题间距约 6～8vp。操作入口使用至少 44vp 点击高度，不通过扩大标题行的水平占位实现点击区。大字号时尺寸随文字自然增大，字母不裁切。
+色块采用 12fp 中等字重、最小 24vp 视觉宽度、22vp 视觉高度、6vp 圆角，与相邻循环／习惯图标和标题的间距统一为 6vp。收起、展开编辑及只读展开均使用相同间距；循环图标 20vp、色块 22vp 在单行标题中垂直居中，组合占位同步纳入标题宽度预算。操作入口使用至少 44vp 点击高度，不通过扩大标题行的水平占位实现点击区。大字号时尺寸随文字自然增大，字母不裁切。
 
 类型图标保留现有颜色。优先级色块的文字与底色由 ~TaskPriority.category~ 决定，具体色值如下；选择器与详情中出现同一优先级时使用同一颜色。
 
@@ -133,7 +139,7 @@ Core 使用以下分类规则：
 
 ** 入口与选择器
 
-已有优先级时，展开卡片点击色块修改；未设置时从现有“更多 → 优先级…”进入。更多菜单同时保留“设为最重要”快捷操作和原“重复…”操作。“设为最重要”使用 ~taskPriorityOf(Hight)~ 返回对象的名称，无可用目标时置灰，当前已为目标时勾选并禁用重复设置。
+已有优先级时，展开卡片点击色块修改；未设置时从现有“更多 → 优先级…”进入。更多菜单只提供“优先级…”与“重复…”两项，移除“设为最重要”快捷项。“优先级…”及详情元数据行使用三条由长到短的圆端横线图标，24vp 画布、1.8vp 线宽，与“今天”的星形区分。
 
 选择器采用紧凑的标签式单选，只展示“无”和 Core 返回的字母色块，按 ~priorityOptions~ 的顺序排列；不显示“优先级”标题、分类说明、分隔线或确认按钮。“无”清除显式值，不向任务写入默认字母。选中项保留分类底色，增加青绿色描边和右上角小勾；所有选项尺寸固定，不因选中而移动。分类描述与选中状态保留在无障碍文案中。
 
@@ -149,7 +155,7 @@ Core 使用以下分类规则：
 
 | 场景 | 界面行为 |
 |-
-| 没有可选分级 | 最高快捷动作置灰，选择器仅保留“无”标签，不补充候选或说明文字。 |
+| 没有可选分级 | 选择器仅保留“无”标签，不补充候选或说明文字。 |
 | 当前值不在配置中 | 在任务标题前以空分类的中性色块显示原字母；浮层仅展示“无”和有效候选，不把原字母加入选项，可清除或改选，不自动替换。 |
 | 多于三档 | 展示全部字母，不把相同分类的选项合并；相同分类使用相同配色。 |
 | 分级较多 | “无”为首个标签，与候选一起按行排列；每行最多六项，超过三行时在浮层内滚动。 |
@@ -157,4 +163,4 @@ Core 使用以下分类规则：
 | 保存期间 | 禁止重复操作，原位等待；数据更新仍通过既有通知与快照机制接入。 |
 | 保存或版本校验失败 | 保留原值、卡片和错误，不自动重试覆盖；提供重新载入或重试入口。 |
 
-优先级编辑复用现有数据变化通知与快照刷新，不改变任务排序。
+优先级编辑复用现有数据变化通知与快照刷新，重新查询后按当前 Core 排序规则显示。

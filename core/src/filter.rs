@@ -256,6 +256,13 @@ impl FilterTask {
 
     pub fn priority(&self) -> Option<&crate::TaskPriority> { self.priority.as_ref() }
 
+    pub fn default_priority(&self) -> &crate::TaskPriority { &self.file_metadata.default_priority }
+
+    /// 未设置时使用所属文件的默认值，保留显式值的原始字母。
+    pub fn effective_priority(&self) -> &crate::TaskPriority {
+        self.priority().unwrap_or_else(|| self.default_priority())
+    }
+
     pub fn priority_options(&self) -> Vec<crate::TaskPriority> { self.file_metadata.priority_options() }
 
     pub fn task_priority_of(&self, category: crate::PeriodCategory) -> Option<crate::TaskPriority> {
@@ -837,8 +844,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             apply_negation(matches, *negated)
         }
         FilterExpression::Priority { value, negated } => apply_negation(
-            task.priority_name()
-                .unwrap_or("B")
+            task.effective_priority().name
                 .eq_ignore_ascii_case(value),
             *negated,
         ),
@@ -1027,7 +1033,7 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
     match field {
         FilterSortField::Book => left.path().cmp(right.path()),
         FilterSortField::Title => left.title.cmp(&right.title),
-        FilterSortField::Priority => left.priority_name().cmp(&right.priority_name()),
+        FilterSortField::Priority => left.effective_priority().name.cmp(&right.effective_priority().name),
         FilterSortField::State => state_category_order(left).cmp(&state_category_order(right)),
         FilterSortField::Scheduled => left.scheduled.cmp(&right.scheduled),
         FilterSortField::Deadline => left.deadline.cmp(&right.deadline),

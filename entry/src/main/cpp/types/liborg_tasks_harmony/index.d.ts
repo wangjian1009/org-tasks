@@ -110,6 +110,7 @@ export class Task {
   readonly modifiedAt: number | null;
   readonly priority: TaskPriority | null;
   readonly priorityOptions: TaskPriority[];
+  readonly defaultPriority: TaskPriority;
   taskPriorityOf(category: PeriodCategory): TaskPriority | null;
   readonly scheduled: string;
   readonly deadline: string;
@@ -277,6 +278,7 @@ export class Repo {
 
 export interface OrgFileMetadata {
   readonly priorityOptions: TaskPriority[];
+  readonly defaultPriority: TaskPriority;
   taskPriorityOf(category: PeriodCategory): TaskPriority | null;
   taskStateOf(category: TaskStateCategory): TaskState | null;
   project(): string | null;

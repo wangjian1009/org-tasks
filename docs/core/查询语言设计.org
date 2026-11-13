@@ -36,7 +36,7 @@ b."book(1) name"
 | ~b.<name>~ | 文件路径等于 name。 |
 | ~i.<category>~ | 按状态分类精确匹配： ~todo~ 、 ~doing~ 、 ~wait~ 、 ~done~ 、 ~cancel~ 或 ~none~ ，不区分分类名大小写。 ~none~ 表示没有分类，包含无状态标题和显式未分类任务。 |
 | ~it.todo~ / ~it.done~ / ~it.none~ | 按状态类别筛选。 |
-| ~p.<letter>~ | 优先级；未设置时使用默认 ~B~ 。 |
+| ~p.<letter>~ | 有效优先级；未显式设置时使用所属文件或 SETUPFILE 的 ~PRIORITIES~ 第三项，无声明时使用 Org 默认 ~B~ 。 |
 | ~ps.<letter>~ | 显式设置的优先级。 |
 | ~t.<tag>~ | 自身或祖先继承的标签。 |
 | ~tn.<tag>~ | 仅自身标签。 |
@@ -180,3 +180,5 @@ UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRe
 * 分享地址候选查询
 
 ~ShareLocation~ 通过 ~NativeCoreService.query -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与任务／备忘文件条件，并设置 ~includeDone=false~ ；页面不再按标题、地址或条数过滤返回结果。
+
+按 ~o.priority~ / ~o.p~ 及其降序形式排序时，缺少显式优先级的任务使用所属文件的默认字母参与比较，与同字母的显式任务同级。同级沿用相对文件路径与源位置次序；读取与排序不补写优先级标记。默认值语义依据 [[info:org#Priorities][Org Info：Priorities]]。

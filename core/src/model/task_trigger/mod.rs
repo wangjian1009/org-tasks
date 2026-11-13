@@ -67,7 +67,7 @@ impl Context<'_> {
                 let tags = node.tags().map(|tag| tag.to_string()).collect::<Vec<_>>();
                 (!tags.is_empty()).then(|| format!(":{}:", tags.join(":")))
             }
-            "PRIORITY" => Some(node.priority().map(|v| v.to_string()).or_else(|| self.file.priority_default()).unwrap_or("B".into())),
+            "PRIORITY" => Some(node.priority().map(|v| v.to_string()).unwrap_or_else(|| self.file.default_priority().name.clone())),
             "SCHEDULED" => super::task_repeat::planning_timestamp(
                 self.file,
                 &node,
@@ -716,7 +716,7 @@ impl Context<'_> {
                 let low = options.last().and_then(|p| p.name.bytes().next()).unwrap_or(b'C');
                 let priority = match value {
                     " " => None,
-                    "up" | "down" if self.node(target)?.priority().is_none() => self.file.priority_default().or_else(|| Some("B".into())),
+                    "up" | "down" if self.node(target)?.priority().is_none() => Some(self.file.default_priority().name.clone()),
                     "up" | "down" => {
                         let now = current.bytes().next().unwrap_or(b'B');
                         // Org 在最高、最低和无显式优先级之间循环。

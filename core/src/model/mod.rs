@@ -85,6 +85,7 @@ pub struct OrgFileMetadata {
     pub category: Option<String>,
     pub tag_options: Vec<String>,
     pub priority_options: Vec<TaskPriority>,
+    pub default_priority: TaskPriority,
     pub tag_groups: Vec<Vec<String>>,
     pub has_conflict: bool,
     pub is_ignore: bool,
@@ -160,6 +161,7 @@ pub struct OrgFile {
     syntax: orgize::Org,
     file_keywords: file_keywords::FileKeywords,
     priority_options: Vec<TaskPriority>,
+    default_priority: TaskPriority,
 }
 
 impl OrgFile {
@@ -175,6 +177,7 @@ impl OrgFile {
             category: self.category(),
             tag_options: self.tag_options(),
             priority_options: self.priority_options(),
+            default_priority: self.default_priority().clone(),
             tag_groups: self.tag_groups(),
             is_ignore,
             task_state_counts: if is_ignore { Vec::new() } else { self.task_state_counts() },
@@ -234,7 +237,7 @@ impl OrgFile {
             .map_err(|_| CoreError::InvalidInput("Org 文件必须是 UTF-8 编码"))?;
         let (todo, syntax) = TodoMetadata::parse_with_setup(source, &defaults, &todo_setup)?;
         let file_keywords = file_keywords::FileKeywords::parse(&syntax, &todo_setup);
-        let priority_options = priority::parse(&syntax, &todo_setup)?;
+        let (priority_options, default_priority) = priority::parse(&syntax, &todo_setup)?;
         Ok(Self {
             repo_id,
             path,
@@ -247,6 +250,7 @@ impl OrgFile {
             syntax,
             file_keywords,
             priority_options,
+            default_priority,
         })
     }
 
@@ -291,8 +295,9 @@ impl OrgFile {
         let (todo, syntax) =
             TodoMetadata::parse_with_setup(source, &self.todo_defaults, &self.todo_setup)?;
         let file_keywords = file_keywords::FileKeywords::parse(&syntax, &self.todo_setup);
-        let priority_options = priority::parse(&syntax, &self.todo_setup)?;
+        let (priority_options, default_priority) = priority::parse(&syntax, &self.todo_setup)?;
         self.priority_options = priority_options;
+        self.default_priority = default_priority;
         self.todo = todo;
         self.syntax = syntax;
         self.file_keywords = file_keywords;
@@ -699,7 +704,8 @@ mod tests {
                 source.as_bytes()
             );
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 14);
+            assert_eq!(value.as_object().unwrap().len(), 15);
+            assert_eq!(value["defaultPriority"], serde_json::json!({"name": "B", "category": null}));
             assert_eq!(value["priorityOptions"], serde_json::json!([]));
             assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));

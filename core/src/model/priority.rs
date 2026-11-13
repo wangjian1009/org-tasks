@@ -16,11 +16,20 @@ pub struct TaskPriority {
     pub category: Option<PeriodCategory>,
 }
 
-pub(super) fn parse(syntax: &orgize::Org, setup: &str) -> Result<Vec<TaskPriority>, CoreError> {
+pub(super) fn parse(
+    syntax: &orgize::Org,
+    setup: &str,
+) -> Result<(Vec<TaskPriority>, TaskPriority), CoreError> {
     let local = FileKeywords::parse(syntax, "");
     let setup = FileKeywords::parse(&orgize::Org::parse(setup), "");
     let Some(value) = local.get("PRIORITIES").or_else(|| setup.get("PRIORITIES")) else {
-        return Ok(Vec::new());
+        return Ok((
+            Vec::new(),
+            TaskPriority {
+                name: "B".into(),
+                category: None,
+            },
+        ));
     };
     let fields = value.split_whitespace().collect::<Vec<_>>();
     if fields.len() != 3
@@ -40,7 +49,7 @@ pub(super) fn parse(syntax: &orgize::Org, setup: &str) -> Result<Vec<TaskPriorit
             "PRIORITIES 的优先级范围或默认字母无效",
         ));
     }
-    Ok((high..=low)
+    let options: Vec<_> = (high..=low)
         .map(|letter| TaskPriority {
             name: char::from(letter).to_string(),
             category: Some(if letter == high {
@@ -51,18 +60,15 @@ pub(super) fn parse(syntax: &orgize::Org, setup: &str) -> Result<Vec<TaskPriorit
                 PeriodCategory::Middle
             }),
         })
-        .collect())
+        .collect();
+    let default = options[(default - high) as usize].clone();
+    Ok((options, default))
 }
 
 impl OrgFile {
-    pub(super) fn priority_default(&self) -> Option<String> {
-        let local = FileKeywords::parse(self.syntax(), "");
-        let setup = FileKeywords::parse(&orgize::Org::parse(&self.todo_setup), "");
-        local
-            .get("PRIORITIES")
-            .or_else(|| setup.get("PRIORITIES"))
-            .and_then(|value| value.split_whitespace().nth(2))
-            .map(str::to_owned)
+    /// 默认值仅用于有效优先级求值，不代表标题保存了优先级标记。
+    pub fn default_priority(&self) -> &TaskPriority {
+        &self.default_priority
     }
 
     pub fn priority_options(&self) -> Vec<TaskPriority> {
@@ -136,7 +142,7 @@ mod tests {
             tasks[0].file_metadata().priority_options()
         );
         assert_eq!(file.clone().priority_options(), file.priority_options());
-        assert_eq!(file.priority_default().as_deref(), Some("D"));
+        assert_eq!(file.default_priority().name, "D");
     }
     #[test]
     fn unconfigured_and_literal_keywords_do_not_create_candidates() {
@@ -148,6 +154,8 @@ mod tests {
             let file =
                 OrgFile::new("repo".into(), "a.org".into(), source.as_bytes().to_vec()).unwrap();
             assert!(file.priority_options().is_empty());
+            assert_eq!(file.default_priority().name, "B");
+            assert_eq!(file.nodes()[0].default_priority().name, "B");
             assert_eq!(file.source_bytes(), source.as_bytes());
         }
         for value in ["a C B", "A C", "A C Z", "Z A B", "1 3 2", "A C B D"] {

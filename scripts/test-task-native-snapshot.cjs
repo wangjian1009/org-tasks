@@ -71,6 +71,7 @@ const native = require(addon);
 function snapshot(name = 'DONE', done = false) {
   return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
     logs: [{ type: 'taskStateChange', from: 'TODO', to: name, timestamp: '2026-11-13 09:00', noteHtml: '<p>附注</p>' }],
+    defaultPriority: { name: 'C', category: 'Low' },
     priority: { name: 'B', category: 'Hight' }, priorityOptions: [{ name: 'B', category: 'Hight' }, { name: 'C', category: 'Low' }],
     taskPriorityOptions: { Hight: { name: 'B', category: 'Hight' }, Middle: null, Low: { name: 'C', category: 'Low' } },
     state: { name: 'TODO', category: 'Todo' }, taskStateOptions: {
@@ -143,6 +144,8 @@ test('优先级查找在 ArkUI 深拷贝后仍使用 Core 的原始快照', () =
   const original = snapshot();
   const task = copy(original);
   assert.deepEqual(task.priority, { name: 'B', category: 'Hight' });
+  assert.deepEqual(task.defaultPriority, { name: 'C', category: 'Low' });
+  assert.equal(JSON.parse(JSON.stringify(task)).defaultPriority.name, 'C');
   assert.deepEqual(task.taskPriorityOf('Hight'), { name: 'B', category: 'Hight' });
   assert.equal(task.taskPriorityOf('Middle'), null);
   const priority = task.taskPriorityOf('Hight');

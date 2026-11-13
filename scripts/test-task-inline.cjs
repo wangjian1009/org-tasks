@@ -851,14 +851,13 @@ function priorityFixture() {
     persist: async changes => { writes.push(changes); return true; } };
   return { state, writes, proto: module.exports.Priority.prototype };
 }
-test('优先级选择先保存草稿；最高项只使用 Core 返回的目标字母',async()=>{
+test('优先级选择先保存草稿',async()=>{
   const f=priorityFixture(); f.state.finish=async()=>false;
   await f.proto.priorities.call(f.state); assert.equal(f.state.priorityOpen,false);
-  await f.proto.highestPriority.call(f.state); assert.equal(f.writes.length,0);
+  assert.equal(f.writes.length,0);
   f.state.finish=async()=>true;
   await f.proto.priorities.call(f.state); assert.equal(f.state.priorityOpen,true);
-  await f.proto.highestPriority.call(f.state);
-  assert.deepEqual(f.writes,[[{field:'PRIORITY',value:'B'}]]);
+  assert.equal(f.writes.length,0);
 });
 test('选择同一优先级只关闭；清除写入null；保存失败保留选择器',async()=>{
   const f=priorityFixture();f.state.priorityOpen=true;
