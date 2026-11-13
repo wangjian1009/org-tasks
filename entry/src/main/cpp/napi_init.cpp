@@ -1424,6 +1424,7 @@ napi_value WorkspaceReload(napi_env env, napi_callback_info info)
 
 napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
 {
+    // titleParts 与目标路径通过既有工作线程的 JSON 响应完整透传。
     WorkspaceWrap* workspace = nullptr; napi_value self; size_t argc = 2; napi_value args[2] = {nullptr, nullptr};
     if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc > 1 ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {

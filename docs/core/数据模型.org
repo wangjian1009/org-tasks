@@ -333,12 +333,15 @@ pub struct RefileTarget {
     pub full_path: TaskPath,
     pub path: String,
     pub heading_path: Vec<String>,
+    pub title_parts: Vec<TitlePart>,
     pub position: SourcePosition,
     pub category: Option<String>,
     pub project_name: Option<String>,
     pub file_version: String,
 }
 #+end_src
+
+~title_parts~ 是目标自身的只读行内投影，使用 Core 的 Org 语法树与标题渲染规则，隐藏真正的分数及百分比统计，保留代码、原样文字及链接描述中的内容。Harmony 透传为 ~titleParts~ ，宿主不解析或用正则改写标题。该字段不改变 ~heading_path~ 、 ~full_path~ 或文件字节；全部标题只有进度时允许空投影，由界面显示“未命名位置”。
 
 ~heading_path~ 保留从根祖先到自身的全部标题分段，包括无状态祖先；各段使用剥离状态、优先级及标签后的标题 Org 原文并去除首尾空白。标题中的斜杠属于标题文字，不拆分层级；相对文件路径同样独立保存。 ~display_path()~ 返回“仓库 ID / 文件相对路径 / 标题1 / 标题2”，仅供展示，宿主可将仓库 ID 映射为显示名。
 
@@ -354,6 +357,7 @@ pub struct RefileTarget {
 \umlclass[x=8,y=0]{RefileTarget}{repo\_id: OrgRepoId \\
 path: String \\
 heading\_path: Vec\textless String\textgreater \\
+title\_parts: Vec\textless TitlePart\textgreater \\
 position: SourcePosition \\
 category: Option\textless String\textgreater \\
 project\_name: Option\textless String\textgreater \\

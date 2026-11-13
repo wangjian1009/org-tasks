@@ -20,7 +20,7 @@ import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { MoveToTargetService } from '../services/MoveToTargetService'
 import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
-import { RefileSection, refileSections, targetPopupHeight } from '../ui/MoveToTargetPresentation'
+import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
 import { CoreBridgeError, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
@@ -51,7 +51,7 @@ struct Inbox {
   @State targetsLoading: boolean = false
   @State popupMessage: string = ''
   @State actionBusy: boolean = false
-  @State popupWidth: number = 350
+  @State movePanelOpen: boolean = false
   @State listHeight: number = 0
   @State selectingRecords: boolean = false
   @State selectedRecordIds: string[] = []
@@ -198,6 +198,7 @@ struct Inbox {
   selectRecord(record: CoreTask) {
     if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords) return
     this.selected = record
+    this.movePanelOpen = true
     this.popupMessage = ''
     this.loadTargets()
   }
@@ -227,6 +228,7 @@ struct Inbox {
     if (this.actionBusy || this.mergeBusy) return
     ++this.targetRequest
     this.selected = undefined
+    this.movePanelOpen = false
     this.batchTargetOpen = false
     this.targetSections = []
     this.popupMessage = ''
@@ -285,7 +287,7 @@ struct Inbox {
   }
 
   @Builder
-  targetPopup() {
+  targetPanel() {
     MoveToTarget({ sections: this.targetSections,
       selectionKey: this.selected ? JSON.stringify([this.selected.fullPath, this.selected.fileVersion]) : '',
       loading: this.targetsLoading, busy: this.actionBusy || this.mergeBusy, message: this.popupMessage,
@@ -294,8 +296,6 @@ struct Inbox {
         else this.perform('move', target)
       },
       retry: (): void => { this.refreshMoveTargets() } })
-      .width(this.popupWidth)
-      .height(targetPopupHeight(this.targetSections, this.listHeight, this.targetsLoading, this.popupMessage, this.actionBusy || this.mergeBusy))
   }
 
   async loadTargets() {
@@ -390,6 +390,7 @@ struct Inbox {
     if (records.length === 0) return
     if (action === 'move') {
       this.batchTargetOpen = true
+      this.movePanelOpen = true
       this.selected = records[0]
       this.popupMessage = ''
       this.loadTargets()
@@ -632,16 +633,6 @@ struct Inbox {
                       }
                     }
                   }.width('100%')
-                    .bindPopup(this.selected?.id === record.id, {
-                      builder: this.targetPopup, placement: Placement.Bottom, targetSpace: 10,
-                      enableArrow: false, width: this.popupWidth, radius: 16,
-                      popupColor: '#363A38', backgroundBlurStyle: BlurStyle.NONE,
-                      mask: { color: '#2E000000' }, autoCancel: !this.actionBusy && !this.mergeBusy,
-                      onWillDismiss: !this.actionBusy && !this.mergeBusy, focusable: true,
-                      onStateChange: (event): void => {
-                        if (!event.isVisible && this.selected?.id === record.id) this.closeTargetPopup()
-                      }
-                    })
                     .onAreaChange((oldArea: Area, newArea: Area): void => {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
@@ -685,7 +676,6 @@ struct Inbox {
               .layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
                 this.listHeight = parseFloat(newArea.height.toString())
-                this.popupWidth = Math.min(350, Math.max(0, parseFloat(newArea.width.toString()) - 40))
               })
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)
@@ -730,5 +720,13 @@ struct Inbox {
           .onClick((): void => {})
       }
     }.width('100%').height('100%')
+      .bindSheet($$this.movePanelOpen, this.targetPanel, {
+        height: '70%', detents: ['70%', '90%'], preferType: SheetType.BOTTOM,
+        backgroundColor: '#363A38', showClose: true,
+        onWillDismiss: (action): void => {
+          if (!this.actionBusy && !this.mergeBusy) { action.dismiss(); this.closeTargetPopup() }
+        },
+        onDisappear: (): void => { this.closeTargetPopup() }
+      })
   }
 }

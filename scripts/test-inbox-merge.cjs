@@ -185,17 +185,13 @@ test('过期文件拒绝后保留原选择顺序，禁止用原版本重复合�
 });
 
 
-test('页面关闭批量编辑或移除合并菜单时，不进入选择或提交隐藏操作', async () => {
+test('多选始终可以进入，移除合并菜单后不提交隐藏操作', async () => {
   const f = fixture();
-  f.page.actionPolicy.enableSelect = false;
+  f.page.actionPolicy.bulkOperations = [];
   await f.page.startSelection(f.records[0]);
-  assert.equal(f.page.selectingRecords, false);
-  assert.equal(f.queries, 0);
+  assert.equal(f.page.selectingRecords, true);
+  assert.ok(f.queries > 0);
   f.page.selectedRecordIds = ['main', 'source'];
-  await f.page.mergeSelected();
-  assert.equal(f.requests.length, 0);
-  f.page.actionPolicy.enableSelect = true;
-  f.page.actionPolicy.enableMerge = false;
   await f.page.mergeSelected();
   assert.equal(f.requests.length, 0);
 });

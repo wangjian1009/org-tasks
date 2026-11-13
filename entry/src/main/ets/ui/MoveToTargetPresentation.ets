@@ -1,5 +1,4 @@
 import { CoreRefileTarget } from '../services/NativeCoreService'
-import { UiSize } from './Theme'
 
 export interface RefileSection { key: string; kind: 'category' | 'project'; name: string; targets: CoreRefileTarget[] }
 
@@ -24,12 +23,27 @@ export function refileSections(targets: CoreRefileTarget[]): RefileSection[] {
   })
 }
 
-// 以最多目标的分类计算高度，最多显示四行；小窗口为锚点和系统栏留出空间。
-export function targetPopupHeight(sections: RefileSection[], availableHeight: number,
-  loading: boolean = false, message: string = '', busy: boolean = false): number {
-  let count = 0
-  for (const section of sections) count = Math.max(count, section.targets.length)
-  const body = loading ? 64 : count > 0 ? 40 + 8 + Math.min(4, count) * UiSize.taskRow : 80
-  const height = 48 + 1 + 8 + body + (message ? 124 : 0) + (busy ? 40 : 0)
-  return Math.min(height, Math.max(160, availableHeight - 104))
+// 历史身份排除源位置与文件版本；每次使用重新查询的完整目标快照。
+export function refileTargetKey(target: CoreRefileTarget): string {
+  return JSON.stringify([target.repoId, target.path, target.fullPath.titles, target.fullPath.occurrence ?? 1])
+}
+
+export function refileTargetTitle(target: CoreRefileTarget): string {
+  return target.titleParts.map((part): string => part.text).join('').trim() || '未命名位置'
+}
+
+export function recentRefileSections(sections: RefileSection[], recent: string[]): RefileSection[] {
+  const rank = (target: CoreRefileTarget): number => {
+    const index = recent.indexOf(refileTargetKey(target))
+    return index < 0 ? recent.length : index
+  }
+  const result = sections.map((section: RefileSection): RefileSection => ({
+    key: section.key, kind: section.kind, name: section.name,
+    targets: section.targets.slice().sort((a: CoreRefileTarget, b: CoreRefileTarget): number => rank(a) - rank(b))
+  }))
+  return result.sort((a: RefileSection, b: RefileSection): number => {
+    const first = (section: RefileSection): number => section.targets.reduce(
+      (value: number, target: CoreRefileTarget): number => Math.min(value, rank(target)), recent.length)
+    return first(a) - first(b)
+  })
 }

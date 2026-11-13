@@ -2043,6 +2043,7 @@ pub fn workspace_refile_targets_json(handle: u64, query_json: String) -> Result<
     for repo in &mut workspace.repos {
         runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
     }
+    // 包括 titleParts 的完整 Core 投影，保持标题原文与展示分段各自的边界。
     encode(&runtime.block_on(workspace.query_refile_targets(&query))?)
 }
 

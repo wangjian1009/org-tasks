@@ -40,6 +40,8 @@ pub struct RefileTarget {
     pub path: String,
     /// 包含所有祖先及目标自身，不包含 TODO、优先级和标签。
     pub heading_path: Vec<String>,
+    /// 目标自身的标题行内投影，忽略进度统计，不改变定位原文。
+    pub title_parts: Vec<super::TitlePart>,
     /// 同名同路径的标题仍以当前快照的源位置区分。
     pub position: SourcePosition,
     pub category: Option<String>,
@@ -94,6 +96,7 @@ impl OrgRepo {
                         file_version: file_version.clone(),
                         path: file.path.clone(),
                         heading_path: ancestors.iter().map(|(_, title)| title.clone()).collect(),
+                        title_parts: super::render::refile_title_parts(headline.title_raw().trim()),
                         position: position_at(
                             file.source_bytes(),
                             u32::from(headline.start()) as usize,

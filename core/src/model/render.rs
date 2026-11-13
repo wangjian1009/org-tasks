@@ -288,11 +288,19 @@ fn is_planning_line(line: &str) -> bool {
 }
 
 fn title_parts(source: &str) -> Vec<TitlePart> {
+    title_parts_with_progress(source, false)
+}
+
+pub(super) fn refile_title_parts(source: &str) -> Vec<TitlePart> {
+    title_parts_with_progress(source, true)
+}
+
+fn title_parts_with_progress(source: &str, hide_progress: bool) -> Vec<TitlePart> {
     if source.is_empty() {
         return Vec::new();
     }
     // 用普通段落承载行内语法，避免 TITLE 被识别为列表、标题或关键字。
-    let mut view = TitleView(Vec::new(), None, false);
+    let mut view = TitleView(Vec::new(), None, false, hide_progress);
     orgize::Org::parse(&format!("x {source}")).traverse(&mut view);
     if let Some(first) = view.0.first_mut() {
         first.text.drain(..2);
@@ -301,7 +309,7 @@ fn title_parts(source: &str) -> Vec<TitlePart> {
     view.0
 }
 
-struct TitleView(Vec<TitlePart>, Option<String>, bool);
+struct TitleView(Vec<TitlePart>, Option<String>, bool, bool);
 
 impl TitleView {
     fn push(&mut self, text: &str) {
@@ -329,6 +337,11 @@ impl Traverser for TitleView {
             Event::Entity(entity) => self.push(entity.utf8()),
             Event::Timestamp(value) => self.push(&value.raw()),
             Event::Cookie(value) => {
+                if self.3 && !self.2 && !value.syntax().ancestors().skip(1).any(|node| {
+                    matches!(node.kind(), SyntaxKind::CODE | SyntaxKind::VERBATIM | SyntaxKind::LINK)
+                }) {
+                    return;
+                }
                 if let Some(count) = TitleCount::from_cookie(&value).filter(|_| !self.2) {
                     self.0.push(TitlePart {
                         text: count.label(),

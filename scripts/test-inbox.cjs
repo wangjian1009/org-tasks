@@ -34,7 +34,7 @@ test('按文件 CATEGORY 合并分组，同名目标保持独立，未分类置�
   assert.deepEqual(sections[1].targets, [targets[0], targets[3]]);
   assert.equal(targets.length, 4);
 });
-test('项目名与 CATEGORY 平级，不重复归类，同名项目与分类保留独立 Tab', () => {
+test('项目名与 CATEGORY 平级，不重复归类，同名项目与分类保留独立分组', () => {
   const { refileSections } = load('ui/MoveToTargetPresentation', {});
   const values = [target('plain', 'Work'),
     { ...target('project-a', 'Work'), projectName: 'Website' },
@@ -354,7 +354,7 @@ function moveRetryFixture() {
   return { state, calls, original, current, freshTarget, findWith: fn => find = fn, targetsWith: fn => targets = fn };
 }
 
-test('收件箱移动重试按顺序重读源与目标版本，刷新后归入项目 Tab', async () => {
+test('收件箱移动重试按顺序重读源与目标版本，刷新后归入项目分组', async () => {
   const f = moveRetryFixture();
   await f.state.refreshMoveTargets();
   assert.deepEqual(f.calls, [['source', f.original], ['targets']]);
@@ -420,18 +420,68 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
   assert.equal(requests.length, 1);
 });
 
-test('位置浮层按最大分类计算高度，最多四行且小窗口限制高度', () => {
-  const { targetPopupHeight } = load('ui/MoveToTargetPresentation', {});
-  const section = size => ({ category: String(size), targets: Array.from({ length: size }, () => target('r', 'Work')) });
-  const small = targetPopupHeight([section(1)], 800);
-  const large = targetPopupHeight([section(2), section(5)], 800);
-  assert.ok(small < large);
-  assert.equal(large, targetPopupHeight([section(5), section(2)], 800));
-  assert.equal(large, targetPopupHeight([section(5)], 800));
-  assert.equal(targetPopupHeight([section(4)], 800), targetPopupHeight([section(100)], 800));
-  assert.ok(targetPopupHeight([section(100)], 320) <= 320 - 104);
-  assert.ok(targetPopupHeight([], 800, true) > 48);
-  assert.ok(targetPopupHeight([], 800, false, '目标读取失败') > targetPopupHeight([], 800));
+test('移动分组与组内目标按最近选择排序，身份忽略版本与字节位置', () => {
+  const { refileSections, recentRefileSections, refileTargetKey, refileTargetTitle } = load('ui/MoveToTargetPresentation', {});
+  const a = target('a', 'Work'), b = target('b', 'Home'), c = target('c', 'Work');
+  const sections = refileSections([a, b, c]);
+  const recent = [refileTargetKey(c), refileTargetKey(b)];
+  const ordered = recentRefileSections(sections, recent);
+  assert.deepEqual(ordered.map(s => [s.name, s.targets.map(t => t.repoId)]), [['Work', ['c', 'a']], ['Home', ['b']]]);
+  assert.deepEqual(recentRefileSections(sections, ['missing']).map(s => s.name), sections.map(s => s.name));
+  assert.deepEqual(sections.flatMap(s => s.targets), [b, a, c]);
+  assert.equal(refileTargetKey(a), refileTargetKey({ ...a, fileVersion: 'new', position: { byte_offset: 999 } }));
+  assert.notEqual(refileTargetKey(a), refileTargetKey({ ...a, fullPath: { ...a.fullPath, occurrence: 2 } }));
+  assert.equal(refileTargetTitle({ ...a, titleParts: [{ text: '项目 ', count: null }] }), '项目');
+  assert.equal(refileTargetTitle({ ...a, titleParts: [] }), '未命名位置');
+});
+
+test('移动面板自动选中有效的最近目标，刷新时使用新快照并跳过失效历史', () => {
+  const source = fs.readFileSync('entry/src/main/ets/components/MoveToTarget.ets', 'utf8');
+  const methods = ['sectionsChanged', 'resetSelection'].map(name =>
+    source.match(new RegExp(`  ${name}\\([^\\n]*\\) (?:: boolean )?\\{[\\s\\S]*?\\n  \\}\\n`))?.[0] ||
+    source.match(new RegExp(`  ${name}\\([^\\n]*\\) \\{[^\\n]*\\}`))?.[0]).join('\n');
+  const output = ts.transpileModule('class Picker {' + methods + '} globalThis.Picker = Picker;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021 }
+  }).outputText;
+  const context = { ...load('ui/MoveToTargetPresentation', {}) };
+  vm.runInNewContext(output, context);
+  const a = target('a', 'Work'), b = target('b', 'Home');
+  const picker = Object.assign(new context.Picker(), { sections: context.refileSections([a, b]),
+    recent: ['missing', context.refileTargetKey(b), context.refileTargetKey(a)], historyReady: true });
+  picker.sectionsChanged();
+  assert.equal(picker.selectedTarget, b);
+  const fresh = { ...b, fileVersion: 'fresh' };
+  picker.sections = context.refileSections([a, fresh]);picker.sectionsChanged();
+  assert.equal(picker.selectedTarget, fresh);
+  picker.sections = context.refileSections([a]);picker.sectionsChanged();
+  assert.equal(picker.selectedTarget, a);
+  picker.sections = [];picker.sectionsChanged();
+  assert.equal(picker.selectedTarget, undefined);
+});
+
+test('最近移动选择串行持久化、去重并在重新加载后保留顺序', async () => {
+  let saved = '[]';
+  const writes = [];
+  let fail = false;
+  const { MoveTargetHistoryService } = load('services/MoveTargetHistoryService', {
+    './PreferencesStore': { PreferencesStore: { async open(_, name) {
+      assert.equal(name, 'org_tasks_move_targets');
+      return { async get(key) { assert.equal(key, 'recentTargets'); return saved; },
+        async put(_key, value) { if (fail) throw new Error('保存失败'); saved = value; writes.push(value); }, async flush() {} };
+    } } }
+  });
+  const history = MoveTargetHistoryService;
+  assert.deepEqual(await history.load({}), []);
+  await Promise.all([history.remember({}, 'a'), history.remember({}, 'b'), history.remember({}, 'a')]);
+  assert.deepEqual(await history.load({}), ['a', 'b']);
+  assert.equal(writes.length, 3);
+  fail = true;
+  await assert.rejects(history.remember({}, 'c'), /保存失败/);
+  fail = false;
+  await history.remember({}, 'd');
+  assert.deepEqual(await history.load({}), ['d', 'a', 'b']);
+  for (let i = 0; i < 105; i++) await history.remember({}, String(i));
+  assert.equal((await history.load({})).length, 100);
 });
 
 test('批量分配与截止只提交一次，携带全部源版本并使用日期字段保留已有时刻与重复规则', async () => {
@@ -484,8 +534,7 @@ function batchFixture() {
   const records = ['first', 'second', 'third'].map(id => ({ id, fileVersion: 'snapshot' }));
   const state = Object.assign(new module.exports.Batch(), { records, mergeBusy: false, actionBusy: false, mergeInvalid: false,
     selectingRecords: true, selectedRecordIds: ['third', 'first'], refreshes: 0,
-    actionPolicy: { enableSelect: true, enableBulkMove: true, enableBulkSchedule: true, enableBulkDeadline: true,
-      enableBulkSomeday: true, enableBulkMemo: true, enableBulkDelete: true },
+    actionPolicy: { singleOperations: [], bulkOperations: ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete'] },
     selectedRecords() { return this.selectedRecordIds.map(id => this.records.find(record => record.id === id)); },
     resetSelection() { this.selectedRecordIds = []; this.selectingRecords = false; },
     async loadRecords() { this.refreshes++; }, getUIContext: () => ({ getHostContext: () => ({}) }) });
@@ -514,21 +563,21 @@ test('批量提交失败保留选择顺序和版本，版本失效不能直接�
 });
 
 
-test('批量动作提交时再次检查 enableBulk 开关，禁用后不写入；单条日期不依赖批量开关', async () => {
+test('批量动作提交时再次检查操作列表，移除后不写入；单条日期不依赖批量列表', async () => {
   const flags = { Move: 'move', Schedule: 'schedule', Deadline: 'deadline', Someday: 'someday', Memo: 'memo', Delete: 'delete' };
-  for (const [suffix, action] of Object.entries(flags)) {
+  for (const action of Object.values(flags)) {
     const f = batchFixture();
-    f.state.actionPolicy['enable' + suffix] = true;
-    f.state.actionPolicy['enableBulk' + suffix] = false;
+    f.state.actionPolicy.singleOperations = [action];
+    f.state.actionPolicy.bulkOperations = [];
     assert.equal(await f.state.performSelected(action), false, action);
     assert.deepEqual(f.calls, []);
-    f.state.actionPolicy['enable' + suffix] = false;
-    f.state.actionPolicy['enableBulk' + suffix] = true;
+    f.state.actionPolicy.singleOperations = [];
+    f.state.actionPolicy.bulkOperations = [action];
     assert.equal(await f.state.performSelected(action), true, action);
     assert.equal(f.calls.length, 1);
   }
   const single = batchFixture(); single.state.selectingRecords = false;
-  single.state.actionPolicy = { enableSchedule: true };
+  single.state.actionPolicy = { singleOperations: ['schedule'], bulkOperations: [] };
   assert.equal(await single.state.performSelected('schedule', undefined, '2026-11-20', [single.state.records[0]]), true);
   assert.equal(single.calls.length, 1);
 });

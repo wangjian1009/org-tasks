@@ -17,6 +17,22 @@ fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
 }
 
 #[tokio::test]
+async fn target_titles_hide_progress_without_changing_paths_or_source() {
+    let source = "* 项目 [2/5] :REFILE:\n** [[https://example.org][研发]] [40%] :REFILE:\n* 保留 ~[1/2]~ :REFILE:\n";
+    let repository = repo("r", &[("targets.org", source)]);
+    let targets = repository.refile_targets().await.unwrap();
+    let labels = targets.iter().map(|target| target.title_parts.iter()
+        .map(|part| part.text.as_str()).collect::<String>().trim().to_owned()).collect::<Vec<_>>();
+    assert_eq!(labels, ["项目", "研发", "保留 [1/2]"]);
+    assert_eq!(targets[0].heading_path, ["项目 [2/5]"]);
+    assert_eq!(targets[0].full_path.titles, ["项目"]);
+    assert_eq!(targets[1].title_parts[0].href.as_deref(), Some("https://example.org/"));
+    assert_eq!(serde_json::to_value(&targets[0]).unwrap()["titleParts"],
+        serde_json::to_value(&targets[0].title_parts).unwrap());
+    assert_eq!(serialize_file(&repository.load_files(&[]).await.unwrap()[0]), source.as_bytes());
+}
+
+#[tokio::test]
 async fn targets_include_project_names_from_the_same_file_snapshot() {
     for (header, expected) in [
         ("#+FILETAGS: :project:\n#+PROJECT_NAME: 官网改版\n#+TITLE: 备用名称\n", Some("官网改版")),

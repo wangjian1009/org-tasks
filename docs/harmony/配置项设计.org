@@ -225,11 +225,11 @@ Core 固定默认值、跨配置来源合并顺序与分隔规则见 [[file:../c
 
 * 收件箱整理目标
 
-收件箱托盘的普通目标来自 Core REFILE 快照，分类来自所在文件 CATEGORY，不新增 Preferences 字段。托盘的“备忘”直接使用已配置的 ~memoRepoId~ 与 ~memoFile~ ，提交前检查仓库、路径和忽略状态；失效时提示重新选择，不回退到其他文件。成功移动到备忘文件顶部，并清除根条目的任务状态、优先级及 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息，保留正文、标签、 ~CREATED~ 等属性和子条目。托盘选中项、高度与目标列表只保存在当前页面内存中，不持久化。
+底部移动面板的普通目标来自 Core REFILE 快照，分类来自所在文件 CATEGORY，不把目标快照保存到 Preferences。左滑的“备忘”快捷操作直接使用已配置的 ~memoRepoId~ 与 ~memoFile~ ，提交前检查仓库、路径和忽略状态；失效时提示重新选择，不回退到其他文件。成功移动到备忘文件顶部，并清除根条目的任务状态、优先级及 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息，保留正文、标签、 ~CREATED~ 等属性和子条目。移动面板当前快照、高度与选择保留在页面内存，最近点选按 [[*移动位置最近选择][移动位置最近选择]] 单独保存。
 
 * 将来，也许快捷入口
 
-移动托盘的“将来，也许”复用现有 ~somedayRepoId~ 与 ~somedayFile~ ，不新增文件选择或 Preferences 字段。该文件与当前收件箱一起通过 ~RefileTargetQuery.excludedFiles~ 在 Core 生成 CATEGORY 前排除；其 REFILE 标题不形成普通 Tab。快捷入口使用 ~files~ 单独查询所选文件，移动到首个 REFILE 节点的第一个子节点，清除根任务规划信息并设置 TODO。配置失效或 TODO 不被目标文件接受时明确提示，不能回退到首个仓库或其他同名文件。
+移动托盘的“将来，也许”复用现有 ~somedayRepoId~ 与 ~somedayFile~ ，不新增文件选择或 Preferences 字段。该文件与当前收件箱一起通过 ~RefileTargetQuery.excludedFiles~ 在 Core 生成 CATEGORY 前排除；其 REFILE 标题不形成普通分组。快捷入口使用 ~files~ 单独查询所选文件，移动到首个 REFILE 节点的第一个子节点，清除根任务规划信息并设置 TODO。配置失效或 TODO 不被目标文件接受时明确提示，不能回退到首个仓库或其他同名文件。
 
 * 重置本地目录的配置边界
 
@@ -238,3 +238,9 @@ Core 固定默认值、跨配置来源合并顺序与分隔规则见 [[file:../c
 * 冲突预览缓存
 
 ConflictFile 进入时把 ~<cacheDir>/org-conflict-previews~ 作为 setPreviewRoot 参数传给同一长期 Workspace。它是运行时私有缓存位置，不增加 Preferences 配置项，不保存凭据或可恢复草稿。Core 验证其在全部仓库之外，通过 workspace 租约与 UUID 子目录维护临时文件；结束、取消或会话清理后删除，重启从真实源文件重新开始。临时身份固定为带尖括号的 ~<preview>~ ，不属于配置仓库 ID 或 Core 真实仓库 ID。
+
+* 移动位置最近选择
+
+~MoveTargetHistoryService~ 使用独立 Preferences ~org_tasks_move_targets~ 的 ~recentTargets~ 字符串键保存 JSON 数组，最多保留 100 个去重后的目标键，最新点选位于数组头部。各入口共用串行写入队列，点选即记录，不要求已执行移动；打开时自动恢复选择不另记一次点选。存储失败沿用 ~PreferencesStore~ 的拒绝语义，面板显示读取重试或重新选择提示，不把存储成功作为移动提交结果。
+
+目标键是 Core 仓库 ID、相对文件路径、 ~fullPath.titles~ 与 ~occurrence~ 的结构化 JSON，不包含文件版本、字节位置、密码或绝对目录。标题定位沿用 Core 的规范路径，因此统计进度变化不改变位置键；同名位置按出现次序区分。每次打开用本次 Core 目标快照匹配历史，失效键不形成候选或提交目标；不依据名称跨仓库、文件或同名次序回退。分组顺序取组内最靠前的历史位置，组内按历史顺序排列，未选择位置沿用初始顺序。重启和升级保留此偏好，清除应用数据后恢复默认；不属于 ~AppConfig~ 、Core 仓库元数据或同步内容。

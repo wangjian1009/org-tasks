@@ -11,7 +11,7 @@ import { repeatSummary } from '../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
 import { MoveToTarget } from './MoveToTarget'
 import { MoveToTargetService } from '../services/MoveToTargetService'
-import { RefileSection, refileSections, targetPopupHeight } from '../ui/MoveToTargetPresentation'
+import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 import { PopupMenuButton } from './PopupMenuButton'
 import { PopupMenuItem } from './PopupMenu'
@@ -215,20 +215,11 @@ export struct TaskListItem {
     } finally { this.moveBusy = false }
   }
 
-  movePopupHeight(): number {
-    let height = 800
-    try {
-      if (this.hostWindow) height = this.getUIContext().px2vp(this.hostWindow.getWindowProperties().windowRect.height)
-    } catch (_) {}
-    return targetPopupHeight(this.moveSections, height, this.moveLoading, this.moveMessage, this.moveBusy)
-  }
-
   @Builder
-  movePopup() {
+  movePanel() {
     MoveToTarget({ sections: this.moveSections, selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
       loading: this.moveLoading, busy: this.moveBusy, message: this.moveMessage,
       choose: (target: CoreRefileTarget): void => { this.moveTo(target) }, retry: (): void => { this.openMove() } })
-      .width(Math.min(350, this.rowWidth)).height(this.movePopupHeight())
   }
 
   async toggleDoing() {
@@ -1313,12 +1304,13 @@ export struct TaskListItem {
         this.rowWidth = parseFloat(area.width.toString())
       })
       .onClick(() => {})
-      .bindPopup(this.moveOpen, {
-        builder: this.movePopup, placement: Placement.Bottom, targetSpace: 10,
-        enableArrow: false, width: Math.min(350, this.rowWidth), radius: 16,
-        popupColor: '#363A38', backgroundBlurStyle: BlurStyle.NONE,
-        mask: { color: '#2E000000' }, autoCancel: !this.moveBusy, onWillDismiss: !this.moveBusy, focusable: true,
-        onStateChange: (event): void => { if (!event.isVisible && this.moveOpen) this.closeMove() }
+      .bindSheet($$this.moveOpen, this.movePanel, {
+        height: '70%', detents: ['70%', '90%'], preferType: SheetType.BOTTOM,
+        backgroundColor: '#363A38', showClose: true,
+        onWillDismiss: (action): void => {
+          if (!this.moveBusy) { action.dismiss(); this.closeMove() }
+        },
+        onDisappear: (): void => { this.closeMove() }
       })
       .priorityGesture(PanGesture({ direction: this.enableSwipeActions ? PanDirection.Right : PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
         this.horizontalSwipe(event.offsetX)

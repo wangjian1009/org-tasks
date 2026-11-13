@@ -397,7 +397,7 @@ interface TitleCount {
 
 * 收件箱目标与任务整理
 
-~Workspace.refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>~ 继续返回 REFILE 目标，增加由 Core 生成的 ~fullPath~ ，保留 category 与 fileVersion，增加同一文件快照的 ~projectName: string | null~ 。项目识别和名称回退由 Core 完成；Rust bridge 直接序列化该字段，C++ 在原工作线程响应中完整透传，ArkTS wrapper 沿用 native 目标类型，不额外查询文件元信息。每个 Task 增加 ~taskId: string | null~ 、 ~fullPath: TaskPath~ 和 ~fileVersion~ ；仓库和文件也提供完整路径。新的 ~Workspace.executeTaskOperations(group)~ 是唯一任务写入入口。
+~Workspace.refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>~ 继续返回 REFILE 目标，增加由 Core 生成的 ~fullPath~ ，保留 category 与 fileVersion，增加同一文件快照的 ~projectName: string | null~ 与 ~titleParts: TitlePart[]~ 。后者由 Core 的标题渲染规则隐藏进度统计，原始路径保持原契约。项目识别和名称回退由 Core 完成；Rust bridge 直接序列化该字段，C++ 在原工作线程响应中完整透传，ArkTS wrapper 沿用 native 目标类型，不额外查询文件元信息。每个 Task 增加 ~taskId: string | null~ 、 ~fullPath: TaskPath~ 和 ~fileVersion~ ；仓库和文件也提供完整路径。新的 ~Workspace.executeTaskOperations(group)~ 是唯一任务写入入口。
 
 ~MoveToTargetService~ 统一编排收件箱与共享任务卡片的目标查询、普通移动，将启用 WebDAV 的配置根目录匹配为 Core 仓库 ID，并携带源、目标快照版本。目标读取不额外预读某天入口；普通移动提交 Movement，目标 parent 使用放置目标 fullPath。 ~InboxService~ 保留收件箱加载、合并与快捷操作，普通移动委托通用服务；备忘先以 Modification 清除 TODO、优先级、SCHEDULE、DEADLINE，由 Core 随状态自动清理 CLOSED，再以 Movement 移入配置的备忘文件；删除提交 Deletion。源、目标可携带文件版本，将来，也许先以 Modification 设置 TODO 并清除 SCHEDULE、DEADLINE，由 Core 随状态自动清理 CLOSED，再以 Movement 移到所配置某天文件中的首个 REFILE 标题。源与所选放置目标携带文件版本；失败保留当前浮层与用户选择。
 

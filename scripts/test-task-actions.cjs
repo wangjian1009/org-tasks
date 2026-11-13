@@ -19,18 +19,18 @@ function compile(source, filename, mocks = {}) {
 }
 const filename = 'entry/src/main/ets/ui/TaskActionPresentation.ets';
 const actions = compile(fs.readFileSync(filename, 'utf8'), filename);
-const { taskActionPolicy, taskHasSwipeActions, taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth } = actions;
+const { TaskOperation, taskActionPolicy, taskPageActionPolicy, taskSwipeMenu, taskBatchMenu, taskSwipeMenuWidth } = actions;
 
 function pagePolicy(page) {
   const file = page === 'inbox' ? 'entry/src/main/ets/pages/Inbox.ets' : 'entry/src/main/ets/components/LogbookTaskList.ets';
   if (!['inbox', 'logbook'].includes(page)) return taskPageActionPolicy(page);
   const source = fs.readFileSync(file, 'utf8');
   const call = source.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, '([^']+)')?\)/);
-  return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')'), call[2]);
+  return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')', { TaskOperation }), call[2]);
 }
 
 function checkDeferredSwipeMenu(expression, filename) {
-  const { options } = compile('import { taskHasSwipeActions } from "actions"; export function options(record) { return ' + expression + '; }', filename,
+  const { options } = compile('export function options(record) { return ' + expression + '; }', filename,
     { actions });
   const renders = [], record = { id: 'source-record' };
   const page = { selectingRecords: false, actionPolicy: pagePolicy('inbox'),
@@ -47,7 +47,8 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.equal(value.start.actionAreaDistance, 48);
     renders.length = 0;
     page.actionPolicy = taskActionPolicy();
-    assert.equal(options.call(page, record).end, undefined);
+    assert.equal(typeof options.call(page, record).end.builder, 'function');
+    assert.equal(options.call(page, record).start, undefined);
     for (const flag of ['selectingRecords', 'actionBusy', 'selectionStarting', 'mergeBusy', 'checklistDragging', 'selected', 'inlineTyping']) {
       page[flag] = true;
       assert.deepEqual(options.call(page, record), {}, flag);
@@ -80,18 +81,24 @@ test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测
   assert.ok(checked > 0, '缺少收件箱 swipeAction 编译产物');
 });
 
-test('菜单默认全部关闭，页面显式启用且配置互不污染', () => {
+test('操作列表默认留空，多选固定追加，页面配置与传入数组互不污染', () => {
   const defaults = taskActionPolicy();
-  assert.deepEqual(taskSwipeMenu(defaults, () => {}), []);
+  assert.deepEqual(taskSwipeMenu(defaults, () => {}).map(item => item.id), ['select']);
   assert.deepEqual(taskBatchMenu(defaults, () => {}), []);
-  for (const key of Object.keys(defaults).filter(key => key.startsWith('enable'))) assert.equal(defaults[key], false, key);
+  assert.deepEqual(defaults.singleOperations, []); assert.deepEqual(defaults.bulkOperations, []);
   const inbox = pagePolicy('inbox');
-  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'select']);
-  assert.deepEqual(taskBatchMenu(inbox, () => {}).map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'merge']);
+  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['someday', 'memo', 'delete', 'select']);
+  assert.deepEqual(taskBatchMenu(inbox, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete', 'merge']);
   assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete', 'restore']);
-  inbox.enableDelete = false;
-  assert.equal(pagePolicy('inbox').enableDelete, true);
-  for (const page of ['today', 'planned', 'anytime', 'someday', 'recent']) assert.equal(taskHasSwipeActions(pagePolicy(page)), false, page);
+  inbox.singleOperations.length = 0;
+  assert.equal(pagePolicy('inbox').singleOperations.length, 3);
+  const input = { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] };
+  const policy = taskActionPolicy(input);
+  policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
+  assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
+  for (const page of ['today', 'planned', 'anytime', 'someday', 'recent']) {
+    assert.deepEqual(pagePolicy(page).singleOperations, []);
+  }
 });
 
 const cardFile = 'entry/src/main/ets/components/TaskListItem.ets';
@@ -118,7 +125,7 @@ function swipeCard(page) {
   const { Card } = compile('export class Card {' + cardMethod('horizontalSwipe') + cardMethod('rightSwipe') + '}', cardFile);
   const calls = [], policy = pagePolicy(page);
   const state = Object.assign(new Card(), {
-    rightSwipeAction: policy.rightSwipeAction, enableSwipeActions: taskHasSwipeActions(policy),
+    rightSwipeAction: policy.rightSwipeAction, enableSwipeActions: page === 'inbox',
     dates: deadline => calls.push(deadline ? 'deadline' : 'schedule'),
     toggleDoing: () => calls.push('doing'), openMove: () => calls.push('move'), swipe: left => calls.push(left ? 'menu' : 'right')
   });
@@ -136,8 +143,8 @@ test('六个区域右滑分别执行移动、日期或进行中，左滑不执�
     assert.deepEqual(f.calls, [], page);
   }
   const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
-  assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete', 'select']);
-  assert.equal(taskSwipeMenuWidth(inboxMenu), 304);
+  assert.deepEqual(inboxMenu.map(item => item.id), ['someday', 'memo', 'delete', 'select']);
+  assert.equal(taskSwipeMenuWidth(inboxMenu), 208);
 });
 
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
@@ -205,33 +212,24 @@ test('移动浮层取消后丢弃在途目标结果，卡片离开后不打开�
   await left.state.openMove(); assert.equal(left.state.moveOpen, false);
 });
 
-test('左滑开关与 enableBulk 系列分别控制能力，单独开启互不影响', () => {
-  const flags = { Move: 'move', Schedule: 'schedule', Deadline: 'deadline', Someday: 'someday', Memo: 'memo', Delete: 'delete' };
-  for (const [suffix, id] of Object.entries(flags)) {
-    const invoked = [], policy = taskActionPolicy({ ['enable' + suffix]: true, enableSelect: true });
+test('单条与批量操作列表独立控制能力、顺序与回调，多选固定在最后', () => {
+  for (const id of [TaskOperation.Move, TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete]) {
+    const invoked = [], policy = taskActionPolicy({ singleOperations: [id] });
     const swipe = taskSwipeMenu(policy, id => invoked.push(id));
     assert.deepEqual(swipe.map(item => item.id), [id, 'select']);
     assert.deepEqual(taskBatchMenu(policy, () => {}), []);
-    policy['enable' + suffix] = false;
-    policy['enableBulk' + suffix] = true;
+    policy.singleOperations = []; policy.bulkOperations = [id];
     assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['select']);
     const batch = taskBatchMenu(policy, id => invoked.push(id));
     assert.deepEqual(batch.map(item => item.id), [id]);
     assert.equal(swipe[0].icon.name, batch[0].icon.name);
     assert.equal(swipe[0].style, batch[0].style);
     swipe[0].action(); batch[0].action(); assert.deepEqual(invoked, [id, id]);
-    policy['enableBulk' + suffix] = false;
-    assert.deepEqual(taskBatchMenu(policy, () => {}), []);
-    policy['enableBulk' + suffix] = true;
-    policy.enableSelect = false;
-    assert.deepEqual(taskBatchMenu(policy, () => {}), []);
-    assert.equal(taskHasSwipeActions(policy), false);
+    policy.bulkOperations = []; assert.deepEqual(taskBatchMenu(policy, () => {}), []);
   }
-  const policy = taskActionPolicy({ enableSelect: true, enableMerge: true });
-  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['select']);
-  assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['merge']);
-  policy.enableMerge = false;
-  assert.deepEqual(taskBatchMenu(policy, () => {}), []);
+  const policy = taskActionPolicy({ singleOperations: [TaskOperation.Delete, TaskOperation.Move], bulkOperations: [TaskOperation.Merge, TaskOperation.Delete] });
+  assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['delete', 'move', 'select']);
+  assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['merge', 'delete']);
   assert.equal(taskSwipeMenuWidth([]), 0);
 });
 
@@ -255,24 +253,21 @@ test('批量栏支持页面自定义按钮与最少选择数，忙碌或失效�
 });
 
 test('收件箱合并按钮至少选择两条，使用配置的回调', () => {
-  const invoked = [], menu = taskBatchMenu(taskActionPolicy({ enableSelect: true, enableMerge: true }), id => invoked.push(id));
+  const invoked = [], menu = taskBatchMenu(taskActionPolicy({ bulkOperations: [TaskOperation.Merge] }), id => invoked.push(id));
   const state = toolbar({ count: 1 });
   state.activate(menu[0]); assert.deepEqual(invoked, []);
   state.count = 2; state.activate(menu[0]); assert.deepEqual(invoked, ['merge']);
 });
 
 
-test('共享选择行按页面开关处理长按与点按，选中状态或忙碌时不重新进入', () => {
+test('共享选择行固定提供长按进入与点按切换，选中状态或忙碌时不重新进入', () => {
   const source = fs.readFileSync('entry/src/main/ets/components/TaskSelectionRow.ets', 'utf8');
   const methods = source.slice(source.indexOf('  selectionActive()'), source.indexOf('  build()'));
   const { SelectionRow } = compile('export class SelectionRow {' + methods + '}', 'TaskSelectionRow.ets');
   let begins = 0, toggles = 0;
-  const row = Object.assign(new SelectionRow(), { batchEditing: false, selecting: true, busy: false,
+  const row = Object.assign(new SelectionRow(), { selecting: false, busy: false,
     begin: () => begins++, toggle: () => toggles++ });
   assert.equal(row.selectionActive(), false);
-  row.beginSelection(); row.toggleSelection();
-  assert.equal(begins + toggles, 0);
-  row.batchEditing = true; row.selecting = false;
   row.beginSelection(); assert.equal(begins, 1);
   row.toggleSelection(); assert.equal(toggles, 0);
   row.selecting = true; row.beginSelection(); assert.equal(begins, 1);
@@ -281,14 +276,14 @@ test('共享选择行按页面开关处理长按与点按，选中状态或忙�
   assert.equal(begins, 1); assert.equal(toggles, 1);
 });
 
-test('日志簿左滑进入多选，恢复仅由独立批量开关开启', () => {
+test('日志簿左滑进入多选，批量恢复由操作列表独立控制', () => {
   const policy = pagePolicy('logbook'), invoked = [];
   assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['delete', 'select']);
   const menu = taskBatchMenu(policy, action => invoked.push(action));
   assert.deepEqual(menu.map(item => item.title), ['删除', '恢复']);
   menu[1].action(); assert.deepEqual(invoked, ['restore']);
-  policy.enableBulkRestore = false;
+  policy.bulkOperations = [TaskOperation.Delete];
   assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['delete']);
-  policy.enableBulkRestore = true; policy.enableSelect = false;
+  policy.bulkOperations = [];
   assert.deepEqual(taskBatchMenu(policy, () => {}), []);
 });

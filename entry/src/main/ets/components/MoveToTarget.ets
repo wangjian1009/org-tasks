@@ -1,5 +1,6 @@
 import { CoreRefileTarget } from '../services/NativeCoreService'
-import { RefileSection } from '../ui/MoveToTargetPresentation'
+import { MoveTargetHistoryService } from '../services/MoveTargetHistoryService'
+import { RefileSection, recentRefileSections, refileTargetKey, refileTargetTitle } from '../ui/MoveToTargetPresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { TitleText } from './TitleText'
 
@@ -11,19 +12,47 @@ export struct MoveToTarget {
   @Prop busy: boolean = false
   @Prop message: string = ''
   @State selectedTarget: CoreRefileTarget | undefined = undefined
-  @State activeTabIndex: number = 0
-  private tabsController: TabsController = new TabsController()
+  @State orderedSections: RefileSection[] = []
+  @State historyMessage: string = ''
+  private recent: string[] = []
+  private historyReady: boolean = false
+  private disposed: boolean = false
+  private interactionStarted: boolean = false
   choose: (target: CoreRefileTarget) => void = () => {}
   retry: () => void = () => {}
 
-  resetSelection() { this.selectedTarget = undefined }
+  async aboutToAppear() {
+    this.disposed = false
+    this.sectionsChanged()
+    await this.loadHistory()
+  }
+
+  aboutToDisappear() { this.disposed = true }
+
+  async loadHistory() {
+    try {
+      const recent = await MoveTargetHistoryService.load(this.getUIContext().getHostContext()!)
+      if (this.disposed) return
+      if (!this.interactionStarted) this.recent = recent
+      this.historyReady = true
+      this.historyMessage = ''
+      this.sectionsChanged()
+    } catch (_) {
+      if (!this.disposed) this.historyMessage = '最近选择读取失败，点击重试'
+    }
+  }
+
+  resetSelection() { this.selectedTarget = undefined; this.sectionsChanged() }
 
   sectionsChanged() {
-    if (this.selectedTarget && !this.sections.some((section: RefileSection) =>
-      section.targets.some((target: CoreRefileTarget) => this.isSelected(target)))) this.resetSelection()
-    if (this.activeTabIndex >= this.sections.length) {
-      this.activeTabIndex = 0
-      if (this.sections.length > 0) this.tabsController.changeIndex(0)
+    this.orderedSections = recentRefileSections(this.sections, this.recent)
+    const targets = this.orderedSections.flatMap((section: RefileSection): CoreRefileTarget[] => section.targets)
+    if (this.selectedTarget) {
+      const key = refileTargetKey(this.selectedTarget)
+      this.selectedTarget = targets.find((target: CoreRefileTarget): boolean => refileTargetKey(target) === key)
+    }
+    if (!this.selectedTarget && this.historyReady) {
+      this.selectedTarget = targets.find((target: CoreRefileTarget): boolean => this.recent.includes(refileTargetKey(target)))
     }
   }
 
@@ -32,7 +61,13 @@ export struct MoveToTarget {
   }
 
   select(target: CoreRefileTarget) {
-    if (!this.busy && !this.loading) this.selectedTarget = target
+    if (this.busy || this.loading) return
+    this.interactionStarted = true
+    this.selectedTarget = target
+    // 当前面板不因点击重排；下一次打开时再按已保存的选择顺序排序。
+    MoveTargetHistoryService.remember(this.getUIContext().getHostContext()!, refileTargetKey(target))
+      .then((): void => { if (!this.disposed) this.historyMessage = '' })
+      .catch((): void => { if (!this.disposed) this.historyMessage = '最近选择保存失败，请重新选择' })
   }
 
   move(target: CoreRefileTarget) {
@@ -41,38 +76,32 @@ export struct MoveToTarget {
   }
 
   @Builder
-  targetTab(section: RefileSection, index: number) {
-    Column({ space: 4 }) {
-      Row({ space: 4 }) {
-        if (section.kind === 'project') {
-          Image($r('app.media.ui_folder')).width(16).height(16)
-            .fillColor(this.activeTabIndex === index ? UiColor.primary : UiColor.secondary).accessibilityLevel('no')
-        }
-        Text(section.name || '未分类').fontSize(UiSize.taskFont).fontWeight(this.activeTabIndex === index ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.activeTabIndex === index ? UiColor.primary : UiColor.secondary)
-          .maxLines(1).constraintSize({ maxWidth: 160 }).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
-      Row().height(2).width(28).backgroundColor(this.activeTabIndex === index ? UiColor.primary : Color.Transparent).borderRadius(1)
-    }.height(40).padding({ left: 14, right: 14, top: 6 }).justifyContent(FlexAlign.Center)
-      .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}${this.activeTabIndex === index ? '，已选择' : ''}`)
+  sectionHeading(section: RefileSection) {
+    Row({ space: 8 }) {
+      Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category'))
+        .width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
+      Text(section.name || '未分类').fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
+        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+    }.width('100%').constraintSize({ minHeight: 40 }).padding({ left: 12, right: 12, top: 12, bottom: 4 })
+      .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}`)
   }
 
   @Builder
   targetRow(target: CoreRefileTarget) {
     Row({ space: 8 }) {
-      TitleText({ text: target.headingPath[target.headingPath.length - 1] || '',
+      TitleText({ text: refileTargetTitle(target), parts: target.titleParts, showCounts: false, openLinks: false,
         textSize: UiSize.taskFont, lineLimit: 1, weight: this.isSelected(target) ? FontWeight.Medium : FontWeight.Normal,
         activate: (): void => this.select(target) }).layoutWeight(1).constraintSize({ minWidth: 0 })
       if (this.isSelected(target)) {
         Button('移动').id('move_to_target').width(58).height(32).padding(0).borderRadius(10)
           .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(UiSize.taskFont).enabled(!this.busy && !this.loading)
-          .accessibilityText(`移动到${target.headingPath[target.headingPath.length - 1] || ''}`)
+          .accessibilityText(`移动到${refileTargetTitle(target)}`)
           .onClick((): void => this.move(target))
       }
     }.width('100%').height(UiSize.taskRow).padding({ left: 12, right: 10, top: 4, bottom: 4 })
       .backgroundColor(this.isSelected(target) ? '#3F514A' : Color.Transparent)
       .border({ width: this.isSelected(target) ? 1 : 0, color: UiColor.primary }).borderRadius(10)
-      .accessibilityText(`${target.headingPath[target.headingPath.length - 1] || ''}${this.isSelected(target) ? '，已选中' : '，点击选择'}`)
+      .accessibilityText(`${refileTargetTitle(target)}${this.isSelected(target) ? '，已选中' : '，点击选择'}`)
       .enabled(!this.busy && !this.loading).onClick((): void => this.select(target))
   }
 
@@ -80,9 +109,13 @@ export struct MoveToTarget {
     Column() {
       Row({ space: 8 }) {
         Image($r('app.media.ui_move_to')).width(24).height(24).accessibilityLevel('no')
-        Text('移动到').fontSize(UiSize.taskFont).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
+        Text('移动到').fontSize(20).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
       }.width('100%').height(48).padding({ left: 16, right: 16 })
       Divider().color(UiColor.outline).margin({ left: 12, right: 12 })
+      if (this.historyMessage) {
+        Text(this.historyMessage).fontSize(13).fontColor(UiColor.error).padding(12).width('100%')
+          .onClick((): void => { this.loadHistory() })
+      }
       if (this.busy) {
         Text('正在保存…').fontSize(14).fontColor(UiColor.secondary).padding({ left: 12, right: 12 }).height(40).width('100%')
       }
@@ -101,24 +134,19 @@ export struct MoveToTarget {
           Text('在目标标题上添加 REFILE 标签后重试。').fontSize(13).fontColor(UiColor.secondary)
         }.width('100%').height(80).justifyContent(FlexAlign.Center)
       } else {
-        Tabs({ barPosition: BarPosition.Start, controller: this.tabsController, index: this.activeTabIndex }) {
-          ForEach(this.sections, (section: RefileSection, index: number) => {
-            TabContent() {
-              List({ space: 0 }) {
-                ForEach(section.targets, (target: CoreRefileTarget) => {
-                  ListItem() { this.targetRow(target) }
-                }, (target: CoreRefileTarget) => JSON.stringify(target))
-              }.width('100%').height('100%').padding({ left: 12, right: 12, top: 4, bottom: 4 })
-                .edgeEffect(EdgeEffect.None)
-                .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
-            }.tabBar(this.targetTab(section, index))
-          }, (section: RefileSection) => JSON.stringify(section))
-        }.width('100%').layoutWeight(1).barHeight(40).barMode(BarMode.Scrollable)
-          .scrollable(!this.busy).enabled(!this.busy).onChange((index: number): void => {
-            if (this.activeTabIndex !== index) { this.activeTabIndex = index; this.resetSelection() }
-          })
+        List({ space: 0 }) {
+          ForEach(this.orderedSections, (section: RefileSection) => {
+            ListItemGroup({ header: this.sectionHeading(section) }) {
+              ForEach(section.targets, (target: CoreRefileTarget) => {
+                ListItem() { this.targetRow(target) }
+              }, (target: CoreRefileTarget) => JSON.stringify(target))
+            }
+          }, (section: RefileSection) => section.key)
+        }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+          .edgeEffect(EdgeEffect.None)
+          .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
       }
     }.width('100%').height('100%').backgroundColor('#363A38')
-      .borderRadius(16).border({ width: 1, color: '#555E57' }).clip(true).padding({ bottom: 8 })
+      .padding({ bottom: 8 })
   }
 }
