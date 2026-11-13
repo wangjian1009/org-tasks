@@ -24,7 +24,7 @@ const time = (value) => new Date(value).getTime();
 const now = new Date('2026-11-12T12:00:00');
 function task(id, created, closed, category = 'Done', project = null, region = '工作', repoId = 'repo', filePath = 'task.org') {
   return { id, repoId, filePath, category: region, heading: id, createdAt: created ? time(created) : null, closedAt: closed ? time(closed) : null,
-    state: { name: '任意自定义名字', category }, project: () => project, editContent: { notes: '', checklist: [] } };
+    state: { name: '任意自定义名字', category }, project: () => project, logs: [], editContent: { notes: '', checklist: [] } };
 }
 test('日志簿请求仅完成分类，由 Core 排除取消和未完成任务', () => {
   const { overviewTaskQuery } = compile(fs.readFileSync('entry/src/main/ets/services/TaskViewQueries.ets', 'utf8'));
@@ -83,8 +83,8 @@ test('缺失或无效完成时间放在末尾，不借用创建时间，空快�
 });
 const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
 function readOnlyCard(instanceKey = 'event-A') {
-  const methods = ['aboutToAppear', 'value', 'prepare', 'toggle', 'finish', 'persist', 'saveText', 'saveCheck',
-    'horizontalSwipe', 'rightSwipe', 'openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'highestPriority', 'startCheckDrag', 'inputFocus'];
+  const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'finish', 'persist', 'saveText', 'saveCheck',
+    'horizontalSwipe', 'rightSwipe', 'openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
   const chunks = methods.map(name => {
     const result = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(result, name); return result[0];
@@ -100,14 +100,28 @@ function readOnlyCard(instanceKey = 'event-A') {
 }
 test('只读卡片可展开收起，任务实例保持独立会话身份', async () => {
   const a = readOnlyCard('A'), b = readOnlyCard('B');
+  global.$r = name => name;
+  a.card.task.logs = [{ type: 'taskNote', timestamp: '2026-11-13', noteHtml: '<p>历史</p>' }];
   await a.card.toggle(); assert.equal(a.card.expanded, true);
+  assert.equal(a.card.logbookExpanded, false);
+  assert.deepEqual(a.card.moreItems().map(item => item.title), ['日志']);
+  assert.equal(a.card.moreItems()[0].icon, 'app.media.ui_visibility');
+  a.card.moreItems()[0].action();
+  assert.equal(a.card.logbookExpanded, true);
+  assert.equal(a.card.moreItems()[0].title, '日志');
+  assert.equal(a.card.moreItems()[0].icon, 'app.media.ui_visibility_off');
+  a.card.moreItems()[0].action();
+  assert.equal(a.card.logbookExpanded, false);
+  a.card.moreItems()[0].action();
   await a.card.toggle(); assert.equal(a.card.expanded, false); assert.equal(a.released(), 'A');
+  await a.card.toggle(); assert.equal(a.card.logbookExpanded, false);
   await b.card.toggle(); assert.equal(b.card.ownerKey, 'B');
+  assert.deepEqual(b.card.moreItems(), []);
   assert.notEqual(a.card.ownerKey, b.card.ownerKey);
 });
 test('只读模式阻止所有编辑、完成、清单修改与左右滑动，保存不产生请求', async () => {
   const { card } = readOnlyCard();
-  for (const name of ['openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'highestPriority', 'startCheckDrag', 'inputFocus']) {
+  for (const name of ['openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus']) {
     await card[name]();
   }
   card.horizontalSwipe(100); card.horizontalSwipe(-100); card.rightSwipe();

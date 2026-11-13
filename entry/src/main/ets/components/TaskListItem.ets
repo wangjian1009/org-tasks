@@ -14,6 +14,7 @@ import { MoveToTargetService } from '../services/MoveToTargetService'
 import { RefileSection, refileSections, targetPopupHeight } from '../ui/MoveToTargetPresentation'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 import { PopupMenuButton } from './PopupMenuButton'
+import { PopupMenuItem } from './PopupMenu'
 import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDateForDisplay, TaskDateDisplay,
@@ -1135,6 +1136,25 @@ export struct TaskListItem {
       .accessibilityText(label).onClick(activate)
   }
   @Builder
+  moreButton() {
+    PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
+      buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
+      items: this.moreItems() })
+  }
+  moreItems(): PopupMenuItem[] {
+    const items: PopupMenuItem[] = []
+    if (!this.readOnly) {
+      items.push({ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
+        { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
+    }
+    if (this.value().logs.length > 0) {
+      items.push({ title: '日志',
+        icon: this.logbookExpanded ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
+        action: () => { this.logbookExpanded = !this.logbookExpanded } })
+    }
+    return items
+  }
+  @Builder
   attributes() {
     Column({ space: 4 }) {
       if (this.value().editContent.scheduledRepeat?.rule) {
@@ -1161,10 +1181,7 @@ export struct TaskListItem {
           }
         }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
           .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
-        PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
-          buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
-          items: [{ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
-            { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } }] })
+        this.moreButton()
       }.width('100%')
     }.width('100%').padding({ left: 27 })
   }
@@ -1194,58 +1211,53 @@ export struct TaskListItem {
           .layoutWeight(1).onClick(() => { this.toggle() })
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
-    if (this.value().bodyHtml) {
-      OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
-        contentBackground: UiColor.taskCard }).width('100%')
-    }
-    if (this.value().tags.length > 0) {
-      Flex({ wrap: FlexWrap.Wrap }) {
-        ForEach(this.value().tags, (tag: string) => {
-          Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
-            .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10).backgroundColor(taskTagColor(tag))
-            .margin({ right: 6, bottom: 6 })
-        }, (tag: string) => tag)
-      }.width('100%')
-    }
-    if (this.expandedPlanningText()) {
-      Text(this.expandedPlanningText())
-        .fontSize(12).fontColor(UiColor.secondary).width('100%')
-    }
-    if (this.value().editContent.scheduledRepeat?.rule) {
-      Text(`计划重复：${repeatSummary(this.value().editContent.scheduledRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-    }
-    if (this.value().editContent.deadlineRepeat?.rule) {
-      Text(`截止重复：${repeatSummary(this.value().editContent.deadlineRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-    }
+    Column({ space: 8 }) {
+      if (this.value().bodyHtml) {
+        OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
+          contentBackground: UiColor.taskCard }).width('100%')
+      }
+      if (this.value().tags.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.value().tags, (tag: string) => {
+            Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10).backgroundColor(taskTagColor(tag))
+              .margin({ right: 6, bottom: 6 })
+          }, (tag: string) => tag)
+        }.width('100%')
+      }
+      if (this.expandedPlanningText()) {
+        Text(this.expandedPlanningText())
+          .fontSize(12).fontColor(UiColor.secondary).width('100%')
+      }
+      if (this.value().editContent.scheduledRepeat?.rule) {
+        Text(`计划重复：${repeatSummary(this.value().editContent.scheduledRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+      }
+      if (this.value().editContent.deadlineRepeat?.rule) {
+        Text(`截止重复：${repeatSummary(this.value().editContent.deadlineRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+      }
+      if (this.value().logs.length > 0) {
+        Row() { this.moreButton() }.width('100%').justifyContent(FlexAlign.End)
+      }
+    }.width('100%').padding({ left: 27 })
   }
 
   build() {
     Column() {
       if (this.expanded) {
-        Column({ space: 8 }) {
-          if (this.readOnly) {
-            this.readOnlyContent()
-          } else {
-            Column({ space: 12 }) { this.editorContent() }.width('100%')
-            this.attributes()
-          }
+        Column() {
+          Column({ space: 8 }) {
+            if (this.readOnly) {
+              this.readOnlyContent()
+            } else {
+              Column({ space: 12 }) { this.editorContent() }.width('100%')
+              this.attributes()
+            }
+          }.width('100%')
           if (this.value().logs.length > 0) {
-            Column() {
-              if (this.readOnly) {
-                Button({ type: ButtonType.Normal }) {
-                  Row({ space: 8 }) {
-                    Text('日志').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
-                    Image(this.logbookExpanded ? $r('app.media.ui_up') : $r('app.media.ui_down'))
-                      .width(18).height(18).accessibilityLevel('no')
-                  }.width('100%')
-                }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
-                  .accessibilityText(this.logbookExpanded ? '收起日志' : '展开日志')
-                  .onClick(() => { this.logbookExpanded = !this.logbookExpanded })
-              }
-              TaskLogView({ logs: this.value().logs, expanded: !this.readOnly || this.logbookExpanded,
-                contentBackground: this.value().state?.category === TaskStateCategory.Doing
-                  ? '#00000000' : UiColor.taskCard }).width('100%')
-            }.width('100%')
+            TaskLogView({ logs: this.value().logs, expanded: this.logbookExpanded,
+              contentBackground: this.value().state?.category === TaskStateCategory.Doing
+                ? '#00000000' : UiColor.taskCard }).width('100%').padding({ left: 27 })
+              .margin({ top: this.logbookExpanded ? 8 : 0 })
           }
         }.width('100%').padding(12)
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)

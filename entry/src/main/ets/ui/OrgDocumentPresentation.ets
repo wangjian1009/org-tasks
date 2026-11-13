@@ -126,7 +126,6 @@ html { background: ${backgroundColor}; }
 .conflict-modify { border-color: #5B5541; border-left-color: #CAB57D; background: #37352C; }
 .conflict-modify .conflict-card-badge { background: #504B38; color: #E4D2A1; }
 body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans-serif; }
-.task-logs { display: grid; gap: 6px; }
 .task-log { min-width: 0; }
 .task-log-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
 .task-log-time { color: ${UiColor.disabled}; font-size: 11px; }

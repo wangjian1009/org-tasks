@@ -607,15 +607,15 @@ test('来源文字追加项目名，分类缺失时单独显示项目，非项�
 });
 
 test('任务日志按类型显示摘要、时间和附注，保留顺序与安全富文本', () => {
-  const { taskLogsHtml } = loadGrouping('TaskLogPresentation', {});
-  const html = taskLogsHtml([
+  const { taskLogHtml } = loadGrouping('TaskLogPresentation', {});
+  const html = [
     { type: 'taskStateChange', from: '', to: '<img src=x onerror=alert(1)>', timestamp: '2026-11-13 10:00', noteHtml: '<p>等待<b>确认</b></p>' },
     { type: 'taskNote', timestamp: '2026-11-12', noteHtml: '<p>笔记<a class="link" href="https://example.com">链接</a></p>' },
     { type: 'taskReschedule', previous: '<2026-11-10 Tue +1w>', timestamp: '2026-11-11', noteHtml: '' },
     { type: 'taskClock', start: '2026-11-10 23:00', end: '2026-11-11 01:00', duration: '2:00' },
     { type: 'taskClock', start: '2026-11-10 08:00', end: null, duration: null },
     { type: 'other', html: '<p>自定义记录</p>' }
-  ]);
+  ].map(taskLogHtml).join('');
   assert.ok(html.includes('无状态 → &lt;img'));
   assert.ok(!html.includes('<img'));
   assert.ok(html.includes('<p>等待<b>确认</b></p>'));
@@ -629,9 +629,7 @@ test('任务日志按类型显示摘要、时间和附注，保留顺序与安�
   assert.ok(html.indexOf('taskNote') < html.indexOf('taskReschedule'));
 });
 
-test('日志变化使任务行采用新快照，空日志不生成条目', () => {
-  const { taskLogsHtml } = loadGrouping('TaskLogPresentation', {});
-  assert.ok(!taskLogsHtml([]).includes('<article'));
+test('日志变化使任务行采用新快照', () => {
   const previous = task('log-task');
   const updated = task('log-task', { logs: [{ type: 'taskNote', timestamp: '2026-11-13', noteHtml: '<p>追加记录</p>' }] });
   assert.notEqual(taskRenderKey(previous), taskRenderKey(updated));
