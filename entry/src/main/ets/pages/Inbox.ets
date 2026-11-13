@@ -15,7 +15,7 @@ import { MoveToTarget } from '../components/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
 import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
-import { TaskPageActionPolicy, taskActionPolicy, taskPageActionPolicy, taskHasSwipeActions, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
+import { TaskPageActionPolicy, taskActionPolicy, taskPageActionPolicy, TaskOperation, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
 import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { MoveToTargetService } from '../services/MoveToTargetService'
@@ -68,10 +68,12 @@ struct Inbox {
   private visible: boolean = true
   private targetRequest: number = 0
   private actionTimer: number = -1
-  private actionPolicy: TaskPageActionPolicy = taskActionPolicy({ enableMove: true, enableSchedule: true, enableDeadline: true,
-    enableSomeday: true, enableMemo: true, enableDelete: true, enableSelect: true, enableMerge: true,
-    enableBulkMove: true, enableBulkSchedule: true, enableBulkDeadline: true,
-    enableBulkSomeday: true, enableBulkMemo: true, enableBulkDelete: true }, 'move')
+  private actionPolicy: TaskPageActionPolicy = taskActionPolicy({
+    singleOperations: [TaskOperation.Move, TaskOperation.Schedule, TaskOperation.Deadline,
+      TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete],
+    bulkOperations: [TaskOperation.Move, TaskOperation.Schedule, TaskOperation.Deadline,
+      TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete, TaskOperation.Merge]
+  }, 'move')
   private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()
@@ -115,7 +117,7 @@ struct Inbox {
   }
 
   async startSelection(record: CoreTask) {
-    if (!this.actionPolicy.enableSelect || this.checklistDragging) return
+    if (this.checklistDragging) return
     if (this.selectingRecords || this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
     clearTimeout(this.actionTimer)
@@ -163,7 +165,7 @@ struct Inbox {
 
   async mergeSelected() {
     const records = this.selectedRecords()
-    if (!this.actionPolicy.enableSelect || !this.actionPolicy.enableMerge || records.length < 2 || this.mergeBusy || this.mergeInvalid) return
+    if (!this.actionPolicy.bulkOperations.includes(TaskOperation.Merge) || records.length < 2 || this.mergeBusy || this.mergeInvalid) return
     this.mergeBusy = true
     this.batchAction = 'merge'
     this.mergeMessage = ''
@@ -617,12 +619,12 @@ struct Inbox {
               ForEach(this.records, (record: CoreTask) => {
                 ListItem() {
                   Row() {
-                    TaskSelectionRow({ batchEditing: this.actionPolicy.enableSelect, selecting: this.selectingRecords,
+                    TaskSelectionRow({ selecting: this.selectingRecords,
                       busy: this.mergeBusy || this.actionBusy || this.selectionStarting,
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading, horizontalInset: 12,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskListItem({ task: record, enableSwipeActions: taskHasSwipeActions(this.actionPolicy), rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskListItem({ task: record, enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
                           this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
                         } })
@@ -651,7 +653,7 @@ struct Inbox {
                     builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
                     onAction: (): void => { this.swipeAction(record, 'move') }
                   } : undefined,
-                  end: taskHasSwipeActions(this.actionPolicy) ? { builder: (): void => { this.swipeMenu(record) } } : undefined,
+                  end: { builder: (): void => { this.swipeMenu(record) } },
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => taskRenderKey(record))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
@@ -699,7 +701,7 @@ struct Inbox {
         .visibility(this.drawerOpen || this.captureOpen || this.selected || this.inlineTyping || this.selectingRecords || this.selectionStarting ? Visibility.Hidden : Visibility.Visible)
         .enabled(!this.actionBusy).accessibilityText('记一条')
         .onClick((): void => { this.capture() })
-      if (this.selectingRecords && this.actionPolicy.enableSelect) {
+      if (this.selectingRecords) {
         TaskBatchToolbar({ items: taskBatchMenu(this.actionPolicy, (action: TaskBatchAction): void => {
             this.activateBatch(action)
           }), count: this.selectedRecordIds.length, busy: this.mergeBusy, busyAction: this.mergeBusy ? this.batchAction : '', invalid: this.mergeInvalid,

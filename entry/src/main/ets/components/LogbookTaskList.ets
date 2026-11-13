@@ -9,7 +9,7 @@ import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskSwipeActions } from './TaskSwipeActions'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { LogbookService } from '../services/LogbookService'
-import { taskBatchMenu, taskActionPolicy, taskSwipeMenu, TaskBatchAction, TaskSwipeAction } from '../ui/TaskActionPresentation'
+import { taskBatchMenu, taskActionPolicy, taskSwipeMenu, TaskBatchAction, TaskSwipeAction, TaskOperation } from '../ui/TaskActionPresentation'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
@@ -27,7 +27,8 @@ export struct LogbookTaskList {
   @State busyAction: string = ''
   @State selectionStarting: boolean = false
 
-  policy() { return taskActionPolicy({ enableDelete: true, enableSelect: true, enableBulkDelete: true, enableBulkRestore: true }) }
+  policy() { return taskActionPolicy({ singleOperations: [TaskOperation.Delete],
+    bulkOperations: [TaskOperation.Delete, TaskOperation.Restore] }) }
 
   allItems(): LogbookTaskItem[] {
     const result: LogbookTaskItem[] = []
@@ -92,12 +93,13 @@ export struct LogbookTaskList {
   }
 
   async removeTasks(tasks: CoreTask[]) {
-    if (this.selectingTasks ? !this.policy().enableBulkDelete : !this.policy().enableDelete) return
+    const operations = this.selectingTasks ? this.policy().bulkOperations : this.policy().singleOperations
+    if (!operations.includes(TaskOperation.Delete)) return
     await this.performTasks(tasks, 'delete')
   }
 
   async restoreTasks() {
-    if (!this.selectingTasks || !this.policy().enableBulkRestore) return
+    if (!this.selectingTasks || !this.policy().bulkOperations.includes(TaskOperation.Restore)) return
     await this.performTasks(this.selectedItems().map((item: LogbookTaskItem): CoreTask => item.task), 'restore')
   }
 
@@ -131,7 +133,7 @@ export struct LogbookTaskList {
   @Builder
   itemRow(item: LogbookTaskItem, group: LogbookGroup) {
     ListItem() {
-      TaskSelectionRow({ batchEditing: this.policy().enableSelect, selecting: this.selectingTasks,
+      TaskSelectionRow({ selecting: this.selectingTasks,
         busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
         heading: item.task.heading, horizontalInset: 0,
         begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {

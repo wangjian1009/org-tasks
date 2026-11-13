@@ -3,7 +3,6 @@ import { UiColor } from '../ui/Theme'
 // 原任务内容保持挂载，多选期间由外层承接点击并屏蔽内部编辑。
 @Component
 export struct TaskSelectionRow {
-  @Prop batchEditing: boolean = false
   @Prop selecting: boolean = false
   @Prop busy: boolean = false
   @Prop selectedIndex: number = -1
@@ -14,8 +13,8 @@ export struct TaskSelectionRow {
   begin: () => void = () => {}
   toggle: () => void = () => {}
 
-  selectionActive(): boolean { return this.batchEditing && this.selecting }
-  beginSelection() { if (this.batchEditing && !this.selecting && !this.busy) this.begin() }
+  selectionActive(): boolean { return this.selecting }
+  beginSelection() { if (!this.selecting && !this.busy) this.begin() }
   toggleSelection() { if (this.selectionActive() && !this.busy) this.toggle() }
 
   build() {
