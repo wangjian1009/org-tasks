@@ -340,7 +340,7 @@ export interface FileConflict {
 }
 export interface ConflictPreviewDiffLine { kind: 'context' | 'added' | 'removed'; beforeLine: number | null; afterLine: number | null; text: string; }
 export interface ConflictPreviewChange {
-  kind: 'insert' | 'delete' | 'replace' | 'move'; area: 'main' | 'conflictMaterial';
+  kind: 'insert' | 'delete' | 'replace' | 'move'; field: 'todo' | 'priority' | 'title' | 'tagsAdded' | 'tagsRemoved' | 'schedule' | 'deadline' | 'closed' | 'text' | 'logAdded' | 'logDeleted' | 'record' | 'document'; area: 'main' | 'conflictMaterial';
   before: SourceRange | null; after: SourceRange | null; beforePath: TaskPath | null; afterPath: TaskPath | null;
   lines: ConflictPreviewDiffLine[];
 }

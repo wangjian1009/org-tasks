@@ -1300,6 +1300,10 @@ path: String}{}
 
 当前文件尾部用一个自有 ~CONFLICT~ 标签的一级容器保存全部冲突点，每个直接子标题具有 ~CONFILICT_ID~ 定位属性和 ~#+CONFLICT_REASON:~ 关键字，可见后代或 example 块保存完整候选。 ~OrgFile.conflict_ids()~ 返回这些 ID， ~has_conflict()~ 根据真实标题标签取得标记；不生成额外文件头字段。
 
+冲突比较以任务自身为最小节点，不把子任务并入父任务差异。修改候选保留修改后的完整任务记录，并按 ~TODO~ 、优先级、标题文字、标签新增／删除、 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 、日志行和正文文本生成字段差异；日志新增／删除按时间升序，正文没有变化时不生成文本片段。字段差异用于展示和定位，完整记录用于无法定位时的用户确认插入。
+
+应用修改候选时，Core 先按稳定 ~Org ID~ 或生成期标题路径定位原任务；定位成功只更新已确认的字段，保留远端未涉及字段、子任务和原始字节。定位失败不猜测同名记录，只有明确选择插入位置后才使用完整记录插入。字段应用、完整记录插入和丢弃均使用同一版本校验、冲突保护与事务提交。
+
 ~TaskConfilictSelection~ 作为普通 ~TaskOperation~ 变体提交，携带文件根 path、ID、动作与可选 target。Discard 移除候选，UseLocal 根据受控目标采用候选；最后一点删除后移除容器及其生成分隔符。操作复用普通文件版本、提交、回退和 outbox，不接受历史同步 ID 或任意完整文件字节。
 
 \begin{tikzpicture}
@@ -1492,6 +1496,7 @@ pub struct ConflictPreviewChanges {
 }
 pub struct ConflictPreviewChange {
     pub kind: &'static str,
+    pub field: &'static str,
     pub area: &'static str,
     pub before: Option<SourceRange>,
     pub after: Option<SourceRange>,
@@ -1513,7 +1518,7 @@ ConflictPreviewProjection 是不持久化的只读候选投影。working_version
 
 FileConflict 的 candidate_content 与 candidate_html 提供解包后的完整候选，删除优先使用当前待删子树。display_anchor 是当前主树中的节点范围，display_at_target 表示直接匹配原节点；否则范围对应最近仍匹配的祖先，空值表示文档根部。展示锚点不替代 suggested_target；候选材料包装可用 CONFLICT_ANCESTORS 保存从近到远的祖先身份，旧材料缺失时不猜测。
 
-变化 kind 使用 insert／delete／replace，无法可靠确定的移动按源范围差异表达；preview 的 area 只输出 main；冲突材料的选择与移除不会作为正文变化输出。FileConflict.source_range 属于单个独立材料，不用于主树导航。行 kind 为 added／removed。所有源范围与标题锚点绑定两端版本。Rust 字段经 Serde 使用 camelCase，ConflictTarget 使用 ~{ type, data }~ 标签形式，ReplaceMain 没有 data。
+变化 kind 使用 insert／delete／replace，无法可靠确定的移动按源范围差异表达；preview 的 area 只输出 main；冲突材料的选择与移除不会作为正文变化输出。任务级修改按字段拆分变化，标签新增／删除、规划节点和日志行各自独立；日志差异按时间排序，只有正文字段变化才输出文本行片段。FileConflict.source_range 属于单个独立材料，不用于主树导航。行 kind 为 added／removed。所有源范围与标题锚点绑定两端版本。Rust 字段经 Serde 使用 camelCase，ConflictTarget 使用 ~{ type, data }~ 标签形式，ReplaceMain 没有 data。
 
 \begin{center}
 \resizebox{\textwidth}{!}{%
@@ -1552,6 +1557,12 @@ changes: ConflictPreviewChanges}{}
 \umldep{ConflictPreview}{FileConflict}
 \umldep{ConflictPreview}{TaskOperationGroup}
 \umldep{OrgWorkspace}{TaskOperationGroup}
+\umlclass[x=8,y=-10]{ConflictPreviewChange}{kind: insert / delete / replace \\
+field: TODO / tags / planning / log / text \\
+area: main \\
+before / after: Option\textless SourceRange\textgreater \\
+lines: Vec\textless ConflictPreviewDiffLine\textgreater}{}
+\umldep{ConflictPreviewProjection}{ConflictPreviewChange}
 \end{tikzpicture}}
 \end{center}
 

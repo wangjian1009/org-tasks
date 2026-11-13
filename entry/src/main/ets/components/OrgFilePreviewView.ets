@@ -72,6 +72,24 @@ export struct OrgFilePreviewView {
   private pendingFlowFocus: boolean = false
   private pendingFlowOffset: number | undefined = undefined
 
+  changeFieldLabel(field: string): string {
+    switch (field) {
+      case 'todo': return 'TODO 状态'
+      case 'priority': return '优先级'
+      case 'title': return '标题'
+      case 'tagsAdded': return '新增标签'
+      case 'tagsRemoved': return '删除标签'
+      case 'schedule': return '计划'
+      case 'deadline': return '截止'
+      case 'closed': return '完成时间'
+      case 'text': return '正文'
+      case 'logAdded': return '新增日志'
+      case 'logDeleted': return '删除日志'
+      case 'record': return '任务记录'
+      default: return '文档结构'
+    }
+  }
+
   aboutToAppear() {
     this.active = true
     this.pendingFlowFocus = this.flowContent
@@ -462,7 +480,7 @@ export struct OrgFilePreviewView {
             if (this.changes) {
               ForEach(this.changes.changes, (change: CoreConflictPreviewChange, index: number) => {
                 Column() {
-                  Text(`正文变化 ${index + 1}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+                  Text(`${this.changeFieldLabel(change.field)}变化 ${index + 1}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
                   ForEach(change.lines, (line: CoreConflictPreviewDiffLine, row: number) => {
                     Text(`${line.kind === 'removed' ? '− 应用前' : line.kind === 'added' ? '＋ 应用后' : '上下文'} ${line.beforeLine ?? line.afterLine ?? ''}  ${line.text}`)
                       .fontSize(12).fontFamily('monospace').fontColor(line.kind === 'removed' ? UiColor.error : UiColor.primary)

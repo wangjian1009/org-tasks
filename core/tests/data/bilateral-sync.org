@@ -1,0 +1,17 @@
+#+TODO: TODO WAIT | DONE
+* TODO 项目 :base:
+SCHEDULED: <2026-01-01 Thu>
+DEADLINE: <2026-01-02 Fri>
+CLOSED: [2026-01-05 Mon]
+:PROPERTIES:
+:ID: bilateral-project
+:END:
+基线正文
+:LOGBOOK:
+- Note taken on [2026-01-01 Thu]
+:END:
+** TODO 子任务
+:PROPERTIES:
+:ID: bilateral-child
+:END:
+子任务基线

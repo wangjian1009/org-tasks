@@ -60,19 +60,22 @@ impl Drop for Fixture {
 }
 
 #[tokio::test]
-async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
+async fn one_footer_keeps_safely_merged_main_bytes_and_discard_all_uses_task_operations() {
     for nl in ["\n", "\r\n"] {
         for final_newline in [false, true] {
             let base = format!(
-                "#+TITLE: Remote{nl}* TODO A{nl}:PROPERTIES:{nl}:ID: a{nl}:END:{nl}base{nl}* B{nl}base{nl}"
+                "#+TITLE: Remote{nl}* TODO A{nl}:PROPERTIES:{nl}:ID: a{nl}:END:{nl}base{nl}* B{nl}base{nl}* C{nl}base{nl}"
             );
             let local = base.replace("base", "local");
-            let mut remote = base.replacen("base", "remote", 1);
+            let mut remote = base
+                .replacen("base", "remote", 1)
+                .replace(&format!("* C{nl}base"), &format!("* C{nl}remote"));
             if !final_newline {
                 remote.truncate(remote.len() - nl.len());
             }
+            let expected_main = remote.replace(&format!("* B{nl}base"), &format!("* B{nl}local"));
             let merged = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
-            assert!(merged.starts_with(remote.as_bytes()));
+            assert!(merged.starts_with(expected_main.as_bytes()));
             assert_eq!(
                 merge(base.as_bytes(), local.as_bytes(), &merged).unwrap(),
                 merged
@@ -109,13 +112,11 @@ async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
                 );
             }
             let query = f.workspace.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap();
-            assert_eq!(query.tasks.len(), 2);
-            assert!(
-                query
-                    .tasks
-                    .iter()
-                    .all(|task| !task.body().contains("local"))
-            );
+            assert_eq!(query.tasks.len(), 3);
+            for task in &query.tasks {
+                let expected = if task.title() == "B" { "local" } else { "remote" };
+                assert!(task.body().contains(expected), "{}: {}", task.title(), task.body());
+            }
             let ids = file.conflict_ids();
             let first = f.group(&ids[..1]).await;
             f.workspace.execute_task_operations(&first).await.unwrap();
@@ -127,7 +128,7 @@ async fn one_footer_keeps_remote_bytes_and_discard_all_uses_task_operations() {
             assert!(f.file().await.conflict_ids().is_empty());
             assert_eq!(
                 std::fs::read(f.root.join("a.org")).unwrap(),
-                remote.as_bytes()
+                expected_main.as_bytes()
             );
             assert_eq!(f.workspace.task_operation_history.entries.len(), 2);
             assert_eq!(

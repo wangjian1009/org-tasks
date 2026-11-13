@@ -398,6 +398,156 @@ fn heading_parts(file: &OrgFile, source: &str) -> Result<Vec<String>, CoreError>
     }
     Ok(parts)
 }
+
+fn headline_tags(file: &OrgFile, source: &str) -> Vec<String> {
+    fragment(file, source)
+        .first_node::<Headline>()
+        .map(|headline| headline.tags().map(|tag| tag.to_string()).collect())
+        .unwrap_or_default()
+}
+
+fn merge_tags_part(
+    file: &OrgFile,
+    base: &str,
+    local: &str,
+    remote: &str,
+) -> Option<String> {
+    if local == base || local == remote {
+        return Some(remote.into());
+    }
+    if remote == base {
+        return Some(local.into());
+    }
+    let base_tags = headline_tags(file, &format!("* A{base}\n"));
+    let local_tags = headline_tags(file, &format!("* A{local}\n"));
+    let remote_tags = headline_tags(file, &format!("* A{remote}\n"));
+    let base_set = base_tags.iter().cloned().collect::<BTreeSet<_>>();
+    let local_set = local_tags.iter().cloned().collect::<BTreeSet<_>>();
+    let remote_set = remote_tags.iter().cloned().collect::<BTreeSet<_>>();
+    let mut merged = base_tags
+        .into_iter()
+        .filter(|tag| !((base_set.contains(tag) && !local_set.contains(tag)) || (base_set.contains(tag) && !remote_set.contains(tag))))
+        .collect::<Vec<_>>();
+    for tag in local_tags.into_iter().chain(remote_tags) {
+        if !merged.iter().any(|item| item == &tag) {
+            merged.push(tag);
+        }
+    }
+    let leading = base
+        .find(':')
+        .map(|index| &base[..index])
+        .unwrap_or_else(|| base.trim_end_matches([' ', '\t']));
+    if merged.is_empty() {
+        Some(String::new())
+    } else {
+        Some(format!("{}:{}:", leading, merged.join(":")))
+    }
+}
+
+fn log_sort_key(row: &str) -> (bool, String) {
+    row.find('[')
+        .and_then(|start| row[start + 1..].find(']').map(|end| row[start + 1..start + 1 + end].to_owned()))
+        .map(|time| (false, time))
+        .unwrap_or_else(|| (true, String::new()))
+}
+
+/// 自动合并多个 LOGBOOK 行时按时间排序；无时间的用户行稳定地排在末尾。
+fn sort_logbook_source(source: &str) -> String {
+    let Some(start) = source
+        .lines()
+        .enumerate()
+        .find_map(|(index, line)| line.trim().eq_ignore_ascii_case(":LOGBOOK:").then_some(index))
+    else {
+        return source.into();
+    };
+    let lines = source.split_inclusive('\n').collect::<Vec<_>>();
+    let Some(end) = lines[start + 1..]
+        .iter()
+        .position(|line| line.trim().eq_ignore_ascii_case(":END:"))
+        .map(|offset| start + 1 + offset)
+    else {
+        return source.into();
+    };
+    let mut rows = Vec::<String>::new();
+    for line in &lines[start + 1..end] {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.trim_start().starts_with('-') || line.trim_start().starts_with("CLOCK:") {
+            rows.push((*line).into());
+        } else if let Some(last) = rows.last_mut() {
+            last.push_str(line);
+        } else {
+            rows.push((*line).into());
+        }
+    }
+    let original = rows.clone();
+    rows.sort_by_key(|row| log_sort_key(row));
+    if rows == original {
+        return source.into();
+    }
+    let mut output = lines[..start + 1].concat();
+    output.push_str(&rows.concat());
+    output.push_str(&lines[end..].concat());
+    output
+}
+
+fn logbook_parts(source: &str) -> Option<(String, Vec<String>, String)> {
+    let lines = source.split_inclusive('\n').collect::<Vec<_>>();
+    let start = lines
+        .iter()
+        .position(|line| line.trim().eq_ignore_ascii_case(":LOGBOOK:"))?;
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| line.trim().eq_ignore_ascii_case(":END:"))?
+        + start
+        + 1;
+    let mut rows: Vec<String> = Vec::new();
+    for line in &lines[start + 1..end] {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.trim_start().starts_with('-') || line.trim_start().starts_with("CLOCK:") {
+            rows.push((*line).into());
+        } else if let Some(last) = rows.last_mut() {
+            last.push_str(line);
+        } else {
+            rows.push((*line).into());
+        }
+    }
+    Some((lines[..start + 1].concat(), rows, lines[end..].concat()))
+}
+
+fn merge_logbook_text(base: &str, local: &str, remote: &str) -> Option<String> {
+    let (bp, br, bs) = logbook_parts(base)?;
+    let (lp, lr, ls) = logbook_parts(local)?;
+    let (rp, rr, rs) = logbook_parts(remote)?;
+    let prefix = text_merge(&bp, &lp, &rp)?;
+    let suffix = text_merge(&bs, &ls, &rs)?;
+    let count = |rows: &[String]| {
+        rows.iter().fold(BTreeMap::<String, i32>::new(), |mut counts, row| {
+            *counts.entry(row.clone()).or_default() += 1;
+            counts
+        })
+    };
+    let base_counts = count(&br);
+    let local_counts = count(&lr);
+    let remote_counts = count(&rr);
+    let mut all = BTreeSet::new();
+    all.extend(base_counts.keys().cloned());
+    all.extend(local_counts.keys().cloned());
+    all.extend(remote_counts.keys().cloned());
+    let mut rows = Vec::new();
+    for row in all {
+        let base_count = *base_counts.get(&row).unwrap_or(&0);
+        let local_delta = local_counts.get(&row).copied().unwrap_or(0) - base_count;
+        let remote_delta = remote_counts.get(&row).copied().unwrap_or(0) - base_count;
+        let merged_count = (base_count + local_delta + remote_delta).max(0);
+        rows.extend(std::iter::repeat_n(row, merged_count as usize));
+    }
+    rows.sort_by_key(|row| log_sort_key(row));
+    Some(format!("{prefix}{}{suffix}", rows.concat()))
+}
 fn node_merge(
     base_file: &OrgFile,
     local_file: &OrgFile,
@@ -413,8 +563,11 @@ fn node_merge(
     for index in 0..b.len() {
         let value = if index == 3 {
             merge_title_part(&b[index], &l[index], &r[index])
+        } else if index == 4 {
+            merge_tags_part(base_file, &b[index], &l[index], &r[index])
         } else if index == 6 {
-            text_merge(&b[index], &l[index], &r[index])
+            merge_logbook_text(&b[index], &l[index], &r[index])
+                .or_else(|| text_merge(&b[index], &l[index], &r[index]))
         } else {
             atom(&b[index], &l[index], &r[index])
         };
@@ -437,6 +590,7 @@ fn node_merge(
     } else {
         return Ok(None);
     };
+    source = sort_logbook_source(&source);
     Ok(Some(Node {
         key: remote.key.clone(),
         parent,
@@ -626,6 +780,37 @@ fn append(output: &mut String, source: &str) {
         output.push('\n');
     }
     output.push_str(source);
+}
+
+/// 移除节点级合并阶段暂存的冲突候选，保留已经安全合并到主树的本地修改。
+///
+/// `merge_nodes` 为了保留定位信息，会先把无法自动合并的本地子树以内嵌
+/// `CONFLICT` 标题放入结果。文件级冲突容器生成前不能把这些暂存节点带入主树，
+/// 但其他本地修改已经安全合并，应继续保留。
+fn without_inline_conflicts(file: &OrgFile) -> Vec<u8> {
+    let mut ranges = file
+        .path_headlines()
+        .into_iter()
+        .filter(|(_, headline)| headline.tags().any(|tag| tag == crate::model::CONFLICT_TAG))
+        .map(|(_, headline)| {
+            usize::from(headline.start())..usize::from(headline.end())
+        })
+        .collect::<Vec<_>>();
+    ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+    let mut outer = Vec::new();
+    for range in ranges {
+        if outer.last().is_some_and(|previous: &std::ops::Range<usize>| {
+            range.start >= previous.start && range.end <= previous.end
+        }) {
+            continue;
+        }
+        outer.push(range);
+    }
+    let mut source = file.source_bytes().to_vec();
+    for range in outer.into_iter().rev() {
+        source.drain(range);
+    }
+    source
 }
 fn render(preamble: &str, nodes: &[Node]) -> Result<Vec<u8>, CoreError> {
     let map = nodes
@@ -956,7 +1141,7 @@ fn merge_conflict_points(
     Ok(points)
 }
 
-/// 主树与旧冲突材料分别合并；本轮新冲突才触发远端主树回退及候选保存。
+/// 主树与旧冲突材料分别合并；本轮新冲突只保存无法安全应用的最小任务候选。
 fn merge_with_container(
     base: &OrgFile,
     local: &OrgFile,
@@ -992,59 +1177,15 @@ fn merge_with_container(
         // 旧冲突仅作为独立材料保留，不让本轮已成功合并的主树修改再次变成候选。
         return Ok(conflict::append_points(remote, merged.source_bytes(), &points));
     }
-    let normal_changed = merged.source_bytes() != r.source_bytes();
-    if !pending
-        .iter()
-        .any(|point| matches!(point.reason.as_str(), "structure" | "reorder"))
-        && (normal_changed || !pending.is_empty())
-    {
-        let bd = parse(&b);
-        let ld = parse(&l);
-        let rd = parse(&r);
-        let bm = by_key(&bd);
-        let lm = by_key(&ld);
-        let rm = by_key(&rd);
-        // 同一文件有冲突时，已经安全重放的本地差异也留在候选区，保证主树仍为原远端。
-        for node in &ld.nodes {
-            if bm.get(&node.key).is_some_and(|old| same(old, node)) {
-                continue;
-            }
-            if !pending.iter().any(|point| point.origin == node.key) {
-                pending.push(PendingConflict {
-                    origin: node.key.clone(),
-                    reason: if bm.contains_key(&node.key) {
-                        "modify"
-                    } else {
-                        "create"
-                    }
-                    .into(),
-                    source: subtree_source(&ld, &node.key),
-                });
-            }
+    // `merge_nodes` 已经将无竞争的本地修改安全写入主树；这里只移除其暂存的
+    // 内嵌候选，避免远端另一个任务发生冲突时把本地恢复任务误报为冲突。
+    let mut main = without_inline_conflicts(&merged);
+    // 内嵌候选由渲染阶段以换行分隔；移除候选后恢复远端主树原有的末尾换行状态。
+    if !r.source_bytes().ends_with(b"\n") && main.ends_with(b"\n") {
+        main.pop();
+        if main.ends_with(b"\r") {
+            main.pop();
         }
-        for node in &bd.nodes {
-            if !lm.contains_key(&node.key)
-                && rm.contains_key(&node.key)
-                && !pending.iter().any(|point| point.origin == node.key)
-            {
-                pending.push(PendingConflict {
-                    origin: node.key.clone(),
-                    reason: "delete".into(),
-                    source: subtree_source(&rd, &node.key),
-                });
-            }
-        }
-        let origins = pending
-            .iter()
-            .map(|point| point.origin.clone())
-            .collect::<BTreeSet<_>>();
-        pending.retain(|point| {
-            !origins.iter().any(|other| {
-                other != &point.origin
-                    && (descendant(&point.origin, other, &lm)
-                        || descendant(&point.origin, other, &bm))
-            })
-        });
     }
     for point in pending {
         let id = hash(
@@ -1123,7 +1264,7 @@ fn merge_with_container(
         }
         points.push(ConflictPoint { id, source });
     }
-    Ok(conflict::append_points(remote, r.source_bytes(), &points))
+    Ok(conflict::append_points(remote, &main, &points))
 }
 
 fn merge_nodes(base: &OrgFile, local: &OrgFile, remote: &OrgFile) -> Result<Vec<u8>, CoreError> {
@@ -1537,6 +1678,40 @@ mod tests {
         let retried = merge_nodes(&file(&b), &file(&l), &file(&text)).unwrap();
         assert_eq!(retried, result);
     }
+
+    #[test]
+    fn unrelated_local_changes_stay_in_main_tree_when_another_task_conflicts() {
+        let base = "* A\nbase-a\n* B\nbase-b\n";
+        let local = "* A\nlocal-a\n* B\nlocal-b\n";
+        let remote = "* A\nremote-a\n* B\nbase-b\n";
+        let result = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
+        let text = String::from_utf8(result.clone()).unwrap();
+        assert!(text.contains("* B\nlocal-b\n"));
+        assert_eq!(text.matches("#+CONFLICT_REASON: modify").count(), 1);
+        assert!(text.contains("*** A\nlocal-a\n"));
+        assert!(!text.contains("*** B\nlocal-b\n"));
+        let retried = merge(remote.as_bytes(), &result, remote.as_bytes()).unwrap();
+        assert_eq!(retried, result);
+    }
+
+    #[test]
+    fn logbook_rows_are_sorted_by_timestamp_after_task_merge() {
+        let source = "* TODO Task\n:LOGBOOK:\n- Note taken on [2026-01-03 Sat]\n- Note taken on [2026-01-01 Thu]\n- Note taken on [2026-01-02 Fri]\n:END:\n";
+        let sorted = sort_logbook_source(source);
+        assert!(sorted.find("2026-01-01").unwrap() < sorted.find("2026-01-02").unwrap());
+        assert!(sorted.find("2026-01-02").unwrap() < sorted.find("2026-01-03").unwrap());
+    }
+
+    #[test]
+    fn independent_tag_additions_merge_as_one_task_change() {
+        let base = "* TODO Task :base:\nBody\n";
+        let local = "* TODO Task :base:local:\nBody\n";
+        let remote = "* TODO Task :base:remote:\nBody\n";
+        let merged = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
+        assert_eq!(merged, b"* TODO Task :base:local:remote:\nBody\n");
+        assert!(!String::from_utf8_lossy(&merged).contains("CONFLICT"));
+    }
+
     #[test]
     fn local_delete_remote_modify_is_recorded_without_erasing_remote_subtree() {
         let b = task("TODO", "base");

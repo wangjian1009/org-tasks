@@ -442,14 +442,41 @@ pub(super) fn select_point(
             }
             let node = super::task_operation_executor::locate(&next, &path)?;
             let start = usize::from(node.start());
-            let end = usize::from(node.end());
             let content = if description.reason == "delete" {
                 Vec::new()
             } else {
-                crate::merge::at_level(&next, std::str::from_utf8(&content).unwrap(), node.level())?
-                    .into_bytes()
+                let adjusted = crate::merge::at_level(
+                    &next,
+                    std::str::from_utf8(&content).unwrap(),
+                    node.level(),
+                )?;
+                let candidate = OrgFile::with_todo_defaults_and_setup(
+                    next.repo_id.clone(),
+                    next.path.clone(),
+                    adjusted.into_bytes(),
+                    next.todo_defaults.clone(),
+                    next.todo_setup.clone(),
+                )?;
+                let candidate_root = candidate
+                    .syntax()
+                    .document()
+                    .headlines()
+                    .next()
+                    .ok_or(CoreError::InvalidState("冲突候选缺少根标题"))?;
+                let candidate_end = candidate_root
+                    .headlines()
+                    .next()
+                    .map_or(usize::from(candidate_root.end()), |child| {
+                        usize::from(child.start())
+                    });
+                candidate.source_bytes()[usize::from(candidate_root.start())..candidate_end]
+                    .to_vec()
             };
-            next.source_bytes.splice(start..end, content);
+            let target_end = node
+                .headlines()
+                .next()
+                .map_or(usize::from(node.end()), |child| usize::from(child.start()));
+            next.source_bytes.splice(start..target_end, content);
             next.reparse()?;
             if description.reason == "delete" {
                 None

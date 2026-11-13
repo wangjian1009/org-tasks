@@ -1,13 +1,15 @@
 //! 仓库外单文档预览；记录成功操作，结束后由应用通过统一数据接口提交。
 use super::*;
 use crate::{CoreError, FilterTask};
-use orgize::rowan::ast::AstNode;
+use orgize::{ast::Headline, rowan::ast::AstNode, SyntaxKind};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
     path::{Path, PathBuf},
     sync::{
-        Arc,
         atomic::{AtomicU64, Ordering},
+        Arc,
     },
 };
 use tokio::{fs, sync::Mutex};
@@ -93,6 +95,8 @@ pub struct ConflictPreviewChanges {
 #[serde(rename_all = "camelCase")]
 pub struct ConflictPreviewChange {
     pub kind: &'static str,
+    /// 差异所属的最小任务字段；文档级结构变化使用 `document`。
+    pub field: &'static str,
     pub area: &'static str,
     pub before: Option<SourceRange>,
     pub after: Option<SourceRange>,
@@ -220,7 +224,7 @@ impl ConflictPreview {
         let changes = if state.original.source_bytes() == file.source_bytes() {
             Vec::new()
         } else {
-            vec![diff(
+            diff_tasks(
                 &state.original,
                 &file,
                 state.original.source_bytes(),
@@ -228,7 +232,7 @@ impl ConflictPreview {
                 0,
                 0,
                 "main",
-            )]
+            )
         };
         Ok(ConflictPreviewChanges {
             source_version: self.source_version.clone(),
@@ -282,7 +286,7 @@ impl ConflictPreview {
                 )?;
                 after_text.clear();
                 if file.source_bytes() != projected.source_bytes() {
-                    let change = diff(
+                    let changes_for_target = diff_tasks(
                         &file,
                         &projected,
                         file.source_bytes(),
@@ -291,19 +295,19 @@ impl ConflictPreview {
                         0,
                         "main",
                     );
-                    before_text = change
-                        .lines
+                    before_text = changes_for_target
                         .iter()
-                        .filter(|l| l.kind == "removed")
-                        .map(|l| l.text.as_str())
+                        .flat_map(|change| change.lines.iter())
+                        .filter(|line| line.kind == "removed")
+                        .map(|line| line.text.as_str())
                         .collect();
-                    after_text = change
-                        .lines
+                    after_text = changes_for_target
                         .iter()
-                        .filter(|l| l.kind == "added")
-                        .map(|l| l.text.as_str())
+                        .flat_map(|change| change.lines.iter())
+                        .filter(|line| line.kind == "added")
+                        .map(|line| line.text.as_str())
                         .collect();
-                    changes.push(change);
+                    changes.extend(changes_for_target);
                 }
                 "ready"
             } else {
@@ -782,7 +786,364 @@ pub(super) fn source_range(file: &OrgFile, start: usize, end: usize) -> SourceRa
         end: at(file.source_bytes(), end),
     }
 }
-fn diff(
+#[derive(Clone)]
+struct TaskDiffUnit {
+    own: Range<usize>,
+    headline: Headline,
+}
+
+#[derive(Clone)]
+struct TaskDiffField {
+    name: &'static str,
+    range: Range<usize>,
+}
+
+#[derive(Clone)]
+struct LogRow {
+    raw: String,
+    start: usize,
+    time: String,
+}
+
+fn task_diff_units(file: &OrgFile) -> BTreeMap<String, TaskDiffUnit> {
+    file.path_headlines()
+        .into_iter()
+        .map(|(path, headline)| {
+            let key = super::properties::own(&headline, "ID")
+                .filter(|id| !id.trim().is_empty())
+                .map(|id| format!("id:{id}"))
+                .unwrap_or_else(|| {
+                    format!(
+                        "path:{}",
+                        serde_json::to_string(&path).expect("任务路径可序列化")
+                    )
+                });
+            let start = usize::from(headline.start());
+            let end = headline
+                .headlines()
+                .next()
+                .map_or(usize::from(headline.end()), |child| {
+                    usize::from(child.start())
+                });
+            (
+                key.clone(),
+                TaskDiffUnit {
+                    own: start..end,
+                    headline,
+                },
+            )
+        })
+        .collect()
+}
+
+fn planning_line_range(file: &OrgFile, unit: &TaskDiffUnit, name: &str) -> Range<usize> {
+    let source = &file.source_bytes()[unit.own.start..unit.own.end];
+    let mut offset = unit.own.start;
+    for line in source.split_inclusive(|byte| *byte == b'\n') {
+        let content = line
+            .strip_suffix(b"\n")
+            .unwrap_or(line)
+            .strip_suffix(b"\r")
+            .unwrap_or_else(|| line.strip_suffix(b"\n").unwrap_or(line));
+        let marker = format!("{name}:");
+        if let Some(position) = content
+            .windows(marker.len())
+            .position(|window| window.eq_ignore_ascii_case(marker.as_bytes()))
+        {
+            return offset + position..offset + content.len();
+        }
+        offset += line.len();
+    }
+    unit.own.start..unit.own.start
+}
+
+fn task_body_start(file: &OrgFile, unit: &TaskDiffUnit, line_end: usize) -> usize {
+    let source = &file.source_bytes()[line_end..unit.own.end];
+    let mut cursor = line_end;
+    let mut relative = 0;
+    while relative < source.len() {
+        let line = &source[relative..][..source[relative..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(source.len() - relative, |offset| offset + 1)];
+        let trimmed = String::from_utf8_lossy(line).trim().to_ascii_uppercase();
+        if ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+            .iter()
+            .any(|name| trimmed.starts_with(name))
+        {
+            relative += line.len();
+            cursor += line.len();
+            continue;
+        }
+        if trimmed == ":PROPERTIES:" || trimmed == ":LOGBOOK:" {
+            relative += line.len();
+            cursor += line.len();
+            while relative < source.len() {
+                let next = &source[relative..][..source[relative..]
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map_or(source.len() - relative, |offset| offset + 1)];
+                relative += next.len();
+                cursor += next.len();
+                if String::from_utf8_lossy(next)
+                    .trim()
+                    .eq_ignore_ascii_case(":END:")
+                {
+                    break;
+                }
+            }
+            continue;
+        }
+        break;
+    }
+    cursor
+}
+
+fn task_diff_fields(file: &OrgFile, unit: &TaskDiffUnit) -> Vec<TaskDiffField> {
+    let headline = &unit.headline;
+    let line_end = file.source_bytes()[unit.own.start..unit.own.end]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(unit.own.end, |offset| unit.own.start + offset + 1);
+    let span = |node: Option<orgize::SyntaxNode>| {
+        node.map_or(unit.own.start..unit.own.start, |node| {
+            usize::from(node.text_range().start())..usize::from(node.text_range().end())
+        })
+    };
+    let child = |kind| {
+        span(
+            headline
+                .syntax()
+                .children()
+                .find(|node| node.kind() == kind),
+        )
+    };
+    let todo = headline
+        .todo_keyword()
+        .map_or(unit.own.start..unit.own.start, |node| {
+            usize::from(node.syntax().text_range().start())
+                ..usize::from(node.syntax().text_range().end())
+        });
+    let log_start = file.source_bytes()[line_end..unit.own.end]
+        .windows(b":LOGBOOK:".len())
+        .position(|window| window.eq_ignore_ascii_case(b":LOGBOOK:"))
+        .map(|offset| line_end + offset);
+    let body_start = task_body_start(file, unit, line_end);
+    let text_end = log_start
+        .filter(|start| *start >= body_start)
+        .unwrap_or(unit.own.end);
+    let planning = |name: &str| planning_line_range(file, unit, name);
+    vec![
+        TaskDiffField {
+            name: "todo",
+            range: todo,
+        },
+        TaskDiffField {
+            name: "priority",
+            range: child(SyntaxKind::HEADLINE_PRIORITY),
+        },
+        TaskDiffField {
+            name: "title",
+            range: child(SyntaxKind::HEADLINE_TITLE),
+        },
+        TaskDiffField {
+            name: "schedule",
+            range: planning("SCHEDULED"),
+        },
+        TaskDiffField {
+            name: "deadline",
+            range: planning("DEADLINE"),
+        },
+        TaskDiffField {
+            name: "closed",
+            range: planning("CLOSED"),
+        },
+        TaskDiffField {
+            name: "text",
+            range: body_start..text_end,
+        },
+    ]
+}
+
+fn log_rows(file: &OrgFile, unit: &TaskDiffUnit) -> Vec<LogRow> {
+    let source = &file.source_bytes()[unit.own.start..unit.own.end];
+    let Some(relative_start) = source
+        .windows(b":LOGBOOK:".len())
+        .position(|window| window.eq_ignore_ascii_case(b":LOGBOOK:"))
+    else {
+        return Vec::new();
+    };
+    let start = unit.own.start + relative_start;
+    let Some(relative_end) = source[relative_start..]
+        .windows(b":END:".len())
+        .position(|window| window.eq_ignore_ascii_case(b":END:"))
+    else {
+        return Vec::new();
+    };
+    let end = start + relative_end;
+    let mut rows = Vec::new();
+    let mut offset = start;
+    for line in file.source_bytes()[start..end].split_inclusive(|byte| *byte == b'\n') {
+        let trimmed = line
+            .strip_suffix(b"\n")
+            .unwrap_or(line)
+            .strip_suffix(b"\r")
+            .unwrap_or_else(|| line.strip_suffix(b"\n").unwrap_or(line));
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(b":LOGBOOK:") {
+            let raw = String::from_utf8(line.to_vec()).expect("LOGBOOK 必须是 UTF-8");
+            let time = raw
+                .find('[')
+                .and_then(|left| {
+                    raw[left + 1..]
+                        .find(']')
+                        .map(|right| raw[left + 1..left + 1 + right].to_owned())
+                })
+                .unwrap_or_default();
+            rows.push(LogRow {
+                raw,
+                start: offset,
+                time,
+            });
+        }
+        offset += line.len();
+    }
+    rows.sort_by(|left, right| left.time.cmp(&right.time).then(left.raw.cmp(&right.raw)));
+    rows
+}
+
+fn tag_text(tags: &[String]) -> String {
+    if tags.is_empty() {
+        String::new()
+    } else {
+        format!(":{}:", tags.join(":"))
+    }
+}
+
+fn tag_changes(
+    before: &OrgFile,
+    after: &OrgFile,
+    before_unit: &TaskDiffUnit,
+    after_unit: &TaskDiffUnit,
+    a: &[u8],
+    b: &[u8],
+    ao: usize,
+    bo: usize,
+    area: &'static str,
+) -> Vec<ConflictPreviewChange> {
+    let before_tags = before_unit
+        .headline
+        .tags()
+        .map(|tag| tag.to_string())
+        .collect::<BTreeSet<_>>();
+    let after_tags = after_unit
+        .headline
+        .tags()
+        .map(|tag| tag.to_string())
+        .collect::<BTreeSet<_>>();
+    let added = after_tags
+        .difference(&before_tags)
+        .cloned()
+        .collect::<Vec<_>>();
+    let removed = before_tags
+        .difference(&after_tags)
+        .cloned()
+        .collect::<Vec<_>>();
+    let span = |unit: &TaskDiffUnit| {
+        unit.headline
+            .syntax()
+            .children()
+            .find(|node| node.kind() == SyntaxKind::HEADLINE_TAGS)
+            .map_or(unit.own.start..unit.own.start, |node| {
+                usize::from(node.text_range().start())..usize::from(node.text_range().end())
+            })
+    };
+    let before_span = span(before_unit);
+    let after_span = span(after_unit);
+    let mut changes = Vec::new();
+    if !removed.is_empty() {
+        let text = tag_text(&removed);
+        changes.push(line_diff(
+            before,
+            after,
+            &a[before_span.clone()],
+            text.as_bytes(),
+            ao + before_span.start,
+            bo + after_span.start,
+            area,
+            "tagsRemoved",
+        ));
+    }
+    if !added.is_empty() {
+        let text = tag_text(&added);
+        changes.push(line_diff(
+            before,
+            after,
+            text.as_bytes(),
+            &b[after_span.clone()],
+            ao + before_span.start,
+            bo + after_span.start,
+            area,
+            "tagsAdded",
+        ));
+    }
+    changes
+}
+
+fn log_changes(
+    before: &OrgFile,
+    after: &OrgFile,
+    before_unit: &TaskDiffUnit,
+    after_unit: &TaskDiffUnit,
+    a: &[u8],
+    b: &[u8],
+    ao: usize,
+    bo: usize,
+    area: &'static str,
+) -> Vec<ConflictPreviewChange> {
+    let mut before_rows = log_rows(before, before_unit);
+    let after_rows = log_rows(after, after_unit);
+    let mut changes = Vec::new();
+    for row in &after_rows {
+        if let Some(index) = before_rows
+            .iter()
+            .position(|candidate| candidate.raw == row.raw)
+        {
+            before_rows.remove(index);
+        } else {
+            changes.push(line_diff(
+                before,
+                after,
+                &[],
+                &b[row.start..row.start + row.raw.len()],
+                ao + before_unit.own.start,
+                bo + row.start,
+                area,
+                "logAdded",
+            ));
+        }
+    }
+    for row in before_rows {
+        changes.push(line_diff(
+            before,
+            after,
+            &a[row.start..row.start + row.raw.len()],
+            &[],
+            ao + row.start,
+            bo + after_unit.own.start,
+            area,
+            "logDeleted",
+        ));
+    }
+    changes.sort_by(|left, right| {
+        left.before
+            .as_ref()
+            .map(|range| range.start.line)
+            .cmp(&right.before.as_ref().map(|range| range.start.line))
+    });
+    changes
+}
+
+fn diff_tasks(
     before: &OrgFile,
     after: &OrgFile,
     a: &[u8],
@@ -790,6 +1151,95 @@ fn diff(
     ao: usize,
     bo: usize,
     area: &'static str,
+) -> Vec<ConflictPreviewChange> {
+    let before_units = task_diff_units(before);
+    let after_units = task_diff_units(after);
+    let mut keys = BTreeSet::new();
+    keys.extend(before_units.keys().cloned());
+    keys.extend(after_units.keys().cloned());
+    let mut changes = Vec::new();
+    for key in keys {
+        match (before_units.get(&key), after_units.get(&key)) {
+            (Some(before_unit), Some(after_unit)) => {
+                for (before_field, after_field) in task_diff_fields(before, before_unit)
+                    .into_iter()
+                    .zip(task_diff_fields(after, after_unit))
+                {
+                    if a.get(before_field.range.clone()) == b.get(after_field.range.clone()) {
+                        continue;
+                    }
+                    changes.push(line_diff(
+                        before,
+                        after,
+                        &a[before_field.range.clone()],
+                        &b[after_field.range.clone()],
+                        ao + before_field.range.start,
+                        bo + after_field.range.start,
+                        area,
+                        before_field.name,
+                    ));
+                }
+                changes.extend(tag_changes(
+                    before,
+                    after,
+                    before_unit,
+                    after_unit,
+                    a,
+                    b,
+                    ao,
+                    bo,
+                    area,
+                ));
+                changes.extend(log_changes(
+                    before,
+                    after,
+                    before_unit,
+                    after_unit,
+                    a,
+                    b,
+                    ao,
+                    bo,
+                    area,
+                ));
+            }
+            (Some(before_unit), None) => changes.push(line_diff(
+                before,
+                after,
+                &a[before_unit.own.clone()],
+                &[],
+                ao + before_unit.own.start,
+                bo,
+                area,
+                "record",
+            )),
+            (None, Some(after_unit)) => changes.push(line_diff(
+                before,
+                after,
+                &[],
+                &b[after_unit.own.clone()],
+                ao,
+                bo + after_unit.own.start,
+                area,
+                "record",
+            )),
+            (None, None) => unreachable!(),
+        }
+    }
+    if changes.is_empty() && a != b {
+        changes.push(line_diff(before, after, a, b, ao, bo, area, "document"));
+    }
+    changes
+}
+
+fn line_diff(
+    before: &OrgFile,
+    after: &OrgFile,
+    a: &[u8],
+    b: &[u8],
+    ao: usize,
+    bo: usize,
+    area: &'static str,
+    field: &'static str,
 ) -> ConflictPreviewChange {
     let a = std::str::from_utf8(a).unwrap();
     let b = std::str::from_utf8(b).unwrap();
@@ -848,6 +1298,7 @@ fn diff(
         } else {
             "replace"
         },
+        field,
         area,
         before: Some(ar),
         after: Some(br),
@@ -866,6 +1317,60 @@ pub(super) fn valid_preview_id(id: &str) -> bool {
                 c.is_ascii_hexdigit()
             }
         })
+}
+
+#[cfg(test)]
+mod diff_tests {
+    use super::*;
+
+    fn file(source: &str) -> OrgFile {
+        OrgFile::new(
+            "repo".into(),
+            "tasks.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn compares_task_fields_without_promoting_child_text_to_parent() {
+        let before = file("* TODO Parent :old:\nSCHEDULED: <2026-01-01 Thu>\nDEADLINE: <2026-01-02 Fri>\nCLOSED: [2026-01-03 Sat]\n:LOGBOOK:\n- Note taken on [2026-01-01 Thu]\n:END:\n原文\n** TODO Child\n子任务原文\n");
+        let after = file("* DONE Parent :new:\nSCHEDULED: <2026-02-01 Sun>\nDEADLINE: <2026-02-02 Mon>\nCLOSED: [2026-02-03 Tue]\n:LOGBOOK:\n- Note taken on [2026-02-04 Wed]\n:END:\n新正文\n** TODO Child\n子任务新文字\n");
+        let changes = diff_tasks(
+            &before,
+            &after,
+            before.source_bytes(),
+            after.source_bytes(),
+            0,
+            0,
+            "main",
+        );
+        assert!(changes.iter().any(|change| change.field == "todo"));
+        assert!(changes.iter().any(|change| change.field == "tagsAdded"));
+        assert!(changes.iter().any(|change| change.field == "tagsRemoved"));
+        assert!(changes.iter().any(|change| change.field == "schedule"));
+        assert!(changes.iter().any(|change| change.field == "deadline"));
+        assert!(changes.iter().any(|change| change.field == "closed"));
+        assert!(changes.iter().any(|change| change.field == "logAdded"));
+        assert!(changes.iter().any(|change| change.field == "logDeleted"));
+        assert!(changes.iter().any(|change| change.field == "text"));
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| change
+                    .before_path
+                    .as_ref()
+                    .is_some_and(|path| path.titles == vec!["Parent"]))
+                .count(),
+            9
+        );
+        assert!(changes.iter().any(|change| {
+            change
+                .before_path
+                .as_ref()
+                .is_some_and(|path| path.titles == vec!["Parent", "Child"])
+        }));
+    }
 }
 
 fn remap_operation(

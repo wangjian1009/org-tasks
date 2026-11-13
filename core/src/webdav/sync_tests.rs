@@ -278,6 +278,74 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
 }
 
 #[tokio::test]
+async fn bilateral_new_file_changes_merge_fields_logs_and_then_isolate_same_todo_conflict() {
+    use crate::model::conflict;
+
+    let base = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/bilateral-sync.org"));
+    let (mut first, first_root) = repo().await;
+    let (mut second, second_root) = repo().await;
+    let (policy, state, worker) = server(&[("bilateral.org", base)]).await;
+    assert_eq!(sync(&mut first, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(sync(&mut second, &policy, 2).await.result, Some(OrgRepoSyncResult::Succeeded));
+
+    let base_text = String::from_utf8(base.to_vec()).unwrap();
+    let first_text = base_text
+        .replace("* TODO 项目 :base:", "* TODO 项目 :base:甲端:")
+        .replace("SCHEDULED: <2026-01-01 Thu>", "SCHEDULED: <2026-02-01 Sun>")
+        .replace("基线正文", "甲端正文")
+        .replace(
+            "- Note taken on [2026-01-01 Thu]\n",
+            "- Note taken on [2026-01-01 Thu]\n- Note taken on [2026-01-03 Sat]\n",
+        );
+    let second_text = base_text
+        .replace("* TODO 项目 :base:", "* TODO 项目 :base:乙端:")
+        .replace("DEADLINE: <2026-01-02 Fri>", "DEADLINE: <2026-03-02 Mon>")
+        .replace("CLOSED: [2026-01-05 Mon]", "CLOSED: [2026-04-05 Sun]")
+        .replace("子任务基线", "乙端子任务正文")
+        .replace(
+            "- Note taken on [2026-01-01 Thu]\n",
+            "- Note taken on [2026-01-01 Thu]\n- Note taken on [2026-01-02 Fri]\n",
+        );
+    tokio::fs::write(first_root.join("bilateral.org"), first_text).await.unwrap();
+    tokio::fs::write(second_root.join("bilateral.org"), second_text).await.unwrap();
+
+    assert_eq!(sync(&mut first, &policy, 3).await.result, Some(OrgRepoSyncResult::Succeeded));
+    let merged_record = sync(&mut second, &policy, 4).await;
+    assert_eq!(merged_record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(merged_record.files.iter().find(|file| file.relative_path == "bilateral.org").unwrap().outcome, OrgRepoSyncFileOutcome::Merged);
+    let merged = tokio::fs::read(second_root.join("bilateral.org")).await.unwrap();
+    assert_eq!(state.lock().unwrap().files["bilateral.org"].data, merged);
+    let merged_text = String::from_utf8(merged.clone()).unwrap();
+    assert!(merged_text.contains("SCHEDULED: <2026-02-01 Sun>"));
+    assert!(merged_text.contains("DEADLINE: <2026-03-02 Mon>"));
+    assert!(merged_text.contains("CLOSED: [2026-04-05 Sun]"));
+    assert!(merged_text.contains(":base:") && merged_text.contains("甲端") && merged_text.contains("乙端"));
+    assert!(merged_text.contains("甲端正文"));
+    assert!(merged_text.contains("乙端子任务正文"));
+    assert!(merged_text.find("2026-01-01").unwrap() < merged_text.find("2026-01-02").unwrap());
+    assert!(merged_text.find("2026-01-02").unwrap() < merged_text.find("2026-01-03").unwrap());
+    assert!(conflict::points(&second.file("bilateral.org").await.unwrap()).unwrap().is_empty());
+
+    let first_conflict = merged_text.replace("* TODO 项目", "* DONE 项目");
+    let second_conflict = merged_text.replace("* TODO 项目", "* WAIT 项目");
+    tokio::fs::write(first_root.join("bilateral.org"), first_conflict).await.unwrap();
+    tokio::fs::write(second_root.join("bilateral.org"), second_conflict).await.unwrap();
+    assert_eq!(sync(&mut first, &policy, 5).await.result, Some(OrgRepoSyncResult::Succeeded));
+    let conflict_record = sync(&mut second, &policy, 6).await;
+    assert_eq!(conflict_record.result, Some(OrgRepoSyncResult::Succeeded));
+    let current = second.file("bilateral.org").await.unwrap();
+    let points = conflict::points(&current).unwrap();
+    assert_eq!(points.len(), 1);
+    assert_eq!(state.lock().unwrap().files["bilateral.org"].data, tokio::fs::read(second_root.join("bilateral.org")).await.unwrap());
+    assert!(String::from_utf8_lossy(&conflict::main_source(&current)).contains("* DONE 项目"));
+    assert!(points[0].source.contains("* WAIT 项目"));
+
+    worker.abort();
+    tokio::fs::remove_dir_all(first_root).await.unwrap();
+    tokio::fs::remove_dir_all(second_root).await.unwrap();
+}
+
+#[tokio::test]
 async fn checklist_sort_only_sync_uploads_without_conflict() {
     let (mut repo, root) = repo().await;
     let base = b"* TODO Project [/]\r\n- [ ] First\r\n- [X] Second\r\n** TODO Child [%]\r\nNotes\r\n";
