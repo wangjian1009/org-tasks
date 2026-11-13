@@ -2,7 +2,7 @@ import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPresentation'
 import { TaskListItem } from './TaskListItem'
-import { TaskRegionHeader } from './TaskRegionHeader'
+import { TaskGroup } from './TaskGroup'
 import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
@@ -134,10 +134,11 @@ export struct LogbookTaskList {
   groupItems(group: LogbookGroup) {
     if (group.kind === 'day') {
       ForEach(group.groups, (region: LogbookTaskGroup) => {
-        ListItem() { TaskRegionHeader({ region }) }
-        ForEach(region.items, (item: LogbookTaskItem) => {
-          this.itemRow(item, group)
-        }, (item: LogbookTaskItem) => item.key)
+        TaskGroup({ region, category: true, project: true, listMode: true }) {
+          ForEach(region.items, (item: LogbookTaskItem) => {
+            this.itemRow(item, group)
+          }, (item: LogbookTaskItem) => item.key)
+        }
       }, (region: LogbookTaskGroup) => region.key)
     } else {
       ForEach(group.items, (item: LogbookTaskItem) => {
@@ -164,9 +165,8 @@ export struct LogbookTaskList {
           ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
         }
         ForEach(this.groups, (group: LogbookGroup) => {
-          ListItemGroup({ header: this.groupHeader(group) }) {
-            this.groupItems(group)
-          }
+          ListItem() { this.groupHeader(group) }
+          this.groupItems(group)
         }, (group: LogbookGroup) => group.key)
       }.id('logbook_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })

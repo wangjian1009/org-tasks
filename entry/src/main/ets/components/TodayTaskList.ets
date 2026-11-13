@@ -1,11 +1,11 @@
-import { ProjectNavigation } from '../services/ProjectNavigation'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TodaySection, TodayTaskItem, TodayTaskGroup } from '../ui/TodayPresentation'
-import { ListSectionHeader } from './Controls'
+import { TaskGroup } from './TaskGroup'
+import { TaskRegionHeader } from './TaskRegionHeader'
+import { taskRegion } from '../ui/TaskRegionPresentation'
 import { TaskListItem } from './TaskListItem'
-import { UiColor } from '../ui/Theme'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
@@ -19,7 +19,8 @@ export struct TodayTaskList {
 
   @Builder
   sectionHeader(section: TodaySection) {
-    ListSectionHeader({ title: section.category ?? '未分类' }).padding({ left: 8, right: 8 })
+    TaskRegionHeader({ region: taskRegion(section.items[0].task), category: true, project: false })
+      .padding({ left: 8, right: 8 })
   }
 
   @Builder
@@ -31,22 +32,11 @@ export struct TodayTaskList {
 
   @Builder
   projectBlock(group: TodayTaskGroup) {
-    Column({ space: 8 }) {
-      Text(group.project || '未命名项目').fontSize(12).fontColor(UiColor.projectLabel).maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 8, right: 8 })
-        .accessibilityText(group.project || '未命名项目').constraintSize({ minHeight: 48 })
-        .onClick((): void => {
-          const task = group.items[0].task
-          ProjectNavigation.open(this.getUIContext(), task.repoId, task.filePath)
-        })
-      Column() {
-        ForEach(group.items, (item: TodayTaskItem) => {
-          this.taskItem(item)
-        }, (item: TodayTaskItem) => taskRenderKey(item.task))
-      }.width('100%')
-    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
-      .backgroundColor(UiColor.projectBlock).borderRadius(12)
-      .border({ width: 0.75, color: UiColor.projectOutline }).margin({ top: 12 })
+    TaskGroup({ region: taskRegion(group.items[0].task), category: false, project: true }) {
+      ForEach(group.items, (item: TodayTaskItem) => {
+        this.taskItem(item)
+      }, (item: TodayTaskItem) => taskRenderKey(item.task))
+    }
   }
 
   build() {

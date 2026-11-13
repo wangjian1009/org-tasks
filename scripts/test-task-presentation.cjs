@@ -660,6 +660,21 @@ test('计划所有时间段都按分类与项目平级组织，原任务对象�
   }
 });
 
+test('分组标题独立控制分类与项目，平铺项目保留分类且不改变归组身份', () => {
+  const { taskRegionGroups, taskRegionTitle } = loadRegionPresentation();
+  const values = [task('p', { category: '工作', projectName: '官网改版' }),
+    task('c', { category: '工作' }), task('u', { projectName: '', filePath: 'unnamed.org' }), task('n')];
+  const groups = taskRegionGroups(values, value => value);
+  const title = (category, project) => groups.map(group => taskRegionTitle(group, category, project));
+  assert.deepEqual(title(true, true), ['工作 · 官网改版', '工作', '未分类 · 未命名项目', '未分类']);
+  assert.deepEqual(title(false, true), ['官网改版', '', '未命名项目', '']);
+  assert.deepEqual(title(true, false), ['工作', '工作', '未分类', '未分类']);
+  assert.deepEqual(title(false, false), ['', '', '', '']);
+  assert.deepEqual(groups.flatMap(group => group.items), values);
+  const sameName = taskRegionGroups([task('same', { category: '工作', projectName: '工作' })], value => value)[0];
+  assert.equal(taskRegionTitle(sameName, true, true), '工作 · 工作');
+});
+
 test('regionAreaPolicy 精确控制分类、项目、组合与完全隐藏，None 不显示文件名回退', () => {
   const { RegionAreaPolicy: policy, taskSourceText, taskRegionArea } = presentation;
   const value = task('region', { category: '工作', projectName: '项目甲' });

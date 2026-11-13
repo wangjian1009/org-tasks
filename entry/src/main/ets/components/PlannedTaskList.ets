@@ -2,7 +2,7 @@ import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
-import { TaskRegionHeader } from './TaskRegionHeader'
+import { TaskGroup } from './TaskGroup'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskListItem } from './TaskListItem'
@@ -47,14 +47,11 @@ export struct PlannedTaskList {
 
   @Builder
   regionGroup(group: PlannedGroup, region: PlannedTaskGroup) {
-    Column({ space: 2 }) {
-      TaskRegionHeader({ region })
+    TaskGroup({ region, category: true, project: true }) {
       ForEach(region.items, (item: PlannedTaskItem) => {
         this.taskItem(item, group)
       }, (item: PlannedTaskItem) => taskRenderKey(item.task))
-    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
-      .backgroundColor(UiColor.projectBlock).borderRadius(12)
-      .border({ width: 0.75, color: UiColor.projectOutline }).margin({ top: 12 })
+    }
   }
 
   @Builder

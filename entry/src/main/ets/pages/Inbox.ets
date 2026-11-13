@@ -8,7 +8,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
-import { TaskRegionHeader } from '../components/TaskRegionHeader'
+import { TaskGroup } from '../components/TaskGroup'
 import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
@@ -441,14 +441,9 @@ struct Inbox {
 
   @Builder
   recentRegion(group: RecentTaskGroup) {
-    Column({ space: 8 }) {
-      TaskRegionHeader({ region: group })
-      Column() {
-        ForEach(group.items, (task: CoreTask) => { this.recentTask(task) }, (task: CoreTask) => taskRenderKey(task))
-      }.width('100%')
-    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 4, right: 4, top: 10, bottom: 8 })
-      .backgroundColor(UiColor.projectBlock).borderRadius(12)
-      .border({ width: 0.75, color: UiColor.projectOutline }).margin({ top: 12 })
+    TaskGroup({ region: group, category: true, project: true }) {
+      ForEach(group.items, (task: CoreTask) => { this.recentTask(task) }, (task: CoreTask) => taskRenderKey(task))
+    }
   }
 
   async loadRecords() {
