@@ -655,6 +655,7 @@ impl OrgRepo {
         )
         .await?;
         drop(guard);
+        let completion_notice = super::sync_events::CompletionNotice::new(self);
         let slot = crate::webdav::transaction::CommitSlot::new(
             Path::new(&self.root_directory),
             started_at,
@@ -738,7 +739,7 @@ impl OrgRepo {
         drop(guard);
         // 正式结果已持久化；收尾失败留下标记由下一次访问恢复，不推翻提交结果。
         let _ = session.finish().await;
-        super::sync_events::publish(self);
+        drop(completion_notice);
         progress.report("Finished", record.files.len(), record.files.len(), None);
         policy.on_record_persisted(&record);
 

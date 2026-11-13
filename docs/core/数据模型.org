@@ -555,7 +555,7 @@ pub struct WebDavSyncFileDetail {
 }
 #+end_src
 
-~synced_source~ 保存成功文件实际确认的完整 UTF-8 内容； ~archive~ 保存冲突归档 hash， ~deleted_archive~ 保存采用远端删除前的备份 hash；删除备份不进入 ~synced_source~ 或远端存在性基线。 不再保存或派生 ~resolved~ 状态； ~task_versions~ 保留兼容字段，不用于当前双向冲突差异判断。版本 4 中含任务候选的文件也已经成功上传，完整结果用于历史阅读；当前变化判断使用独立的 ~remote_base~ ，失败记录不推进基线。 历史完成后固定，不根据当前冲突容器变化改写展示结果。
+~synced_source~ 保存成功文件实际确认的完整 UTF-8 内容； ~archive~ 保存冲突归档 hash， ~deleted_archive~ 保存采用远端删除前的备份 hash；删除备份不进入 ~synced_source~ 或远端存在性基线。 不再保存或派生 ~resolved~ 状态； ~task_versions~ 保留兼容字段，不用于当前双向冲突差异判断。版本 4 中含任务候选的文件也已经成功上传，完整结果用于历史阅读；当前变化判断使用独立的 ~remote_base~ ，失败记录不作为远端确认依据，已独立确认的远端基线不因本地失败撤回。 历史完成后固定，不根据当前冲突容器变化改写展示结果。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
@@ -1371,25 +1371,34 @@ pub enum NotificationUpdate {
 \umldep{NotificationSubscription}{NotificationUpdate}
 \end{tikzpicture}
 
-~SyncContext~ 的公开字段保持不变；同步计划通过私有提交槽交回 ~OrgRepo~ ，在可恢复的仓库事务中统一提交内容、基线、成功历史与 outbox。传输和存储失败边界见 [[file:同步核心设计.org::*同步提交与失败边界][同步核心设计]]。
+~SyncContext~ 的公开字段保持不变；同步计划通过私有提交槽交回 ~OrgRepo~ ，远端快照独立发布，在可恢复的仓库事务中统一提交工作内容、本地合并进度、成功历史与 outbox。传输和存储失败边界见 [[file:同步核心设计.org::*同步提交与失败边界][同步核心设计]]。
 
 * remote_base 与仓库事务模型
 
-以下均为 Core 私有持久化结构，不增加宿主 DTO。 ~remote_base/current.json~ 保存版本 1 索引： ~version~ 、远端地址与用户名的绑定 hash ~origin~ ，以及按相对路径组织的 ~entries~ 。每个条目包含 ~revision~ 、 ~version: RemoteFileVersion~ 、 ~hash: Option<String>~ 和来源 ~sync_id~ 。 ~hash~ 存在时引用完整原文，为空时引用空删除标记；没有条目表示未建立。空文件内容具有正常 hash，不等于删除。
+以下均为 Core 私有持久化结构，不增加宿主 DTO。 ~remote_base/current.json~ 保存版本 2 的原子状态： ~version~ 、远端绑定 hash ~origin~ 、最新远端目录 ~generation~ 、本地共同祖先目录 ~local~ 和远端 ~entries~ 。每代目录的 ~manifest.json~ 保存版本、来源绑定与条目； ~A.org.meta.json~ 与 ~A.org~ 同级，保存对应条目的 ETag、长度、hash 和来源同步 ID。读取必须校验三份元数据和正文配对。正文缺失且 hash 为空表示已确认删除，没有条目表示未建立；真实空文件具有正常 hash。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
 \umlclass[x=0,y=0]{RemoteBaseIndex}{version: u32 \\
 origin: String \\
-entries: Map}{ }
+generation: Option\textless String\textgreater \\
+local: Option\textless String\textgreater \\
+entries: Map}{}
 \umlclass[x=8,y=0]{RemoteBaseEntry}{revision: String \\
 version: RemoteFileVersion \\
 hash: Option\textless String\textgreater \\
 sync\_id: String}{}
+\umlclass[x=0,y=-5]{Manifest}{version: u32 \\
+origin: String \\
+entries: Map}{}
 \umluniaggreg{RemoteBaseIndex}{RemoteBaseEntry}
+\umluniaggreg{Manifest}{RemoteBaseEntry}
+\umluniassoc{RemoteBaseIndex}{Manifest}
 \end{tikzpicture}
 
-同步成功统一提交实际接受的远端状态，包括已上传的任务候选；离线解决不更新基线。索引与不可变正文的物理位置、远端绑定和兼容迁移见 [[file:同步核心设计.org][同步核心设计]]。
+远端下载完整后独立发布新目录，已确认的上传和删除继续独立推进远端状态。本地提交失败保留旧共同祖先，重启后仍执行 ~merge(B, L, R)~ ；本地事务只推进实际处理路径的合并祖先。未变化正文从旧基线硬链接，工作文件不参与链接。旧索引不升级，重置后重新获取远端数据。物理布局、版本校验、回收与同步锁见 [[file:同步核心设计.org][同步核心设计]]。
+
+固定 ~.sync/.sync.lock~ 的 OS 文件描述符由同步会话持有至完成回调结束；仓库重置保留该锁文件。会话阶段新增 ~Publishing~ ，基线发布与本地提交分开恢复。
 
 事务 ~Journal~ 包含 ~version~ 、 ~changes~ 和 ~created_dirs~ 。每项 ~Change~ 包含相对路径 ~path~ 、旧字节 ~before~ 和新字节 ~after~ ，空值表示不存在。 ~Plan~ 额外保存准备时读取的版本保护和待发布内存快照，不向宿主暴露。
 

@@ -45,7 +45,7 @@ fn validate(entry: &str) -> Result<(), CoreError> {
     let valid = (parts.len() == 1 && parts[0] != ".sync")
         || (parts.len() == 2
             && parts[0] == ".sync"
-            && !["id", ".transaction.lock", "reset"].contains(&parts[1]));
+            && !["id", ".transaction.lock", ".sync.lock", "reset"].contains(&parts[1]));
     if !valid {
         return Err(CoreError::Store("重置日志包含非法目标".into()));
     }
@@ -70,7 +70,7 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
             while let Some(entry) = entries.next_entry().await.map_err(io)? {
                 let name = entry.file_name();
                 if (directory == root && (name == ".sync" || name == "reset"))
-                    || (directory != root && (name == "id" || name == ".transaction.lock")) {
+                    || (directory != root && (name == "id" || name == ".transaction.lock" || name == ".sync.lock")) {
                     continue;
                 }
                 let meta = fs::symlink_metadata(entry.path()).await.map_err(io)?;
@@ -257,6 +257,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                std::ffi::OsString::from(".sync.lock"),
                 std::ffi::OsString::from(".transaction.lock"),
                 std::ffi::OsString::from("id")
             ]

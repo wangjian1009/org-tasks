@@ -1,5 +1,5 @@
-//! 获取完整远端快照后逐文件重放，最后由 OrgRepo 统一提交本地仓库和基线。
-use super::remote_base::Store;
+//! 先独立发布远端快照，再按旧共同祖先合并；工作文件与合并进度最后统一提交。
+use super::remote_base::{Store, Update};
 use super::transaction::{self, Plan};
 use super::*;
 use std::path::Path;
@@ -100,43 +100,7 @@ impl WebDavSyncPolicy {
         )
         .content_hash;
         let mut bases = Store::load(root, &origin).await?;
-        let history = repo.sync_history::<Self>().await?;
-        // 旧基线只从可信完整原文恢复；失败／未上传解决结果不伪装成已确认远端。
-        for previous in history.iter().rev() {
-            if previous.context_detail.format_version >= 4
-                && previous.result != Some(OrgRepoSyncResult::Succeeded)
-            {
-                continue;
-            }
-            for file in &previous.files {
-                if file.state != OrgRepoSyncFileState::Synchronized
-                    && !(previous.context_detail.format_version >= 4
-                        && file.detail.synced_source.is_some())
-                {
-                    continue;
-                }
-                if bases.state(&file.relative_path).is_some() {
-                    continue;
-                }
-                let source = file
-                    .detail
-                    .synced_source
-                    .as_ref()
-                    .map(|s| s.as_bytes().to_vec());
-                if let Some(bytes) = &source {
-                    if file.local_version.as_ref() != Some(&LocalFileVersion::from_bytes(bytes)) {
-                        return Err(CoreError::InvalidState("历史远端快照与文件版本不一致"));
-                    }
-                } else if file.local_version.is_some() {
-                    continue;
-                }
-                bases.migrate(
-                    file.relative_path.clone(),
-                    source,
-                    file.detail.clone().into(),
-                );
-            }
-        }
+        bases.cleanup(root).await?;
         let mut paths = files.iter()
             .map(|f| f.path.clone())
             .collect::<BTreeSet<_>>();
@@ -176,7 +140,7 @@ impl WebDavSyncPolicy {
                 total,
             });
             let before = local_sources[&path].clone();
-            let baseline = bases.state(&path).cloned();
+            let baseline = bases.remote_state(&path).cloned();
             let listed = remote_by_path.get(&path);
             let remote = if let Some(remote) = listed {
                 let cached = bases
@@ -204,7 +168,10 @@ impl WebDavSyncPolicy {
                     )
                     .await
                     {
-                        Ok(bytes) => Some(bytes),
+                        Ok((bytes, version)) => {
+                            remote_by_path.get_mut(&path).expect("已列举远端文件").version = version;
+                            Some(bytes)
+                        }
                         Err(error) => {
                             record.append_file(failed_record(
                                 &repo,
@@ -234,6 +201,18 @@ impl WebDavSyncPolicy {
         })).collect::<Vec<_>>();
         super::session::stage(root, &repo.id, context.started_at, "metadata", "remote.json",
             &serde_json::to_vec(&remote_manifest).map_err(|_| CoreError::InvalidState("无法编码远端下载清单"))?).await?;
+        if cancellation.is_cancelled() {
+            return self.abort_snapshot(record, OrgRepoSyncResult::Cancelled, progress);
+        }
+        let remote = bases.prepare_remote(root, paths.iter().map(|path| Update {
+            path: path.clone(), bytes: snapshots[path].clone(),
+            version: remote_by_path.get(path).map_or_else(missing_version, |r| r.version.clone()),
+            sync_id: record.id.clone(),
+        }).collect()).await?;
+        let publish_guard = super::session::enter(root, &repo.id, context.started_at,
+            super::session::Phase::Publishing).await?;
+        bases.publish(root, remote).await?;
+        drop(publish_guard);
         let merge_guard = super::session::enter(root, &repo.id, context.started_at,
             super::session::Phase::Merging).await?;
         // 网络阶段允许普通编辑；合并必须重新取得当前磁盘内容。
@@ -451,7 +430,6 @@ impl WebDavSyncPolicy {
             });
         }
         let mut plan = Plan::default();
-        bases.guard(&mut plan);
         for item in &prepared {
             plan.guards.push((item.path.clone(), item.before.clone()));
         }
@@ -513,11 +491,39 @@ impl WebDavSyncPolicy {
                 };
                 match transfer {
                     Ok(version) => {
+                        let (confirmed, version) = if item.result.is_some() && strong(version.etag.as_deref()).is_none() {
+                            // PUT 没有强版本时回读实际正文，不能给请求正文套用列举或旧基线的 ETag。
+                            match runtime::get_remote(&self.client, &self.username, &self.password,
+                                &self.endpoint, &item.path, None, progress, self.monitor.as_ref()).await {
+                                Ok((bytes, version)) => (Some(bytes), version),
+                                Err(error) => {
+                                    record.append_file(failed_record(&repo, item.path.clone(),
+                                        LocalFileVersion::from_bytes(item.before.as_deref().unwrap_or_default()),
+                                        transfer_failure(error)))?;
+                                    return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
+                                }
+                            }
+                        } else { (item.result.clone(), version) };
                         super::session::stage(root, &repo.id, context.started_at, "requests", &format!("{index}.json"),
                             &serde_json::to_vec(&serde_json::json!({"path":item.path,"confirmed":true,
                                 "deletion":item.result.is_none(),"version":version}))
                                 .map_err(|_| CoreError::InvalidState("无法编码同步请求结果"))?).await?;
                         item.version = version;
+                        // 远端写入已确认，立即发布；后续文件或本地提交失败不能撤回这个事实。
+                        let remote = bases.prepare_remote(root, vec![Update {
+                            path: item.path.clone(), bytes: confirmed.clone(),
+                            version: item.version.clone(), sync_id: record.id.clone(),
+                        }]).await?;
+                        let publish_guard = super::session::enter(root, &repo.id, context.started_at,
+                            super::session::Phase::Publishing).await?;
+                        bases.publish(root, remote).await?;
+                        drop(publish_guard);
+                        if confirmed != item.result {
+                            record.append_file(failed_record(&repo, item.path.clone(),
+                                LocalFileVersion::from_bytes(item.before.as_deref().unwrap_or_default()),
+                                transfer_failure(WebDavError::Conflict("上传后远端内容已变化，请重新同步".into()))))?;
+                            return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
+                        }
                     }
                     Err(error) => {
                         record.append_file(failed_record(
@@ -598,18 +604,8 @@ impl WebDavSyncPolicy {
                 plan.set(root, item.path.clone(), item.result.clone())
                     .await?;
             }
-            bases
-                .stage(
-                    root,
-                    &item.path,
-                    item.result.clone(),
-                    item.version.clone(),
-                    &record.id,
-                    &mut plan,
-                )
-                .await?;
         }
-        bases.finish(root, &mut plan).await?;
+        bases.stage_applied(root, &prepared.iter().map(|item| item.path.clone()).collect::<Vec<_>>(), &mut plan).await?;
         // outbox 确认与正式文件、基线及完成历史同属一个本地事务。
         for (relative, _, intent) in captured_intents {
             if prepared.iter().any(|item| item.path == intent.relative_path
@@ -636,7 +632,7 @@ impl WebDavSyncPolicy {
                 file.error = Some(OrgRepoSyncErrorSummary::new(
                     OrgRepoSyncErrorCategory::LocalStorage,
                     true,
-                    "本轮同步未提交本地仓库和远端基线".into(),
+                    "本轮同步未提交本地合并，已确认的远端基线保留".into(),
                 )?);
             }
         }

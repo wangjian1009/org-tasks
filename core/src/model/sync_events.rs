@@ -11,6 +11,19 @@ pub(crate) enum SyncCommitted {
     },
 }
 type Callback = Arc<dyn Fn(&SyncCommitted) + Send + Sync>;
+
+// 基线可能先于工作文件发布；错误返回同样需要使调用方的通知快照失效。
+pub(crate) struct CompletionNotice(super::OrgRepo);
+impl CompletionNotice {
+    pub(crate) fn new(repo: &super::OrgRepo) -> Self {
+        Self(repo.clone())
+    }
+}
+impl Drop for CompletionNotice {
+    fn drop(&mut self) {
+        publish(&self.0);
+    }
+}
 static OBSERVERS: OnceLock<Mutex<BTreeMap<u64, Callback>>> = OnceLock::new();
 static NEXT: AtomicU64 = AtomicU64::new(1);
 fn observers() -> &'static Mutex<BTreeMap<u64, Callback>> {

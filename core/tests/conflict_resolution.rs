@@ -29,10 +29,29 @@ impl Fixture {
     fn baseline(&self, files: &[(&str, Option<&str>)]) {
         let entries=files.iter().map(|(path,source)|((*path).into(),serde_json::json!({"revision":"a1","version":{"etag":"\"a\"","modified_at":null,"size":source.map(|v|v.len())},
             "hash":source.map(|v|LocalFileVersion::from_bytes(v.as_bytes()).content_hash),"sync_id":"old"}))).collect::<serde_json::Map<String,serde_json::Value>>();
-        std::fs::create_dir_all(self.root.join(".sync/remote_base")).unwrap();
+        let generation = self.root.join(".sync/remote_base/generations/a1");
+        std::fs::create_dir_all(generation.join("files")).unwrap();
+        for (path, source) in files {
+            let file = generation.join("files").join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            if let Some(source) = source {
+                std::fs::write(&file, source).unwrap();
+            }
+            std::fs::write(
+                generation.join("files").join(format!("{path}.meta.json")),
+                serde_json::to_vec(&entries[*path]).unwrap(),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            generation.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({"version":1,"origin":"a1","entries":entries}))
+                .unwrap(),
+        )
+        .unwrap();
         std::fs::write(
             self.root.join(".sync/remote_base/current.json"),
-            serde_json::to_vec(&serde_json::json!({"version":1,"origin":"a1","entries":entries}))
+            serde_json::to_vec(&serde_json::json!({"version":2,"origin":"a1","generation":"a1","local":"a1","entries":entries}))
                 .unwrap(),
         )
         .unwrap();

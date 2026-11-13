@@ -9,11 +9,13 @@ use crate::CoreError;
 
 const MARKER: &str = "sync";
 const DIRECTORY: &str = ".sync/sessions";
+pub(crate) const LOCK: &str = ".sync/.sync.lock";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Phase {
     Downloading,
+    Publishing,
     Merging,
     Uploading,
     Committing,
@@ -68,7 +70,7 @@ async fn state(root: &Path) -> Result<Option<State>, CoreError> {
         .ok_or(CoreError::InvalidState("同步标记对应的恢复材料丢失"))?;
     let value: State =
         serde_json::from_slice(&bytes).map_err(|_| CoreError::InvalidState("同步阶段记录无效"))?;
-    if value.version != 1 || value.id != id {
+    if value.version != 2 || value.id != id {
         return Err(CoreError::InvalidState("同步标记与阶段记录不一致"));
     }
     Ok(Some(value))
@@ -100,9 +102,11 @@ fn lease(file: &std::fs::File) -> Result<bool, CoreError> {
     }
 }
 
-async fn open_lease(root: &Path, id: &str) -> Result<std::fs::File, CoreError> {
-    let path = transaction::target(root, &relative(id, "lock")).await?;
+async fn open_lease(root: &Path) -> Result<std::fs::File, CoreError> {
+    let path = transaction::target(root, LOCK).await?;
     std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)
@@ -134,15 +138,24 @@ async fn clear(root: &Path, value: &State) -> Result<(), CoreError> {
 
 /// 调用者必须持有仓库锁；只探测同步锁，绝不在仓库锁内等待。
 pub(crate) async fn active(root: &Path) -> Result<bool, CoreError> {
-    let Some(value) = state(root).await? else {
-        return Ok(false);
-    };
-    Ok(!lease(&open_lease(root, &value.id).await?)?)
+    let file = open_lease(root).await?;
+    if !lease(&file)? {
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 /// 有活动同步时不触碰其材料；失去租约后先恢复旧提交，再移除同步标记。
 pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
     crate::model::reset::recover(root).await?;
+    let file = open_lease(root).await?;
+    if !lease(&file)? {
+        return Ok(());
+    }
+    recover_locked(root).await
+}
+
+async fn recover_locked(root: &Path) -> Result<(), CoreError> {
     let Some(value) = state(root).await? else {
         return transaction::recover(root).await;
     };
@@ -151,10 +164,6 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
         .ok_or(CoreError::InvalidState("仓库身份丢失"))?;
     if std::str::from_utf8(&identity).map(str::trim).ok() != Some(value.repo_id.as_str()) {
         return Err(CoreError::InvalidState("同步恢复材料不属于当前仓库"));
-    }
-    let file = open_lease(root, &value.id).await?;
-    if !lease(&file)? {
-        return Ok(());
     }
     transaction::recover(root).await?;
     clear(root, &value).await
@@ -167,25 +176,17 @@ impl Session {
         repo_id: &str,
         started_at: crate::TimestampMs,
     ) -> Result<Self, CoreError> {
-        if active(root).await? {
+        let file = open_lease(root).await?;
+        if !lease(&file)? {
             return Err(CoreError::InvalidState("此仓库已有同步正在进行"));
         }
-        recover(root).await?;
+        recover_locked(root).await?;
         let id = crate::model::service::generate_repo_id()?;
         transaction::ensure_directory(root, &format!("{DIRECTORY}/{id}")).await?;
-        let path = transaction::target(root, &relative(&id, "lock")).await?;
-        let file = std::fs::OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(path)
-            .map_err(io)?;
-        if !lease(&file)? {
-            return Err(CoreError::InvalidState("无法取得新同步租约"));
-        }
         file.sync_all().map_err(io)?;
+        transaction::sync_dir(&root.join(".sync")).await?;
         let value = State {
-            version: 1,
+            version: 2,
             id,
             repo_id: repo_id.into(),
             started_at,
@@ -209,7 +210,7 @@ impl Session {
         self.check().await?;
         transaction::recover(&self.root).await?;
         let value = State {
-            version: 1,
+            version: 2,
             id: self.state.id.clone(),
             repo_id: self.state.repo_id.clone(),
             started_at: self.state.started_at,
@@ -442,8 +443,59 @@ mod tests {
         let guard = transaction::lock(root).await.unwrap();
         assert!(active(root).await.unwrap());
         recover(root).await.unwrap();
-        assert!(root.join("sync").exists());
+        assert_eq!(
+            root.join("sync").exists(),
+            std::env::var_os("ORG_TASKS_SYNC_FINISHED").is_none()
+        );
+        if std::env::var_os("ORG_TASKS_SYNC_FINISHED").is_some() {
+            let repo_id = crate::model::service::read_repo_id(&root.join(".sync/id"))
+                .await
+                .unwrap();
+            assert!(Session::begin(root, &repo_id, 2).await.is_err());
+        }
         drop(guard);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fixed_lock_blocks_another_process_after_marker_cleanup_until_session_drops() {
+        use std::os::unix::fs::MetadataExt;
+        let (mut repo, root) = repository().await;
+        let guard = transaction::lock(&root).await.unwrap();
+        let session = Session::begin(&root, &repo.id, 1).await.unwrap();
+        let inode = fs::metadata(root.join(LOCK)).await.unwrap().ino();
+        drop(guard);
+        session.finish().await.unwrap();
+        assert!(!root.join(MARKER).exists());
+        let child_root = root.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "webdav::session::tests::another_process_cannot_recover_a_live_sync_session",
+                ])
+                .env("ORG_TASKS_ACTIVE_SYNC_ROOT", child_root)
+                .env("ORG_TASKS_SYNC_FINISHED", "1")
+                .output()
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        drop(session);
+        let guard = transaction::lock(&root).await.unwrap();
+        let next = Session::begin(&root, &repo.id, 2).await.unwrap();
+        assert_eq!(fs::metadata(root.join(LOCK)).await.unwrap().ino(), inode);
+        drop(guard);
+        next.finish().await.unwrap();
+        drop(next);
+        repo.reset().await.unwrap();
+        assert_eq!(fs::metadata(root.join(LOCK)).await.unwrap().ino(), inode);
+        fs::remove_dir_all(root).await.unwrap();
     }
 
     #[cfg(unix)]

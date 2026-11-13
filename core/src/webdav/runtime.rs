@@ -374,7 +374,7 @@ pub(crate) async fn get_remote(
     expected_etag: Option<&str>,
     progress: &SyncProgressReporter,
     monitor: &dyn WebDavSyncMonitor,
-) -> Result<Vec<u8>, WebDavError> {
+) -> Result<(Vec<u8>, RemoteFileVersion), WebDavError> {
     progress.report_http(format!("GET {path} -> 请求中"));
     monitor.on_event(WebDavSyncEvent::HttpRequest {
         method: "GET".into(),
@@ -412,20 +412,18 @@ pub(crate) async fn get_remote(
     if response.status() != StatusCode::OK {
         return Err(status_error(response.status()));
     }
-    if expected_etag.is_some_and(|expected| {
-        response
-            .headers()
-            .get("ETag")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|actual| actual != expected)
-    }) {
+    let actual_etag = response.headers().get("ETag")
+        .and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let conditional_etag = expected_etag.filter(|v| !v.starts_with("W/"));
+    if conditional_etag.is_some_and(|expected| actual_etag.as_deref().is_some_and(|actual| actual != expected)) {
         return Err(WebDavError::Conflict("远端已改变，请重新同步".into()));
     }
-    response
-        .bytes()
-        .await
-        .map(|bytes| bytes.to_vec())
-        .map_err(|_| WebDavError::Protocol("无法读取 WebDAV 文件内容".into()))
+    let bytes = response.bytes().await
+        .map_err(|_| WebDavError::Protocol("无法读取 WebDAV 文件内容".into()))?.to_vec();
+    // 强条件 GET 可沿用已确认的请求版本；无条件 GET 只采用响应自身的 ETag。
+    let version = RemoteFileVersion::new(actual_etag.or_else(|| conditional_etag.map(str::to_owned)),
+        None, Some(bytes.len() as i64)).map_err(|_| WebDavError::Protocol("远端版本信息无效".into()))?;
+    Ok((bytes, version))
 }
 
 pub(crate) async fn delete_remote(

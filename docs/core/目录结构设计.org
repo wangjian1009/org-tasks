@@ -29,7 +29,7 @@
 
 ~OrgRepo.load~ 只确认根目录并读取或创建稳定仓库 ID，不扫描业务文件、不读取历史，也不检查 ~reset~ 、 ~sync~ 或恢复材料。后续业务访问在锁内统一执行状态检查与恢复，详见 [[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
 
-~OrgRepo.load_files(ignore_files)~ 在每次调用时按需扫描并返回独立文件集合； ~ignore_files~ 为当前仓库的安全相对路径，匹配文件在读取正文之前排除。根目录 ~reset~ 、 ~sync~ 以及 ~.sync/sessions/<sync-id>/~ 都是 Core 控制内容。
+~OrgRepo.load_files(ignore_files)~ 在每次调用时按需扫描并返回独立文件集合； ~ignore_files~ 为当前仓库的安全相对路径，匹配文件在读取正文之前排除。根目录 ~reset~ 、 ~sync~ 以及 ~.sync/sessions/<sync-id>/~ 都是 Core 控制内容。固定 ~.sync/.sync.lock~ 不随会话清理或仓库重置删除；基线由不可变的每代目录与原子索引发布，正文和 ETag 元数据同级保存。
 
 扫描、任务查询及同步策略均强制跳过 ~.sync/~ 整棵目录，不跟随符号链接。普通文件写入器拒绝控制目录和越界路径，文件管理器隐藏、平台备份规则及 ~.gitignore~ 不能代替此校验。
 

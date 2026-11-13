@@ -15,6 +15,9 @@ struct Dav {
     requests: Vec<String>,
     hierarchical: bool,
     invalid_listing: bool,
+    omit_put_etag: bool,
+    get_etag: BTreeMap<String, String>,
+    transform_put: BTreeMap<String, Vec<u8>>,
     pause: Option<(String, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 
@@ -44,6 +47,9 @@ async fn server(
         requests: Vec::new(),
         hierarchical: false,
         invalid_listing: false,
+        omit_put_etag: false,
+        get_etag: BTreeMap::new(),
+        transform_put: BTreeMap::new(),
         pause: None,
     }));
     let shared = state.clone();
@@ -137,7 +143,7 @@ async fn server(
                             if headers.contains(&format!("if-match: {}", file.etag))
                                 || !headers.contains("if-match:") =>
                         {
-                            (200, file.data.clone(), Some(file.etag.clone()))
+                            (200, file.data.clone(), Some(dav.get_etag.get(&path).unwrap_or(&file.etag).clone()))
                         }
                         Some(_) => (412, Vec::new(), None),
                         None => (404, Vec::new(), None),
@@ -164,14 +170,15 @@ async fn server(
                             (412, Vec::new(), None)
                         } else {
                             let next_etag = format!("\"v{}\"", dav.requests.len());
+                            let data = dav.transform_put.get(&path).cloned().unwrap_or_else(|| bytes[end..end + length].to_vec());
                             dav.files.insert(
                                 path.clone(),
                                 Remote {
-                                    data: bytes[end..end + length].to_vec(),
+                                    data,
                                     etag: next_etag.clone(),
                                 },
                             );
-                            (204, Vec::new(), Some(next_etag))
+                            (204, Vec::new(), if dav.omit_put_etag { None } else { Some(next_etag) })
                         }
                     }
                     _ => (500, Vec::new(), None),
@@ -219,6 +226,19 @@ async fn sync(
     )
     .await
     .unwrap()
+}
+
+async fn baseline_index(root: &std::path::Path) -> serde_json::Value {
+    serde_json::from_slice(&tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap()).unwrap()
+}
+
+async fn baseline_source(root: &std::path::Path, path: &str, local: bool) -> Option<Vec<u8>> {
+    let index = baseline_index(root).await;
+    let id = index[if local { "local" } else { "generation" }].as_str().unwrap();
+    let directory = root.join(format!(".sync/remote_base/generations/{id}"));
+    let manifest: serde_json::Value = serde_json::from_slice(&tokio::fs::read(directory.join("manifest.json")).await.unwrap()).unwrap();
+    if manifest["entries"][path]["hash"].is_null() { return None; }
+    Some(tokio::fs::read(directory.join("files").join(path)).await.unwrap())
 }
 
 async fn offline(repo: &mut OrgRepo, path: &str) {
@@ -494,7 +514,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
             let entry = &index["entries"]["a.org"];
             let revision = entry["revision"].as_str().unwrap();
             assert_eq!(entry["hash"], LocalFileVersion::from_bytes(&expected).content_hash);
-            assert_eq!(tokio::fs::read(root.join(format!(".sync/remote_base/files/a.org/{revision}/a.org"))).await.unwrap(), expected);
+            assert_eq!(tokio::fs::read(root.join(format!(".sync/remote_base/generations/{revision}/files/a.org"))).await.unwrap(), expected);
             let current = repo.file("a.org").await.unwrap();
             let points = crate::model::conflict::points(&current).unwrap().into_iter()
                 .map(|point| (point.id, point.source)).collect::<Vec<_>>();
@@ -614,7 +634,7 @@ async fn existing_conflicts_merge_concurrent_local_and_remote_changes_and_conver
         .unwrap();
         let revision = index["entries"]["a.org"]["revision"].as_str().unwrap();
         assert_eq!(
-            tokio::fs::read(root.join(format!(".sync/remote_base/files/a.org/{revision}/a.org")))
+            tokio::fs::read(root.join(format!(".sync/remote_base/generations/{revision}/files/a.org")))
                 .await
                 .unwrap(),
             expected
@@ -1377,7 +1397,7 @@ async fn ordinary_upload_needs_no_archive_and_remote_modification_overrides_loca
 }
 
 #[tokio::test]
-async fn failed_sync_discards_all_downloads_deletions_rules_and_base_updates() {
+async fn failed_merge_preserves_working_files_and_publishes_confirmed_remote_snapshot() {
     let (mut repo, root) = repo().await;
     let (policy, state, worker) = server(&[
         (".orgzlyignore", b"old.org\n"),
@@ -1432,12 +1452,12 @@ async fn failed_sync_discards_all_downloads_deletions_rules_and_base_updates() {
     assert!(!TaskScanRules::load(&root).await.unwrap().excludes("new.org"));
     assert_eq!(repo.last_effect_sync().await.unwrap().unwrap().id, first.id);
     assert!(repo.history_file(&failed.id, "a.org", false).await.is_err());
-    assert_eq!(
-        tokio::fs::read(root.join(".sync/remote_base/current.json"))
-            .await
-            .unwrap(),
-        before_base
-    );
+    let before: serde_json::Value = serde_json::from_slice(&before_base).unwrap();
+    assert_eq!(baseline_index(&root).await["local"], before["local"]);
+    assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* TODO New A\n");
+    assert_eq!(baseline_source(&root, "b.org", false).await, None);
+    assert_eq!(baseline_source(&root, "z.org", false).await.unwrap(), vec![0xff]);
+    assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), b"* TODO Old A\n");
     assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
     {
         let mut dav = state.lock().unwrap();
@@ -1488,7 +1508,7 @@ async fn successful_finish_observes_committed_files_baseline_conflicts_and_histo
                 serde_json::from_slice(&read(".sync/history/2.json".into())).unwrap_or_default();
             self.snapshots.lock().unwrap().push(vec![
                 read("a.org".into()),
-                read(format!(".sync/remote_base/files/a.org/{revision}/a.org")),
+                read(format!(".sync/remote_base/generations/{revision}/files/a.org")),
                 read(".sync/history/2/conflicts/a.org/a.org".into()),
                 history["files"][0]["detail"]["synced_source"]
                     .as_str()
@@ -1543,7 +1563,7 @@ async fn successful_finish_observes_committed_files_baseline_conflicts_and_histo
 }
 
 #[tokio::test]
-async fn history_persist_failure_never_commits_local_files_or_remote_base() {
+async fn history_persist_failure_preserves_working_files_and_confirmed_remote_base() {
     struct RejectHistory {
         target: std::path::PathBuf,
         finished: Arc<Mutex<Vec<OrgRepoSyncResult>>>,
@@ -1576,14 +1596,15 @@ async fn history_persist_failure_never_commits_local_files_or_remote_base() {
     );
     assert_ne!(progress.snapshot().stage, "Finished");
     assert!(!root.join("a.org").exists());
-    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert!(baseline_source(&root, "a.org", false).await.is_some());
+    assert!(baseline_source(&root, "a.org", true).await.is_none());
     assert!(!root.join(".sync/history/1").exists());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
 
 #[tokio::test]
-async fn cancelled_sync_discards_completed_downloads() {
+async fn cancelled_after_publication_keeps_remote_snapshot_and_old_local_ancestor() {
     struct CancelAfterDownload {
         token: SyncCancellation,
     }
@@ -1607,7 +1628,10 @@ async fn cancelled_sync_discards_completed_downloads() {
     assert_eq!(record.result, Some(OrgRepoSyncResult::Cancelled));
     assert!(!root.join("a.org").exists());
     assert!(!root.join("b.org").exists());
-    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert!(baseline_source(&root, "a.org", false).await.is_some());
+    assert!(baseline_source(&root, "a.org", true).await.is_none());
+assert!(baseline_source(&root, "b.org", false).await.is_some());
+    assert!(baseline_source(&root, "b.org", true).await.is_none());
     assert!(repo.last_effect_sync().await.unwrap().is_none());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
@@ -1644,7 +1668,8 @@ async fn executing_a_stale_snapshot_never_overwrites_an_external_local_edit() {
         tokio::fs::read(root.join("a.org")).await.unwrap(),
         b"* External edit\n"
     );
-    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert!(baseline_source(&root, "a.org", false).await.is_some());
+    assert!(baseline_source(&root, "a.org", true).await.is_none());
     assert!(!root.join(".sync/history/1.json").exists());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
@@ -1751,7 +1776,7 @@ async fn remote_base_is_bound_to_remote_origin_and_detects_missing_cached_conten
     )
     .unwrap();
     let revision = index["entries"]["a.org"]["revision"].as_str().unwrap();
-    tokio::fs::remove_file(root.join(format!(".sync/remote_base/files/a.org/{revision}/a.org")))
+    tokio::fs::remove_file(root.join(format!(".sync/remote_base/generations/{revision}/files/a.org")))
         .await
         .unwrap();
     let count = state.lock().unwrap().requests.len();
@@ -1846,7 +1871,9 @@ async fn successful_remote_write_before_a_later_failure_is_reconciled_on_retry()
     let failed = sync(&mut repo, &policy, 1).await;
     assert_eq!(failed.result, Some(OrgRepoSyncResult::Failed));
     assert!(state.lock().unwrap().files.contains_key("a.org"));
-    assert!(!root.join(".sync/remote_base/current.json").exists());
+    assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), tokio::fs::read(root.join("a.org")).await.unwrap());
+    assert!(baseline_source(&root, "a.org", true).await.is_none());
+    assert!(baseline_source(&root, "z.org", false).await.is_none());
     assert_eq!(repo.pending_writes().await.unwrap(), intents);
     state.lock().unwrap().reject.clear();
     let count = state.lock().unwrap().requests.len();
@@ -1924,12 +1951,10 @@ async fn missing_or_weak_etags_block_mutation_before_any_remote_upload() {
             .iter()
             .all(|r| !r.starts_with("PUT") && !r.starts_with("DELETE"))
     );
-    assert_eq!(
-        tokio::fs::read(root.join(".sync/remote_base/current.json"))
-            .await
-            .unwrap(),
-        baseline
-    );
+    let before: serde_json::Value = serde_json::from_slice(&baseline).unwrap();
+    assert_eq!(baseline_index(&root).await["local"], before["local"]);
+    assert_eq!(baseline_index(&root).await["entries"]["a.org"]["version"]["etag"], "W/\"same\"");
+    assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* Base\n");
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -2082,7 +2107,10 @@ async fn uploads_release_repository_lock_and_never_overwrite_newer_local_version
     resume.notify_one();
     assert!(syncing.await.unwrap().is_err());
     assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), b"* TODO Newer local edit\n");
-    assert_eq!(tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap(), baseline);
+    let before: serde_json::Value = serde_json::from_slice(&baseline).unwrap();
+    assert_eq!(baseline_index(&root).await["local"], before["local"]);
+    assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), b"* TODO Original\n");
+    assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* TODO Upload this\n");
     assert!(!root.join(".sync/history/2.json").exists());
     assert_eq!(state.lock().unwrap().files["a.org"].data, b"* TODO Upload this\n");
     let mut reader = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
@@ -2092,4 +2120,153 @@ async fn uploads_release_repository_lock_and_never_overwrite_newer_local_version
     assert!(!root.join("sync").exists());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn retry_after_local_commit_failure_keeps_the_old_ancestor_and_remote_state_change() {
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Task\n:PROPERTIES:\n:ID: stable\n:END:\nold note\n";
+    let (policy, state, worker) = server(&[("a.org", base)]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(
+        root.join("a.org"),
+        String::from_utf8_lossy(base).replace("old note", "local note"),
+    )
+    .await
+    .unwrap();
+    state.lock().unwrap().files.insert(
+        "a.org".into(),
+        Remote {
+            data: String::from_utf8_lossy(base)
+                .replace("TODO", "DONE")
+                .into_bytes(),
+            etag: "\"changed\"".into(),
+        },
+    );
+    struct EditAfterUpload(std::path::PathBuf);
+    impl WebDavSyncMonitor for EditAfterUpload {
+        fn on_event(&self, event: WebDavSyncEvent) {
+            if matches!(event, WebDavSyncEvent::FileProcessed { .. }) {
+                let local = std::fs::read_to_string(&self.0).unwrap();
+                std::fs::write(&self.0, local.replace("local note", "newer local note")).unwrap();
+            }
+        }
+    }
+    let policy = policy.with_monitor(EditAfterUpload(root.join("a.org")));
+    assert!(
+        repo.sync(
+            &policy,
+            2,
+            &SyncCancellation::default(),
+            &SyncProgressReporter::default()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), base);
+    let confirmed = baseline_source(&root, "a.org", false).await.unwrap();
+    assert_eq!(confirmed, state.lock().unwrap().files["a.org"].data);
+    assert!(String::from_utf8_lossy(&confirmed).contains("* DONE Task"));
+    let policy = policy.with_monitor(NoopWebDavSyncMonitor);
+    let mut reopened = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+    reopened.load::<WebDavSyncPolicy>().await.unwrap();
+    assert_eq!(
+        sync(&mut reopened, &policy, 3).await.result,
+        Some(OrgRepoSyncResult::Succeeded)
+    );
+    let text = tokio::fs::read_to_string(root.join("a.org")).await.unwrap();
+    assert!(text.contains("* DONE Task"), "{text}");
+    assert!(text.contains("newer local note"), "{text}");
+    assert_eq!(text.as_bytes(), state.lock().unwrap().files["a.org"].data);
+    assert_eq!(
+        baseline_source(&root, "a.org", false).await.unwrap(),
+        text.as_bytes()
+    );
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn uploaded_bytes_without_response_etag_are_read_back_and_paired_with_actual_version() {
+    for transformed in [false, true] {
+        let (mut repo, root) = repo().await;
+        let (policy, state, worker) = server(&[]).await;
+        tokio::fs::write(root.join("a.org"), b"* TODO Local\n")
+            .await
+            .unwrap();
+        {
+            let mut dav = state.lock().unwrap();
+            dav.omit_put_etag = true;
+            if transformed {
+                dav.transform_put
+                    .insert("a.org".into(), b"* TODO Transformed\n".to_vec());
+            }
+        }
+        let result = sync(&mut repo, &policy, 1).await;
+        assert_eq!(
+            result.result,
+            Some(if transformed {
+                OrgRepoSyncResult::Failed
+            } else {
+                OrgRepoSyncResult::Succeeded
+            })
+        );
+        let bytes = baseline_source(&root, "a.org", false).await.unwrap();
+        let index = baseline_index(&root).await;
+        let id = index["generation"].as_str().unwrap();
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &tokio::fs::read(root.join(format!(
+                ".sync/remote_base/generations/{id}/files/a.org.meta.json"
+            )))
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        let dav = state.lock().unwrap();
+        assert_eq!(bytes, dav.files["a.org"].data);
+        assert_eq!(metadata["version"]["etag"], dav.files["a.org"].etag);
+        assert_eq!(
+            metadata["hash"],
+            LocalFileVersion::from_bytes(&bytes).content_hash
+        );
+        assert_eq!(metadata["version"]["size"], bytes.len());
+        assert!(dav.requests.iter().any(|r| r.starts_with("GET ")));
+        drop(dav);
+        if transformed {
+            assert_eq!(
+                tokio::fs::read(root.join("a.org")).await.unwrap(),
+                b"* TODO Local\n"
+            );
+            assert!(baseline_source(&root, "a.org", true).await.is_none());
+        }
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn downloaded_content_uses_the_get_response_etag_and_rejects_strong_version_mismatch() {
+    for weak in [true, false] {
+        let (mut repo, root) = repo().await;
+        let (policy, state, worker) = server(&[("a.org", b"* TODO Remote\n")]).await;
+        {
+            let mut dav = state.lock().unwrap();
+            dav.files.get_mut("a.org").unwrap().etag =
+                if weak { "W/\"listed\"" } else { "\"listed\"" }.into();
+            dav.get_etag.insert("a.org".into(), "\"actual\"".into());
+        }
+        let result = sync(&mut repo, &policy, 1).await;
+        if weak {
+            assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+            assert_eq!(
+                baseline_index(&root).await["entries"]["a.org"]["version"]["etag"],
+                "\"actual\""
+            );
+        } else {
+            assert_eq!(result.result, Some(OrgRepoSyncResult::Failed));
+            assert!(!root.join(".sync/remote_base/current.json").exists());
+        }
+        worker.abort();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
 }

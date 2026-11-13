@@ -440,7 +440,7 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 *** SyncPolicy 与本地同步历史
 
-~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理； ~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。 ~SyncPolicy.synchronize~ 只接收 ~SyncContext~ 、取消信号和进度对象；策略需要历史时通过上下文仓库的内部历史接口读取。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
+~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理； ~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。 ~SyncPolicy.synchronize~ 只接收 ~SyncContext~ 、取消信号和进度对象；策略需要历史时通过上下文仓库的内部历史接口读取。远端正文和对应 ETag 先保存到不可变基线目录，再原子发布；本地工作文件由后续合并事务提交。
 
 ~synchronize~ 返回的是交由仓库提交的结果，不能提前发布持久化完成事件。 ~OrgRepo.sync~ 在完成记录及对应本地事务持久化、仓库锁释放后更新 ~Finished~ 进度，再调用默认无操作的 ~on_record_persisted~ 。WebDAV 在该回调中发送完成事件；回调只接收不可变记录，不返回提交错误。提交失败不调用此回调、不发布成功事件。
 
@@ -530,7 +530,7 @@ controller.cancel()?;
 
 *** WebDavSyncPolicy
 
-~WebDavSyncPolicy~ 位于 ~core::webdav~ 。它用各路径最近一条 ~Synchronized~ 文件记录的本地哈希和远端版本作为基准，处理新建、下载、条件更新、冲突、远端删除和传输失败，并直接持有 HTTPS Basic 认证配置与 HTTP client；HTTP 宿主不实现 WebDAV 端口。
+~WebDavSyncPolicy~ 位于 ~core::webdav~ 。它从基线目录的同级元数据取得当前 ETag 和内容 hash，从独立的本地合并祖先取得三方比较基准，处理新建、下载、条件更新、冲突、远端删除和传输失败，并直接持有 HTTPS Basic 认证配置与 HTTP client；HTTP 宿主不实现 WebDAV 端口。
 
 ~WebDavSyncMonitor~ 是 WebDAV 同步的观察接口。通过 ~WebDavSyncPolicy.with_monitor~ 注入后，调用方可按顺序获得同步开始、列举、文件处理、HTTP 请求和响应、结束事件。事件只携带仓库 ID、相对路径、文件记录和 HTTP 状态，不含凭据、完整 URL、绝对路径或文件正文。
 
@@ -829,7 +829,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 失败同步的本地提交边界
 
-单个仓库整轮同步通过可恢复本地事务提交工作文件、实际远端基线、成功历史及 outbox 确认。执行错误或取消不推进这些本地状态，已成功的远端请求不保证回滚；任务内容冲突不是执行错误。完整边界见 [[file:同步核心设计.org::*同步提交与失败边界][同步核心设计]]。
+单个仓库先独立发布已确认的远端基线，再执行本地合并。工作文件、本地合并祖先引用、成功历史和 outbox 确认通过可恢复事务提交。执行错误或取消不提交工作结果，已经确认的远端基线保留；任务内容冲突不是执行错误。完整边界见 [[file:同步核心设计.org::*同步提交与失败边界][同步核心设计]]。
 
 * 放置目标的具体文件范围
 
@@ -845,11 +845,11 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 仓库重置与文件冲突标志
 
-~OrgRepo.reset().await~ 清空本地目录内的文件、历史、基线、冲突快照、忽略规则与 outbox，保留 ~.sync/id~ 原字节和根目录。Core 负责仓库锁、暂存、恢复和更新发布；不访问远端，也不修改宿主配置。句柄身份过期时拒绝执行。完整故障边界见 [[file:同步核心设计.org::*仓库重置][同步核心设计]]。
+~OrgRepo.reset().await~ 清空本地目录内的文件、历史、基线、冲突快照、忽略规则与 outbox，保留 ~.sync/id~ 原字节、固定的仓库锁和同步锁文件及根目录。Core 负责仓库锁、暂存、恢复和更新发布；不访问远端，也不修改宿主配置。句柄身份过期时拒绝执行。完整故障边界见 [[file:同步核心设计.org::*仓库重置][同步核心设计]]。
 
 ~OrgFile.has_conflict() -> bool~ 与 ~OrgFileMetadata.has_conflict~ 从真实标题的 ~CONFLICT~ 自有标签取得，Serde 字段为 ~hasConflict~ 。源码块中的同名文本不参与；无冲突容器时不额外写文件头标记，宿主仅消费结果。
 
-版本 4 的任务冲突额外在日志 conflicts 目录保存实际处理后带候选的完整文件，该快照与成功历史、基线同事务提交，全部解决后仍保留；不能把目录存在当作当前待解决的唯一依据。
+版本 4 的任务冲突额外在日志 conflicts 目录保存实际处理后带候选的完整文件，该快照与工作文件、成功历史及本地合并进度同事务提交，全部解决后仍保留；不能把目录存在当作当前待解决的唯一依据。
 
 * 任务卡片编辑
 

@@ -324,13 +324,23 @@ impl Plan {
         .await;
         if let Err(error) = apply {
             rollback(root, &journal).await?;
-            let _ = fs::remove_dir_all(&work).await;
+            let _ = discard(&work).await;
             return Err(error);
         }
         // 完成标记之后清理失败不把成功事务改报失败；后续加载继续清理。
-        let _ = fs::remove_dir_all(&work).await;
+        let _ = discard(&work).await;
         Ok(())
     }
+}
+
+// 先原子移出恢复集合，避免清理中删掉 committed、保留 journal 后误回滚。
+async fn discard(work: &Path) -> Result<(), CoreError> {
+    let parent = work.parent().ok_or(CoreError::InvalidState("事务清理目录无效"))?;
+    let garbage = parent.join(format!("cleanup-{}", crate::model::service::generate_repo_id()?));
+    fs::rename(work, &garbage).await.map_err(io)?;
+    sync_dir(parent).await?;
+    fs::remove_dir_all(garbage).await.map_err(io)?;
+    sync_dir(parent).await
 }
 pub(crate) async fn ensure_directory(root: &Path, path: &str) -> Result<(), CoreError> {
     crate::model::validate_relative_path(path)?;
@@ -391,6 +401,10 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
     }
     works.sort();
     for work in works {
+        if work.file_name().and_then(|v| v.to_str()).is_some_and(|v| v.starts_with("cleanup-")) {
+            fs::remove_dir_all(work).await.map_err(io)?;
+            continue;
+        }
         let relative = work
             .strip_prefix(root)
             .map_err(|_| CoreError::InvalidState("事务目录越界"))?
@@ -418,7 +432,7 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
                 None => rollback(root, &journal).await?,
             }
         }
-        fs::remove_dir_all(work).await.map_err(io)?;
+        discard(&work).await?;
     }
     Ok(())
 }
@@ -434,6 +448,20 @@ mod tests {
         fs::create_dir_all(path.join(".sync")).await.unwrap();
         path
     }
+    #[tokio::test]
+    async fn interrupted_cleanup_never_replays_a_completed_rollback_journal() {
+        let root = root().await;
+        fs::write(root.join("a.org"), b"new").await.unwrap();
+        ensure_directory(&root, ".sync/transactions/cleanup-abcd").await.unwrap();
+        let journal = Journal { version: 1, changes: vec![Change {
+            path: "a.org".into(), before: Some(b"old".to_vec()), after: Some(b"new".to_vec()),
+        }], created_dirs: Vec::new() };
+        fs::write(root.join(".sync/transactions/cleanup-abcd/journal.json"), serde_json::to_vec(&journal).unwrap()).await.unwrap();
+        recover(&root).await.unwrap();
+        assert_eq!(fs::read(root.join("a.org")).await.unwrap(), b"new");
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
     #[tokio::test]
     async fn recovery_rolls_back_partial_writes_and_removes_unpublished_metadata() {
         let root = root().await;
