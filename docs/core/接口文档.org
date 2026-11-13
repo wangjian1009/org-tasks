@@ -442,6 +442,8 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 ~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理； ~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。 ~SyncPolicy.synchronize~ 只接收 ~SyncContext~ 、取消信号和进度对象；策略需要历史时通过上下文仓库的内部历史接口读取。策略接收可变仓库，因此下载成功时可替换对应 ~OrgFile~ 快照。
 
+~synchronize~ 返回的是交由仓库提交的结果，不能提前发布持久化完成事件。 ~OrgRepo.sync~ 在完成记录及对应本地事务持久化、仓库锁释放后更新 ~Finished~ 进度，再调用默认无操作的 ~on_record_persisted~ 。WebDAV 在该回调中发送完成事件；回调只接收不可变记录，不返回提交错误。提交失败不调用此回调、不发布成功事件。
+
 #+begin_src rust
 pub trait SyncPolicy: Send + Sync {
     const KIND: &'static str;
@@ -455,6 +457,12 @@ pub trait SyncPolicy: Send + Sync {
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> impl Future<Output = Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError>> + Send;
+
+    fn on_record_persisted(
+        &self,
+        _record: &OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>,
+    ) {
+    }
 }
 
 #+end_src

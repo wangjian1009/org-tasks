@@ -646,14 +646,9 @@ impl WebDavSyncPolicy {
         &self,
         mut record: OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>,
         result: OrgRepoSyncResult,
-        progress: &SyncProgressReporter,
+        _progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>, CoreError> {
         record.finish(result, finished_at()?)?;
-        progress.report("Finished", record.files.len(), record.files.len(), None);
-        self.report(WebDavSyncEvent::Finished {
-            result,
-            files: record.files.len(),
-        });
         Ok(record)
     }
 }

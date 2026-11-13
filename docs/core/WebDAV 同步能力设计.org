@@ -36,6 +36,8 @@ WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料
 
 ~HttpRequest~ 和 ~HttpResponse~ 只包含 HTTP 方法、相对路径或根路径，以及响应状态码；网络失败时状态码为 ~None~ 。事件不得包含密码、Authorization header、完整远端 URL、绝对本地路径或请求、响应正文。
 
+~FileProcessed~ 表示远端文件处理结果，本地事务此时尚未提交。 ~Finished~ 由仓库持久化完成记录并释放锁后触发；成功事件必须晚于工作文件、远端基线、冲突快照、历史及 outbox 的统一提交。提交失败通过同步调用返回错误，不能先发送成功事件；失败或取消的完成记录持久化后仍可发送对应结果的完成事件。
+
 #+begin_src rust
 struct Monitor;
 

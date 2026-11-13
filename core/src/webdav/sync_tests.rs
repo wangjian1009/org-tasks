@@ -1387,37 +1387,120 @@ async fn failed_sync_discards_all_downloads_deletions_rules_and_base_updates() {
 }
 
 #[tokio::test]
-async fn history_persist_failure_never_commits_local_files_or_remote_base() {
-    struct RejectHistory {
-        target: std::path::PathBuf,
+async fn successful_finish_observes_committed_files_baseline_conflicts_and_history() {
+    struct ObserveFinish {
+        root: std::path::PathBuf,
+        snapshots: Arc<Mutex<Vec<Vec<Vec<u8>>>>>,
     }
-    impl WebDavSyncMonitor for RejectHistory {
+    impl WebDavSyncMonitor for ObserveFinish {
         fn on_event(&self, event: WebDavSyncEvent) {
-            if matches!(
+            if !matches!(
                 event,
                 WebDavSyncEvent::Finished {
                     result: OrgRepoSyncResult::Succeeded,
                     ..
                 }
             ) {
+                return;
+            }
+            let read = |path| std::fs::read(self.root.join(path)).unwrap_or_default();
+            let index: serde_json::Value =
+                serde_json::from_slice(&read(".sync/remote_base/current.json".into()))
+                    .unwrap_or_default();
+            let revision = index["entries"]["a.org"]["revision"]
+                .as_str()
+                .unwrap_or("missing");
+            let history: serde_json::Value =
+                serde_json::from_slice(&read(".sync/history/2.json".into())).unwrap_or_default();
+            self.snapshots.lock().unwrap().push(vec![
+                read("a.org".into()),
+                read(format!(".sync/remote_base/files/a.org/{revision}/a.org")),
+                read(".sync/history/2/conflicts/a.org/a.org".into()),
+                history["files"][0]["detail"]["synced_source"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .as_bytes()
+                    .to_vec(),
+            ]);
+        }
+    }
+    let (mut repo, root) = repo().await;
+    let base = b"* TODO Work\n:PROPERTIES:\n:ID: stable\n:END:\nbase\n";
+    let (policy, state, worker) = server(&[("a.org", base)]).await;
+    sync(&mut repo, &policy, 1).await;
+    tokio::fs::write(
+        root.join("a.org"),
+        String::from_utf8_lossy(base).replace("base", "local"),
+    )
+    .await
+    .unwrap();
+    state.lock().unwrap().files.insert(
+        "a.org".into(),
+        Remote {
+            data: String::from_utf8_lossy(base)
+                .replace("base", "remote")
+                .into_bytes(),
+            etag: "\"changed\"".into(),
+        },
+    );
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let policy = policy.with_monitor(ObserveFinish {
+        root: root.clone(),
+        snapshots: snapshots.clone(),
+    });
+    let record = sync(&mut repo, &policy, 2).await;
+    assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(record.files[0].state, OrgRepoSyncFileState::Conflict);
+    let remote = state.lock().unwrap().files["a.org"].data.clone();
+    assert_eq!(
+        *snapshots.lock().unwrap(),
+        vec![vec![remote.clone(); 4]],
+        "成功事件必须晚于所有正式文件的提交"
+    );
+    let current = repo.file("a.org").await.unwrap();
+    assert!(
+        String::from_utf8_lossy(&crate::model::conflict::main_source(&current)).contains("remote")
+    );
+    let points = crate::model::conflict::points(&current).unwrap();
+    assert_eq!(points.len(), 1);
+    assert!(points[0].source.contains("local"));
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn history_persist_failure_never_commits_local_files_or_remote_base() {
+    struct RejectHistory {
+        target: std::path::PathBuf,
+        finished: Arc<Mutex<Vec<OrgRepoSyncResult>>>,
+    }
+    impl WebDavSyncMonitor for RejectHistory {
+        fn on_event(&self, event: WebDavSyncEvent) {
+            if matches!(event, WebDavSyncEvent::FileProcessed { .. }) {
                 std::fs::write(&self.target, b"occupied").unwrap();
+            }
+            if let WebDavSyncEvent::Finished { result, .. } = event {
+                self.finished.lock().unwrap().push(result);
             }
         }
     }
     let (mut repo, root) = repo().await;
     let (policy, _, worker) = server(&[("a.org", b"* TODO Download\n")]).await;
+    let finished = Arc::new(Mutex::new(Vec::new()));
     let policy = policy.with_monitor(RejectHistory {
         target: root.join(".sync/history/1.json"),
+        finished: finished.clone(),
     });
+    let progress = SyncProgressReporter::default();
     let result = repo
-        .sync(
-            &policy,
-            1,
-            &SyncCancellation::default(),
-            &SyncProgressReporter::default(),
-        )
+        .sync(&policy, 1, &SyncCancellation::default(), &progress)
         .await;
     assert!(result.is_err());
+    assert!(
+        finished.lock().unwrap().is_empty(),
+        "提交失败不能发布完成事件"
+    );
+    assert_ne!(progress.snapshot().stage, "Finished");
     assert!(!root.join("a.org").exists());
     assert!(!root.join(".sync/remote_base/current.json").exists());
     assert!(!root.join(".sync/history/1").exists());

@@ -270,6 +270,16 @@ impl SyncPolicy for WebDavSyncPolicy {
         self.synchronize_snapshot(context, cancellation, progress)
             .await
     }
+
+    fn on_record_persisted(
+        &self,
+        record: &OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>,
+    ) {
+        self.report(WebDavSyncEvent::Finished {
+            result: record.result.expect("仓库已校验完成记录"),
+            files: record.files.len(),
+        });
+    }
 }
 
 fn transfer_failure(error: WebDavError) -> OrgRepoSyncErrorSummary {
