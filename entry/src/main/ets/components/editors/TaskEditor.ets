@@ -19,6 +19,7 @@ import { PopupMenuItem } from '../controls/PopupMenu'
 import { inlineDateLabel, inlineDate, inlinePlanningLabel } from '../../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDateForDisplay, TaskDateDisplay,
+  TaskTimeDisplay, taskTimeForDisplay,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText, taskSourceText, RegionAreaPolicy, TaskRegionArea, taskRegionArea } from '../../ui/TaskListPresentation'
 import { TitleText } from '../TitleText'
@@ -60,6 +61,7 @@ export struct TaskEditor {
   @Prop allowCompletion: boolean = false
   @Prop instanceKey: string = ''
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
+  @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
   @Prop enableSwipeActions: boolean = false
   @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
@@ -826,7 +828,8 @@ export struct TaskEditor {
   }
 
   leadingWidth(): number {
-    return (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
+    return (taskTimeForDisplay(this.value(), this.timeDisplay) ? 54 : 0)
+      + (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 26 : 0)
   }
 
@@ -998,12 +1001,19 @@ export struct TaskEditor {
   compactDeadline() {
     Row({ space: 4 }) {
       Image(this.deadlineIcon()).width(16).height(16)
-      Text(taskDeadlineText(this.value(), new Date(this.referenceTime))).fontSize(12).fontColor(this.deadlineColor()).maxLines(1)
+      Text(this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' : taskDeadlineText(this.value(), new Date(this.referenceTime)))
+        .fontSize(12).fontColor(this.deadlineColor()).maxLines(1)
     }.alignItems(VerticalAlign.Center).flexShrink(0)
       .onAreaChange((oldArea: Area, area: Area) => { this.deadlineWidth = parseFloat(area.width.toString()) })
   }
   @Builder
   compactLeadingInfo() {
+    if (taskTimeForDisplay(this.value(), this.timeDisplay)) {
+      Text(taskTimeForDisplay(this.value(), this.timeDisplay)).fontSize(15)
+        .fontColor(this.timeDisplay === TaskTimeDisplay.Deadline ? this.deadlineColor() : UiColor.selection)
+        .width(48).maxLines(1).flexShrink(0)
+        .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' : '计划'} ${taskTimeForDisplay(this.value(), this.timeDisplay)}`)
+    }
     if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)

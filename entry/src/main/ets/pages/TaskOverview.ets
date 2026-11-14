@@ -19,8 +19,8 @@ import { FileTargetService } from '../services/FileTargetService'
 import { NoteService } from '../services/NoteService'
 import { overviewTaskQuery, todayPriorityQuery, overviewTitle, plannedRegionQuery, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreQuery, CoreTask, CoreTaskQueryResult, taskResult, coreErrorMessage } from '../services/NativeCoreService'
-import { UiColor } from '../ui/Theme'
-import { TodaySection, todaySections } from '../ui/TodayPresentation'
+import { UiColor, localDate } from '../ui/Theme'
+import { TodaySection, TodayTimedTaskItem, todayLayout, todaySections } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups, plannedRegionOptions } from '../ui/PlannedPresentation'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { LogbookGroup, logbookGroups } from '../ui/LogbookPresentation'
@@ -46,6 +46,7 @@ struct TaskOverview {
   @State selectedTags: string[] = []
   @State includeUntagged: boolean = false
   @State sections: TodaySection[] = []
+  @State timedItems: TodayTimedTaskItem[] = []
   @State planGroups: PlannedGroup[] = []
   @State planRegionOptions: TaskRegionData[] = []
   @State selectedPlanRegion: TaskRegionData | null = null
@@ -58,11 +59,26 @@ struct TaskOverview {
   @State deletingMemo: boolean = false
   private requestId: number = 0
   private entryMemoOpened: boolean = false
+  private dayTimer: number = -1
 
   aboutToAppear() {
     this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view ||
       (this.entryView === 'memo' ? 'memo' : 'today')
   }
+
+  onPageShow() {
+    clearInterval(this.dayTimer)
+    this.dayTimer = setInterval((): void => {
+      if (this.view === 'today' && !this.loading && !TaskInlineSession.active() &&
+        localDate(new Date()) !== localDate(new Date(this.referenceTime))) {
+        this.loadTasks()
+      }
+    }, 60000)
+  }
+
+  onPageHide() { clearInterval(this.dayTimer); this.dayTimer = -1 }
+
+  aboutToDisappear() { clearInterval(this.dayTimer); this.dayTimer = -1 }
 
 
   onBackPress(): boolean {
@@ -136,7 +152,9 @@ struct TaskOverview {
     this.selectedTags = selection.tags
     this.includeUntagged = selection.includeUntagged
     this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
-    this.sections = this.view === 'today' || this.view === 'anytime' ? todaySections(this.visibleTasks, this.view === 'today', this.view === 'today' ? this.priorityOrder : []) : []
+    const layout = this.view === 'today' ? todayLayout(this.visibleTasks, this.priorityOrder, new Date(this.referenceTime)) : null
+    this.timedItems = layout?.timedItems ?? []
+    this.sections = layout?.sections ?? (this.view === 'anytime' ? todaySections(this.visibleTasks) : [])
   }
 
   async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
@@ -187,6 +205,7 @@ struct TaskOverview {
         this.tagOptions = []
         this.tagGroups = []
         this.sections = []
+        this.timedItems = []
         this.planGroups = []
         this.logbookTaskGroups = []
         return
@@ -202,9 +221,9 @@ struct TaskOverview {
       }
       this.tagOptions = this.supportsTagFilter() ? taskTagOptions(result.tasks, configuredTags) : []
       this.tagGroups = configuredGroups
+      this.referenceTime = Date.now()
       this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged },
         this.tagOptions, this.tagGroups))
-      this.referenceTime = Date.now()
       this.planGroups = planGroups
       this.logbookTaskGroups = this.view === 'logbook' ? logbookGroups(result.tasks, new Date(this.referenceTime)) : []
       await this.openEntryMemo()
@@ -216,6 +235,7 @@ struct TaskOverview {
         this.tagOptions = []
         this.tagGroups = []
         this.sections = []
+        this.timedItems = []
         this.planGroups = []
         this.logbookTaskGroups = []
         this.message = `读取任务失败：${coreErrorMessage(e as CoreBridgeError)}`
@@ -267,7 +287,7 @@ struct TaskOverview {
           NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime') {
-          TodayTaskList({ sections: this.sections, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(),
+          TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(),
             expandOnRowClick: this.view === 'today' })
         } else if (this.view === 'planned') {
           PlannedTaskList({ groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })

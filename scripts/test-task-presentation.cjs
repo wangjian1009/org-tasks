@@ -289,7 +289,8 @@ function loadRegionPresentation() {
 }
 
 function loadGrouping(name, dependencies) {
-  dependencies = { './TaskRegionPresentation': loadRegionPresentation(), ...dependencies };
+  dependencies = { './TaskRegionPresentation': loadRegionPresentation(), './TaskListPresentation': presentation,
+    './Theme': { localDate }, ...dependencies };
   const filename = path.resolve(__dirname, `../entry/src/main/ets/ui/${name}.ets`);
   const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
@@ -753,4 +754,64 @@ test('今天按 Core 顺序排列分类内普通任务和各项目，区块位�
     [[null,['high']],['项目甲',['p-high','p-low']],[null,['default']],['项目乙',['q-high','q-low']],[null,['low']]]);
   assert.deepEqual(sections.flatMap(section=>section.groups.flatMap(group=>group.items.map(item=>item.task.id))).sort(),values.map(task=>task.id).sort());
   assert.deepEqual(values.map(task=>task.id),['low','p-low','default','q-low','p-high','high','other','q-high','uncategorized']);
+});
+
+function timedTask(id, scheduledPlanning, deadlinePlanning = null, values = {}) {
+  return task(id, { category: '工作', scheduled: scheduledPlanning?.date ?? '', deadline: deadlinePlanning?.date ?? '',
+    editContent: { scheduledPlanning, deadlinePlanning }, ...values });
+}
+
+test('今天时刻只用当天规划，计划优先，其他日期及只有日期的任务完整回到分类', () => {
+  const { todayLayout } = loadGrouping('TodayPresentation', {});
+  const planning = (date, start, end = null) => ({ date, time: start ? { start, end } : null });
+  const values = [
+    timedTask('yesterday', planning('2026-11-13', '16:00')),
+    timedTask('future', planning('2026-11-15', '08:00')),
+    timedTask('date-only', planning('2026-11-14', null)),
+    timedTask('both', planning('2026-11-14', '14:00', '15:00'), planning('2026-11-14', '09:00')),
+    timedTask('deadline', planning('2026-11-13', '07:00'), planning('2026-11-14', '18:00')),
+    timedTask('future-schedule', planning('2026-11-15', '06:00'), planning('2026-11-14', '10:00')),
+    task('without-planning', { category: '个人' })
+  ];
+  const result = todayLayout(values, [], new Date(2026, 10, 14, 23, 59));
+  assert.deepEqual(result.timedItems.map(item => [item.task.id, item.time, item.timeDisplay]),
+    [['future-schedule', '10:00', presentation.TaskTimeDisplay.Deadline],
+      ['both', '14:00', presentation.TaskTimeDisplay.Schedule], ['deadline', '18:00', presentation.TaskTimeDisplay.Deadline]]);
+  const ordinary = result.sections.flatMap(section => section.items.map(item => item.task));
+  assert.deepEqual(ordinary.map(item => item.id).sort(), ['date-only', 'future', 'without-planning', 'yesterday']);
+  assert.deepEqual([...result.timedItems.map(item => item.task), ...ordinary].map(item => item.id).sort(), values.map(item => item.id).sort());
+  assert.equal(result.timedItems.find(item => item.task.id === 'both').task, values[3]);
+  assert.equal(values[3].editContent.scheduledPlanning.time.end, '15:00');
+  const nextDay = todayLayout(values, [], new Date(2026, 10, 15, 0, 0));
+  assert.deepEqual(nextDay.timedItems.map(item => item.task.id), ['future-schedule', 'future']);
+});
+
+test('今天时刻相同时沿用 Core 优先级，标签筛选和移除时刻不丢记录或保留空区块', () => {
+  const { todayLayout } = loadGrouping('TodayPresentation', {});
+  const planning = { date: '2026-11-14', time: { start: '09:30', end: null } };
+  const values = [timedTask('low', planning, null, { tags: ['工作'], projectName: '项目甲' }),
+    timedTask('high', planning, null, { tags: ['个人'], category: '个人' }),
+    timedTask('default', planning, null, { tags: ['工作'] })];
+  const order = ['high', 'default', 'low'];
+  const result = todayLayout(values, order, new Date(2026, 10, 14));
+  assert.deepEqual(result.timedItems.map(item => item.task.id), order);
+  assert.deepEqual(result.sections, []);
+  const visible = tagFilters.filterTasksByTags(values, { tags: ['工作'], includeUntagged: false });
+  assert.deepEqual(todayLayout(visible, order, new Date(2026, 10, 14)).timedItems.map(item => item.task.id), ['default', 'low']);
+  const changed = timedTask('low', { date: '2026-11-14', time: null }, null, { projectName: '项目甲' });
+  const updated = todayLayout([changed, values[1]], order, new Date(2026, 10, 14));
+  assert.deepEqual(updated.timedItems.map(item => item.task.id), ['high']);
+  assert.equal(updated.sections[0].groups[0].items[0].task, changed);
+  assert.deepEqual(todayLayout([], [], new Date(2026, 10, 14)), { timedItems: [], sections: [] });
+});
+
+test('共享时刻策略只读取指定的 Core 规划开始时刻，缺失时不回退', () => {
+  const { TaskTimeDisplay, taskTimeForDisplay } = presentation;
+  const value = timedTask('range', { date: '2026-11-14', time: { start: '14:00', end: '15:00' } },
+    { date: '2026-11-14', time: { start: '18:00', end: null } });
+  assert.equal(taskTimeForDisplay(value, TaskTimeDisplay.Schedule), '14:00');
+  assert.equal(taskTimeForDisplay(value, TaskTimeDisplay.Deadline), '18:00');
+  assert.equal(taskTimeForDisplay(value, TaskTimeDisplay.None), '');
+  assert.equal(taskTimeForDisplay(timedTask('missing', null, value.editContent.deadlinePlanning), TaskTimeDisplay.Schedule), '');
+  assert.equal(taskTimeForDisplay(task('old'), TaskTimeDisplay.Schedule), '');
 });

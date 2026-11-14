@@ -1,7 +1,45 @@
 import { CoreTask } from '../services/NativeCoreService'
+import { TaskTimeDisplay } from './TaskListPresentation'
+import { localDate } from './Theme'
 
 export interface TodayTaskItem {
   task: CoreTask
+}
+
+export interface TodayTimedTaskItem {
+  task: CoreTask
+  time: string
+  timeDisplay: TaskTimeDisplay
+}
+
+export interface TodayLayout {
+  timedItems: TodayTimedTaskItem[]
+  sections: TodaySection[]
+}
+
+// 将同一快照无损分为今天时刻与原分类区域，不改变页面查询范围或任务总数。
+export function todayLayout(tasks: CoreTask[], priorityOrder: string[], today: Date): TodayLayout {
+  const date = localDate(today)
+  const timedItems: TodayTimedTaskItem[] = []
+  const ordinary: CoreTask[] = []
+  const ranks = new Map<string, number>()
+  priorityOrder.forEach((id: string, index: number) => { ranks.set(id, index) })
+  tasks.forEach((task: CoreTask) => {
+    const scheduled = task.editContent?.scheduledPlanning
+    const deadline = task.editContent?.deadlinePlanning
+    if (scheduled?.date === date && scheduled.time !== null) {
+      timedItems.push({ task, time: scheduled.time.start, timeDisplay: TaskTimeDisplay.Schedule })
+    } else if (deadline?.date === date && deadline.time !== null) {
+      timedItems.push({ task, time: deadline.time.start, timeDisplay: TaskTimeDisplay.Deadline })
+    } else {
+      ordinary.push(task)
+    }
+  })
+  timedItems.sort((left: TodayTimedTaskItem, right: TodayTimedTaskItem): number => {
+    if (left.time !== right.time) return left.time < right.time ? -1 : 1
+    return (ranks.get(left.task.id) ?? priorityOrder.length) - (ranks.get(right.task.id) ?? priorityOrder.length)
+  })
+  return { timedItems, sections: todaySections(ordinary, true, priorityOrder) }
 }
 
 export interface TodayTaskGroup {

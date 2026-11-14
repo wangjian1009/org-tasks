@@ -409,3 +409,22 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
     [['low'],['high','project-low']]);
 });
+
+test('今天页面将当日时刻接入顶部，筛选后清空时间区但仍保留基础快照', async () => {
+  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const today=f.load('ui/Theme').localDate(new Date());
+  const values=[plannedTask('timed','core-a','project.org','工作','项目'),plannedTask('ordinary','core-a','plain.org','个人')];
+  values[0].scheduled=today;values[0].tags=['工作'];
+  values[0].editContent={scheduledPlanning:{date:today,time:{start:'09:30',end:'10:00'}},deadlinePlanning:null};
+  values[1].tags=['个人'];
+  f.query(batch=>batch.map(request=>request.type==='notification'?{type:'notification',result:[]}:
+    {type:'task',result:{tasks:values,categories:[]}}));
+  page.view='today';page.referenceTime=new Date(2000,0,1).getTime();await page.loadTasks();
+  assert.equal(page.message,'');
+  assert.deepEqual(page.timedItems.map(item=>item.task.id),['timed']);
+  assert.deepEqual(page.sections.flatMap(section=>section.items.map(item=>item.task.id)),['ordinary']);
+  page.applyTagFilter({tags:['个人'],includeUntagged:false});
+  assert.deepEqual(page.timedItems,[]);assert.equal(page.tasks.length,2);assert.equal(f.batches.length,1);
+  page.applyTagFilter({tags:[],includeUntagged:false});
+  assert.equal(page.timedItems[0].task,values[0]);assert.equal(f.batches.length,1);
+});

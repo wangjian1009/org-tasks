@@ -18,6 +18,19 @@ export enum TaskDateDisplay {
   None = 'None'
 }
 
+export enum TaskTimeDisplay {
+  None = 'None',
+  Schedule = 'Schedule',
+  Deadline = 'Deadline'
+}
+
+// 仅读取 Core 已验证的结构化规划时刻，不解析 Org 或借用另一规划字段。
+export function taskTimeForDisplay(task: CoreTask, display: TaskTimeDisplay): string {
+  const planning = display === TaskTimeDisplay.Schedule ? task.editContent?.scheduledPlanning :
+    display === TaskTimeDisplay.Deadline ? task.editContent?.deadlinePlanning : null
+  return planning?.time?.start ?? ''
+}
+
 export enum RegionAreaPolicy {
   None = 'None',
   Category = 'Category',
