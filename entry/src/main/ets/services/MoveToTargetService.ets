@@ -19,7 +19,7 @@ export class MoveToTargetService {
         excludedFiles.push({ repoId: repo.id, path: file.path })
       }
     }
-    return await workspace.refileTargets({ excludedFiles })
+    return await workspace.refileTargets({ excludedFiles, includeProjectRoots: true })
   }
 
   static async move(context: Context, source: CoreTask, target: CoreRefileTarget): Promise<void> {

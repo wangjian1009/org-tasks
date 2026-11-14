@@ -345,6 +345,8 @@ pub struct RefileTarget {
 
 ~heading_path~ 保留从根祖先到自身的全部标题分段，包括无状态祖先；各段使用剥离状态、优先级及标签后的标题 Org 原文并去除首尾空白。标题中的斜杠属于标题文字，不拆分层级；相对文件路径同样独立保存。 ~display_path()~ 返回“仓库 ID / 文件相对路径 / 标题1 / 标题2”，仅供展示，宿主可将仓库 ID 映射为显示名。
 
+查询设置 ~include_project_roots=true~ 时额外返回每个项目文件的根节点，无需文件包含 REFILE 标题；普通文件不增加根节点。项目根节点的 ~full_path~ 为文件路径， ~heading_path~ 与 ~title_parts~ 均为空， ~position~ 为文件起点，类别、项目名与版本来自同一快照。根节点与标题目标共享文件范围及排除规则。将根节点作为 ~TaskMovement.position.parent~ 且不指定 ~after~ 时，Core 将任务作为第一个一级标题放在头部正文之后，保留原有字节与标题顺序。默认查询仍只返回显式 REFILE 标题。
+
 ~project_name~ 复用文件元信息的项目识别与名称回退，非项目为 ~None~ ，未命名项目为 ~Some("")~ ；它与 CATEGORY、文件版本属于同一快照，只用于宿主展示分组，不进入持久化。
 
 ~position~ 复用 ~SourcePosition~ ，定位当前快照中的标题起点。相同仓库、文件及标题链可有多个目标，不能按展示路径去重，也不能将源位置作为跨编辑的稳定身份。结果按仓库 ID、文件路径和字节偏移排序；文件修改后重新遍历当前树，不维护目标缓存。标签必须精确为大写 ~REFILE~ ，标记不继承；目标不进入同步记录、outbox 或其他持久化状态。
@@ -876,7 +878,8 @@ modified\_at: Option\textless TimestampMs\textgreater}{created\_at(): Option\tex
 closed\_at(): Option\textless TimestampMs\textgreater \\
 modified\_at(): Option\textless TimestampMs\textgreater \\
 is\_cancelled(): bool}
-\umlclass[x=7,y=-4]{TaskQuery}{excluded\_files: Vec\textless OrgFileRef\textgreater}{}
+\umlclass[x=7,y=-4]{TaskQuery}{excluded\_files: Vec\textless OrgFileRef\textgreater \\
+include\_project\_roots: bool}{}
 \umluniassoc{TaskQuery}{OrgFileRef}
 \end{tikzpicture}
 \end{center}
@@ -1305,12 +1308,13 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 * 放置目标查询范围
 
-~RefileTargetQuery~ 是运行时文件范围，使用与通用查询一致的 ~OrgFileRef~ 定位文件，不保存到配置或同步记录。 ~files~ 为空时读取所有文件，否则只读取指定集合； ~excluded_files~ 优先排除。 根任务的状态设置和规划信息清理通过 ~TaskModificationOperation~ 与 ~TaskMovement~ 组合，不持有某天页面的专属规则。
+~RefileTargetQuery~ 是运行时文件范围，使用与通用查询一致的 ~OrgFileRef~ 定位文件，不保存到配置或同步记录。 ~files~ 为空时读取所有文件，否则只读取指定集合； ~excluded_files~ 优先排除。 ~include_project_roots~ 默认为 ~false~ ，为 ~true~ 时额外枚举项目文件根节点。根任务的状态设置和规划信息清理通过 ~TaskModificationOperation~ 与 ~TaskMovement~ 组合，不持有某天页面的专属规则。
 
 #+begin_src rust
 pub struct RefileTargetQuery {
     pub files: Vec<OrgFileRef>,
     pub excluded_files: Vec<OrgFileRef>,
+    pub include_project_roots: bool,
 }
 #+end_src
 
@@ -1318,7 +1322,8 @@ pub struct RefileTargetQuery {
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{RefileTargetQuery}{files: Vec\textless OrgFileRef\textgreater \\
-excluded\_files: Vec\textless OrgFileRef\textgreater}{}
+excluded\_files: Vec\textless OrgFileRef\textgreater \\
+include\_project\_roots: bool}{}
 \umlclass[x=7,y=0]{OrgFileRef}{repo\_id: OrgRepoId \\
 path: String}{}
 \umluniassoc{RefileTargetQuery}{OrgFileRef}

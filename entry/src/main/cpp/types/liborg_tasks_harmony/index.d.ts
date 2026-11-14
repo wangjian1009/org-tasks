@@ -56,7 +56,7 @@ export interface TaskFileVersion { repoId: string; file: string; version: string
 export interface TaskOperationGroup { operations: TaskOperation[]; queueRepoIds?: string[]; fileVersions?: TaskFileVersion[]; }
 export type DataChangeEvent = { type: 'repositoryChanged'; repoId: string };
 export type DataChangeMonitor = (event: DataChangeEvent) => void;
-export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; }
+export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; includeProjectRoots?: boolean; }
 export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; projectName: string | null; fileVersion: string; titleParts: TitlePart[];

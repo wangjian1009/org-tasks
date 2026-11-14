@@ -1237,3 +1237,31 @@ async fn someday_group_rejects_target_todo_mismatch_without_publishing_modificat
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn move_to_project_root_preserves_preamble_and_precedes_the_first_heading() {
+    for tail in ["* 原有章节\r\n原有正文  \r\n", ""] {
+        let source = "* TODO 移动记录\r\n正文  \r\n** TODO 子任务\r\n";
+        let mut fixture = Fixture::new(source).await;
+        let preamble = "#+FILETAGS: :project:\r\n#+TITLE: 项目\r\n\r\n头部正文  \r\n\r\n";
+        fs::write(fixture.root.join("project.org"), format!("{preamble}{tail}")).await.unwrap();
+        let targets = fixture.workspace.query_refile_targets(&RefileTargetQuery {
+            include_project_roots: true, ..Default::default()
+        }).await.unwrap();
+        let target = &targets[0];
+        assert!(target.full_path.titles.is_empty());
+        let mut group = fixture.group("unused").await;
+        let TaskOperation::Modification(operation) = &group.operations[0] else { unreachable!() };
+        group.operations = vec![TaskOperation::Movement(TaskMovement {
+            path: operation.path.clone(),
+            position: TaskPosition { parent: target.full_path.clone(), after: None },
+        })];
+        group.file_versions = vec![TaskFileVersion {
+            repo_id: target.repo_id.clone(), file: target.path.clone(), version: target.file_version.clone()
+        }];
+        fixture.workspace.execute_task_operations(&group).await.unwrap();
+        assert_eq!(fs::read(fixture.root.join("project.org")).await.unwrap(), format!("{preamble}{source}{tail}").as_bytes());
+        assert_eq!(fs::read(fixture.root.join("tasks.org")).await.unwrap(), b"");
+        assert!(fixture.workspace.execute_task_operations(&group).await.is_err());
+    }
+}

@@ -43,7 +43,7 @@ test('项目名与 CATEGORY 平级，不重复归类，同名项目与分类保�
     { ...target('unnamed', null), projectName: '' }, target('uncategorized', null)];
   const sections = refileSections(values);
   assert.deepEqual(sections.map(s => [s.kind, s.name, s.targets.map(t => t.repoId)]), [
-    ['project', 'Website', ['project-a', 'project-b']], ['category', 'Work', ['plain']],
+    ['project', 'Website', ['project-a']], ['project', 'Website', ['project-b']], ['category', 'Work', ['plain']],
     ['project', 'Work', ['same-name']], ['project', '未命名项目', ['unnamed']],
     ['category', '', ['uncategorized']]
   ]);
@@ -297,7 +297,7 @@ test('通用目标查询仅排除配置的具体文件，不为某天快捷入�
     }; } } }
   });
   assert.equal(await MoveToTargetService.targets({}), normal);
-  assert.deepEqual(queries, [{ excludedFiles: [
+  assert.deepEqual(queries, [{ includeProjectRoots: true, excludedFiles: [
     { repoId: 'core-a', path: 'inbox.org' }, { repoId: 'core-a', path: 'someday.org' }
   ] }]);
 });
@@ -433,6 +433,10 @@ test('移动分组与组内目标按最近选择排序，身份忽略版本与�
   assert.notEqual(refileTargetKey(a), refileTargetKey({ ...a, fullPath: { ...a.fullPath, occurrence: 2 } }));
   assert.equal(refileTargetTitle({ ...a, titleParts: [{ text: '项目 ', count: null }] }), '项目');
   assert.equal(refileTargetTitle({ ...a, titleParts: [] }), '未命名位置');
+  const root = { ...a, projectName: '项目', fullPath: { ...a.fullPath, titles: [] }, titleParts: [] };
+  assert.equal(refileTargetTitle(root), '项目开头');
+  assert.notEqual(refileTargetKey(root), refileTargetKey(a));
+  assert.equal(recentRefileSections(refileSections([a, root]), [refileTargetKey(root)])[0].targets[0], root);
 });
 
 test('移动面板自动选中有效的最近目标，刷新时使用新快照并跳过失效历史', () => {
@@ -484,13 +488,13 @@ test('最近移动选择串行持久化、去重并在重新加载后保留顺�
   assert.equal((await history.load({})).length, 100);
 });
 
-test('批量分配与截止只提交一次，携带全部源版本并使用日期字段保留已有时刻与重复规则', async () => {
-  for (const [action, field] of [['schedule', 'SCHEDULE_DATE'], ['deadline', 'DEADLINE_DATE']]) {
+test('批量分配与截止只提交一次，携带全部源版本并使用结构化规划值保留已有时刻与重复规则', async () => {
+  for (const [action, field] of [['schedule', 'SCHEDULE'], ['deadline', 'DEADLINE']]) {
     const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
-    await f.InboxService.performMany({}, tasks, action, undefined, '2026-11-20');
+    await f.InboxService.performMany({}, tasks, action, undefined, { date: '2026-11-20' });
     assert.equal(f.requests.length, 1);
     assert.deepEqual(f.requests[0].operations, tasks.map(task => ({ type: 'Modification', data: {
-      path: task.fullPath, modifications: [{ field, value: '2026-11-20' }]
+      path: task.fullPath, modifications: [{ field, value: { date: '2026-11-20' } }]
     } })));
     assert.deepEqual(f.requests[0].fileVersions, tasks.map(task => ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion })));
     await assert.rejects(f.InboxService.performMany({}, tasks, action), /请选择日期/);

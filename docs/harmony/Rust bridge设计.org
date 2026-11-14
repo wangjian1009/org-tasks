@@ -415,7 +415,7 @@ interface TitleCount {
 
 * 配置文件范围与将来，也许快捷移动
 
-~RefileTargetQuery~ 含 ~files?: OrgFileRef[]~ 与 ~excludedFiles?: OrgFileRef[]~ ，经 C++ 原有工作线程和 Rust bridge 透传 Core。普通目标请求在生成 CATEGORY 前排除已配置的收件箱与某天两个具体文件；将来，也许入口单独通过 ~files~ 查询某天文件，使用 Core 返回的第一个 REFILE 目标。配置仓库 ID 必须先映射到实际 Core 仓库 ID，不按路径跨仓库排除，也不在 ArkTS 过滤目标结果。
+~RefileTargetQuery~ 含 ~files?: OrgFileRef[]~ 、 ~excludedFiles?: OrgFileRef[]~ 与 ~includeProjectRoots?: boolean~ ，经 C++ 原有工作线程和 Rust bridge 透传 Core。普通移动入口设置 ~includeProjectRoots=true~ ，由 Core 同时返回项目文件根节点（ ~fullPath.titles~ 为空， ~headingPath~ 与 ~titleParts~ 为空， ~position~ 为文件起点），沿用目标类型与异步工作线程，无需额外 native 方法或宿主解析。普通目标请求在生成 CATEGORY 前排除已配置的收件箱与某天两个具体文件；将来，也许入口不启用项目根节点，单独通过 ~files~ 查询某天文件，使用 Core 返回的第一个 REFILE 目标。配置仓库 ID 必须先映射到实际 Core 仓库 ID，不按路径跨仓库排除，也不在 ArkTS 过滤目标结果。
 
 快捷移动提交通用目标选项 ~todoState: 'TODO'~ 与 ~clearPlanning: true~ ，Core 验证目标状态并保真改写根标题、清理规划信息。目标文件未配置、失效、被忽略或没有 REFILE 时不回退到其他文件，不新建文件；缺少 TODO 状态时拒绝提交。备忘转换和普通移动沿用原有选项。
 

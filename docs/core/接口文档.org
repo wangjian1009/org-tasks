@@ -657,6 +657,8 @@ impl RefileTarget {
 
 ~heading_path~ 按从外到内的顺序包含所有祖先标题及目标自身，不因祖先没有 TODO 状态而省略。每段保留标题的 Org 行内原文，去掉首尾空白，不包含星号、TODO 状态、优先级和标签。 ~path~ 是完整的仓库相对文件路径，不使用文件 ~TITLE~ 替换。 ~display_path()~ 将仓库 ID、文件路径及各级标题用 ~" / "~ 连接，例如“work / projects/tasks.org / 项目 / 研发”。Core 不持有宿主配置中的仓库显示名，宿主可根据 ~repo_id~ 替换首段的展示文字。
 
+查询设置 ~include_project_roots=true~ 时额外返回每个项目文件的根节点，无需文件包含 REFILE 标题；普通文件不增加根节点。项目根节点的 ~full_path~ 为文件路径， ~heading_path~ 与 ~title_parts~ 均为空， ~position~ 为文件起点，类别、项目名与版本来自同一快照。根节点与标题目标共享文件范围及排除规则。将根节点作为 ~TaskMovement.position.parent~ 且不指定 ~after~ 时，Core 将任务作为第一个一级标题放在头部正文之后，保留原有字节与标题顺序。默认查询仍只返回显式 REFILE 标题。
+
 ~project_name~ 与 CATEGORY、文件版本取自同一文件快照，复用文件元信息的项目识别和名称优先级：非项目为 ~None~ ，未命名项目为 ~Some("")~ ，宿主只组织展示，不自行识别文件标签。跨语言字段为 ~projectName: string | null~ 。
 
 结果按仓库 ID、相对文件路径和源字节偏移依次排序。相同标题链的多个目标不去重，由 ~repo_id~ 、 ~path~ 与 ~position~ 区分当前快照中的位置；展示字符串不能作为标识或反向解析的输入。文件编辑或重新加载后需重新获取目标，源位置不保证跨快照稳定。此接口只枚举放置位置，不执行任务移动。
@@ -865,7 +867,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 放置目标的具体文件范围
 
-~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 异步按次读盘取得 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ 。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
+~OrgWorkspace.query_refile_targets(&RefileTargetQuery)~ 异步按次读盘取得 REFILE 目标，参数 ~files~ 与 ~excluded_files~ 均为 ~Vec<OrgFileRef>~ ， ~include_project_roots: bool~ 默认 ~false~ ，启用时额外枚举项目文件根节点。 ~files~ 非空时只遍历所列具体文件，空时不限制； ~excluded_files~ 优先排除指定文件。仓库 ID 和安全相对路径必须同时匹配，非法路径或空仓库 ID 拒绝。Core 在读取文件 CATEGORY 和遍历 REFILE 标题之前应用范围，不先生成分类再由 UI 移除。无参数的 ~refile_targets()~ 保持完整枚举语义，供内部校验及已有调用使用。
 
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在含 ~SETUPFILE~ 的源文件有效配置中验证， ~CLOSED~ 随状态自动维护，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 

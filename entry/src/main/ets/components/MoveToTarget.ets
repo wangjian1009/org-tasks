@@ -78,11 +78,11 @@ export struct MoveToTarget {
   @Builder
   sectionHeading(section: RefileSection) {
     Row({ space: 8 }) {
-      Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category'))
+      Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category_muted'))
         .width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
       Text(section.name || '未分类').fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
         .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-    }.width('100%').constraintSize({ minHeight: 40 }).padding({ left: 12, right: 12, top: 12, bottom: 4 })
+    }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: 12, right: 12, top: 28, bottom: 8 })
       .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}`)
   }
 
@@ -98,7 +98,7 @@ export struct MoveToTarget {
           .accessibilityText(`移动到${refileTargetTitle(target)}`)
           .onClick((): void => this.move(target))
       }
-    }.width('100%').height(UiSize.taskRow).padding({ left: 12, right: 10, top: 4, bottom: 4 })
+    }.width('100%').height(UiSize.taskRow).padding({ left: 36, right: 10, top: 4, bottom: 4 })
       .backgroundColor(this.isSelected(target) ? '#3F514A' : Color.Transparent)
       .border({ width: this.isSelected(target) ? 1 : 0, color: UiColor.primary }).borderRadius(10)
       .accessibilityText(`${refileTargetTitle(target)}${this.isSelected(target) ? '，已选中' : '，点击选择'}`)
@@ -131,7 +131,7 @@ export struct MoveToTarget {
       } else if (this.sections.length === 0) {
         Column({ space: 8 }) {
           Text('暂无任务目标').fontSize(16).fontColor(UiColor.text)
-          Text('在目标标题上添加 REFILE 标签后重试。').fontSize(13).fontColor(UiColor.secondary)
+          Text('创建项目，或在目标标题上添加 REFILE 标签后重试。').fontSize(13).fontColor(UiColor.secondary)
         }.width('100%').height(80).justifyContent(FlexAlign.Center)
       } else {
         List({ space: 0 }) {

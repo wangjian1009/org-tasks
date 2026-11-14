@@ -83,7 +83,7 @@ Core 使用 ~orgize~ 文件头关键字读取 ~#+TAGS:~ ，关键字不区分大
 
 ** 系统标签 REFILE
 
-精确等于 ~REFILE~ 的标签表示可放置任务的标题，目标由 ~OrgWorkspace.refile_targets()~ 或 ~OrgRepo.refile_targets()~ 单独枚举，模型与层级路径见 [[file:数据模型.org::*任务放置目标][任务放置目标]] 。放置标记只认标题自身显式标签，不从祖先或文件标签继承。
+精确等于 ~REFILE~ 的标签表示可放置任务的标题，目标由 ~OrgWorkspace.refile_targets()~ 或 ~OrgRepo.refile_targets()~ 单独枚举，模型与层级路径见 [[file:数据模型.org::*任务放置目标][任务放置目标]] 。放置标记只认标题自身显式标签，不从祖先或文件标签继承。 ~OrgWorkspace.query_refile_targets()~ 的 ~include_project_roots~ 默认关闭，开启时额外返回项目文件根节点，不要求 REFILE 标签，复用同一文件范围与排除规则。
 
 ~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ 与 ~ARCHIVE~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 或 ~archive~ 时保留。带这些系统标签的标题仍属于正常任务查询结果，不因标记被整体排除。
 

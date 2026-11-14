@@ -9,7 +9,7 @@ export function refileSections(targets: CoreRefileTarget[]): RefileSection[] {
     const project = target.projectName !== null
     const kind = project ? 'project' : 'category'
     const name = project ? target.projectName || '未命名项目' : target.category || ''
-    const key = JSON.stringify([kind, project ? target.projectName : name])
+    const key = JSON.stringify(project ? [kind, target.repoId, target.path] : [kind, name])
     let section = groups.get(key)
     if (!section) { section = { key, kind, name, targets: [] }; groups.set(key, section) }
     section.targets.push(target)
@@ -29,6 +29,7 @@ export function refileTargetKey(target: CoreRefileTarget): string {
 }
 
 export function refileTargetTitle(target: CoreRefileTarget): string {
+  if (target.fullPath.titles.length === 0) return '项目开头'
   return target.titleParts.map((part): string => part.text).join('').trim() || '未命名位置'
 }
 

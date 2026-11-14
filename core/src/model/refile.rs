@@ -15,6 +15,8 @@ pub(crate) const CONFLICT_TAG: &str = "CONFLICT";
 pub struct RefileTargetQuery {
     pub files: Vec<OrgFileRef>,
     pub excluded_files: Vec<OrgFileRef>,
+    /// 同时枚举项目文件根节点；默认只返回显式 REFILE 标题。
+    pub include_project_roots: bool,
 }
 
 impl RefileTargetQuery {
@@ -31,7 +33,7 @@ impl RefileTargetQuery {
     }
 }
 
-/// 当前文件快照中显式标记为可放置任务的标题，不是持久化实体。
+/// 当前文件快照中的放置位置：显式 REFILE 标题或项目文件根节点。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefileTarget {
@@ -78,6 +80,19 @@ impl OrgRepo {
             let category = file.category();
             let project_name = file.project_name();
             let file_version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
+            if query.include_project_roots && project_name.is_some() {
+                targets.push(RefileTarget {
+                    repo_id: self.id.clone(),
+                    full_path: file.full_path(),
+                    path: file.path.clone(),
+                    heading_path: Vec::new(),
+                    title_parts: Vec::new(),
+                    position: position_at(file.source_bytes(), 0),
+                    category: category.clone(),
+                    project_name: project_name.clone(),
+                    file_version: file_version.clone(),
+                });
+            }
             let mut ancestors: Vec<(usize, String)> = Vec::new();
             for (full_path, headline) in file.path_headlines() {
                 if super::OrgFile::is_conflict_headline(&headline) { continue; }

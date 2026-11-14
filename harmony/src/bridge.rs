@@ -1735,6 +1735,15 @@ mod tests {
         assert_eq!(targets.as_array().unwrap().len(), 1);
         assert_eq!(targets[0]["category"], "Work");
         assert_eq!(targets[0]["projectName"], "官网改版");
+        let mut project_query = query.clone();
+        project_query["includeProjectRoots"] = serde_json::json!(true);
+        let project_targets: serde_json::Value = serde_json::from_str(
+            &workspace_refile_targets_json(handle, project_query.to_string()).unwrap(),
+        ).unwrap();
+        assert_eq!(project_targets.as_array().unwrap().len(), 2);
+        assert_eq!(project_targets[0]["fullPath"]["titles"], serde_json::json!([]));
+        assert_eq!(project_targets[0]["fullPath"]["file"], "normal.org");
+        assert_eq!(project_targets[0]["fileVersion"], targets[0]["fileVersion"]);
         let query =
             serde_json::json!({ "files": [{"repoId":task["repoId"],"path":"someday.org"}] });
         let targets: serde_json::Value = serde_json::from_str(

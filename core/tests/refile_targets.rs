@@ -261,6 +261,7 @@ async fn target_query_scopes_files_before_categories_and_keeps_peer_repository_f
                 path: "someday.org".into(),
             },
         ],
+        ..Default::default()
     };
     let targets = w.query_refile_targets(&query).await.unwrap();
     assert_eq!(
@@ -292,4 +293,38 @@ async fn target_query_scopes_files_before_categories_and_keeps_peer_repository_f
         }).await
         .is_err()
     );
+}
+
+#[tokio::test]
+async fn project_roots_are_opt_in_scoped_and_keep_file_identity_without_refile_headings() {
+    use org_tasks_core::RefileTargetQuery;
+    let source = "#+FILETAGS: :project:\r\n#+TITLE: 项目\r\n头部正文  \r\n* 章节 :REFILE:\r\n";
+    let workspace = OrgWorkspace::new(vec![repo("r", &[
+        ("project.org", source),
+        ("empty.org", "#+FILETAGS: :project:\n正文\n"),
+        ("ordinary.org", "#+TITLE: 普通文件\n"),
+    ])]).unwrap();
+    assert_eq!(workspace.refile_targets().await.unwrap().len(), 1);
+    let query = RefileTargetQuery {
+        include_project_roots: true,
+        excluded_files: vec![OrgFileRef { repo_id: support::id("r"), path: "empty.org".into() }],
+        ..Default::default()
+    };
+    let targets = workspace.query_refile_targets(&query).await.unwrap();
+    assert_eq!(targets.len(), 2);
+    let root = &targets[0];
+    assert_eq!(root.full_path, org_tasks_core::TaskPath::file(support::id("r"), "project.org".into()));
+    assert!(root.heading_path.is_empty());
+    assert!(root.title_parts.is_empty());
+    assert_eq!(root.position.byte_offset, 0);
+    assert_eq!(root.project_name.as_deref(), Some("项目"));
+    assert_eq!(root.file_version, targets[1].file_version);
+    let all = workspace.query_refile_targets(&RefileTargetQuery {
+        include_project_roots: true, ..Default::default()
+    }).await.unwrap();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].path, "empty.org");
+    assert_eq!(all[0].project_name.as_deref(), Some(""));
+    assert!(all[0].full_path.titles.is_empty());
+    assert_eq!(serialize_file(&workspace.repos()[0].file("project.org").await.unwrap()), source.as_bytes());
 }
