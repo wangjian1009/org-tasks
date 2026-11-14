@@ -50,11 +50,12 @@ function fixture() {
   const requests=[];
   const task={id:'stable',repoId:'core',filePath:'task.org',fileVersion:'old',fullPath:{repoId:'core',file:'task.org',titles:['Original'],occurrence:1},heading:'Original',tags:['local'],editContent:{notes:'notes',checklist:[]}};
   const updated={...task,heading:'New',fileVersion:'new',fullPath:{...task.fullPath,titles:['New']}};
-  let conflict=false, current=task, queryOverride;
-  const batches=[];
+  let conflict=false, current=task, queryOverride, documentCurrent=[task], documentError, dataConnected=false;
+  const batches=[], documentReads=[];
   const config={repos:[{rootDirectory:'/repo',webdavEnabled:true}],todoDefaults:''};
   const workspace={
     repos:async()=>[{id:'core',rootDirectory:'/repo'}],
+    fileAt:async address=>{documentReads.push(address);if(documentError)throw documentError;return {nodes:()=>documentCurrent};},
     query:async batch=>{batches.push(batch);if(queryOverride)return queryOverride(batch);return batch.map(request=>request.type==='notification' ?
       {type:'notification',result:[]} : {type:'task',result:{tasks:Array.isArray(current)?current:current?[current]:[]}})},
     executeTaskOperations:async group=>{requests.push(group);if(conflict)throw new Error('文件版本冲突');}
@@ -62,9 +63,12 @@ function fixture() {
   const service=load('entry/src/main/ets/services/TaskInlineService.ets',{
     './AppConfigService':{AppConfigService:{load:async()=>config}},
     './PageQueryService':{PageQueryService:{query:async(_,batch)=>workspace.query([...batch,{type:'notification',query:{}}])}},
+    './CoreDataChangeService':{CoreDataChangeService:{async connect(actual){assert.equal(actual,workspace);dataConnected=true;}}},
     './NativeCoreService':{taskResult:value=>value.result,NativeCoreService:{workspaceFor:async()=>workspace}}
   });
-  return {task,updated,config,requests,batches,workspace,query:handler=>queryOverride=handler,...service,conflict:()=>conflict=true,setCurrent:value=>current=value};
+  return {task,updated,config,requests,batches,workspace,documentReads,query:handler=>queryOverride=handler,...service,
+    conflict:()=>conflict=true,setCurrent:value=>current=value,setDocument:value=>documentCurrent=value,documentError:value=>documentError=value,
+    dataConnected:()=>dataConnected};
 }
 test('标题修改使用原路径版本并只等待 Core 成功',async()=>{
   const f=fixture();await f.TaskInlineService.modify({},f.task,[{field:'TITLE',value:'New'}]);
@@ -94,7 +98,8 @@ function cardRefreshFixture(emit = true, backend) {
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
   const disappear = source.match(/  aboutToDisappear\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const code = ts.transpileModule('export class CardRefresh {' + refresh + apply + persist + save + remove + disappear + '\n}', {
+  const complete = source.match(/  async complete\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const code = ts.transpileModule('export class CardRefresh {' + refresh + apply + persist + save + remove + disappear + complete + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -106,11 +111,11 @@ function cardRefreshFixture(emit = true, backend) {
   let invalidations=0;
   const TaskInlineMissingError = (backend ?? fixture()).TaskInlineMissingError;
   const service = {
-    async modify(_context,_task,changes) { if(backend)await backend.TaskInlineService.modify(_context,_task,changes); writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } },
-    async findChanged(_context,_task,revision) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return backend ? backend.TaskInlineService.findChanged(_context,_task,revision) : current; }
+    async modify(_context,_task,changes,documentMode) { if(backend)await backend.TaskInlineService.modify(_context,_task,changes,documentMode); writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } },
+    async findChanged(_context,_task,revision,documentMode) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return backend ? backend.TaskInlineService.findChanged(_context,_task,revision,documentMode) : current; }
   };
-  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,TaskInlineMissingError,CoreDataChangeService,coreErrorMessage){' + code + '\n})', { filename })(module, module.exports, service,
-    {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message);
+  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,TaskInlineMissingError,CoreDataChangeService,coreErrorMessage,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports, service,
+    {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message,{Todo:'Todo',Done:'Done'});
   state = Object.assign(new module.exports.CardRefresh(), {
     task:original,editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
     ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},
@@ -129,14 +134,16 @@ test('数据事件在写入之后重查卡片，标题草稿同步新进度，�
   assert.equal(f.state.editTask.fileVersion, 'new');
 });
 
-test('链接编辑保留版本与定位引用，不自动重载后套用旧链接位置', async () => {
+for (const documentMode of [false, true]) test(`${documentMode ? '项目文档' : '普通任务'}链接编辑保留版本与定位引用，不自动重载后套用旧链接位置`, async () => {
   const f = fixture();
   f.TaskInlineService.reload = async () => { throw new Error('链接操作不得重新绑定快照'); };
   const value = { field: 'notes', link: { start: 0, end: 23, source: 'https://example.com/a', title: '', url: 'https://example.com/a' },
     value: { title: '新标题', url: 'https://example.org/' } };
-  await f.TaskInlineService.modify({}, f.task, [{ field: 'LINK', value }]);
+  await f.TaskInlineService.modify({}, f.task, [{ field: 'LINK', value }], documentMode);
   assert.equal(f.requests[0].fileVersions[0].version, f.task.fileVersion);
   assert.deepEqual(f.requests[0].operations[0].data.modifications, [{field:'LINK',value}]);
+  assert.equal(f.documentReads.length, 0);
+  assert.equal(f.dataConnected(), documentMode);
 });
 
 test('链接草稿存在时外部版本更新保留整个编辑快照，失败结束输入不写入其他字段', async () => {
@@ -948,4 +955,85 @@ test('优先级保存进行中禁止重复提交，失效快照不写入',async(
   resolve(true);await first;assert.equal(f.state.priorityBusy,false);
   f.state.snapshotBlocked=true;f.state.persist=async changes=>{f.writes.push(changes);return true};
   await f.proto.choosePriority.call(f.state,'C');assert.equal(f.writes.length,0);
+});
+
+function projectCompletionFixture() {
+  const backend = fixture();
+  const states = { Todo: { name: 'NEXT', category: 'Todo' }, Done: { name: 'FINISHED', category: 'Done' } };
+  backend.task.state = states.Todo;
+  backend.task.isDone = () => false;
+  backend.task.taskStateOf = category => states[category] ?? null;
+  const done = { ...backend.updated, state: states.Done, isDone: () => true, taskStateOf: backend.task.taskStateOf };
+  backend.setCurrent([]); // 模拟项目文件被任务扫描规则忽略，完整文档节点仍然存在。
+  const f = cardRefreshFixture(true, backend);
+  Object.assign(f.state, { documentMode: true, expanded: true, prepare: async () => true, finish: async () => true });
+  const execute = backend.workspace.executeTaskOperations;
+  backend.workspace.executeTaskOperations = async group => {
+    assert.equal(backend.dataConnected(), true, '提交前必须完成数据变化订阅注册');
+    await execute(group);
+    backend.setDocument(group.operations[0].data.modifications[0].value === 'FINISHED' ? [done] : [backend.task]);
+  };
+  return { ...f, backend, done };
+}
+
+test('项目任务通过修改接口完成并重新打开，扫描忽略不影响操作，自定义状态取自 Core', async () => {
+  const f = projectCompletionFixture();
+  await f.state.complete();
+  assert.deepEqual(f.backend.requests[0].operations, [{ type: 'Modification', data: {
+    path: f.backend.task.fullPath, modifications: [{ field: 'TODO', value: 'FINISHED' }]
+  } }]);
+  assert.equal(f.state.value(), f.done);
+  assert.equal(f.state.value().isDone(), true);
+  assert.equal(f.state.expanded, false);
+  assert.equal(f.state.removed, false);
+  assert.equal(f.backend.batches.length, 0);
+  assert.deepEqual(f.backend.documentReads[0], { repoId: 'core', file: 'task.org', titles: [], occurrence: 1 });
+  await f.state.complete();
+  assert.equal(f.backend.requests[1].operations[0].data.modifications[0].value, 'NEXT');
+  assert.equal(f.backend.requests[1].fileVersions[0].version, 'new');
+  assert.equal(f.state.value().isDone(), false);
+});
+
+test('项目完成失败保留原状态与展开卡片，草稿保存失败不提交完成操作', async () => {
+  const f = projectCompletionFixture();
+  f.backend.conflict();
+  await f.state.complete();
+  assert.equal(f.state.value().isDone(), false);
+  assert.equal(f.state.expanded, true);
+  assert.match(f.state.message, /版本冲突/);
+  const blocked = projectCompletionFixture();
+  blocked.state.finish = async () => false;
+  await blocked.state.complete();
+  assert.equal(blocked.backend.requests.length, 0);
+});
+
+test('项目数据事件共享完整文件快照并刷新父任务进度，事件延迟后的再次写入不会复用旧版本', async () => {
+  const f = fixture();
+  const parent = { ...f.task, id: 'parent', heading: '项目 [0/1]' };
+  f.setDocument([f.task, parent]);
+  await Promise.all([f.TaskInlineService.findChanged({}, f.task, 1, true), f.TaskInlineService.findChanged({}, parent, 1, true)]);
+  assert.equal(f.documentReads.length, 1);
+  const updatedParent = { ...parent, heading: '项目 [1/1]', fileVersion: 'new' };
+  f.setDocument([f.updated, updatedParent]);
+  assert.equal(await f.TaskInlineService.findChanged({}, parent, 2, true), updatedParent);
+  assert.equal(await f.TaskInlineService.findChanged({}, f.task, 2, true), f.updated);
+  await f.TaskInlineService.modify({}, f.task, [{ field: 'TODO', value: 'DONE' }], true);
+  const next = { ...f.updated, fileVersion: 'next' };
+  f.setDocument([next]);
+  assert.equal(await f.TaskInlineService.findChanged({}, f.task, 2, true), next);
+  assert.equal(f.requests[0].fileVersions[0].version, 'new');
+});
+
+test('项目事件快照隔离仓库与文件，读取失败可以在同一事件重试，旧身份不误匹配同名任务', async () => {
+  const f = fixture();
+  f.documentError(new Error('读取失败'));
+  await assert.rejects(f.TaskInlineService.findChanged({}, f.task, 1, true), /读取失败/);
+  f.documentError(undefined);
+  assert.equal(await f.TaskInlineService.findChanged({}, f.task, 1, true), f.task);
+  const other = { ...f.task, repoId: 'other', fullPath: { ...f.task.fullPath, repoId: 'other' } };
+  f.setDocument([other]);
+  assert.equal(await f.TaskInlineService.findChanged({}, other, 1, true), other);
+  assert.equal(f.documentReads.length, 3);
+  f.setDocument([{ ...f.task, id: 'different' }]);
+  await assert.rejects(f.TaskInlineService.reload({}, f.task, true), /任务已删除或改名/);
 });

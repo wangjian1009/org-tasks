@@ -475,3 +475,62 @@ test('项目任务展开后可从更多菜单查看和收起日志，没有日�
   hide.action(); assert.equal(card.logbookExpanded, false);
   logs = []; assert.ok(!card.moreItems().some(item => item.title === '日志'));
 });
+
+function projectDataObserver(page) {
+  const filename = base + 'components/AppShell.ets';
+  const source = fs.readFileSync(filename, 'utf8');
+  const names = ['dataChanged', 'repositoryDataInvalidated', 'inlineSessionChanged'];
+  const methods = names.map(name => source.match(new RegExp('  ' + name + '\\(\\) \\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
+  let active = false;
+  const module = { exports: {} };
+  const code = ts.transpileModule('export class Observer {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(module, module.exports,
+    { active: () => active });
+  const observer = Object.assign(new module.exports.Observer(), { pageVisible: true, dataRevision: 0,
+    dataChangeState: { revision: 0 }, drawerOpen: false, deferredRefresh: false, inlineActive: '',
+    synchronized: () => page.loadFile() });
+  return { observer, setActive(value) { active = value; observer.inlineActive = value ? 'project:task' : ''; } };
+}
+
+test('项目订阅数据版本变化后刷新完整文档和原文，重复版本不重读', async () => {
+  const f = projectPageFixture(); await f.page.loadFile();
+  const { observer } = projectDataObserver(f.page);
+  f.page.sourceMode = true;
+  let reads = 0;
+  f.setOpen(async () => { reads++; return { ...f.file('done'), sourceBytes: () => Buffer.from('* DONE 已完成'),
+    documentSections: () => [{ path: null, html: '<p>完成后的正文与进度</p>' }] }; });
+  observer.dataChangeState = { revision: 1 }; observer.dataChanged();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.page.content, '* DONE 已完成');
+  assert.equal(f.page.sections[0].html, '<p>完成后的正文与进度</p>');
+  assert.equal(f.page.fileVersion, 'done');
+  observer.dataChanged();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 1);
+});
+
+test('项目编辑期间合并多个事件，结束会话后只读取最新版本；退出后延迟刷新不再打开文件', async () => {
+  const f = projectPageFixture(); await f.page.loadFile();
+  const data = projectDataObserver(f.page);
+  let reads = 0;
+  f.setOpen(async () => { reads++; return f.file('latest'); });
+  data.setActive(true);
+  data.observer.dataChangeState = { revision: 1 }; data.observer.dataChanged();
+  data.observer.dataChangeState = { revision: 2 }; data.observer.dataChanged();
+  assert.equal(reads, 0);
+  data.setActive(false); data.observer.inlineSessionChanged();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(reads, 1);
+  assert.equal(f.page.fileVersion, 'latest');
+  data.setActive(true);
+  data.observer.dataChangeState = { revision: 3 }; data.observer.dataChanged();
+  data.setActive(false); data.observer.inlineSessionChanged();
+  f.page.onPageHide();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(reads, 1);
+  f.page.onPageShow();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 2);
+});

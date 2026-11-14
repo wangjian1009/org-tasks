@@ -2,6 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { CoreTask, CoreTaskModification, NativeCoreService, taskResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
+import { CoreDataChangeService } from './CoreDataChangeService'
 
 export class TaskInlineMissingError extends Error {
   constructor() { super('任务已删除或改名，请返回列表重新打开') }
@@ -11,17 +12,21 @@ export class TaskInlineMissingError extends Error {
 export class TaskInlineService {
   private static changeRevision: number = -1
   private static changeSnapshot: Promise<CoreTask[]> | undefined = undefined
+  private static documentRevision: number = -1
+  private static documentSnapshots: Map<string, Promise<CoreTask[]>> = new Map()
 
-  static async modify(context: Context, task: CoreTask, modifications: CoreTaskModification[]): Promise<void> {
+  static async modify(context: Context, task: CoreTask, modifications: CoreTaskModification[], documentMode: boolean = false): Promise<void> {
     if (modifications.length === 0) return
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    // 完整文件读取不经过 PageQueryService，提交前确保数据订阅已经注册。
+    if (documentMode) await CoreDataChangeService.connect(workspace)
     const repo = (await workspace.repos()).find(item => item.id === task.repoId)
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
     if (!repository) throw new Error('目标仓库不可用')
-    // 字段值应用于最新快照；清单操作含快照条目 ID，继续校验原版本。
+    // 字段值应用于最新快照；清单与链接操作引用快照位置，继续校验原版本。
     const current = modifications.some(change => change.field === 'CHECKLIST' || change.field === 'LINK') ? task :
-      await TaskInlineService.reload(context, task)
+      await TaskInlineService.reload(context, task, documentMode)
     await workspace.executeTaskOperations({
       operations: [{ type: 'Modification', data: { path: current.fullPath, modifications } }],
       queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
@@ -29,22 +34,41 @@ export class TaskInlineService {
     })
     // 同一数据事件的共享查询可能早于本次提交，不能再用于后续编辑。
     TaskInlineService.changeSnapshot = undefined
+    TaskInlineService.documentSnapshots = new Map()
   }
 
-  static async reload(context: Context, task: CoreTask): Promise<CoreTask> {
-    const current = await TaskInlineService.find(context, task)
+  static async reload(context: Context, task: CoreTask, documentMode: boolean = false): Promise<CoreTask> {
+    const current = await TaskInlineService.find(context, task, documentMode)
     if (!current) throw new TaskInlineMissingError()
     return current
   }
 
-  static async find(context: Context, task: CoreTask): Promise<CoreTask | undefined> {
+  static async find(context: Context, task: CoreTask, documentMode: boolean = false): Promise<CoreTask | undefined> {
+    if (documentMode) return TaskInlineService.match(await TaskInlineService.documentTasks(context, task), task)
     const config = await AppConfigService.load(context, false)
     const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { includeComposeTasks: true } }]))[0]).tasks
-    return tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
-      ((!!task.taskId && item.taskId === task.taskId) || item.id === task.id))
+    return TaskInlineService.match(tasks, task)
   }
 
-  static async findChanged(context: Context, task: CoreTask, revision: number): Promise<CoreTask | undefined> {
+  static async findChanged(context: Context, task: CoreTask, revision: number, documentMode: boolean = false): Promise<CoreTask | undefined> {
+    if (documentMode) {
+      if (TaskInlineService.documentRevision !== revision) {
+        TaskInlineService.documentRevision = revision
+        TaskInlineService.documentSnapshots = new Map()
+      }
+      // 文档节点不受任务扫描规则影响；同一事件的所有任务行共用目标文件快照。
+      const snapshots = TaskInlineService.documentSnapshots
+      const key = JSON.stringify([task.repoId, task.filePath])
+      let snapshot = snapshots.get(key)
+      if (!snapshot) {
+        snapshot = TaskInlineService.documentTasks(context, task).catch((error: Error): never => {
+          snapshots.delete(key)
+          throw error
+        })
+        snapshots.set(key, snapshot)
+      }
+      return TaskInlineService.match(await snapshot, task)
+    }
     // 同一数据版本的可见任务行共用一次批量查询；写入前的 reload 仍独立读取最新文件。
     if (TaskInlineService.changeRevision !== revision || !TaskInlineService.changeSnapshot) {
       TaskInlineService.changeRevision = revision
@@ -54,8 +78,19 @@ export class TaskInlineService {
       })
     }
     const tasks = await TaskInlineService.changeSnapshot
+    return TaskInlineService.match(tasks, task)
+  }
+
+  private static match(tasks: CoreTask[], task: CoreTask): CoreTask | undefined {
     return tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
       ((!!task.taskId && item.taskId === task.taskId) || item.id === task.id))
+  }
+
+  private static async documentTasks(context: Context, task: CoreTask): Promise<CoreTask[]> {
+    const config = await AppConfigService.load(context, false)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    const file = await workspace.fileAt({ repoId: task.repoId, file: task.filePath, titles: [], occurrence: 1 })
+    return file.nodes()
   }
 
   private static async changedTasks(context: Context): Promise<CoreTask[]> {

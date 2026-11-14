@@ -164,7 +164,7 @@ export struct TaskListItem {
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
-      const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value())
+      const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value(), this.documentMode)
       if (!this.appeared || this.removed) return
       this.applySnapshot(current)
       this.moveSource = current
@@ -274,7 +274,7 @@ export struct TaskListItem {
       if (!this.appeared || this.removed || request !== this.refreshRequest) return
       const previous = this.value()
       try {
-        const current = await TaskInlineService.findChanged(this.getUIContext().getHostContext()!, previous, revision)
+        const current = await TaskInlineService.findChanged(this.getUIContext().getHostContext()!, previous, revision, this.documentMode)
         if (!this.appeared || this.removed || request !== this.refreshRequest) return
         this.applySnapshot(current)
       } catch (error) {
@@ -417,7 +417,7 @@ export struct TaskListItem {
       this.working = true; this.message = ''
       try {
         const context = this.getUIContext().getHostContext()!
-        await TaskInlineService.modify(context, this.value(), modifications)
+        await TaskInlineService.modify(context, this.value(), modifications, this.documentMode)
         for (const modification of modifications) {
           if (modification.field === 'TITLE' && this.heading === modification.value) this.headingEditing = false
           if (modification.field === 'NOTES' && this.notes === modification.value) this.notesEditing = false
@@ -425,7 +425,7 @@ export struct TaskListItem {
         success = true
         // 提交后的快照是下一次编辑的起点，不依赖原生事件先于 Promise 送达。
         ++this.refreshRequest
-        const current = await TaskInlineService.findChanged(context, this.value(), this.dataChanges.revision)
+        const current = await TaskInlineService.findChanged(context, this.value(), this.dataChanges.revision, this.documentMode)
         const savedCheck = modifications.some((modification: CoreTaskModification): boolean => {
           if (modification.field !== 'CHECKLIST') return false
           const change = modification.value as CoreTaskChecklistChange
@@ -600,7 +600,7 @@ export struct TaskListItem {
       secondaryButton: { value: '重新载入', action: async () => {
         this.working = true
         try {
-          this.editTask = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value())
+          this.editTask = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value(), this.documentMode)
           this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           this.headingEditing = false; this.notesEditing = false
           this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.message = ''
@@ -737,9 +737,9 @@ export struct TaskListItem {
       let committed = false
       const context = this.getUIContext().getHostContext()!
       try {
-        await TaskInlineService.modify(context, task, [{ field: 'CHECKLIST', value: { type: 'move', id, beforeId } }])
+        await TaskInlineService.modify(context, task, [{ field: 'CHECKLIST', value: { type: 'move', id, beforeId } }], this.documentMode)
         committed = true
-        this.editTask = await TaskInlineService.reload(context, task)
+        this.editTask = await TaskInlineService.reload(context, task, this.documentMode)
         this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
       } catch (error) {
         if (error instanceof TaskInlineMissingError) { this.removeDeletedTask(); return }
@@ -750,7 +750,7 @@ export struct TaskListItem {
         } else if (message.includes('版本') || message.includes('已变化')) {
           this.message = '文件已变化，请刷新后重新排序'
           try {
-            this.editTask = await TaskInlineService.reload(context, task)
+            this.editTask = await TaskInlineService.reload(context, task, this.documentMode)
             this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           }
           catch (error) {

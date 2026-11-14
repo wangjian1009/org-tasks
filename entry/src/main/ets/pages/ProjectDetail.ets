@@ -35,10 +35,11 @@ struct ProjectDetail {
   private loadRevision: number = 0
   private fileVersion: string = ''
   private fileIdentity: string = ''
+  private pageVisible: boolean = true
 
-  onPageShow() { this.loadFile() }
+  onPageShow() { this.pageVisible = true; this.loadFile() }
   // 页面退出时使进行中的文件读取失效。
-  onPageHide() { this.loadRevision++ }
+  onPageHide() { this.pageVisible = false; this.loadRevision++ }
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
     if (this.sourceMode) { this.toggleSource(); return true }
@@ -73,6 +74,7 @@ struct ProjectDetail {
   }
 
   async loadFile() {
+    if (!this.pageVisible) return
     const revision = ++this.loadRevision
     const hasSnapshot = this.fileVersion.length > 0
     this.refreshing = true
