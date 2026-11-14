@@ -343,6 +343,28 @@ test('计划日将项目与分类平级归组', () => {
   assert.deepEqual(day.groups.map(group => [group.kind, group.title, group.items.length]), [['project', '项目甲', 2], ['category', '未分类', 1]]);
 });
 
+test('计划日把带时刻任务提升到日程区并按时间排序，计划优先且不重复', () => {
+  const { plannedGroups } = loadGrouping('PlannedPresentation', {
+    './Theme': { localDate }, './TaskListPresentation': presentation
+  });
+  const date = '2026-11-08';
+  const scheduled = task('scheduled', { scheduled: date, category: '工作',
+    editContent: { scheduledPlanning: { date, time: { start: '14:00', end: null } }, deadlinePlanning: null } });
+  const early = task('early', { scheduled: date, category: '工作',
+    editContent: { scheduledPlanning: { date, time: { start: '09:30', end: null } }, deadlinePlanning: null } });
+  const deadline = task('deadline', { deadline: date, category: '生活',
+    editContent: { scheduledPlanning: null, deadlinePlanning: { date, time: { start: '11:00', end: null } } } });
+  const ordinary = task('ordinary', { scheduled: date, category: '工作', editContent: {
+    scheduledPlanning: { date, time: null }, deadlinePlanning: null
+  } });
+  const day = plannedGroups([scheduled, ordinary, deadline, early]).find(group => group.key === `day:${date}`);
+  assert.deepEqual(day.scheduleItems.map(item => [item.task.id, item.timeDisplay]), [
+    ['early', 'Schedule'], ['deadline', 'Deadline'], ['scheduled', 'Schedule']
+  ]);
+  assert.deepEqual(day.groups.flatMap(group => group.items).map(item => item.task.id), ['ordinary']);
+  assert.equal(day.items.length, 4);
+});
+
 test('计划筛选汇总所有分类与项目，项目仅显示名字且来源身份独立', () => {
   const { plannedRegionOptions } = loadGrouping('PlannedPresentation', {
     './Theme': { localDate }, './TaskListPresentation': presentation

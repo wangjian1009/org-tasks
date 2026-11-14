@@ -1,5 +1,5 @@
 import { CoreTask } from '../services/NativeCoreService'
-import { taskDisplayDate } from './TaskListPresentation'
+import { TaskTimeDisplay, taskDisplayDate } from './TaskListPresentation'
 import { localDate } from './Theme'
 import { TaskRegionData, TaskRegionGroup, taskRegion, taskRegionGroups } from './TaskRegionPresentation'
 
@@ -26,6 +26,11 @@ export interface PlannedTaskItem {
   task: CoreTask
 }
 
+export interface PlannedScheduleItem extends PlannedTaskItem {
+  time: string
+  timeDisplay: TaskTimeDisplay
+}
+
 export type PlannedTaskGroup = TaskRegionGroup<PlannedTaskItem>
 
 export type PlannedGroupKind = 'day' | 'range' | 'month' | 'year' | 'unknown'
@@ -37,6 +42,7 @@ export interface PlannedGroup {
   title: string
   subtitle: string
   items: PlannedTaskItem[]
+  scheduleItems: PlannedScheduleItem[]
   groups: PlannedTaskGroup[]
 }
 
@@ -99,10 +105,23 @@ function groupFor(groups: PlannedGroup[], key: string, kind: PlannedGroupKind, d
   title: string, subtitle: string = ''): PlannedGroup {
   let group = groups.find((item: PlannedGroup) => item.key === key)
   if (!group) {
-    group = { key, kind, date, title, subtitle, items: [], groups: [] }
+    group = { key, kind, date, title, subtitle, items: [], scheduleItems: [], groups: [] }
     groups.push(group)
   }
   return group
+}
+
+// 仅在任务被分到该自然日时读取对应规划字段；计划优先于截止，避免一条任务进入两个日程位置。
+function plannedScheduleItem(task: CoreTask, date: string): PlannedScheduleItem | null {
+  const scheduled = task.editContent?.scheduledPlanning
+  if (scheduled?.date === date && scheduled.time?.start) {
+    return { task, time: scheduled.time.start, timeDisplay: TaskTimeDisplay.Schedule }
+  }
+  const deadline = task.editContent?.deadlinePlanning
+  if (deadline?.date === date && deadline.time?.start) {
+    return { task, time: deadline.time.start, timeDisplay: TaskTimeDisplay.Deadline }
+  }
+  return null
 }
 
 // Core 已经完成计划查询；这里仅按自然日组织已返回任务，并补齐设计要求的空日期分组。
@@ -155,7 +174,17 @@ export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
   }
   for (const group of groups) {
     if (group.kind === 'day') {
-      group.groups = taskRegionGroups(group.items, (item: PlannedTaskItem): CoreTask => item.task)
+      const scheduleItems: PlannedScheduleItem[] = []
+      for (const item of group.items) {
+        const scheduleItem = plannedScheduleItem(item.task, group.date)
+        if (scheduleItem !== null) scheduleItems.push(scheduleItem)
+      }
+      group.scheduleItems = scheduleItems
+      group.scheduleItems.sort((left: PlannedScheduleItem, right: PlannedScheduleItem): number =>
+        left.time.localeCompare(right.time))
+      const scheduledIds = new Set<string>(group.scheduleItems.map((item: PlannedScheduleItem): string => item.task.id))
+      group.groups = taskRegionGroups(group.items.filter((item: PlannedTaskItem): boolean => !scheduledIds.has(item.task.id)),
+        (item: PlannedTaskItem): CoreTask => item.task)
     }
   }
   return groups

@@ -1,8 +1,9 @@
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { UiColor } from '../ui/Theme'
-import { PlannedGroup, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
+import { PlannedGroup, PlannedScheduleItem, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
 import { TaskRegion } from './TaskRegion'
+import { ScheduleRegion } from './ScheduleRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskEditor } from './editors/TaskEditor'
@@ -46,6 +47,13 @@ export struct PlannedTaskList {
   }
 
   @Builder
+  scheduleTaskItem(item: PlannedScheduleItem) {
+    TaskEditor({ task: item.task, dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
+      regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.rightSwipeAction,
+      scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })
+  }
+
+  @Builder
   regionGroup(group: PlannedGroup, region: PlannedTaskGroup) {
     TaskRegion({ category: region.kind === 'project' ? null : region.category || '未分类',
       project: region.kind === 'project' ? region : null }) {
@@ -65,6 +73,15 @@ export struct PlannedTaskList {
       }
     }
     if (group.kind === 'day') {
+      if (group.scheduleItems.length > 0) {
+        ListItem() { ScheduleRegion() }
+        ListItemGroup() {
+          ForEach(group.scheduleItems, (item: PlannedScheduleItem) => {
+            ListItem() { this.scheduleTaskItem(item) }
+          }, (item: PlannedScheduleItem) => taskRenderKey(item.task))
+        }.width('100%').backgroundColor(UiColor.container).borderRadius(8)
+          .padding({ top: 8, bottom: 8 }).margin({ top: 12 })
+      }
       ForEach(group.groups, (region: PlannedTaskGroup) => {
         this.regionGroup(group, region)
       }, (region: PlannedTaskGroup) => region.key)
