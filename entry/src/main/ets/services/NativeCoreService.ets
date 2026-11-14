@@ -90,6 +90,7 @@ export type CoreFileConflict = NativeFileConflict
 export type CoreOrgFile = NativeOrgFile
 export type CoreDocumentLinkTarget = NativeDocumentLinkTarget
 export type CoreDocumentSection = NativeDocumentSection
+// paragraph 与 blankLinesBefore 来自 Core 语法树投影，宿主仅选择阅读间距。
 export type CoreContentBlock = NativeContentBlock
 export type CoreContentBlockChange = NativeContentBlockChange
 // 文件 category 与 projectName 来自同一 Core 快照，供导航展示分区。

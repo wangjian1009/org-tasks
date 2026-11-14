@@ -11,6 +11,7 @@ export struct TaskBlockView {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop block: CoreContentBlock
   @Prop @Watch('readonlyChanged') readonly: boolean = false
+  @Prop projectReading: boolean = false
   @Prop disabled: boolean = false
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
@@ -83,6 +84,7 @@ export struct TaskBlockView {
         }.width('100%').justifyContent(FlexAlign.End)
       } else {
         OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, embedded: true, embeddedPadding: 0,
+          projectReading: this.projectReading,
           editable: !this.readonly && !this.disabled && this.changeLink !== undefined,
           linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
           changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,

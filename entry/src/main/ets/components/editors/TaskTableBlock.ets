@@ -10,6 +10,7 @@ export struct TaskTableBlock {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop block: CoreContentBlock
   @Prop readonly: boolean = false
+  @Prop projectReading: boolean = false
   @Prop disabled: boolean = false
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
@@ -23,7 +24,7 @@ export struct TaskTableBlock {
   linkEditingChanged: (editing: boolean) => void = () => {}
 
   build() {
-    TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
+    TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.block, readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
       contentBackground: this.contentBackground, ownerKey: this.ownerKey, placeholder: '表格（Org 原文）', editor: this.editor,
       linkEditor: this.linkEditor, begin: this.begin, save: this.save, changeLink: this.changeLink,
       editingChanged: this.editingChanged, linkEditingChanged: this.linkEditingChanged }).width('100%')

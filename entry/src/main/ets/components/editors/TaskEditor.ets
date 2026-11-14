@@ -1183,7 +1183,7 @@ export struct TaskEditor {
       }
     }
     if (!this.readOnly && this.addingCheck && this.value().editContent.checklist.length === 0) {
-      this.checklistBlock({ id: 'new', kind: 'checklist', source: '', html: '', items: [] })
+      this.checklistBlock({ id: 'new', kind: 'checklist', paragraph: false, blankLinesBefore: 0, source: '', html: '', items: [] })
     }
   }
 
@@ -1387,7 +1387,7 @@ export struct TaskEditor {
             })
         }
       } else if (this.documentMode) {
-        Row({ space: 8 }) {
+        Row({ space: 10 }) {
           this.stateIndicator()
           this.priorityBadge()
           TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
@@ -1402,11 +1402,11 @@ export struct TaskEditor {
                 .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10)
                 .backgroundColor(taskTagColor(tag)).margin({ right: 6, bottom: 6 })
             }, (tag: string) => tag)
-          }.width('100%').padding({ left: 26 })
+          }.width('100%').padding({ left: 28 })
         }
         if (this.expandedPlanningText()) {
           Text(this.expandedPlanningText()).fontSize(12).fontColor(UiColor.secondary)
-            .width('100%').padding({ left: 26, bottom: 8 })
+            .width('100%').padding({ left: 28, bottom: 8 })
         }
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       } else {

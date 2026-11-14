@@ -43,7 +43,7 @@ export interface TaskChecklistItem { readonly id: string; readonly siblingGroup:
 export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly blocks: ContentBlock[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
 export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }
 export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string } | { type: 'move'; id: string; beforeId: string | null };
-export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
+export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly paragraph: boolean; readonly blankLinesBefore: number; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
 export type ContentBlockChange = { type: 'replace'; id: string; source: string } | { type: 'link'; id: string; link: TextLink; value: LinkValue | null };
 export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }

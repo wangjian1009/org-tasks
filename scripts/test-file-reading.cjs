@@ -28,6 +28,19 @@ const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
 const projectReading = load(base + 'ui/ProjectReadingPresentation.ets');
 const theme = load(base + 'ui/Theme.ets');
 const presentation = load(base + 'ui/OrgDocumentPresentation.ets', { './Theme': theme });
+
+test('项目普通段落区分单空行与多空行，首段和结构区块保持各自间距', () => {
+  const blocks = [
+    { paragraph: true, blankLinesBefore: 3 },
+    { paragraph: true, blankLinesBefore: 0 },
+    { paragraph: true, blankLinesBefore: 1 },
+    { paragraph: true, blankLinesBefore: 2 },
+    { paragraph: true, blankLinesBefore: 5 },
+    { paragraph: false, blankLinesBefore: 1 },
+    { paragraph: true, blankLinesBefore: 1 }
+  ];
+  assert.deepEqual(blocks.map((_, index) => projectReading.projectContentGap(blocks, index)), [0, 0, 0, 12, 12, 12, 12]);
+});
 function fixture() {
   const calls = [], toasts = [];
   let evaluate = async () => JSON.stringify({ chapters: [{ index: 0, level: 1, title: '章节' }], activeIndex: 0 });
@@ -139,25 +152,6 @@ test('正文包装保留安全边界，路径按文本转义，新版式只在�
   assert.ok(presentation.orgDocumentPage(fragment, false).includes('<body class="">'));
   assert.ok(presentation.orgDocumentPage('', true, false, theme.UiColor.surface, 16, true).includes('空白 Org 文件'));
   for (const invalid of [-1, 1.5, NaN, Infinity]) assert.equal(navigation.documentChapterScript(invalid), 'false');
-});
-
-test('项目正文连续空段落只保留一个展示空行，不触碰有内容段落', () => {
-  const script = presentation.normalizeProjectBlankLinesScript();
-  const blank = (text = '', children = []) => ({ tagName: 'P', textContent: text, children,
-    previousElementSibling: null, removed: false, remove() { this.removed = true; } });
-  const first = blank();
-  const second = blank();
-  const third = blank('', [{ tagName: 'BR' }]);
-  const content = blank('正文');
-  second.previousElementSibling = first;
-  third.previousElementSibling = second;
-  content.previousElementSibling = third;
-  const nodes = [first, second, third, content];
-  vm.runInNewContext(script, { document: { querySelectorAll: () => nodes } });
-  assert.equal(first.removed, false);
-  assert.equal(second.removed, true);
-  assert.equal(third.removed, true);
-  assert.equal(content.removed, false);
 });
 
 test('项目目录只定位标题，不改变当前任务或祖先的展开状态', () => {

@@ -1544,11 +1544,13 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 
 区块的 ~Replace~ 与 ~Link~ 通过 ~CONTENT_BLOCK~ 修改提交，旧版本和非本节点的 ID 拒绝。文本、普通列表和表格分别编辑自身原文；纯 checkbox 清单仍通过条目操作保留嵌套、状态、统计与同级排序规则。
 
+~paragraph: bool~ 标记直属节点是否为普通段落； ~blank_lines_before: usize~ 保留节点之前紧邻的完整空白行数，兼容 LF、CRLF 与空白字符行，不包含节点内部的空白。代码、示例、引用等虽属于 ~text~ 区块， ~paragraph~ 仍为 false，宿主可保持其内部排版。分隔空行不进入可编辑 ~source~ ，局部修改继续保留外围原字节；两个字段均为通用语义投影，不包含页面间距或控件状态。
+
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TaskEditContent}{blocks: Vec}{}
 \umlclass[x=7,y=0]{DocumentSection}{path: Option \\ html: String \\ blocks: Vec \\ link\_targets: Vec}{}
-\umlclass[x=3.5,y=-4]{ContentBlock}{id: String \\ kind: ContentBlockKind \\ source: String \\ html: String \\ items: Vec}{}
-\umlclass[x=3.5,y=-8,type=enumeration]{ContentBlockKind}{Text \\ List \\ Table \\ Checklist}{}
+\umlclass[x=3.5,y=-4.5]{ContentBlock}{id: String \\ kind: ContentBlockKind \\ paragraph: bool \\ blank\_lines\_before: usize \\ source: String \\ html: String \\ items: Vec}{}
+\umlclass[x=3.5,y=-10,type=enumeration]{ContentBlockKind}{Text \\ List \\ Table \\ Checklist}{}
 \umlcompo[mult2=*]{TaskEditContent}{ContentBlock}
 \umlcompo[mult2=*]{DocumentSection}{ContentBlock}
 \umldep{ContentBlock}{ContentBlockKind}

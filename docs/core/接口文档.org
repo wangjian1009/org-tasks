@@ -912,6 +912,8 @@ pub enum ContentBlockKind { Text, List, Table, Checklist }
 pub struct ContentBlock {
     pub id: String,
     pub kind: ContentBlockKind,
+    pub paragraph: bool,
+    pub blank_lines_before: usize,
     pub source: String,
     pub html: String,
     pub items: Vec<TaskChecklistItem>,
@@ -923,6 +925,8 @@ pub enum ContentBlockChange {
 #+end_src
 
 ~CONTENT_BLOCK~ 接收 ~ContentBlockChange~ 。区块 ID 仅在当前文件版本内有效，必须提交原 ~TaskFileVersion~ ，不能先读取新版本再套用旧区块位置。Core 验证 ID 属于当前标题的直属区块，只替换该区块或其中的链接；文件换行样式与区块外围字节保持原样，不重写邻接段落、表格、清单、属性、规划、日志或子标题。输入不得引入标题、规划、属性与日志抽屉或 NUL；checkbox 区块继续使用既有 ~CHECKLIST~ 结构化操作，不允许整块覆盖。
+
+~paragraph~ 表示当前直属语法节点是普通段落，代码、示例、引用、列表与表格为 false； ~blank_lines_before~ 为该节点之前紧邻的完整空白行数，兼容 LF、CRLF 和只含空白字符的行。换行终止符不计作完整空白行，字段不包含节点内部的空白行。两者由 Core 结合无损语法节点与原字节位置生成，宿主据此选择阅读间距；不将分隔空行并入可编辑 ~source~ ，不改写源文件。
 
 ~OrgFile.document_sections()~ 的前言和每个节点同时提供相同区块结构；前言只读，节点的区块编辑通过节点路径与既有统一修改入口执行。该投影不进入持久化或同步记录。
 

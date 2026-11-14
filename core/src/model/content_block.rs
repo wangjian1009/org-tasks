@@ -13,6 +13,8 @@ pub enum ContentBlockKind { Text, List, Table, Checklist }
 pub struct ContentBlock {
     pub id: String,
     pub kind: ContentBlockKind,
+    pub paragraph: bool,
+    pub blank_lines_before: usize,
     pub source: String,
     pub html: String,
     pub items: Vec<TaskChecklistItem>,
@@ -44,7 +46,11 @@ pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<
             SyntaxKind::ORG_TABLE => ContentBlockKind::Table,
             _ => ContentBlockKind::Text,
         }};
-        Some(ContentBlock { id: start.to_string(), kind, source: source.into(),
+        // 分隔空行由无损节点的原位置投影，不混入可编辑 source，也不扫描块内部字面内容。
+        let blank_lines_before = file.source_bytes()[..start].rsplit(|byte| *byte == b'\n').skip(1)
+            .take_while(|line| line.iter().all(u8::is_ascii_whitespace)).count();
+        Some(ContentBlock { id: start.to_string(), kind, paragraph: node.kind() == SyntaxKind::PARAGRAPH,
+            blank_lines_before, source: source.into(),
             html: if list.is_some() { String::new() } else { super::text_link::editable_html(source) },
             items: list.map(|list| super::task_inline::project_checklist(file, list)).unwrap_or_default(),
         })
@@ -116,6 +122,34 @@ mod tests {
         let headline = file.path_headlines()[0].1.clone();
         modify(&mut file, &headline, &ContentBlockChange::Replace { id: block.id, source: "| A | B |\n| 3 | 4 |".into() }).unwrap();
         assert_eq!(std::str::from_utf8(file.source_bytes()).unwrap(), source.replace("| 1 | 2 |", "| 3 | 4 |"));
+    }
+
+    #[test]
+    fn paragraph_boundaries_preserve_blank_line_counts_and_literal_block_contents() {
+        for newline in ["\n", "\r\n"] {
+            let original = "* TODO Task\n\n\nFirst\ncontinued\n\nSecond\n \t\n\nThird\n\n\n\nFourth\n\n#+begin_src text\nkeep\n\n\nliteral\n#+end_src\n\n#+begin_quote\nQuoted\n\n\nparagraph\n#+end_quote\n\n| A | B |\n\n- [ ] Item\n\n\n".replace('\n', newline);
+            let file = file(&original);
+            let blocks = content(&file);
+            assert_eq!(blocks.iter().map(|block| block.blank_lines_before).collect::<Vec<_>>(), [2, 1, 2, 3, 1, 1, 1, 1]);
+            assert_eq!(blocks.iter().map(|block| block.paragraph).collect::<Vec<_>>(), [true, true, true, true, false, false, false, false]);
+            assert_eq!(blocks[0].source, format!("First{newline}continued"));
+            assert!(blocks[4].source.contains(&format!("keep{newline}{newline}{newline}literal")));
+            assert!(blocks[5].source.contains(&format!("Quoted{newline}{newline}{newline}paragraph")));
+            assert_eq!(file.document_sections()[1].blocks, blocks);
+            assert_eq!(file.source_bytes(), original.as_bytes());
+        }
+    }
+
+    #[test]
+    fn editing_a_paragraph_keeps_separator_bytes_and_reprojects_boundaries() {
+        let original = "* Task\r\nFirst\r\n \t\r\n\r\nSecond\r\n\r\nThird\r\n";
+        let mut file = file(original);
+        let block = content(&file)[1].clone();
+        assert_eq!(block.blank_lines_before, 2);
+        let headline = file.path_headlines()[0].1.clone();
+        modify(&mut file, &headline, &ContentBlockChange::Replace { id: block.id, source: "Changed\ncontinued".into() }).unwrap();
+        assert_eq!(file.source_bytes(), original.replace("Second", "Changed\r\ncontinued").as_bytes());
+        assert_eq!(content(&file).iter().map(|block| block.blank_lines_before).collect::<Vec<_>>(), [0, 2, 1]);
     }
 
     #[test]

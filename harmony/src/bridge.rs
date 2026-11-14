@@ -1641,6 +1641,12 @@ mod tests {
         let blocks = task["editContent"]["blocks"].as_array().unwrap();
         assert_eq!(blocks.iter().map(|b| b["kind"].as_str().unwrap()).collect::<Vec<_>>(), ["text", "table", "checklist"]);
         assert_eq!(blocks[2]["items"][0]["text"], "Item");
+        assert_eq!(blocks[0]["paragraph"], true);
+        assert_eq!(blocks[1]["paragraph"], false);
+        assert_eq!(blocks[1]["blankLinesBefore"], 1);
+        let snapshot: serde_json::Value = serde_json::from_str(&repo_file_json(handle,
+            root.to_string_lossy().into_owned(), "tasks.org".into()).unwrap()).unwrap();
+        assert_eq!(snapshot["documentSections"][1]["blocks"], task["editContent"]["blocks"]);
         let request = serde_json::json!({
             "operations":[{"type":"Modification","data":{"path":task["fullPath"],"modifications":[
                 {"field":"CONTENT_BLOCK","value":{"type":"replace","id":blocks[1]["id"],"source":"| A | B |\n| 3 | 4 |"}}

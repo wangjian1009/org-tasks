@@ -15,6 +15,7 @@ export struct TaskDocumentContent {
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   @Prop readonly: boolean = false
+  @Prop projectReading: boolean = false
   @Prop contentBackground: string = UiColor.surface
   @State current: CoreTask | undefined = undefined
   @State working: boolean = false
@@ -182,6 +183,7 @@ export struct TaskDocumentContent {
   build() {
     Column({ space: 8 }) {
       TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
+        projectReading: this.projectReading,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
         checklist: (block: CoreContentBlock): void => { this.checklist(block) },

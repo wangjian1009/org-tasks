@@ -144,6 +144,11 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .embedded.project-reading, .file-reading.project-reading.embedded-section { padding: 0; max-width: none; }
 /* 将片段首尾留白计入 WebView 测量，章节舒展、清单连续排列。 */
 .file-reading.project-reading.embedded-section { display: flow-root; }
+/* 原生项目区块的段距由 Core 边界决定，单段 WebView 不再叠加 margin 或最小行高。 */
+.embedded.project-reading.embedded-section { display: flow-root; font: 16px/26px sans-serif; }
+.embedded.project-reading.embedded-section > p { margin: 0; }
+.embedded.project-reading.embedded-section > :first-child { margin-top: 0; }
+.embedded.project-reading.embedded-section > :last-child { margin-bottom: 0; }
 .file-reading.project-reading p { margin: 0 0 20px; }
 .file-reading.project-reading ul, .file-reading.project-reading ol { margin: 0 0 20px; }
 .file-reading.project-reading li { margin: 4px 0; }
@@ -199,17 +204,4 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 @media (max-width: 340px) { .project-reading { padding-left: 16px; padding-right: 16px; } }
 
 </style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? (projectReading ? fragment + '<p class="empty">项目还没有内容</p>' : '<p class="empty">空白 Org 文件</p>') : fragment}</body></html>`
-}
-
-// 项目分段来自同一份 Org 文档；多个连续空段落只保留一个展示空行，不修改源文件。
-export function normalizeProjectBlankLinesScript(): string {
-  return `(() => {
-    const isBlankParagraph = (node) => node.tagName === 'P' && !node.textContent.trim() &&
-      [...node.children].every(child => child.tagName === 'BR');
-    document.querySelectorAll('p').forEach(node => {
-      const previous = node.previousElementSibling;
-      if (isBlankParagraph(node) && previous && isBlankParagraph(previous)) node.remove();
-    });
-    return true;
-  })()`;
 }
