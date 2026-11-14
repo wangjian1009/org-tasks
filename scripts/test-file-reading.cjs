@@ -141,6 +141,25 @@ test('正文包装保留安全边界，路径按文本转义，新版式只在�
   for (const invalid of [-1, 1.5, NaN, Infinity]) assert.equal(navigation.documentChapterScript(invalid), 'false');
 });
 
+test('项目正文连续空段落只保留一个展示空行，不触碰有内容段落', () => {
+  const script = presentation.normalizeProjectBlankLinesScript();
+  const blank = (text = '', children = []) => ({ tagName: 'P', textContent: text, children,
+    previousElementSibling: null, removed: false, remove() { this.removed = true; } });
+  const first = blank();
+  const second = blank();
+  const third = blank('', [{ tagName: 'BR' }]);
+  const content = blank('正文');
+  second.previousElementSibling = first;
+  third.previousElementSibling = second;
+  content.previousElementSibling = third;
+  const nodes = [first, second, third, content];
+  vm.runInNewContext(script, { document: { querySelectorAll: () => nodes } });
+  assert.equal(first.removed, false);
+  assert.equal(second.removed, true);
+  assert.equal(third.removed, true);
+  assert.equal(content.removed, false);
+});
+
 test('项目目录只定位标题，不改变当前任务或祖先的展开状态', () => {
   const ancestor = { open: false, matches: () => true, parentElement: null };
   let position;

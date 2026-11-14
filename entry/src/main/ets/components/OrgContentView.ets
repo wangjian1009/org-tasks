@@ -2,7 +2,7 @@ import { webview } from '@kit.ArkWeb'
 import { LinkView, LinkController, LinkEditController } from './LinkView'
 import { CoreBridgeError, coreErrorMessage, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
+import { normalizeProjectBlankLinesScript, orgDocumentPage } from '../ui/OrgDocumentPresentation'
 
 interface ConflictCardHit { id: string; action: string }
 
@@ -132,12 +132,18 @@ export struct OrgContentView {
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 
-  pageEnded() {
+  async pageEnded() {
     if (!this.active) return
     if (this.loadRequested) {
       // 载入中更换了冲突或版本，旧页面结束后必须加载最新快照。
       if (this.requestedGeneration !== this.documentGeneration) { this.loadDocument(); return }
       this.loaded = true
+      const generation = this.documentGeneration
+      if (this.projectReading) {
+        try { await this.controller.runJavaScript(normalizeProjectBlankLinesScript()) }
+        catch (e) { if (this.active) this.reportError(e as CoreBridgeError); return }
+        if (!this.active || generation !== this.documentGeneration) return
+      }
       this.ready()
       this.measure()
       return

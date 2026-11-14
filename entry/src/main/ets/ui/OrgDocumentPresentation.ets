@@ -200,3 +200,16 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 
 </style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? (projectReading ? fragment + '<p class="empty">项目还没有内容</p>' : '<p class="empty">空白 Org 文件</p>') : fragment}</body></html>`
 }
+
+// 项目分段来自同一份 Org 文档；多个连续空段落只保留一个展示空行，不修改源文件。
+export function normalizeProjectBlankLinesScript(): string {
+  return `(() => {
+    const isBlankParagraph = (node) => node.tagName === 'P' && !node.textContent.trim() &&
+      [...node.children].every(child => child.tagName === 'BR');
+    document.querySelectorAll('p').forEach(node => {
+      const previous = node.previousElementSibling;
+      if (isBlankParagraph(node) && previous && isBlankParagraph(previous)) node.remove();
+    });
+    return true;
+  })()`;
+}
