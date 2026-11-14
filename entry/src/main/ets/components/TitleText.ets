@@ -1,3 +1,4 @@
+import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { CoreTitleCount, CoreTitlePart, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
 import { LinkView, LinkEditController } from './LinkView'
 import { TitleCountBadge } from './TitleCountBadge'
@@ -20,12 +21,13 @@ export struct TitleText {
   changeLink: ((link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   linkEditingChanged: (editing: boolean) => void = () => {}
   linkEditor: LinkEditController = new LinkEditController()
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   activate: (() => void) | undefined = undefined
   @Builder
   titleContent() {
     LinkView({ text: this.text, parts: this.parts, textSize: this.textSize, weight: this.weight,
       lineLimit: this.lineLimit, cancelled: this.cancelled, copyable: this.copyable,
-      openLinks: this.openLinks, activate: this.activate, editable: this.editable, revision: this.revision,
+      internalLinkProcessor: this.internalLinkProcessor, openLinks: this.openLinks, activate: this.activate, editable: this.editable, revision: this.revision,
       change: this.changeLink, editingChanged: this.linkEditingChanged, editor: this.linkEditor })
   }
 

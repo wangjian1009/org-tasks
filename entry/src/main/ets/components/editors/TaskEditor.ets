@@ -1,3 +1,4 @@
+import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { ProjectNavigation } from '../../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
@@ -47,6 +48,7 @@ class ChecklistFocusFrame extends FrameCallback {
 // 快照与写入均来自 Core；只维护卡片、输入草稿和浮层状态。
 @Component
 export struct TaskEditor {
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop task: CoreTask
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
@@ -965,7 +967,7 @@ export struct TaskEditor {
       Row({ space: 4 }) {
         this.priorityBadge()
         Column({ space: 2 }) {
-          TitleText({ text: this.value().heading, parts: this.value().headingParts, editable: false,
+          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, editable: false,
             lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
             activate: (): void => { this.toggle() } })
             .width('100%').constraintSize({ minWidth: 0 })
@@ -1147,7 +1149,7 @@ export struct TaskEditor {
 
   @Builder
   bodyBlocks() {
-    TaskContentBlocks({ blocks: this.value().editContent.blocks, readonly: this.readOnly,
+    TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.value().editContent.blocks, readonly: this.readOnly,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, ownerKey: this.ownerKey,
       contentBackground: this.value().state?.category === TaskStateCategory.Doing ? '#00000000' : UiColor.taskCard,
@@ -1201,7 +1203,7 @@ export struct TaskEditor {
             .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
             .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
         } else {
-          TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
             weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
             editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor,
             changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
@@ -1313,7 +1315,7 @@ export struct TaskEditor {
       }
       Row({ space: 4 }) {
         this.priorityBadge()
-        TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+        TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
           editable: false,
           cancelled: this.value().state?.category === TaskStateCategory.Cancel,
           activate: (): void => { this.toggle() } }).layoutWeight(1)
@@ -1378,7 +1380,7 @@ export struct TaskEditor {
         Row({ space: 8 }) {
           this.stateIndicator()
           this.priorityBadge()
-          TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
             editable: false,
             weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
             activate: (): void => { this.toggle() } }).layoutWeight(1)

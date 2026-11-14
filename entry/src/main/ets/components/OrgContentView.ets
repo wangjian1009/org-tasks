@@ -1,3 +1,4 @@
+import { InternalLinkProcessor, DocumentInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { webview } from '@kit.ArkWeb'
 import { LinkView, LinkController, LinkEditController } from './LinkView'
 import { CoreBridgeError, coreErrorMessage, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
@@ -23,6 +24,7 @@ export struct OrgContentView {
   @Prop editable: boolean = false
   changeLink: ((link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   linkEditingChanged: (editing: boolean) => void = () => {}
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   linkEditor: LinkEditController = new LinkEditController()
   scrolled: (offset: number) => void = () => {}
   @Prop @Watch('measure') layoutRevision: number = 0
@@ -201,6 +203,7 @@ export struct OrgContentView {
       Text(this.error).width('100%').padding(16).fontSize(14).fontColor(UiColor.error)
     } else {
       LinkView({ document: true, contentHeight: this.embedded ? this.contentHeight : '100%',
+        internalLinkProcessor: this.internalLinkProcessor ?? new DocumentInternalLinkProcessor(this.controller),
         editable: this.editable, revision: this.revision, webController: this.controller,
         change: this.changeLink, editingChanged: this.linkEditingChanged, editor: this.linkEditor,
         remeasure: (): void => { this.measure() },

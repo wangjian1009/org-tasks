@@ -63,7 +63,8 @@ export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; projectName: string | null; fileVersion: string; titleParts: TitlePart[];
 }
-export interface DocumentSection { path: TaskPath | null; html: string; blocks: ContentBlock[]; }
+export interface DocumentLinkTarget { target: string; priority: number; }
+export interface DocumentSection { path: TaskPath | null; html: string; blocks: ContentBlock[]; linkTargets: DocumentLinkTarget[]; }
 export class OrgFile {
   private constructor();
   readonly repoId: string;

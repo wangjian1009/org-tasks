@@ -1,3 +1,4 @@
+import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { TaskDocumentContent } from './editors/TaskDocumentContent'
@@ -20,6 +21,26 @@ export struct ProjectDocumentView {
   ready: () => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
+  private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
+    async (target: string): Promise<boolean> => this.active && this.linkSection(target) !== undefined,
+    async (target: string): Promise<void> => {
+      const section = this.linkSection(target)
+      if (!section || !this.active) throw new Error('内部链接目标不存在')
+      if (!await this.openChapter(section)) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
+    }
+  )
+
+  linkSection(target: string): ProjectReadingSection | undefined {
+    let priority = Infinity
+    let found: ProjectReadingSection | undefined = undefined
+    for (const section of this.sections) {
+      for (const destination of section.linkTargets) {
+        if (destination.target === target && destination.priority < priority) { found = section; priority = destination.priority }
+      }
+    }
+    return found
+  }
+
   private scroller: Scroller = new Scroller()
   private offsets: Map<string, number> = new Map()
   private active: boolean = false
@@ -52,13 +73,14 @@ export struct ProjectDocumentView {
     this.ready()
   }
 
-  async openChapter(section: ProjectReadingSection) {
+  async openChapter(section: ProjectReadingSection): Promise<boolean> {
     const revision = this.revision
-    if (!await TaskInlineSession.end(false) || !this.active || revision !== this.revision) return
+    if (!await TaskInlineSession.end(false) || !this.active || revision !== this.revision) return false
     const offset = this.offsets.get(section.key)
-    if (offset === undefined) return
+    if (offset === undefined) return false
     this.outlineVisible = false
     this.scroller.scrollTo({ xOffset: 0, yOffset: Math.max(0, offset - 12), animation: false })
+    return true
   }
 
   @Builder
@@ -98,16 +120,16 @@ export struct ProjectDocumentView {
           Column() {
             if (section.node) {
               if (section.node.state) {
-                TaskEditor({ task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
+                TaskEditor({ internalLinkProcessor: this.internalLinks, task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')
               } else {
-                OrgHeadingView({ node: section.node, specialTags: this.specialTags }).width('100%')
+                OrgHeadingView({ internalLinkProcessor: this.internalLinks, node: section.node, specialTags: this.specialTags }).width('100%')
               }
             }
             if (section.blocks.length > 0) {
-              TaskDocumentContent({ task: section.node, blocks: section.blocks, readonly: section.node === null }).width('100%')
+              TaskDocumentContent({ internalLinkProcessor: this.internalLinks, task: section.node, blocks: section.blocks, readonly: section.node === null }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
             .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 12 : 0 })

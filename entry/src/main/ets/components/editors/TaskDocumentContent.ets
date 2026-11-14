@@ -1,3 +1,4 @@
+import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistItem, CoreTaskModification, CoreTextLink, CoreLinkValue, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession } from '../../services/TaskInlineService'
 import { TaskContentBlocks } from './TaskContentBlocks'
@@ -10,6 +11,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 // 项目文档的编辑会话适配；正文直接复用区块控件，任务状态和标题由 TaskEditor 负责。
 @Component
 export struct TaskDocumentContent {
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   @Prop readonly: boolean = false
@@ -179,7 +181,7 @@ export struct TaskDocumentContent {
 
   build() {
     Column({ space: 8 }) {
-      TaskContentBlocks({ blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
+      TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
         checklist: (block: CoreContentBlock): void => { this.checklist(block) },

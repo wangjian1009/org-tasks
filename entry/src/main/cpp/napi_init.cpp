@@ -1982,6 +1982,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"conflictIds", nullptr, nullptr, OrgFileProperty, nullptr, nullptr, napi_default, const_cast<char*>("conflictIds")},
         {"project", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("projectName")},
         {"renderDocumentHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("documentHtml")},
+        // 直接返回 Core 的区块和内部链接目的地投影。
         {"documentSections", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("documentSections")},
         {"fileTags", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("fileTags")},
         {"specialTags", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("specialTags")},

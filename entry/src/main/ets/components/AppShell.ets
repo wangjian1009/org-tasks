@@ -1,3 +1,4 @@
+import { LinkEditController } from './LinkView'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
@@ -416,7 +417,7 @@ export struct AppShell {
           }
         }.width('100%').layoutWeight(1)
       }.width('100%').height('100%').backgroundColor(UiColor.surface)
-        .onClick(() => { if (TaskInlineSession.active()) TaskInlineSession.end(true) })
+        .onClick(() => { if (TaskInlineSession.active() && !LinkEditController.interactionProtected()) TaskInlineSession.end(true) })
       if (this.drawerOpen) {
         Row().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.drawerOpen = false })
         this.drawer()

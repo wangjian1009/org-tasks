@@ -628,7 +628,7 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 
 ~OrgFile.project()~ 与 ~OrgFile.renderDocumentHtml()~ 分别读取 Rust 完整文件快照中的 ~projectName~ 和 ~documentHtml~ 。Rust bridge 在原有仓库文件工作线程内调用 Core 的 ~project()~ 与 ~render_document_html()~ ，C++ 注册两个只读方法，类型声明与 ArkTS 的 ~CoreOrgFile~ 别名沿用同一对象边界，不增加正文解析或 I/O。源字节、文件版本、项目身份、完整语义 HTML 和原有 ~renderedHtml~ 均来自同一快照。Core 的文档投影排除受保护的冲突子树；项目阅读不跳转冲突页，原文和冲突处理仍消费完整文件。
 
-~OrgFile.documentSections()~ 、 ~fileTags()~ 和 ~specialTags()~ 分别读取 Rust bridge 在同一文件工作线程中通过 Core 的 ~document_sections()~ 、 ~file_tags()~ 和 ~special_tags()~ 生成的快照。 ~DocumentSection { path: TaskPath | null, html: string }~ 按文件顺序排列，前言路径为空；标题项路径关联同版本 ~nodes()~ ，不在 ArkTS 解释 Org 或筛选任务。C++ 注册快照方法，类型声明和 ArkTS wrapper 同步维护，不新增同步 FFI 请求。
+~OrgFile.documentSections()~ 、 ~fileTags()~ 和 ~specialTags()~ 分别读取 Rust bridge 在同一文件工作线程中通过 Core 的 ~document_sections()~ 、 ~file_tags()~ 和 ~special_tags()~ 生成的快照。 ~DocumentSection { path: TaskPath | null, html: string, blocks: ContentBlock[], linkTargets: DocumentLinkTarget[] }~ 按文件顺序排列，前言路径为空；标题项路径关联同版本 ~nodes()~ ，不在 ArkTS 解释 Org 或筛选任务。C++ 注册快照方法，类型声明和 ArkTS wrapper 同步维护，不新增同步 FFI 请求。
 
 ~ProjectDetail~ 使用 ~ProjectDocumentView~ 将原生 ~TaskEditor~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注和清单编辑，正文持续可见；Core 的正文分段不输出真实的 PROPERTIES 与 LOGBOOK，Task 的完整属性与结构化日志仍来自原快照。任务展开后通过“更多 → 日志”查看或收起日志，默认收起。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
 
@@ -667,3 +667,9 @@ Core 的 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 原样透传为 ~
 * 附件用途标记接入
 
 Core 的 ~FilterTask.has_attach()~ 映射为 Harmony 任务快照的只读布尔属性 ~Task.hasAttach~ ，Rust bridge 在过滤展示标签后仍透传判断结果；C++ 与其他任务字段一同注册为只读可枚举属性，ArkTS 直接消费类型别名，不通过已过滤的 ~tags~ 反推。 ~specialTags()~ 包含 ~ATTACH~ ，查询、完整文件节点、标签候选与项目正文统一沿用 Core 的过滤结果；原始编辑标签仍保留。该接入不新增附件目录扫描或手机附件操作入口。
+
+* 内部链接与文档目标透传
+
+~DocumentLinkTarget { target: string, priority: number }~ 与 ~DocumentSection.linkTargets~ 从 Core 的同版本分段投影序列化。Rust bridge 原样保留字段，C++ 的 ~OrgFileProperty~ 通过既有 ~documentSections~ 方法返回整组数据，类型声明与 ArkTS wrapper 导出对应接口；不新增 FFI 调用或 native 句柄。原生项目根据目标键和优先级定位章节，不解析 Org。
+
+~TitlePart.href~ 可包含 Core 生成的 ~org-internal:~ URI。它只由链接控件解码并交给 ~internalLinkProcessor~ 的异步验证和执行方法，不传给系统浏览器；外部协议、地图调用和凭据处理保持既有宿主边界。

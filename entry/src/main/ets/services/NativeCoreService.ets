@@ -48,6 +48,7 @@ import {
   SyncConflictNotification as NativeSyncConflictNotification,
   OrgFile as NativeOrgFile,
   DocumentSection as NativeDocumentSection,
+  DocumentLinkTarget as NativeDocumentLinkTarget,
   ContentBlock as NativeContentBlock,
   ContentBlockChange as NativeContentBlockChange,
   OrgFileMetadata as NativeOrgFileMetadata,
@@ -87,6 +88,7 @@ export type CoreConflictTarget = NativeConflictTarget
 export type CoreFileConflict = NativeFileConflict
 // project() 与 renderDocumentHtml() 均读取 Native OrgFile 的同版本 Core 快照。
 export type CoreOrgFile = NativeOrgFile
+export type CoreDocumentLinkTarget = NativeDocumentLinkTarget
 export type CoreDocumentSection = NativeDocumentSection
 export type CoreContentBlock = NativeContentBlock
 export type CoreContentBlockChange = NativeContentBlockChange

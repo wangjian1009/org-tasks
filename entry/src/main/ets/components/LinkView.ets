@@ -1,3 +1,8 @@
+import { pasteboard } from '@kit.BasicServicesKit'
+import { display } from '@kit.ArkUI'
+import { PopupMenu, PopupMenuItem } from './controls/PopupMenu'
+import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
+import { LINK_PROTOCOLS, LinkProtocolChoice, linkProtocol, switchLinkProtocol, internalLinkTarget } from '../ui/LinkPresentation'
 import { common, Want } from '@kit.AbilityKit'
 import { petalMaps } from '@kit.MapKit'
 import { webview } from '@kit.ArkWeb'
@@ -13,6 +18,8 @@ interface MapAppChoice {
   select: () => Promise<void>
 }
 
+interface DocumentLinkProtocol { kind: string; title: string; prefix: string; path: string }
+
 interface LinkHit {
   link: CoreTextLink | null
   href: string
@@ -20,10 +27,15 @@ interface LinkHit {
   x: number
   y: number
   width: number
+  menu?: boolean
+  url?: string
 }
 
 // 同一任务中的标题和备注共享结束输入入口，保存失败时阻止收起及其他字段操作。
 export class LinkEditController {
+  private static protectedUntil: number = 0
+  static protectInteraction() { LinkEditController.protectedUntil = Date.now() + 100 }
+  static interactionProtected(): boolean { return Date.now() < LinkEditController.protectedUntil }
   private owners: Map<number, () => Promise<boolean>> = new Map()
   bind(owner: number, finish: () => Promise<boolean>) { this.owners.set(owner, finish) }
   release(owner: number) { this.owners.delete(owner) }
@@ -66,6 +78,7 @@ export struct LinkView {
   @Prop revision: string = ''
   @Prop document: boolean = false
   @Prop contentHeight: number | string = '100%'
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   activate: (() => void) | undefined = undefined
   change: ((link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
@@ -73,6 +86,10 @@ export struct LinkView {
   webController: webview.WebviewController | undefined = undefined
   remeasure: () => void = () => {}
   @BuilderParam content: (links: LinkController) => void = this.emptyContent
+  @State protocolVisible: boolean = false
+  @State menuWidth: number = 320
+  private textController: TextController = new TextController()
+  private suppressClickUntil: number = 0
   @State chooserVisible: boolean = false
   @State mapChoices: MapAppChoice[] = []
   @State launching: boolean = false
@@ -117,14 +134,23 @@ export struct LinkView {
     } catch (_) { this.notify('链接尚未载入，请稍后重试。') }
   }
 
-  select(hit: LinkHit) {
+  async select(hit: LinkHit): Promise<void> {
     if (!this.active || this.saving || this.editing) return
-    if (!this.editable) { this.open(hit.href); return }
-    if (!hit.link) { this.notify('链接位置不可用，请重新载入后重试。'); return }
-    this.selected = hit; this.selectedRevision = this.revision; this.editError = ''; this.menuVisible = true
+    this.selected = hit; this.selectedRevision = this.revision; this.editError = ''
+    if (hit.menu) {
+      try { this.menuWidth = this.getUIContext().px2vp(display.getDefaultDisplaySync().width) - 32 } catch (_) {}
+      this.menuVisible = true
+    } else if (this.editable) {
+      if (!hit.link) { this.notify('链接位置不可用，请重新载入后重试。'); return }
+      await this.beginEdit()
+    } else if (hit.href) { this.open(hit.href) }
+    else { this.notify('此链接暂不支持打开') }
   }
 
   selectPart(part: CoreTitlePart, event: ClickEvent) {
+    LinkEditController.protectInteraction()
+    if (Date.now() < this.suppressClickUntil) return
+    this.suppressClickUntil = Date.now() + 100
     this.select({ link: part.link, href: part.href || '', label: part.text, x: event.x, y: event.y, width: this.widthVp })
   }
 
@@ -143,23 +169,27 @@ export struct LinkView {
   }
 
   async beginEdit() {
-    if (!this.active || !this.editable || !this.selected?.link || this.saving) return
+    if (!this.active || !this.editable || !this.selected?.link || this.saving || this.editing) return
     const generation = this.generation
     const selected = this.selected
     if (!await this.editor.finish(this.owner) || !this.active || !this.editable || generation !== this.generation
-      || selected !== this.selected || this.revision !== this.selectedRevision) return
+      || selected !== this.selected || this.revision !== this.selectedRevision || this.editing) return
     this.menuVisible = false
     this.titleDraft = this.selected.link.title; this.urlDraft = this.selected.link.url
     this.editError = ''; this.editing = true; this.editingChanged(true)
+    if (!this.document) setTimeout((): void => {
+      if (this.active && this.editing && generation === this.generation) this.getUIContext().getFocusController().requestFocus(`link_title_${this.owner}`)
+    }, 0)
     if (this.document && this.webController) {
       this.webController.runJavaScript(`window.orgLinkEdit?.(${JSON.stringify(this.selected.link)}, ${JSON.stringify(this.titleDraft)}, ${JSON.stringify(this.urlDraft)})`)
-        .then((): void => { this.remeasure() }).catch((): void => { this.editError = '无法展开链接编辑，请重试。' })
+        .then((): void => { if (this.active && generation === this.generation) this.remeasure() })
+        .catch((): void => { if (this.active && generation === this.generation) this.editError = '无法展开链接编辑，请重试。' })
     }
   }
 
   cancelEdit() {
     if (this.saving) return
-    this.menuVisible = false; this.editing = false; this.editError = ''; this.editingChanged(false)
+    this.protocolVisible = false; this.menuVisible = false; this.editing = false; this.editError = ''; this.editingChanged(false)
     if (this.webController) this.webController.runJavaScript('window.orgLinkCancel?.()').then((): void => { this.remeasure() }).catch(() => {})
   }
 
@@ -201,17 +231,52 @@ export struct LinkView {
     return await this.commit({ title: this.titleDraft, url: this.urlDraft })
   }
 
+  async copySelected(title: boolean): Promise<void> {
+    if (!this.selected) return
+    this.menuVisible = false
+    const value = title ? this.selected.label : this.selected.link?.url || this.selected.url || this.selected.href
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value))
+      this.notify(title ? '标题已拷贝' : '链接已拷贝')
+    } catch (_) { this.notify('拷贝失败，请重试') }
+  }
+
+  menuItems(): PopupMenuItem[] {
+    const items: PopupMenuItem[] = [
+      { title: '拷贝链接', icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected(false) } },
+      { title: '拷贝标题', icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected(true) } }
+    ]
+    if (this.editable && this.selected?.link && this.change) {
+      items.push({ title: '编辑', icon: $r('app.media.ui_link_edit'), action: (): void => { this.beginEdit() } })
+      items.push({ title: '删除', icon: $r('app.media.ui_delete'), dangerous: true, action: (): void => { this.commit(null) } })
+    }
+    return items
+  }
+
   @Builder
   linkMenu() {
-    Row() {
-      Button('跳转').fontSize(14).fontColor(UiColor.text).height(44).padding({ left: 16, right: 16 })
-        .backgroundColor(Color.Transparent).enabled(this.openLinks && !!this.selected?.href)
-        .onClick((): void => { this.menuVisible = false; if (this.selected?.href) this.open(this.selected.href) })
-      Button('编辑').fontSize(14).fontColor(UiColor.text).height(44).padding({ left: 16, right: 16 })
-        .backgroundColor(Color.Transparent).onClick((): void => { this.beginEdit() })
-      Button('删除').fontSize(14).fontColor(UiColor.error).height(44).padding({ left: 16, right: 16 })
-        .backgroundColor(Color.Transparent).onClick((): void => { this.commit(null) })
-    }.backgroundColor(UiColor.menu).borderRadius(10)
+    Column() {
+      PopupMenu({ items: this.menuItems(), disabled: this.saving, maximumWidth: this.menuWidth,
+        activate: (item: PopupMenuItem): void => { this.menuVisible = false; item.action() } })
+    }.backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
+      .border({ width: UiSize.menuBorder, color: UiColor.menuOutline }).clip(true)
+  }
+
+  changeProtocol(kind: string) {
+    if (this.saving) return
+    this.urlDraft = switchLinkProtocol(this.urlDraft, kind)
+    this.protocolVisible = false
+  }
+
+  @Builder
+  protocolChoices() {
+    Column() {
+      PopupMenu({ items: LINK_PROTOCOLS.map((choice: LinkProtocolChoice): PopupMenuItem => ({
+        title: choice.title, icon: choice.icon, checked: linkProtocol(this.urlDraft).kind === choice.kind,
+        action: (): void => { this.changeProtocol(choice.kind) }
+      })), maximumWidth: this.menuWidth,
+        activate: (item: PopupMenuItem): void => { item.action() } })
+    }.backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
   }
 
   @Builder
@@ -235,7 +300,19 @@ export struct LinkView {
           this.getUIContext().getFocusController().requestFocus(`link_url_${this.owner}`)
         })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.titleDraft = value })
-      Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
+      Row({ space: 8 }) {
+        Text('链接').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: 6 }) {
+            Image(linkProtocol(this.urlDraft).icon).width(16).height(16)
+            Text(linkProtocol(this.urlDraft).title).fontSize(13).fontColor(UiColor.primary)
+          }
+        }.height(36).padding({ left: 8, right: 8 }).backgroundColor(Color.Transparent)
+          .enabled(!this.saving).accessibilityText('选择链接协议')
+          .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction(); this.protocolVisible = !this.protocolVisible })
+          .bindPopup(this.protocolVisible, { builder: this.protocolChoices(), placement: Placement.Bottom,
+            popupColor: UiColor.menu, focusable: false, onStateChange: (event): void => { this.protocolVisible = event.isVisible } })
+      }.width('100%')
       TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text)
         .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
         .onSubmit((): void => { this.saveEdit() })
@@ -248,7 +325,8 @@ export struct LinkView {
           .enabled(!this.saving).onClick((): void => { this.saveEdit() })
       }.justifyContent(FlexAlign.End).width('100%')
     }.width('100%').padding(12).borderRadius(10).backgroundColor(UiColor.surface)
-      .onClick((): void => {})
+      .onTouch((event: TouchEvent): void => { event.stopPropagation(); LinkEditController.protectInteraction() })
+      .onClick((): void => { LinkEditController.protectInteraction() })
   }
 
   async open(href: string): Promise<void> {
@@ -256,12 +334,23 @@ export struct LinkView {
     const generation = this.generation
     this.launching = true
     try {
+      const target = internalLinkTarget(href)
+      if (target !== undefined) {
+        const processor = this.internalLinkProcessor
+        if (!processor) { this.notify('当前视图无法跳转到文档内部目标'); return }
+        const valid = await processor.isValid(target)
+        if (!this.active || generation !== this.generation || processor !== this.internalLinkProcessor) return
+        if (!valid) { this.notify('内部链接目标不存在或当前视图无法跳转'); return }
+        await processor.process(target)
+        return
+      }
       await openExternalLink(this.getUIContext().getHostContext()! as common.UIAbilityContext, href,
         (choices: MapAppChoice[]): void => {
           if (this.active && generation === this.generation) { this.mapChoices = choices; this.chooserVisible = true }
         })
     } catch (_) {
-      if (generation === this.generation) this.notify('无法打开链接，请确认地址有效且已安装对应应用。')
+      if (generation === this.generation) this.notify(internalLinkTarget(href) !== undefined
+        ? '内部链接跳转失败，请确认目标仍然存在并完成当前编辑' : '无法打开链接，请确认地址有效且已安装对应应用。')
     } finally {
       if (this.active && generation === this.generation) this.launching = false
     }
@@ -322,28 +411,38 @@ export struct LinkView {
     }.width('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
   }
 
+  partAt(x: number, y: number): CoreTitlePart | undefined {
+    try {
+      const layout = this.textController.getLayoutManager()
+      const position = layout.getGlyphPositionAtCoordinate(this.getUIContext().vp2px(x), this.getUIContext().vp2px(y)).position
+      let start = 0
+      for (const part of this.parts) {
+        if (part.count) continue
+        const length = part.text.length + (part.isLink && (this.openLinks || this.editable) ? 1 : 0)
+        if (position >= start && position < start + length) return part.isLink ? part : undefined
+        start += length
+      }
+    } catch (_) {}
+    return undefined
+  }
+
   @Builder
   inlineText() {
-    Text() {
+    Text(undefined, { controller: this.textController }) {
       if (this.parts.length === 0) {
         Span(this.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
           .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
       } else {
         ForEach(this.parts, (part: CoreTitlePart) => {
           if (part.count) {
-          } else if (this.editable && part.isLink) {
+          } else if (part.isLink && (this.openLinks || this.editable)) {
+            ImageSpan(linkProtocol(part.link?.url || part.href || '').icon).width(this.textSize).height(this.textSize)
+              .verticalAlign(ImageSpanAlignment.CENTER)
+              .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
             Span(part.text).fontColor(this.cancelled ? UiColor.disabled : part.href ? UiColor.primary : UiColor.secondary)
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline,
                 style: part.href ? TextDecorationStyle.SOLID : TextDecorationStyle.DASHED })
               .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
-          } else if (part.href && this.openLinks) {
-            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.primary)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline })
-              .onClick((): void => { this.links.open(part.href!) })
-          } else if (part.isLink && this.openLinks) {
-            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.secondary)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline,
-                color: UiColor.secondary, style: TextDecorationStyle.DASHED })
           } else {
             Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
@@ -353,12 +452,26 @@ export struct LinkView {
     }.fontSize(this.textSize).fontWeight(this.weight).fontColor(UiColor.text)
       .maxLines(this.lineLimit > 0 ? this.lineLimit : 2147483647).textOverflow({ overflow: TextOverflow.Ellipsis })
       .wordBreak(WordBreak.BREAK_ALL).copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
-      .onClick((): void => { if (!this.editing) this.activate?.() }).flexShrink(1)
+      .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction(); if (!this.editing && Date.now() >= this.suppressClickUntil) this.activate?.() }).flexShrink(1)
+      .gesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent): void => {
+        const point = event.fingerList[0]
+        if (!point) return
+        const part = this.partAt(point.localX, point.localY)
+        if (part) {
+          this.suppressClickUntil = Date.now() + 500
+          this.select({ link: part.link, href: part.href || '', label: part.text, x: point.localX, y: point.localY, width: this.widthVp, menu: true })
+        }
+      }))
+      .onGestureJudgeBegin((_info: GestureInfo, event: BaseGestureEvent): GestureJudgeResult => {
+        const point = event.fingerList[0]
+        return point && this.partAt(point.localX, point.localY) ? GestureJudgeResult.CONTINUE : GestureJudgeResult.REJECT
+      })
   }
 
   build() {
     if (this.document) {
       Stack({ alignContent: Alignment.TopStart }) { this.content(this.links); this.menuAnchor() }.width('100%').height(this.contentHeight)
+        .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction() })
         .onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
         .bindSheet($$this.chooserVisible, this.mapAppSheet(), {
           height: SheetSize.FIT_CONTENT, detents: [SheetSize.FIT_CONTENT, '85%'], preferType: SheetType.BOTTOM,
@@ -368,7 +481,7 @@ export struct LinkView {
       Stack({ alignContent: Alignment.TopStart }) {
         Column({ space: 8 }) { this.inlineText(); if (this.editing) { this.linkEditor() } }.alignItems(HorizontalAlign.Start)
         this.menuAnchor()
-      }.flexShrink(1).onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
+      }.flexShrink(1).onClick((event: ClickEvent): void => { LinkEditController.protectInteraction() }).onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
         .bindSheet($$this.chooserVisible, this.mapAppSheet(), {
           height: SheetSize.FIT_CONTENT, detents: [SheetSize.FIT_CONTENT, '85%'], preferType: SheetType.BOTTOM,
           backgroundColor: UiColor.surface, maskColor: Color.Transparent, showClose: false
@@ -384,30 +497,72 @@ interface GeoCoordinates {
 
 // 只操作 Core 提供的安全投影与展示 DOM，不在这里识别、拼接或写回 Org。
 export function linkDocumentScript(editable: boolean): string {
+  const protocols = LINK_PROTOCOLS.map((choice: LinkProtocolChoice): DocumentLinkProtocol => ({
+    kind: choice.kind, title: choice.title, prefix: choice.prefix, path: choice.path
+  }))
   return `(() => {
     const editable = ${editable};
+    const protocols = ${JSON.stringify(protocols)};
+    const protocol = url => {
+      const value = url.trim();
+      const kind = value.startsWith('org-internal:') || !value.includes(':') || value.startsWith('#') || value.startsWith('*')
+        ? 'internal' : value.substring(0,value.indexOf(':')).toLowerCase();
+      return protocols.find(choice => choice.kind === kind);
+    };
     const bridge = window.OrgTaskLinks;
     if (!bridge) return;
     const find = link => [...document.querySelectorAll('[data-org-link]')].find(node => {
       try { const value = JSON.parse(node.dataset.orgLink); return value.start === link.start && value.end === link.end && value.source === link.source; }
       catch (_) { return false; }
     });
-    const select = node => {
+    const select = (node, menu = false) => {
       let link = null;
       try { link = JSON.parse(node.dataset.orgLink || 'null'); } catch (_) {}
-      if (editable && !link) return;
+      if (editable && !link && !menu) return;
       const rect = node.getBoundingClientRect();
-      bridge.hit(JSON.stringify({ link, href: node.getAttribute('href') || '', label: node.textContent || '',
+      bridge.hit(JSON.stringify({ link, href: node.getAttribute('href') || '', url: link?.url || node.getAttribute('data-org-url') || node.getAttribute('title') || node.getAttribute('href') || '', label: node.textContent || '', menu,
         x: rect.left + rect.width / 2, y: rect.top, width: window.innerWidth }));
     };
-    if (window.orgLinkClick) document.removeEventListener('click', window.orgLinkClick, true);
-    window.orgLinkClick = event => {
+    if (window.orgLinkCleanup) window.orgLinkCleanup();
+    let timer, down, suppressUntil = 0;
+    const listeners = [];
+    const listen = (name, callback) => { document.addEventListener(name,callback,true);listeners.push([name,callback]); };
+    const cancelPress = () => { clearTimeout(timer);down = null; };
+    listen('click', event => {
       if (event.target.closest('.org-link-editor')) return;
-      const node = event.target.closest(editable ? '[data-org-link]' : 'a.link');
+      const node = event.target.closest('.link');
       if (!node) return;
-      event.preventDefault(); event.stopPropagation(); select(node);
-    };
-    document.addEventListener('click', window.orgLinkClick, true);
+      event.preventDefault(); event.stopPropagation();
+      if (Date.now() >= suppressUntil) select(node);
+    });
+    listen('pointerdown', event => {
+      if (event.target.closest('.org-link-editor') || (event.button !== undefined && event.button !== 0)) return;
+      const node = event.target.closest('.link');if (!node) return;
+      cancelPress();down = { x:event.clientX,y:event.clientY };
+      timer = setTimeout(() => { suppressUntil=Date.now()+800;select(node,true);cancelPress(); },500);
+    });
+    listen('pointermove', event => { if(down && Math.abs(event.clientX-down.x)+Math.abs(event.clientY-down.y)>10)cancelPress(); });
+    listen('pointerup',cancelPress);listen('pointercancel',cancelPress);
+    listen('contextmenu',event=>{
+      const node=event.target.closest('.link');if(!node)return;
+      event.preventDefault();event.stopPropagation();cancelPress();
+      if(Date.now()>=suppressUntil)select(node,true);suppressUntil=Date.now()+800;
+    });
+    window.orgLinkCleanup = () => { cancelPress();listeners.forEach(([name,callback])=>document.removeEventListener(name,callback,true)); };
+    document.querySelectorAll('.link').forEach(node=>{
+      if(node.querySelector('[data-org-link-icon]'))return;
+      const url=node.getAttribute('data-org-url') || node.getAttribute('href') || '';
+      const choice=protocol(url);
+      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','1em');icon.setAttribute('height','1em');
+      icon.setAttribute('data-org-link-icon','true');icon.setAttribute('aria-hidden','true');
+      icon.style.cssText='display:inline-block;vertical-align:-0.12em;margin-right:3px;pointer-events:none';
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',choice?.path || 'M9 15l6-6M8 11l-2 2a4 4 0 0 0 6 6l2-2M10 7l2-2a4 4 0 0 1 6 6l-2 2');
+      path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.7');path.setAttribute('fill','none');
+      path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');
+      icon.append(path);node.prepend(icon);
+    });
     window.orgLinkSelectByHref = href => {
       const node = [...document.querySelectorAll('a.link')].find(node => node.href === href || node.getAttribute('href') === href);
       if (node) select(node);
@@ -429,12 +584,28 @@ export function linkDocumentScript(editable: boolean): string {
         form.append(name,input); return input;
       };
       const titleInput = field('标题',title,'无标题时显示链接地址');
+      const protocolLabel=document.createElement('label');protocolLabel.textContent='协议';
+      const protocolSelect=document.createElement('select');protocolSelect.id='org-link-protocol';protocolLabel.htmlFor=protocolSelect.id;
+      protocolSelect.style.cssText='min-height:36px;margin:8px 0;background:${UiColor.field};color:${UiColor.text};border:0;border-radius:8px;';
+      for(const choice of protocols){const option=document.createElement('option');option.value=choice.kind;option.textContent=choice.title;protocolSelect.append(option);}
+      if(!protocol(url)){const other=document.createElement('option');other.value='other';other.textContent='其他协议';protocolSelect.append(other);}
+      protocolSelect.value=protocol(url)?.kind || 'other';form.append(protocolLabel,protocolSelect);
       const urlInput = field('链接',url,'链接地址');
       titleInput.enterKeyHint = 'next'; urlInput.enterKeyHint = 'done';
       const status = document.createElement('span'); status.className='org-link-status'; status.style.cssText='display:block;color:${UiColor.error};font-size:12px';form.append(status);
       const controls = document.createElement('span');controls.style.cssText='display:flex;justify-content:flex-end;gap:12px;margin-top:10px';form.append(controls);
       const draft = () => bridge.draft(titleInput.value,urlInput.value);
-      titleInput.addEventListener('input',draft);urlInput.addEventListener('input',draft);
+      titleInput.addEventListener('input',draft);urlInput.addEventListener('input',()=>{protocolSelect.value=protocol(urlInput.value)?.kind || 'other';draft();});
+      protocolSelect.addEventListener('change',()=>{
+        const choice=protocols.find(item=>item.kind===protocolSelect.value);if(!choice)return;
+        const previous=protocol(urlInput.value);let value=urlInput.value;
+        if(previous?.kind!==choice.kind){
+          if(previous?.kind!=='internal'){value=value.substring(value.indexOf(':')+1);if(value.startsWith('//'))value=value.substring(2);}
+          urlInput.value=choice.prefix+value;
+        }
+        draft();urlInput.focus();
+      });
+      form.addEventListener('click',event=>event.stopPropagation());
       for (const input of [titleInput,urlInput]) {
         input.addEventListener('keydown',event=>{
           if (event.key !== 'Enter' || event.isComposing) return;
@@ -453,7 +624,7 @@ export function linkDocumentScript(editable: boolean): string {
     window.orgLinkStatus = (message,busy) => {
       const form=document.querySelector('.org-link-editor');if(!form)return;
       form.querySelector('.org-link-status').textContent=message;
-      form.querySelectorAll('input,button').forEach(node=>node.disabled=busy);
+      form.querySelectorAll('input,button,select').forEach(node=>node.disabled=busy);
     };
   })()`
 }

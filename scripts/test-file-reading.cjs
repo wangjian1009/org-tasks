@@ -459,6 +459,9 @@ test('项目目录仅列普通章节，保留任务下的章节与重名路径�
 function nativeProjectFixture() {
   let save = async () => true;
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
+    '../ui/InternalLinkProcessor': { CallbackInternalLinkProcessor: class {
+      constructor(valid,process){this.isValid=valid;this.process=process;}
+    } },
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args) } }
   }, source => source.split('  @Builder\n')[0]
@@ -601,4 +604,19 @@ test('项目编辑期间合并多个事件，结束会话后只读取最新版�
   f.page.onPageShow();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(reads, 2);
+});
+
+test('原生项目内部链接共用 Core 目标索引，优先定位专用目标并在保存失败时保持原位置', async () => {
+  const f=nativeProjectFixture();
+  f.view.sections=[{key:'heading',linkTargets:[{target:'目标',priority:2}]},
+    {key:'named',linkTargets:[{target:'目标',priority:1}]},
+    {key:'dedicated',linkTargets:[{target:'目标',priority:0}]}];
+  f.view.offsets.set('heading',100);f.view.offsets.set('named',200);f.view.offsets.set('dedicated',400);
+  assert.equal(await f.view.internalLinks.isValid('目标'),true);
+  assert.equal(await f.view.internalLinks.isValid('不存在'),false);
+  await f.view.internalLinks.process('目标');assert.equal(f.view.scroller.lastScroll.yOffset,388);
+  f.save(async()=>false);f.view.offsets.set('dedicated',600);
+  await assert.rejects(f.view.internalLinks.process('目标'),/无法定位/);
+  assert.equal(f.view.scroller.lastScroll.yOffset,388);
+  f.view.aboutToDisappear();assert.equal(await f.view.internalLinks.isValid('目标'),false);
 });

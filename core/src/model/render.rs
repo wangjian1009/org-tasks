@@ -31,6 +31,14 @@ pub struct DocumentSection {
     pub path: Option<super::TaskPath>,
     pub html: String,
     pub blocks: Vec<super::ContentBlock>,
+    pub link_targets: Vec<DocumentLinkTarget>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLinkTarget {
+    pub target: String,
+    pub priority: u8,
 }
 
 impl TitleCount {
@@ -110,10 +118,10 @@ impl OrgFile {
             }
             view.0.finish()
         };
-        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()), blocks: super::content_block::blocks(self, self.syntax().document().section(), None) }];
+        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()), blocks: super::content_block::blocks(self, self.syntax().document().section(), None), link_targets: document_link_targets(None, self.syntax().document().section()) }];
         sections.extend(self.path_headlines().into_iter()
             .filter(|(_, headline)| !Self::is_conflict_headline(headline))
-            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()), blocks: super::content_block::blocks(self, headline.section(), Some(&headline)) }));
+            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()), blocks: super::content_block::blocks(self, headline.section(), Some(&headline)), link_targets: document_link_targets(Some(&headline), headline.section()) }));
         sections
     }
 
@@ -371,7 +379,7 @@ impl Traverser for TitleView {
             Event::Enter(Container::Link(link)) => {
                 let previous = self.1.take();
                 let previous_is_link = self.2;
-                self.1 = external_link_href(link.path().as_ref());
+                self.1 = rendered_link_href(link.path().as_ref());
                 self.2 = true;
                 self.start_link();
                 if link.has_description() {
@@ -525,6 +533,7 @@ impl Traverser for ReadingView {
                 let tag = if document { "section" } else { "details" };
                 let summary = if document { "div class=\"heading-summary\"" } else { "summary" };
                 self.0.push_str(format!("<{tag} class=\"heading level-{level}\" data-org-start=\"{}\" data-org-end=\"{}\" id=\"org-node-{}\"", u32::from(headline.start()), u32::from(headline.end()), u32::from(headline.start())));
+                self.0.push_str(internal_target_attributes(&headline_link_targets(&headline), 2));
                 if let Some(todo) = headline.todo_keyword().filter(|_| document) {
                     let state = self.6.as_ref().and_then(|metadata| metadata.category(todo.as_ref()));
                     let content = headline.section().is_some_and(|section| section.syntax().children().any(|node| node.kind() != SyntaxKind::PLANNING));
@@ -627,7 +636,22 @@ impl Traverser for ReadingView {
                 self.0.push_str(if document { "</section>" } else { "</details>" });
                 ctx.skip();
             }
+            Event::Enter(Container::Target(target)) => {
+                let raw = target.raw();
+                let name = raw.trim_start_matches("<<").trim_end_matches(">>").trim();
+                self.0.push_str(format!("<span{}></span>", internal_target_attributes(&[name.to_owned()], 0)));
+                ctx.skip();
+            }
+            Event::Enter(Container::AffiliatedKeyword(keyword)) => {
+                if keyword.key().eq_ignore_ascii_case("NAME") {
+                    self.0.push_str(format!("<span{}></span>", internal_target_attributes(&[keyword.value().map(|value| value.trim().to_owned()).unwrap_or_default()], 1)));
+                }
+                ctx.skip();
+            }
             Event::Enter(Container::SourceBlock(block)) => {
+                if let Some(name) = block.name().and_then(|keyword| keyword.value()) {
+                    self.0.push_str(format!("<span{}></span>", internal_target_attributes(&[name.trim().into()], 1)));
+                }
                 self.0.push_str(format!(
                     "<div class=\"source\"><div class=\"source-language\">src {}</div>",
                     HtmlEscape(block.language().map(|v| v.to_string()).unwrap_or_default())
@@ -696,17 +720,17 @@ impl Traverser for ReadingView {
             }
             Event::Enter(Container::Link(link)) => {
                 // 只生成链接目标，不下载图片或其他外部资源；打开动作由宿主承接。
-                let href = external_link_href(link.path().as_ref());
+                let href = rendered_link_href(link.path().as_ref());
                 if let Some(href) = &href {
                     self.0.push_str(format!(
-                        "<a class=\"link\" href=\"{}\" title=\"{}\">",
+                        "<a class=\"link\" href=\"{}\" title=\"{}\" data-org-url=\"{}\">",
                         HtmlEscape(href),
-                        HtmlEscape(link.path())
+                        HtmlEscape(link.path()), HtmlEscape(link.path())
                     ));
                 } else {
                     self.0.push_str(format!(
-                        "<span class=\"link unsupported\" role=\"link\" aria-disabled=\"true\" title=\"{}\">",
-                        HtmlEscape(link.path())
+                        "<span class=\"link unsupported\" role=\"link\" aria-disabled=\"true\" title=\"{}\" data-org-url=\"{}\">",
+                        HtmlEscape(link.path()), HtmlEscape(link.path())
                     ));
                 }
                 let in_title = self.4;
@@ -833,6 +857,66 @@ impl Traverser for ReadingView {
     }
 }
 
+fn headline_link_targets(headline: &orgize::ast::Headline) -> Vec<String> {
+    let title = headline.title_raw().trim().to_owned();
+    let mut targets = vec![format!("*{title}"), title];
+    if let Some(drawer) = headline.properties() {
+        if let Some(id) = super::properties::Properties::from_drawer(&drawer).get("CUSTOM_ID").filter(|id| !id.is_empty()) {
+            targets.push(format!("#{id}"));
+        }
+    }
+    targets
+}
+
+fn document_link_targets(headline: Option<&orgize::ast::Headline>, section: Option<orgize::ast::Section>) -> Vec<DocumentLinkTarget> {
+    let mut targets = headline.map(headline_link_targets).unwrap_or_default().into_iter()
+        .map(|target| DocumentLinkTarget { target, priority: 2 }).collect::<Vec<_>>();
+    if let Some(section) = section {
+        for node in section.syntax().descendants().filter(|node| !node.ancestors().skip(1).any(|parent| {
+            matches!(parent.kind(), SyntaxKind::EXAMPLE_BLOCK | SyntaxKind::COMMENT_BLOCK | SyntaxKind::COMMENT | SyntaxKind::PROPERTY_DRAWER)
+                || (parent.kind() == SyntaxKind::SOURCE_BLOCK && node.kind() != SyntaxKind::AFFILIATED_KEYWORD)
+                || orgize::ast::Drawer::cast(parent).is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("LOGBOOK"))
+        })) {
+            if let Some(target) = orgize::ast::Target::cast(node.clone()) {
+                targets.push(DocumentLinkTarget { target: target.raw().trim_start_matches("<<").trim_end_matches(">>").trim().into(), priority: 0 });
+            } else if let Some(keyword) = orgize::ast::AffiliatedKeyword::cast(node) {
+                if keyword.key().eq_ignore_ascii_case("NAME") {
+                    if let Some(value) = keyword.value().filter(|value| !value.trim().is_empty()) {
+                        targets.push(DocumentLinkTarget { target: value.trim().into(), priority: 1 });
+                    }
+                }
+            }
+        }
+    }
+    targets
+}
+
+// 内部链接键与目的地均由 Core 投影；宿主只匹配当前文档的语义键。
+fn internal_target_attributes(targets: &[String], priority: u8) -> String {
+    let json = serde_json::to_string(targets).expect("内部链接目标");
+    // 目的地是机器可读元数据，避免其文字与正文搜索、链接源码样式混淆。
+    let json = json.chars().map(|value| {
+        if value.is_ascii() { value.to_string() }
+        else { value.encode_utf16(&mut [0; 2]).iter().map(|unit| format!("\\u{unit:04x}")).collect() }
+    }).collect::<String>();
+    let escaped = HtmlEscape(json).to_string().replace('[', "&#91;").replace(']', "&#93;");
+    format!(" data-org-link-targets=\"{escaped}\" data-org-link-priority=\"{priority}\"")
+}
+
+fn rendered_link_href(path: &str) -> Option<String> {
+    external_link_href(path).or_else(|| {
+        if path.is_empty() || path.chars().any(char::is_control)
+            || (!path.starts_with(['#', '*']) && (path.contains(':') || path.starts_with(['/', '.', '~']))) {
+            return None;
+        }
+        let encoded = path.bytes().map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) { (byte as char).to_string() }
+            else { format!("%{byte:02X}") }
+        }).collect::<String>();
+        Some(format!("org-internal:{encoded}"))
+    })
+}
+
 fn external_link_href(path: &str) -> Option<String> {
     if path.chars().any(char::is_control) {
         return None;
@@ -934,7 +1018,7 @@ mod tests {
     #[test]
     fn document_sections_include_empty_and_literal_content_without_executing_html() {
         let empty = file("").document_sections();
-        assert_eq!(empty, [DocumentSection { path: None, html: String::new(), blocks: Vec::new() }]);
+        assert_eq!(empty, [DocumentSection { path: None, html: String::new(), blocks: Vec::new(), link_targets: Vec::new() }]);
         let sections = file("* TODO 空任务\n** 普通标题\n#+begin_export html\n<script>bad()</script>\n#+end_export\n").document_sections();
         assert!(sections[1].html.trim().is_empty());
         assert!(sections[2].html.contains("&lt;script&gt;"));
@@ -1398,4 +1482,26 @@ mod tests {
         assert!(view.0.finish().is_empty());
         assert!(view.2.unwrap().contains("CLOCK:"));
     }
+    #[test]
+    fn internal_links_project_semantic_targets_and_leave_literal_sources_untouched() {
+        let source = "#+TITLE: [[#custom][目录]]\n前言 [[*章节][标题]] [[目的地]] [[命名元素]]\n* TODO 章节\n:PROPERTIES:\n:CUSTOM_ID: custom\n:END:\n这里 <<目的地>>\n#+NAME: 命名元素\n命名正文\n\n#+begin_src org\n<<伪目标>>\n[[#脚本字面链接]]\n#+end_src\n";
+        let document = file(source);
+        assert_eq!(document.title_parts()[0].href.as_deref(), Some("org-internal:%23custom"));
+        let sections = document.document_sections();
+        assert!(sections[1].link_targets.contains(&DocumentLinkTarget { target: "#custom".into(), priority: 2 }));
+        assert!(sections[1].link_targets.contains(&DocumentLinkTarget { target: "*章节".into(), priority: 2 }));
+        assert!(sections[1].link_targets.contains(&DocumentLinkTarget { target: "目的地".into(), priority: 0 }));
+        assert!(sections[1].link_targets.contains(&DocumentLinkTarget { target: "命名元素".into(), priority: 1 }));
+        assert!(!sections[1].link_targets.iter().any(|target| target.target == "伪目标"));
+        let html = document.render_document_html();
+        assert!(html.contains("data-org-link-targets="), "{html}");
+        assert!(html.contains("org-internal:%2A"));
+        assert!(html.contains("data-org-url="));
+        assert!(html.contains("&lt;&lt;伪目标&gt;&gt;"));
+        assert_eq!(document.source_bytes(), source.as_bytes());
+        for href in ["javascript:alert(1)", "file:other.org", "../other.org", "/secret", "data:text/html,hello"] {
+            assert!(rendered_link_href(href).is_none());
+        }
+    }
+
 }

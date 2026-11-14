@@ -1,3 +1,4 @@
+import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { TaskTextBlock } from './TaskTextBlock'
 import { TaskListBlock } from './TaskListBlock'
@@ -9,6 +10,7 @@ import { UiColor } from '../../ui/Theme'
 
 @Component
 export struct TaskContentBlocks {
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop blocks: CoreContentBlock[] = []
   @Prop readonly: boolean = false
   @Prop disabled: boolean = false
@@ -35,17 +37,17 @@ export struct TaskContentBlocks {
         if (block.kind === 'checklist') {
           this.checklist(block)
         } else if (block.kind === 'list') {
-          TaskListBlock({ block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
+          TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
             contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
             begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
             linkEditingChanged: this.linkEditingChanged }).width('100%')
         } else if (block.kind === 'table') {
-          TaskTableBlock({ block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
+          TaskTableBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
             contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
             begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
             linkEditingChanged: this.linkEditingChanged }).width('100%')
         } else {
-          TaskTextBlock({ block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
+          TaskTextBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision,
             contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
             begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
             linkEditingChanged: this.linkEditingChanged }).width('100%')

@@ -1,3 +1,4 @@
+import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { OrgContentView } from '../OrgContentView'
 import { LinkEditController } from '../LinkView'
@@ -7,6 +8,7 @@ import { UiColor } from '../../ui/Theme'
 // 文本、普通列表和表格共用阅读外壳；readonly 只关闭修改入口，保留阅读与链接跳转。
 @Component
 export struct TaskBlockView {
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop block: CoreContentBlock
   @Prop @Watch('readonlyChanged') readonly: boolean = false
   @Prop disabled: boolean = false
@@ -80,7 +82,7 @@ export struct TaskBlockView {
             .enabled(!this.readonly && !this.saving && !this.disabled).onClick((): void => { this.finish() })
         }.width('100%').justifyContent(FlexAlign.End)
       } else {
-        OrgContentView({ fragment: this.block.html, revision: this.revision, embedded: true, embeddedPadding: 0,
+        OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, embedded: true, embeddedPadding: 0,
           editable: !this.readonly && !this.disabled && this.changeLink !== undefined,
           linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
           changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,

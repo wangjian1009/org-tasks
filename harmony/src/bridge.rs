@@ -60,6 +60,7 @@ pub struct HarmonyBridgeFile {
     #[serde(rename = "documentHtml")]
     pub document_html: String,
     #[serde(rename = "documentSections")]
+    // 包含 Core 的 linkTargets，完整透传而不在 bridge 解析目标。
     pub document_sections: Vec<org_tasks_core::DocumentSection>,
     #[serde(rename = "fileTags")]
     pub file_tags: Vec<String>,
@@ -923,6 +924,8 @@ mod tests {
         assert_eq!(snapshot["specialTags"], serde_json::json!(["project", "REFILE", "ARCHIVE", "CONFLICT", "ATTACH"]));
         assert_eq!(snapshot["documentSections"].as_array().unwrap().len(), 3);
         assert!(snapshot["documentSections"][0]["path"].is_null());
+        assert!(snapshot["documentSections"][1]["linkTargets"].as_array().unwrap().iter()
+            .all(|target| target["target"].is_string() && target["priority"] == 2));
         assert_eq!(snapshot["documentSections"][1]["path"], snapshot["nodes"][0]["fullPath"]);
         assert!(snapshot["documentHtml"].as_str().unwrap().contains("document-project-name"));
         assert!(snapshot["documentHtml"].as_str().unwrap().contains("data-org-task=\"true\""));

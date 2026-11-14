@@ -6,11 +6,19 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
-  console.log('用法: node scripts/test-links.cjs\n验证链接控件的网页、邮件、电话、地图跳转和失败反馈，以及异步生命周期隔离。');
+  console.log('用法: node scripts/test-links.cjs\n验证链接控件的网页、邮件、电话、地图跳转和失败反馈，内部链接、协议切换、长按拷贝与编辑，以及异步生命周期隔离。');
   process.exit(0);
 }
 const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+function presentation() {
+  const module = { exports: {} };
+  const input = fs.readFileSync('entry/src/main/ets/ui/LinkPresentation.ets','utf8');
+  const code = ts.transpileModule(input,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  vm.runInThisContext('(function(module,exports,$r){'+code+'})')(module,module.exports,name=>({name}));
+  return module.exports;
+}
+const linkPresentation = presentation();
 const filename = 'entry/src/main/ets/components/LinkView.ets';
 const source = fs.readFileSync(filename, 'utf8');
 const behavior = source.slice(0, source.indexOf('  build() {')).replace(/  @Builder\n[\s\S]*?\n  \}\n/g, '')
@@ -29,15 +37,22 @@ function fixture() {
     async startAbility(...args) { calls.push(['ability', ...args]); await start(...args); }
   };
   const mocks = {
+    '@kit.BasicServicesKit': { pasteboard: {
+      MIMETYPE_TEXT_PLAIN: 'text/plain', createData: (type,value) => ({type,value}),
+      getSystemPasteboard: () => ({ async setData(value) { calls.push(['copy',value]); } })
+    } },
+    '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({width:390}) } },
+    '../ui/LinkPresentation': linkPresentation,
     '@kit.MapKit': { petalMaps: { async openMapTextSearch(...args) { calls.push(['search', ...args]); await search(...args); } } },
     '../ui/Theme': { UiSize: { taskFont: 16 }, UiColor: { surface: '#2D2C2B', text: '#D8D8D8',
       secondary: '#AEACA9', field: '#3A3E3F', error: '#FF7592' } }
   };
-  vm.runInThisContext('(function(require,module,exports,FontWeight,$r){' + code + '\n})', { filename })(
+  vm.runInThisContext('(function(require,module,exports,FontWeight,$r,TextController){' + code + '\n})', { filename })(
     name => { assert.ok(name in mocks, name); return mocks[name]; }, module, module.exports,
-    { Normal: 400 }, name => ({ name }));
+    { Normal: 400 }, name => ({ name }), class {});
   const view = new module.exports.LinkView();
-  view.getUIContext = () => ({ getHostContext: () => context,
+  view.getUIContext = () => ({ getHostContext: () => context, px2vp: value => value,
+    getFocusController: () => ({requestFocus() {}}),
     getPromptAction: () => ({ showToast: ({message}) => messages.push(message) }) });
   view.getUniqueId = () => 1;
   view.aboutToAppear();
@@ -133,13 +148,13 @@ function linkHit() {
     href: 'https://example.com/', label: '资料', x: 120, y: 28, width: 390 };
 }
 
-test('可编辑链接只打开浮动菜单，进入原地两字段编辑，成功保存后退出编辑', async () => {
+test('可编辑链接单击进入原地两字段编辑，成功保存后退出编辑', async () => {
   const f = fixture(), changes = [], states = [];
   f.view.editable = true;f.view.revision = 'v1';
   f.view.change = async (...args) => changes.push(args);
   f.view.editingChanged = value => states.push(value);
-  const hit = linkHit();f.view.select(hit);
-  assert.equal(f.view.menuVisible, true);assert.deepEqual(f.calls, []);
+  const hit = linkHit();await f.view.select(hit);
+  assert.equal(f.view.menuVisible, false);assert.deepEqual(f.calls, []);
   await f.view.beginEdit();
   assert.equal(f.view.editing, true);assert.equal(f.view.menuVisible, false);
   assert.equal(f.view.titleDraft, '资料');assert.equal(f.view.urlDraft, 'https://example.com');
@@ -152,10 +167,10 @@ test('可编辑链接只打开浮动菜单，进入原地两字段编辑，成�
 test('取消不提交，删除传递具体链接和空值，重复网址不会依赖 href 定位', async () => {
   const f = fixture(), changes = [];
   f.view.editable = true;f.view.change = async (...args) => changes.push(args);
-  f.view.select(linkHit());await f.view.beginEdit();
+  await f.view.select(linkHit());await f.view.beginEdit();
   f.view.titleDraft = '放弃的草稿';f.view.cancelEdit();assert.deepEqual(changes, []);
   const second = linkHit();second.link.start = 60;second.link.end = 87;
-  f.view.select(second);assert.equal(await f.view.commit(null), true);
+  await f.view.select({...second,menu:true});assert.equal(await f.view.commit(null), true);
   assert.deepEqual(changes, [[second.link, null]]);
 });
 
@@ -163,7 +178,7 @@ test('保存失败、空地址及版本变化保留草稿，结束输入同样�
   const f = fixture();let failed = true;
   f.view.editable = true;f.view.revision = 'v1';
   f.view.change = async () => { if (failed) throw new Error('版本冲突'); };
-  f.view.select(linkHit());await f.view.beginEdit();f.view.titleDraft = '保留的草稿';
+  await f.view.select(linkHit());await f.view.beginEdit();f.view.titleDraft = '保留的草稿';
   assert.equal(await f.view.editor.finish(), false);assert.equal(f.view.editing, true);
   assert.equal(f.view.titleDraft, '保留的草稿');assert.match(f.view.editError, /版本冲突/);
   failed = false;f.view.urlDraft = '';assert.equal(await f.view.saveEdit(), false);
@@ -175,11 +190,11 @@ test('保存失败、空地址及版本变化保留草稿，结束输入同样�
 test('共享编辑控制器阻止同时编辑两个链接，旧草稿保存失败时不切换', async () => {
   const first = fixture(), second = fixture();let saved = false;
   first.view.editable = true;first.view.change = async () => { if (!saved) throw new Error('保存失败'); };
-  first.view.select(linkHit());await first.view.beginEdit();first.view.titleDraft = '未保存的标题';
+  await first.view.select(linkHit());await first.view.beginEdit();first.view.titleDraft = '未保存的标题';
   second.view.editor.release(1);second.view.editor = first.view.editor;
   second.view.getUniqueId = () => 2;second.view.aboutToAppear();
   second.view.editable = true;second.view.change = async () => {};
-  second.view.select(linkHit());await second.view.beginEdit();assert.equal(second.view.editing, false);
+  await second.view.select(linkHit());await second.view.beginEdit();assert.equal(second.view.editing, false);
   saved = true;await second.view.beginEdit();
   assert.equal(first.view.editing, false);assert.equal(second.view.editing, true);
 });
@@ -195,7 +210,8 @@ test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入�
       focus() { focused = this; }
     };
   }
-  const anchor = { dataset: { orgLink: JSON.stringify(link) }, after(node) { form = node; } };
+  const anchor = { dataset: { orgLink: JSON.stringify(link) }, after(node) { form = node; },
+    querySelector() { return true; }, getAttribute(name) { return name==='data-org-url'?'https://example.com/':''; } };
   const window = { OrgTaskLinks: {
     draft: (...values) => drafts.push(values), save: (...values) => saved.push(values)
   } };
@@ -217,4 +233,88 @@ test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入�
   assert.equal(prevented, 2);
   assert.deepEqual(saved, [['修改标题', 'https://example.com/updated']]);
   assert.deepEqual(drafts, saved);
+});
+
+test('协议选择替换前缀并保留内容，同类选择不改写原地址，图标区分跳转类型', () => {
+  const {linkProtocol, switchLinkProtocol, internalLinkTarget, LINK_PROTOCOLS} = linkPresentation;
+  assert.equal(switchLinkProtocol('https://example.com/a?b=1','http'),'http://example.com/a?b=1');
+  assert.equal(switchLinkProtocol('mailto:team@example.com','https'),'https://team@example.com');
+  assert.equal(switchLinkProtocol('tel:12345','internal'),'12345');
+  assert.equal(switchLinkProtocol('*章节','https'),'https://*章节');
+  assert.equal(switchLinkProtocol('HTTPS://EXAMPLE.com/a','https'),'HTTPS://EXAMPLE.com/a');
+  assert.equal(internalLinkTarget('org-internal:%23%E7%AB%A0%E8%8A%82'),'#章节');
+  assert.equal(internalLinkTarget('org-internal:%invalid'),undefined);
+  assert.equal(linkProtocol('javascript:alert(1)').kind,'other');
+  assert.equal(new Set(['https:','mailto:','tel:','geo:','addr:','*章节'].map(value=>linkProtocol(value).icon.name)).size,6);
+  assert.equal(LINK_PROTOCOLS.length,7);
+});
+
+test('长按菜单始终支持拷贝，只有可编辑且有快照位置的链接提供编辑和删除', async () => {
+  const f = fixture(), hit = linkHit();
+  await f.view.select({...hit,menu:true});
+  assert.equal(f.view.menuVisible,true);assert.deepEqual(f.calls,[]);
+  assert.deepEqual(f.view.menuItems().map(item=>item.title),['拷贝链接','拷贝标题']);
+  await f.view.copySelected(false);await f.view.copySelected(true);
+  assert.deepEqual(f.calls,[['copy',{type:'text/plain',value:hit.link.url}],['copy',{type:'text/plain',value:'资料'}]]);
+  f.view.editable=true;f.view.change=async()=>{};
+  await f.view.select({...hit,menu:true});
+  assert.deepEqual(f.view.menuItems().map(item=>item.title),['拷贝链接','拷贝标题','编辑','删除']);
+  assert.equal(f.view.editing,false);
+  await f.view.select({link:null,href:'',url:'custom:original',label:'未知协议',x:0,y:0,width:390,menu:true});
+  await f.view.copySelected(false);
+  assert.equal(f.calls.at(-1)[1].value,'custom:original');
+  assert.deepEqual(f.view.menuItems().map(item=>item.title),['拷贝链接','拷贝标题']);
+});
+
+test('内部处理对象验证目标再执行；目标失效不跳转，异步验证不能跨页面生命周期执行', async () => {
+  const f = fixture(), internal = [];
+  let valid=true, release;
+  f.view.internalLinkProcessor={async isValid(target){internal.push(['valid',target]);return valid;},async process(target){internal.push(['process',target]);}};
+  await f.view.links.open('org-internal:%23chapter');
+  assert.deepEqual(internal,[['valid','#chapter'],['process','#chapter']]);assert.deepEqual(f.calls,[]);
+  valid=false;await f.view.links.open('org-internal:%23missing');
+  assert.deepEqual(internal.at(-1),['valid','#missing']);assert.match(f.messages.at(-1),/目标不存在/);
+  f.view.internalLinkProcessor.isValid=()=>new Promise(resolve=>{release=resolve;});
+  const pending=f.view.links.open('org-internal:%23chapter');
+  f.view.aboutToDisappear();f.view.aboutToAppear();release(true);await pending;
+  assert.equal(internal.filter(row=>row[0]==='process').length,1);assert.equal(f.view.launching,false);
+});
+
+function internalScript() {
+  const input=fs.readFileSync('entry/src/main/ets/ui/InternalLinkProcessor.ets','utf8');
+  const output=ts.transpileModule(input,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const module={exports:{}};
+  vm.runInThisContext('(function(module,exports){'+output+'})')(module,module.exports);
+  return module.exports.documentInternalLinkScript;
+}
+test('文档跳转按 Core 提供的优先级选择目的地，验证不滚动，执行展开折叠祖先', () => {
+  const script=internalScript(), scrolled=[];
+  const parent={open:false,parentElement:null,matches:selector=>selector==='details'};
+  function target(priority,name){return {parentElement:parent,matches:()=>false,
+    getAttribute:key=>key==='data-org-link-targets'?JSON.stringify(['目标']):String(priority),scrollIntoView:()=>scrolled.push(name)};}
+  const nodes=[target(2,'标题'),target(1,'NAME'),target(0,'专用目标')];
+  const document={querySelectorAll:()=>nodes};
+  assert.equal(vm.runInNewContext(script('目标',false),{document}),true);assert.deepEqual(scrolled,[]);assert.equal(parent.open,false);
+  assert.equal(vm.runInNewContext(script('目标',true),{document}),true);assert.deepEqual(scrolled,['专用目标']);assert.equal(parent.open,true);
+  assert.equal(vm.runInNewContext(script('失效目标',true),{document}),false);assert.deepEqual(scrolled,['专用目标']);
+});
+
+test('Web 单击与长按分离，滚动取消长按，字段点击不触发链接或宿主动作', () => {
+  const f=fixture(), hits=[], handlers={}, timers=new Map();let sequence=0;
+  const hit=linkHit();
+  const anchor={dataset:{orgLink:JSON.stringify(hit.link)},querySelector:()=>true,
+    getAttribute:key=>({href:hit.href,'data-org-url':hit.link.url}[key]||''),textContent:'资料',
+    getBoundingClientRect:()=>({left:20,top:40,width:50})};
+  const window={innerWidth:390,OrgTaskLinks:{hit:payload=>hits.push(JSON.parse(payload))}};
+  vm.runInNewContext(f.documentScript(true),{window,document:{querySelectorAll:()=>[anchor],
+    addEventListener:(key,callback)=>handlers[key]=callback,removeEventListener(){}},
+    setTimeout:callback=>{timers.set(++sequence,callback);return sequence;},clearTimeout:id=>timers.delete(id)});
+  function event(form=false){return {button:0,clientX:20,clientY:40,
+    target:{closest:selector=>selector==='.org-link-editor'?(form?{}:null):anchor},preventDefault(){},stopPropagation(){}};}
+  handlers.click(event());assert.equal(hits.length,1);assert.equal(hits[0].menu,false);
+  handlers.pointerdown(event());const callback=[...timers.values()][0];callback();
+  assert.equal(hits.length,2);assert.equal(hits[1].menu,true);
+  handlers.click(event());assert.equal(hits.length,2);
+  handlers.pointerdown(event());handlers.pointermove({...event(),clientX:100});assert.equal(timers.size,0);
+  handlers.click(event(true));assert.equal(hits.length,2);
 });

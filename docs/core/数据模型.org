@@ -894,7 +894,7 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 
 ** 文档分段投影
 
-~DocumentSection~ 是只读运行时投影，包含可空完整节点路径 ~path~ 、安全正文 ~html~ 与有序正文 ~blocks~ 。 ~OrgFile.document_sections()~ 返回前言及按文件顺序排列的直属正文；前言路径为空，标题项路径与同版本节点接口一致，重名标题通过出现次序区分。投影不含标题、规划行、后代正文与受保护冲突材料，正文和前言均跳过真实的 PROPERTIES 与 LOGBOOK 抽屉，保留代码及示例中的同名字面内容与其他普通 drawer，前言隐藏文件头配置；结构化节点日志与原始属性不变，不新增持久化数据。 ~file_tags()~ 保留有效文件标签， ~special_tags()~ 提供隐藏展示的内部标签列表，不改变查询或源字节。
+~DocumentSection~ 是只读运行时投影，包含可空完整节点路径 ~path~ 、安全正文 ~html~ 、有序正文 ~blocks~ 与内部链接目标 ~link_targets~ 。 ~OrgFile.document_sections()~ 返回前言及按文件顺序排列的直属正文；前言路径为空，标题项路径与同版本节点接口一致，重名标题通过出现次序区分。投影不含标题、规划行、后代正文与受保护冲突材料，正文和前言均跳过真实的 PROPERTIES 与 LOGBOOK 抽屉，保留代码及示例中的同名字面内容与其他普通 drawer，前言隐藏文件头配置；结构化节点日志与原始属性不变，不新增持久化数据。 ~file_tags()~ 保留有效文件标签， ~special_tags()~ 提供隐藏展示的内部标签列表，不改变查询或源字节。
 
 \begin{center}
 \begin{tikzpicture}
@@ -902,7 +902,11 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 file\_tags(): Vec\textless String\textgreater \\
 special\_tags(): Vec\textless String\textgreater}
 \umlclass[x=8,y=0]{DocumentSection}{path: Option\textless TaskPath\textgreater \\
-html: String}{}
+html: String \\
+blocks: Vec\textless ContentBlock\textgreater \\
+link\_targets: Vec\textless DocumentLinkTarget\textgreater}{}
+\umlclass[x=0,y=-4]{DocumentLinkTarget}{target: String \\ priority: u8}{}
+\umlcompo[mult2=*]{DocumentSection}{DocumentLinkTarget}
 \umldep{OrgFile}{DocumentSection}
 \umlclass[x=8,y=-4]{TaskPath}{repo\_id \\ file \\ titles \\ occurrence}{}
 \umluniassoc[mult1=1,mult2=0..1]{DocumentSection}{TaskPath}
@@ -936,7 +940,7 @@ logbook\_html: String \\
 
 ** 标题行内投影
 
-~TitlePart~ 为标题渲染的运行时数据结构，字段是显示文字 ~text~ 、可选的外部链接 ~href~ 、来源是否为链接的 ~is_link~ 标记，以及可空的分数统计 ~count: Option<TitleCount>~ 。 ~TitleCount~ 的 ~completed~ 与 ~total~ 为可空的 ~u32~ ，仅空统计的两者均为空；有效分数保留文件记录的原始计数，零总数不作为已完成。异常分数与百分比保留普通文字，不新增持久化数据。 ~OrgFile.title_parts()~ 与 ~FilterTask.title_parts()~ 返回该结构的有序数组，文件元信息的 ~title_parts~ 复用文件标题结果。原始文件标题、任务标题、文件字节、逻辑 ID 与查询语义不变；投影不进入同步历史、outbox 或其他持久化数据。链接描述与统计节点均由 Core 解析，宿主不再次解释 Org 源码。
+~TitlePart~ 为标题渲染的运行时数据结构，字段是显示文字 ~text~ 、可选的外部链接 ~href~ （含 Core 编码的文档内部 URI）、来源是否为链接的 ~is_link~ 标记，以及可空的分数统计 ~count: Option<TitleCount>~ 。 ~TitleCount~ 的 ~completed~ 与 ~total~ 为可空的 ~u32~ ，仅空统计的两者均为空；有效分数保留文件记录的原始计数，零总数不作为已完成。异常分数与百分比保留普通文字，不新增持久化数据。 ~OrgFile.title_parts()~ 与 ~FilterTask.title_parts()~ 返回该结构的有序数组，文件元信息的 ~title_parts~ 复用文件标题结果。原始文件标题、任务标题、文件字节、逻辑 ID 与查询语义不变；投影不进入同步历史、outbox 或其他持久化数据。链接描述与统计节点均由 Core 解析，宿主不再次解释 Org 源码。
 
 坐标地址使用 Org 的 ~geo:~ URI，例如 ~[[geo:39.9042,116.4074][北京市]]~ 。文字地址使用应用约定的 ~addr:~ 协议，例如 ~[[addr:北京市朝阳区][北京市朝阳区]]~ ；宿主点击时转换为地图搜索 URI。没有经纬度时也可以使用 ~[[geo:0,0?q=北京市][北京市]]~ ，其中 ~0,0~ 表示交由地图按地址搜索。Core 保留完整 URI，宿主负责调用系统地图应用，不把地址文字转换为新的文件内容。
 
@@ -1542,7 +1546,7 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TaskEditContent}{blocks: Vec}{}
-\umlclass[x=7,y=0]{DocumentSection}{path: Option \\ html: String \\ blocks: Vec}{}
+\umlclass[x=7,y=0]{DocumentSection}{path: Option \\ html: String \\ blocks: Vec \\ link\_targets: Vec}{}
 \umlclass[x=3.5,y=-4]{ContentBlock}{id: String \\ kind: ContentBlockKind \\ source: String \\ html: String \\ items: Vec}{}
 \umlclass[x=3.5,y=-8,type=enumeration]{ContentBlockKind}{Text \\ List \\ Table \\ Checklist}{}
 \umlcompo[mult2=*]{TaskEditContent}{ContentBlock}
@@ -1794,3 +1798,9 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{has\_attach: bool}{has\_attach(): bool}
 \end{tikzpicture}
+
+* 文档内部链接目的地
+
+~DocumentLinkTarget~ 是运行时只读值，包含 ~target~ 与 ~priority~ ，通过 ~DocumentSection.link_targets~ 关联到当前文件的前言或标题直属区域。Core 从 orgize AST 提取专用目标、NAME 命名元素、标题与 CUSTOM_ID，保留文件顺序，按专用目标、命名元素、标题的顺序匹配普通目标。源码、示例中的伪目标不参与解析；索引不保存到 Org、同步记录或 Preferences。
+
+完整 HTML 和分段阅读共用同一目标语义。内部链接的 ~org-internal:~ URI 只存在于展示投影，原始 ~TextLink.url~ 和编辑输入继续保留 ~#custom-id~ 、 ~*标题~ 或普通目标名。HTML 的目标键元数据使用 JSON 与 HTML 属性转义，宿主消费元数据而不解释 Org 源码；图标、菜单、焦点与滚动属于宿主交互。

@@ -1,3 +1,4 @@
+import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { CoreTask } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
 import { UiColor } from '../ui/Theme'
@@ -7,12 +8,13 @@ import { visibleProjectTags } from '../ui/ProjectReadingPresentation'
 // 普通标题独立渲染，不提供任务状态或任务编辑入口。
 @Component
 export struct OrgHeadingView {
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop node: CoreTask
   @Prop specialTags: string[] = []
 
   build() {
     Column({ space: 8 }) {
-      TitleText({ text: this.node.heading, parts: this.node.headingParts,
+      TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.node.heading, parts: this.node.headingParts,
         textSize: this.node.level === 1 ? 22 : this.node.level === 2 ? 20 : 18,
         weight: FontWeight.Medium, copyable: true }).width('100%')
       if (visibleProjectTags(this.node.ownTags, this.specialTags).length > 0) {
