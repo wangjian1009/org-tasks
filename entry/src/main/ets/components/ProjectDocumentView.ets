@@ -1,4 +1,4 @@
-import { ProjectReadingSection, visibleProjectTags } from '../ui/ProjectReadingPresentation'
+import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { OrgContentView } from './OrgContentView'
 import { OrgHeadingView } from './OrgHeadingView'
@@ -65,11 +65,11 @@ export struct ProjectDocumentView {
   outlineSheet() {
     Column({ space: 12 }) {
       Text('文档目录').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%')
-      if (!this.sections.some((section: ProjectReadingSection) => section.node !== null)) {
+      if (projectOutlineSections(this.sections).length === 0) {
         Text('本文没有章节标题').fontSize(14).fontColor(UiColor.secondary).padding(24)
       }
       List() {
-        ForEach(this.sections, (section: ProjectReadingSection) => {
+        ForEach(projectOutlineSections(this.sections), (section: ProjectReadingSection) => {
           if (section.node) {
             ListItem() {
               Text(section.node.heading).fontSize(15).fontColor(UiColor.text).width('100%')
@@ -98,7 +98,7 @@ export struct ProjectDocumentView {
           Column() {
             if (section.node) {
               if (section.node.state) {
-                TaskListItem({ task: section.node, documentMode: true, hiddenTags: this.specialTags,
+                TaskListItem({ task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')

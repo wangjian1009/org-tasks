@@ -21,3 +21,8 @@ export function projectReadingSections(file: CoreOrgFile): ProjectReadingSection
 export function visibleProjectTags(tags: string[], specialTags: string[]): string[] {
   return tags.filter((tag: string) => !specialTags.includes(tag))
 }
+
+// 目录只列普通章节；任务及其直属正文仍保留在完整文档中。
+export function projectOutlineSections(sections: ProjectReadingSection[]): ProjectReadingSection[] {
+  return sections.filter((section: ProjectReadingSection) => section.node !== null && !section.node.state)
+}

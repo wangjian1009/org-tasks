@@ -47,6 +47,7 @@ export struct TaskListItem {
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
   @Prop documentMode: boolean = false
+  @Prop contentHidden: boolean = false
   @Prop expandOnRowClick: boolean = false
   @Prop hiddenTags: string[] = []
   @Prop allowCompletion: boolean = false
@@ -1158,9 +1159,9 @@ export struct TaskListItem {
         autoCancel: !this.working && !this.priorityBusy, onWillDismiss: !this.working && !this.priorityBusy,
         onStateChange: (event): void => { this.priorityOpen = event.isVisible } })
     Column({ space: 12 }) {
-      if (this.documentMode) {
+      if (!this.contentHidden && this.documentMode) {
         this.documentChecklist()
-      } else {
+      } else if (!this.contentHidden) {
       if (this.notesInput) {
       TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
@@ -1299,7 +1300,7 @@ export struct TaskListItem {
           .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
         Blank().layoutWeight(1)
         this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
-        if (!this.documentMode) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
+        if (!this.documentMode && !this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
         Button({ type: ButtonType.Normal }) {
           Row({ space: 4 }) {
             Image(this.deadlineIcon()).width(16).height(16)
@@ -1339,7 +1340,7 @@ export struct TaskListItem {
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
     Column({ space: 8 }) {
-      if (!this.documentMode && this.value().bodyHtml) {
+      if (!this.contentHidden && !this.documentMode && this.value().bodyHtml) {
         OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
           editable: false, contentBackground: UiColor.taskCard }).width('100%')
       }
@@ -1423,6 +1424,9 @@ export struct TaskListItem {
       } else {
         this.compactRow()
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
+      }
+      if (this.documentMode && this.contentHidden && this.expanded) {
+        this.documentChecklist()
       }
     }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)
       .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.taskDoingTint : Color.Transparent).borderRadius(12)

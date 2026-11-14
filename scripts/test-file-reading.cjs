@@ -416,6 +416,25 @@ test('主动刷新等待任务草稿保存，失败保留当前快照且不读�
   assert.equal(reads, 1); assert.equal(f.page.fileVersion, 'v2');
 });
 
+test('项目目录仅列普通章节，保留任务下的章节与重名路径，完整正文不变', () => {
+  const section = (key, heading, state = null) => ({ key, html: `<p>${key} 正文</p>`, node: {
+    heading, state, fullPath: { repoId: 'r', file: 'p.org', titles: key.split('/'), occurrence: 1 }
+  } });
+  const sections = [
+    { key: 'preamble', node: null, html: '<p>前言</p>' },
+    section('chapter', '实施'), section('task', '任务', { name: 'NEXT', category: 'Todo' }),
+    section('task/chapter', '实施'), section('done', '完成', { name: 'FINISHED', category: 'Done' }),
+    section('cancel', '取消', { name: 'CANCELLED', category: 'Cancel' }), section('literal', 'TODO 文字章节')
+  ];
+  const snapshot = JSON.stringify(sections);
+  const outline = projectReading.projectOutlineSections(sections);
+  assert.deepEqual(outline.map(item => item.key), ['chapter', 'task/chapter', 'literal']);
+  assert.equal(outline[1], sections[3]);
+  assert.equal(JSON.stringify(sections), snapshot);
+  assert.deepEqual(projectReading.projectOutlineSections(sections.filter(item => item.node?.state)), []);
+  assert.deepEqual(projectReading.projectOutlineSections([]), []);
+});
+
 function nativeProjectFixture() {
   let save = async () => true;
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
