@@ -39,6 +39,7 @@ export struct OrgContentView {
   private tapY: number = 0
   private tapTime: number = 0
   private tapMoved: boolean = false
+  private pressTimer: number = -1
   ready: () => void = () => {}
   measured: () => void = () => {}
   failed: (message: string) => void = () => {}
@@ -109,7 +110,12 @@ export struct OrgContentView {
     } catch (_) { /* 命中检查失败时不把链接或输入误认为正文区块。 */ }
   }
 
-  aboutToDisappear() { this.documentGeneration++; this.active = false }
+  cancelPress() {
+    if (this.pressTimer !== -1) clearTimeout(this.pressTimer)
+    this.pressTimer = -1
+  }
+
+  aboutToDisappear() { this.cancelPress(); this.documentGeneration++; this.active = false }
 
   async measure() {
     if (!this.active || !this.embedded || !this.loaded || this.widthVp <= 0) return
@@ -133,6 +139,7 @@ export struct OrgContentView {
   }
 
   documentChanged() {
+    this.cancelPress()
     this.documentGeneration++
     if (!this.active || !this.loaded) return
     this.loadDocument()
@@ -153,13 +160,49 @@ export struct OrgContentView {
     if (this.loadRequested) {
       // 载入中更换了冲突或版本，旧页面结束后必须加载最新快照。
       if (this.requestedGeneration !== this.documentGeneration) { this.loadDocument(); return }
+      const generation = this.documentGeneration
       this.loaded = true
+      // 区块拥有长按菜单，关闭 Web 默认选词；链接表单仍保留文本选择。
+      if (this.contextMenu) {
+        try { await this.controller.runJavaScript(`(() => {
+          const style = document.createElement('style');
+          style.textContent = 'body { -webkit-user-select: none; user-select: none; } .org-link-editor, .org-link-editor * { -webkit-user-select: text; user-select: text; }';
+          document.head.append(style);
+        })()`) } catch (_) { /* 不影响正文加载。 */ }
+      }
+      if (!this.active || generation !== this.documentGeneration) return
       this.ready()
       this.measure()
       return
     }
     // 初始空白页结束后加载文档；URL 编码保留 CSS 中的 # 等字符。
     this.loadDocument()
+  }
+
+  touch(event: TouchEvent) {
+    const point = event.changedTouches[0]
+    if (point && event.type === TouchType.Down) {
+      LinkEditController.protectInteraction()
+      this.cancelPress()
+      if (this.contextMenu) this.pressTimer = setTimeout((): void => {
+        this.pressTimer = -1
+        this.contextMenuAt(point.x, point.y)
+      }, 500)
+      this.tapX = point.x; this.tapY = point.y; this.tapTime = Date.now(); this.tapMoved = false
+    }
+    if (point && event.type === TouchType.Move && Math.abs(point.x - this.tapX) + Math.abs(point.y - this.tapY) > 10) { this.tapMoved = true; this.cancelPress() }
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.cancelPress()
+    if (event.type === TouchType.Up) LinkEditController.protectInteraction()
+    if (event.type === TouchType.Up && point && this.horizontalParentFirst
+      && Math.abs(point.x - this.tapX) > 40
+      && Math.abs(point.x - this.tapX) > Math.abs(point.y - this.tapY) * 1.5) {
+      // Web 会消费横向手势；转交条目原生侧滑菜单，不把拖动当成链接点击。
+      this.horizontalSwipe(point.x < this.tapX)
+    }
+    if (event.type === TouchType.Up && (this.embedded || this.nodeActivated || this.conflictCardActivated)) {
+      setTimeout(() => { this.measure() }, 100)
+      if (point && !this.tapMoved && Date.now() - this.tapTime < 500) this.activateAt(point.x, point.y)
+    }
   }
 
   @Builder
@@ -188,23 +231,7 @@ export struct OrgContentView {
           if (width !== this.widthVp) { this.widthVp = width; this.measure() }
           else if (this.embedded && this.loaded && Math.abs(Number(newArea.height) - this.contentHeight) < 1) this.measured()
         })
-        .onTouch((event: TouchEvent) => {
-          const point = event.changedTouches[0]
-          if (point && event.type === TouchType.Down) {
-            this.tapX = point.x; this.tapY = point.y; this.tapTime = Date.now(); this.tapMoved = false
-          }
-          if (point && event.type === TouchType.Move && Math.abs(point.x - this.tapX) + Math.abs(point.y - this.tapY) > 10) this.tapMoved = true
-          if (event.type === TouchType.Up && point && this.horizontalParentFirst
-            && Math.abs(point.x - this.tapX) > 40
-            && Math.abs(point.x - this.tapX) > Math.abs(point.y - this.tapY) * 1.5) {
-            // Web 会消费横向手势；转交条目原生侧滑菜单，不把拖动当成链接点击。
-            this.horizontalSwipe(point.x < this.tapX)
-          }
-          if (event.type === TouchType.Up && (this.embedded || this.nodeActivated || this.conflictCardActivated)) {
-            setTimeout(() => { this.measure() }, 100)
-            if (point && !this.tapMoved && Date.now() - this.tapTime < 500) this.activateAt(point.x, point.y)
-          }
-        })
+        .onTouch((event: TouchEvent): void => { this.touch(event) })
         .onKeyEvent((event: KeyEvent) => {
           if (event.type === KeyType.Up && this.embedded) setTimeout(() => { this.measure() }, 100)
           return false

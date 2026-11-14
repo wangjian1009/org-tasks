@@ -181,7 +181,10 @@ export struct TaskBlockView {
         }.width('100%').justifyContent(FlexAlign.End)
       } else if (this.nativeChecklist) {
         Column() { this.readContent() }.width('100%')
-          .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent): void => {
+          .onTouch((event: TouchEvent): void => {
+            if (event.type === TouchType.Down || event.type === TouchType.Up) LinkEditController.protectInteraction()
+          })
+          .gesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent): void => {
             this.openMenu(event.fingerList[0]?.localX ?? 0, event.fingerList[0]?.localY ?? 0)
           }))
       } else {

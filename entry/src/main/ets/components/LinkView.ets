@@ -524,7 +524,6 @@ export struct LinkView {
   build() {
     if (this.document) {
       Stack({ alignContent: Alignment.TopStart }) { this.content(this.links); this.menuAnchor(); this.protocolAnchor() }.width('100%').height(this.contentHeight)
-        .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction() })
         .onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
         .bindSheet($$this.chooserVisible, this.mapAppSheet(), {
           height: SheetSize.FIT_CONTENT, detents: [SheetSize.FIT_CONTENT, '85%'], preferType: SheetType.BOTTOM,

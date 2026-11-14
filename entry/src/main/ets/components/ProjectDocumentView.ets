@@ -122,7 +122,10 @@ export struct ProjectDocumentView {
           }.width('100%').padding({ top: 8, bottom: 12 })
         }
         ForEach(this.sections, (section: ProjectReadingSection) => {
-          Column() {
+          Column({ space: section.node ? 0 : 12 }) {
+            if (!section.node && section.blocks.length > 0) {
+              Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
+            }
             if (section.node) {
               if (section.node.state) {
                 TaskEditor({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
@@ -134,10 +137,14 @@ export struct ProjectDocumentView {
               }
             }
             if (section.blocks.length > 0) {
-              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks }).width('100%')
+              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks,
+                contentBackground: section.node ? UiColor.surface : UiColor.projectBlock }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
-            .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 8 : 0 })
+            .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 8 : (section.blocks.length > 0 ? 16 : 0),
+              right: !section.node && section.blocks.length > 0 ? 16 : 0,
+              top: !section.node && section.blocks.length > 0 ? 16 : 0, bottom: !section.node && section.blocks.length > 0 ? 16 : 0 })
+            .backgroundColor(section.node ? Color.Transparent : UiColor.projectBlock).borderRadius(section.node ? 0 : 12)
             .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
         }, (section: ProjectReadingSection) => `${this.revision}:${section.key}`)
         if (this.sections.every((section: ProjectReadingSection) => section.node === null && section.blocks.length === 0)) {

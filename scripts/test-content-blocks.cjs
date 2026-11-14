@@ -248,7 +248,7 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
   const globals = {module,TaskContentBlocks:component('blocks'),TaskChecklistBlock:component('checklist'),
     TaskBlockView:component('block'),TaskDocumentContent:component('document'),ForEach:noop,Rect:rect,
     Alignment:{TopStart:'top'},HitTestMode:{None:'none'},projectContentGap:()=>0,
-    ViewPU:{create(){}},__Common__:common,Column:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
+    ViewPU:{create(){}},__Common__:common,Column:noop,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
   const code = ts.transpileModule('class Host {' + bodies.join('\n') + '}\nmodule.exports=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code, globals);
   const host = new module.exports();
@@ -274,10 +274,11 @@ test('编译后的项目竖线随实测正文高度变化并在正文底部前�
   Object.assign(f.host,{task:{state:null},blocks:[],bodyHeight:0});
   f.host.initialRender();assert.equal(f.children[0].projectReading,true);
   for(const height of [52,26,130]){
-    f.areaChanges[0]({}, {height});f.overlays[0]();
+    f.areaChanges[0]({}, {height});f.host.bodyGuide();
     assert.equal(f.guideHeights.at(-1),height-6);
   }
-  f.host.task=null;f.areaChanges[0]({}, {height:100});f.overlays[0]();
+  f.host.task=null;f.areaChanges[0]({}, {height:100});f.host.bodyGuide();
+  assert.deepEqual(f.overlays,[], '装饰线不能使用会拦截整块正文触摸的 overlay');
   assert.deepEqual(f.guideHeights,[46,20,124]);
 });
 

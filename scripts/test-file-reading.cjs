@@ -254,7 +254,7 @@ test('区块长按跳过链接与输入表单；切换快照或离开后忽略�
       }}));
     }}}},
     '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
-    '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'./LinkView':{LinkEditController:class {}}
+    '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'./LinkView':{LinkEditController:class {static protectInteraction(){}}}
   },source=>source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
     .replace('export struct OrgContentView','class Content')+'}\nmodule.exports={Content};');
   const view=new Content();view.loaded=true;view.widthVp=390;view.contextMenu=(x,y)=>hits.push([x,y]);
@@ -267,6 +267,30 @@ test('区块长按跳过链接与输入表单；切换快照或离开后忽略�
   assert.equal(hits.length,1);
   const leaving=view.contextMenuAt(14,24);view.aboutToDisappear();finish('false');await leaving;
   assert.equal(hits.length,1);
+});
+
+test('正文长按触发区块菜单，抬手、滚动、取消与换快照均撤销待触发长按', async () => {
+  const { Content }=load(base+'components/OrgContentView.ets',{
+    '@kit.ArkWeb':{webview:{WebviewController:class {}}},
+    '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
+    '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'./LinkView':{LinkEditController:class {static protectInteraction(){}}}
+  },source=>source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
+    .replace('export struct OrgContentView','class Content')+'}\nmodule.exports={Content};');
+  const previous=global.TouchType;
+  global.TouchType={Down:0,Up:1,Move:2,Cancel:3};
+  try {
+    const view=new Content(), hits=[];
+    view.contextMenu=()=>{};view.contextMenuAt=(x,y)=>hits.push([x,y]);
+    const event=(type,x=10,y=20)=>({type,changedTouches:[{x,y}]});
+    view.touch(event(0));await new Promise(resolve=>setTimeout(resolve,520));
+    assert.deepEqual(hits,[[10,20]]);
+    view.touch(event(1));
+    for(const cancel of [()=>view.touch(event(1)),()=>view.touch(event(2,30)),
+      ()=>view.touch(event(3)),()=>view.documentChanged(),()=>view.aboutToDisappear()]){
+      view.touch(event(0));assert.notEqual(view.pressTimer,-1);cancel();assert.equal(view.pressTimer,-1);
+    }
+    await new Promise(resolve=>setTimeout(resolve,520));assert.equal(hits.length,1);
+  } finally { global.TouchType=previous; }
 });
 
 test('链接字段切换引起 Web 滚动后，不按旧坐标结束链接草稿或进入整段备注输入', async () => {

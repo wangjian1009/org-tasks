@@ -3,27 +3,31 @@ import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { TaskDocumentContent } from './editors/TaskDocumentContent'
 import { UiColor } from '../ui/Theme'
 
-// 以直属正文的实际高度画线，避免百分比高度沿滚动容器贯穿后续章节。
+// 装饰线作为不参与命中的独立子节点，按正文实测高度收尾。
 @Component
 export struct ProjectSectionBody {
   @Prop task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
+  @Prop contentBackground: string = UiColor.surface
   @State bodyHeight: number = 0
 
   @Builder
   bodyGuide() {
     if (this.task && this.bodyHeight > 6) {
       Rect().width(1).height(this.bodyHeight - 6).fill(UiColor.divider)
+        .position({ x: this.task.state ? 8 : 0, y: 3 })
         .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
     }
   }
 
   build() {
-    TaskDocumentContent({ internalLinkProcessor: this.internalLinkProcessor, task: this.task,
-      blocks: this.blocks, readonly: this.task === null, projectReading: true }).width('100%')
-      .padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })
-      .onAreaChange((_old: Area, area: Area): void => { this.bodyHeight = Math.max(0, Number(area.height)) })
-      .overlay(this.bodyGuide(), { align: Alignment.TopStart, offset: { x: this.task?.state ? 8 : 0, y: 3 } })
+    Stack({ alignContent: Alignment.TopStart }) {
+      this.bodyGuide()
+      TaskDocumentContent({ internalLinkProcessor: this.internalLinkProcessor, task: this.task,
+        blocks: this.blocks, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
+        .padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })
+        .onAreaChange((_old: Area, area: Area): void => { this.bodyHeight = Math.max(0, Number(area.height)) })
+    }.width('100%')
   }
 }
