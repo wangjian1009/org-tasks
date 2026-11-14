@@ -33,6 +33,7 @@ export struct OrgContentView {
   nodeActivated: ((index: number) => void) | undefined = undefined
   conflictCardActivated: ((id: string, action: string) => void) | undefined = undefined
   activate: (() => void) | undefined = undefined
+  contextMenu: ((x: number, y: number) => void) | undefined = undefined
   horizontalSwipe: (left: boolean) => void = () => {}
   private tapX: number = 0
   private tapY: number = 0
@@ -93,6 +94,19 @@ export struct OrgContentView {
         if (generation === this.documentGeneration && this.active && Number.isInteger(index) && index >= 0) this.nodeActivated?.(index)
       }
     } catch (e) { /* 点击命中检查失败时保留阅读视图。 */ }
+  }
+
+  async contextMenuAt(x: number, y: number) {
+    if (!this.contextMenu || !this.loaded || !this.active || this.widthVp <= 0) return
+    const generation = this.documentGeneration
+    try {
+      const result = await this.controller.runJavaScript(`(() => {
+        if (document.querySelector('.org-link-editor')) return true;
+        const node = document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp});
+        return !node || Boolean(node.closest('a, .link, input, textarea, select, button'));
+      })()`)
+      if (result === 'false' && this.active && generation === this.documentGeneration) this.contextMenu(x, y)
+    } catch (_) { /* 命中检查失败时不把链接或输入误认为正文区块。 */ }
   }
 
   aboutToDisappear() { this.documentGeneration++; this.active = false }
@@ -162,6 +176,11 @@ export struct OrgContentView {
           return links.navigate(request.getRequestUrl(), this.active && request.isMainFrame())
         })
         .onScroll((event: OnScrollEvent): void => { this.scrolled(event.yOffset) })
+        .onContextMenuShow((event: OnContextMenuShowEvent): boolean => {
+          if (!this.contextMenu || event.param.isEditable()) return false
+          if (!event.param.getLinkUrl()) this.contextMenuAt(event.param.x(), event.param.y())
+          return true
+        })
         .onControllerAttached(() => { this.active = true; this.loadRequested = false; this.loaded = false })
         .onPageEnd(() => { this.pageEnded(); links.ready() })
         .onAreaChange((oldArea: Area, newArea: Area) => {

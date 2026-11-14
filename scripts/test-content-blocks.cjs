@@ -24,19 +24,62 @@ const policy = load('ui/TaskLogPresentation');
 const prefix = name => source => source.split('  build()')[0].replace(/@Component\n|@(Prop|State|Watch\([^)]*\))\s*/g, '')
   .replace('export struct ' + name, 'export class ' + name) + '}';
 function blockFixture() {
+  const copies = [], messages = [];
   const { TaskBlockView } = load('components/editors/TaskBlockView', {
-    '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class { async finish() { return true; } } },
-    '../../ui/Theme': { UiColor: { taskCard: 'card' } }
-  }, prefix('TaskBlockView'));
+    '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class {
+      static protectInteraction() {} async finish() { return true; }
+    } },
+    '../../ui/Theme': { UiColor: { taskCard: 'card' } },
+    '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({width:390}) } },
+    '@kit.BasicServicesKit': { pasteboard: { MIMETYPE_TEXT_PLAIN:'text/plain', createData: (type,value) => ({type,value}),
+      getSystemPasteboard: () => ({async setData(data) { copies.push(data); }}) } }
+  }, source => 'const $r = name => name;\n' + prefix('TaskBlockView')(source.split('  @Builder\n')[0].replace(/@BuilderParam /g,'')));
   const editor = new TaskBlockView();
   const writes = [], events = [];
+  editor.getUIContext = () => ({px2vp:value=>value,getPromptAction:()=>({showToast:({message})=>messages.push(message)})});
   editor.inputKey = 'block'; editor.block = { id: '1', kind: 'text', source: 'Original', html: '<p>Original</p>', items: [] };
   editor.readonly = false;editor.disabled = false;
   editor.begin = async () => true;
   editor.save = async (block, source) => { writes.push({ block, source });return true; };
   editor.editingChanged = value => events.push(value);
-  return { editor, writes, events };
+  return { editor, writes, events, copies, messages };
 }
+
+test('所有区块拷贝整段 Org 原文；只读菜单仅拷贝且不能修改', async () => {
+  for (const kind of ['text','list','table','checklist']) {
+    const f=blockFixture();f.editor.block={...f.editor.block,kind,source:'- [ ] 一\n  - [X] 二'};
+    f.editor.openMenu(10,20);
+    assert.deepEqual(f.editor.menuItems().map(item=>item.title),['拷贝','编辑','删除']);
+    assert.equal(f.editor.menuItems()[2].dangerous,true);
+    f.editor.readonly=true;
+    assert.deepEqual(f.editor.menuItems().map(item=>item.title),['拷贝']);
+    await f.editor.copySelected();assert.equal(f.copies[0].value,f.editor.block.source);
+    assert.equal(await f.editor.deleteSelected(),false);assert.deepEqual(f.writes,[]);
+  }
+});
+
+test('删除只提交选中的原区块，结束其他草稿失败或快照变化时不删除', async () => {
+  const f=blockFixture();f.editor.revision='v1';f.editor.openMenu(10,20);
+  const block=f.editor.block;
+  assert.equal(await f.editor.deleteSelected(),true);
+  assert.deepEqual(f.writes,[{block,source:''}]);assert.deepEqual(f.events,[true,false]);
+  for (const failure of ['草稿失败','版本变化','同位置区块变化']) {
+    const g=blockFixture();g.editor.revision='v1';g.editor.openMenu(10,20);
+    if(failure==='草稿失败')g.editor.linkEditor.finish=async()=>false;
+    if(failure==='版本变化')g.editor.revision='v2';
+    if(failure==='同位置区块变化')g.editor.block={...g.editor.block,source:'其他内容'};
+    assert.equal(await g.editor.deleteSelected(),false);assert.deepEqual(g.writes,[]);assert.deepEqual(g.events,[]);
+  }
+});
+
+test('菜单自动关闭后编辑仍使用点选时的快照；清单输入期间不弹出区块菜单', async () => {
+  const f=blockFixture();f.editor.revision='v1';f.editor.openMenu(1,2);
+  const action=f.editor.menuItems().find(item=>item.title==='编辑').action;
+  f.editor.menuVisible=false;f.editor.revision='v2';action();await new Promise(setImmediate);
+  assert.equal(f.editor.editing,false);
+  f.editor.checklistEditing=true;f.editor.openMenu(1,2);assert.equal(f.editor.menuVisible,false);
+  f.editor.checklistEditing=false;f.editor.openMenu(1,2);assert.equal(f.editor.menuVisible,true);
+});
 test('切换区块先保存旧草稿；失败保留当前会话并阻止切换', async () => {
   const editor = new controller.TaskBlockController();
   let success = false, saves = 0;
@@ -147,7 +190,7 @@ test('编译后的清单在只读与可写状态保留相同字号、颜色、�
     vm.runInNewContext(code, globals);
     const item = {id:'first',text:'这是应当完整换行的很长清单文字，不能在只读状态切换成单行省略',checked,partial,depth:2};
     const component = Object.assign(new globals.module.exports(), {readonly,disabled:false,dragging:false,editingId:'',sorting:true,items:[item,{...item,id:'second'}],
-      observeComponentCreation2(callback){callback(0,true);},ifElseBranchUpdateFunction(_,callback){callback();},
+      indentStep:12,observeComponentCreation2(callback){callback(0,true);},ifElseBranchUpdateFunction(_,callback){callback();},
       grip(){Row.create();Row.width(44);Row.height(44);Row.pop();},toggle(){writes++;},edit(){writes++;}});
     component.row(item);
     for(const callback of callbacks)callback();
@@ -183,8 +226,8 @@ test('项目保存正文改变结构后，不用原清单 ID 继续执行已过�
   assert.deepEqual(f.writes,[]);
 });
 
-function compiledBuilders(name, methods) {
-  const filename = `entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/components/editors/${name}.ts`;
+function compiledBuilders(name, methods, directory = 'components/editors') {
+  const filename = `entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/${directory}/${name}.ts`;
   const source = ts.createSourceFile(filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true);
   const bodies = [];
   function visit(node) {
@@ -197,15 +240,46 @@ function compiledBuilders(name, methods) {
     constructor(owner, params) { this.kind = name; this.owner = owner;Object.assign(this, params);children.push(this); }
   }; }
   const noop = new Proxy({}, {get:()=>()=>{}});
+  const areaChanges=[], overlays=[], guideHeights=[];
+  const common = new Proxy({}, {get:(_,key)=>key==='onAreaChange'?callback=>areaChanges.push(callback):
+    key==='overlay'?value=>overlays.push(value.builder):()=>{}});
+  const rect = new Proxy({}, {get:(_,key)=>key==='height'?value=>guideHeights.push(value):()=>{}});
   const module = {exports:{}};
   const globals = {module,TaskContentBlocks:component('blocks'),TaskChecklistBlock:component('checklist'),
-    ViewPU:{create(){}},__Common__:noop,Column:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
+    TaskBlockView:component('block'),TaskDocumentContent:component('document'),ForEach:noop,Rect:rect,
+    Alignment:{TopStart:'top'},HitTestMode:{None:'none'},projectContentGap:()=>0,
+    ViewPU:{create(){}},__Common__:common,Column:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
   const code = ts.transpileModule('class Host {' + bodies.join('\n') + '}\nmodule.exports=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code, globals);
   const host = new module.exports();
-  Object.assign(host,{observeComponentCreation2(callback){callback(1,true);},ifElseBranchUpdateFunction(_,callback){callback();}});
-  return {host,children};
+  Object.assign(host,{observeComponentCreation2(callback){callback(1,true);},ifElseBranchUpdateFunction(_,callback){callback();},
+    forEachUpdateFunction(_,items,render){items.forEach(render);}});
+  return {host,children,areaChanges,overlays,guideHeights};
 }
+
+test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽', {skip:!fs.existsSync(emittedChecklist)}, () => {
+  const f=compiledBuilders('TaskContentBlocks',['initialRender']);
+  const block={id:'20',kind:'checklist',items:[{id:'42',text:'项目清单'}]};
+  const rendered=[];
+  Object.assign(f.host,{blocks:[block],checklist(value){assert.equal(this,f.host);rendered.push(value);}});
+  f.host.initialRender();
+  const shell=f.children.find(child=>child.kind==='block');
+  assert.equal(shell.nativeChecklist,true);
+  shell.readContent.call(shell);
+  assert.deepEqual(rendered,[block]);
+});
+
+test('编译后的项目竖线随实测正文高度变化并在正文底部前收尾，前言不画线', {skip:!fs.existsSync(emittedChecklist)}, () => {
+  const f=compiledBuilders('ProjectSectionBody',['initialRender','bodyGuide'],'components');
+  Object.assign(f.host,{task:{state:null},blocks:[],bodyHeight:0});
+  f.host.initialRender();assert.equal(f.children[0].projectReading,true);
+  for(const height of [52,26,130]){
+    f.areaChanges[0]({}, {height});f.overlays[0]();
+    assert.equal(f.guideHeights.at(-1),height-6);
+  }
+  f.host.task=null;f.areaChanges[0]({}, {height:100});f.overlays[0]();
+  assert.deepEqual(f.guideHeights,[46,20,124]);
+});
 
 test('编译后的任务区块回调在子组件中执行时仍使用任务宿主，清单与拖动手柄均能创建', {skip:!fs.existsSync(emittedChecklist)}, () => {
   const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock']);

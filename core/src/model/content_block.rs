@@ -68,7 +68,6 @@ fn locate(file: &OrgFile, headline: &Headline, id: &str) -> Result<(ContentBlock
 pub(super) fn modify(file: &mut OrgFile, headline: &Headline, change: &ContentBlockChange) -> Result<(), CoreError> {
     let id = match change { ContentBlockChange::Replace { id, .. } | ContentBlockChange::Link { id, .. } => id };
     let (block, range) = locate(file, headline, id)?;
-    if block.kind == ContentBlockKind::Checklist { return Err(CoreError::InvalidInput("检查清单必须使用结构化清单操作")); }
     let source = match change {
         ContentBlockChange::Replace { source, .. } => {
             if source.contains('\0') { return Err(CoreError::InvalidInput("正文区块不能包含 NUL")); }
@@ -81,7 +80,10 @@ pub(super) fn modify(file: &mut OrgFile, headline: &Headline, change: &ContentBl
             // 输入法使用 LF；只在当前替换区块内适配文件原有换行，外围字节不变。
             source.replace("\r\n", "\n").replace('\r', "\n").replace('\n', super::task_operation_executor::newline(file))
         }
-        ContentBlockChange::Link { link, value, .. } => super::text_link::changed_source(&block.source, link, value)?,
+        ContentBlockChange::Link { link, value, .. } => {
+            if block.kind == ContentBlockKind::Checklist { return Err(CoreError::InvalidInput("检查清单链接请通过清单原文编辑")); }
+            super::text_link::changed_source(&block.source, link, value)?
+        }
     };
     if block.source == source { return Ok(()); }
     let checkbox_changed = matches!(change, ContentBlockChange::Replace { .. }) && [&block.source, &source].into_iter().any(|source| {
@@ -174,9 +176,9 @@ mod tests {
     }
 
     #[test]
-    fn reject_foreign_ids_metadata_injection_and_whole_checklist_replacement() {
+    fn reject_foreign_ids_and_metadata_injection() {
         let original = "* Task\nText\n\n- [ ] Item\n** Child\nOther\n";
-        for (id, source) in [("999999".into(), "new"), (content(&file(original))[0].id.clone(), "* Injected"), (content(&file(original))[1].id.clone(), "- [X] Item"),
+        for (id, source) in [("999999".into(), "new"), (content(&file(original))[0].id.clone(), "* Injected"),
             (content(&file(original))[0].id.clone(), ":PROPERTIES:\n:ID: hacked\n:END:"),
             (content(&file(original))[0].id.clone(), "SCHEDULED: <2026-11-14 Sat>"),
             (content(&file(original))[0].id.clone(), "bad\0text")] {
@@ -184,6 +186,23 @@ mod tests {
             let headline = file.path_headlines()[0].1.clone();
             assert!(modify(&mut file, &headline, &ContentBlockChange::Replace { id, source: source.into() }).is_err());
             assert_eq!(file.source_bytes(), original.as_bytes());
+        }
+    }
+
+    #[test]
+    fn replace_and_remove_whole_checklist_preserve_neighbors_and_update_statistics() {
+        for newline in ["\n", "\r\n"] {
+            let original = "* TODO Task [0/2]\n:PROPERTIES:\n:ID: stable\n:END:\nBefore  \n\n- [ ] First\n  - [X] Nested\n- [ ] Second\n\n| Keep | Table |\n\n- [X] Other list\n** Child\nchild body\n".replace('\n', newline);
+            for replacement in ["- [X] Changed\n- [ ] Added", ""] {
+                let mut file = file(&original);
+                let block = content(&file).into_iter().find(|block| block.kind == ContentBlockKind::Checklist).unwrap();
+                let headline = file.path_headlines()[0].1.clone();
+                modify(&mut file, &headline, &ContentBlockChange::Replace { id: block.id, source: replacement.into() }).unwrap();
+                let counts = if replacement.is_empty() { "[1/1]" } else { "[2/3]" };
+                let expected = original.replace(&block.source, &replacement.replace('\n', newline)).replace("[0/2]", counts);
+                assert_eq!(file.source_bytes(), expected.as_bytes());
+                assert_eq!(content(&file).iter().filter(|block| block.kind == ContentBlockKind::Checklist).count(), if replacement.is_empty() { 1 } else { 2 });
+            }
         }
     }
 }

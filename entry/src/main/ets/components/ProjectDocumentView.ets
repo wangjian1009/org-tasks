@@ -1,7 +1,7 @@
 import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
-import { TaskDocumentContent } from './editors/TaskDocumentContent'
+import { ProjectSectionBody } from './ProjectSectionBody'
 import { OrgHeadingView } from './OrgHeadingView'
 import { TaskEditor } from './editors/TaskEditor'
 import { TaskInlineSession } from '../services/TaskInlineService'
@@ -84,16 +84,6 @@ export struct ProjectDocumentView {
   }
 
   @Builder
-  bodyGuide(section: ProjectReadingSection) {
-    if (section.node) {
-      Column() {
-        Rect().width(1).layoutWeight(1).fill(UiColor.divider)
-      }.width(1).height('100%').padding({ top: 3, bottom: 3 }).hitTestBehavior(HitTestMode.None)
-        .accessibilityLevel('no')
-    }
-  }
-
-  @Builder
   outlineSheet() {
     Column({ space: 12 }) {
       Text('文档目录').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%')
@@ -105,7 +95,7 @@ export struct ProjectDocumentView {
           if (section.node) {
             ListItem() {
               Text(section.node.heading).fontSize(15).fontColor(UiColor.text).width('100%')
-                .padding({ left: Math.min(section.node.level - 1, 4) * 12, top: 12, bottom: 12 })
+                .padding({ left: Math.min(section.node.level - 1, 4) * 8, top: 12, bottom: 12 })
                 .constraintSize({ minHeight: 48 }).onClick((): void => { this.openChapter(section) })
             }
           }
@@ -139,13 +129,10 @@ export struct ProjectDocumentView {
               }
             }
             if (section.blocks.length > 0) {
-              TaskDocumentContent({ internalLinkProcessor: this.internalLinks, task: section.node, blocks: section.blocks, readonly: section.node === null,
-                projectReading: true }).width('100%')
-                .padding({ left: section.node ? (section.node.state ? 28 : 12) : 0 })
-                .overlay(this.bodyGuide(section), { align: Alignment.TopStart, offset: { x: section.node?.state ? 8 : 0 } })
+              ProjectSectionBody({ internalLinkProcessor: this.internalLinks, task: section.node, blocks: section.blocks }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
-            .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 12 : 0 })
+            .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 8 : 0 })
             .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
         }, (section: ProjectReadingSection) => `${this.revision}:${section.key}`)
         if (this.sections.every((section: ProjectReadingSection) => section.node === null && section.blocks.length === 0)) {

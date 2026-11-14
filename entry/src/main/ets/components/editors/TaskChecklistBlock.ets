@@ -16,6 +16,7 @@ export struct TaskChecklistBlock {
   @Prop sorting: boolean = false
   @Prop ownerKey: string = ''
   @Prop blockId: string = ''
+  @Prop indentStep: number = 12
   @Prop listHeight: number = 0
   @Prop dragging: boolean = false
   @Prop dragTop: number = 0
@@ -76,7 +77,7 @@ export struct TaskChecklistBlock {
         if (this.readonly) { Row().width(44).height(44).accessibilityLevel('no') }
         else { this.grip(item, floating) }
       }
-    }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: Math.min(item.depth, 6) * 12 })
+    }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: Math.min(item.depth, 6) * this.indentStep })
   }
 
   @Builder

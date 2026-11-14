@@ -80,7 +80,7 @@ export struct TaskDocumentContent {
         this.message = `${committed ? '修改已保存，重新读取失败，请刷新：' : ''}${coreErrorMessage(error as CoreBridgeError)}`
       }
       return false
-    } finally { this.working = false }
+    } finally { this.working = false; this.releaseIdle() }
   }
 
   async saveBlock(block: CoreContentBlock, source: string): Promise<boolean> {
@@ -166,6 +166,7 @@ export struct TaskDocumentContent {
   @Builder
   checklist(block: CoreContentBlock) {
     TaskChecklistBlock({ items: block.items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
+      indentStep: this.projectReading ? 8 : 12,
       ownerKey: this.owner, blockId: block.id, editingId: this.editingId, editingText: this.editingText,
       adding: this.adding && this.lastChecklist(block), newText: this.newText, showAdd: this.lastChecklist(block),
       toggle: (change: CoreTaskChecklistChange): void => { this.changeCheck(change) },
@@ -183,7 +184,7 @@ export struct TaskDocumentContent {
   build() {
     Column({ space: 8 }) {
       TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
-        projectReading: this.projectReading,
+        projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
         checklist: (block: CoreContentBlock): void => { this.checklist(block) },

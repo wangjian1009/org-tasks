@@ -1542,7 +1542,7 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 
 ~ContentBlock~ 是不持久化的运行时投影， ~kind~ 为 ~text~ 、 ~list~ 、 ~table~ 或 ~checklist~ 。 ~id~ 取自当前语法节点的字节位置， ~source~ 保留区块原文但不包含末尾分隔换行； ~html~ 由 Core 生成安全阅读片段，链接定位相对于本区块原文； ~items~ 只在 checklist 区块中包含结构化条目。 ~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 共用该模型及顺序，节点正文不包含后代、规划、属性与日志；前言隐藏文件配置。
 
-区块的 ~Replace~ 与 ~Link~ 通过 ~CONTENT_BLOCK~ 修改提交，旧版本和非本节点的 ID 拒绝。文本、普通列表和表格分别编辑自身原文；纯 checkbox 清单仍通过条目操作保留嵌套、状态、统计与同级排序规则。
+区块的 ~Replace~ 与 ~Link~ 通过 ~CONTENT_BLOCK~ 修改提交，旧版本和非本节点的 ID 拒绝。文本、普通列表、表格和纯 checkbox 清单均可编辑整块原文；空原文删除当前区块并保留外围字节。包含 checkbox 的区块被替换或删除时，Core 在同一事务内重算已有标题统计；单项操作仍通过结构化清单接口保留嵌套、状态与同级排序规则。
 
 ~paragraph: bool~ 标记直属节点是否为普通段落； ~blank_lines_before: usize~ 保留节点之前紧邻的完整空白行数，兼容 LF、CRLF 与空白字符行，不包含节点内部的空白。代码、示例、引用等虽属于 ~text~ 区块， ~paragraph~ 仍为 false，宿主可保持其内部排版。分隔空行不进入可编辑 ~source~ ，局部修改继续保留外围原字节；两个字段均为通用语义投影，不包含页面间距或控件状态。
 

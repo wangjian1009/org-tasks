@@ -4,6 +4,7 @@ import { TaskTextBlock } from './TaskTextBlock'
 import { TaskListBlock } from './TaskListBlock'
 import { TaskTableBlock } from './TaskTableBlock'
 import { TaskChecklistBlock } from './TaskChecklistBlock'
+import { TaskBlockView } from './TaskBlockView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
 import { UiColor } from '../../ui/Theme'
@@ -15,6 +16,7 @@ export struct TaskContentBlocks {
   @Prop blocks: CoreContentBlock[] = []
   @Prop readonly: boolean = false
   @Prop projectReading: boolean = false
+  @Prop checklistEditing: boolean = false
   @Prop disabled: boolean = false
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
@@ -38,7 +40,11 @@ export struct TaskContentBlocks {
       ForEach(this.blocks, (block: CoreContentBlock, index: number) => {
         Column() {
           if (block.kind === 'checklist') {
-            this.checklist(block)
+            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled,
+              revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
+              contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
+              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(block) }, begin: this.begin, save: this.save,
+              editingChanged: this.editingChanged }).width('100%')
           } else if (block.kind === 'list') {
             TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,

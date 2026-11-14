@@ -242,6 +242,32 @@ test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域�
   hit='false';await view.activateAt(20,20);assert.deepEqual(selected,[0]);
 });
 
+test('区块长按跳过链接与输入表单；切换快照或离开后忽略迟到命中', async () => {
+  let field=false, linked=false, evaluate;
+  const hits=[];
+  const { Content }=load(base+'components/OrgContentView.ets',{
+    '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(script){
+      if(evaluate)return evaluate(script);
+      return String(vm.runInNewContext(script,{window:{innerWidth:390},document:{
+        querySelector:()=>field?{}:null,elementFromPoint:()=>({closest:()=>linked?{}:null})
+      }}));
+    }}}},
+    '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
+    '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'./LinkView':{LinkEditController:class {}}
+  },source=>source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
+    .replace('export struct OrgContentView','class Content')+'}\nmodule.exports={Content};');
+  const view=new Content();view.loaded=true;view.widthVp=390;view.contextMenu=(x,y)=>hits.push([x,y]);
+  await view.contextMenuAt(10,20);assert.deepEqual(hits,[[10,20]]);
+  linked=true;await view.contextMenuAt(11,21);linked=false;
+  field=true;await view.contextMenuAt(12,22);field=false;
+  assert.equal(hits.length,1);
+  let finish;evaluate=()=>new Promise(resolve=>{finish=resolve;});
+  const pending=view.contextMenuAt(13,23);view.documentGeneration++;finish('false');await pending;
+  assert.equal(hits.length,1);
+  const leaving=view.contextMenuAt(14,24);view.aboutToDisappear();finish('false');await leaving;
+  assert.equal(hits.length,1);
+});
+
 test('链接字段切换引起 Web 滚动后，不按旧坐标结束链接草稿或进入整段备注输入', async () => {
   let editing = true;
   let finished = 0, activated = 0, hitTests = 0;

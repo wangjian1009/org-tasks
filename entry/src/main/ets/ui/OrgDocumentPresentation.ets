@@ -146,9 +146,15 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .file-reading.project-reading.embedded-section { display: flow-root; }
 /* 原生项目区块的段距由 Core 边界决定，单段 WebView 不再叠加 margin 或最小行高。 */
 .embedded.project-reading.embedded-section { display: flow-root; font: 16px/26px sans-serif; }
-.embedded.project-reading.embedded-section > p { margin: 0; }
-.embedded.project-reading.embedded-section > :first-child { margin-top: 0; }
-.embedded.project-reading.embedded-section > :last-child { margin-bottom: 0; }
+.embedded.project-reading.embedded-section > p,
+.embedded.project-reading.embedded-section > main > section > p { margin: 0; }
+.embedded.project-reading.embedded-section > :first-child,
+.embedded.project-reading.embedded-section > main > section > :first-child { margin-top: 0; }
+.embedded.project-reading.embedded-section > :last-child,
+.embedded.project-reading.embedded-section > main > section > :last-child { margin-bottom: 0; }
+.embedded.project-reading.embedded-section ul, .embedded.project-reading.embedded-section ol { padding-left: 20px; }
+.embedded.project-reading.embedded-section li > p { margin: 0; }
+.embedded.project-reading.embedded-section li > ul, .embedded.project-reading.embedded-section li > ol { margin: 4px 0 0; padding-left: 16px; }
 .file-reading.project-reading p { margin: 0 0 20px; }
 .file-reading.project-reading ul, .file-reading.project-reading ol { margin: 0 0 20px; }
 .file-reading.project-reading li { margin: 4px 0; }

@@ -1172,6 +1172,7 @@ export struct TaskEditor {
   @Builder
   bodyBlocks() {
     TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.value().editContent.blocks, readonly: this.readOnly,
+      checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, ownerKey: this.ownerKey,
       contentBackground: this.value().state?.category === TaskStateCategory.Doing ? '#00000000' : UiColor.taskCard,
