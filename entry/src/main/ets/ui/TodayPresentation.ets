@@ -17,7 +17,7 @@ export interface TodayLayout {
   sections: TodaySection[]
 }
 
-// 将同一快照无损分为今天时刻与原分类区域，不改变页面查询范围或任务总数。
+// 将同一快照无损分为今天时刻／习惯日程与原分类区域，不改变页面查询范围或任务总数。
 export function todayLayout(tasks: CoreTask[], priorityOrder: string[], today: Date): TodayLayout {
   const date = localDate(today)
   const timedItems: TodayTimedTaskItem[] = []
@@ -27,9 +27,13 @@ export function todayLayout(tasks: CoreTask[], priorityOrder: string[], today: D
   tasks.forEach((task: CoreTask) => {
     const scheduled = task.editContent?.scheduledPlanning
     const deadline = task.editContent?.deadlinePlanning
-    if (scheduled?.date === date && scheduled.time !== null) {
+    if (scheduled?.date === date && scheduled.time?.start) {
       timedItems.push({ task, time: scheduled.time.start, timeDisplay: TaskTimeDisplay.Schedule })
-    } else if (deadline?.date === date && deadline.time !== null) {
+    } else if (deadline?.date === date && deadline.time?.start) {
+      timedItems.push({ task, time: deadline.time.start, timeDisplay: TaskTimeDisplay.Deadline })
+    } else if (task.isHabit && scheduled && scheduled.date < date && scheduled.time?.start) {
+      timedItems.push({ task, time: scheduled.time.start, timeDisplay: TaskTimeDisplay.Schedule })
+    } else if (task.isHabit && deadline && deadline.date < date && deadline.time?.start) {
       timedItems.push({ task, time: deadline.time.start, timeDisplay: TaskTimeDisplay.Deadline })
     } else {
       ordinary.push(task)

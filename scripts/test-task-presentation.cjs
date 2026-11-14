@@ -808,6 +808,33 @@ test('今天时刻只用当天规划，计划优先，其他日期及只有日�
   assert.deepEqual(nextDay.timedItems.map(item => item.task.id), ['future-schedule', 'future']);
 });
 
+test('带时刻的过期习惯归入日程，无时刻或未来时刻仍留在原分类且不重复', () => {
+  const { todayLayout } = loadGrouping('TodayPresentation', {});
+  const planning = (date, start) => ({ date, time: start ? { start, end: null } : null });
+  const values = [
+    timedTask('habit-overdue', planning('2026-11-12', '07:00'), null, { isHabit: true, projectName: '习惯' }),
+    timedTask('habit-deadline', null, planning('2026-11-13', '08:00'), { isHabit: true }),
+    timedTask('habit-today-first', planning('2026-11-13', '06:00'), planning('2026-11-14', '10:00'), { isHabit: true }),
+    timedTask('habit-date-only', planning('2026-11-13', null), null, { isHabit: true }),
+    task('habit-no-planning', { isHabit: true }),
+    timedTask('ordinary-overdue', planning('2026-11-13', '05:00')),
+    timedTask('ordinary-today', planning('2026-11-14', '09:00')),
+    timedTask('habit-future-time', planning('2026-11-15', '04:00'), null, { isHabit: true })
+  ];
+  const order = ['habit-no-planning', 'habit-date-only', 'habit-future-time'];
+  const result = todayLayout(values, order, new Date(2026, 10, 14));
+  assert.deepEqual(result.timedItems.map(item=>[item.task.id,item.time,item.timeDisplay]), [
+    ['habit-overdue','07:00','Schedule'], ['habit-deadline','08:00','Deadline'],
+    ['ordinary-today','09:00','Schedule'], ['habit-today-first','10:00','Deadline']
+  ]);
+  const ordinary = result.sections.flatMap(section=>section.items.map(item=>item.task));
+  assert.deepEqual(ordinary.map(item=>item.id).sort(), ['habit-date-only','habit-future-time','habit-no-planning','ordinary-overdue']);
+  assert.deepEqual([...result.timedItems.map(item=>item.task),...ordinary].map(item=>item.id).sort(),values.map(item=>item.id).sort());
+  assert.equal(result.timedItems[0].task,values[0]);
+  assert.equal(values[0].scheduled,'2026-11-12');
+  assert.deepEqual(todayLayout([values[3]],[],new Date(2026,10,14)).timedItems,[]);
+});
+
 test('今天时刻相同时沿用 Core 优先级，标签筛选和移除时刻不丢记录或保留空区块', () => {
   const { todayLayout } = loadGrouping('TodayPresentation', {});
   const planning = { date: '2026-11-14', time: { start: '09:30', end: null } };
@@ -827,7 +854,7 @@ test('今天时刻相同时沿用 Core 优先级，标签筛选和移除时刻�
   assert.deepEqual(todayLayout([], [], new Date(2026, 10, 14)), { timedItems: [], sections: [] });
 });
 
-test('共享时刻策略只读取指定的 Core 规划开始时刻，缺失时不回退', () => {
+test('时刻来源独立于日期策略，支持创建、计划、截止、完成与隐藏', () => {
   const { TaskTimeDisplay, taskTimeForDisplay } = presentation;
   const value = timedTask('range', { date: '2026-11-14', time: { start: '14:00', end: '15:00' } },
     { date: '2026-11-14', time: { start: '18:00', end: null } });
@@ -836,4 +863,14 @@ test('共享时刻策略只读取指定的 Core 规划开始时刻，缺失时�
   assert.equal(taskTimeForDisplay(value, TaskTimeDisplay.None), '');
   assert.equal(taskTimeForDisplay(timedTask('missing', null, value.editContent.deadlinePlanning), TaskTimeDisplay.Schedule), '');
   assert.equal(taskTimeForDisplay(task('old'), TaskTimeDisplay.Schedule), '');
+  const timestamps = task('timestamps', {
+    createdAt: new Date(2026, 10, 14, 9, 5).getTime(),
+    closedAt: new Date(2026, 10, 14, 23, 7).getTime()
+  });
+  assert.equal(taskTimeForDisplay(timestamps, TaskTimeDisplay.Creation), '09:05');
+  assert.equal(taskTimeForDisplay(timestamps, TaskTimeDisplay.Closed), '23:07');
+  assert.equal(taskTimeForDisplay(timestamps, TaskTimeDisplay.None), '');
+  assert.equal(taskTimeForDisplay(task('missing', { createdAt: null, closedAt: null }), TaskTimeDisplay.Creation), '');
+  assert.equal(taskTimeForDisplay(task('invalid', { closedAt: NaN }), TaskTimeDisplay.Closed), '');
+  assert.equal(presentation.taskDateForDisplay(timestamps, presentation.TaskDateDisplay.Creation), '2026-11-14');
 });

@@ -827,8 +827,10 @@ export struct TaskEditor {
     return parts.join('    ')
   }
 
+  leadingTime(): string { return taskTimeForDisplay(this.value(), this.timeDisplay) }
+
   leadingWidth(): number {
-    return (taskTimeForDisplay(this.value(), this.timeDisplay) ? 54 : 0)
+    return (this.leadingTime() ? 54 : 0)
       + (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 26 : 0)
   }
@@ -1001,19 +1003,25 @@ export struct TaskEditor {
   compactDeadline() {
     Row({ space: 4 }) {
       Image(this.deadlineIcon()).width(16).height(16)
-      Text(this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' : taskDeadlineText(this.value(), new Date(this.referenceTime)))
+      Text(this.leadingTime() && this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' : taskDeadlineText(this.value(), new Date(this.referenceTime)))
         .fontSize(12).fontColor(this.deadlineColor()).maxLines(1)
     }.alignItems(VerticalAlign.Center).flexShrink(0)
       .onAreaChange((oldArea: Area, area: Area) => { this.deadlineWidth = parseFloat(area.width.toString()) })
   }
   @Builder
-  compactLeadingInfo() {
-    if (taskTimeForDisplay(this.value(), this.timeDisplay)) {
-      Text(taskTimeForDisplay(this.value(), this.timeDisplay)).fontSize(15)
+  compactTime() {
+    if (this.leadingTime()) {
+      Text(this.leadingTime()).fontSize(15)
         .fontColor(this.timeDisplay === TaskTimeDisplay.Deadline ? this.deadlineColor() : UiColor.selection)
         .width(48).maxLines(1).flexShrink(0)
-        .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' : '计划'} ${taskTimeForDisplay(this.value(), this.timeDisplay)}`)
+        .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' :
+          this.timeDisplay === TaskTimeDisplay.Creation ? '创建' : this.timeDisplay === TaskTimeDisplay.Closed ? '完成' : '计划'} ${this.leadingTime()}`)
+        .onClick((): void => { this.toggle() })
     }
+  }
+
+  @Builder
+  compactLeadingInfo() {
     if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
@@ -1036,21 +1044,25 @@ export struct TaskEditor {
   compactRow() {
     if (this.expandOnRowClick) {
       Row() {
+        if (this.leadingTime()) {
+          Row() { this.compactTime() }.padding({ left: 8, right: 6 })
+        }
         if (this.value().state !== null) {
           Row() { this.stateIndicator() }
-            .padding({ left: 8 }).constraintSize({ minHeight: UiSize.taskRow })
+            .padding({ left: this.leadingTime() ? 0 : 8 }).constraintSize({ minHeight: UiSize.taskRow })
         }
         Row({ space: 6 }) {
           if (this.value().state === null) { this.stateIndicator() }
           this.compactContent()
         }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
-          .padding({ left: this.value().state === null ? 8 : 6, right: 8 })
+          .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
           .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
           // 整个内容区统一识别点击，避免子控件截获或重复触发展开；状态框位于手势区域之外。
           .priorityGesture(TapGesture().onAction((): void => { this.toggle() }), GestureMask.IgnoreInternal)
       }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
     } else {
       Row({ space: 6 }) {
+        this.compactTime()
         this.stateIndicator()
         this.compactContent()
       }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })

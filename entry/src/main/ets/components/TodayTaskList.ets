@@ -3,7 +3,6 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TodaySection, TodayTaskItem, TodayTaskGroup, TodayTimedTaskItem } from '../ui/TodayPresentation'
 import { RegionAreaPolicy } from '../ui/TaskListPresentation'
-import { UiColor } from '../ui/Theme'
 import { TaskRegion } from './TaskRegion'
 import { CategoryRegion } from './CategoryRegion'
 import { ScheduleRegion } from './ScheduleRegion'
@@ -52,8 +51,7 @@ export struct TodayTaskList {
                 expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
             }
           }, (item: TodayTimedTaskItem) => JSON.stringify([taskRenderKey(item.task), item.timeDisplay]))
-        }.width('100%').backgroundColor(UiColor.container).borderRadius(8)
-          .padding({ top: 8, bottom: 8 }).margin({ top: 12 })
+        }.width('100%')
       }
       ForEach(this.sections, (section: TodaySection) => {
         ListItem() { CategoryRegion({ category: section.category || '未分类' }) }

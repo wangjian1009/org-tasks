@@ -19,16 +19,23 @@ export enum TaskDateDisplay {
 }
 
 export enum TaskTimeDisplay {
-  None = 'None',
+  Creation = 'Creation',
   Schedule = 'Schedule',
-  Deadline = 'Deadline'
+  Deadline = 'Deadline',
+  Closed = 'Closed',
+  None = 'None'
 }
 
-// 仅读取 Core 已验证的结构化规划时刻，不解析 Org 或借用另一规划字段。
+// 仅按所选来源读取时刻；规划只消费 Core 结构化字段，缺失时不借用其他来源。
 export function taskTimeForDisplay(task: CoreTask, display: TaskTimeDisplay): string {
-  const planning = display === TaskTimeDisplay.Schedule ? task.editContent?.scheduledPlanning :
-    display === TaskTimeDisplay.Deadline ? task.editContent?.deadlinePlanning : null
-  return planning?.time?.start ?? ''
+  if (display === TaskTimeDisplay.Schedule || display === TaskTimeDisplay.Deadline) {
+    const planning = display === TaskTimeDisplay.Schedule ? task.editContent?.scheduledPlanning : task.editContent?.deadlinePlanning
+    return planning?.time?.start ?? ''
+  }
+  const timestamp = display === TaskTimeDisplay.Creation ? task.createdAt : display === TaskTimeDisplay.Closed ? task.closedAt : null
+  if (timestamp === null || !Number.isFinite(timestamp)) return ''
+  const date = new Date(timestamp)
+  return Number.isFinite(date.getTime()) ? `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}` : ''
 }
 
 export enum RegionAreaPolicy {
