@@ -41,7 +41,7 @@
 | [[file:../../design/当前实现/文件只读阅读.fig][文件只读阅读]] | Harmony 当前实现 | 16 Harmony 文件只读阅读 |
 | [[file:../../design/当前实现/文件展示配置与任务详情.fig][文件展示配置与任务详情]] | Harmony 当前实现 | 17 Harmony 文件展示配置与任务详情 |
 | [[file:../../design/当前实现/任务与备忘编辑.fig][任务与备忘编辑]] | Harmony 当前实现 | 18 Harmony 任务与备忘编辑 |
-| [[file:../../design/当前实现/标题链接.fig][标题链接]] | Harmony 当前实现 | 19 Harmony 标题链接 |
+| [[file:../../design/当前实现/标题链接.fig][标题链接]] | Harmony 当前实现 | 19 Harmony 标题链接；原地编辑字段焦点切换与保存、取消约定 |
 | [[file:../../design/当前实现/快速捕捉与系统入口.fig][快速捕捉与系统入口]] | Harmony 当前实现 | 20 Harmony 快速捕捉与系统入口 |
 | [[file:../../design/当前实现/标题计数进度.fig][标题计数进度]] | Harmony 当前实现 | 22 Harmony 标题计数进度 |
 | [[file:../../design/当前实现/地图应用选择.fig][地图应用选择]] | Harmony 当前实现 | 23 Harmony 地图应用选择 |

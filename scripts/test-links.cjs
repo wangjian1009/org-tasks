@@ -30,7 +30,8 @@ function fixture() {
   };
   const mocks = {
     '@kit.MapKit': { petalMaps: { async openMapTextSearch(...args) { calls.push(['search', ...args]); await search(...args); } } },
-    '../ui/Theme': { UiSize: { taskFont: 16 } }
+    '../ui/Theme': { UiSize: { taskFont: 16 }, UiColor: { surface: '#2D2C2B', text: '#D8D8D8',
+      secondary: '#AEACA9', field: '#3A3E3F', error: '#FF7592' } }
   };
   vm.runInThisContext('(function(require,module,exports,FontWeight,$r){' + code + '\n})', { filename })(
     name => { assert.ok(name in mocks, name); return mocks[name]; }, module, module.exports,
@@ -40,7 +41,7 @@ function fixture() {
     getPromptAction: () => ({ showToast: ({message}) => messages.push(message) }) });
   view.getUniqueId = () => 1;
   view.aboutToAppear();
-  return { view, calls, messages, context,
+  return { view, calls, messages, context, documentScript: module.exports.linkDocumentScript,
     open: value => { open = value; }, start: value => { start = value; }, search: value => { search = value; } };
 }
 
@@ -181,4 +182,39 @@ test('共享编辑控制器阻止同时编辑两个链接，旧草稿保存失�
   second.view.select(linkHit());await second.view.beginEdit();assert.equal(second.view.editing, false);
   saved = true;await second.view.beginEdit();
   assert.equal(first.view.editing, false);assert.equal(second.view.editing, true);
+});
+
+test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入法组词期间不切换', () => {
+  const f = fixture(), saved = [], drafts = [];
+  let focused, form;
+  const link = linkHit().link;
+  function element(tag) {
+    return { tag, style: {}, children: [], listeners: {}, value: '',
+      append(...nodes) { this.children.push(...nodes); },
+      addEventListener(name, callback) { this.listeners[name] = callback; },
+      focus() { focused = this; }
+    };
+  }
+  const anchor = { dataset: { orgLink: JSON.stringify(link) }, after(node) { form = node; } };
+  const window = { OrgTaskLinks: {
+    draft: (...values) => drafts.push(values), save: (...values) => saved.push(values)
+  } };
+  vm.runInNewContext(f.documentScript(true), { window, document: {
+    querySelectorAll: () => [anchor], querySelector: () => null,
+    createElement: element, addEventListener() {}, removeEventListener() {}
+  } });
+  assert.equal(window.orgLinkEdit(link, '原标题', 'https://example.com/'), true);
+  const [title, url] = form.children.filter(node => node.tag === 'input');
+  assert.equal(focused, title);
+  let prevented = 0;
+  const enter = { key: 'Enter', isComposing: true, preventDefault() { prevented++; }, stopPropagation() {} };
+  title.listeners.keydown(enter);
+  assert.equal(focused, title);assert.equal(prevented, 0);
+  enter.isComposing = false;
+  title.value = '修改标题';title.listeners.keydown(enter);
+  assert.equal(focused, url);assert.equal(prevented, 1);assert.equal(saved.length, 0);
+  url.value = 'https://example.com/updated';url.listeners.keydown(enter);
+  assert.equal(prevented, 2);
+  assert.deepEqual(saved, [['修改标题', 'https://example.com/updated']]);
+  assert.deepEqual(drafts, saved);
 });

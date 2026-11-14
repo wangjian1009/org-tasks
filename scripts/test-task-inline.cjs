@@ -44,6 +44,16 @@ test('任务链接仅在展开且可写时允许修改，收起后的旧编辑�
   }
   card.expanded = false;assert.equal(card.linksEditable(), false);
   await assert.rejects(card.changeLink('notes', link, null));assert.equal(writes.length, 1);
+  card.expanded = true;
+  card.persist = async () => {
+    card.removed = true;card.snapshotBlocked = true;card.expanded = false;
+    return true;
+  };
+  await card.changeLink('title', link, { title: '新链接标题', url: 'https://example.com/new' });
+  assert.equal(card.linkSaving, false);
+  card.expanded = true;card.removed = false;card.snapshotBlocked = false;
+  card.persist = async () => { card.snapshotBlocked = true;return true; };
+  await assert.rejects(card.changeLink('title', link, null), /修改链接失败/);
 });
 global.AppStorage = {setOrCreate:(key,value)=>storage.set(key,value)};
 function fixture() {

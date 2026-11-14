@@ -229,6 +229,32 @@ test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域�
   hit='false';await view.activateAt(20,20);assert.deepEqual(selected,[0]);
 });
 
+test('链接字段切换引起 Web 滚动后，不按旧坐标结束链接草稿或进入整段备注输入', async () => {
+  let editing = true;
+  let finished = 0, activated = 0, hitTests = 0;
+  const { Content } = load(base + 'components/OrgContentView.ets', {
+    '@kit.ArkWeb': { webview: { WebviewController: class {
+      async runJavaScript(script) {
+        return vm.runInNewContext(script, { document: {
+          querySelector: () => editing ? {} : null,
+          elementFromPoint() { hitTests++;return { closest: () => null }; }
+        }, window: { innerWidth: 390 } });
+      }
+    } } },
+    '../ui/OrgDocumentPresentation': presentation, '../ui/Theme': theme,
+    '../services/NativeCoreService': { coreErrorMessage: e => e.message },
+    './LinkView': { LinkEditController: class { async finish() { finished++;return true; } } }
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
+  const view = new Content();view.loaded = true;view.widthVp = 390;
+  view.activate = () => { activated++; };
+  await view.activateAt(20, 300);
+  assert.equal(hitTests, 0);assert.equal(finished, 0);assert.equal(activated, 0);
+  editing = false;
+  await view.activateAt(20, 300);
+  assert.equal(hitTests, 1);assert.equal(finished, 1);assert.equal(activated, 1);
+});
+
 test('长文档冲突卡片使用 Web 视口定位，保留浏览器滚动位置并展开父章节', async () => {
   const f=fixture();
   const browser={scrollY:0,scrollTo(x,y){this.scrollY=y;}};

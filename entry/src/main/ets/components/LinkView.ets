@@ -220,7 +220,8 @@ export struct LinkView {
       y: Math.max(0, (this.selected?.y || 0) * this.widthVp / (this.selected?.width || this.widthVp)) })
       .bindPopup(this.menuVisible, { builder: this.linkMenu(), placement: Placement.Top,
         targetSpace: 6, enableArrow: true, popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE,
-        mask: { color: Color.Transparent }, autoCancel: true, onStateChange: (event): void => { this.menuVisible = event.isVisible } })
+        mask: { color: Color.Transparent }, focusable: false, autoCancel: true,
+        onStateChange: (event): void => { this.menuVisible = event.isVisible } })
   }
 
   @Builder
@@ -228,11 +229,16 @@ export struct LinkView {
     Column({ space: 8 }) {
       Text('标题').fontSize(12).fontColor(UiColor.secondary).width('100%')
       TextInput({ text: this.titleDraft, placeholder: '无标题时显示链接地址' }).fontSize(14).fontColor(UiColor.text)
-        .accessibilityText('链接标题')
+        .id(`link_title_${this.owner}`).accessibilityText('链接标题').enterKeyType(EnterKeyType.Next)
+        .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => {
+          event.keepEditableState()
+          this.getUIContext().getFocusController().requestFocus(`link_url_${this.owner}`)
+        })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.titleDraft = value })
       Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
       TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text)
-        .accessibilityText('链接地址')
+        .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
+        .onSubmit((): void => { this.saveEdit() })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.urlDraft = value })
       if (this.editError) { Text(this.editError).fontSize(12).fontColor(UiColor.error).width('100%') }
       Row({ space: 12 }) {
@@ -242,6 +248,7 @@ export struct LinkView {
           .enabled(!this.saving).onClick((): void => { this.saveEdit() })
       }.justifyContent(FlexAlign.End).width('100%')
     }.width('100%').padding(12).borderRadius(10).backgroundColor(UiColor.surface)
+      .onClick((): void => {})
   }
 
   async open(href: string): Promise<void> {
@@ -423,10 +430,19 @@ export function linkDocumentScript(editable: boolean): string {
       };
       const titleInput = field('标题',title,'无标题时显示链接地址');
       const urlInput = field('链接',url,'链接地址');
+      titleInput.enterKeyHint = 'next'; urlInput.enterKeyHint = 'done';
       const status = document.createElement('span'); status.className='org-link-status'; status.style.cssText='display:block;color:${UiColor.error};font-size:12px';form.append(status);
       const controls = document.createElement('span');controls.style.cssText='display:flex;justify-content:flex-end;gap:12px;margin-top:10px';form.append(controls);
       const draft = () => bridge.draft(titleInput.value,urlInput.value);
       titleInput.addEventListener('input',draft);urlInput.addEventListener('input',draft);
+      for (const input of [titleInput,urlInput]) {
+        input.addEventListener('keydown',event=>{
+          if (event.key !== 'Enter' || event.isComposing) return;
+          event.preventDefault(); event.stopPropagation();
+          if (input === titleInput) urlInput.focus();
+          else { draft(); bridge.save(titleInput.value,urlInput.value); }
+        });
+      }
       for (const label of ['取消','保存']) {
         const button = document.createElement('button');button.type='button';button.textContent=label;
         button.style.cssText='min-height:40px;padding:6px 16px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.text};font:14px sans-serif;';

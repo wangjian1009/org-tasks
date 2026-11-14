@@ -473,7 +473,8 @@ export struct TaskListItem {
     if (!this.linksEditable()) throw new Error('请展开可编辑任务后再修改链接')
     this.linkSaving = true
     try {
-      if (!await this.persist([{ field: 'LINK', value: { field, link, value } }]) || this.snapshotBlocked) {
+      // 标题链接改名后 Core 身份变化，旧卡片退出并刷新属于已提交成功。
+      if (!await this.persist([{ field: 'LINK', value: { field, link, value } }]) || this.snapshotBlocked && !this.removed) {
         throw new Error(this.message || '修改链接失败，请重试')
       }
     } finally { this.linkSaving = false }

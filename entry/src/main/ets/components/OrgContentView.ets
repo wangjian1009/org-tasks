@@ -59,6 +59,8 @@ export struct OrgContentView {
     const generation = this.documentGeneration
     try {
       const result = await this.controller.runJavaScript(`(() => {
+        // 键盘与 Web 自动滚动可能改变点击坐标；链接表单打开时不切换整段备注编辑。
+        if (document.querySelector('.org-link-editor')) return 'true';
         const node = document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp});
         const action = node?.closest('[data-conflict-action]');
         if (action) return JSON.stringify({ id: action.getAttribute('data-conflict-id') || '', action: action.getAttribute('data-conflict-action') || '' });
