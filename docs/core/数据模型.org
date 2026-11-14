@@ -1058,11 +1058,9 @@ pub enum TaskModification {
     Todo(Option<String>),
     Priority(Option<String>),
     Tags(Option<Vec<String>>),
-    Schedule(Option<String>),
-    ScheduleDate(Option<String>),
+    Schedule(Option<TaskPlanningValue>),
     ScheduleRepeat(Option<TaskRepeatRule>),
-    Deadline(Option<String>),
-    DeadlineDate(Option<String>),
+    Deadline(Option<TaskPlanningValue>),
     DeadlineRepeat(Option<TaskRepeatRule>),
     AddressLink(Option<TaskAddressChange>),
 }
@@ -1467,6 +1465,8 @@ pub struct TaskEditContent {
     pub checklist: Vec<TaskChecklistItem>,
     pub scheduled_repeat: Option<TaskRepeatInfo>,
     pub deadline_repeat: Option<TaskRepeatInfo>,
+    pub scheduled_planning: Option<TaskPlanningInfo>,
+    pub deadline_planning: Option<TaskPlanningInfo>,
 }
 pub struct TaskChecklistItem {
     pub id: String,
@@ -1494,12 +1494,34 @@ pub enum TaskChecklistChange {
 
 ~sibling_group~ 是当前快照中直接父列表的位置身份，序列化为 ~siblingGroup~ ，用于展示层判断可排序的同级组，不是持久化顺序。 ~Move~ 将条目及其嵌套内容移到 ~before_id~ 之前，空值表示本同级列表末尾；跨列表、跨父项和过期 ID 拒绝，原位移动不改字节。移动保留项目符号、编号、文字、完成状态和缩进；条目之间的分隔空行保留在原槽位，防止堆叠空行拆散列表。末项没有终止换行时仅在新连接处补足原换行样式。
 
-~SCHEDULE_DATE~ 与 ~DEADLINE_DATE~ 接收 ~YYYY-MM-DD~ 或空值，只修改对应规划时间戳的开始日期并更新星期，不清除原时刻、重复器或预警；原 ~SCHEDULE~ 与 ~DEADLINE~ 仍设置完整时间戳。清除一个日期不修改另一个日期。
+计划与截止统一使用 ~SCHEDULE~ 和 ~DEADLINE~ ，值为 ~TaskPlanningValue~ 或 ~null~ 。完整 Org 时间戳字符串仍表示整体设置；结构化 ~{ date, time? }~ 表示在原规划上局部修改。 ~date~ 为有效的 ~YYYY-MM-DD~ ，修改时更新原星期； ~time~ 缺省保留原时刻， ~null~ 清除时刻， ~{ start, end }~ 设置 ~HH:MM~ 时刻及可空的同日结束时刻。结束时刻必须晚于开始时刻；小时重复不能清除时刻，需先调整重复规则。整个值为 ~null~ 时清除该规划字段，另一规划字段保持不变。
+
+Core 使用 ~orgize~ 和原始规划范围更新，仅替换对应日期、星期及明确修改的时刻；重复器、重复窗口、预警、跨日期范围尾部、空格、换行和未涉及的源字节保持原样。结构化编辑只修改首个时间戳，不新增跨日期范围编辑入口。 ~TaskPlanningInfo~ 将日期与可空的 ~TaskPlanningTime~ 投影到 ~scheduled_planning~ 和 ~deadline_planning~ ，供已有时刻回显，不从日期字符串推测时刻。
+
+#+begin_src rust
+#[serde(untagged)]
+pub enum TaskPlanningValue { Timestamp(String), Edit(TaskPlanningEdit) }
+pub struct TaskPlanningEdit {
+    pub date: String,
+    // 缺省保留，Some(None) 清除，Some(Some(time)) 设置。
+    pub time: Option<Option<TaskPlanningTime>>,
+}
+pub struct TaskPlanningTime { pub start: String, pub end: Option<String> }
+pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTime> }
+#+end_src
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ notes\_html: String \\ own\_tags: Vec}{}
 \umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ sibling\_group: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
 \umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove \\ Move}{}
+\umlclass[x=7,y=-4]{TaskPlanningInfo}{date: String}{}
+\umlclass[x=7,y=-7]{TaskPlanningTime}{start: String \\ end: Option<String>}{}
+\umlclass[x=0,y=-7]{TaskPlanningEdit}{date: String \\ time: Option<Option>}{}
+\umlclass[x=0,y=-10,type=enumeration]{TaskPlanningValue}{Timestamp \\ Edit}{}
+\umlcompo[mult2=0..2]{TaskEditContent}{TaskPlanningInfo}
+\umlcompo[mult2=0..1]{TaskPlanningInfo}{TaskPlanningTime}
+\umldep{TaskPlanningEdit}{TaskPlanningTime}
+\umldep{TaskPlanningValue}{TaskPlanningEdit}
 \umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}
 \umldep{TaskChecklistChange}{TaskChecklistItem}
 \end{tikzpicture}

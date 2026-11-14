@@ -458,7 +458,7 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 任务对象新增只读、可枚举的 ~ownTags~ 、 ~inheritedTags~ 与 ~editContent~ 。自身标签取自 Core 原始标题标签，包含不展示的用途标签，操作普通标签时保留原用途；继承标签标记来源且不在当前任务取消； ~editContent~ 包含 ~notes~ 和 ~checklist~ ，条目字段为 ~id~ 、 ~text~ 、 ~checked~ 、 ~partial~ 、 ~depth~ 、 ~siblingGroup~ 。C++ 只透传嵌套对象，ArkTS 不解析正文或 checkbox。
 
-~TaskModificationField~ 接入 ~NOTES~ 、 ~CHECKLIST~ 、 ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ ，仍通过原有异步 ~Workspace.executeTaskOperations~ 提交。 ~TaskChecklistChange~ 使用辨别字段 ~type~ ，值为 ~add~ 、 ~edit~ 、 ~setChecked~ 、 ~remove~ 或 ~move~ 。排序使用 ~{ type: 'move', id, beforeId }~ ， ~beforeId~ 为同级目标 ID 或 ~null~ ，移动与分组投影均原样透传，Core 校验同级身份和原快照版本。修改成功只确认提交，当前编辑卡片需要最新版本时通过既有查询接口重新读取；收件箱、备忘和分享入口在数据变化订阅或页面生命周期中重新载入，通知订阅接口保持不变。
+~TaskModificationField~ 接入 ~NOTES~ 、 ~CHECKLIST~ 、 ~SCHEDULE~ 和 ~DEADLINE~ ，仍通过原有异步 ~Workspace.executeTaskOperations~ 提交。 ~TaskChecklistChange~ 使用辨别字段 ~type~ ，值为 ~add~ 、 ~edit~ 、 ~setChecked~ 、 ~remove~ 或 ~move~ 。排序使用 ~{ type: 'move', id, beforeId }~ ， ~beforeId~ 为同级目标 ID 或 ~null~ ，移动与分组投影均原样透传，Core 校验同级身份和原快照版本。修改成功只确认提交，当前编辑卡片需要最新版本时通过既有查询接口重新读取；收件箱、备忘和分享入口在数据变化订阅或页面生命周期中重新载入，通知订阅接口保持不变。
 
 标签候选合并当前文件的 ~tagOptions~ 、当前任务标签与 workspace 已用标签，不合并其他文件未使用的候选。新建标签通过赋给当前任务落盘，不创建独立标签配置。
 
@@ -647,3 +647,9 @@ Core 的 ~TextLink~ 、 ~LinkValue~ 、 ~TaskLinkChange~ 分别透传为同名 T
 ~LinkView.editable~ 默认为假； ~editing~ 由控件维护， ~editingChanged~ 向宿主报告输入状态。控件通过 ~change~ 异步回调提交结构化改动，保存成功后退出编辑，失败保留字段与错误。标题通过 ~TitleText~ 、备注通过 ~OrgContentView~ 透传属性与回调，宿主不拼接 Org。备注 Web 只读写 Core 生成的链接元数据与展示 DOM，通过限定的 ~OrgTaskLinks~ 代理传递选择、草稿、保存和取消；所有菜单、跳转和编辑后反馈仍在公共控件中处理。
 
 共享 ~LinkEditController~ 在结束输入、切换字段或收起任务前顺序等待链接草稿保存。 ~TaskInlineService.modify~ 对 ~LINK~ 与清单一样校验原快照，不先重查再把旧位置套到新文件。编辑期间遇到外部版本变化，卡片保留原快照与草稿并阻止提交；本次提交成功后的新快照正常接入。浏览器中的两字段表单只处理 UI，不构造 Org 字符串或执行源文件内容。
+
+* 规划日期与时间编辑
+
+~TaskPlanningValue~ 的 TS 输入为完整时间戳字符串或 ~TaskPlanningEdit~ ，仍通过 ~SCHEDULE~ 和 ~DEADLINE~ 提交；不存在单独的日期修改字段。 ~TaskPlanningEdit~ 包含 ~date: string~ 和可选的 ~time: TaskPlanningTime | null~ ， ~TaskPlanningTime~ 包含 ~start: string~ 与 ~end: string | null~ 。缺省时间保留原值，显式 ~null~ 清除时刻；整个规划值为 ~null~ 清除规划。C++ 原样序列化结构化对象，通过已有 worker 调用 Rust，由 Core 解析、校验与局部写入，宿主不拼接 Org 时间戳。
+
+~Task.editContent.scheduledPlanning~ 与 ~deadlinePlanning~ 是 ~TaskPlanningInfo | null~ ，包含 ~date~ 和可空的 ~time~ ，Rust 直接采用 Core 投影，C++ 的 ~editContent~ 嵌套对象原样透传； ~task.scheduled~ 和 ~task.deadline~ 继续保留纯日期供既有分组使用。 ~NativeCoreService~ 增加三个结构类型别名。卡片、收件箱分配、批量分配及重复面板的日期草稿均迁移到统一规划字段。重复面板只修改日期并保留原时间。

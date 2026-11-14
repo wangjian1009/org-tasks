@@ -692,9 +692,9 @@ impl Context<'_> {
                     }
                 }
                 let change = if kind == orgize::SyntaxKind::PLANNING_SCHEDULED {
-                    TaskModification::Schedule(value)
+                    TaskModification::Schedule(value.map(Into::into))
                 } else {
-                    TaskModification::Deadline(value)
+                    TaskModification::Deadline(value.map(Into::into))
                 };
                 self.modify(target, change)?;
             }

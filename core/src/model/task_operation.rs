@@ -88,6 +88,49 @@ pub struct TaskModificationOperation {
     pub modifications: Vec<TaskModification>,
 }
 
+/// 完整时间戳输入兼容原接口；结构化编辑由 Core 保真更新原时间戳。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TaskPlanningValue {
+    Timestamp(String),
+    Edit(TaskPlanningEdit),
+}
+
+impl From<String> for TaskPlanningValue {
+    fn from(value: String) -> Self { Self::Timestamp(value) }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskPlanningTime {
+    pub start: String,
+    pub end: Option<String>,
+}
+
+/// time 缺省保留原时间，null 清除时间，对象设置具体时刻或同日范围。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskPlanningEdit {
+    pub date: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "planning_time_change")]
+    pub time: Option<Option<TaskPlanningTime>>,
+}
+
+fn planning_time_change<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Option<TaskPlanningTime>>, D::Error> {
+    Option::<TaskPlanningTime>::deserialize(deserializer).map(Some)
+}
+
+impl TaskPlanningEdit {
+    pub fn date(date: String) -> Self { Self { date, time: None } }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPlanningInfo {
+    pub date: String,
+    pub time: Option<TaskPlanningTime>,
+}
+
 /// 每项修改指定字段；TODO 统一维护时间、重复调度和日志，其余未涉及的字段及字节保持原样。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -105,11 +148,9 @@ pub enum TaskModification {
     Todo(Option<String>),
     Priority(Option<String>),
     Tags(Option<Vec<String>>),
-    Schedule(Option<String>),
-    ScheduleDate(Option<String>),
+    Schedule(Option<TaskPlanningValue>),
     ScheduleRepeat(Option<super::TaskRepeatRule>),
-    Deadline(Option<String>),
-    DeadlineDate(Option<String>),
+    Deadline(Option<TaskPlanningValue>),
     DeadlineRepeat(Option<super::TaskRepeatRule>),
     AddressLink(Option<TaskAddressChange>),
 }

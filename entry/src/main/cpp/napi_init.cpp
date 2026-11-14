@@ -493,7 +493,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     napi_value constructor, result;
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
-    // id 为 Core 的明文逻辑路径；headingParts.link 的快照定位与 editContent.notesHtml 原样透传。
+    // id 为 Core 的明文逻辑路径；headingParts.link 的快照定位与 editContent.notesHtml、scheduledPlanning、deadlinePlanning 原样透传；结构化 SCHEDULE/DEADLINE 由 worker 交给 Core 校验。
     for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit"}) {
         napi_value value;

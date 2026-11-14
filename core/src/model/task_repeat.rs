@@ -115,6 +115,23 @@ pub(super) fn repeat_info(
     })
 }
 
+pub(super) fn planning_info(file: &OrgFile, headline: &Headline, kind: SyntaxKind) -> Option<super::TaskPlanningInfo> {
+    let range = timestamp_range(file, headline, kind)?;
+    let raw = std::str::from_utf8(&file.source_bytes()[range]).ok()?;
+    let time = raw[1..raw.len() - 1].split_whitespace()
+        .find(|part| part.as_bytes().get(2) == Some(&b':'))
+        .map(|part| {
+            let (start, end) = part.split_once('-').map_or((part, None), |(a, b)| (a, Some(b.to_owned())));
+            super::TaskPlanningTime { start: start.into(), end }
+        });
+    Some(super::TaskPlanningInfo { date: raw.get(1..11)?.into(), time })
+}
+
+pub(super) fn has_hourly_repeater(raw: &str) -> bool {
+    raw.split(['<', '>', '[', ']']).flat_map(str::split_whitespace)
+        .filter_map(parse).any(|rule| rule.unit == TaskRepeatUnit::Hour)
+}
+
 pub(super) fn planning_timestamp(
     file: &OrgFile,
     headline: &Headline,
@@ -265,7 +282,7 @@ mod tests {
         );
         apply(
             &mut f,
-            TaskModification::ScheduleDate(Some("2026-11-12".into())),
+            TaskModification::Schedule(Some(crate::TaskPlanningValue::Edit(crate::TaskPlanningEdit::date("2026-11-12".into())))),
         )
         .unwrap();
         assert_eq!(
@@ -277,7 +294,7 @@ mod tests {
         );
         apply(
             &mut f,
-            TaskModification::ScheduleDate(Some("2026-11-11".into())),
+            TaskModification::Schedule(Some(crate::TaskPlanningValue::Edit(crate::TaskPlanningEdit::date("2026-11-11".into())))),
         )
         .unwrap();
         apply(&mut f, TaskModification::ScheduleRepeat(None)).unwrap();
@@ -310,7 +327,7 @@ mod tests {
         apply(&mut f, TaskModification::DeadlineRepeat(None)).unwrap();
         apply(
             &mut f,
-            TaskModification::DeadlineDate(Some("2026-12-01".into())),
+            TaskModification::Deadline(Some(crate::TaskPlanningValue::Edit(crate::TaskPlanningEdit::date("2026-12-01".into())))),
         )
         .unwrap();
         apply(
@@ -331,7 +348,7 @@ mod tests {
         let mut f = file(source);
         apply(
             &mut f,
-            TaskModification::ScheduleDate(Some("2026-11-12".into())),
+            TaskModification::Schedule(Some(crate::TaskPlanningValue::Edit(crate::TaskPlanningEdit::date("2026-11-12".into())))),
         )
         .unwrap();
         assert_eq!(

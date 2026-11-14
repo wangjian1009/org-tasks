@@ -1,4 +1,4 @@
-import { CoreTask, CoreTaskRepeatMode, CoreTaskRepeatUnit, CoreTaskRepeatInfo, CoreTaskModification } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskRepeatMode, CoreTaskRepeatUnit, CoreTaskRepeatInfo, CoreTaskModification, CoreTaskPlanningEdit } from '../services/NativeCoreService'
 import { repeatUnits, repeatUnitLabels, repeatSummary, repeatModifications } from '../ui/TaskRepeatPresentation'
 import { inlineDate, inlineDateLabel } from '../ui/TaskInlinePresentation'
 import { TaskDateDialog } from './TaskDateDialog'
@@ -35,8 +35,8 @@ export struct TaskRepeatDialog {
   }
   close() { if (!this.busy) { this.controller.close(); this.closed() } }
   chooseDate() {
-    this.dateDialog = new CustomDialogController({ builder: TaskDateDialog({ selected: this.date, deadline: this.deadline, allowClear: false,
-      choose: async (value: string): Promise<boolean> => { if (value) this.date = value; return true } }),
+    this.dateDialog = new CustomDialogController({ builder: TaskDateDialog({ selected: this.date, deadline: this.deadline, allowClear: false, allowTime: false,
+      choose: async (value: CoreTaskPlanningEdit | null): Promise<boolean> => { if (value) this.date = value.date; return true } }),
       customStyle: true, alignment: DialogAlignment.Center, autoCancel: true })
     this.dateDialog.open()
   }

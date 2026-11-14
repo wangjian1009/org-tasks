@@ -106,6 +106,7 @@ pub struct HarmonyBridgeTask {
     pub own_tags: Vec<String>,
     pub inherited_tags: Vec<String>,
     pub support_tags: Option<org_tasks_core::SupportTags>,
+    // 日期与时间由 Core 投影，嵌套对象原样传给 N-API，不在宿主解析 Org。
     pub edit_content: org_tasks_core::TaskEditContent,
     pub file_path: String,
     pub file_name: String,
@@ -948,6 +949,40 @@ mod tests {
             serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
         assert!(updated[0]["tasks"][0]["projectName"].is_null());
         assert_eq!(results[0]["tasks"][0]["projectName"], "Shared Project");
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn structured_planning_edits_round_trip_time_and_reject_invalid_groups() {
+        let root = std::env::temp_dir().join(format!("org-planning-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "* TODO Task\r\nSCHEDULED: <2026-11-09 Mon 09:30-10:30 +1w -2d> DEADLINE: <2026-12-01 Tue 18:00>\r\nNotes  \r\n";
+        std::fs::write(root.join("tasks.org"), source).unwrap();
+        let handle = create_workspace().unwrap();
+        let directory = root.to_string_lossy().to_string();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        let snapshot: serde_json::Value = serde_json::from_str(&repo_file_json(handle, directory.clone(), "tasks.org".into()).unwrap()).unwrap();
+        let task = &snapshot["nodes"][0];
+        assert_eq!(task["scheduled"], "2026-11-09");
+        assert_eq!(task["editContent"]["scheduledPlanning"], serde_json::json!({"date":"2026-11-09","time":{"start":"09:30","end":"10:30"}}));
+        assert_eq!(task["editContent"]["deadlinePlanning"]["time"]["start"], "18:00");
+        let mut request = serde_json::json!({
+            "operations": [{"type":"Modification","data":{"path":task["fullPath"],"modifications":[
+                {"field":"SCHEDULE","value":{"date":"2026-11-10","time":{"start":"11:00","end":"12:00"}}},
+                {"field":"DEADLINE","value":{"date":"2026-12-02","time":{"start":"24:00","end":null}}}
+            ]}}],
+            "fileVersions":[{"repoId":task["repoId"],"file":"tasks.org","version":task["fileVersion"]}]
+        });
+        assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
+        assert_eq!(std::fs::read(root.join("tasks.org")).unwrap(), source.as_bytes());
+        request["operations"][0]["data"]["modifications"][1]["value"]["time"] = serde_json::Value::Null;
+        workspace_execute_task_operations(handle, request.to_string()).unwrap();
+        let updated: serde_json::Value = serde_json::from_str(&repo_file_json(handle, directory, "tasks.org".into()).unwrap()).unwrap();
+        assert_eq!(updated["nodes"][0]["editContent"]["scheduledPlanning"]["time"]["end"], "12:00");
+        assert!(updated["nodes"][0]["editContent"]["deadlinePlanning"]["time"].is_null());
+        assert_eq!(std::fs::read(root.join("tasks.org")).unwrap(), source.replace("2026-11-09 Mon 09:30-10:30", "2026-11-10 Tue 11:00-12:00").replace("2026-12-01 Tue 18:00", "2026-12-02 Wed").as_bytes());
+        assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

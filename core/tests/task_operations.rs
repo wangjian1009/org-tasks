@@ -66,7 +66,7 @@ async fn repeat_rule_group_is_atomic_versioned_and_keeps_the_other_planning_fiel
         unreachable!()
     };
     operation.modifications = serde_json::from_value(serde_json::json!([
-        {"field":"SCHEDULE_DATE","value":"2026-11-11"},
+        {"field":"SCHEDULE","value":{"date":"2026-11-11"}},
         {"field":"SCHEDULE_REPEAT","value":{"mode":"afterCompletion","interval":0,"unit":"week"}}
     ]))
     .unwrap();

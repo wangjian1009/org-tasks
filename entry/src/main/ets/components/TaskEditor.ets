@@ -1,3 +1,4 @@
+import { inlinePlanningLabel } from '../ui/TaskInlinePresentation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
@@ -115,8 +116,8 @@ export struct TaskEditor {
             this.metadata($r('app.media.ui_tags'), '标签', this.task!.tags.join('  '))
             this.metadata($r('app.media.ui_state'), '状态', (this.task!.state?.name || '') ? `${taskStateCategoryLabel(this.task!.state?.category)} · ${(this.task!.state?.name || '')}` : '备忘')
             this.priorityMetadata()
-            this.metadata($r('app.media.ui_calendar'), '计划时间', this.task!.scheduled)
-            this.metadata($r('app.media.ui_deadline'), '截止时间', this.task!.deadline)
+            this.metadata($r('app.media.ui_calendar'), '计划时间', this.task!.scheduled ? inlinePlanningLabel(this.task!.scheduled, this.task!.editContent.scheduledPlanning) : '')
+            this.metadata($r('app.media.ui_deadline'), '截止时间', this.task!.deadline ? inlinePlanningLabel(this.task!.deadline, this.task!.editContent.deadlinePlanning) : '')
             Row({ space: 12 }) {
               Image($r('app.media.ui_task_repeat')).width(24).height(24)
               Column({ space: 4 }) {

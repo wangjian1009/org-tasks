@@ -2,7 +2,7 @@ import { ProjectNavigation } from '../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
-import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../services/TaskInlineService'
 import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
@@ -15,7 +15,7 @@ import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 import { PopupMenuButton } from './PopupMenuButton'
 import { PopupMenuItem } from './PopupMenu'
-import { inlineDateLabel, inlineDate } from '../ui/TaskInlinePresentation'
+import { inlineDateLabel, inlineDate, inlinePlanningLabel } from '../ui/TaskInlinePresentation'
 import { UiColor, UiSize } from '../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDateForDisplay, TaskDateDisplay,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
@@ -540,9 +540,11 @@ export struct TaskListItem {
     if (!await this.prepare() || !await this.finish(false)) return
     const wasExpanded = this.expanded
     this.dateDialog = new CustomDialogController({
-      builder: TaskDateDialog({ closed: () => { if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }, selected: deadline ? this.value().deadline : this.value().scheduled, deadline,
-        choose: async (date: string): Promise<boolean> => {
-          return await this.persist([{ field: deadline ? 'DEADLINE_DATE' : 'SCHEDULE_DATE', value: date || null }])
+      builder: TaskDateDialog({ closed: () => { if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }, selected: deadline ? this.value().deadline : this.value().scheduled,
+        planning: deadline ? this.value().editContent.deadlinePlanning : this.value().editContent.scheduledPlanning, deadline,
+        failureMessage: (): string => this.message || '未能保存，请重试',
+        choose: async (value: CoreTaskPlanningEdit | null): Promise<boolean> => {
+          return await this.persist([{ field: deadline ? 'DEADLINE' : 'SCHEDULE', value }])
         } }),
       customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
       onWillDismiss: (action: DismissDialogAction) => { if (this.working) return; action.dismiss(); if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }
@@ -784,8 +786,8 @@ export struct TaskListItem {
 
   expandedPlanningText(): string {
     const parts: string[] = []
-    if (this.value().scheduled) parts.push(`计划：${inlineDateLabel(this.value().scheduled)}`)
-    if (this.value().deadline) parts.push(`截止：${inlineDateLabel(this.value().deadline)}`)
+    if (this.value().scheduled) parts.push(`计划：${inlinePlanningLabel(this.value().scheduled, this.value().editContent.scheduledPlanning)}`)
+    if (this.value().deadline) parts.push(`截止：${inlinePlanningLabel(this.value().deadline, this.value().editContent.deadlinePlanning)}`)
     if (this.dateDisplay === TaskDateDisplay.Closed) {
       const closed = this.expandedDateLabel(TaskDateDisplay.Closed)
       if (closed) parts.push(`完成：${closed}`)
@@ -1256,7 +1258,7 @@ export struct TaskListItem {
         Button({ type: ButtonType.Normal }) {
           Row({ space: 5 }) {
             Image(this.value().scheduled === inlineDate(new Date()) ? $r('app.media.nav_today') : $r('app.media.ui_task_calendar')).width(18).height(18)
-            if (this.value().scheduled) { Text(inlineDateLabel(this.value().scheduled)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
+            if (this.value().scheduled) { Text(inlinePlanningLabel(this.value().scheduled, this.value().editContent.scheduledPlanning)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
           }
         }.id('inline_schedule_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
           .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
@@ -1266,7 +1268,7 @@ export struct TaskListItem {
         Button({ type: ButtonType.Normal }) {
           Row({ space: 4 }) {
             Image(this.deadlineIcon()).width(16).height(16)
-            if (this.value().deadline) { Text(inlineDateLabel(this.value().deadline)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
+            if (this.value().deadline) { Text(inlinePlanningLabel(this.value().deadline, this.value().editContent.deadlinePlanning)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
           }
         }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
           .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })

@@ -28,6 +28,8 @@ pub struct TaskEditContent {
     pub checklist: Vec<TaskChecklistItem>,
     pub scheduled_repeat: Option<super::TaskRepeatInfo>,
     pub deadline_repeat: Option<super::TaskRepeatInfo>,
+    pub scheduled_planning: Option<super::TaskPlanningInfo>,
+    pub deadline_planning: Option<super::TaskPlanningInfo>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,6 +189,8 @@ impl OrgFile {
             checklist,
             scheduled_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),
             deadline_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_DEADLINE),
+            scheduled_planning: super::task_repeat::planning_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),
+            deadline_planning: super::task_repeat::planning_info(self, &headline, SyntaxKind::PLANNING_DEADLINE),
         })
     }
 }
@@ -406,7 +410,7 @@ mod tests {
         let mut file = file(source);
         apply(
             &mut file,
-            TaskModification::ScheduleDate(Some("2026-11-10".into())),
+            TaskModification::Schedule(Some(crate::TaskPlanningValue::Edit(crate::TaskPlanningEdit::date("2026-11-10".into())))),
         );
         assert_eq!(
             file.source_bytes(),
@@ -414,7 +418,7 @@ mod tests {
                 .replace("2026-11-09 Mon", "2026-11-10 Tue")
                 .as_bytes()
         );
-        apply(&mut file, TaskModification::DeadlineDate(None));
+        apply(&mut file, TaskModification::Deadline(None));
         let result = std::str::from_utf8(file.source_bytes()).unwrap();
         assert!(result.contains("09:30 +1w -2d"));
         assert!(!result.contains("DEADLINE:"));
@@ -457,7 +461,7 @@ mod tests {
             modify(
                 &mut file,
                 &h,
-                &TaskModification::DeadlineDate(Some("2026-02-30".into()))
+                &TaskModification::Deadline(Some(crate::TaskPlanningValue::Edit(crate::TaskPlanningEdit::date("2026-02-30".into()))))
             )
             .is_err()
         );
@@ -691,4 +695,61 @@ mod tests {
             }
         }
     }
+    fn planning_change(value: serde_json::Value) -> TaskModification {
+        serde_json::from_value(serde_json::json!({"field": "SCHEDULE", "value": value})).unwrap()
+    }
+    #[test]
+    fn planning_time_round_trip_preserves_modifiers_other_fields_and_source_bytes() {
+        let source = "* TODO Task\r\n  SCHEDULED: <2026-11-09 Mon 09:30-10:30 .+4w/5w --2d>  DEADLINE: <2026-12-01 Tue>\r\nNotes  \r\n** Child\r\n";
+        let mut f = file(source);
+        let info = projection(&f).scheduled_planning.unwrap();
+        assert_eq!(info.date, "2026-11-09");
+        assert_eq!(info.time.as_ref().unwrap().start, "09:30");
+        assert_eq!(info.time.unwrap().end.as_deref(), Some("10:30"));
+        apply(&mut f, planning_change(serde_json::json!({"date":"2026-11-10","time":{"start":"11:15","end":"12:45"}})));
+        assert_eq!(f.source_bytes(), source.replace("2026-11-09 Mon 09:30-10:30", "2026-11-10 Tue 11:15-12:45").as_bytes());
+        apply(&mut f, planning_change(serde_json::json!({"date":"2026-11-10","time":null})));
+        assert_eq!(f.source_bytes(), source.replace("2026-11-09 Mon 09:30-10:30", "2026-11-10 Tue").as_bytes());
+        assert!(projection(&f).scheduled_planning.unwrap().time.is_none());
+        apply(&mut f, planning_change(serde_json::json!({"date":"2026-11-10","time":{"start":"08:00","end":null}})));
+        assert_eq!(f.source_bytes(), source.replace("2026-11-09 Mon 09:30-10:30", "2026-11-10 Tue 08:00").as_bytes());
+    }
+    #[test]
+    fn date_only_planning_keeps_each_tasks_time_and_cross_day_range() {
+        for stamp in ["<2026-11-09 Mon 09:30 +1w>", "<2026-11-09 Mon 09:30>--<2026-11-11 Wed 10:00>"] {
+            let source = format!("* Task\nSCHEDULED: {stamp}\n");
+            let mut f = file(&source);
+            apply(&mut f, planning_change(serde_json::json!({"date":"2026-11-10"})));
+            assert_eq!(f.source_bytes(), source.replace("2026-11-09 Mon", "2026-11-10 Tue").as_bytes());
+            assert_eq!(projection(&f).scheduled_planning.unwrap().time.unwrap().start, "09:30");
+        }
+    }
+    #[test]
+    fn creates_times_and_keeps_original_full_timestamp_input_compatible() {
+        let mut f = file("* Task\nNotes\n");
+        apply(&mut f, planning_change(serde_json::json!({"date":"2026-11-10","time":{"start":"00:00","end":null}})));
+        assert_eq!(f.source_bytes(), b"* Task\nSCHEDULED: <2026-11-10 00:00>\nNotes\n");
+        apply(&mut f, planning_change(serde_json::json!("<2026-11-11 Wed 23:59 -2d>")));
+        assert_eq!(f.source_bytes(), b"* Task\nSCHEDULED: <2026-11-11 Wed 23:59 -2d>\nNotes\n");
+        apply(&mut f, planning_change(serde_json::Value::Null));
+        assert_eq!(f.source_bytes(), b"* Task\nNotes\n");
+    }
+    #[test]
+    fn invalid_planning_times_and_clearing_hourly_time_leave_source_untouched() {
+        let source = "* Task\nSCHEDULED: <2026-11-09 Mon 09:00 +1h>\n";
+        for value in [
+            serde_json::json!({"date":"2026-11-10","time":null}),
+            serde_json::json!({"date":"2026-11-10","time":{"start":"24:00","end":null}}),
+            serde_json::json!({"date":"2026-11-10","time":{"start":"09:60","end":null}}),
+            serde_json::json!({"date":"2026-11-10","time":{"start":"12:00","end":"11:00"}}),
+            serde_json::json!({"date":"2026-11-10","time":{"start":"12:00","end":"12:00"}}),
+            serde_json::json!({"date":"2026-02-30"}),
+        ] {
+            let mut f = file(source);
+            let h = f.path_headlines()[0].1.clone();
+            assert!(modify(&mut f, &h, &planning_change(value)).is_err());
+            assert_eq!(f.source_bytes(), source.as_bytes());
+        }
+    }
+
 }

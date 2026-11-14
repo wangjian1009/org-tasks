@@ -14,7 +14,7 @@ export function repeatSummary(rule: CoreTaskRepeatRule | null | undefined): stri
 export function repeatModifications(deadline: boolean, originalDate: string, date: string,
   rule: CoreTaskRepeatRule | null): CoreTaskModification[] {
   const changes: CoreTaskModification[] = []
-  if (rule && date !== originalDate) changes.push({ field: deadline ? 'DEADLINE_DATE' : 'SCHEDULE_DATE', value: date })
+  if (rule && date !== originalDate) changes.push({ field: deadline ? 'DEADLINE' : 'SCHEDULE', value: { date } })
   changes.push({ field: deadline ? 'DEADLINE_REPEAT' : 'SCHEDULE_REPEAT', value: rule })
   return changes
 }

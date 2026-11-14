@@ -1,3 +1,4 @@
+import { CoreTaskPlanningInfo } from '../services/NativeCoreService'
 // 仅维护月历布局；任务时间戳的语法与写入由 Core 验证。
 export interface TaskCalendarDay { key: string; label: string; date: string; inMonth: boolean; today: boolean; selected: boolean }
 
@@ -23,4 +24,9 @@ export function taskCalendarDays(year: number, month: number, selected: string, 
       today: date === inlineDate(now), selected: date === selected })
   }
   return days
+}
+
+export function inlinePlanningLabel(date: string, planning: CoreTaskPlanningInfo | null): string {
+  const time = planning?.time
+  return `${inlineDateLabel(date)}${time ? ` ${time.start}${time.end ? `–${time.end}` : ''}` : ''}`
 }

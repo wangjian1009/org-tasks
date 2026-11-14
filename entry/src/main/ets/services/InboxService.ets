@@ -4,7 +4,7 @@ import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { MoveToTargetService } from './MoveToTargetService'
 import { configuredFileTarget, FileTargetService, FileTargetQueryResult } from './FileTargetService'
-import { CoreRefileTarget, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
+import { CoreRefileTarget, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 
 import { PageQueryService } from './PageQueryService'
 
@@ -63,7 +63,7 @@ export class InboxService {
 
   // 一次提交整组选中快照；任一版本或操作失效均由 Core 拒绝整组。
   static async performMany(context: Context, tasks: CoreTask[], action: InboxAction,
-    target?: CoreRefileTarget, date?: string): Promise<void> {
+    target?: CoreRefileTarget, date?: CoreTaskPlanningEdit | null): Promise<void> {
     if (tasks.length === 0) return
     if (action === 'move' && !target) throw new Error('请选择任务目标')
     if ((action === 'schedule' || action === 'deadline') && date === undefined) throw new Error('请选择日期')
@@ -80,7 +80,7 @@ export class InboxService {
     const operations: CoreTaskOperation[] = []
     let modifications: CoreTaskModification[] = []
     if (action === 'schedule' || action === 'deadline') {
-      modifications = [{ field: action === 'deadline' ? 'DEADLINE_DATE' : 'SCHEDULE_DATE', value: date || null }]
+      modifications = [{ field: action === 'deadline' ? 'DEADLINE' : 'SCHEDULE', value: date ?? null }]
     } else if (action === 'someday') {
       const selected = configuredFileTarget(config, 'someday')
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)

@@ -994,26 +994,8 @@ pub(super) fn modify(
         }
         TaskModification::ScheduleRepeat(value) => super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_SCHEDULED, value),
         TaskModification::DeadlineRepeat(value) => super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_DEADLINE, value),
-        TaskModification::ScheduleDate(value) => {
-            modify_planning_date(file, headline, "SCHEDULED", SyntaxKind::PLANNING_SCHEDULED, value)
-        }
-        TaskModification::DeadlineDate(value) => {
-            modify_planning_date(file, headline, "DEADLINE", SyntaxKind::PLANNING_DEADLINE, value)
-        }
-        TaskModification::Schedule(value) => planning(
-            file,
-            headline,
-            "SCHEDULED",
-            SyntaxKind::PLANNING_SCHEDULED,
-            value,
-        ),
-        TaskModification::Deadline(value) => planning(
-            file,
-            headline,
-            "DEADLINE",
-            SyntaxKind::PLANNING_DEADLINE,
-            value,
-        ),
+        TaskModification::Schedule(value) => modify_planning_value(file, headline, "SCHEDULED", SyntaxKind::PLANNING_SCHEDULED, value),
+        TaskModification::Deadline(value) => modify_planning_value(file, headline, "DEADLINE", SyntaxKind::PLANNING_DEADLINE, value),
         TaskModification::AddressLink(value) => {
             let change = value
                 .as_ref()
@@ -1043,9 +1025,13 @@ pub(super) fn modify(
     }
 }
 
-fn modify_planning_date(file: &mut OrgFile, headline: &Headline, name: &str, kind: SyntaxKind, value: &Option<String>) -> Result<(), CoreError> {
+fn modify_planning_value(file: &mut OrgFile, headline: &Headline, name: &str, kind: SyntaxKind, value: &Option<TaskPlanningValue>) -> Result<(), CoreError> {
     let existing = super::task_repeat::planning_timestamp(file, headline, kind);
-    let updated = planning_date_value(existing.clone(), value)?;
+    let updated = match value {
+        None => None,
+        Some(TaskPlanningValue::Timestamp(raw)) => { validate_timestamp(raw)?; Some(raw.clone()) },
+        Some(TaskPlanningValue::Edit(edit)) => Some(planning_edit_value(existing.clone(), edit)?),
+    };
     if let (Some(existing), Some(updated)) = (existing, &updated) {
         for (_, _, fields) in planning_lines(file, headline) {
             for (field, a, b) in fields {
@@ -1059,36 +1045,64 @@ fn modify_planning_date(file: &mut OrgFile, headline: &Headline, name: &str, kin
     planning(file, headline, name, kind, &updated)
 }
 
-fn planning_date_value(
-    existing: Option<String>,
-    value: &Option<String>,
-) -> Result<Option<String>, CoreError> {
-    let Some(value) = value else { return Ok(None) };
-    let day = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map_err(|_| CoreError::InvalidInput("日期必须是 YYYY-MM-DD"))?;
-    if value.len() != 10 {
-        return Err(CoreError::InvalidInput("日期必须是 YYYY-MM-DD"));
+fn planning_edit_value(existing: Option<String>, edit: &TaskPlanningEdit) -> Result<String, CoreError> {
+    let day = chrono::NaiveDate::parse_from_str(&edit.date, "%Y-%m-%d")
+        .map_err(|_| CoreError::InvalidInput("日期必须是有效的 YYYY-MM-DD"))?;
+    if edit.date.len() != 10 || !(1..=9999).contains(&chrono::Datelike::year(&day)) {
+        return Err(CoreError::InvalidInput("日期必须是有效的 YYYY-MM-DD"));
     }
-    let Some(mut raw) = existing else {
-        return Ok(Some(format!("<{value}>")));
-    };
+    let mut raw = existing.unwrap_or_else(|| format!("<{}>", edit.date));
     let masked = super::task_state::mask_repeater_windows(&raw);
     let parsed = orgize::Org::parse(&masked);
     let timestamp = parsed.first_node::<orgize::ast::Timestamp>()
         .ok_or(CoreError::InvalidInput("规划时间戳无效"))?;
     let offset = u32::from(timestamp.start()) as usize;
-    if let Some(token) = timestamp
-        .syntax()
-        .children_with_tokens()
-        .find(|node| node.kind() == SyntaxKind::TIMESTAMP_DAYNAME)
-    {
+    let mut time_at = 11;
+    if let Some(token) = timestamp.syntax().children_with_tokens().find(|node| node.kind() == SyntaxKind::TIMESTAMP_DAYNAME) {
         let a = u32::from(token.text_range().start()) as usize - offset;
         let b = u32::from(token.text_range().end()) as usize - offset;
         raw.replace_range(a..b, &day.format("%a").to_string());
+        time_at = a + 3;
     }
-    raw.replace_range(1..11, value);
+    raw.replace_range(1..11, &edit.date);
+    if let Some(time) = &edit.time {
+        let replacement = match time {
+            None => String::new(),
+            Some(time) => {
+                let start = parse_planning_time(&time.start)?;
+                if let Some(end) = &time.end {
+                    if parse_planning_time(end)? <= start { return Err(CoreError::InvalidInput("结束时间必须晚于开始时间")); }
+                    format!("{}-{}", time.start, end)
+                } else { time.start.clone() }
+            }
+        };
+        // 只修改首个时间戳的时刻，跨日期范围的尾部和所有修饰符保持原样。
+        let close = raw.find(['>', ']']).ok_or(CoreError::InvalidInput("规划时间戳无效"))?;
+        let time_range = raw[..close].split_whitespace().find(|part| part.as_bytes().get(2) == Some(&b':'))
+            .and_then(|part| raw[..close].find(part).map(|at| at..at + part.len()));
+        if let Some(range) = time_range {
+            if replacement.is_empty() {
+                let mut at = range.start;
+                while at > 11 && raw.as_bytes()[at - 1] == b' ' { at -= 1; }
+                raw.replace_range(at..range.end, "");
+            } else { raw.replace_range(range, &replacement); }
+        } else if !replacement.is_empty() {
+            raw.insert_str(time_at, &format!(" {replacement}"));
+        }
+    }
     validate_timestamp(&raw)?;
-    Ok(Some(raw))
+    // 小时重复离不开具体时刻，清除时拒绝而不破坏原规则。
+    if edit.time == Some(None) && super::task_repeat::has_hourly_repeater(&raw) {
+        return Err(CoreError::InvalidInput("按小时重复需要具体时刻，请先修改重复规则"));
+    }
+    Ok(raw)
+}
+
+fn parse_planning_time(value: &str) -> Result<chrono::NaiveTime, CoreError> {
+    if value.len() != 5 || !value.bytes().enumerate().all(|(i, b)| if i == 2 { b == b':' } else { b.is_ascii_digit() }) {
+        return Err(CoreError::InvalidInput("时间必须是 HH:MM"));
+    }
+    chrono::NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| CoreError::InvalidInput("时间必须是有效的 HH:MM"))
 }
 
 fn inline_body_start(file: &OrgFile, headline: &Headline) -> usize {

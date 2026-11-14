@@ -23,7 +23,7 @@ import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/I
 import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
 import { AppConfigService } from '../services/AppConfigService'
 import { CaptureService } from '../services/CaptureService'
-import { CoreBridgeError, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
@@ -372,9 +372,10 @@ struct Inbox {
     if (records.length === 0 || this.mergeBusy) return
     if (!this.selectingRecords) { this.mergeMessage = ''; this.mergeInvalid = false }
     this.dateDialog = new CustomDialogController({
-      builder: TaskDateDialog({ deadline: action === 'deadline', failureMessage: (): string => this.mergeMessage,
+      builder: TaskDateDialog({ deadline: action === 'deadline', batch: records.length > 1,
+        planning: records.length === 1 ? (action === 'deadline' ? records[0].editContent.deadlinePlanning : records[0].editContent.scheduledPlanning) : null, failureMessage: (): string => this.mergeMessage,
         selected: records.length === 1 ? (action === 'deadline' ? records[0].deadline : records[0].scheduled) : '',
-        choose: async (date: string): Promise<boolean> => {
+        choose: async (date: CoreTaskPlanningEdit | null): Promise<boolean> => {
           return await this.performSelected(action, undefined, date, records)
         } }), customStyle: true, autoCancel: false, alignment: DialogAlignment.Center
     })
@@ -402,7 +403,7 @@ struct Inbox {
     } else this.performSelected(action)
   }
 
-  async performSelected(action: InboxAction, target?: CoreRefileTarget, date?: string, sources?: CoreTask[]): Promise<boolean> {
+  async performSelected(action: InboxAction, target?: CoreRefileTarget, date?: CoreTaskPlanningEdit | null, sources?: CoreTask[]): Promise<boolean> {
     if (this.mergeBusy || this.actionBusy || this.mergeInvalid) return false
     if (this.selectingRecords) {
       if (!taskBatchMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return false
