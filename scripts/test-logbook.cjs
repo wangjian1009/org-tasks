@@ -119,6 +119,36 @@ test('只读卡片可展开收起，任务实例保持独立会话身份', async
   assert.deepEqual(b.card.moreItems(), []);
   assert.notEqual(a.card.ownerKey, b.card.ownerKey);
 });
+const emittedTask = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/components/TaskListItem.ts';
+test('日志簿收起标题的实际点击回调可展开只读卡片，再点标题可收起', { skip: !fs.existsSync(emittedTask) }, async () => {
+  const file = ts.createSourceFile(emittedTask, fs.readFileSync(emittedTask, 'utf8'), ts.ScriptTarget.Latest, true);
+  let params;
+  function visit(node) {
+    if (ts.isMethodDeclaration(node) && node.name?.getText(file) === 'compactTitle') {
+      function findTitle(child) {
+        if (ts.isNewExpression(child) && child.expression.getText(file) === 'TitleText') params = child.arguments[1].getText(file);
+        ts.forEachChild(child, findTitle);
+      }
+      findTitle(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.ok(params, '缺少收起标题的编译参数');
+  const { titleParams } = compile(`import { TaskStateCategory } from 'states'; export function titleParams() { return ${params}; }`, {
+    states: { TaskStateCategory: { Cancel: 'Cancel' } }
+  });
+  const { card } = readOnlyCard();
+  const title = titleParams.call(card);
+  assert.equal(typeof title.activate, 'function', '标题必须接入展开回调，不能仅依赖父容器点击');
+  title.activate();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(card.expanded, true);
+  title.activate();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(card.expanded, false);
+  assert.equal(card.typing, undefined);
+});
 test('只读模式阻止所有编辑、完成、清单修改与左右滑动，保存不产生请求', async () => {
   const { card } = readOnlyCard();
   for (const name of ['openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus']) {

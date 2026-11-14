@@ -941,7 +941,8 @@ export struct TaskListItem {
         this.priorityBadge()
         Column({ space: 2 }) {
           TitleText({ text: this.value().heading, parts: this.value().headingParts, editable: false,
-            lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
+            lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
+            activate: (): void => { this.toggle() } })
             .width('100%').constraintSize({ minWidth: 0 })
           if (taskSourceText(this.value(), false, this.regionPolicy())) {
             this.categoryProject()
