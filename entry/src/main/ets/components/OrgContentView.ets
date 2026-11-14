@@ -171,7 +171,7 @@ export struct OrgContentView {
           scrollLeft: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST,
           scrollRight: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST })
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
-        .javaScriptProxy({ object: links, name: 'OrgTaskLinks', methodList: ['hit', 'draft', 'save', 'cancel'], controller: this.controller })
+        .javaScriptProxy({ object: links, name: 'OrgTaskLinks', methodList: ['hit', 'protocol', 'draft', 'save', 'cancel'], controller: this.controller })
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
           return links.navigate(request.getRequestUrl(), this.active && request.isMainFrame())
         })

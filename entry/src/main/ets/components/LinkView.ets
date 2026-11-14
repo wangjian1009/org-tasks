@@ -19,6 +19,7 @@ interface MapAppChoice {
 }
 
 interface DocumentLinkProtocol { kind: string; title: string; prefix: string; path: string }
+interface LinkProtocolHit { title: string; url: string; x: number; y: number; width: number; height: number }
 
 interface LinkHit {
   link: CoreTextLink | null
@@ -50,6 +51,7 @@ export class LinkController {
   private activate: (href: string) => Promise<void>
   constructor(activate: (href: string) => Promise<void>) { this.activate = activate }
   hit: (payload: string) => void = () => {}
+  protocol: (payload: string) => void = () => {}
   draft: (title: string, url: string) => void = () => {}
   save: (title: string, url: string) => void = () => {}
   cancel: () => void = () => {}
@@ -87,6 +89,9 @@ export struct LinkView {
   remeasure: () => void = () => {}
   @BuilderParam content: (links: LinkController) => void = this.emptyContent
   @State protocolVisible: boolean = false
+  @State protocolHeight: number = 320
+  @State protocolX: number = 0
+  @State protocolY: number = 0
   @State menuWidth: number = 320
   private textController: TextController = new TextController()
   private suppressClickUntil: number = 0
@@ -112,6 +117,7 @@ export struct LinkView {
     this.owner = this.getUniqueId()
     this.editor.bind(this.owner, async (): Promise<boolean> => !this.editing || await this.saveEdit())
     this.links.hit = (payload: string): void => { this.webHit(payload) }
+    this.links.protocol = (payload: string): void => { this.webProtocol(payload) }
     this.links.draft = (title: string, url: string): void => { if (this.editing && !this.saving) { this.titleDraft = title; this.urlDraft = url } }
     this.links.save = (title: string, url: string): void => {
       if (!this.editing || this.saving) return
@@ -121,7 +127,7 @@ export struct LinkView {
     this.links.ready = (): void => { this.installDocument() }
   }
   aboutToDisappear() {
-    this.active = false; this.generation++; this.chooserVisible = false; this.mapChoices = []; this.menuVisible = false
+    this.active = false; this.generation++; this.chooserVisible = false; this.mapChoices = []; this.menuVisible = false; this.protocolVisible = false
     this.editor.release(this.owner)
     if (this.editing) this.editingChanged(false)
   }
@@ -256,20 +262,73 @@ export struct LinkView {
   }
 
   changeProtocol(kind: string) {
-    if (this.saving) return
+    if (!this.active || !this.editable || !this.editing || this.saving) return
     this.urlDraft = switchLinkProtocol(this.urlDraft, kind)
     this.protocolVisible = false
+    if (this.document && this.webController) {
+      const generation = this.generation
+      this.webController.runJavaScript(`window.orgLinkProtocol?.(${JSON.stringify(this.urlDraft)})`)
+        .catch((): void => { if (this.active && generation === this.generation) this.notify('无法切换链接协议，请重试。') })
+    }
+  }
+
+  webProtocol(payload: string) {
+    if (!this.active || !this.document || !this.editable || !this.editing || this.saving) return
+    try {
+      const hit = JSON.parse(payload) as LinkProtocolHit
+      if (typeof hit.title !== 'string' || typeof hit.url !== 'string' || !Number.isFinite(hit.x)
+        || !Number.isFinite(hit.y) || !Number.isFinite(hit.width) || hit.width <= 0 || !Number.isFinite(hit.height) || hit.height <= 0) return
+      this.titleDraft = hit.title; this.urlDraft = hit.url
+      const scale = this.widthVp / hit.width
+      this.protocolX = Math.max(0, Math.min(this.widthVp - 1, hit.x * scale))
+      this.protocolY = Math.max(0, hit.y * scale)
+      this.protocolHeight = Math.max(88, Math.min(320, hit.height * scale - 32))
+      this.openProtocolMenu()
+    } catch (_) { this.notify('无法打开协议菜单，请重试。') }
+  }
+
+  openProtocolMenu() {
+    if (!this.active || !this.editable || !this.editing || this.saving) return
+    LinkEditController.protectInteraction()
+    try { this.menuWidth = this.getUIContext().px2vp(display.getDefaultDisplaySync().width) - 32 } catch (_) {}
+    this.protocolVisible = !this.protocolVisible
+  }
+
+  protocolState(visible: boolean) {
+    this.protocolVisible = visible && this.active && this.editable && this.editing && !this.saving
+    if (this.active && this.document && this.webController) {
+      this.webController.runJavaScript(`window.orgLinkProtocolState?.(${this.protocolVisible})`).catch(() => {})
+    }
+  }
+
+  protocolItems(): PopupMenuItem[] {
+    return LINK_PROTOCOLS.map((choice: LinkProtocolChoice): PopupMenuItem => ({
+      title: choice.title, icon: choice.icon, checked: linkProtocol(this.urlDraft).kind === choice.kind,
+      action: (): void => { this.changeProtocol(choice.kind) }
+    }))
   }
 
   @Builder
   protocolChoices() {
-    Column() {
-      PopupMenu({ items: LINK_PROTOCOLS.map((choice: LinkProtocolChoice): PopupMenuItem => ({
-        title: choice.title, icon: choice.icon, checked: linkProtocol(this.urlDraft).kind === choice.kind,
-        action: (): void => { this.changeProtocol(choice.kind) }
-      })), maximumWidth: this.menuWidth,
-        activate: (item: PopupMenuItem): void => { item.action() } })
-    }.backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
+    Scroll() {
+      Column() {
+        PopupMenu({ items: this.protocolItems(), maximumWidth: this.menuWidth, disabled: this.saving,
+          activate: (item: PopupMenuItem): void => { item.action() } })
+      }
+    }.constraintSize({ maxHeight: this.protocolHeight, maxWidth: this.menuWidth })
+      .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
+      .edgeEffect(EdgeEffect.None).scrollBar(BarState.Auto)
+      .backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
+      .border({ width: UiSize.menuBorder, color: UiColor.menuOutline }).clip(true)
+  }
+
+  @Builder
+  protocolAnchor() {
+    Row().width(1).height(1).position({ x: this.protocolX, y: this.protocolY })
+      .bindPopup(this.protocolVisible, { builder: this.protocolChoices(), placement: Placement.BottomLeft,
+        targetSpace: 6, enableArrow: false, popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE,
+        mask: { color: Color.Transparent }, focusable: true, autoCancel: true,
+        onStateChange: (event): void => { this.protocolState(event.isVisible) } })
   }
 
   @Builder
@@ -296,12 +355,16 @@ export struct LinkView {
       Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
       Row({ space: 8 }) {
         Button({ type: ButtonType.Normal }) {
-          Image(linkProtocol(this.urlDraft).icon).width(16).height(16).fillColor(UiColor.primary)
-        }.width(44).height(44).padding(14).borderRadius(8).backgroundColor(UiColor.field)
+          Row() {
+            Image(linkProtocol(this.urlDraft).icon).width(16).height(16).fillColor(UiColor.primary)
+          }.width(32).height(32).justifyContent(FlexAlign.Center).borderRadius(6).backgroundColor(UiColor.field)
+        }.width(44).height(44).padding(0).backgroundColor(Color.Transparent)
           .enabled(!this.saving).accessibilityText(`选择链接协议，当前为${linkProtocol(this.urlDraft).title}`)
-          .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction(); this.protocolVisible = !this.protocolVisible })
+          .onClick((event: ClickEvent): void => { this.protocolHeight = 320; this.openProtocolMenu() })
           .bindPopup(this.protocolVisible, { builder: this.protocolChoices(), placement: Placement.Bottom,
-            popupColor: UiColor.menu, focusable: false, onStateChange: (event): void => { this.protocolVisible = event.isVisible } })
+            targetSpace: 6, enableArrow: false, popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE,
+            mask: { color: Color.Transparent }, focusable: true, autoCancel: true,
+            onStateChange: (event): void => { this.protocolState(event.isVisible) } })
         TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
           .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
           .onSubmit((): void => { this.saveEdit() })
@@ -460,7 +523,7 @@ export struct LinkView {
 
   build() {
     if (this.document) {
-      Stack({ alignContent: Alignment.TopStart }) { this.content(this.links); this.menuAnchor() }.width('100%').height(this.contentHeight)
+      Stack({ alignContent: Alignment.TopStart }) { this.content(this.links); this.menuAnchor(); this.protocolAnchor() }.width('100%').height(this.contentHeight)
         .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction() })
         .onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
         .bindSheet($$this.chooserVisible, this.mapAppSheet(), {
@@ -566,6 +629,7 @@ export function linkDocumentScript(): string {
     window.orgLinkCancel = () => {
       const form = document.querySelector('.org-link-editor');
       if (form) { if (form.previousElementSibling) form.previousElementSibling.hidden = false; form.remove(); }
+      window.orgLinkProtocol=undefined;window.orgLinkProtocolState=undefined;
     };
     window.orgLinkEdit = (link, title, url) => {
       const anchor = find(link); if (!anchor) return false;
@@ -583,43 +647,30 @@ export function linkDocumentScript(): string {
       const urlInput = field('链接',url,'链接地址');
       const urlRow=document.createElement('span');urlRow.style.cssText='display:flex;align-items:center;gap:8px;position:relative';
       const protocolButton=document.createElement('button');protocolButton.type='button';
-      protocolButton.style.cssText='display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 44px;height:44px;padding:14px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.primary};font-size:16px';
-      protocolButton.setAttribute('aria-expanded','false');protocolButton.setAttribute('aria-controls','org-link-protocols');
-      const choices=document.createElement('span');choices.id='org-link-protocols';choices.hidden=true;
-      choices.style.cssText='position:absolute;left:0;top:100%;min-width:180px;max-width:100%;z-index:10;padding:4px;border-radius:8px;background:${UiColor.field}';
-      const closeChoices=()=>{choices.hidden=true;protocolButton.setAttribute('aria-expanded','false');};
+      protocolButton.style.cssText='display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 44px;height:44px;padding:6px;border:0;background:transparent;color:${UiColor.primary};font-size:16px';
+      protocolButton.setAttribute('aria-expanded','false');protocolButton.setAttribute('aria-haspopup','menu');
+      const symbol=document.createElement('span');symbol.style.cssText='display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 32px;width:32px;height:32px;padding:8px;border-radius:6px;background:${UiColor.field}';protocolButton.append(symbol);
       const updateProtocol=()=>{
-        const current=protocol(urlInput.value);protocolButton.replaceChildren(makeIcon(current));
+        const current=protocol(urlInput.value);symbol.replaceChildren(makeIcon(current));
         protocolButton.setAttribute('aria-label','选择链接协议，当前为'+(current?.title || '其他协议'));
-        [...choices.children].forEach((button,index)=>{
-          const selected=protocols[index].kind===current?.kind;button.setAttribute('aria-pressed',String(selected));
-          button.style.backgroundColor=selected?'${UiColor.surface}':'transparent';button.style.color=selected?'${UiColor.primary}':'${UiColor.text}';
-        });
       };
-      protocolButton.addEventListener('click',()=>{choices.hidden=!choices.hidden;protocolButton.setAttribute('aria-expanded',String(!choices.hidden));});
-      for(const choice of protocols){
-        const button=document.createElement('button');button.type='button';
-        button.style.cssText='display:flex;align-items:center;gap:8px;width:100%;min-height:44px;border:0;background:transparent;color:${UiColor.text};font:14px sans-serif;text-align:left';
-        button.append(makeIcon(choice),document.createTextNode(choice.title));
-        button.addEventListener('click',()=>{
-          const previous=protocol(urlInput.value);let value=urlInput.value;
-          if(previous?.kind!==choice.kind){
-            if(value.startsWith('org-internal:')){try{value=decodeURIComponent(value.substring(13));}catch(_){}}
-            const target=protocol(value);
-            if(target?.kind!=='internal'){value=value.substring(value.indexOf(':')+1);if(value.startsWith('//'))value=value.substring(2);}
-            urlInput.value=choice.prefix+value;
-          }
-          closeChoices();updateProtocol();draft();urlInput.focus();
-        });choices.append(button);
-      }
-      urlInput.before(urlRow);urlRow.append(protocolButton,urlInput,choices);urlInput.style.flex='1';urlInput.style.minWidth='0';
+      window.orgLinkProtocolState=visible=>protocolButton.setAttribute('aria-expanded',String(visible));
+      window.orgLinkProtocol=value=>{
+        urlInput.value=value;updateProtocol();window.orgLinkProtocolState(false);draft();urlInput.focus();return true;
+      };
+      protocolButton.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();
+        const rect=protocolButton.getBoundingClientRect();draft();
+        bridge.protocol(JSON.stringify({title:titleInput.value,url:urlInput.value,x:rect.left+rect.width/2,y:rect.bottom,
+          width:window.innerWidth,height:window.visualViewport?.height || window.innerHeight}));
+      });
+      urlInput.before(urlRow);urlRow.append(protocolButton,urlInput);urlInput.style.flex='1';urlInput.style.minWidth='0';
       updateProtocol();
       titleInput.enterKeyHint = 'next'; urlInput.enterKeyHint = 'done';
       const status = document.createElement('span'); status.className='org-link-status'; status.style.cssText='display:block;color:${UiColor.error};font-size:12px';form.append(status);
       const controls = document.createElement('span');controls.style.cssText='display:flex;justify-content:flex-end;gap:12px;margin-top:10px';form.append(controls);
       const draft = () => bridge.draft(titleInput.value,urlInput.value);
       titleInput.addEventListener('input',draft);urlInput.addEventListener('input',()=>{updateProtocol();draft();});
-      for(const input of [titleInput,urlInput]) input.addEventListener('focus',closeChoices);
       form.addEventListener('click',event=>event.stopPropagation());
       for (const input of [titleInput,urlInput]) {
         input.addEventListener('keydown',event=>{

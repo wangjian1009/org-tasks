@@ -214,8 +214,38 @@ test('共享编辑控制器阻止同时编辑两个链接，旧草稿保存失�
   assert.equal(first.view.editing, false);assert.equal(second.view.editing, true);
 });
 
+test('正文协议菜单使用原生选项，取消保留草稿，地址可选且关闭后回填 Web 表单', async () => {
+  const f=fixture(), scripts=[];f.view.document=true;f.view.editable=true;f.view.widthVp=320;
+  f.view.webController={async runJavaScript(script){scripts.push(script);}};
+  await f.view.select({...linkHit(),menu:true});await f.view.beginEdit();
+  const hit={title:'地点草稿',url:'geo:北京市朝阳区',x:46,y:68,width:320,height:200};
+  f.view.links.protocol(JSON.stringify(hit));
+  assert.equal(f.view.protocolVisible,true);assert.equal(f.view.protocolX,46);assert.equal(f.view.protocolY,68);
+  assert.equal(f.view.protocolHeight,168);assert.equal(f.view.titleDraft,'地点草稿');
+  assert.deepEqual(f.view.protocolItems().map(item=>item.title),['HTTPS 网页','HTTP 网页','邮件','电话','坐标','地址','文档内部']);
+  f.view.protocolState(false);
+  assert.equal(f.view.urlDraft,hit.url);assert.equal(f.view.editing,true);assert.equal(f.view.protocolVisible,false);
+  assert.equal(scripts.at(-1),'window.orgLinkProtocolState?.(false)');
+  f.view.links.protocol(JSON.stringify(hit));
+  f.view.protocolItems().find(item=>item.title==='地址').action();
+  assert.equal(f.view.urlDraft,'addr:北京市朝阳区');assert.equal(f.view.titleDraft,'地点草稿');
+  assert.equal(f.view.protocolVisible,false);assert.equal(f.view.protocolItems().find(item=>item.title==='地址').checked,true);
+  assert.equal(scripts.at(-1),'window.orgLinkProtocol?.("addr:北京市朝阳区")');
+  f.view.cancelEdit();f.view.links.protocol(JSON.stringify(hit));assert.equal(f.view.protocolVisible,false);
+});
+
+test('协议菜单拒绝无效坐标、非编辑状态和已退出页面的请求', async () => {
+  const f=fixture();f.view.document=true;f.view.editable=true;
+  const hit={title:'草稿',url:'geo:北京',x:20,y:30,width:320,height:200};
+  f.view.links.protocol(JSON.stringify(hit));assert.equal(f.view.protocolVisible,false);
+  await f.view.select({...linkHit(),menu:true});await f.view.beginEdit();
+  f.view.links.protocol(JSON.stringify({...hit,width:0}));assert.equal(f.view.protocolVisible,false);
+  f.view.saving=true;f.view.links.protocol(JSON.stringify(hit));assert.equal(f.view.protocolVisible,false);
+  f.view.saving=false;f.view.aboutToDisappear();f.view.links.protocol(JSON.stringify(hit));assert.equal(f.view.protocolVisible,false);
+});
+
 test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入法组词期间不切换', () => {
-  const f = fixture(), saved = [], drafts = [];
+  const f = fixture(), saved = [], drafts = [], protocolRequests = [];
   let focused, form;
   const link = linkHit().link;
   function element(tag) {
@@ -225,13 +255,15 @@ test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入�
       append(...nodes) { for(const node of nodes){ if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);node.parent=this;this.children.push(node); } },
       replaceChildren(...nodes) { this.children=[];this.append(...nodes); },
       addEventListener(name, callback) { this.listeners[name] = callback; },
+      getBoundingClientRect() { return {left:24,bottom:68,width:44}; },
       focus() { focused = this; }
     };
   }
   const anchor = { dataset: { orgLink: JSON.stringify(link) }, after(node) { form = node; },
     querySelector() { return true; }, getAttribute(name) { return name==='data-org-url'?'https://example.com/':''; } };
-  const window = { OrgTaskLinks: {
-    draft: (...values) => drafts.push(values), save: (...values) => saved.push(values)
+  const window = { innerWidth:320, innerHeight:200, OrgTaskLinks: {
+    draft: (...values) => drafts.push(values), save: (...values) => saved.push(values),
+    protocol: payload=>protocolRequests.push(JSON.parse(payload))
   } };
   vm.runInNewContext(f.documentScript(), { window, document: {
     querySelectorAll: () => [anchor], querySelector: () => null,
@@ -241,22 +273,23 @@ test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入�
   const title = form.children.find(node => node.tag === 'input');
   const urlRow = form.children.find(node => node.children?.some(child=>child.tag==='input'));
   const url = urlRow.children.find(node=>node.tag==='input');
-  const button = urlRow.children[0], choices = urlRow.children[2];
+  const button = urlRow.children[0];
   assert.equal(button.tag,'button');assert.equal(button['aria-label'],'选择链接协议，当前为HTTPS 网页');
-  assert.equal(choices.hidden,true);
-  button.listeners.click();assert.equal(choices.hidden,false);
+  assert.equal(urlRow.children.length,2);
+  assert.equal(button['aria-haspopup'],'menu');
+  button.listeners.click({preventDefault(){},stopPropagation(){}});
+  assert.deepEqual(protocolRequests,[{title:'原标题',url:'https://example.com/',x:46,y:68,width:320,height:200}]);
+  window.orgLinkProtocolState(true);assert.equal(button['aria-expanded'],'true');
+  window.orgLinkProtocolState(false);assert.equal(button['aria-expanded'],'false');
+  assert.equal(url.value,'https://example.com/');assert.equal(title.value,'原标题');
   title.value='修改标题';
-  choices.children[2].listeners.click();
-  assert.equal(url.value,'mailto:example.com/');assert.equal(choices.hidden,true);
+  window.orgLinkProtocol('mailto:example.com/');
+  assert.equal(url.value,'mailto:example.com/');assert.equal(button['aria-expanded'],'false');
   assert.equal(button['aria-label'],'选择链接协议，当前为邮件');
-  const addressChoice = choices.children.find(choice=>choice.children.some(child=>child.textContent==='地址'));
-  assert.ok(addressChoice);
-  url.value='geo:北京市朝阳区';url.listeners.input();
-  addressChoice.listeners.click();
+  window.orgLinkProtocol('addr:北京市朝阳区');
   assert.equal(url.value,'addr:北京市朝阳区');
   assert.equal(title.value,'修改标题');
   assert.equal(button['aria-label'],'选择链接协议，当前为地址');
-  assert.equal(addressChoice['aria-pressed'],'true');
   assert.deepEqual(drafts.at(-1),['修改标题','addr:北京市朝阳区']);
   url.value='custom:keep';url.listeners.input();
   assert.equal(button['aria-label'],'选择链接协议，当前为其他协议');
