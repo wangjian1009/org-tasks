@@ -56,8 +56,12 @@ export struct MoveToTarget {
     }
   }
 
-  isSelected(target: CoreRefileTarget): boolean {
-    return this.selectedTarget !== undefined && JSON.stringify(this.selectedTarget) === JSON.stringify(target)
+  isSelected(target: CoreRefileTarget | undefined): boolean {
+    return target !== undefined && this.selectedTarget !== undefined && JSON.stringify(this.selectedTarget) === JSON.stringify(target)
+  }
+
+  projectTarget(section: RefileSection): CoreRefileTarget | undefined {
+    return section.kind === 'project' ? section.targets.find((target: CoreRefileTarget): boolean => target.fullPath.titles.length === 0) : undefined
   }
 
   select(target: CoreRefileTarget) {
@@ -76,14 +80,24 @@ export struct MoveToTarget {
   }
 
   @Builder
-  sectionHeading(section: RefileSection) {
+  sectionHeading(section: RefileSection, target: CoreRefileTarget | undefined) {
     Row({ space: 8 }) {
       Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category_muted'))
         .width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
       Text(section.name || '未分类').fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
-        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-    }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: 12, right: 12, top: 28, bottom: 8 })
-      .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}`)
+        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+      if (target && this.isSelected(target)) {
+        Button('移动').id('move_to_project').width(58).height(32).padding(0).borderRadius(10)
+          .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(UiSize.taskFont).enabled(!this.busy && !this.loading)
+          .accessibilityText(`移动到项目${section.name}`)
+          .onClick((): void => { if (target) this.move(target) })
+      }
+    }.width('100%').constraintSize({ minHeight: 36 }).padding({ left: 12, right: 10, top: 2, bottom: 2 })
+      .margin({ top: 28, bottom: 8 })
+      .backgroundColor(this.isSelected(target) ? '#3F514A' : Color.Transparent)
+      .border({ width: this.isSelected(target) ? 1 : 0, color: UiColor.primary }).borderRadius(10)
+      .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}${target ? this.isSelected(target) ? '，已选中' : '，点击选择' : ''}`)
+      .enabled(!this.busy && !this.loading).onClick((): void => { if (target) this.select(target) })
   }
 
   @Builder
@@ -136,8 +150,8 @@ export struct MoveToTarget {
       } else {
         List({ space: 0 }) {
           ForEach(this.orderedSections, (section: RefileSection) => {
-            ListItemGroup({ header: this.sectionHeading(section) }) {
-              ForEach(section.targets, (target: CoreRefileTarget) => {
+            ListItemGroup({ header: this.sectionHeading(section, this.projectTarget(section)) }) {
+              ForEach(section.targets.filter((target: CoreRefileTarget): boolean => target.fullPath.titles.length > 0), (target: CoreRefileTarget) => {
                 ListItem() { this.targetRow(target) }
               }, (target: CoreRefileTarget) => JSON.stringify(target))
             }
