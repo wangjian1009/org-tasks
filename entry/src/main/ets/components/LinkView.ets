@@ -296,8 +296,8 @@ export struct LinkView {
       Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
       Row({ space: 8 }) {
         Button({ type: ButtonType.Normal }) {
-          Image(linkProtocol(this.urlDraft).icon).width(20).height(20).fillColor(UiColor.primary)
-        }.width(44).height(44).padding(12).borderRadius(8).backgroundColor(UiColor.field)
+          Image(linkProtocol(this.urlDraft).icon).width(16).height(16).fillColor(UiColor.primary)
+        }.width(44).height(44).padding(14).borderRadius(8).backgroundColor(UiColor.field)
           .enabled(!this.saving).accessibilityText(`选择链接协议，当前为${linkProtocol(this.urlDraft).title}`)
           .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction(); this.protocolVisible = !this.protocolVisible })
           .bindPopup(this.protocolVisible, { builder: this.protocolChoices(), placement: Placement.Bottom,
@@ -496,7 +496,7 @@ export function linkDocumentScript(): string {
       const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
       icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','1em');icon.setAttribute('height','1em');
       icon.setAttribute('aria-hidden','true');
-      icon.style.cssText='display:inline-block;vertical-align:-0.12em;pointer-events:none';
+      icon.style.cssText='display:inline-block;width:1em;height:1em;flex-shrink:0;vertical-align:-0.12em;pointer-events:none';
       const path=document.createElementNS('http://www.w3.org/2000/svg','path');
       path.setAttribute('d',choice?.path || 'M9 15l6-6M8 11l-2 2a4 4 0 0 0 6 6l2-2M10 7l2-2a4 4 0 0 1 6 6l-2 2');
       path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.7');path.setAttribute('fill','none');
@@ -583,7 +583,7 @@ export function linkDocumentScript(): string {
       const urlInput = field('链接',url,'链接地址');
       const urlRow=document.createElement('span');urlRow.style.cssText='display:flex;align-items:center;gap:8px;position:relative';
       const protocolButton=document.createElement('button');protocolButton.type='button';
-      protocolButton.style.cssText='display:flex;align-items:center;justify-content:center;flex:0 0 44px;height:44px;padding:12px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.primary};font-size:20px';
+      protocolButton.style.cssText='display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 44px;height:44px;padding:14px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.primary};font-size:16px';
       protocolButton.setAttribute('aria-expanded','false');protocolButton.setAttribute('aria-controls','org-link-protocols');
       const choices=document.createElement('span');choices.id='org-link-protocols';choices.hidden=true;
       choices.style.cssText='position:absolute;left:0;top:100%;min-width:180px;max-width:100%;z-index:10;padding:4px;border-radius:8px;background:${UiColor.field}';

@@ -249,6 +249,15 @@ test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入�
   choices.children[2].listeners.click();
   assert.equal(url.value,'mailto:example.com/');assert.equal(choices.hidden,true);
   assert.equal(button['aria-label'],'选择链接协议，当前为邮件');
+  const addressChoice = choices.children.find(choice=>choice.children.some(child=>child.textContent==='地址'));
+  assert.ok(addressChoice);
+  url.value='geo:北京市朝阳区';url.listeners.input();
+  addressChoice.listeners.click();
+  assert.equal(url.value,'addr:北京市朝阳区');
+  assert.equal(title.value,'修改标题');
+  assert.equal(button['aria-label'],'选择链接协议，当前为地址');
+  assert.equal(addressChoice['aria-pressed'],'true');
+  assert.deepEqual(drafts.at(-1),['修改标题','addr:北京市朝阳区']);
   url.value='custom:keep';url.listeners.input();
   assert.equal(button['aria-label'],'选择链接协议，当前为其他协议');
   title.focus();drafts.length=0;
@@ -260,9 +269,9 @@ test('正文链接编辑以 Enter 切换到地址并提交最新草稿，输入�
   enter.isComposing = false;
   title.value = '修改标题';title.listeners.keydown(enter);
   assert.equal(focused, url);assert.equal(prevented, 1);assert.equal(saved.length, 0);
-  url.value = 'https://example.com/updated';url.listeners.keydown(enter);
+  url.value = 'addr:北京市朝阳区';url.listeners.keydown(enter);
   assert.equal(prevented, 2);
-  assert.deepEqual(saved, [['修改标题', 'https://example.com/updated']]);
+  assert.deepEqual(saved, [['修改标题', 'addr:北京市朝阳区']]);
   assert.deepEqual(drafts, saved);
 });
 
@@ -273,6 +282,9 @@ test('协议选择替换前缀并保留内容，同类选择不改写原地址�
   assert.equal(switchLinkProtocol('tel:12345','internal'),'12345');
   assert.equal(switchLinkProtocol('*章节','https'),'https://*章节');
   assert.equal(switchLinkProtocol('HTTPS://EXAMPLE.com/a','https'),'HTTPS://EXAMPLE.com/a');
+  assert.equal(switchLinkProtocol('geo:北京市朝阳区','addr'),'addr:北京市朝阳区');
+  assert.equal(switchLinkProtocol('addr:北京市朝阳区','addr'),'addr:北京市朝阳区');
+  assert.equal(linkProtocol('addr:北京市朝阳区').title,'地址');
   assert.equal(internalLinkTarget('org-internal:%23%E7%AB%A0%E8%8A%82'),'#章节');
   assert.equal(internalLinkTarget('org-internal:%invalid'),undefined);
   assert.equal(linkProtocol('javascript:alert(1)').kind,'other');
