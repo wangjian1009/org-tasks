@@ -47,6 +47,7 @@ export struct TaskListItem {
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
   @Prop documentMode: boolean = false
+  @Prop expandOnRowClick: boolean = false
   @Prop hiddenTags: string[] = []
   @Prop allowCompletion: boolean = false
   @Prop instanceKey: string = ''
@@ -983,6 +984,39 @@ export struct TaskListItem {
       Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0).accessibilityText('循环任务')
     }
   }
+
+  @Builder
+  compactContent() {
+    this.compactLeadingInfo()
+    this.compactTitle()
+    if (this.value().deadline) { this.compactDeadline() }
+  }
+
+  @Builder
+  compactRow() {
+    if (this.expandOnRowClick) {
+      Row() {
+        if (this.value().state !== null) {
+          Row() { this.stateIndicator() }
+            .padding({ left: 8 }).constraintSize({ minHeight: UiSize.taskRow })
+        }
+        Row({ space: 6 }) {
+          if (this.value().state === null) { this.stateIndicator() }
+          this.compactContent()
+        }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
+          .padding({ left: this.value().state === null ? 8 : 6, right: 8 })
+          .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
+          // 整个内容区统一识别点击，避免子控件截获或重复触发展开；状态框位于手势区域之外。
+          .priorityGesture(TapGesture().onAction((): void => { this.toggle() }), GestureMask.IgnoreInternal)
+      }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
+    } else {
+      Row({ space: 6 }) {
+        this.stateIndicator()
+        this.compactContent()
+      }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })
+    }
+  }
+
   @Builder
   checkGripLines() {
     Column({ space: 2.5 }) {
@@ -1386,12 +1420,7 @@ export struct TaskListItem {
         this.documentChecklist()
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       } else {
-        Row({ space: 6 }) {
-          this.stateIndicator()
-          this.compactLeadingInfo()
-          this.compactTitle()
-          if (this.value().deadline) { this.compactDeadline() }
-        }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })
+        this.compactRow()
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       }
     }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)

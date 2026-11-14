@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-actions.cjs\n验证各页面菜单配置、显示顺序、批量入口开关、自定义动作与禁用条件，以及收件箱菜单延迟创建。存在 make build 产物时同时验证编译后的菜单配置。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-actions.cjs\n验证各页面菜单配置、显示顺序、批量入口开关、自定义动作与禁用条件，以及收件箱菜单延迟创建。存在 make build 产物时同时验证编译后的菜单配置和今天页整行展开与 checkbox 的点击边界。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents',
@@ -66,6 +66,53 @@ test('收件箱普通布局不执行左滑菜单，打开菜单才为当前记�
 });
 
 const emittedInbox = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/pages/Inbox.ts';
+const emittedTask = path.join(path.dirname(emittedInbox), '../components/TaskListItem.ts');
+test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终在手势范围之外', { skip: !fs.existsSync(emittedTask) }, () => {
+  const source = ts.createSourceFile(emittedTask, fs.readFileSync(emittedTask, 'utf8'), ts.ScriptTarget.Latest, true);
+  let builder;
+  function visit(node) {
+    if (ts.isMethodDeclaration(node) && node.name?.getText(source) === 'compactRow') builder = node.getText(source);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(builder, '缺少收起任务行编译产物');
+  for (const state of [{ category: 'Todo' }, null]) {
+    const root = { children: [] }, stack = [root];
+    const current = () => stack.at(-1);
+    const Row = { create() { const node = { children: [], parent: current() }; current().children.push(node); stack.push(node); },
+      pop() { stack.pop(); }, width() {}, layoutWeight() {}, constraintSize() {}, padding() {}, accessibilityText() {} };
+    const If = { create() {}, pop() {} };
+    const Gesture = { create(priority, mask) { current().gesture = { priority, mask }; }, pop() {} };
+    const TapGesture = { create() {}, onAction(action) { current().gesture.action = action; }, pop() {} };
+    const code = ts.transpileModule('export class Card {' + builder + '}', {
+      compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+    }).outputText;
+    const module = { exports: {} };
+    vm.runInThisContext('(function(module,exports,Row,If,globalThis,TapGesture,GesturePriority,GestureMask,UiSize,taskTitleText){' + code + '\n})')(
+      module, module.exports, Row, If, { Gesture }, TapGesture, { High: 'high' }, { IgnoreInternal: 'ignore' },
+      { taskRow: 44 }, () => '任务');
+    const parts = new Map();
+    const leaf = name => { const node = { parent: current() }; current().children.push(node); parts.set(name, node); };
+    let expanded = 0;
+    const card = Object.assign(new module.exports.Card(), { expandOnRowClick: true, value: () => ({ state }),
+      observeComponentCreation2: callback => callback(1, true), ifElseBranchUpdateFunction: (_, callback) => callback(),
+      stateIndicator: () => leaf('state'), toggle: () => expanded++,
+      compactContent() { for (const name of ['title', 'link', 'priority', 'count', 'tag', 'repeat', 'indicator', 'duration', 'deadline', 'blank']) leaf(name); } });
+    card.compactRow();
+    const gestureFor = node => { while (node && !node.gesture) node = node.parent; return node?.gesture; };
+    for (const [name, node] of parts) {
+      const gesture = gestureFor(node);
+      if (name === 'state' && state !== null) { assert.equal(gesture, undefined, 'checkbox 不应触发展开'); continue; }
+      assert.equal(gesture?.priority, 'high', name);
+      assert.equal(gesture?.mask, 'ignore', name);
+      const before = expanded; gesture.action(); assert.equal(expanded, before + 1, name);
+    }
+    assert.equal(root.children[0].children.length, state === null ? 1 : 2);
+    root.children = []; card.expandOnRowClick = false; card.compactRow();
+    assert.equal(gestureFor(parts.get('title')), undefined, '未启用整行展开的入口保留原交互');
+  }
+});
+
 test('ArkUI 编译产物保留延迟 builder，避免菜单参与普通列表测量', { skip: !fs.existsSync(emittedInbox) }, () => {
   const source = ts.createSourceFile(emittedInbox, fs.readFileSync(emittedInbox, 'utf8'), ts.ScriptTarget.Latest, true);
   let checked = 0;
