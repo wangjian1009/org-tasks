@@ -221,6 +221,8 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 * 默认 TODO、查询与结果投影
 
+~defaultTaskStates(): Promise<TaskState[]>~ 经 C++ 工作线程调用 Rust 导出的 ~TaskState::defaults()~ ，返回固定默认分类的独立数组。 ~NativeCoreService.defaultTaskStates()~ 仅透传结果，设置页按分类展示，不持有默认映射副本，也不把这些值保存到 Preferences 或附加状态列表。
+
 ~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并用于后续每次文件解析；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~state.category~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
 ~Workspace.query~ 将结构化请求交给 ~OrgWorkspace.query~ ，由 Core 内部解析表达式并求值。返回结果中的 ~tasks~ 为原生 ~Task~ 对象，用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。

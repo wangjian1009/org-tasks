@@ -36,6 +36,7 @@
 | 源文件 | 页面 | 画板 |
 |-
 | [[file:../../design/当前实现/导航与侧边栏.fig][导航与侧边栏]] | Harmony 当前实现 | 09 Harmony 顶部任务入口 |
+| [[file:../../design/当前实现/设置.fig][设置]] | Harmony 当前实现 | 64 Harmony 设置分组与存储库管理（当前实现） |
 | [[file:../../design/当前实现/文件入口配置.fig][文件入口配置]] | Harmony 当前实现 | 10 Harmony 文件入口配置 |
 | [[file:../../design/当前实现/下拉同步与底部设置.fig][下拉同步与底部设置]] | Harmony 当前实现 | 15 Harmony 下拉同步与底部设置 |
 | [[file:../../design/当前实现/文件只读阅读.fig][文件只读阅读]] | Harmony 当前实现 | 16 Harmony 文件只读阅读 |
@@ -120,6 +121,10 @@
 | [[file:../../design/参考/Orgzly参考.fig][Orgzly参考]] | Orgzly 参考资料（不代表当前实现） | 04 批量与滑动操作 |
 | [[file:../../design/参考/Orgzly参考.fig][Orgzly参考]] | Orgzly 参考资料（不代表当前实现） | 05 设置与外观偏好 |
 | [[file:../../design/参考/Orgzly参考.fig][Orgzly参考]] | Orgzly 参考资料（不代表当前实现） | 06 仓库配置 |
+
+** 调研与已确认风格
+
+[[file:设置界面风格提案.org][设置界面风格调研]] 记录 Notion、Things 3、Todoist 与 TickTick 的参考来源及已确认的分组列表方向。当前实现以“设置”“文件入口配置”“任务状态分类”“仓库配置”源文件为准；原四屏提案图保留作为调研记录。侧边栏统一显示“笔记本”，仓库标题只作分区，管理按钮明确进入配置。
 
 ** 历史
 

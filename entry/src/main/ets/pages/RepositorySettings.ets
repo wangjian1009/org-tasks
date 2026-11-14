@@ -1,11 +1,15 @@
 import { PageQueryService } from '../services/PageQueryService'
 import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
-import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
+import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
+import { SettingsGroup } from '../components/controls/SettingsGroup'
+import { SettingsRow } from '../components/controls/SettingsRow'
+import { SettingsField } from '../components/controls/SettingsField'
+import { LocalDirectorySheet } from '../components/editors/LocalDirectorySheet'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
 
 interface RepositoryParams { repoId?: string; webdav?: boolean }
@@ -32,11 +36,14 @@ struct RepositorySettings {
   @State loading: boolean = true
   @State message: string = ''
   @State drawerOpen: boolean = false
+  @State directoryOpen: boolean = false
+  @State directoryBusy: boolean = false
   private loaded: boolean = false
   private originalDraft: string = ''
 
   aboutToAppear() { this.load() }
   onBackPress(): boolean {
+    if (this.directoryOpen) { if (!this.directoryBusy) this.directoryOpen = false; return true }
     if (!this.saving && !this.testing && !this.deleting && !this.resetting) this.save()
     return true
   }
@@ -190,71 +197,87 @@ struct RepositorySettings {
     finally { this.resetting = false }
   }
 
+  @Builder
+  directoryPicker() {
+    LocalDirectorySheet({ initialDirectory: this.rootDirectory, busy: $directoryBusy,
+      selected: (path: string): void => { this.rootDirectory = path; this.directoryOpen = false } })
+  }
+
+  @Builder
+  webdavSwitch() {
+    Row({ space: 12 }) {
+      Text('使用 WebDAV 远端').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: this.webdavEnabled }).selectedColor(UiColor.primary)
+        .onChange((value: boolean): void => { this.webdavEnabled = value; this.clearTestResult() })
+    }.width('100%').constraintSize({ minHeight: 58 }).padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      .border({ width: { bottom: this.webdavEnabled ? 0.5 : 0 }, color: UiColor.divider })
+  }
+
   build() {
     Column() {
-      AppShell({ title: '仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen, busy: this.saving || this.testing || this.deleting || this.resetting,
-        backAction: (): void => { this.save() } }) {
+      AppShell({ title: '仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
+        busy: this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
+        backAction: (): void => { this.onBackPress() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           Scroll() {
-            Column({ space: 16 }) {
-              Text('名称').fontSize(13).fontColor(UiColor.primary).width('100%')
-              TextInput({ text: this.name, placeholder: repositoryName(this.rootDirectory) }).height(56).borderRadius(6)
-                .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
-                .onChange((value: string) => { this.name = value })
-              Text('可留空，默认使用当前存储库名。').fontSize(13).fontColor(UiColor.secondary).width('100%')
-              Row() {
-                Text('使用 WebDAV 远端').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
-                Toggle({ type: ToggleType.Switch, isOn: this.webdavEnabled }).selectedColor(UiColor.primary)
-                  .onChange((value: boolean) => { this.webdavEnabled = value; this.clearTestResult() })
-              }.width('100%').height(48)
-              if (this.webdavEnabled) {
-                Text('WebDAV 地址').fontSize(13).fontColor(UiColor.primary).width('100%')
-                TextInput({ text: this.webdavUrl, placeholder: 'https://dav.example.com/org/' }).height(56).borderRadius(6)
-                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.webdavUrl = value; this.clearTestResult() })
-                Text('用户名').fontSize(13).fontColor(UiColor.primary).width('100%')
-                TextInput({ text: this.webdavUsername, placeholder: 'WebDAV 用户名' }).height(56).borderRadius(6)
-                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.webdavUsername = value; this.clearTestResult() })
-                Text('密码或应用专用密码').fontSize(13).fontColor(UiColor.primary).width('100%')
-                TextInput({ text: this.webdavPassword, placeholder: 'WebDAV 密码' }).height(56).borderRadius(6).type(InputType.Password)
-                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.webdavPassword = value; this.clearTestResult() })
-                Button(this.testing ? '测试中…' : '测试连接').width('100%').height(48)
-                  .backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
-                  .onClick((): void => { this.testConnection() })
-                if (this.testMessage) {
-                  Text(this.testMessage).width('100%').fontSize(13).lineHeight(21)
-                    .fontColor(this.testing ? UiColor.secondary : this.testSucceeded ? UiColor.done : UiColor.error)
+            Column() {
+              SettingsGroup({ title: '基本信息', detail: '名称可留空，默认使用目录名称。修改后返回保存。' }) {
+                SettingsField({ title: '名称', text: this.name, placeholder: repositoryName(this.rootDirectory), divider: false,
+                  changed: (value: string): void => { this.name = value } })
+              }
+              SettingsGroup({ title: '文件位置', detail: '选择应用可访问的目录，支持浏览子目录和新建文件夹。' }) {
+                SettingsRow({ title: this.webdavEnabled ? '本地文件目录' : 'Org 文件目录', value: this.rootDirectory ? repositoryName(this.rootDirectory) : '未选择',
+                  detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
+                  action: (): void => { this.directoryOpen = true } })
+              }
+              SettingsGroup({ title: 'WebDAV 连接' }) {
+                this.webdavSwitch()
+                if (this.webdavEnabled) {
+                  SettingsField({ title: '服务器地址', text: this.webdavUrl, placeholder: 'https://dav.example.com/org/',
+                    changed: (value: string): void => { this.webdavUrl = value; this.clearTestResult() } })
+                  SettingsField({ title: '用户名', text: this.webdavUsername, placeholder: 'WebDAV 用户名',
+                    changed: (value: string): void => { this.webdavUsername = value; this.clearTestResult() } })
+                  SettingsField({ title: '密码或应用专用密码', text: this.webdavPassword, placeholder: 'WebDAV 密码', password: true,
+                    changed: (value: string): void => { this.webdavPassword = value; this.clearTestResult() } })
+                  SettingsRow({ title: this.testing ? '测试连接中…' : '测试连接', divider: false,
+                    action: (): void => { this.testConnection() } })
                 }
-                Text('同步过滤目录').fontSize(13).fontColor(UiColor.primary).width('100%')
-                TextInput({ text: this.excludedDirectoriesText, placeholder: '目录名，用逗号分隔' }).height(56).borderRadius(6)
-                  .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.excludedDirectoriesText = value })
-                Text('填写目录名，匹配任意层级的同名目录。目录中的文件不参与 WebDAV 同步；清空表示不过滤。已下载文件会保留。')
-                  .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
-                Button('恢复默认过滤目录').fontSize(14).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
-                  .onClick(async (): Promise<void> => {
-                    const defaults: NativeSyncOptions = await defaultSyncOptions()
-                    this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
-                  })
               }
-              Divider().color(UiColor.outline).margin({ top: 8 })
-              Text(this.webdavEnabled ? '本地文件目录' : 'Org 文件目录').fontSize(13).fontColor(UiColor.primary).width('100%')
-              TextInput({ text: this.rootDirectory, placeholder: '本地目录的绝对路径' }).height(56).borderRadius(6)
-                .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary).onChange((value: string) => { this.rootDirectory = value })
-              Text(this.webdavEnabled ? '返回时自动保存修改。本地文件在离线时仍可浏览。' : '返回时自动保存修改。请使用应用可访问的目录。')
-                .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%')
+              if (this.webdavEnabled && this.testMessage) {
+                Text(this.testMessage).fontSize(13).lineHeight(21).width('100%').padding({ left: 12, right: 12, top: 10 })
+                  .fontColor(this.testing ? UiColor.secondary : this.testSucceeded ? UiColor.done : UiColor.error)
+              }
+              if (this.webdavEnabled) {
+                SettingsGroup({ title: '同步范围', detail: '目录名用逗号分隔，匹配任意层级。过滤目录不参与同步，已下载文件会保留。' }) {
+                  SettingsField({ title: '过滤目录', text: this.excludedDirectoriesText, placeholder: '目录名，用逗号分隔',
+                    changed: (value: string): void => { this.excludedDirectoriesText = value } })
+                  SettingsRow({ title: '恢复默认过滤目录', divider: false, action: (): void => { this.restoreDefaultExclusions() } })
+                }
+              }
               if (this.existing) {
-                Divider().color(UiColor.outline).margin({ top: 16 })
-                Button(this.resetting ? '重置中…' : '重置本地目录').width('100%').height(48)
-                  .backgroundColor(UiColor.container).fontColor(UiColor.error)
-                  .onClick((): void => { this.confirmReset() })
-                Button(this.deleting ? '删除中…' : '删除存储库').width('100%').height(48)
-                  .backgroundColor(UiColor.container).fontColor(UiColor.error)
-                  .onClick((): void => { this.confirmDelete() })
+                SettingsGroup({ title: '仓库管理', detail: '重置会清空本地文件；删除存储库仅移除配置和密码。操作前均需确认。' }) {
+                  SettingsRow({ title: this.resetting ? '正在重置…' : '重置本地目录', danger: true, action: (): void => { this.confirmReset() } })
+                  SettingsRow({ title: this.deleting ? '正在删除…' : '删除存储库', danger: true, divider: false, action: (): void => { this.confirmDelete() } })
+                }
               }
-            }.width('100%').padding({ left: 24, right: 24, top: 16, bottom: 104 }).enabled(!this.saving && !this.testing && !this.deleting && !this.resetting && !this.loading)
-          }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+            }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
+              .enabled(this.loaded && !this.saving && !this.testing && !this.deleting && !this.resetting)
+          }.width('100%').layoutWeight(1)
         }.width('100%').height('100%')
       }
     }.width('100%').height('100%')
+      .bindSheet($$this.directoryOpen, this.directoryPicker, {
+        height: '70%', detents: ['70%', '90%'], preferType: SheetType.BOTTOM,
+        backgroundColor: UiColor.container, showClose: true,
+        onWillDismiss: (action): void => { if (!this.directoryBusy) action.dismiss() }
+      })
+  }
+
+  async restoreDefaultExclusions() {
+    try {
+      const defaults: NativeSyncOptions = await defaultSyncOptions()
+      this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
+    } catch (e) { this.message = `读取默认过滤目录失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
 }

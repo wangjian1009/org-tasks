@@ -602,7 +602,7 @@ struct Inbox {
                       .fontSize(14).fontColor(this.message ? UiColor.error : UiColor.secondary).width('100%')
                     if (this.needsConfiguration) {
                       Button('前往设置').height(40).onClick((): void => {
-                        this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+                        this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '文件入口' } })
                       })
                     } else if (this.message) {
                       Button('重试').height(40).onClick((): void => { this.loadRecords() })

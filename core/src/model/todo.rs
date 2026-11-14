@@ -28,6 +28,21 @@ pub struct TaskState {
     pub category: Option<TaskStateCategory>,
 }
 
+impl TaskState {
+    /// 只读默认分类映射；与任务识别和附加状态校验共用同一来源。
+    pub fn defaults() -> Vec<Self> {
+        default_task_state_categories()
+            .into_iter()
+            .flat_map(|mapping| {
+                mapping.states.into_iter().map(move |name| Self {
+                    name,
+                    category: Some(mapping.category),
+                })
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CoreSettings {

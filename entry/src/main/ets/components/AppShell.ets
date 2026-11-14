@@ -221,10 +221,10 @@ export struct AppShell {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if ((view === 'inbox' || view === 'someday' || view === 'memo') && !fileTargetRepository(config, view)) {
         const title = view === 'inbox' ? '收件箱' : overviewTitle(view)
-        this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“笔记与笔记本”中重新选择${title}的仓库和文件。`,
+        this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“文件入口”中重新选择${title}的仓库和文件。`,
           primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
             this.drawerOpen = false
-            this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '笔记与笔记本' } })
+            this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '文件入口' } })
           } } })
         return
       }
@@ -350,7 +350,7 @@ export struct AppShell {
             }.width('100%').padding({ top: 8, bottom: 8 })
             Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
           }
-          this.navItem('存储库', $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
+          this.navItem('笔记本', $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
           if (this.navMessage.length > 0) {
             Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)
           }

@@ -52,7 +52,7 @@ struct Files {
     } catch (e) {
       if (request === this.requestId) {
         this.groups = []
-        this.message = `读取存储库失败：${coreErrorMessage(e as CoreBridgeError)}`
+        this.message = `读取笔记本失败：${coreErrorMessage(e as CoreBridgeError)}`
       }
     } finally {
       if (request === this.requestId) this.loading = false
@@ -61,15 +61,15 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ refreshOnPageShow: true, title: '存储库', titleIcon: $r('app.media.nav_repository'),
+      AppShell({ refreshOnPageShow: true, title: '笔记本', titleIcon: $r('app.media.nav_repository'),
         synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
-            NotificationEmptyState({ title: '正在读取存储库', busy: true })
+            NotificationEmptyState({ title: '正在读取笔记本', busy: true })
           } else if (this.message) {
-            NotificationEmptyState({ title: '存储库读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
+            NotificationEmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
           } else if (this.groups.length === 0) {
-            NotificationEmptyState({ title: '还没有存储库', detail: '尚未配置可浏览的本地或 WebDAV 存储库。' })
+            NotificationEmptyState({ title: '还没有存储库', detail: '请在设置的“存储库”中管理本地目录和 WebDAV 连接。' })
           } else {
             List() {
               if (this.notificationState.notifications.length > 0) {
@@ -109,9 +109,10 @@ struct Files {
           Text(group.name).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
             .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.layoutWeight(1).height(48)
-          .accessibilityText(`存储库 ${group.name}，点击打开存储库设置`)
-          .enabled(group.configId.length > 0)
-          .onClick((): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) })
+          .accessibilityText(`存储库 ${group.name}`)
+        IconButton({ icon: $r('app.media.ui_settings'), label: `${group.name}：管理存储库`, disabled: group.configId.length === 0,
+          iconSize: 20, buttonWidth: 40,
+          action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) } })
         IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
           iconSize: 20, buttonWidth: 40,
           label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,

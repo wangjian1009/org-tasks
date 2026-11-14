@@ -997,6 +997,8 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 
 * 任务完成状态访问
 
+~TaskState::defaults() -> Vec<TaskState>~ 返回 Core 固定默认状态与分类的独立只读快照，复用任务识别与附加值校验的同一映射来源。宿主仅用于展示，不将其写回附加状态配置。
+
 任务修改目标通过 ~Task.taskStateOf(Done)~ 或 ~OrgFileMetadata.taskStateOf(Done)~ 获取；返回的是 ~TaskState~ 对象，调用方只提交其 ~name~ ，Core 负责状态校验、日志与重复任务调度。
 
 * 批量任务查询

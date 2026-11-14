@@ -411,6 +411,14 @@ pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_default_task_states() -> *mut c_char {
+    string_result(
+        serde_json::to_string(&org_tasks_core::TaskState::defaults())
+            .map_err(|_| CoreError::InvalidState("无法编码默认状态分类")),
+    )
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_get_settings(handle: u64) -> *mut c_char {
     string_result(bridge::workspace_get_settings_json(handle))
 }

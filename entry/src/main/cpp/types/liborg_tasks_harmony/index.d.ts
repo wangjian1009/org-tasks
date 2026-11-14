@@ -346,6 +346,7 @@ export interface TodoMetadata {
 }
 
 export function defaultTodoSettings(): Promise<string>;
+export function defaultTaskStates(): Promise<TaskState[]>;
 export function defaultSyncOptions(): Promise<SyncOptions>;
 export function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>;
 

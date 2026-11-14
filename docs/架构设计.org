@@ -82,7 +82,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 | ~src/main/ets/entryability/~ | ~EntryAbility~ 应用入口及快速捕捉、分享和桌面卡片扩展。 |
 | ~src/main/ets/pages/~ 与 ~src/main/ets/components/~ | 页面与共用控件，只消费 Core 结果，不实现领域规则。 |
 | ~src/main/ets/components/controls/~ | 与业务无关的基础控件：图标按钮、空态、消息条、分区标题、设置行和弹出菜单；只接收展示参数与事件回调，不依赖任务、Org、仓库或同步服务。 |
-| ~src/main/ets/components/editors/~ | 可复用的任务与备忘编辑器，以及日期、标签、重复、优先级、清单、移动目标和任务日志控件。 ~TaskEditor~ 可嵌入列表项或项目文档，编辑快照与提交通过既有宿主服务接入 Core。 |
+| ~src/main/ets/components/editors/~ | 可复用的任务与备忘编辑器，以及日期、标签、重复、优先级、清单、移动目标、文件入口、目录选择和任务日志控件。 ~TaskEditor~ 可嵌入列表项或项目文档，编辑快照与提交通过既有宿主服务接入 Core。 |
 
 文件同步由 Harmony 的 service 编排，经 C++ N-API 与 ~harmony~ bridge 调用 Core 的仓库和策略对象；系统日历适配由 Harmony 的 ~CalendarSync~ 保留，当前无调用入口。日历、凭据、调度和 SDK 生命周期属于平台能力，不进入 Core 领域模型。
 

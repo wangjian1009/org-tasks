@@ -167,7 +167,7 @@ test('主窗口与前台两个条件均满足才检查授权，后台及销毁�
 
 function settingsFixture() {
   const filename = path.resolve('entry/src/main/ets/pages/Settings.ets');
-  const source = fs.readFileSync(filename, 'utf8').split('  build()')[0]
+  const source = fs.readFileSync(filename, 'utf8').split('  @Builder')[0]
     .replace(/@Entry\n|@Component\n|@State /g, '')
     .replace('struct Settings', 'export class Settings') + '}';
   const timers = new Map();
@@ -177,6 +177,7 @@ function settingsFixture() {
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
     '../services/AppConfigService': {},
+    '../services/NotebookService': {},
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/Theme': {}, '../services/FileTargetService': {},
     '../services/NotificationPermissionService': { NotificationPermissionService: {
@@ -215,9 +216,17 @@ test('页面隐藏时停止定时检查，旧读取不覆盖重新显示后的�
 });
 
 test('其他设置分组与应用后台不定期读取权限', async () => {
-  const f = settingsFixture(); f.settings.onPageShow(); await tick();
+  const f = settingsFixture(); f.settings.section = '文件入口'; f.settings.onPageShow(); await tick();
   const before = f.reads(); await f.advance(); assert.equal(f.reads(), before);
   f.settings.section = '应用程序'; f.foreground(false); await f.advance(); assert.equal(f.reads(), before);
   f.foreground(true); await f.advance(); assert.equal(f.reads(), before + 1);
+  f.settings.onPageHide();
+});
+
+test('设置首页显示通知摘要，保持前台权限更新', async () => {
+  const f = settingsFixture(); f.settings.onPageShow(); await tick();
+  const before = f.reads(); f.state('disabled'); await f.advance();
+  assert.equal(f.reads(), before + 1); assert.equal(f.settings.notificationState, 'disabled');
+  f.foreground(false); await f.advance(); assert.equal(f.reads(), before + 1);
   f.settings.onPageHide();
 });

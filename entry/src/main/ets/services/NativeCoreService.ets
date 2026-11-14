@@ -29,6 +29,7 @@ import {
   TodoMetadata as NativeTodoMetadata,
   defaultSyncOptions,
   defaultTodoSettings,
+  defaultTaskStates,
   CoreSettings,
   TaskState,
   TaskStateCount,
@@ -293,6 +294,8 @@ let workspaceQueue: Promise<void> = Promise.resolve()
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
+  static defaultTaskStates(): Promise<CoreTaskState[]> { return defaultTaskStates() }
+
   static async query(repositories: RepoConfig[], queries: CoreQuery[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreQueryResult[]> {
     if (queries.length === 0) return []
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)

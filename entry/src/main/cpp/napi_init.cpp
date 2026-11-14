@@ -12,6 +12,7 @@ extern "C" void org_tasks_harmony_free_string(char* value);
 extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
 extern "C" char* org_tasks_harmony_default_todo_settings();
+extern "C" char* org_tasks_harmony_default_task_states();
 extern "C" char* org_tasks_harmony_workspace_get_settings(uint64_t handle);
 extern "C" int32_t org_tasks_harmony_workspace_set_settings(uint64_t handle, const char* settings);
 extern "C" char* org_tasks_harmony_default_sync_options();
@@ -117,6 +118,7 @@ struct WorkspaceStringWork {
     bool merge_operations = false;
     bool todo_defaults = false;
     bool default_todo_settings = false;
+    bool default_task_states = false;
     bool get_settings = false;
     bool set_settings = false;
     bool default_sync_options = false;
@@ -805,6 +807,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
         if (org_tasks_harmony_workspace_set_settings(work->handle, work->expression.c_str()) == 0) work->response = "{}";
     } else if (work->default_todo_settings) {
         work->response = TakeRustString(org_tasks_harmony_default_todo_settings());
+    } else if (work->default_task_states) {
+        work->response = TakeRustString(org_tasks_harmony_default_task_states());
     } else if (work->default_sync_options) {
         work->response = TakeRustString(org_tasks_harmony_default_sync_options());
     } else if (work->normalize_sync_options) {
@@ -867,7 +871,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             else if (work->preview_action == "file" || work->preview_action == "sourceFile" || work->preview_action == "fileAt") projected = CreateOrgFileObject(env, result);
             if (projected != nullptr) napi_resolve_deferred(env, work->deferred, projected);
             else RejectFileProjection(env, work->deferred);
-        } else if (!work->refile_targets && !work->get_settings && !work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options) {
+        } else if (!work->refile_targets && !work->get_settings && !work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options) {
             if (ProjectQueryResults(env, result)) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {
@@ -1243,7 +1247,7 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
         return nullptr;
     }
     napi_value resource_name;
-    if ((!work->default_todo_settings && !work->default_sync_options && !work->normalize_sync_options && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
+    if ((!work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
         napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceString, CompleteWorkspaceString, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
@@ -1284,6 +1288,14 @@ napi_value DefaultTodoSettings(napi_env env, napi_callback_info info)
     if (napi_get_cb_info(env, info, &argc, nullptr, &self, nullptr) != napi_ok) return nullptr;
     auto* work = new WorkspaceStringWork(); work->default_todo_settings = true;
     return QueueWorkspaceString(env, work, "OrgTasksDefaultTodoSettings", self);
+}
+
+napi_value DefaultTaskStates(napi_env env, napi_callback_info info)
+{
+    size_t argc = 0; napi_value self;
+    if (napi_get_cb_info(env, info, &argc, nullptr, &self, nullptr) != napi_ok) return nullptr;
+    auto* work = new WorkspaceStringWork(); work->default_task_states = true;
+    return QueueWorkspaceString(env, work, "OrgTasksDefaultTaskStates", self);
 }
 
 napi_value WorkspaceGetSettings(napi_env env, napi_callback_info info)
@@ -2003,6 +2015,9 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value default_todo_settings;
     napi_create_function(env, "defaultTodoSettings", NAPI_AUTO_LENGTH, DefaultTodoSettings, nullptr, &default_todo_settings);
     napi_set_named_property(env, exports, "defaultTodoSettings", default_todo_settings);
+    napi_value default_task_states;
+    napi_create_function(env, "defaultTaskStates", NAPI_AUTO_LENGTH, DefaultTaskStates, nullptr, &default_task_states);
+    napi_set_named_property(env, exports, "defaultTaskStates", default_task_states);
     napi_value default_sync_options;
     napi_create_function(env, "defaultSyncOptions", NAPI_AUTO_LENGTH, DefaultSyncOptions, nullptr, &default_sync_options);
     napi_set_named_property(env, exports, "defaultSyncOptions", default_sync_options);

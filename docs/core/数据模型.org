@@ -672,7 +672,7 @@ pub struct TodoMetadata {
 | ~Done~ | 已完成 | ~DONE~ |
 | ~Cancel~ | 已取消 | ~CNCL~ |
 
-默认状态与分类映射由 Core 内部固定维护，不提供额外的默认值或映射操作接口。~CoreSettings.addition_states~ 保存附加的 ~TaskState~ 列表；通过 Workspace 的 ~get_settings()~ 与 ~set_settings()~ 获取和整体替换，附加值的 ~category~ 可以为空。默认名称不可加入附加列表，附加名称不可重复，名称大小写敏感。
+默认状态与分类映射由 Core 内部固定维护，通过 ~TaskState::defaults()~ 提供独立的只读默认值列表，不提供修改默认映射的接口。~CoreSettings.addition_states~ 保存附加的 ~TaskState~ 列表；通过 Workspace 的 ~get_settings()~ 与 ~set_settings()~ 获取和整体替换，附加值的 ~category~ 可以为空。默认名称不可加入附加列表，附加名称不可重复，名称大小写敏感。
 
 全局 ~CoreSettings~ 提供附加分类；仓库内 ~SETUPFILE~ 和文件的真实 ~#+TASK_STATE_CATEGORY:~ 声明仍由 Core 内部读取。文件覆盖 TODO 流程时继续使用同一份 Core 设置。示例：
 
@@ -699,7 +699,7 @@ pub struct TodoMetadata {
   Done \\
   Cancel}{}
 \umlclass[x=7,y=0]{TaskState}{name: String \\
-  category: Option\textless TaskStateCategory\textgreater}{}
+  category: Option\textless TaskStateCategory\textgreater}{defaults()}
 \umlclass[x=14,y=0]{CoreSettings}{addition\_states: Vec\textless TaskState\textgreater}{}
 \umlassoc{TaskState}{TaskStateCategory}
 \umluniassoc[mult1=1,mult2=0..*]{CoreSettings}{TaskState}
