@@ -1,3 +1,4 @@
+import { addRepository } from '../services/RepositoryNavigation'
 import { Workspace } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
@@ -226,7 +227,7 @@ struct Settings {
           ] })
         } })
     }
-    SettingsGroup({ title: '应用程序' }) {
+    SettingsGroup({ title: '应用程序', detail: '通知授权和通知类型可在系统设置中管理；数字角标还需在系统设置中开启桌面角标。' }) {
       SettingsRow({ title: '通知与角标', value: this.notificationState === 'enabled' ? '已开启' : this.notificationState === 'loading' ? '读取中' : '未开启',
         detail: this.notificationState === 'error' ? '读取失败，点击重试' : '', icon: $r('app.media.ui_info'),
         action: (): void => { this.manageNotifications() } })
@@ -245,48 +246,41 @@ struct Settings {
 
   @Builder
   categories() {
-    Text('查看每类状态的默认值，也可以添加自定义值。').fontSize(13).lineHeight(21).fontColor(UiColor.secondary)
-      .width('100%').padding({ left: 12, right: 12, top: 20, bottom: 4 })
-    ForEach(this.stateCategories, (category: TaskStateCategory, index: number) => {
-      Column({ space: 12 }) {
-        Row({ space: 10 }) {
-          Text(taskStateCategoryLabel(category)).fontSize(16).fontColor(UiColor.text)
-          Text('默认').fontSize(12).fontColor(UiColor.secondary)
-          Blank()
-          Button('＋ 添加').fontSize(14).height(44).padding({ left: 8, right: 0 })
-            .backgroundColor(Color.Transparent).fontColor(UiColor.primary)
-            .onClick((): void => { this.editingCategory = index; this.categoryDraft = ''; this.message = '' })
-        }.width('100%')
-        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-          ForEach(this.categoryStates(index, true), (state: CoreTaskState) => {
-            Text(state.name).fontFamily('monospace').fontSize(13).fontColor(UiColor.text)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 }).borderRadius(6)
-              .border({ width: 0.5, color: UiColor.outline }).accessibilityText(`${state.name}，默认，只读`)
-          }, (state: CoreTaskState) => state.name)
-        }.width('100%')
-        if (this.categoryStates(index, false).length > 0) {
-          Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-            Text('自定义').fontSize(12).fontColor(UiColor.secondary)
+    SettingsGroup({ title: '状态分类', detail: '默认状态固定；带 × 的自定义状态可点击移除。点击 + 添加状态，新增状态还需在笔记本的 TODO 声明中启用。' }) {
+      ForEach(this.stateCategories, (category: TaskStateCategory, index: number) => {
+        Column({ space: 8 }) {
+          Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
+            space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(4) } }) {
+            Text(taskStateCategoryLabel(category)).fontSize(16).fontColor(UiColor.text)
+            ForEach(this.categoryStates(index, true), (state: CoreTaskState) => {
+              Text(state.name).fontFamily('monospace').fontSize(13).fontColor(UiColor.text)
+                .padding({ left: 8, right: 8, top: 5, bottom: 5 }).borderRadius(6)
+                .border({ width: 0.5, color: UiColor.outline }).accessibilityText(`${state.name}，默认，只读`)
+            }, (state: CoreTaskState) => state.name)
             ForEach(this.categoryStates(index, false), (state: CoreTaskState) => {
-              Button(`${state.name}  ×`).fontSize(13).fontFamily('monospace').height(44).borderRadius(8)
+              Button(`${state.name}  ×`).fontSize(13).fontFamily('monospace').height(32).borderRadius(6)
+                .padding({ left: 8, right: 8 }).constraintSize({ maxWidth: '100%' })
                 .fontColor(UiColor.text).backgroundColor(UiColor.field).accessibilityText(`移除自定义状态 ${state.name}`)
                 .onClick((): void => { this.changeCategory(index, state.name) })
             }, (state: CoreTaskState) => state.name)
+            Button('+').fontSize(22).width(36).height(36).padding(0)
+              .backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+              .accessibilityText(`为${taskStateCategoryLabel(category)}添加状态`)
+              .onClick((): void => { this.editingCategory = index; this.categoryDraft = ''; this.message = '' })
           }.width('100%')
-        }
-        if (this.editingCategory === index) {
-          Row({ space: 8 }) {
-            TextInput({ text: this.categoryDraft, placeholder: '输入状态值' }).layoutWeight(1).height(44)
-              .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
-              .onChange((value: string): void => { this.categoryDraft = value })
-            Button('添加').height(44).fontSize(14).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
-              .onClick((): void => { this.changeCategory(index) })
-          }.width('100%')
-        }
-      }.width('100%').padding({ left: 14, right: 14, top: 4, bottom: 16 }).backgroundColor(UiColor.container).borderRadius(12).margin({ top: 12 })
-    }, (category: TaskStateCategory) => category)
-    Text('默认值固定；自定义值可移除。新增状态还需在笔记本的 TODO 声明中启用。')
-      .fontSize(13).lineHeight(21).fontColor(UiColor.secondary).width('100%').padding({ left: 12, right: 12, top: 16 })
+          if (this.editingCategory === index) {
+            Row({ space: 8 }) {
+              TextInput({ text: this.categoryDraft, placeholder: '输入状态值' }).layoutWeight(1).height(44)
+                .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
+                .onChange((value: string): void => { this.categoryDraft = value })
+              Button('添加').height(44).fontSize(14).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
+                .onClick((): void => { this.changeCategory(index) })
+            }.width('100%')
+          }
+        }.width('100%').padding({ left: 14, right: 14, top: 8, bottom: 8 })
+          .border({ width: { bottom: index < this.stateCategories.length - 1 ? 0.5 : 0 }, color: UiColor.divider })
+      }, (category: TaskStateCategory) => category)
+    }
   }
 
   @Builder
@@ -295,11 +289,13 @@ struct Settings {
       if (this.config.repos.length === 0) {
         Text('尚未配置存储库').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
       }
-      ForEach(this.config.repos, (repo: RepoConfig, index: number) => {
+      ForEach(this.config.repos, (repo: RepoConfig) => {
         SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '本地', detail: repo.rootDirectory,
-          icon: $r('app.media.nav_repository'), divider: index < this.config.repos.length - 1,
+          icon: $r('app.media.nav_repository'),
           action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })
       }, (repo: RepoConfig) => repo.id)
+      SettingsRow({ title: '添加存储库', icon: $r('app.media.ui_add'), divider: false,
+        action: (): void => { addRepository(this.getUIContext()) } })
     }
   }
 
@@ -326,7 +322,6 @@ struct Settings {
                   Text('浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。')
                     .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(16)
                 }
-                Text('数字角标还需在系统设置中开启桌面角标。').fontSize(13).fontColor(UiColor.secondary).lineHeight(21).padding(12)
               }
             }.width('100%').padding({ left: 16, right: 16, bottom: 32 }).enabled(!this.saving && !this.categoryBusy)
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)

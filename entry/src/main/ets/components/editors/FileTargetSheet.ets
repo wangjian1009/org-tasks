@@ -66,29 +66,39 @@ export struct FileTargetSheet {
   @Builder
   choice(repoId: string, path: string, title: string) {
     Row({ space: 10 }) {
-      if (path) { Image($r('app.media.ui_folder')).width(18).height(18).fillColor(UiColor.secondary).accessibilityLevel('no') }
       Column({ space: 4 }) {
         Text(title).fontSize(16).fontColor(UiColor.text).width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
         if (path) { Text(path).fontSize(12).fontColor(UiColor.secondary).width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }) }
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       if (this.isSelected(repoId, path)) {
-        Text('✓').fontSize(14).fontColor(UiColor.primary).accessibilityText('已选中')
-        Button(this.busy ? '保存中' : '确认').fontSize(14).height(36).padding({ left: 12, right: 12 })
+        Button(this.busy ? '保存中' : '确认').fontSize(14).width(58).height(32).padding(0)
           .borderRadius(10).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
           .enabled(!this.busy).onClick((): void => { this.confirm() })
       }
-    }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 12, right: 10, top: 10, bottom: 10 })
+    }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: path ? 36 : 12, right: 10, top: 8, bottom: 8 })
       .backgroundColor(this.isSelected(repoId, path) ? '#3F514A' : Color.Transparent)
       .border({ width: this.isSelected(repoId, path) ? 1 : 0, color: UiColor.primary }).borderRadius(10)
       .accessibilityText(`${title}，${path}${this.isSelected(repoId, path) ? '，已选中，点击确认应用' : '，点击选择'}`)
       .enabled(!this.busy).onClick((): void => { this.select(repoId, path) })
   }
 
+  @Builder
+  repositoryHeading(group: NotebookGroup) {
+    Row({ space: 8 }) {
+      Image($r('app.media.ui_folder')).width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
+      Text(group.name).fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
+        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+    }.width('100%').constraintSize({ minHeight: 36 }).padding({ left: 12, right: 10, top: 2, bottom: 2 })
+      .margin({ top: 28, bottom: 8 }).accessibilityText(`存储库，${group.name}`)
+  }
+
   build() {
     Column() {
-      Text(`选择${fileTargetName(this.kind)}文件`).fontSize(18).fontColor(UiColor.text).width('100%')
-        .padding({ left: 20, right: 48, top: 12, bottom: 20 })
-      Divider().color(UiColor.divider).margin({ left: 16, right: 16 })
+      Row({ space: 8 }) {
+        Image($r('app.media.ui_folder')).width(24).height(24).accessibilityLevel('no')
+        Text(`选择${fileTargetName(this.kind)}文件`).fontSize(20).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
+      }.width('100%').height(48).padding({ left: 16, right: 48 })
+      Divider().color(UiColor.outline).margin({ left: 12, right: 12 })
       if (this.loading) {
         EmptyState({ title: '正在读取文件', busy: true })
       } else {
@@ -106,22 +116,20 @@ export struct FileTargetSheet {
             ListItem() { Text('没有可选文件，请先在设置中配置存储库。').fontSize(14).fontColor(UiColor.secondary).padding(12) }
           }
           ForEach(this.groups, (group: NotebookGroup) => {
-            ListItem() {
-              Row({ space: 8 }) {
-                Image($r('app.media.ui_folder')).width(16).height(16).fillColor(UiColor.secondary)
-                Text(group.name).fontSize(14).fontColor(UiColor.secondary).layoutWeight(1)
-              }.width('100%').padding({ left: 12, right: 12, top: 28, bottom: 8 })
+            ListItemGroup({ header: this.repositoryHeading(group) }) {
+              if (group.message || group.files.length === 0) {
+                ListItem() { Text(group.message || '暂无可选 Org 文件').fontSize(13).fontColor(group.message ? UiColor.error : UiColor.secondary).padding({ left: 36, right: 10, top: 8, bottom: 8 }) }
+              }
+              ForEach(group.files, (file: CoreOrgFileMetadata) => {
+                ListItem() { this.choice(group.configId, file.path, file.title || file.path) }
+              }, (file: CoreOrgFileMetadata) => `${group.configId}:${file.path}`)
             }
-            if (group.message || group.files.length === 0) {
-              ListItem() { Text(group.message || '暂无可选 Org 文件').fontSize(13).fontColor(group.message ? UiColor.error : UiColor.secondary).padding(12) }
-            }
-            ForEach(group.files, (file: CoreOrgFileMetadata) => {
-              ListItem() { this.choice(group.configId, file.path, file.title || file.path) }
-            }, (file: CoreOrgFileMetadata) => `${group.configId}:${file.path}`)
           }, (group: NotebookGroup) => group.configId)
           ListItem() { Column() { this.choice('', '', '不设置此入口') }.padding({ top: 24, bottom: 24 }) }
-        }.width('100%').layoutWeight(1).padding({ left: 16, right: 16 })
+        }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+          .edgeEffect(EdgeEffect.None)
+          .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
       }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').backgroundColor('#363A38').padding({ bottom: 8 })
   }
 }

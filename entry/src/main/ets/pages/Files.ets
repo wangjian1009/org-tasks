@@ -1,3 +1,4 @@
+import { addRepository } from '../services/RepositoryNavigation'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
@@ -62,6 +63,8 @@ struct Files {
   build() {
     Column() {
       AppShell({ refreshOnPageShow: true, title: '笔记本', titleIcon: $r('app.media.nav_repository'),
+        actionIcon: $r('app.media.ui_add'), actionLabel: '添加存储库',
+        action: (): void => { addRepository(this.getUIContext()) },
         synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
@@ -69,7 +72,7 @@ struct Files {
           } else if (this.message) {
             NotificationEmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
           } else if (this.groups.length === 0) {
-            NotificationEmptyState({ title: '还没有存储库', detail: '请在设置的“存储库”中管理本地目录和 WebDAV 连接。' })
+            NotificationEmptyState({ title: '还没有存储库', actionLabel: '添加存储库', action: (): void => { addRepository(this.getUIContext()) } })
           } else {
             List() {
               if (this.notificationState.notifications.length > 0) {

@@ -149,3 +149,75 @@ test('状态分类和展示方式保存保留已有 TODO 流程与新仓库，�
   await f.settings.changeDisplayMode('source');
   assert.equal(f.saved().todoDefaults, f.config.todoDefaults); assert.equal(f.saved().fileDisplayMode, 'source');
 });
+
+function repositoryFixture(existing = true) {
+  const original = { id: 'repo-1', name: '旧名称', rootDirectory: '/org/work', webdavEnabled: true,
+    webdavUrl: 'https://dav.example.com/org/', webdavUsername: 'user', webdavPassword: 'secret',
+    excludedDirectories: ['private'] };
+  const config = { repos: existing ? [original] : [], inboxRepoId: 'repo-1', inboxFile: 'inbox.org',
+    somedayRepoId: '', somedayFile: '', memoRepoId: 'repo-1', memoFile: 'memo.org',
+    todoDefaults: '#+TODO: OPEN | CLOSED', coreSettings: { additionStates: [] }, fileDisplayMode: 'source' };
+  const writes = [], directories = [], validations = [], connections = [];
+  let backed = 0, failure, gate;
+  const page = load('pages/RepositorySettings', 'RepositorySettings', {
+    '../services/AppConfigService': { AppConfigService: {
+      async load() { return structuredClone(config); },
+      newRepository() { return { ...original, id: 'repo-new', name: '', rootDirectory: '', webdavEnabled: false, excludedDirectories: [] }; },
+      async save(context, value) { writes.push(value); }
+    } },
+    '../services/PageQueryService': { PageQueryService: {} },
+    '@kit.CoreFileKit': { fileIo: { async access() { return false; }, async mkdir(path) { directories.push(path); } } },
+    'liborg_tasks_harmony.so': { async defaultSyncOptions() { return { excludedDirectories: ['archive'] }; } },
+    '../models/OrgTask': { DEFAULT_CONFIG: {} },
+    '../services/NativeCoreService': { ...errors,
+      NativeCoreService: { async validateRepository(path) { validations.push(path); } },
+      CoreWebDavSyncPolicy: class {
+        constructor(...args) { connections.push(args); }
+        async testConnection() { if (gate) await gate; if (failure) throw failure; }
+      }
+    },
+    '../ui/Theme': { UiColor: {}, repositoryLabel: repo => repo.name }
+  });
+  page.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }),
+    getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : { webdav: true }, back() { backed++; } }),
+    showAlertDialog() {} });
+  return { page, config, writes, directories, validations, connections, backed: () => backed,
+    fail(e) { failure = e; }, hold(p) { gate = p; } };
+}
+test('已有仓库名称修改返回保存，保留身份、排除规则、入口和其他页面刚更新的设置', async () => {
+  const f = repositoryFixture(); await f.page.load();
+  assert.equal(f.page.loading, false); assert.equal(f.page.name, '旧名称');
+  f.page.name = ' 新名称 ';
+  f.config.memoFile = 'new-memo.org';
+  f.page.onBackPress();
+  // 返回事件启动异步保存，等待其完成。
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.backed(), 1); assert.equal(f.writes.length, 1);
+  assert.equal(f.writes[0].repos[0].id, 'repo-1'); assert.equal(f.writes[0].repos[0].name, '新名称');
+  assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['private']);
+  assert.equal(f.writes[0].memoFile, 'new-memo.org'); assert.equal(f.writes[0].inboxRepoId, 'repo-1');
+});
+test('新增 WebDAV 未编辑返回不落盘；填写名称后创建管理目录并保存 Core 默认排除规则', async () => {
+  const untouched = repositoryFixture(false); await untouched.page.load(); await untouched.page.save();
+  assert.equal(untouched.writes.length, 0); assert.equal(untouched.directories.length, 0);
+  const f = repositoryFixture(false); await f.page.load(); f.page.name = '新仓库'; await f.page.save();
+  assert.deepEqual(f.directories, ['/app/files/repositories/repo-new']);
+  assert.deepEqual(f.validations, f.directories); assert.equal(f.backed(), 1);
+  assert.equal(f.writes[0].repos[0].name, '新仓库'); assert.equal(f.writes[0].repos[0].webdavEnabled, true);
+  assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['archive']);
+});
+test('连接测试只使用草稿，不保存或同步；执行中阻止重复和返回，失败恢复后可再次测试', async () => {
+  const f = repositoryFixture(); await f.page.load();
+  f.page.webdavUrl = 'https://dav.example.com/draft/';
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  f.fail(new Error('认证失败'));
+  const testing = f.page.testConnection();
+  await f.page.testConnection(); f.page.onBackPress();
+  assert.equal(f.connections.length, 1); assert.equal(f.backed(), 0); assert.equal(f.writes.length, 0);
+  release(); await testing;
+  assert.equal(f.page.testing, false); assert.match(f.page.testMessage, /认证失败/);
+  assert.equal(f.page.webdavUrl, 'https://dav.example.com/draft/');
+  f.fail(undefined); f.hold(undefined); await f.page.testConnection();
+  assert.equal(f.page.testSucceeded, true); assert.equal(f.writes.length, 0);
+  assert.equal(f.validations.length, 0); assert.equal(f.directories.length, 0);
+});

@@ -7,6 +7,7 @@ export struct SettingsRow {
   @Prop detail: string = ''
   @Prop icon: Resource | undefined = undefined
   @Prop divider: boolean = true
+  @Prop disclosure: boolean = true
   @Prop danger: boolean = false
   @Prop disabled: boolean = false
   action: () => void = () => {}
@@ -24,7 +25,9 @@ export struct SettingsRow {
         }.width('100%')
         if (this.detail) { Text(this.detail).fontSize(13).fontColor(UiColor.secondary).lineHeight(20).width('100%') }
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-      Image($r('app.media.ui_next')).width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
+      if (this.disclosure) {
+        Image($r('app.media.ui_next')).width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
+      }
     }.width('100%').constraintSize({ minHeight: 58 }).padding({ left: 14, right: 14, top: 14, bottom: 14 })
       .border({ width: { bottom: this.divider ? 0.5 : 0 }, color: UiColor.divider })
       .enabled(!this.disabled).opacity(this.disabled ? 0.6 : 1)

@@ -82,7 +82,7 @@ struct RepositorySettings {
       const policy = new CoreWebDavSyncPolicy(this.webdavUrl.trim(), this.webdavUsername.trim(), this.webdavPassword)
       await policy.testConnection()
       this.testSucceeded = true
-      this.testMessage = '连接成功，可以访问该目录。写入权限将在实际同步时验证。'
+      this.testMessage = '连接成功，可以访问该目录。'
     } catch (e) {
       this.testMessage = `连接测试失败：${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
@@ -231,7 +231,7 @@ struct RepositorySettings {
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
                   action: (): void => { this.directoryOpen = true } })
               }
-              SettingsGroup({ title: 'WebDAV 连接' }) {
+              SettingsGroup({ title: 'WebDAV 连接', detail: '测试连接验证认证与目录访问，不保存配置或同步文件；上传权限在实际同步时验证。修改后返回保存。' }) {
                 this.webdavSwitch()
                 if (this.webdavEnabled) {
                   SettingsField({ title: '服务器地址', text: this.webdavUrl, placeholder: 'https://dav.example.com/org/',
@@ -240,7 +240,7 @@ struct RepositorySettings {
                     changed: (value: string): void => { this.webdavUsername = value; this.clearTestResult() } })
                   SettingsField({ title: '密码或应用专用密码', text: this.webdavPassword, placeholder: 'WebDAV 密码', password: true,
                     changed: (value: string): void => { this.webdavPassword = value; this.clearTestResult() } })
-                  SettingsRow({ title: this.testing ? '测试连接中…' : '测试连接', divider: false,
+                  SettingsRow({ title: this.testing ? '测试连接中…' : '测试连接', divider: false, disclosure: false, disabled: this.testing,
                     action: (): void => { this.testConnection() } })
                 }
               }
@@ -249,20 +249,20 @@ struct RepositorySettings {
                   .fontColor(this.testing ? UiColor.secondary : this.testSucceeded ? UiColor.done : UiColor.error)
               }
               if (this.webdavEnabled) {
-                SettingsGroup({ title: '同步范围', detail: '目录名用逗号分隔，匹配任意层级。过滤目录不参与同步，已下载文件会保留。' }) {
+                SettingsGroup({ title: '同步过滤目录', detail: '目录名用逗号分隔，匹配任意层级。过滤目录不参与同步，已下载文件会保留。' }) {
                   SettingsField({ title: '过滤目录', text: this.excludedDirectoriesText, placeholder: '目录名，用逗号分隔',
                     changed: (value: string): void => { this.excludedDirectoriesText = value } })
-                  SettingsRow({ title: '恢复默认过滤目录', divider: false, action: (): void => { this.restoreDefaultExclusions() } })
+                  SettingsRow({ title: '恢复默认过滤目录', divider: false, disclosure: false, action: (): void => { this.restoreDefaultExclusions() } })
                 }
               }
               if (this.existing) {
                 SettingsGroup({ title: '仓库管理', detail: '重置会清空本地文件；删除存储库仅移除配置和密码。操作前均需确认。' }) {
-                  SettingsRow({ title: this.resetting ? '正在重置…' : '重置本地目录', danger: true, action: (): void => { this.confirmReset() } })
-                  SettingsRow({ title: this.deleting ? '正在删除…' : '删除存储库', danger: true, divider: false, action: (): void => { this.confirmDelete() } })
+                  SettingsRow({ title: this.resetting ? '正在重置…' : '重置本地目录', danger: true, disclosure: false, action: (): void => { this.confirmReset() } })
+                  SettingsRow({ title: this.deleting ? '正在删除…' : '删除存储库', danger: true, disclosure: false, divider: false, action: (): void => { this.confirmDelete() } })
                 }
               }
             }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
-              .enabled(this.loaded && !this.saving && !this.testing && !this.deleting && !this.resetting)
+              .enabled(!this.loading && this.loaded && !this.saving && !this.testing && !this.deleting && !this.resetting)
           }.width('100%').layoutWeight(1)
         }.width('100%').height('100%')
       }
