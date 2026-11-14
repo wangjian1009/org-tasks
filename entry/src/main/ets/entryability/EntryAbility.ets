@@ -6,17 +6,15 @@ import { LegacySyncScheduleService } from '../services/LegacySyncScheduleService
 import { BackgroundRepositorySyncService } from '../services/BackgroundRepositorySyncService'
 import { RepositorySyncService, SyncStartPolicy, emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { UiColor } from '../ui/Theme'
-import { CoreTask } from '../services/NativeCoreService'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
 import { NotificationPermissionService } from '../services/NotificationPermissionService'
 
-interface MainPageStorage { entryTask?: CoreTask; entryView?: string; entryMemoAction?: string; entryMemoId?: string }
+interface MainPageStorage { entryView?: string; entryMemoAction?: string; entryMemoId?: string }
 
 export default class EntryAbility extends UIAbility {
   private mainStage: window.WindowStage | undefined = undefined
   private initialPage: string = 'pages/TaskOverview'
   private initialView: string | undefined = undefined
-  private taskToEdit: CoreTask | undefined = undefined
   private memoAction: string = ''
   private memoId: string = ''
   private foreground: boolean = false
@@ -37,10 +35,9 @@ export default class EntryAbility extends UIAbility {
   }
 
   private readDestination(want: Want): boolean {
-    if (want.parameters?.page !== 'inbox' && want.parameters?.page !== 'taskEdit' && want.parameters?.page !== 'memo') return false
+    if (want.parameters?.page !== 'inbox' && want.parameters?.page !== 'memo') return false
     this.initialPage = want.parameters?.page === 'memo' ? 'pages/TaskOverview' : 'pages/Inbox'
     this.initialView = want.parameters?.page === 'memo' ? 'memo' : undefined
-    this.taskToEdit = undefined
     this.memoAction = ''
     this.memoId = ''
     if (want.parameters.page === 'memo') {
@@ -48,19 +45,12 @@ export default class EntryAbility extends UIAbility {
       if (typeof action === 'string' && (action === 'create' || action === 'edit')) this.memoAction = action
       if (typeof want.parameters.memoId === 'string') this.memoId = want.parameters.memoId
     }
-    if (want.parameters.page === 'taskEdit' && typeof want.parameters.task === 'string') {
-      try { this.taskToEdit = JSON.parse(want.parameters.task) as CoreTask }
-      catch (error) { console.error('读取任务编辑参数失败') }
-    }
     return true
   }
 
   private loadMainPage(stage: window.WindowStage) {
     this.contentReady = false
-    const task = this.taskToEdit
-    this.taskToEdit = undefined
     const data: MainPageStorage = {}
-    if (task) data.entryTask = task
     if (this.initialView) data.entryView = this.initialView
     data.entryMemoAction = this.memoAction
     data.entryMemoId = this.memoId

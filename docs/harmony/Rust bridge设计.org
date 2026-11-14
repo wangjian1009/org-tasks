@@ -342,7 +342,7 @@ Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path)
 
 Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html、logbook_html、has_list 与 has_text 分别映射为 Task.bodyHtml、Task.logbookHtml、Task.hasList 与 Task.hasText；N-API 以只读、可枚举属性保留这些字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。
 
-TaskEditor 直接显示 Core 的两段 HTML，不在 ArkTS 解析或删除 LOGBOOK。正文和日志共用 OrgContentView，初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务编辑内容时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
+任务卡片由 ~TaskListItem~ 消费 Core 的正文与结构化日志投影，不在 ArkTS 解析或删除 LOGBOOK。正文复用 ~OrgContentView~ ，日志复用 ~TaskLogView~ 与 ~TaskLogItem~ ；初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务编辑内容时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
 
 ** 标题链接接入
 
@@ -388,10 +388,10 @@ interface TitleCount {
 
 点击创建立即向已配置收件箱调用 Creation 操作组 ，写入成功后以 ~page=inbox~ 启动或唤起 ~EntryAbility~ ，直接加载收件箱并关闭分享窗口；不查询新任务快照、不展示结果卡片或确认。导航失败保留写入成功状态，重试只打开收件箱，不重复创建。
 
-~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。地址更新提交一个 Modification， ~path~ 使用 ~Task.fullPath~ ，字段为 ADDRESS_LINK。Core 返回操作后路径；ArkTS 从新投影中取得该路径对应任务，包含最新地址、正文 HTML 与完成行为。FFI 返回既有释放函数管理的 JSON 字符串，C++ 只编组与构造对象。
+~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。地址更新提交一个 Modification， ~path~ 使用 ~Task.fullPath~ ，字段为 ADDRESS_LINK。Core 返回操作后路径；地址更新完成后由主界面按既有查询读取新投影。FFI 返回既有释放函数管理的 JSON 字符串，C++ 只编组与构造对象。
 
 
-更新成功后将该快照序列化为 Want 的 ~task~ 字符串参数，以 ~page=taskEdit~ 唤起 ~EntryAbility~ ，主窗口加载收件箱并通过该窗口的 ~LocalStorage~ 交接快照。收件箱在 ~onPageShow~ 中一次性领取并清除参数，等根页面就绪后通过原有路由打开 ~pages/TaskEdit~ ，随后关闭分享窗口；不在窗口内容加载回调中连续推入路由，避免页面初始化覆盖跳转。窗口之间不依赖各自 ArkUI 上下文中的 ~AppStorage~ 传递任务。任务编辑页继续只读取原有路由参数，其布局、元数据、正文和返回行为均不修改；返回进入收件箱。导航失败时保留已更新快照供重试，不再次替换链接。
+地址更新成功后以 ~page=inbox~ 唤起 ~EntryAbility~ ，直接加载收件箱并关闭分享窗口；不重查更新后的任务、不序列化任务快照，也不通过 ~LocalStorage~ 交接任务。写入成功后立即记录已更新状态，导航失败重试只打开收件箱，不再次替换链接。独立任务编辑页面与旧任务跳转参数已移除。
 
 ~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Workspace.executeTaskOperations~ 写入正文链接，更新任务调用 ~Workspace.executeTaskOperations~ 保留其他字节。解析失败只允许保存原始链接或返回地图。
 
@@ -583,7 +583,7 @@ Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一�
 
 ~Task.editContent~ 新增 ~scheduledRepeat~ 与 ~deadlineRepeat~ ，类型为 ~TaskRepeatInfo | null~ ，内部包含 ~date~ 、 ~hasTime~ 与可空 ~rule~ 。 ~TaskRepeatRule~ 使用 ~mode~ 、 ~interval~ 、 ~unit~ ，名称与 Core 的 camelCase 序列化保持一致。Rust 直接投影 Core 值，C++ 的只读可枚举 ~editContent~ 属性原样透传嵌套对象，不新增解析或线程入口。类型声明、 ~NativeCoreService~ 别名及调用方同步维护。
 
-原 ~TaskModification~ 联合值扩展为可接收 ~TaskRepeatRule~ ，字段新增 ~SCHEDULE_REPEAT~ 、 ~DEADLINE_REPEAT~ 。 ~TaskRepeatDialog~ 仅维护草稿、中文摘要与字段操作，不生成 Org 时间戳；保存经原 worker、 ~Workspace.executeTaskOperations~ 和文件版本约束一次提交。卡片先结束文字输入，再打开重复编辑；保存由原数据事件重读，失败保留输入。独立任务详情经 ~NoteService.modify~ 复用正式文件与预览副本的提交边界，提交后从原文件对象重新取得节点；写入成功但重读失败时停用后续修改，返回重开，不重复提交。
+原 ~TaskModification~ 联合值扩展为可接收 ~TaskRepeatRule~ ，字段新增 ~SCHEDULE_REPEAT~ 、 ~DEADLINE_REPEAT~ 。 ~TaskRepeatDialog~ 仅维护草稿、中文摘要与字段操作，不生成 Org 时间戳；保存经原 worker、 ~Workspace.executeTaskOperations~ 和文件版本约束一次提交。卡片先结束文字输入，再打开重复编辑；保存由原数据事件重读，失败保留输入。
 
 * 项目名称与项目任务区块
 

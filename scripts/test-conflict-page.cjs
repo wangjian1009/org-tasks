@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-conflict-page.cjs\n验证逐点预览、finish 返回操作组、统一提交、编辑返回与失败保护。'); process.exit(0);
+  console.log('用法: node scripts/test-conflict-page.cjs\n验证逐点预览、finish 返回操作组、统一提交、预览刷新与失败保护。'); process.exit(0);
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents','sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const treeModule={exports:{}};
@@ -152,7 +152,7 @@ test('统一提交失败可重试同一操作组，不重复 finish 或再次读
 test('源文件变化拒绝提交，保留调整快照并禁用应用',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'useLocal');f.externalEdit();await f.page.applyPreview();assert.equal(f.page.stale,true);assert.equal(f.page.canApply(),false);assert.ok(f.page.previewFile);
 });
-test('任务编辑返回重读同一 preview，不重新复制；切换先确认放弃调整',async()=>{
+test('预览版本变化后重读同一 preview，不重新复制；切换先确认放弃调整',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'useLocal');f.handles[0].change();await f.page.refreshPreview();assert.equal(f.page.manuallyEdited,true);assert.equal(f.creates(),1);
  f.page.selectConflict(f.page.conflicts[1]);assert.equal(f.dialogs.length,1);f.dialogs[0].primaryButton.action();assert.equal(f.creates(),1);assert.equal(f.page.selectedId,'first');
 });

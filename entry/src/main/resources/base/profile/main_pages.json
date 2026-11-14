@@ -6,7 +6,6 @@
     "pages/TaskOverview",
     "pages/FileDetail",
     "pages/ProjectDetail",
-    "pages/TaskEdit",
     "pages/MemoEdit",
     "pages/MemoCardConfig",
     "pages/Settings",

@@ -21,9 +21,7 @@ export struct TodayTaskList {
   @Builder
   taskItem(item: TodayTaskItem) {
     TaskListItem({ task: item.task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
-      expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list', open: (): void => {
-      this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
-    } })
+      expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
   @Builder

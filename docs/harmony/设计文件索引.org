@@ -39,15 +39,15 @@
 | [[file:../../design/当前实现/文件入口配置.fig][文件入口配置]] | Harmony 当前实现 | 10 Harmony 文件入口配置 |
 | [[file:../../design/当前实现/下拉同步与底部设置.fig][下拉同步与底部设置]] | Harmony 当前实现 | 15 Harmony 下拉同步与底部设置 |
 | [[file:../../design/当前实现/文件只读阅读.fig][文件只读阅读]] | Harmony 当前实现 | 16 Harmony 文件只读阅读 |
-| [[file:../../design/当前实现/文件展示配置与任务详情.fig][文件展示配置与任务详情]] | Harmony 当前实现 | 17 Harmony 文件展示配置与任务详情 |
-| [[file:../../design/当前实现/任务与备忘编辑.fig][任务与备忘编辑]] | Harmony 当前实现 | 18 Harmony 任务与备忘编辑 |
+| [[file:../../design/当前实现/文件展示配置与任务详情.fig][文件展示配置与任务详情]] | Harmony 当前实现 | 17 Harmony 文件展示配置（已移除独立任务详情示例） |
+| [[file:../../design/当前实现/任务与备忘编辑.fig][任务与备忘编辑]] | Harmony 当前实现 | 18 Harmony 备忘编辑（任务改用共享原位卡片） |
 | [[file:../../design/当前实现/标题链接.fig][标题链接]] | Harmony 当前实现 | 19 Harmony 标题链接；原地编辑字段焦点切换与保存、取消约定 |
 | [[file:../../design/当前实现/快速捕捉与系统入口.fig][快速捕捉与系统入口]] | Harmony 当前实现 | 20 Harmony 快速捕捉与系统入口 |
-| [[file:../../design/当前实现/标题计数进度.fig][标题计数进度]] | Harmony 当前实现 | 22 Harmony 标题计数进度 |
+| [[file:../../design/当前实现/标题计数进度.fig][标题计数进度]] | Harmony 当前实现 | 22 Harmony 标题计数进度（任务列表与原位卡片） |
 | [[file:../../design/当前实现/地图应用选择.fig][地图应用选择]] | Harmony 当前实现 | 23 Harmony 地图应用选择 |
 | [[file:../../design/当前实现/共享标签筛选.fig][共享标签筛选]] | Harmony 当前实现 | 24 Harmony 共享标签筛选（32vp 紧凑行高、2vp 标签间距、精确测量后依次换行与常驻无标签） |
 | [[file:../../design/当前实现/备忘卡片列表.fig][备忘卡片列表]] | Harmony 当前实现 | 25 Harmony 备忘卡片列表 |
-| [[file:../../design/当前实现/分享地点与地址更新.fig][分享地点与地址更新]] | Harmony 当前实现 | 26 Harmony 分享地点与地址更新（当前实现） |
+| [[file:../../design/当前实现/分享地点与地址更新.fig][分享地点与地址更新]] | Harmony 当前实现 | 26 Harmony 分享地点与地址更新（当前实现，创建与更新均返回收件箱） |
 | [[file:../../design/当前实现/收件箱最近三天.fig][收件箱最近三天]] | Harmony 当前实现 | 28 Harmony 收件箱最近三天 |
 | [[file:../../design/当前实现/同步方向图标.fig][同步方向图标]] | Harmony 当前实现 | 29 Harmony 同步方向图标规范 |
 | [[file:../../design/当前实现/同步日志与详情.fig][同步日志与详情]] | Harmony 当前实现 | 30 Harmony 同步日志单行标题与同步详情（当前实现） |
@@ -94,7 +94,7 @@
 | [[file:../../design/当前实现/公共弹出菜单.fig][公共弹出菜单]] | Harmony 当前实现 | 55 Harmony 公共弹出菜单（当前实现） |
 | [[file:../../design/当前实现/任务日期显示策略.fig][任务日期显示策略]] | Harmony 当前实现 | 57 Harmony 任务日期显示策略（当前实现） |
 | [[file:../../design/当前实现/任务优先级.fig][任务优先级]] | Harmony 当前实现 | 56 Harmony 任务优先级 · 交互主稿（当前实现） |
-| [[file:../../design/当前实现/任务优先级.fig][任务优先级]] | Harmony 当前实现 | 56 Harmony 任务优先级 · 补充状态（当前实现） |
+| [[file:../../design/当前实现/任务优先级.fig][任务优先级]] | Harmony 当前实现 | 56 Harmony 任务优先级 · 补充状态（当前实现，已移除独立详情示例） |
 | [[file:../../design/当前实现/移动到平级分类.fig][移动到平级分类]] | Harmony 当前实现 | 58 Harmony 移动到平级分类（当前实现）；灰色分类图标、分区留白与文字对齐，增加项目开头落点 |
 | [[file:../../design/当前实现/任务展开日志.fig][任务展开日志]] | Harmony 当前实现 | 59 Harmony 任务展开日志（当前实现） |
 | [[file:../../design/当前实现/退后台同步实况窗.fig][退后台同步实况窗]] | Harmony 当前实现 | 60 Harmony 退后台同步实况窗（当前实现） |

@@ -17,7 +17,7 @@ struct ShareLocation {
   @State config: AppConfig = DEFAULT_CONFIG
   @State loadingTasks: boolean = false
   @State created: boolean = false
-  @State updatedTask: CoreTask | undefined = undefined
+  @State updated: boolean = false
   @State tasks: CoreTask[] = []
   @State selectedTask: CoreTask | undefined = undefined
   @State selectedUri: string = ''
@@ -34,7 +34,7 @@ struct ShareLocation {
 
   requestChanged() {
     this.created = false
-    this.updatedTask = undefined
+    this.updated = false
     this.message = ''
     this.load()
   }
@@ -138,23 +138,20 @@ struct ShareLocation {
     if (!repository) { this.message = '任务所属仓库不可用'; return }
     this.saving = true; this.message = ''
     try {
-      if (!this.updatedTask) {
+      if (!this.updated) {
         await NativeCoreService.executeTaskOperations(this.config.repos, {
           operations: [{ type: 'Modification', data: { path: task.fullPath,
             modifications: [{ field: 'ADDRESS_LINK', value: { oldUri, newUri: uri } }] } }],
           queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
         }, this.config.todoDefaults, this.config.coreSettings)
-        const refreshed = taskResult((await NativeCoreService.query([repository],
-          [{ type: 'task', query: { includeComposeTasks: true } }], this.config.todoDefaults, this.config.coreSettings))[0])
-        this.updatedTask = refreshed.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(task.fullPath))
-        if (!this.updatedTask) throw new Error('无法读取更新后的任务')
+        this.updated = true
       }
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'EntryAbility',
-        parameters: { page: 'taskEdit', task: JSON.stringify(this.updatedTask!) } })
+        parameters: { page: 'inbox' } })
       await this.close()
-    } catch (e) { this.message = this.updatedTask ? '地址已更新，打开任务编辑失败，请重试' : (e as Error).message || '更新地址失败' }
+    } catch (e) { this.message = this.updated ? '地址已更新，打开收件箱失败，请重试' : (e as Error).message || '更新地址失败' }
     finally { this.saving = false }
   }
 
@@ -195,14 +192,14 @@ struct ShareLocation {
                 .fontSize(20).fontColor(UiColor.text).width(24).height(24).textAlign(TextAlign.Center)
             }.width('100%').padding({ right: 8, top: 6, bottom: 6 }).constraintSize({ minHeight: 36 })
               .backgroundColor(this.selectedUri === link.uri && this.selectedTask?.id === task.id ? '#3B5550' : Color.Transparent)
-              .borderRadius(8).enabled(!this.saving && !this.updatedTask)
+              .borderRadius(8).enabled(!this.saving && !this.updated)
               .onClick(() => { this.selectedTask = task; this.selectedUri = link.uri })
           })
         }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
           .backgroundColor(UiColor.field).borderRadius(12)
       })
       if (!this.loadingTasks && this.selectedTask) {
-        Button(this.saving ? '保存中…' : this.updatedTask ? '打开任务编辑' : '更新选中的地址').width('100%').height(52).backgroundColor(UiColor.primary)
+        Button(this.saving ? '保存中…' : this.updated ? '打开收件箱' : '更新选中的地址').width('100%').height(52).backgroundColor(UiColor.primary)
           .fontColor(UiColor.onPrimary)
           .enabled(!this.saving).onClick(() => { this.updateTask() })
       }

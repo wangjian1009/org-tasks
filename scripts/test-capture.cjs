@@ -42,7 +42,7 @@ function repository(id) {
     webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] };
 }
 
-test('分享后的收件箱与任务编辑跳转使用 Want 参数，窗口之间不依赖共享 AppStorage', async () => {
+test('分享后直接加载收件箱，备忘入口继续使用独立页面参数', async () => {
   const EntryAbility = etsLoader({
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
@@ -51,27 +51,22 @@ test('分享后的收件箱与任务编辑跳转使用 Want 参数，窗口之�
     '../ui/Theme': { UiColor: {} }
   }, { LocalStorage: class { constructor(values) { this.values = values; } } })('entryability/EntryAbility').default;
   const ability = new EntryAbility();
-  const pages = [], snapshots = [], destinations = [];
+  const pages = [], destinations = [];
   const mainWindow = { async setWindowSystemBarProperties() {}, getUIContext() {
     assert.fail('主窗口应直接加载目标页面');
   } };
   const stage = { async getMainWindow() { return mainWindow; }, getMainWindowSync() { return mainWindow; },
     loadContent(page, storage, callback) {
-      pages.push(page); snapshots.push(storage.values.entryTask); destinations.push(storage.values); callback({ code: 0 });
+      pages.push(page); destinations.push(storage.values); callback({ code: 0 });
     } };
-  const task = { id: 'updated', heading: '地址任务', body: '[[geo:31.4,120.8][新地址]]', bodyHtml: '<p>新地址</p>' };
-  ability.onNewWant({ parameters: { page: 'taskEdit', task: JSON.stringify(task) } }, {});
+  ability.onNewWant({ parameters: { page: 'inbox' } }, {});
   await ability.onWindowStageCreate(stage);
   assert.deepEqual(pages, ['pages/Inbox']);
-  assert.deepEqual(snapshots[0], task);
+  assert.deepEqual(destinations[0], { entryMemoAction: '', entryMemoId: '' });
   ability.onNewWant({ parameters: { page: 'inbox' } }, {});
   assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox']);
-  assert.equal(snapshots[1], undefined);
-  ability.onNewWant({ parameters: { page: 'taskEdit', task: JSON.stringify(task) } }, {});
-  assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox', 'pages/Inbox']);
-  assert.deepEqual(snapshots[2], task);
   ability.onNewWant({}, {});
-  assert.equal(pages.length, 3);
+  assert.equal(pages.length, 2);
   ability.onNewWant({ parameters: { page: 'memo', memoAction: 'create' } }, {});
   assert.equal(pages.at(-1), 'pages/TaskOverview');
   assert.equal(destinations.at(-1).entryView, 'memo');
@@ -744,4 +739,68 @@ test('取消后忽略旧会话识别结果，避免覆盖已保留标题', async
   f.result({ result: '过期结果', isFinal: true, isLast: true });
   assert.deepEqual(results, ['买牛奶']);
   assert.deepEqual(f.counters(), { engines: 1, releases: 1, shutdowns: 1 });
+});
+
+function addressUpdateFixture() {
+  const filename = path.resolve(sourceRoot, 'pages/ShareLocation.ets');
+  const source = fs.readFileSync(filename, 'utf8');
+  const method = source.slice(source.indexOf('  async updateTask()'), source.indexOf('\n  @Builder', source.indexOf('  async updateTask()')));
+  const code = ts.transpileModule('class ShareLocation {\n' + method + '\n}\nmodule.exports = ShareLocation;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const requests = [], destinations = [];
+  let writeError, navigationError, closes = 0;
+  const native = { async executeTaskOperations(repos, group) {
+    requests.push(group);
+    if (writeError) throw writeError;
+  } };
+  const module = { exports: {} };
+  vm.runInThisContext('(function(module,NativeCoreService){' + code + '\n})')(module, native);
+  const page = new module.exports();
+  const task = { id: 'address-task', repoId: 'core-id', filePath: 'tasks.org', fileVersion: 'v1',
+    fullPath: { repoId: 'core-id', file: 'tasks.org', titles: ['任务'] } };
+  Object.assign(page, { saving: false, updated: false, selectedTask: task, selectedUri: 'geo:31,120',
+    location: { kind: 'coordinates', uri: 'geo:32,121' }, config: { repos: [], todoDefaults: '', coreSettings: {} },
+    taskRepositories: new Map([[task.id, { webdavEnabled: true }]]),
+    getUIContext: () => ({ getHostContext: () => ({ applicationInfo: { name: 'com.example.orgtasks' },
+      async startAbility(want) { destinations.push(want); if (navigationError) throw navigationError; } }) }),
+    async close() { closes++; } });
+  return { page, task, requests, destinations, closes: () => closes,
+    failWrite(error) { writeError = error; }, failNavigation(error) { navigationError = error; } };
+}
+
+test('地址更新后直接打开收件箱，导航失败重试不重复修改地址', async () => {
+  const f = addressUpdateFixture();
+  f.failNavigation(new Error('导航失败'));
+  await f.page.updateTask();
+  assert.equal(f.page.updated, true);
+  assert.equal(f.page.saving, false);
+  assert.match(f.page.message, /地址已更新，打开收件箱失败/);
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.requests[0], { operations: [{ type: 'Modification', data: { path: f.task.fullPath,
+    modifications: [{ field: 'ADDRESS_LINK', value: { oldUri: 'geo:31,120', newUri: 'geo:32,121' } }] } }],
+    queueRepoIds: ['core-id'], fileVersions: [{ repoId: 'core-id', file: 'tasks.org', version: 'v1' }] });
+  assert.equal(f.closes(), 0);
+  f.failNavigation(undefined);
+  await f.page.updateTask();
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.closes(), 1);
+  assert.deepEqual(f.destinations.map(want => want.parameters), [{ page: 'inbox' }, { page: 'inbox' }]);
+});
+
+test('地址更新写入失败保留选择，重试成功后才打开收件箱', async () => {
+  const f = addressUpdateFixture();
+  f.failWrite(new Error('文件版本已变化'));
+  await f.page.updateTask();
+  assert.equal(f.page.updated, false);
+  assert.equal(f.page.selectedTask, f.task);
+  assert.match(f.page.message, /文件版本已变化/);
+  assert.equal(f.destinations.length, 0);
+  assert.equal(f.closes(), 0);
+  f.failWrite(undefined);
+  await f.page.updateTask();
+  assert.equal(f.page.updated, true);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.destinations.length, 1);
+  assert.equal(f.closes(), 1);
 });

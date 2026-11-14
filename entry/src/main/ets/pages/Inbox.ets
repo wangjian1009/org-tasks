@@ -519,9 +519,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskListItem({ task, dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list', open: (): void => {
-      this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task } })
-    } }).enabled(!this.selectingRecords && !this.mergeBusy)
+    TaskListItem({ task, dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
@@ -622,9 +620,7 @@ struct Inbox {
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
                       TaskListItem({ task: record, enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
-                        swipe: (left: boolean): void => { this.swipeRecord(record, left) }, open: (): void => {
-                          this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: record } })
-                        } })
+                        swipe: (left: boolean): void => { this.swipeRecord(record, left) } })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
                           .width('100%').padding({ left: 27 })

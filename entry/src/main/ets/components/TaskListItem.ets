@@ -56,7 +56,6 @@ export struct TaskListItem {
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
   @Prop enableSwipeActions: boolean = false
   @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
-  open: () => void = () => {}
   swipe: (left: boolean) => void = () => {}
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''

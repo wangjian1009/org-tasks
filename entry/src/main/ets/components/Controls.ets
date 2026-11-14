@@ -1,8 +1,4 @@
-import { priorityColor, priorityBackground } from '../ui/TaskPriorityPresentation'
-import { TaskStateCategory } from '../ui/TaskStatePresentation'
-import { TitleText } from './TitleText'
 import { UiColor } from '../ui/Theme'
-import { CoreTask } from '../services/NativeCoreService'
 
 @Component
 export struct IconButton {
@@ -88,68 +84,6 @@ export struct ListSectionHeader {
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)
     }.width('100%').padding({ top: 24, bottom: 8 })
-  }
-}
-
-@Component
-export struct TaskRow {
-  @Prop task: CoreTask
-  @Prop showSource: boolean = true
-  @Prop showFilePath: boolean = true
-  @Prop showBody: boolean = false
-  @Prop indent: number = 0
-  @Prop canFold: boolean = false
-  @Prop folded: boolean = false
-  open: () => void = () => {}
-  fold: () => void = () => {}
-
-  build() {
-    Row({ space: 8 }) {
-      if (!this.showSource) {
-        Button({ type: ButtonType.Normal }) {
-          Image(this.canFold ? (this.folded ? $r('app.media.ui_next') : $r('app.media.ui_down')) : $r('app.media.ui_note'))
-            .width(18).height(18).accessibilityLevel('no')
-        }.width(40).height(48).backgroundColor(Color.Transparent).borderRadius(20)
-          .enabled(this.canFold).accessibilityText(this.folded ? '展开子笔记' : '收起子笔记').onClick((): void => { this.fold() })
-      }
-      Column({ space: 5 }) {
-        Row({ space: 6 }) {
-          if ((this.task.state?.name || '').length > 0) {
-            Text((this.task.state?.name || '')).fontSize(13).fontWeight(FontWeight.Medium)
-              .fontColor(this.task.isDone() ? UiColor.done : UiColor.error)
-          }
-          if (this.task.priority) {
-            Text(this.task.priority!.name).fontSize(12).fontColor(priorityColor(this.task.priority!.category))
-              .padding({ left: 5, right: 5, top: 2, bottom: 2 }).backgroundColor(priorityBackground(this.task.priority!.category)).borderRadius(6)
-          }
-          TitleText({ text: this.task.heading, parts: this.task.headingParts, lineLimit: 3, cancelled: this.task.state?.category === TaskStateCategory.Cancel }).layoutWeight(1)
-        }.width('100%').alignItems(VerticalAlign.Top)
-        if (this.showBody && this.task.body.trim().length > 0) {
-          Text(this.task.body.trim()).fontSize(14).fontColor(UiColor.secondary).maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-        }
-        if (this.showSource && this.showFilePath) {
-          Row({ space: 6 }) {
-            Image($r('app.media.ui_folder')).width(14).height(14)
-            Text(this.task.filePath).fontSize(13).fontColor(UiColor.secondary).maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-          }.width('100%')
-        }
-        if (this.task.scheduled.length > 0 || this.task.deadline.length > 0) {
-          Row({ space: 6 }) {
-            Image(this.task.deadline.length > 0 ? $r('app.media.ui_deadline') : $r('app.media.ui_calendar'))
-              .width(14).height(14)
-            Text(`${this.task.scheduled ? `计划 ${this.task.scheduled}` : ''}${this.task.scheduled && this.task.deadline ? ' · ' : ''}${this.task.deadline ? `截止 ${this.task.deadline}` : ''}`)
-              .fontSize(13).fontColor(UiColor.secondary).layoutWeight(1)
-          }.width('100%')
-        }
-        if (this.task.tags.length > 0) {
-          Text(this.task.tags.join('  ')).fontSize(12).fontColor(UiColor.primary).maxLines(1).width('100%')
-        }
-      }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick((): void => { this.open() })
-    }
-    .width('100%').padding({ left: 16 + this.indent, right: 16, top: 12, bottom: 12 })
-    .border({ width: { bottom: 0.5 }, color: UiColor.outline })
   }
 }
 

@@ -4,7 +4,7 @@ import { EmptyState } from '../components/Controls'
 import { OrgFilePreviewView, OrgFilePreviewNavigation, OrgConflictCard } from '../components/OrgFilePreviewView'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreConflictPreviewProjection, CoreConflictTarget, CoreFileConflict,
-  CoreOrgFile, CoreTask, CoreTaskOperation, CoreTaskOperationGroup, CoreTitlePart, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+  CoreOrgFile, CoreTaskOperation, CoreTaskOperationGroup, CoreTitlePart, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { ConflictTargetNode, ConflictTargetRow, conflictTargetTree, conflictTargetRows } from '../ui/ConflictTargetTree'
 
@@ -39,7 +39,6 @@ struct ConflictFile {
   @State expandedTargetKeys: string[] = []
   @State detailsExpanded: boolean = true
   @State selectedId: string = ''
-  @State selectedNode: CoreTask | undefined = undefined
   @State stagedAction: string = ''
   @State manuallyEdited: boolean = false
   @State renderRevision: number = 0
@@ -52,18 +51,16 @@ struct ConflictFile {
   private configRepoId: string = ''
   private sourceRootDirectory: string = ''
   private initialized: boolean = false
-  private childEditor: boolean = false
   private leaving: boolean = false
   @State selectedTarget: CoreConflictTarget | undefined = undefined
   private restoredPosition: number | undefined = undefined
 
   onPageShow() {
     if (!this.initialized) this.load()
-    else if (this.preview) { this.childEditor = false; this.refreshPreview() }
+    else if (this.preview) this.refreshPreview()
     else this.load()
   }
   aboutToDisappear() {
-    if (this.childEditor) return
     this.requestId++
     const preview = this.preview
     if (preview) preview.discard().catch((): void => {})
@@ -128,7 +125,6 @@ struct ConflictFile {
       this.manuallyEdited = false
       this.stale = false
       this.selectedId = ''
-      this.selectedNode = undefined
       this.stagedAction = ''
       this.initialized = true
       this.present(baseFile)
@@ -278,7 +274,6 @@ struct ConflictFile {
     this.comparisonLoading = true
     this.message = ''
     this.stale = false
-    this.selectedNode = undefined
     this.changes = undefined
     this.projection = undefined
     this.beforeText = ''
@@ -449,9 +444,8 @@ struct ConflictFile {
       const changes = await preview.changes()
       if (request !== this.requestId || preview.id !== this.preview?.id) return
       if (changes.previewVersion !== file.fileVersion) throw new Error('预览正在变化，请重新读取')
-      if (this.previewFile && file.fileVersion !== this.previewFile.fileVersion && this.childEditor === false && checkSource) this.manuallyEdited = true
+      if (this.previewFile && file.fileVersion !== this.previewFile.fileVersion && checkSource) this.manuallyEdited = true
       this.previewFile = file
-      this.selectedNode = undefined
       if (!this.stagedAction && this.selectedId) await this.readProjection(this.selectedTarget)
       else {
         this.changes = changes
@@ -464,27 +458,6 @@ struct ConflictFile {
         if (request === this.requestId && current.fileVersion !== preview.sourceVersion) this.stale = true
       }
     } catch (e) { if (request === this.requestId) this.handleError(e as CoreBridgeError, '读取预览失败') }
-  }
-
-  async activateNode(index: number) {
-    if (this.saving || this.stale || this.pendingGroup || !this.previewFile ||
-      !Number.isInteger(index) || index < 0) return
-    if (!this.stagedAction && this.projection?.status !== 'ready') return
-    this.saving = true
-    try {
-      if (!this.stagedAction) await this.stage('useLocal', this.selectedTarget ??
-        (['reorder', 'structure'].includes(this.selectedConflict()?.reason ?? '') ? { type: 'replaceMain' } : undefined))
-      this.selectedNode = this.previewFile.nodes()[index]
-    } catch (e) { this.handleError(e as CoreBridgeError, '打开编辑失败') }
-    finally { this.saving = false }
-    if (!this.message && this.selectedNode) await this.editSelected()
-  }
-
-  async editSelected() {
-    if (!this.selectedNode || this.saving) return
-    this.childEditor = true
-    try { await this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: this.selectedNode, parents: this.selectedNode.fullPath.titles.slice(0, -1) } }) }
-    catch (e) { this.childEditor = false; this.handleError(e as CoreBridgeError, '打开编辑失败') }
   }
 
   async applyPreview() {

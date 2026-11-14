@@ -42,9 +42,7 @@ export struct PlannedTaskList {
         item.task.project() !== null ? RegionAreaPolicy.Project : RegionAreaPolicy.Category,
       rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
-      referenceTime: this.referenceTime, open: (): void => {
-        this.getUIContext().getRouter().pushUrl({ url: 'pages/TaskEdit', params: { task: item.task } })
-      } })
+      referenceTime: this.referenceTime })
   }
 
   @Builder

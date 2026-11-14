@@ -4,7 +4,7 @@ import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
-import { EmptyState, TaskRow } from '../components/Controls'
+import { EmptyState } from '../components/Controls'
 import { TaskListItem } from '../components/TaskListItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
@@ -69,15 +69,6 @@ struct TaskOverview {
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
-  }
-
-  openTask(task: CoreTask): () => void {
-    return (): void => {
-      this.getUIContext().getRouter().pushUrl({
-        url: this.view === 'memo' ? 'pages/MemoEdit' : 'pages/TaskEdit',
-        params: { task }
-      })
-    }
   }
 
   async openEntryMemo(): Promise<void> {
@@ -291,17 +282,13 @@ struct TaskOverview {
             ForEach(this.visibleTasks, (task: CoreTask) => {
               if (this.view === 'memo') {
                 ListItem() {
-                  MemoListItem({ task, busy: this.deletingMemo, open: this.openTask(task) })
+                  MemoListItem({ task, busy: this.deletingMemo, open: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { task } }) } })
                     .margin({ left: 16, right: 16 })
                 }.margin({ bottom: 12 })
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
               } else {
                 ListItem() {
-                  if (this.view === 'someday') {
-                    TaskListItem({ task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list', open: this.openTask(task) })
-                  } else {
-                    TaskRow({ task, showBody: true, open: this.openTask(task) })
-                  }
+                  TaskListItem({ task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
                 }
               }
             }, (task: CoreTask) => taskRenderKey(task))
