@@ -38,7 +38,8 @@ details.heading[open] > summary::after { transform: rotate(45deg); }
 .title-count.active { color: ${UiColor.primary}; } .title-count.complete { color: ${UiColor.done}; }
 .count-ring { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: conic-gradient(currentColor var(--count-turn), #686763 0); mask: radial-gradient(transparent 5px, black 5.5px); }
 .planning { font-size: 13px; line-height: 1.65; margin-top: 7px; color: ${UiColor.secondary}; }
-.timestamp, .link { color: #87B9EF; text-decoration: underline; text-underline-offset: 3px; }
+.timestamp { color: #87B9EF; text-decoration: underline; text-underline-offset: 3px; }
+.link { color: ${UiColor.primary}; text-decoration: underline; text-underline-offset: 3px; }
 a.link { cursor: pointer; }
 .link.unsupported { color: ${UiColor.secondary}; text-decoration-style: dashed; cursor: default; }
 .drawer { color: ${UiColor.secondary}; font-size: 13px; margin: 8px 0 12px; }
@@ -87,7 +88,7 @@ html { background: ${backgroundColor}; }
 .file-reading .file-tags .tag:first-child { margin-left: 0; }
 .file-reading .planning { margin: -3px 0 12px; font-size: 12px; line-height: 1.8; }
 .file-reading .timestamp { color: ${UiColor.secondary}; text-decoration: none; }
-.file-reading .link { color: #76C8BB; text-decoration-color: #568A80; text-underline-offset: 4px; }
+.file-reading .link { color: ${UiColor.primary}; text-decoration-color: currentColor; text-underline-offset: 4px; }
 .file-reading .link.unsupported { color: ${UiColor.secondary}; }
 .file-reading .table-scroll { margin: 18px 0 23px; max-width: 100%; border: 1px solid ${UiColor.divider}; border-radius: 7px; }
 .file-reading table { width: 100%; font-size: 14px; line-height: 1.65; }

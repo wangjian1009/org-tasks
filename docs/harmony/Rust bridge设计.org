@@ -362,7 +362,7 @@ interface TitleCount {
 
 文件快照的 ~titleParts~ 由 Core 的 ~OrgFile.title_parts()~ 生成，native 文件对象通过 ~titleParts()~ 同步读取；文件列表元信息增加只读 ~titleParts~ 数组。任务快照的 ~headingParts~ 由 ~FilterTask.title_parts()~ 生成，与原始 ~heading~ 同时保留，C++ 为 native Task 定义可枚举只读属性，供列表、规划与编辑页跨路由使用。 ~NativeCoreService~ 导出对应 ~CoreTitlePart~ 类型，宿主只组合显示片段和调用系统打开链接，不解析 Org。
 
-~ExternalLinkService~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件地址使用系统隐式 Want；坐标和文字地址查询已安装的高德地图与花瓣地图，并由宿主自定义底部选择器展示两项，未安装项保留显示但禁用点击。花瓣地图文字搜索使用 Map Kit；高德坐标使用官方 ~amapuri://route/plan~ 参数，高德文字搜索使用官方 ~https://uri.amap.com/search?keyword=...~ URI API（当前 HarmonyOS 文档未提供高德 App 的文字搜索 ~amapuri~ 入口）。选择已安装应用后以显式 ~viewData~ Want 启动它。 ~addr:~ 文字地址先转换为 ~geo:0,0?q=...~ 查询 URI； ~geo:0,0~ 缺少 ~q~ 时直接提示链接无效。坐标地址遵循 Org 外部链接形式，例如 ~[[geo:39.9042,116.4074][北京市]]~ ，文字地址例如 ~[[addr:北京市朝阳区][北京市朝阳区]]~ 。 ~OrgContentView~ 拦截用户触发的主框架链接导航，交给同一 service 后阻止 Web 页面跳转；阅读页仍禁用网络资源、文件访问和文内脚本。打开失败只展示提示，保留文档与滚动位置。
+~LinkView~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件和电话使用系统隐式 ~viewData~ Want；坐标和文字地址由控件内部的底部面板展示高德地图与花瓣地图。文字搜索时高德项禁用且点击只提示原因，花瓣使用 Map Kit；坐标地址可选择两项，高德使用 ~amapuri://route/plan~ 参数，花瓣使用 ~geo:~ URI。应用未安装或启动失败时提示，地图面板保留供重试。 ~addr:~ 先转换为 ~geo:0,0?q=...~ ， ~geo:0,0~ 缺少 ~q~ 时不启动地图；显式地址形式如 ~[[geo:39.9042,116.4074][北京市]]~ 与 ~[[addr:北京市朝阳区][北京市朝阳区]]~ 。 ~OrgContentView~ 只把 Web 导航事件转交控件的 ~LinkController~ ，系统打开动作、失败提示和生命周期隔离不再由正文或标题分别实现；阅读页继续禁止加载网络资源、文件或文内脚本，打开链接保留文档和滚动位置。
 
 ~TitlePart.is_link~ 映射为 ~isLink~ ；该标记保留链接与普通文字的语义区别， ~href=null~ 的链接仍可显示为辅助文字色虚线下划线。普通文字没有下划线，只有非空 ~href~ 才绑定系统打开操作。
 
@@ -633,3 +633,9 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 * 默认优先级快照
 
 ~OrgFileMetadata.default_priority~ 与 ~FilterTask.default_priority()~ 映射为文件元信息及 Task 的只读 ~defaultPriority: TaskPriority~ ，与 ~priorityOptions~ 来自同次 Core 配置解析。Rust bridge 直接复制 Core 值，C++ 将任务字段注册为可枚举只读属性，文件元信息随原对象透传；ArkTS wrapper 沿用 native 类型，不另设默认值或排序。~priority~ 继续表达显式值，未设置时为 ~null~ 。默认值解析、优先级排序与有效优先级查询均由 Core 处理，见 [[file:../core/查询语言设计.org][查询语言设计]]。
+
+* 公共链接与备注展示投影
+
+~TaskEditContent.notes_html~ 由 Core 对原始备注生成，Rust bridge 与 C++ N-API 沿用既有 ~editContent~ 对象透传，TS 只读属性为 ~editContent.notesHtml~ 。 ~NativeCoreService~ 的类型别名保留该字段，不在 bridge 或 ArkTS 解析 Org、识别裸链接或重建 HTML。标题继续使用 ~headingParts~ ，完整正文使用 ~bodyHtml~ ，三者复用 Core 的链接规则。模型及安全边界见 [[file:../core/接口文档.org::*标题文字与外部链接投影][链接投影接口]] 与 [[file:../core/数据模型.org::*卡片编辑正文与检查清单][备注数据模型]]。
+
+宿主的 ~LinkView~ 拥有原生链接显示、系统打开、地址转换、地图选择、失败提示与离开页面后的异步隔离。 ~TitleText~ 仅组装标题及计数； ~OrgContentView~ 仅渲染 Core 的 HTML、测量正文并把 Web 导航事件转交 ~LinkController~ ，不再独立调用系统跳转接口。

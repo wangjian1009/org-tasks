@@ -1,0 +1,444 @@
+{
+  "reference": "(org) External Links; org-link-plain-re; org-element-link-parser",
+  "orgVersion": "9.8.10",
+  "cases": [
+    {
+      "source": "http://example.com",
+      "links": [
+        {
+          "target": "http://example.com",
+          "start": 0,
+          "end": 18
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a?x=1&y=2#part",
+      "links": [
+        {
+          "target": "https://example.com/a?x=1&y=2#part",
+          "start": 0,
+          "end": 34
+        }
+      ]
+    },
+    {
+      "source": "请看 https://example.com/path，完成。",
+      "links": [
+        {
+          "target": "https://example.com/path，完成",
+          "start": 7,
+          "end": 40
+        }
+      ]
+    },
+    {
+      "source": "http://example.com. 下一个 https://example.org!",
+      "links": [
+        {
+          "target": "http://example.com",
+          "start": 0,
+          "end": 18
+        },
+        {
+          "target": "https://example.org",
+          "start": 30,
+          "end": 49
+        }
+      ]
+    },
+    {
+      "source": "(https://example.com/a).",
+      "links": [
+        {
+          "target": "https://example.com/a",
+          "start": 1,
+          "end": 22
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/path-",
+      "links": [
+        {
+          "target": "https://example.com/path-",
+          "start": 0,
+          "end": 25
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/path/",
+      "links": [
+        {
+          "target": "https://example.com/path/",
+          "start": 0,
+          "end": 25
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a_b?x=a_b",
+      "links": [
+        {
+          "target": "https://example.com/a_b?x=a_b",
+          "start": 0,
+          "end": 29
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a(b)c",
+      "links": [
+        {
+          "target": "https://example.com/a(b)c",
+          "start": 0,
+          "end": 25
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a(b(c))",
+      "links": [
+        {
+          "target": "https://example.com/a(b(c))",
+          "start": 0,
+          "end": 27
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a(b(c(d)))",
+      "links": [
+        {
+          "target": "https://example.com/a",
+          "start": 0,
+          "end": 21
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a[1]",
+      "links": [
+        {
+          "target": "https://example.com/a[1]",
+          "start": 0,
+          "end": 24
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a<1>",
+      "links": [
+        {
+          "target": "https://example.com/a<1>",
+          "start": 0,
+          "end": 24
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/a([x])",
+      "links": [
+        {
+          "target": "https://example.com/a([x])",
+          "start": 0,
+          "end": 26
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/?x=one,two&name=three;",
+      "links": [
+        {
+          "target": "https://example.com/?x=one,two&name=three",
+          "start": 0,
+          "end": 41
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/:a@b?x=1+2",
+      "links": [
+        {
+          "target": "https://example.com/:a@b?x=1+2",
+          "start": 0,
+          "end": 30
+        }
+      ]
+    },
+    {
+      "source": "prefixhttps://example.com",
+      "links": []
+    },
+    {
+      "source": "prefix_https://example.com",
+      "links": []
+    },
+    {
+      "source": "前https://example.com",
+      "links": [
+        {
+          "target": "https://example.com",
+          "start": 3,
+          "end": 22
+        }
+      ]
+    },
+    {
+      "source": "前 https://example.com",
+      "links": [
+        {
+          "target": "https://example.com",
+          "start": 4,
+          "end": 23
+        }
+      ]
+    },
+    {
+      "source": "HTTPS://example.com",
+      "links": []
+    },
+    {
+      "source": "https: example.com",
+      "links": []
+    },
+    {
+      "source": "https://",
+      "links": [
+        {
+          "target": "https://",
+          "start": 0,
+          "end": 8
+        }
+      ]
+    },
+    {
+      "source": "http://x",
+      "links": [
+        {
+          "target": "http://x",
+          "start": 0,
+          "end": 8
+        }
+      ]
+    },
+    {
+      "source": "<https://example.com/a b>",
+      "links": [
+        {
+          "target": "https://example.com/a b",
+          "start": 0,
+          "end": 25
+        }
+      ]
+    },
+    {
+      "source": "<https://example.com/\n  next>",
+      "links": [
+        {
+          "target": "https://example.com/next",
+          "start": 0,
+          "end": 29
+        }
+      ]
+    },
+    {
+      "source": "*加粗 https://example.com/path* 之后",
+      "links": [
+        {
+          "target": "https://example.com/path",
+          "start": 8,
+          "end": 32
+        }
+      ]
+    },
+    {
+      "source": "/斜体 https://example.com/path/ 之后",
+      "links": [
+        {
+          "target": "https://example.com/path",
+          "start": 8,
+          "end": 32
+        }
+      ]
+    },
+    {
+      "source": "~https://example.com/code~ =http://example.com/verbatim= https://example.com/ok",
+      "links": [
+        {
+          "target": "https://example.com/ok",
+          "start": 57,
+          "end": 79
+        }
+      ]
+    },
+    {
+      "source": "[[https://example.com/target][说明 https://example.com/label]] https://example.org/next",
+      "links": [
+        {
+          "target": "https://example.org/next",
+          "start": 65,
+          "end": 89
+        }
+      ]
+    },
+    {
+      "source": "src_text{https://example.com/code} call_name(https://example.com/call) https://example.com/ok",
+      "links": [
+        {
+          "target": "https://example.com/ok",
+          "start": 71,
+          "end": 93
+        }
+      ]
+    },
+    {
+      "source": "@@html:https://example.com/snippet@@ https://example.com/ok",
+      "links": [
+        {
+          "target": "https://example.com/ok",
+          "start": 37,
+          "end": 59
+        }
+      ]
+    },
+    {
+      "source": "\\alpha https://example.com/path",
+      "links": [
+        {
+          "target": "https://example.com/path",
+          "start": 7,
+          "end": 31
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/中文路径。",
+      "links": [
+        {
+          "target": "https://example.com/中文路径",
+          "start": 0,
+          "end": 32
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/path\"",
+      "links": [
+        {
+          "target": "https://example.com/path",
+          "start": 0,
+          "end": 24
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/path'",
+      "links": [
+        {
+          "target": "https://example.com/path",
+          "start": 0,
+          "end": 24
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/path%20name",
+      "links": [
+        {
+          "target": "https://example.com/path%20name",
+          "start": 0,
+          "end": 31
+        }
+      ]
+    },
+    {
+      "source": "https://example.com/path?x=&quot;",
+      "links": [
+        {
+          "target": "https://example.com/path?x=&quot",
+          "start": 0,
+          "end": 32
+        }
+      ]
+    },
+    {
+      "source": "http://example.com/a) http://example.com/b] http://example.com/c>",
+      "links": [
+        {
+          "target": "http://example.com/a",
+          "start": 0,
+          "end": 20
+        },
+        {
+          "target": "http://example.com/b",
+          "start": 22,
+          "end": 42
+        },
+        {
+          "target": "http://example.com/c",
+          "start": 44,
+          "end": 64
+        }
+      ]
+    },
+    {
+      "source": "ORGPLAINLINKTOKEN https://example.com/one https://example.com/two",
+      "links": [
+        {
+          "target": "https://example.com/one",
+          "start": 18,
+          "end": 41
+        },
+        {
+          "target": "https://example.com/two",
+          "start": 42,
+          "end": 65
+        }
+      ]
+    },
+    {
+      "source": "éhttps://example.com",
+      "links": []
+    },
+    {
+      "source": "αhttps://example.com",
+      "links": [
+        {
+          "target": "https://example.com",
+          "start": 2,
+          "end": 21
+        }
+      ]
+    },
+    {
+      "source": "123https://example.com",
+      "links": []
+    },
+    {
+      "source": "𠀀https://example.com",
+      "links": [
+        {
+          "target": "https://example.com",
+          "start": 4,
+          "end": 23
+        }
+      ]
+    },
+    {
+      "source": "文_https://example.com",
+      "links": []
+    },
+    {
+      "source": "عhttps://example.com",
+      "links": [
+        {
+          "target": "https://example.com",
+          "start": 2,
+          "end": 21
+        }
+      ]
+    }
+  ]
+}

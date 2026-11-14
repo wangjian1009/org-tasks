@@ -1,10 +1,8 @@
-import { common } from '@kit.AbilityKit'
 import { CoreTitleCount, CoreTitlePart } from '../services/NativeCoreService'
-import { ExternalLinkService, MapAppChoice } from '../services/ExternalLinkService'
-import { MapAppSheet } from './MapAppSheet'
+import { LinkView } from './LinkView'
 import { TitleCountBadge } from './TitleCountBadge'
 import { titleCounts } from '../ui/TitleCountPresentation'
-import { UiColor, UiSize } from '../ui/Theme'
+import { UiSize } from '../ui/Theme'
 
 @Component
 export struct TitleText {
@@ -18,66 +16,11 @@ export struct TitleText {
   @Prop showCounts: boolean = true
   @Prop openLinks: boolean = true
   activate: (() => void) | undefined = undefined
-  @State chooserVisible: boolean = false
-  @State mapChoices: MapAppChoice[] = []
-
-  async openLink(href: string) {
-    try {
-      await ExternalLinkService.open(this.getUIContext().getHostContext()! as common.UIAbilityContext, href,
-        (choices: MapAppChoice[]): void => { this.chooseMapApp(choices) })
-    } catch (error) {
-      const message = (error as Error).message
-      this.showLinkError(message || '无法打开链接，请确认已安装对应应用。')
-    }
-  }
-
-  showLinkError(message: string): void {
-    try { this.getUIContext().getPromptAction().showToast({ message }) }
-    catch (error) { console.error('显示链接错误提示失败') }
-  }
-
-  chooseMapApp(choices: MapAppChoice[]): void {
-    this.mapChoices = choices
-    this.chooserVisible = true
-  }
-
   @Builder
   titleContent() {
-    Text() {
-      if (this.parts.length === 0) {
-        Span(this.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
-          .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
-      } else {
-        ForEach(this.parts, (part: CoreTitlePart) => {
-          if (part.count) {
-          } else if (part.href && this.openLinks) {
-            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.primary)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline })
-              .onClick((): void => { this.openLink(part.href!) })
-          } else if (part.isLink && this.openLinks) {
-            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.secondary)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline, color: UiColor.secondary, style: TextDecorationStyle.DASHED })
-          } else {
-            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
-          }
-        })
-      }
-    }.fontSize(this.textSize).fontWeight(this.weight).fontColor(UiColor.text)
-      .maxLines(this.lineLimit > 0 ? this.lineLimit : 2147483647)
-      .textOverflow({ overflow: TextOverflow.Ellipsis })
-      .wordBreak(WordBreak.BREAK_ALL)
-      .copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
-      .onClick(this.activate).flexShrink(1)
-      .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
-        (message: string): void => { this.showLinkError(message) }), {
-        height: SheetSize.FIT_CONTENT,
-        detents: [SheetSize.FIT_CONTENT, '85%'],
-        preferType: SheetType.BOTTOM,
-        backgroundColor: UiColor.surface,
-        maskColor: Color.Transparent,
-        showClose: false
-      })
+    LinkView({ text: this.text, parts: this.parts, textSize: this.textSize, weight: this.weight,
+      lineLimit: this.lineLimit, cancelled: this.cancelled, copyable: this.copyable,
+      openLinks: this.openLinks, activate: this.activate })
   }
 
   build() {

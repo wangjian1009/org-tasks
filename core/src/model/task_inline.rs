@@ -24,6 +24,7 @@ pub struct TaskChecklistItem {
 pub struct TaskEditContent {
     pub own_tags: Vec<String>,
     pub notes: String,
+    pub notes_html: String,
     pub checklist: Vec<TaskChecklistItem>,
     pub scheduled_repeat: Option<super::TaskRepeatInfo>,
     pub deadline_repeat: Option<super::TaskRepeatInfo>,
@@ -181,6 +182,7 @@ impl OrgFile {
             .collect();
         Ok(TaskEditContent {
             own_tags: headline.tags().map(|tag| tag.to_string()).collect(),
+            notes_html: if notes.trim().is_empty() { String::new() } else { super::render::render_fragment(&notes) },
             notes,
             checklist,
             scheduled_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),
@@ -203,6 +205,22 @@ mod tests {
     }
     fn projection(file: &OrgFile) -> TaskEditContent {
         file.task_edit_content(&file.path_headlines()[0].0).unwrap()
+    }
+
+    #[test]
+    fn notes_html_renders_links_from_exact_notes_without_checklists_or_metadata() {
+        let source = "* TODO 任务\r\nSCHEDULED: <2026-11-14 Sat>\r\n:PROPERTIES:\r\n:ID: keep\r\n:END:\r\n备注 [[addr:北京][地点]] 和 https://example.com/a_b?x=1&y=2\r\n- [ ] 独立清单\r\n:LOGBOOK:\r\n- Note taken on [2026-11-14 Sat 09:00] 日志\r\n:END:\r\n** 子任务\r\n其他备注\r\n";
+        let document = file(source);
+        let edit = projection(&document);
+        assert_eq!(edit.notes, "备注 [[addr:北京][地点]] 和 https://example.com/a_b?x=1&y=2\r\n");
+        assert!(edit.notes_html.contains("href=\"addr:%E5%8C%97%E4%BA%AC\""));
+        assert!(edit.notes_html.contains("href=\"https://example.com/a_b?x=1&amp;y=2\""));
+        for hidden in ["独立清单", "日志", "SCHEDULED", "PROPERTIES", "其他备注"] {
+            assert!(!edit.notes_html.contains(hidden), "{hidden}");
+        }
+        assert_eq!(edit.checklist.len(), 1);
+        assert_eq!(document.source_bytes(), source.as_bytes());
+        assert!(projection(&file("* TODO 空备注\n\n- [ ] 仅清单\n")).notes_html.is_empty());
     }
 
     #[test]

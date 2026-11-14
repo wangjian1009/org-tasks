@@ -1441,12 +1441,13 @@ after: Option\textless Bytes\textgreater}{}
 
 * 卡片编辑正文与检查清单
 
-~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。规划范围与任务操作器共用，兼容重复窗口（如 ~.+1w/2w~ ）导致规划行被语法树并入段落的情况；备注投影与备注修改使用同一范围，未修改的规划字节保持原样。正文内容开始后出现的同名普通文本继续作为备注保留。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
+~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 、只读富文本 ~notes_html~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。规划范围与任务操作器共用，兼容重复窗口（如 ~.+1w/2w~ ）导致规划行被语法树并入段落的情况；备注投影与备注修改使用同一范围，未修改的规划字节保持原样。正文内容开始后出现的同名普通文本继续作为备注保留。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
 
 #+begin_src rust
 pub struct TaskEditContent {
     pub own_tags: Vec<String>,
     pub notes: String,
+    pub notes_html: String,
     pub checklist: Vec<TaskChecklistItem>,
     pub scheduled_repeat: Option<TaskRepeatInfo>,
     pub deadline_repeat: Option<TaskRepeatInfo>,
@@ -1469,6 +1470,8 @@ pub enum TaskChecklistChange {
 }
 #+end_src
 
+~notes_html~ 由 Core 对相同的 ~notes~ 生成安全展示片段，复用显式链接、裸链接、行内格式与正文转义规则；它不进入持久化、同步或写入参数。Harmony 以 ~notesHtml~ 原样透传，宿主只切换展示与原始备注输入，不从 HTML 重建备注或清单。
+
 条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态修改 checkbox token，并由 Core 重算所属标题中已有的统计节点；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
 
 新增、删除与切换完成状态后，Core 重算所属标题中的 checkbox 统计；统计来源受 ~COOKIE_DATA~ 约束，完整规则见 [[*标题统计更新][标题统计更新]]。统计修改与条目修改复用同一操作事务、版本校验、回退历史和 ~DataChangeEvent::RepositoryChanged~ ，提交后统一广播仓库失效事件，由宿主异步重查修改后的节点；不逐个广播节点快照，不改变任务 TODO 状态。
@@ -1478,7 +1481,7 @@ pub enum TaskChecklistChange {
 ~SCHEDULE_DATE~ 与 ~DEADLINE_DATE~ 接收 ~YYYY-MM-DD~ 或空值，只修改对应规划时间戳的开始日期并更新星期，不清除原时刻、重复器或预警；原 ~SCHEDULE~ 与 ~DEADLINE~ 仍设置完整时间戳。清除一个日期不修改另一个日期。
 
 \begin{tikzpicture}
-\umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ own\_tags: Vec}{}
+\umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ notes\_html: String \\ own\_tags: Vec}{}
 \umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ sibling\_group: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
 \umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove \\ Move}{}
 \umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}

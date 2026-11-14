@@ -364,6 +364,33 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   }
 });
 
+test('展开备注点击普通文字才进入原文，保存或刷新失败保留输入，成功恢复链接阅读', async () => {
+  const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+  const methods = ['editNotes', 'finishNotes'].map(name => {
+    const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}'));
+    assert.ok(match, name);return match[0];
+  }).join('\n');
+  const module = { exports: {} };
+  const code = ts.transpileModule('export class Notes {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  vm.runInThisContext('(function(module,exports){' + code + '\n})')(module, module.exports);
+  let saved = false;
+  const focus = [];
+  const notes = '地点 [[addr:北京][会议室]] 和 https://example.com/';
+  const card = Object.assign(new module.exports.Notes(), { notes, notesInput: false, ownerKey: 'task',
+    checkFocus: { request: key => focus.push(key) }, saveText: async () => saved });
+  card.editNotes();assert.deepEqual(focus, ['inline_notes_task']);
+  await card.finishNotes();assert.equal(card.notesInput, true);assert.equal(card.notes, notes);
+  saved = true;card.snapshotBlocked = true;
+  await card.finishNotes();assert.equal(card.notesInput, true);
+  card.snapshotBlocked = false;
+  await card.finishNotes();assert.equal(card.notesInput, false);
+  for (const blocked of ['readOnly', 'working', 'draggingCheck', 'snapshotBlocked']) {
+    card[blocked] = true;card.editNotes();assert.equal(card.notesInput, false, blocked);card[blocked] = false;
+  }
+});
+
 function finishFixture(textSaved = true, checkSaved = true) {
   const filename = 'entry/src/main/ets/components/TaskListItem.ets';
   const method = fs.readFileSync(filename, 'utf8').match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];

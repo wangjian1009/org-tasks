@@ -299,9 +299,11 @@ fn title_parts_with_progress(source: &str, hide_progress: bool) -> Vec<TitlePart
     }
     // 用普通段落承载行内语法，避免 TITLE 被识别为列表、标题或关键字。
     let mut view = TitleView(Vec::new(), None, false, hide_progress);
-    orgize::Org::parse(&format!("x {source}")).traverse(&mut view);
-    if let Some(first) = view.0.first_mut() {
-        first.text.drain(..2);
+    if !render_inline_links(&mut view, source) {
+        orgize::Org::parse(&format!("x {source}")).traverse(&mut view);
+        if let Some(first) = view.0.first_mut() {
+            first.text.drain(..2);
+        }
     }
     view.0.retain(|part| !part.text.is_empty());
     view.0
@@ -378,6 +380,67 @@ impl Traverser for TitleView {
     }
 }
 
+// 用不会形成 Org 语法的占位符重新解析行内排版，避免 URL 中的下划线、斜线等被拆为格式节点。
+// 仅重建运行时段落，不改变原始语法树及标题的字节定位。
+trait InlineLinkView: Traverser {
+    fn inline_text(&mut self, text: &str);
+    fn inline_link(&mut self, target: &str);
+}
+
+impl InlineLinkView for TitleView {
+    fn inline_text(&mut self, text: &str) { self.push(text); }
+
+    fn inline_link(&mut self, target: &str) {
+        let previous = self.1.take();
+        let was_link = self.2;
+        self.1 = external_link_href(target);
+        self.2 = true;
+        self.push(target);
+        self.1 = previous;
+        self.2 = was_link;
+    }
+}
+
+fn render_inline_links(view: &mut impl InlineLinkView, source: &str) -> bool {
+    let links = super::plain_links::plain_links(source);
+    if links.is_empty() { return false; }
+    let mut prefix = "ORGPLAINLINKTOKEN".to_string();
+    while source.contains(&prefix) { prefix.push('X'); }
+    let markers = links.iter().enumerate().map(|(index, link)|
+        (format!("{prefix}{index}END"), link.target.clone())
+    ).collect::<Vec<_>>();
+    let mut prepared = source.to_string();
+    for (link, (marker, _)) in links.iter().zip(&markers).rev() {
+        prepared.replace_range(link.range.clone(), marker);
+    }
+    struct Inline<'a, T> { view: &'a mut T, markers: &'a [(String, String)], prefix: usize }
+    impl<T: InlineLinkView> Traverser for Inline<'_, T> {
+        fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
+            match event {
+                Event::Enter(Container::Document(_) | Container::Section(_) | Container::Paragraph(_))
+                | Event::Leave(Container::Document(_) | Container::Section(_) | Container::Paragraph(_)) => {}
+                Event::Text(text) => {
+                    let skip = self.prefix.min(text.len());
+                    self.prefix -= skip;
+                    let mut text = &text.as_ref()[skip..];
+                    while !text.is_empty() {
+                        let next = self.markers.iter().filter_map(|(marker, target)|
+                            text.find(marker).map(|start| (start, marker.len(), target))
+                        ).min_by_key(|(start, _, _)| *start);
+                        let Some((start, length, target)) = next else { self.view.inline_text(text); break; };
+                        self.view.inline_text(&text[..start]);
+                        self.view.inline_link(target);
+                        text = &text[start + length..];
+                    }
+                }
+                _ => self.view.event(event, ctx),
+            }
+        }
+    }
+    orgize::Org::parse(&format!("x {prepared}")).traverse(&mut Inline { view, markers: &markers, prefix: 2 });
+    true
+}
+
 // 最后一项仅用于分段正文：隐藏属性与日志抽屉，通用文件预览继续保留它们。
 struct ReadingView(HtmlExport, Vec<bool>, Option<String>, bool, bool, bool, Option<super::TodoMetadata>, bool);
 
@@ -388,9 +451,42 @@ impl ReadingView {
     }
 }
 
+impl InlineLinkView for ReadingView {
+    fn inline_text(&mut self, text: &str) {
+        if self.2.is_some() && !self.4 && self.1.is_empty() && !text.trim().is_empty() { self.5 = true; }
+        self.0.push_str(format!("{}", HtmlEscape(text)));
+    }
+
+    fn inline_link(&mut self, target: &str) {
+        if self.2.is_some() && !self.4 && self.1.is_empty() { self.5 = true; }
+        if let Some(href) = external_link_href(target) {
+            self.0.push_str(format!("<a class=\"link\" href=\"{}\" title=\"{}\">{}</a>",
+                HtmlEscape(href), HtmlEscape(target), HtmlEscape(target)));
+        } else {
+            self.0.push_str(format!("<span class=\"link unsupported\" role=\"link\" aria-disabled=\"true\">{}</span>", HtmlEscape(target)));
+        }
+    }
+}
+
 impl Traverser for ReadingView {
     fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
         match event {
+            Event::Enter(Container::Paragraph(paragraph)) => {
+                let source = paragraph.raw();
+                self.0.event(Event::Enter(Container::Paragraph(paragraph)), ctx);
+                if render_inline_links(self, &source) {
+                    self.0.push_str("</p>");
+                    ctx.skip();
+                }
+            }
+            Event::Enter(Container::OrgTableCell(cell)) => {
+                let source = cell.raw();
+                self.0.event(Event::Enter(Container::OrgTableCell(cell)), ctx);
+                if render_inline_links(self, &source) {
+                    self.0.push_str("</td>");
+                    ctx.skip();
+                }
+            }
             Event::Cookie(value) if self.4 => {
                 if let Some(count) = TitleCount::from_cookie(&value) {
                     self.0.push_str(count.html());
@@ -443,8 +539,11 @@ impl Traverser for ReadingView {
                     ));
                 }
                 self.4 = true;
-                for element in headline.title() {
-                    self.element(element, &mut TraversalContext::default());
+                let title = headline.title().map(|element| element.to_string()).collect::<String>();
+                if !render_inline_links(self, &title) {
+                    for element in headline.title() {
+                        self.element(element, &mut TraversalContext::default());
+                    }
                 }
                 self.4 = false;
                 self.0.push_str("</span><span class=\"tags\">");
@@ -740,6 +839,42 @@ fn external_link_href(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_links_share_title_body_log_and_document_projections_without_changing_bytes() {
+        let source = "#+TITLE: http://example.com/file\r\n* TODO *查看 https://example.com/a_b?x=1&y=2* [1/2]\r\n正文 http://example.org/a(b).\r\n- 项目 https://example.com/list\r\n| 表格 | https://example.com/table |\r\n:LOGBOOK:\n- Note taken on [2026-11-13 Fri 09:00] \\\\\n  https://example.com/log\n:END:\n";
+        let document = file(source);
+        let task = document.nodes().remove(0);
+        let title = task.title_parts();
+        assert_eq!(title.iter().filter_map(|part| part.href.as_deref()).collect::<Vec<_>>(), ["https://example.com/a_b?x=1&y=2"]);
+        assert_eq!(title.iter().filter_map(|part| part.count.as_ref()).count(), 1);
+        assert_eq!(document.title_parts()[0].href.as_deref(), Some("http://example.com/file"));
+        let content = task.render_content();
+        for target in ["http://example.org/a(b)", "https://example.com/list", "https://example.com/table"] {
+            assert!(content.body_html.contains(&format!("href=\"{target}\"")), "{}", content.body_html);
+        }
+        assert!(content.logbook_html.contains("href=\"https://example.com/log\""));
+        assert!(content.has_text && content.has_list);
+        for html in [document.render_html(), document.render_document_html()] {
+            assert!(html.contains("<b>查看 <a class=\"link\""), "{html}");
+            assert!(html.contains("?x=1&amp;y=2"));
+            assert!(!html.contains("ORGPLAINLINKTOKEN"));
+            assert!(html.contains("data-org-start=\""));
+        }
+        assert_eq!(document.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn plain_links_keep_surrounding_formatting_and_literal_org_contexts() {
+        let source = "* TODO /阅读 https://example.com/path/\n~https://example.com/verbatim~ =http://example.com/code=\n[[https://example.com/explicit][说明 https://example.com/label]]\n#+begin_src text\nhttps://example.com/source\n#+end_src\n#+begin_example\nhttps://example.com/example\n#+end_example\n<https://example.com/a b>\n";
+        let html = file(source).render_html();
+        assert!(html.contains("<i>阅读 <a class=\"link\" href=\"https://example.com/path\""), "{html}");
+        assert_eq!(html.matches("<a class=\"link\"").count(), 3, "{html}");
+        assert!(!html.contains("<a class=\"link\" href=\"http://example.com/code"));
+        assert!(html.contains("https://example.com/label</a>"));
+        assert!(html.contains("href=\"https://example.com/a%20b\""));
+        assert!(!html.contains("ORGPLAINLINKTOKEN"));
+    }
 
     fn file(source: &str) -> OrgFile {
         OrgFile::new(

@@ -9,6 +9,7 @@ mod data_changes;
 mod editor;
 mod file_keywords;
 mod merge;
+mod plain_links;
 pub(crate) mod notification;
 mod project;
 mod priority;

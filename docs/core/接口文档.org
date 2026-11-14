@@ -767,6 +767,8 @@ impl FilterTask {
 
 ~href~ 只对合法的 ~http~ 、 ~https~ 、 ~mailto~ 、 ~tel~ 、 ~geo~ 与 ~addr~ 地址提供值；坐标地址使用 Org 外部链接形式，例如 ~[[geo:39.9042,116.4074][北京市]]~ 。文字地址使用应用约定的 ~addr:~ 协议，例如 ~[[addr:北京市朝阳区][北京市朝阳区]]~ ，宿主点击时转换为地图搜索 URI。坐标为 ~0,0~ 时必须提供 ~q~ 参数，例如 ~[[geo:0,0?q=北京市][北京市]]~ ；缺少 ~q~ 时宿主提示链接无效。其他类型保留可读文字且值为 ~None~ 。链接中不接受控制字符。完整文档、任务正文与日志中的同类链接生成经过 HTML 属性转义的 ~a.link~ ，其他类型为带 ~unsupported~ 类与禁用语义的 ~span.link~ ；不自动加载图片、附件或网页，不执行 Org 文内代码。宿主在用户点击时调用系统应用打开，阅读内容本身不导航到网页。
 
+裸链接识别依据 [[info:org#External Links][Org Info：External Links]] 与 ~org-element-link-parser~ ：普通段落、标题、列表与表格中的 ~http:~ 、 ~https:~ 地址无需双层方括号即可生成相同的链接投影，尖括号形式同样支持。裸链接不包含分隔空格和末尾标点，保留 URL 中的斜线、连字符及 Org 允许的括号组；尖括号形式明确目标边界。词首、中文相邻文字、斜体结束符与两层括号边界按 Org 语义处理。代码、逐字文本、内联源码、源码块、示例块及显式链接的描述不再次识别裸链接。识别只影响运行时投影，链接验证与属性转义继续复用同一规则，原文件字节及标题定位偏移保持不变。
+
 ~TitlePart.is_link~ 区分普通文字和已经解析但目标尚不支持的链接；该字段在 JSON 中为 ~isLink~ 。 ~is_link=true~ 且 ~href=None~ 表示未支持链接，宿主可保留不同的链接样式，不把它与邻接普通文字合并。
 
 ~TitlePart.count~ 为可空的分数统计投影；普通文字、链接、代码与逐字文本的片段值为空。有效统计节点投影为 ~TitleCount~ ， ~text~ 为去掉方括号的显示值， ~href=None~ 且 ~is_link=false~ 。例如 ~[1/2]~ 得到 ~completed=Some(1)~ 与 ~total=Some(2)~ ， ~[/]~ 的两个字段均为空且显示为“—/—”； ~[0/0]~ 保留零值。分子大于分母、单边为空或超出 ~u32~ 范围时保留原文，不产生计数；百分比统计也保留原文。多个计数按出现顺序返回，不与邻接文字合并，不重新统计子任务或 checkbox。文档的真实标题同样生成 ~span.title-count~ ，携带安全的比例样式和无障碍说明；正文中的计数不转换为进度标记。所有投影均不影响原文、查询、逻辑 ID 或写入行为。
@@ -871,7 +873,7 @@ impl OrgFile {
 }
 #+end_src
 
-卡片通过该接口取得备注和检查清单；备注读取与 ~NOTES~ 写入共用规划行识别范围，带重复窗口（如 ~.+1w/2w~ ）的规划行不进入备注，保存或清空备注也保留规划行原始字节。标题显示使用 ~FilterTask.title_parts()~ 的可读投影，进入文字编辑后使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选、删除或同级排序； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
+卡片通过该接口取得原始备注 ~notes~ 、同一备注的安全 HTML 投影 ~notes_html~ 与检查清单； ~notes_html~ 复用公共正文渲染，支持显式链接和裸链接，不包含已独立投影的 checkbox 清单、规划、抽屉或子任务正文，空备注返回空串。备注读取与 ~NOTES~ 写入共用规划行识别范围，带重复窗口（如 ~.+1w/2w~ ）的规划行不进入备注，保存或清空备注也保留规划行原始字节。标题显示使用 ~FilterTask.title_parts()~ 的可读投影，进入文字编辑后使用原始任务标题，编辑标签集合从 ~TaskEditContent.own_tags~ 读取，包含不展示的内部用途标签，以保留未操作的用途；继承标签通过 ~FilterTask.inherited_tags~ 读取。所有修改仍提交 ~OrgWorkspace.execute_task_operations~ ： ~NOTES~ 修改备注而不重建清单或日志； ~CHECKLIST~ 接收 ~TaskChecklistChange~ ，完成新增、编辑、勾选、删除或同级排序； ~SCHEDULE_DATE~ 和 ~DEADLINE_DATE~ 接收自然日字符串或空值，仅修改对应日期。数据结构与保真边界见 [[file:数据模型.org::*卡片编辑正文与检查清单][卡片编辑正文与检查清单]]。
 
 ~TITLE~ 更新后，Core 识别标题中已有或新输入的分数与百分比统计并重算；先校验标题没有被重新解释为状态、优先级或标签，再改写派生统计。~CHECKLIST~ 的新增、删除和完成状态切换更新 checkbox 统计；~TODO~ 设置、清除与切换更新父标题的子任务统计，按 ~COOKIE_DATA~ 的 ~recursive~ 配置向上更新。来源混合、递归继承边界与完成状态规则见 [[file:数据模型.org::*标题统计更新][标题统计更新]]，语义依据 [[info:org#Breaking Down Tasks][Org Info：任务分解]] 与 [[info:org#Checkboxes][Org Info：checkbox]] 。
 

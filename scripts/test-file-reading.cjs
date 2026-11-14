@@ -172,9 +172,8 @@ test('文档载入中切换相同正文的版本，完成回调仍只发布最�
     '@kit.ArkWeb': { webview: { WebviewController: class { loadData(data) { loads.push(decodeURIComponent(data)); } } } },
     '../ui/OrgDocumentPresentation': presentation,
     '../ui/Theme': theme,
-    '../services/NativeCoreService': { coreErrorMessage: e => e.message },
-    '../services/ExternalLinkService': {}
-  }, source => source.split('  build()')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    '../services/NativeCoreService': { coreErrorMessage: e => e.message }
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
     .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
   const view = new Content();view.ready = () => ready.push(view.fragment);
   view.fragment = '<p>旧内容</p>';view.pageEnded();
@@ -221,8 +220,8 @@ test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域�
   const { Content }=load(base+'components/OrgContentView.ets',{
     '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(script){return script.includes('const action =')?hit:'0';}}}},
     '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
-    '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'../services/ExternalLinkService':{}
-  },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
+    '../services/NativeCoreService':{coreErrorMessage:e=>e.message}
+  },source=>source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
     .replace('export struct OrgContentView','class Content')+'}\nmodule.exports={Content};');
   const view=new Content();view.loaded=true;view.widthVp=390;view.nodeActivated=index=>selected.push(index);
   await view.activateAt(20,20);assert.deepEqual(selected,[]);

@@ -61,6 +61,7 @@ export struct TaskListItem {
   @State editTask: CoreTask | undefined = undefined
   @State heading: string = ''
   @State headingInput: boolean = false
+  @State notesInput: boolean = false
   @State notes: string = ''
   private headingEditing: boolean = false
   private notesEditing: boolean = false
@@ -298,6 +299,7 @@ export struct TaskListItem {
     this.expanded = false; this.typing = false; this.message = ''
     this.headingEditing = false; this.notesEditing = false
     this.headingInput = false
+    this.notesInput = false
     this.continueCheck = false
     this.checkFocus.cancel()
     this.cancelCheckDrag()
@@ -362,6 +364,7 @@ export struct TaskListItem {
     if (this.snapshotBlocked) return false
     if (!this.newCheck.trim() && !this.checkId) this.addingCheck = false
     this.headingInput = false
+    this.notesInput = false
     if (!this.snapshotBlocked) this.message = ''
     if (collapse) {
       this.priorityOpen = false
@@ -383,6 +386,16 @@ export struct TaskListItem {
 
   async finishHeading() {
     if (await this.saveText()) this.headingInput = false
+  }
+
+  editNotes() {
+    if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
+    this.notesInput = true
+    this.checkFocus.request(`inline_notes_${this.ownerKey}`)
+  }
+
+  async finishNotes() {
+    if (await this.saveText() && !this.snapshotBlocked) this.notesInput = false
   }
   async persist(modifications: CoreTaskModification[]): Promise<boolean> {
     if (this.readOnly && !this.allowCompletion) return false
@@ -1066,7 +1079,7 @@ export struct TaskListItem {
           TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
             weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
             activate: (): void => { this.editHeading() } })
-            .layoutWeight(1).constraintSize({ minHeight: 24 }).onClick(() => { this.editHeading() })
+            .layoutWeight(1).constraintSize({ minHeight: 24 })
         }
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
@@ -1079,13 +1092,25 @@ export struct TaskListItem {
       if (this.documentMode) {
         this.documentChecklist()
       } else {
+      if (this.notesInput) {
       TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
         .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
         .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
         .placeholderColor(UiColor.disabled).backgroundColor(Color.Transparent).padding(0).borderRadius(0)
         .onChange((value: string) => { this.notes = value; this.notesEditing = true })
         .onFocus(() => { this.notesEditing = true; this.inputFocus() })
-        .onBlur(() => { this.saveText() })
+        .onBlur(() => { this.finishNotes() })
+        .onAppear(() => { this.checkFocus.appeared(`inline_notes_${this.ownerKey}`) })
+        .onDisAppear(() => { this.checkFocus.disappeared(`inline_notes_${this.ownerKey}`) })
+        .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_notes_${this.ownerKey}`) })
+      } else if (this.value().editContent.notesHtml) {
+        OrgContentView({ fragment: this.value().editContent.notesHtml, embedded: true, embeddedPadding: 0,
+          contentBackground: this.value().state?.category === TaskStateCategory.Doing ? '#00000000' : UiColor.taskCard,
+          activate: (): void => { this.editNotes() } }).width('100%')
+      } else {
+        Text('备注').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
+          .onClick(() => { this.editNotes() })
+      }
       if (this.value().editContent.checklist.length > 0 || this.addingCheck) {
         Stack({ alignContent: Alignment.TopStart }) {
         List({ scroller: this.checkScroller }) {
@@ -1236,8 +1261,8 @@ export struct TaskListItem {
       Row({ space: 4 }) {
         this.priorityBadge()
         TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-          cancelled: this.value().state?.category === TaskStateCategory.Cancel })
-          .layoutWeight(1).onClick(() => { this.toggle() })
+          cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+          activate: (): void => { this.toggle() } }).layoutWeight(1)
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
     }.width('100%').alignItems(VerticalAlign.Top)
     Column({ space: 8 }) {

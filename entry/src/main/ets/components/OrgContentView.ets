@@ -1,7 +1,5 @@
 import { webview } from '@kit.ArkWeb'
-import { common } from '@kit.AbilityKit'
-import { ExternalLinkService, MapAppChoice } from '../services/ExternalLinkService'
-import { MapAppSheet } from './MapAppSheet'
+import { LinkView, LinkController } from './LinkView'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
@@ -39,23 +37,12 @@ export struct OrgContentView {
   failed: (message: string) => void = () => {}
   @State contentHeight: number = 100
   @State error: string = ''
-  @State chooserVisible: boolean = false
-  @State mapChoices: MapAppChoice[] = []
   private documentGeneration: number = 0
   private requestedGeneration: number = -1
   private loadRequested: boolean = false
   private loaded: boolean = false
   private active: boolean = true
   private widthVp: number = 0
-
-  async openLink(href: string) {
-    try {
-      await ExternalLinkService.open(this.getUIContext().getHostContext()! as common.UIAbilityContext, href,
-        (choices: MapAppChoice[]): void => { this.chooseMapApp(choices) })
-    } catch (error) {
-      if (this.active) this.showLinkError((error as Error).message || '无法打开链接，请确认已安装对应应用。')
-    }
-  }
 
   async backgroundChanged() {
     if (!this.active || !this.loaded) return
@@ -95,16 +82,6 @@ export struct OrgContentView {
         if (generation === this.documentGeneration && this.active && Number.isInteger(index) && index >= 0) this.nodeActivated?.(index)
       }
     } catch (e) { /* 点击命中检查失败时保留阅读视图。 */ }
-  }
-
-  showLinkError(message: string): void {
-    try { this.getUIContext().getPromptAction().showToast({ message }) }
-    catch (error) { console.error('显示链接错误提示失败') }
-  }
-
-  chooseMapApp(choices: MapAppChoice[]): void {
-    this.mapChoices = choices
-    this.chooserVisible = true
   }
 
   aboutToDisappear() { this.documentGeneration++; this.active = false }
@@ -160,10 +137,8 @@ export struct OrgContentView {
     this.loadDocument()
   }
 
-  build() {
-    if (this.error) {
-      Text(this.error).width('100%').padding(16).fontSize(14).fontColor(UiColor.error)
-    } else {
+  @Builder
+  documentContent(links: LinkController) {
       Web({ src: 'about:blank', controller: this.controller })
         .width('100%').height(this.embedded ? this.contentHeight : '100%').backgroundColor(this.contentBackground)
         .nestedScroll({ scrollUp: this.embedded ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_ONLY,
@@ -172,10 +147,7 @@ export struct OrgContentView {
           scrollRight: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST })
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
-          const href = request.getRequestUrl()
-          if (href === 'about:blank' || href.startsWith('data:')) return false
-          if (this.active && request.isMainFrame()) this.openLink(href)
-          return true
+          return links.navigate(request.getRequestUrl(), this.active && request.isMainFrame())
         })
         .onScroll((event: OnScrollEvent): void => { this.scrolled(event.yOffset) })
         .onControllerAttached(() => { this.active = true; this.loadRequested = false; this.loaded = false })
@@ -206,15 +178,14 @@ export struct OrgContentView {
           if (event.type === KeyType.Up && this.embedded) setTimeout(() => { this.measure() }, 100)
           return false
         })
-        .bindSheet($$this.chooserVisible, MapAppSheet(this.mapChoices, (): void => { this.chooserVisible = false },
-          (message: string): void => { if (this.active) this.showLinkError(message) }), {
-          height: SheetSize.FIT_CONTENT,
-          detents: [SheetSize.FIT_CONTENT, '85%'],
-          preferType: SheetType.BOTTOM,
-          backgroundColor: UiColor.surface,
-          maskColor: Color.Transparent,
-          showClose: false
-        })
+  }
+
+  build() {
+    if (this.error) {
+      Text(this.error).width('100%').padding(16).fontSize(14).fontColor(UiColor.error)
+    } else {
+      LinkView({ document: true, contentHeight: this.embedded ? this.contentHeight : '100%',
+        content: (links: LinkController): void => { this.documentContent(links) } }).width('100%')
     }
   }
 }
