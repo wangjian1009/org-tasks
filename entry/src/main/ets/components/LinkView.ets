@@ -127,11 +127,7 @@ export struct LinkView {
   }
 
   async navigate(href: string): Promise<void> {
-    if (!this.editable) { await this.open(href); return }
-    if (!this.webController) return
-    try {
-      await this.webController.runJavaScript(`window.orgLinkSelectByHref?.(${JSON.stringify(href)})`)
-    } catch (_) { this.notify('链接尚未载入，请稍后重试。') }
+    await this.open(href)
   }
 
   async select(hit: LinkHit): Promise<void> {
@@ -140,10 +136,7 @@ export struct LinkView {
     if (hit.menu) {
       try { this.menuWidth = this.getUIContext().px2vp(display.getDefaultDisplaySync().width) - 32 } catch (_) {}
       this.menuVisible = true
-    } else if (this.editable) {
-      if (!hit.link) { this.notify('链接位置不可用，请重新载入后重试。'); return }
-      await this.beginEdit()
-    } else if (hit.href) { this.open(hit.href) }
+    } else if (hit.href) { await this.open(hit.href) }
     else { this.notify('此链接暂不支持打开') }
   }
 
@@ -164,7 +157,7 @@ export struct LinkView {
 
   async installDocument() {
     if (!this.active || !this.webController) return
-    try { await this.webController.runJavaScript(linkDocumentScript(this.editable)) }
+    try { await this.webController.runJavaScript(linkDocumentScript()) }
     catch (_) { this.notify('链接控件加载失败，请重新载入正文。') }
   }
 
@@ -300,23 +293,20 @@ export struct LinkView {
           this.getUIContext().getFocusController().requestFocus(`link_url_${this.owner}`)
         })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.titleDraft = value })
+      Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
       Row({ space: 8 }) {
-        Text('链接').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
         Button({ type: ButtonType.Normal }) {
-          Row({ space: 6 }) {
-            Image(linkProtocol(this.urlDraft).icon).width(16).height(16)
-            Text(linkProtocol(this.urlDraft).title).fontSize(13).fontColor(UiColor.primary)
-          }
-        }.height(36).padding({ left: 8, right: 8 }).backgroundColor(Color.Transparent)
-          .enabled(!this.saving).accessibilityText('选择链接协议')
+          Image(linkProtocol(this.urlDraft).icon).width(20).height(20).fillColor(UiColor.primary)
+        }.width(44).height(44).padding(12).borderRadius(8).backgroundColor(UiColor.field)
+          .enabled(!this.saving).accessibilityText(`选择链接协议，当前为${linkProtocol(this.urlDraft).title}`)
           .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction(); this.protocolVisible = !this.protocolVisible })
           .bindPopup(this.protocolVisible, { builder: this.protocolChoices(), placement: Placement.Bottom,
             popupColor: UiColor.menu, focusable: false, onStateChange: (event): void => { this.protocolVisible = event.isVisible } })
+        TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+          .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
+          .onSubmit((): void => { this.saveEdit() })
+          .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.urlDraft = value })
       }.width('100%')
-      TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text)
-        .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
-        .onSubmit((): void => { this.saveEdit() })
-        .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.urlDraft = value })
       if (this.editError) { Text(this.editError).fontSize(12).fontColor(UiColor.error).width('100%') }
       Row({ space: 12 }) {
         Button('取消').height(40).fontSize(14).fontColor(UiColor.text).backgroundColor(UiColor.field)
@@ -418,7 +408,7 @@ export struct LinkView {
       let start = 0
       for (const part of this.parts) {
         if (part.count) continue
-        const length = part.text.length + (part.isLink && (this.openLinks || this.editable) ? 1 : 0)
+        const length = part.text.length + (part.isLink && (this.openLinks || this.editable) ? 2 : 0)
         if (position >= start && position < start + length) return part.isLink ? part : undefined
         start += length
       }
@@ -439,7 +429,7 @@ export struct LinkView {
             ImageSpan(linkProtocol(part.link?.url || part.href || '').icon).width(this.textSize).height(this.textSize)
               .verticalAlign(ImageSpanAlignment.CENTER)
               .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
-            Span(part.text).fontColor(this.cancelled ? UiColor.disabled : part.href ? UiColor.primary : UiColor.secondary)
+            Span('\u2060' + part.text).fontColor(this.cancelled ? UiColor.disabled : part.href ? UiColor.primary : UiColor.secondary)
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline,
                 style: part.href ? TextDecorationStyle.SOLID : TextDecorationStyle.DASHED })
               .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
@@ -496,13 +486,23 @@ interface GeoCoordinates {
 }
 
 // 只操作 Core 提供的安全投影与展示 DOM，不在这里识别、拼接或写回 Org。
-export function linkDocumentScript(editable: boolean): string {
+export function linkDocumentScript(): string {
   const protocols = LINK_PROTOCOLS.map((choice: LinkProtocolChoice): DocumentLinkProtocol => ({
     kind: choice.kind, title: choice.title, prefix: choice.prefix, path: choice.path
   }))
   return `(() => {
-    const editable = ${editable};
     const protocols = ${JSON.stringify(protocols)};
+    const makeIcon = choice => {
+      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','1em');icon.setAttribute('height','1em');
+      icon.setAttribute('aria-hidden','true');
+      icon.style.cssText='display:inline-block;vertical-align:-0.12em;pointer-events:none';
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',choice?.path || 'M9 15l6-6M8 11l-2 2a4 4 0 0 0 6 6l2-2M10 7l2-2a4 4 0 0 1 6 6l-2 2');
+      path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.7');path.setAttribute('fill','none');
+      path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');
+      icon.append(path);return icon;
+    };
     const protocol = url => {
       const value = url.trim();
       const kind = value.startsWith('org-internal:') || !value.includes(':') || value.startsWith('#') || value.startsWith('*')
@@ -518,7 +518,6 @@ export function linkDocumentScript(editable: boolean): string {
     const select = (node, menu = false) => {
       let link = null;
       try { link = JSON.parse(node.dataset.orgLink || 'null'); } catch (_) {}
-      if (editable && !link && !menu) return;
       const rect = node.getBoundingClientRect();
       bridge.hit(JSON.stringify({ link, href: node.getAttribute('href') || '', url: link?.url || node.getAttribute('data-org-url') || node.getAttribute('title') || node.getAttribute('href') || '', label: node.textContent || '', menu,
         x: rect.left + rect.width / 2, y: rect.top, width: window.innerWidth }));
@@ -552,21 +551,18 @@ export function linkDocumentScript(editable: boolean): string {
     document.querySelectorAll('.link').forEach(node=>{
       if(node.querySelector('[data-org-link-icon]'))return;
       const url=node.getAttribute('data-org-url') || node.getAttribute('href') || '';
-      const choice=protocol(url);
-      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
-      icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','1em');icon.setAttribute('height','1em');
-      icon.setAttribute('data-org-link-icon','true');icon.setAttribute('aria-hidden','true');
-      icon.style.cssText='display:inline-block;vertical-align:-0.12em;margin-right:3px;pointer-events:none';
-      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-      path.setAttribute('d',choice?.path || 'M9 15l6-6M8 11l-2 2a4 4 0 0 0 6 6l2-2M10 7l2-2a4 4 0 0 1 6 6l-2 2');
-      path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.7');path.setAttribute('fill','none');
-      path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');
-      icon.append(path);node.prepend(icon);
+      const icon=makeIcon(protocol(url));icon.setAttribute('data-org-link-icon','true');icon.style.marginRight='3px';
+      // 只绑定图标与首个字形，剩余链接仍参与段落换行；保留描述中的富文本。
+      const prefix=document.createElement('span');prefix.style.cssText='display:inline-block;white-space:nowrap;text-indent:0';prefix.append(icon);
+      const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT);let first;
+      while((first=walker.nextNode()) && !first.textContent.length){}
+      if(first){
+        const text=first.textContent;
+        const segment=typeof Intl.Segmenter==='function' ? [...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)][0].segment : Array.from(text)[0];
+        const range=document.createRange();range.setStart(node,0);range.setEnd(first,segment.length);prefix.append(range.extractContents());
+      }
+      node.prepend(prefix);node.style.overflowWrap='anywhere';node.style.wordBreak='break-all';
     });
-    window.orgLinkSelectByHref = href => {
-      const node = [...document.querySelectorAll('a.link')].find(node => node.href === href || node.getAttribute('href') === href);
-      if (node) select(node);
-    };
     window.orgLinkCancel = () => {
       const form = document.querySelector('.org-link-editor');
       if (form) { if (form.previousElementSibling) form.previousElementSibling.hidden = false; form.remove(); }
@@ -584,27 +580,46 @@ export function linkDocumentScript(editable: boolean): string {
         form.append(name,input); return input;
       };
       const titleInput = field('标题',title,'无标题时显示链接地址');
-      const protocolLabel=document.createElement('label');protocolLabel.textContent='协议';
-      const protocolSelect=document.createElement('select');protocolSelect.id='org-link-protocol';protocolLabel.htmlFor=protocolSelect.id;
-      protocolSelect.style.cssText='min-height:36px;margin:8px 0;background:${UiColor.field};color:${UiColor.text};border:0;border-radius:8px;';
-      for(const choice of protocols){const option=document.createElement('option');option.value=choice.kind;option.textContent=choice.title;protocolSelect.append(option);}
-      if(!protocol(url)){const other=document.createElement('option');other.value='other';other.textContent='其他协议';protocolSelect.append(other);}
-      protocolSelect.value=protocol(url)?.kind || 'other';form.append(protocolLabel,protocolSelect);
       const urlInput = field('链接',url,'链接地址');
+      const urlRow=document.createElement('span');urlRow.style.cssText='display:flex;align-items:center;gap:8px;position:relative';
+      const protocolButton=document.createElement('button');protocolButton.type='button';
+      protocolButton.style.cssText='display:flex;align-items:center;justify-content:center;flex:0 0 44px;height:44px;padding:12px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.primary};font-size:20px';
+      protocolButton.setAttribute('aria-expanded','false');protocolButton.setAttribute('aria-controls','org-link-protocols');
+      const choices=document.createElement('span');choices.id='org-link-protocols';choices.hidden=true;
+      choices.style.cssText='position:absolute;left:0;top:100%;min-width:180px;max-width:100%;z-index:10;padding:4px;border-radius:8px;background:${UiColor.field}';
+      const closeChoices=()=>{choices.hidden=true;protocolButton.setAttribute('aria-expanded','false');};
+      const updateProtocol=()=>{
+        const current=protocol(urlInput.value);protocolButton.replaceChildren(makeIcon(current));
+        protocolButton.setAttribute('aria-label','选择链接协议，当前为'+(current?.title || '其他协议'));
+        [...choices.children].forEach((button,index)=>{
+          const selected=protocols[index].kind===current?.kind;button.setAttribute('aria-pressed',String(selected));
+          button.style.backgroundColor=selected?'${UiColor.surface}':'transparent';button.style.color=selected?'${UiColor.primary}':'${UiColor.text}';
+        });
+      };
+      protocolButton.addEventListener('click',()=>{choices.hidden=!choices.hidden;protocolButton.setAttribute('aria-expanded',String(!choices.hidden));});
+      for(const choice of protocols){
+        const button=document.createElement('button');button.type='button';
+        button.style.cssText='display:flex;align-items:center;gap:8px;width:100%;min-height:44px;border:0;background:transparent;color:${UiColor.text};font:14px sans-serif;text-align:left';
+        button.append(makeIcon(choice),document.createTextNode(choice.title));
+        button.addEventListener('click',()=>{
+          const previous=protocol(urlInput.value);let value=urlInput.value;
+          if(previous?.kind!==choice.kind){
+            if(value.startsWith('org-internal:')){try{value=decodeURIComponent(value.substring(13));}catch(_){}}
+            const target=protocol(value);
+            if(target?.kind!=='internal'){value=value.substring(value.indexOf(':')+1);if(value.startsWith('//'))value=value.substring(2);}
+            urlInput.value=choice.prefix+value;
+          }
+          closeChoices();updateProtocol();draft();urlInput.focus();
+        });choices.append(button);
+      }
+      urlInput.before(urlRow);urlRow.append(protocolButton,urlInput,choices);urlInput.style.flex='1';urlInput.style.minWidth='0';
+      updateProtocol();
       titleInput.enterKeyHint = 'next'; urlInput.enterKeyHint = 'done';
       const status = document.createElement('span'); status.className='org-link-status'; status.style.cssText='display:block;color:${UiColor.error};font-size:12px';form.append(status);
       const controls = document.createElement('span');controls.style.cssText='display:flex;justify-content:flex-end;gap:12px;margin-top:10px';form.append(controls);
       const draft = () => bridge.draft(titleInput.value,urlInput.value);
-      titleInput.addEventListener('input',draft);urlInput.addEventListener('input',()=>{protocolSelect.value=protocol(urlInput.value)?.kind || 'other';draft();});
-      protocolSelect.addEventListener('change',()=>{
-        const choice=protocols.find(item=>item.kind===protocolSelect.value);if(!choice)return;
-        const previous=protocol(urlInput.value);let value=urlInput.value;
-        if(previous?.kind!==choice.kind){
-          if(previous?.kind!=='internal'){value=value.substring(value.indexOf(':')+1);if(value.startsWith('//'))value=value.substring(2);}
-          urlInput.value=choice.prefix+value;
-        }
-        draft();urlInput.focus();
-      });
+      titleInput.addEventListener('input',draft);urlInput.addEventListener('input',()=>{updateProtocol();draft();});
+      for(const input of [titleInput,urlInput]) input.addEventListener('focus',closeChoices);
       form.addEventListener('click',event=>event.stopPropagation());
       for (const input of [titleInput,urlInput]) {
         input.addEventListener('keydown',event=>{
