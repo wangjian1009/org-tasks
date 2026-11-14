@@ -200,11 +200,12 @@ test('计划快速切换时迟到结果不覆盖最后一次选择与任务', as
   assert.equal(page.loading, false);
 });
 
-test('日志簿仅向 Core 请求 Done 分类，每个返回任务只展示一次完成记录', async () => {
+test('日志簿向 Core 请求 Done 与 Cancel 分类，每个返回任务只展示一次关闭记录', async () => {
   const f = fixture(), page = f.page('pages/TaskOverview', ['loadTasks','supportsTagFilter','applyTagFilter']);
   const tasks = [
     { id:'finished', project:()=>null, state:{name:'CUSTOM_FINISH',category:'Done'}, createdAt:1_700_000_000_000, closedAt:1_700_003_600_000 },
-    { id:'older', project:()=>null, state:{name:'OTHER_DONE',category:'Done'}, createdAt:1_600_000_000_000, closedAt:null }
+    { id:'cancelled', project:()=>null, state:{name:'CUSTOM_ABORT',category:'Cancel'}, createdAt:1_600_000_000_000, closedAt:1_700_000_000_000 },
+    { id:'older', project:()=>null, state:{name:'OTHER_CANCEL',category:'Cancel'}, createdAt:1_600_000_000_000, closedAt:null }
   ];
   f.query(batch => batch.map(request => request.type === 'task' ?
     {type:'task',result:{tasks,categories:[]}} : {type:'notification',result:[]}));
@@ -212,12 +213,12 @@ test('日志簿仅向 Core 请求 Done 分类，每个返回任务只展示一�
   await page.loadTasks();
   assert.equal(page.message, '');
   assert.equal(f.batches.length, 1);
-  assert.deepEqual(f.batches[0][0].query, {expression:'i.done',includeDone:true,includeComposeTasks:true});
+  assert.deepEqual(f.batches[0][0].query, {expression:'it.done',includeDone:true,includeComposeTasks:true});
   assert.equal(page.tasks, tasks);
   const items = page.logbookTaskGroups.flatMap(group => group.items);
   assert.equal(items.length, tasks.length);
   assert.deepEqual(items.map(item => item.task), tasks);
-  assert.equal(items[1].timestamp, null);
+  assert.equal(items[2].timestamp, null);
 });
 
 test('收件箱本页、最近新增、文件元信息与通知只调用一次批量查询',async()=>{
@@ -236,6 +237,7 @@ test('侧边栏任务、项目、入口文件和通知合为一个批次，跨�
   assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,13);
   assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','file','task','file','task','file','notification']);
   assert.deepEqual(f.batches[0][5].query,{isProject:true});
+  assert.deepEqual(f.batches[0][4].query,{expression:'it.done',includeDone:true,includeComposeTasks:true});
   assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
   assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);

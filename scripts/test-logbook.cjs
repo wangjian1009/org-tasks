@@ -1,11 +1,11 @@
-// 验证日志簿完成任务编排，以及共享卡片只读会话不会打开编辑入口或写入。
+// 验证日志簿完成与取消任务编排，以及共享卡片只读会话不会打开编辑入口或写入。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
-  console.log('用法: node scripts/test-logbook.cjs\n验证完成任务的时间分组、分类／项目平级分组、顺序、缺失时间、只读卡片及批量删除与恢复的交互边界。');
+  console.log('用法: node scripts/test-logbook.cjs\n验证完成与取消任务的时间分组、分类／项目平级分组、顺序、缺失时间、只读卡片及批量删除与恢复的交互边界。');
   process.exit(0);
 }
 const ts = require(path.join('/Applications/DevEco-Studio.app/Contents', 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
@@ -26,13 +26,13 @@ function task(id, created, closed, category = 'Done', project = null, region = '
   return { id, repoId, filePath, category: region, heading: id, createdAt: created ? time(created) : null, closedAt: closed ? time(closed) : null,
     state: { name: '任意自定义名字', category }, project: () => project, logs: [], editContent: { notes: '', checklist: [] } };
 }
-test('日志簿请求仅完成分类，由 Core 排除取消和未完成任务', () => {
+test('日志簿请求完成与取消分类，由 Core 排除未完成任务', () => {
   const { overviewTaskQuery } = compile(fs.readFileSync('entry/src/main/ets/services/TaskViewQueries.ets', 'utf8'));
-  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'i.done', includeDone: true, includeComposeTasks: true });
+  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'it.done', includeDone: true, includeComposeTasks: true });
 });
-test('每个任务只按完成时间出现一次，创建时间不增加记录或改变顺序', () => {
+test('完成与取消任务各按关闭时间出现一次，创建时间不增加记录或改变顺序', () => {
   const a = task('A', '2026-11-12T09:00', '2026-11-12T11:30');
-  const b = task('B', '2025-01-01T08:00', '2026-11-12T10:00');
+  const b = task('B', '2025-01-01T08:00', '2026-11-12T10:00', 'Cancel');
   const groups = logbookGroups([b, a], now);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].subtitle, '今天');
@@ -75,7 +75,7 @@ test('月年区域不合并分类或项目，混合任务严格按完成日期�
   assert.equal(groups.flatMap(group => group.items).length, tasks.length);
 });
 test('缺失或无效完成时间放在末尾，不借用创建时间，空快照不生成分组', () => {
-  const groups = logbookGroups([task('A', '2026-11-12T08:00', null), task('B', null, null),
+  const groups = logbookGroups([task('A', '2026-11-12T08:00', null), task('B', null, null, 'Cancel'),
     task('C', null, '2026-11-12T10:00')], now);
   assert.deepEqual(groups.map(g => g.kind), ['day', 'unknown']);
   assert.deepEqual(groups[1].items.map(item => [item.task.id, item.timestamp]), [['A', null], ['B', null]]);
@@ -184,8 +184,10 @@ function batchList() {
   const calls = [], messages = [];
   let perform = async () => {};
   const { List } = compile(`import { LogbookService } from 'service';
+    import { TaskOperation } from 'actions';
     import { coreErrorMessage } from 'errors'; export class List { ${chunks.join('\n')} }`, {
     session: { end: async () => true },
+    actions: compile(fs.readFileSync('entry/src/main/ets/ui/TaskActionPresentation.ets', 'utf8')),
     service: { LogbookService: { restore: async (_, tasks) => { calls.push(['restore', tasks]); await perform(); },
       remove: async (_, tasks) => { calls.push(['delete', tasks]); await perform(); } } },
     errors: { coreErrorMessage: error => error.message }
@@ -193,7 +195,7 @@ function batchList() {
   const items = [batchTask('A'), batchTask('B')].map(task => ({ key: task.id, task }));
   const list = Object.assign(new List(), { groups: [{ items }], selectedTaskKeys: [], selectingTasks: false,
     actionBusy: false, selectionSnapshot: [], listScroller: { closeAllSwipeActions() {} },
-    policy: () => ({ enableBulkRestore: true, enableBulkDelete: true, enableDelete: true }),
+    policy: () => ({ singleOperations: ['delete'], bulkOperations: ['delete', 'restore'] }),
     refresh() { this.refreshed = true; }, getUIContext: () => ({ getHostContext: () => ({}),
       getPromptAction: () => ({ showToast: value => messages.push(value.message) }) }) });
   return { list, items, calls, messages, performWith: value => perform = value };
@@ -220,6 +222,6 @@ test('刷新不替换多选源版本，失败保留选择并显示错误，关�
   assert.equal(f.calls[0][1][0], f.items[0].task);
   assert.deepEqual(f.list.selectedTaskKeys, ['A']); assert.equal(f.list.selectingTasks, true);
   assert.deepEqual(f.messages, ['文件版本已变化']); assert.equal(f.list.refreshed, undefined);
-  f.list.policy = () => ({ enableBulkRestore: false });
+  f.list.policy = () => ({ singleOperations: ['delete'], bulkOperations: ['delete'] });
   await f.list.restoreTasks(); assert.equal(f.calls.length, 1);
 });

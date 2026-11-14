@@ -22,7 +22,7 @@ export interface LogbookGroup {
 
 const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 
-// 任务范围由 Core 的 i.done 决定；每个完成任务仅按 closedAt 编排一次。
+// 任务范围由 Core 的 it.done 决定；每个已完成或已取消任务仅按 closedAt 编排一次。
 export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): LogbookGroup[] {
   const groups: LogbookGroup[] = []
   const dailyStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)
