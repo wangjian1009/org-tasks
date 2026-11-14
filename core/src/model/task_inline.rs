@@ -182,7 +182,7 @@ impl OrgFile {
             .collect();
         Ok(TaskEditContent {
             own_tags: headline.tags().map(|tag| tag.to_string()).collect(),
-            notes_html: if notes.trim().is_empty() { String::new() } else { super::render::render_fragment(&notes) },
+            notes_html: if notes.trim().is_empty() { String::new() } else { super::text_link::editable_html(&notes) },
             notes,
             checklist,
             scheduled_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),

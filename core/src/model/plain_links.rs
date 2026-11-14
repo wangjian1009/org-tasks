@@ -43,15 +43,19 @@ pub(super) fn plain_links(source: &str) -> Vec<PlainLink> {
     });
     if !pattern.is_match(source) { return Vec::new(); }
     // 前缀保证行内文本不会被识别为标题、列表或配置声明。
-    let org = orgize::Org::parse(&format!("x {source}"));
+    let prefix = if source.contains('\n') { 0 } else { 2 };
+    let org = orgize::Org::parse(&if prefix == 0 { source.to_owned() } else { format!("x {source}") });
     let protected = org.document().syntax().descendants().filter(|node| matches!(
         node.kind(), SyntaxKind::LINK | SyntaxKind::CODE | SyntaxKind::VERBATIM
             | SyntaxKind::INLINE_SRC | SyntaxKind::INLINE_CALL | SyntaxKind::SNIPPET
             | SyntaxKind::LATEX_FRAGMENT | SyntaxKind::MACROS
+            | SyntaxKind::SOURCE_BLOCK | SyntaxKind::EXAMPLE_BLOCK | SyntaxKind::COMMENT_BLOCK
+            | SyntaxKind::COMMENT | SyntaxKind::KEYWORD
+            | SyntaxKind::EXPORT_BLOCK | SyntaxKind::FIXED_WIDTH | SyntaxKind::LATEX_ENVIRONMENT
     )).map(|node| {
         let range = node.text_range();
-        (u32::from(range.start()) as usize).saturating_sub(2)
-            ..(u32::from(range.end()) as usize).saturating_sub(2)
+        (u32::from(range.start()) as usize).saturating_sub(prefix)
+            ..(u32::from(range.end()) as usize).saturating_sub(prefix)
     }).collect::<Vec<_>>();
     pattern.captures_iter(source).filter_map(|capture| {
         let matched = capture.get(0)?;
@@ -66,8 +70,8 @@ pub(super) fn plain_links(source: &str) -> Vec<PlainLink> {
         }
         if capture.name("plain").is_some() && source[..range.end].ends_with('/')
             && org.document().syntax().descendants().any(|node| node.kind() == SyntaxKind::ITALIC
-                && (u32::from(node.text_range().start()) as usize) < range.start + 2
-                && (u32::from(node.text_range().end()) as usize) == range.end + 2)
+                && (u32::from(node.text_range().start()) as usize) < range.start + prefix
+                && (u32::from(node.text_range().end()) as usize) == range.end + prefix)
         {
             range.end -= 1;
         }

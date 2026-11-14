@@ -13,7 +13,8 @@ const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const filename = 'entry/src/main/ets/components/LinkView.ets';
 const source = fs.readFileSync(filename, 'utf8');
-const behavior = source.slice(0, source.indexOf('  @Builder\n')) + '}\n' + source.slice(source.indexOf('interface GeoCoordinates'));
+const behavior = source.slice(0, source.indexOf('  build() {')).replace(/  @Builder\n[\s\S]*?\n  \}\n/g, '')
+  + '}\n' + source.slice(source.indexOf('interface GeoCoordinates'));
 const code = ts.transpileModule(behavior.replace(/@Component\n|@State |@Prop |@BuilderParam /g, '')
   .replace('export struct LinkView', 'export class LinkView'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
@@ -37,6 +38,7 @@ function fixture() {
   const view = new module.exports.LinkView();
   view.getUIContext = () => ({ getHostContext: () => context,
     getPromptAction: () => ({ showToast: ({message}) => messages.push(message) }) });
+  view.getUniqueId = () => 1;
   view.aboutToAppear();
   return { view, calls, messages, context,
     open: value => { open = value; }, start: value => { start = value; }, search: value => { search = value; } };
@@ -123,4 +125,60 @@ test('禁用链接与重复点击不启动额外操作，离开后的失败不�
   f.view.aboutToDisappear();f.view.aboutToAppear();
   reject(new Error('旧页面请求失败'));await pending;
   assert.deepEqual(f.messages, []);assert.equal(f.view.launching, false);
+});
+
+function linkHit() {
+  return { link: { start: 3, end: 30, source: '[[https://example.com][资料]]', title: '资料', url: 'https://example.com' },
+    href: 'https://example.com/', label: '资料', x: 120, y: 28, width: 390 };
+}
+
+test('可编辑链接只打开浮动菜单，进入原地两字段编辑，成功保存后退出编辑', async () => {
+  const f = fixture(), changes = [], states = [];
+  f.view.editable = true;f.view.revision = 'v1';
+  f.view.change = async (...args) => changes.push(args);
+  f.view.editingChanged = value => states.push(value);
+  const hit = linkHit();f.view.select(hit);
+  assert.equal(f.view.menuVisible, true);assert.deepEqual(f.calls, []);
+  await f.view.beginEdit();
+  assert.equal(f.view.editing, true);assert.equal(f.view.menuVisible, false);
+  assert.equal(f.view.titleDraft, '资料');assert.equal(f.view.urlDraft, 'https://example.com');
+  f.view.titleDraft = '新标题';f.view.urlDraft = 'https://example.org/';
+  assert.equal(await f.view.saveEdit(), true);
+  assert.deepEqual(changes, [[hit.link, { title: '新标题', url: 'https://example.org/' }]]);
+  assert.equal(f.view.editing, false);assert.deepEqual(states, [true, false]);
+});
+
+test('取消不提交，删除传递具体链接和空值，重复网址不会依赖 href 定位', async () => {
+  const f = fixture(), changes = [];
+  f.view.editable = true;f.view.change = async (...args) => changes.push(args);
+  f.view.select(linkHit());await f.view.beginEdit();
+  f.view.titleDraft = '放弃的草稿';f.view.cancelEdit();assert.deepEqual(changes, []);
+  const second = linkHit();second.link.start = 60;second.link.end = 87;
+  f.view.select(second);assert.equal(await f.view.commit(null), true);
+  assert.deepEqual(changes, [[second.link, null]]);
+});
+
+test('保存失败、空地址及版本变化保留草稿，结束输入同样等待保存成功', async () => {
+  const f = fixture();let failed = true;
+  f.view.editable = true;f.view.revision = 'v1';
+  f.view.change = async () => { if (failed) throw new Error('版本冲突'); };
+  f.view.select(linkHit());await f.view.beginEdit();f.view.titleDraft = '保留的草稿';
+  assert.equal(await f.view.editor.finish(), false);assert.equal(f.view.editing, true);
+  assert.equal(f.view.titleDraft, '保留的草稿');assert.match(f.view.editError, /版本冲突/);
+  failed = false;f.view.urlDraft = '';assert.equal(await f.view.saveEdit(), false);
+  f.view.urlDraft = 'https://example.org/';f.view.revision = 'v2';
+  assert.equal(await f.view.saveEdit(), false);assert.match(f.view.editError, /内容已变化/);
+  f.view.revision = 'v1';assert.equal(await f.view.editor.finish(), true);
+});
+
+test('共享编辑控制器阻止同时编辑两个链接，旧草稿保存失败时不切换', async () => {
+  const first = fixture(), second = fixture();let saved = false;
+  first.view.editable = true;first.view.change = async () => { if (!saved) throw new Error('保存失败'); };
+  first.view.select(linkHit());await first.view.beginEdit();first.view.titleDraft = '未保存的标题';
+  second.view.editor.release(1);second.view.editor = first.view.editor;
+  second.view.getUniqueId = () => 2;second.view.aboutToAppear();
+  second.view.editable = true;second.view.change = async () => {};
+  second.view.select(linkHit());await second.view.beginEdit();assert.equal(second.view.editing, false);
+  saved = true;await second.view.beginEdit();
+  assert.equal(first.view.editing, false);assert.equal(second.view.editing, true);
 });

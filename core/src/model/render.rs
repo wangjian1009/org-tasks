@@ -14,6 +14,7 @@ pub struct TitlePart {
     pub href: Option<String>,
     pub is_link: bool,
     pub count: Option<TitleCount>,
+    pub link: Option<super::TextLink>,
 }
 
 /// 标题中的分数统计；空统计保留为空，不由展示层重新计算。
@@ -305,6 +306,8 @@ fn title_parts_with_progress(source: &str, hide_progress: bool) -> Vec<TitlePart
             first.text.drain(..2);
         }
     }
+    let mut links = super::text_link::text_links(source).into_iter();
+    for part in view.0.iter_mut().filter(|part| part.is_link) { part.link = links.next(); }
     view.0.retain(|part| !part.text.is_empty());
     view.0
 }
@@ -312,6 +315,9 @@ fn title_parts_with_progress(source: &str, hide_progress: bool) -> Vec<TitlePart
 struct TitleView(Vec<TitlePart>, Option<String>, bool, bool);
 
 impl TitleView {
+    fn start_link(&mut self) {
+        self.0.push(TitlePart { text: String::new(), href: self.1.clone(), is_link: true, count: None, link: None });
+    }
     fn push(&mut self, text: &str) {
         if let Some(last) = self
             .0
@@ -325,6 +331,7 @@ impl TitleView {
                 href: self.1.clone(),
                 is_link: self.2,
                 count: None,
+                link: None,
             });
         }
     }
@@ -348,6 +355,7 @@ impl Traverser for TitleView {
                         href: None,
                         is_link: false,
                         count: Some(count),
+                        link: None,
                     });
                 } else {
                     self.push(&value.raw());
@@ -364,6 +372,7 @@ impl Traverser for TitleView {
                 let previous_is_link = self.2;
                 self.1 = external_link_href(link.path().as_ref());
                 self.2 = true;
+                self.start_link();
                 if link.has_description() {
                     for element in link.description() {
                         self.element(element, &mut TraversalContext::default());
@@ -395,6 +404,7 @@ impl InlineLinkView for TitleView {
         let was_link = self.2;
         self.1 = external_link_href(target);
         self.2 = true;
+        self.start_link();
         self.push(target);
         self.1 = previous;
         self.2 = was_link;
@@ -738,8 +748,11 @@ impl Traverser for ReadingView {
                 let checkbox = item.checkbox();
                 if self.1.last() == Some(&true) {
                     self.0.push_str("<dt>");
-                    for element in item.tag() {
-                        self.element(element, &mut TraversalContext::default());
+                    let tag = item.tag().map(|element| element.to_string()).collect::<String>();
+                    if !render_inline_links(self, &tag) {
+                        for element in item.tag() {
+                            self.element(element, &mut TraversalContext::default());
+                        }
                     }
                     self.0.push_str("</dt><dd>");
                 } else {
@@ -1009,32 +1022,39 @@ mod tests {
     fn projects_title_links_without_exposing_org_markup_or_changing_source() {
         let source = "#+TITLE: TODO [#A] [[https://example.com/?a=1&b=2][资料 *入口*]] 与 [[mailto:team@example.com]]\n* TODO 阅读 [[https://example.org][课程]] :reading:\n";
         let file = file(source);
+        let mut parts = file.title_parts();
+        assert!(parts.iter().filter(|part| part.is_link).all(|part| part.link.is_some()));
+        for part in &mut parts { part.link = None; }
         assert_eq!(
-            file.title_parts(),
+            parts,
             vec![
                 TitlePart {
                     text: "TODO [#A] ".into(),
                     href: None,
                     is_link: false,
-                    count: None
+                    count: None,
+                link: None,
                 },
                 TitlePart {
                     text: "资料 入口".into(),
                     href: Some("https://example.com/?a=1&b=2".into()),
                     is_link: true,
-                    count: None
+                    count: None,
+                link: None,
                 },
                 TitlePart {
                     text: " 与 ".into(),
                     href: None,
                     is_link: false,
-                    count: None
+                    count: None,
+                link: None,
                 },
                 TitlePart {
                     text: "mailto:team@example.com".into(),
                     href: Some("mailto:team@example.com".into()),
                     is_link: true,
-                    count: None
+                    count: None,
+                link: None,
                 },
             ]
         );
@@ -1103,7 +1123,8 @@ mod tests {
                 text: "code verbatim α".into(),
                 href: None,
                 is_link: false,
-                count: None
+                count: None,
+                link: None,
             }]
         );
     }

@@ -20,7 +20,7 @@ export class TaskInlineService {
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
     if (!repository) throw new Error('目标仓库不可用')
     // 字段值应用于最新快照；清单操作含快照条目 ID，继续校验原版本。
-    const current = modifications.some(change => change.field === 'CHECKLIST') ? task :
+    const current = modifications.some(change => change.field === 'CHECKLIST' || change.field === 'LINK') ? task :
       await TaskInlineService.reload(context, task)
     await workspace.executeTaskOperations({
       operations: [{ type: 'Modification', data: { path: current.fullPath, modifications } }],

@@ -353,6 +353,7 @@ interface TitlePart {
   readonly href: string | null
   readonly isLink: boolean
   readonly count: TitleCount | null
+  readonly link: TextLink | null
 }
 interface TitleCount {
   readonly completed: number | null
@@ -639,3 +640,11 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 ~TaskEditContent.notes_html~ 由 Core 对原始备注生成，Rust bridge 与 C++ N-API 沿用既有 ~editContent~ 对象透传，TS 只读属性为 ~editContent.notesHtml~ 。 ~NativeCoreService~ 的类型别名保留该字段，不在 bridge 或 ArkTS 解析 Org、识别裸链接或重建 HTML。标题继续使用 ~headingParts~ ，完整正文使用 ~bodyHtml~ ，三者复用 Core 的链接规则。模型及安全边界见 [[file:../core/接口文档.org::*标题文字与外部链接投影][链接投影接口]] 与 [[file:../core/数据模型.org::*卡片编辑正文与检查清单][备注数据模型]]。
 
 宿主的 ~LinkView~ 拥有原生链接显示、系统打开、地址转换、地图选择、失败提示与离开页面后的异步隔离。 ~TitleText~ 仅组装标题及计数； ~OrgContentView~ 仅渲染 Core 的 HTML、测量正文并把 Web 导航事件转交 ~LinkController~ ，不再独立调用系统跳转接口。
+
+* 行内链接编辑与版本边界
+
+Core 的 ~TextLink~ 、 ~LinkValue~ 、 ~TaskLinkChange~ 分别透传为同名 TS interface； ~TitlePart.link~ 保留原始标题、目标和准确字段范围， ~notesHtml~ 的元数据同样来自 Core。 ~NativeCoreService~ 导出 ~CoreTextLink~ 、 ~CoreLinkValue~ 与 ~CoreTaskLinkChange~ ，C++ 不重新解释嵌套字段。 ~TaskModification.field='LINK'~ 的 ~value~ 是 ~TaskLinkChange~ ，其内部 ~field~ 为 ~title~ 或 ~notes~ ，内部 ~value=null~ 表示删除整条链接。
+
+~LinkView.editable~ 默认为假； ~editing~ 由控件维护， ~editingChanged~ 向宿主报告输入状态。控件通过 ~change~ 异步回调提交结构化改动，保存成功后退出编辑，失败保留字段与错误。标题通过 ~TitleText~ 、备注通过 ~OrgContentView~ 透传属性与回调，宿主不拼接 Org。备注 Web 只读写 Core 生成的链接元数据与展示 DOM，通过限定的 ~OrgTaskLinks~ 代理传递选择、草稿、保存和取消；所有菜单、跳转和编辑后反馈仍在公共控件中处理。
+
+共享 ~LinkEditController~ 在结束输入、切换字段或收起任务前顺序等待链接草稿保存。 ~TaskInlineService.modify~ 对 ~LINK~ 与清单一样校验原快照，不先重查再把旧位置套到新文件。编辑期间遇到外部版本变化，卡片保留原快照与草稿并阻止提交；本次提交成功后的新快照正常接入。浏览器中的两字段表单只处理 UI，不构造 Org 字符串或执行源文件内容。

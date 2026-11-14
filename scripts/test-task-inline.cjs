@@ -19,6 +19,32 @@ function load(file, mocks = {}) {
   return result.exports;
 }
 const storage = new Map();
+test('任务链接仅在展开且可写时允许修改，收起后的旧编辑回调不能提交', async () => {
+  const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+  const methods = ['linksEditable', 'changeLink'].map(name => {
+    const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)[^\\n]* \\{[\\s\\S]*?\\n  \\}'));
+    assert.ok(match, name);return match[0];
+  }).join('\n');
+  const module = { exports: {} };
+  const code = ts.transpileModule('export class Card {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  vm.runInThisContext('(function(module,exports){' + code + '\n})')(module, module.exports);
+  const writes = [];
+  const card = Object.assign(new module.exports.Card(), { expanded: false, readOnly: false, snapshotBlocked: false,
+    persist: async value => { writes.push(value);return true; } });
+  const link = { start: 0, end: 20, source: 'https://example.com/', title: '', url: 'https://example.com/' };
+  assert.equal(card.linksEditable(), false);
+  await assert.rejects(card.changeLink('title', link, null), /展开/);
+  card.expanded = true;assert.equal(card.linksEditable(), true);
+  await card.changeLink('title', link, null);assert.equal(writes.length, 1);
+  for (const flag of ['readOnly', 'snapshotBlocked']) {
+    card[flag] = true;assert.equal(card.linksEditable(), false);
+    await assert.rejects(card.changeLink('title', link, null));card[flag] = false;
+  }
+  card.expanded = false;assert.equal(card.linksEditable(), false);
+  await assert.rejects(card.changeLink('notes', link, null));assert.equal(writes.length, 1);
+});
 global.AppStorage = {setOrCreate:(key,value)=>storage.set(key,value)};
 function fixture() {
   const requests=[];
@@ -87,7 +113,7 @@ function cardRefreshFixture(emit = true, backend) {
     {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message);
   state = Object.assign(new module.exports.CardRefresh(), {
     task:original,editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
-    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',
+    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
@@ -101,6 +127,26 @@ test('数据事件在写入之后重查卡片，标题草稿同步新进度，�
   assert.equal(f.state.editTask, f.updated);
   assert.equal(f.state.heading, '任务 [1/2]');
   assert.equal(f.state.editTask.fileVersion, 'new');
+});
+
+test('链接编辑保留版本与定位引用，不自动重载后套用旧链接位置', async () => {
+  const f = fixture();
+  f.TaskInlineService.reload = async () => { throw new Error('链接操作不得重新绑定快照'); };
+  const value = { field: 'notes', link: { start: 0, end: 23, source: 'https://example.com/a', title: '', url: 'https://example.com/a' },
+    value: { title: '新标题', url: 'https://example.org/' } };
+  await f.TaskInlineService.modify({}, f.task, [{ field: 'LINK', value }]);
+  assert.equal(f.requests[0].fileVersions[0].version, f.task.fileVersion);
+  assert.deepEqual(f.requests[0].operations[0].data.modifications, [{field:'LINK',value}]);
+});
+
+test('链接草稿存在时外部版本更新保留整个编辑快照，失败结束输入不写入其他字段', async () => {
+  const f = cardRefreshFixture(false);
+  f.state.linkEditing = true;f.emit();await f.state.pending;
+  assert.equal(f.state.editTask, f.original);assert.equal(f.state.snapshotBlocked, true);
+  assert.match(f.state.message, /链接草稿已保留/);
+  f.state.linkEditor.finish = async () => false;
+  f.state.headingEditing = true;f.state.heading = '不应提交';
+  assert.equal(await f.state.saveText(), false);assert.deepEqual(f.writes, []);
 });
 test('提交成功立即读取新快照，事件延迟时也能继续编辑', async () => {
   const f = cardRefreshFixture(false);
@@ -345,9 +391,9 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   const requests = [];
   const raw = '测量尿酸 [[id:stable][并记录]]';
   let saved = false;
-  const card = Object.assign(new module.exports.Card(), { heading: raw, ownerKey: 'task', headingInput: false,
+  const card = Object.assign(new module.exports.Card(), { heading: raw, ownerKey: 'task', headingInput: false, linkEditor: {finish:async()=>true},
     checkFocus: { request: key => requests.push(key) }, saveText: async () => saved });
-  card.editHeading();
+  await card.editHeading();
   assert.deepEqual(requests, ['inline_title_task']);
   assert.equal(card.heading, raw);
   await card.finishHeading();
@@ -358,7 +404,7 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   assert.equal(card.heading, raw);
   for (const blocked of ['readOnly', 'working', 'draggingCheck', 'snapshotBlocked']) {
     card[blocked] = true;
-    card.editHeading();
+    await card.editHeading();
     assert.equal(card.headingInput, false, blocked);
     card[blocked] = false;
   }
@@ -378,16 +424,16 @@ test('展开备注点击普通文字才进入原文，保存或刷新失败保�
   let saved = false;
   const focus = [];
   const notes = '地点 [[addr:北京][会议室]] 和 https://example.com/';
-  const card = Object.assign(new module.exports.Notes(), { notes, notesInput: false, ownerKey: 'task',
+  const card = Object.assign(new module.exports.Notes(), { notes, notesInput: false, ownerKey: 'task', linkEditor: {finish:async()=>true},
     checkFocus: { request: key => focus.push(key) }, saveText: async () => saved });
-  card.editNotes();assert.deepEqual(focus, ['inline_notes_task']);
+  await card.editNotes();assert.deepEqual(focus, ['inline_notes_task']);
   await card.finishNotes();assert.equal(card.notesInput, true);assert.equal(card.notes, notes);
   saved = true;card.snapshotBlocked = true;
   await card.finishNotes();assert.equal(card.notesInput, true);
   card.snapshotBlocked = false;
   await card.finishNotes();assert.equal(card.notesInput, false);
   for (const blocked of ['readOnly', 'working', 'draggingCheck', 'snapshotBlocked']) {
-    card[blocked] = true;card.editNotes();assert.equal(card.notesInput, false, blocked);card[blocked] = false;
+    card[blocked] = true;await card.editNotes();assert.equal(card.notesInput, false, blocked);card[blocked] = false;
   }
 });
 

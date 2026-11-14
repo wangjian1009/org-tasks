@@ -53,6 +53,9 @@ import {
   Task as NativeTask,
   TaskLog as NativeTaskLog,
   TitlePart as NativeTitlePart,
+  TextLink as NativeTextLink,
+  LinkValue as NativeLinkValue,
+  TaskLinkChange as NativeTaskLinkChange,
   AddressLink as NativeAddressLink,
   TitleCount as NativeTitleCount,
   CoreQuery as NativeCoreQuery,
@@ -95,6 +98,9 @@ export type CoreTask = NativeTask
 export type CoreTaskLog = NativeTaskLog
 // createdAt 与 closedAt 由 Core 按本地时区解析，日志簿不从正文推算事件时间。
 export type CoreTitlePart = NativeTitlePart
+export type CoreTextLink = NativeTextLink
+export type CoreLinkValue = NativeLinkValue
+export type CoreTaskLinkChange = NativeTaskLinkChange
 export type CoreAddressLink = NativeAddressLink
 export type CoreTitleCount = NativeTitleCount
 export type CoreQuery = NativeCoreQuery

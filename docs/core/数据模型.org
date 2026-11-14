@@ -942,7 +942,8 @@ logbook\_html: String \\
 \umlclass[x=0,y=0]{TitlePart}{text: String \\
   href: Option\textless String\textgreater \\
   is\_link: bool \\
-  count: Option\textless TitleCount\textgreater}{}
+  count: Option\textless TitleCount\textgreater \\
+  link: Option\textless TextLink\textgreater}{}
 \umlclass[x=0,y=-6]{TitleCount}{completed: Option\textless u32\textgreater \\
   total: Option\textless u32\textgreater}{}
 \umluniassoc[mult1=1,mult2=0..1]{TitlePart}{TitleCount}
@@ -954,6 +955,22 @@ logbook\_html: String \\
 \umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TitlePart}
 \end{tikzpicture}
 \end{center}
+
+** 行内链接的局部编辑
+
+~TextLink~ 是相对于当前标题或原始备注的快照投影，包含 UTF-8 字节范围、准确源字符串、标题和原始目标；描述为空时标题为空。 ~TitlePart.link~ 与备注 HTML 的 ~data-org-link~ 使用同一值对象，普通文本及字面代码没有该引用。相邻同网址链接分别投影，UI 不以 URL 判断唯一性。
+
+~TaskLinkChange~ 通过 ~TaskLinkField::Title~ 或 ~Notes~ 指定字段，持有 ~TextLink~ 与可空的 ~LinkValue~ 。空值表示连同显示文字一起删除链接；非空值保存标题和地址。所有引用均与 ~TaskFileVersion~ 一起使用，Core 校验位置与准确原文后实施局部修改。标题链接编辑保留其他字段及统计字节，备注链接编辑保留独立清单、所有 drawer 和子标题。相关值对象只用于运行时投影与操作请求，不增加持久化或同步状态。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TextLink}{start: usize \\ end: usize \\ source: String \\ title: String \\ url: String}{}
+\umlclass[x=7,y=0]{LinkValue}{title: String \\ url: String}{}
+\umlclass[x=0,y=-5]{TaskLinkChange}{field: TaskLinkField}{}
+\umlclass[x=7,y=-5,type=enumeration]{TaskLinkField}{Title \\ Notes}{}
+\umlcompo[mult2=1]{TaskLinkChange}{TextLink}
+\umluniassoc[mult2=0..1]{TaskLinkChange}{LinkValue}
+\umluniassoc{TaskLinkChange}{TaskLinkField}
+\end{tikzpicture}
 
 * 统一任务操作模型
 
@@ -1039,6 +1056,7 @@ pub enum TaskModification {
     Body(Option<String>),
     Notes(Option<String>),
     Checklist(TaskChecklistChange),
+    Link(TaskLinkChange),
     Todo(Option<String>),
     Priority(Option<String>),
     Tags(Option<Vec<String>>),

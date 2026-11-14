@@ -1,5 +1,5 @@
-import { CoreTitleCount, CoreTitlePart } from '../services/NativeCoreService'
-import { LinkView } from './LinkView'
+import { CoreTitleCount, CoreTitlePart, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
+import { LinkView, LinkEditController } from './LinkView'
 import { TitleCountBadge } from './TitleCountBadge'
 import { titleCounts } from '../ui/TitleCountPresentation'
 import { UiSize } from '../ui/Theme'
@@ -15,12 +15,18 @@ export struct TitleText {
   @Prop copyable: boolean = false
   @Prop showCounts: boolean = true
   @Prop openLinks: boolean = true
+  @Prop editable: boolean = false
+  @Prop revision: string = ''
+  changeLink: ((link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
+  linkEditingChanged: (editing: boolean) => void = () => {}
+  linkEditor: LinkEditController = new LinkEditController()
   activate: (() => void) | undefined = undefined
   @Builder
   titleContent() {
     LinkView({ text: this.text, parts: this.parts, textSize: this.textSize, weight: this.weight,
       lineLimit: this.lineLimit, cancelled: this.cancelled, copyable: this.copyable,
-      openLinks: this.openLinks, activate: this.activate })
+      openLinks: this.openLinks, activate: this.activate, editable: this.editable, revision: this.revision,
+      change: this.changeLink, editingChanged: this.linkEditingChanged, editor: this.linkEditor })
   }
 
   build() {

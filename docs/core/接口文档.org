@@ -752,6 +752,7 @@ pub struct TitlePart {
     pub href: Option<String>,
     pub is_link: bool,
     pub count: Option<TitleCount>,
+    pub link: Option<TextLink>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct TitleCount {
@@ -772,6 +773,23 @@ impl FilterTask {
 ~TitlePart.is_link~ 区分普通文字和已经解析但目标尚不支持的链接；该字段在 JSON 中为 ~isLink~ 。 ~is_link=true~ 且 ~href=None~ 表示未支持链接，宿主可保留不同的链接样式，不把它与邻接普通文字合并。
 
 ~TitlePart.count~ 为可空的分数统计投影；普通文字、链接、代码与逐字文本的片段值为空。有效统计节点投影为 ~TitleCount~ ， ~text~ 为去掉方括号的显示值， ~href=None~ 且 ~is_link=false~ 。例如 ~[1/2]~ 得到 ~completed=Some(1)~ 与 ~total=Some(2)~ ， ~[/]~ 的两个字段均为空且显示为“—/—”； ~[0/0]~ 保留零值。分子大于分母、单边为空或超出 ~u32~ 范围时保留原文，不产生计数；百分比统计也保留原文。多个计数按出现顺序返回，不与邻接文字合并，不重新统计子任务或 checkbox。文档的真实标题同样生成 ~span.title-count~ ，携带安全的比例样式和无障碍说明；正文中的计数不转换为进度标记。所有投影均不影响原文、查询、逻辑 ID 或写入行为。
+
+** 单个链接的快照定位与修改
+
+~TitlePart.link~ 为可空的 ~TextLink~ ，记录链接在当前字段中的 UTF-8 字节范围 ~start~ 、 ~end~ 、准确原文 ~source~ 、未渲染的标题 ~title~ 与目标 ~url~ 。无描述的裸链接、尖括号链接和显式链接使用空标题，展示时继续显示地址。相邻且网址相同的链接保留各自的片段及范围，不再合并为一个可编辑片段。普通文字与计数的该字段为空。此范围只在当前字段与当前文件快照有效，不是跨版本身份。
+
+备注 ~notes_html~ 的真实链接节点携带经过属性转义的 ~data-org-link~ ，内容为同一结构；宿主只读取 Core 的元数据，不从显示文字、DOM 顺序或 URL 反推源码位置。代码、源码块、逐字文本等字面内容没有编辑目标。
+
+#+begin_src rust
+pub struct TextLink { pub start: usize, pub end: usize, pub source: String, pub title: String, pub url: String }
+pub enum TaskLinkField { Title, Notes }
+pub struct LinkValue { pub title: String, pub url: String }
+pub struct TaskLinkChange { pub field: TaskLinkField, pub link: TextLink, pub value: Option<LinkValue> }
+#+end_src
+
+~TaskModification::Link(TaskLinkChange)~ 序列化为 ~LINK~ ，沿用唯一操作组入口和 ~file_versions~ 校验。Core 重新定位当前标题或备注中的真实链接，校验范围、准确原文、原始标题与地址全部一致后，只替换这一条链接；同网址的其他链接、未涉及的空格、换行、规划、清单、日志和子任务字节保持原样。备注范围映射回原文件，不把分离的检查清单重新拼入备注。标题修改复用既有结构校验，不顺带重算未涉及的进度统计。
+
+~value=Some(LinkValue)~ 保存标题与地址，标题为空时仅保存链接地址；裸链接修改后使用显式 Org 链接。地址方括号按 URI 百分号编码，换行、控制字符、空地址与破坏链接结构的分隔符拒绝。没有修改标题或地址时不改写原文。 ~value=None~ 删除整个链接及其显示文字；若删除会使任务标题为空或被重新解释成状态等字段，按既有标题校验拒绝。旧快照、源位置失效、冲突范围或字面代码中的伪目标均拒绝，失败不提交部分内容。
 
 ** 任务列表提示投影
 

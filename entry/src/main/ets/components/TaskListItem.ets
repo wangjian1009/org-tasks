@@ -21,6 +21,8 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
   TaskRowLayout, taskTitleText, taskSourceText, RegionAreaPolicy, TaskRegionArea, taskRegionArea } from '../ui/TaskListPresentation'
 import { TitleText } from './TitleText'
+import { LinkEditController } from './LinkView'
+import { CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
 import { OrgContentView } from './OrgContentView'
 import { TaskLogView } from './TaskLogView'
 import { TaskChecklistView } from './TaskChecklistView'
@@ -65,6 +67,9 @@ export struct TaskListItem {
   @State notes: string = ''
   private headingEditing: boolean = false
   private notesEditing: boolean = false
+  @State linkEditing: boolean = false
+  private linkSaving: boolean = false
+  private linkEditor: LinkEditController = new LinkEditController()
   @State removed: boolean = false
   @State typing: boolean = false
   @State working: boolean = false
@@ -280,6 +285,10 @@ export struct TaskListItem {
   }
   applySnapshot(current: CoreTask | undefined, savedCheck: boolean = false) {
     if (!current) { this.removeDeletedTask(); return }
+    if (this.linkEditing && !this.linkSaving && current.fileVersion !== this.value().fileVersion) {
+      this.snapshotBlocked = true; this.message = '文件已变化，链接草稿已保留，请取消编辑并重新载入后继续'
+      return
+    }
     if (this.checkId && current.fileVersion !== this.value().fileVersion && !savedCheck) {
       this.snapshotBlocked = true
       this.message = '文件已变化，清单输入已保留，请重新载入后继续编辑'
@@ -378,8 +387,9 @@ export struct TaskListItem {
     this.typing = true; AppStorage.setOrCreate('taskInlineTyping', true)
   }
 
-  editHeading() {
+  async editHeading() {
     if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
+    if (!await this.linkEditor.finish() || this.snapshotBlocked || this.removed) return
     this.headingInput = true
     this.checkFocus.request(`inline_title_${this.ownerKey}`)
   }
@@ -388,8 +398,9 @@ export struct TaskListItem {
     if (await this.saveText()) this.headingInput = false
   }
 
-  editNotes() {
+  async editNotes() {
     if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
+    if (!await this.linkEditor.finish() || this.snapshotBlocked || this.removed) return
     this.notesInput = true
     this.checkFocus.request(`inline_notes_${this.ownerKey}`)
   }
@@ -439,6 +450,7 @@ export struct TaskListItem {
   }
   async saveText(): Promise<boolean> {
     if (this.readOnly) return true
+    if (!await this.linkEditor.finish()) return false
     await this.pending
     if (this.removed) return false
     if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
@@ -448,6 +460,22 @@ export struct TaskListItem {
     if (modifications.length > 0) return await this.persist(modifications)
     this.headingEditing = false; this.notesEditing = false
     return true
+  }
+  linkEditingChanged(editing: boolean) {
+    this.linkEditing = editing
+    if (editing) this.inputFocus()
+  }
+  linksEditable(): boolean {
+    return this.expanded && !this.readOnly && !this.snapshotBlocked
+  }
+  async changeLink(field: 'title' | 'notes', link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
+    if (!this.linksEditable()) throw new Error('请展开可编辑任务后再修改链接')
+    this.linkSaving = true
+    try {
+      if (!await this.persist([{ field: 'LINK', value: { field, link, value } }]) || this.snapshotBlocked) {
+        throw new Error(this.message || '修改链接失败，请重试')
+      }
+    } finally { this.linkSaving = false }
   }
   async saveCheck(next: boolean): Promise<boolean> {
     if (this.readOnly) return true
@@ -907,7 +935,8 @@ export struct TaskListItem {
       Row({ space: 4 }) {
         this.priorityBadge()
         Column({ space: 2 }) {
-          TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
+          TitleText({ text: this.value().heading, parts: this.value().headingParts, editable: false,
+            lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel) })
             .width('100%').constraintSize({ minWidth: 0 })
           if (taskSourceText(this.value(), false, this.regionPolicy())) {
             this.categoryProject()
@@ -1078,6 +1107,9 @@ export struct TaskListItem {
         } else {
           TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
             weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+            editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor,
+            changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
+            linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
             activate: (): void => { this.editHeading() } })
             .layoutWeight(1).constraintSize({ minHeight: 24 })
         }
@@ -1105,6 +1137,9 @@ export struct TaskListItem {
         .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_notes_${this.ownerKey}`) })
       } else if (this.value().editContent.notesHtml) {
         OrgContentView({ fragment: this.value().editContent.notesHtml, embedded: true, embeddedPadding: 0,
+          editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor,
+          changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('notes', link, value),
+          linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
           contentBackground: this.value().state?.category === TaskStateCategory.Doing ? '#00000000' : UiColor.taskCard,
           activate: (): void => { this.editNotes() } }).width('100%')
       } else {
@@ -1261,6 +1296,7 @@ export struct TaskListItem {
       Row({ space: 4 }) {
         this.priorityBadge()
         TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+          editable: false,
           cancelled: this.value().state?.category === TaskStateCategory.Cancel,
           activate: (): void => { this.toggle() } }).layoutWeight(1)
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
@@ -1268,7 +1304,7 @@ export struct TaskListItem {
     Column({ space: 8 }) {
       if (!this.documentMode && this.value().bodyHtml) {
         OrgContentView({ fragment: this.value().bodyHtml, embedded: true, embeddedPadding: 0,
-          contentBackground: UiColor.taskCard }).width('100%')
+          editable: false, contentBackground: UiColor.taskCard }).width('100%')
       }
       if (this.displayTags().length > 0) {
         Flex({ wrap: FlexWrap.Wrap }) {
@@ -1328,6 +1364,7 @@ export struct TaskListItem {
           this.stateIndicator()
           this.priorityBadge()
           TitleText({ text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+            editable: false,
             weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
             activate: (): void => { this.toggle() } }).layoutWeight(1)
         }.width('100%').constraintSize({ minHeight: 48 }).alignItems(VerticalAlign.Center)

@@ -812,6 +812,7 @@ pub(super) fn modify(
     modification: &TaskModification,
 ) -> Result<(), CoreError> {
     match modification {
+        TaskModification::Link(change) => super::text_link::modify_link(file, headline, change),
         TaskModification::Title(value) => {
             if let Some(value) = value {
                 validate_title(value)?;

@@ -1,6 +1,6 @@
 import { webview } from '@kit.ArkWeb'
-import { LinkView, LinkController } from './LinkView'
-import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { LinkView, LinkController, LinkEditController } from './LinkView'
+import { CoreBridgeError, coreErrorMessage, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { orgDocumentPage } from '../ui/OrgDocumentPresentation'
 
@@ -20,6 +20,10 @@ export struct OrgContentView {
   @Prop fileReading: boolean = false
   @Prop flowReading: boolean = false
   @Prop projectReading: boolean = false
+  @Prop editable: boolean = false
+  changeLink: ((link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
+  linkEditingChanged: (editing: boolean) => void = () => {}
+  linkEditor: LinkEditController = new LinkEditController()
   scrolled: (offset: number) => void = () => {}
   @Prop @Watch('measure') layoutRevision: number = 0
   @Prop fileContext: string = ''
@@ -60,7 +64,7 @@ export struct OrgContentView {
         if (action) return JSON.stringify({ id: action.getAttribute('data-conflict-id') || '', action: action.getAttribute('data-conflict-action') || '' });
         const card = node?.closest('[data-conflict-card]');
         if (card) return JSON.stringify({ id: card.getAttribute('data-conflict-card') || '', action: 'focus' });
-        return Boolean(node?.closest('a, summary')) ? 'true' : 'false';
+        return Boolean(node?.closest('a, summary, [data-org-link], .org-link-editor')) ? 'true' : 'false';
       })()`)
       if (generation !== this.documentGeneration) return
       if (result !== 'false' && result !== 'true') {
@@ -71,7 +75,10 @@ export struct OrgContentView {
         } catch (_) { /* 卡片命中信息异常时忽略本次点击。 */ }
         return
       }
-      if (this.active && result === 'false') this.activate?.()
+      if (this.active && result === 'false' && this.activate) {
+        if (!await this.linkEditor.finish() || !this.active || generation !== this.documentGeneration) return
+        this.activate()
+      }
       if (this.active && this.nodeActivated && result === 'false') {
         const selected = await this.controller.runJavaScript(`(() => {
           const node = document.elementFromPoint(${x} * window.innerWidth / ${this.widthVp}, ${y} * window.innerWidth / ${this.widthVp});
@@ -146,12 +153,13 @@ export struct OrgContentView {
           scrollLeft: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST,
           scrollRight: this.horizontalParentFirst ? NestedScrollMode.PARENT_FIRST : NestedScrollMode.SELF_FIRST })
         .javaScriptAccess(true).fileAccess(false).blockNetwork(true).domStorageAccess(false).databaseAccess(false)
+        .javaScriptProxy({ object: links, name: 'OrgTaskLinks', methodList: ['hit', 'draft', 'save', 'cancel'], controller: this.controller })
         .onOverrideUrlLoading((request: WebResourceRequest): boolean => {
           return links.navigate(request.getRequestUrl(), this.active && request.isMainFrame())
         })
         .onScroll((event: OnScrollEvent): void => { this.scrolled(event.yOffset) })
         .onControllerAttached(() => { this.active = true; this.loadRequested = false; this.loaded = false })
-        .onPageEnd(() => { this.pageEnded() })
+        .onPageEnd(() => { this.pageEnded(); links.ready() })
         .onAreaChange((oldArea: Area, newArea: Area) => {
           const width = parseFloat(newArea.width.toString())
           if (width !== this.widthVp) { this.widthVp = width; this.measure() }
@@ -185,6 +193,9 @@ export struct OrgContentView {
       Text(this.error).width('100%').padding(16).fontSize(14).fontColor(UiColor.error)
     } else {
       LinkView({ document: true, contentHeight: this.embedded ? this.contentHeight : '100%',
+        editable: this.editable, revision: this.revision, webController: this.controller,
+        change: this.changeLink, editingChanged: this.linkEditingChanged, editor: this.linkEditor,
+        remeasure: (): void => { this.measure() },
         content: (links: LinkController): void => { this.documentContent(links) } }).width('100%')
     }
   }

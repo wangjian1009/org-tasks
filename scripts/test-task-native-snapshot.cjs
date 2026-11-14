@@ -70,6 +70,8 @@ const native = require(addon);
 
 function snapshot(name = 'DONE', done = false) {
   return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
+    headingParts: [{ text: '参考', href: 'https://example.com/', isLink: true, count: null,
+      link: { start: 0, end: 31, source: '[[https://example.com/][参考]]', title: '参考', url: 'https://example.com/' } }],
     editContent: { ownTags: [], notes: 'https://example.com/', notesHtml: '<main><p><a class="link" href="https://example.com/">https://example.com/</a></p></main>',
       checklist: [], scheduledRepeat: null, deadlineRepeat: null },
     logs: [{ type: 'taskStateChange', from: 'TODO', to: name, timestamp: '2026-11-13 09:00', noteHtml: '<p>附注</p>' }],
@@ -103,6 +105,9 @@ test('结构化日志穿过 N-API 与 ArkUI 深拷贝后保留类型和附注，
   cloned.editContent.notesHtml = '<p>新备注</p>';
   assert.match(original.editContent.notesHtml, /href="https:\/\/example.com\/"/);
   assert.equal(JSON.parse(JSON.stringify(original)).editContent.notesHtml, original.editContent.notesHtml);
+  assert.deepEqual(cloned.headingParts[0].link, original.headingParts[0].link);
+  cloned.headingParts[0].link.source = '修改后的草稿';
+  assert.equal(original.headingParts[0].link.source, '[[https://example.com/][参考]]');
 });
 
 test('仅复制字段和原型会丢失原生绑定，复现启动异常', () => {

@@ -1574,7 +1574,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("org-checklist-move-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let source = "* TODO Task\r\nNotes https://example.com/  \r\n- [X] Parent\r\n  - [-] Nested\r\n- [ ] Sibling\r\n\r\n** Child\r\nUnchanged\r\n";
+        let source = "* TODO Task [[https://example.com/title][链接]]\r\nNotes https://example.com/  \r\n- [X] Parent\r\n  - [-] Nested\r\n- [ ] Sibling\r\n\r\n** Child\r\nUnchanged\r\n";
         std::fs::write(root.join("tasks.org"), source).unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
@@ -1587,6 +1587,8 @@ mod tests {
         };
         let before = query();
         let task = &before["tasks"][0];
+        assert_eq!(task["headingParts"][1]["link"]["source"], "[[https://example.com/title][链接]]");
+        assert_eq!(task["headingParts"][1]["link"]["url"], "https://example.com/title");
         assert!(task["editContent"]["notesHtml"].as_str().unwrap().contains("href=\"https://example.com/\""));
         assert!(!task["editContent"]["notesHtml"].as_str().unwrap().contains("Parent"));
         let items = &task["editContent"]["checklist"];

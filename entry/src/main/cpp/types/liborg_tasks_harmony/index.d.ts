@@ -8,7 +8,12 @@ export interface TitlePart {
   readonly href: string | null;
   readonly isLink: boolean;
   readonly count: TitleCount | null;
+  readonly link: TextLink | null;
 }
+
+export interface TextLink { readonly start: number; readonly end: number; readonly source: string; readonly title: string; readonly url: string; }
+export interface LinkValue { title: string; url: string; }
+export interface TaskLinkChange { field: 'title' | 'notes'; link: TextLink; value: LinkValue | null; }
 
 export interface AddressLink {
   readonly uri: string;
@@ -26,7 +31,7 @@ export interface TaskCreation {
   tags?: string[]; scheduled?: string | null; deadline?: string | null;
 }
 export interface TaskAddressChange { oldUri: string; newUri: string; }
-export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_DATE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_DATE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
+export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_DATE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_DATE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
 export type TaskRepeatMode = 'cumulative' | 'catchUp' | 'afterCompletion';
 export type TaskRepeatUnit = 'hour' | 'day' | 'week' | 'month' | 'year';
 export interface TaskRepeatRule { mode: TaskRepeatMode; interval: number; unit: TaskRepeatUnit; }
@@ -35,7 +40,7 @@ export interface TaskChecklistItem { readonly id: string; readonly siblingGroup:
 export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; }
 export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }
 export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string } | { type: 'move'; id: string; beforeId: string | null };
-export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | TaskRepeatRule | null; }
+export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | TaskLinkChange | TaskRepeatRule | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }

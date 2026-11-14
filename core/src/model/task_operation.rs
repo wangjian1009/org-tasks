@@ -101,6 +101,7 @@ pub enum TaskModification {
     Body(Option<String>),
     Notes(Option<String>),
     Checklist(super::TaskChecklistChange),
+    Link(super::TaskLinkChange),
     Todo(Option<String>),
     Priority(Option<String>),
     Tags(Option<Vec<String>>),
