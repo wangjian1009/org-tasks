@@ -6,7 +6,8 @@ import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { ProjectDocumentView } from '../components/ProjectDocumentView'
+import { ProjectDocumentView, ProjectDocumentNavigation } from '../components/ProjectDocumentView'
+import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, projectReadingSections } from '../ui/ProjectReadingPresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
 
@@ -30,12 +31,20 @@ struct ProjectDetail {
   @State renderReady: boolean = false
   private readingState: string = ''
   @State renderRevision: number = 0
-  private navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
+  private navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
+  private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
+    async (target: string): Promise<boolean> =>
+      this.pageVisible && !this.sourceMode && !this.refreshing && await this.navigation.isValidInternalLink(target),
+    async (target: string): Promise<void> => {
+      if (!this.pageVisible || this.sourceMode || this.refreshing) throw new Error('当前页面无法执行内部跳转')
+      await this.navigation.followInternalLink(target)
+    }
+  )
   private sourceNavigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
   private loadRevision: number = 0
   private fileVersion: string = ''
   private fileIdentity: string = ''
-  private pageVisible: boolean = true
+  @State pageVisible: boolean = true
 
   onPageShow() { this.pageVisible = true; this.loadFile() }
   // 页面退出时使进行中的文件读取失效。
@@ -159,7 +168,8 @@ struct ProjectDetail {
             Stack() {
               ProjectDocumentView({ sections: this.sections, fileTags: this.fileTags, specialTags: this.specialTags,
                 revision: `${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
-                readingState: this.readingState, showing: !this.sourceMode,
+                internalLinkProcessor: this.internalLinks,
+                readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
                 ready: (): void => { this.renderReady = true } })
                 .width('100%').height('100%').visibility(this.sourceMode ? Visibility.None : Visibility.Visible)

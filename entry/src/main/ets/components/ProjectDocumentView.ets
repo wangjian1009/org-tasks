@@ -1,4 +1,4 @@
-import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
+import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { ProjectSectionBody } from './ProjectSectionBody'
@@ -7,6 +7,11 @@ import { TaskEditor } from './editors/TaskEditor'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { TaskDateDisplay, RegionAreaPolicy, taskTagColor } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
+
+export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
+  isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
+  followInternalLink: (target: string) => Promise<void> = async (): Promise<void> => { throw new Error('项目文档尚未载入') }
+}
 
 // 原生标题和任务行与安全 HTML 正文共用一个滚动容器。
 @Component
@@ -17,18 +22,11 @@ export struct ProjectDocumentView {
   @Prop @Watch('snapshotChanged') revision: string = ''
   @Prop readingState: string = ''
   @Prop @Watch('visibilityChanged') showing: boolean = true
-  navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
+  navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
+  internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   ready: () => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
-  private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
-    async (target: string): Promise<boolean> => this.active && this.linkSection(target) !== undefined,
-    async (target: string): Promise<void> => {
-      const section = this.linkSection(target)
-      if (!section || !this.active) throw new Error('内部链接目标不存在')
-      if (!await this.openChapter(section)) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
-    }
-  )
 
   linkSection(target: string): ProjectReadingSection | undefined {
     let priority = Infinity
@@ -48,6 +46,13 @@ export struct ProjectDocumentView {
 
   aboutToAppear() {
     this.active = true
+    this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
+      this.active && this.showing && this.linkSection(target) !== undefined
+    this.navigation.followInternalLink = async (target: string): Promise<void> => {
+      const section = this.linkSection(target)
+      if (!section || !this.active || !this.showing) throw new Error('内部链接目标不存在或项目文档已隐藏')
+      if (!await this.openChapter(section)) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
+    }
     try { this.pendingOffset = (JSON.parse(this.readingState) as Record<string, number>).scroll } catch (_) {}
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
     this.navigation.openOutline = (): void => { this.outlineVisible = true }
@@ -75,7 +80,7 @@ export struct ProjectDocumentView {
 
   async openChapter(section: ProjectReadingSection): Promise<boolean> {
     const revision = this.revision
-    if (!await TaskInlineSession.end(false) || !this.active || revision !== this.revision) return false
+    if (!await TaskInlineSession.end(false) || !this.active || !this.showing || revision !== this.revision) return false
     const offset = this.offsets.get(section.key)
     if (offset === undefined) return false
     this.outlineVisible = false
@@ -120,16 +125,16 @@ export struct ProjectDocumentView {
           Column() {
             if (section.node) {
               if (section.node.state) {
-                TaskEditor({ internalLinkProcessor: this.internalLinks, task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
+                TaskEditor({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')
               } else {
-                OrgHeadingView({ internalLinkProcessor: this.internalLinks, node: section.node, specialTags: this.specialTags }).width('100%')
+                OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: section.node, specialTags: this.specialTags }).width('100%')
               }
             }
             if (section.blocks.length > 0) {
-              ProjectSectionBody({ internalLinkProcessor: this.internalLinks, task: section.node, blocks: section.blocks }).width('100%')
+              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
             .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 8 : 0 })

@@ -1384,7 +1384,8 @@ export struct TaskEditor {
             }
           }.width('100%')
           if (this.value().logs.length > 0) {
-            TaskLogView({ logs: this.value().logs, expanded: taskLogVisible(this.logShowPolicy, this.logbookExpanded),
+            TaskLogView({ internalLinkProcessor: this.internalLinkProcessor,
+              logs: this.value().logs, expanded: taskLogVisible(this.logShowPolicy, this.logbookExpanded),
               contentBackground: this.value().state?.category === TaskStateCategory.Doing
                 ? '#00000000' : UiColor.taskCard }).width('100%').padding({ left: 27 })
               .margin({ top: taskLogVisible(this.logShowPolicy, this.logbookExpanded) ? 8 : 0 })

@@ -528,7 +528,7 @@ Things 的时刻表示提醒，截止日期没有提醒时刻；本应用的“�
 
 内部链接语义依据 [[info:org#Internal Links][Org Info：Internal Links]] 。Core 提供内部 URI 和目标键，UI 不解析 Org； ~#custom-id~ 匹配 ~CUSTOM_ID~ ， ~*标题~ 匹配标题；普通目标依次匹配专用目标 ~<<目标>>~ 、 ~#+NAME~ 命名元素及同名标题，同级取文件中首次出现者。当前不跨文件搜索，也不按任意正文进行模糊搜索。无描述时保持链接目标文字，不按导出编号替换显示。
 
-普通 HTML 阅读器读取 Core 的语义目的地，执行时展开折叠祖先并滚动到目标。原生项目文档通过 ~DocumentSection.linkTargets~ 验证并定位到目标所在章节，定位前保存当前编辑，保存失败保留原位置。更新文件快照后重新使用同版本目标索引。
+普通 HTML 阅读器读取 Core 的语义目的地，执行时展开折叠祖先并滚动到目标。 ~ProjectDetail~ 创建并向 ~ProjectDocumentView~ 设置共享 ~InternalLinkProcessor~ ，标题、正文和任务日志透传同一处理器；文档通过 ~ProjectDocumentNavigation~ 提供目标校验与定位能力，使用 ~DocumentSection.linkTargets~ 定位到目标所在章节，定位前保存当前编辑，保存失败保留原位置。页面隐藏、查看原文或刷新期间不执行内部跳转；等待保存时隐藏文档或切换快照也不执行旧定位。更新文件快照后重新使用同版本目标索引。
 
 ** 地图应用图标资源
 
