@@ -142,6 +142,13 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-log blockquote { padding-left: 8px; border-left: 1px solid ${UiColor.outline}; }
 .project-reading { line-height: 1.75; padding: 16px 24px 60px; }
 .embedded.project-reading, .file-reading.project-reading.embedded-section { padding: 0; max-width: none; }
+/* 将片段首尾留白计入 WebView 测量，章节舒展、清单连续排列。 */
+.file-reading.project-reading.embedded-section { display: flow-root; }
+.file-reading.project-reading p { margin: 0 0 20px; }
+.file-reading.project-reading ul, .file-reading.project-reading ol { margin: 0 0 20px; }
+.file-reading.project-reading li { margin: 4px 0; }
+.file-reading.project-reading li > p { margin: 0; }
+.file-reading.project-reading li > ul, .file-reading.project-reading li > ol { margin: 4px 0 0; }
 .project-reading .document-header { margin-bottom: 24px; padding-bottom: 22px; border-bottom: 1px solid #454746; }
 .project-reading .document-category { font-size: 12px; color: ${UiColor.secondary}; margin-bottom: 12px; }
 .project-reading .document-project-name { font-size: 28px; font-weight: 650; line-height: 1.35; color: #F0EFED; margin-bottom: 12px; }

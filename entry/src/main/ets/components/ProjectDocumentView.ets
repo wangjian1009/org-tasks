@@ -101,7 +101,7 @@ export struct ProjectDocumentView {
                 TaskListItem({ task: section.node, documentMode: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
-                  .width('100%').margin({ top: 12, bottom: 8 })
+                  .width('100%')
               } else {
                 OrgHeadingView({ node: section.node, specialTags: this.specialTags }).width('100%')
               }

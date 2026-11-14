@@ -24,7 +24,8 @@ export struct OrgHeadingView {
           }, (tag: string) => tag)
         }.width('100%')
       }
-    }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 20, bottom: 12 })
+    }.width('100%').alignItems(HorizontalAlign.Start)
+      .padding({ top: this.node.level === 1 ? 32 : 24, bottom: 8 })
       .accessibilityGroup(true).accessibilityText(`${this.node.level} 级标题，${this.node.heading}`)
   }
 }

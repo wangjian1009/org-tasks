@@ -93,7 +93,7 @@ struct ProjectDetail {
         return
       }
       const sections = projectReadingSections(file)
-      const fileTags = file.fileTags()
+      const fileTags = file.fileTags().filter((tag: string) => tag !== 'todo')
       const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
       const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion
