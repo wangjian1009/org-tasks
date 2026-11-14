@@ -1,5 +1,5 @@
-import { CoreTaskChecklistChange, CoreTaskChecklistItem } from '../services/NativeCoreService'
-import { UiColor } from '../ui/Theme'
+import { CoreTaskChecklistChange, CoreTaskChecklistItem } from '../../services/NativeCoreService'
+import { UiColor } from '../../ui/Theme'
 
 // 任务正文中的 checkbox 列表。任务卡和项目文档共用这一层，写入仍由宿主通过回调交给 Core。
 @Component

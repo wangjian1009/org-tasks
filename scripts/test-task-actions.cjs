@@ -66,7 +66,7 @@ test('收件箱普通布局不执行左滑菜单，打开菜单才为当前记�
 });
 
 const emittedInbox = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/pages/Inbox.ts';
-const emittedTask = path.join(path.dirname(emittedInbox), '../components/TaskListItem.ts');
+const emittedTask = path.join(path.dirname(emittedInbox), '../components/editors/TaskEditor.ts');
 test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终在手势范围之外', { skip: !fs.existsSync(emittedTask) }, () => {
   const source = ts.createSourceFile(emittedTask, fs.readFileSync(emittedTask, 'utf8'), ts.ScriptTarget.Latest, true);
   let builder;
@@ -148,7 +148,7 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   }
 });
 
-const cardFile = 'entry/src/main/ets/components/TaskListItem.ets';
+const cardFile = 'entry/src/main/ets/components/editors/TaskEditor.ets';
 const cardSource = fs.readFileSync(cardFile, 'utf8');
 test('收件箱左滑交给原生菜单且保留右滑，日志簿只读模式拒绝卡片手势', () => {
   const direction = cardSource.match(/\.priorityGesture\(PanGesture\(\{ direction: ([^,\n]+), distance: 48/)[1];

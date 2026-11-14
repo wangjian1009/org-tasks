@@ -1,6 +1,6 @@
-import { UiColor } from '../ui/Theme'
-import { CoreSupportTags } from '../services/NativeCoreService'
-import { editableTagNames, editableTagGroups, selectedTagNames, inheritedTagConflict, toggleEditableTag } from '../ui/TaskTagsPresentation'
+import { UiColor } from '../../ui/Theme'
+import { CoreSupportTags } from '../../services/NativeCoreService'
+import { editableTagNames, editableTagGroups, selectedTagNames, inheritedTagConflict, toggleEditableTag } from '../../ui/TaskTagsPresentation'
 
 @CustomDialog
 export struct TaskTagsDialog {

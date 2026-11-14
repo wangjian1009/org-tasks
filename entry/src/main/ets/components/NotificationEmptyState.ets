@@ -1,5 +1,5 @@
 import { CoreNotificationsView } from './CoreNotificationsView'
-import { EmptyState } from './Controls'
+import { EmptyState } from './controls/EmptyState'
 
 // 加载、错误与空列表也保留同一可滚动通知入口，不把通知固定在工具栏下。
 @Component

@@ -1,6 +1,6 @@
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
-import { EmptyState } from '../components/Controls'
+import { EmptyState } from '../components/controls/EmptyState'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookService } from '../services/NotebookService'

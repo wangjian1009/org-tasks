@@ -4,8 +4,8 @@ import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
-import { EmptyState } from '../components/Controls'
-import { TaskListItem } from '../components/TaskListItem'
+import { EmptyState } from '../components/controls/EmptyState'
+import { TaskEditor } from '../components/editors/TaskEditor'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
@@ -288,7 +288,7 @@ struct TaskOverview {
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
               } else {
                 ListItem() {
-                  TaskListItem({ task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
+                  TaskEditor({ task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
                 }
               }
             }, (task: CoreTask) => taskRenderKey(task))

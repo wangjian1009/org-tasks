@@ -342,7 +342,7 @@ Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path)
 
 Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html、logbook_html、has_list 与 has_text 分别映射为 Task.bodyHtml、Task.logbookHtml、Task.hasList 与 Task.hasText；N-API 以只读、可枚举属性保留这些字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。
 
-任务卡片由 ~TaskListItem~ 消费 Core 的正文与结构化日志投影，不在 ArkTS 解析或删除 LOGBOOK。正文复用 ~OrgContentView~ ，日志复用 ~TaskLogView~ 与 ~TaskLogItem~ ；初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务编辑内容时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
+任务卡片由 ~TaskEditor~ 消费 Core 的正文与结构化日志投影，不在 ArkTS 解析或删除 LOGBOOK。正文复用 ~OrgContentView~ ，日志复用 ~TaskLogView~ 与 ~TaskLogItem~ ；初始空白页加载结束后以 URL 编码加载内存 HTML；嵌入任务编辑内容时由 DOM 尺寸确定组件高度，折叠 drawer 后更新高度。文件详情则占满内容区域，并按 Preferences 的展示方式显示渲染或原文；文件展示模式不改变任务正文的渲染方式。
 
 ** 标题链接接入
 
@@ -377,7 +377,7 @@ interface TitleCount {
 
 查询 worker 将 ~FilterTask.is_repeating()~ 、 ~RenderedTaskContent.has_list~ 与 ~RenderedTaskContent.has_text~ 投影为 ~Task.isRepeating~ 、 ~Task.hasList~ 与 ~Task.hasText~ 。C++ N-API 将三者定义为只读且可枚举的属性，随完整任务快照参与渲染键与路由传递； ~CoreTask~ 原样导出 native 类型。重复器由 Core 按 Org-mode 的 ~+Nunit~ 、 ~++Nunit~ 、 ~.+Nunit~ 及可选 ~/N~ 或 ~/Nunit~ 规则解析，ArkTS 只根据布尔值选择循环图标和正文／列表提示；正文规划行同样由 Core 在 ~bodyHtml~ 投影阶段排除，宿主不扫描 Org 或 HTML 推断领域结构。
 
-~TaskListItem~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
+~TaskEditor~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
 
 
 * 独立分享捕捉
@@ -628,7 +628,7 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 
 ~OrgFile.documentSections()~ 、 ~fileTags()~ 和 ~specialTags()~ 分别读取 Rust bridge 在同一文件工作线程中通过 Core 的 ~document_sections()~ 、 ~file_tags()~ 和 ~special_tags()~ 生成的快照。 ~DocumentSection { path: TaskPath | null, html: string }~ 按文件顺序排列，前言路径为空；标题项路径关联同版本 ~nodes()~ ，不在 ArkTS 解释 Org 或筛选任务。C++ 注册快照方法，类型声明和 ArkTS wrapper 同步维护，不新增同步 FFI 请求。
 
-~ProjectDetail~ 使用 ~ProjectDocumentView~ 将原生 ~TaskListItem~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注和清单编辑，正文持续可见；Core 的正文分段不输出真实的 PROPERTIES 与 LOGBOOK，Task 的完整属性与结构化日志仍来自原快照。任务展开后通过“更多 → 日志”查看或收起日志，默认收起。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
+~ProjectDetail~ 使用 ~ProjectDocumentView~ 将原生 ~TaskEditor~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注和清单编辑，正文持续可见；Core 的正文分段不输出真实的 PROPERTIES 与 LOGBOOK，Task 的完整属性与结构化日志仍来自原快照。任务展开后通过“更多 → 日志”查看或收起日志，默认收起。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
 
 * 默认优先级快照
 

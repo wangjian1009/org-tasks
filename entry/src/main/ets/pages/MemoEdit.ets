@@ -2,11 +2,11 @@ import { AppConfigService } from '../services/AppConfigService'
 import { PageQueryService } from '../services/PageQueryService'
 import { CoreTask } from '../services/NativeCoreService'
 import { NoteService } from '../services/NoteService'
-import { MemoEditor } from '../components/MemoEditor'
+import { MemoEditor } from '../components/editors/MemoEditor'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
-import { EmptyState } from '../components/Controls'
+import { EmptyState } from '../components/controls/EmptyState'
 import { UiColor } from '../ui/Theme'
 
 interface MemoParams { task?: CoreTask; create?: boolean }

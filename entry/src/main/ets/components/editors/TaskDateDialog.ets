@@ -1,6 +1,6 @@
-import { UiColor } from '../ui/Theme'
-import { CoreTaskPlanningEdit, CoreTaskPlanningInfo } from '../services/NativeCoreService'
-import { inlineDate, TaskCalendarDay, taskCalendarDays } from '../ui/TaskInlinePresentation'
+import { UiColor } from '../../ui/Theme'
+import { CoreTaskPlanningEdit, CoreTaskPlanningInfo } from '../../services/NativeCoreService'
+import { inlineDate, TaskCalendarDay, taskCalendarDays } from '../../ui/TaskInlinePresentation'
 
 // 日期与时间均为草稿；只有主面板的“完成”向 Core 提交。
 @CustomDialog

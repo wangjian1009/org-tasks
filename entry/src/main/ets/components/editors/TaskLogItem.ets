@@ -1,6 +1,6 @@
-import { CoreTaskLog } from '../services/NativeCoreService'
-import { taskLogHtml } from '../ui/TaskLogPresentation'
-import { OrgContentView } from './OrgContentView'
+import { CoreTaskLog } from '../../services/NativeCoreService'
+import { taskLogHtml } from '../../ui/TaskLogPresentation'
+import { OrgContentView } from '../OrgContentView'
 
 // 单条日志的排版与富文本阅读统一由此组件承载。
 @Component

@@ -440,7 +440,7 @@ test('移动分组与组内目标按最近选择排序，身份忽略版本与�
 });
 
 test('移动面板自动选中有效的最近目标，刷新时使用新快照并跳过失效历史', () => {
-  const source = fs.readFileSync('entry/src/main/ets/components/MoveToTarget.ets', 'utf8');
+  const source = fs.readFileSync('entry/src/main/ets/components/editors/MoveToTarget.ets', 'utf8');
   const methods = ['sectionsChanged', 'resetSelection'].map(name =>
     source.match(new RegExp(`  ${name}\\([^\\n]*\\) (?:: boolean )?\\{[\\s\\S]*?\\n  \\}\\n`))?.[0] ||
     source.match(new RegExp(`  ${name}\\([^\\n]*\\) \\{[^\\n]*\\}`))?.[0]).join('\n');

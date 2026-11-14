@@ -5,7 +5,7 @@ import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/Or
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreService } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
-import { MessageBar } from '../components/Controls'
+import { MessageBar } from '../components/controls/MessageBar'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
 
 interface RepositoryParams { repoId?: string; webdav?: boolean }

@@ -1,7 +1,7 @@
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
 import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPresentation'
-import { TaskListItem } from './TaskListItem'
+import { TaskEditor } from './editors/TaskEditor'
 import { TaskRegion } from './TaskRegion'
 import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { TaskSelectionRow } from './TaskSelectionRow'
@@ -137,7 +137,7 @@ export struct LogbookTaskList {
         busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
         heading: item.task.heading, horizontalInset: 0,
         begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
-          TaskListItem({ task: item.task, readOnly: true, allowCompletion: true, instanceKey: item.key,
+          TaskEditor({ task: item.task, readOnly: true, allowCompletion: true, instanceKey: item.key,
             dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
             rightSwipeAction: 'none', enableSwipeActions: false,
             regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,

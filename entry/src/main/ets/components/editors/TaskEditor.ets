@@ -1,35 +1,35 @@
-import { ProjectNavigation } from '../services/ProjectNavigation'
+import { ProjectNavigation } from '../../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
-import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
-import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
-import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
-import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../services/TaskInlineService'
-import { CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
+import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
+import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
+import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
+import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../../services/TaskInlineService'
+import { CoreDataChangeState, emptyCoreDataChangeState } from '../../services/CoreDataChangeService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
-import { repeatSummary } from '../ui/TaskRepeatPresentation'
+import { repeatSummary } from '../../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
 import { MoveToTarget } from './MoveToTarget'
-import { MoveToTargetService } from '../services/MoveToTargetService'
-import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
-import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
-import { PopupMenuButton } from './PopupMenuButton'
-import { PopupMenuItem } from './PopupMenu'
-import { inlineDateLabel, inlineDate, inlinePlanningLabel } from '../ui/TaskInlinePresentation'
-import { UiColor, UiSize } from '../ui/Theme'
+import { MoveToTargetService } from '../../services/MoveToTargetService'
+import { RefileSection, refileSections } from '../../ui/MoveToTargetPresentation'
+import { TaskRightSwipeAction } from '../../ui/TaskActionPresentation'
+import { PopupMenuButton } from '../controls/PopupMenuButton'
+import { PopupMenuItem } from '../controls/PopupMenu'
+import { inlineDateLabel, inlineDate, inlinePlanningLabel } from '../../ui/TaskInlinePresentation'
+import { UiColor, UiSize } from '../../ui/Theme'
 import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, taskDateForDisplay, TaskDateDisplay,
   taskDurationDays, taskIndicators, taskRowLayout, taskTagColor,
-  TaskRowLayout, taskTitleText, taskSourceText, RegionAreaPolicy, TaskRegionArea, taskRegionArea } from '../ui/TaskListPresentation'
-import { TitleText } from './TitleText'
-import { LinkEditController } from './LinkView'
-import { CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
-import { OrgContentView } from './OrgContentView'
+  TaskRowLayout, taskTitleText, taskSourceText, RegionAreaPolicy, TaskRegionArea, taskRegionArea } from '../../ui/TaskListPresentation'
+import { TitleText } from '../TitleText'
+import { LinkEditController } from '../LinkView'
+import { CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
+import { OrgContentView } from '../OrgContentView'
 import { TaskLogView } from './TaskLogView'
 import { TaskChecklistView } from './TaskChecklistView'
-import { TitleCounts } from './TitleCounts'
-import { titleCounts, titleCountsWidth } from '../ui/TitleCountPresentation'
-import { TaskInlineFocus } from '../ui/TaskInlineFocus'
-import { TaskChecklistDrag, checklistSiblings, checklistMovePreview, checklistEdgeScroll } from '../ui/TaskChecklistReorder'
+import { TitleCounts } from '../TitleCounts'
+import { titleCounts, titleCountsWidth } from '../../ui/TitleCountPresentation'
+import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
+import { TaskChecklistDrag, checklistSiblings, checklistMovePreview, checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
 import { FrameCallback, KeyboardAvoidMode } from '@ohos.arkui.UIContext'
 import { window } from '@kit.ArkUI'
 
@@ -40,9 +40,10 @@ class ChecklistFocusFrame extends FrameCallback {
   onIdle(_timeLeftInNano: number): void { this.callback() }
 }
 
+// 通用任务编辑器，可嵌入列表项或项目文档；宿主按需提供滚动容器和展示策略。
 // 快照与写入均来自 Core；只维护卡片、输入草稿和浮层状态。
 @Component
-export struct TaskListItem {
+export struct TaskEditor {
   @Prop task: CoreTask
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false

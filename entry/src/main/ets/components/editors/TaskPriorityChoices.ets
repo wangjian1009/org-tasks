@@ -1,6 +1,6 @@
-import { CoreTaskPriority } from '../services/NativeCoreService'
-import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
-import { UiColor } from '../ui/Theme'
+import { CoreTaskPriority } from '../../services/NativeCoreService'
+import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
+import { UiColor } from '../../ui/Theme'
 
 @Component
 export struct TaskPriorityChoices {

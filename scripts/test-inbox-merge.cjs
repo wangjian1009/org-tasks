@@ -62,7 +62,7 @@ function fixture() {
     .replace(/@(State|StorageLink\([^)]*\)|Watch\([^)]*\))\s*/g, '').replace('struct Inbox', 'class Inbox');
   const loading = full.slice(full.indexOf('  async loadRecords()'), full.indexOf('  build()'));
   const Page = compile(prefix + loading + '}\nmodule.exports = Inbox;', filename, {
-    '../components/TaskDateDialog': {},
+    '../components/editors/TaskDateDialog': {},
     '../services/TaskInlineService': { TaskInlineSession: { active: () => false, async end() { return saveResult; } } },
     '../services/CoreNotificationService': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
     '@kit.ArkUI': { KeyboardAvoidMode: { OFFSET: 0 } },

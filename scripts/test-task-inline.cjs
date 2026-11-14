@@ -20,7 +20,7 @@ function load(file, mocks = {}) {
 }
 const storage = new Map();
 test('任务链接仅在展开且可写时允许修改，收起后的旧编辑回调不能提交', async () => {
-  const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+  const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
   const methods = ['linksEditable', 'changeLink'].map(name => {
     const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)[^\\n]* \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(match, name);return match[0];
@@ -100,7 +100,7 @@ test('无 TODO 标题的进度与完整路径出现次序变化后，按 Core �
 });
 
 function cardRefreshFixture(emit = true, backend) {
-  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const refresh = source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}\n/)[0];
   const apply = source.match(/  applySnapshot\(current: CoreTask \| undefined, savedCheck: boolean = false\) \{[\s\S]*?\n  \}\n/)[0];
@@ -394,7 +394,7 @@ test('上一编辑会话保存失败时不允许切换任务',async()=>{
 });
 
 test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留输入', async () => {
-  const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+  const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
   const methods = ['editHeading', 'finishHeading'].map(name => {
     const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(match, name);
@@ -428,7 +428,7 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
 });
 
 test('展开备注点击普通文字才进入原文，保存或刷新失败保留输入，成功恢复链接阅读', async () => {
-  const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+  const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
   const methods = ['editNotes', 'finishNotes'].map(name => {
     const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(match, name);return match[0];
@@ -455,7 +455,7 @@ test('展开备注点击普通文字才进入原文，保存或刷新失败保�
 });
 
 function finishFixture(textSaved = true, checkSaved = true) {
-  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const method = fs.readFileSync(filename, 'utf8').match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];
   const code = ts.transpileModule('export class InlineFinish {' + method + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
@@ -598,7 +598,7 @@ test('边缘滚动仅在可见区域40vp边缘触发，速度有上限', () => {
 });
 
 function sortFixture({writeError,reloadError}={}) {
-  const filename='entry/src/main/ets/components/TaskListItem.ets';
+  const filename='entry/src/main/ets/components/editors/TaskEditor.ets';
   const source=fs.readFileSync(filename,'utf8');
   const method=source.match(/  async sortCheck\(id: string, beforeId: string \| null\) \{[\s\S]*?\n  \}\n(?=  accessibleCheckOrder)/)[0];
   const code=ts.transpileModule('export class SortCheck {'+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
@@ -633,7 +633,7 @@ test('排序已写入但重读失败时停用后续写入，防止旧条目ID重
 });
 
 function completionFixture(methodName = 'complete') {
-  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const method = source.match(new RegExp('  async ' + methodName + '\\(\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
   const code = ts.transpileModule('export class Completion {' + method + '\n}', {
@@ -924,7 +924,7 @@ test('卡片离开后，排队事件不读取，在途删除或错误不再改�
 
 
 function priorityFixture() {
-  const filename = 'entry/src/main/ets/components/TaskListItem.ets';
+  const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const methods = source.slice(source.indexOf('  async priorities()'), source.indexOf('  @Builder\n  priorityPopup()'));
   const code = ts.transpileModule('export class Priority {' + methods + '}', {

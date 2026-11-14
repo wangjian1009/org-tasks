@@ -1,4 +1,4 @@
-import { CoreTaskLog } from '../services/NativeCoreService'
+import { CoreTaskLog } from '../../services/NativeCoreService'
 import { TaskLogItem } from './TaskLogItem'
 
 @Component

@@ -5,7 +5,7 @@ import { PlannedGroup, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from
 import { TaskRegion } from './TaskRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
-import { TaskListItem } from './TaskListItem'
+import { TaskEditor } from './editors/TaskEditor'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
@@ -36,7 +36,7 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
-    TaskListItem({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
+    TaskEditor({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
       plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline,
       regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None :
         item.task.project() !== null ? RegionAreaPolicy.Project : RegionAreaPolicy.Category,

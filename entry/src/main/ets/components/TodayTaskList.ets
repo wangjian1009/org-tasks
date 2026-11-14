@@ -5,7 +5,7 @@ import { TodaySection, TodayTaskItem, TodayTaskGroup } from '../ui/TodayPresenta
 import { TaskRegion } from './TaskRegion'
 import { CategoryRegion } from './CategoryRegion'
 import { taskRegion } from '../ui/TaskRegionPresentation'
-import { TaskListItem } from './TaskListItem'
+import { TaskEditor } from './editors/TaskEditor'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
@@ -20,7 +20,7 @@ export struct TodayTaskList {
 
   @Builder
   taskItem(item: TodayTaskItem) {
-    TaskListItem({ task: item.task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
+    TaskEditor({ task: item.task, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
       expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 

@@ -17,14 +17,14 @@ function load(source, mocks) {
   return module.exports;
 }
 function component(name, boundary, mocks = {}, file = name) {
-  const source = fs.readFileSync(`entry/src/main/ets/components/${file}.ets`, 'utf8');
+  const source = fs.readFileSync(`entry/src/main/ets/components/controls/${file}.ets`, 'utf8');
   const prefix = source.split('@Component')[0];
   const body = source.slice(source.indexOf(`struct ${name}`)).split(boundary)[0] + '\n}';
   return load(prefix + body.replace(/^  @(?:Prop|State) /gm, '  ').replace(`struct ${name}`, `export class ${name}`), mocks)[name];
 }
 const theme = load(fs.readFileSync('entry/src/main/ets/ui/Theme.ets', 'utf8'), {});
-const PopupMenu = component('PopupMenu', '\n  build()', { '../ui/Theme': theme });
-const PopupMenuRow = component('PopupMenuRow', '\n  build()', { '../ui/Theme': theme }, 'PopupMenu');
+const PopupMenu = component('PopupMenu', '\n  build()', { '../../ui/Theme': theme });
+const PopupMenuRow = component('PopupMenuRow', '\n  build()', { '../../ui/Theme': theme }, 'PopupMenu');
 function nativeLeaf(naturalWidth, naturalHeight) {
   return {
     measureResult: { width: 0, height: 0 }, position: undefined,
@@ -97,7 +97,7 @@ function fixture(density = 1, id = 1) {
   let width = 360, gate, windowFailed = false;
   const focus = [], actions = [];
   const PopupMenuButton = component('PopupMenuButton', '\n  @Builder', {
-    '../ui/Theme': theme,
+    '../../ui/Theme': theme,
     '@kit.ArkUI': {
       display: { getDefaultDisplaySync: () => ({ width: width * density }) },
       window: { async getLastWindow() {

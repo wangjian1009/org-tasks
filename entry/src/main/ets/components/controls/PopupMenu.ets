@@ -1,4 +1,4 @@
-import { UiColor, UiSize } from '../ui/Theme'
+import { UiColor, UiSize } from '../../ui/Theme'
 
 export interface PopupMenuItem {
   title: string

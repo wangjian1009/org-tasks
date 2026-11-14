@@ -2,7 +2,7 @@ import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } fro
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { OrgContentView } from './OrgContentView'
 import { OrgHeadingView } from './OrgHeadingView'
-import { TaskListItem } from './TaskListItem'
+import { TaskEditor } from './editors/TaskEditor'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { TaskDateDisplay, RegionAreaPolicy, taskTagColor } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
@@ -98,7 +98,7 @@ export struct ProjectDocumentView {
           Column() {
             if (section.node) {
               if (section.node.state) {
-                TaskListItem({ task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
+                TaskEditor({ task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')

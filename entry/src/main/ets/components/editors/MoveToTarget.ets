@@ -1,8 +1,8 @@
-import { CoreRefileTarget } from '../services/NativeCoreService'
-import { MoveTargetHistoryService } from '../services/MoveTargetHistoryService'
-import { RefileSection, recentRefileSections, refileTargetKey, refileTargetTitle } from '../ui/MoveToTargetPresentation'
-import { UiColor, UiSize } from '../ui/Theme'
-import { TitleText } from './TitleText'
+import { CoreRefileTarget } from '../../services/NativeCoreService'
+import { MoveTargetHistoryService } from '../../services/MoveTargetHistoryService'
+import { RefileSection, recentRefileSections, refileTargetKey, refileTargetTitle } from '../../ui/MoveToTargetPresentation'
+import { UiColor, UiSize } from '../../ui/Theme'
+import { TitleText } from '../TitleText'
 
 @Component
 export struct MoveToTarget {

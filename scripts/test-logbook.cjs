@@ -81,7 +81,7 @@ test('缺失或无效完成时间放在末尾，不借用创建时间，空快�
   assert.deepEqual(groups[1].items.map(item => [item.task.id, item.timestamp]), [['A', null], ['B', null]]);
   assert.equal(logbookGroups([], now).length, 0);
 });
-const source = fs.readFileSync('entry/src/main/ets/components/TaskListItem.ets', 'utf8');
+const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
 function readOnlyCard(instanceKey = 'event-A') {
   const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'finish', 'persist', 'saveText', 'saveCheck',
     'horizontalSwipe', 'rightSwipe', 'openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
@@ -119,7 +119,7 @@ test('只读卡片可展开收起，任务实例保持独立会话身份', async
   assert.deepEqual(b.card.moreItems(), []);
   assert.notEqual(a.card.ownerKey, b.card.ownerKey);
 });
-const emittedTask = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/components/TaskListItem.ts';
+const emittedTask = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/components/editors/TaskEditor.ts';
 test('日志簿收起标题的实际点击回调可展开只读卡片，再点标题可收起', { skip: !fs.existsSync(emittedTask) }, async () => {
   const file = ts.createSourceFile(emittedTask, fs.readFileSync(emittedTask, 'utf8'), ts.ScriptTarget.Latest, true);
   let params;

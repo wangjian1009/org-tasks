@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit'
 import { formBindingData, formProvider } from '@kit.FormKit'
 import { MemoCardData, memoCardData, MemoCardService } from '../services/MemoCardService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
-import { IconButton } from '../components/Controls'
+import { IconButton } from '../components/controls/IconButton'
 import { UiColor } from '../ui/Theme'
 
 interface MemoCardTagOption { tag: string; label: string }

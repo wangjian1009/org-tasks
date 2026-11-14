@@ -7,7 +7,7 @@ import { ShareLocationRequest, SharedLocation, parseSharedLocation, resolveAmapS
 import { UiColor } from '../ui/Theme'
 import { shareLocationTaskQuery } from '../services/TaskViewQueries'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
-import { ListSectionHeader } from '../components/Controls'
+import { ListSectionHeader } from '../components/controls/ListSectionHeader'
 
 @Entry
 @Component

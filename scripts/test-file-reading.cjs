@@ -284,7 +284,7 @@ function projectPageFixture() {
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
-    '../components/AppShell': {}, '../components/Controls': {},
+    '../components/AppShell': {}, '../components/controls/EmptyState': {},
     '../components/OrgFilePreviewView': { OrgFilePreviewNavigation: class {
       async captureReadingState() { return capture; } closePanel() { return false; }
     } },
@@ -475,8 +475,8 @@ test('原生项目离开或切换版本后，迟到目录定位失效；切回�
 
 test('标签窗口隐藏内部标签，修改普通互斥组仍保留原有项目和系统标记', async () => {
   const tagPresentation = load(base + 'ui/TaskTagsPresentation.ets');
-  const { Dialog } = load(base + 'components/TaskTagsDialog.ets', {
-    '../ui/TaskTagsPresentation': tagPresentation
+  const { Dialog } = load(base + 'components/editors/TaskTagsDialog.ets', {
+    '../../ui/TaskTagsPresentation': tagPresentation
   }, source => source.split('  @Builder\n')[0].replace(/@CustomDialog\n|@State /g, '')
     .replace('export struct TaskTagsDialog', 'class Dialog') + '}\nmodule.exports = { Dialog };');
   const dialog = new Dialog();
@@ -502,7 +502,7 @@ test('项目返回先保存原位编辑，保存失败不离开页面', async ()
 });
 
 test('项目任务展开后可从更多菜单查看和收起日志，没有日志时隐藏入口', () => {
-  const filename = base + 'components/TaskListItem.ets';
+  const filename = base + 'components/editors/TaskEditor.ets';
   const { Card } = load(filename, {}, source => {
     const start = source.indexOf('  moreItems():');
     const end = source.indexOf('  @Builder\n  attributes()', start);

@@ -1,8 +1,8 @@
-import { CoreTask, CoreTaskRepeatMode, CoreTaskRepeatUnit, CoreTaskRepeatInfo, CoreTaskModification, CoreTaskPlanningEdit } from '../services/NativeCoreService'
-import { repeatUnits, repeatUnitLabels, repeatSummary, repeatModifications } from '../ui/TaskRepeatPresentation'
-import { inlineDate, inlineDateLabel } from '../ui/TaskInlinePresentation'
+import { CoreTask, CoreTaskRepeatMode, CoreTaskRepeatUnit, CoreTaskRepeatInfo, CoreTaskModification, CoreTaskPlanningEdit } from '../../services/NativeCoreService'
+import { repeatUnits, repeatUnitLabels, repeatSummary, repeatModifications } from '../../ui/TaskRepeatPresentation'
+import { inlineDate, inlineDateLabel } from '../../ui/TaskInlinePresentation'
 import { TaskDateDialog } from './TaskDateDialog'
-import { UiColor } from '../ui/Theme'
+import { UiColor } from '../../ui/Theme'
 
 // 参考 Things 3 iPhone：取消／保存、分段模式、分组字段和停止重复。
 @CustomDialog

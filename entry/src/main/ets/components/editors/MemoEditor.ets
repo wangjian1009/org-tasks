@@ -1,7 +1,7 @@
-import { CoreTask } from '../services/NativeCoreService'
-import { EmptyState } from './Controls'
-import { OrgContentView } from './OrgContentView'
-import { UiColor } from '../ui/Theme'
+import { CoreTask } from '../../services/NativeCoreService'
+import { EmptyState } from '../controls/EmptyState'
+import { OrgContentView } from '../OrgContentView'
+import { UiColor } from '../../ui/Theme'
 
 // 备忘正文组件；备忘编辑页使用多行文本模式。
 @Component

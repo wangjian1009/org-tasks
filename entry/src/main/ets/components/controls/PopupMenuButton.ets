@@ -1,5 +1,5 @@
 import { display, window } from '@kit.ArkUI'
-import { UiColor, UiSize } from '../ui/Theme'
+import { UiColor, UiSize } from '../../ui/Theme'
 import { PopupMenu, PopupMenuItem } from './PopupMenu'
 
 // 所有短操作菜单共用入口；内容测量与排版统一交给 PopupMenu。

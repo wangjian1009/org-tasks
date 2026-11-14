@@ -1,4 +1,4 @@
-import { TaskDateDialog } from '../components/TaskDateDialog'
+import { TaskDateDialog } from '../components/editors/TaskDateDialog'
 import { TaskInlineSession, TaskInlineService } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -7,11 +7,11 @@ import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
-import { EmptyState } from '../components/Controls'
-import { TaskListItem } from '../components/TaskListItem'
+import { EmptyState } from '../components/controls/EmptyState'
+import { TaskEditor } from '../components/editors/TaskEditor'
 import { TaskRegion } from '../components/TaskRegion'
 import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
-import { MoveToTarget } from '../components/MoveToTarget'
+import { MoveToTarget } from '../components/editors/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
 import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
@@ -519,7 +519,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskListItem({ task, dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+    TaskEditor({ task, dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
@@ -619,7 +619,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskListItem({ task: record, enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskEditor({ task: record, enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) } })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })

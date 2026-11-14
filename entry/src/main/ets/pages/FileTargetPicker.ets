@@ -1,5 +1,6 @@
 import { AppShell } from '../components/AppShell'
-import { EmptyState, ListSectionHeader } from '../components/Controls'
+import { EmptyState } from '../components/controls/EmptyState'
+import { ListSectionHeader } from '../components/controls/ListSectionHeader'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
