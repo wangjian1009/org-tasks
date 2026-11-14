@@ -26,6 +26,7 @@ pub struct TaskEditContent {
     pub notes: String,
     pub notes_html: String,
     pub checklist: Vec<TaskChecklistItem>,
+    pub blocks: Vec<super::ContentBlock>,
     pub scheduled_repeat: Option<super::TaskRepeatInfo>,
     pub deadline_repeat: Option<super::TaskRepeatInfo>,
     pub scheduled_planning: Option<super::TaskPlanningInfo>,
@@ -69,16 +70,30 @@ pub(crate) fn checklist_lists(headline: &Headline) -> Vec<List> {
                 .syntax()
                 .children()
                 .filter_map(List::cast)
-                .filter(|list| {
-                    // 混合普通列表保留为完整备注，避免拆散非 checkbox 内容。
-                    list.syntax()
-                        .descendants()
-                        .filter_map(ListItem::cast)
-                        .all(|item| item.checkbox().is_some() && item.tag().next().is_none())
-                })
+                .filter(is_checklist)
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+pub(super) fn is_checklist(list: &List) -> bool {
+    // 混合普通列表保留为完整区块，避免拆散非 checkbox 内容。
+    list.syntax().descendants().filter_map(ListItem::cast)
+        .all(|item| item.checkbox().is_some() && item.tag().next().is_none())
+}
+
+pub(super) fn project_checklist(file: &OrgFile, list: &List) -> Vec<TaskChecklistItem> {
+    list.syntax().descendants().filter_map(ListItem::cast).filter_map(|item| {
+        let token = item.checkbox()?;
+        Some(TaskChecklistItem {
+            id: u32::from(item.start()).to_string(),
+            sibling_group: u32::from(item.syntax().parent().expect("父列表").text_range().start()).to_string(),
+            text: std::str::from_utf8(&file.source_bytes()[item_text_range(file, &item)]).expect("UTF-8").into(),
+            checked: token.as_ref() == "X" || token.as_ref() == "x",
+            partial: token.as_ref() == "-",
+            depth: item.syntax().ancestors().skip(1).filter(|node| node.kind() == SyntaxKind::LIST_ITEM).count(),
+        })
+    }).collect()
 }
 
 pub(crate) fn note_ranges(file: &OrgFile, headline: &Headline) -> Vec<Range<usize>> {
@@ -158,35 +173,13 @@ impl OrgFile {
             .iter()
             .map(|range| std::str::from_utf8(&self.source_bytes()[range.clone()]).expect("UTF-8"))
             .collect::<String>();
-        let checklist = checklist_items(&headline)
-            .iter()
-            .map(|item| {
-                let token = item.checkbox().expect("checkbox");
-                TaskChecklistItem {
-                    id: u32::from(item.start()).to_string(),
-                    sibling_group: u32::from(
-                        item.syntax().parent().expect("父列表").text_range().start(),
-                    )
-                    .to_string(),
-                    text: std::str::from_utf8(&self.source_bytes()[item_text_range(self, item)])
-                        .expect("UTF-8")
-                        .into(),
-                    checked: token.as_ref() == "X" || token.as_ref() == "x",
-                    partial: token.as_ref() == "-",
-                    depth: item
-                        .syntax()
-                        .ancestors()
-                        .skip(1)
-                        .filter(|node| node.kind() == SyntaxKind::LIST_ITEM)
-                        .count(),
-                }
-            })
-            .collect();
+        let checklist = checklist_lists(&headline).iter().flat_map(|list| project_checklist(self, list)).collect();
         Ok(TaskEditContent {
             own_tags: headline.tags().map(|tag| tag.to_string()).collect(),
             notes_html: if notes.trim().is_empty() { String::new() } else { super::text_link::editable_html(&notes) },
             notes,
             checklist,
+            blocks: super::content_block::blocks(self, headline.section(), Some(&headline)),
             scheduled_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),
             deadline_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_DEADLINE),
             scheduled_planning: super::task_repeat::planning_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),

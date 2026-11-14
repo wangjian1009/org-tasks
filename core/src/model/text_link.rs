@@ -111,6 +111,14 @@ fn replacement(value: &LinkValue) -> Result<String, CoreError> {
     Ok(result)
 }
 
+pub(super) fn changed_source(source: &str, link: &TextLink, value: &Option<LinkValue>) -> Result<String, CoreError> {
+    if !text_links(source).contains(link) { return Err(CoreError::InvalidInput("链接已变化，请重新载入后编辑")); }
+    let content = value.as_ref().map(replacement).transpose()?.unwrap_or_default();
+    let mut result = source.to_owned();
+    result.replace_range(link.start..link.end, &content);
+    Ok(result)
+}
+
 pub(super) fn modify_link(file: &mut OrgFile, headline: &Headline, change: &TaskLinkChange) -> Result<(), CoreError> {
     let (source, ranges) = match change.field {
         TaskLinkField::Title => {

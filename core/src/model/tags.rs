@@ -1,6 +1,8 @@
 use super::OrgFile;
 use serde::Serialize;
 
+pub(crate) const ATTACH_TAG: &str = "ATTACH";
+
 /// 可配置标签及互斥组；配置缺失与显式空配置由外层 Option 区分。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SupportTags {
@@ -33,7 +35,7 @@ fn configured_tag(token: &str) -> Option<&str> {
 impl OrgFile {
     /// 具有内部用途的标签；宿主可隐藏展示，但不得据此改写原文或查询条件。
     pub fn special_tags(&self) -> Vec<String> {
-        ["project", super::REFILE_TAG, super::ARCHIVE_TAG, super::CONFLICT_TAG]
+        ["project", super::REFILE_TAG, super::ARCHIVE_TAG, super::CONFLICT_TAG, ATTACH_TAG]
             .into_iter().map(str::to_owned).collect()
     }
 
@@ -77,7 +79,7 @@ impl OrgFile {
                     continue;
                 }
                 if let Some(tag) = configured_tag(token) {
-                    if tag == super::REFILE_TAG || tag == super::ARCHIVE_TAG {
+                    if tag == super::REFILE_TAG || tag == super::ARCHIVE_TAG || tag == ATTACH_TAG {
                         continue;
                     }
                     push_unique(&mut tags, tag);

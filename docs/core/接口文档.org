@@ -627,7 +627,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 ~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
 
-~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 或 ~ARCHIVE~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
+~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 、 ~ARCHIVE~ 、 ~CONFLICT~ 或 ~ATTACH~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、 ~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
 
 * 任务放置目标
 
@@ -718,7 +718,7 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 
 ~OrgFile.document_sections()~ 返回按文件顺序排列的 ~Vec<DocumentSection>~ ，每项包含 ~path: Option<TaskPath>~ 和安全 HTML 字符串 ~html~ 。首项为前言，路径为空；后续项对应同版本 ~nodes()~ 的完整标题路径，保留重名标题的出现次序。各项只含当前节点直属正文，不含标题、规划行与后代正文，保留表格和 checkbox，跳过真实的 PROPERTIES 与 LOGBOOK 抽屉；受保护冲突子树排除。代码与示例中的同名字面内容保持可读，其他普通 drawer 继续渲染；节点的结构化日志、属性和源字节保持完整。前言不输出文件头配置与属性。空文件仍返回一项空前言。宿主可复用既有节点接口渲染标题，不解析 Org 或 HTML 来判断任务。
 
-~file_tags()~ 返回当前有效 FILETAGS，按来源顺序去重并保留内部标签。 ~special_tags()~ 返回展示时应隐藏的内部用途标签，当前为 ~project~ 、 ~REFILE~ 、 ~ARCHIVE~ 和 ~CONFLICT~ ，大小写精确匹配。列表只用于展示，隐藏不改变原始标签、候选配置、任务查询或项目身份；修改普通标签必须保留内部标签。
+~file_tags()~ 返回当前有效 FILETAGS，按来源顺序去重并保留内部标签。 ~special_tags()~ 返回展示时应隐藏的内部用途标签，当前为 ~project~ 、 ~REFILE~ 、 ~ARCHIVE~ 、 ~CONFLICT~ 和 ~ATTACH~ ，大小写精确匹配。列表只用于展示，隐藏不改变原始标签、候选配置、任务查询或项目身份；修改普通标签必须保留内部标签。
 
 ** 任务正文渲染与日志提取
 
@@ -903,6 +903,29 @@ impl OrgFile {
 
 清单排序使用 ~Move { id, before_id }~ ，目标为空时移到本同级列表末尾。Core 投影直接父列表身份 ~sibling_group~ 并验证来源和目标同组，移动父项携带嵌套内容；宿主只维护拖动预览，松手后提交一次，成功后重新读取条目 ID 和文件版本。
 
+* 有序正文区块
+
+~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 使用同一 ~ContentBlock~ 投影，按原文件顺序提供文本、普通列表、表格和纯 checkbox 清单。区块由 Core 遍历 ~orgize~ 直属节点识别，宿主不得解析 Org 或拆分 HTML；规划、PROPERTIES、LOGBOOK、文件配置和后代正文不混入区块，源码与示例中的同名字面内容继续展示。混合普通条目的列表作为完整 ~list~ 区块，纯 checkbox 列表才投影为 ~checklist~ 与结构化条目。
+
+#+begin_src rust
+pub enum ContentBlockKind { Text, List, Table, Checklist }
+pub struct ContentBlock {
+    pub id: String,
+    pub kind: ContentBlockKind,
+    pub source: String,
+    pub html: String,
+    pub items: Vec<TaskChecklistItem>,
+}
+pub enum ContentBlockChange {
+    Replace { id: String, source: String },
+    Link { id: String, link: TextLink, value: Option<LinkValue> },
+}
+#+end_src
+
+~CONTENT_BLOCK~ 接收 ~ContentBlockChange~ 。区块 ID 仅在当前文件版本内有效，必须提交原 ~TaskFileVersion~ ，不能先读取新版本再套用旧区块位置。Core 验证 ID 属于当前标题的直属区块，只替换该区块或其中的链接；文件换行样式与区块外围字节保持原样，不重写邻接段落、表格、清单、属性、规划、日志或子标题。输入不得引入标题、规划、属性与日志抽屉或 NUL；checkbox 区块继续使用既有 ~CHECKLIST~ 结构化操作，不允许整块覆盖。
+
+~OrgFile.document_sections()~ 的前言和每个节点同时提供相同区块结构；前言只读，节点的区块编辑通过节点路径与既有统一修改入口执行。该投影不进入持久化或同步记录。
+
 * 文件历史结果与删除备份
 
 历史结果在同步决策时写入 ~OrgRepoSyncFileRecord.outcome~ ，含 ~Created~ 、 ~Deleted~ 、 ~Unchanged~ 、 ~Updated~ 、 ~Merged~ 、 ~Conflict~ 、 ~Uploaded~ 、 ~Failed~ 、 ~Skipped~ ；旧字段缺失使用 ~Legacy~ 兼容推导。 ~history_detail~ 直接消费该结果，冲突结果固定为 ~Conflict~ ，不再存在 ~Resolved~ 投影。 ~Updated~ 表示远端改变、本地无变化， ~Merged~ 表示两端变化且自动合并完成， ~Uploaded~ 表示仅本地变化。
@@ -1026,3 +1049,9 @@ impl OrgFileMetadata {
 配置语法、SETUPFILE 继承与分类规则见 [[file:数据模型.org::*任务优先级对象与分类][任务优先级对象与分类]]。~PRIORITY~ 字段仍只接收候选对象的 ~name~ 或空值，Core 校验当前文件有效候选，配置变化和版本冲突不自动换版本重试。创建为无优先级时不写入默认字母；未涉及的正文、换行、规划和属性保持原字节。
 
 默认优先级来自 [[info:org#Priorities][Org Info：Priorities]]：未声明时使用 B，文件头 ~#+PRIORITIES~ 的第三项覆盖 SETUPFILE 默认值。Core 在同次解析中生成 ~OrgFileMetadata.default_priority~ ，任务通过 ~default_priority()~ 读取共享快照， ~effective_priority()~ 取显式值或此默认值；Harmony 投影为任务和文件元信息的只读 ~defaultPriority: TaskPriority~ 。文件与 SETUPFILE 均未声明时使用 Core 内置 ~A C B~ 配置，候选 A、B、C 分别归为 ~Hight~ 、 ~Middle~ 、 ~Low~ ，默认 B 归为 ~Middle~ ；默认值不产生标题色块、不写入 Org 原文。优先级升降序与 ~p.<letter>~ 使用有效字母， ~ps.<letter>~ 只查询显式值，相同优先级沿用源次序。
+
+* 附件用途标签
+
+~FilterTask.has_attach() -> bool~ 判断当前标题自身是否显式带有大小写精确匹配的 ~ATTACH~ 标签，在展示标签过滤前计算并保留为快照。父标题、文件标签或正文与源码中的字面标记不会使当前条目返回真；小写 ~attach~ 仍为普通标签。该函数只判断用途标记，不扫描附件目录或校验文件是否存在。
+
+~ATTACH~ 与其他特殊用途标签一样，在任务查询结果及 ~OrgFile.nodes()/node()~ 的展示标签中隐藏，配置候选标签与互斥组也不返回该用途标签； ~special_tags()~ 包含它，供文件和项目展示复用。标签表达式继续在完整原始标签上求值；原始 ~TaskEditContent.own_tags~ 与 ~file_tags()~ 保留标记，普通标签编辑不得删除未操作的用途标记。读取和判断不修改 Org 原文或同步记录。

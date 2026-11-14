@@ -26,3 +26,12 @@ export function taskLogHtml(log: CoreTaskLog): string {
   }
   return `<article class="task-log ${log.type}"><div class="task-log-heading"><span>${escapeLogText(label)}</span><span class="task-log-time">${escapeLogText(log.timestamp)}</span></div>${detail ? `<div class="task-log-detail">${escapeLogText(detail)}</div>` : ''}${log.noteHtml ? `<div class="task-log-note">${log.noteHtml}</div>` : ''}</article>`
 }
+
+export enum LogShowPolicy {
+  LogShowBySwitch = 'LogShowBySwitch',
+  LogShowAlways = 'LogShowAlways'
+}
+
+export function taskLogVisible(policy: LogShowPolicy, switched: boolean): boolean {
+  return policy === LogShowPolicy.LogShowAlways || switched
+}

@@ -30,6 +30,7 @@ pub struct TitleCount {
 pub struct DocumentSection {
     pub path: Option<super::TaskPath>,
     pub html: String,
+    pub blocks: Vec<super::ContentBlock>,
 }
 
 impl TitleCount {
@@ -109,10 +110,10 @@ impl OrgFile {
             }
             view.0.finish()
         };
-        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()) }];
+        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()), blocks: super::content_block::blocks(self, self.syntax().document().section(), None) }];
         sections.extend(self.path_headlines().into_iter()
             .filter(|(_, headline)| !Self::is_conflict_headline(headline))
-            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()) }));
+            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()), blocks: super::content_block::blocks(self, headline.section(), Some(&headline)) }));
         sections
     }
 
@@ -926,14 +927,14 @@ mod tests {
         assert!(file.render_html().contains("keep-id"));
         assert!(!sections.iter().any(|section| section.html.contains("私有候选文字")));
         assert_eq!(file.file_tags(), ["project", "work", "ARCHIVE"]);
-        assert_eq!(file.special_tags(), ["project", "REFILE", "ARCHIVE", "CONFLICT"]);
+        assert_eq!(file.special_tags(), ["project", "REFILE", "ARCHIVE", "CONFLICT", "ATTACH"]);
         assert_eq!(file.source_bytes(), source.as_bytes());
     }
 
     #[test]
     fn document_sections_include_empty_and_literal_content_without_executing_html() {
         let empty = file("").document_sections();
-        assert_eq!(empty, [DocumentSection { path: None, html: String::new() }]);
+        assert_eq!(empty, [DocumentSection { path: None, html: String::new(), blocks: Vec::new() }]);
         let sections = file("* TODO 空任务\n** 普通标题\n#+begin_export html\n<script>bad()</script>\n#+end_export\n").document_sections();
         assert!(sections[1].html.trim().is_empty());
         assert!(sections[2].html.contains("&lt;script&gt;"));

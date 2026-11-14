@@ -107,6 +107,7 @@ pub struct HarmonyBridgeTask {
     pub inherited_tags: Vec<String>,
     pub support_tags: Option<org_tasks_core::SupportTags>,
     // 日期与时间由 Core 投影，嵌套对象原样传给 N-API，不在宿主解析 Org。
+    // Core 生成有序区块与快照内身份；bridge 不拆分 HTML 或解释 Org。
     pub edit_content: org_tasks_core::TaskEditContent,
     pub file_path: String,
     pub file_name: String,
@@ -123,6 +124,7 @@ pub struct HarmonyBridgeTask {
     pub has_text: bool,
     pub is_repeating: bool,
     pub is_habit: bool,
+    pub has_attach: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -319,6 +321,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         has_text: content.has_text,
         is_repeating: task.is_repeating(),
         is_habit: task.is_habit(),
+        has_attach: task.has_attach(),
     })
 }
 
@@ -917,7 +920,7 @@ mod tests {
         let snapshot = serde_json::to_value(file_snapshot(&source_file).unwrap()).unwrap();
         assert_eq!(snapshot["projectName"], "Shared Project");
         assert_eq!(snapshot["fileTags"], serde_json::json!(["project"]));
-        assert_eq!(snapshot["specialTags"], serde_json::json!(["project", "REFILE", "ARCHIVE", "CONFLICT"]));
+        assert_eq!(snapshot["specialTags"], serde_json::json!(["project", "REFILE", "ARCHIVE", "CONFLICT", "ATTACH"]));
         assert_eq!(snapshot["documentSections"].as_array().unwrap().len(), 3);
         assert!(snapshot["documentSections"][0]["path"].is_null());
         assert_eq!(snapshot["documentSections"][1]["path"], snapshot["nodes"][0]["fullPath"]);
@@ -1605,6 +1608,47 @@ mod tests {
         .unwrap()
         .remove(0);
         assert!(result["tasks"].as_array().unwrap().is_empty());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn attachment_tag_is_hidden_but_preserved_as_a_readonly_task_flag() {
+        let file = org_tasks_core::OrgFile::new("repo".into(), "tasks.org".into(),
+            b"* TODO Attached :ATTACH:work:\n** TODO Child :home:\n".to_vec()).unwrap();
+        let snapshot = serde_json::to_value(file_snapshot(&file).unwrap()).unwrap();
+        assert_eq!(snapshot["nodes"][0]["hasAttach"], true);
+        assert_eq!(snapshot["nodes"][1]["hasAttach"], false);
+        assert_eq!(snapshot["nodes"][0]["tags"], serde_json::json!(["work"]));
+        assert_eq!(snapshot["nodes"][1]["tags"], serde_json::json!(["home", "work"]));
+        assert!(snapshot["nodes"][0]["ownTags"].as_array().unwrap().contains(&serde_json::json!("ATTACH")));
+        assert!(snapshot["specialTags"].as_array().unwrap().contains(&serde_json::json!("ATTACH")));
+    }
+
+    #[test]
+    fn content_blocks_are_ordered_and_local_edits_reject_stale_versions() {
+        let root = std::env::temp_dir().join(format!("org-content-blocks-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "* TODO Task\r\nBefore\r\n\r\n| A | B |\r\n| 1 | 2 |\r\n\r\n- [ ] Item\r\n:LOGBOOK:\r\nkeep\r\n:END:\r\n";
+        std::fs::write(root.join("tasks.org"), source).unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let result = serde_json::from_str::<Vec<serde_json::Value>>(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap().remove(0);
+        let task = &result["tasks"][0];
+        let blocks = task["editContent"]["blocks"].as_array().unwrap();
+        assert_eq!(blocks.iter().map(|b| b["kind"].as_str().unwrap()).collect::<Vec<_>>(), ["text", "table", "checklist"]);
+        assert_eq!(blocks[2]["items"][0]["text"], "Item");
+        let request = serde_json::json!({
+            "operations":[{"type":"Modification","data":{"path":task["fullPath"],"modifications":[
+                {"field":"CONTENT_BLOCK","value":{"type":"replace","id":blocks[1]["id"],"source":"| A | B |\n| 3 | 4 |"}}
+            ]}}],
+            "fileVersions":[{"repoId":task["repoId"],"file":task["filePath"],"version":task["fileVersion"]}]
+        });
+        workspace_execute_task_operations(handle, request.to_string()).unwrap();
+        let expected = source.replace("| 1 | 2 |", "| 3 | 4 |");
+        assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
+        assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
+        assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

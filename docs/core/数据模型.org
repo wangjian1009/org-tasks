@@ -184,6 +184,7 @@ pub struct FilterTask {
     address_links: Vec<AddressLink>,
     is_repeating: bool,
     is_habit: bool,
+    has_attach: bool,
     scheduled: Option<FilterDate>,
     deadline: Option<FilterDate>,
     closed: Option<FilterDate>,
@@ -228,6 +229,7 @@ impl FilterTask {
     pub fn address_links(&self) -> &[AddressLink];
     pub fn is_repeating(&self) -> bool;
     pub fn is_habit(&self) -> bool;
+    pub fn has_attach(&self) -> bool;
     pub fn scheduled(&self) -> Option<FilterDate>;
     pub fn deadline(&self) -> Option<FilterDate>;
     pub fn closed(&self) -> Option<FilterDate>;
@@ -251,7 +253,7 @@ Core 内部同时保存 SCHEDULED 与 DEADLINE 的预警起始日。活动规划
 
 ~FilterTask.category~ 是查询时所属文件的 ~OrgFile.category()~ 快照，由 Core 每文件提取一次；未声明为 ~None~ ，显式空声明为 ~Some("")~ 。标题属性不覆盖这个文件分类。分类变化不改变任务逻辑 ID，但刷新后必须使用新任务快照。宿主通过只读数据控制分类展示，不再逐项获取文件，不额外传入分类文字。该投影不进入同步记录或 outbox。
 
-~FilterTask.own_tags~ 与 ~inherited_tags~ 在查询内部保留原始标签用于表达式求值； ~OrgWorkspace.query~ 返回前统一排除系统标签 ~REFILE~ 与 ~ARCHIVE~ 。其余标签的内容与顺序保持不变，大小写不同的 ~refile~ 或 ~archive~ 不受影响。放置目标从 ~OrgFile~ 的标题自身标签读取，不依赖已去除系统标签的查询返回值。
+~FilterTask.own_tags~ 与 ~inherited_tags~ 在查询内部保留原始标签用于表达式求值； ~OrgWorkspace.query~ 与文件节点投影返回前统一排除系统标签 ~REFILE~ 、 ~ARCHIVE~ 、 ~CONFLICT~ 与 ~ATTACH~ 。其余标签的内容与顺序保持不变，大小写不同的 ~refile~ 或 ~archive~ 不受影响。放置目标从 ~OrgFile~ 的标题自身标签读取，不依赖已去除系统标签的查询返回值。
 
 \begin{center}
 \begin{tikzpicture}
@@ -892,7 +894,7 @@ OrgFile.render_html() 复用同一运行时 orgize 语法树，将整篇文件�
 
 ** 文档分段投影
 
-~DocumentSection~ 是只读运行时投影，包含可空完整节点路径 ~path~ 与安全正文 ~html~ 。 ~OrgFile.document_sections()~ 返回前言及按文件顺序排列的直属正文；前言路径为空，标题项路径与同版本节点接口一致，重名标题通过出现次序区分。投影不含标题、规划行、后代正文与受保护冲突材料，正文和前言均跳过真实的 PROPERTIES 与 LOGBOOK 抽屉，保留代码及示例中的同名字面内容与其他普通 drawer，前言隐藏文件头配置；结构化节点日志与原始属性不变，不新增持久化数据。 ~file_tags()~ 保留有效文件标签， ~special_tags()~ 提供隐藏展示的内部标签列表，不改变查询或源字节。
+~DocumentSection~ 是只读运行时投影，包含可空完整节点路径 ~path~ 、安全正文 ~html~ 与有序正文 ~blocks~ 。 ~OrgFile.document_sections()~ 返回前言及按文件顺序排列的直属正文；前言路径为空，标题项路径与同版本节点接口一致，重名标题通过出现次序区分。投影不含标题、规划行、后代正文与受保护冲突材料，正文和前言均跳过真实的 PROPERTIES 与 LOGBOOK 抽屉，保留代码及示例中的同名字面内容与其他普通 drawer，前言隐藏文件头配置；结构化节点日志与原始属性不变，不新增持久化数据。 ~file_tags()~ 保留有效文件标签， ~special_tags()~ 提供隐藏展示的内部标签列表，不改变查询或源字节。
 
 \begin{center}
 \begin{tikzpicture}
@@ -1460,7 +1462,7 @@ after: Option\textless Bytes\textgreater}{}
 
 * 卡片编辑正文与检查清单
 
-~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 、只读富文本 ~notes_html~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。规划范围与任务操作器共用，兼容重复窗口（如 ~.+1w/2w~ ）导致规划行被语法树并入段落的情况；备注投影与备注修改使用同一范围，未修改的规划字节保持原样。正文内容开始后出现的同名普通文本继续作为备注保留。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
+~OrgFile.task_edit_content~ 根据任务完整路径生成 ~TaskEditContent~ ，包含有序正文区块 ~blocks~ 、保留内部用途标签的 ~own_tags~ 、原始备注 ~notes~ 、只读富文本 ~notes_html~ 与 ~checklist~ 。规划、属性抽屉和其他 drawer 不进入备注。规划范围与任务操作器共用，兼容重复窗口（如 ~.+1w/2w~ ）导致规划行被语法树并入段落的情况；备注投影与备注修改使用同一范围，未修改的规划字节保持原样。正文内容开始后出现的同名普通文本继续作为备注保留。独立 checkbox 列表投影为清单，混有普通条目的列表整体保留在备注中；源码块中的字面 checkbox 不生成条目，子标题清单不归入父任务。嵌套 checkbox 保留深度；部分完成状态单独标记，未操作时不改写。
 
 #+begin_src rust
 pub struct TaskEditContent {
@@ -1468,6 +1470,7 @@ pub struct TaskEditContent {
     pub notes: String,
     pub notes_html: String,
     pub checklist: Vec<TaskChecklistItem>,
+    pub blocks: Vec<ContentBlock>,
     pub scheduled_repeat: Option<TaskRepeatInfo>,
     pub deadline_repeat: Option<TaskRepeatInfo>,
     pub scheduled_planning: Option<TaskPlanningInfo>,
@@ -1529,6 +1532,22 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 \umldep{TaskPlanningValue}{TaskPlanningEdit}
 \umlcompo[mult2=*]{TaskEditContent}{TaskChecklistItem}
 \umldep{TaskChecklistChange}{TaskChecklistItem}
+\end{tikzpicture}
+
+** 有序正文区块模型
+
+~ContentBlock~ 是不持久化的运行时投影， ~kind~ 为 ~text~ 、 ~list~ 、 ~table~ 或 ~checklist~ 。 ~id~ 取自当前语法节点的字节位置， ~source~ 保留区块原文但不包含末尾分隔换行； ~html~ 由 Core 生成安全阅读片段，链接定位相对于本区块原文； ~items~ 只在 checklist 区块中包含结构化条目。 ~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 共用该模型及顺序，节点正文不包含后代、规划、属性与日志；前言隐藏文件配置。
+
+区块的 ~Replace~ 与 ~Link~ 通过 ~CONTENT_BLOCK~ 修改提交，旧版本和非本节点的 ID 拒绝。文本、普通列表和表格分别编辑自身原文；纯 checkbox 清单仍通过条目操作保留嵌套、状态、统计与同级排序规则。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskEditContent}{blocks: Vec}{}
+\umlclass[x=7,y=0]{DocumentSection}{path: Option \\ html: String \\ blocks: Vec}{}
+\umlclass[x=3.5,y=-4]{ContentBlock}{id: String \\ kind: ContentBlockKind \\ source: String \\ html: String \\ items: Vec}{}
+\umlclass[x=3.5,y=-8,type=enumeration]{ContentBlockKind}{Text \\ List \\ Table \\ Checklist}{}
+\umlcompo[mult2=*]{TaskEditContent}{ContentBlock}
+\umlcompo[mult2=*]{DocumentSection}{ContentBlock}
+\umldep{ContentBlock}{ContentBlockKind}
 \end{tikzpicture}
 
 * 标题统计更新
@@ -1767,3 +1786,11 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 \umluniassoc[mult1=1,mult2=0..*]{RenderedTaskContent}{TaskLog}
 \end{tikzpicture}
 \end{center}
+
+* 附件标记快照
+
+~FilterTask.has_attach: bool~ 在读取自身原始标题标签时计算， ~has_attach()~ 返回此快照；精确的 ~ATTACH~ 标签为真，小写标签、继承标签、文件标签及源码中的字面标记不使本条目为真。标签展示过滤后仍保留判断结果，编辑投影中的原始标签继续保留，避免修改普通标签时丢失附件用途标记。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{FilterTask}{has\_attach: bool}{has\_attach(): bool}
+\end{tikzpicture}

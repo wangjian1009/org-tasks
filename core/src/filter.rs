@@ -155,6 +155,8 @@ pub struct FilterTask {
     pub(crate) is_repeating: bool,
     /// 当前标题自身的 STYLE 属性为 habit；不继承父标题或文件默认值。
     pub(crate) is_habit: bool,
+    /// 当前标题自身显式带有 ATTACH；不继承父标题或文件标签。
+    pub(crate) has_attach: bool,
     pub(crate) scheduled: Option<FilterDate>,
     pub(crate) deadline: Option<FilterDate>,
     /// Org-mode 规划时间预警期的起始日期，仅供 Core 的 <= 日期查询使用。
@@ -296,6 +298,10 @@ impl FilterTask {
         self.is_repeating
     }
 
+    pub fn has_attach(&self) -> bool {
+        self.has_attach
+    }
+
     pub fn is_habit(&self) -> bool {
         self.is_habit
     }
@@ -349,6 +355,7 @@ impl FilterTask {
                 crate::model::REFILE_TAG,
                 crate::model::ARCHIVE_TAG,
                 crate::model::CONFLICT_TAG,
+                crate::model::ATTACH_TAG,
             ]
             .contains(&tag.as_str())
         };
@@ -543,6 +550,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             title: headline.title_raw().trim_end().to_owned(),
             body,
             address_links,
+            has_attach: headline.tags().any(|tag| tag == crate::model::ATTACH_TAG),
             is_repeating: planning_repeats(&headline),
             is_habit: crate::model::properties::own(&headline, "STYLE").as_deref() == Some("habit"),
             scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),

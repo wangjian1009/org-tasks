@@ -31,7 +31,7 @@ export interface TaskCreation {
   tags?: string[]; scheduled?: string | null; deadline?: string | null;
 }
 export interface TaskAddressChange { oldUri: string; newUri: string; }
-export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
+export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'CONTENT_BLOCK' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
 export type TaskRepeatMode = 'cumulative' | 'catchUp' | 'afterCompletion';
 export type TaskRepeatUnit = 'hour' | 'day' | 'week' | 'month' | 'year';
 export interface TaskRepeatRule { mode: TaskRepeatMode; interval: number; unit: TaskRepeatUnit; }
@@ -40,10 +40,12 @@ export interface TaskPlanningEdit { date: string; time?: TaskPlanningTime | null
 export interface TaskPlanningInfo { readonly date: string; readonly time: TaskPlanningTime | null; }
 export interface TaskRepeatInfo { readonly date: string; readonly hasTime: boolean; readonly rule: TaskRepeatRule | null; }
 export interface TaskChecklistItem { readonly id: string; readonly siblingGroup: string; readonly text: string; readonly checked: boolean; readonly partial: boolean; readonly depth: number; }
-export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
+export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly blocks: ContentBlock[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
 export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }
 export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string } | { type: 'move'; id: string; beforeId: string | null };
-export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
+export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
+export type ContentBlockChange = { type: 'replace'; id: string; source: string } | { type: 'link'; id: string; link: TextLink; value: LinkValue | null };
+export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }
@@ -61,7 +63,7 @@ export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; projectName: string | null; fileVersion: string; titleParts: TitlePart[];
 }
-export interface DocumentSection { path: TaskPath | null; html: string; }
+export interface DocumentSection { path: TaskPath | null; html: string; blocks: ContentBlock[]; }
 export class OrgFile {
   private constructor();
   readonly repoId: string;
@@ -145,6 +147,7 @@ export class Task {
   readonly hasText: boolean;
   readonly isRepeating: boolean;
   readonly isHabit: boolean;
+  readonly hasAttach: boolean;
 }
 
 export interface SyncRecord {

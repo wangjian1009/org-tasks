@@ -47,6 +47,8 @@ import {
   SyncConflictNotification as NativeSyncConflictNotification,
   OrgFile as NativeOrgFile,
   DocumentSection as NativeDocumentSection,
+  ContentBlock as NativeContentBlock,
+  ContentBlockChange as NativeContentBlockChange,
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
   SyncTriggerReason,
@@ -85,6 +87,8 @@ export type CoreFileConflict = NativeFileConflict
 // project() 与 renderDocumentHtml() 均读取 Native OrgFile 的同版本 Core 快照。
 export type CoreOrgFile = NativeOrgFile
 export type CoreDocumentSection = NativeDocumentSection
+export type CoreContentBlock = NativeContentBlock
+export type CoreContentBlockChange = NativeContentBlockChange
 // 文件 category 与 projectName 来自同一 Core 快照，供导航展示分区。
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
@@ -100,6 +104,7 @@ export type CoreTaskRepeatInfo = NativeTaskRepeatInfo
 export type CoreTaskRepeatMode = NativeTaskRepeatMode
 export type CoreTaskRepeatUnit = NativeTaskRepeatUnit
 export type CoreSupportTags = NativeSupportTags
+// hasAttach 等只读标记由 Core 在过滤展示标签前计算，宿主不从 tags 反推。
 export type CoreTask = NativeTask
 export type CoreTaskLog = NativeTaskLog
 // createdAt 与 closedAt 由 Core 按本地时区解析，日志簿不从正文推算事件时间。

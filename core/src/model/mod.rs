@@ -1,3 +1,4 @@
+mod content_block;
 use crate::{CoreError, TimestampMs};
 use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,7 @@ mod todo;
 mod workspace;
 pub(crate) mod write_intent;
 
+pub use content_block::*;
 pub use conflict_preview::*;
 pub use data_changes::*;
 pub use editor::*;
@@ -50,6 +52,7 @@ pub use render::*;
 pub use text_link::{TextLink, LinkValue, TaskLinkField, TaskLinkChange};
 pub use service::*;
 pub use tags::SupportTags;
+pub(crate) use tags::ATTACH_TAG;
 pub use task_inline::*;
 pub use task_log::*;
 pub use task_operation::*;

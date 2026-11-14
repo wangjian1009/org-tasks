@@ -88,6 +88,12 @@ test('备注、标签和清单操作原样交给 Core，不重建正文',async()
   const f=fixture();const changes=[{field:'NOTES',value:'new notes'},{field:'CHECKLIST',value:{type:'setChecked',id:'123',checked:true}},{field:'TAGS',value:['configured','used']}];
   await f.TaskInlineService.modify({},f.task,changes);assert.deepEqual(f.requests[0].operations[0].data.modifications,changes);
 });
+test('正文区块修改沿用原快照位置和版本，不加载新版本套用旧区块 ID', async () => {
+  const f = fixture();f.setCurrent(f.updated);
+  await f.TaskInlineService.modify({}, f.task, [{field:'CONTENT_BLOCK',value:{type:'replace',id:'42',source:'Changed'}}]);
+  assert.equal(f.requests[0].fileVersions[0].version, 'old');
+  assert.deepEqual(f.requests[0].operations[0].data.path, f.task.fullPath);
+});
 test('版本冲突向调用方传播，不拿新版本自动覆盖',async()=>{
   const f=fixture();f.conflict();await assert.rejects(f.TaskInlineService.modify({},f.task,[{field:'NOTES',value:'draft'}]),/版本冲突/);assert.equal(f.requests.length,1);
 });
@@ -128,7 +134,7 @@ function cardRefreshFixture(emit = true, backend) {
     {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message,{Todo:'Todo',Done:'Done'});
   state = Object.assign(new module.exports.CardRefresh(), {
     task:original,editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
-    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},
+    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},blockEditor:{finish:async()=>true},
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
@@ -408,7 +414,7 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   const requests = [];
   const raw = '测量尿酸 [[id:stable][并记录]]';
   let saved = false;
-  const card = Object.assign(new module.exports.Card(), { heading: raw, ownerKey: 'task', headingInput: false, linkEditor: {finish:async()=>true},
+  const card = Object.assign(new module.exports.Card(), { heading: raw, ownerKey: 'task', headingInput: false, linkEditor: {finish:async()=>true}, blockEditor: {finish:async()=>true},
     checkFocus: { request: key => requests.push(key) }, saveText: async () => saved });
   await card.editHeading();
   assert.deepEqual(requests, ['inline_title_task']);
@@ -419,6 +425,9 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   await card.finishHeading();
   assert.equal(card.headingInput, false);
   assert.equal(card.heading, raw);
+  card.blockEditor.finish = async () => false;
+  await card.editHeading();assert.equal(card.headingInput, false);
+  card.blockEditor.finish = async () => true;
   for (const blocked of ['readOnly', 'working', 'draggingCheck', 'snapshotBlocked']) {
     card[blocked] = true;
     await card.editHeading();

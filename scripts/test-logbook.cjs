@@ -12,7 +12,7 @@ const ts = require(path.join('/Applications/DevEco-Studio.app/Contents', 'sdk/de
 function compile(source, mocks = {}) {
   const module = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
-  vm.runInThisContext('(function(require,module,exports,TaskInlineSession){' + code + '\n})')(name => mocks[name], module, module.exports, mocks.session);
+  vm.runInThisContext('(function(require,module,exports,TaskInlineSession,LogShowPolicy){' + code + '\n})')(name => mocks[name], module, module.exports, mocks.session, { LogShowBySwitch: 'LogShowBySwitch', LogShowAlways: 'LogShowAlways' });
   return module.exports;
 }
 const regions = compile(fs.readFileSync('entry/src/main/ets/ui/TaskRegionPresentation.ets', 'utf8'));
@@ -92,7 +92,7 @@ function readOnlyCard(instanceKey = 'event-A') {
   let released;
   const session = { begin: async () => true, release: key => { released = key; } };
   const { Card } = compile('export class Card {\n' + chunks.join('\n') + '\n}', { session });
-  const card = Object.assign(new Card(), { readOnly: true, instanceKey, task: task('A', null, null), dataChanges: { revision: 1 },
+  const card = Object.assign(new Card(), { readOnly: true, logShowPolicy: 'LogShowBySwitch', instanceKey, task: task('A', null, null), dataChanges: { revision: 1 },
     getUIContext() { return { animateTo(_, change) { change(); } }; } });
   global.Curve = { EaseInOut: 0 };
   card.aboutToAppear();

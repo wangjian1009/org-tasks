@@ -20,3 +20,5 @@
 * 实现与验收边界
 
 Core 提供同版本文档分段、完整节点路径与特殊标签列表，宿主只组装布局。任务修改继续经过现有版本校验与 Core 操作组；原文阅读和布局变化不改写文件。手机功能状态记录于 [[file:../手机应用功能清单.org][手机应用功能清单]]，页面导航记录于 [[file:UI导航设计.org][UI 导航设计]]。
+
+正文直接复用 ~TaskTextBlock~ 、 ~TaskListBlock~ 、 ~TaskTableBlock~ 与 ~TaskChecklistBlock~ ，由 Core 的 ~DocumentSection.blocks~ 按原文顺序组合； ~readonly~ 只关闭操作并保持相同阅读布局。前言只读，节点区块可原位编辑，保存仅修改当前区块，已有清单操作继续沿用 Core 的版本校验。

@@ -69,7 +69,7 @@ execFileSync('c++', ['-std=c++17', '-shared', '-undefined', 'dynamic_lookup',
 const native = require(addon);
 
 function snapshot(name = 'DONE', done = false) {
-  return native.create({ id: 'task', heading: '项目任务', projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
+  return native.create({ id: 'task', heading: '项目任务', hasAttach: true, projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
     headingParts: [{ text: '参考', href: 'https://example.com/', isLink: true, count: null,
       link: { start: 0, end: 31, source: '[[https://example.com/][参考]]', title: '参考', url: 'https://example.com/' } }],
     editContent: { ownTags: [], notes: 'https://example.com/', notesHtml: '<main><p><a class="link" href="https://example.com/">https://example.com/</a></p></main>',
@@ -184,4 +184,13 @@ test('文件元信息按分类返回独立优先级对象，不暴露私有查�
   assert.equal(Object.hasOwn(metadata,'taskPriorityOptions'),false);
   assert.equal(Object.hasOwn(metadata,'taskStateOptions'),false);
   assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(metadata)),'taskPriorityOf'),false);
+});
+
+test('附件标记作为只读可枚举快照穿过 N-API，深拷贝与序列化保留判断结果', () => {
+  const original = snapshot();
+  assert.equal(original.hasAttach, true);
+  assert.equal(Object.getOwnPropertyDescriptor(original, 'hasAttach').writable, false);
+  assert.ok(Object.keys(original).includes('hasAttach'));
+  assert.equal(copy(original).hasAttach, true);
+  assert.equal(JSON.parse(JSON.stringify(original)).hasAttach, true);
 });

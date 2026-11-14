@@ -746,7 +746,7 @@ fn normalize_newlines(value: &str, nl: &str) -> String {
         .replace('\n', nl)
 }
 
-fn update_title_counts(
+pub(super) fn update_title_counts(
     file: &mut OrgFile,
     offset: usize,
     trigger: super::title_statistics::Trigger,
@@ -812,6 +812,7 @@ pub(super) fn modify(
     modification: &TaskModification,
 ) -> Result<(), CoreError> {
     match modification {
+        TaskModification::ContentBlock(change) => super::content_block::modify(file, headline, change),
         TaskModification::Link(change) => super::text_link::modify_link(file, headline, change),
         TaskModification::Title(value) => {
             if let Some(value) = value {

@@ -493,9 +493,9 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     napi_value constructor, result;
     if (napi_get_reference_value(env, task_constructor, &constructor) != napi_ok ||
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
-    // id 为 Core 的明文逻辑路径；headingParts.link 的快照定位与 editContent.notesHtml、scheduledPlanning、deadlinePlanning 原样透传；结构化 SCHEDULE/DEADLINE 由 worker 交给 Core 校验。
+    // id 为 Core 的明文逻辑路径；editContent.blocks 与文档区块均原样透传。CONTENT_BLOCK、清单及链接操作沿用原文件版本，在 worker 中由 Core 校验源范围。
     for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
-        "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit"}) {
+        "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit", "hasAttach"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
         napi_property_descriptor property = {name, nullptr, nullptr, nullptr, nullptr, value, napi_enumerable, nullptr};

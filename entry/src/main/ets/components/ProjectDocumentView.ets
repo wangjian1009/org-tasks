@@ -1,6 +1,6 @@
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
-import { OrgContentView } from './OrgContentView'
+import { TaskDocumentContent } from './editors/TaskDocumentContent'
 import { OrgHeadingView } from './OrgHeadingView'
 import { TaskEditor } from './editors/TaskEditor'
 import { TaskInlineSession } from '../services/TaskInlineService'
@@ -106,15 +106,14 @@ export struct ProjectDocumentView {
                 OrgHeadingView({ node: section.node, specialTags: this.specialTags }).width('100%')
               }
             }
-            if (section.html.trim()) {
-              OrgContentView({ fragment: section.html, embedded: true, embeddedPadding: 0,
-                fileReading: true, flowReading: true, projectReading: true }).width('100%')
+            if (section.blocks.length > 0) {
+              TaskDocumentContent({ task: section.node, blocks: section.blocks, readonly: section.node === null }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
             .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 12 : 0 })
             .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
         }, (section: ProjectReadingSection) => `${this.revision}:${section.key}`)
-        if (this.sections.every((section: ProjectReadingSection) => section.node === null && !section.html.trim())) {
+        if (this.sections.every((section: ProjectReadingSection) => section.node === null && section.blocks.length === 0)) {
           Text('项目还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
         }
       }.width('100%').constraintSize({ maxWidth: 740 }).padding({ left: 20, right: 20, top: 12, bottom: 48 })

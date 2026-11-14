@@ -653,3 +653,15 @@ Core 的 ~TextLink~ 、 ~LinkValue~ 、 ~TaskLinkChange~ 分别透传为同名 T
 ~TaskPlanningValue~ 的 TS 输入为完整时间戳字符串或 ~TaskPlanningEdit~ ，仍通过 ~SCHEDULE~ 和 ~DEADLINE~ 提交；不存在单独的日期修改字段。 ~TaskPlanningEdit~ 包含 ~date: string~ 和可选的 ~time: TaskPlanningTime | null~ ， ~TaskPlanningTime~ 包含 ~start: string~ 与 ~end: string | null~ 。缺省时间保留原值，显式 ~null~ 清除时刻；整个规划值为 ~null~ 清除规划。C++ 原样序列化结构化对象，通过已有 worker 调用 Rust，由 Core 解析、校验与局部写入，宿主不拼接 Org 时间戳。
 
 ~Task.editContent.scheduledPlanning~ 与 ~deadlinePlanning~ 是 ~TaskPlanningInfo | null~ ，包含 ~date~ 和可空的 ~time~ ，Rust 直接采用 Core 投影，C++ 的 ~editContent~ 嵌套对象原样透传； ~task.scheduled~ 和 ~task.deadline~ 继续保留纯日期供既有分组使用。 ~NativeCoreService~ 增加三个结构类型别名。卡片、收件箱分配、批量分配及重复面板的日期草稿均迁移到统一规划字段。重复面板只修改日期并保留原时间。
+
+* 正文区块接入
+
+Core 的 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 原样透传为 ~ContentBlock[]~ ，字段为 ~id~ 、 ~kind~ 、 ~source~ 、 ~html~ 和 ~items~ 。 ~kind~ 使用 ~text/list/table/checklist~ 判别联合。C++ 不识别 HTML 或重建区块，ArkTS wrapper 只导出对应类型；原生任务对象仍以只读可枚举的 ~editContent~ 承载有序区块。
+
+区块修改使用既有 ~Workspace.executeTaskOperations~ ， ~TaskModification.field~ 为 ~CONTENT_BLOCK~ ，值为 ~{ type: 'replace', id, source }~ 或 ~{ type: 'link', id, link, value }~ 。任务列表与完整项目文件中的节点均提交原文件版本，不以新快照替换旧位置身份。写入、范围验证、链接生成、原换行适配与字节保真统一在 Core 执行，UI 只保存草稿并处理错误。
+
+~TaskContentBlocks~ 根据 Core 的区块类型组装 ~TaskTextBlock~ 、 ~TaskListBlock~ 、 ~TaskTableBlock~ 和 ~TaskChecklistBlock~ 。 ~readonly~ 只关闭修改入口和操作，阅读布局保持一致；项目文档通过 ~TaskDocumentContent~ 直接复用这些控件，文件前言只读，节点正文通过现有文档编辑会话与版本校验保存。
+
+* 附件用途标记接入
+
+Core 的 ~FilterTask.has_attach()~ 映射为 Harmony 任务快照的只读布尔属性 ~Task.hasAttach~ ，Rust bridge 在过滤展示标签后仍透传判断结果；C++ 与其他任务字段一同注册为只读可枚举属性，ArkTS 直接消费类型别名，不通过已过滤的 ~tags~ 反推。 ~specialTags()~ 包含 ~ATTACH~ ，查询、完整文件节点、标签候选与项目正文统一沿用 Core 的过滤结果；原始编辑标签仍保留。该接入不新增附件目录扫描或手机附件操作入口。

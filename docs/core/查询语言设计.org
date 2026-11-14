@@ -75,7 +75,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 ** 文件头 TAGS 配置
 
-Core 使用 ~orgize~ 文件头关键字读取 ~#+TAGS:~ ，关键字不区分大小写，多行配置按源顺序合并；源码、示例与标题正文中的同名文本不参与。 ~OrgFile.tag_options()~ 与轻量文件元信息的 ~tag_options~ 返回去重候选，排除系统标签 ~REFILE~ 与 ~ARCHIVE~ 。 ~tag(k)~ 中的 ~k~ 是 Org-mode 快捷键，候选名称不包含它；没有快捷键的标签同样有效。
+Core 使用 ~orgize~ 文件头关键字读取 ~#+TAGS:~ ，关键字不区分大小写，多行配置按源顺序合并；源码、示例与标题正文中的同名文本不参与。 ~OrgFile.tag_options()~ 与轻量文件元信息的 ~tag_options~ 返回去重候选，排除系统标签 ~REFILE~ 、 ~ARCHIVE~ 与 ~ATTACH~ 。 ~tag(k)~ 中的 ~k~ 是 Org-mode 快捷键，候选名称不包含它；没有快捷键的标签同样有效。
 
 按 Org Info 的“Setting Tags”语义，花括号表示互斥标签组，例如 ~{ iOS(i) Android(a) }~ 。 ~OrgFile.tag_groups()~ 和 ~OrgFileMetadata.tag_groups~ 保留每组标签及声明顺序，不把花括号、分隔符或换行标记当作标签。备忘筛选中每组最多选一项，同组切换替换原选择，不同组已选条件按交集匹配；未分组标签作为一组按并集匹配，“无标签”可与匹配结果取并集。普通页面未传入互斥组时仍沿用原有多选并集规则，不展开层级或正则分组。
 
@@ -85,7 +85,7 @@ Core 使用 ~orgize~ 文件头关键字读取 ~#+TAGS:~ ，关键字不区分大
 
 精确等于 ~REFILE~ 的标签表示可放置任务的标题，目标由 ~OrgWorkspace.refile_targets()~ 或 ~OrgRepo.refile_targets()~ 单独枚举，模型与层级路径见 [[file:数据模型.org::*任务放置目标][任务放置目标]] 。放置标记只认标题自身显式标签，不从祖先或文件标签继承。 ~OrgWorkspace.query_refile_targets()~ 的 ~include_project_roots~ 默认关闭，开启时额外返回项目文件根节点，不要求 REFILE 标签，复用同一文件范围与排除规则。
 
-~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ 与 ~ARCHIVE~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 或 ~archive~ 时保留。带这些系统标签的标题仍属于正常任务查询结果，不因标记被整体排除。
+~query~ 在原始自身及继承标签上完成所有匹配后，从返回的每个 ~FilterTask~ 的 ~own_tags~ 与 ~inherited_tags~ 中移除 ~REFILE~ 、 ~ARCHIVE~ 、 ~CONFLICT~ 与 ~ATTACH~ ，使宿主不将其作为普通任务标签展示。其他标签的顺序及大小写不变，标签为小写 ~refile~ 或 ~archive~ 时保留。带这些系统标签的标题仍属于正常任务查询结果，不因标记被整体排除。
 
 ~t.REFILE~ 仍按既有标签匹配规则检索自身或祖先标签， ~tn.REFILE~ 仍只检索自身标签，否定及普通文本条件也在移除前求值。这些表达式的匹配范围与放置目标的精确标签识别不同；目标枚举不通过任务查询实现。源 Org 字节与原始标签均不修改。
 
@@ -182,3 +182,7 @@ UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRe
 ~ShareLocation~ 通过 ~NativeCoreService.query -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与 ~it.todo~ 或配置备忘文件中的 ~it.none~ 条件；页面不再按标题、地址或条数过滤返回结果。
 
 按 ~o.priority~ / ~o.p~ 及其降序形式排序时，缺少显式优先级的任务使用所属文件的默认字母参与比较，与同字母的显式任务同级。同级沿用相对文件路径与源位置次序；读取与排序不补写优先级标记。默认值语义依据 [[info:org#Priorities][Org Info：Priorities]]。
+
+* 附件用途标记
+
+~ATTACH~ 是大小写敏感的特殊用途标签，任务和节点的展示标签、配置候选及互斥组统一由 Core 隐藏；原始标签仍用于表达式求值，因此 ~t.ATTACH~ 和 ~tn.ATTACH~ 保留既有的继承／自身匹配范围。 ~FilterTask.has_attach()~ 只判断当前标题自身是否显式带有精确的大写标记，不从过滤后的展示标签反推；父标题或文件标签不使该判断为真。小写 ~attach~ 保留为普通标签。原文、编辑用原始标签及同步数据不因展示过滤而改写。

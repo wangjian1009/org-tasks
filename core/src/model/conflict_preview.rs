@@ -723,7 +723,9 @@ impl OrgFile {
             root_directory: String::new(),
             todo_defaults: TodoConfig::default(),
         };
-        crate::filter::tasks_from_file(&repo, self)
+        let mut nodes = crate::filter::tasks_from_file(&repo, self);
+        for node in &mut nodes { node.exclude_system_tags(); }
+        nodes
     }
     pub fn insertion_positions(&self) -> Vec<TaskPosition> {
         let nodes = self

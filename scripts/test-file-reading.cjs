@@ -281,7 +281,7 @@ function projectPageFixture() {
   let end = async () => true;
   let capture = '{"open":["org-node-12"],"anchor":"org-node-12","offset":0,"scroll":80}';
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
-    nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
+    nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
     '../components/AppShell': {}, '../components/controls/EmptyState': {},
@@ -385,8 +385,8 @@ test('项目分段一次批量关联全部节点，保留重名标题与无状�
   const second = { fullPath: { ...first.fullPath, occurrence: 2 }, state: { name: 'NEXT' } };
   let reads = 0;
   const file = { nodes() { reads++; return [first, second]; }, documentSections() { return [
-    { path: null, html: '<p>前言</p>' }, { path: first.fullPath, html: '<table>章节</table>' },
-    { path: second.fullPath, html: '<p>任务正文</p>' }
+    { path: null, html: '<p>前言</p>', blocks: [] }, { path: first.fullPath, html: '<table>章节</table>', blocks: [{ id: '1', kind: 'table', source: '| 章节 |', html: '<table>章节</table>', items: [] }] },
+    { path: second.fullPath, html: '<p>任务正文</p>', blocks: [] }
   ]; } };
   const sections = projectReading.projectReadingSections(file);
   assert.equal(reads, 1);
@@ -395,10 +395,12 @@ test('项目分段一次批量关联全部节点，保留重名标题与无状�
   assert.equal(sections[2].node, second);
   assert.notEqual(sections[1].key, sections[2].key);
   assert.equal(sections[2].html, '<p>任务正文</p>');
+  assert.equal(sections[1].blocks[0].kind, 'table');
+  assert.equal(sections[1].blocks[0].source, '| 章节 |');
   assert.throws(() => projectReading.projectReadingSections({ ...file, nodes: () => [first] }), /版本不一致/);
-  const tags = ['project', 'work', 'REFILE', 'ARCHIVE', 'CONFLICT', 'Project'];
-  assert.deepEqual(projectReading.visibleProjectTags(tags, ['project', 'REFILE', 'ARCHIVE', 'CONFLICT']), ['work', 'Project']);
-  assert.equal(tags.length, 6);
+  const tags = ['project', 'work', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH', 'Project'];
+  assert.deepEqual(projectReading.visibleProjectTags(tags, ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH']), ['work', 'Project']);
+  assert.equal(tags.length, 7);
 });
 
 test('主动刷新等待任务草稿保存，失败保留当前快照且不读取文件', async () => {
@@ -480,14 +482,14 @@ test('标签窗口隐藏内部标签，修改普通互斥组仍保留原有项�
   }, source => source.split('  @Builder\n')[0].replace(/@CustomDialog\n|@State /g, '')
     .replace('export struct TaskTagsDialog', 'class Dialog') + '}\nmodule.exports = { Dialog };');
   const dialog = new Dialog();
-  dialog.ownTags = ['project', 'REFILE', 'home']; dialog.inheritedTags = ['ARCHIVE'];
-  dialog.visibleTags = [...dialog.ownTags]; dialog.hiddenTags = ['project', 'REFILE', 'ARCHIVE', 'CONFLICT'];
+  dialog.ownTags = ['project', 'REFILE', 'ATTACH', 'home']; dialog.inheritedTags = ['ARCHIVE'];
+  dialog.visibleTags = [...dialog.ownTags]; dialog.hiddenTags = ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'];
   dialog.supportTags = { tags: ['work', 'home', 'project'], groups: [['work', 'home', 'project']] };
   let written; dialog.change = async tags => { written = tags; return true; };
   dialog.aboutToAppear();
   assert.deepEqual(dialog.names, ['work', 'home']); assert.deepEqual(dialog.selectedNames(), ['home']);
   await dialog.toggle('work');
-  assert.ok(written.includes('project') && written.includes('REFILE') && written.includes('work'));
+  assert.ok(written.includes('project') && written.includes('REFILE') && written.includes('ATTACH') && written.includes('work'));
   assert.ok(!written.includes('home'));
   dialog.creating = true; dialog.name = 'CONFLICT'; await dialog.create();
   assert.match(dialog.message, /系统管理/); assert.ok(!written.includes('CONFLICT'));
@@ -506,9 +508,10 @@ test('项目任务展开后可从更多菜单查看和收起日志，没有日�
   const { Card } = load(filename, {}, source => {
     const start = source.indexOf('  moreItems():');
     const end = source.indexOf('  @Builder\n  attributes()', start);
-    return 'function $r(name: string): string { return name }\nexport class Card {\n' + source.slice(start, end) + '\n}';
+    return 'const LogShowPolicy = {LogShowBySwitch: \'LogShowBySwitch\', LogShowAlways: \'LogShowAlways\'};\nfunction $r(name: string): string { return name }\nexport class Card {\n' + source.slice(start, end) + '\n}';
   });
   const card = new Card();
+  card.logShowPolicy = 'LogShowBySwitch';
   let logs = [{ type: 'taskNote', timestamp: '2026-11-14 09:00', noteHtml: '<p>任务日志</p>' }];
   card.documentMode = true; card.readOnly = false; card.logbookExpanded = false;
   card.value = () => ({ logs });
@@ -518,6 +521,7 @@ test('项目任务展开后可从更多菜单查看和收起日志，没有日�
   const hide = card.moreItems().find(item => item.title === '日志');
   assert.notEqual(hide.icon, show.icon);
   hide.action(); assert.equal(card.logbookExpanded, false);
+  card.logShowPolicy = 'LogShowAlways'; assert.ok(!card.moreItems().some(item => item.title === '日志'));
   logs = []; assert.ok(!card.moreItems().some(item => item.title === '日志'));
 });
 
