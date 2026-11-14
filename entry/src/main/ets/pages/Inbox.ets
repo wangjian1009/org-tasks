@@ -587,9 +587,6 @@ struct Inbox {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       AppShell({ refreshOnPageShow: true, title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
-        actionLabel: this.selectingRecords ? '完成多选并退出' : '', actionText: this.selectingRecords ? '完成' : '',
-        actionProminent: this.selectingRecords,
-        action: (): void => { this.cancelSelection() },
         synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
         Column() {
@@ -621,7 +618,7 @@ struct Inbox {
                   Row() {
                     TaskSelectionRow({ selecting: this.selectingRecords,
                       busy: this.mergeBusy || this.actionBusy || this.selectionStarting,
-                      selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading, horizontalInset: 12,
+                      selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
                       TaskListItem({ task: record, enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
@@ -638,7 +635,7 @@ struct Inbox {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.fullWidthItem().id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
+                }.width('100%').id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
                   start: this.actionPolicy.rightSwipeAction === 'move' ? {
                     builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
                     onAction: (): void => { this.swipeAction(record, 'move') }
@@ -672,7 +669,7 @@ struct Inbox {
                     .onClick((): void => { this.loadRecords() })
                 }.fullWidthItem()
               }
-              ListItem() { Column().height(104) }.fullWidthItem()
+              ListItem() { Column().height(this.selectingRecords ? 156 : 104) }.fullWidthItem()
             }.id('inbox_task_list').width('100%').padding({ left: 20, right: 20 })
               .layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
@@ -694,8 +691,7 @@ struct Inbox {
         TaskBatchToolbar({ items: taskBatchMenu(this.actionPolicy, (action: TaskBatchAction): void => {
             this.activateBatch(action)
           }), count: this.selectedRecordIds.length, busy: this.mergeBusy, busyAction: this.mergeBusy ? this.batchAction : '', invalid: this.mergeInvalid,
-          message: this.mergeMessage, caption: this.selectedRecordIds.length > 0 ? `首选: ${this.selectedRecords()[0]?.heading || ''}` : '请选择记录',
-          cancelLabel: '完成', cancel: (): void => { this.cancelSelection() },
+          message: this.mergeMessage, cancel: (): void => { this.cancelSelection() },
           idPrefix: 'inbox', retry: (): void => { this.cancelSelection() } })
       }
       if (this.captureOpen) {

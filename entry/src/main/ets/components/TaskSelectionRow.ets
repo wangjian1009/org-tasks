@@ -25,7 +25,7 @@ export struct TaskSelectionRow {
       if (this.selectionActive()) {
         Row() {
           if (this.selectedIndex >= 0) { Text(`${this.selectedIndex + 1}`).fontSize(12).fontColor(Color.White) }
-        }.width(24).height(24).margin({ left: 8 }).borderRadius(12)
+        }.width(24).height(24).flexShrink(0).margin({ left: 8 }).borderRadius(12)
           .border({ width: 1.5, color: this.selectedIndex >= 0 ? UiColor.selection : UiColor.secondary })
           .backgroundColor(this.selectedIndex >= 0 ? UiColor.selection : Color.Transparent)
           .justifyContent(FlexAlign.Center).accessibilityLevel('no')

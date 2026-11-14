@@ -1,5 +1,7 @@
 /** 桌面备忘服务卡片，数据由 MemoFormExtension 写入 FormBindingData。 */
-@Entry
+const memoCardStorage: LocalStorage = new LocalStorage()
+
+@Entry(memoCardStorage)
 @Component
 struct MemoCard {
   @LocalStorageProp('memoCardTitle') cardTitle: string = '全部备忘'

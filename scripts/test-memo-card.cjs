@@ -67,7 +67,7 @@ function card() {
     return noop;
   } });
   const colors = JSON.parse(fs.readFileSync(path.resolve('entry/src/main/resources/base/element/color.json'), 'utf8')).color;
-  const sandbox = { ViewPU, $r(name) { return colors.find(color => `app.color.${color.name}` === name)?.value ?? name; },
+  const sandbox = { ViewPU, LocalStorage: class {}, $r(name) { return colors.find(color => `app.color.${color.name}` === name)?.value ?? name; },
     loadEtsCard(value) { instance = value; value.initialRender(); },
     ViewStackProcessor: new Proxy({}, { get: () => noop }), postCardAction(_, action) { actions.push(action); } };
   for (const name of ['Column', 'Row', 'Stack', 'Text', 'Rect', 'Blank', 'Button', 'If', 'ForEach']) sandbox[name] = component(name);

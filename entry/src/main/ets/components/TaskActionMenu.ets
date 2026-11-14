@@ -40,7 +40,8 @@ export struct TaskActionMenu {
             }))
         }, (item: TaskActionItem) => item.id)
       }
-    }.align(Alignment.Start).scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(44)
-      .backgroundColor('#35383E').borderRadius(12).clip(true)
+    }.align(this.selecting ? Alignment.End : Alignment.Start)
+      .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(44)
+      .backgroundColor(this.selecting ? Color.Transparent : '#35383E').borderRadius(this.selecting ? 0 : 12).clip(true)
   }
 }

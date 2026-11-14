@@ -172,8 +172,7 @@ export struct LogbookTaskList {
           if (action === 'delete') this.confirmDelete(this.selectedItems())
           else if (action === 'restore') this.restoreTasks()
         }), count: this.selectedTaskKeys.length, busy: this.actionBusy, busyAction: this.busyAction,
-        caption: this.selectedTaskKeys.length > 0 ? '可删除记录或恢复为待办' : '请选择记录',
-        cancelLabel: '完成', cancel: (): void => { this.resetSelection() }, idPrefix: 'logbook' })
+        cancel: (): void => { this.resetSelection() }, idPrefix: 'logbook' })
     }
   }
 
