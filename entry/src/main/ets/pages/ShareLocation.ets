@@ -146,7 +146,7 @@ struct ShareLocation {
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
         }, this.config.todoDefaults, this.config.coreSettings)
         const refreshed = taskResult((await NativeCoreService.query([repository],
-          [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }], this.config.todoDefaults, this.config.coreSettings))[0])
+          [{ type: 'task', query: { includeComposeTasks: true } }], this.config.todoDefaults, this.config.coreSettings))[0])
         this.updatedTask = refreshed.tasks.find(item => JSON.stringify(item.fullPath) === JSON.stringify(task.fullPath))
         if (!this.updatedTask) throw new Error('无法读取更新后的任务')
       }

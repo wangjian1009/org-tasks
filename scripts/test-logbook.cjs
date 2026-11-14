@@ -28,7 +28,7 @@ function task(id, created, closed, category = 'Done', project = null, region = '
 }
 test('日志簿请求完成与取消分类，由 Core 排除未完成任务', () => {
   const { overviewTaskQuery } = compile(fs.readFileSync('entry/src/main/ets/services/TaskViewQueries.ets', 'utf8'));
-  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'it.done', includeDone: true, includeComposeTasks: true });
+  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'it.done', includeComposeTasks: true });
 });
 test('完成与取消任务各按关闭时间出现一次，创建时间不增加记录或改变顺序', () => {
   const a = task('A', '2026-11-12T09:00', '2026-11-12T11:30');

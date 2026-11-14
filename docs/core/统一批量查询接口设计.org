@@ -114,7 +114,7 @@ pub struct NotificationQuery {}
 
 本轮为无参数查询，返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ ，覆盖整个 workspace，沿用现有通知内容：每个当前冲突文件一条 ~SyncConflict~ ，任一仓库相对远端基线存在本地变化时追加一条 ~SyncRequired~ 。不增加通知筛选、分页、消费、确认或持久化语义。
 
-通知不受同批任务的排除条件、完成开关、分类或 FileQuery 的隐藏文件开关限制。被任务规则隐藏的文件仍可能产生冲突和本地变化通知；无本地变化时不返回 ~SyncRequired~ 。多项 NotificationQuery 各自占据输入位置，但共享本次计算，不因重复请求增加结果内部的通知条数。
+通知不受同批任务的排除条件、状态表达式、分类或 FileQuery 的隐藏文件开关限制。被任务规则隐藏的文件仍可能产生冲突和本地变化通知；无本地变化时不返回 ~SyncRequired~ 。多项 NotificationQuery 各自占据输入位置，但共享本次计算，不因重复请求增加结果内部的通知条数。
 
 现有独立通知读取入口迁移到统一批量接口； ~watch_notifications~ 、 ~watchNotifications~ 和停止订阅接口保留，只通知宿主重新发起批量查询。Harmony 继续为冲突通知附带宿主定位所需的 ~rootDirectory~ ，不改变 Core 事件字段或写入任何持久化记录。
 
@@ -162,8 +162,7 @@ JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响�
     "type": "task",
     "repoIds": ["core-repo-id"],
     "query": {
-      "expression": "b.\"someday.org\"",
-      "includeDone": false,
+      "expression": "b.\"someday.org\" it.todo",
       "includeComposeTasks": true
     }
   },

@@ -277,7 +277,7 @@ test('收件箱与近期记录在同一批次，最近三天表达式及精确�
   });
   assert.deepEqual((await InboxService.load(config)).recent,[task]);
   assert.equal(queries.length,1);
-  assert.deepEqual(queries[0][2].query,{expression:'cr.ge.-2d cr.le.today .o.created',includeDone:true,includeComposeTasks:true,excludedFiles:[{repoId:'core-id',path:'inbox.org'}]});
+  assert.deepEqual(queries[0][2].query,{expression:'cr.ge.-2d cr.le.today .o.created',includeComposeTasks:true,excludedFiles:[{repoId:'core-id',path:'inbox.org'}]});
 });
 
 test('通用目标查询仅排除配置的具体文件，不为某天快捷入口额外读取元信息', async () => {

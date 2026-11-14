@@ -278,7 +278,6 @@ interface TaskQuery {
   expression?: string
   categories?: (string | null)[]
   excludedFiles?: OrgFileRef[]
-  includeDone?: boolean
   includeComposeTasks?: boolean
 }
 interface TaskCategory {
@@ -292,7 +291,7 @@ interface TaskQueryResult {
 }
 #+end_src
 
-Rust 默认不限制表达式、分类和文件，两个包含开关均为真。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。
+Rust 默认不限制表达式、分类和文件，组合任务包含开关默认为真，状态范围只由表达式决定。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。 ~.it.none~ 表示具有状态， ~.it.done~ 表示排除完成与取消；旧 ~includeDone~ 字段由 Rust 按未知字段拒绝。C++ N-API 原样编组整个查询数组，ArkTS wrapper 直接复用 native ~TaskQuery~ 类型，不再编组独立的状态包含开关。
 
 不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。今天、随时、某天和备忘的标签筛选条是明确的展示层例外，仅按已取得的 ~task.tags~ 控制本页任务可见性，不更改上述 bridge、查询参数或原始快照；不新增 Core 请求，不影响全局计数。
 
@@ -383,7 +382,7 @@ interface TitleCount {
 
 * 独立分享捕捉
 
-候选任务由 UI 将仓库配置与备忘文件身份组装为通用查询：所有已配置仓库中的 ~it.todo~ ，加上配置备忘文件中的 ~it.none~ ，再与 ~has.address~ 组合并设置 ~includeDone=false~ 。未配置或失效的备忘文件不回退到其他文件。Core 返回的 ~address_links~ 原样映射到 ~Task.addressLinks~ ，宿主显示全部候选，不按条数截断、不解析正文。查询继续通过既有 ~expression~ 字段传入 worker，不新增 native 方法或界面专属查询字段。
+候选任务由 UI 将仓库配置与备忘文件身份组装为通用查询：所有已配置仓库中的 ~it.todo~ ，加上配置备忘文件中的 ~it.none~ ，再与 ~has.address~ 组合。未配置或失效的备忘文件不回退到其他文件。Core 返回的 ~address_links~ 原样映射到 ~Task.addressLinks~ ，宿主显示全部候选，不按条数截断、不解析正文。查询继续通过既有 ~expression~ 字段传入 worker，不新增 native 方法或界面专属查询字段。
 
 地点与配置加载完成后自动发起候选查询，不等待用户展开，也不阻塞创建入口。页面按请求序号接收完整候选和对应仓库映射，旧请求不得覆盖新分享的结果；返回非空结果后才显示“更新地址”分区，查询中或空结果不显示分区及提交按钮。标题复用共享分区控件，候选卡片和地址选择仍只负责展示 Core 的结果。
 
@@ -406,7 +405,7 @@ interface TitleCount {
 
 ~TaskQuery.excludedFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
 
-~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeDone=true~ 和 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
+~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 
 * 同步详情投影
 

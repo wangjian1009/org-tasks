@@ -89,7 +89,7 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
     if(view==='someday') {
       assert.deepEqual(f.batches[0][0].repoIds,['core-b']);
-      assert.deepEqual(f.batches[0][0].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
+      assert.deepEqual(f.batches[0][0].query,{expression:'b."same.org" it.todo',includeComposeTasks:true});
     }
     if(view==='memo')assert.deepEqual(page.tagOptions,['未使用标签']);
   });
@@ -213,7 +213,7 @@ test('日志簿向 Core 请求 Done 与 Cancel 分类，每个返回任务只展
   await page.loadTasks();
   assert.equal(page.message, '');
   assert.equal(f.batches.length, 1);
-  assert.deepEqual(f.batches[0][0].query, {expression:'it.done',includeDone:true,includeComposeTasks:true});
+  assert.deepEqual(f.batches[0][0].query, {expression:'it.done',includeComposeTasks:true});
   assert.equal(page.tasks, tasks);
   const items = page.logbookTaskGroups.flatMap(group => group.items);
   assert.equal(items.length, tasks.length);
@@ -237,9 +237,9 @@ test('侧边栏任务、项目、入口文件和通知合为一个批次，跨�
   assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,13);
   assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','file','task','file','task','file','notification']);
   assert.deepEqual(f.batches[0][5].query,{isProject:true});
-  assert.deepEqual(f.batches[0][4].query,{expression:'it.done',includeDone:true,includeComposeTasks:true});
+  assert.deepEqual(f.batches[0][4].query,{expression:'it.done',includeComposeTasks:true});
   assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
-  assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo',includeDone:false,includeComposeTasks:true});
+  assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo',includeComposeTasks:true});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
 });
 
@@ -401,7 +401,7 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
   page.view='today'; await page.loadTasks();
   assert.equal(page.message,'');
   assert.equal(f.batches.length,1);
-  assert.equal(f.batches[0][1].query.expression,'(s.le.today or d.le.today) o.priority');
+  assert.equal(f.batches[0][1].query.expression,'.it.done (s.le.today or d.le.today) o.priority');
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
     [['default'],['high','project-low'],['low']]);
   page.applyTagFilter({tags:['显示'],includeUntagged:false});

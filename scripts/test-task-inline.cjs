@@ -521,13 +521,13 @@ test('快速切换输入时只聚焦最后一次请求，不复活旧输入', ()
 const { overviewTaskQuery } = load('entry/src/main/ets/services/TaskViewQueries.ets');
 test('计划请求在整个未来日期范围排除习惯任务，由 Core 求值', () => {
   assert.deepEqual(overviewTaskQuery('planned'), {
-    expression:'.is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))',
-    includeDone:false,includeComposeTasks:true
+    expression:'.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))',
+    includeComposeTasks:true
   });
 });
 test('随时请求只匹配无计划和无截止的待办任务，由 Core 求值', () => {
   assert.deepEqual(overviewTaskQuery('anytime'), {
-    expression:'it.todo s.none d.none',includeDone:false,includeComposeTasks:true
+    expression:'it.todo s.none d.none',includeComposeTasks:true
   });
 });
 
@@ -807,7 +807,7 @@ test('同次联动事件的来源、目标和后续关联行共享一次任务�
   assert.deepEqual(values,[source,target]);
   assert.equal(await f.TaskInlineService.findChanged({},target,10),target);
   assert.equal(f.batches.length,1);
-  assert.deepEqual(f.batches[0],[{type:'task',query:{includeDone:true,includeComposeTasks:true}},{type:'notification',query:{}}]);
+  assert.deepEqual(f.batches[0],[{type:'task',query:{includeComposeTasks:true}},{type:'notification',query:{}}]);
   f.setCurrent({...source,fileVersion:'next'});
   assert.equal((await f.TaskInlineService.findChanged({},f.task,11)).fileVersion,'next');
   assert.equal(f.batches.length,2);

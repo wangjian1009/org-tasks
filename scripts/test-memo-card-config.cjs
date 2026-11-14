@@ -85,7 +85,8 @@ test('候选保留未使用的声明标签，筛选包含转义后的标签并�
   const selected = await f.MemoCardService.snapshot({}, 'a"\\ or t.other');
   assert.equal(f.queries[1].expression, 'b."备忘.org" t."a\\"\\\\ or t.other" .o.modified');
   assert.equal(selected.data.memoCardItem1, 'Core 返回的标题');
-  assert.equal(f.queries[1].includeDone, true); assert.equal(f.queries[1].includeComposeTasks, true);
+  assert.deepEqual(Object.keys(f.queries[1]).sort(), ['expression', 'includeComposeTasks']);
+  assert.equal(f.queries[1].includeComposeTasks, true);
   f.tasks([]);
   const empty = await f.MemoCardService.snapshot({}, '已删除标签');
   assert.equal(empty.data.memoCardTitle, '已删除标签'); assert.match(empty.data.memoCardMessage, /暂无备忘/);

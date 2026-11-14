@@ -196,7 +196,6 @@ export interface TaskQuery {
   expression?: string;
   categories?: (string | null)[];
   excludedFiles?: OrgFileRef[];
-  includeDone?: boolean;
   includeComposeTasks?: boolean;
 }
 

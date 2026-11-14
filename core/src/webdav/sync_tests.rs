@@ -903,8 +903,7 @@ async fn sync_downloads_root_ignore_rules_and_applies_updates_and_removal() {
         b"\xef\xbb\xbfann.org\r\n"
     );
     let query = crate::TaskQuery {
-        expression: "s.none d.none".into(),
-        include_done: false,
+        expression: ".it.done s.none d.none".into(),
         ..Default::default()
     };
     let result = crate::OrgWorkspace::new(vec![repo.clone()])

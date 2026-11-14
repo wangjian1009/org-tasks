@@ -218,6 +218,14 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
             .await
             .is_err()
     );
-    let legacy: TaskQuery = serde_json::from_str(r#"{"includeDone":true}"#).unwrap();
-    assert!(legacy.excluded_files.is_empty());
+    for value in [true, false] {
+        let removed = serde_json::json!({ "includeDone": value });
+        assert!(serde_json::from_value::<TaskQuery>(removed).is_err());
+    }
+    assert_eq!(
+        serde_json::to_value(TaskQuery::default()).unwrap(),
+        serde_json::json!({
+            "expression": "", "categories": [], "excludedFiles": [], "includeComposeTasks": true
+        })
+    );
 }

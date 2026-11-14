@@ -39,7 +39,7 @@ export class TaskInlineService {
 
   static async find(context: Context, task: CoreTask): Promise<CoreTask | undefined> {
     const config = await AppConfigService.load(context, false)
-    const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { includeDone: true, includeComposeTasks: true } }]))[0]).tasks
+    const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { includeComposeTasks: true } }]))[0]).tasks
     return tasks.find(item => item.repoId === task.repoId && item.filePath === task.filePath &&
       ((!!task.taskId && item.taskId === task.taskId) || item.id === task.id))
   }
@@ -61,7 +61,7 @@ export class TaskInlineService {
   private static async changedTasks(context: Context): Promise<CoreTask[]> {
     const config = await AppConfigService.load(context, false)
     return taskResult((await PageQueryService.query(config, [{ type: 'task', query: {
-      includeDone: true, includeComposeTasks: true
+      includeComposeTasks: true
     } }]))[0]).tasks
   }
 

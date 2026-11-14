@@ -187,7 +187,7 @@ Core 固定默认值、跨配置来源合并顺序与分隔规则见 [[file:../c
 
 * 备忘文件入口
 
-“设置 → 笔记与笔记本 → 文件入口”新增 ~memoFile~ ，默认空字符串，使用与收件箱/某天相同的路径校验与保存方式。存储库增删改和其他设置页面保存时必须保留该字段。备忘请求通过 ~FileTargetService.query(config, 'memo')~ 生成文件表达式，并设置 ~includeDone=true~ 、 ~includeComposeTasks=true~ ，由 Core 返回全部标题记录；UI 不自行过滤。
+“设置 → 笔记与笔记本 → 文件入口”新增 ~memoFile~ ，默认空字符串，使用与收件箱/某天相同的路径校验与保存方式。存储库增删改和其他设置页面保存时必须保留该字段。备忘请求通过 ~FileTargetService.query(config, 'memo')~ 生成文件表达式，并设置 ~includeComposeTasks=true~ ，表达式不限制状态，由 Core 返回全部标题记录；UI 不自行过滤。
 
 备忘未配置或失效时点击侧边栏入口显示“备忘文件未选择或已失效”并提供前往设置；清空后恢复该状态，不清理原文件或内容。
 

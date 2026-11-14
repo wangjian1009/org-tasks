@@ -15,7 +15,6 @@ pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
     pub excluded_files: Vec<OrgFileRef>,
-    pub include_done: bool,
     pub include_compose_tasks: bool,
 }
 
@@ -25,7 +24,6 @@ impl Default for TaskQuery {
             expression: String::new(),
             categories: Vec::new(),
             excluded_files: Vec::new(),
-            include_done: include_by_default(),
             include_compose_tasks: include_by_default(),
         }
     }
@@ -424,13 +422,12 @@ fn evaluate_query(
 ) -> TaskQueryResult {
     Filter::parse(&query.expression).filter_tasks_at(&mut all, today);
     all.retain(|task| {
-        (query.include_done || !task.is_done())
-            && (query.include_compose_tasks
-                || !parents.contains(&(
-                    task.repo_id().to_owned(),
-                    task.path().to_owned(),
-                    task.byte_offset,
-                )))
+        query.include_compose_tasks
+            || !parents.contains(&(
+                task.repo_id().to_owned(),
+                task.path().to_owned(),
+                task.byte_offset,
+            ))
     });
     // 分类摘要不受当前 categories 选择影响，供 UI 展示可选分类和计数。
     let mut counts = BTreeMap::<Option<String>, usize>::new();
@@ -906,13 +903,106 @@ mod tests {
                     path: "capture.org".into(),
                 },
             ],
-            include_done: false,
+            expression: ".it.done".into(),
             ..Default::default()
         }
     }
 
     #[tokio::test]
-    async fn generic_defaults_include_all_records_and_flags_filter_in_core() {
+    async fn state_presence_and_terminal_scope_are_controlled_only_by_expressions() {
+        let mut repo = OrgRepo::new("/tmp/query-state-presence".into()).unwrap();
+        repo.id = "repo".into();
+        let file = OrgFile::new(
+            repo.id.clone(),
+            "states.org".into(),
+            b"#+TODO: TODO INPROGRESS OTHER | DONE CNCL\n* TODO Pending\n* INPROGRESS Running\n* OTHER Unclassified\n* DONE Completed\n* CNCL Cancelled\n* Plain\n".to_vec(),
+        )
+        .unwrap();
+        crate::model::test_support::write_files(&mut repo, vec![file]);
+        let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        workspace
+            .set_settings(crate::CoreSettings {
+                addition_states: vec![crate::TaskState {
+                    name: "OTHER".into(),
+                    category: None,
+                }],
+            })
+            .unwrap();
+        let cases = [
+            (
+                "",
+                vec![
+                    "Pending",
+                    "Running",
+                    "Unclassified",
+                    "Completed",
+                    "Cancelled",
+                    "Plain",
+                ],
+            ),
+            (
+                ".it.none",
+                vec![
+                    "Pending",
+                    "Running",
+                    "Unclassified",
+                    "Completed",
+                    "Cancelled",
+                ],
+            ),
+            ("it.none", vec!["Plain"]),
+            ("i.none", vec!["Unclassified", "Plain"]),
+            ("it.todo", vec!["Pending", "Running", "Unclassified"]),
+            ("it.done", vec!["Completed", "Cancelled"]),
+            (
+                ".it.done",
+                vec!["Pending", "Running", "Unclassified", "Plain"],
+            ),
+            (
+                ".it.done (it.done or i.none)",
+                vec!["Unclassified", "Plain"],
+            ),
+        ];
+        let queries = cases
+            .iter()
+            .map(|(expression, _)| {
+                TaskQuery {
+                    expression: (*expression).into(),
+                    ..Default::default()
+                }
+                .into()
+            })
+            .collect::<Vec<_>>();
+        for (result, (expression, expected)) in workspace
+            .query(&queries)
+            .await
+            .unwrap()
+            .into_iter()
+            .zip(cases)
+        {
+            let result = result.into_task().unwrap();
+            assert_eq!(
+                result
+                    .tasks
+                    .iter()
+                    .map(FilterTask::title)
+                    .collect::<Vec<_>>(),
+                expected,
+                "{expression}"
+            );
+            assert_eq!(
+                result
+                    .categories
+                    .iter()
+                    .map(|category| category.count)
+                    .sum::<usize>(),
+                expected.len()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn generic_defaults_include_all_records_and_expressions_filter_in_core() {
         let workspace = workspace();
         let result = workspace
             .query(&[(TaskQuery::default()).into()])
@@ -1148,7 +1238,6 @@ mod tests {
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
         let query = TaskQuery {
             expression: "has.address (it.todo or (b.notes.org it.none))".into(),
-            include_done: false,
             ..Default::default()
         };
         let result = workspace
@@ -1233,8 +1322,7 @@ mod tests {
         let workspace = OrgWorkspace::new(vec![repository]).unwrap();
         let result = workspace
             .query(&[(TaskQuery {
-                expression: "s.none d.none".into(),
-                include_done: false,
+                expression: ".it.done s.none d.none".into(),
                 include_compose_tasks: true,
                 ..Default::default()
             })
@@ -1260,7 +1348,6 @@ mod tests {
         let result = workspace
             .query(&[(TaskQuery {
                 expression: "it.todo s.none d.none".into(),
-                include_done: false,
                 include_compose_tasks: true,
                 ..Default::default()
             })
@@ -1357,7 +1444,7 @@ mod tests {
         let same_paths = OrgWorkspace::new(repos).unwrap();
         let result = same_paths
             .query(&[(TaskQuery {
-                include_done: false,
+                expression: ".it.done".into(),
                 include_compose_tasks: false,
                 ..Default::default()
             })

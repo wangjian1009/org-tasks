@@ -180,9 +180,8 @@ async fn structured_query_flags_and_categories_still_apply_before_returning_tags
     let source = "#+CATEGORY: Work\n* DONE Parent :REFILE:work:\n** TODO Child :home:\n";
     let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
     let query = TaskQuery {
-        expression: "t.REFILE".into(),
+        expression: ".it.done t.REFILE".into(),
         categories: vec![Some("Work".into())],
-        include_done: false,
         include_compose_tasks: false,
         ..Default::default()
     };

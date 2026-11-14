@@ -218,10 +218,10 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   assert.deepEqual(f.calls[0].group.operations[0].data.position.parent, { repoId: 'core-work', file: 'inbox.org', titles: [] });
   await f.FileTargetService.select({}, 'someday', 'work', 'inbox.org');
   await f.FileTargetService.query(f.config, 'someday');
-  assert.equal(f.queries[1].query.includeDone, false);
+  assert.deepEqual(f.queries[1].query, { expression: 'b."inbox.org" it.todo', includeComposeTasks: true });
   await f.FileTargetService.select({}, 'memo', 'personal', 'inbox.org');
   await f.FileTargetService.query(f.config, 'memo');
-  assert.equal(f.queries[2].query.includeDone, true);
+  assert.deepEqual(Object.keys(f.queries[2].query).sort(), ['expression', 'includeComposeTasks']);
   assert.equal(f.queries[2].query.expression, 'b."inbox.org" .o.modified');
 });
 

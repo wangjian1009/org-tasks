@@ -625,7 +625,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 * 通用结构化任务查询
 
-~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 、 ~include_done~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
+~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
 
 ~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 或 ~ARCHIVE~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
 

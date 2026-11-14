@@ -35,7 +35,8 @@ b."book(1) name"
 |-
 | ~b.<name>~ | 文件路径等于 name。 |
 | ~i.<category>~ | 按状态分类精确匹配： ~todo~ 、 ~doing~ 、 ~wait~ 、 ~done~ 、 ~cancel~ 或 ~none~ ，不区分分类名大小写。 ~none~ 表示没有分类，包含无状态标题和显式未分类任务。 |
-| ~it.todo~ / ~it.done~ / ~it.none~ | 按状态类别筛选。 |
+| ~it.todo~ / ~it.done~ / ~it.none~ | 分别匹配有状态且未结束、已结束和无状态的标题。 |
+| ~.it.none~ | 匹配具有 ~state~ 的标题，包含所有状态分类及显式未分类状态。 |
 | ~p.<letter>~ | 有效优先级；未显式设置时使用所属文件或 SETUPFILE 的 ~PRIORITIES~ 第三项，无声明时使用 Org 默认 ~B~ 。 |
 | ~ps.<letter>~ | 显式设置的优先级。 |
 | ~t.<tag>~ | 自身或祖先继承的标签。 |
@@ -94,7 +95,7 @@ core 测试从参考项目移植了 tokenizer 的括号和引号场景、~AND~ /
 
 * 任务完成判断
 
-~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancel~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~include_done=false~ 统一排除两类终态。所有状态条件只比较 ~TaskState.category~ ，不比较 ~TaskState.name~ 。 ~i.done~ 仅匹配完成分类， ~i.cancel~ 仅匹配取消分类； ~it.done~ 匹配两者。自定义状态名不再是 ~i.*~ 的合法分类值，按未知 token 的既有规则作为文本处理。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancel~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
+~FilterTask.state().category~ 表示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ 或 ~None~ 。 ~is_done()~ 根据分类判断， ~Done~ 与 ~Cancel~ 均为终态； ~it.todo~ 匹配前三类与显式未分类的任务， ~it.done~ 匹配两类终态， ~it.none~ 匹配无状态标题。 ~.it.done~ 排除两类终态，但保留无状态标题； ~.it.none~ 只要求 ~state~ 存在，包括完成、取消与显式未分类状态。 ~i.*~ 只比较 ~TaskState.category~ ， ~it.*~ 根据状态是否存在及是否为终态判断，均不按 ~TaskState.name~ 匹配。 ~i.done~ 仅匹配完成分类， ~i.cancel~ 仅匹配取消分类； ~it.done~ 匹配两者。自定义状态名不再是 ~i.*~ 的合法分类值，按未知 token 的既有规则作为文本处理。分类映射先合并 Core 不可变默认值、全局附加值、 ~SETUPFILE~ 与文件声明，再解释有效 TODO 流程；未映射状态按 Org 分隔规则回退到 ~Todo~ 或 ~Done~ 。 ~CNCL~ 只要被文件流程识别就归为 ~Cancel~ ，不再因位于 ~|~ 前面成为待办；未被流程声明时仍为普通标题。重新加载或修改设置后取得的新任务使用新分类，已返回任务保留取得时的分类。
 
 #+begin_src rust
 impl FilterTask {
@@ -111,7 +112,7 @@ impl FilterTask {
 
 UI 可以维护勾选和取消等交互状态、根据页面需求填写参数，并显示或汇总分类计数。UI 不得对 core 返回的任务列表再次按完成状态、分类、文件、日期、标签或父子关系做 ~filter~ 、剔除、交并集或其他查询求值。计数可以留在展示层，但不能为得到任务结果在展示层复制核心过滤规则。任务列表直接使用查询返回的 ~tasks~ 。明确例外：今天、随时、某天和备忘的共享标签筛选条按产品要求在展示层对本页已加载的 ~tasks~ 做标签可见性过滤；基础页面查询仍由 Core 执行。只消费任务快照的有效标签，不解析 Org，不改变完成状态、时间、文件范围、源任务顺序或全局计数；其他页面及查询条件仍遵守前述约束。
 
-Core 提供通用任务查询能力，不认识“收件箱页面”“分类多选控件”等界面概念。收件箱设置、多选切换和页面策略由 UI 转换成文件表达式、分类值、排除文件列表与两个包含开关。Core 对同一请求统一求值，确保前台、后台和其他宿主使用相同语义。
+Core 提供通用任务查询能力，不认识“收件箱页面”“分类多选控件”等界面概念。收件箱设置、多选切换和页面策略由 UI 转换成文件表达式、分类值、排除文件列表与组合任务包含开关。Core 对同一请求统一求值，确保前台、后台和其他宿主使用相同语义。
 
 * 结构化任务查询
 
@@ -122,7 +123,6 @@ pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
     pub excluded_files: Vec<OrgFileRef>,
-    pub include_done: bool,
     pub include_compose_tasks: bool,
 }
 
@@ -132,7 +132,6 @@ impl Default for TaskQuery {
             expression: String::new(),
             categories: Vec::new(),
             excluded_files: Vec::new(),
-            include_done: true,
             include_compose_tasks: true,
         }
     }
@@ -164,14 +163,15 @@ impl OrgWorkspace {
 | ~expression~ | 现有 dotted query；空字符串表示无表达式限制，排序沿用现有查询接口。 |
 | ~categories~ | 按文件有效 category 精确匹配，多项取并集；空列表不过滤分类。 ~None~ 表示缺失、显式空值或特殊分类 ~ARCHIVE~ ，与真实名称“未分类”不同；重复选项不重复任务。 |
 | ~excluded_files~ | ~Vec<OrgFileRef>~ ，每项包含 Core 仓库 ID 与安全相对路径，仅两者同时匹配时排除；空数组不排除，不支持裸路径字符串或跨仓库同名路径通配。 |
-| ~include_done~ | 为假时排除 ~FilterTask.is_done()~ 为真的任务，完成类型受文件有效 in-buffer 配置影响。 |
 | ~include_compose_tasks~ | 为假时排除有子标题的组合任务。父子关系以原始完整文件结构判断，不能因子任务未命中表达式、已完成或被其他条件过滤而把父任务变成叶任务。 |
+
+状态范围统一由 ~expression~ 表达，不再提供 ~include_done~ / ~includeDone~ 字段；旧字段按未知字段拒绝。排除终态时将 ~.it.done~ 与原表达式整体取交集，例如 ~.it.done (s.le.today or d.le.today)~ ；需要具有状态且未结束时直接使用 ~it.todo~ 。
 
 所有查询条件组合求值，任务按仓库 ID、相对路径和源字节偏移保持来源隔离。组合任务判断不得跨文件或跨存储库，即使两个仓库的文件名相同也不能相互影响。
 
-~categories~ 摘要在表达式、排除文件、完成和组合任务开关求值后生成，不受当前 ~categories~ 选项影响，便于多选控件维持可选项。 ~count~ 是该范围内相应分类的记录数；不设置完成开关或设置为真时也可以统计完成记录。零记录分类不返回，缺失分类置末。
+~categories~ 摘要在表达式、排除文件和组合任务开关求值后生成，不受当前 ~categories~ 选项影响，便于多选控件维持可选项。 ~count~ 是该范围内相应分类的记录数；表达式未排除终态时也可以统计完成记录。零记录分类不返回，缺失分类置末。
 
-UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRef { repo_id: 所选 Core 仓库 ID, path: 配置文件路径 }]~ 和 ~include_done = false~ ；有分类选择时任务列表发送相同排除文件和所选分类，无选择时可清空排除文件以显示包含收件箱的全部未完成任务。收件箱页面使用 ~b."配置路径"~ 表达式并将两个包含开关置真，以取得所有标题记录。路径的表达式转义由 UI 作为请求组装完成，解释和文件匹配由 Core 完成。
+UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRef { repo_id: 所选 Core 仓库 ID, path: 配置文件路径 }]~ 和 ~expression = ".it.done"~ ；有分类选择时任务列表发送相同排除文件和所选分类，无选择时可清空排除文件以显示包含收件箱的全部未完成任务。收件箱页面使用 ~b."配置路径"~ 表达式并设置 ~include_compose_tasks=true~ ，以取得所有标题记录。路径的表达式转义由 UI 作为请求组装完成，解释和文件匹配由 Core 完成。
 
 ~TaskQuery~ 不保存界面选择状态，没有 ~inbox_file~ 、 ~toggle_category~ 或专用视图枚举。 ~query~ 从已初始化身份的 workspace 出发，按批次读取磁盘，不读宿主配置、不持久化 UI 会话。Harmony 在 worker 中一次调用批量接口，每项结果的任务包装为带 ~isDone()~ 的 Task 对象。
 
@@ -179,6 +179,6 @@ UI 的请求组装示例：分类导航请求设置 ~excluded_files = [OrgFileRe
 
 * 分享地址候选查询
 
-~ShareLocation~ 通过 ~NativeCoreService.query -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与任务／备忘文件条件，并设置 ~includeDone=false~ ；页面不再按标题、地址或条数过滤返回结果。
+~ShareLocation~ 通过 ~NativeCoreService.query -> Workspace.query -> OrgWorkspace.query~ 获得全部候选。请求按仓库范围组装，包含 ~has.address~ 与 ~it.todo~ 或配置备忘文件中的 ~it.none~ 条件；页面不再按标题、地址或条数过滤返回结果。
 
 按 ~o.priority~ / ~o.p~ 及其降序形式排序时，缺少显式优先级的任务使用所属文件的默认字母参与比较，与同字母的显式任务同级。同级沿用相对文件路径与源位置次序；读取与排序不补写优先级标记。默认值语义依据 [[info:org#Priorities][Org Info：Priorities]]。

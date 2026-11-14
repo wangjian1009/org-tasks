@@ -91,7 +91,6 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
             f.workspace
                 .query(&[(TaskQuery {
                     expression: expression.into(),
-                    include_done: true,
                     include_compose_tasks: true,
                     ..Default::default()
                 }).into()]).await

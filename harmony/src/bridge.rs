@@ -1014,7 +1014,7 @@ mod tests {
         .enumerate()
         {
             let result: serde_json::Value = serde_json::from_str(
-                &query_task_results_json(handle, "[{\"includeDone\":true}]".into()).unwrap(),
+                &query_task_results_json(handle, "[{}]".into()).unwrap(),
             )
             .unwrap();
             let task = &result[0]["tasks"][0];
@@ -1060,6 +1060,12 @@ mod tests {
         assert_eq!(results[2]["tasks"][0]["heading"], "Pending");
         assert_eq!(results[0], results[3]);
         assert!(query_task_results_json(handle, "{}".into()).is_err());
+        for value in [true, false] {
+            let removed = serde_json::json!([
+                { "type": "task", "query": { "includeDone": value } }
+            ]);
+            assert!(workspace_query_json(handle, removed.to_string()).is_err());
+        }
         assert!(
             query_task_results_json(
                 handle,
@@ -1410,8 +1416,7 @@ mod tests {
         assert_eq!(tasks.as_array().unwrap().len(), 1);
         assert_eq!(tasks[0]["heading"], "Visible");
         let query = serde_json::json!({
-            "expression": "s.none d.none",
-            "includeDone": false,
+            "expression": ".it.done s.none d.none",
             "includeComposeTasks": true
         })
         .to_string();
@@ -1531,7 +1536,7 @@ mod tests {
         assert!(tasks[0]["closedAt"].as_i64().unwrap() > tasks[0]["createdAt"].as_i64().unwrap());
         assert!(tasks[1]["closedAt"].is_null());
         assert!(tasks[0]["modifiedAt"].is_null());
-        let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created", "includeDone": true });
+        let query = serde_json::json!({ "expression": "cr.ge.-2d cr.le.today .o.created" });
         let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
             &query_task_results_json(handle, serde_json::json!([query]).to_string()).unwrap(),
         )

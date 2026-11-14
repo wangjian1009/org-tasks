@@ -192,7 +192,7 @@ REFILE 目标统一由 ~MoveToTarget~ 展示，项目文件按项目名、普通
 
 * 日志簿时间线
 
-日志簿和侧边栏计数复用单次 ~it.done~ 查询与 ~includeDone=true~ ，由 Core 根据 ~TaskState.category~ 返回 ~Done~ 与 ~Cancel~ 分类任务，排除未完成任务。每个任务只按 ~closedAt~ 展示一次，不处理 ~createdAt~ ，不生成创建事件，不显示“完成／创建／取消”事件提示行。没有关闭时间的任务放到末尾“时间未记录”，不借用创建、修改或文件时间。当前标题与内容来自最新快照，不伪造历史正文。
+日志簿和侧边栏计数复用单次 ~it.done~ 查询，由 Core 根据 ~TaskState.category~ 返回 ~Done~ 与 ~Cancel~ 分类任务，排除未完成任务。每个任务只按 ~closedAt~ 展示一次，不处理 ~createdAt~ ，不生成创建事件，不显示“完成／创建／取消”事件提示行。没有关闭时间的任务放到末尾“时间未记录”，不借用创建、修改或文件时间。当前标题与内容来自最新快照，不伪造历史正文。
 
 ~LogbookTaskList~ 只负责列表分区、选择与删除编排，任务正文直接复用通用 ~TaskListItem~ ，展开后的日志复用 ~TaskLogView~ 。最近七个自然日按日分组，过去 180 天内更早任务按月分组，再早按年分组；仅显示有任务的时间分组。日标题沿用计划页的 25fp 日期、14fp 辅助文字和 48vp 高度，月／年标题沿用分隔线及 15fp 标题。
 
@@ -274,15 +274,15 @@ WebDAV 密码由 ~CredentialService~ 保存到 Asset Store。已有待上传意�
 
 | 入口 | UI 组装的 Core 查询 | 显示含义 |
 |-
-| 今天 | ~(s.le.today or d.le.today)~ ， ~includeDone=false~ | 计划或截止任一实际日期已到、已过期或进入 Org-mode 预警期即命中；deadline 仍按实际日期展示。 |
-| 今天红色徽标 | ~(s.le.yesterday or d.le.yesterday)~ ， ~includeDone=false~ | 仅显示过期数量；旁边灰色数字为今天的总数，徽标零时隐藏。 |
-| 计划 | ~.is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))~ ， ~includeDone=false~ | 排除习惯任务，有日期且最早的计划/截止日期从明天开始；页面与侧边栏计数共用查询，普通循环任务保留。 |
-| 随时 | ~it.todo s.none d.none~ ， ~includeDone=false~ | 仅有效待办状态，计划日期和截止日期均为空；按 CATEGORY 分区。 |
-| 某天 | 配置文件的 ~b."相对路径" it.todo~ ， ~includeDone=false~ | 只展示所选仓库 ~somedayFile~ 文件中具有有效待办状态的任务，不包含普通标题与已完成任务；侧边栏计数使用相同查询。 |
-| 备忘 | 配置文件的 ~b."相对路径"~ ， ~includeDone=true~ | 展示 ~memoFile~ 文件中的全部标题记录，包含无 TODO 与已完成记录。 |
-| 日志簿 | ~it.done~ ， ~includeDone=true~ | 展示 ~Done~ 与 ~Cancel~ 分类任务，每个任务按关闭时间显示一次。 |
+| 今天 | ~.it.done (s.le.today or d.le.today)~ | 计划或截止任一实际日期已到、已过期或进入 Org-mode 预警期即命中；deadline 仍按实际日期展示。 |
+| 今天红色徽标 | ~.it.done (s.le.yesterday or d.le.yesterday)~ | 仅显示过期数量；旁边灰色数字为今天的总数，徽标零时隐藏。 |
+| 计划 | ~.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))~ | 排除习惯任务，有日期且最早的计划/截止日期从明天开始；页面与侧边栏计数共用查询，普通循环任务保留。 |
+| 随时 | ~it.todo s.none d.none~ | 仅有效待办状态，计划日期和截止日期均为空；按 CATEGORY 分区。 |
+| 某天 | 配置文件的 ~b."相对路径" it.todo~ | 只展示所选仓库 ~somedayFile~ 文件中具有有效待办状态的任务，不包含普通标题与已完成任务；侧边栏计数使用相同查询。 |
+| 备忘 | 配置文件的 ~b."相对路径"~ | 展示 ~memoFile~ 文件中的全部标题记录，包含无 TODO 与已完成记录。 |
+| 日志簿 | ~it.done~ | 展示 ~Done~ 与 ~Cancel~ 分类任务，每个任务按关闭时间显示一次。 |
 
-以上入口当前均设置 ~includeComposeTasks=true~ ，保留原文件的组合标题；查询由 Core 求值，UI 不对返回任务做日期、状态或文件过滤。任务同时具有两个日期时按较早日期归入今天或计划，禁止先查后由 UI 去重。日期以运行设备的本地自然日为准。
+状态范围仅由表达式控制，不使用额外包含开关； ~.it.done~ 保留原先今天与计划中可命中的无状态标题。以上入口当前均设置 ~includeComposeTasks=true~ ，保留原文件的组合标题；查询由 Core 求值，UI 不对返回任务做日期、状态或文件过滤。任务同时具有两个日期时按较早日期归入今天或计划，禁止先查后由 UI 去重。日期以运行设备的本地自然日为准。
 
 收件箱、某天和备忘文件均在“设置 → 笔记与笔记本 → 文件入口”通过应用内 ~FileTargetPicker~ 选择，按仓库分区展示 Core 返回的文件元信息并过滤 ~is_ignore=true~ 文件。选择时保存具体仓库 ID 与相对路径，行尾显示已选状态，底部支持清除选择；不使用系统文件选择器或自由路径输入。未选择、仓库或文件失效、文件被忽略时提示重新选择，可跳转设置；已选文件没有记录时显示空列表，不伪造文件，也不把空目标作为全局查询。查询和计数只包含所选仓库的文件。画板见 [[file:../../design/previews/10 Harmony 文件入口配置.png][仓库文件选择预览]] 。
 

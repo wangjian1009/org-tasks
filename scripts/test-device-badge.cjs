@@ -86,10 +86,10 @@ test('后台单次刷新只发一个混合批次，按 Core 仓库隔离收件�
   const batch = f.batches[0];
   assert.deepEqual(batch.map(query => query.type), ['task', 'notification', 'task', 'file']);
   assert.equal(batch[0].query.expression, 'it.todo d.lt.tomorrow');
-  assert.equal(batch[0].query.includeDone, false);
+  assert.deepEqual(Object.keys(batch[0].query).sort(), ['excludedFiles', 'expression', 'includeComposeTasks']);
   assert.deepEqual(batch[0].query.excludedFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
   assert.deepEqual(batch[2].repoIds, ['core-a']);
-  assert.equal(batch[2].query.includeDone, true);
+  assert.deepEqual(batch[2].query, { expression: 'b."inbox.org"', includeComposeTasks: true });
   assert.deepEqual(batch[3].query.includeFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
   assert.equal(f.callbacks.size, 0); assert.equal(f.timers.size, 0);
 });
