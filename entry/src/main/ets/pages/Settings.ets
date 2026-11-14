@@ -10,6 +10,8 @@ import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
 import { SettingsGroup } from '../components/controls/SettingsGroup'
 import { SettingsRow } from '../components/controls/SettingsRow'
+import { SettingsChoiceRow } from '../components/controls/SettingsChoiceRow'
+import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { FileTargetSheet } from '../components/editors/FileTargetSheet'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
@@ -163,7 +165,7 @@ struct Settings {
   }
 
   async changeDisplayMode(mode: 'rendered' | 'source') {
-    if (this.saving) return
+    if (this.saving || mode === this.fileDisplayMode) return
     this.saving = true
     this.message = ''
     try {
@@ -174,6 +176,13 @@ struct Settings {
       this.fileDisplayMode = mode
     } catch (e) { this.message = `保存失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.saving = false }
+  }
+
+  displayModeChoices(): PopupMenuItem[] {
+    return [
+      { title: '渲染', checked: this.fileDisplayMode === 'rendered', action: (): void => { this.changeDisplayMode('rendered') } },
+      { title: '原文', checked: this.fileDisplayMode === 'source', action: (): void => { this.changeDisplayMode('source') } }
+    ]
   }
 
   categoryStates(index: number, defaults: boolean): CoreTaskState[] {
@@ -219,13 +228,8 @@ struct Settings {
     SettingsGroup({ title: '任务与笔记' }) {
       SettingsRow({ title: '文件入口', icon: $r('app.media.ui_folder'), action: (): void => { this.openSection('文件入口') } })
       SettingsRow({ title: '任务状态分类', value: '5 类', icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
-      SettingsRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染', icon: $r('app.media.ui_body'), divider: false,
-        action: (): void => {
-          this.getUIContext().showActionSheet({ title: '文件展示方式', message: '选择打开笔记本时的展示方式', sheets: [
-            { title: '渲染', action: (): void => { this.changeDisplayMode('rendered') } },
-            { title: '原文', action: (): void => { this.changeDisplayMode('source') } }
-          ] })
-        } })
+      SettingsChoiceRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染',
+        icon: $r('app.media.ui_body'), divider: false, disabled: this.saving, items: this.displayModeChoices() })
     }
     SettingsGroup({ title: '应用程序', detail: '通知授权和通知类型可在系统设置中管理；数字角标还需在系统设置中开启桌面角标。' }) {
       SettingsRow({ title: '通知与角标', value: this.notificationState === 'enabled' ? '已开启' : this.notificationState === 'loading' ? '读取中' : '未开启',
@@ -290,7 +294,7 @@ struct Settings {
         Text('尚未配置存储库').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
       }
       ForEach(this.config.repos, (repo: RepoConfig) => {
-        SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '本地', detail: repo.rootDirectory,
+        SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '不同步', detail: repo.rootDirectory,
           icon: $r('app.media.nav_repository'),
           action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })
       }, (repo: RepoConfig) => repo.id)

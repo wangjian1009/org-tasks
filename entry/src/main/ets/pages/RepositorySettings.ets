@@ -8,11 +8,13 @@ import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
 import { SettingsGroup } from '../components/controls/SettingsGroup'
 import { SettingsRow } from '../components/controls/SettingsRow'
+import { SettingsChoiceRow } from '../components/controls/SettingsChoiceRow'
+import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { SettingsField } from '../components/controls/SettingsField'
 import { LocalDirectorySheet } from '../components/editors/LocalDirectorySheet'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
 
-interface RepositoryParams { repoId?: string; webdav?: boolean }
+interface RepositoryParams { repoId?: string }
 
 @Entry
 @Component
@@ -44,7 +46,10 @@ struct RepositorySettings {
   aboutToAppear() { this.load() }
   onBackPress(): boolean {
     if (this.directoryOpen) { if (!this.directoryBusy) this.directoryOpen = false; return true }
-    if (!this.saving && !this.testing && !this.deleting && !this.resetting) this.save()
+    if (!this.loading && !this.saving && !this.testing && !this.deleting && !this.resetting) {
+      if (this.existing) this.save()
+      else this.getUIContext().getRouter().back()
+    }
     return true
   }
 
@@ -68,8 +73,24 @@ struct RepositorySettings {
     this.testSucceeded = false
   }
 
+  changeSyncMethod(enabled: boolean): void {
+    if (!this.loaded || this.loading || this.saving || this.testing || this.deleting || this.resetting || this.webdavEnabled === enabled) return
+    this.webdavEnabled = enabled
+    if (enabled && !this.rootDirectory.trim()) {
+      this.rootDirectory = `${this.getUIContext().getHostContext()!.filesDir}/repositories/${this.repoId}`
+    }
+    this.clearTestResult()
+  }
+
+  syncMethodChoices(): PopupMenuItem[] {
+    return [
+      { title: '不同步', checked: !this.webdavEnabled, action: (): void => { this.changeSyncMethod(false) } },
+      { title: 'WebDAV', checked: this.webdavEnabled, action: (): void => { this.changeSyncMethod(true) } }
+    ]
+  }
+
   async testConnection() {
-    if (this.testing || this.saving || this.loading) return
+    if (!this.webdavEnabled || this.testing || this.saving || this.loading) return
     this.clearTestResult()
     if (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword) {
       this.testMessage = '请填写 HTTPS WebDAV 地址、用户名和密码'
@@ -101,12 +122,12 @@ struct RepositorySettings {
       this.repoId = repo.id
       this.name = repo.name
       this.rootDirectory = repo.rootDirectory
-      this.webdavEnabled = params?.repoId ? repo.webdavEnabled : params?.webdav || false
+      this.webdavEnabled = repo.webdavEnabled
       this.webdavUrl = repo.webdavUrl
       this.webdavUsername = repo.webdavUsername
       this.webdavPassword = repo.webdavPassword
       this.excludedDirectoriesText = repo.excludedDirectories.join(', ')
-      if (!existing && this.webdavEnabled) {
+      if (!existing) {
         const defaults: NativeSyncOptions = await defaultSyncOptions()
         this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
       }
@@ -119,7 +140,7 @@ struct RepositorySettings {
 
   async save() {
     if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
-    if (!this.loaded || JSON.stringify(this.draft()) === this.originalDraft) { this.getUIContext().getRouter().back(); return }
+    if (!this.loaded || (this.existing && JSON.stringify(this.draft()) === this.originalDraft)) { this.getUIContext().getRouter().back(); return }
     if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
     if (this.webdavEnabled && (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword)) {
       this.cannotSave('请填写 HTTPS WebDAV 地址、用户名和密码'); return
@@ -203,26 +224,19 @@ struct RepositorySettings {
       selected: (path: string): void => { this.rootDirectory = path; this.directoryOpen = false } })
   }
 
-  @Builder
-  webdavSwitch() {
-    Row({ space: 12 }) {
-      Text('使用 WebDAV 远端').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
-      Toggle({ type: ToggleType.Switch, isOn: this.webdavEnabled }).selectedColor(UiColor.primary)
-        .onChange((value: boolean): void => { this.webdavEnabled = value; this.clearTestResult() })
-    }.width('100%').constraintSize({ minHeight: 58 }).padding({ left: 14, right: 14, top: 8, bottom: 8 })
-      .border({ width: { bottom: this.webdavEnabled ? 0.5 : 0 }, color: UiColor.divider })
-  }
-
   build() {
     Column() {
-      AppShell({ title: '仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
-        busy: this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
+      AppShell({ title: this.existing ? '仓库' : '添加仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
+        actionText: !this.loading && this.loaded && !this.existing ? '添加' : '',
+        actionLabel: !this.loading && this.loaded && !this.existing ? '添加仓库' : '',
+        actionProminent: true, action: (): void => { this.save() },
+        busy: this.loading || this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
         backAction: (): void => { this.onBackPress() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           Scroll() {
             Column() {
-              SettingsGroup({ title: '基本信息', detail: '名称可留空，默认使用目录名称。修改后返回保存。' }) {
+              SettingsGroup({ title: '基本信息', detail: this.existing ? '名称可留空，默认使用目录名称。修改后返回保存。' : '名称可留空，默认使用目录名称。点击右上角“添加”创建仓库，返回放弃草稿。' }) {
                 SettingsField({ title: '名称', text: this.name, placeholder: repositoryName(this.rootDirectory), divider: false,
                   changed: (value: string): void => { this.name = value } })
               }
@@ -231,9 +245,12 @@ struct RepositorySettings {
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
                   action: (): void => { this.directoryOpen = true } })
               }
-              SettingsGroup({ title: 'WebDAV 连接', detail: '测试连接验证认证与目录访问，不保存配置或同步文件；上传权限在实际同步时验证。修改后返回保存。' }) {
-                this.webdavSwitch()
-                if (this.webdavEnabled) {
+              SettingsGroup({ title: '同步', detail: '不同步时仅使用本地文件；选择 WebDAV 后配置远端连接。切换方式保留已填写的连接参数。' }) {
+                SettingsChoiceRow({ title: '同步方式', value: this.webdavEnabled ? 'WebDAV' : '不同步',
+                  divider: false, items: this.syncMethodChoices() })
+              }
+              if (this.webdavEnabled) {
+                SettingsGroup({ title: 'WebDAV 连接', detail: '测试连接验证认证与目录访问，不保存配置或同步文件；上传权限在实际同步时验证。' }) {
                   SettingsField({ title: '服务器地址', text: this.webdavUrl, placeholder: 'https://dav.example.com/org/',
                     changed: (value: string): void => { this.webdavUrl = value; this.clearTestResult() } })
                   SettingsField({ title: '用户名', text: this.webdavUsername, placeholder: 'WebDAV 用户名',

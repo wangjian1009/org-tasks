@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-settings.cjs\n验证文件选择确认、目录浏览与创建、设置保存的失败恢复和既有配置保留。');
+  console.log('用法: node scripts/test-settings.cjs\n验证文件选择确认、目录浏览与创建、文件展示选择、仓库添加与同步方式切换，以及保存的失败恢复和既有配置保留。');
   process.exit(0);
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents',
@@ -119,7 +119,7 @@ test('新建拒绝路径越界与非法名称，失败保留草稿，成功进�
 function settingsFixture() {
   const config = { repos: [{ id: 'fresh-repo' }], todoDefaults: '#+TODO: OPEN | CLOSED',
     coreSettings: { additionStates: [] }, fileDisplayMode: 'rendered' };
-  let saved, validationFailure;
+  let saved, validationFailure, saveFailure;
   const settings = load('pages/Settings', 'Settings', {
     'liborg_tasks_harmony.so': { Workspace: class {
       async setSettings(value) { if (validationFailure) throw validationFailure; this.value = value; }
@@ -127,7 +127,7 @@ function settingsFixture() {
     } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
     '../services/AppConfigService': { AppConfigService: {
-      async load() { return structuredClone(config); }, async save(context, value) { saved = value; }
+      async load() { return structuredClone(config); }, async save(context, value) { if (saveFailure) throw saveFailure; saved = value; }
     } },
     '../services/NotebookService': {},
     '../services/NativeCoreService': { ...errors, NativeCoreService: { async workspaceFor() {} } },
@@ -135,7 +135,7 @@ function settingsFixture() {
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },
     '../services/NotificationPermissionService': {}
   });
-  return { settings, config, saved: () => saved, fail(e) { validationFailure = e; } };
+  return { settings, config, saved: () => saved, fail(e) { validationFailure = e; }, failSave(e) { saveFailure = e; } };
 }
 test('状态分类和展示方式保存保留已有 TODO 流程与新仓库，非法输入不保存且保留草稿', async () => {
   const f = settingsFixture(); f.settings.categoryDraft = 'HOLD';
@@ -150,6 +150,17 @@ test('状态分类和展示方式保存保留已有 TODO 流程与新仓库，�
   assert.equal(f.saved().todoDefaults, f.config.todoDefaults); assert.equal(f.saved().fileDisplayMode, 'source');
 });
 
+test('展示方式菜单标记已保存值，重复选择不写入，失败保持原选项并可重试', async () => {
+  const f = settingsFixture();
+  assert.deepEqual(f.settings.displayModeChoices().map(item=>[item.title,item.checked]), [['渲染',true],['原文',false]]);
+  await f.settings.changeDisplayMode('rendered'); assert.equal(f.saved(), undefined);
+  f.failSave(new Error('写入失败')); await f.settings.changeDisplayMode('source');
+  assert.equal(f.settings.fileDisplayMode, 'rendered'); assert.equal(f.settings.saving, false);
+  assert.match(f.settings.message, /写入失败/);
+  f.failSave(undefined); await f.settings.changeDisplayMode('source');
+  assert.deepEqual(f.settings.displayModeChoices().map(item=>item.checked), [false,true]);
+});
+
 function repositoryFixture(existing = true) {
   const original = { id: 'repo-1', name: '旧名称', rootDirectory: '/org/work', webdavEnabled: true,
     webdavUrl: 'https://dav.example.com/org/', webdavUsername: 'user', webdavPassword: 'secret',
@@ -162,7 +173,8 @@ function repositoryFixture(existing = true) {
   const page = load('pages/RepositorySettings', 'RepositorySettings', {
     '../services/AppConfigService': { AppConfigService: {
       async load() { return structuredClone(config); },
-      newRepository() { return { ...original, id: 'repo-new', name: '', rootDirectory: '', webdavEnabled: false, excludedDirectories: [] }; },
+      newRepository() { return { ...original, id: 'repo-new', name: '', rootDirectory: '', webdavEnabled: false,
+        webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] }; },
       async save(context, value) { writes.push(value); }
     } },
     '../services/PageQueryService': { PageQueryService: {} },
@@ -179,7 +191,7 @@ function repositoryFixture(existing = true) {
     '../ui/Theme': { UiColor: {}, repositoryLabel: repo => repo.name }
   });
   page.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }),
-    getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : { webdav: true }, back() { backed++; } }),
+    getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : {}, back() { backed++; } }),
     showAlertDialog() {} });
   return { page, config, writes, directories, validations, connections, backed: () => backed,
     fail(e) { failure = e; }, hold(p) { gate = p; } };
@@ -197,14 +209,46 @@ test('已有仓库名称修改返回保存，保留身份、排除规则、入�
   assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['private']);
   assert.equal(f.writes[0].memoFile, 'new-memo.org'); assert.equal(f.writes[0].inboxRepoId, 'repo-1');
 });
-test('新增 WebDAV 未编辑返回不落盘；填写名称后创建管理目录并保存 Core 默认排除规则', async () => {
-  const untouched = repositoryFixture(false); await untouched.page.load(); await untouched.page.save();
-  assert.equal(untouched.writes.length, 0); assert.equal(untouched.directories.length, 0);
-  const f = repositoryFixture(false); await f.page.load(); f.page.name = '新仓库'; await f.page.save();
+test('新建默认不同步，返回不创建；选择 WebDAV 并明确添加后创建管理目录和默认排除规则', async () => {
+  const untouched = repositoryFixture(false); await untouched.page.load();
+  assert.equal(untouched.page.webdavEnabled, false);
+  untouched.page.name = '未提交草稿'; untouched.page.onBackPress();
+  assert.equal(untouched.writes.length, 0); assert.equal(untouched.directories.length, 0); assert.equal(untouched.backed(), 1);
+  const f = repositoryFixture(false); await f.page.load();
+  f.page.changeSyncMethod(true); f.page.name = '新仓库';
+  f.page.webdavUrl = 'https://dav.example.com/org/'; f.page.webdavUsername = 'user'; f.page.webdavPassword = 'secret';
+  assert.equal(f.writes.length, 0);
+  await f.page.save();
   assert.deepEqual(f.directories, ['/app/files/repositories/repo-new']);
   assert.deepEqual(f.validations, f.directories); assert.equal(f.backed(), 1);
   assert.equal(f.writes[0].repos[0].name, '新仓库'); assert.equal(f.writes[0].repos[0].webdavEnabled, true);
   assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['archive']);
+});
+
+test('关闭同步保留目录、凭据和过滤草稿，清除连接结果；本地保存无需完整远端参数', async () => {
+  const f = repositoryFixture(); await f.page.load();
+  f.page.testMessage = '连接成功'; f.page.testSucceeded = true;
+  f.page.changeSyncMethod(false);
+  assert.equal(f.page.testMessage, ''); assert.equal(f.page.testSucceeded, false);
+  await f.page.testConnection(); assert.equal(f.connections.length, 0);
+  assert.deepEqual(f.page.syncMethodChoices().map(item=>[item.title,item.checked]), [['不同步',true],['WebDAV',false]]);
+  f.page.changeSyncMethod(true);
+  assert.deepEqual(f.page.draft(), f.config.repos[0]);
+  f.page.changeSyncMethod(false); f.page.webdavUrl = '';
+  await f.page.save();
+  const saved = f.writes[0].repos[0];
+  assert.equal(saved.webdavEnabled, false); assert.equal(saved.id, 'repo-1');
+  assert.equal(saved.rootDirectory, '/org/work'); assert.equal(saved.webdavPassword, 'secret');
+  assert.deepEqual(saved.excludedDirectories, ['private']);
+});
+
+test('新建本地仓库由添加提交；切换同步不覆盖用户所选目录', async () => {
+  const f = repositoryFixture(false); await f.page.load();
+  f.page.rootDirectory = '/org/local'; f.page.changeSyncMethod(true); f.page.changeSyncMethod(false);
+  assert.equal(f.page.rootDirectory, '/org/local');
+  await f.page.save();
+  assert.equal(f.writes[0].repos[0].webdavEnabled, false);
+  assert.deepEqual(f.validations, ['/org/local']); assert.deepEqual(f.directories, []);
 });
 test('连接测试只使用草稿，不保存或同步；执行中阻止重复和返回，失败恢复后可再次测试', async () => {
   const f = repositoryFixture(); await f.page.load();
@@ -212,6 +256,7 @@ test('连接测试只使用草稿，不保存或同步；执行中阻止重复�
   let release; f.hold(new Promise(resolve => { release = resolve; }));
   f.fail(new Error('认证失败'));
   const testing = f.page.testConnection();
+  f.page.changeSyncMethod(false); assert.equal(f.page.webdavEnabled, true);
   await f.page.testConnection(); f.page.onBackPress();
   assert.equal(f.connections.length, 1); assert.equal(f.backed(), 0); assert.equal(f.writes.length, 0);
   release(); await testing;

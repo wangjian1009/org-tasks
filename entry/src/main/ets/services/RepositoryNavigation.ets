@@ -1,12 +1,9 @@
 import { UIContext } from '@kit.ArkUI'
 
-export function addRepository(context: UIContext): void {
-  context.showActionSheet({ title: '添加存储库', message: '', sheets: [
-    { title: '本地存储库', action: (): void => {
-      context.getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { webdav: false } })
-    } },
-    { title: 'WebDAV 存储库', action: (): void => {
-      context.getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { webdav: true } })
-    } }
-  ] })
+export async function addRepository(context: UIContext): Promise<void> {
+  try { await context.getRouter().pushUrl({ url: 'pages/RepositorySettings' }) }
+  catch (_) {
+    try { context.getPromptAction().showToast({ message: '无法打开仓库配置，请重试' }) }
+    catch (_) { /* 页面已退出时不再显示提示。 */ }
+  }
 }
