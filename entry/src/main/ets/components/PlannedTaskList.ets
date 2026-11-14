@@ -3,7 +3,6 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedScheduleItem, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
 import { TaskRegion } from './TaskRegion'
-import { ScheduleRegion } from './ScheduleRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TaskEditor } from './editors/TaskEditor'
@@ -74,13 +73,11 @@ export struct PlannedTaskList {
     }
     if (group.kind === 'day') {
       if (group.scheduleItems.length > 0) {
-        ListItem() { ScheduleRegion() }
-        ListItemGroup() {
+        TaskRegion({ category: '日程' }) {
           ForEach(group.scheduleItems, (item: PlannedScheduleItem) => {
             ListItem() { this.scheduleTaskItem(item) }
           }, (item: PlannedScheduleItem) => taskRenderKey(item.task))
-        }.width('100%').backgroundColor(UiColor.container).borderRadius(8)
-          .padding({ top: 8, bottom: 8 }).margin({ top: 12 })
+        }
       }
       ForEach(group.groups, (region: PlannedTaskGroup) => {
         this.regionGroup(group, region)

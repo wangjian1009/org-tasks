@@ -6,6 +6,7 @@ import { RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
 import { TaskRegion } from './TaskRegion'
 import { CategoryRegion } from './CategoryRegion'
+import { ScheduleRegion } from './ScheduleRegion'
 import { taskRegion } from '../ui/TaskRegionPresentation'
 import { TaskEditor } from './editors/TaskEditor'
 import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
@@ -42,6 +43,7 @@ export struct TodayTaskList {
         ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
       }
       if (this.timedItems.length > 0) {
+        ListItem() { ScheduleRegion() }
         ListItemGroup() {
           ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
             ListItem() {

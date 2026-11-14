@@ -1,6 +1,6 @@
 import { UiColor } from '../ui/Theme'
 
-// 计划按日区域的日程标题，沿用分类标题的图标、文字与分割线布局。
+// 今天页的日程标题，沿用分类标题的图标、文字与分割线布局。
 @Component
 export struct ScheduleRegion {
   build() {
