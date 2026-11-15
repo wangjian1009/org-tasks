@@ -56,12 +56,18 @@ struct ConflictFile {
   @State selectedTarget: CoreConflictTarget | undefined = undefined
   private restoredPosition: number | undefined = undefined
 
+  private stopExternalGuard: (() => void) | undefined = undefined
+  onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
   onPageShow() {
+    this.stopExternalGuard?.()
+    this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
+      !this.loading && !this.saving && !this.manuallyEdited && !this.pendingGroup && !this.stagedAction)
     if (!this.initialized) this.load()
     else if (this.preview) this.refreshPreview()
     else this.load()
   }
   aboutToDisappear() {
+    this.stopExternalGuard?.()
     this.requestId++
     const preview = this.preview
     if (preview) preview.discard().catch((): void => {})

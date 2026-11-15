@@ -2,20 +2,24 @@
 use crate::{CoreError, CoreQuery, CoreQueryResult, OrgWorkspace, TaskOperationGroup};
 use axum::{
     Json, Router,
+    extract::Request,
     extract::{State, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{MethodRouter, post},
 };
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tower::ServiceExt;
 
 type SharedWorkspace = Arc<Mutex<OrgWorkspace>>;
 
 pub struct EmbeddedHttpServer {
     address: SocketAddr,
+    handlers: Arc<Mutex<Router>>,
+    paths: std::collections::HashSet<String>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<Result<(), CoreError>>>,
 }
@@ -33,10 +37,24 @@ impl EmbeddedHttpServer {
         let address = listener
             .local_addr()
             .map_err(|error| CoreError::Store(error.to_string()))?;
+        let handlers = Arc::new(Mutex::new(Router::new()));
+        let registry = handlers.clone();
         let router = Router::new()
             .route("/api/v1/queries", post(queries))
             .route("/api/v1/task-operation-groups", post(modify))
-            .with_state(workspace);
+            .with_state(workspace)
+            .fallback(move |request: Request| {
+                let routes = registry
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone();
+                async move {
+                    routes
+                        .oneshot(request)
+                        .await
+                        .unwrap_or_else(|error| match error {})
+                }
+            });
         let (shutdown, stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -48,9 +66,31 @@ impl EmbeddedHttpServer {
         });
         Ok(Self {
             address,
+            handlers,
+            paths: Default::default(),
             shutdown: Some(shutdown),
             task: Some(task),
         })
+    }
+    /// 为当前测试服务注册宿主路径；请求与处理器均保持通用 HTTP 语义。
+    pub fn register_handler(&mut self, path: &str, handler: MethodRouter) -> Result<(), CoreError> {
+        if self.shutdown.is_none() {
+            return Err(CoreError::InvalidState("HTTP 服务已停止"));
+        }
+        if !path.starts_with('/')
+            || path.contains(['?', '#', ':', '*'])
+            || matches!(path, "/api/v1/queries" | "/api/v1/task-operation-groups")
+            || self.paths.contains(path)
+        {
+            return Err(CoreError::InvalidInput("HTTP 挂载路径无效或已被占用"));
+        }
+        let mut routes = self
+            .handlers
+            .lock()
+            .map_err(|_| CoreError::Store("HTTP 路由锁不可用".into()))?;
+        *routes = routes.clone().route(path, handler);
+        self.paths.insert(path.to_owned());
+        Ok(())
     }
     pub fn address(&self) -> SocketAddr {
         self.address
@@ -63,6 +103,11 @@ impl EmbeddedHttpServer {
             task.await
                 .map_err(|error| CoreError::Store(format!("停止 APP HTTP 接口失败: {error}")))??;
         }
+        *self
+            .handlers
+            .lock()
+            .map_err(|_| CoreError::Store("HTTP 路由锁不可用".into()))? = Router::new();
+        self.paths.clear();
         Ok(())
     }
 }

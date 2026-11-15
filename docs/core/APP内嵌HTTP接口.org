@@ -5,19 +5,97 @@
 
 * 范围与生命周期
 
-本接口用于在 APP 运行时，从外部查询、修改当前数据并观察真实界面的数据驱动行为。服务与 UI 共享同一个 Workspace，不新建仓库上下文，不作为独立进程运行。已有 HTTP Web App 宿主保持自身职责。
+本接口用于在 APP 运行时，从外部查询、修改当前数据并观察真实界面的数据驱动行为。服务与 UI 共享同一个 Workspace，不新建仓库上下文，不作为独立进程运行。Core 管理监听与通用路径注册，Harmony 在服务启动后注册导航处理器。已有 HTTP Web App 宿主保持自身职责。
 
 ~OrgWorkspace::start_http_server(Arc<Mutex<OrgWorkspace>>, SocketAddr)~ 返回持有监听资源的 ~EmbeddedHttpServer~ ，通过 ~address()~ 取得实际监听地址； ~OrgWorkspace::stop_http_server(&mut EmbeddedHttpServer)~ 停止接收请求并等待在途请求完成。丢弃句柄也会发出停止信号。仅允许回环地址，端口 0 表示由系统分配端口。
 
 Core 不读取宿主启动参数、不决定自动启动。Harmony APP 只在 ~Want.parameters.httpApiEnabled === true~ 时调用当前 Workspace 启动接口，固定监听 ~127.0.0.1:8787~ 。普通点击图标启动不提供服务；不增加设置入口或持久化开关。进程退出后服务自然结束，下次普通启动不会恢复。
 
-运行中的 APP 收到显式 true 参数可临时开启，收到 false 参数可停止；没有该参数时保留当前会话状态。仓库配置变化时由应用层重新绑定当前活动 Workspace，主 Ability 销毁时停止。服务没有健康检查、仓库管理或启动停止等 REST 入口。
+运行中的 APP 收到显式 true 参数可临时开启，收到 false 参数可停止；没有该参数时保留当前会话状态。仓库配置变化时由应用层重新绑定当前活动 Workspace，主 Ability 销毁时停止。服务没有健康检查、仓库管理或启动停止等 REST 入口。导航接口随同一临时服务启停，主窗口未就绪时返回 503。
 
 * 通用约定
 
 请求使用 ~Content-Type: application/json~ ，响应为 UTF-8 JSON。字段沿用 Core 的 camelCase 序列化；任务原始投影与 Harmony 显示投影不同，例如标题字段为 ~title~ ，定位字段为 ~fullPath~ 。仓库 ID、路径和版本应从查询结果获取，不猜测。
 
 监听地址为设备回环地址，连接模拟器时可使用设备工具将宿主端口转发到设备端口。接口不配置跨域访问许可；直接本地 API 客户端调用即可。
+
+* 使用示例
+
+以下示例连接专用模拟器，并将宿主 ~127.0.0.1:18787~ 转发到 APP 的 ~127.0.0.1:8787~ 。~hdc~ 使用 DevEco Studio SDK 自带版本；切换设备时修改 ~TEST_DEVICE~ ，其值从设备列表取得。先安装包含导航接口的应用，再执行以下命令：
+
+#+begin_src sh
+HDC_BIN=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc
+"$HDC_BIN" list targets
+TEST_DEVICE=127.0.0.1:5555
+
+# 启动应用并临时启用测试接口；已运行的应用也接受此参数。
+"$HDC_BIN" -t "$TEST_DEVICE" shell aa start \
+  -b com.example.orgtasks -a EntryAbility --pb httpApiEnabled true
+"$HDC_BIN" -t "$TEST_DEVICE" fport tcp:18787 tcp:8787
+#+end_src
+
+服务启动和主窗口加载为异步过程，启动命令返回后等待主窗口出现，再请求导航接口。连接失败或返回 503 时确认应用已启动、转发设备正确、主窗口已就绪。
+
+** 获取当前页面路径
+
+#+begin_src sh
+curl --fail-with-body http://127.0.0.1:18787/api/v1/ui/navigation
+#+end_src
+
+默认今天页返回：
+
+#+begin_src json
+{"pages":[{"url":"pages/TaskOverview","params":{"view":"today"}}]}
+#+end_src
+
+** 直接跳转到指定页面
+
+PUT 的请求体指定完整路径，单节点表示一级页面。以下命令直接进入“计划”；把 ~planned~ 改为 ~today~ 即进入“今天”。
+
+#+begin_src sh
+curl --fail-with-body -X PUT http://127.0.0.1:18787/api/v1/ui/navigation \
+  -H 'Content-Type: application/json' \
+  -d '{"pages":[{"url":"pages/TaskOverview","params":{"view":"planned"}}]}'
+#+end_src
+
+以下命令直接进入“收件箱”：
+
+#+begin_src sh
+curl --fail-with-body -X PUT http://127.0.0.1:18787/api/v1/ui/navigation \
+  -H 'Content-Type: application/json' \
+  -d '{"pages":[{"url":"pages/Inbox"}]}'
+#+end_src
+
+成功响应为实际生效的 ~pages~ ；再次 GET 可读取后续界面操作造成的路径变化。200 表示导航操作完成，页面数据仍可能加载中；409 表示当前编辑或跳转状态不允许切换，先处理界面中的未完成操作再重试。
+
+** 指定深层路径与返回目标
+
+先查询文件取得真实 Core 仓库 ID 和相对路径：
+
+#+begin_src sh
+curl --fail-with-body http://127.0.0.1:18787/api/v1/queries \
+  -H 'Content-Type: application/json' \
+  -d '[{"type":"file","query":{"isProject":true}}]'
+#+end_src
+
+将下例中的 ~实际Core仓库ID~ 与 ~project.org~ 替换为查询结果中的 ~repoId~ 与 ~path~ ：
+
+#+begin_src sh
+curl --fail-with-body -X PUT http://127.0.0.1:18787/api/v1/ui/navigation \
+  -H 'Content-Type: application/json' \
+  -d '{"pages":[{"url":"pages/Files"},{"url":"pages/ProjectDetail","params":{"repoId":"实际Core仓库ID","path":"project.org"}}]}'
+#+end_src
+
+设置后显示项目页，系统返回或工具栏返回进入“笔记本”；此时 GET 返回 ~{"pages":[{"url":"pages/Files"}]}~ 。若请求只保留项目节点，则项目为一级页面，返回遵循收件箱计数规则。
+
+** 结束测试会话
+
+#+begin_src sh
+"$HDC_BIN" -t "$TEST_DEVICE" shell aa start \
+  -b com.example.orgtasks -a EntryAbility --pb httpApiEnabled false
+#+end_src
+
+停止后数据与导航接口均不可连接；下次普通启动不会恢复测试服务。
 
 * 批量查询
 
@@ -79,12 +157,51 @@ Core 不读取宿主启动参数、不决定自动启动。Harmony APP 只在 ~W
 
 成功表示 Core 操作已提交并产生原有数据变化事件，不表示界面已完成渲染。触发器和关联更新仍由既有修改流程执行；HTTP 层不自行写文件或生成领域事件。页面管理对象将外部操作识别为刷新来源，界面接收快照变化不会再提交操作。
 
+* 宿主路径注册与导航
+
+Core 的 ~EmbeddedHttpServer.register_handler(path, handler)~ 接收静态路径和通用 ~axum::routing::MethodRouter~ 。宿主在启动服务后、对外报告启动完成前注册；注册表属于本次服务实例，重启与更换 Workspace 后重新注册。重复路径、动态路径及覆盖两个 Core 数据路径的注册被拒绝。Core 不引用页面、ArkTS 或 N-API，方法分发与处理器均由宿主提供。
+
+Harmony 注册 ~GET /api/v1/ui/navigation~ 与 ~PUT /api/v1/ui/navigation~ 。GET 返回 ~PageNavigator~ 的完整路径；PUT 设置整条路径，首项为根页面、末项为当前页面，替换原导航栈。请求与成功响应共用以下结构：
+
+#+begin_src json
+{
+  "pages": [
+    { "url": "pages/Files" },
+    { "url": "pages/ProjectDetail", "params": { "repoId": "Core仓库ID", "path": "project.org" } }
+  ]
+}
+#+end_src
+
+单节点路径可直接指定界面，例如 ~pages/TaskOverview~ 的 ~params.view~ 为 ~today~ 、 ~planned~ 、 ~anytime~ 、 ~someday~ 、 ~memo~ 或 ~logbook~ ，省略时规范化为 ~today~ 。其余支持 ~pages/Inbox~ 、 ~pages/Files~ 、 ~pages/Settings~ 、 ~pages/ProjectDetail~ 、 ~pages/FileDetail~ 、 ~pages/RepositorySettings~ 、 ~pages/SyncLog~ 、 ~pages/ConflictFile~ 与 ~pages/MemoEdit~ 。独立捕捉与卡片配置窗口不属于主窗口路径。
+
+~pages~ 必须包含 1 至 32 项，各页面仅接受自身已定义参数；未知字段、页面或参数类型返回 400。文件与项目使用 Core 仓库 ID 和相对路径；仓库设置、同步日志、冲突处理使用配置仓库 ID。设置页可传 ~section~ ；备忘新建使用 ~create=true~ ，编辑使用 ~task~ 中的 ~repoId~ 、 ~filePath~ 和 ~id~ ，宿主从当前 Workspace 恢复真实 Task，不采信请求中的其他任务快照字段。
+
+PUT 先校验全部节点和目标，再结束原位编辑并调用 ~PageNavigator.setPath~ ；目标不存在返回 404，编辑保存失败、编辑页面存在未提交草稿、并发跳转或当前路径已变化返回 409。这些检查失败时保留当前路径。平台在多步跳转途中失败时返回 409，GET 返回实际已到达的路径。文件自动识别为项目时规范化为项目节点。成功返回 200 和实际路径，表示路由操作完成；页面数据与绘制仍异步完成。
+
+#+begin_export latex
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{EmbeddedHttpServer}{address : SocketAddr\\handlers : Router}{register\_handler(path, handler)\\stop()}
+\umlclass[x=7,y=0]{HostHandler}{request : HTTP\\response : HTTP}{handle()}
+\umlclass[x=7,y=-4]{UiBridge}{requestId : u64}{dispatch()\\respond()}
+\umlaggreg{EmbeddedHttpServer}{HostHandler}
+\umlinherit{UiBridge}{HostHandler}
+\end{tikzpicture}
+#+end_export
+
+HTTP 请求由 Harmony Rust 的等待通道转交 C++ TSFN，ArkTS 在 UI 线程处理后通过请求 ID 归还响应；等待不持有 Workspace 业务锁。服务关闭取消在途请求，排队回调检查会话有效性后执行；宿主无响应时 15 秒返回 503。GET 在路径正在切换时同样返回 409，避免读取中间路径。
+
+* 验证记录
+
+2026-11-16 已在专用模拟器与独立仓库验证：GET 与实际主窗口路径一致；PUT 切换计划页、笔记本深入项目和单节点项目，界面返回后 GET 同步反映父路径；文件入口规范化为项目；空路径与无效参数返回 400，失效文件返回 404，错误请求方法返回 405，均保留有效路径。新建备忘输入后 PUT 返回 409 并保留草稿，界面返回保存后通过数据接口确认记录一致。普通启动不恢复测试监听，显式停止后端口释放。
+
 * 错误
 
 | HTTP 状态 | error.code | 含义 |
 |-
 | 400 | invalidInput | JSON、查询或操作参数非法 |
-| 409 | invalidState | 文件版本过期、定位或当前状态冲突 |
+| 404 | notFound | 导航目标不存在 |
+| 409 | invalidState | 文件版本过期、定位、编辑或导航状态冲突 |
+| 503 | unavailable | 主窗口未就绪、服务关闭或界面响应超时 |
 | 500 | store | 文件、仓库锁或运行时执行失败 |
 
 #+begin_src json

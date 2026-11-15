@@ -32,7 +32,15 @@ struct MemoEdit {
     this.body = this.memo?.body || ''
   }
 
-  onPageShow() { this.refreshNotifications() }
+  private stopExternalGuard: (() => void) | undefined = undefined
+  onPageShow() {
+    this.stopExternalGuard?.()
+    this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
+      !this.working && (this.committed || this.heading === (this.memo?.heading || '') && this.body === (this.memo?.body || '')))
+    this.refreshNotifications()
+  }
+  onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
+  aboutToDisappear(): void { this.stopExternalGuard?.() }
 
   async refreshNotifications() {
     try {

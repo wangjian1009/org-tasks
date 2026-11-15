@@ -25,6 +25,13 @@ export class PageNavigator {
   private configurationChanged = (): void => { this.refreshInbox() }
 
   get path(): PagePath { return this.state }
+  isNavigating(): boolean { return this.navigating }
+  private externalLeaveGuard: (() => boolean) | undefined = undefined
+  watchExternalLeaveGuard(guard: () => boolean): () => void {
+    this.externalLeaveGuard = guard
+    return (): void => { if (this.externalLeaveGuard === guard) this.externalLeaveGuard = undefined }
+  }
+  canLeaveExternally(): boolean { return this.externalLeaveGuard?.() ?? true }
 
   // WindowStage 重新加载根页面时同时重建路径，不保留旧窗口历史。
   reset(page: PageRoute): void { this.state = new PagePath([page]) }

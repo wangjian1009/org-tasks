@@ -4,6 +4,7 @@
 //! core 执行；ArkTS 只持有 bridge 暴露的对象并渲染结构化数据。
 
 mod bridge;
+mod http_ui;
 
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char};
@@ -600,8 +601,16 @@ pub extern "C" fn org_tasks_harmony_workspace_unsubscribe_query(handle: u64, id:
 
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_start_http_server(handle: u64, port: u16) -> *mut c_char {
-    string_result(bridge::workspace_start_http_server(handle, port))
+pub extern "C" fn org_tasks_harmony_workspace_start_http_server(handle: u64, port: u16, monitor: u64) -> *mut c_char {
+    string_result(bridge::workspace_start_http_server(handle, port, monitor))
+}
+/// 仅归还宿主响应到等待通道，不访问 Workspace 或执行 I/O。
+///
+/// # Safety
+/// `response` 必须是有效的 NUL 结尾 UTF-8 字符串。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn org_tasks_harmony_http_ui_respond(id: u64, response: *const c_char) {
+    if let Ok(response) = read_c_string(response) { http_ui::respond(id, &response); }
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_stop_http_server(handle: u64) -> *mut c_char {

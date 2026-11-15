@@ -108,3 +108,30 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
     drop(rebound);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_handlers_register_after_start_without_core_knowing_host_semantics() {
+    let workspace = Arc::new(Mutex::new(OrgWorkspace::new(vec![]).unwrap()));
+    let mut server = OrgWorkspace::start_http_server(workspace, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+    let base = format!("http://{}", server.address());
+    let client = reqwest::Client::new();
+    assert_eq!(client.get(format!("{base}/host/example")).send().await.unwrap().status(), 404);
+    let route = axum::routing::get(|| async { axum::Json(json!({"value":42})) })
+        .put(|axum::Json(value): axum::Json<Value>| async move { axum::Json(value) });
+    server.register_handler("/host/example", route).unwrap();
+    let response = client.get(format!("{base}/host/example")).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), r#"{"value":42}"#);
+    let response = client.put(format!("{base}/host/example")).header("content-type", "application/json").body(r#"{"input":1}"#).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), r#"{"input":1}"#);
+    assert_eq!(client.post(format!("{base}/host/example")).send().await.unwrap().status(), 405);
+    assert!(server.register_handler("/api/v1/queries", axum::routing::get(|| async { "override" })).is_err());
+    assert!(server.register_handler("/host/example", axum::routing::get(|| async { "duplicate" })).is_err());
+    assert!(server.register_handler("/:id", axum::routing::get(|| async { "dynamic" })).is_err());
+    let response = client.post(format!("{base}/api/v1/queries")).header("content-type", "application/json").body("[]").send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    OrgWorkspace::stop_http_server(&mut server).await.unwrap();
+    assert!(std::net::TcpListener::bind(server.address()).is_ok());
+    assert!(server.register_handler("/stopped", axum::routing::get(|| async { "stopped" })).is_err());
+}

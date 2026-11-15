@@ -2,7 +2,7 @@
 exports.pageNavigatorMock = {
   primaryPage: view => view === 'inbox' ? { url: 'pages/Inbox' } : { url: 'pages/TaskOverview', params: { view } },
   PageNavigator: { shared: {
-    path: { depth: 2 }, start() {}, reset() {}, async close() {},
+    path: { depth: 2 }, start() {}, reset() {}, async close() {}, watchExternalLeaveGuard() { return () => {}; },
     async pushPage(context, page) { await context.getRouter().pushUrl(page); return true; },
     async replacePage(context, page) { await context.getRouter().replaceUrl(page); return true; },
     async openPrimary(context, page) { await context.getRouter().replaceUrl(page); return true; },

@@ -88,9 +88,16 @@ struct Inbox {
   private captureFocusTimer: number = -1
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
-  onPageShow() { this.visible = true; this.loadRecords() }
-  onPageHide() { this.visible = false; this.dateDialog?.close(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
+  private stopExternalGuard: (() => void) | undefined = undefined
+  onPageShow() {
+    this.stopExternalGuard?.()
+    this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
+      !this.mergeBusy && !this.selectionStarting && !this.actionBusy && !this.captureSaving && (!this.captureOpen || !this.captureTitle))
+    this.visible = true; this.loadRecords()
+  }
+  onPageHide() { this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.visible = false; this.dateDialog?.close(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
+    this.stopExternalGuard?.()
     for (const stop of this.stops) stop()
     this.stops = []
     this.dataManager?.close().catch((): void => { console.error('保存收件箱数据失败') })

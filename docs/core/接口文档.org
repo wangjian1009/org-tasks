@@ -1148,4 +1148,4 @@ pub struct QueryOrderPart {
 
 * APP 内嵌 HTTP 服务
 
-Workspace 提供服务启动、停止接口，APP 决定何时调用；服务与界面共享 Workspace，仅暴露查询与修改。生命周期、REST 请求和错误契约单独见 [[file:APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
+Workspace 提供服务启动、停止接口，APP 决定何时调用；服务与界面共享 Workspace，Core 提供通用查询与修改。返回的 ~EmbeddedHttpServer~ 另提供 ~register_handler(path: &str, handler: axum::routing::MethodRouter) -> Result<(), CoreError>~ ，宿主可在同一监听注册自有静态路径和方法处理器，Core 不解释其业务语义。重复、动态及覆盖 Core 数据接口的路径拒绝；注册随服务实例销毁。生命周期、REST 请求和错误契约单独见 [[file:APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。

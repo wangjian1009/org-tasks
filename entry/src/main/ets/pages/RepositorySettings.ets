@@ -44,6 +44,15 @@ struct RepositorySettings {
   private loaded: boolean = false
   private originalDraft: string = ''
 
+  private stopExternalGuard: (() => void) | undefined = undefined
+  onPageShow(): void {
+    this.stopExternalGuard?.()
+    this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
+      this.loaded && !this.loading && !this.saving && !this.testing && !this.deleting && !this.resetting &&
+      !this.directoryOpen && !this.directoryBusy && JSON.stringify(this.draft()) === this.originalDraft)
+  }
+  onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
+  aboutToDisappear(): void { this.stopExternalGuard?.() }
   aboutToAppear() { this.load() }
   onBackPress(): boolean {
     if (this.directoryOpen) { if (!this.directoryBusy) this.directoryOpen = false; return true }

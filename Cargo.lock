@@ -931,12 +931,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
 ]
 
 [[package]]
 name = "org-tasks-harmony"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "org-tasks-core",
  "serde",
  "serde_json",

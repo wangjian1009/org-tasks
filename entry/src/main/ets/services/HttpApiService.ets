@@ -1,12 +1,17 @@
 import { Context } from '@kit.AbilityKit'
+import { window } from '@kit.ArkUI'
+import { HttpNavigationService } from './HttpNavigationService'
 import { AppConfigService } from './AppConfigService'
 import { CoreWorkspace, NativeCoreService } from './NativeCoreService'
 
 // 仅由 APP 的测试启动参数启用，不持久化、不提供普通用户入口。
 export class HttpApiService {
+  private static stage: window.WindowStage | undefined = undefined
+  static attachWindow(stage: window.WindowStage | undefined): void { HttpApiService.stage = stage }
   private static context: Context | undefined = undefined
   private static workspace: CoreWorkspace | undefined = undefined
   private static enabled: boolean = false
+  private static generation: number = 0
   private static queue: Promise<void> = Promise.resolve()
   private static configChanged: () => void = (): void => {
     HttpApiService.serialize(async (): Promise<void> => {
@@ -48,12 +53,25 @@ export class HttpApiService {
     const config = await AppConfigService.load(HttpApiService.context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     if (HttpApiService.workspace && HttpApiService.workspace !== workspace) await HttpApiService.disconnect()
-    const info = await workspace.startHttpServer(8787)
+    const generation = HttpApiService.generation
+    const info = await workspace.startHttpServer(8787, (request, respond): void => {
+      const deadline = Date.now() + 14000
+      const active = (): boolean => HttpApiService.enabled && HttpApiService.generation === generation &&
+        HttpApiService.workspace === workspace && HttpApiService.stage !== undefined && Date.now() < deadline
+      const stage = HttpApiService.stage
+      if (!stage || !active()) {
+        respond({ status: 503, body: '{"error":{"code":"unavailable","message":"主窗口尚未就绪"}}' }); return
+      }
+      stage.getMainWindow().then(async (mainWindow: window.Window): Promise<void> => {
+        respond(await HttpNavigationService.handle(mainWindow.getUIContext(), request, active))
+      }).catch((): void => { respond({ status: 503, body: '{"error":{"code":"unavailable","message":"主窗口不可用"}}' }) })
+    })
     HttpApiService.workspace = workspace
     console.info(`APP HTTP 接口已启动：http://${info.address}`)
   }
 
   private static async disconnect(): Promise<void> {
+    HttpApiService.generation++
     if (HttpApiService.workspace) await HttpApiService.workspace.stopHttpServer()
     HttpApiService.workspace = undefined
   }

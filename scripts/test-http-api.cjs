@@ -22,18 +22,20 @@ function load(name, mocks, globals = {}) {
   return module.exports;
 }
 function fixture() {
-  let current, failure; const calls = [], watchers = new Set();
-  function workspace(name) { return { async startHttpServer(port) {
+  let current, failure; const calls = [], watchers = new Set(), handlers = [], activeChecks = [];
+  function workspace(name) { return { async startHttpServer(port, handler) {
+    handlers.push(handler);
     calls.push(['start', name, port]); if (failure) throw failure; return { address: '127.0.0.1:8787' };
   }, async stopHttpServer() { calls.push(['stop', name]); } }; }
   current = workspace('a');
   const Service = load('services/HttpApiService', {
+    './HttpNavigationService': { HttpNavigationService: { async handle(_, request, active) { activeChecks.push(active); return { status: 200, body: '{}' }; } } },
     './AppConfigService': { AppConfigService: { async load(context, credentials) {
       assert.equal(credentials, false); return { repos: [] };
     }, watchChanges(fn) { watchers.add(fn); }, stopWatchingChanges(fn) { watchers.delete(fn); } } },
     './NativeCoreService': { NativeCoreService: { async workspaceFor() { return current; } } }
   }).HttpApiService;
-  return { Service, calls, watchers, change() { current = workspace('b'); for (const fn of watchers) fn(); }, fail(value) { failure = value; } };
+  return { Service, calls, watchers, handlers, activeChecks, change() { current = workspace('b'); for (const fn of watchers) fn(); }, fail(value) { failure = value; } };
 }
 test('服务启停排队，停止后配置变化不会重新启动', async () => {
   const f = fixture();
@@ -60,7 +62,7 @@ test('普通启动不启用 HTTP，仅显式布尔测试参数生效，销毁停
   const Ability = load('entryability/EntryAbility', {
     '@kit.AbilityKit': { UIAbility: class {}, ConfigurationConstant: { ColorMode: { COLOR_MODE_DARK: 1 } } },
     '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
-    '../services/HttpApiService': { HttpApiService: { async start() { starts++; }, async stop() { stops++; } } },
+    '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() { starts++; }, async stop() { stops++; } } },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': {},
     '../services/RepositorySyncService': { emptyRepositorySyncState() { return {}; } },
@@ -77,4 +79,21 @@ test('普通启动不启用 HTTP，仅显式布尔测试参数生效，销毁停
   ability.onNewWant({ parameters: { httpApiEnabled: false } }, {}); assert.equal(stops, 1);
   ability.onNewWant({ parameters: { httpApiEnabled: true } }, {}); assert.equal(starts, 2);
   ability.onDestroy(); assert.equal(stops, 2);
+});
+
+
+test('主窗口处理器复用同一监听；服务停止重启后旧请求会话失效', async () => {
+  const f = fixture();
+  f.Service.attachWindow({ async getMainWindow() { return { getUIContext() { return {}; } }; } });
+  await f.Service.start({});
+  const responses = [];
+  f.handlers[0]({ method: 'GET', body: 'null' }, value => responses.push(value));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(responses[0].status, 200); assert.equal(f.activeChecks[0](), true);
+  await f.Service.stop(); await f.Service.start({});
+  assert.equal(f.activeChecks[0](), false);
+  f.handlers[1]({ method: 'GET', body: 'null' }, value => responses.push(value));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.activeChecks[1](), true);
+  await f.Service.stop();
 });

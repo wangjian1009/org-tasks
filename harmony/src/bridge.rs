@@ -379,6 +379,7 @@ pub fn release_workspace(handle: u64) {
     }
     if released {
         let server = {
+            crate::http_ui::cancel(handle);
             let mut state = EMBEDDED_HTTP.get_or_init(Default::default).lock().unwrap_or_else(|error| error.into_inner());
             if state.as_ref().is_some_and(|(owner, _)| *owner == handle) { state.take() } else { None }
         };
@@ -3032,7 +3033,8 @@ fn http_runtime() -> Result<&'static tokio::runtime::Runtime, CoreError> {
 }
 
 static EMBEDDED_HTTP: OnceLock<Mutex<Option<(u64, org_tasks_core::http_server::EmbeddedHttpServer)>>> = OnceLock::new();
-pub fn workspace_start_http_server(handle: u64, port: u16) -> Result<String, CoreError> {
+pub fn workspace_start_http_server(handle: u64, port: u16, monitor: u64) -> Result<String, CoreError> {
+    let ui = crate::http_ui::UiBridge::new(handle, monitor);
     let shared = workspace_for_handle(handle)?;
     let mut state = EMBEDDED_HTTP.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("HTTP 服务状态锁不可用".into()))?;
     if let Some((owner, server)) = state.as_ref() {
@@ -3040,7 +3042,8 @@ pub fn workspace_start_http_server(handle: u64, port: u16) -> Result<String, Cor
         return Err(CoreError::InvalidState("已有另一个 Workspace 提供 HTTP 服务"));
     }
     let address = std::net::SocketAddr::from(([127,0,0,1], port));
-    let server = http_runtime()?.block_on(OrgWorkspace::start_http_server(shared, address))?;
+    let mut server = http_runtime()?.block_on(OrgWorkspace::start_http_server(shared, address))?;
+    ui.register(&mut server)?;
     let response = encode(&serde_json::json!({"address": server.address().to_string()}))?;
     *state = Some((handle, server));
     Ok(response)
@@ -3050,6 +3053,7 @@ pub fn workspace_stop_http_server(handle: u64) -> Result<(), CoreError> {
         let mut state = EMBEDDED_HTTP.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("HTTP 服务状态锁不可用".into()))?;
         if state.as_ref().is_some_and(|(owner, _)| *owner == handle) { state.take() } else { None }
     };
+    crate::http_ui::cancel(handle);
     if let Some((_, mut server)) = removed { http_runtime()?.block_on(OrgWorkspace::stop_http_server(&mut server))?; }
     Ok(())
 }
@@ -3064,7 +3068,7 @@ mod embedded_http_tests {
     #[test]
     fn listener_survives_start_request_and_stop_releases_port() {
         let handle = create_workspace().unwrap();
-        let info: serde_json::Value = serde_json::from_str(&workspace_start_http_server(handle, 0).unwrap()).unwrap();
+        let info: serde_json::Value = serde_json::from_str(&workspace_start_http_server(handle, 0, 0).unwrap()).unwrap();
         let address = info["address"].as_str().unwrap();
         // 查询使用另一次临时请求运行时，监听仍由持续运行时驱动。
         use std::io::{Read, Write};

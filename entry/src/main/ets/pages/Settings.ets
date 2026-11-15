@@ -46,15 +46,20 @@ struct Settings {
   private notificationRevision: number = 0
   private notificationVisible: boolean = false
   private notificationTimer: number = -1
+  private stopExternalGuard: (() => void) | undefined = undefined
 
   onPageShow() {
+    this.stopExternalGuard?.()
+    this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
+      !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
+      !this.notificationBusy && this.editingCategory < 0)
     this.notificationVisible = true
     this.load()
     this.loadNotificationState()
     this.scheduleNotificationCheck()
   }
-  onPageHide() { this.stopNotificationCheck() }
-  aboutToDisappear() { this.stopNotificationCheck() }
+  onPageHide() { this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.stopNotificationCheck() }
+  aboutToDisappear() { this.stopExternalGuard?.(); this.stopNotificationCheck() }
 
   private scheduleNotificationCheck(): void {
     if (!this.notificationVisible || this.notificationTimer !== -1) return

@@ -47,6 +47,7 @@ import {
   QuerySubscriptionStart as NativeQuerySubscriptionStart,
   QuerySubscriptionStatus as NativeQuerySubscriptionStatus,
   HttpServerInfo as NativeHttpServerInfo,
+  HttpUiHandler, HttpUiRequest, HttpUiResponse,
   SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
@@ -170,6 +171,9 @@ export type CoreDataChangeEvent = NativeDataChangeEvent
 export type CoreDataChangeMonitor = NativeDataChangeMonitor
 export type CoreQuerySubscriptionStart = NativeQuerySubscriptionStart
 export type CoreQuerySubscriptionStatus = NativeQuerySubscriptionStatus
+export type CoreHttpUiHandler = HttpUiHandler
+export type CoreHttpUiRequest = HttpUiRequest
+export type CoreHttpUiResponse = HttpUiResponse
 export type CoreHttpServerInfo = NativeHttpServerInfo
 export type CoreTaskModification = NativeTaskModification
 
@@ -263,7 +267,7 @@ export class CoreWorkspace {
     this.native = native
   }
 
-  async startHttpServer(port: number = 8787): Promise<CoreHttpServerInfo> { return await this.native.startHttpServer(port) }
+  async startHttpServer(port: number = 8787, handler?: CoreHttpUiHandler): Promise<CoreHttpServerInfo> { return await this.native.startHttpServer(port, handler) }
   async stopHttpServer(): Promise<void> { await this.native.stopHttpServer() }
   async httpServerStatus(): Promise<CoreHttpServerInfo | null> { return await this.native.httpServerStatus() }
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }

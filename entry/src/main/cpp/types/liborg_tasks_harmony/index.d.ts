@@ -295,8 +295,11 @@ export type NotificationUpdate =
 export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
 export interface HttpServerInfo { readonly address: string; }
+export interface HttpUiRequest { method: string; body: string; }
+export interface HttpUiResponse { status: number; body: string; }
+export type HttpUiHandler = (request: HttpUiRequest, respond: (response: HttpUiResponse) => void) => void;
 export class Workspace {
-  startHttpServer(port?: number): Promise<HttpServerInfo>;
+  startHttpServer(port?: number, handler?: HttpUiHandler): Promise<HttpServerInfo>;
   stopHttpServer(): Promise<void>;
   httpServerStatus(): Promise<HttpServerInfo | null>;
   constructor();

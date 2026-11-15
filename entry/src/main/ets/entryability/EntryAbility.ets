@@ -88,6 +88,7 @@ export default class EntryAbility extends UIAbility {
 
   async onWindowStageCreate(windowStage: window.WindowStage) {
     this.mainStage = windowStage
+    HttpApiService.attachWindow(windowStage)
     try {
       const mainWindow = await windowStage.getMainWindow()
       await mainWindow.setWindowSystemBarProperties({
@@ -134,6 +135,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    HttpApiService.attachWindow(undefined)
     PageNavigator.shared.close().catch((): void => { console.error('关闭页面导航失败') })
     NotificationManager.stop()
     HttpApiService.stop().catch((): void => { console.error('停止 HTTP 接口失败') })

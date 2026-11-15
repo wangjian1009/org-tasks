@@ -45,7 +45,9 @@ extern "C" char* org_tasks_harmony_repo_history_detail(uint64_t workspace_handle
 extern "C" char* org_tasks_harmony_repo_full_path(uint64_t handle, const char* root);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
-extern "C" char* org_tasks_harmony_workspace_start_http_server(uint64_t handle, uint16_t port);
+extern "C" char* org_tasks_harmony_workspace_start_http_server(uint64_t handle, uint16_t port, uint64_t monitor);
+extern "C" void org_tasks_harmony_http_ui_respond(uint64_t id, const char* response);
+extern "C" void org_tasks_harmony_http_monitor_release(uint64_t monitor);
 extern "C" char* org_tasks_harmony_workspace_stop_http_server(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_http_server_status(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle, const char* query_json);
@@ -119,6 +121,7 @@ struct WorkspaceStringWork {
     bool query_status = false;
     uint32_t http_action = 0;
     uint16_t http_port = 8787;
+    uint64_t http_monitor = 0;
     uint64_t query_id = 0;
     struct DataChangeWatch* query_watch = nullptr;
     bool reload = false;
@@ -126,6 +129,7 @@ struct WorkspaceStringWork {
     uint64_t subscription_id = 0;
     uint64_t subscription_generation = 0;
     ~WorkspaceStringWork() {
+        if (http_monitor != 0) org_tasks_harmony_http_monitor_release(http_monitor);
         if (monitor_handle != 0) {
             if (watch_data_changes || subscribe_query) org_tasks_harmony_data_change_monitor_release(monitor_handle);
             else org_tasks_harmony_notification_monitor_release(monitor_handle);
@@ -711,6 +715,55 @@ extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t handle)
     if (watch != nullptr) napi_release_threadsafe_function(watch->function, napi_tsfn_release);
 }
 
+// 每个请求的响应函数只持有请求 ID；Rust 在停止或超时后忽略迟到响应。
+struct HttpUiCall { uint64_t id; std::string request; };
+void FinalizeHttpUiCall(napi_env, void* data, void*) { delete static_cast<uint64_t*>(data); }
+napi_value RespondHttpUi(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], value; void* data = nullptr; std::string response;
+    if (napi_get_cb_info(env, info, &argc, args, nullptr, &data) == napi_ok && data != nullptr) {
+        if (argc != 1 || !EncodeJson(env, args[0], &response)) response = R"({"status":500,"body":{"error":{"code":"store","message":"界面响应格式无效"}}})";
+        org_tasks_harmony_http_ui_respond(*static_cast<uint64_t*>(data), response.c_str());
+    }
+    napi_get_undefined(env, &value); return value;
+}
+void CallHttpUi(napi_env env, napi_value callback, void*, void* data)
+{
+    auto* call = static_cast<HttpUiCall*>(data);
+    if (env != nullptr && callback != nullptr) {
+        napi_value args[2], global, result;
+        auto* id = new uint64_t(call->id);
+        bool owns_id = false;
+        if (ParseJson(env, call->request, &args[0]) &&
+            napi_create_function(env, "respond", NAPI_AUTO_LENGTH, RespondHttpUi, id, &args[1]) == napi_ok &&
+            napi_add_finalizer(env, args[1], id, FinalizeHttpUiCall, nullptr, nullptr) == napi_ok) {
+            owns_id = true;
+            if (napi_get_global(env, &global) == napi_ok && napi_call_function(env, global, callback, 2, args, &result) == napi_ok) {
+                delete call; return;
+            }
+        }
+        if (!owns_id) delete id;
+        bool pending_exception = false;
+        if (napi_is_exception_pending(env, &pending_exception) == napi_ok && pending_exception) napi_get_and_clear_last_exception(env, &result);
+    }
+    org_tasks_harmony_http_ui_respond(call->id, R"({"status":503,"body":{"error":{"code":"unavailable","message":"界面通道不可用"}}})");
+    delete call;
+}
+extern "C" void org_tasks_harmony_http_ui_request(uint64_t monitor, uint64_t id, const char* request)
+{
+    auto* watch = reinterpret_cast<NotificationWatch*>(static_cast<uintptr_t>(monitor));
+    auto* call = new HttpUiCall{id, request};
+    if (napi_call_threadsafe_function(watch->function, call, napi_tsfn_nonblocking) != napi_ok) {
+        org_tasks_harmony_http_ui_respond(id, R"({"status":503,"body":{"error":{"code":"unavailable","message":"界面通道已关闭或繁忙"}}})");
+        delete call;
+    }
+}
+extern "C" void org_tasks_harmony_http_monitor_release(uint64_t monitor)
+{
+    auto* watch = reinterpret_cast<NotificationWatch*>(static_cast<uintptr_t>(monitor));
+    napi_release_threadsafe_function(watch->function, napi_tsfn_release);
+}
+
 struct DataChangeWatch {
     napi_threadsafe_function function = nullptr;
     napi_ref callback = nullptr;
@@ -865,7 +918,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
     if (!work->preview_action.empty()) {
         work->response = TakeRustString(org_tasks_harmony_preview_operation(work->handle, work->expression.c_str()));
     } else if (work->http_action != 0) {
-        work->response = TakeRustString(work->http_action == 1 ? org_tasks_harmony_workspace_start_http_server(work->handle, work->http_port) :
+        const uint64_t monitor = work->http_monitor; work->http_monitor = 0;
+        work->response = TakeRustString(work->http_action == 1 ? org_tasks_harmony_workspace_start_http_server(work->handle, work->http_port, monitor) :
             work->http_action == 2 ? org_tasks_harmony_workspace_stop_http_server(work->handle) : org_tasks_harmony_workspace_http_server_status(work->handle));
     } else if (work->subscribe_query) {
         const uint64_t monitor = work->monitor_handle; work->monitor_handle = 0;
@@ -1380,7 +1434,7 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
 
 napi_value WorkspaceHttpServer(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1; napi_value args[1], self; void* action = nullptr; WorkspaceWrap* workspace = nullptr;
+    size_t argc = 2; napi_value args[2], self; void* action = nullptr; WorkspaceWrap* workspace = nullptr;
     if (napi_get_cb_info(env, info, &argc, args, &self, &action) != napi_ok ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
         napi_throw_error(env, nullptr, "Workspace HTTP 服务参数无效"); return nullptr;
@@ -1391,6 +1445,21 @@ napi_value WorkspaceHttpServer(napi_env env, napi_callback_info info)
         uint32_t port = 0;
         if (napi_get_value_uint32(env, args[0], &port) != napi_ok || port > 65535 || port == 0) { delete work; napi_throw_error(env, nullptr, "HTTP 端口无效"); return nullptr; }
         work->http_port = static_cast<uint16_t>(port);
+    }
+    if (work->http_action == 1 && argc > 1) {
+        napi_valuetype type = napi_undefined;
+        napi_typeof(env, args[1], &type);
+        if (type != napi_undefined) {
+            if (type != napi_function) { delete work; napi_throw_error(env, nullptr, "HTTP UI 处理器需要回调函数"); return nullptr; }
+            auto* watch = new NotificationWatch(); napi_value name;
+            if (napi_create_string_utf8(env, "OrgTasksHttpUi", NAPI_AUTO_LENGTH, &name) != napi_ok ||
+                napi_create_threadsafe_function(env, args[1], nullptr, name, 64, 1, watch, FinalizeNotificationWatch,
+                    nullptr, CallHttpUi, &watch->function) != napi_ok) {
+                delete watch; delete work; napi_throw_error(env, nullptr, "无法创建 HTTP UI 通道"); return nullptr;
+            }
+            napi_unref_threadsafe_function(env, watch->function);
+            work->http_monitor = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(watch));
+        }
     }
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceHttp", self);
 }

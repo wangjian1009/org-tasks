@@ -199,6 +199,7 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
     const requests = [], callbacks = [], context = {}; let backgroundRequests = 0;
     const Ability = compile('../entryability/EntryAbility', name => {
       if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
+      if (name === '../services/HttpApiService') return { HttpApiService: { attachWindow() {} } };
       if (name === '@kit.AbilityKit') return { UIAbility: class {} };
       if (name === '../services/RepositorySyncService') return {
         SyncStartPolicy: { Reuse: 'Reuse' }, emptyRepositorySyncState() {},

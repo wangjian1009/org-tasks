@@ -49,7 +49,7 @@ test('分享后直接加载收件箱，备忘入口继续使用独立页面参�
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
     '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
-    '../services/HttpApiService': { HttpApiService: { async start() {}, async stop() {} } },
+    '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() {}, async stop() {} } },
     '../services/DataSetManager': { DataSetManager: { async flushAll() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
     '../ui/Theme': { UiColor: {} }
