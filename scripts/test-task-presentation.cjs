@@ -558,12 +558,12 @@ function navigationFixture(fail = false) {
   } };
   const fileTargets = { prepare(_, __, kind) { return {task:{type:'task',query:{expression:kind}},file:{type:'file',query:{}}}; },
     result(task, file) { return file.result.length ? task.result : undefined; } };
-  vm.runInThisContext('(function(module,exports,AppConfigService,FileTargetService,NativeCoreService,PageQueryService,taskResult,fileResult,projectSections,overviewTaskQuery,overdueTaskQuery,coreErrorMessage){' + code + '\n})', { filename })(
+  vm.runInThisContext('(function(module,exports,AppConfigService,FileTargetService,NativeCoreService,PageQueryService,taskResult,fileResult,projectSections,overviewTaskQuery,todayAttentionQuery,coreErrorMessage){' + code + '\n})', { filename })(
     module, module.exports, { load: async () => config }, fileTargets, native, pageQuery, value=>value.result, value=>value.result, () => [],
-    view => ({ expression: view }), () => ({ expression: 'overdue' }), error => error.message
+    view => ({ expression: view }), () => ({ expression: 'attention' }), error => error.message
   );
   const view = Object.assign(new module.exports.Navigation(), {
-    navigationRequest: 0, todayCount: 100, overdueCount: 101, plannedCount: 102, anytimeCount: 103, logbookCount: 104,
+    navigationRequest: 0, todayCount: 100, todayAttentionCount: 101, plannedCount: 102, anytimeCount: 103, logbookCount: 104,
     getUIContext: () => ({ getHostContext: () => ({}) })
   });
   return { view, calls };
@@ -576,8 +576,8 @@ test('侧边栏一次提交所有任务和文件查询，空命中也按原结�
   assert.equal(view.navMessage, '');
   assert.deepEqual(view.projects, []);
   assert.deepEqual(calls[0][5], { type: 'file', query: { isProject: true } });
-  assert.deepEqual(calls[0].filter(query=>query.type==='task').map(query => query.query.expression), ['today', 'overdue', 'planned', 'anytime', 'logbook', 'inbox', 'someday', 'memo']);
-  assert.deepEqual([view.todayCount, view.overdueCount, view.plannedCount, view.anytimeCount, view.logbookCount], [0, 1, 2, 3, 4]);
+  assert.deepEqual(calls[0].filter(query=>query.type==='task').map(query => query.query.expression), ['today', 'attention', 'planned', 'anytime', 'logbook', 'inbox', 'someday', 'memo']);
+  assert.deepEqual([view.todayCount, view.todayAttentionCount, view.plannedCount, view.anytimeCount, view.logbookCount], [0, 1, 2, 3, 4]);
   assert.deepEqual([view.inboxCount, view.somedayCount, view.memoCount], [7, 8, 9]);
 });
 
@@ -586,7 +586,7 @@ test('批量查询拒绝时侧边栏保留原计数并显示整体加载错误',
   await view.loadNavigation();
   assert.equal(calls.length, 1);
   assert.match(view.navMessage, /文件加载失败/);
-  assert.deepEqual([view.todayCount, view.overdueCount, view.plannedCount, view.anytimeCount, view.logbookCount], [100, 101, 102, 103, 104]);
+  assert.deepEqual([view.todayCount, view.todayAttentionCount, view.plannedCount, view.anytimeCount, view.logbookCount], [100, 101, 102, 103, 104]);
 });
 
 

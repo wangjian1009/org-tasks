@@ -16,7 +16,7 @@ import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService, fileTargetRepository } from '../services/FileTargetService'
 import { ProjectNavigation } from '../services/ProjectNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
-import { overviewTaskQuery, overdueTaskQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
+import { overviewTaskQuery, todayAttentionQuery, overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreOrgFileMetadata, CoreQuery, NativeCoreService, taskResult, fileResult, coreErrorMessage } from '../services/NativeCoreService'
 
 @Component
@@ -48,7 +48,7 @@ export struct AppShell {
   synchronized: () => void = () => {}
   @State inboxCount: number = -1
   @State todayCount: number = -1
-  @State overdueCount: number = 0
+  @State todayAttentionCount: number = 0
   @State plannedCount: number = -1
   @State anytimeCount: number = -1
   @State somedayCount: number = -1
@@ -175,7 +175,7 @@ export struct AppShell {
       const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
       const repos = await workspace.repos()
       const queries: CoreQuery[] = [
-        { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: overdueTaskQuery() },
+        { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: todayAttentionQuery() },
         { type: 'task', query: overviewTaskQuery('planned') }, { type: 'task', query: overviewTaskQuery('anytime') },
         { type: 'task', query: overviewTaskQuery('logbook') },
         { type: 'file', query: { isProject: true } }
@@ -189,7 +189,7 @@ export struct AppShell {
       }
       const results = await PageQueryService.query(config, queries)
       const today = taskResult(results[0])
-      const overdue = taskResult(results[1])
+      const attention = taskResult(results[1])
       const planned = taskResult(results[2])
       const anytime = taskResult(results[3])
       const logbook = taskResult(results[4])
@@ -200,7 +200,7 @@ export struct AppShell {
       if (request !== this.navigationRequest) return
       this.inboxCount = inbox?.tasks.length ?? -1
       this.todayCount = today.tasks.length
-      this.overdueCount = overdue.tasks.length
+      this.todayAttentionCount = attention.tasks.length
       this.plannedCount = planned.tasks.length
       this.anytimeCount = anytime.tasks.length
       this.somedayCount = someday?.tasks.length ?? -1
@@ -274,8 +274,8 @@ export struct AppShell {
     Row({ space: 12 }) {
       Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
       Text(title).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium).fontColor(UiColor.drawerText).layoutWeight(1)
-      if (view === 'today' && this.overdueCount > 0) {
-        Text(`${this.overdueCount}`).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Bold).fontColor(Color.White)
+      if (view === 'today' && this.todayAttentionCount > 0) {
+        Text(`${this.todayAttentionCount}`).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Bold).fontColor(Color.White)
           .padding({ left: 8, right: 8 }).height(24).constraintSize({ minWidth: 26 })
           .textAlign(TextAlign.Center).borderRadius(12).backgroundColor(UiColor.overdueBadge)
       }
@@ -285,7 +285,7 @@ export struct AppShell {
     }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)
       .backgroundColor(view === 'inbox' ? (this.activeRoute === 'pages/Inbox' ? UiColor.drawerSelected : Color.Transparent)
         : this.activeRoute === 'pages/TaskOverview' && this.activeOverview === view ? UiColor.drawerSelected : Color.Transparent)
-      .accessibilityText(`${title}${this.primaryCount(view) >= 0 ? `，${this.primaryCount(view)} 条` : ''}${view === 'today' && this.overdueCount > 0 ? `，过期 ${this.overdueCount} 个` : ''}`)
+      .accessibilityText(`${title}${this.primaryCount(view) >= 0 ? `，${this.primaryCount(view)} 条` : ''}${view === 'today' && this.todayAttentionCount > 0 ? `，需处理 ${this.todayAttentionCount} 个` : ''}`)
       .onClick((): void => { this.openPrimary(view) })
   }
 

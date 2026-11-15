@@ -248,9 +248,20 @@ test('侧边栏任务、项目、入口文件和通知合为一个批次，跨�
   assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','file','task','file','task','file','notification']);
   assert.deepEqual(f.batches[0][5].query,{isProject:true});
   assert.deepEqual(f.batches[0][4].query,{expression:'it.done'});
+  assert.deepEqual(f.batches[0][1].query,{expression:'it.todo (is.habit or d.lt.tomorrow)'});
   assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
   assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo'});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
+});
+
+test('今天红色徽标独立消费关注任务的 Core 结果，不按今天列表重筛或改动总数',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  f.query(batch=>batch.map((request,index)=>request.type==='task'
+    ? {type:'task',result:{tasks:Array(index===0?8:index===1?3:0).fill({}),categories:[]}}
+    : {type:request.type,result:[]}));
+  await page.loadNavigation();
+  assert.equal(page.todayCount,8);assert.equal(page.todayAttentionCount,3);
+  assert.equal(f.batches.length,1);
 });
 
 test('项目按 Core 文件结果保留顺序、空名称和同名身份，新快照清除已删除入口',async()=>{

@@ -51,8 +51,9 @@ export function todayPriorityQuery(): CoreTaskQuery {
   return query
 }
 
-export function overdueTaskQuery(): CoreTaskQuery {
-  return { expression: '.it.done (s.le.yesterday or d.le.yesterday)' }
+export function todayAttentionQuery(): CoreTaskQuery {
+  // 明天边界按实际截止日期匹配，避免把提前预警计入红色徽标。
+  return { expression: 'it.todo (is.habit or d.lt.tomorrow)' }
 }
 
 // 分类与项目共用一个选择；项目由仓库和文件定位，避免跨仓库同名文件混入。
