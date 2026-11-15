@@ -117,6 +117,8 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 ~DataSetManager~ 是每页独立的界面数据入口，组合 Workspace 查询订阅、用户字段增量队列与私有缓存；编辑器可以直接通过管理类读写，原始 Core 事件只在内部处理。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 
+侧边栏通过只读 SidebarDataManager 统一管理计数、文件入口与项目列表，复用完整批量查询和 PageDataCache；组件只接收管理对象快照。整个 Workspace 的变化在管理层合并刷新，缓存项目较少或为空也不会限制新项目发现；完整生命周期见 [[file:harmony/页面数据集设计.org::*侧边栏：完整批次与只读缓存][侧边栏数据管理]]。
+
 * 应用共享通知管理
 
 ~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化重新绑定活动 Workspace，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。

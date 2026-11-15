@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、侧边栏批量查询计数、项目区块与来源文字及任务／同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
+  console.log('用法: node scripts/test-task-presentation.cjs\n验证任务刷新后的行内容、点击参数、日期展示、宽度分配、展示层标签筛选、项目区块与来源文字及任务／同步日志展示。\n环境变量 DEVECO_HOME 可指定 DevEco Studio Contents 目录。');
   process.exit(0);
 }
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
@@ -537,58 +537,6 @@ test('备忘摘要优先修改日期，回退创建日期，按日期、标签�
   assert.equal(memoPresentation.memoSummaryText(task('memo', { modifiedAt: null, createdAt: null,
     tags: [], bodyFirstLine: null })), '');
 });
-
-function navigationFixture(fail = false) {
-  const filename = path.resolve(__dirname, '../entry/src/main/ets/components/AppShell.ets');
-  const source = fs.readFileSync(filename, 'utf8');
-  const method = source.match(/  async loadNavigation\(\) \{[\s\S]*?\n  \}/)[0];
-  const code = ts.transpileModule('export class Navigation {' + method + '\n}', {
-    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
-  }).outputText;
-  const module = { exports: {} };
-  const calls = [];
-  const config = { repos: [{ id: 'repo' }], todoDefaults: 'defaults' };
-  const workspace = { async repos() { return []; } };
-  const native = { async workspaceFor() { return workspace; } };
-  const pageQuery = { async query(_, queries) {
-    calls.push(queries);
-    if (fail) throw new Error('文件加载失败');
-    return queries.map((request, index) => request.type === 'file' ? {type:'file',result:request.query.isProject ? [] : [{}]}
-      : {type:'task', result:{tasks:Array(index<5?index:{inbox:7,someday:8,memo:9}[request.query.expression]).fill({}),categories:[]}});
-  } };
-  const fileTargets = { prepare(_, __, kind) { return {task:{type:'task',query:{expression:kind}},file:{type:'file',query:{}}}; },
-    result(task, file) { return file.result.length ? task.result : undefined; } };
-  vm.runInThisContext('(function(module,exports,AppConfigService,FileTargetService,NativeCoreService,PageQueryService,taskResult,fileResult,projectSections,overviewTaskQuery,todayAttentionQuery,coreErrorMessage){' + code + '\n})', { filename })(
-    module, module.exports, { load: async () => config }, fileTargets, native, pageQuery, value=>value.result, value=>value.result, () => [],
-    view => ({ expression: view }), () => ({ expression: 'attention' }), error => error.message
-  );
-  const view = Object.assign(new module.exports.Navigation(), {
-    navigationRequest: 0, todayCount: 100, todayAttentionCount: 101, plannedCount: 102, anytimeCount: 103, logbookCount: 104,
-    getUIContext: () => ({ getHostContext: () => ({}) })
-  });
-  return { view, calls };
-}
-
-test('侧边栏一次提交所有任务和文件查询，空命中也按原结果下标显示计数', async () => {
-  const { view, calls } = navigationFixture();
-  await view.loadNavigation();
-  assert.equal(calls.length, 1);
-  assert.equal(view.navMessage, '');
-  assert.deepEqual(view.projects, []);
-  assert.deepEqual(calls[0][5], { type: 'file', query: { isProject: true } });
-  assert.deepEqual(calls[0].filter(query=>query.type==='task').map(query => query.query.expression), ['today', 'attention', 'planned', 'anytime', 'logbook', 'inbox', 'someday', 'memo']);
-  assert.deepEqual([view.todayCount, view.todayAttentionCount, view.plannedCount, view.anytimeCount, view.logbookCount], [0, 1, 2, 3, 4]);
-  assert.deepEqual([view.inboxCount, view.somedayCount, view.memoCount], [7, 8, 9]);
-});
-
-test('批量查询拒绝时侧边栏保留原计数并显示整体加载错误', async () => {
-  const { view, calls } = navigationFixture(true);
-  await view.loadNavigation();
-  assert.equal(calls.length, 1);
-  assert.match(view.navMessage, /文件加载失败/);
-  assert.deepEqual([view.todayCount, view.todayAttentionCount, view.plannedCount, view.anytimeCount, view.logbookCount], [100, 101, 102, 103, 104]);
-});
-
 
 test('今天保留分类层级，仅项目任务组成区块，普通任务和项目内顺序均保留', () => {
   const { todaySections } = loadGrouping('TodayPresentation', {});

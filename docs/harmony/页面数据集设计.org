@@ -7,7 +7,7 @@
 
 * 范围与实施顺序
 
-本文记录目前已经确认的设计，不代表全部接口已经实现。先完成设计，只在今天页面接入，通过模拟器验证增、删、改和失败恢复后，再应用到侧边栏、计划、随时、某天、备忘、日志簿和项目详情。
+本文记录目前已经确认的设计，不代表全部接口已经实现。今天页面已接入通用 DataSetManager，项目详情使用文件内存 ProjectDataManager，侧边栏使用只读 SidebarDataManager；计划、随时、某天、备忘和日志簿尚未迁移为每页 DataSetManager。
 
 每个页面拥有独立的 ~DataSetManager~ 实例，实例内可以包含多个业务指定的数据集。数据集由名称和查询条件组成，创建后不可修改；查询条件变化时创建新的实例或定义。应用配置变化也会使现有实例失效，停止后续写入与缓存；业务重新构造实例，不在旧缓存范围中保存新配置的数据。全局只共享底层连接、查询订阅基础设施、用户操作提交队列和缓存服务，不共享页面订阅生命周期。
 
@@ -293,3 +293,30 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 退后台通过 ~NotificationManager.hasSyncRequired()~ 判断是否需要新建同步会话。后台服务在短时任务保护内调用 DataSetManager.flushAll，等待已提交的修改、事件归并和缓存保存；缓存失败记录错误，仍继续判断通知。hasSyncRequired 等待已失效或在途的通知读取，仅消费共享快照，不因退出额外查询。仅冲突通知不触发新同步；没有通知时不读同步配置，有通知但未启用 WebDAV 时也跳过。已有同步会话继续受到后台保护，不再补开一轮。
 
 退后台通知触发已在专用模拟器通过真实 WebDAV 验证：无通知、修改失败、同步完成后再次退出均没有网络请求；UI 编辑后立即退后台和外部 API 更新后退后台均完成同步并清除共享提示。532 项宿主回归测试通过，正式包与数据准备包构建无编译告警。
+
+* 侧边栏：完整批次与只读缓存
+
+侧边栏全部数据由 SidebarDataManager 管理。AppShell 只订阅只读快照并展示计数、今天关注徽标、入口状态与项目分组；打开抽屉只启动管理对象，不执行 Core 查询，不通过底层版本变化刷新导航。未迁移页面的正文刷新仍沿用原有监听，与侧边栏数据生命周期分离。文件入口导航前的配置有效性检查也经管理对象完成。
+
+管理对象以一个 CoreQuery 批次读取八项任务计数、完整项目文件列表、三个入口文件状态与共享通知。项目查询始终为全范围的 ~FileQuery { isProject: true }~ ，不按缓存项目或已显示文件收窄；项目身份、忽略规则和成员资格仍由 Core 判定。通知由 PageQueryService 交给应用共享 NotificationManager，不在侧边栏建立第二份通知状态。
+
+确认后的全部查询结果通过 PageDataCache 存在 ~filesDir/page-data/v1/sidebar.json~ 。缓存范围包含仓库身份、目录、排除目录、TODO 默认配置、Core 设置与完整查询定义，不含凭据。恢复时发布版本 0，首次读取发布版本 1，后续成功刷新递增；缓存读取失败继续完整查询。配置范围改变时清除旧范围展示，重新匹配缓存和查询。
+
+管理对象监听整个 Workspace 的数据变化，而不是仅监听缓存中的项目文件。缓存项目较少或为空时，首次查询会补齐当前全部项目；之后外部修改、同步新增项目文件或既有文件成为项目，均由管理对象合并触发完整批次并替换项目列表，删除项目也会移除入口。跨日变化由管理对象触发读取。关闭并重新打开抽屉复用当前管理对象，不要求重新打开页面来发现新项目。
+
+查询期间再次发生变化时丢弃旧结果，读取最新批次；所有计数、项目和文件状态同次发布。失败保留最近成功快照并显示错误，重新打开或后续事件可重试。缓存仅保存完整成功且未失效的确认结果，写入提交前再次检查修订号；关闭后停止事件、配置与跨日监听，迟到查询不得发布或保存。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{AppShell}{sidebar snapshot}{render()}
+\umlclass[x=6,y=0]{SidebarDataManager}{version \\ revision \\ full query plan}{start() \\ subscribe() \\ close()}
+\umlclass[x=0,y=-4]{PageDataCache}{sidebar.json}{read() \\ write()}
+\umlclass[x=6,y=-4]{Workspace}{all repository changes}{query(batch)}
+\umluniassoc{AppShell}{SidebarDataManager}
+\umldep{SidebarDataManager}{PageDataCache}
+\umldep{SidebarDataManager}{Workspace}
+\end{tikzpicture}
+\end{center}
+
+专用模拟器已验证：抽屉保持打开时外部创建、删除同步更新计数，界面完成任务后侧边栏自动更新；缓存只有一个项目时，通过真实 WebDAV 同步新增项目文件，第二个项目及分类自动出现并进入确认缓存，重启后仍保留。普通启动不恢复临时 HTTP 服务，退出后监听端口释放。538 项宿主回归通过，正式包与数据准备包构建无编译告警。

@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { test } = require('node:test');
+const { test, afterEach } = require('node:test');
+const sidebarInstances = [];
+afterEach(() => { for (const manager of sidebarInstances.splice(0)) manager.close(); });
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log('用法: node scripts/test-page-queries.cjs\n验证收件箱、任务视图、侧边栏的一次混合查询、文件有效性、通知订阅与响应位置。');
   process.exit(0);
@@ -11,7 +13,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents', 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function fixture() {
-  const batches = [], writes = [], notificationCallbacks = [], dataCallbacks = [];
+  const batches = [], writes = [], notificationCallbacks = [], dataCallbacks = [], configCallbacks = new Set(), disk = new Map();
   const repos = [{ id:'core-a',rootDirectory:'/a' },{ id:'core-b',rootDirectory:'/b' }];
   const config = { repos:[{id:'host-a',rootDirectory:'/a',name:'仓库甲'},{id:'host-b',rootDirectory:'/b',name:'仓库乙'}],todoDefaults:'',
     inboxRepoId:'host-a',inboxFile:'same.org',somedayRepoId:'host-b',somedayFile:'same.org',memoRepoId:'host-a',memoFile:'memo.org' };
@@ -59,31 +61,41 @@ function fixture() {
     if (!source) cache.set(filename,module);
     const code=ts.transpileModule(source||fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
     const requireLocal=dependency=>{
+      if (dependency.endsWith('/PageDataCache')) return { PageDataCache: class {
+        constructor(_, name, scope) { this.key = name + scope; }
+        async read() { return structuredClone(disk.get(this.key)); }
+        async write(value, guard) { if (guard()) disk.set(this.key, structuredClone(value)); }
+      } };
+      if (dependency.endsWith('/PageDataSnapshot')) return {
+        cacheDataSet: (name, result) => ({name, ...result}), restoreDataSet: ({name, ...result}) => result
+      };
       if (dependency.endsWith('/DataSetManager')) return managerFactory;
       if (dependency.endsWith('/NativeCoreService')||dependency==='./NativeCoreService') return native;
-      if (dependency.endsWith('/AppConfigService')||dependency==='./AppConfigService') return {AppConfigService:{async load(){return config;},async save(){}}};
+      if (dependency.endsWith('/AppConfigService')||dependency==='./AppConfigService') return {AppConfigService:{async load(){return config;},async save(){},watchChanges(fn){configCallbacks.add(fn);},stopWatchingChanges(fn){configCallbacks.delete(fn);}}};
       if (dependency.endsWith('/TaskInlineService')) return {TaskInlineSession:{active:()=>inlineActive}};
       if (dependency.startsWith('.')) return load(path.relative(root,path.resolve(path.dirname(filename),dependency)));
       throw new Error('缺少替身: '+dependency);
     };
-    vm.runInThisContext('(function(require,module,exports,AppStorage){'+code+'\n})',{filename})(requireLocal,module,module.exports,storage);
+    vm.runInThisContext('(function(require,module,exports,AppStorage,setInterval){'+code+'\n})',{filename})(requireLocal,module,module.exports,storage,(fn,ms)=>{const timer=setInterval(fn,ms);timer.unref();return timer;});
     return module.exports;
   }
   function page(name, methods) {
     const filename=path.join(root,name+'.ets'),text=fs.readFileSync(filename,'utf8');
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
+    if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
     if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...methods,'loadToday','applyTodaySnapshot'];
     const chunks=methods.map(method=>{
       const match=text.match(new RegExp('  (?:async )?'+method+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
       assert.ok(match,'未找到方法 '+method); return match[0];
     });
     const View=load(name,prelude+'\nexport class QueryPage {\n'+chunks.join('\n')+'\n}').QueryPage;
-    const view=Object.assign(new View(),{requestId:0,navigationRequest:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
+    const view=Object.assign(new View(),{requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
       selectedTags:[],includeUntagged:false,tagOptions:[],tagGroups:[],sections:[],timedItems:[],priorityOrder:[],visible:false,
       getUIContext:()=>({getHostContext:()=>({})}),closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
+    if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
     return view;
   }
-  return {config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
+  return {disk,configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
     missing(){missing=true;}, fail(){fail=true;}, query(fn){customQuery=fn;}};
 }
 
@@ -275,7 +287,7 @@ test('项目按 Core 文件结果保留顺序、空名称和同名身份，新�
     {type:'file',result:request.query.isProject?current:[]}));
   await page.loadNavigation();
   assert.equal(page.projects,current);
-  current=[];await page.loadNavigation();
+  current=[];f.emit();await page.sidebarManager.start();
   assert.deepEqual(page.projects,[]);
   assert.deepEqual(page.projectGroups,[]);
 });
@@ -378,18 +390,14 @@ test('页面恢复时 onPageShow 与旧数据版本失效不会重复加载',asy
   assert.equal(f.batches.length,1);assert.equal(observer.dataRevision,1);
 });
 
-test('恢复页面时侧边栏仍打开，只加载侧边栏并复用首次出现时的加载',async()=>{
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
-  page.view='today';page.drawerOpen=true;
-  const drawer=f.page('components/AppShell',['loadNavigation']);
-  const observer=pageObserver();observer.drawerOpen=true;observer.loadNavigation=()=>drawer.loadNavigation();
-  observer.synchronized=()=>page.loadTasks();
-  await drawer.loadNavigation();observer.navigationLoadedOnAppear=true;observer.dataRevision=1;
+test('恢复页面时侧边栏由管理类独立维护，页面生命周期不发导航查询',async()=>{
+  const f=fixture(),drawer=f.page('components/AppShell',['loadNavigation']);
+  await drawer.loadNavigation();
+  const observer=pageObserver();observer.drawerOpen=true;observer.bodyLoadedOnAppear=true;observer.dataRevision=1;
+  observer.synchronized=()=>assert.fail('抽屉打开时不刷新正文');
   observer.pageChanged({index:0,state:'show'});
-  await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,1);
   observer.pageChanged({index:0,state:'hide'});observer.pageChanged({index:0,state:'show'});
-  await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,2);
-  assert.ok(f.batches.every(batch=>batch.length===13));
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,1);
 });
 
 test('存储库清单的全部仓库文件元信息与通知也使用同一批次',async()=>{
@@ -469,4 +477,93 @@ test('今天内容字段更新与同值确认复用列表容器和参考日期�
  rows=rows.map(task=>({...task,bodyHtml:'新备注',fileVersion:'confirmed'}));await page.todayManager.refresh();
  assert.equal(page.sections,sections);assert.equal(page.timedItems,timed);assert.equal(page.referenceTime,time);
  await page.loadTasks();assert.equal(page.sections,sections);assert.equal(f.batches.length,2);
+});
+
+const settleSidebar = () => new Promise(resolve => setImmediate(resolve));
+const sidebarResults = (batch, projects, today = 0) => batch.map((request, index) => request.type === 'task'
+  ? {type:'task',result:{tasks:Array(index === 0 ? today : 0).fill({}),categories:[]}}
+  : {type:request.type,result:request.type === 'file' && request.query.isProject ? projects : []});
+
+test('侧边栏从少量项目缓存恢复后，首次全量读取补齐项目并保存新快照',async()=>{
+  const f=fixture(),old=[{repoId:'core-a',path:'old.org',projectName:'旧项目'}];
+  f.query(batch=>sidebarResults(batch,old));
+  const first=f.page('components/AppShell',['loadNavigation']);await first.loadNavigation();first.sidebarManager.close();
+  let release;const hold=new Promise(resolve=>release=resolve);
+  const all=[...old,{repoId:'core-b',path:'new.org',projectName:'新增项目'}];
+  f.query(async batch=>{await hold;return sidebarResults(batch,all,7);});
+  const page=f.page('components/AppShell',['loadNavigation']),seen=[];
+  page.sidebarManager.subscribe(snapshot=>seen.push(snapshot));
+  const loading=page.loadNavigation();await settleSidebar();
+  assert.deepEqual(page.projects,old);assert.equal(seen.at(-1).version,0);
+  release();await loading;
+  assert.deepEqual(page.projects,all);assert.equal(page.todayCount,7);assert.equal(seen.at(-1).version,1);
+  assert.deepEqual([...f.disk.values()][0][5].result,all);
+});
+
+async function waitSidebar(check) {
+  const deadline=Date.now()+2000;
+  while(!check()) { if(Date.now()>deadline)throw new Error('侧边栏自动刷新超时');await new Promise(resolve=>setTimeout(resolve,1)); }
+}
+
+test('侧边栏订阅整个 Workspace，缓存之外文件的新项目自动出现，空快照也能新增',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  let projects=[];f.query(batch=>sidebarResults(batch,projects));await page.loadNavigation();
+  const first=[{repoId:'core-a',path:'outside-cache.org',projectName:'新项目'}];
+  projects=first;f.emit();f.emit();await waitSidebar(()=>page.projects===first);
+  assert.deepEqual(page.projects,first);assert.equal(f.batches.length,2,'连续事件合并为一次查询');
+  projects=[...first,{repoId:'core-b',path:'elsewhere.org',projectName:'另一仓库项目'}];
+  f.emit();await page.sidebarManager.start();assert.deepEqual(page.projects,projects);
+  projects=[];f.emit();await page.sidebarManager.start();assert.deepEqual(page.projectGroups,[]);
+  assert.ok(f.batches.every(batch=>batch[5].query.isProject && !batch[5].query.includeFiles));
+});
+
+test('侧边栏查询中收到新事件会丢弃迟到结果，最终项目、计数及缓存来自同一新快照',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  f.query(batch=>sidebarResults(batch,[]));await page.loadNavigation();
+  let release;const hold=new Promise(resolve=>release=resolve),seen=[];
+  const stale=[{repoId:'core-a',path:'stale.org'}],latest=[{repoId:'core-b',path:'latest.org'}];
+  let calls=0;f.query(async batch=>{if(++calls===1){await hold;return sidebarResults(batch,stale,2);}return sidebarResults(batch,latest,9);});
+  page.sidebarManager.subscribe(snapshot=>seen.push(snapshot));f.emit();const loading=page.sidebarManager.start();
+  await settleSidebar();f.emit();release();await loading;
+  assert.equal(calls,2);assert.equal(seen.some(snapshot=>snapshot.projects===stale),false);
+  assert.deepEqual(page.projects,latest);assert.equal(page.todayCount,9);
+  assert.deepEqual([...f.disk.values()][0][5].result,latest);
+});
+
+test('侧边栏读取失败保留已确认数据，后续事件恢复，关闭后不再发布或查询',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  const projects=[{repoId:'core-a',path:'keep.org'}];let fail=false;
+  f.query(batch=>{if(fail)throw new Error('读取失败');return sidebarResults(batch,projects,5);});
+  await page.loadNavigation();fail=true;f.emit();await page.sidebarManager.start();
+  assert.deepEqual(page.projects,projects);assert.equal(page.todayCount,5);assert.match(page.navMessage,/读取失败/);
+  fail=false;f.emit();await page.sidebarManager.start();assert.equal(page.navMessage,'');
+  const calls=f.batches.length;page.sidebarManager.close();f.emit();await page.sidebarManager.start();
+  assert.equal(f.batches.length,calls);
+});
+
+test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配置重建',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
+  assert.equal(page.inboxCount,0);
+  f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
+  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,11);
+  assert.equal(f.disk.size,2);assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
+});
+
+
+test('侧边栏所有非零计数按原批次位置读取，重复打开不再次查询',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  f.query(batch=>batch.map((request,index)=>request.type==='task'
+    ?{type:'task',result:{tasks:Array(index+1).fill({}),categories:[]}}
+    :{type:request.type,result:request.type==='file'?[{}]:[]}));
+  await page.loadNavigation();await page.loadNavigation();
+  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,2,3,4,5]);
+  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[7,9,11]);assert.equal(f.batches.length,1);
+});
+
+test('侧边栏关闭后在途查询不能覆盖展示或写入缓存',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  let release;const hold=new Promise(resolve=>release=resolve);
+  f.query(async batch=>{await hold;return sidebarResults(batch,[{repoId:'core-a',path:'late.org'}],3);});
+  const loading=page.loadNavigation();await settleSidebar();page.sidebarManager.close();release();await loading;
+  assert.deepEqual(page.projects,[]);assert.equal(page.todayCount,-1);assert.equal(f.disk.size,0);
 });
