@@ -32,8 +32,9 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     const tomorrow = localDate(new Date(Date.now() + 86400000))
     if (!await fs.access(directory)) await fs.mkdir(directory, true)
     const source = `#+TITLE: 模拟器任务\n#+CATEGORY: 验证\n* TODO QA编辑\nSCHEDULED: <${today}>\n原备注\n* TODO QA联动\nSCHEDULED: <${today}>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO QA关联\nSCHEDULED: <${today}>\n* TODO QA失败\nSCHEDULED: <${today}>\n:PROPERTIES:\n:TRIGGER: self todo!(INVALID)\n:END:\n* TODO QA随时\n原备注\n* TODO QA计划\nSCHEDULED: <${tomorrow}>\n原备注\n* TODO QA日程\nSCHEDULED: <${tomorrow} 10:00>\n原备注\n* DONE QA日志\nCLOSED: [${today} 09:00]\n:LOGBOOK:\n- State "DONE" from "TODO" [${today} 09:00]\n:END:\n`
+    const habitSource = `* TODO QA今日习惯\nSCHEDULED: <${today} .+1d>\n:PROPERTIES:\n:STYLE: habit\n:END:\n* TODO QA未来习惯\nSCHEDULED: <${tomorrow} .+1d>\n:PROPERTIES:\n:STYLE: habit\n:END:\n`
     const file = await fs.open(`${directory}/tasks.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
-    try { await fs.write(file.fd, source); await fs.fsync(file.fd) } finally { await fs.close(file) }
+    try { await fs.write(file.fd, source + habitSource); await fs.fsync(file.fd) } finally { await fs.close(file) }
     const project = await fs.open(`${directory}/project.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
     try { await fs.write(project.fd, '#+TITLE: 项目验收\n#+FILETAGS: :project:\n#+PROJECT_NAME: 项目验收\n* TODO QA项目\n原备注\n'); await fs.fsync(project.fd) } finally { await fs.close(project) }
     const someday = await fs.open(`${directory}/someday.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)

@@ -314,7 +314,7 @@ WebDAV 密码由 ~CredentialService~ 保存到 Asset Store。已有待上传意�
 | 入口 | UI 组装的 Core 查询 | 显示含义 |
 |-
 | 今天 | ~.it.done (s.le.today or d.le.today)~ | 计划或截止任一实际日期已到、已过期或进入 Org-mode 预警期即命中；deadline 仍按实际日期展示。 |
-| 今天红色徽标 | ~it.todo (is.habit or d.lt.tomorrow)~ | 统计未完成的习惯任务，以及实际截止日期为今天或已过期的未完成任务；两者取并集，同一任务只计一次。习惯任务不要求计划日期已到；普通任务仅计划日期过期不计入，未来截止日期的提前预警不计入。旁边灰色数字仍为今天列表的总数，徽标零时隐藏；无障碍名称为“需处理 N 个”。 |
+| 今天红色徽标 | ~it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)~ | 统计实际 SCHEDULED 为今天或已过期的未完成习惯任务，以及实际截止日期为今天或已过期的未完成任务；两者取并集，同一任务只计一次。习惯任务的计划日期必须已到，未来、未设置或无效计划日期不因习惯身份计入；普通任务仅计划日期过期不计入，未来截止日期的提前预警不计入。旁边灰色数字仍为今天列表的总数，徽标零时隐藏；无障碍名称为“需处理 N 个”。 |
 | 计划 | ~.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))~ | 排除习惯任务，有日期且最早的计划/截止日期从明天开始；页面与侧边栏计数共用查询，普通循环任务保留。 |
 | 随时 | ~it.todo s.none d.none~ | 仅有效待办状态，计划日期和截止日期均为空；按 CATEGORY 分区。 |
 | 某天 | 配置文件的 ~b."相对路径" it.todo~ | 只展示所选仓库 ~somedayFile~ 文件中具有有效待办状态的任务，不包含普通标题与已完成任务；侧边栏计数使用相同查询。 |

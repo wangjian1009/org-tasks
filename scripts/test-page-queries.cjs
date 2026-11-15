@@ -290,7 +290,7 @@ test('侧边栏任务、项目、入口文件和通知合为一个批次，跨�
   assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','file','task','file','task','file','notification']);
   assert.deepEqual(f.batches[0][5].query,{isProject:true});
   assert.deepEqual(f.batches[0][4].query,{expression:'it.done'});
-  assert.deepEqual(f.batches[0][1].query,{expression:'it.todo (is.habit or d.lt.tomorrow)'});
+  assert.deepEqual(f.batches[0][1].query,{expression:'it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'});
   assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
   assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo'});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);

@@ -137,6 +137,33 @@ async fn habit_queries_compose_with_all_future_planning_branches() {
 }
 
 #[tokio::test]
+async fn due_habit_and_deadline_query_uses_actual_dates_and_counts_each_task_once() {
+    let today = chrono::Local::now().date_naive();
+    let yesterday = today.pred_opt().unwrap();
+    let tomorrow = today.succ_opt().unwrap();
+    let habit = ":PROPERTIES:\n:STYLE: habit\n:END:\n";
+    let source = format!(
+        "#+TODO: TODO | DONE CNCL\n\
+         * TODO 今日习惯\nSCHEDULED: <{today} .+1d>\n{habit}\
+         * TODO 过期习惯\nSCHEDULED: <{yesterday}>\n{habit}\
+         * TODO 未来预警习惯\nSCHEDULED: <{tomorrow} -2d>\n{habit}\
+         * TODO 无计划习惯\n{habit}\
+         * TODO 今日截止\nDEADLINE: <{today}>\n\
+         * TODO 过期截止\nDEADLINE: <{yesterday}>\n\
+         * TODO 重复命中\nSCHEDULED: <{today}> DEADLINE: <{today}>\n{habit}\
+         * TODO 未来习惯但今日截止\nSCHEDULED: <{tomorrow}> DEADLINE: <{today}>\n{habit}\
+         * TODO 未来截止预警\nDEADLINE: <{tomorrow} -2d>\n\
+         * TODO 普通计划过期\nSCHEDULED: <{yesterday}>\n\
+         * DONE 已完成习惯\nSCHEDULED: <{today}> DEADLINE: <{today}>\n{habit}\
+         * CNCL 已取消截止\nDEADLINE: <{yesterday}>\n\
+         * 无状态习惯\nSCHEDULED: <{today}> DEADLINE: <{today}>\n{habit}"
+    );
+    let records = query_tasks(&source, "it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)").await;
+    assert_eq!(records.iter().map(FilterTask::title).collect::<Vec<_>>(),
+        ["今日习惯", "过期习惯", "今日截止", "过期截止", "重复命中", "未来习惯但今日截止"]);
+}
+
+#[tokio::test]
 async fn planning_text_after_body_content_is_not_removed_from_rendering() {
     let task = tasks("* TODO 普通正文\n正文第一行\nSCHEDULED: <2026-11-08 Sun +1d>\n").await
         .remove(0);
