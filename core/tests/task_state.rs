@@ -427,6 +427,22 @@ async fn completion_repeats_real_timestamps_in_the_title_through_the_public_exec
 }
 
 #[tokio::test]
+async fn repeating_completion_clears_checkboxes_and_refreshes_title_statistics() {
+    let mut f = Fixture::new(
+        "* TODO Task [2/3]\nSCHEDULED: <2026-11-10 Tue +1w>\n- [X] 已完成\n- [-] 部分完成\n- [ ] 待办\n",
+    )
+    .await;
+    let group = f
+        .group("Task", vec![TaskModification::Todo(Some("DONE".into()))])
+        .await;
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(
+        f.source(),
+        "* TODO Task [0/3]\nSCHEDULED: <2026-11-17 Tue +1w>\n- [ ] 已完成\n- [ ] 部分完成\n- [ ] 待办\n"
+    );
+}
+
+#[tokio::test]
 async fn state_changes_without_logging_configuration_only_replace_the_state() {
     for prefix in [
         "",

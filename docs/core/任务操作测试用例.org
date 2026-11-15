@@ -1894,7 +1894,7 @@ Body
 
 ** repeat-completion
 
-目的：完成重复任务推进日期并恢复状态，无配置不生成日志。
+目的：完成重复任务推进日期并恢复状态，清空直属 checkbox 并更新标题统计，无配置不生成日志。
 
 目录： ~core/tests/task_operations_cases/modification/repeat-completion~ 。
 
@@ -1903,11 +1903,14 @@ Body
 文件： ~repo/tasks.org~ 。
 
 #+begin_example
-,* TODO Task
+,* TODO Task [2/3]
 SCHEDULED: <2026-11-10 Tue +1w> DEADLINE: <2030-01-01 Tue>
 :PROPERTIES:
 :CREATED: [2000-01-01 Sat 09:00]
 :END:
+- [X] 已完成
+- [-] 部分完成
+- [ ] 待办
 Body
 #+end_example
 
@@ -1945,11 +1948,14 @@ Body
 文件： ~repo/tasks.org~ 。
 
 #+begin_example
-,* TODO Task
+,* TODO Task [0/3]
 SCHEDULED: <2026-11-17 Tue +1w> DEADLINE: <2030-01-01 Tue>
 :PROPERTIES:
 :CREATED: [2000-01-01 Sat 09:00]
 :END:
+- [ ] 已完成
+- [ ] 部分完成
+- [ ] 待办
 Body
 #+end_example
 

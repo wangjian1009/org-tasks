@@ -6,7 +6,7 @@ use super::{CoreError, OrgFile, TodoLogAction, TodoWorkflowKind};
 use chrono::{Datelike, Duration, Months, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use orgize::{
     SyntaxKind,
-    ast::{Drawer, Headline, Timestamp},
+    ast::{Drawer, Headline, List, ListItem, Timestamp},
     rowan::ast::AstNode,
 };
 use std::{collections::BTreeMap, ops::Range};
@@ -288,6 +288,14 @@ pub(super) fn modify_without_triggers(
     }
     if repeating {
         let updated = node_at(file, offset)?;
+        if reset_checkboxes(file, &updated)? {
+            super::task_operation_executor::update_title_counts(
+                file,
+                offset,
+                super::title_statistics::Trigger::Checkbox,
+            )?;
+        }
+        let updated = node_at(file, offset)?;
         if updated
             .scheduled()
             .is_some_and(|ts| repeater(&ts.raw()).is_none())
@@ -330,6 +338,36 @@ pub(super) fn modify_without_triggers(
         )?;
     }
     Ok(())
+}
+
+/// Org-mode 在重复任务完成后开始下一轮时，会把当前任务正文中的 checkbox 清空。
+/// 只处理当前标题的 section，子标题正文不属于本任务的清单。
+fn reset_checkboxes(file: &mut OrgFile, headline: &Headline) -> Result<bool, CoreError> {
+    let Some(section) = headline.section() else {
+        return Ok(false);
+    };
+    let edits = section
+        .syntax()
+        .children()
+        .filter_map(List::cast)
+        .flat_map(|list| list.syntax().descendants().filter_map(ListItem::cast))
+        .filter_map(|item| {
+            let token = item.checkbox()?;
+            if token.as_ref() == " " {
+                return None;
+            }
+            Some((
+                u32::from(token.text_range().start()) as usize
+                    ..u32::from(token.text_range().end()) as usize,
+                " ".to_owned(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let changed = !edits.is_empty();
+    for (range, value) in edits.into_iter().rev() {
+        super::task_operation_executor::replace(file, range, value.as_bytes())?;
+    }
+    Ok(changed)
 }
 
 fn repeat_state(
