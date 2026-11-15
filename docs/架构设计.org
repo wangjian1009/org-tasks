@@ -97,7 +97,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 ~BackgroundSyncPresentation~ 使用后台任务返回的通知 ID 更新系统代理创建的实况窗，保留系统类型码与通知槽，胶囊和展开内容复用共享进度。连续事件只保留最新快照，每秒最多更新一次，最终状态写入完成后再释放长时任务，避免迟到更新重建提示；无变化、失败和短时任务到期路径均清理宿主资源。退后台触发不写入日历同步状态、不新增配置、不在后台请求授权；同步失败后仍以共享通知中的 ~syncRequired~ 决定下次是否重试。
 
-修改 ~calendarManager~ 接入前对照当前 SDK 签名。文件路径按设备实际可访问的同步目录处理；DevEco Studio 提供 SDK、hvigorw、hdc 与 ohpm。真机需开启开发者模式和 USB 调试，并通过 ~make devices~ 确认连接。Release 包需要华为开发者账号签名，根目录 Makefile 的 ~BUNDLE_NAME~ 必须与实际包名一致。
+修改 ~calendarManager~ 接入前对照当前 SDK 签名。文件路径按设备实际可访问的同步目录处理；DevEco Studio 提供 SDK、hvigorw、hdc 与 ohpm。真机需开启开发者模式和 USB 调试，并通过 ~make devices~ 确认连接。设备命令默认选择唯一连接真机，按设备属性排除模拟器；多台真机时通过 ~HDC_TARGET~ 指定目标。 ~make deploy~ 在构建前检查并固定真机目标，依次编译、安装和启动；没有真机、指定目标未连接或指定模拟器时立即报错，不回退到其他设备。模拟器验收通过其他设备命令显式设置 ~HDC_TARGET~ 。Release 包需要华为开发者账号签名，根目录 Makefile 的 ~BUNDLE_NAME~ 必须与实际包名一致。
 
 * 设计与交付同步
 

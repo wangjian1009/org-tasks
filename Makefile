@@ -7,9 +7,9 @@ HVIGOR_HOME    := $(DEVECO_HOME)/tools/hvigor
 OHPM           := $(DEVECO_HOME)/tools/ohpm/bin/ohpm
 HDC            := $(DEVECO_HOME)/sdk/default/openharmony/toolchains/hdc
 HVIGORW        := $(HVIGOR_HOME)/bin/hvigorw
-# 默认选择 HDC 列表中的唯一设备；多设备场景仍可通过 HDC_TARGET 显式覆盖。
-HDC_TARGET     ?= $$( $(HDC) list targets | awk 'NR == 1 { print $$1 }' )
-HDC_DEVICE     := $(HDC) $(if $(HDC_TARGET),-t $(HDC_TARGET))
+# 默认选择唯一连接真机；显式 HDC_TARGET 可供模拟器验收使用，deploy 始终要求真机。
+HDC_TARGET     ?=
+HDC_DEVICE     = device_target="$$(sh scripts/select-hdc-target.sh "$(HDC)" "$(HDC_TARGET)")" && "$(HDC)" -t "$$device_target"
 
 # SDK 路径。DevEco Studio 6.1 的内置 HarmonyOS SDK 位于此目录。
 # 可通过环境变量或命令行覆盖，例如 make build DEVECO_SDK_HOME=/path/to/sdk。
@@ -63,8 +63,6 @@ release: deps check-sdk
 
 # 安装到设备
 install: build
-	@echo ">>> 检查设备连接..."
-	@$(HDC) list targets | grep -q . || { echo "未检测到设备，请连接 USB 并开启调试"; exit 1; }
 	@hap_file="$$(find "$(HAP_DIR)" -maxdepth 1 -type f -name '*-signed.hap' -print -quit)"; \
 		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先执行 make build。"; exit 1; }; \
 		echo ">>> 安装应用: $$hap_file"; \
@@ -72,8 +70,6 @@ install: build
 
 # 仅安装（不重新编译）
 install-only:
-	@echo ">>> 检查设备连接..."
-	@$(HDC) list targets | grep -q . || { echo "未检测到设备"; exit 1; }
 	@hap_file="$$(find "$(HAP_DIR)" -maxdepth 1 -type f -name '*-signed.hap' -print -quit)"; \
 		test -n "$$hap_file" || { echo "未找到已签名 HAP，请先执行 make build。"; exit 1; }; \
 		echo ">>> 安装应用: $$hap_file"; \
@@ -84,8 +80,11 @@ run:
 	@echo ">>> 启动应用..."
 	$(HDC_DEVICE) shell aa start -a $(ABILITY_NAME) -b $(BUNDLE_NAME)
 
-# 编译 + 安装 + 启动
-deploy: install run
+# 先选定真机，再依次编译、安装与启动；并行 make 也不会提前启动。
+deploy:
+	@device_target="$$(sh scripts/select-hdc-target.sh "$(HDC)" "$(HDC_TARGET)" --physical)" || exit $$?; \
+		$(MAKE) install HDC_TARGET="$$device_target" && \
+		$(MAKE) run HDC_TARGET="$$device_target"
 
 # 查看日志
 log:
@@ -182,13 +181,13 @@ help:
 	@echo "  make install       编译并安装到设备"
 	@echo "  make install-only  仅安装（不编译）"
 	@echo "  make run           启动应用"
-	@echo "  make deploy        编译 + 安装 + 启动"
+	@echo "  make deploy        编译 + 安装到真机 + 启动（无真机时报错）"
 	@echo "  make restart       重启应用"
 	@echo "  make uninstall     卸载应用"
 	@echo "  make log           查看应用日志"
 	@echo "  make log-all       查看全部日志"
 	@echo "  make devices       查看已连接设备"
-	@echo "  make deploy       部署到唯一连接设备（多设备时可设置 HDC_TARGET）"
+	@echo "  HDC_TARGET=<ID>    指定设备；deploy 仅接受真机，其他设备命令可显式选择模拟器"
 	@echo "  make docs-export  按 Org 设置创建 output/docs 下的导出目录"
 	@echo "  make clean         清理构建产物"
 	@echo "  make setup-hooks   启用 WorkTree 本地配置软链接 hook"
