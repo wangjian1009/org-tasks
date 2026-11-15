@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -553,7 +554,7 @@ struct ConflictFile {
     if (this.saving || this.leaving) return
     this.leaving = true
     this.requestId++
-    try { if (this.preview) await this.preview.discard(); this.preview = undefined; await this.getUIContext().getRouter().back() }
+    try { if (this.preview) await this.preview.discard(); this.preview = undefined; await PageNavigator.shared.back(this.getUIContext()) }
     catch (e) { this.handleError(e as CoreBridgeError, '返回失败'); this.leaving = false }
   }
 

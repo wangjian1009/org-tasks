@@ -1,4 +1,5 @@
 import { NotificationManager } from '../services/NotificationManager'
+import { PageNavigator, primaryPage } from '../services/PageNavigator'
 // 应用入口
 
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit'
@@ -65,6 +66,8 @@ export default class EntryAbility extends UIAbility {
 
   private loadMainPage(stage: window.WindowStage) {
     this.contentReady = false
+    PageNavigator.shared.start(this.context)
+    PageNavigator.shared.reset(primaryPage(this.initialPage === 'pages/Inbox' ? 'inbox' : this.initialView === 'memo' ? 'memo' : 'today'))
     const data: MainPageStorage = {}
     if (this.initialView) data.entryView = this.initialView
     data.entryMemoAction = this.memoAction
@@ -131,6 +134,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    PageNavigator.shared.close().catch((): void => { console.error('关闭页面导航失败') })
     NotificationManager.stop()
     HttpApiService.stop().catch((): void => { console.error('停止 HTTP 接口失败') })
     this.foreground = false

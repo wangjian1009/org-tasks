@@ -1,3 +1,4 @@
+import { PageNavigator, primaryPage } from '../services/PageNavigator'
 import { LinkEditController } from './LinkView'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { CoreTitlePart } from '../services/NativeCoreService'
@@ -38,7 +39,7 @@ export struct AppShell {
   @BuilderParam content: () => void
   action: () => void = () => {}
   secondaryAction: () => void = () => {}
-  backAction: () => void = (): void => { this.getUIContext().getRouter().back() }
+  backAction: () => void = (): void => { PageNavigator.shared.back(this.getUIContext()) }
   @State inboxCount: number = -1
   @State todayCount: number = -1
   @State todayAttentionCount: number = 0
@@ -108,29 +109,24 @@ export struct AppShell {
         this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“文件入口”中重新选择${title}的仓库和文件。`,
           primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
             this.drawerOpen = false
-            this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '文件入口' } })
+            PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
           } } })
         return
       }
       this.drawerOpen = false
-      if (view === 'inbox') {
-        if (this.activeRoute !== 'pages/Inbox') await this.getUIContext().getRouter().replaceUrl({ url: 'pages/Inbox' })
-      } else if (this.activeRoute !== 'pages/TaskOverview' || this.activeOverview !== view) {
-        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/TaskOverview', params: { view } })
-      }
+      await PageNavigator.shared.openPrimary(this.getUIContext(), primaryPage(view))
     } catch (e) { this.navMessage = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
 
   async navigate(route: string) {
     this.drawerOpen = false
-    if (this.activeRoute !== route) {
-      try { await this.getUIContext().getRouter().replaceUrl({ url: route }) }
-      catch (error) { this.navMessage = '打开页面失败，请重试'; this.drawerOpen = true }
+    if (!await PageNavigator.shared.openPrimary(this.getUIContext(), { url: route })) {
+      this.navMessage = '打开页面失败，请重试'; this.drawerOpen = true
     }
   }
 
   async openProject(file: CoreOrgFileMetadata) {
-    if (await ProjectNavigation.open(this.getUIContext(), file.repoId, file.path)) {
+    if (await ProjectNavigation.open(this.getUIContext(), file.repoId, file.path, true)) {
       this.drawerOpen = false
     }
   }

@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet, DataSetEvent } from '../services/DataSetManager'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
@@ -63,13 +64,15 @@ struct ProjectDetail {
   onPageHide() { this.pageVisible = false; this.loadRevision++ }
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
+    if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.sourceMode) { this.toggleSource(); return true }
     if (TaskInlineSession.active()) { this.leaveProject(); return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   async leaveProject() {
-    if (await TaskInlineSession.end(true)) this.getUIContext().getRouter().back()
+    if (await TaskInlineSession.end(true)) PageNavigator.shared.back(this.getUIContext())
   }
 
   async rememberReading(): Promise<string> {
@@ -138,7 +141,7 @@ struct ProjectDetail {
       if (revision !== this.loadRevision) return
       if (!file) throw new Error('项目文件已不存在，请返回存储库列表。')
       if (file.project() === null) {
-        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/FileDetail', params: { repoId, path } })
+        await PageNavigator.shared.replacePage(this.getUIContext(), { url: 'pages/FileDetail', params: { repoId, path } })
         return
       }
       const sections = projectReadingSections(file, snapshot.tasks)
@@ -173,9 +176,10 @@ struct ProjectDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.title || '项目', titleContext: this.titleContext, back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.title || '项目', titleContext: this.titleContext, activeRoute: 'pages/ProjectDetail',
+        back: PageNavigator.shared.path.depth > 1, drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.refreshing,
-        backAction: (): void => { if (!this.onBackPress()) this.getUIContext().getRouter().back() },
+        backAction: (): void => { this.onBackPress() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
         secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },

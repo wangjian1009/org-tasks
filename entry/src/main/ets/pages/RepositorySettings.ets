@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { PageQueryService } from '../services/PageQueryService'
 import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
@@ -48,7 +49,7 @@ struct RepositorySettings {
     if (this.directoryOpen) { if (!this.directoryBusy) this.directoryOpen = false; return true }
     if (!this.loading && !this.saving && !this.testing && !this.deleting && !this.resetting) {
       if (this.existing) this.save()
-      else this.getUIContext().getRouter().back()
+      else PageNavigator.shared.back(this.getUIContext())
     }
     return true
   }
@@ -65,7 +66,7 @@ struct RepositorySettings {
     this.message = message
     this.getUIContext().showAlertDialog({ title: '无法保存修改', message,
       primaryButton: { value: '继续编辑', action: () => {} },
-      secondaryButton: { value: '放弃修改并返回', fontColor: UiColor.error, action: (): void => { this.getUIContext().getRouter().back() } } })
+      secondaryButton: { value: '放弃修改并返回', fontColor: UiColor.error, action: (): void => { PageNavigator.shared.back(this.getUIContext()) } } })
   }
 
   clearTestResult() {
@@ -140,7 +141,7 @@ struct RepositorySettings {
 
   async save() {
     if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
-    if (!this.loaded || (this.existing && JSON.stringify(this.draft()) === this.originalDraft)) { this.getUIContext().getRouter().back(); return }
+    if (!this.loaded || (this.existing && JSON.stringify(this.draft()) === this.originalDraft)) { PageNavigator.shared.back(this.getUIContext()); return }
     if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
     if (this.webdavEnabled && (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword)) {
       this.cannotSave('请填写 HTTPS WebDAV 地址、用户名和密码'); return
@@ -162,7 +163,7 @@ struct RepositorySettings {
       const index = repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
       if (index < 0) repos.push(repository); else repos[index] = repository
       await AppConfigService.save(this.getUIContext().getHostContext()!, { repos, inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile, somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId, calendarName: current.calendarName, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings, fileDisplayMode: current.fileDisplayMode })
-      this.getUIContext().getRouter().back()
+      PageNavigator.shared.back(this.getUIContext())
     } catch (e) { this.cannotSave(`保存失败：${coreErrorMessage(e as CoreBridgeError)}`) }
     finally { this.saving = false }
   }
@@ -183,7 +184,7 @@ struct RepositorySettings {
     try {
       await AppConfigService.removeRepository(this.getUIContext().getHostContext()!, this.repoId)
       try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
-      this.getUIContext().getRouter().back()
+      PageNavigator.shared.back(this.getUIContext())
     } catch (e) { this.message = `删除存储库失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.deleting = false }
   }

@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { AppConfig } from '../models/OrgTask'
 import { FileTargetService } from '../services/FileTargetService'
 import { CaptureService } from '../services/CaptureService'
@@ -111,7 +112,8 @@ struct Inbox {
     if (this.captureOpen) { this.closeCapture(); return true }
     if (this.selected) { this.closeTargetPopup(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   drawerChanged() { if (this.drawerOpen) { this.closeTargetPopup(); if (this.selectingRecords && !this.mergeBusy) this.cancelSelection() } }
@@ -650,7 +652,7 @@ struct Inbox {
                       .fontSize(14).fontColor(this.message ? UiColor.error : UiColor.secondary).width('100%')
                     if (this.needsConfiguration) {
                       Button('前往设置').height(40).onClick((): void => {
-                        this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '文件入口' } })
+                        PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
                       })
                     } else if (this.message) {
                       Button('重试').height(40).onClick((): void => { this.loadRecords(true) })

@@ -16,6 +16,7 @@ function load(name, mocks, globals = {}) {
   } }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, require(name) {
+    if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     assert.ok(name in mocks, '缺少替身 ' + name); return mocks[name];
   }, console: { info() {}, error() {} }, ...globals }, { filename: file });
   return module.exports;

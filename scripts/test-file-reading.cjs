@@ -17,6 +17,7 @@ function load(filename, mocks = {}, transform = source => source) {
   }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports,Scroller){' + source + '\n})', { filename })(name => {
+    if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     assert.ok(name in mocks, `缺少替身：${name}`);
     return mocks[name];
   }, module, module.exports, class { scrollTo(value) { this.lastScroll = value; } currentOffset() { return { xOffset: 0, yOffset: this.lastScroll?.yOffset ?? 0 }; } });

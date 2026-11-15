@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -31,7 +32,8 @@ struct Files {
 
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   toggleIgnored(group: NotebookGroup) {
@@ -112,14 +114,14 @@ struct Files {
           .accessibilityText(`存储库 ${group.name}`)
         IconButton({ icon: $r('app.media.ui_settings'), label: `${group.name}：管理存储库`, disabled: group.configId.length === 0,
           iconSize: 20, buttonWidth: 40,
-          action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: group.configId } }) } })
+          action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } }) } })
         IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
           iconSize: 20, buttonWidth: 40,
           label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,
           action: (): void => { this.toggleIgnored(group) } })
         IconButton({ icon: $r('app.media.ui_sync_log'), label: `${group.name}：同步日志`, disabled: group.configId.length === 0,
           iconSize: 20, buttonWidth: 40,
-          action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/SyncLog', params: { repoId: group.configId } }) } })
+          action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/SyncLog', params: { repoId: group.configId } }) } })
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)
     }.width('100%').padding({ left: 8, right: 8, top: 24, bottom: 8 }).backgroundColor(UiColor.surface)

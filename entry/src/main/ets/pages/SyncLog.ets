@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
@@ -39,7 +40,8 @@ struct SyncLog {
 
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   async loadLogs(reload: boolean = false) {
@@ -105,7 +107,7 @@ struct SyncLog {
 
   build() {
     Column() {
-      AppShell({ title: this.repositoryName ? `${this.repositoryName} · 同步日志` : '同步日志', back: true, backAction: (): void => { this.getUIContext().getRouter().back() },
+      AppShell({ title: this.repositoryName ? `${this.repositoryName} · 同步日志` : '同步日志', back: true, backAction: (): void => { PageNavigator.shared.back(this.getUIContext()) },
         actionIcon: this.showUnchanged ? $r('app.media.ui_visibility_selected') : $r('app.media.ui_visibility_off'),
         actionLabel: this.showUnchanged ? '隐藏无变化日志' : '显示全部日志',
         action: (): void => { this.showUnchanged = !this.showUnchanged },

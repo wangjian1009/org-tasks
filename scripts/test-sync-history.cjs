@@ -18,7 +18,7 @@ function load(file, name, dependencies) {
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})')(
-    id => { assert.ok(id in dependencies, id); return dependencies[id]; }, module, module.exports);
+    id => { if (id.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock; assert.ok(id in dependencies, id); return dependencies[id]; }, module, module.exports);
   return module.exports;
 }
 const presentation = load('ui/SyncLogPresentation', null, {});

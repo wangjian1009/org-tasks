@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { CoreSyncConflictNotification, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
 import { NotificationManager, NotificationRepository } from '../services/NotificationManager'
 import { syncConflictRepositoryName } from '../ui/CoreNotificationPresentation'
@@ -17,7 +18,7 @@ export struct SyncConflictNotificationView {
     this.opening = true
     try {
       const target = await NotificationManager.syncConflictTarget(this.getUIContext().getHostContext()!, this.notification)
-      await this.getUIContext().getRouter().pushUrl({ url: 'pages/ConflictFile', params: target })
+      await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/ConflictFile', params: { repoId: target.repoId, path: target.path } })
     } catch (e) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: `无法打开冲突文件：${coreErrorMessage(e as CoreBridgeError)}` })

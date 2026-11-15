@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { AppConfigService } from '../services/AppConfigService'
 import { PageQueryService } from '../services/PageQueryService'
 import { CoreTask } from '../services/NativeCoreService'
@@ -64,7 +65,7 @@ struct MemoEdit {
         else if (this.memo) await NoteService.update(context, this.memo, this.heading, this.body)
         this.committed = true
       }
-      await this.getUIContext().getRouter().back()
+      await PageNavigator.shared.back(this.getUIContext())
     } catch (e) {
       this.message = `${this.committed ? '备忘已保存，返回失败' : '保存备忘失败'}：${coreErrorMessage(e as CoreBridgeError)}`
     } finally {
@@ -89,7 +90,7 @@ struct MemoEdit {
     try {
       await NoteService.remove(this.getUIContext().getHostContext()!, this.memo!)
       this.committed = true
-      await this.getUIContext().getRouter().back()
+      await PageNavigator.shared.back(this.getUIContext())
     } catch (e) {
       this.message = `${this.committed ? '备忘已删除，返回失败' : '删除备忘失败'}：${coreErrorMessage(e as CoreBridgeError)}`
     } finally {

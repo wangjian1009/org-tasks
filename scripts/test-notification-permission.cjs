@@ -23,6 +23,7 @@ function load(name, mocks, globals = {}) {
   }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports,LocalStorage,setTimeout,clearTimeout){' + output + '\n})', { filename })(name => {
+    if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     if (Object.hasOwn(mocks, name)) return mocks[name];
     throw new Error('缺少平台替身: ' + name);
   }, module, module.exports, globals.LocalStorage, globals.setTimeout ?? setTimeout, globals.clearTimeout ?? clearTimeout);

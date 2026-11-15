@@ -15,6 +15,7 @@ function compile(source, filename, mocks) {
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports,ListScroller,setTimeout,clearTimeout){' + code + '\n})', { filename })(name => {
+    if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     if (Object.hasOwn(mocks, name)) return mocks[name];
     throw new Error('缺少替身: ' + name);
   }, module, module.exports, class { closeAllSwipeActions() {} scrollToIndex() {} }, () => 1, () => {});

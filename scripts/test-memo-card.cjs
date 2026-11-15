@@ -143,6 +143,7 @@ function overview(action = '', memoId = '') {
     exports: {}, ViewPU, ListScroller: class {}, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
     LocalStorage: { getShared: () => storage }, registerNamedRoute(callback) { factory = callback; },
     require(name) {
+      if (name.includes('PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
       if (name.includes('DataSetManager')) return {DataSetManager:{create(){const sets=new Map();return{
         dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,subscribe(fn){this.fn=fn;return()=>{}},isReady:()=>true,error:'',get data(){return name==='tasks'?{type:'task',result:{tasks:available?tasks:[]}}:{type:'file',result:available?[{}]:[]}}});return sets.get(name)},
         async start(){await Promise.resolve();for(const dataSet of sets.values())dataSet.fn?.();}

@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { Workspace } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
@@ -115,7 +116,8 @@ struct Settings {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
     if (this.section) { this.section = ''; this.message = ''; return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   async load() {
@@ -296,7 +298,7 @@ struct Settings {
       ForEach(this.config.repos, (repo: RepoConfig) => {
         SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '不同步', detail: repo.rootDirectory,
           icon: $r('app.media.nav_repository'),
-          action: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })
+          action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })
       }, (repo: RepoConfig) => repo.id)
       SettingsRow({ title: '添加存储库', icon: $r('app.media.ui_add'), divider: false,
         action: (): void => { addRepository(this.getUIContext()) } })
@@ -306,7 +308,7 @@ struct Settings {
   build() {
     Column() {
       AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
-        back: this.section.length > 0, busy: this.saving || this.categoryBusy || this.filePickerBusy,
+        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy,
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })

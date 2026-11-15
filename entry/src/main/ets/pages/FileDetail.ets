@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -42,7 +43,8 @@ struct FileDetail {
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   async loadFile(reload: boolean = false) {
@@ -69,7 +71,7 @@ struct FileDetail {
       const file = state.value!.file
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }
       if (!params.syncId && file.project() !== null) {
-        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/ProjectDetail', params: { repoId: params.repoId, path: this.path } })
+        await PageNavigator.shared.replacePage(this.getUIContext(), { url: 'pages/ProjectDetail', params: { repoId: params.repoId, path: this.path } })
         return
       }
       if (revision !== this.loadRevision) return
@@ -87,7 +89,9 @@ struct FileDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_folder'), back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_folder'),
+        activeRoute: 'pages/FileDetail', back: PageNavigator.shared.path.depth > 1,
+        backAction: (): void => { this.onBackPress() }, drawerOpen: $drawerOpen,
         secondaryActionIcon: $r('app.media.ui_document_outline'), secondaryActionLabel: this.displayMode === 'rendered' && this.renderReady ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'), actionLabel: this.displayMode === 'rendered' && this.renderReady ? '更多阅读操作' : '',

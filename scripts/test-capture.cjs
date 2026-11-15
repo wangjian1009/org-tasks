@@ -26,6 +26,7 @@ function etsLoader(mocks = {}, globals = {}) {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     });
     const localRequire = dependency => {
+      if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
       if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
       if (dependency.endsWith('/DeviceBadgeService')) return { DeviceBadgeService: { async refresh() {}, start() {}, stop() {} } };
       if (dependency.endsWith('/NotificationPermissionService')) return { NotificationPermissionService: { async start() {}, stop() {} } };

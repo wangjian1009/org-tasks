@@ -118,6 +118,7 @@ function page(name, service, router, notifications = { async refresh() {} }) {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + compiled + '\n})', { filename })(dependency => {
+    if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
     if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };
     if (dependency.endsWith('/AppConfigService')) return { AppConfigService: { async load() { return {repos:[]}; } } };

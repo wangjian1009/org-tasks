@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { CoreBridgeError, CoreSyncFileRecord, CoreSyncHistoryError, CoreSyncRecordDetail,
   coreErrorMessage } from '../services/NativeCoreService'
 import { SyncLogDetailDataManager } from '../services/ReadingDataManager'
@@ -37,7 +38,7 @@ export struct SyncLogDetails {
   async openFile(file: CoreSyncFileRecord) {
     try {
       if (!file.backup || file.outcome !== 'deleted') throw new Error('此记录没有可阅读的删除备份')
-      await this.getUIContext().getRouter().pushUrl({ url: 'pages/FileDetail',
+      await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/FileDetail',
         params: { repoId: this.repoId, syncId: this.syncId, path: file.path,
           repositoryName: this.repositoryName, backupTime: file.backup.modifiedAt, backupPath: file.backup.path } })
     } catch (e) {

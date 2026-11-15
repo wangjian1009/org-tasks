@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { CoreOrgFileMetadata } from '../services/NativeCoreService'
 import { FileTargetKind } from '../services/FileTargetService'
 import { FileItem } from './FileItem'
@@ -13,7 +14,7 @@ export struct NotebookFileRow {
   openFile() {
     try {
       const project = this.file.project() !== null
-      this.getUIContext().getRouter().pushUrl({
+      PageNavigator.shared.pushPage(this.getUIContext(), {
         url: project ? 'pages/ProjectDetail' : this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
         params: { repoId: !project && this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
       })

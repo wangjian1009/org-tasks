@@ -92,7 +92,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
     '../ui/Theme':{repositoryLabel:()=> '测试仓库', UiColor:{error:'#FF7592'}}
   };
   const module={exports:{}};
-  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{assert.ok(name in dependencies,name);return dependencies[name];},module,module.exports);
+  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{if(name.endsWith('/PageNavigator'))return require('./helpers/page-navigator.cjs').pageNavigatorMock;assert.ok(name in dependencies,name);return dependencies[name];},module,module.exports);
   const page=new module.exports();
   page.getUIContext=()=>({getHostContext:()=>({cacheDir:'/cache'}),showAlertDialog:dialog=>dialogs.push(dialog),getRouter:()=>({getParams:()=>params,back:()=>{backs++;},async pushUrl(){}})});
   return {page,requests,dialogs,events,handles,config,creates:()=>creates,backs:()=>backs,requireTarget:()=>targetRequired=true,fail:value=>failure=value,stageFail:value=>stageFailure=value,projectionFail:value=>projectionFailure=value,projectionWait:value=>projectionWait=value,wait:value=>submitWait=value,replaceRepo:()=>coreId='other',externalEdit:()=>realFile=makeFile('core','a.org','external')};
@@ -170,7 +170,7 @@ function repositoryRow(hasConflict, project = null) {
  const source=fs.readFileSync(filename,'utf8').split('  build()')[0].replace(/@Component\n|@Prop /g,'').replace('export struct NotebookFileRow','class NotebookFileRow')+'}\nmodule.exports=NotebookFileRow;';
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};
- vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(()=>({}),module,module.exports);
+ vm.runInThisContext('(function(require,module,exports){'+code+'\n})')((name)=>name.endsWith('/PageNavigator')?require('./helpers/page-navigator.cjs').pageNavigatorMock:{},module,module.exports);
  const row=new module.exports();
  row.file={repoId:'core',path:'a.org',hasConflict,project:()=>project};row.configRepoId='config';
  let target;row.getUIContext=()=>({getRouter:()=>({pushUrl(value){target=value;}})});

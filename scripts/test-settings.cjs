@@ -20,6 +20,7 @@ function load(relative, name, mocks) {
   } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + output + '\n})', { filename })(name => {
+    if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     name = name.replace(/^\.\.\/\.\.\//, '../');
     assert.ok(Object.hasOwn(mocks, name), '缺少平台替身: ' + name);
     return mocks[name];

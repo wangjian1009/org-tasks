@@ -1,3 +1,4 @@
+import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { AppConfig } from '../models/OrgTask'
 import { FileTargetService } from '../services/FileTargetService'
@@ -90,7 +91,8 @@ struct TaskOverview {
   onBackPress(): boolean {
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    return false
+    PageNavigator.shared.back(this.getUIContext())
+    return true
   }
 
   async openEntryMemo(): Promise<void> {
@@ -98,11 +100,11 @@ struct TaskOverview {
     this.entryMemoOpened = true
     try {
       if (this.entryMemoAction === 'create') {
-        await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } })
+        await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { create: true } })
       } else if (this.entryMemoAction === 'edit') {
         const task = this.tasks.find((item: CoreTask): boolean => item.id === this.entryMemoId)
         if (task) {
-          await this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { task } })
+          await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { task } })
         } else {
           try {
             this.getUIContext().getPromptAction().showToast({ message: '此备忘已变更或删除，请从列表重新选择' })
@@ -264,7 +266,7 @@ struct TaskOverview {
       } else if (this.needsConfiguration) {
         NotificationEmptyState({ title: `${overviewTitle(this.view)}文件未选择或已失效`, detail: '请在设置的“文件入口”中重新选择仓库和文件。',
           actionLabel: '前往设置', action: (): void => {
-            this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '文件入口' } })
+            PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
           } })
       } else if (this.message) {
         NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => {
@@ -308,7 +310,7 @@ struct TaskOverview {
             ForEach(this.visibleTasks, (task: CoreTask) => {
               if (this.view === 'memo') {
                 ListItem() {
-                  MemoListItem({ task, busy: this.deletingMemo || !this.pageReady, open: (): void => { this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { task } }) } })
+                  MemoListItem({ task, busy: this.deletingMemo || !this.pageReady, open: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { task } }) } })
                     .margin({ left: 16, right: 16 })
                 }.margin({ bottom: 12 })
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
@@ -345,7 +347,7 @@ struct TaskOverview {
           .accessibilityText('新增备忘')
           .enabled(!this.deletingMemo)
           .onClick((): void => {
-            this.getUIContext().getRouter().pushUrl({ url: 'pages/MemoEdit', params: { create: true } })
+            PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { create: true } })
           })
       }
     }.width('100%').height('100%')
