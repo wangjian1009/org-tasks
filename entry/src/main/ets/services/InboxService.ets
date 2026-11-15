@@ -4,7 +4,7 @@ import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { MoveToTargetService } from './MoveToTargetService'
 import { configuredFileTarget, FileTargetService, FileTargetQueryResult } from './FileTargetService'
-import { CoreRefileTarget, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
+import { CoreRefileTarget, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, CoreTaskOperationGroup, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 
 import { PageQueryService } from './PageQueryService'
 
@@ -19,7 +19,7 @@ class InboxMergeChangedError extends Error {
 
 // 只编排配置与 Core 请求，不解析 Org 或在宿主实现任务移动。
 export class InboxService {
-  static async merge(context: Context, records: CoreTask[]): Promise<CoreTaskPath> {
+  static async merge(context: Context, records: CoreTask[], operationId?: string): Promise<CoreTaskPath> {
     if (records.length < 2) throw new Error('请至少选择两条记录')
     const first = records[0]
     if (records.some(item => item.repoId !== first.repoId || item.filePath !== first.filePath || item.fileVersion !== first.fileVersion)) {
@@ -36,6 +36,7 @@ export class InboxService {
     const request: CoreTaskMergeRequest = { paths: records.map(item => item.fullPath), fileVersion: first.fileVersion }
     const plan: CoreTaskMergePlan = await workspace.taskMergeOperations(request)
 
+    if (operationId) plan.operationGroup.operationId = operationId
     await workspace.executeTaskOperations(plan.operationGroup)
     return plan.mainPath
   }
@@ -63,7 +64,7 @@ export class InboxService {
 
   // 一次提交整组选中快照；任一版本或操作失效均由 Core 拒绝整组。
   static async performMany(context: Context, tasks: CoreTask[], action: InboxAction,
-    target?: CoreRefileTarget, date?: CoreTaskPlanningEdit | null): Promise<void> {
+    target?: CoreRefileTarget, date?: CoreTaskPlanningEdit | null, operationId?: string): Promise<void> {
     if (tasks.length === 0) return
     if (action === 'move' && !target) throw new Error('请选择任务目标')
     if ((action === 'schedule' || action === 'deadline') && date === undefined) throw new Error('请选择日期')
@@ -117,6 +118,8 @@ export class InboxService {
     const fileVersions: CoreTaskFileVersion[] = tasks.map((task: CoreTask): CoreTaskFileVersion =>
       ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion }))
     if (target && (action === 'someday' || action === 'move')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
-    await workspace.executeTaskOperations({ operations, fileVersions })
+    const group: CoreTaskOperationGroup = { operations, fileVersions }
+    if (operationId) group.operationId = operationId
+    await workspace.executeTaskOperations(group)
   }
 }

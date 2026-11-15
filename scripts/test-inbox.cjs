@@ -78,11 +78,11 @@ function actionFixture() {
   }).outputText;
   const module={exports:{}};
   const session={end:async collapse=>{assert.equal(collapse,false);return await finish();}};
-  const service={find:async()=>{reads++;if(findError)throw findError;return current;}};
+  const service={find:()=>{reads++;if(findError)throw findError;return current;}};
   vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskInlineService,coreErrorMessage){'+code+'\n})', {filename})(
     module,module.exports,session,service,error=>error.message);
   const state=Object.assign(new module.exports.InboxActions(),{
-    visible:true,actionBusy:false,drawerOpen:false,captureOpen:false,selectingRecords:false,selectionStarting:false,
+    pageReady:true,pageManager:{current:service.find},visible:true,actionBusy:false,drawerOpen:false,captureOpen:false,selectingRecords:false,selectionStarting:false,
     getUIContext:()=>({getHostContext:()=>({}),getPromptAction:()=>({showToast:({message})=>messages.push(message)})}),
     selectRecord:record=>actions.push({action:'move',record}),
     confirmDelete:record=>actions.push({action:'delete',record}),
@@ -348,6 +348,7 @@ function moveRetryFixture() {
     load('ui/MoveToTargetPresentation', {}).refileSections, error => error.message);
   const original = { id: 'source', fileVersion: 'stale-source-version' };
   const state = Object.assign(new module.exports.MoveRetry(), {
+    pageManager:{async current(source){calls.push(['source',source]);return await find();},async targets(){calls.push(['targets']);return await targets();}},
     selected: original, actionBusy: false, targetsLoading: false, targetRequest: 0, visible: true,
     targetSections: [], popupMessage: '文件版本冲突', getUIContext: () => ({ getHostContext: () => ({}) })
   });
@@ -538,6 +539,7 @@ function batchFixture() {
   const records = ['first', 'second', 'third'].map(id => ({ id, fileVersion: 'snapshot' }));
   const state = Object.assign(new module.exports.Batch(), { records, mergeBusy: false, actionBusy: false, mergeInvalid: false,
     selectingRecords: true, selectedRecordIds: ['third', 'first'], refreshes: 0,
+    pageManager:{async perform(tasks,action,target,date){calls.push([{},tasks,action,target,date]);await write();}},
     actionPolicy: { singleOperations: [], bulkOperations: ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete'] },
     selectedRecords() { return this.selectedRecordIds.map(id => this.records.find(record => record.id === id)); },
     resetSelection() { this.selectedRecordIds = []; this.selectingRecords = false; },

@@ -30,6 +30,19 @@ function fixture(pageType = 'SyncLog') {
   let query = async () => structuredClone(detail), records = items, params = { repoId: 'config', syncId: 'old' };
   const repository = { id: 'config', name: '工作仓库' };
   const dependencies = {
+    '../services/ReadingDataManager': { SyncLogDetailDataManager: class {
+      constructor(_,repoId,syncId){this.syncId=syncId;this.closed=false;}
+      subscribe(fn){this.listener=fn;return()=>{}}
+      async start(){return this.refresh()}
+      async refresh(){try{queries.push(this.syncId);const value=await query();if(!this.closed)this.listener({value,message:''});}catch(error){if(!this.closed)this.listener({message:error.message});}}
+      close(){this.closed=true}
+    }, SyncLogDataManager: class {
+      constructor(){this.started=false;this.revision=0;}
+      subscribe(fn){this.listener=fn;return()=>{}}
+      async start(){if(this.started)return;this.started=true;await this.refresh();}
+      async refresh(){this.listener({value:{items:records,repositoryName:repository.name,repoId:repository.id},message:'',revision:++this.revision});}
+      close(){}
+    } },
     '../ui/SyncLogPresentation': presentation,
     '../ui/Theme': { repositoryLabel: repo => repo.name, UiColor: {} },
     '../services/NotificationManager': { emptyCoreNotificationsState: () => ({ notifications: [], revision: 0 }) },
@@ -57,7 +70,7 @@ test('通知进入日志列表，精确展开目标并显示无变化记录', as
 test('普通列表维持原有筛选，刷新后保留展开身份并更新详情渲染代次', async () => {
   const f = fixture(); f.params({ repoId: 'config' }); await f.view.loadLogs();
   assert.equal(f.view.visibleItems().length, 1); f.view.expandedId = 'new';
-  const revision = f.view.revision; await f.view.loadLogs();
+  const revision = f.view.revision; await f.view.loadLogs(true);
   assert.equal(f.view.expandedId, 'new'); assert.equal(f.view.revision, revision + 1);
 });
 

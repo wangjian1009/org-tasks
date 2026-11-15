@@ -348,8 +348,9 @@ function projectPageFixture() {
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
     '../services/ProjectDataManager': { ProjectDataManager: class {
-      constructor(context,repoId,path){this.repoId=repoId;this.path=path;}
-      async load(){const value=await open();return {file:value,tasks:value?.nodes()??[]};}
+      constructor(context,repoId,path){this.repoId=repoId;this.path=path;this.listeners=new Set();}
+      subscribeFile(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
+      async load(){try{const value=await open(),snapshot={file:value,tasks:value?.nodes()??[]};for(const fn of this.listeners)fn({snapshot,message:''});return snapshot;}catch(error){for(const fn of this.listeners)fn({message:error.message});}}
       async close(){}
     } },
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
@@ -366,8 +367,8 @@ function projectPageFixture() {
     '../services/NativeCoreService': { coreErrorMessage: error => error.message,
       NativeCoreService: { async workspaceFor() { return { async repos() { return [{ id: 'core', rootDirectory: '/repo' }]; } }; } } },
     '../ui/Theme': theme, '../ui/ProjectReadingPresentation': projectReading,
-    '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => end(...args) } }
-  }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@State /g, '')
+    '../services/TaskInlineService': { TaskInlineSession: { active:()=>false,end: (...args) => end(...args) } }
+  }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@State |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g, '')
     .replace('struct ProjectDetail', 'class ProjectDetail') + '}\nmodule.exports = { ProjectDetail };');
   const page = new ProjectDetail(), routes = [];
   page.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
@@ -377,46 +378,40 @@ function projectPageFixture() {
 }
 
 test('项目刷新保留同文件阅读位置，新文件版本更新文档与定位坐标', async () => {
-  const f = projectPageFixture(); await f.page.loadFile();
+  const f = projectPageFixture(); await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content, '项目原文');
   const revision = f.page.renderRevision;
-  await f.page.loadFile();
+  await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.match(f.page.readingState, /org-node-12/);
   assert.equal(f.page.renderRevision, revision);
   f.setOpen(async () => f.file('v2'));
-  await f.page.loadFile();
+  await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(JSON.parse(f.page.readingState).scroll,80);
   assert.ok(f.page.renderRevision > revision);
 });
 
 test('项目原文切换保留文档状态，刷新失败保留上次全文与错误', async () => {
-  const f = projectPageFixture(); await f.page.loadFile();
+  const f = projectPageFixture(); await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve));
   await f.page.toggleSource(); assert.equal(f.page.sourceMode, true);
   const reading = f.page.readingState;
   await f.page.toggleSource(); assert.equal(f.page.sourceMode, false);
   assert.equal(f.page.readingState, reading);
   f.setOpen(async () => { throw new Error('离线'); });
-  await f.page.loadFile();
+  await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
   assert.match(f.page.refreshMessage, /离线/);
   assert.equal(f.page.message, '');
 });
 
-test('项目读取迟到或页面退出，不覆盖最新文档', async () => {
-  const f = projectPageFixture(), pending = [];
-  f.setOpen(() => new Promise(resolve => pending.push(resolve)));
-  const first = f.page.loadFile(), second = f.page.loadFile();
-  await new Promise(resolve => setImmediate(resolve));
-  pending[1](f.file('new')); await second;
-  const revision = f.page.renderRevision;
-  pending[0](f.file('old')); await first;
-  assert.equal(f.page.fileVersion, 'new');
-  assert.equal(f.page.renderRevision, revision);
-  const third = f.page.loadFile();
-  await new Promise(resolve => setImmediate(resolve));
-  f.page.onPageHide(); pending[2](f.file('late')); await third;
-  assert.equal(f.page.fileVersion, 'new');
+test('项目重复出现复用管理对象，隐藏后迟到文件快照不更新文档',async()=>{
+  const f=projectPageFixture();let resolve,reads=0;
+  f.setOpen(()=>{reads++;return new Promise(done=>resolve=done)});
+  const first=f.page.loadFile();await f.page.loadFile();assert.equal(reads,1);
+  resolve(f.file('new'));await first;await new Promise(done=>setImmediate(done));
+  assert.equal(f.page.fileVersion,'new');
+  f.page.onPageHide();await f.page.applyFileState({snapshot:{file:f.file('late'),tasks:[]},message:''});
+  assert.equal(f.page.fileVersion,'new');
 });
 
 test('项目页面离开时不再向可能销毁的 Web 发送阅读状态脚本', () => {
@@ -432,9 +427,9 @@ test('项目页面离开时不再向可能销毁的 Web 发送阅读状态脚本
 test('项目文件改为普通文件时跳转，含冲突的项目仍展示文档快照', async () => {
   const f = projectPageFixture();
   f.setOpen(async () => ({ ...f.file(), project: () => null }));
-  await f.page.loadFile(); assert.equal(f.routes[0].url, 'pages/FileDetail');
+  await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes[0].url, 'pages/FileDetail');
   f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
-  await f.page.loadFile(); assert.equal(f.routes.length, 1);
+  await f.page.projectDataManager.load(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 1);
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
 });
@@ -477,7 +472,7 @@ test('项目分段一次批量关联全部节点，保留重名标题与无状�
 });
 
 test('主动刷新等待任务草稿保存，失败保留当前快照且不读取文件', async () => {
-  const f = projectPageFixture(); await f.page.loadFile();
+  const f = projectPageFixture(); await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve));
   const snapshot = f.page.sections;
   let reads = 0, finish;
   f.setOpen(async () => { reads++; return f.file('v2'); });
@@ -599,63 +594,13 @@ test('项目任务展开后可从更多菜单查看和收起日志，没有日�
   logs = []; assert.ok(!card.moreItems().some(item => item.title === '日志'));
 });
 
-function projectDataObserver(page) {
-  const filename = base + 'components/AppShell.ets';
-  const source = fs.readFileSync(filename, 'utf8');
-  const names = ['dataChanged', 'repositoryDataInvalidated', 'inlineSessionChanged'];
-  const methods = names.map(name => source.match(new RegExp('  ' + name + '\\(\\) \\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
-  let active = false;
-  const module = { exports: {} };
-  const code = ts.transpileModule('export class Observer {' + methods + '}', {
-    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
-  }).outputText;
-  vm.runInThisContext('(function(module,exports,TaskInlineSession){' + code + '\n})', { filename })(module, module.exports,
-    { active: () => active });
-  const observer = Object.assign(new module.exports.Observer(), { pageVisible: true, dataRevision: 0,
-    dataChangeState: { revision: 0 }, drawerOpen: false, deferredRefresh: false, inlineActive: '',
-    synchronized: () => page.loadFile() });
-  return { observer, setActive(value) { active = value; observer.inlineActive = value ? 'project:task' : ''; } };
-}
-
-test('项目订阅数据版本变化后刷新完整文档和原文，重复版本不重读', async () => {
-  const f = projectPageFixture(); await f.page.loadFile();
-  const { observer } = projectDataObserver(f.page);
-  f.page.sourceMode = true;
-  let reads = 0;
-  f.setOpen(async () => { reads++; return { ...f.file('done'), sourceBytes: () => Buffer.from('* DONE 已完成'),
-    documentSections: () => [{ path: null, html: '<p>完成后的正文与进度</p>' }] }; });
-  observer.dataChangeState = { revision: 1 }; observer.dataChanged();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.page.content, '* DONE 已完成');
-  assert.equal(f.page.sections[0].html, '<p>完成后的正文与进度</p>');
-  assert.equal(f.page.fileVersion, 'done');
-  observer.dataChanged();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(reads, 1);
-});
-
-test('项目编辑期间合并多个事件，结束会话后只读取最新版本；退出后延迟刷新不再打开文件', async () => {
-  const f = projectPageFixture(); await f.page.loadFile();
-  const data = projectDataObserver(f.page);
-  let reads = 0;
-  f.setOpen(async () => { reads++; return f.file('latest'); });
-  data.setActive(true);
-  data.observer.dataChangeState = { revision: 1 }; data.observer.dataChanged();
-  data.observer.dataChangeState = { revision: 2 }; data.observer.dataChanged();
-  assert.equal(reads, 0);
-  data.setActive(false); data.observer.inlineSessionChanged();
-  await new Promise(resolve => setTimeout(resolve, 10));
-  assert.equal(reads, 1);
-  assert.equal(f.page.fileVersion, 'latest');
-  data.setActive(true);
-  data.observer.dataChangeState = { revision: 3 }; data.observer.dataChanged();
-  data.setActive(false); data.observer.inlineSessionChanged();
-  f.page.onPageHide();
-  await new Promise(resolve => setTimeout(resolve, 10));
-  assert.equal(reads, 1);
-  f.page.onPageShow();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(reads, 2);
+test('项目完整文档通过管理对象快照更新，源码与章节使用同一版本',async()=>{
+  const f=projectPageFixture();await f.page.loadFile();await new Promise(resolve=>setImmediate(resolve));
+  f.page.sourceMode=true;
+  f.setOpen(async()=>({...f.file('changed'),sourceBytes:()=>Buffer.from('* DONE 已完成'),documentSections:()=>[{path:null,html:'<p>完成后的正文与进度</p>'}]}));
+  await f.page.projectDataManager.load();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.page.content,'* DONE 已完成');assert.equal(f.page.sections[0].html,'<p>完成后的正文与进度</p>');
+  assert.equal(f.page.fileVersion,'changed');
 });
 
 test('原生项目内部链接共用 Core 目标索引，优先定位专用目标并在保存失败时保持原位置', async () => {

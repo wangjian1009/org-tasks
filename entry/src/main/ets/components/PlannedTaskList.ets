@@ -11,15 +11,16 @@ import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
 export struct PlannedTaskList {
-  private taskEditorManager: TaskEditorDataManager | undefined = undefined
+  dataManager: TaskEditorDataManager | undefined = undefined
   private editorDataManager(): TaskEditorDataManager {
-    if (!this.taskEditorManager) this.taskEditorManager = new TaskEditorDataManager(this.getUIContext().getHostContext()!)
-    return this.taskEditorManager
+    if (!this.dataManager) throw new Error('未提供页面数据管理对象')
+    return this.dataManager
   }
 
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @Prop readOnly: boolean = false
   @Prop groups: PlannedGroup[] = []
   @Prop referenceTime: number = Date.now()
   @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
@@ -43,7 +44,7 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
-    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
+    TaskEditor({ readOnly: this.readOnly, dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
       plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline,
       regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None :
         item.task.project() !== null ? RegionAreaPolicy.Project : RegionAreaPolicy.Category,
@@ -54,7 +55,7 @@ export struct PlannedTaskList {
 
   @Builder
   scheduleTaskItem(item: PlannedScheduleItem) {
-    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
+    TaskEditor({ readOnly: this.readOnly, dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
       regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })
   }

@@ -39,24 +39,24 @@ export struct TaskContentBlocks {
     Column({ space: this.projectReading ? 0 : 12 }) {
       ForEach(this.blocks, (block: CoreContentBlock, index: number) => {
         Column() {
-          if (block.kind === 'checklist') {
-            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled,
+          if (this.blocks[index].kind === 'checklist') {
+            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled,
               revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(block) }, begin: this.begin, save: this.save,
+              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(this.blocks[index]) }, begin: this.begin, save: this.save,
               editingChanged: this.editingChanged }).width('100%')
-          } else if (block.kind === 'list') {
-            TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+          } else if (this.blocks[index].kind === 'list') {
+            TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')
-          } else if (block.kind === 'table') {
-            TaskTableBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+          } else if (this.blocks[index].kind === 'table') {
+            TaskTableBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')
           } else {
-            TaskTextBlock({ internalLinkProcessor: this.internalLinkProcessor, block, readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+            TaskTextBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')

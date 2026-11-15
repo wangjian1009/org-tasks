@@ -224,7 +224,8 @@ function batchList() {
     errors: { coreErrorMessage: error => error.message }
   });
   const items = [batchTask('A'), batchTask('B')].map(task => ({ key: task.id, task }));
-  const list = Object.assign(new List(), { groups: [{ items }], selectedTaskKeys: [], selectingTasks: false,
+  const list = Object.assign(new List(), { ready:true,groups: [{ items }], selectedTaskKeys: [], selectingTasks: false,
+    perform:async(tasks,action)=>{calls.push([action,tasks]);await perform();},
     actionBusy: false, selectionSnapshot: [], listScroller: { closeAllSwipeActions() {} },
     policy: () => ({ singleOperations: ['delete'], bulkOperations: ['delete', 'restore'] }),
     refresh() { this.refreshed = true; }, getUIContext: () => ({ getHostContext: () => ({}),
@@ -242,7 +243,7 @@ test('左滑多选选中当前任务，批量恢复期间防重复提交，成�
   assert.equal(f.list.busyAction, 'restore');
   await f.list.restoreTasks(); assert.equal(f.calls.length, 1);
   finish(); await pending;
-  assert.equal(f.list.selectingTasks, false); assert.equal(f.list.refreshed, true);
+  assert.equal(f.list.selectingTasks, false); assert.equal(f.list.refreshed, undefined);
   assert.deepEqual(f.list.selectedTaskKeys, []); assert.equal(f.list.actionBusy, false);
 });
 test('刷新不替换多选源版本，失败保留选择并显示错误，关闭开关后不提交', async () => {

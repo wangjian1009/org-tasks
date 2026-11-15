@@ -1,6 +1,7 @@
+import { TaskPageDataManager, TaskPageSnapshot } from '../services/TaskPageDataManager'
 import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
 import { TaskDateDialog } from '../components/editors/TaskDateDialog'
-import { TaskInlineSession, TaskInlineService } from '../services/TaskInlineService'
+import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
@@ -17,22 +18,21 @@ import { TaskSelectionRow } from '../components/TaskSelectionRow'
 import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
 import { TaskPageActionPolicy, taskActionPolicy, taskPageActionPolicy, TaskOperation, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
 import { OrgContentView } from '../components/OrgContentView'
-import { InboxService, InboxAction } from '../services/InboxService'
-import { MoveToTargetService } from '../services/MoveToTargetService'
+import { InboxAction } from '../services/InboxService'
 import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
 import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
-import { AppConfigService } from '../services/AppConfigService'
-import { CaptureService } from '../services/CaptureService'
 import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
 struct Inbox {
-  private taskEditorManager: TaskEditorDataManager | undefined = undefined
-  private editorDataManager(): TaskEditorDataManager {
-    if (!this.taskEditorManager) this.taskEditorManager = new TaskEditorDataManager(this.getUIContext().getHostContext()!)
-    return this.taskEditorManager
-  }
+  private pageManager: TaskPageDataManager | undefined = undefined
+  private stopPage: (() => void) | undefined = undefined
+  private latestSnapshot: TaskPageSnapshot | undefined = undefined
+  @State dataScope: number = 0
+  @State pageReady: boolean = false
+  @StorageLink('taskInlineActive') @Watch('pageInlineChanged') pageInlineActive: string = ''
+  private editorDataManager(name: string = 'tasks'): TaskEditorDataManager { return this.pageManager!.editor(name) }
 
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State records: CoreTask[] = []
@@ -70,7 +70,6 @@ struct Inbox {
   @State mergeInvalid: boolean = false
   @State mergedPath: string = ''
   private mergeFocusTimer: number = -1
-  private refreshTimer: number = -1
   private visible: boolean = true
   private targetRequest: number = 0
   private actionTimer: number = -1
@@ -85,15 +84,17 @@ struct Inbox {
   private captureFocusTimer: number = -1
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
-  onPageShow() { this.visible = true }
-  onPageHide() { this.visible = false; this.dateDialog?.close(); clearTimeout(this.refreshTimer); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
+  onPageShow() { this.visible = true; this.loadRecords() }
+  onPageHide() { this.visible = false; this.dateDialog?.close(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
+    this.stopPage?.(); this.stopPage = undefined
+    this.pageManager?.close().catch((): void => { console.error('保存收件箱数据失败') })
+    this.pageManager = undefined
     this.dateDialog?.close()
     clearTimeout(this.captureFocusTimer)
     clearTimeout(this.actionTimer)
     clearTimeout(this.mergeFocusTimer)
     this.visible = false
-    clearTimeout(this.refreshTimer)
     ++this.targetRequest
     if (this.captureOpen) this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
   }
@@ -121,7 +122,7 @@ struct Inbox {
   }
 
   async startSelection(record: CoreTask) {
-    if (this.checklistDragging) return
+    if (this.checklistDragging || !this.pageReady) return
     if (this.selectingRecords || this.mergeBusy || this.actionBusy || this.selectionStarting || this.drawerOpen || this.captureOpen || this.loading) return
     this.selectionStarting = true
     clearTimeout(this.actionTimer)
@@ -141,8 +142,7 @@ struct Inbox {
       this.mergeMessage = ''
       this.mergeInvalid = false
       this.mergedPath = ''
-      clearTimeout(this.refreshTimer)
-    } finally { this.selectionStarting = false }
+      } finally { this.selectionStarting = false }
   }
 
   resetSelection() {
@@ -175,7 +175,7 @@ struct Inbox {
     this.mergeMessage = ''
     let merged: CoreTaskPath
     try {
-      merged = await InboxService.merge(this.getUIContext().getHostContext()!, records)
+      merged = await this.pageManager!.merge(records)
     } catch (e) {
       this.mergeBusy = false
       this.mergeMessage = coreErrorMessage(e as CoreBridgeError)
@@ -210,11 +210,11 @@ struct Inbox {
   }
 
   async prepareAction(record: CoreTask, action: InboxAction) {
-    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
+    if (!this.pageReady || this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
     this.actionBusy = true
     try {
       if (!await TaskInlineSession.end(false) || !this.visible) return
-      const current = await TaskInlineService.find(this.getUIContext().getHostContext()!, record)
+      const current = await this.pageManager?.current(record)
       if (!current || !this.visible) return
       this.actionBusy = false
       if (action === 'move') this.selectRecord(current)
@@ -310,7 +310,7 @@ struct Inbox {
     this.targetsLoading = true
     this.popupMessage = ''
     try {
-      const targets = await MoveToTargetService.targets(this.getUIContext().getHostContext()!)
+      const targets = await this.pageManager!.targets()
       if (request === this.targetRequest) {
         this.targetSections = refileSections(targets)
       }
@@ -331,7 +331,7 @@ struct Inbox {
     this.actionBusy = true
     this.popupMessage = ''
     try {
-      const current = await TaskInlineService.find(this.getUIContext().getHostContext()!, this.selected)
+      const current = await this.pageManager?.current(this.selected)
       if (request !== this.targetRequest || !this.visible) return
       this.actionBusy = false
       if (!current) { this.closeTargetPopup(); return }
@@ -357,7 +357,7 @@ struct Inbox {
     ++this.targetRequest
     this.targetsLoading = false
     try {
-      await InboxService.perform(this.getUIContext().getHostContext()!, selected, action, target)
+      await this.pageManager!.perform([selected], action, target)
       this.actionBusy = false
       this.closeTargetPopup()
       await this.loadRecords()
@@ -423,7 +423,7 @@ struct Inbox {
       // 沿当前源快照逆序删除或移出，避免同名记录的后续 occurrence 前移。
       const ordered = [...records].sort((a: CoreTask, b: CoreTask): number =>
         this.records.findIndex(item => item.id === b.id) - this.records.findIndex(item => item.id === a.id))
-      await InboxService.performMany(this.getUIContext().getHostContext()!, ordered, action, target, date)
+      await this.pageManager!.perform(ordered, action, target, date)
       this.mergeBusy = false
       this.resetSelection()
       await this.loadRecords()
@@ -468,14 +468,14 @@ struct Inbox {
   }
 
   closeCapture() {
-    if (this.captureSaving) return
+    if (this.captureSaving || !this.pageReady) return
     clearTimeout(this.captureFocusTimer)
     this.captureOpen = false
     this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
   }
 
   async saveCapture() {
-    if (this.captureSaving) return
+    if (this.captureSaving || !this.pageReady) return
     const title = this.captureTitle.trim()
     if (!title) {
       this.captureMessage = '请输入标题'
@@ -484,7 +484,7 @@ struct Inbox {
     this.captureSaving = true
     this.captureMessage = ''
     try {
-      await CaptureService.save(this.getUIContext().getHostContext()!, title)
+      await this.pageManager!.capture(title)
       this.captureSaving = false
       this.closeCapture()
       this.captureTitle = ''
@@ -526,7 +526,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(task), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+    TaskEditor({ readOnly: !this.pageReady, dataManager: this.editorDataManager('recent'), dataSet: this.editorDataManager('recent').dataSet(task), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
@@ -572,55 +572,43 @@ struct Inbox {
     .width('calc(100% + 24vp)').margin({ left: -12, right: -12 })
   }
 
-  async loadRecords() {
-    if (TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
-    const request = ++this.requestId
-    clearTimeout(this.refreshTimer)
-    this.recentLoading = this.recentGroups.length === 0
-    this.recentMessage = ''
-    this.loading = this.records.length === 0
-    this.message = ''
-    this.needsConfiguration = false
-    try {
-      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const snapshot = await InboxService.load(config)
-      const result = snapshot.inbox
-      if (request !== this.requestId) return
-      this.recentGroups = recentDays(snapshot.recent)
-      if (!result) {
-        this.closeTargetPopup()
-        this.needsConfiguration = true
-        this.records = []
-        return
-      }
-      this.records = result.tasks
-      this.measureRows()
-      if (this.selected) {
-        const selected = this.records.find((record: CoreTask) => record.id === this.selected?.id)
-        if (!selected) this.closeTargetPopup()
-        else this.selected = selected
-      }
-    } catch (e) {
-      if (request === this.requestId) {
-        this.closeTargetPopup()
-        this.records = []
-        this.message = `读取收件箱失败：${coreErrorMessage(e as CoreBridgeError)}`
-        this.recentGroups = []
-        this.recentMessage = `近期记录读取失败：${coreErrorMessage(e as CoreBridgeError)}`
-      }
-    } finally {
-      if (request === this.requestId) {
-        this.loading = false
-        this.recentLoading = false
-        if (this.visible) this.refreshTimer = setTimeout((): void => { this.loadRecords() }, 60000)
-      }
+  async loadRecords(reload: boolean = false) {
+    if (!this.pageManager) {
+      this.pageManager = new TaskPageDataManager(this.getUIContext().getHostContext()!, 'inbox')
+      this.stopPage = this.pageManager.subscribe((snapshot: TaskPageSnapshot): void => {
+        this.latestSnapshot = snapshot
+        this.applyPageSnapshot()
+      })
+    }
+    if (reload) await this.pageManager.refresh()
+    else await this.pageManager.start()
+    this.applyPageSnapshot()
+  }
+
+  pageInlineChanged(): void { if (!this.pageInlineActive) this.applyPageSnapshot() }
+
+  applyPageSnapshot(): void {
+    const snapshot = this.latestSnapshot
+    if (!snapshot || TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
+    this.dataScope = snapshot.scope
+    this.pageReady = snapshot.ready
+    this.loading = false; this.recentLoading = false
+    this.message = snapshot.message; this.recentMessage = snapshot.message
+    this.needsConfiguration = snapshot.needsConfiguration
+    this.records = snapshot.tasks
+    this.recentGroups = recentDays(snapshot.recent)
+    this.measureRows()
+    if (this.selected) {
+      const selected = this.records.find((record: CoreTask) => record.id === this.selected?.id)
+      if (!selected) this.closeTargetPopup()
+      else this.selected = selected
     }
   }
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ refreshOnPageShow: true, title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
-        synchronized: (): void => { this.loadRecords() }, activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
+      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
+        activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
         Column() {
           if (this.loading && this.recentGroups.length === 0) {
@@ -640,7 +628,7 @@ struct Inbox {
                         this.getUIContext().getRouter().pushUrl({ url: 'pages/Settings', params: { section: '文件入口' } })
                       })
                     } else if (this.message) {
-                      Button('重试').height(40).onClick((): void => { this.loadRecords() })
+                      Button('重试').height(40).onClick((): void => { this.loadRecords(true) })
                     }
                   }.padding(16).width('100%').constraintSize({ minHeight: 80 })
                     .onAreaChange((oldArea: Area, newArea: Area): void => { this.emptyHeight = parseFloat(newArea.height.toString()) })
@@ -654,7 +642,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(record), enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskEditor({ readOnly: !this.pageReady, dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(record), enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) } })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
@@ -673,7 +661,7 @@ struct Inbox {
                   } : undefined,
                   end: { builder: (): void => { this.swipeMenu(record) } },
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
-              }, (record: CoreTask) => taskRenderKey(record))
+              }, (record: CoreTask) => JSON.stringify([this.dataScope, this.editorDataManager().dataSet(record).key]))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
                   Column().width('100%').height(unplannedSpacer(this.listHeight,
@@ -689,7 +677,7 @@ struct Inbox {
                     this.recentRegion(group)
                   }, (group: RecentTaskGroup) => JSON.stringify(group))
                   ListItem() { Column().height(16).width('100%') }.fullWidthItem()
-                }, (day: RecentDay) => JSON.stringify(day))
+                }, (day: RecentDay) => JSON.stringify([this.dataScope, day]))
               }
               if (this.recentLoading) {
                 ListItem() { Text('正在读取近期记录…').fontSize(14).fontColor(UiColor.secondary).padding(16) }.fullWidthItem()
@@ -697,7 +685,7 @@ struct Inbox {
               if (this.recentMessage) {
                 ListItem() {
                   Text(this.recentMessage + '，点击重试').fontSize(14).fontColor(UiColor.error).padding(16)
-                    .onClick((): void => { this.loadRecords() })
+                    .onClick((): void => { this.loadRecords(true) })
                 }.fullWidthItem()
               }
               ListItem() { Column().height(this.selectingRecords ? 156 : 104) }.fullWidthItem()

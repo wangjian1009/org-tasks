@@ -37,7 +37,7 @@ async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir()
  const projection=load('entry/src/main/ets/services/PageDataProjection.ets',{'../ui/TaskChecklistReorder':reorder,'@kit.ArkTS':{util},'./PageDataEquality':equality,'./PageDataSnapshot':snapshots});
  const cache=load('entry/src/main/ets/services/PageDataCache.ets',{'@kit.CoreFileKit':{fileIo:io},'@kit.ArkTS':{util}});
  const {DataSetManager}=load('entry/src/main/ets/services/DataSetManager.ets',{'@kit.ArkTS':{util},'./AppConfigService':{AppConfigService:{load:async()=>config,watchChanges:listener=>configListeners.add(listener),stopWatchingChanges:listener=>configListeners.delete(listener)}},'./NativeCoreService':service,'./PageDataCache':cache,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
- const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
+ const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
 
 test('每页一个 JSON 文件，缓存恢复版本为0、首次查询为1，原生方法恢复为只读模型方法',async()=>{const f=await fixture();try{const first=f.manager();await first.start();assert.equal(first.get('tasks').version,1);await first.close();const file=f.file('今天');const envelope=JSON.parse(await fsp.readFile(file,'utf8'));assert.equal(envelope.dataSets.length,1);assert.equal(typeof envelope.dataSets[0].tasks,'object');assert.equal((await fsp.readFile(file,'utf8')).includes('PRIVATE_PASSWORD_MARKER'),false);const second=f.manager();const versions=[];second.subscribe(event=>versions.push(event.version));const delay=f.delaySubscribe();const start=second.start();await until(()=>second.get('tasks')?.version===0&&f.calls.length===2);assert.equal(second.get('tasks').version,0);assert.equal(second.findTask('tasks','A').isDone(),false);assert.equal(second.findTask('tasks','A').taskStateOf('Done').name,'DONE');delay.resolve();await start;assert.equal(second.get('tasks').version,1);assert.deepEqual([...new Set(versions)],[0,1]);assert.deepEqual(await fsp.readdir(path.dirname(file)),['今天.json']);}finally{await f.cleanup()}});
 
@@ -136,5 +136,26 @@ test('内嵌正文区块的修改先更新本地区块，失败回滚只影响�
   assert.equal(local.editContent.blocks[1].source,'保留');assert.equal(local.heading,'A');
   await until(()=>f.groups.length===1);delay.resolve();await manager.flush();
   assert.equal(manager.findTask('tasks','A').editContent.blocks[0].source,'原文');
+ }finally{await f.cleanup()}
+});
+
+
+test('受管理的批量操作使用同一阶段编号，通过查询事件确认且不重新查询',async()=>{
+ const f=await fixture();try{const manager=f.manager();await manager.start();const events=[];manager.subscribe(event=>events.push(event));
+ await manager.runOperation('tasks',async operationId=>{await f.workspace.executeTaskOperations({operationId,operations:[{type:'Modification',data:{path:f.rows()[0].fullPath,modifications:[{field:'NOTES',value:'批量更新'}]}}]});});
+ assert.match(f.groups[0].operationId,/dataset\/.*\/2\/operation/);assert.equal(manager.get('tasks').version,2);assert.equal(manager.findTask('tasks','A').editContent.notes,'批量更新');
+ assert.equal(events.filter(event=>event.type==='complete').length,1);await manager.flush();assert.equal(f.calls.length,1);
+ }finally{await f.cleanup()}
+});
+test('批量操作与字段编辑共用队列，改名事件将排队字段映射到新身份',async()=>{
+ const f=await fixture();try{const manager=f.manager();await manager.start();const hold=f.delay();
+ const first=manager.runOperation('tasks',async operationId=>{await f.workspace.executeTaskOperations({operationId,operations:[{type:'Modification',data:{path:f.rows()[0].fullPath,modifications:[{field:'TITLE',value:'New'}]}}]});});
+ await until(()=>f.groups.length===1);const second=manager.update('tasks','A',[{field:'NOTES',value:'排队备注'}]);hold.resolve();await Promise.all([first,second]);
+ assert.equal(f.groups.length,2);assert.equal(f.groups[1].operations[0].data.path.titles[0],'New');assert.equal(manager.findTask('tasks','renamed-New').editContent.notes,'排队备注');assert.equal(f.calls.length,1);
+ }finally{await f.cleanup()}
+});
+test('批量操作失败不推进确认快照，错误不产生额外操作',async()=>{
+ const f=await fixture();try{const manager=f.manager();await manager.start();const original=manager.getConfirmed('tasks');
+ await assert.rejects(manager.runOperation('tasks',async()=>{throw new Error('批量失败')}),/批量失败/);assert.equal(manager.getConfirmed('tasks').version,original.version);assert.equal(f.groups.length,0);await manager.flush();
  }finally{await f.cleanup()}
 });

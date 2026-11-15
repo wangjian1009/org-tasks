@@ -111,13 +111,15 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 页面统一读取
 
-页面通过一个 CoreQuery 批次取得任务、文件元信息和通知，按输入位置消费对应结果。独立文件元信息和通知读取入口已移除，通知也通过统一 CoreQuery 读取。应用级 NotificationManager 另行维护共享通知生命周期，既有页面批次的通知结果也通过该管理类发布。收件箱本页与最近新增、文件入口有效性和标签候选、侧边栏全部计数及通知共用同次快照，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+普通读取通过 CoreQuery 批次取得任务、文件元信息和通知，按输入位置消费对应结果；已迁移任务页由 DataSetManager 维护固定查询订阅，文件入口有效性和标签候选随对应元信息更新。NotificationManager 独立维护应用共享通知生命周期，普通批次的通知结果也通过该管理类发布。侧边栏全部计数、文件入口、项目和通知仍共用一个完整批次，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
 
 * 页面数据管理与缓存边界
 
 ~DataSetManager~ 是每页独立的界面数据入口，组合 Workspace 查询订阅、用户字段增量队列与私有缓存；编辑器可以直接通过管理类读写，原始 Core 事件只在内部处理。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 
 侧边栏通过只读 SidebarDataManager 统一管理计数、文件入口与项目列表，复用完整批量查询和 PageDataCache；组件只接收管理对象快照。整个 Workspace 的变化在管理层合并刷新，缓存项目较少或为空也不会限制新项目发现；完整生命周期见 [[file:harmony/页面数据集设计.org::*侧边栏：完整批次与只读缓存][侧边栏数据管理]]。
+
+TaskPageDataManager 统一组合全部任务视图的查询定义、配置范围、编辑器绑定与提交入口；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情由 ProjectDataManager 发布完整文件与内存任务更新。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
 
 * 应用共享通知管理
 

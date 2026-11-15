@@ -60,9 +60,10 @@ function fixture() {
   const full = fs.readFileSync(filename, 'utf8');
   const prefix = full.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n/g, '')
     .replace(/@(State|StorageLink\([^)]*\)|Watch\([^)]*\))\s*/g, '').replace('struct Inbox', 'class Inbox');
-  const loading = full.slice(full.indexOf('  async loadRecords()'), full.indexOf('  build()'));
+  const loading = full.slice(full.indexOf('  async loadRecords('), full.indexOf('  build()'));
   const Page = compile(prefix + loading + '}\nmodule.exports = Inbox;', filename, {
     '../components/editors/TaskDateDialog': {},
+    '../services/TaskPageDataManager': {},
     '../services/TaskEditorDataManager': { TaskEditorDataManager: class {} },
     '../services/TaskInlineService': { TaskInlineSession: { active: () => false, async end() { return saveResult; } } },
     '../services/NotificationManager': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
@@ -74,7 +75,10 @@ function fixture() {
     '../services/NativeCoreService': core
   });
   const page = new Page();
-  page.records = [...records]; page.loading = false;
+  page.records = [...records]; page.loading = false; page.pageReady = true;
+  let listener,started=false;
+  page.pageManager={subscribe(fn){listener=fn;return()=>{}},async start(){if(started)return;started=true;try{const value=await InboxService.load(config);page.latestSnapshot={tasks:value.inbox?.tasks??[],recent:value.recent,ready:true,needsConfiguration:!value.inbox,message:''};}catch(error){page.latestSnapshot={tasks:records,recent:[],ready:true,needsConfiguration:false,message:error.message};}page.applyPageSnapshot();},
+    merge:async rows=>{const result=await InboxService.merge({},rows);started=false;return result;}};
   page.getUIContext = () => ({ getHostContext: () => ({}), getPromptAction: () => ({ showToast: v => notices.push(v) }) });
   page.closeTargetPopup = () => {};
   page.loadRecentRecords = () => {};

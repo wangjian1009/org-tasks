@@ -1,4 +1,4 @@
-import { ProjectDataManager } from '../services/ProjectDataManager'
+import { ProjectDataManager, ProjectFileState } from '../services/ProjectDataManager'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -28,6 +28,9 @@ struct ProjectDetail {
   @State refreshMessage: string = ''
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
+  private stopFile: (() => void) | undefined = undefined
+  private latestFileState: ProjectFileState | undefined = undefined
+  @StorageLink('taskInlineActive') @Watch('projectInlineChanged') projectInlineActive: string = ''
   private projectDataManager: ProjectDataManager | undefined = undefined
   private readingState: string = ''
   @State renderRevision: number = 0
@@ -47,9 +50,10 @@ struct ProjectDetail {
   @State pageVisible: boolean = true
 
   aboutToDisappear(): void {
+    this.stopFile?.(); this.stopFile = undefined
     this.projectDataManager?.close().catch((): void => { console.error('关闭项目数据集失败') })
   }
-  onPageShow() { this.pageVisible = true; this.loadFile() }
+  onPageShow() { this.pageVisible = true; this.loadFile(); if (this.latestFileState) this.applyFileState(this.latestFileState) }
   // 页面退出时使进行中的文件读取失效。
   onPageHide() { this.pageVisible = false; this.loadRevision++ }
   onBackPress(): boolean {
@@ -82,25 +86,37 @@ struct ProjectDetail {
 
   async refreshFile() {
     if (this.refreshing || !await TaskInlineSession.end(true)) return
-    await this.loadFile()
+    await this.projectDataManager?.load()
   }
 
   async loadFile() {
     if (!this.pageVisible) return
+    const params = this.getUIContext().getRouter().getParams() as ProjectParams
+    const repoId = params.repoId || '', path = params.path || ''
+    if (!this.projectDataManager || this.projectDataManager.repoId !== repoId || this.projectDataManager.path !== path) {
+      this.stopFile?.(); this.projectDataManager?.close().catch((): void => {})
+      this.projectDataManager = new ProjectDataManager(this.getUIContext().getHostContext()!, repoId, path)
+      this.stopFile = this.projectDataManager.subscribeFile((state: ProjectFileState): void => {
+        this.latestFileState = state
+        this.applyFileState(state)
+      })
+      await this.projectDataManager.load().catch((error: Error): void => { this.applyFileState({ message: error.message }) })
+    }
+  }
+
+  projectInlineChanged(): void { if (!this.projectInlineActive && this.latestFileState) this.applyFileState(this.latestFileState) }
+
+  async applyFileState(state: ProjectFileState): Promise<void> {
+    if (!this.pageVisible || TaskInlineSession.active() || (!state.snapshot && !state.message)) return
     const revision = ++this.loadRevision
     const hasSnapshot = this.fileVersion.length > 0
     this.refreshing = true
     if (hasSnapshot && !this.sourceMode) await this.rememberReading()
     if (revision !== this.loadRevision) return
     try {
-      const params = this.getUIContext().getRouter().getParams() as ProjectParams
-      const repoId = params.repoId || ''
-      const path = params.path || ''
-      if (!this.projectDataManager || this.projectDataManager.repoId !== repoId || this.projectDataManager.path !== path) {
-        this.projectDataManager?.close().catch((): void => {})
-        this.projectDataManager = new ProjectDataManager(this.getUIContext().getHostContext()!, repoId, path)
-      }
-      const snapshot = await this.projectDataManager.load()
+      if (state.message) throw new Error(state.message)
+      const snapshot = state.snapshot!
+      const repoId = this.projectDataManager!.repoId, path = this.projectDataManager!.path
       const file = snapshot.file
       if (revision !== this.loadRevision) return
       if (!file) throw new Error('项目文件已不存在，请返回存储库列表。')
@@ -143,7 +159,6 @@ struct ProjectDetail {
       AppShell({ title: this.title || '项目', titleContext: this.titleContext, back: true, drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.refreshing,
         backAction: (): void => { if (!this.onBackPress()) this.getUIContext().getRouter().back() },
-        synchronized: (): void => { this.loadFile() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
         secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },

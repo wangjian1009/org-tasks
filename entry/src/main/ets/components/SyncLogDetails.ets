@@ -1,6 +1,7 @@
 import { CoreBridgeError, CoreSyncFileRecord, CoreSyncHistoryError, CoreSyncRecordDetail,
-  NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
-import { AppConfigService } from '../services/AppConfigService'
+  coreErrorMessage } from '../services/NativeCoreService'
+import { SyncLogDetailDataManager } from '../services/ReadingDataManager'
+import { SnapshotState } from '../services/SnapshotDataManager'
 import { syncLogFileOutcomeLabel, syncLogTimeLabel, syncLogErrorLabel, syncLogTriggerLabel } from '../ui/SyncLogPresentation'
 import { UiColor } from '../ui/Theme'
 
@@ -13,25 +14,24 @@ export struct SyncLogDetails {
   @State detail: CoreSyncRecordDetail | undefined = undefined
   @State loading: boolean = true
   @State message: string = ''
-  private requestId: number = 0
+  private dataManager: SyncLogDetailDataManager | undefined = undefined
+  private stopData: (() => void) | undefined = undefined
 
   aboutToAppear() { this.load() }
-  aboutToDisappear() { this.requestId++ }
+  aboutToDisappear() { this.stopData?.(); this.dataManager?.close(); this.dataManager = undefined }
 
-  async load() {
-    const request = ++this.requestId
-    this.loading = true
-    this.message = ''
-    try {
-      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const repository = config.repos.find((repo) => repo.id === this.repoId)
-      if (!repository) throw new Error('此存储库已不存在')
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
-      const detail = await repo.historyDetail(this.syncId)
-      if (request === this.requestId) this.detail = detail
-    } catch (e) {
-      if (request === this.requestId) this.message = `读取日志详情失败：${coreErrorMessage(e as CoreBridgeError)}`
-    } finally { if (request === this.requestId) this.loading = false }
+  async load(reload: boolean = false) {
+    if (!this.dataManager) {
+      this.dataManager = new SyncLogDetailDataManager(this.getUIContext().getHostContext()!, this.repoId, this.syncId)
+      this.stopData = this.dataManager.subscribe((state: SnapshotState<CoreSyncRecordDetail>): void => {
+        if (!state.value && !state.message) return
+        this.loading = false
+        if (state.value) this.detail = state.value
+        this.message = state.message ? `读取日志详情失败：${state.message}` : ''
+      })
+    }
+    if (reload) await this.dataManager.refresh()
+    else await this.dataManager.start()
   }
 
   async openFile(file: CoreSyncFileRecord) {
@@ -78,7 +78,7 @@ export struct SyncLogDetails {
       } else if (this.message) {
         Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%')
         Button('重试').height(44).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
-          .onClick((): void => { this.load() })
+          .onClick((): void => { this.load(true) })
       } else if (this.detail) {
         Text(`${syncLogTimeLabel(this.detail.summary.started_at)} · ${syncLogTriggerLabel(this.detail.summary)}`).fontSize(12).fontColor(UiColor.secondary)
           .width('100%').padding({ left: 8, right: 8, top: 4 })

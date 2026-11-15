@@ -8,9 +8,7 @@ import { ProjectProgressIcon } from './ProjectProgressIcon'
 import { PopupMenuButton } from './controls/PopupMenuButton'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { RepositorySyncView } from './RepositorySyncView'
-import { uiObserver } from '@kit.ArkUI'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
-import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { SidebarDataManager, SidebarSnapshot } from '../services/SidebarDataManager'
 import { ProjectNavigation } from '../services/ProjectNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
@@ -26,8 +24,6 @@ export struct AppShell {
   @Prop activeRoute: string = ''
   @Prop activeOverview: string = ''
   @Prop back: boolean = false
-  @Prop refreshOnPageShow: boolean = false
-  @Prop managedBody: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_more')
   @Prop actionLabel: string = ''
   @Prop actionText: string = ''
@@ -43,7 +39,6 @@ export struct AppShell {
   action: () => void = () => {}
   secondaryAction: () => void = () => {}
   backAction: () => void = (): void => { this.getUIContext().getRouter().back() }
-  synchronized: () => void = () => {}
   @State inboxCount: number = -1
   @State todayCount: number = -1
   @State todayAttentionCount: number = 0
@@ -55,96 +50,20 @@ export struct AppShell {
   @State projects: CoreOrgFileMetadata[] = []
   @State projectGroups: ProjectSection[] = []
   @State navMessage: string = ''
-  @StorageLink('coreNotifications') @Watch('notificationUpdated') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
-  @StorageLink('coreDataChanges') @Watch('dataChanged') dataChangeState: CoreDataChangeState = emptyCoreDataChangeState()
-  @StorageLink('taskInlineActive') @Watch('inlineSessionChanged') inlineActive: string = ''
+  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
-  private deferredRefresh: boolean = false
-  private pageRefreshDeferred: boolean = false
   private sidebarManager: SidebarDataManager | undefined = undefined
   private stopSidebar: (() => void) | undefined = undefined
-  private bodyLoadedOnAppear: boolean = false
-  private notificationRevision: number = 0
-  private dataRevision: number = 0
-  private pageIndex: number = 0
-  private pageVisible: boolean = true
-  private pageChanged = (info: uiObserver.RouterPageInfo): void => {
-    if (info.index !== this.pageIndex) return
-    if (info.state === uiObserver.RouterPageState.ON_PAGE_HIDE) {
-      this.pageVisible = false
-      this.bodyLoadedOnAppear = false
-    } else if (info.state === uiObserver.RouterPageState.ON_PAGE_SHOW) {
-      this.pageVisible = true
-      if (this.refreshOnPageShow) {
-        const alreadyLoaded = this.bodyLoadedOnAppear
-        if (alreadyLoaded) this.dataChanged()
-        else {
-          this.dataRevision = this.dataChangeState.revision
-          if (this.drawerOpen) this.pageRefreshDeferred = true
-          else this.synchronized()
-        }
-      } else this.dataChanged()
-      this.bodyLoadedOnAppear = false
-      this.refreshDataChanges()
-    }
-  }
 
   titleLabel(): string {
     return this.titleParts.length > 0 ? this.titleParts.map((part: CoreTitlePart) => part.text).join('') : this.title
   }
 
-  aboutToAppear() {
-    this.pageIndex = this.getUIContext().getRouter().getState().index
-    this.pageVisible = true
-    this.notificationRevision = this.notificationState.revision
-    this.dataRevision = this.dataChangeState.revision
-    this.getUIContext().getUIObserver().on('routerPageUpdate', this.pageChanged)
-    this.refreshDataChanges()
-    if (this.drawerOpen) this.loadNavigation()
-    else if (this.refreshOnPageShow) { this.bodyLoadedOnAppear = true; this.synchronized() }
-  }
+  aboutToAppear() { if (this.drawerOpen) this.loadNavigation() }
 
   aboutToDisappear() {
-    this.pageVisible = false
-    this.getUIContext().getUIObserver().off('routerPageUpdate', this.pageChanged)
     this.stopSidebar?.(); this.stopSidebar = undefined
     this.sidebarManager?.close(); this.sidebarManager = undefined
-  }
-
-  notificationUpdated() {
-    if (this.notificationRevision === this.notificationState.revision) return
-    this.notificationRevision = this.notificationState.revision
-  }
-
-  dataChanged() {
-    if (!this.pageVisible || this.dataRevision === this.dataChangeState.revision) return
-    this.dataRevision = this.dataChangeState.revision
-    this.repositoryDataInvalidated()
-  }
-
-  async refreshDataChanges() {
-    try { await CoreDataChangeService.refresh(this.getUIContext().getHostContext()!) }
-    catch (e) {
-      if (!this.pageVisible) return
-      console.error(`数据监控注册失败：${coreErrorMessage(e as CoreBridgeError)}`)
-    }
-  }
-
-  inlineSessionChanged() {
-    if (!this.inlineActive && this.deferredRefresh) {
-      setTimeout(() => {
-        if (this.inlineActive) return
-        this.deferredRefresh = false
-        this.repositoryDataInvalidated()
-      }, 0)
-    }
-  }
-
-  repositoryDataInvalidated() {
-    if (this.managedBody) return
-    if (TaskInlineSession.active()) { this.deferredRefresh = true; return }
-    if (this.drawerOpen) this.pageRefreshDeferred = true
-    else this.synchronized()
   }
 
   async openDrawer() {
@@ -155,7 +74,6 @@ export struct AppShell {
 
   drawerChanged() {
     if (this.drawerOpen) this.loadNavigation()
-    else if (this.pageRefreshDeferred) { this.pageRefreshDeferred = false; if (!this.managedBody) this.synchronized() }
   }
 
   navigationDataManager(): SidebarDataManager {
@@ -183,9 +101,6 @@ export struct AppShell {
   }
 
   async openPrimary(view: TaskOverview | 'inbox') {
-    const current = view === 'inbox' ? this.activeRoute === 'pages/Inbox'
-      : this.activeRoute === 'pages/TaskOverview' && this.activeOverview === view
-    if (!current) this.pageRefreshDeferred = false
     this.drawerOpen = false
     try {
       if ((view === 'inbox' || view === 'someday' || view === 'memo') && !await this.navigationDataManager().targetConfigured(view)) {
@@ -207,7 +122,6 @@ export struct AppShell {
   }
 
   async navigate(route: string) {
-    if (this.activeRoute !== route) this.pageRefreshDeferred = false
     this.drawerOpen = false
     if (this.activeRoute !== route) {
       try { await this.getUIContext().getRouter().replaceUrl({ url: route }) }
@@ -217,7 +131,6 @@ export struct AppShell {
 
   async openProject(file: CoreOrgFileMetadata) {
     if (await ProjectNavigation.open(this.getUIContext(), file.repoId, file.path)) {
-      this.pageRefreshDeferred = false
       this.drawerOpen = false
     }
   }

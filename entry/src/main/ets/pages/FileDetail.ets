@@ -2,11 +2,11 @@ import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
-import { AppConfigService } from '../services/AppConfigService'
-import { NotebookService } from '../services/NotebookService'
-import { CoreBridgeError, CoreOrgFile, CoreTitlePart, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
+import { FileDataManager, FileReadingSnapshot } from '../services/ReadingDataManager'
+import { SnapshotState } from '../services/SnapshotDataManager'
+import { CoreBridgeError, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
 import { syncLogTimeLabel } from '../ui/SyncLogPresentation'
-import { UiColor, repositoryLabel } from '../ui/Theme'
+import { UiColor } from '../ui/Theme'
 
 interface NotebookParams { repoId?: string; path?: string; syncId?: string; repositoryName?: string; backupTime?: number; backupPath?: string }
 
@@ -28,8 +28,14 @@ struct FileDetail {
   private navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
   private loadRevision: number = 0
 
-  onPageShow() { this.loadFile() }
+  private dataManager: FileDataManager | undefined = undefined
+  private stopData: (() => void) | undefined = undefined
+  private pageVisible: boolean = true
+  private latestState: SnapshotState<FileReadingSnapshot> | undefined = undefined
+  aboutToDisappear(): void { this.stopData?.(); this.dataManager?.close() }
+  onPageShow() { this.pageVisible = true; this.loadFile(); if (this.latestState) this.applyFileSnapshot(this.latestState) }
   onPageHide() {
+    this.pageVisible = false
     this.loadRevision++
     this.renderReady = false
   }
@@ -39,50 +45,49 @@ struct FileDetail {
     return false
   }
 
-  async loadFile() {
-    const revision = ++this.loadRevision
-    this.loading = true
-    this.renderReady = false
-    try {
+  async loadFile(reload: boolean = false) {
+    if (!this.dataManager) {
       const params = this.getUIContext().getRouter().getParams() as NotebookParams
       this.path = params.path || ''
-      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      let file: CoreOrgFile | undefined = undefined
-      const repository = config.repos.find((item) => item.id === params.repoId)
-      let historyLabel = ''
-      if (params.syncId) {
-        if (!repository) throw new Error('此存储库已不存在')
-        const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
-        file = await repo.historyFile(params.syncId, this.path, false)
-        historyLabel = `历史备份 · ${params.backupPath || this.path}\n${params.repositoryName || ''}${params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''}`
-      } else {
-        file = await NotebookService.open(config.repos, params.repoId || '', this.path, config.todoDefaults, config.coreSettings)
-      }
-      if (revision !== this.loadRevision) return
+      this.dataManager = new FileDataManager(this.getUIContext().getHostContext()!, { repoId: params.repoId || '', path: this.path, syncId: params.syncId })
+      this.stopData = this.dataManager.subscribe((state: SnapshotState<FileReadingSnapshot>): void => {
+        this.latestState = state
+        this.applyFileSnapshot(state)
+      })
+    }
+    if (reload) await this.dataManager.refresh()
+    else await this.dataManager.start()
+  }
+
+  async applyFileSnapshot(state: SnapshotState<FileReadingSnapshot>): Promise<void> {
+    if (!this.pageVisible || (!state.value && !state.message)) return
+    const revision = ++this.loadRevision
+    try {
+      if (state.message) throw new Error(state.message)
+      const params = this.getUIContext().getRouter().getParams() as NotebookParams
+      const config = state.value!.config
+      const file = state.value!.file
       if (!file) { this.message = '该文件已不存在，请返回存储库列表。'; return }
       if (!params.syncId && file.project() !== null) {
-        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/ProjectDetail',
-          params: { repoId: params.repoId, path: this.path } })
+        await this.getUIContext().getRouter().replaceUrl({ url: 'pages/ProjectDetail', params: { repoId: params.repoId, path: this.path } })
         return
       }
-      this.historyLabel = historyLabel
-      this.fileContext = `${repositoryLabel(repository)} / ${this.path}`
+      if (revision !== this.loadRevision) return
+      this.historyLabel = params.syncId ? `历史备份 · ${params.backupPath || this.path}\n${params.repositoryName || ''}${params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''}` : ''
+      this.fileContext = `${state.value!.repositoryName} / ${this.path}`
       this.displayMode = config.fileDisplayMode
       this.title = file.title() || this.path
       this.titleParts = file.titleParts()
       this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
       this.renderedHtml = file.renderHtml()
       this.message = ''
-    } catch (e) {
-      if (revision === this.loadRevision) this.message = `读取文件失败：${coreErrorMessage(e as CoreBridgeError)}`
-    } finally {
-      if (revision === this.loadRevision) this.loading = false
-    }
+    } catch (e) { if (revision === this.loadRevision) this.message = `读取文件失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    finally { if (revision === this.loadRevision) this.loading = false }
   }
 
   build() {
     Column() {
-      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_folder'), synchronized: (): void => { this.loadFile() }, back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_folder'), back: true, drawerOpen: $drawerOpen,
         secondaryActionIcon: $r('app.media.ui_document_outline'), secondaryActionLabel: this.displayMode === 'rendered' && this.renderReady ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'), actionLabel: this.displayMode === 'rendered' && this.renderReady ? '更多阅读操作' : '',
@@ -92,7 +97,7 @@ struct FileDetail {
           if (this.loading) {
             EmptyState({ title: '正在打开文件', busy: true })
           } else if (this.message) {
-            EmptyState({ title: '无法打开文件', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile() } })
+            EmptyState({ title: '无法打开文件', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile(true) } })
           } else {
             if (this.historyLabel.length > 0) {
               Text(this.historyLabel).fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ left: 20, right: 20, top: 8, bottom: 8 })

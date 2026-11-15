@@ -4,11 +4,12 @@ import { CoreTask, CoreOrgFile, CoreDataChangeEvent, CoreTaskModification, CoreR
 import { AppConfigService } from './AppConfigService'
 import { NotebookService } from './NotebookService'
 import { CoreDataChangeService } from './CoreDataChangeService'
-import { TaskEditorDataManager, TaskEditorDataSet, TaskEditorChange, TaskInlineMissingError } from './TaskEditorDataManager'
+import { TaskEditorDataManager, TaskEditorDataSet, TaskEditorChange, TaskInlineMissingError, TaskEditorWriteError } from './TaskEditorDataManager'
 import { projectTaskFields } from './PageDataProjection'
 import { PageTaskSnapshot, taskRecord } from './PageDataSnapshot'
 import { samePageTask } from './PageDataEquality'
 
+export interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
 export interface ProjectFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
 interface ProjectEdit { id: string; data: TaskEditorDataSet; source: CoreTask; changes: CoreTaskModification[] }
 
@@ -35,11 +36,39 @@ export class ProjectDataManager extends TaskEditorDataManager {
   private seen: Set<string> = new Set()
   private receipts: Map<string, () => void> = new Map()
   private stopEvents: () => void
+  private fileListeners: Set<(state: ProjectFileState) => void> = new Set()
+  private fileState: ProjectFileState = { message: '' }
+  private configurationChanged = (): void => {
+    if (this.closed) return
+    this.readGeneration++; this.readingFile = undefined; this.scheduleLoad()
+  }
+  subscribeFile(listener: (state: ProjectFileState) => void): () => void {
+    this.fileListeners.add(listener); listener(this.fileState)
+    return (): void => { this.fileListeners.delete(listener) }
+  }
+  private publishFile(snapshot: ProjectFileSnapshot): void {
+    if (this.closed) return
+    this.fileState = { snapshot, message: '' }
+    for (const listener of this.fileListeners) listener(this.fileState)
+  }
+  private scheduleLoad(): void {
+    if (this.closed || this.timer >= 0) return
+    this.timer = setTimeout((): void => {
+      this.timer = -1
+      this.load().catch((error: Error): void => {
+        if (this.closed) return
+        this.fileState = { snapshot: this.fileState.snapshot, message: error.message }
+        for (const listener of this.fileListeners) listener(this.fileState)
+        for (const data of this.bindings.values()) for (const listener of data.listeners) listener({ error: error.message })
+      })
+    }, 50)
+  }
 
   constructor(context: Context, repoId: string, path: string) {
-    super(context, true)
+    super(context)
     this.projectContext = context; this.repoId = repoId; this.path = path
     this.stopEvents = CoreDataChangeService.watchEvents(event => { this.receive(event) })
+    AppConfigService.watchChanges(this.configurationChanged)
   }
 
   private async readFile(): Promise<ProjectFileSnapshot> {
@@ -58,7 +87,7 @@ export class ProjectDataManager extends TaskEditorDataManager {
   }
   async load(): Promise<ProjectFileSnapshot> {
     const snapshot = await this.readFile()
-    if (!this.closed) { this.confirmed = snapshot.tasks; this.rebuild() }
+    if (!this.closed) { this.confirmed = snapshot.tasks; this.rebuild(); this.publishFile(snapshot) }
     return snapshot
   }
   dataSet(task: CoreTask): TaskEditorDataSet {
@@ -95,6 +124,7 @@ export class ProjectDataManager extends TaskEditorDataManager {
     const edit: ProjectEdit = { id: `${this.owner}${++this.sequence}`, data, source, changes }
     this.edits.push(edit); this.rebuild()
     const work = this.tail.then(async (): Promise<void> => {
+      let committed: boolean = false
       try {
         if (this.retired.has(data.key)) throw new TaskInlineMissingError()
         const id = this.recordIds.get(data.key)
@@ -107,6 +137,7 @@ export class ProjectDataManager extends TaskEditorDataManager {
         await workspace.executeTaskOperations({ operationId: edit.id,
           operations: [{ type: 'Modification', data: { path: task.fullPath, modifications: changes } }],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: positional ? source.fileVersion : task.fileVersion }] })
+        committed = true
         this.readGeneration++; this.readingFile = undefined
         const result = await this.readFile()
         // 改名的身份只来自提交事件，不根据标题或节点顺序猜测对应关系。
@@ -114,18 +145,26 @@ export class ProjectDataManager extends TaskEditorDataManager {
           await new Promise<void>(resolve => { this.receipts.set(edit.id, resolve) })
         }
         this.confirmed = result.tasks
-        this.edits.splice(this.edits.indexOf(edit), 1); this.rebuild()
+        data.error = undefined
+        this.edits.splice(this.edits.indexOf(edit), 1); this.rebuild(); this.publishFile(result)
       } catch (error) {
+        data.error = new TaskEditorWriteError((error as Error).message, committed)
         const index = this.edits.indexOf(edit)
         if (index >= 0) this.edits.splice(index, 1)
         try { this.confirmed = (await this.readFile()).tasks } catch (_) { /* 保留最近确认数据及后续用户字段。 */ }
         this.rebuild()
         const message = (error as Error).message
         for (const listener of data.listeners) listener({ task: this.snapshot(data), error: message, rejectedChanges: changes,
-          blocked: ['版本', '已变化'].some(value => message.includes(value)) })
+          blocked: committed || ['版本', '已变化'].some(value => message.includes(value)) })
       } finally { this.seen.delete(edit.id); this.receipts.delete(edit.id) }
     })
     this.tail = work.catch((): void => {})
+  }
+  async modifyConfirmed(data: TaskEditorDataSet, source: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> {
+    await this.modify(data, source, changes)
+    await this.tail
+    if (data.error) throw data.error
+    return await this.current(data)
   }
   private rebuild(): void {
     const tasks = new Map<string, CoreTask>()
@@ -186,11 +225,7 @@ export class ProjectDataManager extends TaskEditorDataManager {
     if (event.operationId?.startsWith(this.owner)) {
       this.seen.add(event.operationId); this.receipts.get(event.operationId)?.(); return
     }
-    if (this.timer >= 0) return
-    this.timer = setTimeout((): void => {
-      this.timer = -1
-      this.load().catch((error: Error): void => { for (const data of this.bindings.values()) for (const listener of data.listeners) listener({ error: error.message }) })
-    }, 0)
+    this.scheduleLoad()
   }
   async targets(): Promise<CoreRefileTarget[]> { await this.tail; return await super.targets() }
   async moveDataSet(data: TaskEditorDataSet, _source: CoreTask, target: CoreRefileTarget): Promise<void> {
@@ -200,6 +235,7 @@ export class ProjectDataManager extends TaskEditorDataManager {
   async refresh(_data?: TaskEditorDataSet): Promise<void> { await this.load() }
   async close(): Promise<void> {
     await this.tail
-    this.closed = true; clearTimeout(this.timer); this.stopEvents()
+    this.closed = true; clearTimeout(this.timer); this.stopEvents(); this.fileListeners.clear()
+    AppConfigService.stopWatchingChanges(this.configurationChanged)
   }
 }

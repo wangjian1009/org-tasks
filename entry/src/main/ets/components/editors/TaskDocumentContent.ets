@@ -1,6 +1,7 @@
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistItem, CoreTaskModification, CoreTextLink, CoreLinkValue, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
-import { TaskInlineService, TaskInlineSession } from '../../services/TaskInlineService'
+import { TaskEditorWriteError } from '../../services/TaskEditorDataManager'
+import { TaskInlineSession } from '../../services/TaskInlineService'
 import { TaskContentBlocks } from './TaskContentBlocks'
 import { TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
@@ -11,6 +12,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 // 项目文档的编辑会话适配；正文直接复用区块控件，任务状态和标题由 TaskEditor 负责。
 @Component
 export struct TaskDocumentContent {
+  modify: (task: CoreTask, changes: CoreTaskModification[]) => Promise<CoreTask> = async (): Promise<CoreTask> => { throw new Error('未提供正文数据管理接口') }
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
@@ -69,12 +71,12 @@ export struct TaskDocumentContent {
     this.working = true; this.message = ''
     let committed: boolean = false
     try {
-      await TaskInlineService.modify(this.getUIContext().getHostContext()!, task, changes, true)
+      const current = await this.modify(task, changes)
       committed = true
-      const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, task, true)
       if (this.active) this.current = current
       return true
     } catch (error) {
+      committed = committed || (error as TaskEditorWriteError).committed === true
       if (this.active) {
         this.blocked = committed
         this.message = `${committed ? '修改已保存，重新读取失败，请刷新：' : ''}${coreErrorMessage(error as CoreBridgeError)}`

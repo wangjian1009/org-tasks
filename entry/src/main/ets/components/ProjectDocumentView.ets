@@ -1,3 +1,4 @@
+import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
 import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
@@ -146,7 +147,11 @@ export struct ProjectDocumentView {
               }
             }
             if (section.blocks.length > 0) {
-              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks,
+              ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
+                const data = this.editorDataManager().dataSetForTaskId(task.taskId ?? task.id)
+                if (!data) throw new Error('项目节点已不在当前数据集中')
+                return await this.editorDataManager().modifyConfirmed(data, task, changes)
+              }, internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks,
                 contentBackground: section.node ? UiColor.surface : UiColor.projectBlock }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)

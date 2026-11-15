@@ -2,7 +2,7 @@ import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { NativeCoreService } from './NativeCoreService'
+import { CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
 import { FileTargetService, fileTargetRepository } from './FileTargetService'
 import { CaptureEntityService } from './CaptureEntityService'
 import { DeviceBadgeService } from './DeviceBadgeService'
@@ -23,7 +23,7 @@ export class CaptureService {
   static putDraft(context: Context, draft: CaptureDraft): Promise<void> { return CaptureDraftStore.putDraft(context, draft) }
   static removeDraft(context: Context, id: string): Promise<void> { return CaptureDraftStore.removeDraft(context, id) }
 
-  static async save(context: Context, title: string): Promise<void> {
+  static async save(context: Context, title: string, operationId?: string): Promise<void> {
     if (!title.trim()) throw new Error('请输入标题')
     const normalizedTitle = title.trim()
     const entities = await CaptureEntityService.recognize(normalizedTitle)
@@ -33,11 +33,13 @@ export class CaptureService {
     const file = await target.repo.file(target.path)
     const state = target.metadata.taskStateOf(TaskStateCategory.Todo)
     if (!state) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
-    await NativeCoreService.executeTaskOperations(config.repos, {
+    const group: CoreTaskOperationGroup = {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: normalizedTitle,
         body: entities.body, scheduled: entities.scheduled, state: state.name } }],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
-    }, config.todoDefaults, config.coreSettings)
+    }
+    if (operationId) group.operationId = operationId
+    await NativeCoreService.executeTaskOperations(config.repos, group, config.todoDefaults, config.coreSettings)
     await DeviceBadgeService.refresh(context)
   }
 }

@@ -10,24 +10,24 @@ import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskSwipeActions } from './TaskSwipeActions'
 import { TaskInlineSession } from '../services/TaskInlineService'
-import { LogbookService } from '../services/LogbookService'
 import { taskBatchMenu, taskActionPolicy, taskSwipeMenu, TaskBatchAction, TaskSwipeAction, TaskOperation } from '../ui/TaskActionPresentation'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 
 @Component
 export struct LogbookTaskList {
-  private taskEditorManager: TaskEditorDataManager | undefined = undefined
+  dataManager: TaskEditorDataManager | undefined = undefined
   private editorDataManager(): TaskEditorDataManager {
-    if (!this.taskEditorManager) this.taskEditorManager = new TaskEditorDataManager(this.getUIContext().getHostContext()!)
-    return this.taskEditorManager
+    if (!this.dataManager) throw new Error('未提供页面数据管理对象')
+    return this.dataManager
   }
 
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @Prop ready: boolean = false
   @Prop groups: LogbookGroup[] = []
   @Prop referenceTime: number = Date.now()
-  refresh: () => void = () => {}
+  perform: (tasks: CoreTask[], action: 'delete' | 'restore') => Promise<void> = async (): Promise<void> => { throw new Error('未提供日志簿数据管理对象') }
   @State selectingTasks: boolean = false
   @State selectedTaskKeys: string[] = []
   @State selectionSnapshot: LogbookTaskItem[] = []
@@ -65,7 +65,7 @@ export struct LogbookTaskList {
   }
 
   async startSelection(item: LogbookTaskItem) {
-    if (this.selectingTasks || this.actionBusy || this.selectionStarting) return
+    if (!this.ready || this.selectingTasks || this.actionBusy || this.selectionStarting) return
     this.selectionStarting = true
     try {
       if (!await TaskInlineSession.end(true)) return
@@ -117,10 +117,8 @@ export struct LogbookTaskList {
     this.busyAction = action
     try {
       if (!await TaskInlineSession.end(true)) return
-      if (action === 'restore') await LogbookService.restore(this.getUIContext().getHostContext()!, tasks)
-      else await LogbookService.remove(this.getUIContext().getHostContext()!, tasks)
+      await this.perform(tasks, action)
       this.resetSelection()
-      this.refresh()
     } catch (error) {
       try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(error as CoreBridgeError), duration: 3000 }) }
       catch (_) {}
@@ -145,7 +143,7 @@ export struct LogbookTaskList {
         busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
         heading: item.task.heading, horizontalInset: 0,
         begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
-          TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: true, instanceKey: item.key,
+          TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
             dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
             rightSwipeAction: 'none', enableSwipeActions: false,
             regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
@@ -156,18 +154,25 @@ export struct LogbookTaskList {
     })
   }
 
+  currentGroup(group: LogbookGroup): LogbookGroup { return this.groups.find(item => item.key === group.key) ?? group }
+
+  currentItems(group: LogbookGroup, regionKey: string = ''): LogbookTaskItem[] {
+    const current = this.currentGroup(group)
+    return regionKey ? current.groups.find(region => region.key === regionKey)?.items ?? [] : current.items
+  }
+
   @Builder
   groupItems(group: LogbookGroup) {
     if (group.kind === 'day') {
-      ForEach(group.groups, (region: LogbookTaskGroup) => {
+      ForEach(this.currentGroup(group).groups, (region: LogbookTaskGroup) => {
         TaskRegion({ category: region.category || '未分类', project: region.kind === 'project' ? region : null }) {
-          ForEach(region.items, (item: LogbookTaskItem) => {
+          ForEach(this.currentItems(group, region.key), (item: LogbookTaskItem) => {
             this.itemRow(item, group)
           }, (item: LogbookTaskItem) => item.key)
         }
       }, (region: LogbookTaskGroup) => region.key)
     } else {
-      ForEach(group.items, (item: LogbookTaskItem) => {
+      ForEach(this.currentItems(group), (item: LogbookTaskItem) => {
         this.itemRow(item, group)
       }, (item: LogbookTaskItem) => item.key)
     }
@@ -191,8 +196,8 @@ export struct LogbookTaskList {
           ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
         }
         ForEach(this.groups, (group: LogbookGroup) => {
-          ListItem() { this.groupHeader(group) }
-          this.groupItems(group)
+          ListItem() { this.groupHeader(this.currentGroup(group)) }
+          this.groupItems(this.currentGroup(group))
         }, (group: LogbookGroup) => group.key)
       }.id('logbook_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: this.selectingTasks ? 196 : 16 })
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })

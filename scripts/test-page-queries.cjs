@@ -48,7 +48,7 @@ function fixture() {
   const managerFactory={DataSetManager:{create(context,pageName,definitions){
     const data=new Map(),listeners=new Set();let ready=false,started;
     const manager={itemKey:(_name,key)=>key,hasValidScope:()=>true,isReady:()=>ready,get:name=>data.get(name),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},
-      async start(){if(!started)started=(async()=>{const results=await workspace.query(definitions.map(item=>item.query));for(let i=0;i<definitions.length;i++){data.set(definitions[i].name,{data:results[i],version:1});for(const fn of listeners)fn({name:definitions[i].name,type:'refresh'})}ready=true;for(const fn of listeners)fn({name:'tasks',type:'refresh'})})();return started},
+      async start(){if(!started)started=(async()=>{const results=await workspace.query(definitions.map(item=>item.query));for(let i=0;i<definitions.length;i++){data.set(definitions[i].name,{data:results[i],version:1});for(const fn of listeners)fn({name:definitions[i].name,type:'refresh'})}ready=true;for(const fn of listeners)fn({name:'tasks',type:'ready'})})();try{return await started}catch(error){started=undefined;throw error}},
       async refresh(){started=undefined;return manager.start()},async close(){listeners.clear()}};
     managers.push({manager,pageName,definitions});return manager;
   }}};
@@ -69,10 +69,12 @@ function fixture() {
       if (dependency.endsWith('/PageDataSnapshot')) return {
         cacheDataSet: (name, result) => ({name, ...result}), restoreDataSet: ({name, ...result}) => result
       };
+      if (dependency.endsWith('/TaskEditorDataManager')) return {TaskEditorDataManager:{managed(){return{}}}};
+      if (dependency.endsWith('/CaptureService') || dependency.endsWith('/LogbookService') || dependency.endsWith('/InboxService')) return {};
       if (dependency.endsWith('/DataSetManager')) return managerFactory;
       if (dependency.endsWith('/NativeCoreService')||dependency==='./NativeCoreService') return native;
       if (dependency.endsWith('/AppConfigService')||dependency==='./AppConfigService') return {AppConfigService:{async load(){return config;},async save(){},watchChanges(fn){configCallbacks.add(fn);},stopWatchingChanges(fn){configCallbacks.delete(fn);}}};
-      if (dependency.endsWith('/TaskInlineService')) return {TaskInlineSession:{active:()=>inlineActive}};
+      if (dependency.endsWith('/TaskInlineService')) return {TaskInlineSession:{active:()=>inlineActive,end:async()=>true}};
       if (dependency.startsWith('.')) return load(path.relative(root,path.resolve(path.dirname(filename),dependency)));
       throw new Error('缺少替身: '+dependency);
     };
@@ -83,7 +85,8 @@ function fixture() {
     const filename=path.join(root,name+'.ets'),text=fs.readFileSync(filename,'utf8');
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
     if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
-    if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...methods,'loadToday','applyTodaySnapshot'];
+    if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged'])];
+    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot'];
     const chunks=methods.map(method=>{
       const match=text.match(new RegExp('  (?:async )?'+method+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
       assert.ok(match,'未找到方法 '+method); return match[0];
@@ -105,7 +108,7 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','notification']:view==='today'?['task','task','file']:['task','notification']);
+    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','file']:view==='today'?['task','task','file']:['task','file']);
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
@@ -129,8 +132,8 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
     plannedTask('b','core-b','project.org','生活','项目甲'), plannedTask('c','core-a','plain.org',null)];
   // 故意返回不符合分类的任务，确认页面不会重新执行分类过滤。
   const categoryTasks = [tasks[2]], projectTasks = [tasks[0]];
-  f.query(batch => batch.map((request, index) => request.type === 'notification' ?
-    {type:'notification',result:[]} : {type:'task',result:{tasks:index === 0 ? tasks :
+  f.query(batch => batch.map((request, index) => request.type === 'file' ?
+    {type:'file',result:[]} : {type:'task',result:{tasks:index === 0 ? tasks :
       request.repoIds ? projectTasks : categoryTasks,categories:[]}}));
   page.view = 'planned';
   await page.loadTasks();
@@ -139,7 +142,7 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   const project = page.planRegionOptions.find(region => region.kind === 'project' && region.repoId === 'core-a');
   await page.selectPlanRegion(category);
   assert.equal(page.tasks, categoryTasks);
-  assert.deepEqual(f.batches[1].map(item => item.type), ['task','task','notification']);
+  assert.deepEqual(f.batches[1].map(item => item.type), ['task','task','file']);
   assert.deepEqual(f.batches[1][1].query.categories, ['工作']);
   assert.equal(f.batches[1][1].repoIds, undefined);
   assert.deepEqual(page.planRegionOptions.map(region => region.key), keys);
@@ -153,7 +156,7 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   await page.selectPlanRegion(null);
   assert.equal(page.tasks, tasks);
   assert.equal(page.selectedPlanRegion, null);
-  assert.deepEqual(f.batches[3].map(item => item.type), ['task','notification']);
+  assert.deepEqual(f.batches[3].map(item => item.type), ['task','file']);
 });
 
 test('计划未分类与字面同名分类保持独立，项目路径正确转义', () => {
@@ -170,25 +173,31 @@ test('计划刷新清除已消失的选择，同批回退全部，读取失败�
   const f = fixture(), page = f.page('pages/TaskOverview',
     ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
   let tasks = [plannedTask('a','core-a','project.org','工作','项目甲')];
-  f.query(batch => batch.map(request => request.type === 'notification' ?
-    {type:'notification',result:[]} : {type:'task',result:{tasks,categories:[]}}));
+  f.query(batch => batch.map(request => request.type === 'file' ?
+    {type:'file',result:[]} : {type:'task',result:{tasks,categories:[]}}));
   page.view = 'planned';
   await page.loadTasks();
   const selected = page.planRegionOptions.find(region => region.kind === 'project');
   await page.selectPlanRegion(selected);
   tasks = [plannedTask('b','core-b','plain.org','生活')];
-  await page.loadTasks();
+  await page.pageManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
   assert.equal(f.batches.length, 3);
   assert.equal(page.selectedPlanRegion, null);
   assert.equal(page.tasks, tasks);
+  tasks=[plannedTask('return','core-a','project.org','工作','项目甲'),...tasks];
+  await page.pageManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
+  assert.equal(page.selectedPlanRegion,null,'失效候选重新出现时不恢复已经清除的选择');
+  assert.equal(page.tasks,tasks);
   let fail = true;
   f.query(batch => {
     if (fail) throw new Error('读取失败');
-    return batch.map(request => request.type === 'notification' ? {type:'notification',result:[]} :
+    return batch.map(request => request.type === 'file' ? {type:'file',result:[]} :
       {type:'task',result:{tasks,categories:[]}});
   });
-  await page.selectPlanRegion(page.planRegionOptions[0]);
+  const retrySelection=page.planRegionOptions[0];
+  await page.selectPlanRegion(retrySelection);
   assert.match(page.message, /读取失败/);
+  assert.equal(page.selectedPlanRegion?.key,retrySelection.key,'查询失败不当作候选失效');
   fail = false;
   await page.loadTasks();
   assert.equal(page.message, '');
@@ -202,9 +211,9 @@ test('计划快速切换时迟到结果不覆盖最后一次选择与任务', as
     plannedTask('b','core-b','b.org','生活','项目乙')];
   let release;
   f.query(async batch => {
-    const selected = batch.length === 3 ? batch[1] : null;
+    const selected = batch[1]?.type === 'task' ? batch[1] : null;
     if (selected?.query.categories) await new Promise(resolve => { release = resolve; });
-    return batch.map((request,index) => request.type === 'notification' ? {type:'notification',result:[]} :
+    return batch.map((request,index) => request.type === 'file' ? {type:'file',result:[]} :
       {type:'task',result:{tasks:index === 0 ? tasks : [selected?.repoIds ? tasks[1] : tasks[0]],categories:[]}});
   });
   page.view = 'planned';
@@ -247,7 +256,7 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
   const f=fixture(),page=f.page('pages/Inbox',['loadRecords']);
   await page.loadRecords();
   assert.equal(page.message,'');assert.equal(f.batches.length,1);
-  assert.deepEqual(f.batches[0].map(item=>item.type),['task','file','task','notification']);
+  assert.deepEqual(f.batches[0].map(item=>item.type),['task','file','task','file']);
   assert.deepEqual(f.batches[0][0].repoIds,['core-a']);
   assert.deepEqual(f.batches[0][2].query.excludedFiles,[{repoId:'core-a',path:'same.org'}]);
   assert.equal(page.needsConfiguration,false);
@@ -315,8 +324,8 @@ test('项目进度按 Core 分类汇总，取消和未分类状态只计入总�
 test('失效文件和未配置文件不退回全仓库任务，通知仍在同一个批次内加载',async()=>{
   const f=fixture();f.missing();const page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='memo';await page.loadTasks();assert.equal(page.needsConfiguration,true);assert.equal(f.batches.length,1);
-  f.config.memoRepoId='';await page.loadTasks();assert.equal(f.batches.length,2);
-  assert.deepEqual(f.batches[1].map(item=>item.type),['notification']);
+  f.config.memoRepoId='';f.configChanged();await page.pageManager.start();assert.equal(f.batches.length,2);
+  assert.ok(f.batches[1].every(item=>item.type==='file'));
 });
 
 test('批次失败保留通知，页面查询不重复注册应用级通知订阅',async()=>{
@@ -325,7 +334,7 @@ test('批次失败保留通知，页面查询不重复注册应用级通知订�
   assert.equal(f.batches.length,1);assert.equal(f.notificationCallbacks.length,0);assert.equal(f.dataCallbacks.length,1);
   f.dataCallbacks[0]({repoId:'core-a',operationId:null});
   assert.equal(f.batches.length,1);
-  assert.ok(f.writes.some(write=>write.key==='coreDataChanges'));
+  assert.equal(f.writes.some(write=>write.key==='coreDataChanges'),false);
   const snapshots=f.writes.filter(write=>write.key==='coreNotifications').length;
   f.fail();await assert.rejects(PageQueryService.query(f.config,[]),/整批读取失败/);
   assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,snapshots);
@@ -369,35 +378,13 @@ test('收件箱移动浮层已打开时，列表刷新仍只有一个混合查�
 });
 
 
-function pageObserver() {
-  const source=fs.readFileSync(path.join(root,'components/AppShell.ets'),'utf8');
-  const field=source.match(/  private pageChanged = [\s\S]*?\n  \}/)[0].replace('private ','');
-  const changed=source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}/)[0];
-  const code=ts.transpileModule('export class Observer {\n'+field+'\n'+changed+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
-  const module={exports:{}};
-  vm.runInThisContext('(function(module,exports,uiObserver){'+code+'\n})')(module,module.exports,{RouterPageState:{ON_PAGE_HIDE:'hide',ON_PAGE_SHOW:'show'}});
-  return Object.assign(new module.exports.Observer(),{pageIndex:0,pageVisible:false,refreshOnPageShow:true,
-    dataRevision:0,dataChangeState:{revision:1},drawerOpen:false,refreshDataChanges(){},
-    repositoryDataInvalidated(){if(this.drawerOpen)this.loadNavigation();else this.synchronized();}});
-}
-
-test('页面恢复时 onPageShow 与旧数据版本失效不会重复加载',async()=>{
+test('页面重复出现只复用管理对象，AppShell 不再持有底层刷新机制',async()=>{
   const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
-  page.view='anytime';page.drawerOpen=false;
-  const observer=pageObserver();observer.synchronized=()=>page.loadTasks();
-  observer.pageChanged({index:0,state:'show'});
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(f.batches.length,1);assert.equal(observer.dataRevision,1);
-});
-
-test('恢复页面时侧边栏由管理类独立维护，页面生命周期不发导航查询',async()=>{
-  const f=fixture(),drawer=f.page('components/AppShell',['loadNavigation']);
-  await drawer.loadNavigation();
-  const observer=pageObserver();observer.drawerOpen=true;observer.bodyLoadedOnAppear=true;observer.dataRevision=1;
-  observer.synchronized=()=>assert.fail('抽屉打开时不刷新正文');
-  observer.pageChanged({index:0,state:'show'});
-  observer.pageChanged({index:0,state:'hide'});observer.pageChanged({index:0,state:'show'});
-  await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,1);
+  page.view='anytime';await page.loadTasks();const manager=page.pageManager;await page.loadTasks();
+  assert.equal(page.pageManager,manager);assert.equal(f.batches.length,1);
+  const shell=fs.readFileSync(path.join(root,'components/AppShell.ets'),'utf8');
+  assert.doesNotMatch(shell,/CoreDataChangeService|coreDataChanges|managedBody|refreshOnPageShow|synchronized|repositoryDataInvalidated/);
+  await manager.close();
 });
 
 test('存储库清单的全部仓库文件元信息与通知也使用同一批次',async()=>{
@@ -405,16 +392,6 @@ test('存储库清单的全部仓库文件元信息与通知也使用同一批�
   const groups=await service.list(f.config);
   assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['file','notification']);
   assert.deepEqual(groups.map(group=>[group.repoId,group.files.length]),[['core-a',2],['core-b',1]]);
-});
-
-
-test('首次出现已加载时不重复读，加载期间的新数据版本仍触发更新',async()=>{
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);page.view='anytime';
-  const observer=pageObserver();observer.synchronized=()=>page.loadTasks();observer.dataRevision=1;
-  await page.loadTasks();observer.bodyLoadedOnAppear=true;
-  observer.pageChanged({index:0,state:'show'});await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,1);
-  observer.bodyLoadedOnAppear=true;observer.dataChangeState={revision:2};
-  observer.pageChanged({index:0,state:'show'});await new Promise(resolve=>setImmediate(resolve));assert.equal(f.batches.length,2);
 });
 
 
@@ -461,11 +438,11 @@ test('今天编辑会话期间数据集继续更新，列表重排等会话结�
   const original=[plannedTask('old','core-a','plain.org','工作')];let rows=original;
   f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
   page.view='today';await page.loadTasks();assert.equal(page.tasks,original);
-  f.inline(true);page.todayInlineActive='editing';rows=[plannedTask('new','core-a','plain.org','工作'),...original];
-  await page.todayManager.refresh();assert.equal(page.todayManager.get('tasks').data.result.tasks,rows);
-  assert.equal(page.tasks,original);assert.equal(page.todayLayoutDeferred,true);
-  f.inline(false);page.todayInlineActive='';page.todayInlineChanged();
-  assert.equal(page.tasks,rows);assert.equal(page.todayLayoutDeferred,false);assert.equal(f.batches.length,2);
+  f.inline(true);page.pageInlineActive='editing';rows=[plannedTask('new','core-a','plain.org','工作'),...original];
+  await page.pageManager.dataSets().refresh();await new Promise(resolve=>setTimeout(resolve,1));assert.equal(page.pageManager.dataSets().get('tasks').data.result.tasks,rows);
+  assert.equal(page.tasks,original);assert.equal(page.pageLayoutDeferred,true);
+  f.inline(false);page.pageInlineActive='';page.pageInlineChanged();
+  assert.equal(page.tasks,rows);assert.equal(page.pageLayoutDeferred,false);assert.equal(f.batches.length,2);
 });
 
 test('今天内容字段更新与同值确认复用列表容器和参考日期，返回页面不重建分组',async()=>{
@@ -474,7 +451,7 @@ test('今天内容字段更新与同值确认复用列表容器和参考日期�
  f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
  page.view='today';page.referenceTime=Date.now();await page.loadTasks();
  const sections=page.sections,timed=page.timedItems,time=page.referenceTime;
- rows=rows.map(task=>({...task,bodyHtml:'新备注',fileVersion:'confirmed'}));await page.todayManager.refresh();
+ rows=rows.map(task=>({...task,bodyHtml:'新备注',fileVersion:'confirmed'}));await page.pageManager.dataSets().refresh();await new Promise(resolve=>setTimeout(resolve,1));
  assert.equal(page.sections,sections);assert.equal(page.timedItems,timed);assert.equal(page.referenceTime,time);
  await page.loadTasks();assert.equal(page.sections,sections);assert.equal(f.batches.length,2);
 });

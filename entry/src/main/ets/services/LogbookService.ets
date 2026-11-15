@@ -1,19 +1,19 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
-import { CoreTask, CoreTaskFileVersion, CoreTaskOperation, NativeCoreService } from './NativeCoreService'
+import { CoreTask, CoreTaskFileVersion, CoreTaskOperation, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
 import { TaskStateCategory } from '../ui/TaskStatePresentation'
 
 // 日志簿只编排删除与恢复请求；状态规则、版本校验、保真写入和同步队列由 Core 负责。
 export class LogbookService {
-  static async remove(context: Context, tasks: CoreTask[]): Promise<void> {
-    await LogbookService.perform(context, tasks, 'delete')
+  static async remove(context: Context, tasks: CoreTask[], operationId?: string): Promise<void> {
+    await LogbookService.perform(context, tasks, 'delete', operationId)
   }
 
-  static async restore(context: Context, tasks: CoreTask[]): Promise<void> {
-    await LogbookService.perform(context, tasks, 'restore')
+  static async restore(context: Context, tasks: CoreTask[], operationId?: string): Promise<void> {
+    await LogbookService.perform(context, tasks, 'restore', operationId)
   }
 
-  private static async perform(context: Context, tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> {
+  private static async perform(context: Context, tasks: CoreTask[], action: 'delete' | 'restore', operationId?: string): Promise<void> {
     if (tasks.length === 0) return
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
@@ -30,10 +30,8 @@ export class LogbookService {
         operations.push({ type: 'Deletion', data: { path: task.fullPath } })
       }
     }
-    await workspace.executeTaskOperations({
-      operations,
-
-      fileVersions: Array.from(versions.values())
-    })
+    const group: CoreTaskOperationGroup = { operations, fileVersions: Array.from(versions.values()) }
+    if (operationId) group.operationId = operationId
+    await workspace.executeTaskOperations(group)
   }
 }

@@ -140,19 +140,31 @@ function cardRefreshFixture(emit = true, backend) {
     localDataManager() { return this.dataManager ?? controller; },
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
-  const reader=load('entry/src/main/ets/services/TaskEditorDataManager.ets',{
-    './TaskInlineService':{TaskInlineMissingError,TaskInlineService:{
-      modify:(context,task,fields)=>service.modify(context,task,fields,state.documentMode),
-      findChanged:(context,task,revision)=>service.findChanged(context,task,revision,state.documentMode)}},
-    './NativeCoreService':{},'./DataSetManager':{},'./MoveToTargetService':{},
-    './CoreDataChangeService':{CoreDataChangeService:{watch(fn){coreListener=fn;},unwatch(){}},emptyCoreDataChangeState:()=>({revision:0})}
-  });
-  controller=new reader.TaskEditorDataManager({});data=controller.dataSet(original);state.instanceKey=original.id;state.aboutToAppear();
+  // 编辑器测试只模拟管理接口的快照交付，底层订阅由管理类独立验证。
+  const listeners=new Set();let revision=-1;
+  data={key:original.id,task:original,reading:Promise.resolve(),request:0};
+  function deliver(force=false){
+    if(!force&&revision===state.dataChanges.revision)return data.reading;
+    revision=state.dataChanges.revision;const request=++data.request;
+    data.reading=Promise.resolve().then(async()=>{
+      if(request!==data.request||!listeners.size)return;
+      try{const next=await service.findChanged({},data.task,revision,state.documentMode);
+        if(request!==data.request||!listeners.size)return;
+        data.error=undefined;data.removed=!next;if(next)data.task=next;
+        for(const fn of listeners)fn(next?{task:next}:{removed:true});
+      }catch(error){if(request!==data.request)return;data.error=error;for(const fn of listeners)fn({error:error.message});}
+    });return data.reading;
+  }
+  coreListener=()=>deliver();
+  controller={snapshot:()=>data.task,async current(){await data.reading;if(data.error)throw data.error;if(data.removed)throw new TaskInlineMissingError();return data.task;},
+    watchDataSet(_,fn){listeners.add(fn);fn({task:data.task});return()=>{listeners.delete(fn);++data.request;};},
+    async modify(_,task,fields){await service.modify({},task,fields,state.documentMode);if(!emit)await deliver(true);else await data.reading;}};
+  state.instanceKey=original.id;state.aboutToAppear();
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
     setCurrent:value=>current=value,fail:error=>readError=error,readWith:fn=>readOverride=fn,
     emit(increment=true) { if(increment)state.dataChanges = {revision: state.dataChanges.revision + 1}; coreListener(state.dataChanges);state.pending=data.reading; } };
 }
-test('数据事件在写入之后重查卡片，标题草稿同步新进度，后续保存使用新版本', async () => {
+test('管理对象在写入后交付快照，标题草稿同步新进度，后续保存使用新版本', async () => {
   const f = cardRefreshFixture();
   assert.equal(await f.state.persist([{ field: 'CHECKLIST', value: { type: 'setChecked', id: '1', checked: true } }]), true);
   assert.equal(f.reads(), 1);

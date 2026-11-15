@@ -7,8 +7,9 @@ import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { IconButton } from '../components/controls/IconButton'
-import { AppConfigService } from '../services/AppConfigService'
-import { NotebookGroup, NotebookService } from '../services/NotebookService'
+import { NotebookDataManager, NotebookSnapshot } from '../services/ReadingDataManager'
+import { SnapshotState } from '../services/SnapshotDataManager'
+import { NotebookGroup } from '../services/NotebookService'
 import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { fileUsageKinds } from '../ui/NotebookPresentation'
@@ -23,7 +24,10 @@ struct Files {
   @State drawerOpen: boolean = false
   @State showIgnoredRepoIds: string[] = []
   @State config: AppConfig = DEFAULT_CONFIG
-  private requestId: number = 0
+  private dataManager: NotebookDataManager | undefined = undefined
+  private stopData: (() => void) | undefined = undefined
+  onPageShow(): void { this.loadFiles() }
+  aboutToDisappear(): void { this.stopData?.(); this.dataManager?.close() }
 
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
@@ -40,37 +44,30 @@ struct Files {
     return this.showIgnoredRepoIds.includes(group.repoId) ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
   }
 
-  async loadFiles() {
-    const request = ++this.requestId
-    this.loading = this.groups.length === 0
-    this.message = ''
-    try {
-      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const groups = await NotebookService.list(config)
-      if (request !== this.requestId) return
-      this.config = config
-      this.groups = groups
-    } catch (e) {
-      if (request === this.requestId) {
-        this.groups = []
-        this.message = `读取笔记本失败：${coreErrorMessage(e as CoreBridgeError)}`
-      }
-    } finally {
-      if (request === this.requestId) this.loading = false
+  async loadFiles(reload: boolean = false) {
+    if (!this.dataManager) {
+      this.dataManager = new NotebookDataManager(this.getUIContext().getHostContext()!)
+      this.stopData = this.dataManager.subscribe((state: SnapshotState<NotebookSnapshot>): void => {
+        if (state.value) { this.config = state.value.config; this.groups = state.value.groups; this.loading = false }
+        this.message = state.message ? `读取笔记本失败：${state.message}` : ''
+        if (state.message) this.loading = false
+      })
     }
+    if (reload) await this.dataManager.refresh()
+    else await this.dataManager.start()
   }
 
   build() {
     Column() {
-      AppShell({ refreshOnPageShow: true, title: '笔记本', titleIcon: $r('app.media.nav_repository'),
+      AppShell({ title: '笔记本', titleIcon: $r('app.media.nav_repository'),
         actionIcon: $r('app.media.ui_add'), actionLabel: '添加存储库',
         action: (): void => { addRepository(this.getUIContext()) },
-        synchronized: (): void => { this.loadFiles() }, activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
+        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() {
           if (this.loading) {
             NotificationEmptyState({ title: '正在读取笔记本', busy: true })
           } else if (this.message) {
-            NotificationEmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles() } })
+            NotificationEmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles(true) } })
           } else if (this.groups.length === 0) {
             NotificationEmptyState({ title: '还没有存储库', actionLabel: '添加存储库', action: (): void => { addRepository(this.getUIContext()) } })
           } else {

@@ -143,6 +143,11 @@ function overview(action = '', memoId = '') {
     exports: {}, ViewPU, ListScroller: class {}, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
     LocalStorage: { getShared: () => storage }, registerNamedRoute(callback) { factory = callback; },
     require(name) {
+      if (name.includes('TaskPageDataManager')) return {TaskPageDataManager:class {
+        subscribe(fn){this.listener=fn;return()=>{}}
+        async start(){await Promise.resolve();this.listener({tasks:available?tasks:[],priorityOrder:[],tagOptions:[],tagGroups:[],regionOptions:[],selectedRegion:null,needsConfiguration:!available,ready:true,message:''});}
+      }};
+      if (name.includes('TaskInlineService')) return {TaskInlineSession:{active:()=>false}};
       if (name.includes('NotificationManager')) return { emptyCoreNotificationsState: () => ({}) };
       if (name.includes('AppConfigService')) return { AppConfigService: { async load() { return {}; } } };
       if (name.includes('FileTargetService')) return { FileTargetService: { async query(_, kind) {

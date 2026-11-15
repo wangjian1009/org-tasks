@@ -24,8 +24,9 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility' })
     const ability = await delegator.waitAbilityMonitor(monitor, 10000)
     const context = ability.context
+    const pageData = abilityDelegatorRegistry.getArguments().parameters['-s pageData'] === 'true'
     const notificationWebDav = abilityDelegatorRegistry.getArguments().parameters['-s notificationWebDav'] === 'true'
-    const testDirectory = notificationWebDav ? `notification-data-qa-${Date.now()}` : 'today-data-qa'
+    const testDirectory = notificationWebDav || pageData ? `notification-data-qa-${Date.now()}` : 'today-data-qa'
     const directory = `${context.filesDir}/${testDirectory}`
     const today = localDate(new Date())
     const tomorrow = localDate(new Date(Date.now() + 86400000))
@@ -37,12 +38,19 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     try { await fs.write(project.fd, '#+TITLE: 项目验收\n#+FILETAGS: :project:\n#+PROJECT_NAME: 项目验收\n* TODO QA项目\n原备注\n'); await fs.fsync(project.fd) } finally { await fs.close(project) }
     const someday = await fs.open(`${directory}/someday.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
     try { await fs.write(someday.fd, '#+TITLE: 某天验收\n* TODO QA某天\n原备注\n'); await fs.fsync(someday.fd) } finally { await fs.close(someday) }
+    if (pageData) {
+      const memo = await fs.open(`${directory}/memo.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
+      try { await fs.write(memo.fd, '#+TITLE: 备忘验收\n* QA备忘\n原备注\n'); await fs.fsync(memo.fd) } finally { await fs.close(memo) }
+      const plain = await fs.open(`${directory}/plain.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
+      try { await fs.write(plain.fd, '#+TITLE: 普通文件验收\n* TODO QA普通文件\n原备注\n'); await fs.fsync(plain.fd) } finally { await fs.close(plain) }
+    }
     const config = await AppConfigService.load(context, false)
     config.repos = [{ id: 'today-simulator-qa', name: '模拟器验证', rootDirectory: directory, webdavEnabled: notificationWebDav,
       webdavUrl: notificationWebDav ? `http://127.0.0.1:18789/${testDirectory}/` : '',
       webdavUsername: notificationWebDav ? 'qa' : '', webdavPassword: notificationWebDav ? 'qa' : '', excludedDirectories: [] }]
     config.inboxRepoId = 'today-simulator-qa'; config.inboxFile = 'tasks.org'
     config.somedayRepoId = 'today-simulator-qa'; config.somedayFile = 'someday.org'; config.memoRepoId = ''; config.memoFile = ''
+    if (pageData) { config.memoRepoId = 'today-simulator-qa'; config.memoFile = 'memo.org' }
     if (notificationWebDav) config.todoDefaults = '#+TODO: TODO INPROGRESS | DONE'
     await AppConfigService.save(context, config)
     if (notificationWebDav) {

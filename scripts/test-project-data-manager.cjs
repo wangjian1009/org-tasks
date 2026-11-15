@@ -8,7 +8,7 @@ async function fixture(){let next=0,opens=0,nodes=0,version=1,gate,fail=false;le
  const raw=t=>t?{task:{id:t.id,fullPath:t.fullPath,fileVersion:t.fileVersion}}:null;
  function emit(before,after,op){const event={repoId:'r',type:'repositoryChanged',operationId:op,files:[{after:{repoId:'r',path:'project.org'},afterVersion:'v'+version}],changes:[{kind:'updated',before:raw(before),after:raw(after)}]};for(const fn of events)fn(event);}
  const workspace={async executeTaskOperations(group){groups.push(group);if(gate){const wait=gate;gate=undefined;await wait;}if(fail){fail=false;throw new Error('提交失败');}const op=group.operations[0],before=rows.find(t=>t.fullPath.titles[0]===op.data.path.titles[0]);assert.ok(before);version++;let after=before;for(const change of op.data.modifications){if(change.field==='TITLE')after=task(change.value,{...after,id:change.value,taskId:'task-'+change.value,heading:change.value,headingParts:[{text:change.value,href:null,isLink:false,count:null,link:null}],fullPath:{...after.fullPath,titles:[change.value]}});if(change.field==='NOTES')after=task(after.id,{...after,editContent:{...after.editContent,notes:change.value,notesHtml:'<p>'+change.value+'</p>'},bodyHtml:'<p>'+change.value+'</p>'});}rows=rows.map(t=>task(t.id,{...(t.id===before.id?after:t),fileVersion:'v'+version}));after=rows.find(t=>t.id===after.id);emit(before,after,group.operationId);}};
- const native={NativeCoreService:{async workspaceFor(){return workspace;}}};const config={AppConfigService:{async load(){return{repos:[],todoDefaults:'',coreSettings:{}};}}};
+ const native={NativeCoreService:{async workspaceFor(){return workspace;}}};const config={AppConfigService:{watchChanges(){},stopWatchingChanges(){},async load(){return{repos:[],todoDefaults:'',coreSettings:{}};}}};
  const snapshots=load('services/PageDataSnapshot',{'./NativeCoreService':native});const equality=load('services/PageDataEquality',{'./PageDataSnapshot':snapshots});const reorder=load('ui/TaskChecklistReorder',{});const util={generateRandomUUID:()=>String(++next)};
  const projection=load('services/PageDataProjection',{'@kit.ArkTS':{util},'../ui/TaskChecklistReorder':reorder,'./PageDataEquality':equality,'./NativeCoreService':native,'./PageDataSnapshot':snapshots});
  const changes={CoreDataChangeService:{watchEvents(fn){events.add(fn);return()=>events.delete(fn)},async connect(){},watch(){},unwatch(){}}};
@@ -24,3 +24,16 @@ test('外部更新按文件重新装载完整数据集，未变化的任务不�
 test('后台失败撤销直接修改并通过管理层报告，不生成关联写操作',async()=>{const f=await fixture();try{const data=f.manager.dataSetForTaskId('task-A'),values=[];f.manager.watchDataSet(data,v=>values.push(v));f.fail();await f.manager.modify(data,await f.manager.current(data),[{field:'PRIORITY',value:'A'}]);assert.equal(f.manager.snapshot(data).priority.name,'A');await f.manager.close();assert.equal(f.manager.snapshot(data).priority,null);assert.equal(values.at(-1).error,'提交失败');assert.equal(f.groups.length,1);assert.equal(f.events.size,0);}finally{await f.manager.close();}});
 
 test('删除后同名重建使用新的绑定，旧编辑器不能修改新任务',async()=>{const f=await fixture();try{const old=f.manager.dataSetForTaskId('task-A');f.recreate();assert.equal(f.manager.snapshot(old),undefined);await until(()=>f.manager.dataSetForTaskId('task-A')!==undefined);const current=f.manager.dataSetForTaskId('task-A');assert.notEqual(current,old);assert.equal(f.manager.snapshot(current).editContent.notes,'重建');await assert.rejects(f.manager.modify(old,old.task,[{field:'NOTES',value:'旧草稿'}]));assert.equal(f.groups.length,0);}finally{await f.manager.close();}});
+
+test('正文提交通过管理接口等待确认，文件快照和节点返回同一新版本',async()=>{
+ const f=await fixture();try{const states=[];f.manager.subscribeFile(state=>states.push(state));const data=f.manager.dataSetForTaskId('task-A');
+ const result=await f.manager.modifyConfirmed(data,await f.manager.current(data),[{field:'NOTES',value:'正文确认'}]);
+ assert.equal(result.editContent.notes,'正文确认');assert.equal(result.fileVersion,'v2');assert.equal(states.at(-1).snapshot.file.fileVersion,'v2');assert.equal(f.groups.length,1);
+ }finally{await f.manager.close()}
+});
+test('正文修改失败由管理接口拒绝，回滚只影响本次字段且不会自动重放',async()=>{
+ const f=await fixture();try{const data=f.manager.dataSetForTaskId('task-A');f.fail();
+ await assert.rejects(f.manager.modifyConfirmed(data,await f.manager.current(data),[{field:'PRIORITY',value:'A'}]),error=>error.committed===false&&/提交失败/.test(error.message));
+ assert.equal(f.manager.snapshot(data).priority,null);assert.equal(f.groups.length,1);
+ }finally{await f.manager.close()}
+});

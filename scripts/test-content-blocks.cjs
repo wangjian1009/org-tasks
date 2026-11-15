@@ -129,11 +129,12 @@ function projectFixture() {
   }, async reload() { if (reloadFail) throw reloadFail;return refreshed; } };
   const { TaskDocumentContent } = load('components/editors/TaskDocumentContent', {
     '../../services/NativeCoreService': { coreErrorMessage: e => e.message },
+    '../../services/TaskEditorDataManager':{},
     '../../services/TaskInlineService': { TaskInlineService: service, TaskInlineSession: { async begin() { return true; }, release() { releases++; } } },
     '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class { async finish() { return true; } } },
     '../../ui/Theme': { UiColor: { surface: 'surface' } }, '@kit.ArkUI': { KeyboardAvoidMode: { RESIZE: 1 } }
   }, source => prefix('TaskDocumentContent')(source.split('  @Builder\n')[0]));
-  const editor = new TaskDocumentContent();editor.active = true;editor.task = task;editor.getUIContext = () => ({ getHostContext: () => ({}), setKeyboardAvoidMode() {} });
+  const editor = new TaskDocumentContent();editor.active = true;editor.task = task;editor.modify=async(snapshot,changes)=>{await service.modify({},snapshot,changes,true);try{return await service.reload()}catch(error){error.committed=true;throw error;}};editor.getUIContext = () => ({ getHostContext: () => ({}), setKeyboardAvoidMode() {} });
   return { editor, task, writes, releases: () => releases, refreshWith: value => { refreshed = value; }, fail: value => { fail = value; }, reloadFail: value => { reloadFail = value; } };
 }
 test('项目区块保留原版本提交，成功重读；只读前言不提交', async () => {

@@ -278,6 +278,32 @@ export class DataSetManager {
     this.track(work)
     return work
   }
+  async runOperation(name: string, execute: (operationId: string) => Promise<void>): Promise<void> {
+    await this.start()
+    if (!this.isReady() || this.closing) throw new Error('页面数据集当前不可编辑')
+    const version = ++this.sequence
+    const operationId = this.operationId(version, 'operation')
+    const work = UserOperationQueue.submit(async (): Promise<void> => {
+      try {
+        if (!this.hasValidScope()) throw new Error('页面数据范围已变化')
+        for (const id of this.subscriptions.values()) {
+          if (await this.workspace!.querySubscriptionStatus(id) !== 'current') {
+            this.requestExternalRefresh(); throw new Error('数据订阅已失效，正在刷新页面')
+          }
+        }
+        await execute(operationId)
+        for (const definition of this.definitions) {
+          this.versions.set(definition.name, Math.max(this.versions.get(definition.name) ?? 0, version))
+          this.rebuild(definition.name, operationId, this.pending.length > 0)
+        }
+        this.confirmedRevision++
+        this.publish({ name, type: 'complete', version, operationId, optimistic: false, added: [], removed: [], updated: [],
+          succeeded: true, result: this.getConfirmed(name) })
+      } catch (error) { this.emitError(name, operationId, error as Error); throw error as Error }
+    })
+    this.track(work)
+    try { await work } finally { this.scheduleSave() }
+  }
   private queueUpdate(name: string, key: string, changes: TaskModification[], sourceVersion?: string): DataSetSubmission {
     const task = this.findTask(name, key)
     if (!task) throw new Error('任务不在当前数据集中')
