@@ -34,7 +34,8 @@ pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<
     }).unwrap_or_default());
     section.into_iter().flat_map(|section| section.syntax().children_with_tokens().collect::<Vec<_>>()).filter_map(|node| {
         if matches!(node.kind(), SyntaxKind::PLANNING | SyntaxKind::PROPERTY_DRAWER | SyntaxKind::KEYWORD | SyntaxKind::COMMENT | SyntaxKind::COMMENT_BLOCK) { return None; }
-        if node.kind() == SyntaxKind::DRAWER && node.as_node().and_then(|n| orgize::ast::Drawer::cast(n.clone())).is_some_and(|d| d.name().eq_ignore_ascii_case("LOGBOOK")) { return None; }
+        // 带重复窗口的规划可能让紧邻属性解析为普通 drawer，仍按名称排除元数据。
+        if node.kind() == SyntaxKind::DRAWER && node.as_node().and_then(|n| orgize::ast::Drawer::cast(n.clone())).is_some_and(|d| ["PROPERTIES", "LOGBOOK"].iter().any(|name| d.name().eq_ignore_ascii_case(name))) { return None; }
         let start = (u32::from(node.text_range().start()) as usize).max(planning_end);
         let end = u32::from(node.text_range().end()) as usize;
         if start >= end { return None; }
@@ -114,6 +115,41 @@ mod tests {
         assert!(blocks.iter().all(|block| !block.source.contains("child body") && !block.source.contains("SCHEDULED") && !block.source.contains("LOGBOOK")));
         let sections = file.document_sections();
         assert_eq!(sections[1].blocks, blocks);
+    }
+
+    #[test]
+    fn repeater_window_property_drawer_does_not_create_a_body_block() {
+        for newline in ["\n", "\r\n"] {
+            let source = "* TODO 测量尿酸 [[id:record][并记录]]\nSCHEDULED: <2026-11-15 Sun .+1w/2w>\n:PROPERTIES:\n:STYLE: habit\n:LAST_REPEAT: [2026-11-06 Fri 10:14]\n:END:\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-06 Fri 10:14]\n:END:\n".replace('\n', newline);
+            let file = file(&source);
+            let edit = file.task_edit_content(&file.path_headlines()[0].0).unwrap();
+            assert!(edit.blocks.is_empty(), "属性与日志不应生成正文区块：{:?}", edit.blocks);
+            assert!(edit.notes.trim().is_empty());
+            assert!(file.document_sections()[1].blocks.is_empty());
+            assert_eq!(file.source_bytes(), source.as_bytes());
+        }
+    }
+
+    #[test]
+    fn hiding_property_drawers_preserves_other_drawers_and_literal_metadata() {
+        for newline in ["\n", "\r\n"] {
+            let body = "正文 PROPERTIES\n\n:NOTES:\n保留普通抽屉\n:END:\n\n#+begin_example\n:PROPERTIES:\n:STYLE: literal\n:END:\n#+end_example";
+            let source = format!("* TODO Task\nSCHEDULED: <2026-11-15 Sun .+1w/2w>\n:properties:\n:STYLE: habit\n:END:\n{body}\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-06 Fri 10:14]\n:END:\n").replace('\n', newline);
+            let mut file = file(&source);
+            let blocks = content(&file);
+            assert_eq!(blocks.iter().map(|block| block.source.as_str()).collect::<Vec<_>>(), [
+                "正文 PROPERTIES".to_owned(),
+                ":NOTES:\n保留普通抽屉\n:END:".replace('\n', newline),
+                "#+begin_example\n:PROPERTIES:\n:STYLE: literal\n:END:\n#+end_example".replace('\n', newline),
+            ]);
+            assert!(blocks[1].html.contains("保留普通抽屉"));
+            assert!(blocks[2].html.contains(":STYLE: literal"));
+            assert_eq!(file.document_sections()[1].blocks, blocks);
+            assert_eq!(file.source_bytes(), source.as_bytes());
+            let headline = file.path_headlines()[0].1.clone();
+            modify(&mut file, &headline, &ContentBlockChange::Replace { id: blocks[0].id.clone(), source: "修改后的正文".into() }).unwrap();
+            assert_eq!(file.source_bytes(), source.replace("正文 PROPERTIES", "修改后的正文").as_bytes());
+        }
     }
 
     #[test]

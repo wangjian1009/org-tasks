@@ -907,7 +907,7 @@ impl OrgFile {
 
 * 有序正文区块
 
-~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 使用同一 ~ContentBlock~ 投影，按原文件顺序提供文本、普通列表、表格和纯 checkbox 清单。区块由 Core 遍历 ~orgize~ 直属节点识别，宿主不得解析 Org 或拆分 HTML；规划、PROPERTIES、LOGBOOK、文件配置和后代正文不混入区块，源码与示例中的同名字面内容继续展示。混合普通条目的列表作为完整 ~list~ 区块，纯 checkbox 列表才投影为 ~checklist~ 与结构化条目。
+~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 使用同一 ~ContentBlock~ 投影，按原文件顺序提供文本、普通列表、表格和纯 checkbox 清单。区块由 Core 遍历 ~orgize~ 直属节点识别，宿主不得解析 Org 或拆分 HTML；规划、PROPERTIES、LOGBOOK、文件配置和后代正文不混入区块，源码与示例中的同名字面内容继续展示。属性抽屉即使因重复窗口（如 ~.+1w/2w~ ）被解析为普通 drawer，也按不区分大小写的名称排除；其他普通 drawer 保留，投影和区块修改均不改写邻接元数据。混合普通条目的列表作为完整 ~list~ 区块，纯 checkbox 列表才投影为 ~checklist~ 与结构化条目。
 
 #+begin_src rust
 pub enum ContentBlockKind { Text, List, Table, Checklist }
