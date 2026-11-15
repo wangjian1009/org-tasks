@@ -5,7 +5,8 @@ import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskP
 import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineSession } from '../../services/TaskInlineService'
-import { TaskEditorDataManager, TaskEditorDataSet, TaskEditorChange, TaskInlineMissingError } from '../../services/TaskEditorDataManager'
+import { DataSet, TaskDataChange } from '../../services/DataSet'
+import { TaskInlineMissingError } from '../../services/TaskInlineService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../../ui/TaskRepeatPresentation'
@@ -49,8 +50,8 @@ class ChecklistFocusFrame extends FrameCallback {
 @Component
 export struct TaskEditor {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
-  dataManager: TaskEditorDataManager | undefined = undefined
-  dataSet: TaskEditorDataSet | undefined = undefined
+  dataSet: DataSet | undefined = undefined
+  taskId: string = ''
   private stopDataSet: (() => void) | undefined = undefined
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
@@ -156,20 +157,18 @@ export struct TaskEditor {
   dateRequested() {
     if (this.dateRequest.startsWith(`${this.value().id}\n`)) this.dates(false)
   }
-  value(): CoreTask { return this.editTask ?? this.localDataSet().task }
-  private localDataManager(): TaskEditorDataManager {
-    if (!this.dataManager) throw new Error('未提供任务数据管理对象')
-    return this.dataManager
-  }
-  private localDataSet(): TaskEditorDataSet {
-    if (!this.dataSet) throw new Error('未提供任务数据集')
+  value(): CoreTask { return this.editTask ?? this.localDataSet().getTask(this.taskId)! }
+  private localDataSet(): DataSet {
+    if (!this.dataSet) throw new Error('未提供任务数据管理对象')
     return this.dataSet
   }
   private async currentTask(): Promise<CoreTask> {
-    return await this.localDataManager().current(this.localDataSet())
+    const task = this.localDataSet().getTask(this.taskId)
+    if (!task) throw new TaskInlineMissingError()
+    return task
   }
   private async modifyTask(task: CoreTask, changes: CoreTaskModification[]): Promise<void> {
-    await this.localDataManager().modify(this.localDataSet(), task, changes)
+    await this.localDataSet().updateTaskFields(this.taskId, changes, task.fileVersion)
   }
 
   horizontalSwipe(offsetX: number) {
@@ -219,7 +218,7 @@ export struct TaskEditor {
     this.moveMessage = ''
     this.moveSections = []
     try {
-      const targets = await this.localDataManager().targets()
+      const targets = await this.localDataSet().moveTargets()
       if (request === this.moveRequest && this.moveOpen) this.moveSections = refileSections(targets)
     } catch (error) {
       if (request === this.moveRequest && this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
@@ -245,7 +244,7 @@ export struct TaskEditor {
     this.moveBusy = true
     this.moveMessage = ''
     try {
-      await this.localDataManager().moveDataSet(this.localDataSet(), source, target)
+      await this.localDataSet().moveTask(this.taskId, target)
       this.moveBusy = false
       this.closeMove()
       this.removeDeletedTask()
@@ -334,9 +333,9 @@ export struct TaskEditor {
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
-    this.ownerKey = this.instanceKey || this.localDataSet().key
+    this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
     this.appeared = true
-    this.stopDataSet = this.localDataManager().watchDataSet(this.localDataSet(), (change: TaskEditorChange): void => {
+    this.stopDataSet = this.localDataSet().watchTask(this.taskId, (change: TaskDataChange): void => {
       if (!this.appeared) return
       ++this.refreshRequest
       if (change.removed) { this.removeDeletedTask(); return }
@@ -368,11 +367,11 @@ export struct TaskEditor {
   }
   async prepare(): Promise<boolean> {
     if (this.removed) return false
-    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.localDataSet().key
+    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
     if (!await TaskInlineSession.begin(this.ownerKey, async (collapse: boolean) => await this.finish(collapse))) return false
-    if (!this.editTask) { this.editTask = this.localDataSet().task; this.heading = this.editTask.heading; this.notes = this.editTask.editContent.notes.trimEnd() }
+    if (!this.editTask) { this.editTask = this.localDataSet().getTask(this.taskId)!; this.heading = this.editTask.heading; this.notes = this.editTask.editContent.notes.trimEnd() }
     if (this.readOnly) return true
-    this.applySnapshot(this.localDataManager().snapshot(this.localDataSet()))
+    this.applySnapshot(this.localDataSet().getTask(this.taskId))
     if (!this.hostWindow) {
       try {
         this.hostWindow = await window.getLastWindow(this.getUIContext().getHostContext()!)
@@ -647,7 +646,7 @@ export struct TaskEditor {
       secondaryButton: { value: '重新载入', action: async () => {
         this.working = true
         try {
-          await this.localDataManager().refresh(this.localDataSet())
+          await this.localDataSet().refresh()
           this.editTask = await this.currentTask()
           this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           this.blockEditor.cancel(); this.blockEditing = false

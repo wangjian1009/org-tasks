@@ -1,4 +1,4 @@
-// 验证真实页面编排仅发出一次混合查询；Core 求值由 Rust 测试覆盖。
+// 验证页面定义独立数据集与按数据集订阅；侧边栏保留混合批量读取。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -7,7 +7,7 @@ const { test, afterEach } = require('node:test');
 const sidebarInstances = [];
 afterEach(() => { for (const manager of sidebarInstances.splice(0)) manager.close(); });
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-page-queries.cjs\n验证收件箱、任务视图、侧边栏的一次混合查询、文件有效性、通知订阅与响应位置。');
+  console.log('用法: node scripts/test-page-queries.cjs\n验证页面数据集定义、独立事件、文件有效性、共享通知及侧边栏批次位置。');
   process.exit(0);
 }
 const root = path.resolve(__dirname, '../entry/src/main/ets');
@@ -45,11 +45,31 @@ function fixture() {
     NativeCoreService:{async workspaceFor(actual) { assert.equal(actual,config.repos); return workspace; },
       async query(actual,batch) { assert.equal(actual,config.repos); return workspace.query(batch); }} };
   const managers=[];
-  const managerFactory={DataSetManager:{create(context,pageName,definitions){
-    const data=new Map(),listeners=new Set();let ready=false,started;
-    const manager={itemKey:(_name,key)=>key,hasValidScope:()=>true,isReady:()=>ready,get:name=>data.get(name),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},
-      async start(){if(!started)started=(async()=>{const results=await workspace.query(definitions.map(item=>item.query));for(let i=0;i<definitions.length;i++){data.set(definitions[i].name,{data:results[i],version:1});for(const fn of listeners)fn({name:definitions[i].name,type:'refresh'})}ready=true;for(const fn of listeners)fn({name:'tasks',type:'ready'})})();try{return await started}catch(error){started=undefined;throw error}},
-      async refresh(){started=undefined;return manager.start()},async close(){listeners.clear()}};
+  // 页面测试以查询定义集合提供替身结果；真实独立订阅由 DataSet 集成测试验证。
+  const managerFactory={DataSetManager:{create(context,pageName,source){
+    const data=new Map(),sets=new Map(),overrides=new Map();let ready=false,started,definitions=[];
+    const emit=name=>{for(const fn of sets.get(name)?.listeners??[])fn({name,type:'refresh'})};
+    const query=async(requestSet,requestToken)=>{
+      let nextDefinitions=typeof source==='function'?source(config,repos):source;
+      nextDefinitions=nextDefinitions.map(item=>overrides.has(item.name)?{...item,query:overrides.get(item.name)}:item);
+      for(const item of nextDefinitions)manager.dataSet(item.name);
+      const results=await workspace.query(nextDefinitions.map(item=>item.query));
+      if(requestSet&&sets.get(requestSet)?.request!==requestToken)return;
+      definitions=nextDefinitions;
+      for(let i=0;i<definitions.length;i++)data.set(definitions[i].name,{data:results[i],version:1});
+      for(const name of sets.keys())if(!definitions.some(item=>item.name===name))data.set(name,{data:{type:'task',result:{tasks:[],categories:[]}},version:1});
+      ready=true;for(const set of sets.values())set.error='';for(const name of sets.keys())emit(name);
+    };
+    const configChanged=()=>{started=undefined;manager.start()};configCallbacks.add(configChanged);
+    const manager={hasValidScope:()=>true,isReady:()=>ready,get:name=>data.get(name),
+      dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,listeners:new Set(),error:'',isReady:()=>ready,
+        get data(){return data.get(name)?.data},get(name){return data.get(name)},getConfirmed(){return data.get(name)},taskKey:id=>id,
+        subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)},
+        async refresh(){try{await query()}catch(error){this.error=error.message;emit(name)}},
+        async setQuery(value){const request=Symbol();this.request=request;overrides.set(name,value);try{await query(name,request);if(this.request===request)emit(name)}catch(error){if(this.request===request){this.error=error.message;emit(name)}}}
+      });return sets.get(name)},
+      async start(){if(!started)started=query();try{return await started}catch(error){started=undefined;throw error}},
+      async refresh(){return query()},async close(){for(const set of sets.values())set.listeners.clear();configCallbacks.delete(configChanged)}};
     managers.push({manager,pageName,definitions});return manager;
   }}};
   const cache = new Map();
@@ -69,7 +89,6 @@ function fixture() {
       if (dependency.endsWith('/PageDataSnapshot')) return {
         cacheDataSet: (name, result) => ({name, ...result}), restoreDataSet: ({name, ...result}) => result
       };
-      if (dependency.endsWith('/TaskEditorDataManager')) return {TaskEditorDataManager:{managed(){return{}}}};
       if (dependency.endsWith('/CaptureService') || dependency.endsWith('/LogbookService') || dependency.endsWith('/InboxService')) return {};
       if (dependency.endsWith('/DataSetManager')) return managerFactory;
       if (dependency.endsWith('/NativeCoreService')||dependency==='./NativeCoreService') return native;
@@ -85,14 +104,16 @@ function fixture() {
     const filename=path.join(root,name+'.ets'),text=fs.readFileSync(filename,'utf8');
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
     if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
-    if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged'])];
-    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot'];
+    if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','defineDataSets','taskDataSet'])];
+    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','defineDataSets'];
     const chunks=methods.map(method=>{
+      const oneLine=text.split('\n').find(line=>new RegExp('^  (?:private )?'+method+'\\(').test(line)&&line.trim().endsWith('}'));
+      if(oneLine)return oneLine;
       const match=text.match(new RegExp('  (?:async )?'+method+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
       assert.ok(match,'未找到方法 '+method); return match[0];
     });
     const View=load(name,prelude+'\nexport class QueryPage {\n'+chunks.join('\n')+'\n}').QueryPage;
-    const view=Object.assign(new View(),{requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
+    const view=Object.assign(new View(),{stops:[],selectedPlanRegion:null,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
       selectedTags:[],includeUntagged:false,tagOptions:[],tagGroups:[],sections:[],timedItems:[],priorityOrder:[],visible:false,
       getUIContext:()=>({getHostContext:()=>({})}),closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
     if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
@@ -103,12 +124,12 @@ function fixture() {
 }
 
 for (const view of ['today','planned','anytime','logbook','someday','memo']) {
-  test(view+(view==='today'?' 通过管理类启动固定数据集':' 首次加载只调用一次批量查询，文件元信息与通知在同批返回'),async()=>{
+  test(view+(view==='today'?' 通过管理类启动固定数据集':' 首次加载定义独立任务与文件数据集'),async()=>{
     const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','file']:view==='today'?['task','task','file']:['task','file']);
+    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','file']:view==='today'||view==='planned'?['task','task','file']:['task','file']);
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
@@ -156,7 +177,7 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   await page.selectPlanRegion(null);
   assert.equal(page.tasks, tasks);
   assert.equal(page.selectedPlanRegion, null);
-  assert.deepEqual(f.batches[3].map(item => item.type), ['task','file']);
+  assert.equal(f.batches.length,3,'取消筛选直接展示范围数据集，不重新查询');
 });
 
 test('计划未分类与字面同名分类保持独立，项目路径正确转义', () => {
@@ -180,12 +201,12 @@ test('计划刷新清除已消失的选择，同批回退全部，读取失败�
   const selected = page.planRegionOptions.find(region => region.kind === 'project');
   await page.selectPlanRegion(selected);
   tasks = [plannedTask('b','core-b','plain.org','生活')];
-  await page.pageManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
+  await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
   assert.equal(f.batches.length, 3);
   assert.equal(page.selectedPlanRegion, null);
   assert.equal(page.tasks, tasks);
   tasks=[plannedTask('return','core-a','project.org','工作','项目甲'),...tasks];
-  await page.pageManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
+  await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
   assert.equal(page.selectedPlanRegion,null,'失效候选重新出现时不恢复已经清除的选择');
   assert.equal(page.tasks,tasks);
   let fail = true;
@@ -199,7 +220,7 @@ test('计划刷新清除已消失的选择，同批回退全部，读取失败�
   assert.match(page.message, /读取失败/);
   assert.equal(page.selectedPlanRegion?.key,retrySelection.key,'查询失败不当作候选失效');
   fail = false;
-  await page.loadTasks();
+  await page.tasksDataSet.refresh();
   assert.equal(page.message, '');
   assert.equal(page.tasks, tasks);
 });
@@ -324,7 +345,7 @@ test('项目进度按 Core 分类汇总，取消和未分类状态只计入总�
 test('失效文件和未配置文件不退回全仓库任务，通知仍在同一个批次内加载',async()=>{
   const f=fixture();f.missing();const page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='memo';await page.loadTasks();assert.equal(page.needsConfiguration,true);assert.equal(f.batches.length,1);
-  f.config.memoRepoId='';f.configChanged();await page.pageManager.start();assert.equal(f.batches.length,2);
+  f.config.memoRepoId='';f.configChanged();await page.loadTasks();assert.equal(f.batches.length,2);
   assert.ok(f.batches[1].every(item=>item.type==='file'));
 });
 
@@ -380,8 +401,8 @@ test('收件箱移动浮层已打开时，列表刷新仍只有一个混合查�
 
 test('页面重复出现只复用管理对象，AppShell 不再持有底层刷新机制',async()=>{
   const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
-  page.view='anytime';await page.loadTasks();const manager=page.pageManager;await page.loadTasks();
-  assert.equal(page.pageManager,manager);assert.equal(f.batches.length,1);
+  page.view='anytime';await page.loadTasks();const manager=page.dataManager;await page.loadTasks();
+  assert.equal(page.dataManager,manager);assert.equal(f.batches.length,1);
   const shell=fs.readFileSync(path.join(root,'components/AppShell.ets'),'utf8');
   assert.doesNotMatch(shell,/CoreDataChangeService|coreDataChanges|managedBody|refreshOnPageShow|synchronized|repositoryDataInvalidated/);
   await manager.close();
@@ -439,7 +460,7 @@ test('今天编辑会话期间数据集继续更新，列表重排等会话结�
   f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
   page.view='today';await page.loadTasks();assert.equal(page.tasks,original);
   f.inline(true);page.pageInlineActive='editing';rows=[plannedTask('new','core-a','plain.org','工作'),...original];
-  await page.pageManager.dataSets().refresh();await new Promise(resolve=>setTimeout(resolve,1));assert.equal(page.pageManager.dataSets().get('tasks').data.result.tasks,rows);
+  await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));assert.equal(page.dataManager.get('tasks').data.result.tasks,rows);
   assert.equal(page.tasks,original);assert.equal(page.pageLayoutDeferred,true);
   f.inline(false);page.pageInlineActive='';page.pageInlineChanged();
   assert.equal(page.tasks,rows);assert.equal(page.pageLayoutDeferred,false);assert.equal(f.batches.length,2);
@@ -451,7 +472,7 @@ test('今天内容字段更新与同值确认复用列表容器和参考日期�
  f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
  page.view='today';page.referenceTime=Date.now();await page.loadTasks();
  const sections=page.sections,timed=page.timedItems,time=page.referenceTime;
- rows=rows.map(task=>({...task,bodyHtml:'新备注',fileVersion:'confirmed'}));await page.pageManager.dataSets().refresh();await new Promise(resolve=>setTimeout(resolve,1));
+ rows=rows.map(task=>({...task,bodyHtml:'新备注',fileVersion:'confirmed'}));await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));
  assert.equal(page.sections,sections);assert.equal(page.timedItems,timed);assert.equal(page.referenceTime,time);
  await page.loadTasks();assert.equal(page.sections,sections);assert.equal(f.batches.length,2);
 });

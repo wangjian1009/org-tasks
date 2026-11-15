@@ -1,5 +1,5 @@
 import { FrameCallback } from '@ohos.arkui.UIContext'
-import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
+import { DataSet } from '../services/DataSet'
 import { PageListPosition } from '../services/PageListPosition'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
@@ -23,7 +23,7 @@ class NotificationLayoutFrame extends FrameCallback {
 
 @Component
 export struct TodayTaskList {
-  dataManager: TaskEditorDataManager | undefined = undefined
+  dataSet: DataSet | undefined = undefined
   @Prop positionKey: string = ''
   private initialIndex: number = 0
   private firstIndex: number = 0
@@ -100,14 +100,14 @@ export struct TodayTaskList {
     } catch (_) { PageListPosition.save(this.positionKey, this.firstIndex, offset) }
   }
 
-  private editorDataManager(): TaskEditorDataManager {
-    if (!this.dataManager) throw new Error('未提供页面数据管理对象')
-    return this.dataManager
+  private taskDataSet(): DataSet {
+    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    return this.dataSet
   }
 
   @Builder
   taskItem(item: TodayTaskItem) {
-    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), readOnly: this.readOnly, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
+    TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
       expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
@@ -129,7 +129,7 @@ export struct TodayTaskList {
     TaskRegion({ project: this.projectArea(sectionKey, groupKey) }) {
       ForEach(this.projectItems(sectionKey, groupKey), (item: TodayTaskItem) => {
         ListItem() { this.taskItem(item) }
-      }, (item: TodayTaskItem) => this.editorDataManager().dataSet(item.task).key)
+      }, (item: TodayTaskItem) => this.taskDataSet().taskKey(item.task.id))
     }
   }
 
@@ -143,11 +143,11 @@ export struct TodayTaskList {
         ListItemGroup() {
           ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
             ListItem() {
-              TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
+              TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
                 referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
                 expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
             }
-          }, (item: TodayTimedTaskItem) => JSON.stringify([this.editorDataManager().dataSet(item.task).key, item.timeDisplay]))
+          }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
         }.width('100%')
       }
       ForEach(this.sections, (section: TodaySection) => {
@@ -158,7 +158,7 @@ export struct TodayTaskList {
           } else {
             ListItem() { this.taskItem(group.items[0]) }
           }
-        }, (group: TodayTaskGroup) => group.project === null ? this.editorDataManager().dataSet(group.items[0].task).key : group.key)
+        }, (group: TodayTaskGroup) => group.project === null ? this.taskDataSet().taskKey(group.items[0].task.id) : group.key)
       }, (section: TodaySection) => section.key)
     }.id('today_task_list').width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
       .onScrollIndex((start: number): void => { this.firstIndex = start })

@@ -42,6 +42,7 @@ import {
   CoreError as NativeCoreError,
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
   DataChangeEvent as NativeDataChangeEvent,
+  TaskDataChange as NativeTaskDataChange,
   DataChangeMonitor as NativeDataChangeMonitor,
   QuerySubscriptionStart as NativeQuerySubscriptionStart,
   QuerySubscriptionStatus as NativeQuerySubscriptionStatus,
@@ -164,6 +165,7 @@ export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskMergeRequest = NativeTaskMergeRequest
 export type CoreTaskMergePlan = NativeTaskMergePlan
 export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
+export type CoreTaskDataChange = NativeTaskDataChange
 export type CoreDataChangeEvent = NativeDataChangeEvent
 export type CoreDataChangeMonitor = NativeDataChangeMonitor
 export type CoreQuerySubscriptionStart = NativeQuerySubscriptionStart

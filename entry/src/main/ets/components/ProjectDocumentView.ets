@@ -1,5 +1,5 @@
 import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
-import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
+import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
@@ -18,10 +18,10 @@ export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
 // 原生标题和任务行与安全 HTML 正文共用一个滚动容器。
 @Component
 export struct ProjectDocumentView {
-  dataManager: TaskEditorDataManager | undefined = undefined
-  private editorDataManager(): TaskEditorDataManager {
-    if (!this.dataManager) throw new Error('项目文件数据集尚未载入')
-    return this.dataManager
+  dataSet: DataSet | undefined = undefined
+  private taskDataSet(): DataSet {
+    if (!this.dataSet) throw new Error('项目文件数据集尚未载入')
+    return this.dataSet
   }
 
   @Prop sections: ProjectReadingSection[] = []
@@ -138,7 +138,7 @@ export struct ProjectDocumentView {
             }
             if (section.node) {
               if (section.node.state) {
-                TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSetForTaskId(section.node.taskId ?? section.node.id), internalLinkProcessor: this.internalLinkProcessor, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
+                TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(section.node.id), internalLinkProcessor: this.internalLinkProcessor, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')
@@ -148,9 +148,9 @@ export struct ProjectDocumentView {
             }
             if (section.blocks.length > 0) {
               ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
-                const data = this.editorDataManager().dataSetForTaskId(task.taskId ?? task.id)
+                const data = this.taskDataSet().getTask(task.taskId ?? task.id)
                 if (!data) throw new Error('项目节点已不在当前数据集中')
-                return await this.editorDataManager().modifyConfirmed(data, task, changes)
+                return await this.taskDataSet().updateTask(this.taskDataSet().taskKey(data.id), changes, task.fileVersion)
               }, internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks,
                 contentBackground: section.node ? UiColor.surface : UiColor.projectBlock }).width('100%')
             }

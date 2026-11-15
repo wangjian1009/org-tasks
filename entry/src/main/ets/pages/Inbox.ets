@@ -1,5 +1,7 @@
-import { TaskPageDataManager, TaskPageSnapshot } from '../services/TaskPageDataManager'
-import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
+import { AppConfig } from '../models/OrgTask'
+import { FileTargetService } from '../services/FileTargetService'
+import { CaptureService } from '../services/CaptureService'
+import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { TaskDateDialog } from '../components/editors/TaskDateDialog'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
@@ -18,21 +20,22 @@ import { TaskSelectionRow } from '../components/TaskSelectionRow'
 import { TaskBatchToolbar } from '../components/TaskBatchToolbar'
 import { TaskPageActionPolicy, taskActionPolicy, taskPageActionPolicy, TaskOperation, taskSwipeMenu, taskBatchMenu, TaskSwipeAction, TaskBatchAction } from '../ui/TaskActionPresentation'
 import { OrgContentView } from '../components/OrgContentView'
-import { InboxAction } from '../services/InboxService'
+import { InboxService, InboxAction } from '../services/InboxService'
 import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
 import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
-import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreRepo, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
 struct Inbox {
-  private pageManager: TaskPageDataManager | undefined = undefined
-  private stopPage: (() => void) | undefined = undefined
-  private latestSnapshot: TaskPageSnapshot | undefined = undefined
-  @State dataScope: number = 0
+  private dataManager: DataSetManager | undefined = undefined
+  private tasksDataSet: DataSet | undefined = undefined
+  private recentDataSet: DataSet | undefined = undefined
+  private targetDataSet: DataSet | undefined = undefined
+  private stops: (() => void)[] = []
   @State pageReady: boolean = false
   @StorageLink('taskInlineActive') @Watch('pageInlineChanged') pageInlineActive: string = ''
-  private editorDataManager(name: string = 'tasks'): TaskEditorDataManager { return this.pageManager!.editor(name) }
+  private taskDataSet(name: string = 'tasks'): DataSet { return name === 'recent' ? this.recentDataSet! : this.tasksDataSet! }
 
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State records: CoreTask[] = []
@@ -87,9 +90,10 @@ struct Inbox {
   onPageShow() { this.visible = true; this.loadRecords() }
   onPageHide() { this.visible = false; this.dateDialog?.close(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
-    this.stopPage?.(); this.stopPage = undefined
-    this.pageManager?.close().catch((): void => { console.error('保存收件箱数据失败') })
-    this.pageManager = undefined
+    for (const stop of this.stops) stop()
+    this.stops = []
+    this.dataManager?.close().catch((): void => { console.error('保存收件箱数据失败') })
+    this.dataManager = undefined
     this.dateDialog?.close()
     clearTimeout(this.captureFocusTimer)
     clearTimeout(this.actionTimer)
@@ -173,9 +177,11 @@ struct Inbox {
     this.mergeBusy = true
     this.batchAction = 'merge'
     this.mergeMessage = ''
-    let merged: CoreTaskPath
+    let merged: CoreTaskPath | undefined = undefined
     try {
-      merged = await this.pageManager!.merge(records)
+      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => {
+        merged = await InboxService.merge(this.getUIContext().getHostContext()!, records, operationId)
+      })
     } catch (e) {
       this.mergeBusy = false
       this.mergeMessage = coreErrorMessage(e as CoreBridgeError)
@@ -185,7 +191,7 @@ struct Inbox {
     // 一组已经提交；刷新失败只重新读取，不能再次删除或修改原记录。
     this.mergeBusy = false
     this.resetSelection()
-    this.mergedPath = JSON.stringify(merged)
+    this.mergedPath = JSON.stringify(merged!)
     try { this.getUIContext().getPromptAction().showToast({ message: `已合并 ${records.length} 条记录` }) }
     catch (_) { /* 成功提示失败不能阻止读取已提交的结果。 */ }
     await this.loadRecords()
@@ -214,7 +220,7 @@ struct Inbox {
     this.actionBusy = true
     try {
       if (!await TaskInlineSession.end(false) || !this.visible) return
-      const current = await this.pageManager?.current(record)
+      const current = await this.tasksDataSet?.getTask(record.id)
       if (!current || !this.visible) return
       this.actionBusy = false
       if (action === 'move') this.selectRecord(current)
@@ -310,7 +316,7 @@ struct Inbox {
     this.targetsLoading = true
     this.popupMessage = ''
     try {
-      const targets = await this.pageManager!.targets()
+      const targets = await this.tasksDataSet!.moveTargets()
       if (request === this.targetRequest) {
         this.targetSections = refileSections(targets)
       }
@@ -331,7 +337,7 @@ struct Inbox {
     this.actionBusy = true
     this.popupMessage = ''
     try {
-      const current = await this.pageManager?.current(this.selected)
+      const current = await this.tasksDataSet?.getTask(this.selected.id)
       if (request !== this.targetRequest || !this.visible) return
       this.actionBusy = false
       if (!current) { this.closeTargetPopup(); return }
@@ -357,7 +363,7 @@ struct Inbox {
     ++this.targetRequest
     this.targetsLoading = false
     try {
-      await this.pageManager!.perform([selected], action, target)
+      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => { await InboxService.performMany(this.getUIContext().getHostContext()!, [selected], action, target, undefined, operationId) })
       this.actionBusy = false
       this.closeTargetPopup()
       await this.loadRecords()
@@ -423,7 +429,7 @@ struct Inbox {
       // 沿当前源快照逆序删除或移出，避免同名记录的后续 occurrence 前移。
       const ordered = [...records].sort((a: CoreTask, b: CoreTask): number =>
         this.records.findIndex(item => item.id === b.id) - this.records.findIndex(item => item.id === a.id))
-      await this.pageManager!.perform(ordered, action, target, date)
+      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => { await InboxService.performMany(this.getUIContext().getHostContext()!, ordered, action, target, date, operationId) })
       this.mergeBusy = false
       this.resetSelection()
       await this.loadRecords()
@@ -484,7 +490,7 @@ struct Inbox {
     this.captureSaving = true
     this.captureMessage = ''
     try {
-      await this.pageManager!.capture(title)
+      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => { await CaptureService.save(this.getUIContext().getHostContext()!, title, operationId) })
       this.captureSaving = false
       this.closeCapture()
       this.captureTitle = ''
@@ -526,7 +532,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskEditor({ readOnly: !this.pageReady, dataManager: this.editorDataManager('recent'), dataSet: this.editorDataManager('recent').dataSet(task), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+    TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
@@ -572,31 +578,50 @@ struct Inbox {
     .width('calc(100% + 24vp)').margin({ left: -12, right: -12 })
   }
 
+  defineDataSets(config: AppConfig, repos: CoreRepo[]): DataSetDefinition[] {
+    const target = FileTargetService.prepare(config, repos, 'inbox')
+    const definitions: DataSetDefinition[] = []
+    if (target) definitions.push({ name: 'tasks', query: target.task }, { name: 'target', query: target.file })
+    definitions.push({ name: 'recent', query: { type: 'task', query: { expression: 'cr.ge.-2d cr.le.today .o.created',
+      excludedFiles: target ? [target.reference] : [] } } }, { name: 'files', query: { type: 'file', query: {} } })
+    return definitions
+  }
+
   async loadRecords(reload: boolean = false) {
-    if (!this.pageManager) {
-      this.pageManager = new TaskPageDataManager(this.getUIContext().getHostContext()!, 'inbox')
-      this.stopPage = this.pageManager.subscribe((snapshot: TaskPageSnapshot): void => {
-        this.latestSnapshot = snapshot
+    if (!this.dataManager) {
+      this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, '收件箱',
+        (config: AppConfig, repos: CoreRepo[]): DataSetDefinition[] => this.defineDataSets(config, repos))
+      this.tasksDataSet = this.dataManager.dataSet('tasks')
+      this.recentDataSet = this.dataManager.dataSet('recent')
+      this.targetDataSet = this.dataManager.dataSet('target')
+      this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
+      this.stops.push(this.recentDataSet.subscribe((): void => {
+        const data = this.recentDataSet?.data
+        this.recentGroups = recentDays(data?.type === 'task' ? data.result.tasks : [])
+        this.recentMessage = this.recentDataSet?.error ?? ''; this.recentLoading = !data && !this.recentMessage
+      }))
+      this.stops.push(this.targetDataSet.subscribe((): void => {
+        const data = this.targetDataSet?.data
+        this.needsConfiguration = !!data && (data.type !== 'file' || data.result.length === 0)
         this.applyPageSnapshot()
-      })
+      }))
     }
-    if (reload) await this.pageManager.refresh()
-    else await this.pageManager.start()
-    this.applyPageSnapshot()
+    try {
+      await this.dataManager.start()
+      if (reload) await this.tasksDataSet!.refresh()
+    } catch (error) { this.loading = false; this.message = (error as Error).message }
   }
 
   pageInlineChanged(): void { if (!this.pageInlineActive) this.applyPageSnapshot() }
 
   applyPageSnapshot(): void {
-    const snapshot = this.latestSnapshot
-    if (!snapshot || TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
-    this.dataScope = snapshot.scope
-    this.pageReady = snapshot.ready
-    this.loading = false; this.recentLoading = false
-    this.message = snapshot.message; this.recentMessage = snapshot.message
-    this.needsConfiguration = snapshot.needsConfiguration
-    this.records = snapshot.tasks
-    this.recentGroups = recentDays(snapshot.recent)
+    const dataSet = this.tasksDataSet
+    if (!dataSet || TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
+    const data = dataSet.data
+    this.pageReady = dataSet.isReady()
+    this.message = dataSet.error || this.targetDataSet?.error || ''
+    this.loading = !data && !this.message
+    this.records = data?.type === 'task' ? data.result.tasks : []
     this.measureRows()
     if (this.selected) {
       const selected = this.records.find((record: CoreTask) => record.id === this.selected?.id)
@@ -642,7 +667,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskEditor({ readOnly: !this.pageReady, dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(record), enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) } })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
@@ -661,7 +686,7 @@ struct Inbox {
                   } : undefined,
                   end: { builder: (): void => { this.swipeMenu(record) } },
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
-              }, (record: CoreTask) => JSON.stringify([this.dataScope, this.editorDataManager().dataSet(record).key]))
+              }, (record: CoreTask) => this.taskDataSet().taskKey(record.id))
               if (this.records.length > 0 || this.recentGroups.length > 0) {
                 ListItem() {
                   Column().width('100%').height(unplannedSpacer(this.listHeight,
@@ -677,7 +702,7 @@ struct Inbox {
                     this.recentRegion(group)
                   }, (group: RecentTaskGroup) => JSON.stringify(group))
                   ListItem() { Column().height(16).width('100%') }.fullWidthItem()
-                }, (day: RecentDay) => JSON.stringify([this.dataScope, day]))
+                }, (day: RecentDay) => JSON.stringify(day))
               }
               if (this.recentLoading) {
                 ListItem() { Text('正在读取近期记录…').fontSize(14).fontColor(UiColor.secondary).padding(16) }.fullWidthItem()

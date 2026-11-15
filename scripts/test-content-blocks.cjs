@@ -129,7 +129,7 @@ function projectFixture() {
   }, async reload() { if (reloadFail) throw reloadFail;return refreshed; } };
   const { TaskDocumentContent } = load('components/editors/TaskDocumentContent', {
     '../../services/NativeCoreService': { coreErrorMessage: e => e.message },
-    '../../services/TaskEditorDataManager':{},
+    '../../services/DataSetManager':{},
     '../../services/TaskInlineService': { TaskInlineService: service, TaskInlineSession: { async begin() { return true; }, release() { releases++; } } },
     '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class { async finish() { return true; } } },
     '../../ui/Theme': { UiColor: { surface: 'surface' } }, '@kit.ArkUI': { KeyboardAvoidMode: { RESIZE: 1 } }

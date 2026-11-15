@@ -143,10 +143,11 @@ function overview(action = '', memoId = '') {
     exports: {}, ViewPU, ListScroller: class {}, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
     LocalStorage: { getShared: () => storage }, registerNamedRoute(callback) { factory = callback; },
     require(name) {
-      if (name.includes('TaskPageDataManager')) return {TaskPageDataManager:class {
-        subscribe(fn){this.listener=fn;return()=>{}}
-        async start(){await Promise.resolve();this.listener({tasks:available?tasks:[],priorityOrder:[],tagOptions:[],tagGroups:[],regionOptions:[],selectedRegion:null,needsConfiguration:!available,ready:true,message:''});}
-      }};
+      if (name.includes('DataSetManager')) return {DataSetManager:{create(){const sets=new Map();return{
+        dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,subscribe(fn){this.fn=fn;return()=>{}},isReady:()=>true,error:'',get data(){return name==='tasks'?{type:'task',result:{tasks:available?tasks:[]}}:{type:'file',result:available?[{}]:[]}}});return sets.get(name)},
+        async start(){await Promise.resolve();for(const dataSet of sets.values())dataSet.fn?.();}
+      }}}};
+      if (name.includes('TaskViewQueries')) return {overviewTitle:()=> '备忘'};
       if (name.includes('TaskInlineService')) return {TaskInlineSession:{active:()=>false}};
       if (name.includes('NotificationManager')) return { emptyCoreNotificationsState: () => ({}) };
       if (name.includes('AppConfigService')) return { AppConfigService: { async load() { return {}; } } };

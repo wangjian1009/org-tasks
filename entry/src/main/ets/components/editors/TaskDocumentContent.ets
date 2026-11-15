@@ -1,6 +1,6 @@
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistItem, CoreTaskModification, CoreTextLink, CoreLinkValue, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
-import { TaskEditorWriteError } from '../../services/TaskEditorDataManager'
+import { DataSetWriteError } from '../../services/DataSet'
 import { TaskInlineSession } from '../../services/TaskInlineService'
 import { TaskContentBlocks } from './TaskContentBlocks'
 import { TaskChecklistBlock } from './TaskChecklistBlock'
@@ -76,7 +76,7 @@ export struct TaskDocumentContent {
       if (this.active) this.current = current
       return true
     } catch (error) {
-      committed = committed || (error as TaskEditorWriteError).committed === true
+      committed = committed || (error as DataSetWriteError).committed === true
       if (this.active) {
         this.blocked = committed
         this.message = `${committed ? '修改已保存，重新读取失败，请刷新：' : ''}${coreErrorMessage(error as CoreBridgeError)}`

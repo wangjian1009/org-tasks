@@ -5,13 +5,15 @@
 #+LATEX_HEADER: \usepackage{tikz}
 #+LATEX_HEADER: \usepackage{tikz-uml}
 
-* 范围与实施顺序
+* 范围与职责
 
-本文记录目前已经确认的设计，不代表全部接口已经实现。今天、收件箱、计划、随时、某天、备忘和日志簿均通过 TaskPageDataManager 接入每页独立的 DataSetManager。项目详情使用文件内存 ProjectDataManager，侧边栏使用只读 SidebarDataManager；笔记本、普通文件与历史备份、同步日志由专门的快照管理对象维护。AppShell 已移除底层监听与正文刷新调度。
+今天、收件箱、计划、随时、某天、备忘、日志簿和项目详情均直接使用 DataSet。每个页面声明命名数据集，由 DataSetManager 管理集合、共享连接上下文和页面缓存；每个 DataSet 只持有一个查询，拥有该查询的底层订阅、任务索引、编辑能力与变化事件。编辑器和项目文档不再创建专用管理器。侧边栏与非任务阅读结果沿用各自的只读管理对象。
 
-每个页面拥有独立的 ~DataSetManager~ 实例，实例内可以包含多个业务指定的数据集。数据集由名称和查询条件组成，创建后不可修改；查询条件变化时创建新的实例或定义。应用配置变化也会使现有实例失效，停止后续写入与缓存；业务重新构造实例，不在旧缓存范围中保存新配置的数据。全局只共享底层连接、查询订阅基础设施、用户操作提交队列和缓存服务，不共享页面订阅生命周期。
+DataSetManager 不提供总事件订阅，也不执行任务查询或注册数据变化监控。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅 tasks 和 priority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
-UI 只与页面数据集交互，不直接访问 ~Workspace~ 、执行查询或注册底层事件。底层连接、首次查询、订阅注册、事件合并和关闭均由数据集内部负责。
+DataSetDefinition 必须声明一个 query。它可以是任务或文件元信息的 CoreQuery，也可以是宿主的 document 查询；后者用已有 Workspace.fileAt 一次读取完整文件及全部节点，不扩展 Core 对外接口。需要配置文件入口时，页面提供纯定义函数，管理器加载配置和仓库身份后调用；该函数只组装请求，不执行底层查询。
+
+配置变化由管理器在内部重新配置已有 DataSet，保持对象和页面订阅稳定。用户改变筛选时调用对应 DataSet.setQuery，只重新加载该数据集；旧查询的订阅与迟到结果不能覆盖新查询。页面不重建查询实例或通过总事件回调重新读取数据。
 
 * 核心约束
 
@@ -29,13 +31,13 @@ UI 只与页面数据集交互，不直接访问 ~Workspace~ 、执行查询或�
 
 #+begin_example
 用户修改
-  -> DataSetManager 更新用户直接修改的数据
+  -> DataSet 更新用户直接修改的数据
   -> 数据集发布变化，UI 立即刷新
-  -> DataSetManager 显式提交这次用户操作
+  -> DataSet 显式提交这次用户操作
   -> Core 执行原有修改规则及关联修改
   -> 既有数据变化通知
   -> 新增查询订阅模块按注册条件过滤、归并
-  -> DataSetManager 私有回调应用结果
+  -> DataSet 私有回调应用结果
   -> 数据集发布变化，UI 更新关联显示
 #+end_example
 
@@ -43,60 +45,63 @@ UI 只与页面数据集交互，不直接访问 ~Workspace~ 、执行查询或�
 
 启动时先恢复磁盘中的已确认快照并显示，再执行一次初始查询并建立订阅，比较初始结果后发布差异。初始化快照与开始接收事件之间必须有一致的边界，不能漏掉初始化期间发生的变化。
 
-* 页面数据集接口
-
-已实现的页面管理接口如下。每个页面实例固定页面名与命名查询，底层事件接收函数是私有实现，不对编辑控件开放。
+* 数据集与管理器接口
 
 #+begin_src typescript
-interface DataSetDefinition { name: string; query: CoreQuery }
-interface ManagedDataSet {
-  name: string
-  version: number
-  confirmedVersion: number
-  revision: number
-  data: CoreQueryResult
-  optimistic: boolean
-}
+interface DocumentDataSetQuery { type: 'document'; query: CoreOrgFileRef }
+type DataSetQuery = CoreQuery | DocumentDataSetQuery
+interface DocumentDataSetSnapshot { identity: string; file: CoreOrgFile; tasks: CoreTask[] }
+interface DataSetDefinition { name: string; query: DataSetQuery }
+type DataSetDefinitionFactory = (config: AppConfig, repos: CoreRepo[]) => DataSetDefinition[]
 class DataSetManager {
-  static create(context: Context, pageName: string, definitions: DataSetDefinition[]): DataSetManager
+  static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory): DataSetManager
+  dataSet(name: string): DataSet
   start(): Promise<void>
-  refresh(): Promise<void>
-  isReady(): boolean
-  hasValidScope(): boolean
-  get(name: string): ManagedDataSet | undefined
-  getConfirmed(name: string): ManagedDataSet | undefined
-  findTask(name: string, key: string): CoreTask | undefined
-  itemKey(name: string, key: string): string
-  subscribe(listener: (event: DataSetEvent) => void): () => void
-  create(name: string, value: TaskCreation, sourceVersion?: string): Promise<void>
-  updateFields(name: string, key: string, changes: TaskModification[], sourceVersion?: string): CoreTask
-  update(name: string, key: string, changes: TaskModification[], sourceVersion?: string): Promise<void>
-  runOperation(name: string, execute: (operationId: string) => Promise<void>): Promise<void>
-  remove(name: string, key: string): Promise<void>
-  move(name: string, key: string, target: CoreRefileTarget): Promise<void>
-  moveTargets(): Promise<CoreRefileTarget[]>
   flush(): Promise<void>
   close(): Promise<void>
   static flushAll(): Promise<void>
 }
+class DataSet {
+  readonly name: string
+  readonly query: DataSetQuery | undefined
+  readonly identity: string
+  readonly document: DocumentDataSetSnapshot | undefined
+  readonly data: CoreQueryResult | undefined
+  readonly error: string
+  isReady(): boolean
+  subscribe(listener: (event: DataSetEvent) => void): () => void
+  getTask(id: string): CoreTask | undefined
+  taskKey(id: string): string
+  getFile(): CoreOrgFile | undefined
+  updateTaskFields(id: string, changes: TaskModification[], sourceVersion?: string): CoreTask
+  updateTask(id: string, changes: TaskModification[], sourceVersion?: string): Promise<CoreTask>
+  watchTask(id: string, listener: (change: TaskDataChange) => void): () => void
+  createTask(value: TaskCreation, sourceVersion?: string): Promise<void>
+  removeTask(id: string): Promise<void>
+  moveTask(id: string, target: CoreRefileTarget): Promise<void>
+  operate(execute: (operationId: string) => Promise<void>): Promise<void>
+  setQuery(query: DataSetQuery): Promise<void>
+  refresh(): Promise<void>
+}
 #+end_src
 
-~DataSetEvent~ 的单条操作错误以可选 ~targetKey~ 指向发起记录，避免将错误扩散到其他行；范围失效等全局错误不携带该字段。事件携带名称、类型、事件所属版本、当前显示数据版本 ~dataVersion~ 、 ~operationId~ 、是否为乐观显示、增删改身份列表及可选的身份映射。事件所属版本从 ~operationId~ 恢复，显示层可能还覆盖着更高版本的排队字段，不能把两者混为一个版本。阶段完成事件的 ~type=complete~ ，以 ~succeeded~ 表示成败， ~result~ 携带该阶段的已确认快照；后续排队的乐观字段不混入这个结果。 ~get()~ 返回当前显示层， ~getConfirmed()~ 读取已经合并底层事件的确认层。调用方不得就地修改快照，编辑必须显式提交字段增量。
+DataSet 内部注册当前查询的 subscribeQuery，消费范围内的增量；同步等旧入口只提供仓库失效时，由该 DataSet 持有的失效监控合并刷新。document 查询在同一对象内读取完整文件，并处理原始提交事件的身份映射。管理器只向数据集提供共享上下文，不向页面暴露 Workspace。
 
-初始结果与增量记录带有 Core 生成的轻量排序键，管理类只比较标量键，不解析排序表达式。字段修改按对象引用判断变化，不在每次输入时序列化整个页面；乐观层按字段写时复制，只有缓存边界才序列化全部确认数据。
+DataSetEvent 包含 insert、remove、update、refresh、ready、complete、document 与 error。事件属于发出它的 DataSet，页面不用按 name 路由。目标记录错误仍以 targetKey 定位，rejectedChanges 保留被拒绝的用户字段；committed 表明已写入但后续确认失败，禁止重复提交。阶段版本和 operationId 由 DataSet 内部维护，页面只展示 data、error 和就绪状态。
 
-业务负责提供固定定义及创建目标；UI 负责渲染、订阅数据集事件和从用户处理函数调用增删改方法。数据集内部取得连接并使用 Workspace 查询订阅与现有任务操作接口，不向 UI 暴露底层事件注入或底层连接。
+同一管理器内的数据集共享操作来源和递增提交阶段；原始增量由各自的查询订阅过滤，不因另一个数据集的同页编辑重复查询。其他页面或 HTTP 的修改由目标 DataSet 合并刷新。全局用户操作队列保证连续提交有序，失败只撤销本次乐观字段，不重放写入。
 
 \begin{center}
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{Page}{dataSet: DataSetManager}{render() \\ onUserEdit()}
-\umlclass[x=6.5,y=0]{DataSetManager}{pageName \\ definitions: fixed \\ confirmed / version \\ pending}{start() \\ get(name) \\ subscribe() \\ create() \\ update() \\ remove() \\ close()}
-\umlclass[x=0,y=-5.0]{CoreWorkspace}{existing rules}{executeTaskOperations(group)}
-\umlclass[x=6.5,y=-5.0]{QuerySubscription}{query \\ confirmed members}{filter changes \\ forward existing events}
+\umlclass[x=0,y=0]{Page}{named definitions}{render() \\ onUserEdit()}
+\umlclass[x=6,y=0]{DataSetManager}{context \\ dataSets \\ page cache}{start() \\ dataSet(name) \\ flush() \\ close()}
+\umlclass[x=0,y=-5]{DataSet}{one query \\ task index \\ subscription}{subscribe() \\ getTask(id) \\ updateTaskFields()}
+\umlclass[x=6,y=-5]{CoreWorkspace}{existing rules}{subscribeQuery() \\ executeTaskOperations()}
+\umlcompo{DataSetManager}{DataSet}
 \umluniassoc{Page}{DataSetManager}
-\umldep{DataSetManager}{CoreWorkspace}
-\umldep{DataSetManager}{QuerySubscription}
+\umluniassoc{Page}{DataSet}
+\umldep{DataSet}{CoreWorkspace}
 \end{tikzpicture}
 \end{center}
 
@@ -164,7 +169,7 @@ pub struct QuerySubscriptionStart {
 
 1. 从页面缓存恢复的数据统一标为版本 0，不继续使用上次进程的版本计数。缓存中的文件内容版本仍保留，供只读展示与定位。
 2. 首次查询结果为版本 1。启动后普通事件与修改完成不会触发查询；显式全量刷新才重新建立订阅，并取得一个新的递增版本。
-3. 全量刷新与用户修改的 ~operationId~ 使用 ~dataset/<实例 UUID>/<版本>/<动作>~ 。刷新编号传入 Harmony 的 ~subscribeQuery~ 并在初始结果中原样回显；初始结果与增量处理都从编号恢复所属版本。刷新换代后的旧订阅回调被丢弃。
+3. 全量刷新与用户修改的 ~operationId~ 使用 ~dataset/<共享上下文 UUID>/<版本>/<动作>/<查询身份>~ 。刷新编号传入 Harmony 的 ~subscribeQuery~ 并在初始结果中原样回显；初始结果与增量处理都从编号恢复所属版本。刷新换代后的旧订阅回调被丢弃。
 4. 每次用户提交形成一个版本，按顺序进入共用提交队列；后续请求只带用户修改的字段。普通字段在真正提交时绑定最新已确认路径与文件版本，改名通过事件的旧新身份映射处理，不从标题猜测路径。
 5. 清单、链接、区块和明确的插入位置保留编辑控件的原始文件版本，不能将旧位置引用静默重绑到新文件。普通字段可以基于新快照提交相同字段增量；未修改字段不进入操作组。
 6. Core 产生的提交事件先在 C++ 查询监控队列中按顺序交给管理类，再完成修改 Promise。管理类合并事件、移除对应乐观层并发布阶段完成结果；版本 2 完成时，版本 3 排队的字段仍可覆盖在显示层上，但不会污染版本 2 的确认结果。
@@ -179,15 +184,15 @@ pub struct QuerySubscriptionStart {
 
 保存边界为所有已排队的修改提交完成、对应事件已经处理完成。队列未清空时自动保存不会写盘，显式 ~flush()~ 也等待队列清空。不能在一个修改批次中途保存任意阶段；等待结束后一次取得整个页面的已确认快照。临时文件完成完整写入、 ~fsync~ 与关闭后，在原子替换前再次检查没有新修改、确认数据没有变化；否则放弃本次临时文件，等下一个稳定边界重取快照。
 
-只保存确认层，不保存输入草稿或未确认的乐观字段。页面关闭先等待操作与事件，解除订阅以固定关闭边界，再保存；应用退后台调用 ~flushAll()~ 。每个页面文件的写入串行化，同名页面的新实例获得缓存写入权，旧实例稍后关闭不会覆盖新实例的缓存。缓存故障不改变 Core 提交结果；结构损坏、格式或范围不匹配时跳过缓存，继续启动时的一次查询。
+只保存确认层，不保存输入草稿或未确认的乐观字段。页面关闭先等待操作与事件，解除订阅以固定关闭边界，再保存；应用退后台调用 ~flushAll()~ 。每个页面文件的写入串行化，同名页面的新实例获得缓存写入权，旧实例稍后关闭不会覆盖新实例的缓存。缓存故障不改变 Core 提交结果；结构损坏、格式或上下文范围不匹配时跳过缓存，继续启动时的查询。每个缓存项另存 queryKey，按对应 DataSet 的查询签名独立匹配；切换任务筛选只使该数据集缓存失配，未变的范围或文件数据集仍可从版本 0 恢复。
 
 提交失败只撤销对应乐观阶段，保留其他已确认事件与后续排队字段，不自动查询。缺少前序事件或位置版本冲突时停止该次写入并报告错误；用户可显式刷新。发现订阅失效时拒绝当前写入，由管理类按外部失效路径刷新并重建订阅，不自动重放失败操作。
 
 * 编辑控件接入
 
-~TaskEditor~ 接收 ~dataManager: TaskEditorDataManager~ 和一个已经绑定的 ~dataSet: TaskEditorDataSet~ 。组合层绑定查询数据集与记录，编辑器不再另收 task 参数或自行创建兼容对象，不选择查询名称、不解释 operationId 或底层通知；读取、字段修改和变化监控均通过管理接口。编辑器不注册 Core 全局监听，也不提供回退至逐任务查询的兼容路径。页面列表的稳定行键使用 ~itemKey()~ ，改名、移动和重名序号调整按事件身份映射保留原行；新建临时行确认后继续沿用同一行键，避免控件状态串到另一个同名节点。编辑器未显式传入 ~instanceKey~ 时也使用管理类的稳定行键，保持编辑会话和焦点身份一致。控件分别记录标题和备注的实际修改标记，焦点或关联更新不会把未改的旧字段写回。每次保存只提交变更字段；确认事件中的关联字段由管理类更新。
+~TaskEditor~ 直接接收 ~dataSet: DataSet~ 和 ~taskId~ 。数据集已经固定查询范围，组合层只传入对象和稳定行 ID；编辑器不再接收任务副本、查询名称、绑定包装对象或专用管理器。读取、字段修改和记录订阅均调用这个 DataSet。编辑器不注册 Core 全局监听，也不提供回退至逐任务查询的兼容路径。页面列表的稳定行键使用 ~taskKey()~ ，改名、移动和重名序号调整按事件身份映射保留原行；新建临时行确认后继续沿用同一行键，避免控件状态串到另一个同名节点。编辑器未显式传入 ~instanceKey~ 时也使用 DataSet 的稳定行键，保持编辑会话和焦点身份一致。控件分别记录标题和备注的实际修改标记，焦点或关联更新不会把未改的旧字段写回。每次保存只提交变更字段；确认事件中的关联字段由管理类更新。
 
-各任务页面的组合层提供绑定当前数据集的管理对象。今天页沿用名为“今天”的管理类实例，固定维护 tasks、priority、files 三个数据集；其他任务视图同样通过管理类交互。缓存版本 0 阶段只读，首次查询完成后开放编辑。隐藏页面保留实例，离开页面关闭；配置范围变化时重建实例。外部数据事件合并 50ms 后由管理类排队刷新；跨天由管理类每分钟检查并刷新。分类与项目分组使用当前快照引用更新成员，行身份使用稳定键，避免界面保留旧成员数组。已有有效快照在刷新期间保持可编辑，不短暂切换只读；编辑会话中控件独立接收字段与关联变化，列表成员和顺序延后至会话结束再应用，防止移动输入框导致失焦并隐式提交草稿。
+各任务页面的组合层直接提供当前 DataSet。今天页声明 tasks、priority、files 三个数据集，DataSetManager 以“今天”为缓存名管理集合；其他任务视图同样独立声明查询。缓存版本 0 阶段只读，首次查询完成后开放编辑。隐藏页面保留实例，离开页面关闭；配置范围变化时管理器重新配置已有 DataSet。每个 DataSet 合并外部失效事件后排队刷新，并每分钟检查跨天变化。分类与项目分组使用当前快照引用更新成员，行身份使用稳定键，避免界面保留旧成员数组。已有有效快照在刷新期间保持可编辑，不短暂切换只读；编辑会话中控件独立接收字段与关联变化，列表成员和顺序延后至会话结束再应用，防止移动输入框导致失焦并隐式提交草稿。
 
 * 当前进度与未完成项
 
@@ -195,7 +200,7 @@ pub struct QuerySubscriptionStart {
 - 已撤回早先 Core 快照预演及其 bridge 扩展；回查型页面原型没有接入实际页面。
 - ~operationId~ 的 Core 操作组和数据事件基础改动已完成编译检查，来源透传、空值兼容和失败不产生更新通知的验证已通过。
 - Core 查询订阅、Harmony 桥接、带版本的页面管理类与每页单文件缓存已实现；编辑器可通过管理类提交字段增量。Core 接口及边界见 [[file:../core/查询订阅设计.org][查询订阅设计]]。
-- 今天页已完成增、删、改、成员进入／离开、关联事件不重复提交、失败回滚和缓存重开的模拟器验收；其他依赖外壳刷新回调的页面现已完成管理接口迁移。
+- 各任务页和项目详情均已完成 DataSet 接入与模拟器逐页验收；今天页另覆盖关联事件不重复提交与失败回滚，七个任务页覆盖缓存重开。
 
 * APP 外部数据验证入口
 
@@ -217,39 +222,36 @@ APP 仅在显式测试启动参数开启时提供内嵌 HTTP 查询和批量修�
 
 * TaskEditor 的本地接口与内嵌回调
 
-TaskEditor 不持有页面查询、数据集名称、文件加载或订阅事件过滤规则。组合层创建管理对象并绑定一个记录数据集；数据管理对象维护身份映射、确认队列和错误归属。TaskEditor 只负责展示任务字段、收集修改、订阅可用快照，以及保留输入与错误提示。
+DataSet 直接提供按 ID 读取、字段编辑和单条订阅。getTask 接受 CoreTask.id、有效的 Org taskId 或 taskKey 返回的稳定行 ID；TaskEditor 固定使用稳定行 ID，改名后仍定位同一记录，删除后同名重建不承接旧编辑器。多个数据集通过 name 隔离，例如收件箱正文的 tasks 与最近新增的 recent；旧查询实例关闭后拒绝写入。
 
 #+begin_src typescript
-interface TaskEditorChange {
+interface TaskDataChange {
   task?: CoreTask
   removed?: boolean
   blocked?: boolean
   error?: string
-  rejectedChanges?: CoreTaskModification[]
+  rejectedChanges?: TaskModification[]
 }
-class TaskEditorDataManager {
-  dataSet(task: CoreTask): TaskEditorDataSet
-  current(dataSet: TaskEditorDataSet): Promise<CoreTask>
-  modify(dataSet: TaskEditorDataSet, source: CoreTask, changes: CoreTaskModification[]): Promise<void>
-  modifyConfirmed(dataSet: TaskEditorDataSet, source: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask>
-  watchDataSet(dataSet: TaskEditorDataSet, listener: (change: TaskEditorChange) => void): () => void
+class DataSet {
+  getTask(id: string): CoreTask | undefined
+  updateTaskFields(id: string, changes: TaskModification[], sourceVersion?: string): CoreTask
+  updateTask(id: string, changes: TaskModification[], sourceVersion?: string): Promise<CoreTask>
+  watchTask(id: string, listener: (change: TaskDataChange) => void): () => void
 }
 #+end_src
 
-今天页的 modify 完成点是本地接收，不等待 Core 提交；可以立即从 current 得到本地字段修改结果。底层完成与失败均由管理对象消费，只通过绑定数据集的回调返回可用快照、移除或错误。注册时先交付当前本地快照，避免屏幕外新出现的行沿用旧输入参数；只通知命中记录的变化，同文件其他记录以及确认信号不刷新此编辑器。
+updateTaskFields 完成点是本地接收，不等待 Core 提交；getTask 立即返回乐观字段。updateTask 等待确认，返回同一稳定行的新快照，供区块或清单编辑取得新位置。watchTask 注册时交付当前快照，此后只通知目标记录的实际变化、移除和定向错误；确认、准备完成、完整文档更新及其他记录变化不重复刷新当前编辑器。页面原有订阅与记录订阅使用同一个管理实例，不再创建编辑器专用管理对象。
 
-日期、标签、优先级、重复、链接、正文与清单等内嵌控件在创建时接收修改回调，将用户字段修改汇集给 TaskEditor；它们不接收 DataManager、不创建数据集、不向 Core 或页面数据集注册监听。TaskEditor 统一将字段数组提交给管理对象。
+日期、标签、优先级、重复、链接、正文与清单等内嵌控件仅接收修改回调。TaskEditor 将字段增量交给 DataSet；项目正文的组合层也直接调用 updateTask，保持位置版本与确认边界。
 
 \begin{center}
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{FieldEditor}{draft}{onChange callback}
-\umlclass[x=6,y=0]{TaskEditor}{dataManager \\ dataSet}{render() \\ persist(fields)}
-\umlclass[x=0,y=-4]{TaskEditorDataSet}{stable key \\ current task}{bound by composition}
-\umlclass[x=6,y=-4]{TaskEditorDataManager}{identity mapping \\ local snapshots}{modify() \\ watchDataSet()}
+\umlclass[x=6,y=0]{TaskEditor}{dataSet \\ taskId}{render() \\ persist(fields)}
+\umlclass[x=6,y=-4]{DataSet}{one query \\ task index \\ identity mapping}{getTask() \\ updateTaskFields() \\ updateTask() \\ watchTask()}
 \umlcompo{TaskEditor}{FieldEditor}
-\umluniassoc{TaskEditor}{TaskEditorDataSet}
-\umluniassoc{TaskEditor}{TaskEditorDataManager}
+\umluniassoc{TaskEditor}{DataSet}
 \end{tikzpicture}
 \end{center}
 
@@ -263,19 +265,19 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 ** 调用点的统一方式
 
-今天、随时、计划、某天、日志簿和收件箱由 TaskPageDataManager 提供当前查询的编辑管理对象；收件箱正文与最近新增分别绑定 tasks 与 recent。项目文档使用 ProjectDataManager 的完整文件节点。所有 TaskEditor 入口均显式注入 dataManager 与 dataSet，不再创建兼容数据来源。
+今天、随时、计划、某天、日志簿和收件箱各自创建并持有 DataSetManager 实例；收件箱正文与最近新增分别指定 tasks 与 recent。项目文档使用同一 DataSetManager 的完整文件节点。所有 TaskEditor 入口均显式注入 dataSet 和 taskId，不再创建编辑器或项目专用管理器。
 
 编辑、确认与页面切换在 50 条任务的专用模拟器列表中验证：修改前后可见记录及其位置不变；从今天切换到随时再返回，恢复同一记录，测量误差为 2 像素。滚动记录使用可见项身份与局部偏移，插入同步提示等前置行不会使保存的阅读位置指向另一条任务；布局空闲回调不覆盖用户滚动结果。
 
 * 项目详情：文件内存 DataSet，不使用页面缓存
 
-项目详情采用 ProjectDataManager，构造时固定 Core 仓库 ID 与相对文件路径。每次进入页面从 Core 读取当前完整文件，用该文件的全部 nodes 构造内存 DataSet；文档分段复用同一份节点数组，不另发逐任务查询。完成、取消、无状态标题和组合节点均保留，受保护的冲突子树沿用 Core 文件投影规则。
+项目详情在页面内定义单个 document DataSet，查询固定 Core 仓库 ID 与相对文件路径。每次进入页面从 Core 读取当前完整文件，用该文件的全部 nodes 构造内存 DataSet；文档分段复用同一份节点数组，不另发逐任务查询。完成、取消、无状态标题和组合节点均保留，受保护的冲突子树沿用 Core 文件投影规则。
 
-内存 DataSet 同时按 CoreTask 的 id 和可用 taskId 建立索引。ProjectDocumentView 只将节点的 taskId（缺失时为 id）交给 DataManager 查找绑定 DataSet，再注入 TaskEditor。TaskEditor 不再接收 section.node 作为第二份 task 数据。
+完整文件数据集同样按 CoreTask.id、有效 taskId 与稳定行 ID 建立索引。ProjectDocumentView 将稳定行 ID 和同一个 DataSet 注入 TaskEditor，正文修改直接调用 updateTask。DataSet.document 原子提供同一确认阶段的完整文件、节点和查询身份；document 事件通知页面更新完整文档；不在控件内逐任务回查。
 
 该页面不创建 PageDataCache，不读写 page-data 目录，不恢复上次进程的数据，也没有缓存版本 0 阶段；内存 DataSet 仅服务当前打开的文件与界面生命周期。修改字段先进入内存模型并通知目标控件，真实修改异步排队提交。完成后重新读取文件的全部节点，确认内容相同不重复通知，关联字段变化才更新相应绑定。外部文件变化同样由管理对象读取完整文件，不逐编辑器回查。
 
-改名、移动和删除的身份映射只消费 Core 原始提交事件，不按标题、节点顺序或内容猜测；同名重建创建新的绑定，旧编辑器不能提交到重建节点。失败时读取文件恢复确认数据，再叠加尚在排队的用户字段并报告错误。文件查询只合并同时进行的请求，不保留跨请求查询缓存。
+改名、移动和删除的身份映射只消费 Core 原始提交事件，不按标题、节点顺序或内容猜测；同名重建创建新的绑定，旧编辑器不能提交到重建节点。编辑和错误恢复复用 DataSetManager 的共享提交队列、字段乐观层与定向错误机制。文件读取使用已有 Workspace.fileAt 与完整 nodes 接口，不扩展 Core 查询协议；包含完整文件查询的管理器不读写页面缓存，但 flush 仍等待已提交修改和文档确认，供退后台同步使用。
 
 项目文档在同一文件的新版本上保留当前阅读偏移，同时重建章节位置索引；切换到其他文件才清除阅读状态。这是当前打开页面的交互状态，与任务数据的持久化缓存无关。
 
@@ -328,13 +330,13 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 ** 任务页面
 
-TaskPageDataManager 在服务层读取配置并构造固定数据集，管理 DataSetManager 的创建、启动、配置失效后的替换与关闭。页面只订阅 TaskPageSnapshot，渲染任务、标签候选、入口状态和计划筛选候选；重复出现复用管理对象。用户显式重试通过管理对象刷新，外部修改由 DataSetManager 合并刷新，UI 不接收或解释原始 Core 事件。
+各页面在 defineDataSets 中声明命名数据集，创建并启动 DataSetManager，再分别订阅各个 DataSet。需要配置文件入口时，页面将纯定义函数交给管理类，由管理类加载配置和仓库身份后调用；缓存读取与恢复由 DataSetManager 完成，每个查询的底层订阅和记录变化由对应 DataSet 完成。页面分别消费各 DataSet 的事件和快照，渲染任务、标签候选、入口状态与计划筛选候选。配置变化、缓存恢复和查询换代均在内部处理，页面只刷新关联展示，不处理 scope、版本或总事件分发。重复出现复用当前实例。
 
-收件箱维护 tasks、target、recent、files；未配置入口时不提交无范围 tasks 查询，recent 仍独立可用。某天和备忘使用配置文件的 tasks、target、files；有效空文件与失效文件仍通过元信息区分。计划未筛选时只维护基础 tasks，选择分类或项目后创建包含 range 与选中 tasks 的新实例；候选始终来自完整范围，选择失效后显示 range 并绑定对应编辑数据集。筛选前先保存编辑，失败保留草稿；快速切换无需等待旧查询，旧结果不能覆盖新范围。新范围快照发布时重建对应控件绑定，避免记录沿用已关闭的数据管理对象。
+收件箱维护 tasks、target、recent、files；未配置入口时不提交无范围 tasks 查询，recent 仍独立可用。某天和备忘使用配置文件的 tasks、target、files；有效空文件与失效文件仍通过元信息区分。计划通过 range 维护完整范围，tasks 维护当前筛选查询，选择分类或项目后仅切换 tasks DataSet 的查询；候选始终来自完整范围，选择失效后显示 range 并绑定对应编辑数据集。筛选前先保存编辑，失败保留草稿；快速切换无需等待旧查询，旧结果不能覆盖新范围。新范围快照发布时重建对应控件绑定，避免记录沿用已关闭的数据管理对象。
 
-TaskEditorDataManager 只提供绑定数据集接口，TodayTaskList、PlannedTaskList、LogbookTaskList 不再创建逐记录兼容读取对象。版本 0 恢复只读，初始化完成后才允许编辑；任务编辑器仍立即接收记录事件，页面分组在编辑会话结束后应用。收件箱多选保留进入时的任务与文件版本，不随后台快照改写提交目标；退出选择后消费管理层最新快照。
+各个 DataSet 提供自己的查询快照、事件与记录级读写接口，TodayTaskList、PlannedTaskList、LogbookTaskList 不再创建逐记录兼容读取对象。版本 0 恢复只读，初始化完成后才允许编辑；任务编辑器仍立即接收记录事件，页面分组在编辑会话结束后应用。收件箱多选保留进入时的任务与文件版本，不随后台快照改写提交目标；退出选择后消费管理层最新快照。
 
-收件箱批量修改、移动、合并、快速录入及日志簿删除／恢复统一经 DataSetManager.runOperation 进入共享用户队列。它分配递增阶段与 operationId，复用原业务服务生成普通 Core 操作，确认通过查询订阅增量归并；成功不再重新查询。排队字段接收前序操作产生的真实身份映射，失败不生成补偿写入；操作及事件完成后才保存确认缓存。
+收件箱批量修改、移动、合并、快速录入及日志簿删除／恢复统一经所属 DataSet.operate 进入共享用户队列。它分配递增阶段与 operationId，复用原业务服务生成普通 Core 操作，确认通过查询订阅增量归并；成功不再重新查询。排队字段接收前序操作产生的真实身份映射，失败不生成补偿写入；操作及事件完成后才保存确认缓存。
 
 ** 笔记本、文件阅读与同步历史
 
@@ -342,20 +344,21 @@ SnapshotDataManager 为非任务查询结果提供统一的 start、refresh、su
 
 NotebookDataManager 发布仓库分组与当前配置；FileDataManager 发布普通文件或指定同步历史备份和读取上下文；SyncLogDataManager 发布排序后的同步记录、仓库身份与展示名，展开详情由 SyncLogDetailDataManager 按固定同步 ID 发布完整记录。完整文件、历史与同步规则仍调用既有 Core 接口，管理类不解析 Org。页面的渲染、原文切换、目录定位与展开状态只使用管理对象快照；普通文件变为项目时沿用既有导航。
 
-ProjectDataManager 增加完整文件快照订阅。外部文件更新和自身提交后的确认读取同时更新内存任务绑定与完整文档，项目页直接消费快照，不由 AppShell 再触发第二次读取。编辑会话期间保留最新文档快照，结束输入后应用；同文件更新保留阅读偏移，隐藏后不执行旧导航。项目正文控件只接收修改回调，组合层将回调转交 modifyConfirmed，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的补读也统一调用 NotificationManager，不由通知控件拼装底层查询。
+document DataSet 只在取得完整快照后向页面发布 document 事件；原始身份映射和乐观字段只通知记录订阅，避免把旧语法树与新节点身份混合展示。外部文件更新和自身提交后的确认读取同时更新内存任务绑定与完整文档，项目页直接消费快照，不由 AppShell 再触发第二次读取。编辑会话期间保留最新文档快照，结束输入后应用；同文件更新保留阅读偏移，隐藏后不执行旧导航。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的补读也统一调用 NotificationManager，不由通知控件拼装底层查询。
 
 \begin{center}
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{AppShell}{navigation UI}{render()}
-\umlclass[x=6,y=0]{TaskPageDataManager}{view / fixed scope}{start() \\ subscribe() \\ close()}
+\umlclass[x=6,y=0]{PageDefinition}{named query or file source}{defineDataSets(config, repos)}
 \umlclass[x=0,y=-4]{SnapshotDataManager}{confirmed snapshot}{start() \\ refresh() \\ subscribe() \\ close()}
-\umlclass[x=6,y=-4]{DataSetManager}{subscriptions / queue / cache}{runOperation() \\ updateFields()}
+\umlclass[x=6,y=-4]{DataSetManager}{collection / context / cache}{dataSet(name) \\ flush()}
 \umlclass[x=3,y=-8]{Page}{interaction state}{render(snapshot)}
 \umluniassoc{Page}{AppShell}
-\umluniassoc{Page}{TaskPageDataManager}
+\umluniassoc{Page}{DataSetManager}
+\umlcompo{Page}{PageDefinition}
 \umluniassoc{Page}{SnapshotDataManager}
-\umldep{TaskPageDataManager}{DataSetManager}
+\umldep{DataSetManager}{PageDefinition}
 \end{tikzpicture}
 \end{center}
 
@@ -363,4 +366,23 @@ ProjectDataManager 增加完整文件快照订阅。外部文件更新和自身�
 
 笔记本已验证外部任务增删引起的计数变化，以及真实 WebDAV 新增／删除文件的入口变化；普通文件与项目详情在当前文档内响应外部改名。同步日志在当前页面显示新一轮真实同步，展开详情和删除备份阅读均使用管理对象，历史任务不进入当前仓库查询。七个任务页均保存独立的确认缓存，重启后界面与 API 内容一致；普通启动不恢复临时 HTTP 服务，退出后确认监听端口释放。
 
-547 项宿主回归通过，覆盖统一提交队列、真实身份映射、配置切换、筛选快速换代、读取失败保留选择、失效选择不自动恢复、迟到回调与关闭清理。正式包和数据准备包构建无编译告警。
+551 项宿主回归通过，覆盖统一提交队列、真实身份映射、配置切换、筛选快速换代、读取失败保留选择、失效选择不自动恢复、迟到回调与关闭清理。正式包和数据准备包构建无编译告警。
+
+* DataSet 拆分后的逐页验收
+
+2026-11-16 在专用 HarmonyOS 模拟器和隔离仓库完成。本轮外部修改全部通过 APP 内嵌 HTTP API，操作同一个 Workspace；界面变化由各 DataSet 事件驱动，不直接改写仓库文件，也不靠重开页面触发更新。
+
+| 页面 | 实际验收场景 | 结果 |
+|------+--------------+------|
+| 今天 | 外部新增和删除；界面改标题保留原备注；触发器关联任务同时移出；非法触发器失败回滚 | 通过 |
+| 收件箱 | 当前页面外部新增、改名和删除自动更新 | 通过 |
+| 计划 | 外部新增、改期移出；结果相同的分类／项目查询切换后仍可编辑；取消筛选恢复完整范围 | 通过 |
+| 随时 | 展开任务时外部修改备注实时更新，改期后移出 | 通过 |
+| 某天 | 外部改名，完成后移出 | 通过 |
+| 备忘 | 当前页面外部新增、改名和删除自动更新 | 通过 |
+| 日志簿 | 外部完成后进入，恢复未完成后移出 | 通过 |
+| 项目详情 | 完整文件保留未完成、已完成和普通标题；界面编辑保留备注；外部标题更新与节点增删；已完成节点恢复未完成 | 通过 |
+
+七个任务页均在最新包中核对独立缓存的 queryKey、确认版本和最终内容，删除记录没有恢复；普通重启后逐页核对显示，并以 API 确认任务和项目编辑已经落盘。缓存版本 0 到首次查询版本 1 的精确事件顺序、逐数据集查询签名独立匹配及提交等待边界由真实 DataSet 管理对象回归覆盖，界面验收不依赖截取启动瞬间。项目完整文件使用内存快照，不写磁盘缓存。
+
+551 项宿主回归全部通过，正式包与数据准备包构建均无编译告警。普通启动不监听临时 HTTP 服务；验收结束退出 APP 后检查监听端口释放。

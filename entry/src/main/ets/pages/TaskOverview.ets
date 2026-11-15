@@ -1,5 +1,7 @@
-import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
-import { TaskPageDataManager, TaskPageSnapshot } from '../services/TaskPageDataManager'
+import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
+import { AppConfig } from '../models/OrgTask'
+import { FileTargetService } from '../services/FileTargetService'
+import { LogbookService } from '../services/LogbookService'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -15,8 +17,8 @@ import { RegionProjectFilter } from '../components/RegionProjectFilter'
 import { LogbookTaskList } from '../components/LogbookTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
-import { overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
+import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
+import { CoreBridgeError, CoreRepo, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, TodayTimedTaskItem, todayLayout, todaySections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups, plannedRegionOptions } from '../ui/PlannedPresentation'
@@ -29,12 +31,14 @@ interface OverviewParams { view?: OverviewKind }
 @Entry({ useSharedStorage: true })
 @Component
 struct TaskOverview {
-  private pageManager: TaskPageDataManager | undefined = undefined
-  private stopPage: (() => void) | undefined = undefined
-  private latestSnapshot: TaskPageSnapshot | undefined = undefined
-  @State dataScope: number = 0
+  private dataManager: DataSetManager | undefined = undefined
+  private tasksDataSet: DataSet | undefined = undefined
+  private priorityDataSet: DataSet | undefined = undefined
+  private rangeDataSet: DataSet | undefined = undefined
+  private targetDataSet: DataSet | undefined = undefined
+  private stops: (() => void)[] = []
   @State pageReady: boolean = false
-  private editorDataManager(): TaskEditorDataManager { return this.pageManager!.editor() }
+  private taskDataSet(): DataSet { return this.view === 'planned' && !this.selectedPlanRegion ? this.rangeDataSet! : this.tasksDataSet! }
 
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
@@ -77,9 +81,10 @@ struct TaskOverview {
   }
 
   aboutToDisappear() {
-    this.stopPage?.(); this.stopPage = undefined
-    this.pageManager?.close().catch((): void => { console.error('保存页面数据失败') })
-    this.pageManager = undefined
+    for (const stop of this.stops) stop()
+    this.stops = []
+    this.dataManager?.close().catch((): void => { console.error('保存页面数据失败') })
+    this.dataManager = undefined
   }
 
   onBackPress(): boolean {
@@ -130,7 +135,7 @@ struct TaskOverview {
     if (this.deletingMemo || !this.pageReady) return
     this.deletingMemo = true
     try {
-      await this.pageManager?.remove(task)
+      await this.taskDataSet().removeTask(task.id)
     } catch (e) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
@@ -153,26 +158,63 @@ struct TaskOverview {
     this.includeUntagged = selection.includeUntagged
     this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
     const layout = this.view === 'today' ? todayLayout(this.visibleTasks, this.priorityOrder, new Date(this.referenceTime)) : null
-    const keyOf = (task: CoreTask): string => this.pageManager?.dataSets()?.itemKey('tasks', task.id) ?? task.id
-    if (!layout || !this.pageManager || !sameTodayTimedItems(this.timedItems, layout.timedItems, keyOf)) this.timedItems = layout?.timedItems ?? []
-    if (!layout || !this.pageManager || !sameTodaySections(this.sections, layout.sections, keyOf)) this.sections = layout?.sections ?? (this.view === 'anytime' ? todaySections(this.visibleTasks) : [])
+    const keyOf = (task: CoreTask): string => this.taskDataSet().taskKey(task.id) ?? task.id
+    if (!layout || !this.dataManager || !sameTodayTimedItems(this.timedItems, layout.timedItems, keyOf)) this.timedItems = layout?.timedItems ?? []
+    if (!layout || !this.dataManager || !sameTodaySections(this.sections, layout.sections, keyOf)) this.sections = layout?.sections ?? (this.view === 'anytime' ? todaySections(this.visibleTasks) : [])
+  }
+
+  defineDataSets(config: AppConfig, repos: CoreRepo[], view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
+    const definitions: DataSetDefinition[] = []
+    if (view === 'memo' || view === 'someday') {
+      const target = FileTargetService.prepare(config, repos, view)
+      if (target) definitions.push({ name: 'tasks', query: target.task }, { name: 'target', query: target.file })
+    } else {
+      definitions.push({ name: view === 'planned' ? 'range' : 'tasks', query: { type: 'task', query: overviewTaskQuery(view) } })
+      if (view === 'today') definitions.push({ name: 'priority', query: { type: 'task', query: todayPriorityQuery() } })
+      if (view === 'planned') definitions.push({ name: 'tasks', query: region ? plannedRegionQuery(region) : { type: 'task', query: overviewTaskQuery('planned') } })
+    }
+    definitions.push({ name: 'files', query: { type: 'file', query: {} } })
+    return definitions
   }
 
   async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
     if (!await TaskInlineSession.end(true)) return
     this.selectedPlanRegion = region
-    await this.pageManager?.selectRegion(region)
+    if (region) await this.tasksDataSet?.setQuery(plannedRegionQuery(region))
+    this.applyPageSnapshot()
   }
 
   async loadTasks() {
-    if (!this.pageManager) {
-      this.pageManager = new TaskPageDataManager(this.getUIContext().getHostContext()!, this.view)
-      this.stopPage = this.pageManager.subscribe((snapshot: TaskPageSnapshot): void => {
-        this.latestSnapshot = snapshot
-        this.applyPageSnapshot()
-      })
+    if (!this.dataManager) {
+      const view = this.view
+      this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, overviewTitle(view),
+        (config: AppConfig, repos: CoreRepo[]): DataSetDefinition[] => this.defineDataSets(config, repos, view, null))
+      this.tasksDataSet = this.dataManager.dataSet('tasks')
+      this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
+      if (view === 'today') {
+        this.priorityDataSet = this.dataManager.dataSet('priority')
+        this.stops.push(this.priorityDataSet.subscribe((): void => {
+          const data = this.priorityDataSet?.data
+          this.priorityOrder = data?.type === 'task' ? data.result.tasks.map(task => task.id) : []
+          this.applyPageSnapshot()
+        }))
+      }
+      if (view === 'planned') {
+        this.rangeDataSet = this.dataManager.dataSet('range')
+        this.stops.push(this.rangeDataSet.subscribe((): void => {
+          const data = this.rangeDataSet?.data
+          this.planRegionOptions = plannedRegionOptions(data?.type === 'task' ? data.result.tasks : [])
+          if (this.rangeDataSet?.isReady() && this.selectedPlanRegion && !this.planRegionOptions.some(region => region.key === this.selectedPlanRegion?.key)) this.selectedPlanRegion = null
+          this.applyPageSnapshot()
+        }))
+      }
+      if (view === 'memo' || view === 'someday') {
+        this.targetDataSet = this.dataManager.dataSet('target')
+        this.stops.push(this.targetDataSet.subscribe((): void => { this.applyPageSnapshot() }))
+      }
     }
-    await this.pageManager.start()
+    try { await this.dataManager.start() }
+    catch (error) { this.loading = false; this.message = (error as Error).message }
   }
 
   pageInlineChanged(): void {
@@ -184,22 +226,21 @@ struct TaskOverview {
 
   applyPageSnapshot(): void {
     if (TaskInlineSession.active()) { this.pageLayoutDeferred = true; return }
-    const snapshot = this.latestSnapshot
-    if (!snapshot) return
-    this.loading = false; this.message = snapshot.message
-    this.dataScope = snapshot.scope
-    this.pageReady = snapshot.ready
-    this.needsConfiguration = snapshot.needsConfiguration
-    this.tasks = snapshot.tasks
-    this.priorityOrder = snapshot.priorityOrder
-    this.tagGroups = snapshot.tagGroups
-    this.tagOptions = this.supportsTagFilter() ? taskTagOptions(snapshot.tasks, snapshot.tagOptions) : []
-    this.planRegionOptions = snapshot.regionOptions
-    this.selectedPlanRegion = snapshot.selectedRegion
+    const dataSet = this.taskDataSet()
+    if (!dataSet) return
+    const data = dataSet.data, target = this.targetDataSet?.data
+    const file = target?.type === 'file' ? target.result[0] : undefined
+    this.message = dataSet.error || this.targetDataSet?.error || this.rangeDataSet?.error || this.priorityDataSet?.error || ''
+    this.loading = !this.message && (!data || (!!this.targetDataSet && !target))
+    this.pageReady = dataSet.isReady()
+    this.needsConfiguration = (this.view === 'memo' || this.view === 'someday') && !!target && !file
+    this.tasks = data?.type === 'task' ? data.result.tasks : []
+    this.tagGroups = this.view === 'memo' ? file?.tagGroups ?? [] : []
+    this.tagOptions = this.supportsTagFilter() ? taskTagOptions(this.tasks, this.view === 'memo' ? file?.tagOptions ?? [] : []) : []
     if (new Date(this.referenceTime).toDateString() !== new Date().toDateString()) this.referenceTime = Date.now()
     this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged }, this.tagOptions, this.tagGroups))
-    this.planGroups = this.view === 'planned' ? plannedGroups(snapshot.tasks) : []
-    this.logbookTaskGroups = this.view === 'logbook' ? logbookGroups(snapshot.tasks, new Date(this.referenceTime)) : []
+    this.planGroups = this.view === 'planned' ? plannedGroups(this.tasks) : []
+    this.logbookTaskGroups = this.view === 'logbook' ? logbookGroups(this.tasks, new Date(this.referenceTime)) : []
     this.openEntryMemo()
   }
 
@@ -227,7 +268,8 @@ struct TaskOverview {
           } })
       } else if (this.message) {
         NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => {
-          this.pageManager?.refresh().catch((error: Error): void => { this.message = error.message })
+          const dataSet = this.targetDataSet?.error ? this.targetDataSet : this.rangeDataSet?.error ? this.rangeDataSet : this.priorityDataSet?.error ? this.priorityDataSet : this.taskDataSet()
+          dataSet.refresh().catch((error: Error): void => { this.message = error.message })
         } })
       } else {
         if (this.view === 'planned') {
@@ -248,12 +290,15 @@ struct TaskOverview {
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(),
-            expandOnRowClick: this.view === 'today', dataManager: this.editorDataManager(),
+            expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {
-          PlannedTaskList({ dataManager: this.editorDataManager(), readOnly: !this.pageReady, groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
+          PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
         } else if (this.view === 'logbook') {
-          LogbookTaskList({ ready: this.pageReady, dataManager: this.editorDataManager(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => { await this.pageManager?.logbook(tasks, action) }, groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
+          LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => { await this.taskDataSet().operate( async (operationId: string): Promise<void> => {
+            if (action === 'restore') await LogbookService.restore(this.getUIContext().getHostContext()!, tasks, operationId)
+            else await LogbookService.remove(this.getUIContext().getHostContext()!, tasks, operationId)
+          }) }, groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {
@@ -269,7 +314,7 @@ struct TaskOverview {
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
               } else {
                 ListItem() {
-                  TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(task), readOnly: !this.pageReady, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
+                  TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
                 }
               }
             }, (task: CoreTask) => taskRenderKey(task))
@@ -290,7 +335,7 @@ struct TaskOverview {
       AppShell({ title: overviewTitle(this.view), activeRoute: 'pages/TaskOverview', activeOverview: this.view,
         titleIcon: this.overviewIcon(),
         drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo }) {
-        ForEach([this.dataScope], (_scope: number) => { this.overviewContent() }, (scope: number) => `${scope}`)
+        ForEach([this.taskDataSet()], (_dataSet: DataSet) => { this.overviewContent() }, (dataSet: DataSet) => dataSet.identity)
       }
       if (this.view === 'memo' && !this.drawerOpen) {
         Button({ type: ButtonType.Circle }) {

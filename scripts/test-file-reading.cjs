@@ -347,10 +347,19 @@ function projectPageFixture() {
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
-    '../services/ProjectDataManager': { ProjectDataManager: class {
-      constructor(context,repoId,path){this.repoId=repoId;this.path=path;this.listeners=new Set();}
-      subscribeFile(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
-      async load(){try{const value=await open(),snapshot={file:value,tasks:value?.nodes()??[]};for(const fn of this.listeners)fn({snapshot,message:''});return snapshot;}catch(error){for(const fn of this.listeners)fn({message:error.message});}}
+    '../services/DataSetManager': { DataSetManager: class {
+      static create(){return new this();}
+      dataSet(){return this;}
+      get document(){return this.file?{file:this.file,tasks:this.file.nodes()}:undefined;}
+      get data(){return this.getConfirmed().data;}
+      get error(){return this.failure??'';}
+      constructor(){this.listeners=new Set();}
+      hasValidScope(){return true;}
+      subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
+      getFile(){return this.file;}
+      getConfirmed(){return{data:{type:'task',result:{tasks:this.file?.nodes()??[]}}};}
+      async start(){return this.refresh();}
+      async refresh(){try{this.file=await open();this.failure='';for(const fn of this.listeners)fn({name:'tasks',type:'document'});}catch(error){this.failure=error.message;for(const fn of this.listeners)fn({name:'tasks',type:'error',message:error.message});}}
       async close(){}
     } },
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
@@ -378,14 +387,14 @@ function projectPageFixture() {
 }
 
 test('项目刷新保留同文件阅读位置，新文件版本更新文档与定位坐标', async () => {
-  const f = projectPageFixture(); await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  const f = projectPageFixture(); await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content, '项目原文');
   const revision = f.page.renderRevision;
-  await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.match(f.page.readingState, /org-node-12/);
   assert.equal(f.page.renderRevision, revision);
   f.setOpen(async () => f.file('v2'));
-  await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(JSON.parse(f.page.readingState).scroll,80);
   assert.ok(f.page.renderRevision > revision);
 });
@@ -397,7 +406,7 @@ test('项目原文切换保留文档状态，刷新失败保留上次全文与�
   await f.page.toggleSource(); assert.equal(f.page.sourceMode, false);
   assert.equal(f.page.readingState, reading);
   f.setOpen(async () => { throw new Error('离线'); });
-  await (f.page.projectDataManager ? f.page.projectDataManager.load() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
   assert.match(f.page.refreshMessage, /离线/);
@@ -429,7 +438,7 @@ test('项目文件改为普通文件时跳转，含冲突的项目仍展示文�
   f.setOpen(async () => ({ ...f.file(), project: () => null }));
   await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes[0].url, 'pages/FileDetail');
   f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
-  await f.page.projectDataManager.load(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 1);
+  await f.page.dataManager.refresh(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 1);
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
 });
@@ -508,7 +517,7 @@ test('项目目录仅列普通章节，保留任务下的章节与重名路径�
 function nativeProjectFixture() {
   let save = async () => true;
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
-    '../services/TaskEditorDataManager': { TaskEditorDataManager: class {} },
+    '../services/DataSetManager': { DataSetManager: class {} },
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args) } }
   }, source => source.split('  @Builder\n')[0]
@@ -598,7 +607,7 @@ test('项目完整文档通过管理对象快照更新，源码与章节使用�
   const f=projectPageFixture();await f.page.loadFile();await new Promise(resolve=>setImmediate(resolve));
   f.page.sourceMode=true;
   f.setOpen(async()=>({...f.file('changed'),sourceBytes:()=>Buffer.from('* DONE 已完成'),documentSections:()=>[{path:null,html:'<p>完成后的正文与进度</p>'}]}));
-  await f.page.projectDataManager.load();await new Promise(resolve=>setImmediate(resolve));
+  await f.page.dataManager.refresh();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content,'* DONE 已完成');assert.equal(f.page.sections[0].html,'<p>完成后的正文与进度</p>');
   assert.equal(f.page.fileVersion,'changed');
 });

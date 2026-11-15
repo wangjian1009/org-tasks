@@ -1,4 +1,4 @@
-import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
+import { DataSet } from '../services/DataSet'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPresentation'
@@ -16,10 +16,10 @@ import { UiColor } from '../ui/Theme'
 
 @Component
 export struct LogbookTaskList {
-  dataManager: TaskEditorDataManager | undefined = undefined
-  private editorDataManager(): TaskEditorDataManager {
-    if (!this.dataManager) throw new Error('未提供页面数据管理对象')
-    return this.dataManager
+  dataSet: DataSet | undefined = undefined
+  private taskDataSet(): DataSet {
+    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    return this.dataSet
   }
 
   private listScroller: ListScroller = new ListScroller()
@@ -143,7 +143,7 @@ export struct LogbookTaskList {
         busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
         heading: item.task.heading, horizontalInset: 0,
         begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
-          TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
+          TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
             dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
             rightSwipeAction: 'none', enableSwipeActions: false,
             regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,

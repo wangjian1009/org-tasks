@@ -134,10 +134,10 @@ function cardRefreshFixture(emit = true, backend) {
   vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,TaskInlineMissingError,CoreDataChangeService,coreErrorMessage,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports, service,
     {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message,{Todo:'Todo',Done:'Done'});
   state = Object.assign(new module.exports.CardRefresh(), {
-    task:original,editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
+    task:original,taskId:original.id,dataSetName:'tasks',editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
     ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},blockEditor:{finish:async()=>true},
     localDataSet:()=>data,
-    localDataManager() { return this.dataManager ?? controller; },
+    localDataSet() { return this.dataSet ?? controller; },
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
   // 编辑器测试只模拟管理接口的快照交付，底层订阅由管理类独立验证。
@@ -156,9 +156,9 @@ function cardRefreshFixture(emit = true, backend) {
     });return data.reading;
   }
   coreListener=()=>deliver();
-  controller={snapshot:()=>data.task,async current(){await data.reading;if(data.error)throw data.error;if(data.removed)throw new TaskInlineMissingError();return data.task;},
-    watchDataSet(_,fn){listeners.add(fn);fn({task:data.task});return()=>{listeners.delete(fn);++data.request;};},
-    async modify(_,task,fields){await service.modify({},task,fields,state.documentMode);if(!emit)await deliver(true);else await data.reading;}};
+  controller={taskKey:()=>original.id,getTask(){if(data.error)throw data.error;return data.removed?undefined:data.task;},
+    watchTask(_,fn){listeners.add(fn);fn({task:data.task});return()=>{listeners.delete(fn);++data.request;};},
+    async updateTaskFields(_,fields){await service.modify({},data.task,fields,state.documentMode);if(!emit)await deliver(true);else await data.reading;}};
   state.instanceKey=original.id;state.aboutToAppear();
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
     setCurrent:value=>current=value,fail:error=>readError=error,readWith:fn=>readOverride=fn,
@@ -642,10 +642,10 @@ function sortFixture({writeError,reloadError}={}) {
   const service={modify:async(context,task,changes)=>{requests.push({task,changes});if(writeError)throw new Error(writeError);},reload:async()=>{reloadCalls++;if(reloadError)throw new Error(reloadError);return updated;}};
   vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineMissingError,checklistMovePreview,coreErrorMessage){'+code+'\n})',{filename})(module,module.exports,service,fixture().TaskInlineMissingError,reorder.checklistMovePreview,error=>error.message);
   const state={pending:Promise.resolve(),working:false,snapshotBlocked:false,draggingCheck:false,checkPreview:[],message:'',
-    localDataSet:()=>({}),localDataManager:()=>({modify:(_data,task,changes)=>service.modify({},task,changes),current:()=>service.reload()}),
+    localDataSet:()=>({}),localDataSet:()=>({updateTaskFields:async(_id,changes)=>{await service.modify({},state.value(),changes);},getTask:()=>state.value()}),
     heading:'Title',notes:'Notes',canSortCheck(){return !this.snapshotBlocked&&!this.working;},
     value(){return this.editTask??current;},getUIContext:()=>({getHostContext:()=>({})})};
-  state.modifyTask=module.exports.SortCheck.prototype.modifyTask;state.currentTask=module.exports.SortCheck.prototype.currentTask;
+  state.modifyTask=module.exports.SortCheck.prototype.modifyTask;state.currentTask=async()=>requests.length?await service.reload():current;
   return {state,requests,updated,reloadCalls:()=>reloadCalls,sort:()=>module.exports.SortCheck.prototype.sortCheck.call(state,'a',null)};
 }
 test('清单排序只提交一次原版本请求，成功后采用新快照并清除预览', async()=>{
@@ -1085,7 +1085,7 @@ test('项目事件快照隔离仓库与文件，读取失败可以在同一事�
 
 test('数据集编辑只提交实际修改字段，不把未改的旧标题覆盖到关联更新上，也不回查',async()=>{
  const f=cardRefreshFixture(false);const changes=[];let current={...f.original,heading:'关联更新标题',fileVersion:'latest'};
- f.state.stopDataSet?.();f.state.editTask=current;f.state.dataManager={isLocal:()=>true,current:()=>current,modify(_data,_source,fields){changes.push(fields);current={...current,editContent:{...current.editContent,notes:'只改备注'}};}};
+ f.state.stopDataSet?.();f.state.editTask=current;f.state.dataSet={isLocal:()=>true,getTask:()=>current,updateTaskFields(_id,fields){changes.push(fields);current={...current,editContent:{...current.editContent,notes:'只改备注'}};}};
  f.state.heading=f.original.heading;f.state.headingEditing=true;f.state.headingDirty=true;f.state.headingDirty=false;
  f.state.notes='只改备注';f.state.notesEditing=true;f.state.notesDirty=true;f.state.notesDirty=true;
  assert.equal(await f.state.saveText(),true);assert.deepEqual(changes,[[{field:'NOTES',value:'只改备注'}]]);
@@ -1097,13 +1097,13 @@ test('本地管理回调的错误只更新当前编辑器并保留被拒绝的�
  const code=ts.transpileModule('export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};vm.runInThisContext('(function(module,exports){'+code+'\n})')(module,module.exports);
  let notify;const card=Object.assign(new module.exports.Card(),{instanceKey:'row-A',dataChanges:{revision:0},refreshRequest:1,message:'',heading:'我的标题',
-  localDataSet:()=>({key:'row-A'}),localDataManager:()=>({watchDataSet(_data,callback){notify=callback;return()=>{};}}),applySnapshot(){}});
+  localDataSet:()=>({key:'row-A'}),localDataSet:()=>({watchTask(_id,callback){notify=callback;return()=>{};}}),applySnapshot(){}});
  card.aboutToAppear();notify({error:'提交失败',rejectedChanges:[{field:'TITLE',value:'我的标题'}]});
  assert.equal(card.message,'提交失败');assert.equal(card.headingDirty,true);assert.equal(card.refreshRequest,2);
 });
 test('编辑器本地保存不等待确认，内嵌控件提交的字段通过同一管理接口汇集',async()=>{
  const f=cardRefreshFixture(false);let current=f.original;const calls=[];
- f.state.dataManager={isLocal:()=>true,current:()=>current,modify(data,source,changes){calls.push(changes);current={...current,priority:{name:'A',category:'Hight'}};}};
+ f.state.dataSet={isLocal:()=>true,getTask:()=>current,updateTaskFields(_id,changes){calls.push(changes);current={...current,priority:{name:'A',category:'Hight'}};}};
  assert.equal(await f.state.persist([{field:'PRIORITY',value:'A'}]),true);
  assert.equal(f.state.value().priority.name,'A');assert.equal(f.state.working,false);assert.equal(calls.length,1);
  assert.equal(f.reads(),0);assert.deepEqual(f.writes,[]);
@@ -1115,6 +1115,6 @@ test('编辑器只向传入的 DataManager 注册一个 DataSet，变化回调�
  const module={exports:{}};vm.runInThisContext('(function(module,exports){'+code+'\n})')(module,module.exports);
  let notify,applies=0;const dataSet={key:'record-A'},current={heading:'新的标题'};
  const card=Object.assign(new module.exports.Card(),{dataChanges:{revision:0},refreshRequest:0,pending:new Promise(()=>{}),localDataSet:()=>dataSet,
-  localDataManager:()=>({watchDataSet(data,callback){assert.equal(data,dataSet);notify=callback;return()=>{};}}),applySnapshot(task){assert.equal(task,current);applies++;}});
+  localDataSet:()=>({taskKey:()=>dataSet.key,watchTask(_id,callback){notify=callback;return()=>{};}}),applySnapshot(task){assert.equal(task,current);applies++;}});
  card.aboutToAppear();notify({task:current});assert.equal(applies,1);
 });

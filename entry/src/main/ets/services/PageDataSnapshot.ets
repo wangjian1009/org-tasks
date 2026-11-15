@@ -290,6 +290,7 @@ export function samePagePath(left: TaskPath, right: TaskPath): boolean {
 
 
 export interface CachedDataSet {
+  queryKey?: string
   version: number
   name: string
   type: 'task' | 'file'

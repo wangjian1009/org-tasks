@@ -213,11 +213,11 @@ function moveCard() {
   class Missing extends Error {}
   vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,MoveToTargetService,refileSections,TaskInlineMissingError,coreErrorMessage){' + output + '\n})', { filename: cardFile })(
     module, module.exports, { reload: () => read() }, { release: key => released.push(key) },
-    { targets: () => targets(), move: async (_context, source, selected) => { calls.push({ source, action: 'move', target: selected }); await write(); } },
+    { targets: () => targets(), move: async (_context, source, selected) => { calls.push({ source: state.moveSource, action: 'move', target: selected }); await write(); } },
     values => [{ category: '工作', targets: values }], Missing, error => error.message);
   const state = Object.assign(new module.exports.MoveCard(), {
     rightSwipeAction: 'move', appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
-    localDataSet:()=>({}),localDataManager: () => ({ targets: () => targets(), moveDataSet: async (_data, source, selected) => { calls.push({ source, action: 'move', target: selected }); await write(); } }),
+    localDataSet:()=>({}),localDataSet: () => ({ moveTargets: () => targets(), moveTask: async (_id, selected) => { calls.push({ source: state.moveSource, action: 'move', target: selected }); await write(); } }),
     currentTask: () => read(), value: () => ({ fileVersion: 'old' }), prepare: async () => true, finish: () => save(),
     applySnapshot: task => { state.current = task; }, getUIContext: () => ({ getHostContext: () => ({}) }),
     removeDeletedTask: () => { state.removed = true; }

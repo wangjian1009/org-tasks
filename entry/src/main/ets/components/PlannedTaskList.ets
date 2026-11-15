@@ -1,4 +1,4 @@
-import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
+import { DataSet } from '../services/DataSet'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { UiColor } from '../ui/Theme'
@@ -11,10 +11,10 @@ import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
 export struct PlannedTaskList {
-  dataManager: TaskEditorDataManager | undefined = undefined
-  private editorDataManager(): TaskEditorDataManager {
-    if (!this.dataManager) throw new Error('未提供页面数据管理对象')
-    return this.dataManager
+  dataSet: DataSet | undefined = undefined
+  private taskDataSet(): DataSet {
+    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    return this.dataSet
   }
 
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
@@ -44,7 +44,7 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
-    TaskEditor({ readOnly: this.readOnly, dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
+    TaskEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
       plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline,
       regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None :
         item.task.project() !== null ? RegionAreaPolicy.Project : RegionAreaPolicy.Category,
@@ -55,7 +55,7 @@ export struct PlannedTaskList {
 
   @Builder
   scheduleTaskItem(item: PlannedScheduleItem) {
-    TaskEditor({ readOnly: this.readOnly, dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
+    TaskEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
       regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })
   }
