@@ -19,6 +19,11 @@ function presentation() {
   return module.exports;
 }
 const linkPresentation = presentation();
+const focusModule = { exports: {} };
+vm.runInThisContext('(function(module,exports){' + ts.transpileModule(
+  fs.readFileSync('entry/src/main/ets/ui/TaskInlineFocus.ets', 'utf8'),
+  { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText + '})')(
+  focusModule, focusModule.exports);
 const filename = 'entry/src/main/ets/components/LinkView.ets';
 const source = fs.readFileSync(filename, 'utf8');
 const behavior = source.slice(0, source.indexOf('  build() {')).replace(/  @Builder\n[\s\S]*?\n  \}\n/g, '')
@@ -30,6 +35,8 @@ const code = ts.transpileModule(behavior.replace(/@Component\n|@State |@Prop |@B
 
 function fixture() {
   const calls = [], messages = [];
+  const frames = [], focused = [];
+  let focusFailure;
   let open = async () => {}, start = async () => {}, search = async () => {};
   const module = { exports: {} };
   const context = {
@@ -42,6 +49,8 @@ function fixture() {
       getSystemPasteboard: () => ({ async setData(value) { calls.push(['copy',value]); } })
     } },
     '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({width:390}) } },
+    '@ohos.arkui.UIContext': { FrameCallback: class {} },
+    '../ui/TaskInlineFocus': focusModule.exports,
     '../ui/LinkPresentation': linkPresentation,
     '@kit.MapKit': { petalMaps: { async openMapTextSearch(...args) { calls.push(['search', ...args]); await search(...args); } } },
     '../ui/Theme': { UiSize: { taskFont: 16 }, UiColor: { surface: '#2D2C2B', text: '#D8D8D8',
@@ -52,13 +61,41 @@ function fixture() {
     { Normal: 400 }, name => ({ name }), class {});
   const view = new module.exports.LinkView();
   view.getUIContext = () => ({ getHostContext: () => context, px2vp: value => value,
-    getFocusController: () => ({requestFocus() {}}),
+    postFrameCallback: frame => frames.push(frame),
+    getFocusController: () => ({requestFocus(key) { if (focusFailure) throw focusFailure; focused.push(key); }}),
     getPromptAction: () => ({ showToast: ({message}) => messages.push(message) }) });
   view.getUniqueId = () => 1;
   view.aboutToAppear();
   return { view, calls, messages, context, documentScript: module.exports.linkDocumentScript,
+    focused, flushFocus() { while (frames.length) frames.shift().onIdle(0); },
+    failFocus(error) { focusFailure = error; },
     open: value => { open = value; }, start: value => { start = value; }, search: value => { search = value; } };
 }
+
+test('标题链接等待输入挂载后的布局帧聚焦，150003 异常保留草稿且可重试', async () => {
+  const f = fixture(); f.view.editable = true;
+  await f.view.select({ ...linkHit(), menu: true }); await f.view.beginEdit();
+  f.flushFocus(); assert.deepEqual(f.focused, []);
+  f.view.titleDraft = '未提交草稿';
+  f.failFocus(Object.assign(new Error('component not visible'), { code: 150003 }));
+  f.view.inputFocus.appeared('link_title_1');
+  assert.doesNotThrow(() => f.flushFocus());
+  assert.equal(f.view.editing, true); assert.equal(f.view.titleDraft, '未提交草稿');
+  f.failFocus(undefined); f.view.inputFocus.visible('link_title_1'); f.flushFocus();
+  assert.deepEqual(f.focused, ['link_title_1']);
+});
+
+test('标题链接取消或离开后不执行过期聚焦，重新编辑仍能聚焦', async () => {
+  for (const action of ['cancelEdit', 'aboutToDisappear']) {
+    const f = fixture(); f.view.editable = true;
+    await f.view.select({ ...linkHit(), menu: true }); await f.view.beginEdit();
+    f.view.inputFocus.appeared('link_title_1'); f.view[action](); f.flushFocus();
+    assert.deepEqual(f.focused, []);
+    if (action === 'cancelEdit') {
+      await f.view.beginEdit(); f.flushFocus(); assert.deepEqual(f.focused, ['link_title_1']);
+    }
+  }
+});
 
 test('标题和 Web 适配共用同一跳转控制器，网页交给系统，内嵌资源不触发跳转', async () => {
   const f = fixture();

@@ -6,6 +6,8 @@ import { LINK_PROTOCOLS, LinkProtocolChoice, linkProtocol, switchLinkProtocol, i
 import { common, Want } from '@kit.AbilityKit'
 import { petalMaps } from '@kit.MapKit'
 import { webview } from '@kit.ArkWeb'
+import { FrameCallback } from '@ohos.arkui.UIContext'
+import { TaskInlineFocus } from '../ui/TaskInlineFocus'
 import { CoreTitlePart, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
 import { UiColor, UiSize } from '../ui/Theme'
 
@@ -20,6 +22,13 @@ interface MapAppChoice {
 
 interface DocumentLinkProtocol { kind: string; title: string; prefix: string; path: string }
 interface LinkProtocolHit { title: string; url: string; x: number; y: number; width: number; height: number }
+
+class LinkFocusFrame extends FrameCallback {
+  private callback: () => void
+  constructor(callback: () => void) { super(); this.callback = callback }
+  onFrame(_frameTimeInNano: number): void {}
+  onIdle(_timeLeftInNano: number): void { this.callback() }
+}
 
 interface LinkHit {
   link: CoreTextLink | null
@@ -110,6 +119,9 @@ export struct LinkView {
   private selectedRevision: string = ''
   private active: boolean = false
   private generation: number = 0
+  private inputFocus: TaskInlineFocus = new TaskInlineFocus(
+    (callback: () => void) => { this.getUIContext().postFrameCallback(new LinkFocusFrame(callback)) },
+    (key: string) => { this.getUIContext().getFocusController().requestFocus(key) })
   private links: LinkController = new LinkController((href: string): Promise<void> => this.navigate(href))
 
   aboutToAppear() {
@@ -127,6 +139,7 @@ export struct LinkView {
     this.links.ready = (): void => { this.installDocument() }
   }
   aboutToDisappear() {
+    this.inputFocus.cancel()
     this.active = false; this.generation++; this.chooserVisible = false; this.mapChoices = []; this.menuVisible = false; this.protocolVisible = false
     this.editor.release(this.owner)
     if (this.editing) this.editingChanged(false)
@@ -176,9 +189,7 @@ export struct LinkView {
     this.menuVisible = false
     this.titleDraft = this.selected.link.title; this.urlDraft = this.selected.link.url
     this.editError = ''; this.editing = true; this.editingChanged(true)
-    if (!this.document) setTimeout((): void => {
-      if (this.active && this.editing && generation === this.generation) this.getUIContext().getFocusController().requestFocus(`link_title_${this.owner}`)
-    }, 0)
+    if (!this.document) this.inputFocus.request(`link_title_${this.owner}`)
     if (this.document && this.webController) {
       this.webController.runJavaScript(`window.orgLinkEdit?.(${JSON.stringify(this.selected.link)}, ${JSON.stringify(this.titleDraft)}, ${JSON.stringify(this.urlDraft)})`)
         .then((): void => { if (this.active && generation === this.generation) this.remeasure() })
@@ -188,6 +199,7 @@ export struct LinkView {
 
   cancelEdit() {
     if (this.saving) return
+    this.inputFocus.cancel()
     this.protocolVisible = false; this.menuVisible = false; this.editing = false; this.editError = ''; this.editingChanged(false)
     if (this.webController) this.webController.runJavaScript('window.orgLinkCancel?.()').then((): void => { this.remeasure() }).catch(() => {})
   }
@@ -349,8 +361,11 @@ export struct LinkView {
         .id(`link_title_${this.owner}`).accessibilityText('链接标题').enterKeyType(EnterKeyType.Next)
         .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => {
           event.keepEditableState()
-          this.getUIContext().getFocusController().requestFocus(`link_url_${this.owner}`)
+          this.inputFocus.request(`link_url_${this.owner}`)
         })
+        .onAppear((): void => { this.inputFocus.appeared(`link_title_${this.owner}`) })
+        .onDisAppear((): void => { this.inputFocus.disappeared(`link_title_${this.owner}`) })
+        .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputFocus.visible(`link_title_${this.owner}`) })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.titleDraft = value })
       Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
       Row({ space: 8 }) {
@@ -368,6 +383,9 @@ export struct LinkView {
         TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
           .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
           .onSubmit((): void => { this.saveEdit() })
+          .onAppear((): void => { this.inputFocus.appeared(`link_url_${this.owner}`) })
+          .onDisAppear((): void => { this.inputFocus.disappeared(`link_url_${this.owner}`) })
+          .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputFocus.visible(`link_url_${this.owner}`) })
           .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.urlDraft = value })
       }.width('100%')
       if (this.editError) { Text(this.editError).fontSize(12).fontColor(UiColor.error).width('100%') }
