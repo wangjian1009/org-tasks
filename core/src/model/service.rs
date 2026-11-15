@@ -528,24 +528,39 @@ impl OrgRepo {
         let root = Path::new(&self.root_directory);
         let rules = super::TaskScanRules::load(root).await?;
         let sources = scan_org_files(root, ignore_files, included_files).await?;
-        let mut setup_cache = sources
-            .iter()
-            .map(|source| (source.path.clone(), Some(source.source_bytes.clone())))
-            .collect();
-        let mut files = Vec::with_capacity(sources.len());
+        // 文件之间没有依赖关系；并发取得 SETUPFILE 和解析语法树，完成后再按路径合并，
+        // 保持调用方看到的稳定顺序。每个任务使用独立的设置缓存，避免跨文件共享可变状态。
+        let mut jobs = tokio::task::JoinSet::new();
+        let repository = self.clone();
+        let root_directory = root.to_path_buf();
         for source in sources {
-            let setup = load_setup_settings_cached(
-                root,
-                &source.path,
-                &source.source_bytes,
-                &mut setup_cache,
-            )
-            .await?;
-            let mut file = self.parse_file_with_setup(source.path, source.source_bytes, setup)?;
-            file.modified_at = source.modified_at;
-            file.scan_ignored = rules.excludes(&file.path);
+            let repository = repository.clone();
+            let root_directory = root_directory.clone();
+            let ignored = rules.excludes(&source.path);
+            jobs.spawn(async move {
+                let setup = load_setup_settings(
+                    &root_directory,
+                    &source.path,
+                    &source.source_bytes,
+                )
+                .await?;
+                let mut file = repository.parse_file_with_setup(
+                    source.path,
+                    source.source_bytes,
+                    setup,
+                )?;
+                file.modified_at = source.modified_at;
+                file.scan_ignored = ignored;
+                Ok::<_, CoreError>(file)
+            });
+        }
+        let mut files = Vec::with_capacity(jobs.len());
+        while let Some(result) = jobs.join_next().await {
+            let file = result
+                .map_err(|error| CoreError::Store(format!("并发读取 Org 文件失败: {error}")))??;
             files.push(file);
         }
+        files.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(files)
     }
 
@@ -949,7 +964,7 @@ async fn scan_org_files(
     ignore_files: &[String],
     included_files: Option<&std::collections::BTreeSet<String>>,
 ) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
-    let mut files = Vec::new();
+    let mut candidates = Vec::new();
     let mut directories = vec![std::path::PathBuf::new()];
     while let Some(relative) = directories.pop() {
         let mut entries = fs::read_dir(root.join(&relative))
@@ -982,17 +997,31 @@ async fn scan_org_files(
                 {
                     continue;
                 }
-                let source_bytes = fs::read(entry.path())
-                    .await
-                    .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
-                let mut file = OrgRepoSourceFile::new(path, source_bytes)?;
-                file.modified_at = metadata
+                let modified_at = metadata
                     .modified()
                     .ok()
                     .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
-                files.push(file);
+                candidates.push((path, entry.path(), modified_at));
             }
         }
+    }
+    let mut jobs = tokio::task::JoinSet::new();
+    for (path, disk, modified_at) in candidates {
+        jobs.spawn(async move {
+            let source_bytes = fs::read(disk)
+                .await
+                .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
+            let mut file = OrgRepoSourceFile::new(path, source_bytes)?;
+            file.modified_at = modified_at;
+            Ok::<_, CoreError>(file)
+        });
+    }
+    let mut files = Vec::with_capacity(jobs.len());
+    while let Some(result) = jobs.join_next().await {
+        files.push(
+            result
+                .map_err(|error| CoreError::Store(format!("并发读取 org 文件失败: {error}")))??,
+        );
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(files)

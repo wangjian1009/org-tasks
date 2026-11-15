@@ -284,24 +284,53 @@ async fn load_files(
             version.file.clone(),
         ))?);
     }
-    let mut files = BTreeMap::new();
+    // 每个源文件只需要自己的磁盘快照，先并发读取，再把结果合并到统一的有序表。
+    // 解析、版本检查和后续操作仍在同一事务中按原顺序执行。
+    let mut setup_caches = BTreeMap::<OrgRepoId, BTreeMap<String, Option<Vec<u8>>>>::new();
+    let mut jobs = tokio::task::JoinSet::new();
+    for (repo_id, path) in keys {
+        let repo = workspace
+            .repo(&repo_id)
+            .ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
+        if repo.id.is_empty() {
+            return Err(CoreError::InvalidState("仓库尚未加载"));
+        }
+        let root = PathBuf::from(&repo.root_directory);
+        jobs.spawn(async move {
+            let disk = checked_disk(&root, &path).await?;
+            let stamp = file_stamp(&disk).await?;
+            let original = read_optional(&disk).await?;
+            if file_stamp(&disk).await? != stamp {
+                return Err(CoreError::InvalidState("读取期间任务文件已被外部修改"));
+            }
+            Ok::<_, CoreError>(((repo_id, path), disk, stamp, original))
+        });
+    }
     let mut disks = BTreeSet::new();
     let mut loaded = BTreeMap::new();
-    let mut setup_caches = BTreeMap::<OrgRepoId, BTreeMap<String, Option<Vec<u8>>>>::new();
-    let mut scan_rules = BTreeMap::new();
-    for (repo_id, path) in keys {
-        let repo = workspace.repo(&repo_id).ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
-        if repo.id.is_empty() { return Err(CoreError::InvalidState("仓库尚未加载")); }
-        let root = Path::new(&repo.root_directory);
-        let disk = checked_disk(root, &path).await?;
-        if !disks.insert(disk.clone()) { return Err(CoreError::InvalidInput("仓库文件路径不能互相重叠")); }
-        let stamp = file_stamp(&disk).await?;
-        let original = read_optional(&disk).await?;
-        if file_stamp(&disk).await? != stamp { return Err(CoreError::InvalidState("读取期间任务文件已被外部修改")); }
-        setup_caches.entry(repo_id.clone()).or_default().insert(path.clone(), original.clone());
-        if !scan_rules.contains_key(&repo_id) { scan_rules.insert(repo_id.clone(), TaskScanRules::load(root).await?); }
+    while let Some(result) = jobs.join_next().await {
+        let ((repo_id, path), disk, stamp, original) = result
+            .map_err(|error| CoreError::Store(format!("并发读取任务文件失败: {error}")))??;
+        if !disks.insert(disk.clone()) {
+            return Err(CoreError::InvalidInput("仓库文件路径不能互相重叠"));
+        }
+        setup_caches
+            .entry(repo_id.clone())
+            .or_default()
+            .insert(path.clone(), original.clone());
         loaded.insert((repo_id, path), (disk, stamp, original));
     }
+    let mut scan_rules = BTreeMap::new();
+    for (repo_id, _) in loaded.keys() {
+        if !scan_rules.contains_key(repo_id) {
+            let repo = workspace.repo(repo_id).expect("已验证仓库");
+            scan_rules.insert(
+                repo_id.clone(),
+                TaskScanRules::load(Path::new(&repo.root_directory)).await?,
+            );
+        }
+    }
+    let mut files = BTreeMap::new();
     for ((repo_id, path), (disk, stamp, original)) in loaded {
         let repo = workspace.repo(&repo_id).expect("已验证仓库");
         let source = original.clone().unwrap_or_default();
