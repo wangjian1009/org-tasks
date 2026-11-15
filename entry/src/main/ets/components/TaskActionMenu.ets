@@ -11,6 +11,11 @@ export struct TaskActionMenu {
   @Prop selecting: boolean = false
   @Prop invalid: boolean = false
   @Prop idPrefix: string = 'task_action'
+  @State private availableWidth: number = 0
+
+  actionWidth(): number {
+    return this.selecting ? Math.max(56, this.availableWidth / Math.max(1, this.items.length)) : 48
+  }
 
   actionEnabled(item: TaskActionItem): boolean {
     return this.selecting ? taskBatchActionEnabled(item, this.count, this.busy, this.invalid) : !this.busy && !this.invalid
@@ -31,7 +36,7 @@ export struct TaskActionMenu {
               Text(this.busy && this.busyAction === item.id ? item.busyTitle || item.title : item.title).fontSize(11).maxLines(1)
                 .fontColor(item.style === 'danger' ? UiColor.error : item.style === 'selection' ? Color.White : UiColor.text)
             }.opacity(this.actionEnabled(item) || this.busy && this.busyAction === item.id ? 1 : 0.4)
-          }.id(`${this.idPrefix}_${item.id}`).width(this.selecting ? 56 : 48).height(44).padding(0).flexShrink(0)
+          }.id(`${this.idPrefix}_${item.id}`).width(this.actionWidth()).height(44).padding(0).flexShrink(0)
             .backgroundColor(item.style === 'selection' ? UiColor.selection : Color.Transparent)
             .enabled(this.actionEnabled(item)).accessibilityText(item.label)
             .onClick((): void => { this.activate(item) })
@@ -39,10 +44,13 @@ export struct TaskActionMenu {
               this.getUIContext().getPromptAction().showToast({ message: item.label })
             }))
         }, (item: TaskActionItem) => item.id)
-      }.constraintSize({ minWidth: this.selecting ? '100%' : 0 })
-        .justifyContent(this.selecting ? FlexAlign.End : FlexAlign.Start)
-    }.width('100%').align(this.selecting ? Alignment.End : Alignment.Start)
+      }.width(this.items.length * this.actionWidth())
+    }.width('100%').align(Alignment.Start)
       .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(44)
       .backgroundColor(this.selecting ? Color.Transparent : '#35383E').borderRadius(this.selecting ? 0 : 12).clip(true)
+      .onAreaChange((_old: Area, area: Area): void => {
+        const width = parseFloat(area.width.toString())
+        if (this.selecting && width !== this.availableWidth) this.availableWidth = width
+      })
   }
 }

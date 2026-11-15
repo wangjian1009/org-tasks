@@ -10,8 +10,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskEditor } from '../components/editors/TaskEditor'
-import { TaskRegion } from '../components/TaskRegion'
-import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
+import { RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/editors/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
 import { TaskSelectionRow } from '../components/TaskSelectionRow'
@@ -505,33 +504,62 @@ struct Inbox {
 
   @Builder
   plannedDivider() {
-    Column() {
-      Divider().color('#606D64').margin({ left: 20, right: 20 })
+    Column({ space: 8 }) {
       Row({ space: 10 }) {
-        Row().width(3).height(18).backgroundColor(UiColor.primary)
+        Image($r('app.media.ui_recent_created')).width(22).height(22).accessibilityLevel('no')
         Text('最近新增').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.primary)
-        Divider().layoutWeight(1).color('#4C5951')
-      }.height(52).width('100%').padding({ left: 20, right: 20 })
-    }.width('100%').backgroundColor('#242925')
+      }.width('100%')
+      Divider().color(UiColor.outline).strokeWidth(0.5)
+    }.height(52).width('100%').padding({ left: 20, right: 20 }).justifyContent(FlexAlign.Center)
   }
 
   @Builder
   recentHeader(day: RecentDay) {
-    Row({ space: 8 }) {
-      Text(day.date).fontSize(25).fontWeight(FontWeight.Bold).fontColor(UiColor.text).flexShrink(0)
-      Text(day.weekday).fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary).flexShrink(0)
-      Divider().layoutWeight(1).color(UiColor.outline).strokeWidth(0.5)
-    }.width('100%').height(48).padding({ left: 20, right: 20 }).backgroundColor('#282C29')
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Text(day.date).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).flexShrink(0)
+        Text(day.weekday).fontSize(12).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary).flexShrink(0)
+      }.width('100%')
+      Divider().color(UiColor.outline).strokeWidth(0.5)
+    }.width('100%').height(48).padding({ left: 20, right: 20 }).justifyContent(FlexAlign.Center)
   }
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(task), dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(task), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+  }
+
+  @Builder
+  recentProjectHeader(group: RecentTaskGroup) {
+    Column({ space: 8 }) {
+      Text(group.title).fontSize(12).fontWeight(FontWeight.Regular).fontColor(UiColor.projectLabel)
+        .width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Divider().color(UiColor.outline).strokeWidth(0.5)
+    }.width('100%').padding({ left: 8, right: 8, top: 10, bottom: 8 })
+  }
+
+  @Builder
+  recentCategoryHeader(group: RecentTaskGroup) {
+    Column({ space: 10 }) {
+      Row({ space: 10 }) {
+        Image($r('app.media.ui_category')).width(22).height(22).accessibilityLevel('no')
+        Text(group.category || '未分类').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+          .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%')
+      Divider().color(UiColor.outline).strokeWidth(0.5)
+    }.width('100%').padding({ left: 8, right: 8, top: 24, bottom: 8 })
   }
 
   @Builder
   recentRegion(group: RecentTaskGroup) {
-    TaskRegion({ category: group.category || '未分类', project: group.kind === 'project' ? group : null }) {
+    if (group.kind === 'project') {
+      ListItemGroup({ header: this.recentProjectHeader(group) }) {
+        ForEach(group.items, (task: CoreTask) => {
+          ListItem() { this.recentTask(task) }
+        }, (task: CoreTask) => taskRenderKey(task))
+      }.width('100%').padding({ bottom: 8 }).margin({ top: 12 })
+    } else {
+      ListItem() { this.recentCategoryHeader(group) }
       ForEach(group.items, (task: CoreTask) => {
         ListItem() { this.recentTask(task) }
       }, (task: CoreTask) => taskRenderKey(task))
@@ -541,7 +569,7 @@ struct Inbox {
   // 分组由 List 的内边距定位；通栏条目扩展回页面宽度，避免包装原生列表分组。
   @Styles
   fullWidthItem() {
-    .width('calc(100% + 40vp)').margin({ left: -20, right: -20 })
+    .width('calc(100% + 24vp)').margin({ left: -12, right: -12 })
   }
 
   async loadRecords() {
@@ -633,12 +661,12 @@ struct Inbox {
                           .width('100%').padding({ left: 27 })
                       }
                     }
-                  }.width('100%')
+                  }.width('100%').padding({ left: 12, right: 12 })
                     .onAreaChange((oldArea: Area, newArea: Area): void => {
                       this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
                       this.measureRows()
                     })
-                }.width('100%').id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
+                }.fullWidthItem().id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
                   start: this.actionPolicy.rightSwipeAction === 'move' ? {
                     builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
                     onAction: (): void => { this.swipeAction(record, 'move') }
@@ -654,13 +682,13 @@ struct Inbox {
               }
               if (this.recentGroups.length > 0) {
                 ListItem() { this.plannedDivider() }.fullWidthItem()
-                ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }.fullWidthItem()
+                ListItem() { Column().height(16).width('100%') }.fullWidthItem()
                 ForEach(this.recentGroups, (day: RecentDay) => {
                   ListItem() { this.recentHeader(day) }.fullWidthItem()
                   ForEach(day.groups, (group: RecentTaskGroup) => {
                     this.recentRegion(group)
                   }, (group: RecentTaskGroup) => JSON.stringify(group))
-                  ListItem() { Column().height(16).width('100%').backgroundColor('#282C29') }.fullWidthItem()
+                  ListItem() { Column().height(16).width('100%') }.fullWidthItem()
                 }, (day: RecentDay) => JSON.stringify(day))
               }
               if (this.recentLoading) {
@@ -673,7 +701,8 @@ struct Inbox {
                 }.fullWidthItem()
               }
               ListItem() { Column().height(this.selectingRecords ? 156 : 104) }.fullWidthItem()
-            }.id('inbox_task_list').width('100%').padding({ left: 20, right: 20 })
+            }.id('inbox_task_list').width('100%').padding({ left: 12, right: 12 })
+              .clipContent(ContentClipMode.BOUNDARY)
               .layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
                 this.listHeight = parseFloat(newArea.height.toString())
