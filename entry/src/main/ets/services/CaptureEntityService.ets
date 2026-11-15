@@ -49,6 +49,18 @@ function entitySchedule(entity: textProcessing.Entity): string | null {
   return null
 }
 
+// 地址协议的 URI 保留可读的 Unicode 文本；仅转义会改变 Org 链接边界或
+// 被 decodeURIComponent 误解释的字符。这样生成的正文仍是可直接阅读的地址。
+function addressUri(address: string): string {
+  return Array.from(address).map((character: string): string => {
+    const code = character.codePointAt(0) ?? 0
+    if (code <= 0x1f || code === 0x7f || character === '[' || character === ']' || character === '%') {
+      return encodeURIComponent(character)
+    }
+    return character
+  }).join('')
+}
+
 function captureEntities(entities: textProcessing.Entity[]): CaptureEntities {
   const addresses: string[] = []
   let scheduled: string | null = null
@@ -62,7 +74,7 @@ function captureEntities(entities: textProcessing.Entity[]): CaptureEntities {
   }
   const links = addresses.map((address: string): string => {
     const label = address.replace(/\[/g, '［').replace(/\]/g, '］')
-    return `[[addr:${encodeURIComponent(address)}][${label}]]`
+    return `[[addr:${addressUri(address)}][${label}]]`
   })
   return { body: links.join('\n'), scheduled }
 }

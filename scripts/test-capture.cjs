@@ -325,7 +325,7 @@ test('捕捉保留完整标题，将去重地址链接与首个有效时间随�
   const created = f.calls[0].group.operations[0].data;
   assert.equal(created.title, title);
   assert.equal(created.scheduled, '<2026-11-10 15:00>');
-  assert.equal(created.body, ['杭州市西湖区文三路', '西湖'].map(address => `[[addr:${encodeURIComponent(address)}][${address}]]`).join('\n'));
+  assert.equal(created.body, ['杭州市西湖区文三路', '西湖'].map(address => `[[addr:${address}][${address}]]`).join('\n'));
   assert.equal(f.releases(), 1);
 });
 
@@ -362,7 +362,7 @@ test('单个损坏或非法时间不影响地址与后续有效时间，地址�
   await f.CaptureService.save({}, '输入');
   const created = f.calls[0].group.operations[0].data;
   assert.equal(created.scheduled, '<2026-11-11 09:00>');
-  assert.equal(created.body, `[[addr:${encodeURIComponent('杭州[西湖] 北门')}][杭州［西湖］ 北门]]`);
+  assert.equal(created.body, `[[addr:杭州%5B西湖%5D 北门][杭州［西湖］ 北门]]`);
 });
 
 test('实体服务异常或超时仍保存标题，下一次捕捉可以重新识别；释放失败保留已识别字段', async () => {
