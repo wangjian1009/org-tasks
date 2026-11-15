@@ -63,8 +63,9 @@ function fixture() {
   const loading = full.slice(full.indexOf('  async loadRecords()'), full.indexOf('  build()'));
   const Page = compile(prefix + loading + '}\nmodule.exports = Inbox;', filename, {
     '../components/editors/TaskDateDialog': {},
+    '../services/TaskEditorDataManager': { TaskEditorDataManager: class {} },
     '../services/TaskInlineService': { TaskInlineSession: { active: () => false, async end() { return saveResult; } } },
-    '../services/CoreNotificationService': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
+    '../services/NotificationManager': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
     '@kit.ArkUI': { KeyboardAvoidMode: { OFFSET: 0 } },
     '../services/InboxService': { InboxService },
     '../ui/InboxPresentation': { recentDays: () => [] },
@@ -92,7 +93,7 @@ test('直接合并只提交一组删除和修改，先加载 Core 身份并携�
   const commits = f.requests.filter(r => r.kind === 'commit');
   assert.equal(commits.length, 1);
   assert.deepEqual(commits[0].group.operations.map(op => op.type), ['Deletion', 'Modification']);
-  assert.deepEqual(commits[0].group.queueRepoIds, ['core']);
+
   assert.deepEqual(commits[0].group.fileVersions, [{ repoId: 'core', file: 'inbox.org', version: 'v1' }]);
   f.config.inboxFile = 'changed.org';
   await assert.rejects(f.InboxService.merge({}, f.records), e => e.code === 'invalidState');

@@ -1,3 +1,6 @@
+#include <map>
+#include <deque>
+#include <mutex>
 #include <cstdint>
 #include <cstring>
 #include <chrono>
@@ -27,6 +30,9 @@ extern "C" void org_tasks_harmony_workspace_unwatch_notifications(uint64_t subsc
 extern "C" int32_t org_tasks_harmony_workspace_reload(uint64_t handle);
 extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t monitor);
 extern "C" uint64_t org_tasks_harmony_workspace_watch_data_changes(uint64_t handle, uint64_t monitor);
+extern "C" char* org_tasks_harmony_workspace_subscribe_query(uint64_t handle, const char* query, uint64_t monitor, uint64_t* subscription);
+extern "C" char* org_tasks_harmony_workspace_query_subscription_status(uint64_t handle, uint64_t subscription);
+extern "C" void org_tasks_harmony_workspace_unsubscribe_query(uint64_t handle, uint64_t subscription);
 extern "C" void org_tasks_harmony_workspace_unwatch_data_changes(uint64_t subscription);
 extern "C" void org_tasks_harmony_data_change_monitor_release(uint64_t monitor);
 extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, const char* root_directory);
@@ -39,6 +45,9 @@ extern "C" char* org_tasks_harmony_repo_history_detail(uint64_t workspace_handle
 extern "C" char* org_tasks_harmony_repo_full_path(uint64_t handle, const char* root);
 extern "C" char* org_tasks_harmony_repo_id(uint64_t workspace_handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_query(uint64_t handle, const char* query_json);
+extern "C" char* org_tasks_harmony_workspace_start_http_server(uint64_t handle, uint16_t port);
+extern "C" char* org_tasks_harmony_workspace_stop_http_server(uint64_t handle);
+extern "C" char* org_tasks_harmony_workspace_http_server_status(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_refile_targets(uint64_t handle, const char* query_json);
 extern "C" char* org_tasks_harmony_preview_operation(uint64_t handle, const char* request);
 extern "C" void org_tasks_harmony_preview_release(uint64_t handle, const char* id);
@@ -55,11 +64,14 @@ extern "C" char* org_tasks_harmony_repo_conflicts(uint64_t handle, const char* r
 
 
 namespace {
+struct DataChangeWatch;
 struct WorkspaceWrap {
     uint64_t handle = 0;
     uint64_t notification_subscription = 0;
     uint64_t notification_generation = 0;
     std::vector<uint64_t> data_change_subscriptions;
+    std::vector<uint64_t> query_subscriptions;
+    std::map<uint64_t, struct DataChangeWatch*> query_watches;
 };
 
 struct RepoWrap {
@@ -103,13 +115,19 @@ struct WorkspaceStringWork {
     std::string preview_action;
     bool watch_notifications = false;
     bool watch_data_changes = false;
+    bool subscribe_query = false;
+    bool query_status = false;
+    uint32_t http_action = 0;
+    uint16_t http_port = 8787;
+    uint64_t query_id = 0;
+    struct DataChangeWatch* query_watch = nullptr;
     bool reload = false;
     uint64_t monitor_handle = 0;
     uint64_t subscription_id = 0;
     uint64_t subscription_generation = 0;
     ~WorkspaceStringWork() {
         if (monitor_handle != 0) {
-            if (watch_data_changes) org_tasks_harmony_data_change_monitor_release(monitor_handle);
+            if (watch_data_changes || subscribe_query) org_tasks_harmony_data_change_monitor_release(monitor_handle);
             else org_tasks_harmony_notification_monitor_release(monitor_handle);
         }
     }
@@ -210,6 +228,7 @@ void FinalizeWorkspace(napi_env, void* data, void*)
     for (uint64_t subscription : workspace->data_change_subscriptions) {
         org_tasks_harmony_workspace_unwatch_data_changes(subscription);
     }
+    for (uint64_t id : workspace->query_subscriptions) org_tasks_harmony_workspace_unsubscribe_query(workspace->handle, id);
     if (workspace->handle != 0) {
         org_tasks_harmony_workspace_release(workspace->handle);
     }
@@ -497,7 +516,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // id 为 Core 的明文逻辑路径；区块及其 paragraph、blankLinesBefore 均随 editContent.blocks 与文档快照原样透传。
     // CONTENT_BLOCK、清单及链接操作沿用原文件版本，在 worker 中由 Core 校验源范围。
-    for (const char* name : {"id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
+    for (const char* name : {"orderKey", "id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit", "hasAttach"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
@@ -631,6 +650,42 @@ void CallWebDavSyncMonitor(napi_env env, napi_value callback, void*, void* data)
     delete source;
 }
 
+bool ProjectQueryDataEvent(napi_env env, napi_value event)
+{
+    for (const char* collection : {"changes", "files"}) {
+        napi_value entries; uint32_t length = 0; napi_valuetype type;
+        if (napi_get_named_property(env, event, collection, &entries) != napi_ok || napi_typeof(env, entries, &type) != napi_ok) return false;
+        if (type == napi_null || type == napi_undefined) continue;
+        if (napi_get_array_length(env, entries, &length) != napi_ok) return false;
+        for (uint32_t i = 0; i < length; ++i) {
+            napi_value entry; if (napi_get_element(env, entries, i, &entry) != napi_ok) return false;
+            for (const char* side : {"before", "after"}) {
+                napi_value container = entry, view; std::string field = std::string(side) + "View";
+                if (std::string(collection) == "changes") {
+                    if (napi_get_named_property(env, entry, side, &container) != napi_ok || napi_typeof(env, container, &type) != napi_ok) return false;
+                    if (type == napi_null) continue;
+                    field = "view";
+                }
+                if (napi_get_named_property(env, container, field.c_str(), &view) != napi_ok || napi_typeof(env, view, &type) != napi_ok) return false;
+                if (type == napi_null || type == napi_undefined) continue;
+                if (std::string(collection) == "changes") {
+                    napi_value task = CreateTaskObject(env, view);
+                    if (task == nullptr || napi_set_named_property(env, container, field.c_str(), task) != napi_ok) return false;
+                } else {
+                    napi_value array;
+                    if (napi_create_array_with_length(env, 1, &array) != napi_ok || napi_set_element(env, array, 0, view) != napi_ok || !ProjectFileResult(env, array)) return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+void DrainQueryWatch(napi_env env, struct DataChangeWatch* watch);
+void CallQueryDataMonitor(napi_env env, napi_value, void* context, void*)
+{
+    if (env != nullptr) DrainQueryWatch(env, static_cast<DataChangeWatch*>(context));
+}
+
 extern "C" void org_tasks_harmony_webdav_sync_monitor_event(uint64_t monitor_handle,
     const char* event_json)
 {
@@ -656,12 +711,38 @@ extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t handle)
     if (watch != nullptr) napi_release_threadsafe_function(watch->function, napi_tsfn_release);
 }
 
-struct DataChangeWatch { napi_threadsafe_function function = nullptr; };
-void FinalizeDataChangeWatch(napi_env, void* data, void*) { delete static_cast<DataChangeWatch*>(data); }
+struct DataChangeWatch {
+    napi_threadsafe_function function = nullptr;
+    napi_ref callback = nullptr;
+    bool projected = false;
+    std::mutex mutex;
+    std::deque<std::string> pending;
+};
+void FinalizeDataChangeWatch(napi_env env, void* data, void*) {
+    auto* watch = static_cast<DataChangeWatch*>(data);
+    if (watch->callback != nullptr) napi_delete_reference(env, watch->callback);
+    delete watch;
+}
+void DrainQueryWatch(napi_env env, DataChangeWatch* watch) {
+    std::deque<std::string> pending;
+    { std::lock_guard<std::mutex> lock(watch->mutex); pending.swap(watch->pending); }
+    napi_value callback, receiver, ignored;
+    if (napi_get_reference_value(env, watch->callback, &callback) != napi_ok) return;
+    napi_get_undefined(env, &receiver);
+    for (const auto& source : pending) {
+        napi_value event;
+        if (ParseJson(env, source, &event) && ProjectQueryDataEvent(env, event)) napi_call_function(env, receiver, callback, 1, &event, &ignored);
+    }
+}
 extern "C" void org_tasks_harmony_data_change_update(uint64_t handle, const char* json)
 {
     auto* watch = reinterpret_cast<DataChangeWatch*>(static_cast<uintptr_t>(handle));
     if (watch == nullptr || json == nullptr) return;
+    if (watch->projected) {
+        { std::lock_guard<std::mutex> lock(watch->mutex); watch->pending.emplace_back(json); }
+        napi_call_threadsafe_function(watch->function, nullptr, napi_tsfn_nonblocking);
+        return;
+    }
     auto* data = new std::string(json);
     if (napi_call_threadsafe_function(watch->function, data, napi_tsfn_nonblocking) != napi_ok) delete data;
 }
@@ -783,6 +864,14 @@ void ExecuteWorkspaceString(napi_env, void* data)
     auto* work = static_cast<WorkspaceStringWork*>(data);
     if (!work->preview_action.empty()) {
         work->response = TakeRustString(org_tasks_harmony_preview_operation(work->handle, work->expression.c_str()));
+    } else if (work->http_action != 0) {
+        work->response = TakeRustString(work->http_action == 1 ? org_tasks_harmony_workspace_start_http_server(work->handle, work->http_port) :
+            work->http_action == 2 ? org_tasks_harmony_workspace_stop_http_server(work->handle) : org_tasks_harmony_workspace_http_server_status(work->handle));
+    } else if (work->subscribe_query) {
+        const uint64_t monitor = work->monitor_handle; work->monitor_handle = 0;
+        work->response = TakeRustString(org_tasks_harmony_workspace_subscribe_query(work->handle, work->expression.c_str(), monitor, &work->subscription_id));
+    } else if (work->query_status) {
+        work->response = TakeRustString(org_tasks_harmony_workspace_query_subscription_status(work->handle, work->query_id));
     } else if (work->watch_notifications) {
         uint64_t monitor = work->monitor_handle;
         work->monitor_handle = 0; // Rust 接管，即使注册失败也负责释放。
@@ -825,6 +914,15 @@ void ExecuteWorkspaceString(napi_env, void* data)
 void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
+    // 无论本次修改成功或失败，先合并已经产生的事件，再完成用户请求。
+    if (work->execute_operations && status == napi_ok) {
+        napi_value owner; WorkspaceWrap* workspace = nullptr;
+        if (napi_get_reference_value(env, work->owner, &owner) == napi_ok &&
+            napi_unwrap(env, owner, reinterpret_cast<void**>(&workspace)) == napi_ok && workspace != nullptr) {
+            const auto watches = workspace->query_watches;
+            for (const auto& item : watches) if (workspace->query_watches.count(item.first) != 0) DrainQueryWatch(env, item.second);
+        }
+    }
     if (status != napi_ok || work->response.empty()) {
         RejectCoreError(env, work->deferred, work->error, "core workspace 操作失败");
     } else {
@@ -861,6 +959,23 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             napi_value error;
             napi_create_error(env, nullptr, text, &error);
             napi_reject_deferred(env, work->deferred, error);
+        } else if (work->subscribe_query) {
+            napi_value value, array, owner; WorkspaceWrap* workspace = nullptr;
+            if (napi_get_named_property(env, result, "data", &value) != napi_ok ||
+                napi_create_array_with_length(env, 1, &array) != napi_ok || napi_set_element(env, array, 0, value) != napi_ok || !ProjectQueryResults(env, array) ||
+                napi_get_reference_value(env, work->owner, &owner) != napi_ok || napi_unwrap(env, owner, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+                RejectFileProjection(env, work->deferred);
+            } else {
+                workspace->query_subscriptions.push_back(work->subscription_id);
+                workspace->query_watches[work->subscription_id] = work->query_watch;
+                work->subscription_id = 0;
+                napi_resolve_deferred(env, work->deferred, result);
+            }
+        } else if (work->http_action != 0) {
+            if (work->http_action == 2) napi_get_undefined(env, &result);
+            napi_resolve_deferred(env, work->deferred, result);
+        } else if (work->query_status) {
+            napi_resolve_deferred(env, work->deferred, result);
         } else if (work->execute_operations) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
@@ -881,7 +996,8 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         }
     }
     if (work->subscription_id != 0) {
-        if (work->watch_data_changes) org_tasks_harmony_workspace_unwatch_data_changes(work->subscription_id);
+        if (work->subscribe_query) org_tasks_harmony_workspace_unsubscribe_query(work->handle, work->subscription_id);
+        else if (work->watch_data_changes) org_tasks_harmony_workspace_unwatch_data_changes(work->subscription_id);
         else org_tasks_harmony_workspace_unwatch_notifications(work->subscription_id);
     }
     if (work->owner != nullptr) napi_delete_reference(env, work->owner);
@@ -1262,6 +1378,23 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
 }
 
 
+napi_value WorkspaceHttpServer(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self; void* action = nullptr; WorkspaceWrap* workspace = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, &action) != napi_ok ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "Workspace HTTP 服务参数无效"); return nullptr;
+    }
+    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle;
+    work->http_action = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(action));
+    if (work->http_action == 1 && argc > 0) {
+        uint32_t port = 0;
+        if (napi_get_value_uint32(env, args[0], &port) != napi_ok || port > 65535 || port == 0) { delete work; napi_throw_error(env, nullptr, "HTTP 端口无效"); return nullptr; }
+        work->http_port = static_cast<uint16_t>(port);
+    }
+    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceHttp", self);
+}
+
 napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
@@ -1408,6 +1541,54 @@ napi_value WorkspaceWatchDataChanges(napi_env env, napi_callback_info info)
     work->monitor_handle = reinterpret_cast<uintptr_t>(watch);
     return QueueWorkspaceString(env, work, "OrgTasksWatchDataChanges", self);
 }
+napi_value WorkspaceSubscribeQuery(napi_env env, napi_callback_info info)
+{
+    size_t argc = 3; napi_value args[3], self, name; napi_valuetype type; WorkspaceWrap* workspace = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 2 ||
+        napi_typeof(env, args[1], &type) != napi_ok || type != napi_function ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "查询订阅需要查询条件和回调"); return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    napi_value request, operation;
+    napi_get_null(env, &operation);
+    if (argc == 3) operation = args[2];
+    if (napi_create_object(env, &request) != napi_ok || napi_set_named_property(env, request, "query", args[0]) != napi_ok ||
+        napi_set_named_property(env, request, "operationId", operation) != napi_ok || !EncodeJson(env, request, &work->expression)) { delete work; return nullptr; }
+    auto* watch = new DataChangeWatch(); watch->projected = true;
+    if (napi_create_reference(env, args[1], 1, &watch->callback) != napi_ok) { delete watch; delete work; return nullptr; }
+    if (napi_create_string_utf8(env, "OrgTasksQueryMonitor", NAPI_AUTO_LENGTH, &name) != napi_ok ||
+        napi_create_threadsafe_function(env, args[1], nullptr, name, 0, 1, watch, FinalizeDataChangeWatch, watch, CallQueryDataMonitor, &watch->function) != napi_ok) {
+        FinalizeDataChangeWatch(env, watch, nullptr); delete work; napi_throw_error(env, nullptr, "无法创建查询订阅"); return nullptr;
+    }
+    napi_unref_threadsafe_function(env, watch->function);
+    work->handle = workspace->handle; work->subscribe_query = true; work->query_watch = watch; work->monitor_handle = reinterpret_cast<uintptr_t>(watch);
+    return QueueWorkspaceString(env, work, "OrgTasksSubscribeQuery", self);
+}
+napi_value WorkspaceQuerySubscriptionStatus(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self; WorkspaceWrap* workspace = nullptr; uint64_t id = 0;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 || !ReadHandle(env, args[0], &id) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "查询订阅 ID 无效"); return nullptr;
+    }
+    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->query_status = true; work->query_id = id;
+    return QueueWorkspaceString(env, work, "OrgTasksQueryStatus", self);
+}
+napi_value WorkspaceUnsubscribeQuery(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self, result; WorkspaceWrap* workspace = nullptr; uint64_t id = 0;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 || !ReadHandle(env, args[0], &id) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "查询订阅 ID 无效"); return nullptr;
+    }
+    workspace->query_watches.erase(id);
+    org_tasks_harmony_workspace_unsubscribe_query(workspace->handle, id);
+    auto& ids = workspace->query_subscriptions;
+    ids.erase(std::remove(ids.begin(), ids.end(), id), ids.end());
+    napi_get_undefined(env, &result); return result;
+}
+
 napi_value WorkspaceStopWatchingDataChanges(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
@@ -2039,7 +2220,13 @@ static napi_value Init(napi_env env, napi_value exports)
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"taskMergeOperations", nullptr, WorkspaceTaskMergeOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"startHttpServer", nullptr, WorkspaceHttpServer, nullptr, nullptr, nullptr, napi_default, reinterpret_cast<void*>(1)},
+        {"stopHttpServer", nullptr, WorkspaceHttpServer, nullptr, nullptr, nullptr, napi_default, reinterpret_cast<void*>(2)},
+        {"httpServerStatus", nullptr, WorkspaceHttpServer, nullptr, nullptr, nullptr, napi_default, reinterpret_cast<void*>(3)},
         {"query", nullptr, WorkspaceQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"subscribeQuery", nullptr, WorkspaceSubscribeQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"querySubscriptionStatus", nullptr, WorkspaceQuerySubscriptionStatus, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"unsubscribeQuery", nullptr, WorkspaceUnsubscribeQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"watchNotifications", nullptr, WorkspaceWatchNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stopWatchingNotifications", nullptr, WorkspaceStopWatchingNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"watchDataChanges", nullptr, WorkspaceWatchDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},

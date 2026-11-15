@@ -1,7 +1,7 @@
 import { AppConfigService } from '../services/AppConfigService'
 import { PageQueryService } from '../services/PageQueryService'
 import { CoreSyncConflictNotification, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
-import { CoreNotificationService, NotificationRepository } from '../services/CoreNotificationService'
+import { NotificationManager, NotificationRepository } from '../services/NotificationManager'
 import { syncConflictRepositoryName } from '../ui/CoreNotificationPresentation'
 import { UiColor } from '../ui/Theme'
 
@@ -18,7 +18,7 @@ export struct SyncConflictNotificationView {
     if (this.disabled || this.opening) return
     this.opening = true
     try {
-      const target = await CoreNotificationService.syncConflictTarget(this.getUIContext().getHostContext()!, this.notification)
+      const target = await NotificationManager.syncConflictTarget(this.getUIContext().getHostContext()!, this.notification)
       await this.getUIContext().getRouter().pushUrl({ url: 'pages/ConflictFile', params: target })
     } catch (e) {
       try {

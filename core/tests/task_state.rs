@@ -39,11 +39,11 @@ impl Fixture {
             .find(|path| path.titles.last().is_some_and(|value| value == title))
             .unwrap();
         TaskOperationGroup {
+            operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
                 path,
                 modifications,
             })],
-            queue_repo_ids: vec![file.repo_id.clone()],
             file_versions: vec![TaskFileVersion {
                 repo_id: file.repo_id.clone(),
                 file: file.path.clone(),
@@ -123,7 +123,7 @@ async fn repeating_completion_uses_setup_logs_and_commits_one_versioned_change()
     assert_eq!(fallback.after, result);
     assert_eq!(
         f.workspace.repos()[0].pending_writes().await.unwrap().len(),
-        1
+        0
     );
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(f.source(), result);
@@ -268,7 +268,7 @@ async fn reopening_a_child_restores_completed_ancestors_and_preserves_other_byte
         assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
         assert_eq!(
             f.workspace.repos()[0].pending_writes().await.unwrap().len(),
-            1
+            0
         );
         assert!(f.workspace.execute_task_operations(&group).await.is_err());
         assert_eq!(f.source(), saved);
@@ -475,7 +475,7 @@ async fn reopening_closed_tasks_preserves_history_dates_and_version_guards() {
             assert!(saved.contains(&format!("- State \"READY\"      from \"{initial}\"")), "{saved}");
         }
         assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
-        assert_eq!(f.workspace.repos()[0].pending_writes().await.unwrap().len(), 1);
+        assert_eq!(f.workspace.repos()[0].pending_writes().await.unwrap().len(), 0);
         assert_eq!(*events.lock().unwrap(), 1);
         assert!(f.workspace.execute_task_operations(&group).await.is_err());
         assert_eq!(f.source(), saved);
@@ -578,7 +578,7 @@ async fn repeating_completion_runs_local_trigger_after_repeat_and_refreshes_the_
         task.scheduled_repeat.unwrap().rule.unwrap().mode,
         TaskRepeatMode::AfterCompletion
     );
-    assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
+    assert_eq!(repo.pending_writes().await.unwrap().len(), 0);
     assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(f.source(), saved);

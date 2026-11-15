@@ -1,3 +1,4 @@
+import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
@@ -16,6 +17,12 @@ export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
 // 原生标题和任务行与安全 HTML 正文共用一个滚动容器。
 @Component
 export struct ProjectDocumentView {
+  dataManager: TaskEditorDataManager | undefined = undefined
+  private editorDataManager(): TaskEditorDataManager {
+    if (!this.dataManager) throw new Error('项目文件数据集尚未载入')
+    return this.dataManager
+  }
+
   @Prop sections: ProjectReadingSection[] = []
   @Prop fileTags: string[] = []
   @Prop specialTags: string[] = []
@@ -73,8 +80,10 @@ export struct ProjectDocumentView {
   snapshotChanged() {
     this.offsets.clear()
     this.outlineVisible = false
-    this.pendingOffset = 0
-    this.scroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false })
+    let offset: number = 0
+    try { offset = (JSON.parse(this.readingState) as Record<string, number>).scroll ?? 0 } catch (_) {}
+    this.pendingOffset = offset
+    this.scroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
     this.ready()
   }
 
@@ -128,7 +137,7 @@ export struct ProjectDocumentView {
             }
             if (section.node) {
               if (section.node.state) {
-                TaskEditor({ internalLinkProcessor: this.internalLinkProcessor, task: section.node, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
+                TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSetForTaskId(section.node.taskId ?? section.node.id), internalLinkProcessor: this.internalLinkProcessor, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')

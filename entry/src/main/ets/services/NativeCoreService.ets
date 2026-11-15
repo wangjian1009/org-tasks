@@ -43,6 +43,9 @@ import {
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
   DataChangeEvent as NativeDataChangeEvent,
   DataChangeMonitor as NativeDataChangeMonitor,
+  QuerySubscriptionStart as NativeQuerySubscriptionStart,
+  QuerySubscriptionStatus as NativeQuerySubscriptionStatus,
+  HttpServerInfo as NativeHttpServerInfo,
   SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
@@ -163,6 +166,9 @@ export type CoreTaskMergePlan = NativeTaskMergePlan
 export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
 export type CoreDataChangeEvent = NativeDataChangeEvent
 export type CoreDataChangeMonitor = NativeDataChangeMonitor
+export type CoreQuerySubscriptionStart = NativeQuerySubscriptionStart
+export type CoreQuerySubscriptionStatus = NativeQuerySubscriptionStatus
+export type CoreHttpServerInfo = NativeHttpServerInfo
 export type CoreTaskModification = NativeTaskModification
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
@@ -255,6 +261,9 @@ export class CoreWorkspace {
     this.native = native
   }
 
+  async startHttpServer(port: number = 8787): Promise<CoreHttpServerInfo> { return await this.native.startHttpServer(port) }
+  async stopHttpServer(): Promise<void> { await this.native.stopHttpServer() }
+  async httpServerStatus(): Promise<CoreHttpServerInfo | null> { return await this.native.httpServerStatus() }
   async setTodoDefaults(settings: string): Promise<void> { await this.native.setTodoDefaults(settings) }
   async getSettings(): Promise<CoreSettings> { return await this.native.getSettings() }
   async setSettings(settings: CoreSettings): Promise<void> { await this.native.setSettings(settings) }
@@ -268,6 +277,9 @@ export class CoreWorkspace {
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
   async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
   stopWatchingDataChanges(subscriptionId: number): void { this.native.stopWatchingDataChanges(subscriptionId) }
+  async subscribeQuery(query: CoreQuery, monitor: CoreDataChangeMonitor, operationId: string | null = null): Promise<CoreQuerySubscriptionStart> { return await this.native.subscribeQuery(query, monitor, operationId) }
+  async querySubscriptionStatus(id: number): Promise<CoreQuerySubscriptionStatus> { return await this.native.querySubscriptionStatus(id) }
+  unsubscribeQuery(id: number): void { this.native.unsubscribeQuery(id) }
   async reload(): Promise<void> { await this.native.reload() }
 
   async repos(): Promise<CoreRepo[]> {
@@ -375,18 +387,6 @@ export class NativeCoreService {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     await workspace.reload()
     return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
-  }
-
-  // 使用独立的只读查询范围，避免替换页面正在使用的 workspace 和订阅。
-  static async hasLocalWebDavChanges(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<boolean> {
-    const enabled = repositories.filter((repo: RepoConfig) => repo.webdavEnabled)
-    if (enabled.length === 0) return false
-    const workspace = new CoreWorkspace(new NativeWorkspace())
-    await workspace.setTodoDefaults(todoDefaults ?? await defaultTodoSettings())
-    await workspace.setSettings(coreSettings ?? { additionStates: [] })
-    for (const repo of enabled) await workspace.addRepo(repo.rootDirectory)
-    const results = await workspace.query([{ type: 'notification', query: {} }])
-    return notificationResult(results[0]).some((item: CoreNotification) => item.type === 'syncRequired')
   }
 
   static async syncWorkspaceWebDav(

@@ -5,17 +5,18 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod access;
 pub(crate) mod conflict;
-mod conflict_preview;
+pub(crate) mod conflict_preview;
 mod data_changes;
 mod editor;
 mod file_keywords;
 mod merge;
+mod mutation_journal;
 mod plain_links;
 pub(crate) mod notification;
 mod project;
 mod priority;
 pub(crate) mod properties;
-mod query;
+pub(crate) mod query;
 mod refile;
 mod render;
 mod text_link;
@@ -36,7 +37,6 @@ mod task_state;
 mod task_trigger;
 mod title_statistics;
 mod todo;
-mod workspace;
 pub(crate) mod write_intent;
 
 pub use content_block::*;
@@ -60,7 +60,6 @@ pub use task_path::*;
 pub use task_repeat::*;
 pub use task_scan::*;
 pub use todo::*;
-pub use workspace::*;
 pub use write_intent::*;
 
 pub type OrgRepoId = String;
@@ -164,6 +163,7 @@ pub struct OrgFile {
     pub(crate) todo_setup: String,
     pub(crate) modified_at: Option<TimestampMs>,
     pub(crate) scan_ignored: bool,
+    mutation_journal: Option<mutation_journal::FileJournal>,
     syntax: orgize::Org,
     file_keywords: file_keywords::FileKeywords,
     priority_options: Vec<TaskPriority>,
@@ -253,6 +253,7 @@ impl OrgFile {
             todo_setup,
             modified_at: None,
             scan_ignored: false,
+            mutation_journal: None,
             syntax,
             file_keywords,
             priority_options,
@@ -577,7 +578,7 @@ pub enum OrgRepoSyncErrorCategory {
     Conflict,
 }
 
-fn validate_id(value: &str, message: &'static str) -> Result<(), CoreError> {
+pub(crate) fn validate_id(value: &str, message: &'static str) -> Result<(), CoreError> {
     if value.trim().is_empty() {
         return Err(CoreError::InvalidInput(message));
     }
@@ -612,7 +613,7 @@ mod tests {
             Vec::new(),
             Default::default(),
         );
-        assert!(OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
+        assert!(crate::OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
     }
 
     #[test]

@@ -63,6 +63,7 @@ impl Fixture {
             .find(|path| path.titles.last().is_some_and(|s| s == "Task"))
             .unwrap();
         TaskOperationGroup {
+            operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
                 path,
                 modifications: vec![TaskModification::Todo(Some("DONE".into()))],
@@ -72,7 +73,6 @@ impl Fixture {
                 file: file.path.clone(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![file.repo_id.clone()],
         }
     }
     fn source(&self) -> String {
@@ -143,7 +143,7 @@ impl Fixture {
                 .await
                 .unwrap()
                 .len(),
-            1
+            0
         );
     }
 }
@@ -403,22 +403,16 @@ async fn random_target_selection_preserves_membership_and_never_selects_the_sour
 }
 
 #[tokio::test]
-async fn failed_disk_commit_rolls_back_a_completed_cascade_without_publishing() {
-    let source =
-        "* TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n";
+async fn completed_cascade_does_not_read_or_write_outbox() {
+    let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n";
     let mut f = Fixture::new(&[("tasks.org", source)]).await;
     let group = f.group().await;
     std::fs::write(f.root.join(".sync/outbox"), "不能替换的原始控制数据").unwrap();
-    let before = f.snapshot();
-    let error = f
-        .workspace
-        .execute_task_operations(&group)
-        .await
-        .unwrap_err();
-    assert!(error.to_string().contains("同步控制路径"), "{error}");
-    assert_eq!(f.snapshot(), before);
-    assert_eq!(f.events.load(Ordering::Relaxed), 0);
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    assert_eq!(std::fs::read_to_string(f.root.join(".sync/outbox")).unwrap(), "不能替换的原始控制数据");
+    assert!(f.source().contains("* DONE Other"));
+    assert_eq!(f.events.load(Ordering::Relaxed), 1);
+    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
 }
 
 #[tokio::test]
@@ -496,15 +490,13 @@ async fn linked_change_event_observes_all_committed_nodes_and_is_not_emitted_for
     assert!(committed.contains("* TODO Task\nSCHEDULED: <2026-11-02 Mon +1d>\n"));
     assert!(committed.contains("* DONE Other\n"));
     assert!(committed.ends_with("* NEXT Last\n"));
-    assert_eq!(
-        *observations.lock().unwrap(),
-        vec![(
-            DataChangeEvent::RepositoryChanged {
-                repo_id: f.workspace.repos()[0].id.clone(),
-            },
-            committed
-        )]
-    );
+    {
+        let observations = observations.lock().unwrap();
+        assert_eq!(observations.len(), 1);
+        assert!(matches!(&observations[0].0, DataChangeEvent::RepositoryChanged { operation_id: None, repo_id, .. }
+            if repo_id == &f.workspace.repos()[0].id));
+        assert_eq!(observations[0].1, committed);
+    }
     f.assert_one_commit(source).await;
     let snapshot = f.snapshot();
     let mut noop = f.group().await;

@@ -1,5 +1,5 @@
 import { CoreNotification } from '../services/NativeCoreService'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { coreNotificationRenderKey } from '../ui/CoreNotificationPresentation'
 import { SyncConflictNotificationView } from './SyncConflictNotificationView'
 import { SyncRequiredNotificationView } from './SyncRequiredNotificationView'

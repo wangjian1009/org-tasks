@@ -9,7 +9,7 @@ use org_tasks_core::{
     CoreError, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace, SyncCancellation, SyncOptions,
     SyncProgressReporter, TimestampMs,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 struct WorkspaceSession {
     workspace: Arc<Mutex<OrgWorkspace>>,
@@ -81,6 +81,8 @@ pub struct HarmonyBridgeFile {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarmonyBridgeTask {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_key: Option<Vec<org_tasks_core::QueryOrderPart>>,
     pub project_name: Option<String>,
     pub id: String,
     pub full_path: org_tasks_core::TaskPath,
@@ -276,6 +278,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         }
     }
     Ok(HarmonyBridgeTask {
+        order_key: None,
         full_path: task.full_path().clone(),
         task_id,
         file_version,
@@ -364,13 +367,27 @@ pub fn retain_workspace(handle: u64) -> Result<(), CoreError> {
 }
 
 pub fn release_workspace(handle: u64) {
+    let mut released = false;
     if let Ok(mut sessions) = workspace_sessions().lock() {
         if let Some(session) = sessions.sessions.get_mut(&handle) {
             session.references = session.references.saturating_sub(1);
             if session.references == 0 {
                 sessions.sessions.remove(&handle);
+                released = true;
             }
         }
+    }
+    if released {
+        let server = {
+            let mut state = EMBEDDED_HTTP.get_or_init(Default::default).lock().unwrap_or_else(|error| error.into_inner());
+            if state.as_ref().is_some_and(|(owner, _)| *owner == handle) { state.take() } else { None }
+        };
+        drop(server);
+        let mut subscriptions = QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().unwrap_or_else(|error| error.into_inner());
+        let ids = subscriptions.iter().filter(|(_, (owner, _))| *owner == handle).map(|(id, _)| *id).collect::<Vec<_>>();
+        let removed = ids.into_iter().filter_map(|id| subscriptions.remove(&id)).collect::<Vec<_>>();
+        drop(subscriptions);
+        drop(removed);
     }
 }
 
@@ -584,15 +601,26 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
         .collect::<BTreeMap<_, _>>();
     let results = runtime()?.block_on(workspace.query(&queries))?;
     drop(workspace);
-    let values = results.into_iter().map(|result| -> Result<serde_json::Value, CoreError> {
-        Ok(match result {
+    let values = results.into_iter().map(|result| query_result_value(result, &roots, None)).collect::<Result<Vec<_>, _>>()?;
+    encode(&values)
+}
+
+fn query_result_value(result: org_tasks_core::CoreQueryResult, roots: &BTreeMap<String, String>, ordering: Option<&org_tasks_core::QueryOrdering>) -> Result<serde_json::Value, CoreError> {
+    Ok(match result {
+
             org_tasks_core::CoreQueryResult::Task(result) => serde_json::json!({
                 "type": "task", "result": {
-                    "tasks": result.tasks.into_iter().map(task_from_filter).collect::<Result<Vec<_>, _>>()?,
+                    "tasks": result.tasks.into_iter().map(|task| {
+                        let key = ordering.map(|ordering| ordering.task_key(&task));
+                        let mut view = task_from_filter(task)?; view.order_key = key; Ok(view)
+                    }).collect::<Result<Vec<_>, CoreError>>()?,
                     "categories": result.categories,
                 }
             }),
-            org_tasks_core::CoreQueryResult::File(files) => serde_json::json!({ "type": "file", "result": files.into_iter().map(file_metadata_snapshot).collect::<Vec<_>>() }),
+            org_tasks_core::CoreQueryResult::File(files) => serde_json::json!({ "type": "file", "result": files.into_iter().map(|file| {
+                let key = ordering.map(|ordering| ordering.file_key(&file));
+                let mut view = file_metadata_snapshot(file); view.order_key = key; view
+            }).collect::<Vec<_>>() }),
             org_tasks_core::CoreQueryResult::Notification(notifications) => {
                 let values = notifications.into_iter().map(|notification| {
                     let mut value = serde_json::to_value(&notification).map_err(|_| CoreError::InvalidState("无法编码通知"))?;
@@ -604,9 +632,7 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
                 }).collect::<Result<Vec<_>, CoreError>>()?;
                 serde_json::json!({ "type": "notification", "result": values })
             }
-        })
-    }).collect::<Result<Vec<_>, _>>()?;
-    encode(&values)
+    })
 }
 
 pub fn repo_sync_json(
@@ -827,6 +853,8 @@ fn priority_options(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HarmonyBridgeFileMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    order_key: Option<Vec<org_tasks_core::QueryOrderPart>>,
     // category 与 taskStateCounts 随 Core 元信息原样序列化，不在宿主解析或统计。
     #[serde(flatten)]
     metadata: org_tasks_core::OrgFileMetadata,
@@ -838,6 +866,7 @@ fn file_metadata_snapshot(metadata: org_tasks_core::OrgFileMetadata) -> HarmonyB
     let task_state_options = state_options(|category| metadata.task_state_of(category));
     let task_priority_options = priority_options(|category| metadata.task_priority_of(category));
     HarmonyBridgeFileMetadata {
+        order_key: None,
         task_priority_options,
         metadata,
         task_state_options,
@@ -1458,7 +1487,6 @@ mod tests {
         assert_eq!(tasks[0]["heading"], "Visible");
         let query = serde_json::json!({
             "expression": ".it.done s.none d.none",
-            "includeComposeTasks": true
         })
         .to_string();
         let queried: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
@@ -1852,7 +1880,7 @@ mod tests {
                 .unwrap();
         let target = &targets[0];
         assert_eq!(target["category"], "Work");
-        let request = serde_json::json!({"operations":[{"type":"Movement","data":{"path":task["fullPath"],"position":{"parent":target["fullPath"]}}}],"queueRepoIds":[task["repoId"]]});
+        let request = serde_json::json!({"operations":[{"type":"Movement","data":{"path":task["fullPath"],"position":{"parent":target["fullPath"]}}}]});
         workspace_execute_task_operations(handle, request.to_string()).unwrap();
         assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
         assert_eq!(std::fs::read_to_string(root.join("inbox.org")).unwrap(), "");
@@ -1875,7 +1903,7 @@ mod tests {
         workspace_add_repo(handle, directory.clone()).unwrap();
         repo_load(handle, directory.clone()).unwrap();
         let id = repo_id(handle, directory.clone()).unwrap();
-        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"}},"title":"Captured","state":"TODO"}}],"queueRepoIds":[id]}).to_string()).unwrap();
+        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"}},"title":"Captured","state":"TODO"}}]}).to_string()).unwrap();
         let source = std::fs::read_to_string(root.join("inbox.org")).unwrap();
         assert!(source.starts_with("* TODO Captured\n:PROPERTIES:\n:CREATED: ["));
         assert!(source.ends_with(original));
@@ -1911,7 +1939,7 @@ mod tests {
         let id = repo_id(handle, root_directory.clone()).unwrap();
         let records: serde_json::Value =
             serde_json::from_str(&query_tasks_json(handle, "".into()).unwrap()).unwrap();
-        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"},"after":records[0]["fullPath"]},"title":"created from bridge","state":"TODO"}}],"queueRepoIds":[id]}).to_string()).unwrap();
+        workspace_execute_task_operations(handle,serde_json::json!({"operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"inbox.org"},"after":records[0]["fullPath"]},"title":"created from bridge","state":"TODO"}}]}).to_string()).unwrap();
         let tasks: serde_json::Value =
             serde_json::from_str(&query_tasks_json(handle, "i.todo".into()).unwrap()).unwrap();
         assert_eq!(tasks.as_array().unwrap().len(), 2);
@@ -2858,5 +2886,199 @@ mod settings_object_tests {
         );
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+
+static QUERY_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<u64, (u64, org_tasks_core::QuerySubscription)>>> = OnceLock::new();
+static NEXT_QUERY_SUBSCRIPTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn query_event_value(event: &org_tasks_core::DataChangeEvent, ordering: &org_tasks_core::QueryOrdering) -> Result<serde_json::Value, CoreError> {
+    let mut value = serde_json::to_value(event).map_err(|_| CoreError::InvalidState("无法编码数据事件"))?;
+    let org_tasks_core::DataChangeEvent::RepositoryChanged { changes, files, .. } = event;
+    for (index, change) in changes.iter().enumerate() {
+        for (name, snapshot) in [("before", &change.before), ("after", &change.after)] {
+            if let Some(snapshot) = snapshot {
+                let mut view = task_from_filter(snapshot.task.clone())?;
+                view.order_key = Some(ordering.task_key(&snapshot.task));
+                value["changes"][index][name]["view"] = serde_json::to_value(view)
+                    .map_err(|_| CoreError::InvalidState("无法编码任务投影"))?;
+            }
+        }
+    }
+    for (index, file) in files.iter().flatten().enumerate() {
+        let mut after = file_metadata_snapshot(file.after.clone()); after.order_key = Some(ordering.file_key(&file.after));
+        value["files"][index]["afterView"] = serde_json::to_value(after)
+            .map_err(|_| CoreError::InvalidState("无法编码文件投影"))?;
+        if let Some(before) = &file.before {
+            let mut view = file_metadata_snapshot(before.clone()); view.order_key = Some(ordering.file_key(before));
+            value["files"][index]["beforeView"] = serde_json::to_value(view)
+                .map_err(|_| CoreError::InvalidState("无法编码文件投影"))?;
+        }
+    }
+    Ok(value)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct QuerySubscriptionRequest { query: org_tasks_core::CoreQuery, #[serde(default)] operation_id: Option<String> }
+
+pub fn workspace_subscribe_query_json(handle: u64, query: String, monitor: u64) -> Result<(u64, String), CoreError> {
+    let monitor = Arc::new(DataChangeMonitor(monitor));
+    let request: QuerySubscriptionRequest = serde_json::from_str(&query).map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace.lock().map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
+    let ordering = Arc::new(workspace.query_ordering(&request.query)?);
+    let event_ordering = ordering.clone();
+    let started = runtime()?.block_on(workspace.subscribe_query(request.query, move |event| {
+        let _keep_alive = &monitor;
+        if let Ok(json) = query_event_value(&event, &event_ordering).and_then(|value| encode(&value))
+            .and_then(|value| CString::new(value).map_err(|_| CoreError::InvalidState("无法编码数据事件"))) {
+            #[cfg(not(test))]
+            unsafe { org_tasks_harmony_data_change_update(monitor.0, json.as_ptr()); }
+            #[cfg(test)]
+            let _ = json;
+        }
+    }))?;
+    let data = query_result_value(started.data, &BTreeMap::new(), Some(&ordering))?;
+    let id = NEXT_QUERY_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let response = encode(&serde_json::json!({"subscriptionId": id, "data": data, "operationId": request.operation_id}))?;
+    QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("查询订阅锁不可用".into()))?
+        .insert(id, (handle, started.subscription));
+    Ok((id, response))
+}
+
+pub fn workspace_query_subscription_status(handle: u64, id: u64) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let workspace = workspace.lock().map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
+    let subscriptions = QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("查询订阅锁不可用".into()))?;
+    let (owner, subscription) = subscriptions.get(&id).ok_or(CoreError::InvalidInput("查询订阅不存在"))?;
+    if *owner != handle { return Err(CoreError::InvalidInput("查询订阅不属于 workspace")); }
+    let status = match workspace.query_subscription_status(subscription) {
+        org_tasks_core::QuerySubscriptionStatus::Current => "current",
+        org_tasks_core::QuerySubscriptionStatus::AwaitingEvents => "awaitingEvents",
+        org_tasks_core::QuerySubscriptionStatus::Invalidated => "invalidated",
+        org_tasks_core::QuerySubscriptionStatus::Closed => "closed",
+    };
+    encode(&status)
+}
+
+pub fn workspace_unsubscribe_query(handle: u64, id: u64) {
+    let mut subscriptions = QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().unwrap_or_else(|error| error.into_inner());
+    let removed = if subscriptions.get(&id).is_some_and(|(owner, _)| *owner == handle) { subscriptions.remove(&id) } else { None };
+    drop(subscriptions);
+    drop(removed);
+}
+
+
+#[cfg(test)]
+mod page_data_bridge_tests {
+    use super::*;
+    #[test]
+    fn query_subscription_projects_initial_data_events_and_enforces_owner_lifetime() {
+        let root = std::env::temp_dir().join(format!("harmony-query-subscription-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.org"), "* TODO Task\n").unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
+        let (_, response) = workspace_subscribe_query_json(handle, r#"{"query":{"type":"task","query":{}},"operationId":"dataset/page/1/refresh"}"#.into(), 0).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let id = response["subscriptionId"].as_u64().unwrap();
+        assert_eq!(response["operationId"], "dataset/page/1/refresh");
+        assert_eq!(response["data"]["result"]["tasks"][0]["heading"], "Task");
+        assert_eq!(response["data"]["result"]["tasks"][0]["taskStateOptions"]["Done"]["name"], "DONE");
+        assert_eq!(workspace_query_subscription_status(handle, id).unwrap(), "\"current\"");
+        let other = create_workspace().unwrap();
+        assert!(workspace_query_subscription_status(other, id).is_err());
+        workspace_unsubscribe_query(other, id);
+        assert!(workspace_query_subscription_status(handle, id).is_ok());
+        let workspace = workspace_for_handle(handle).unwrap();
+        let workspace = workspace.lock().unwrap();
+        let repo = &workspace.repos()[0];
+        let file = runtime().unwrap().block_on(repo.file("a.org")).unwrap();
+        let task = runtime().unwrap().block_on(repo.nodes()).unwrap().remove(0);
+        let event = org_tasks_core::DataChangeEvent::RepositoryChanged {
+            repo_id: repo.id.clone(), operation_id: Some("dataset/page/2/update".into()),
+            files: Some(vec![org_tasks_core::FileDataChange { before: None, after: task.file_metadata().clone(), before_version: None, after_version: task.file_version().into() }]),
+            changes: vec![org_tasks_core::TaskDataChange { kind: org_tasks_core::TaskDataChangeKind::Created, before: None,
+                after: Some(org_tasks_core::TaskDataSnapshot { position: org_tasks_core::TaskPosition { parent: file.full_path(), after: None }, task }) }],
+            removed_files: Vec::new(), categories: None,
+        };
+        let ordering = workspace.query_ordering(&org_tasks_core::TaskQuery::default().into()).unwrap();
+        let value = query_event_value(&event, &ordering).unwrap();
+        assert_eq!(value["changes"][0]["after"]["view"]["heading"], "Task");
+        assert_eq!(value["changes"][0]["after"]["view"]["isDone"], false);
+        assert!(value["files"][0]["afterView"]["taskPriorityOptions"].is_object());
+        drop(workspace);
+        workspace_unsubscribe_query(handle, id);
+        assert!(workspace_query_subscription_status(handle, id).is_err());
+        let (id, _) = workspace_subscribe_query_json(handle, r#"{"query":{"type":"file","query":{}}}"#.into(), 0).unwrap();
+        release_workspace(handle);
+        assert!(!QUERY_SUBSCRIPTIONS.get().unwrap().lock().unwrap().contains_key(&id));
+        release_workspace(other);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+
+// HTTP 监听跨越单次 N-API 请求，不能使用请求结束即销毁的临时运行时。
+fn http_runtime() -> Result<&'static tokio::runtime::Runtime, CoreError> {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    if let Some(runtime) = RUNTIME.get() { return Ok(runtime); }
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()
+        .map_err(|error| CoreError::Store(format!("创建 HTTP 运行时失败: {error}")))?;
+    let _ = RUNTIME.set(runtime);
+    RUNTIME.get().ok_or_else(|| CoreError::Store("HTTP 运行时不可用".into()))
+}
+
+static EMBEDDED_HTTP: OnceLock<Mutex<Option<(u64, org_tasks_core::http_server::EmbeddedHttpServer)>>> = OnceLock::new();
+pub fn workspace_start_http_server(handle: u64, port: u16) -> Result<String, CoreError> {
+    let shared = workspace_for_handle(handle)?;
+    let mut state = EMBEDDED_HTTP.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("HTTP 服务状态锁不可用".into()))?;
+    if let Some((owner, server)) = state.as_ref() {
+        if *owner == handle { return encode(&serde_json::json!({"address": server.address().to_string()})); }
+        return Err(CoreError::InvalidState("已有另一个 Workspace 提供 HTTP 服务"));
+    }
+    let address = std::net::SocketAddr::from(([127,0,0,1], port));
+    let server = http_runtime()?.block_on(OrgWorkspace::start_http_server(shared, address))?;
+    let response = encode(&serde_json::json!({"address": server.address().to_string()}))?;
+    *state = Some((handle, server));
+    Ok(response)
+}
+pub fn workspace_stop_http_server(handle: u64) -> Result<(), CoreError> {
+    let removed = {
+        let mut state = EMBEDDED_HTTP.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("HTTP 服务状态锁不可用".into()))?;
+        if state.as_ref().is_some_and(|(owner, _)| *owner == handle) { state.take() } else { None }
+    };
+    if let Some((_, mut server)) = removed { http_runtime()?.block_on(OrgWorkspace::stop_http_server(&mut server))?; }
+    Ok(())
+}
+pub fn workspace_http_server_status(handle: u64) -> Result<String, CoreError> {
+    let state = EMBEDDED_HTTP.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("HTTP 服务状态锁不可用".into()))?;
+    encode(&state.as_ref().filter(|(owner, _)| *owner == handle).map(|(_, server)| serde_json::json!({"address":server.address().to_string()})))
+}
+
+#[cfg(test)]
+mod embedded_http_tests {
+    use super::*;
+    #[test]
+    fn listener_survives_start_request_and_stop_releases_port() {
+        let handle = create_workspace().unwrap();
+        let info: serde_json::Value = serde_json::from_str(&workspace_start_http_server(handle, 0).unwrap()).unwrap();
+        let address = info["address"].as_str().unwrap();
+        // 查询使用另一次临时请求运行时，监听仍由持续运行时驱动。
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(address).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        stream.write_all(b"POST /api/v1/queries HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]").unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.ends_with("[]"), "{response}");
+        workspace_stop_http_server(handle).unwrap();
+        assert_eq!(workspace_http_server_status(handle).unwrap(), "null");
+        let rebound = std::net::TcpListener::bind(address).unwrap();
+        drop(rebound);
+        release_workspace(handle);
     }
 }

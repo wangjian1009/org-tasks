@@ -9,7 +9,7 @@ import { PopupMenuButton } from './controls/PopupMenuButton'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { RepositorySyncView } from './RepositorySyncView'
 import { uiObserver } from '@kit.ArkUI'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { CoreDataChangeService, CoreDataChangeState, emptyCoreDataChangeState } from '../services/CoreDataChangeService'
 import { PageQueryService } from '../services/PageQueryService'
 import { AppConfigService } from '../services/AppConfigService'
@@ -29,6 +29,7 @@ export struct AppShell {
   @Prop activeOverview: string = ''
   @Prop back: boolean = false
   @Prop refreshOnPageShow: boolean = false
+  @Prop managedBody: boolean = false
   @Prop actionIcon: Resource = $r('app.media.ui_more')
   @Prop actionLabel: string = ''
   @Prop actionText: string = ''
@@ -144,6 +145,7 @@ export struct AppShell {
   }
 
   repositoryDataInvalidated() {
+    if (this.managedBody) { if (this.drawerOpen) this.loadNavigation(); return }
     if (TaskInlineSession.active()) { this.deferredRefresh = true; return }
     if (this.drawerOpen) { this.pageRefreshDeferred = true; this.loadNavigation() }
     else this.synchronized()
@@ -157,7 +159,7 @@ export struct AppShell {
 
   drawerChanged() {
     if (this.drawerOpen) this.loadNavigation()
-    else if (this.pageRefreshDeferred) { this.pageRefreshDeferred = false; this.synchronized() }
+    else if (this.pageRefreshDeferred) { this.pageRefreshDeferred = false; if (!this.managedBody) this.synchronized() }
   }
 
   async loadNavigation() {

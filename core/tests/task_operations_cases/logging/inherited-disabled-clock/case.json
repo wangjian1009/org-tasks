@@ -1,8 +1,5 @@
 {
   "purpose": "继承禁用日志但存在 CLOCK 时仅更新 LAST_REPEAT，保留 CLOCK 且不追加状态日志",
-  "outbox": {
-    "repo": 1
-  },
   "inspect": [
     {
       "titles": [

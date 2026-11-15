@@ -24,9 +24,9 @@ pub(crate) async fn run(repo: OrgRepo, _history: History, command: ConflictComma
             let ids = file.conflict_ids();
             if ids.is_empty() { return Err("此文件没有可丢弃的冲突点".into()); }
             let group = TaskOperationGroup {
+                operation_id: None,
                 operations: ids.into_iter().map(|id| TaskOperation::ConfilictSelection(TaskConfilictSelection { path:None, target:None,id,action:TaskConfilictAction::Discard})).collect(),
                 file_versions: vec![TaskFileVersion { repo_id:repo.id.clone(), file:path, version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash }],
-                queue_repo_ids: vec![repo.id.clone()],
             };
             OrgWorkspace::new(vec![repo]).map_err(|e|e.to_string())?.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
             println!("已丢弃全部冲突，后续同步上传本地结果。");

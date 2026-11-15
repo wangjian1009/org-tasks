@@ -32,7 +32,7 @@ function fixture(pageType = 'SyncLog') {
   const dependencies = {
     '../ui/SyncLogPresentation': presentation,
     '../ui/Theme': { repositoryLabel: repo => repo.name, UiColor: {} },
-    '../services/CoreNotificationService': { emptyCoreNotificationsState: () => ({ notifications: [], revision: 0 }) },
+    '../services/NotificationManager': { emptyCoreNotificationsState: () => ({ notifications: [], revision: 0 }) },
     '../services/AppConfigService': { AppConfigService: { async load() { return { repos: [repository] }; } } },
     '../services/NativeCoreService': { NativeCoreService: {
       async repository() { return { async historyDetail(id) { queries.push(id); return query(); } }; },

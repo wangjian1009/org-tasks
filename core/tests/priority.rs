@@ -35,11 +35,11 @@ impl Fixture {
             .find(|path| path.titles.last().is_some_and(|value| value == title))
             .unwrap();
         TaskOperationGroup {
+            operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
                 path,
                 modifications,
             })],
-            queue_repo_ids: vec![file.repo_id.clone()],
             file_versions: vec![TaskFileVersion {
                 repo_id: file.repo_id.clone(),
                 file: file.path.clone(),

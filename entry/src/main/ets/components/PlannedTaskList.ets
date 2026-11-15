@@ -1,5 +1,6 @@
+import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
 import { CoreNotificationsView } from './CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedScheduleItem, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
 import { TaskRegion } from './TaskRegion'
@@ -10,6 +11,12 @@ import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
 
 @Component
 export struct PlannedTaskList {
+  private taskEditorManager: TaskEditorDataManager | undefined = undefined
+  private editorDataManager(): TaskEditorDataManager {
+    if (!this.taskEditorManager) this.taskEditorManager = new TaskEditorDataManager(this.getUIContext().getHostContext()!)
+    return this.taskEditorManager
+  }
+
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
@@ -36,7 +43,7 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(item: PlannedTaskItem, group: PlannedGroup) {
-    TaskEditor({ task: item.task, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
+    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: group.kind === 'day' ? TaskDateDisplay.None :
       plannedTaskDate(item.task) === item.task.scheduled ? TaskDateDisplay.Schedule : TaskDateDisplay.Deadline,
       regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None :
         item.task.project() !== null ? RegionAreaPolicy.Project : RegionAreaPolicy.Category,
@@ -47,7 +54,7 @@ export struct PlannedTaskList {
 
   @Builder
   scheduleTaskItem(item: PlannedScheduleItem) {
-    TaskEditor({ task: item.task, dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
+    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(item.task), dateDisplay: TaskDateDisplay.None, timeDisplay: item.timeDisplay,
       regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })
   }

@@ -24,9 +24,5 @@
         }
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo",
-    "other"
   ]
 }

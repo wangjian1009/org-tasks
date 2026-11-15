@@ -1,4 +1,5 @@
 //! 仓库外单文档预览；记录成功操作，结束后由应用通过统一数据接口提交。
+use crate::OrgWorkspace;
 use super::*;
 use crate::{CoreError, FilterTask};
 use orgize::{ast::Headline, rowan::ast::AstNode, SyntaxKind};
@@ -146,10 +147,10 @@ impl PartialEq for PreviewStore {
 }
 impl Eq for PreviewStore {}
 impl PreviewStore {
-    pub(super) fn invalidate(&self) {
+    pub(crate) fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
-    pub(super) fn validate_repo(&self, repo: &OrgRepo) -> Result<(), CoreError> {
+    pub(crate) fn validate_repo(&self, repo: &OrgRepo) -> Result<(), CoreError> {
         if repo.id == "<preview>" {
             return Err(CoreError::InvalidInput("仓库身份不能使用 <preview>"));
         }
@@ -378,6 +379,7 @@ impl ConflictPreview {
             return Err(CoreError::InvalidInput("预览主树不能包含冲突节点"));
         }
         let group = TaskOperationGroup {
+            operation_id: None,
             operations: state
                 .operations
                 .iter()
@@ -389,7 +391,6 @@ impl ConflictPreview {
                 file: self.source_path.file.clone().unwrap(),
                 version: self.source_version.clone(),
             }],
-            queue_repo_ids: Vec::new(),
         };
         if group.operations.is_empty() {
             return Err(error("conflictDecisionRequired", "预览尚未记录操作"));
@@ -594,10 +595,10 @@ impl OrgWorkspace {
             .filter(|s| s.generation == self.preview.generation.load(Ordering::SeqCst))
             .ok_or(error("previewExpired", "预览已失效"))?;
         let file = read_working(state).await?;
-        if group.operations.is_empty() || !group.queue_repo_ids.is_empty() {
+        if group.operations.is_empty() {
             return Err(error(
                 "mixedPreviewOperation",
-                "预览操作组为空或包含上传意图",
+                "预览操作组不能为空",
             ));
         }
         for path in operation_paths(group) {

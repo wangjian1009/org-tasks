@@ -4,19 +4,19 @@ import { TaskRegionData } from '../ui/TaskRegionPresentation'
 // 只组装界面所需的查询请求；任务筛选、完成类型与父子关系均由 core 求值。
 export function inboxRecordQuery(inboxFile: string): CoreTaskQuery {
   const path = inboxFile.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  return { expression: `b."${path}"`, includeComposeTasks: true }
+  return { expression: `b."${path}"` }
 }
 
 export function memoRecordQuery(memoFile: string, tag: string = ''): CoreTaskQuery {
   const escapedTag = tag.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   const tagExpression = tag.length > 0 ? ` t."${escapedTag}"` : ''
-  return { expression: `${inboxRecordQuery(memoFile).expression}${tagExpression} .o.modified`, includeComposeTasks: true }
+  return { expression: `${inboxRecordQuery(memoFile).expression}${tagExpression} .o.modified` }
 }
 
 // TODO 来自所选仓库，note 仅来自配置的备忘文件；地址与完成状态由 Core 判断。
 export function shareLocationTaskQuery(memoFile: string = ''): CoreTaskQuery {
   const scope = memoFile ? `(it.todo or (${inboxRecordQuery(memoFile).expression} it.none))` : 'it.todo'
-  return { expression: `has.address ${scope}`, includeComposeTasks: true }
+  return { expression: `has.address ${scope}` }
 }
 
 export type TaskOverview = 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook'
@@ -42,7 +42,7 @@ export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', 
     case 'memo': return memoRecordQuery(memoFile)
     case 'logbook': expression = 'it.done'; break
   }
-  return { expression, includeComposeTasks: true }
+  return { expression }
 }
 
 export function todayPriorityQuery(): CoreTaskQuery {
@@ -52,7 +52,7 @@ export function todayPriorityQuery(): CoreTaskQuery {
 }
 
 export function overdueTaskQuery(): CoreTaskQuery {
-  return { expression: '.it.done (s.le.yesterday or d.le.yesterday)', includeComposeTasks: true }
+  return { expression: '.it.done (s.le.yesterday or d.le.yesterday)' }
 }
 
 // 分类与项目共用一个选择；项目由仓库和文件定位，避免跨仓库同名文件混入。

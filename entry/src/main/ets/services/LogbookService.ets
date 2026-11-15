@@ -17,13 +17,6 @@ export class LogbookService {
     if (tasks.length === 0) return
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    const repos = await workspace.repos()
-    const queueRepoIds: string[] = []
-    for (const repo of repos) {
-      await repo.load()
-      const settings = config.repos.find(item => item.rootDirectory === repo.rootDirectory)
-      if (settings?.webdavEnabled) queueRepoIds.push(repo.id)
-    }
     const versions = new Map<string, CoreTaskFileVersion>()
     const operations: CoreTaskOperation[] = []
     for (const task of tasks) {
@@ -39,7 +32,7 @@ export class LogbookService {
     }
     await workspace.executeTaskOperations({
       operations,
-      queueRepoIds,
+
       fileVersions: Array.from(versions.values())
     })
   }

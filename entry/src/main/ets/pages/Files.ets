@@ -1,7 +1,7 @@
 import { addRepository } from '../services/RepositoryNavigation'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { NotebookFileRow } from '../components/NotebookFileRow'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppShell } from '../components/AppShell'

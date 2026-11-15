@@ -119,6 +119,8 @@ fn validate_task_path(path: &str) -> Result<(), CoreError> {
 }
 
 pub(crate) async fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, CoreError> {
+    #[cfg(test)]
+    super::test_support::record_file_access(path, 0);
     match fs::read(path).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),

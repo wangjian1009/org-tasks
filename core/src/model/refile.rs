@@ -1,7 +1,8 @@
+use crate::OrgWorkspace;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    LocalFileVersion, OrgFileRef, OrgRepo, OrgRepoId, OrgWorkspace, SourcePosition,
+    LocalFileVersion, OrgFileRef, OrgRepo, OrgRepoId, SourcePosition,
     editor::position_at,
 };
 

@@ -1,6 +1,6 @@
 use crate::CoreError;
 
-use super::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
+use crate::model::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
 
 pub type OrgWorkspaceValidationError = CoreError;
 
@@ -8,11 +8,68 @@ pub type OrgWorkspaceValidationError = CoreError;
 pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
     pub todo_defaults: TodoConfig,
-    pub task_operation_history: super::TaskOperationHistory,
-    pub(crate) preview: super::conflict_preview::PreviewStore,
+    pub task_operation_history: crate::model::TaskOperationHistory,
+    pub(crate) preview: crate::model::conflict_preview::PreviewStore,
 }
 
 impl OrgWorkspace {
+    /// 为当前共享 Workspace 启动 APP 内嵌接口，不创建独立服务或另一份数据上下文。
+    pub async fn start_http_server(
+        workspace: std::sync::Arc<std::sync::Mutex<Self>>,
+        address: std::net::SocketAddr,
+    ) -> Result<crate::http_server::EmbeddedHttpServer, CoreError> {
+        crate::http_server::EmbeddedHttpServer::start(workspace, address).await
+    }
+
+    pub async fn stop_http_server(server: &mut crate::http_server::EmbeddedHttpServer) -> Result<(), CoreError> {
+        server.stop().await
+    }
+
+    /// 生成只读排序上下文，后续为记录生成跨语言标量键，不读盘。
+    pub fn query_ordering(
+        &self,
+        query: &crate::CoreQuery,
+    ) -> Result<crate::QueryOrdering, CoreError> {
+        crate::QueryOrdering::new(
+            query,
+            self.repos.iter().map(|repo| repo.id.clone()).collect(),
+        )
+    }
+
+    /// 启动查询与订阅，只加载一次；初始数据直接交给调用方。
+    pub async fn subscribe_query<F>(
+        &self,
+        query: crate::CoreQuery,
+        on_change: F,
+    ) -> Result<crate::QuerySubscriptionStart, CoreError>
+    where
+        F: Fn(crate::DataChangeEvent) + Send + Sync + 'static,
+    {
+        let mut subscription = crate::query_subscription::prepare(query.clone(), on_change)?;
+        let monitor = subscription.monitor();
+        subscription.attach(self.watch_data_changes(monitor));
+        let snapshot = self.query_snapshot(&[query], true).await?;
+        let repo_order = self
+            .repos
+            .iter()
+            .map(|repo| repo.id.clone())
+            .collect::<Vec<_>>();
+        let data = subscription.initialize(snapshot, &repo_order);
+        Ok(crate::QuerySubscriptionStart { data, subscription })
+    }
+
+    pub fn query_subscription_status(
+        &self,
+        subscription: &crate::QuerySubscription,
+    ) -> crate::QuerySubscriptionStatus {
+        subscription.status()
+    }
+
+    /// 取消指定句柄；重复取消无副作用。销毁句柄也会自动解除订阅。
+    pub fn unsubscribe_query(&self, subscription: &mut crate::QuerySubscription) {
+        subscription.cancel();
+    }
+
     pub fn new(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError> {
         validate_repositories(&repos)?;
         Ok(Self {
@@ -23,11 +80,11 @@ impl OrgWorkspace {
         })
     }
 
-    pub fn get_settings(&self) -> super::CoreSettings {
+    pub fn get_settings(&self) -> crate::model::CoreSettings {
         self.todo_defaults.core_settings.clone()
     }
 
-    pub fn set_settings(&mut self, settings: super::CoreSettings) -> Result<(), CoreError> {
+    pub fn set_settings(&mut self, settings: crate::model::CoreSettings) -> Result<(), CoreError> {
         settings.validate()?;
         let mut defaults = self.todo_defaults.clone();
         defaults.core_settings = settings;

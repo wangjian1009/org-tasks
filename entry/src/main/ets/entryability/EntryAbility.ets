@@ -1,3 +1,4 @@
+import { NotificationManager } from '../services/NotificationManager'
 // 应用入口
 
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit'
@@ -7,6 +8,7 @@ import { BackgroundRepositorySyncService } from '../services/BackgroundRepositor
 import { RepositorySyncService, SyncStartPolicy, emptyRepositorySyncState } from '../services/RepositorySyncService'
 import { UiColor } from '../ui/Theme'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
+import { HttpApiService } from '../services/HttpApiService'
 import { NotificationPermissionService } from '../services/NotificationPermissionService'
 
 interface MainPageStorage { entryView?: string; entryMemoAction?: string; entryMemoId?: string }
@@ -20,16 +22,29 @@ export default class EntryAbility extends UIAbility {
   private foreground: boolean = false
   private contentReady: boolean = false
   private startupSyncRequested: boolean = false
+  private notificationBackgrounded: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }
     if (!AppStorage.has('repositorySync')) AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())
+    NotificationManager.start(this.context).catch((error: Error): void => { console.error(`初始化通知失败：${error.message}`) })
     await LegacySyncScheduleService.remove()
+    if (want.parameters?.httpApiEnabled === true) this.startHttpApi()
+  }
+
+  private startHttpApi(): void {
+    HttpApiService.start(this.context).catch((error: Error): void => {
+      console.error(`启动 HTTP 接口失败：${error.message}`)
+    })
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    if (want.parameters?.httpApiEnabled === true) this.startHttpApi()
+    else if (want.parameters?.httpApiEnabled === false) {
+      HttpApiService.stop().catch((): void => { console.error('停止 HTTP 接口失败') })
+    }
     if (!this.readDestination(want) || !this.mainStage) return
     this.loadMainPage(this.mainStage)
   }
@@ -97,6 +112,10 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    if (this.notificationBackgrounded) {
+      this.notificationBackgrounded = false
+      NotificationManager.refresh().catch((error: Error): void => { console.error(`刷新通知失败：${error.message}`) })
+    }
     this.foreground = true
     this.startStartupSync()
     DeviceBadgeService.start(this.context)
@@ -104,6 +123,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onBackground(): void {
+    this.notificationBackgrounded = true
     this.foreground = false
     NotificationPermissionService.stop()
     DeviceBadgeService.stop()
@@ -111,6 +131,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    NotificationManager.stop()
+    HttpApiService.stop().catch((): void => { console.error('停止 HTTP 接口失败') })
     this.foreground = false
     this.contentReady = false
     NotificationPermissionService.stop()

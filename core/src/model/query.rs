@@ -5,17 +5,12 @@ use serde::{Deserialize, Serialize};
 use crate::filter::Filter;
 use crate::{CoreError, FilterTask, OrgWorkspace};
 
-fn include_by_default() -> bool {
-    true
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
     pub excluded_files: Vec<OrgFileRef>,
-    pub include_compose_tasks: bool,
 }
 
 impl Default for TaskQuery {
@@ -24,7 +19,6 @@ impl Default for TaskQuery {
             expression: String::new(),
             categories: Vec::new(),
             excluded_files: Vec::new(),
-            include_compose_tasks: include_by_default(),
         }
     }
 }
@@ -126,7 +120,7 @@ impl CoreQueryResult {
 }
 
 impl CoreQuery {
-    fn includes_repo(&self, id: &str) -> bool {
+    pub(crate) fn includes_repo(&self, id: &str) -> bool {
         match self {
             Self::Task { repo_ids, .. } => {
                 repo_ids.is_empty() || repo_ids.iter().any(|item| item == id)
@@ -138,7 +132,7 @@ impl CoreQuery {
             Self::Notification { .. } => true,
         }
     }
-    fn needs_file(&self, id: &str, path: &str) -> bool {
+    pub(crate) fn needs_file(&self, id: &str, path: &str) -> bool {
         if !self.includes_repo(id) {
             return false;
         }
@@ -158,15 +152,24 @@ impl CoreQuery {
     }
 }
 
-fn normalized_category(category: Option<String>) -> Option<String> {
+pub(crate) fn normalized_category(category: Option<String>) -> Option<String> {
     category.filter(|value| !value.is_empty())
 }
 
 impl OrgWorkspace {
     /// 唯一通用查询入口；按输入顺序返回结果，任一错误使整批失败。
     pub async fn query(&self, queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError> {
+        Ok(self.query_snapshot(queries, false).await?.results)
+    }
+
+    /// 一次读取同时返回查询结果与可选的原始投影；普通查询不保留原始投影。
+    pub(crate) async fn query_snapshot(
+        &self,
+        queries: &[CoreQuery],
+        retain_data: bool,
+    ) -> Result<QuerySnapshot, CoreError> {
         if queries.is_empty() {
-            return Ok(Vec::new());
+            return Ok(QuerySnapshot::default());
         }
         for query in queries {
             match query {
@@ -200,14 +203,16 @@ impl OrgWorkspace {
         let need_notifications = queries
             .iter()
             .any(|query| matches!(query, CoreQuery::Notification { .. }));
-        let need_files = queries
-            .iter()
-            .any(|query| matches!(query, CoreQuery::File { .. }));
-        let need_tasks = queries.iter().any(|query| match query {
-            CoreQuery::Task { .. } => true,
-            CoreQuery::File { query } => !query.file_tags.is_empty(),
-            _ => false,
-        });
+        let need_files = retain_data
+            || queries
+                .iter()
+                .any(|query| matches!(query, CoreQuery::File { .. }));
+        let need_tasks = retain_data
+            || queries.iter().any(|query| match query {
+                CoreQuery::Task { .. } => true,
+                CoreQuery::File { query } => !query.file_tags.is_empty(),
+                _ => false,
+            });
         let mut roots = BTreeMap::new();
         for repo in self
             .repos()
@@ -319,22 +324,6 @@ impl OrgWorkspace {
         if changed {
             notifications.push(super::CoreNotification::SyncRequired);
         }
-        let parents = all
-            .windows(2)
-            .filter_map(|pair| {
-                let (parent, child) = (&pair[0], &pair[1]);
-                (parent.repo_id() == child.repo_id()
-                    && parent.path() == child.path()
-                    && child.level > parent.level)
-                    .then(|| {
-                        (
-                            parent.repo_id().to_owned(),
-                            parent.path().to_owned(),
-                            parent.byte_offset,
-                        )
-                    })
-            })
-            .collect::<BTreeSet<_>>();
         let mut file_tags = BTreeMap::<(&str, &str), BTreeSet<&str>>::new();
         if queries
             .iter()
@@ -352,7 +341,7 @@ impl OrgWorkspace {
                     );
             }
         }
-        Ok(queries
+        let results = queries
             .iter()
             .map(|query| match query {
                 CoreQuery::Task {
@@ -370,7 +359,6 @@ impl OrgWorkspace {
                         task_query,
                         tasks,
                         &file_categories,
-                        &parents,
                         today,
                     ))
                 }
@@ -379,19 +367,13 @@ impl OrgWorkspace {
                         .iter()
                         .filter(|file| {
                             query.needs_file(&file.repo_id, &file.path)
-                                && (file_query.include_ignored || !file.is_ignore)
-                                && file_query
-                                    .is_project
-                                    .is_none_or(|expected| file.project().is_some() == expected)
-                                && (file_query.file_tags.is_empty()
-                                    || file_tags
+                                && file_matches_query(
+                                    file_query,
+                                    file,
+                                    file_tags
                                         .get(&(file.repo_id.as_str(), file.path.as_str()))
-                                        .is_some_and(|tags| {
-                                            file_query
-                                                .file_tags
-                                                .iter()
-                                                .any(|tag| tags.contains(tag.as_str()))
-                                        }))
+                                        .unwrap_or(&BTreeSet::new()),
+                                )
                         })
                         .cloned()
                         .collect();
@@ -401,8 +383,55 @@ impl OrgWorkspace {
                     CoreQueryResult::Notification(notifications.clone())
                 }
             })
-            .collect())
+            .collect();
+        let files = if retain_data {
+            metadata
+                .into_iter()
+                .map(|metadata| {
+                    let file = loaded[&metadata.repo_id]
+                        .iter()
+                        .find(|file| file.path == metadata.path)
+                        .expect("已加载文件");
+                    (
+                        metadata,
+                        crate::LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(QuerySnapshot {
+            results,
+            tasks: if retain_data { all } else { Vec::new() },
+            files,
+            evaluated_on: Some(today),
+        })
     }
+}
+
+#[derive(Default)]
+pub(crate) struct QuerySnapshot {
+    pub evaluated_on: Option<chrono::NaiveDate>,
+    pub results: Vec<CoreQueryResult>,
+    pub tasks: Vec<FilterTask>,
+    pub files: Vec<(super::OrgFileMetadata, String)>,
+}
+
+pub(crate) fn file_matches_query(
+    query: &FileQuery,
+    file: &super::OrgFileMetadata,
+    tags: &BTreeSet<&str>,
+) -> bool {
+    (query.include_ignored || !file.is_ignore)
+        && query
+            .is_project
+            .is_none_or(|expected| file.project().is_some() == expected)
+        && (query.file_tags.is_empty()
+            || query
+                .file_tags
+                .iter()
+                .any(|tag| tags.contains(tag.as_str())))
 }
 
 fn validate_query_file(file: &OrgFileRef) -> Result<(), CoreError> {
@@ -413,22 +442,13 @@ fn validate_query_file(file: &OrgFileRef) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn evaluate_query(
+pub(crate) fn evaluate_query(
     query: &TaskQuery,
     mut all: Vec<FilterTask>,
     file_categories: &BTreeMap<(String, String), Option<String>>,
-    parents: &BTreeSet<(String, String, u64)>,
     today: chrono::NaiveDate,
 ) -> TaskQueryResult {
     Filter::parse(&query.expression).filter_tasks_at(&mut all, today);
-    all.retain(|task| {
-        query.include_compose_tasks
-            || !parents.contains(&(
-                task.repo_id().to_owned(),
-                task.path().to_owned(),
-                task.byte_offset,
-            ))
-    });
     // 分类摘要不受当前 categories 选择影响，供 UI 展示可选分类和计数。
     let mut counts = BTreeMap::<Option<String>, usize>::new();
     for task in &all {
@@ -478,6 +498,71 @@ fn evaluate_query(
     TaskQueryResult {
         tasks: all,
         categories,
+    }
+}
+
+/// 通用查询的可比较投影；只含标量，不携带任务正文或语法树。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum QueryOrderValue {
+    Number(i64),
+    Text(String),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryOrderPart {
+    pub value: Option<QueryOrderValue>,
+    pub descending: bool,
+    pub missing_last: bool,
+}
+#[derive(Clone, Debug)]
+pub struct QueryOrdering {
+    filter: Option<Filter>,
+    repo_ids: Vec<String>,
+}
+impl QueryOrdering {
+    pub(crate) fn new(query: &CoreQuery, repo_ids: Vec<String>) -> Result<Self, CoreError> {
+        Ok(Self {
+            filter: match query {
+                CoreQuery::Task { query, .. } => Some(Filter::parse(&query.expression)),
+                CoreQuery::File { .. } => None,
+                CoreQuery::Notification { .. } => {
+                    return Err(CoreError::InvalidInput("通知查询不提供数据排序键"));
+                }
+            },
+            repo_ids,
+        })
+    }
+    fn repo_key(&self, repo_id: &str) -> QueryOrderPart {
+        QueryOrderPart {
+            value: Some(QueryOrderValue::Number(
+                self.repo_ids
+                    .iter()
+                    .position(|id| id == repo_id)
+                    .unwrap_or(self.repo_ids.len()) as i64,
+            )),
+            descending: false,
+            missing_last: false,
+        }
+    }
+    pub fn task_key(&self, task: &FilterTask) -> Vec<QueryOrderPart> {
+        let mut keys = self
+            .filter
+            .as_ref()
+            .map(|filter| filter.order_key(task))
+            .unwrap_or_default();
+        keys.push(self.repo_key(task.repo_id()));
+        keys
+    }
+    pub fn file_key(&self, file: &super::OrgFileMetadata) -> Vec<QueryOrderPart> {
+        vec![
+            self.repo_key(&file.repo_id),
+            QueryOrderPart {
+                value: Some(QueryOrderValue::Text(crate::filter::order_text(&file.path))),
+                descending: false,
+                missing_last: false,
+            },
+        ]
     }
 }
 
@@ -565,7 +650,7 @@ mod tests {
             category_query(),
             TaskQuery {
                 categories: vec![Some("Work".into())],
-                include_compose_tasks: false,
+
                 ..Default::default()
             },
             TaskQuery::default(),
@@ -1323,7 +1408,7 @@ mod tests {
         let result = workspace
             .query(&[(TaskQuery {
                 expression: ".it.done s.none d.none".into(),
-                include_compose_tasks: true,
+
                 ..Default::default()
             })
             .into()])
@@ -1348,7 +1433,7 @@ mod tests {
         let result = workspace
             .query(&[(TaskQuery {
                 expression: "it.todo s.none d.none".into(),
-                include_compose_tasks: true,
+
                 ..Default::default()
             })
             .into()])
@@ -1375,87 +1460,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compose_tasks_are_detected_before_expression_filter_and_respect_file_boundaries() {
+    async fn parent_tasks_remain_queryable_independently_of_their_children() {
         let workspace = workspace();
-        let query = TaskQuery {
-            include_compose_tasks: false,
-            ..category_query()
-        };
-        assert_eq!(
-            workspace
-                .query(&[(&query).into()])
-                .await
-                .unwrap()
-                .remove(0)
-                .into_task()
-                .unwrap()
-                .tasks
-                .len(),
-            5
-        );
-        let query = TaskQuery {
-            expression: "\"Parent home\"".into(),
-            include_compose_tasks: false,
-            ..Default::default()
-        };
+        let result = workspace
+            .query(&[category_query().into()])
+            .await
+            .unwrap()
+            .remove(0)
+            .into_task()
+            .unwrap();
         assert!(
-            workspace
-                .query(&[(&query).into()])
-                .await
-                .unwrap()
-                .remove(0)
-                .into_task()
-                .unwrap()
+            result
                 .tasks
-                .is_empty()
+                .iter()
+                .any(|task| task.title() == "Parent home")
         );
+        assert!(result.tasks.iter().any(|task| task.title() == "Child home"));
         let query = TaskQuery {
             expression: "\"Parent home\"".into(),
             ..Default::default()
         };
-        assert_eq!(
-            workspace
-                .query(&[(&query).into()])
-                .await
-                .unwrap()
-                .remove(0)
-                .into_task()
-                .unwrap()
-                .tasks
-                .len(),
-            1
-        );
-        let repos = [
-            ("one", "* TODO Parent\n** DONE Child\n"),
-            ("two", "* TODO Peer\n"),
-        ]
-        .into_iter()
-        .map(|(id, source)| {
-            let mut repo = OrgRepo::new(format!("/tmp/{id}")).unwrap();
-            repo.id = id.into();
-            {
-                let value =
-                    OrgFile::new(id.into(), "same.org".into(), source.as_bytes().to_vec()).unwrap();
-                crate::model::test_support::push_file(&mut repo, value);
-            };
-            repo
-        })
-        .collect();
-        let same_paths = OrgWorkspace::new(repos).unwrap();
-        let result = same_paths
-            .query(&[(TaskQuery {
-                expression: ".it.done".into(),
-                include_compose_tasks: false,
-                ..Default::default()
-            })
-            .into()])
+        let result = workspace
+            .query(&[query.into()])
             .await
             .unwrap()
             .remove(0)
             .into_task()
             .unwrap();
         assert_eq!(result.tasks.len(), 1);
-        assert_eq!(result.tasks[0].title, "Peer");
+        assert_eq!(result.tasks[0].title(), "Parent home");
     }
 
     #[tokio::test]

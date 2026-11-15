@@ -58,7 +58,7 @@ test('新增备忘明确创建无状态标题，携带正文与文件版本', as
   assert.deepEqual(f.requests, [{ operations: [{ type: 'Creation', data: {
     position: { parent: f.file.fullPath }, title: '中文 [[https://example.com][链接]]', body: '正文\r\n- 列表\r\n',
     state: null
-  } }], queueRepoIds: ['core-id'], fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'current-file' }] }]);
+  } }], fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'current-file' }] }]);
 });
 
 test('改名沿用包含重名序号的原路径，仅提交变更字段，不覆盖原正文和日志', async () => {
@@ -66,7 +66,7 @@ test('改名沿用包含重名序号的原路径，仅提交变更字段，不�
   await f.service.update({}, f.note, '新标题', f.note.body);
   assert.deepEqual(f.requests[0], { operations: [{ type: 'Modification', data: {
     path: f.note.fullPath, modifications: [{ field: 'TITLE', value: '新标题' }]
-  } }], queueRepoIds: ['core-id'], fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'original-file' }] });
+  } }], fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'original-file' }] });
 });
 
 test('标题与正文原子修改；清空正文传空字符串，未变更不提交', async () => {
@@ -83,7 +83,7 @@ test('删除使用原快照版本，本地仓库不登记 WebDAV 上传', async 
   const f = fixture(); f.repository.webdavEnabled = false;
   await f.service.remove({}, f.note);
   assert.deepEqual(f.requests[0], { operations: [{ type: 'Deletion', data: { path: f.note.fullPath } }],
-    queueRepoIds: [], fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'original-file' }] });
+ fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'original-file' }] });
 });
 
 test('空标题、失效目标与已移除仓库拒绝写入，不回退目标', async () => {
@@ -122,7 +122,7 @@ function page(name, service, router, notifications = { async refresh() {} }) {
     if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };
     if (dependency.endsWith('/AppConfigService')) return { AppConfigService: { async load() { return {repos:[]}; } } };
     if (dependency.endsWith('/PageQueryService')) return { PageQueryService: { async query() { await notifications.refresh(); return []; } } };
-    if (dependency.endsWith('/CoreNotificationService')) return { CoreNotificationService: notifications,
+    if (dependency.endsWith('/NotificationManager')) return { NotificationManager: notifications,
       emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
     if (dependency.endsWith('/NativeCoreService')) return { coreErrorMessage: error => error.message };
     if (dependency.endsWith('/ui/Theme')) return { UiColor: { error: '#FF7592' } };

@@ -82,7 +82,7 @@ function fixture() {
 }
 test('标题修改使用原路径版本并只等待 Core 成功',async()=>{
   const f=fixture();await f.TaskInlineService.modify({},f.task,[{field:'TITLE',value:'New'}]);
-  assert.deepEqual(f.requests[0],{operations:[{type:'Modification',data:{path:f.task.fullPath,modifications:[{field:'TITLE',value:'New'}]}}],queueRepoIds:['core'],fileVersions:[{repoId:'core',file:'task.org',version:'old'}]});
+  assert.deepEqual(f.requests[0],{operations:[{type:'Modification',data:{path:f.task.fullPath,modifications:[{field:'TITLE',value:'New'}]}}],fileVersions:[{repoId:'core',file:'task.org',version:'old'}]});
 });
 test('备注、标签和清单操作原样交给 Core，不重建正文',async()=>{
   const f=fixture();const changes=[{field:'NOTES',value:'new notes'},{field:'CHECKLIST',value:{type:'setChecked',id:'123',checked:true}},{field:'TAGS',value:['configured','used']}];
@@ -108,14 +108,15 @@ test('无 TODO 标题的进度与完整路径出现次序变化后，按 Core �
 function cardRefreshFixture(emit = true, backend) {
   const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
-  const refresh = source.match(/  dataChanged\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const appear = source.match(/  aboutToAppear\(\) \{[\s\S]*?\n  \}\n/)[0];
   const apply = source.match(/  applySnapshot\(current: CoreTask \| undefined, savedCheck: boolean = false\) \{[\s\S]*?\n  \}\n/)[0];
   const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\]\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
   const disappear = source.match(/  aboutToDisappear\(\) \{[\s\S]*?\n  \}\n/)[0];
   const complete = source.match(/  async complete\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const code = ts.transpileModule('export class CardRefresh {' + refresh + apply + persist + save + remove + disappear + complete + '\n}', {
+  const adapters = ['currentTask', 'modifyTask'].map(name => source.match(new RegExp('  private async ' + name + '\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
+  const code = ts.transpileModule('export class CardRefresh {' + adapters + appear + apply + persist + save + remove + disappear + complete + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -123,11 +124,11 @@ function cardRefreshFixture(emit = true, backend) {
   const original = backend?.task ?? { id:'task', heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
   const updated = { ...original, heading: '任务 [1/2]', fileVersion: 'new' };
   let current=updated, readError, readOverride;
-  const writes=[], released=[];
+  const writes=[], released=[];let coreListener,data,controller;
   let invalidations=0;
   const TaskInlineMissingError = (backend ?? fixture()).TaskInlineMissingError;
   const service = {
-    async modify(_context,_task,changes,documentMode) { if(backend)await backend.TaskInlineService.modify(_context,_task,changes,documentMode); writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } },
+    async modify(_context,_task,changes,documentMode) { if(backend)await backend.TaskInlineService.modify(_context,_task,changes,documentMode); writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; coreListener(state.dataChanges); } },
     async findChanged(_context,_task,revision,documentMode) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return backend ? backend.TaskInlineService.findChanged(_context,_task,revision,documentMode) : current; }
   };
   vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,TaskInlineMissingError,CoreDataChangeService,coreErrorMessage,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports, service,
@@ -135,11 +136,21 @@ function cardRefreshFixture(emit = true, backend) {
   state = Object.assign(new module.exports.CardRefresh(), {
     task:original,editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
     ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},blockEditor:{finish:async()=>true},
+    localDataSet:()=>data,
+    localDataManager() { return this.dataManager ?? controller; },
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
   });
+  const reader=load('entry/src/main/ets/services/TaskEditorDataManager.ets',{
+    './TaskInlineService':{TaskInlineMissingError,TaskInlineService:{
+      modify:(context,task,fields)=>service.modify(context,task,fields,state.documentMode),
+      findChanged:(context,task,revision)=>service.findChanged(context,task,revision,state.documentMode)}},
+    './NativeCoreService':{},'./DataSetManager':{},'./MoveToTargetService':{},
+    './CoreDataChangeService':{CoreDataChangeService:{watch(fn){coreListener=fn;},unwatch(){}},emptyCoreDataChangeState:()=>({revision:0})}
+  });
+  controller=new reader.TaskEditorDataManager({});data=controller.dataSet(original);state.instanceKey=original.id;state.aboutToAppear();
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
     setCurrent:value=>current=value,fail:error=>readError=error,readWith:fn=>readOverride=fn,
-    emit() { state.dataChanges = {revision: state.dataChanges.revision + 1}; state.dataChanged(); } };
+    emit(increment=true) { if(increment)state.dataChanges = {revision: state.dataChanges.revision + 1}; coreListener(state.dataChanges);state.pending=data.reading; } };
 }
 test('数据事件在写入之后重查卡片，标题草稿同步新进度，后续保存使用新版本', async () => {
   const f = cardRefreshFixture();
@@ -168,7 +179,7 @@ test('链接草稿存在时外部版本更新保留整个编辑快照，失败�
   assert.equal(f.state.editTask, f.original);assert.equal(f.state.snapshotBlocked, true);
   assert.match(f.state.message, /链接草稿已保留/);
   f.state.linkEditor.finish = async () => false;
-  f.state.headingEditing = true;f.state.heading = '不应提交';
+  f.state.headingEditing=true;f.state.headingDirty=true;f.state.heading = '不应提交';
   assert.equal(await f.state.saveText(), false);assert.deepEqual(f.writes, []);
 });
 test('提交成功立即读取新快照，事件延迟时也能继续编辑', async () => {
@@ -245,7 +256,7 @@ test('事件刷新保留正在输入的标题和备注', async () => {
   const f = cardRefreshFixture();
   f.state.heading = '尚未保存的标题';
   f.state.notes = '尚未保存的备注';
-  f.state.headingEditing = true; f.state.notesEditing = true;
+  f.state.headingEditing=true;f.state.headingDirty=true; f.state.notesEditing=true;f.state.notesDirty=true;
   f.emit();
   await f.state.pending;
   assert.equal(f.state.heading, '尚未保存的标题');
@@ -285,7 +296,7 @@ test('保存其他字段后仍保留清单草稿原版本，不能将旧条目 I
 
 test('正在编辑的字段跨多次外部更新保持草稿，其他字段继续更新',async()=>{
   const f=cardRefreshFixture(false);
-  f.state.heading='本地草稿';f.state.headingEditing=true;
+  f.state.heading='本地草稿';f.state.headingEditing=true;f.state.headingDirty=true;
   f.setCurrent({...f.updated,heading:'本地草稿',tags:['标签甲'],editContent:{notes:'外部备注甲',checklist:[]}});
   f.emit();await f.state.pending;
   f.setCurrent({...f.updated,heading:'外部标题乙',tags:['标签乙'],fileVersion:'latest',editContent:{notes:'外部备注乙',checklist:[]}});
@@ -306,7 +317,7 @@ test('保存只覆盖指定字段，使用外部变化后的最新路径和文�
 });
 
 test('外部删除结束卡片会话，草稿不再提交；读取失败保留卡片',async()=>{
-  const deleted=cardRefreshFixture(false);deleted.state.notesEditing=true;deleted.state.notes='未保存备注';
+  const deleted=cardRefreshFixture(false);deleted.state.notesEditing=true;deleted.state.notesDirty=true;deleted.state.notes='未保存备注';
   deleted.setCurrent(undefined);deleted.emit();await deleted.state.pending;
   assert.equal(deleted.state.removed,true);assert.equal(deleted.state.snapshotBlocked,true);
   assert.deepEqual(deleted.released,['task']);assert.equal(deleted.invalidations(),0);
@@ -333,7 +344,7 @@ test('保存前发现节点已经删除时不执行任何操作',async()=>{
 test('任务移动后数据事件移除源卡片，不按保留的 Org ID 承接目标任务',async()=>{
   const backend=fixture();backend.task.taskId='org-id';
   const card=cardRefreshFixture(false,backend);
-  card.state.expanded=true;card.state.headingEditing=true;card.state.heading='未保存标题';
+  card.state.expanded=true;card.state.headingEditing=true;card.state.headingDirty=true;card.state.heading='未保存标题';
   const moved={...backend.task,filePath:'projects.org',fullPath:{...backend.task.fullPath,file:'projects.org',titles:['项目','Original']}};
   backend.setCurrent(moved);card.emit();await card.state.pending;
   assert.equal(card.state.removed,true);assert.equal(card.state.expanded,false);
@@ -343,7 +354,7 @@ test('任务移动后数据事件移除源卡片，不按保留的 Org ID 承接
 
 test('移动事件尚未送达时保存发现源任务消失，立即关闭卡片且不提交旧草稿',async()=>{
   const backend=fixture(),card=cardRefreshFixture(false,backend);
-  card.state.expanded=true;card.state.notesEditing=true;card.state.notes='未保存备注';
+  card.state.expanded=true;card.state.notesEditing=true;card.state.notesDirty=true;card.state.notes='未保存备注';
   backend.setCurrent({...backend.task,filePath:'projects.org'});
   assert.equal(await card.state.saveText(),false);
   assert.equal(card.state.removed,true);assert.equal(card.state.expanded,false);
@@ -355,7 +366,7 @@ test('移动事件尚未送达时保存发现源任务消失，立即关闭卡�
 
 test('保存遇到版本冲突保留卡片与草稿',async()=>{
   const backend=fixture(),card=cardRefreshFixture(false,backend);backend.conflict();
-  card.state.expanded=true;card.state.notesEditing=true;card.state.notes='未保存备注';
+  card.state.expanded=true;card.state.notesEditing=true;card.state.notesDirty=true;card.state.notes='未保存备注';
   assert.equal(await card.state.saveText(),false);
   assert.equal(card.state.removed,false);assert.equal(card.state.expanded,true);
   assert.equal(card.state.notes,'未保存备注');assert.match(card.state.message,/版本冲突/);
@@ -414,7 +425,7 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   const requests = [];
   const raw = '测量尿酸 [[id:stable][并记录]]';
   let saved = false;
-  const card = Object.assign(new module.exports.Card(), { heading: raw, ownerKey: 'task', headingInput: false, linkEditor: {finish:async()=>true}, blockEditor: {finish:async()=>true},
+  const card = Object.assign(new module.exports.Card(), { value:()=>({heading:raw}),heading: raw, ownerKey: 'task', headingInput: false, linkEditor: {finish:async()=>true}, blockEditor: {finish:async()=>true},
     checkFocus: { request: key => requests.push(key) }, saveText: async () => saved });
   await card.editHeading();
   assert.deepEqual(requests, ['inline_title_task']);
@@ -450,7 +461,7 @@ test('展开备注点击普通文字才进入原文，保存或刷新失败保�
   let saved = false;
   const focus = [];
   const notes = '地点 [[addr:北京][会议室]] 和 https://example.com/';
-  const card = Object.assign(new module.exports.Notes(), { notes, notesInput: false, ownerKey: 'task', linkEditor: {finish:async()=>true},
+  const card = Object.assign(new module.exports.Notes(), { value:()=>({editContent:{notes}}),notes, notesInput: false, ownerKey: 'task', linkEditor: {finish:async()=>true},
     checkFocus: { request: key => focus.push(key) }, saveText: async () => saved });
   await card.editNotes();assert.deepEqual(focus, ['inline_notes_task']);
   await card.finishNotes();assert.equal(card.notesInput, true);assert.equal(card.notes, notes);
@@ -547,13 +558,12 @@ test('快速切换输入时只聚焦最后一次请求，不复活旧输入', ()
 const { overviewTaskQuery } = load('entry/src/main/ets/services/TaskViewQueries.ets');
 test('计划请求在整个未来日期范围排除习惯任务，由 Core 求值', () => {
   assert.deepEqual(overviewTaskQuery('planned'), {
-    expression:'.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))',
-    includeComposeTasks:true
+    expression:'.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'
   });
 });
 test('随时请求只匹配无计划和无截止的待办任务，由 Core 求值', () => {
   assert.deepEqual(overviewTaskQuery('anytime'), {
-    expression:'it.todo s.none d.none',includeComposeTasks:true
+    expression:'it.todo s.none d.none'
   });
 });
 
@@ -610,7 +620,8 @@ function sortFixture({writeError,reloadError}={}) {
   const filename='entry/src/main/ets/components/editors/TaskEditor.ets';
   const source=fs.readFileSync(filename,'utf8');
   const method=source.match(/  async sortCheck\(id: string, beforeId: string \| null\) \{[\s\S]*?\n  \}\n(?=  accessibleCheckOrder)/)[0];
-  const code=ts.transpileModule('export class SortCheck {'+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const adapters=['currentTask','modifyTask'].map(name=>source.match(new RegExp('  private async '+name+'\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
+  const code=ts.transpileModule('export class SortCheck {'+adapters+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module={exports:{}}, requests=[];
   const items=[checklistItem('a'),checklistItem('b')];
   let current={fileVersion:'old',heading:'Title',editContent:{notes:'Notes',checklist:items}};
@@ -619,8 +630,10 @@ function sortFixture({writeError,reloadError}={}) {
   const service={modify:async(context,task,changes)=>{requests.push({task,changes});if(writeError)throw new Error(writeError);},reload:async()=>{reloadCalls++;if(reloadError)throw new Error(reloadError);return updated;}};
   vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineMissingError,checklistMovePreview,coreErrorMessage){'+code+'\n})',{filename})(module,module.exports,service,fixture().TaskInlineMissingError,reorder.checklistMovePreview,error=>error.message);
   const state={pending:Promise.resolve(),working:false,snapshotBlocked:false,draggingCheck:false,checkPreview:[],message:'',
+    localDataSet:()=>({}),localDataManager:()=>({modify:(_data,task,changes)=>service.modify({},task,changes),current:()=>service.reload()}),
     heading:'Title',notes:'Notes',canSortCheck(){return !this.snapshotBlocked&&!this.working;},
     value(){return this.editTask??current;},getUIContext:()=>({getHostContext:()=>({})})};
+  state.modifyTask=module.exports.SortCheck.prototype.modifyTask;state.currentTask=module.exports.SortCheck.prototype.currentTask;
   return {state,requests,updated,reloadCalls:()=>reloadCalls,sort:()=>module.exports.SortCheck.prototype.sortCheck.call(state,'a',null)};
 }
 test('清单排序只提交一次原版本请求，成功后采用新快照并清除预览', async()=>{
@@ -833,7 +846,7 @@ test('同次联动事件的来源、目标和后续关联行共享一次任务�
   assert.deepEqual(values,[source,target]);
   assert.equal(await f.TaskInlineService.findChanged({},target,10),target);
   assert.equal(f.batches.length,1);
-  assert.deepEqual(f.batches[0],[{type:'task',query:{includeComposeTasks:true}},{type:'notification',query:{}}]);
+  assert.deepEqual(f.batches[0],[{type:'task',query:{}},{type:'notification',query:{}}]);
   f.setCurrent({...source,fileVersion:'next'});
   assert.equal((await f.TaskInlineService.findChanged({},f.task,11)).fileVersion,'next');
   assert.equal(f.batches.length,2);
@@ -901,13 +914,13 @@ test('已排队但尚未读取的连续事件只查询最新版本，同一版�
   f.readWith(revision=>{revisions.push(revision);return f.updated;});
   f.emit(); f.emit(); f.emit(); await f.state.pending;
   assert.deepEqual(revisions,[3]); assert.equal(f.reads(),1);
-  f.state.dataChanged(); await f.state.pending;
+  f.emit(false); await f.state.pending;
   assert.equal(f.reads(),1);
 });
 
 test('旧联动读取完成时不回写旧值，较新事件继续刷新且保留文字草稿', async () => {
   const f=cardRefreshFixture(false),old=deferredRead(),fresh=deferredRead();
-  f.state.heading='未保存草稿';f.state.headingEditing=true;
+  f.state.heading='未保存草稿';f.state.headingEditing=true;f.state.headingDirty=true;
   f.readWith(revision=>revision===1?old.promise:fresh.promise);
   f.emit(); await eventTick(); const first=f.state.pending;
   f.emit(); const second=f.state.pending;
@@ -1055,4 +1068,41 @@ test('项目事件快照隔离仓库与文件，读取失败可以在同一事�
   assert.equal(f.documentReads.length, 3);
   f.setDocument([{ ...f.task, id: 'different' }]);
   await assert.rejects(f.TaskInlineService.reload({}, f.task, true), /任务已删除或改名/);
+});
+
+
+test('数据集编辑只提交实际修改字段，不把未改的旧标题覆盖到关联更新上，也不回查',async()=>{
+ const f=cardRefreshFixture(false);const changes=[];let current={...f.original,heading:'关联更新标题',fileVersion:'latest'};
+ f.state.stopDataSet?.();f.state.editTask=current;f.state.dataManager={isLocal:()=>true,current:()=>current,modify(_data,_source,fields){changes.push(fields);current={...current,editContent:{...current.editContent,notes:'只改备注'}};}};
+ f.state.heading=f.original.heading;f.state.headingEditing=true;f.state.headingDirty=true;f.state.headingDirty=false;
+ f.state.notes='只改备注';f.state.notesEditing=true;f.state.notesDirty=true;f.state.notesDirty=true;
+ assert.equal(await f.state.saveText(),true);assert.deepEqual(changes,[[{field:'NOTES',value:'只改备注'}]]);
+ f.emit();await f.state.pending;assert.equal(f.reads(),0);assert.deepEqual(f.writes,[]);
+});
+test('本地管理回调的错误只更新当前编辑器并保留被拒绝的用户草稿',()=>{
+ const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
+ const method=source.match(/  aboutToAppear\(\) \{[\s\S]*?\n  \}\n/)[0];
+ const code=ts.transpileModule('export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const module={exports:{}};vm.runInThisContext('(function(module,exports){'+code+'\n})')(module,module.exports);
+ let notify;const card=Object.assign(new module.exports.Card(),{instanceKey:'row-A',dataChanges:{revision:0},refreshRequest:1,message:'',heading:'我的标题',
+  localDataSet:()=>({key:'row-A'}),localDataManager:()=>({watchDataSet(_data,callback){notify=callback;return()=>{};}}),applySnapshot(){}});
+ card.aboutToAppear();notify({error:'提交失败',rejectedChanges:[{field:'TITLE',value:'我的标题'}]});
+ assert.equal(card.message,'提交失败');assert.equal(card.headingDirty,true);assert.equal(card.refreshRequest,2);
+});
+test('编辑器本地保存不等待确认，内嵌控件提交的字段通过同一管理接口汇集',async()=>{
+ const f=cardRefreshFixture(false);let current=f.original;const calls=[];
+ f.state.dataManager={isLocal:()=>true,current:()=>current,modify(data,source,changes){calls.push(changes);current={...current,priority:{name:'A',category:'Hight'}};}};
+ assert.equal(await f.state.persist([{field:'PRIORITY',value:'A'}]),true);
+ assert.equal(f.state.value().priority.name,'A');assert.equal(f.state.working,false);assert.equal(calls.length,1);
+ assert.equal(f.reads(),0);assert.deepEqual(f.writes,[]);
+});
+test('编辑器只向传入的 DataManager 注册一个 DataSet，变化回调立即应用，不等待提交队列',()=>{
+ const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
+ const method=source.match(/  aboutToAppear\(\) \{[\s\S]*?\n  \}\n/)[0];
+ const code=ts.transpileModule('export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const module={exports:{}};vm.runInThisContext('(function(module,exports){'+code+'\n})')(module,module.exports);
+ let notify,applies=0;const dataSet={key:'record-A'},current={heading:'新的标题'};
+ const card=Object.assign(new module.exports.Card(),{dataChanges:{revision:0},refreshRequest:0,pending:new Promise(()=>{}),localDataSet:()=>dataSet,
+  localDataManager:()=>({watchDataSet(data,callback){assert.equal(data,dataSet);notify=callback;return()=>{};}}),applySnapshot(task){assert.equal(task,current);applies++;}});
+ card.aboutToAppear();notify({task:current});assert.equal(applies,1);
 });

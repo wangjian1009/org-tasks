@@ -14,7 +14,6 @@ export class NoteService {
     await NativeCoreService.executeTaskOperations(config.repos, {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title, body,
         state: null } }],
-      queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
     }, config.todoDefaults, config.coreSettings)
   }
@@ -40,7 +39,7 @@ export class NoteService {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     if (note.repoId === '<preview>') {
-      await workspace.executeTaskOperations({ operations: [operation], queueRepoIds: [],
+      await workspace.executeTaskOperations({ operations: [operation],
         fileVersions: [{ repoId: note.repoId, file: note.filePath, version: note.fileVersion }] })
       return
     }
@@ -49,7 +48,6 @@ export class NoteService {
     if (!repository) throw new Error('目标仓库不可用')
     await workspace.executeTaskOperations({
       operations: [operation],
-      queueRepoIds: repository.webdavEnabled ? [note.repoId] : [],
       fileVersions: [{ repoId: note.repoId, file: note.filePath, version: note.fileVersion }]
     })
   }

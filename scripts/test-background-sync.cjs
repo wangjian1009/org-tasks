@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-background-sync.cjs\n验证同步启动策略、非阻塞队列、退后台本地变化检查、系统实况窗、资源释放与失败重试。');
+  console.log('用法: node scripts/test-background-sync.cjs\n验证同步启动策略、非阻塞队列、退后台共享通知判断、系统实况窗、资源释放与失败重试。');
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
@@ -33,7 +33,7 @@ function fixture() {
   let badgeFailure = false;
   let changed = true, syncFailure = false, publishFailure = false, retainFailure = false;
   let notificationMisses = 0;
-  let checkGate, syncGate, retainGate, expiry;
+  let checkGate, flushGate, syncGate, retainGate, expiry;
   let monitor;
   const config = { repos: [{ id: 'host-a', rootDirectory: '/a', webdavEnabled: true }],
     todoDefaults: 'TODO DONE', coreSettings: { additionStates: [] } };
@@ -51,7 +51,6 @@ function fixture() {
   };
   const native = {
     NativeCoreService: {
-      async hasLocalWebDavChanges() { calls.push('check'); if (checkGate) await checkGate.promise; return changed; },
       async syncWorkspaceWebDav(repos, callback, todoDefaults, coreSettings, triggerReason) {
         reasons.push(triggerReason); inputs.push(todoDefaults);
         calls.push('sync'); monitor = callback;
@@ -90,6 +89,8 @@ function fixture() {
     } } };
     if (dependency === './DeviceBadgeService') return { DeviceBadgeService: { async refresh() { calls.push('badge'); if (badgeFailure) throw new Error('角标失败'); } } };
     if (dependency === './NativeCoreService') return native;
+    if (dependency === './NotificationManager') return { NotificationManager: { async hasSyncRequired() { calls.push('check'); if (checkGate) await checkGate.promise; return changed; } } };
+    if (dependency === './DataSetManager') return { DataSetManager: { async flushAll() { calls.push('flush'); if (flushGate) await flushGate.promise; } } };
     if (dependency === '../models/OrgTask') return {};
     if (dependency.startsWith('./')) {
       const name = dependency.slice(2);
@@ -107,7 +108,7 @@ function fixture() {
     badgeFail() { badgeFailure = true; },
     context: { abilityInfo: { bundleName: 'com.example.orgtasks' } },
     change(value) { changed = value; }, syncFail(value) { syncFailure = value; }, publishFail() { publishFailure = true; },
-    retainFail() { retainFailure = true; }, holdCheck(gate) { checkGate = gate; }, holdSync(gate) { syncGate = gate; },
+    retainFail() { retainFailure = true; }, holdFlush(gate) { flushGate = gate; }, holdCheck(gate) { checkGate = gate; }, holdSync(gate) { syncGate = gate; },
     delayNotification() { notificationMisses = 1; },
     holdRetain(gate) { retainGate = gate; }, expire() { expiry(); },
     progress(event) { monitor(event); },
@@ -195,16 +196,17 @@ test('观察者重入时复用已保留的会话，角标失败不改变同步�
 
 test('主界面首次显示且在前台时同步一次，恢复前台和重新路由不重复启动', async () => {
   for (const contentFirst of [true, false]) {
-    const requests = [], callbacks = [], context = {};
+    const requests = [], callbacks = [], context = {}; let backgroundRequests = 0;
     const Ability = compile('../entryability/EntryAbility', name => {
       if (name === '@kit.AbilityKit') return { UIAbility: class {} };
       if (name === '../services/RepositorySyncService') return {
         SyncStartPolicy: { Reuse: 'Reuse' }, emptyRepositorySyncState() {},
         RepositorySyncService: { start(actual, options) { requests.push({ actual, ...options }); } }
       };
+      if (name === '../services/NotificationManager') return { NotificationManager: { async start(){},async refresh(){},stop(){} } };
       if (name === '../services/DeviceBadgeService') return { DeviceBadgeService: { start() {}, stop() {} } };
       if (name === '../services/NotificationPermissionService') return { NotificationPermissionService: { async start() {}, stop() {} } };
-      if (name === '../services/BackgroundRepositorySyncService') return { BackgroundRepositorySyncService: { async start() {} } };
+      if (name === '../services/BackgroundRepositorySyncService') return { BackgroundRepositorySyncService: { async start() { backgroundRequests++; } } };
       if (name === '../ui/Theme') return { UiColor: {} };
       return {};
     }, { LocalStorage: class {} }).default;
@@ -216,15 +218,15 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
     assert.equal(requests.length, 0);
     if (contentFirst) ability.onForeground(); else callbacks[0]({ code: 0 });
     assert.deepEqual(requests, [{ actual: context, triggerReason: 'appStartup', policy: 'Reuse' }]);
-    ability.onBackground(); ability.onForeground();
+    ability.onBackground(); ability.onForeground(); assert.equal(backgroundRequests, 1);
     ability.onNewWant({ parameters: { page: 'inbox' } }); callbacks[1]({ code: 0 });
     assert.equal(requests.length, 1);
   }
 });
 
-test('没有本地变化时只查询，不申请长时任务或访问凭据', async () => {
+test('没有本地同步通知时不读取配置、不申请长时任务或访问凭据', async () => {
   const f = fixture(); f.change(false); await f.service.start(f.context);
-  assert.deepEqual(f.calls, ['delay', 'configWithoutCredentials', 'check', 'cancelDelay']);
+  assert.deepEqual(f.calls, ['delay', 'flush', 'check', 'cancelDelay']);
   assert.equal(f.notifications.length, 0);
 });
 
@@ -308,29 +310,20 @@ test('系统通知稍晚创建时后续进度重新读取，仍能更新最终�
   assert.equal(f.calls.at(-1), 'release');
 });
 
-test('本地变化检查仅查询 WebDAV 仓库且不替换活动 workspace', async () => {
-  const workspaces = [];
-  class Workspace {
-    constructor() { this.roots = []; workspaces.push(this); }
-    async setTodoDefaults(value) { this.todo = value; }
-    async setSettings(value) { this.settings = value; }
-    async addRepo(rootDirectory) { this.roots.push(rootDirectory); return {}; }
-    async query(batch) {
-      assert.equal(batch.length, 1); assert.equal(batch[0].type, 'notification');
-      return [{ type: 'notification', result: this.notifications ?? [{ type: 'syncRequired' }] }];
-    }
-  }
-  const service = compile('NativeCoreService', name => {
-    if (name === 'liborg_tasks_harmony.so') return { Workspace, async defaultTodoSettings() { return '默认流程'; } };
-    throw new Error(name);
-  }).NativeCoreService;
-  const repos = [{ rootDirectory: '/local', webdavEnabled: false }, { rootDirectory: '/dav', webdavEnabled: true }];
-  const active = await service.workspaceFor(repos);
-  assert.equal(await service.hasLocalWebDavChanges(repos), true);
-  assert.deepEqual(workspaces[1].roots, ['/dav']);
-  assert.equal(await service.workspaceFor(repos), active);
-  assert.equal(await service.hasLocalWebDavChanges([repos[0]]), false);
-  assert.equal(workspaces.length, 2);
+test('存在本地同步通知但未启用 WebDAV 时不启动同步', async () => {
+  const f = fixture(); f.config.repos[0].webdavEnabled = false;
+  await f.service.start(f.context);
+  assert.deepEqual(f.calls, ['delay', 'flush', 'check', 'configWithoutCredentials', 'cancelDelay']);
+  assert.equal(f.notifications.length, 0);
+});
+
+test('先等待排队修改完成，再判断共享通知，避免刚编辑即退后台漏同步', async () => {
+  const f = fixture(), gate = deferred(); f.change(false); f.holdFlush(gate);
+  const work = f.service.start(f.context); await tick();
+  assert.deepEqual(f.calls, ['delay', 'flush']);
+  f.change(true); gate.resolve(); await work;
+  assert.equal(f.calls.filter(call => call === 'sync').length, 1);
+  assert(f.calls.indexOf('check') < f.calls.indexOf('sync'));
 });
 
 test('升级仅取消旧版同步作业，不注册新作业或清除其他作业', async () => {

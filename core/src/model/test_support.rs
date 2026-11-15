@@ -1,6 +1,7 @@
+use crate::OrgWorkspace;
 use super::*;
 use crate::CoreError;
-/// 同步测试通过统一操作组生成待上传的任务，不另建领域写入入口。
+/// 同步测试通过统一操作组生成任务，再显式准备旧上传意图以验证同步兼容性。
 pub(crate) async fn append_fixture(
     repo: &mut OrgRepo,
     path: &str,
@@ -23,10 +24,18 @@ pub(crate) async fn append_fixture(
     creation.state = Some("TODO".into());
     let group = TaskOperationGroup {
         operations: vec![TaskOperation::Creation(creation)],
-        queue_repo_ids: vec![repo.id.clone()],
         ..Default::default()
     };
     workspace.execute_task_operations(&group).await?;
+    let changed = &workspace.task_operation_history.entries.last().unwrap().fallback_group.files[0];
+    let directory = std::path::Path::new(&repo.root_directory).join(".sync/outbox");
+    tokio::fs::create_dir_all(&directory).await.map_err(|error| CoreError::Store(error.to_string()))?;
+    let intent = OrgRepoWriteIntent {
+        relative_path: path.into(),
+        content_hash: LocalFileVersion::from_bytes(changed.after.as_bytes()).content_hash,
+    };
+    super::write_intent::write_new(&directory.join(format!("{}.json", super::service::generate_repo_id()?)),
+        &serde_json::to_vec(&intent).unwrap()).await?;
     *repo = workspace.repos.remove(0);
     Ok(())
 }
@@ -48,4 +57,19 @@ pub(crate) fn record_access(root: &std::path::Path, kind: usize) {
 pub(crate) fn repository_accesses(root: &str) -> [usize; 2] {
     let root = std::fs::canonicalize(root).unwrap();
     access_counts().lock().unwrap().get(&root).copied().unwrap_or_default()
+}
+
+fn file_counts() -> &'static std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, [usize; 2]>> {
+    static COUNTS: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, [usize; 2]>>> = std::sync::OnceLock::new();
+    COUNTS.get_or_init(Default::default)
+}
+
+pub(crate) fn record_file_access(path: &std::path::Path, kind: usize) {
+    let path = std::fs::canonicalize(path.parent().unwrap()).unwrap_or_else(|_| path.parent().unwrap().to_owned()).join(path.file_name().unwrap());
+    file_counts().lock().unwrap().entry(path).or_default()[kind] += 1;
+}
+
+pub(crate) fn file_accesses(path: &std::path::Path) -> [usize; 2] {
+    let path = std::fs::canonicalize(path.parent().unwrap()).unwrap_or_else(|_| path.parent().unwrap().to_owned()).join(path.file_name().unwrap());
+    file_counts().lock().unwrap().get(&path).copied().unwrap_or_default()
 }

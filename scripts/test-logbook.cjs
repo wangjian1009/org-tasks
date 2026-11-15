@@ -28,7 +28,7 @@ function task(id, created, closed, category = 'Done', project = null, region = '
 }
 test('日志簿请求完成与取消分类，由 Core 排除未完成任务', () => {
   const { overviewTaskQuery } = compile(fs.readFileSync('entry/src/main/ets/services/TaskViewQueries.ets', 'utf8'));
-  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'it.done', includeComposeTasks: true });
+  assert.deepEqual(overviewTaskQuery('logbook'), { expression: 'it.done' });
 });
 test('完成与取消任务各按关闭时间出现一次，创建时间不增加记录或改变顺序', () => {
   const a = task('A', '2026-11-12T09:00', '2026-11-12T11:30');
@@ -93,6 +93,7 @@ function readOnlyCard(instanceKey = 'event-A') {
   const session = { begin: async () => true, release: key => { released = key; } };
   const { Card } = compile('export class Card {\n' + chunks.join('\n') + '\n}', { session });
   const card = Object.assign(new Card(), { readOnly: true, logShowPolicy: 'LogShowBySwitch', instanceKey, task: task('A', null, null), dataChanges: { revision: 1 },
+    localDataSet:()=>({key:instanceKey,task:card.task}),localDataManager() { return { dataSet:()=>({key:instanceKey}),watchDataSet() { return () => {}; } }; },
     getUIContext() { return { animateTo(_, change) { change(); } }; } });
   global.Curve = { EaseInOut: 0 };
   card.aboutToAppear();
@@ -192,7 +193,7 @@ test('批量恢复按各文件有效待办状态一次提交，沿用源版本�
     { repoId: 'repo', file: 'task.org', version: 'version-task.org' },
     { repoId: 'local', file: 'other.org', version: 'version-other.org' }
   ]);
-  assert.deepEqual(group.queueRepoIds, ['repo']);
+
 });
 test('任一任务缺少待办状态时不提交部分恢复，空选择不发起请求', async () => {
   const f = batchService();

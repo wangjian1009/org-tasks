@@ -29,7 +29,6 @@ export class TaskInlineService {
       await TaskInlineService.reload(context, task, documentMode)
     await workspace.executeTaskOperations({
       operations: [{ type: 'Modification', data: { path: current.fullPath, modifications } }],
-      queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
       fileVersions: [{ repoId: current.repoId, file: current.filePath, version: current.fileVersion }]
     })
     // 同一数据事件的共享查询可能早于本次提交，不能再用于后续编辑。
@@ -46,7 +45,7 @@ export class TaskInlineService {
   static async find(context: Context, task: CoreTask, documentMode: boolean = false): Promise<CoreTask | undefined> {
     if (documentMode) return TaskInlineService.match(await TaskInlineService.documentTasks(context, task), task)
     const config = await AppConfigService.load(context, false)
-    const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { includeComposeTasks: true } }]))[0]).tasks
+    const tasks = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { } }]))[0]).tasks
     return TaskInlineService.match(tasks, task)
   }
 
@@ -95,9 +94,7 @@ export class TaskInlineService {
 
   private static async changedTasks(context: Context): Promise<CoreTask[]> {
     const config = await AppConfigService.load(context, false)
-    return taskResult((await PageQueryService.query(config, [{ type: 'task', query: {
-      includeComposeTasks: true
-    } }]))[0]).tasks
+    return taskResult((await PageQueryService.query(config, [{ type: 'task', query: {} }]))[0]).tasks
   }
 
 }

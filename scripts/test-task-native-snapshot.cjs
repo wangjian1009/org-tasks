@@ -22,10 +22,17 @@ const metadataCallbacks = source.slice(source.indexOf('struct MetadataStates'), 
 const metadataProjection = source.slice(source.indexOf('bool ProjectFileResult('), source.indexOf('bool ProjectQueryResults('));
 const creation = source.slice(source.indexOf('napi_value CreateTaskObject('), source.indexOf('bool ProjectTaskResult('));
 const registration = source.slice(source.indexOf('    napi_property_descriptor task_descriptors[]'), source.indexOf('    napi_property_descriptor file_descriptors[]'));
+const eventProjection = source.slice(source.indexOf('bool ProjectQueryDataEvent('), source.indexOf('void DrainQueryWatch(napi_env env, struct DataChangeWatch* watch);'));
+const parseJson = source.slice(source.indexOf('bool ParseJson('), source.indexOf('bool EncodeJson('));
+const watch = source.match(/struct DataChangeWatch \{[\s\S]*?\n\};/)[0];
+const drain = source.slice(source.indexOf('void DrainQueryWatch(napi_env env, DataChangeWatch* watch) {'), source.indexOf('extern "C" void org_tasks_harmony_data_change_update'));
+
 fs.writeFileSync(cpp, `
 #include <node_api.h>
 #include <string>
 #include <initializer_list>
+#include <deque>
+#include <mutex>
 static napi_ref task_constructor;
 ${source.match(/struct TaskWrap \{[\s\S]*?\n\};/)[0]}
 bool ReadString(napi_env env, napi_value value, std::string* result) {
@@ -40,6 +47,26 @@ ${callbacks}
 ${creation}
 ${metadataCallbacks}
 ${metadataProjection}
+${parseJson}
+${eventProjection}
+${watch}
+${drain}
+napi_value DeliverEvents(napi_env env, napi_callback_info info) {
+    size_t argc = 2; napi_value args[2], event; std::string json;
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    if (!ReadString(env, args[0], &json)) return nullptr;
+    DataChangeWatch watch;
+    napi_create_reference(env, args[1], 1, &watch.callback);
+    watch.pending.push_back(json);
+    DrainQueryWatch(env, &watch);
+    DrainQueryWatch(env, &watch);
+    napi_delete_reference(env, watch.callback);
+    napi_deferred deferred; napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    napi_get_undefined(env, &event);
+    napi_resolve_deferred(env, deferred, event);
+    return promise;
+}
 napi_value Create(napi_env env, napi_callback_info info) {
     size_t argc = 1; napi_value data;
     napi_get_cb_info(env, info, &argc, &data, nullptr, nullptr);
@@ -60,6 +87,9 @@ ${registration}
     napi_value metadata;
     napi_create_function(env, "metadata", NAPI_AUTO_LENGTH, CreateMetadata, nullptr, &metadata);
     napi_set_named_property(env, exports, "metadata", metadata);
+    napi_value deliver;
+    napi_create_function(env, "deliver", NAPI_AUTO_LENGTH, DeliverEvents, nullptr, &deliver);
+    napi_set_named_property(env, exports, "deliver", deliver);
     return exports;
 }
 NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
@@ -193,4 +223,25 @@ test('附件标记作为只读可枚举快照穿过 N-API，深拷贝与序列�
   assert.ok(Object.keys(original).includes('hasAttach'));
   assert.equal(copy(original).hasAttach, true);
   assert.equal(JSON.parse(JSON.stringify(original)).hasAttach, true);
+});
+
+
+test('查询事件使用真实任务和文件方法，队列只交付一次且先于修改完成 Promise', async () => {
+  const view = JSON.parse(JSON.stringify(snapshot()));
+  view.isDone = true;
+  view.taskStateOptions = { Todo: { name: 'TODO', category: 'Todo' }, Doing: null, Wait: null, Done: { name: 'DONE', category: 'Done' }, Cancel: null };
+  view.taskPriorityOptions = { Hight: { name: 'A', category: 'Hight' }, Middle: null, Low: null };
+  const file = { repoId: 'repo', path: 'a.org', projectName: null, category: 'Work', taskStateCounts: [], taskStateOptions: view.taskStateOptions, taskPriorityOptions: view.taskPriorityOptions };
+  const order = [];
+  const event = { type: 'repositoryChanged', repoId: 'repo', operationId: 'dataset/page/2/update',
+    changes: [{ kind: 'created', before: null, after: { task: { id: 'task' }, position: { parent: { repoId: 'repo', file: 'a.org', titles: [] } }, view } }],
+    files: [{ before: null, after: { repoId: 'repo', path: 'a.org' }, afterView: file }] };
+  let received;
+  await native.deliver(JSON.stringify(event), value => { received = value;order.push('event'); }).then(() => order.push('complete'));
+  assert.deepEqual(order, ['event', 'complete']);
+  assert.equal(received.operationId, 'dataset/page/2/update');
+  assert.equal(received.changes[0].after.view.isDone(), true);
+  assert.equal(copy(received.changes[0].after.view).taskStateOf('Done').name, 'DONE');
+  assert.equal(received.files[0].afterView.taskPriorityOf('Hight').name, 'A');
+  assert.deepEqual(received.changes[0].after.task, { id: 'task' });
 });

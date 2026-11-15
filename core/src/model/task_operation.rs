@@ -14,9 +14,9 @@ pub struct TaskPosition {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskOperationGroup {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
     pub operations: Vec<TaskOperation>,
-    #[serde(default)]
-    pub queue_repo_ids: Vec<OrgRepoId>,
     #[serde(default)]
     pub file_versions: Vec<TaskFileVersion>,
 }

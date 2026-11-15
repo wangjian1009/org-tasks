@@ -1006,7 +1006,7 @@ pub(crate) async fn load_setup_settings(
     load_setup_settings_cached(root, source_path, source_bytes, &mut Default::default()).await
 }
 
-async fn load_setup_settings_cached(
+pub(super) async fn load_setup_settings_cached(
     root: &Path,
     source_path: &str,
     source_bytes: &[u8],
@@ -1056,6 +1056,8 @@ async fn load_setup_settings_cached(
                 continue;
             }
             if !cache.contains_key(&normalized) {
+                #[cfg(test)]
+                super::test_support::record_file_access(&root.join(&normalized), 0);
                 let bytes = crate::webdav::transaction::read(root, &normalized).await?;
                 cache.insert(normalized.clone(), bytes);
             }

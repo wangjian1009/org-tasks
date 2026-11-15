@@ -8,7 +8,10 @@ pub type TimestampMs = i64;
 pub enum CoreError {
     InvalidInput(&'static str),
     Store(String),
-    Preview { code: &'static str, message: &'static str },
+    Preview {
+        code: &'static str,
+        message: &'static str,
+    },
     InvalidState(&'static str),
 }
 
@@ -29,7 +32,12 @@ impl std::error::Error for CoreError {}
 mod filter;
 mod merge;
 pub mod model;
+pub mod http_server;
+pub mod query_subscription;
+pub use query_subscription::{QuerySubscription, QuerySubscriptionStart, QuerySubscriptionStatus};
 pub mod webdav;
+pub mod workspace;
+pub use workspace::{OrgWorkspace, OrgWorkspaceValidationError};
 
 pub use filter::{AddressLink, FilterDate, FilterStateType, FilterTask};
 pub use merge::merge;

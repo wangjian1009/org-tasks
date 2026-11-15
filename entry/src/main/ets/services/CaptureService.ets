@@ -36,7 +36,6 @@ export class CaptureService {
     await NativeCoreService.executeTaskOperations(config.repos, {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: normalizedTitle,
         body: entities.body, scheduled: entities.scheduled, state: state.name } }],
-      queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
       fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
     }, config.todoDefaults, config.coreSettings)
     await DeviceBadgeService.refresh(context)

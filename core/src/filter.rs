@@ -64,7 +64,7 @@ enum FilterExpression {
     Or(Vec<FilterExpression>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum FilterStateType {
     Todo,
     Done,
@@ -128,7 +128,8 @@ enum FilterSortField {
     Position,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilterTask {
     /// 兼容既有调用方的明文逻辑身份；任务专属身份请使用 task_id()。
     pub(crate) id: String,
@@ -364,7 +365,7 @@ impl FilterTask {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct FilterDate {
     pub(crate) date: NaiveDate,
     pub(crate) active: bool,
@@ -405,6 +406,10 @@ impl Filter {
     #[cfg(test)]
     pub fn filter_tasks(&self, tasks: &mut Vec<FilterTask>) {
         self.filter_tasks_at(tasks, Local::now().date_naive());
+    }
+
+    pub(crate) fn sort_tasks(&self, tasks: &mut [FilterTask]) {
+        sort_tasks(tasks, &self.sort_orders);
     }
 
     pub(crate) fn filter_tasks_at(&self, tasks: &mut Vec<FilterTask>, today: NaiveDate) {
@@ -1037,22 +1042,55 @@ fn state_category_order(task: &FilterTask) -> u8 {
     }
 }
 
-fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -> Ordering {
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum SortValue<'a> {
+    Text(&'a str),
+    Number(u64),
+    Time(Option<i64>),
+    Date(Option<FilterDate>),
+    Position(&'a str, u64),
+}
+fn sort_value(task: &FilterTask, field: FilterSortField) -> SortValue<'_> {
     match field {
-        FilterSortField::Book => left.path().cmp(right.path()),
-        FilterSortField::Title => left.title.cmp(&right.title),
-        FilterSortField::Priority => left.effective_priority().name.cmp(&right.effective_priority().name),
-        FilterSortField::State => state_category_order(left).cmp(&state_category_order(right)),
-        FilterSortField::Scheduled => left.scheduled.cmp(&right.scheduled),
-        FilterSortField::Deadline => left.deadline.cmp(&right.deadline),
-        FilterSortField::Closed => left.closed.cmp(&right.closed),
-        FilterSortField::Created => left.created_at.cmp(&right.created_at),
-        FilterSortField::Modified => left.modified_at.cmp(&right.modified_at),
-        FilterSortField::Event => left.events.first().cmp(&right.events.first()),
-        FilterSortField::Position => left
-            .path()
-            .cmp(right.path())
-            .then(left.byte_offset.cmp(&right.byte_offset)),
+        FilterSortField::Book => SortValue::Text(task.path()),
+        FilterSortField::Title => SortValue::Text(&task.title),
+        FilterSortField::Priority => SortValue::Text(&task.effective_priority().name),
+        FilterSortField::State => SortValue::Number(state_category_order(task).into()),
+        FilterSortField::Scheduled => SortValue::Date(task.scheduled),
+        FilterSortField::Deadline => SortValue::Date(task.deadline),
+        FilterSortField::Closed => SortValue::Date(task.closed),
+        FilterSortField::Created => SortValue::Time(task.created_at),
+        FilterSortField::Modified => SortValue::Time(task.modified_at),
+        FilterSortField::Event => SortValue::Date(task.events.first().copied()),
+        FilterSortField::Position => SortValue::Position(task.path(), task.byte_offset),
+    }
+}
+fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -> Ordering {
+    sort_value(left, field).cmp(&sort_value(right, field))
+}
+
+/// 文本转为 UTF-8 字节的十六进制，跨语言字符串比较仍保持 Rust 的字节序。
+pub(crate) fn order_text(value: &str) -> String {
+    let mut result = String::with_capacity(value.len() * 2);
+    const HEX: &[u8] = b"0123456789abcdef";
+    for byte in value.bytes() { result.push(HEX[(byte >> 4) as usize] as char); result.push(HEX[(byte & 15) as usize] as char); }
+    result
+}
+impl Filter {
+    pub(crate) fn order_key(&self, task: &FilterTask) -> Vec<crate::QueryOrderPart> {
+        use crate::{QueryOrderPart, QueryOrderValue};
+        let mut keys = Vec::new();
+        for order in self.sort_orders.iter().cloned().chain([FilterSort { field: FilterSortField::Position, descending: false }]) {
+            let values = match sort_value(task, order.field) {
+                SortValue::Text(value) => vec![Some(QueryOrderValue::Text(order_text(value)))],
+                SortValue::Number(value) => vec![Some(QueryOrderValue::Number(value as i64))],
+                SortValue::Time(value) => vec![value.map(QueryOrderValue::Number)],
+                SortValue::Date(value) => vec![value.map(|date| QueryOrderValue::Number(i64::from(date.date.num_days_from_ce()) * 2 + i64::from(date.active)))],
+                SortValue::Position(path, offset) => vec![Some(QueryOrderValue::Text(order_text(path))), Some(QueryOrderValue::Number(offset as i64))],
+            };
+            keys.extend(values.into_iter().map(|value| QueryOrderPart { value, descending: order.descending, missing_last: order.field == FilterSortField::Modified }));
+        }
+        keys
     }
 }
 

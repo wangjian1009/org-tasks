@@ -115,7 +115,6 @@ struct ShareLocation {
         await NativeCoreService.executeTaskOperations(this.config.repos, {
           operations: [{ type: 'Creation', data: { position: { parent: file.fullPath },
             title: `到${this.request.title || label}`, body, state: file.todo.initialState } }],
-          queueRepoIds: target.repository.webdavEnabled ? [target.repo.id] : [],
           fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
         }, this.config.todoDefaults, this.config.coreSettings)
         this.created = true
@@ -142,7 +141,6 @@ struct ShareLocation {
         await NativeCoreService.executeTaskOperations(this.config.repos, {
           operations: [{ type: 'Modification', data: { path: task.fullPath,
             modifications: [{ field: 'ADDRESS_LINK', value: { oldUri, newUri: uri } }] } }],
-          queueRepoIds: repository.webdavEnabled ? [task.repoId] : [],
           fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
         }, this.config.todoDefaults, this.config.coreSettings)
         this.updated = true

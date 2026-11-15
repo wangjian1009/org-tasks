@@ -35,7 +35,7 @@ def files_under(root, control=False):
 def bind(value, ids):
     if isinstance(value, dict):
         return {k: (ids.get(v, v) if k == 'repoId' and isinstance(v, str) else
-                    [ids.get(x, x) for x in v] if k == 'queueRepoIds' else bind(v, ids))
+                    bind(v, ids))
                 for k, v in value.items()}
     if isinstance(value, list):
         return [bind(item, ids) for item in value]
@@ -90,7 +90,6 @@ def run_case(binary, case, keep_failed):
         before = files_under(work, control=True)
         operation_files = sorted((case / 'operations').glob('*.json'))
         assert operation_files, 'operations 中必须至少定义一个操作组'
-        versions = {}
         for operation_file in operation_files:
             group = bind(json.loads(operation_file.read_text()), ids)
             request = temp / operation_file.name
@@ -113,8 +112,10 @@ def run_case(binary, case, keep_failed):
                     relative = name + '/' + snapshot['file']
                     assert (snapshot['before'].encode() if snapshot['before'] is not None else None) == before.get(relative), '回退快照与原始输入字节不符'
                     assert snapshot['after'].encode() == (work / relative).read_bytes(), '成功快照与实际文件不符'
-                versions = {(node['fullPath']['repoId'], node['fullPath']['file']): node['fileVersion']
-                            for node in output['nodes'] if node['kind'] == 'file'}
+                after = files_under(work)
+                changed = {name for name, value in after.items() if before.get(name) != value}
+                reported = {next(name for name, value in ids.items() if value == item['repoId']) + '/' + item['file'] for item in fallback['files']}
+                assert changed == reported, '实际变更文件与提交记录不一致'
                 before = files_under(work, control=True)
         expected = files_under(case / 'output')
         actual = files_under(work)
@@ -123,12 +124,7 @@ def run_case(binary, case, keep_failed):
         for name in expected:
             assert_file_matches(name, expected[name], actual[name], started, ended)
         for repo in repos:
-            count = len(list((repo / '.sync/outbox').glob('*.json')))
-            assert count == spec.get('outbox', {}).get(repo.name, 0), f'{repo.name} 上传意图数量不符: {count}'
-            for intent_file in (repo / '.sync/outbox').glob('*.json'):
-                intent = json.loads(intent_file.read_text())
-                assert set(intent) == {'relative_path', 'content_hash'}, '意图包含未约定字段'
-                assert intent['content_hash'] == versions[(ids[repo.name], intent['relative_path'])], '意图不是文件的最终版本'
+            assert not list((repo / '.sync/outbox').glob('*.json')), '普通修改不得创建上传意图'
 
         if spec.get('inspect'):
             before_inspect = files_under(work, control=True)

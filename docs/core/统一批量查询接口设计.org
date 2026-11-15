@@ -162,8 +162,7 @@ JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响�
     "type": "task",
     "repoIds": ["core-repo-id"],
     "query": {
-      "expression": "b.\"someday.org\" it.todo",
-      "includeComposeTasks": true
+      "expression": "b.\"someday.org\" it.todo"
     }
   },
   {
@@ -191,11 +190,12 @@ NotificationQuery 还需在同次锁内按需读取远端基线索引，使用�
 | 页面 | 一次批次中的请求 |
 |-
 | 收件箱 | 所选仓库的收件箱 Task、整个 workspace 的最近新增 Task、收件箱 File、Notification。 |
-| 今天、计划、随时、日志簿 | 当前视图 Task、Notification。 |
+| 计划、随时、日志簿 | 当前视图 Task、Notification。 |
+| 今天 | 页面 DataSetManager 的任务与文件订阅初始查询；通知由应用级 NotificationManager 独立读取。 |
 | 某天、备忘 | 所选仓库的文件 Task、目标 File、Notification。 |
 | 侧边栏 | 收件箱、今天、过期、计划、随时、某天、备忘、日志簿的 Task，三个目标 File，以及 Notification。 |
 
-未配置的文件入口不组装无范围任务查询，仍加载其他有效项目。页面只发起一轮批量读取；AppShell 不再在页面加载期间独立读取通知。通知订阅回调仅更新失效版本，由当前页面或侧边栏安排同一批次重查，并消费其中的通知结果，避免订阅模块再发一轮通知读取。缺失文件判断与标签候选统一消费 File 结果。
+未配置的文件入口不组装无范围任务查询，仍加载其他有效项目。未迁移页面只发起一轮批量读取；AppShell 不在页面加载期间独立读取通知。应用级 NotificationManager 在启动及 Core 通知事件后另行合并读取 NotificationQuery，不依赖页面重查；既有批次中的通知也交给同一管理类发布。今天页任务按查询订阅增量更新，通知读取不重新查询任务。缺失文件判断与标签候选统一消费 File 结果。
 
 旧的独立文件元信息和通知查询入口已删除，所有调用方通过此统一入口读取；项目访问方法与布局的现行定义见 [[file:接口文档.org::*文件与任务的项目名称][文件与任务的项目名称]] 和 [[file:../harmony/项目分类布局设计.org][项目分类布局设计]]。
 
@@ -203,9 +203,9 @@ NotificationQuery 还需在同次锁内按需读取远端基线索引，使用�
 
 ~OrgRepo.file_metadata~ 、 ~OrgRepo.notifications~ 、 ~OrgWorkspace.notifications~ 及其 FFI、N-API、类型声明和 ArkTS 查询封装已删除。旧的 TaskQuery 数组也不作为兼容协议继续接受，所有请求统一使用带 ~type~ 的 CoreQuery 数组。 ~FilterTask.file_metadata()~ 是已取得快照的同步借用，不读取文件，继续保留；完整文件读取、编辑与同步操作保持各自资源接口。
 
-~PageQueryService.query~ 组装页面批次并确保其中包含一次 Notification 查询；查询成功后向通知展示模块发布结果，失败保留最近通知快照。通知模块只注册订阅、发布快照及映射宿主仓库身份，没有独立读取方法；仓库失效由数据订阅触发，通知订阅只将全局通知变更转成数据失效，不自行再查询。较早批次不得覆盖较新通知快照。
+~PageQueryService.query~ 组装页面批次并确保其中包含一次 Notification 查询；查询成功后向通知展示模块发布结果，失败保留最近通知快照。NotificationManager 统一注册通知订阅、读取通知、发布快照及映射宿主仓库身份，页面切换不启停。成功提交与同步等事件合并触发仅包含 NotificationQuery 的查询；较早批次不得覆盖较新通知快照，内容相同不重复发布。实现与验收边界见 [[file:../harmony/页面数据集设计.org::*跨页面共享通知][跨页面共享通知]]。
 
-正常配置下，每次收件箱加载包含两项 Task、一项 File 和一项 Notification；今天、计划、随时、日志簿包含一项 Task 与一项 Notification；某天和备忘包含一项 Task、一项 File 和一项 Notification；侧边栏包含八项 Task、三项 File 和一项 Notification。每种场景都只调用一次 native query，空文件由 File 结果识别，不把零任务误判为失效文件。文件入口未配置时不提交无范围 Task，仍可同批读取通知。
+正常配置下，每次收件箱加载包含两项 Task、一项 File 和一项 Notification；计划、随时、日志簿包含一项 Task 与一项 Notification；某天和备忘包含一项 Task、一项 File 和一项 Notification；侧边栏包含八项 Task、三项 File 和一项 Notification。每种场景都只调用一次 native query，空文件由 File 结果识别，不把零任务误判为失效文件。文件入口未配置时不提交无范围 Task，仍可同批读取通知。
 
 侧边栏打开期间的数据失效只刷新其批次，后台页面延后到抽屉关闭后刷新。切换到其他路由时由新页面加载，避免离开页面前再发一次无用读取。标签筛选继续只处理已加载的页面快照，不新增查询。
 

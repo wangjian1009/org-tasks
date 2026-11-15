@@ -331,6 +331,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
     let repo_id = repo.id.clone();
     let mut workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
     workspace.execute_task_operations(&crate::TaskOperationGroup {
+        operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
             path,
             modifications: vec![
@@ -338,7 +339,6 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
                 crate::TaskModification::Title(Some("Project [1/2]".into())),
             ],
         })],
-        queue_repo_ids: vec![repo_id.clone()],
         file_versions: vec![crate::TaskFileVersion {
             repo_id, file: "a.org".into(), version: LocalFileVersion::from_bytes(base).content_hash,
         }],
@@ -449,11 +449,11 @@ async fn checklist_sort_only_sync_uploads_without_conflict() {
     let repo_id = repo.id.clone();
     let mut workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
     workspace.execute_task_operations(&crate::TaskOperationGroup {
+        operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
             path,
             modifications: vec![crate::TaskModification::Checklist(crate::TaskChecklistChange::Move { id: item, before_id: None })],
         })],
-        queue_repo_ids: vec![repo_id.clone()],
         file_versions: vec![crate::TaskFileVersion { repo_id, file: "a.org".into(), version: LocalFileVersion::from_bytes(base).content_hash }],
     }).await.unwrap();
     repo = workspace.repos.remove(0);
@@ -496,7 +496,8 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
         }
         let mut workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
         workspace.execute_task_operations(&TaskOperationGroup {
-            operations, queue_repo_ids: vec![file.repo_id.clone()],
+            operation_id: None,
+            operations,
             file_versions: vec![TaskFileVersion { repo_id: file.repo_id.clone(), file: "a.org".into(), version: LocalFileVersion::from_bytes(&seed).content_hash }],
         }).await.unwrap();
         let expected = tokio::fs::read(root.join("a.org")).await.unwrap();
@@ -1973,9 +1974,9 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     assert!(!crate::OrgWorkspace::new(vec![repo.clone()]).unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
     let file = repo.file("a.org").await.unwrap();
     let group = crate::TaskOperationGroup {
+        operation_id: None,
         operations: file.conflict_ids().into_iter().map(|id|crate::TaskOperation::ConfilictSelection(crate::TaskConfilictSelection{path:None,target:None,id,action:crate::TaskConfilictAction::Discard})).collect(),
         file_versions:vec![crate::TaskFileVersion{repo_id:repo.id.clone(),file:"a.org".into(),version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash}],
-        queue_repo_ids:vec![repo.id.clone()],
     };
     let count=state.lock().unwrap().requests.len();
     let mut workspace=crate::OrgWorkspace::new(vec![repo]).unwrap();
@@ -2066,13 +2067,13 @@ async fn downloads_release_repository_lock_and_merge_reads_edits_made_during_net
     let task = crate::filter::tasks_from_repo(&reader).await.unwrap().remove(0);
     let mut workspace = crate::OrgWorkspace::new(vec![reader]).unwrap();
     let group = crate::TaskOperationGroup {
+        operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
             path: task.full_path().clone(),
             modifications: vec![crate::TaskModification::Todo(Some("DONE".into()))],
         })],
         file_versions: vec![crate::TaskFileVersion { repo_id: file.repo_id.clone(), file: file.path.clone(),
             version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash }],
-        queue_repo_ids: vec![file.repo_id.clone()],
     };
     tokio::time::timeout(std::time::Duration::from_secs(1), workspace.execute_task_operations(&group)).await.unwrap().unwrap();
     resume.notify_one();

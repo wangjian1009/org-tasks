@@ -573,3 +573,41 @@ pub extern "C" fn org_tasks_harmony_preview_release(handle: u64, id: *const c_ch
         bridge::release_preview(handle, &id);
     }
 }
+
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_subscribe_query(handle: u64, query: *const c_char, monitor: u64, subscription_id: *mut u64) -> *mut c_char {
+    match read_c_string(query) {
+        Ok(query) => string_result(bridge::workspace_subscribe_query_json(handle, query, monitor).map(|(id, json)| {
+            if !subscription_id.is_null() { unsafe { *subscription_id = id; } }
+            json
+        })),
+        Err(error) => {
+            // 即使请求字符串无效，bridge 也需要接管并释放 monitor。
+            let _ = bridge::workspace_subscribe_query_json(handle, String::new(), monitor);
+            string_result(Err(error))
+        }
+    }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_query_subscription_status(handle: u64, id: u64) -> *mut c_char {
+    string_result(bridge::workspace_query_subscription_status(handle, id))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_unsubscribe_query(handle: u64, id: u64) {
+    bridge::workspace_unsubscribe_query(handle, id);
+}
+
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_start_http_server(handle: u64, port: u16) -> *mut c_char {
+    string_result(bridge::workspace_start_http_server(handle, port))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_stop_http_server(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_stop_http_server(handle).map(|_| "{}".into()))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_http_server_status(handle: u64) -> *mut c_char {
+    string_result(bridge::workspace_http_server_status(handle))
+}

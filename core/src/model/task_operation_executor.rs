@@ -1,3 +1,4 @@
+use crate::OrgWorkspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -15,6 +16,36 @@ struct WorkingFile {
     original: Option<Vec<u8>>,
     exists: bool,
     file: OrgFile,
+    stamp: Option<FileStamp>,
+    before_metadata: Option<OrgFileMetadata>,
+}
+
+/// 文件内容只读一次；提交期间用文件身份、长度与修改时刻检查外部写入。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileStamp {
+    length: u64,
+    modified: std::time::SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64),
+}
+
+async fn file_stamp(path: &Path) -> Result<Option<FileStamp>, CoreError> {
+    let metadata = match fs::symlink_metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(store_error(error)),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(CoreError::InvalidInput("任务文件必须是普通文件"));
+    }
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+    Ok(Some(FileStamp {
+        length: metadata.len(),
+        modified: metadata.modified().map_err(store_error)?,
+        #[cfg(unix)]
+        identity: (metadata.dev(), metadata.ino()),
+    }))
 }
 
 impl OrgWorkspace {
@@ -49,22 +80,12 @@ impl OrgWorkspace {
         }
         let source_group = group;
         let mut resolved_group = group.clone();
-        for operation in &mut resolved_group.operations {
-            if let TaskOperation::ConfilictSelection(selection) = operation {
-                if selection.path.is_none() { selection.path = Some(selection_path(self, selection).await?); }
-            }
-        }
-        let group = &resolved_group;
-        for id in &group.queue_repo_ids {
-            if self.repo(id).is_none() {
-                return Err(CoreError::InvalidInput("上传意图仓库不属于 workspace"));
-            }
-        }
         let mut touched = BTreeSet::new();
-        for operation in &group.operations {
+        for operation in &source_group.operations {
             match operation {
                 TaskOperation::ConfilictSelection(data) => {
-                    touched.insert(selection_path(self, data).await?.repo_id);
+                    if let Some(path) = &data.path { touched.insert(path.repo_id.clone()); }
+                    else { touched.extend(self.repos().iter().map(|repo| repo.id.clone())); }
                 }
                 TaskOperation::Creation(data) => {
                     touched.insert(data.position.parent.repo_id.clone());
@@ -110,7 +131,17 @@ impl OrgWorkspace {
         for (root, id) in &roots {
             super::access::recover(Path::new(root), id).await?;
         }
-        let mut files = load_files(self, group).await?;
+        let mut files = load_files(self, source_group).await?;
+        for operation in &mut resolved_group.operations {
+            if let TaskOperation::ConfilictSelection(selection) = operation {
+                selection.path = Some(selection_path(&files, selection)?);
+            }
+        }
+        let group = &resolved_group;
+        let journal = super::mutation_journal::MutationJournal::default();
+        for ((repo_id, _), item) in &mut files {
+            journal.attach(self.repo(repo_id).expect("已验证仓库"), &mut item.file);
+        }
         for operation in &group.operations {
             execute(&mut files, operation)?;
         }
@@ -130,7 +161,13 @@ impl OrgWorkspace {
                 })
                 .collect(),
         };
-        commit(self, group, &files).await?;
+        journal.validate(files.values().map(|item| &item.file))?;
+        commit(&mut files).await?;
+        let changed_keys = fallback.files.iter().map(|file| (file.repo_id.clone(), file.file.clone())).collect::<BTreeSet<_>>();
+        let changes = journal.finish(files.iter().map(|((repo_id, _), item)|
+            (self.repo(repo_id).expect("已验证仓库"), &item.file))).into_iter().filter(|change|
+                [&change.before, &change.after].into_iter().flatten().any(|snapshot|
+                    changed_keys.contains(&(snapshot.task.repo_id().to_owned(), snapshot.task.path().to_owned())))).collect::<Vec<_>>();
         self.task_operation_history
             .entries
             .push(TaskOperationRecord {
@@ -144,29 +181,57 @@ impl OrgWorkspace {
             .collect::<BTreeSet<_>>();
         drop(guards);
         for repo_id in updated_repositories {
-            super::sync_events::publish(self.repo(repo_id).expect("已验证仓库"));
+            let changed_files = fallback.files.iter().filter(|file| &file.repo_id == repo_id)
+                .map(|file| {
+                    let item = &files[&(file.repo_id.clone(), file.file.clone())];
+                    FileDataChange {
+                        before: item.before_metadata.clone(),
+                        after: item.file.metadata(item.file.scan_ignored),
+                        before_version: item.original.as_ref().map(|bytes| LocalFileVersion::from_bytes(bytes).content_hash),
+                        after_version: LocalFileVersion::from_bytes(item.file.source_bytes()).content_hash,
+                    }
+                }).collect();
+            let changes = changes.iter().filter(|change|
+                [&change.before, &change.after].into_iter().flatten()
+                    .any(|snapshot| snapshot.task.repo_id() == repo_id)).cloned().collect();
+            super::sync_events::publish_changes(self.repo(repo_id).expect("已验证仓库"),
+                group.operation_id.as_deref(), Some(changed_files), changes);
         }
         Ok(())
     }
 }
 
-async fn selection_path(workspace: &OrgWorkspace, data: &TaskConfilictSelection) -> Result<TaskPath, CoreError> {
+fn selection_path(files: &BTreeMap<FileKey, WorkingFile>, data: &TaskConfilictSelection) -> Result<TaskPath, CoreError> {
     if let Some(path) = &data.path {
         path.validate()?;
         if !path.titles.is_empty() || path.file.is_none() { return Err(CoreError::InvalidInput("冲突选择必须指定文件根路径")); }
         return Ok(path.clone());
     }
-    let id = &data.id;
+    let paths = files.values().filter(|item| item.file.conflict_ids().contains(&data.id))
+        .map(|item| item.file.full_path()).collect::<Vec<_>>();
+    if paths.len() != 1 { return Err(CoreError::InvalidInput("冲突点不存在或 ID 重复，请刷新")); }
+    Ok(paths[0].clone())
+}
+
+/// 兼容只提供冲突 ID 的调用：先列举路径，正文仍由本次工作区统一加载一次。
+async fn org_paths(root: &Path) -> Result<Vec<String>, CoreError> {
+    let mut directories = vec![PathBuf::new()];
     let mut paths = Vec::new();
-    for repo in workspace.repos() {
-        for file in repo.load_files(&[]).await? {
-            if file.conflict_ids().iter().any(|value| value == id) { paths.push(file.full_path()); }
+    while let Some(relative) = directories.pop() {
+        let mut entries = fs::read_dir(root.join(&relative)).await.map_err(store_error)?;
+        while let Some(entry) = entries.next_entry().await.map_err(store_error)? {
+            let metadata = fs::symlink_metadata(entry.path()).await.map_err(store_error)?;
+            let path = relative.join(entry.file_name());
+            if metadata.file_type().is_symlink() { continue; }
+            if metadata.is_dir() {
+                if entry.file_name() != ".sync" { directories.push(path); }
+            } else if metadata.is_file() && path.extension().is_some_and(|value| value == "org") {
+                paths.push(path.to_str().ok_or(CoreError::InvalidInput("Org 文件路径必须是 UTF-8"))?
+                    .replace(std::path::MAIN_SEPARATOR, "/"));
+            }
         }
     }
-    if paths.len() != 1 {
-        return Err(CoreError::InvalidInput("冲突点不存在或 ID 重复，请刷新"));
-    }
-    Ok(paths[0].clone())
+    Ok(paths)
 }
 
 fn key(path: &TaskPath) -> Result<FileKey, CoreError> {
@@ -187,7 +252,15 @@ async fn load_files(
     for operation in &group.operations {
         let (source, position) = match operation {
             TaskOperation::ConfilictSelection(data) => {
-                keys.insert(key(&selection_path(workspace, data).await?)?);
+                if let Some(path) = &data.path {
+                    path.validate()?;
+                    if !path.titles.is_empty() || path.file.is_none() { return Err(CoreError::InvalidInput("冲突选择必须指定文件根路径")); }
+                    keys.insert(key(path)?);
+                } else {
+                    for repo in workspace.repos() {
+                        for path in org_paths(Path::new(&repo.root_directory)).await? { keys.insert((repo.id.clone(), path)); }
+                    }
+                }
                 (None, None)
             }
             TaskOperation::Creation(data) => (None, Some(&data.position)),
@@ -213,31 +286,32 @@ async fn load_files(
     }
     let mut files = BTreeMap::new();
     let mut disks = BTreeSet::new();
+    let mut loaded = BTreeMap::new();
+    let mut setup_caches = BTreeMap::<OrgRepoId, BTreeMap<String, Option<Vec<u8>>>>::new();
+    let mut scan_rules = BTreeMap::new();
     for (repo_id, path) in keys {
-        let repo = workspace
-            .repo(&repo_id)
-            .ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
-        if repo.id.is_empty() {
-            return Err(CoreError::InvalidState("仓库尚未加载"));
-        }
-        // 加载阶段不创建目录，失败不得留下任何文件系统改动。
-        let disk = checked_disk(Path::new(&repo.root_directory), &path).await?;
-        if !disks.insert(disk.clone()) {
-            return Err(CoreError::InvalidInput("仓库文件路径不能互相重叠"));
-        }
+        let repo = workspace.repo(&repo_id).ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
+        if repo.id.is_empty() { return Err(CoreError::InvalidState("仓库尚未加载")); }
+        let root = Path::new(&repo.root_directory);
+        let disk = checked_disk(root, &path).await?;
+        if !disks.insert(disk.clone()) { return Err(CoreError::InvalidInput("仓库文件路径不能互相重叠")); }
+        let stamp = file_stamp(&disk).await?;
         let original = read_optional(&disk).await?;
+        if file_stamp(&disk).await? != stamp { return Err(CoreError::InvalidState("读取期间任务文件已被外部修改")); }
+        setup_caches.entry(repo_id.clone()).or_default().insert(path.clone(), original.clone());
+        if !scan_rules.contains_key(&repo_id) { scan_rules.insert(repo_id.clone(), TaskScanRules::load(root).await?); }
+        loaded.insert((repo_id, path), (disk, stamp, original));
+    }
+    for ((repo_id, path), (disk, stamp, original)) in loaded {
+        let repo = workspace.repo(&repo_id).expect("已验证仓库");
         let source = original.clone().unwrap_or_default();
-        let setup = super::service::load_setup_settings(Path::new(&repo.root_directory), &path, &source).await?;
-        let file = repo.parse_file_with_setup(path.clone(), source, setup)?;
-        files.insert(
-            (repo_id, path),
-            WorkingFile {
-                disk,
-                exists: original.is_some(),
-                original,
-                file,
-            },
-        );
+        let setup = super::service::load_setup_settings_cached(Path::new(&repo.root_directory), &path, &source,
+            setup_caches.get_mut(&repo_id).unwrap()).await?;
+        let mut file = repo.parse_file_with_setup(path.clone(), source, setup)?;
+        file.modified_at = stamp.as_ref().and_then(stamp_timestamp);
+        file.scan_ignored = scan_rules[&repo_id].excludes(&path);
+        let before_metadata = original.as_ref().map(|_| file.metadata(file.scan_ignored));
+        files.insert((repo_id, path), WorkingFile { disk, exists: original.is_some(), original, file, stamp, before_metadata });
     }
     for version in &group.file_versions {
         let item = &files[&(version.repo_id.clone(), version.file.clone())];
@@ -349,6 +423,8 @@ pub(super) fn replace(
     content: &[u8],
 ) -> Result<(), CoreError> {
     super::editor::ensure_editable_range(file, range.start, range.end)?;
+    if &file.source_bytes()[range.clone()] == content { return Ok(()); }
+    if let Some(journal) = &file.mutation_journal { journal.touch(); }
     file.source_bytes.splice(range, content.iter().copied());
     file.reparse()
 }
@@ -505,7 +581,9 @@ fn execute_inner(
                 } else {
                     0
                 };
+            let ordinal = super::mutation_journal::ordinal_at(&item.file, inserted);
             insert(&mut item.file, offset, &content)?;
+            if let Some(journal) = &mut item.file.mutation_journal { journal.create(ordinal, 1); }
             let node = item
                 .file
                 .path_headlines()
@@ -579,6 +657,8 @@ fn execute_inner(
         TaskOperation::Deletion(data) => {
             let item = files.get_mut(&key(&data.path)?).expect("已加载文件");
             let headline = locate(&item.file, &data.path)?;
+            let nodes = super::mutation_journal::subtree_range(&item.file, &headline);
+            if let Some(journal) = &mut item.file.mutation_journal { journal.delete(nodes); }
             replace(&mut item.file, start(&headline)..end(&headline), &[])?;
             Ok(None)
         }
@@ -592,6 +672,7 @@ fn execute_inner(
             let headline = locate(source, &data.path)?;
             let (mut offset, level) = position(&files[&target_key].file, &data.position)?;
             let range = start(&headline)..end(&headline);
+            let source_nodes = super::mutation_journal::subtree_range(source, &headline);
             if source_key == target_key {
                 for path in std::iter::once(&data.position.parent).chain(data.position.after.iter())
                 {
@@ -653,6 +734,8 @@ fn execute_inner(
                     "目标文件不能保留移动子树的标题或 TODO 状态",
                 ));
             }
+            let moved_tokens = files.get_mut(&source_key).unwrap().file.mutation_journal.as_mut()
+                .map(|journal| journal.take_moved(source_nodes));
             replace(
                 &mut files.get_mut(&source_key).unwrap().file,
                 range.clone(),
@@ -668,7 +751,11 @@ fn execute_inner(
                 } else {
                     0
                 };
+            let ordinal = super::mutation_journal::ordinal_at(target, inserted);
             insert(target, offset, &content)?;
+            if let Some(tokens) = moved_tokens {
+                target.mutation_journal.as_mut().expect("同一事务的目标文件").insert_moved(ordinal, tokens);
+            }
             Ok(Some(path_at(target, inserted)?))
         }
     }
@@ -1497,121 +1584,72 @@ struct Prepared {
     temporary: PathBuf,
     rollback: PathBuf,
     original: Option<Vec<u8>>,
+    stamp: Option<FileStamp>,
+    saved_stamp: Option<FileStamp>,
     after: Vec<u8>,
 }
 
-async fn commit(
-    workspace: &OrgWorkspace,
-    group: &TaskOperationGroup,
-    files: &BTreeMap<FileKey, WorkingFile>,
-) -> Result<(), CoreError> {
-    commit_prepared(workspace, group, files, None).await
+async fn commit(files: &mut BTreeMap<FileKey, WorkingFile>) -> Result<(), CoreError> {
+    let committed = commit_prepared(files, None).await?;
+    for item in files.values_mut() {
+        if let Some(stamp) = committed.get(&item.disk) { item.file.modified_at = stamp_timestamp(stamp); }
+    }
+    Ok(())
 }
 
 async fn commit_prepared(
-    workspace: &OrgWorkspace,
-    group: &TaskOperationGroup,
     files: &BTreeMap<FileKey, WorkingFile>,
     fail_after: Option<usize>,
-) -> Result<(), CoreError> {
+) -> Result<BTreeMap<PathBuf, FileStamp>, CoreError> {
     let nonce = super::service::generate_repo_id()?;
     let mut prepared: Vec<Prepared> = Vec::new();
-    let mut created_dirs = Vec::new();
     let mut written = 0;
     let result = async {
-        for ((repo_id, path), item) in files {
-            if item.original.as_deref() == Some(item.file.source_bytes()) {
-                continue;
-            }
-            if read_optional(&item.disk).await? != item.original {
+        for item in files.values() {
+            if item.original.as_deref() == Some(item.file.source_bytes()) { continue; }
+            if file_stamp(&item.disk).await? != item.stamp {
                 return Err(CoreError::InvalidState("任务文件已被外部修改"));
             }
-            let temporary = item
-                .disk
-                .with_file_name(format!(".{nonce}-{}.tmp", prepared.len()));
-            let rollback = item
-                .disk
-                .with_file_name(format!(".{nonce}-{}.rollback", prepared.len()));
             prepared.push(Prepared {
                 target: item.disk.clone(),
-                temporary,
-                rollback,
+                temporary: item.disk.with_file_name(format!(".{nonce}-{}.tmp", prepared.len())),
+                rollback: item.disk.with_file_name(format!(".{nonce}-{}.rollback", prepared.len())),
                 original: item.original.clone(),
+                stamp: item.stamp.clone(),
+                saved_stamp: None,
                 after: item.file.source_bytes().to_vec(),
             });
-            if group.queue_repo_ids.contains(repo_id) {
-                let root = Path::new(&workspace.repo(repo_id).unwrap().root_directory);
-                let directory = root.join(".sync/outbox");
-                for controlled in [root.join(".sync"), directory.clone()] {
-                    match fs::symlink_metadata(&controlled).await {
-                        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
-                            return Err(CoreError::InvalidInput(
-                                "同步控制路径必须是仓库内的真实目录",
-                            ));
-                        }
-                        Ok(_) => (),
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-                        Err(error) => return Err(store_error(error)),
-                    }
-                }
-                if !fs::try_exists(&directory).await.map_err(store_error)? {
-                    fs::create_dir(&directory).await.map_err(store_error)?;
-                    created_dirs.push(directory.clone());
-                }
-                let target = directory.join(format!("{nonce}-{}.json", prepared.len()));
-                let content = serde_json::to_vec(&OrgRepoWriteIntent {
-                    relative_path: path.clone(),
-                    content_hash: LocalFileVersion::from_bytes(item.file.source_bytes())
-                        .content_hash,
-                })
-                .map_err(|_| CoreError::InvalidState("无法序列化上传意图"))?;
-                prepared.push(Prepared {
-                    temporary: target.with_extension("tmp"),
-                    rollback: target.with_extension("rollback"),
-                    target,
-                    original: None,
-                    after: content,
-                });
-            }
         }
-        for item in &prepared {
+        for item in &mut prepared {
             write_new(&item.temporary, &item.after).await?;
-            if let Some(original) = &item.original {
-                write_new(&item.rollback, original).await?;
-            }
+            item.saved_stamp = file_stamp(&item.temporary).await?;
+            if let Some(original) = &item.original { write_new(&item.rollback, original).await?; }
         }
-        // 所有临时文件与回退字节准备成功后再修改任意正式路径。
+        // 全部暂存成功后再替换正式文件；校验只读元信息，不再重复读取业务内容。
         for item in &prepared {
-            if read_optional(&item.target).await? != item.original {
+            if file_stamp(&item.target).await? != item.stamp {
                 return Err(CoreError::InvalidState("提交前文件已被外部修改"));
             }
         }
         for item in &prepared {
-            if fail_after == Some(written) {
-                return Err(CoreError::Store("测试注入提交故障".into()));
-            }
-            if read_optional(&item.target).await? != item.original {
+            if fail_after == Some(written) { return Err(CoreError::Store("测试注入提交故障".into())); }
+            if file_stamp(&item.target).await? != item.stamp {
                 return Err(CoreError::InvalidState("提交时文件已被外部修改"));
             }
-            fs::rename(&item.temporary, &item.target)
-                .await
-                .map_err(store_error)?;
+            fs::rename(&item.temporary, &item.target).await.map_err(store_error)?;
+            #[cfg(test)]
+            super::test_support::record_file_access(&item.target, 1);
             written += 1;
         }
         Ok(())
-    }
-    .await;
+    }.await;
     if result.is_err() {
         for item in prepared[..written].iter().rev() {
-            if read_optional(&item.target).await?.as_deref() != Some(item.after.as_slice()) {
-                return Err(CoreError::Store(
-                    "回滚期间检测到外部写入，保留回退文件供恢复".into(),
-                ));
+            if file_stamp(&item.target).await? != item.saved_stamp {
+                return Err(CoreError::Store("回滚期间检测到外部写入，保留回退文件供恢复".into()));
             }
             if item.original.is_some() {
-                fs::rename(&item.rollback, &item.target)
-                    .await
-                    .map_err(store_error)?;
+                fs::rename(&item.rollback, &item.target).await.map_err(store_error)?;
             } else {
                 fs::remove_file(&item.target).await.map_err(store_error)?;
             }
@@ -1621,12 +1659,11 @@ async fn commit_prepared(
         let _ = fs::remove_file(&item.temporary).await;
         let _ = fs::remove_file(&item.rollback).await;
     }
-    if result.is_err() {
-        for directory in created_dirs.iter().rev() {
-            let _ = fs::remove_dir(directory).await;
-        }
-    }
-    result
+    result?;
+    Ok(prepared.into_iter().map(|item| (item.target, item.saved_stamp.expect("暂存文件已读取元信息"))).collect())
+}
+fn stamp_timestamp(stamp: &FileStamp) -> Option<TimestampMs> {
+    stamp.modified.duration_since(std::time::UNIX_EPOCH).ok().and_then(|duration| i64::try_from(duration.as_millis()).ok())
 }
 fn store_error(error: std::io::Error) -> CoreError {
     CoreError::Store(format!("无法执行任务操作组: {error}"))
@@ -1636,8 +1673,58 @@ fn store_error(error: std::io::Error) -> CoreError {
 mod tests {
     use super::*;
     #[tokio::test]
-    async fn failures_during_each_commit_step_restore_all_files_and_outbox() {
-        for failure in 0..4 {
+    async fn repeated_operations_moves_and_trigger_read_and_save_each_file_once() {
+        let root = std::env::temp_dir().join(format!("task-operation-io-{}", super::super::service::generate_repo_id().unwrap()));
+        fs::create_dir(&root).await.unwrap();
+        fs::write(root.join("a.org"), b"#+SETUPFILE: b.org\n* TODO Source\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n").await.unwrap();
+        fs::write(root.join("b.org"), b"#+TODO: TODO | DONE\n* TODO Target\n").await.unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
+        let id = repo.id.clone();
+        let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let group = serde_json::json!({"operations":[
+            {"type":"Modification","data":{"path":{"repoId":id,"file":"a.org","titles":["Source"]},"modifications":[{"field":"TODO","value":"DONE"}]}},
+            {"type":"Movement","data":{"path":{"repoId":id,"file":"a.org","titles":["Source"]},"position":{"parent":{"repoId":id,"file":"b.org","titles":["Target"]}}}},
+            {"type":"Modification","data":{"path":{"repoId":id,"file":"b.org","titles":["Target","Source"]},"modifications":[{"field":"TITLE","value":"Final"}]}},
+            {"type":"Creation","data":{"position":{"parent":{"repoId":id,"file":"a.org","titles":[]}},"title":"New","state":"TODO"}},
+            {"type":"Movement","data":{"path":{"repoId":id,"file":"a.org","titles":["New"]},"position":{"parent":{"repoId":id,"file":"a.org","titles":["Other"]}}}}
+        ]});
+        workspace.execute_task_operations(&serde_json::from_value(group).unwrap()).await.unwrap();
+        for name in ["a.org", "b.org"] { assert_eq!(super::super::test_support::file_accesses(&root.join(name)), [1, 1], "{name}"); }
+        assert!(fs::read_to_string(root.join("a.org")).await.unwrap().contains("* DONE Other\n** TODO New"));
+        assert!(fs::read_to_string(root.join("b.org")).await.unwrap().contains("** DONE Final"));
+        assert!(!root.join(".sync/outbox").exists());
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn external_file_replacement_is_rejected_without_reading_business_contents_again() {
+        let root = std::env::temp_dir().join(format!("task-operation-external-{}", super::super::service::generate_repo_id().unwrap()));
+        fs::create_dir(&root).await.unwrap();
+        fs::write(root.join("a.org"), b"* TODO Original\n").await.unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
+        let workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
+        let group: TaskOperationGroup = serde_json::from_value(serde_json::json!({"operations":[
+            {"type":"Modification","data":{"path":{"repoId":repo.id,"file":"a.org","titles":["Original"]},"modifications":[{"field":"TITLE","value":"Changed"}]}}
+        ]})).unwrap();
+        let mut files = load_files(&workspace, &group).await.unwrap();
+        execute(&mut files, &group.operations[0]).unwrap();
+        let external = root.join("external");
+        fs::write(&external, b"* TODO External\n").await.unwrap();
+        // 即使长度和时刻相同，原子替换后的文件身份也必须变化。
+        let original_time = std::fs::metadata(root.join("a.org")).unwrap().modified().unwrap();
+        std::fs::File::options().write(true).open(&external).unwrap().set_modified(original_time).unwrap();
+        fs::rename(external, root.join("a.org")).await.unwrap();
+        assert!(commit(&mut files).await.is_err());
+        assert_eq!(super::super::test_support::file_accesses(&root.join("a.org")), [1, 0]);
+        assert_eq!(fs::read(root.join("a.org")).await.unwrap(), b"* TODO External\n");
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failures_during_each_commit_step_restore_all_files() {
+        for failure in 0..2 {
             let root = std::env::temp_dir().join(format!(
                 "task-operation-rollback-{}",
                 super::super::service::generate_repo_id().unwrap()
@@ -1670,7 +1757,6 @@ mod tests {
                         },
                     }),
                 ],
-                queue_repo_ids: vec![id],
                 ..Default::default()
             };
             let mut files = load_files(&workspace, &group).await.unwrap();
@@ -1678,7 +1764,7 @@ mod tests {
                 execute(&mut files, operation).unwrap();
             }
             assert!(
-                commit_prepared(&workspace, &group, &files, Some(failure))
+                commit_prepared(&files, Some(failure))
                     .await
                     .is_err()
             );
@@ -1695,7 +1781,7 @@ mod tests {
 pub(super) fn edit_preview(file: OrgFile, group: &TaskOperationGroup) -> Result<OrgFile, CoreError> {
     let file_key = key(&file.full_path())?;
     let mut files = BTreeMap::from([(file_key.clone(), WorkingFile {
-        disk: PathBuf::new(), original: None, exists: true, file,
+        disk: PathBuf::new(), original: None, exists: true, file, stamp: None, before_metadata: None,
     })]);
     for operation in &group.operations { execute(&mut files, operation)?; }
     Ok(files.remove(&file_key).unwrap().file)

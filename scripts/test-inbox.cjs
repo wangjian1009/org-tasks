@@ -202,7 +202,7 @@ test('直接移动使用原目标位置和双端版本，上传身份来自 Core
   const f = fixture(); const t = target('core-id', 'Work');
   await f.InboxService.perform({}, f.task, 'move', t);
   assert.deepEqual(f.requests[0], { operations: [{ type: 'Movement', data: { path: f.task.fullPath,
-    position: { parent: t.fullPath } } }], queueRepoIds: ['core-id'], fileVersions: [
+    position: { parent: t.fullPath } } }], fileVersions: [
       { repoId: 'core-id', file: 'inbox.org', version: 'source-version' },
       { repoId: 'core-id', file: 'projects.org', version: 'target-version' }
     ] });
@@ -277,7 +277,7 @@ test('收件箱与近期记录在同一批次，最近三天表达式及精确�
   });
   assert.deepEqual((await InboxService.load(config)).recent,[task]);
   assert.equal(queries.length,1);
-  assert.deepEqual(queries[0][2].query,{expression:'cr.ge.-2d cr.le.today .o.created',includeComposeTasks:true,excludedFiles:[{repoId:'core-id',path:'inbox.org'}]});
+  assert.deepEqual(queries[0][2].query,{expression:'cr.ge.-2d cr.le.today .o.created',excludedFiles:[{repoId:'core-id',path:'inbox.org'}]});
 });
 
 test('通用目标查询仅排除配置的具体文件，不为某天快捷入口额外读取元信息', async () => {
@@ -322,7 +322,7 @@ test('通用移动保留跨仓库源目标版本与身份，只为启用同步�
   await MoveToTargetService.move({}, source, selected);
   assert.deepEqual(requests, [{
     operations: [{ type: 'Movement', data: { path: source.fullPath, position: { parent: selected.fullPath } } }],
-    queueRepoIds: ['core-a'], fileVersions: [
+ fileVersions: [
       { repoId: 'core-a', file: 'inbox.org', version: 'source-version' },
       { repoId: 'core-b', file: 'projects.org', version: 'target-version' }
     ]
@@ -411,7 +411,7 @@ test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与�
   ], fileVersions: [
     { repoId: 'source', file: 'inbox.org', version: 'old' },
     { repoId: 'core-id', file: 'someday.org', version: 'target-version' }
-  ], queueRepoIds: ['core-id'] });
+  ]});
   initialState = null;
   await assert.rejects(InboxService.perform({}, task, 'someday'), /待办状态/);
   initialState = 'OPEN';

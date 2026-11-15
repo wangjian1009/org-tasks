@@ -1,6 +1,6 @@
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { SyncLogDetails } from '../components/SyncLogDetails'

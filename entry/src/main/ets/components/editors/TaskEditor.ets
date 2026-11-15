@@ -4,14 +4,13 @@ import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
 import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
-import { TaskInlineService, TaskInlineSession, TaskInlineMissingError } from '../../services/TaskInlineService'
-import { CoreDataChangeState, emptyCoreDataChangeState } from '../../services/CoreDataChangeService'
+import { TaskInlineSession } from '../../services/TaskInlineService'
+import { TaskEditorDataManager, TaskEditorDataSet, TaskEditorChange, TaskInlineMissingError } from '../../services/TaskEditorDataManager'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
 import { MoveToTarget } from './MoveToTarget'
-import { MoveToTargetService } from '../../services/MoveToTargetService'
 import { RefileSection, refileSections } from '../../ui/MoveToTargetPresentation'
 import { TaskRightSwipeAction } from '../../ui/TaskActionPresentation'
 import { PopupMenuButton } from '../controls/PopupMenuButton'
@@ -46,11 +45,13 @@ class ChecklistFocusFrame extends FrameCallback {
 }
 
 // 通用任务编辑器，可嵌入列表项或项目文档；宿主按需提供滚动容器和展示策略。
-// 快照与写入均来自 Core；只维护卡片、输入草稿和浮层状态。
+// 数据读写与变化监控均使用传入的管理对象；只维护卡片、输入草稿和浮层状态。
 @Component
 export struct TaskEditor {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
-  @Prop task: CoreTask
+  dataManager: TaskEditorDataManager | undefined = undefined
+  dataSet: TaskEditorDataSet | undefined = undefined
+  private stopDataSet: (() => void) | undefined = undefined
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
@@ -75,6 +76,10 @@ export struct TaskEditor {
   @State headingInput: boolean = false
   @State notesInput: boolean = false
   @State notes: string = ''
+  private headingDirty: boolean = false
+  private notesDirty: boolean = false
+  private headingBaseline: string = ''
+  private notesBaseline: string = ''
   private headingEditing: boolean = false
   private notesEditing: boolean = false
   @State blockEditing: boolean = false
@@ -115,11 +120,9 @@ export struct TaskEditor {
   @State checkLayoutRevision: number = 0
   @State snapshotBlocked: boolean = false
   @StorageLink('taskInlineDateRequest') @Watch('dateRequested') dateRequest: string = ''
-  @StorageLink('coreDataChanges') @Watch('dataChanged') dataChanges: CoreDataChangeState = emptyCoreDataChangeState()
   @Prop referenceTime: number = Date.now()
   private ownerKey: string = ''
   private appeared: boolean = false
-  private dataRevision: number = -1
   private refreshRequest: number = 0
   private dateDialog: CustomDialogController | undefined = undefined
   private tagsDialog: CustomDialogController | undefined = undefined
@@ -151,9 +154,24 @@ export struct TaskEditor {
   }
 
   dateRequested() {
-    if (this.dateRequest.startsWith(`${this.task.id}\n`)) this.dates(false)
+    if (this.dateRequest.startsWith(`${this.value().id}\n`)) this.dates(false)
   }
-  value(): CoreTask { return this.editTask ?? this.task }
+  value(): CoreTask { return this.editTask ?? this.localDataSet().task }
+  private localDataManager(): TaskEditorDataManager {
+    if (!this.dataManager) throw new Error('未提供任务数据管理对象')
+    return this.dataManager
+  }
+  private localDataSet(): TaskEditorDataSet {
+    if (!this.dataSet) throw new Error('未提供任务数据集')
+    return this.dataSet
+  }
+  private async currentTask(): Promise<CoreTask> {
+    return await this.localDataManager().current(this.localDataSet())
+  }
+  private async modifyTask(task: CoreTask, changes: CoreTaskModification[]): Promise<void> {
+    await this.localDataManager().modify(this.localDataSet(), task, changes)
+  }
+
   horizontalSwipe(offsetX: number) {
     if ((this.readOnly && !this.allowCompletion) || this.typing || this.checklistTouch || this.draggingCheck) return
     if (offsetX > 48) this.rightSwipe()
@@ -178,7 +196,7 @@ export struct TaskEditor {
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
-      const current = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value(), this.documentMode)
+      const current = await this.currentTask()
       if (!this.appeared || this.removed) return
       this.applySnapshot(current)
       this.moveSource = current
@@ -201,7 +219,7 @@ export struct TaskEditor {
     this.moveMessage = ''
     this.moveSections = []
     try {
-      const targets = await MoveToTargetService.targets(this.getUIContext().getHostContext()!)
+      const targets = await this.localDataManager().targets()
       if (request === this.moveRequest && this.moveOpen) this.moveSections = refileSections(targets)
     } catch (error) {
       if (request === this.moveRequest && this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
@@ -227,7 +245,7 @@ export struct TaskEditor {
     this.moveBusy = true
     this.moveMessage = ''
     try {
-      await MoveToTargetService.move(this.getUIContext().getHostContext()!, source, target)
+      await this.localDataManager().moveDataSet(this.localDataSet(), source, target)
       this.moveBusy = false
       this.closeMove()
       this.removeDeletedTask()
@@ -278,25 +296,6 @@ export struct TaskEditor {
       if (!this.expanded) TaskInlineSession.release(this.ownerKey)
     }
   }
-  dataChanged() {
-    if (!this.appeared || this.removed || this.dataRevision === this.dataChanges.revision) return
-    const revision = this.dataChanges.revision
-    this.dataRevision = revision
-    const request = ++this.refreshRequest
-    // 关联任务与当前卡片共用事件快照；同一任务的写入与刷新仍顺序执行。
-    const refresh = this.pending.then(async () => {
-      if (!this.appeared || this.removed || request !== this.refreshRequest) return
-      const previous = this.value()
-      try {
-        const current = await TaskInlineService.findChanged(this.getUIContext().getHostContext()!, previous, revision, this.documentMode)
-        if (!this.appeared || this.removed || request !== this.refreshRequest) return
-        this.applySnapshot(current)
-      } catch (error) {
-        if (this.appeared && request === this.refreshRequest) this.message = coreErrorMessage(error as CoreBridgeError)
-      }
-    })
-    this.pending = refresh
-  }
   applySnapshot(current: CoreTask | undefined, savedCheck: boolean = false) {
     if (!current) { this.removeDeletedTask(); return }
     if (this.blockEditing && !this.blockSaving && current.fileVersion !== this.value().fileVersion) {
@@ -319,6 +318,7 @@ export struct TaskEditor {
     this.snapshotBlocked = false
   }
   removeDeletedTask() {
+    if (this.removed) return
     this.priorityOpen = false
     ++this.moveRequest
     this.moveOpen = false; this.moveSource = undefined
@@ -334,11 +334,27 @@ export struct TaskEditor {
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
-    this.ownerKey = this.instanceKey || this.task.id
+    this.ownerKey = this.instanceKey || this.localDataSet().key
     this.appeared = true
-    this.dataRevision = this.dataChanges.revision
+    this.stopDataSet = this.localDataManager().watchDataSet(this.localDataSet(), (change: TaskEditorChange): void => {
+      if (!this.appeared) return
+      ++this.refreshRequest
+      if (change.removed) { this.removeDeletedTask(); return }
+      if (change.error) {
+        for (const field of change.rejectedChanges ?? []) {
+          if (field.field === 'TITLE' && this.heading === field.value) { this.headingEditing = true; this.headingDirty = true }
+          if (field.field === 'NOTES' && this.notes === field.value) { this.notesEditing = true; this.notesDirty = true }
+        }
+        if (change.task) this.applySnapshot(change.task)
+        if (change.blocked) this.snapshotBlocked = true
+        this.message = change.error
+        return
+      }
+      if (change.task) this.applySnapshot(change.task)
+    })
   }
   aboutToDisappear() {
+    this.stopDataSet?.(); this.stopDataSet = undefined
     this.priorityOpen = false
     this.appeared = false
     ++this.moveRequest
@@ -352,10 +368,11 @@ export struct TaskEditor {
   }
   async prepare(): Promise<boolean> {
     if (this.removed) return false
-    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.task.id
+    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.localDataSet().key
     if (!await TaskInlineSession.begin(this.ownerKey, async (collapse: boolean) => await this.finish(collapse))) return false
-    if (!this.editTask) { this.editTask = this.task; this.heading = this.task.heading; this.notes = this.task.editContent.notes.trimEnd() }
+    if (!this.editTask) { this.editTask = this.localDataSet().task; this.heading = this.editTask.heading; this.notes = this.editTask.editContent.notes.trimEnd() }
     if (this.readOnly) return true
+    this.applySnapshot(this.localDataManager().snapshot(this.localDataSet()))
     if (!this.hostWindow) {
       try {
         this.hostWindow = await window.getLastWindow(this.getUIContext().getHostContext()!)
@@ -408,6 +425,7 @@ export struct TaskEditor {
   async editHeading() {
     if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.blockEditor.finish() || !await this.linkEditor.finish() || this.snapshotBlocked || this.removed) return
+    if (!this.headingEditing) this.headingBaseline = this.value().heading
     this.headingInput = true
     this.checkFocus.request(`inline_title_${this.ownerKey}`)
   }
@@ -419,6 +437,7 @@ export struct TaskEditor {
   async editNotes() {
     if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.linkEditor.finish() || this.snapshotBlocked || this.removed) return
+    if (!this.notesEditing) this.notesBaseline = this.value().editContent.notes.trimEnd()
     this.notesInput = true
     this.checkFocus.request(`inline_notes_${this.ownerKey}`)
   }
@@ -434,16 +453,15 @@ export struct TaskEditor {
       if (this.removed || this.snapshotBlocked) return
       this.working = true; this.message = ''
       try {
-        const context = this.getUIContext().getHostContext()!
-        await TaskInlineService.modify(context, this.value(), modifications, this.documentMode)
+        await this.modifyTask(this.value(), modifications)
         for (const modification of modifications) {
-          if (modification.field === 'TITLE' && this.heading === modification.value) this.headingEditing = false
-          if (modification.field === 'NOTES' && this.notes === modification.value) this.notesEditing = false
+          if (modification.field === 'TITLE' && this.heading === modification.value) { this.headingEditing = false; this.headingDirty = false }
+          if (modification.field === 'NOTES' && this.notes === modification.value) { this.notesEditing = false; this.notesDirty = false }
         }
         success = true
-        // 提交后的快照是下一次编辑的起点，不依赖原生事件先于 Promise 送达。
+        // 下一次编辑直接使用管理类的本地快照，无需等待底层确认。
         ++this.refreshRequest
-        const current = await TaskInlineService.findChanged(context, this.value(), this.dataChanges.revision, this.documentMode)
+        const current = await this.currentTask()
         const savedCheck = modifications.some((modification: CoreTaskModification): boolean => {
           if (modification.field !== 'CHECKLIST') return false
           const change = modification.value as CoreTaskChecklistChange
@@ -473,10 +491,12 @@ export struct TaskEditor {
     if (this.removed) return false
     if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
     const modifications: CoreTaskModification[] = []
-    if (this.headingEditing && this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
-    if (this.notesEditing && this.notes !== this.value().editContent.notes.trimEnd()) modifications.push({ field: 'NOTES', value: this.notes })
+    if (this.headingDirty && this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
+    if (this.notesDirty && this.notes !== this.value().editContent.notes.trimEnd()) modifications.push({ field: 'NOTES', value: this.notes })
     if (modifications.length > 0) return await this.persist(modifications)
     this.headingEditing = false; this.notesEditing = false
+    this.headingDirty = false; this.notesDirty = false
+    this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
     return true
   }
   linkEditingChanged(editing: boolean) {
@@ -627,10 +647,12 @@ export struct TaskEditor {
       secondaryButton: { value: '重新载入', action: async () => {
         this.working = true
         try {
-          this.editTask = await TaskInlineService.reload(this.getUIContext().getHostContext()!, this.value(), this.documentMode)
+          await this.localDataManager().refresh(this.localDataSet())
+          this.editTask = await this.currentTask()
           this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           this.blockEditor.cancel(); this.blockEditing = false
           this.headingEditing = false; this.notesEditing = false
+          this.headingDirty = false; this.notesDirty = false
           this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.message = ''
           this.snapshotBlocked = false; this.checkPreview = []
         } catch (error) {
@@ -771,9 +793,9 @@ export struct TaskEditor {
       let committed = false
       const context = this.getUIContext().getHostContext()!
       try {
-        await TaskInlineService.modify(context, task, [{ field: 'CHECKLIST', value: { type: 'move', id, beforeId } }], this.documentMode)
+        await this.modifyTask(task, [{ field: 'CHECKLIST', value: { type: 'move', id, beforeId } }])
         committed = true
-        this.editTask = await TaskInlineService.reload(context, task, this.documentMode)
+        this.editTask = await this.currentTask()
         this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
       } catch (error) {
         if (error instanceof TaskInlineMissingError) { this.removeDeletedTask(); return }
@@ -784,7 +806,7 @@ export struct TaskEditor {
         } else if (message.includes('版本') || message.includes('已变化')) {
           this.message = '文件已变化，请刷新后重新排序'
           try {
-            this.editTask = await TaskInlineService.reload(context, task, this.documentMode)
+            this.editTask = await this.currentTask()
             this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           }
           catch (error) {
@@ -1188,7 +1210,7 @@ export struct TaskEditor {
         TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
           .enabled(!this.working && !this.snapshotBlocked).width('100%').height('auto').minLines(1).maxLines(1000)
           .fontSize(14).fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0)
-          .onChange((value: string): void => { this.notes = value; this.notesEditing = true })
+          .onChange((value: string): void => { this.notes = value; this.notesEditing = true; this.notesDirty = value !== this.notesBaseline })
           .onBlur((): void => { this.finishNotes() })
       } else {
         Text('备注').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
@@ -1219,7 +1241,7 @@ export struct TaskEditor {
             .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
             .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
             .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
-            .onChange((value: string) => { this.heading = value; this.headingEditing = true })
+            .onChange((value: string) => { this.heading = value; this.headingEditing = true; this.headingDirty = value !== this.headingBaseline })
             .onFocus(() => { this.headingEditing = true; this.inputFocus() })
             .onBlur(() => { this.finishHeading() })
             .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })

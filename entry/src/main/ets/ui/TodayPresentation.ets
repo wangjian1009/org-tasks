@@ -115,3 +115,20 @@ export function todaySections(tasks: CoreTask[], groupProjects: boolean = false,
     return left.category < right.category ? -1 : left.category > right.category ? 1 : 0
   })
 }
+
+// 内容字段由行自己的数据管理监控更新；成员、分区及顺序未变时保留原容器。
+export function sameTodaySections(left: TodaySection[], right: TodaySection[], keyOf: (task: CoreTask) => string): boolean {
+  return left.length === right.length && left.every((section: TodaySection, index: number): boolean => {
+    const next = right[index]
+    return section.key === next.key && section.category === next.category && section.groups.length === next.groups.length &&
+      section.groups.every((group: TodayTaskGroup, groupIndex: number): boolean => {
+        const other = next.groups[groupIndex]
+        return group.project === other.project && group.items.length === other.items.length &&
+          group.items.every((item: TodayTaskItem, itemIndex: number): boolean => keyOf(item.task) === keyOf(other.items[itemIndex].task))
+      })
+  })
+}
+export function sameTodayTimedItems(left: TodayTimedTaskItem[], right: TodayTimedTaskItem[], keyOf: (task: CoreTask) => string): boolean {
+  return left.length === right.length && left.every((item: TodayTimedTaskItem, index: number): boolean =>
+    keyOf(item.task) === keyOf(right[index].task) && item.time === right[index].time && item.timeDisplay === right[index].timeDisplay)
+}

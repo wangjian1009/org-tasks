@@ -29,6 +29,9 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 | 目录或入口 | 职责 |
 |-
 | ~org_tasks_core::merge~ | 单文件原文三方合并的同步纯函数；私有解析入口供仓库同步复用，不读网络、目录或历史。 |
+| ~core::workspace~ | ~OrgWorkspace~ 的定义与统一组合入口，负责查询订阅的注册、一次启动查询和取消。 |
+| ~core::http_server~ | APP 进程内的查询与批量修改 REST 适配；由 Workspace 提供启停，启动策略属于 APP，不新增独立宿主。 |
+| ~core::query_subscription~ | 独立的查询成员维护与事件过滤模块，只保留 ID、文件版本与数值摘要；不引用 Workspace，model 与 editor 不引用它。 |
 | ~core::model~ | 本地 ~OrgRepo~ 目录扫描、Org 文件解析、保真编辑、任务查询与同步记录数据维护。 |
 | ~core::webdav~ | 实现 ~SyncPolicy~ ，执行 WebDAV 文件传输、下载写回、条件写入与同步记录生成。 |
 | ~core/src/bin/org-tasks/~ | 操作本地 ~OrgRepo~ 的命令行入口，使用 Tokio 运行时。 |
@@ -58,7 +61,7 @@ TS 领域接口按 ~Workspace -> Repo -> OrgFile~ 访问对象。Rust 字段映�
 
 UI 负责组装请求、维护分类多选等交互状态、展示任务及汇总计数。UI 不得对 Core 返回的任务列表再次按完成状态、分类、文件、日期或父子关系筛选。今天、随时、某天和备忘的标签筛选条是明确的展示层例外：仅在已加载的本页任务快照上按 Core 提供的有效标签控制可见记录，不重发查询、不改变页面基础范围、侧边栏计数或同步数据。该例外不扩展到完成状态、日期、分类或其他查询条件。
 
-Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 、 ~excluded_files~ 与 ~include_compose_tasks~ ，由 Core 批量求值；系统仅提供接收 ~CoreQuery~ 数组并返回对应 ~CoreQueryResult~ 数组的异步查询接口，其中 Task、File、Notification 共用加载，TaskQuery 的状态范围统一使用表达式，每批每仓库只加锁与加载一次，所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
+Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 与 ~excluded_files~ ，由 Core 批量求值；系统仅提供接收 ~CoreQuery~ 数组并返回对应 ~CoreQueryResult~ 数组的异步查询接口，其中 Task、File、Notification 共用加载，TaskQuery 的状态范围统一使用表达式，每批每仓库只加锁与加载一次，所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
 
 * 仓库身份、同步元数据与备份
 
@@ -90,9 +93,9 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 主界面首次加载成功且进入前台后，通过 ~RepositorySyncService.start~ 请求一次 ~appStartup~ 同步，使用 ~SyncStartPolicy.Reuse~ ；恢复前台、重复窗口回调与路由切换不重复触发。启动入口不等待同步完成、不申请后台任务、不发布同步通知。
 
-主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主用独立、仅包含已启用 WebDAV 仓库的 workspace 执行现有通知查询，以 ~syncRequired~ 判断本地变化，不替换页面活动 workspace 或维护 dirty 标记；比较文件与远端基线的规则仍由 Core 实现。短时任务保护配置读取及检查，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
+主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主先等待页面已提交的修改与缓存处理完成，再等待 NotificationManager 的在途或已失效通知读取归并，只有共享快照包含 ~syncRequired~ 且配置启用 WebDAV 时才新建同步。没有通知时不读取同步配置，不另建 Workspace 或额外查询；比较文件与远端基线的规则仍由 Core 实现。短时任务保护排队修改、通知归并与配置读取，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
 
-~BackgroundSyncPresentation~ 使用后台任务返回的通知 ID 更新系统代理创建的实况窗，保留系统类型码与通知槽，胶囊和展开内容复用共享进度。连续事件只保留最新快照，每秒最多更新一次，最终状态写入完成后再释放长时任务，避免迟到更新重建提示；无变化、失败和短时任务到期路径均清理宿主资源。退后台触发不写入日历同步状态、不新增配置、不在后台请求授权；同步失败后仍以 Core 读盘结果决定下次是否重试。
+~BackgroundSyncPresentation~ 使用后台任务返回的通知 ID 更新系统代理创建的实况窗，保留系统类型码与通知槽，胶囊和展开内容复用共享进度。连续事件只保留最新快照，每秒最多更新一次，最终状态写入完成后再释放长时任务，避免迟到更新重建提示；无变化、失败和短时任务到期路径均清理宿主资源。退后台触发不写入日历同步状态、不新增配置、不在后台请求授权；同步失败后仍以共享通知中的 ~syncRequired~ 决定下次是否重试。
 
 修改 ~calendarManager~ 接入前对照当前 SDK 签名。文件路径按设备实际可访问的同步目录处理；DevEco Studio 提供 SDK、hvigorw、hdc 与 ohpm。真机需开启开发者模式和 USB 调试，并通过 ~make devices~ 确认连接。Release 包需要华为开发者账号签名，根目录 Makefile 的 ~BUNDLE_NAME~ 必须与实际包名一致。
 
@@ -108,4 +111,18 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 页面统一读取
 
-页面通过一个 CoreQuery 批次取得任务、文件元信息和通知，按输入位置消费对应结果。独立文件元信息和通知读取入口已移除；通知订阅只标记数据失效，不自行重查。收件箱本页与最近新增、文件入口有效性和标签候选、侧边栏全部计数及通知共用同次快照，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+页面通过一个 CoreQuery 批次取得任务、文件元信息和通知，按输入位置消费对应结果。独立文件元信息和通知读取入口已移除，通知也通过统一 CoreQuery 读取。应用级 NotificationManager 另行维护共享通知生命周期，既有页面批次的通知结果也通过该管理类发布。收件箱本页与最近新增、文件入口有效性和标签候选、侧边栏全部计数及通知共用同次快照，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+
+* 页面数据管理与缓存边界
+
+~DataSetManager~ 是每页独立的界面数据入口，组合 Workspace 查询订阅、用户字段增量队列与私有缓存；编辑器可以直接通过管理类读写，原始 Core 事件只在内部处理。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
+
+* 应用共享通知管理
+
+~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化重新绑定活动 Workspace，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。
+
+页面通过 AppStorage 的 ~coreNotifications~ 共享只读快照，不持有管理对象。通知及仓库展示上下文按内容比较，结果相同不发布；过期请求不能覆盖新结果，失败保留最近成功快照。任务仍由页面 DataSetManager 处理增量确认，通知刷新不驱动今天页任务重查。详细生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
+
+* APP 临时 HTTP 接口
+
+APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共享活动 Workspace。普通点击图标不启动服务，也不保存开关；Core 不读取宿主启动参数。仅提供查询和批量修改，生命周期和 REST 定义见 [[file:core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。

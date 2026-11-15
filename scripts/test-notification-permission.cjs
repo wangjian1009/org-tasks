@@ -147,9 +147,12 @@ test('主窗口与前台两个条件均满足才检查授权，后台及销毁�
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
+    '../services/DataSetManager': { DataSetManager: { async flushAll() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {},
       SyncStartPolicy: { Reuse: 'Reuse' }, RepositorySyncService: { start() {} } },
     '../services/DeviceBadgeService': { DeviceBadgeService: { start() {}, stop() {} } },
+    '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
+    '../services/HttpApiService': { HttpApiService: { async start() {}, async stop() {} } },
     '../services/NotificationPermissionService': { NotificationPermissionService: {
       async start(context) { starts.push(context); }, stop() { stops.push(true); }
     } },
@@ -180,6 +183,8 @@ function settingsFixture() {
     '../services/NotebookService': {},
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/Theme': {}, '../services/FileTargetService': {},
+    '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
+    '../services/HttpApiService': { HttpApiService: { async start() {}, async stop() {} } },
     '../services/NotificationPermissionService': { NotificationPermissionService: {
       isForeground() { return foreground; },
       async state() { reads++; const result = state, gate = readGate; readGate = undefined; if (gate) await gate.promise; return result; },

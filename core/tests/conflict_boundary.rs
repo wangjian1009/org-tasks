@@ -41,7 +41,6 @@ impl Fixture {
     async fn reject(&mut self, operation: TaskOperation) {
         let group = TaskOperationGroup {
             operations: vec![operation],
-            queue_repo_ids: vec![self.workspace.repos()[0].id.clone()],
             ..Default::default()
         };
         assert!(
@@ -91,7 +90,7 @@ async fn every_query_excludes_conflict_roots_descendants_counts_and_refile_targe
             f.workspace
                 .query(&[(TaskQuery {
                     expression: expression.into(),
-                    include_compose_tasks: true,
+
                     ..Default::default()
                 }).into()]).await
                 .unwrap().remove(0).into_task().unwrap()

@@ -9,9 +9,9 @@ export interface ProjectReadingSection {
 }
 
 // 只组装 Core 提供的同版本节点与直属正文，不解释 Org 或筛选任务。
-export function projectReadingSections(file: CoreOrgFile): ProjectReadingSection[] {
+export function projectReadingSections(file: CoreOrgFile, tasks: CoreTask[] = file.nodes()): ProjectReadingSection[] {
   const nodes: Map<string, CoreTask> = new Map()
-  file.nodes().forEach((node: CoreTask) => { nodes.set(JSON.stringify(node.fullPath), node) })
+  tasks.forEach((node: CoreTask) => { nodes.set(JSON.stringify(node.fullPath), node) })
   return file.documentSections().map((section: CoreDocumentSection): ProjectReadingSection => {
     const key = section.path ? JSON.stringify(section.path) : 'preamble'
     const node = section.path ? nodes.get(key) : null

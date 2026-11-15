@@ -106,6 +106,7 @@ pub(crate) fn discard(file: &mut OrgFile, id: &str) -> Result<(), CoreError> {
         usize::from(targets[0].start())..usize::from(targets[0].end())
     };
     file.source_bytes.drain(range);
+    if let Some(journal) = &file.mutation_journal { journal.touch(); }
     file.reparse()
 }
 
@@ -385,6 +386,7 @@ pub(super) fn select(
     let range = block_range(file, &root);
     let material = file.source_bytes()[range.clone()].to_vec();
     let mut main = file.clone();
+    main.mutation_journal = file.mutation_journal.take();
     main.source_bytes.truncate(range.start);
     main.reparse()?;
     let path = select_point(&mut main, &point, selection)?;
@@ -432,6 +434,7 @@ pub(super) fn select_point(
     let content = candidate(file, &headline, &description.reason)?;
     let original = file.clone();
     let mut next = file.clone();
+    next.mutation_journal = file.mutation_journal.take();
     let path = match target {
         ConflictTarget::Existing(path) => {
             if !matches!(description.reason.as_str(), "modify" | "delete") {
@@ -476,6 +479,11 @@ pub(super) fn select_point(
                 .headlines()
                 .next()
                 .map_or(usize::from(node.end()), |child| usize::from(child.start()));
+            if description.reason == "delete" {
+                let ordinal = super::mutation_journal::ordinal_at(&next, start);
+                if let Some(journal) = &mut next.mutation_journal { journal.delete(ordinal..ordinal + 1); }
+            }
+            if let Some(journal) = &next.mutation_journal { journal.touch(); }
             next.source_bytes.splice(start..target_end, content);
             next.reparse()?;
             if description.reason == "delete" {
@@ -509,8 +517,13 @@ pub(super) fn select_point(
             } else {
                 offset
             };
+            let ordinal = super::mutation_journal::ordinal_at(&next, start);
+            let old_count = super::mutation_journal::headlines(&next).len();
+            if let Some(journal) = &next.mutation_journal { journal.touch(); }
             next.source_bytes.splice(offset..offset, content);
             next.reparse()?;
+            let count = super::mutation_journal::headlines(&next).len() - old_count;
+            if let Some(journal) = &mut next.mutation_journal { journal.create(ordinal, count); }
             Some(super::task_operation_executor::path_at(&next, start)?)
         }
         ConflictTarget::ReplaceMain => {
@@ -522,6 +535,8 @@ pub(super) fn select_point(
             }
             next.source_bytes = content;
             next.reparse()?;
+            let count = super::mutation_journal::headlines(&next).len();
+            if let Some(journal) = &mut next.mutation_journal { journal.replace_tree(count); }
             Some(next.full_path())
         }
     };

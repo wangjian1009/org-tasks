@@ -63,7 +63,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
             content:needsTarget?'* TODO Task\nremote\n':`* TODO Task\nlocal ${request.conflictId}\n`,renderedHtml:`<p>local ${request.conflictId}</p>`,
             changes:{sourceVersion:original.fileVersion,previewVersion:needsTarget?copied.fileVersion:`projection-${request.conflictId}`,changes:needsTarget?[]:[{area:'main',kind:'replace',before:null,after:null,lines:[{kind:'removed',text:'remote\n'},{kind:'added',text:`local ${request.conflictId}\n`}]}]}};
         },
-        async finish(options){events.push('finish');assert.equal(options.previewVersion,copied.fileVersion);done=true;return {operations:remap(operations),fileVersions:[{repoId:'core',file:'a.org',version:original.fileVersion}],queueRepoIds:[]};},
+        async finish(options){events.push('finish');assert.equal(options.previewVersion,copied.fileVersion);done=true;return {operations:remap(operations),fileVersions:[{repoId:'core',file:'a.org',version:original.fileVersion}]};},
         async discard(){events.push('discard');handle.expired=true;},
         change(){copied=makeFile('<preview>',id,'manually-edited',copied.conflictIds,'* TODO Adjusted\n');},
         stage(group){operations.push(...group.operations);pending=pending.filter(value=>!group.operations.some(op=>op.type==='ConfilictSelection'&&op.data.id===value));copied=makeFile('<preview>',id,'copy2',[],group.operations.some(op=>op.data.action==='useLocal')?'* TODO Task\nlocal\n':copied.sourceBytes().toString('utf8'));}
@@ -141,9 +141,9 @@ test('目标未确定时展示候选，选择目标只读取差异，确认采�
 });
 test('逐点预览只编辑副本，finish 后才经统一接口提交源操作',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'useLocal');
- assert.equal(f.requests.length,1);assert.equal(f.requests[0].fileVersions[0].repoId,'<preview>');assert.deepEqual(f.requests[0].queueRepoIds,[]);assert.equal(f.page.file.conflictIds.length,2);
+ assert.equal(f.requests.length,1);assert.equal(f.requests[0].fileVersions[0].repoId,'<preview>');assert.equal(f.page.file.conflictIds.length,2);
  await f.page.applyPreview();assert.deepEqual(f.events.filter(e=>['create','stage','finish','submit'].includes(e)).slice(0,4),['create','stage','finish','submit']);
- const applied=f.requests[1];assert.equal(applied.operations[0].data.path.repoId,'core');assert.equal(applied.operations[0].data.target.data.file,'a.org');assert.deepEqual(applied.fileVersions,[{repoId:'core',file:'a.org',version:'v1'}]);assert.deepEqual(applied.queueRepoIds,['core']);assert.equal(f.page.conflicts.length,1);assert.equal(f.page.preview.conflictId,'second');assert.equal(f.page.previewFile.hasConflict,false);
+ const applied=f.requests[1];assert.equal(applied.operations[0].data.path.repoId,'core');assert.equal(applied.operations[0].data.target.data.file,'a.org');assert.deepEqual(applied.fileVersions,[{repoId:'core',file:'a.org',version:'v1'}]);assert.equal(f.page.conflicts.length,1);assert.equal(f.page.preview.conflictId,'second');assert.equal(f.page.previewFile.hasConflict,false);
 });
 test('统一提交失败可重试同一操作组，不重复 finish 或再次读取已结束副本',async()=>{
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'discard');f.fail(new Error('存储失败'));await f.page.applyPreview();assert.match(f.page.message,/存储失败/);assert.ok(f.page.pendingGroup);assert.ok(f.page.previewFile);
@@ -160,8 +160,8 @@ test('提交期间阻止重复应用和返回，丢弃全部需确认并校验�
  const f=fixture();await f.page.load();await f.page.prepare(f.page.conflicts[0],'discard');let complete;f.wait(new Promise(resolve=>complete=resolve));const pending=f.page.applyPreview();await tick();assert.equal(f.page.onBackPress(),true);await f.page.applyPreview();assert.equal(f.events.filter(e=>e==='finish').length,1);complete();await pending;
  const g=fixture();await g.page.load();g.page.confirmDiscard();assert.equal(g.requests.length,0);g.dialogs[0].primaryButton.action();g.replaceRepo();await g.page.discardAll();assert.equal(g.requests.length,0);assert.match(g.page.message,/仓库已改变/);
 });
-test('本地仓库提交不排队上传，取消预览不提交真实操作',async()=>{
- const f=fixture();f.config.repos[0].webdavEnabled=false;await f.page.load();await f.page.prepare(f.page.conflicts[0],'discard');await f.page.applyPreview();assert.deepEqual(f.requests.at(-1).queueRepoIds,[]);
+test('本地仓库直接提交操作，取消预览不提交真实操作',async()=>{
+ const f=fixture();f.config.repos[0].webdavEnabled=false;await f.page.load();await f.page.prepare(f.page.conflicts[0],'discard');await f.page.applyPreview();
  const g=fixture();await g.page.load();await g.page.prepare(g.page.conflicts[0],'useLocal');await g.page.leave();assert.equal(g.events.includes('submit'),false);assert.equal(g.backs(),1);
 });
 
@@ -176,7 +176,7 @@ function repositoryRow(hasConflict, project = null) {
  let target;row.getUIContext=()=>({getRouter:()=>({pushUrl(value){target=value;}})});
  row.openFile();return target;
 }
-test('仓库冲突文件使用配置 ID 打开唯一解决页，Core ID 与配置 ID 不同也能加载',async()=>{
+test('仓库普通冲突文件使用配置 ID 打开解决页，Core ID 与配置 ID 不同也能加载',async()=>{
  const target=repositoryRow(true);
  assert.equal(target.url,'pages/ConflictFile');assert.deepEqual(target.params,{repoId:'config',path:'a.org'});
  const f=fixture(target.params);await f.page.load();assert.equal(f.page.message,'');assert.equal(f.page.conflicts.length,2);
@@ -263,9 +263,12 @@ test('树形目标保留重名父级身份及所有 Core 插入位置，折叠�
 });
 
 
-test('仓库项目文件使用 Core 身份进入项目文档，冲突入口优先',()=>{
- assert.equal(repositoryRow(false,'项目').url,'pages/ProjectDetail');
- assert.deepEqual(repositoryRow(false,'项目').params,{repoId:'core',path:'a.org'});
- assert.equal(repositoryRow(false,'').url,'pages/ProjectDetail');
- assert.equal(repositoryRow(true,'项目').url,'pages/ConflictFile');
+test('仓库项目文件有无冲突或名称为空时均使用 Core 身份进入项目文档',()=>{
+ for(const hasConflict of [false,true]){
+  for(const project of ['项目','']){
+   assert.deepEqual(repositoryRow(hasConflict,project),{
+    url:'pages/ProjectDetail',params:{repoId:'core',path:'a.org'}
+   },JSON.stringify({hasConflict,project}));
+  }
+ }
 });

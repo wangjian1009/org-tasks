@@ -40,7 +40,6 @@ impl Fixture {
                 path,
                 modifications: vec![TaskModification::Title(Some(title.into()))],
             })],
-            queue_repo_ids: vec![self.workspace.repos()[0].id.clone()],
             ..Default::default()
         }
     }
@@ -49,6 +48,38 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[tokio::test]
+async fn operation_id_is_forwarded_after_commit_and_never_leaks_into_other_updates() {
+    let mut fixture = Fixture::new("* TODO Original\n").await;
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let received = observed.clone();
+    let _subscription = fixture.workspace.watch_data_changes(move |event| {
+        received.lock().unwrap().push(event);
+    });
+    let mut tagged = fixture.group("Renamed").await;
+    tagged.operation_id = Some("ui-operation-1".into());
+    fixture.workspace.execute_task_operations(&tagged).await.unwrap();
+    let untagged = fixture.group("Another").await;
+    fixture.workspace.execute_task_operations(&untagged).await.unwrap();
+    let mut rejected = fixture.group("").await;
+    rejected.operation_id = Some("rejected-operation".into());
+    assert!(fixture.workspace.execute_task_operations(&rejected).await.is_err());
+    let values = observed.lock().unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(serde_json::to_value(&values[0]).unwrap()["operationId"], "ui-operation-1");
+    assert!(serde_json::to_value(&values[1]).unwrap()["operationId"].is_null());
+}
+
+#[test]
+fn operation_id_is_optional_and_preserves_legacy_operation_group_json() {
+    let legacy: TaskOperationGroup = serde_json::from_value(serde_json::json!({"operations": []})).unwrap();
+    assert_eq!(legacy.operation_id, None);
+    assert!(serde_json::to_value(&legacy).unwrap().get("operationId").is_none());
+    let tagged: TaskOperationGroup = serde_json::from_value(serde_json::json!({"operationId": "request-1", "operations": []})).unwrap();
+    assert_eq!(tagged.operation_id.as_deref(), Some("request-1"));
+    assert!(serde_json::from_value::<TaskOperationGroup>(serde_json::json!({"operationId": 42, "operations": []})).is_err());
 }
 
 #[tokio::test]
@@ -218,7 +249,7 @@ async fn merging_plans_only_deletions_and_modifications_in_selection_order() {
     let mut f = Fixture::new(source).await;
     let request = merge_request(&f, &[2, 4, 0]).await;
     let snapshot = f.workspace.clone();
-    let mut plan = f.workspace.task_merge_operations(&request).await.unwrap();
+    let plan = f.workspace.task_merge_operations(&request).await.unwrap();
     assert_eq!(f.workspace, snapshot);
     assert_eq!(
         fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),
@@ -236,9 +267,6 @@ async fn merging_plans_only_deletions_and_modifications_in_selection_order() {
         TaskOperation::Deletion(_) | TaskOperation::Modification(_)
     )));
     assert_eq!(plan.operation_group.operations.len(), 4);
-    plan.operation_group
-        .queue_repo_ids
-        .push(request.paths[0].repo_id.clone());
     f.workspace
         .execute_task_operations(&plan.operation_group)
         .await
@@ -269,7 +297,7 @@ async fn merging_plans_only_deletions_and_modifications_in_selection_order() {
     assert!(result.contains("- Old log"));
     assert_eq!(
         f.workspace.repos()[0].pending_writes().await.unwrap().len(),
-        1
+        0
     );
     assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
     assert_eq!(
@@ -544,12 +572,8 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
         );
         let events = observed.lock().unwrap();
         assert_eq!(events.len(), event_count);
-        assert_eq!(
-            events.last().unwrap().0,
-            DataChangeEvent::RepositoryChanged {
-                repo_id: repo_id.clone()
-            }
-        );
+        assert!(matches!(&events.last().unwrap().0,
+            DataChangeEvent::RepositoryChanged { operation_id: None, repo_id: id, .. } if id == &repo_id));
         assert_eq!(
             events.last().unwrap().1.as_bytes(),
             f.workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes()
@@ -655,16 +679,9 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
             if before != expected.as_bytes() {
                 expected_events += 1;
                 let events = observed.lock().unwrap();
-                assert_eq!(
-                    events.last().unwrap(),
-                    &(
-                        DataChangeEvent::RepositoryChanged {
-                            repo_id: repo_id.clone()
-                        },
-                        expected.into()
-                    ),
-                    "{name}"
-                );
+                assert!(matches!(&events.last().unwrap().0,
+                    DataChangeEvent::RepositoryChanged { operation_id: None, repo_id: id, .. } if id == &repo_id), "{name}");
+                assert_eq!(events.last().unwrap().1, expected, "{name}");
                 let history = &f
                     .workspace
                     .task_operation_history
@@ -826,7 +843,7 @@ async fn successful_groups_accumulate_history_and_failed_group_does_not_publish(
     );
     assert_eq!(
         f.workspace.repos()[0].pending_writes().await.unwrap().len(),
-        2
+        0
     );
 }
 
@@ -849,27 +866,13 @@ async fn file_version_and_history_serialization_preserve_the_public_contract() {
 }
 
 #[tokio::test]
-async fn commit_preparation_error_keeps_files_memory_and_history_unchanged() {
+async fn ordinary_modification_does_not_read_or_write_outbox() {
     let mut f = Fixture::new("* Original\n").await;
-    fs::write(f.root.join(".sync/outbox"), b"blocked")
-        .await
-        .unwrap();
-    let snapshot = f.workspace.clone();
-    assert!(
-        f.workspace
-            .execute_task_operations(&f.group("Changed").await)
-            .await
-            .is_err()
-    );
-    assert_eq!(f.workspace, snapshot);
-    assert_eq!(
-        fs::read(f.root.join("tasks.org")).await.unwrap(),
-        b"* Original\n"
-    );
-    assert_eq!(
-        fs::read(f.root.join(".sync/outbox")).await.unwrap(),
-        b"blocked"
-    );
+    fs::write(f.root.join(".sync/outbox"), b"blocked").await.unwrap();
+    f.workspace.execute_task_operations(&f.group("Changed").await).await.unwrap();
+    assert_eq!(fs::read(f.root.join("tasks.org")).await.unwrap(), b"* Changed\n");
+    assert_eq!(fs::read(f.root.join(".sync/outbox")).await.unwrap(), b"blocked");
+    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
     assert_eq!(std::fs::read_dir(&f.root).unwrap().count(), 2);
 }
 
@@ -1140,6 +1143,7 @@ async fn someday_group(workspace: &OrgWorkspace) -> TaskOperationGroup {
     let target = workspace.refile_targets().await.unwrap()[0].clone();
     let path = source.node_paths()[0].clone();
     TaskOperationGroup {
+        operation_id: None,
         operations: vec![
             TaskOperation::Modification(TaskModificationOperation {
                 path: path.clone(),
@@ -1157,7 +1161,6 @@ async fn someday_group(workspace: &OrgWorkspace) -> TaskOperationGroup {
                 },
             }),
         ],
-        queue_repo_ids: vec![source.repo_id.clone()],
         file_versions: vec![
             TaskFileVersion {
                 repo_id: source.repo_id.clone(),

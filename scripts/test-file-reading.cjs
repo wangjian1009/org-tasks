@@ -347,6 +347,11 @@ function projectPageFixture() {
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
+    '../services/ProjectDataManager': { ProjectDataManager: class {
+      constructor(context,repoId,path){this.repoId=repoId;this.path=path;}
+      async load(){const value=await open();return {file:value,tasks:value?.nodes()??[]};}
+      async close(){}
+    } },
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
     '../components/AppShell': {}, '../components/controls/EmptyState': {},
     '../components/OrgFilePreviewView': { OrgFilePreviewNavigation: class {
@@ -371,7 +376,7 @@ function projectPageFixture() {
   return { page, file, routes, setOpen: fn => { open = fn; }, setEnd: fn => { end = fn; } };
 }
 
-test('项目刷新保持同版本阅读状态，新版本清除旧展开锚点', async () => {
+test('项目刷新保留同文件阅读位置，新文件版本更新文档与定位坐标', async () => {
   const f = projectPageFixture(); await f.page.loadFile();
   assert.equal(f.page.content, '项目原文');
   const revision = f.page.renderRevision;
@@ -380,7 +385,7 @@ test('项目刷新保持同版本阅读状态，新版本清除旧展开锚点',
   assert.equal(f.page.renderRevision, revision);
   f.setOpen(async () => f.file('v2'));
   await f.page.loadFile();
-  assert.equal(f.page.readingState, '');
+  assert.equal(JSON.parse(f.page.readingState).scroll,80);
   assert.ok(f.page.renderRevision > revision);
 });
 
@@ -508,6 +513,7 @@ test('项目目录仅列普通章节，保留任务下的章节与重名路径�
 function nativeProjectFixture() {
   let save = async () => true;
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
+    '../services/TaskEditorDataManager': { TaskEditorDataManager: class {} },
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args) } }
   }, source => source.split('  @Builder\n')[0]

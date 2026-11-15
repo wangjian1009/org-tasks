@@ -55,7 +55,7 @@ FileConflict 增加 candidate_content、candidate_html、display_anchor 与 disp
 
 ** 复用统一修改接口
 
-页面将预览 fullPath 交给 ~OrgWorkspace.execute_task_operations~ ，继续使用 Creation、Modification、Movement、Deletion 和 ConfilictSelection。一个操作组只能引用当前副本；所有版本约束使用 ~{ repoId: "<preview>", file: UUID, version }~ ， ~queueRepoIds~ 为空。Core 在隔离内存执行全部操作；冲突选择从独立材料中取出候选，直接更新纯主树。成功保存主树后才更新已选择 ID 集合并记录操作，失败时主树、取舍状态和记录一起保留原值。普通操作不能向预览主树引入新的 CONFLICT 节点。
+页面将预览 fullPath 交给 ~OrgWorkspace.execute_task_operations~ ，继续使用 Creation、Modification、Movement、Deletion 和 ConfilictSelection。一个操作组只能引用当前副本；所有版本约束使用 ~{ repoId: "<preview>", file: UUID, version }~ 。Core 在隔离内存执行全部操作；冲突选择从独立材料中取出候选，直接更新纯主树。成功保存主树后才更新已选择 ID 集合并记录操作，失败时主树、取舍状态和记录一起保留原值。普通操作不能向预览主树引入新的 CONFLICT 节点。
 
 file()、file_at() 与 sourceFile() 返回的基础文档都只有主树，hasConflict 为 false、conflictIds 及 OrgFile.conflicts() 为空。尚未选择的候选通过 ~preview.conflicts()~ 独立读取，目标基于当前主树重新计算；其中 sourceRange 属于该点的独立材料，不是正文坐标。预览的读取与编辑内容沿用 OrgFile，位置选择使用 Core 提供的 ~editable_node_paths~ 与 ~insertion_positions~ ，不从全仓库查询中筛出临时任务。临时编辑不修改真实仓库文件、真实操作回退历史、全局通知、日历或同步提示。
 
@@ -85,11 +85,11 @@ file()、file_at() 与 sourceFile() 返回的基础文档都只有主树，hasCo
 
 - 源操作 path、创建／移动的 parent 和 after、冲突选择的文件 path 与 target 内路径，都从当前预览地址映射为 sourcePath 的真实仓库／文件。
 - titles、occurrence、字段值、冲突 ID、动作与目标类型保持原值；不通过字符串替换修改正文。
-- 仅附带创建时真实源文件的 fileVersions；queueRepoIds 返回空，由应用按当前配置指定。
+- 仅附带创建时真实源文件的 fileVersions；应用直接提交，由 Core 根据实际文件变化登记上传意图。
 
 完成后 Core 清理工作副本并使其不可编辑，同一对象以相同最终版本重复 finish 返回同一操作组。finish 不写原文件、outbox、基线或任何真实操作历史，不发布更新事件。discard 只丢弃副本，重复调用幂等，也不提交记录的操作。
 
-应用收到结果后调用原 ~executeTaskOperations~ 。这个调用按顺序在真实文件内重放全部选择和编辑，统一验证源版本、提交文件、登记 outbox、生成一次回退历史并发布更新。它不复制副本最终字节、不自动访问 WebDAV，也不改 remote_base 或既有同步历史。源文件变化时整组拒绝。
+应用收到结果后调用原 ~executeTaskOperations~ 。这个调用按顺序在真实文件内重放全部选择和编辑，统一验证源版本、提交文件、生成一次回退历史并发布内存语义变更事件。它不复制副本最终字节、不自动访问 WebDAV，也不改 remote_base 或既有同步历史。源文件变化时整组拒绝。
 
 结束后提交失败，页面保留已显示的内容、变化与返回操作组。源版本仍有效时可重试同一组，不重复 finish；版本变化时禁用应用，重新创建前明确确认放弃。提交成功后立即清除待提交组，后续刷新失败不会重复提交。其他点保留时通知继续存在；最后一点移除后通知自然消失。
 
@@ -103,14 +103,12 @@ await workspace.executeTaskOperations({
   operations: [{ type: 'ConfilictSelection', data: {
     path: copied.fullPath, id: conflictId, action: 'discard'
   } }],
-  fileVersions: [{ repoId: '<preview>', file: preview.id, version: copied.fileVersion }],
-  queueRepoIds: []
+  fileVersions: [{ repoId: '<preview>', file: preview.id, version: copied.fileVersion }]
 })
 const edited = await preview.file()
 const changes = await preview.changes()
 // 展示 edited 与 changes，等待用户点击“应用此项”。
 const group = await preview.finish({ previewVersion: edited.fileVersion })
-group.queueRepoIds = enabledRepoIds
 await workspace.executeTaskOperations(group)
 #+end_src
 

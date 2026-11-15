@@ -326,7 +326,7 @@ struct ConflictFile {
     if (!preview || !file || !this.workspace) return
     const group: CoreTaskOperationGroup = {
       operations: [{ type: 'ConfilictSelection', data: { path: file.fullPath, id: this.selectedId, action, target } }],
-      fileVersions: [{ repoId: file.repoId, file: file.path, version: file.fileVersion }], queueRepoIds: []
+      fileVersions: [{ repoId: file.repoId, file: file.path, version: file.fileVersion }]
     }
     await this.workspace.executeTaskOperations(group)
     this.stagedAction = action
@@ -477,7 +477,7 @@ struct ConflictFile {
       if (repo.id !== this.coreRepoId) throw new Error('仓库已改变，请重新读取')
       const group = this.pendingGroup ?? await preview.finish({ previewVersion: file.fileVersion })
       this.pendingGroup = group
-      group.queueRepoIds = repository.webdavEnabled ? [repo.id] : []
+
       if (!this.workspace) throw new Error('工作区已失效')
       await this.workspace.executeTaskOperations(group)
       this.pendingGroup = undefined
@@ -537,8 +537,7 @@ struct ConflictFile {
       this.preview = undefined
       await NativeCoreService.executeTaskOperations(config.repos, {
         operations: file.conflictIds.map((id: string): CoreTaskOperation => ({ type: 'ConfilictSelection', data: { path: file.fullPath, id, action: 'discard' } })),
-        fileVersions: [{ repoId: this.coreRepoId, file: this.path, version: file.fileVersion }],
-        queueRepoIds: repository.webdavEnabled ? [this.coreRepoId] : []
+        fileVersions: [{ repoId: this.coreRepoId, file: this.path, version: file.fileVersion }]
       }, config.todoDefaults, config.coreSettings)
       this.manuallyEdited = false
       await this.load()

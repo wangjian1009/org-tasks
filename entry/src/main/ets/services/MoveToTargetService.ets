@@ -25,15 +25,9 @@ export class MoveToTargetService {
   static async move(context: Context, source: CoreTask, target: CoreRefileTarget): Promise<void> {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    const queueRepoIds: string[] = []
-    for (const repo of await workspace.repos()) {
-      await repo.load()
-      const settings = config.repos.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
-      if (settings?.webdavEnabled) queueRepoIds.push(repo.id)
-    }
     await workspace.executeTaskOperations({
       operations: [{ type: 'Movement', data: { path: source.fullPath, position: { parent: target.fullPath } } }],
-      queueRepoIds,
+
       fileVersions: [
         { repoId: source.repoId, file: source.filePath, version: source.fileVersion },
         { repoId: target.repoId, file: target.path, version: target.fileVersion }

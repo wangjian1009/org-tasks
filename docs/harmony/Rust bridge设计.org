@@ -37,6 +37,9 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 #+begin_src ts
 class Workspace {
+  startHttpServer(port?: number): Promise<HttpServerInfo>
+  stopHttpServer(): Promise<void>
+  httpServerStatus(): Promise<HttpServerInfo | null>
   executeTaskOperations(group: TaskOperationGroup): Promise<void>
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>
   constructor()
@@ -45,6 +48,9 @@ class Workspace {
   addRepo(rootDirectory: string): Promise<Repo>
   removeRepo(rootDirectory: string): Promise<void>
   query(queries: CoreQuery[]): Promise<CoreQueryResult[]>
+  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null): Promise<QuerySubscriptionStart>
+  querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>
+  unsubscribeQuery(subscriptionId: number): void
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>
   stopWatchingNotifications(): void
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>
@@ -53,7 +59,7 @@ class Workspace {
 }
 
 type DataChangeMonitor = (event: DataChangeEvent) => void
-type DataChangeEvent = { type: 'repositoryChanged', repoId: string }
+type DataChangeEvent = { type: 'repositoryChanged', repoId: string, operationId: string | null, files: FileDataChange[] | null, changes: TaskDataChange[], removedFiles?: OrgFileRef[], categories?: TaskCategory[] }
 
 class Repo {
   private constructor()
@@ -204,9 +210,11 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 ~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功只返回 ~void~ ，失败时以 Promise rejection 传播 Core 错误。仓库数据变化由独立 ~watchDataChanges~ 订阅转发，C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
 
+操作组可选携带 ~operationId: string | null~ 。C++ 仍透传结构化 JSON，不解释来源标识；Core 的仓库数据事件透传该值，未提供时为 ~null~ 。界面数据集事件继续沿用来源标识，不因见过同一编号而丢弃该操作的其他关联通知。
+
 收件箱合并调用 ~Workspace.taskMergeOperations({ paths, fileVersion })~ ，paths 保持用户选择顺序。C++ 在工作线程调用 Rust ABI ~org_tasks_harmony_workspace_task_merge_operations~ ，返回 Core 生成的 ~TaskMergePlan { operationGroup, mainPath }~ 。该操作组只含现有的 Deletion 与 Modification，不新增操作种类，也不创建编辑会话或预览界面。
 
-~InboxService~ 先验证当前收件箱配置，加载对应仓库取得稳定 Core 身份，再请求操作组；仅补充 ~queueRepoIds~ ，随后通过原 ~Workspace.executeTaskOperations~ 一组提交。页面直接显示选择顺序与目标标题，点击合并后完成规划和提交；期间冻结选择并防止重复执行。版本变化保留选择并要求刷新，提交成功后刷新失败只重读。结果在同一收件箱列表中高亮并展示 Core 提供的正文列表，不新增路由、弹窗或确认界面。ArkTS 不解析或拼接 Org 内容。
+~InboxService~ 先验证当前收件箱配置，加载对应仓库取得稳定 Core 身份，再请求操作组；通过原 ~Workspace.executeTaskOperations~ 一组提交，由 Core 自动识别变更文件并登记上传意图。页面直接显示选择顺序与目标标题，点击合并后完成规划和提交；期间冻结选择并防止重复执行。版本变化保留选择并要求刷新，提交成功后刷新失败只重读。结果在同一收件箱列表中高亮并展示 Core 提供的正文列表，不新增路由、弹窗或确认界面。ArkTS 不解析或拼接 Org 内容。
 
 创建通过 Creation 提交插入位置、标题、正文和状态，捕捉功能从文件元信息取得初始状态，由 Core 自动补齐 CREATED。任务与备忘修改通过 Modification 的 TITLE、BODY 字段执行，删除通过 Deletion；备忘新增通过 Creation 创建无状态标题和正文。NoteService 只编排配置、Core 仓库身份与文件版本，不解析 Org；旧正文快照参数改为可选的文件版本约束。地址更新通过 ADDRESS_LINK 字段指定新旧 URI。CREATED 与 CLOSED 不接受显式字段修改，创建参数不包含 recordCreated 或 closed；Core 新建时自动记录创建时间，TODO 修改按含 SETUPFILE 的文件有效状态自动写入或清理关闭时间。收件箱整理以字段清理和 Movement 组合为一个操作组。
 
@@ -280,7 +288,7 @@ interface TaskQuery {
   expression?: string
   categories?: (string | null)[]
   excludedFiles?: OrgFileRef[]
-  includeComposeTasks?: boolean
+
 }
 interface TaskCategory {
   key: string
@@ -407,7 +415,7 @@ interface TitleCount {
 
 ~TaskQuery.excludedFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
 
-~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，同时设置 ~includeComposeTasks=true~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
+~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 
 * 同步详情投影
 
@@ -440,7 +448,9 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 ~Workspace.watchNotifications(monitor): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications~ 。回调通过独立 TSFN 转发 ~NotificationUpdate~ 联合类型 ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
 
-~CoreNotificationService~ 统一持有通知订阅并发布页面批次中的通知结果，不再独立读取。仓库事件由数据订阅触发页面重查，全局通知事件也只标记数据失效，避免同一更新发起两次查询。 ~AppShell~ 只按通知模块的数据版本使当前可见页面重新查询；隐藏页面恢复时检查遗漏版本。同步区域不再持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面；解决结果保存后同样由 Core 通知触发。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。 TRIGGER 的来源与全部关联目标共用这一事件。 ~TaskInlineService.findChanged~ 按数据版本合并可见任务行的查询，包含已完成与无状态条目并同批读取通知；新版本替换事件快照，失败允许重读，同版本共享结果不用于写入前校验。卡片保留输入草稿，只应用最新事件且在离开后丢弃结果，节点失效不再追加数据失效通知。
+~NotificationManager~ 由 EntryAbility 管理应用级生命周期，独立持有活动 Workspace 的通知监控，启动及恢复前台读取通知，配置变化重新绑定。Core 成功提交、同步与全局通知事件合并触发仅包含 NotificationQuery 的统一查询批次，既有页面批次的通知结果也交给它发布。内容相同不发布，失败保留快照，过期读取或旧生命周期回调不能覆盖新状态。页面只消费 AppStorage 的共享通知快照，今天页的 DataSetManager 不因通知读取重查任务。实现边界见 [[file:页面数据集设计.org::*跨页面共享通知][跨页面共享通知]]。
+
+~AppShell~ 仍通过 CoreDataChangeService 驱动未迁移页面的数据刷新；同步区域不持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。TRIGGER 的来源与全部关联目标共用这一事件。TaskEditor 只订阅注入的管理对象，保留输入草稿；关联任务更新与通知更新分别由相应管理类维护。
 
 ~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源是统一查询的 Notification 结果分支 。
 
@@ -559,7 +569,7 @@ ConflictPreview 是原生活动对象，file／sourceFile 只返回主树快照�
 
 预览 fullPath 使用固定 ~repoId="<preview>"~ 和 ~file=UUID~ 。临时 executeTaskOperations 与真实修改一样只返回 void；页面通过 preview.file 的节点方法显式重读副本，不查询全 workspace 来寻找它。NoteService 与任务编辑组件直接使用同一操作组和版本机制，临时保存不登记上传，也不要求匹配真实仓库配置。
 
-finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup。ConflictFile 按当前源仓库配置填 queueRepoIds，再调用既有 Workspace.executeTaskOperations；不增加另一个真实写入接口。结束后提交失败保留返回组与已显示快照，重试不再次 finish。原文件变化仍由统一数据接口版本约束拒绝。
+finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup。ConflictFile 直接调用既有 Workspace.executeTaskOperations，实际变更文件与上传意图由 Core 自动登记；不增加另一个真实写入接口。结束后提交失败保留返回组与已显示快照，重试不再次 finish。原文件变化仍由统一数据接口版本约束拒绝。
 
 页面初次加载即取得主树快照与独立冲突列表，并选中首个冲突调用只读 project。切换点继续复用未操作的副本，只在用户选择取舍时执行操作。project 在 C++ 通过 PreviewRequest 的 async work 传入结构化 request，Rust 直接调用 Core 并返回普通投影对象，不构造可编辑 OrgFile，也不消费候选。投影工作版本与投影正文版本分别校验；界面按请求代次、对象 ID 和冲突 ID 拒绝迟到结果。进入子编辑器再返回时读取同一 preview，不因 onPageShow 再复制。Core 在成功操作组后记录操作，失败组不记录；退出 discard 不执行这些操作。Rust、C++ N-API、声明、ArkTS wrapper 与调用方共同维护此契约。
 
@@ -675,3 +685,23 @@ Core 的 ~FilterTask.has_attach()~ 映射为 Harmony 任务快照的只读布尔
 ~DocumentLinkTarget { target: string, priority: number }~ 与 ~DocumentSection.linkTargets~ 从 Core 的同版本分段投影序列化。Rust bridge 原样保留字段，C++ 的 ~OrgFileProperty~ 通过既有 ~documentSections~ 方法返回整组数据，类型声明与 ArkTS wrapper 导出对应接口；不新增 FFI 调用或 native 句柄。原生项目根据目标键和优先级定位章节，不解析 Org。
 
 ~TitlePart.href~ 可包含 Core 生成的 ~org-internal:~ URI。它只由链接控件解码并交给 ~internalLinkProcessor~ 的异步验证和执行方法，不传给系统浏览器；外部协议、地图调用和凭据处理保持既有宿主边界。
+
+* 普通任务修改的数据事件
+
+~watchDataChanges~ 沿用现有 JSON 事件转发，不增加写入入口。 ~DataChangeEvent~ 的 ~files~ 和 ~changes~ 携带 Core 提交时生成的文件、任务纯数据； ~operationId~ 继续透传。类型声明使用 ~DataFileRecord~ 、 ~DataTaskRecord~ 表示序列化记录，不能把它们强制转换为含 native 方法的 ~Task~ 或 ~OrgFileMetadata~ 对象。页面管理类通过独立只读快照适配这些数据，不把原始记录当作 native 对象。
+
+查询订阅已通过 Workspace 的 Harmony native 方法提供，首次结果与句柄由同一次 Core 查询返回。现有 JSON 数据事件类型声明增加可选 ~removedFiles~ 与 ~categories~ ，旧仓库事件省略它们，C++ 转发与现有页面处理保持原行为。
+
+* 页面数据集的查询订阅桥接
+
+~subscribeQuery~ 在 worker 中调用 Core 的 Workspace 入口，返回 ~{ subscriptionId, data, operationId }~ 。 ~operationId~ 是宿主初始读取请求的关联字段，原样回显，不改变 Core 查询条件；管理类用它恢复全量刷新版本。查询句柄归创建它的 Workspace 所有，状态读取和取消都通过 Workspace 执行；取消、初始化失败与 Workspace 释放均清理监控资源。
+
+订阅复用 ~DataChangeEvent~ ，保留 Core 的原始任务、文件、身份映射与操作来源。Harmony 对任务快照补充可选 ~view~ ，对文件补充 ~beforeView~ 和 ~afterView~ ，复用既有任务／文件元信息投影；C++ 将这些值构造成具有原有方法的对象。旧 ~watchDataChanges~ 的原始载荷保持不变，ArkTS 不从原始 Org 字节补齐显示字段。
+
+查询监控在 C++ 内部排队。任务操作 worker 完成后，先把该 Workspace 已生成的查询事件交给 UI 管理类，再 resolve 修改 Promise，使管理类能够把事件归并成确定的版本阶段。该顺序只负责跨线程交付，不新增底层修改、不重新查询，也不以 Promise 返回值预测关联数据。缓存恢复后的方法由只读模型重新建立，不能直接反序列化为 native Task。
+
+查询订阅的任务与文件 ~view~ 附带可选 ~orderKey~ 。初始结果和增量由同一个 Core 只读排序上下文生成，C++ 原样透传，页面管理类只按标量键重排；不按事件发生顺序直接拼接列表。旧查询结果可以没有此字段，旧接口行为保持不变。
+
+* APP 内嵌 HTTP 接入
+
+~HttpServerInfo~ 只包含只读 ~address: string~ 。三个 Workspace 方法通过 N-API 工作线程调用 Rust，服务只持有当前 Workspace 的共享引用；bridge 保存服务句柄，不读取 APP 启动参数。默认端口为 8787，端口错误与监听失败正常拒绝 Promise。重复启动同一 Workspace 返回当前地址，其他 Workspace 启动前必须停止旧服务；释放拥有服务的 Workspace 时关闭监听。APP 层根据临时测试启动参数决定是否启动并管理生命周期，REST 接口单独见 [[file:../core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。

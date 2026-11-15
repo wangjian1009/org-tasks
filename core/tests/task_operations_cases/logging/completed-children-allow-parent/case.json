@@ -7,8 +7,5 @@
       ],
       "task": true
     }
-  ],
-  "outbox": {
-    "repo": 1
-  }
+  ]
 }

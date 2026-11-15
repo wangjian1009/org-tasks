@@ -96,7 +96,7 @@ test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终�
     let expanded = 0;
     const card = Object.assign(new module.exports.Card(), { expandOnRowClick: true, value: () => ({ state }),
       observeComponentCreation2: callback => callback(1, true), ifElseBranchUpdateFunction: (_, callback) => callback(),
-      stateIndicator: () => leaf('state'), toggle: () => expanded++,
+      compactTime() {}, leadingTime: () => false, stateIndicator: () => leaf('state'), toggle: () => expanded++,
       compactContent() { for (const name of ['title', 'link', 'priority', 'count', 'tag', 'repeat', 'indicator', 'duration', 'deadline', 'blank']) leaf(name); } });
     card.compactRow();
     const gestureFor = node => { while (node && !node.gesture) node = node.parent; return node?.gesture; };
@@ -217,7 +217,8 @@ function moveCard() {
     values => [{ category: '工作', targets: values }], Missing, error => error.message);
   const state = Object.assign(new module.exports.MoveCard(), {
     rightSwipeAction: 'move', appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
-    value: () => ({ fileVersion: 'old' }), prepare: async () => true, finish: () => save(),
+    localDataSet:()=>({}),localDataManager: () => ({ targets: () => targets(), moveDataSet: async (_data, source, selected) => { calls.push({ source, action: 'move', target: selected }); await write(); } }),
+    currentTask: () => read(), value: () => ({ fileVersion: 'old' }), prepare: async () => true, finish: () => save(),
     applySnapshot: task => { state.current = task; }, getUIContext: () => ({ getHostContext: () => ({}) }),
     removeDeletedTask: () => { state.removed = true; }
   });

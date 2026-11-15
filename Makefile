@@ -27,7 +27,7 @@ HAP_DIR := entry/build/default/outputs/default
 BUNDLE_NAME := com.example.orgtasks
 ABILITY_NAME := EntryAbility
 
-.PHONY: all build release clean install install-only run deploy log log-all deps check-sdk docs-export setup-hooks help
+.PHONY: all build release build-test clean install install-only run deploy log log-all deps check-sdk docs-export setup-hooks help
 
 # 默认目标：编译
 all: build
@@ -51,6 +51,10 @@ check-sdk:
 build: deps check-sdk
 	@echo ">>> 编译 Debug 包..."
 	@"$(NODE_HOME)/bin/node" scripts/build-hap.cjs debug "$(DEVECO_HOME)"
+
+# 编译模拟器验收测试包，与正式页面入口分离。
+build-test: deps check-sdk
+	@"$(NODE_HOME)/bin/node" scripts/build-hap.cjs debug "$(DEVECO_HOME)" ohosTest
 
 # 编译 Release 包
 release: deps check-sdk
@@ -173,6 +177,7 @@ help:
 	@echo "可用目标:"
 	@echo "  make deps          安装依赖"
 	@echo "  make build         编译 Debug 包"
+	@echo "  make build-test    编译专用模拟器数据准备包"
 	@echo "  make release       编译 Release 包"
 	@echo "  make install       编译并安装到设备"
 	@echo "  make install-only  仅安装（不编译）"

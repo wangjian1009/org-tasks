@@ -1,0 +1,92 @@
+#+TITLE: 查询订阅设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 模块与入口
+
+~OrgWorkspace~ 属于上层 ~core::workspace~ ，是对外组合入口。 ~core::query_subscription~ 是独立模块，只依赖现有查询、模型与数据通知能力，不引用 Workspace。Workspace 负责创建句柄、注册既有数据监控、执行一次查询、装配初始结果和取消订阅。 ~model~ 与 ~editor~ 不引用查询订阅模块；修改执行、提交、触发器与原始事件生成流程保持现有行为。
+
+查询层提供通用的同次读取投影，普通查询继续只返回原有结果；订阅启动从同一次加载取得求值所需的临时原始投影与文件版本，不重复查询、不重复加载。原始投影只在启动期间使用，随后释放。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{OrgWorkspace}{}{subscribe\_query() \\ unsubscribe\_query()}
+\umlclass[x=7,y=0]{QuerySubscription}{固定查询 \\ 命中 ID 集合 \\ 文件版本 \\ 分类计数}{内部过滤与归并}
+\umlclass[x=0,y=-4]{QueryModel}{CoreQuery \\ CoreQueryResult}{}
+\umlclass[x=7,y=-4]{DataChangeEvent}{文件与任务变化}{}
+\umldep{OrgWorkspace}{QuerySubscription}
+\umldep{OrgWorkspace}{QueryModel}
+\umldep{QuerySubscription}{QueryModel}
+\umldep{QuerySubscription}{DataChangeEvent}
+\end{tikzpicture}
+\end{center}
+
+* 对外接口
+
+#+begin_src rust
+impl OrgWorkspace {
+    pub async fn subscribe_query<F>(
+        &self,
+        query: CoreQuery,
+        on_change: F,
+    ) -> Result<QuerySubscriptionStart, CoreError>
+    where
+        F: Fn(DataChangeEvent) + Send + Sync + 'static;
+
+    pub fn unsubscribe_query(&self, subscription: &mut QuerySubscription);
+    pub fn query_subscription_status(&self, subscription: &QuerySubscription) -> QuerySubscriptionStatus;
+}
+
+pub struct QuerySubscriptionStart {
+    pub data: CoreQueryResult,
+    pub subscription: QuerySubscription,
+}
+
+pub enum QuerySubscriptionStatus {
+    Current,
+    AwaitingEvents,
+    Invalidated,
+    Closed,
+}
+#+end_src
+
+~Task~ 和 ~File~ 查询均受支持； ~Notification~ 不属于数据订阅，返回输入错误，继续使用原有通知监控。所有参数验证、仓库范围、安全路径、忽略规则、表达式、分类及排序沿用普通查询。查询定义在创建后固定，句柄对外不提供查询条件的修改入口；状态也通过 Workspace 读取。
+
+~data~ 与普通查询的结果类型相同，所有权直接交给调用方。页面数据集使用这个返回值，不再另发初始查询。订阅句柄不保存完整任务、文件快照、正文或 AST，也不提供原始事件的公共处理入口。长期状态只有按文件组织的成员 ID 集合、文件版本与分类数值摘要；排序和分类所需的完整启动数据在返回后释放。
+
+句柄析构自动解除监控；显式取消通过 Workspace 执行，重复取消无副作用。取消不打断已经进入的回调。回调在内部状态锁外串行执行，调用方应将事件排队交给数据集，不能重入调用时仍持有的 Workspace 锁。注册失败、查询失败或启动 future 被取消时，临时句柄自动解除监控。
+
+* 事件过滤与成员变化
+
+只复用现有 ~DataChangeEvent::RepositoryChanged~ ，不新增查询专用事件类型，不生成修改请求。事件中的 ~repo_id~ 与 ~operation_id~ 原样透传，不使用操作来源编号去重；同一操作可有多个仓库通知或后续关联变化。
+
+成员变化以旧 ID 是否存在于命中集合、最终记录是否命中固定查询为依据。一次事件先处理全部旧身份，再装入全部最终身份，避免重名出现序号互换时误删刚加入的成员。改名与移动直接沿用原事件的旧新映射，不靠标题、字节偏移或文件差分猜测。
+
+| 原先是成员 | 最终命中 | 订阅数据变化 |
+|-
+| 否 | 否 | 不通知该记录 |
+| 否 | 是 | ~Created~ ， ~before=None~ |
+| 是 | 否 | ~Deleted~ ， ~after=None~ |
+| 是 | 是 | ~Updated~ ，明确移动时保留 ~Moved~ |
+
+这里的删除表示从订阅结果移除，不代表删除源实体，不能形成第二个操作。跨仓库移动按各仓库已确认文件版本分别应用，可以在两个通知中表现为移出和移入；两侧共享 ~operation_id~ 。
+
+底层提交事件已经携带受影响文件的全部最终节点。继承标签、系统标签匹配和文件标签条件直接用本次事件临时求值，处理后释放，不为不命中的任务建立记录缓存。查询求值在原始标签上完成，发送给调用方的任务投影继续隐藏系统标签。退出查询的旧快照也遵循同样的展示规则。
+
+任务查询的 ~categories~ 是完整分类摘要，继续包含未选中分类的可选计数。模块仅缓存每个文件的数值计数；某个未选分类的记录变化也可以产生仅含分类摘要的事件。普通数据通知省略此字段。
+
+文件查询的 ~files~ 只包含仍命中或新加入查询的文件，新加入时 ~before=None~ 。离开查询的文件通过 ~removed_files: Vec<OrgFileRef>~ 表达，JSON 为 ~removedFiles~ ；不删除真实文件。普通通知的空移除列表不序列化。未匹配的任务变化不进入文件订阅的 ~changes~ 。
+
+* 启动交错、版本与边界
+
+先注册监控，再执行一次查询。启动期间事件排队，比较初始文件版本与事件的前后版本：快照已经包含的事件链整体去重，查询之后的事件合并进返回的初始数据，不先发送一个过期快照再要求调用方重查。
+
+运行中只有当前版本与事件前版本衔接时才应用增量；最终版本已经确认的重复事件不再次通知。乱序事件等待前序版本，不回滚到旧数据，也不重新读取磁盘。事件处理与通知分发均在模块内部排序。暂存队列最多保留 256 个原始事件，长期正常状态不保存事件载荷。
+
+~AwaitingEvents~ 表示等待缺失的版本前序， ~Invalidated~ 表示已无法保证当前完整性。旧同步、重载、重置等入口的 ~files=None~ 没有增量载荷，模块仅标记失效，不把失效通知转发为数据变化，也不自动查询。超过事件暂存边界同样标记失效。任务查询固定启动时的本地日期，跨自然日后标记失效；仓库集合或默认配置变化后应显式重建订阅。恢复由调用方显式重新启动订阅完成，不在事件回调或修改后隐式启动查询。
+
+Core 接口和 Harmony bridge 已接通，界面管理类已实现，Today 页面实例尚未接入。同步等旧入口补充完整增量前，不能声称所有外部变化均可自动校正。

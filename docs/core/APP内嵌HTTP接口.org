@@ -1,0 +1,94 @@
+#+TITLE: APP 内嵌 HTTP 接口
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+
+* 范围与生命周期
+
+本接口用于在 APP 运行时，从外部查询、修改当前数据并观察真实界面的数据驱动行为。服务与 UI 共享同一个 Workspace，不新建仓库上下文，不作为独立进程运行。已有 HTTP Web App 宿主保持自身职责。
+
+~OrgWorkspace::start_http_server(Arc<Mutex<OrgWorkspace>>, SocketAddr)~ 返回持有监听资源的 ~EmbeddedHttpServer~ ，通过 ~address()~ 取得实际监听地址； ~OrgWorkspace::stop_http_server(&mut EmbeddedHttpServer)~ 停止接收请求并等待在途请求完成。丢弃句柄也会发出停止信号。仅允许回环地址，端口 0 表示由系统分配端口。
+
+Core 不读取宿主启动参数、不决定自动启动。Harmony APP 只在 ~Want.parameters.httpApiEnabled === true~ 时调用当前 Workspace 启动接口，固定监听 ~127.0.0.1:8787~ 。普通点击图标启动不提供服务；不增加设置入口或持久化开关。进程退出后服务自然结束，下次普通启动不会恢复。
+
+运行中的 APP 收到显式 true 参数可临时开启，收到 false 参数可停止；没有该参数时保留当前会话状态。仓库配置变化时由应用层重新绑定当前活动 Workspace，主 Ability 销毁时停止。服务没有健康检查、仓库管理或启动停止等 REST 入口。
+
+* 通用约定
+
+请求使用 ~Content-Type: application/json~ ，响应为 UTF-8 JSON。字段沿用 Core 的 camelCase 序列化；任务原始投影与 Harmony 显示投影不同，例如标题字段为 ~title~ ，定位字段为 ~fullPath~ 。仓库 ID、路径和版本应从查询结果获取，不猜测。
+
+监听地址为设备回环地址，连接模拟器时可使用设备工具将宿主端口转发到设备端口。接口不配置跨域访问许可；直接本地 API 客户端调用即可。
+
+* 批量查询
+
+~POST /api/v1/queries~
+
+请求正文是 ~CoreQuery[]~ ，结果与输入顺序一一对应，查询语义完整复用 [[file:查询语言设计.org][查询语言设计]]。支持 Task、File、Notification，不额外加入页面专用过滤规则。
+
+#+begin_src json
+[
+  {"type":"file","query":{}},
+  {"type":"task","query":{}}
+]
+#+end_src
+
+返回 HTTP 200，结果为判别数组：Task 为 ~{"type":"task","result":{"tasks":[],"categories":[]}}~ ，File 为 ~{"type":"file","result":[]}~ ，Notification 为 ~{"type":"notification","result":[]}~ 。任务结果携带 ~fullPath~ 、 ~fileVersion~ 、 ~fileMetadata~ 等 Core 字段，便于后续构造定位和并发校验。
+
+* 批量修改
+
+~POST /api/v1/task-operation-groups~
+
+请求正文是 ~TaskOperationGroup~ ，字段、操作种类、定位和文件版本规则复用 [[file:接口文档.org][Core 接口文档]]。只提交本次需要修改的字段；未提交字段不应被旧快照覆盖。支持创建、字段修改、删除、移动及既有操作组能力。
+
+#+begin_src json
+{
+  "operationId":"http/example-create",
+  "operations":[{
+    "type":"Creation",
+    "data":{
+      "position":{"parent":{"repoId":"查询返回的仓库ID","file":"tasks.org","titles":[]}},
+      "title":"外部新增任务",
+      "state":"TODO",
+      "scheduled":"<2026-11-15>"
+    }
+  }]
+}
+#+end_src
+
+~operationId~ 可省略或为 null，由服务生成 ~http/<UUID>~ 。显式传入时原样传给 Core 并出现在数据变化事件中。不同操作应使用不同标识；它用于事件关联，不提供幂等重试保证。
+
+#+begin_src json
+{
+  "operationId":"http/example-update",
+  "fileVersions":[{"repoId":"查询返回的仓库ID","file":"tasks.org","version":"查询返回的fileVersion"}],
+  "operations":[{
+    "type":"Modification",
+    "data":{
+      "path":{"repoId":"查询返回的仓库ID","file":"tasks.org","titles":["外部新增任务"]},
+      "modifications":[{"field":"NOTES","value":"通过接口修改备注"}]
+    }
+  }]
+}
+#+end_src
+
+删除使用 ~{"type":"Deletion","data":{"path":...}}~ ，其中 path 应直接复用查询结果中的 fullPath。修改组成功返回 HTTP 200：
+
+#+begin_src json
+{"operationId":"http/example-update","status":"committed"}
+#+end_src
+
+成功表示 Core 操作已提交并产生原有数据变化事件，不表示界面已完成渲染。触发器和关联更新仍由既有修改流程执行；HTTP 层不自行写文件或生成领域事件。页面管理对象将外部操作识别为刷新来源，界面接收快照变化不会再提交操作。
+
+* 错误
+
+| HTTP 状态 | error.code | 含义 |
+|-
+| 400 | invalidInput | JSON、查询或操作参数非法 |
+| 409 | invalidState | 文件版本过期、定位或当前状态冲突 |
+| 500 | store | 文件、仓库锁或运行时执行失败 |
+
+#+begin_src json
+{"error":{"code":"invalidState","message":"具体失败原因"}}
+#+end_src
+
+未知路径返回 404，不支持的方法返回 405。冲突后应重新查询当前状态，由调用方决定是否重新提交；服务不会自动覆盖或重试用户修改。

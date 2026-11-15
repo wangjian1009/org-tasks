@@ -1,7 +1,8 @@
 //! Core 判断的当前待关注事件；查询不消费事件，也不保存通知记录。
+use crate::OrgWorkspace;
 use serde::{Deserialize, Serialize};
 
-use super::{OrgRepoId, OrgWorkspace};
+use super::OrgRepoId;
 use crate::CoreError;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -48,6 +49,7 @@ impl OrgWorkspace {
                 super::sync_events::SyncCommitted::Repository {
                     root_directory,
                     repo_id,
+                    ..
                 } if roots.contains(root_directory) => {
                     callback(NotificationUpdate::RepositoryChanged {
                         repo_id: repo_id.clone(),

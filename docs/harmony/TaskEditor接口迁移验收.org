@@ -1,0 +1,40 @@
+#+TITLE: TaskEditor 接口迁移与页面验收
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+
+* 本次范围
+
+所有 TaskEditor 创建入口已经统一显式注入 DataManager 和一个绑定 DataSet。展示直接读取 DataSet，不再另收 task 参数；TaskEditor 不创建数据来源，也不再保留旧的全局数据监听、主动回查、按数据来源选择保存流程或按 operationId 解释确认事件的代码。
+
+TaskEditor 收集标题、备注以及内嵌日期、标签、重复、优先级、链接、正文区块、清单的修改回调，统一提交字段数组。内嵌控件不获取 DataManager 或注册底层监控。具体接口、数据流和阶段语义见 [[file:页面数据集设计.org][页面数据集设计]]。
+
+今天页的数据源为页面 DataSetManager，提供本地修改、后台队列、确认归并与磁盘缓存。项目详情从当前文件创建完整内存 DataSet，不使用页面缓存。其余页面的组合层将现有查询能力接入记录管理对象；接口迁移完成不表示所有页面已经迁移成页面级持久化数据集。
+
+* 全部受影响的页面与调用点
+
+共影响 7 个页面，涉及 9 处 TaskEditor 创建表达式。今天与随时复用同一列表的两个创建点。
+
+| 页面 | 创建 TaskEditor 的组件／区域 | 新注入方式 | 模拟器实际验证 |
+|-
+| 今天 | [[file:../../entry/src/main/ets/components/TodayTaskList.ets][TodayTaskList]]：普通任务与日程 | 页面 DataSetManager 绑定 DataManager 与 DataSet | 标题编辑及存盘，未改备注保留；另验证 50 条任务下编辑、确认、收起及切换返回的阅读位置 |
+| 随时 | [[file:../../entry/src/main/ets/components/TodayTaskList.ets][TodayTaskList]] | 列表组合层创建记录管理对象并绑定 DataSet | 标题编辑及 API 查询核对，未改备注保留 |
+| 计划 | [[file:../../entry/src/main/ets/components/PlannedTaskList.ets][PlannedTaskList]]：普通任务与日程 | 列表组合层显式注入 | 两种区域分别完成标题编辑与存盘，未改备注保留 |
+| 某天 | [[file:../../entry/src/main/ets/pages/TaskOverview.ets][TaskOverview]]：文件任务列表 | 页面组合层显式注入 | 绑定文件中的任务编辑成功，API 查询核对字段 |
+| 收件箱 | [[file:../../entry/src/main/ets/pages/Inbox.ets][Inbox]]：主列表与最近新增 | 页面组合层共享管理对象，分别绑定记录 | 两个区域分别完成标题编辑，未改字段保留；最近新增记录由 API 从收件箱外文件创建 |
+| 日志簿 | [[file:../../entry/src/main/ets/components/LogbookTaskList.ets][LogbookTaskList]] | 列表组合层注入，保留只读与完成操作策略 | 只读展开、重新打开任务，API 确认状态变为 Todo，列表更新 |
+| 项目详情 | [[file:../../entry/src/main/ets/components/ProjectDocumentView.ets][ProjectDocumentView]] | ProjectDataManager 从文件取得全部节点，按 taskId 查找绑定；不读写页面缓存 | 项目任务标题修改成功，正文与备注保持原样；完整文件 DataSet 的排队修改、真实事件身份映射和失败恢复通过专门检查 |
+
+备忘使用独立编辑器，没有 TaskEditor 创建点，不属于本次调用点迁移。侧边栏负责导航与统计，也没有 TaskEditor 创建点。
+
+* 验收边界
+
+上述页面验证使用专用模拟器 OrgPageDataQA 和隔离仓库，日期为 2026-11-15。用户编辑通过真实控件完成，再通过 APP 内嵌 HTTP 查询核对持久化结果；外部新增使用同一 Workspace 的修改 API。测试初始化材料与个人仓库隔离。
+
+跨页面接口验收覆盖展开、输入、保存、确认事件和未修改字段保留；日志簿按其只读策略验证重新打开操作。今天页额外验证本地立即更新、关联数据、失败恢复与长列表位置保持。没有将普通数据源的编辑成功等同于该页已经具备页面级缓存。
+
+* 查询接口清理的附加影响
+
+通用 TaskQuery 已去掉组合任务包含开关，统一保留所有匹配条件的标题。现有业务请求此前均包含组合任务，页面筛选语义保持一致。除上述 TaskEditor 调用点外，共享查询组装还覆盖备忘、分享地点候选、桌面备忘与数字角标；Rust、Harmony 类型声明、APP REST 示例和对应检查已同步移除该字段。
+
+当前前端回归检查为 523 项通过。项目文件数据集另覆盖文件一次读取、所有节点与 taskId 索引、改名后排队字段映射、外部关联变化、失败回滚及同名重建绑定隔离。调试包和数据准备包构建均无编译告警。

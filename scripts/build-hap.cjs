@@ -7,6 +7,7 @@ const { spawnSync, spawn } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const mode = process.argv[2];
 const deveco = process.argv[3];
+const target = process.argv[4] || 'default';
 const template = path.join(root, 'build-profile.json5.example');
 const buildProfile = path.join(root, 'build-profile.json5');
 const local = path.join(root, '.signing');
@@ -30,7 +31,7 @@ function cleanup() {
 }
 
 async function main() {
-  if (!['debug', 'release'].includes(mode) || !deveco) {
+  if (!['debug', 'release'].includes(mode) || !deveco || !['default', 'ohosTest'].includes(target)) {
     throw new Error('通过 make build 或 make release 执行构建。');
   }
   const config = JSON.parse(fs.readFileSync(template, 'utf8'));
@@ -80,8 +81,8 @@ async function main() {
   console.log('>>> 使用本地 p12、Keychain 密码和 signing 中的调试签名材料');
   const hvigor = path.join(deveco, 'tools/hvigor/bin/hvigorw');
   // 两个任务均依赖 PackageHap；保留打包检查和符号收集，签名由下方独立完成。
-  const parameters = ['default@PackingCheck', 'default@CollectDebugSymbol',
-    '--mode', 'module', '-p', 'module=entry@default', '-p', 'product=default', '-p', `buildMode=${mode}`];
+  const parameters = [`${target}@PackingCheck`, `${target}@CollectDebugSymbol`,
+    '--mode', 'module', '-p', `module=entry@${target}`, '-p', 'product=default', '-p', `buildMode=${mode}`];
   if (mode === 'debug') parameters.push('-p', 'debuggable=true');
   parameters.push('--no-daemon');
   const status = await new Promise((resolve, reject) => {
@@ -97,9 +98,9 @@ async function main() {
   const java = path.join(deveco, 'jbr/Contents/Home/bin');
   const source = path.join(__dirname, 'OrgTasksHapSigner.java');
   checked(path.join(java, 'javac'), ['-encoding', 'UTF-8', '-cp', jar, '-d', local, source]);
-  const output = path.join(root, 'entry/build/default/outputs/default');
-  const unsigned = path.join(output, 'entry-default-unsigned.hap');
-  const signed = path.join(output, 'entry-default-signed.hap');
+  const output = path.join(root, `entry/build/default/outputs/${target}`);
+  const unsigned = path.join(output, `entry-${target}-unsigned.hap`);
+  const signed = path.join(output, `entry-${target}-signed.hap`);
   // 先移除旧产物，避免签名失败后安装过期 HAP。
   if (fs.existsSync(signed)) fs.unlinkSync(signed);
   const version = String(config.app.products[0].compatibleSdkVersion);

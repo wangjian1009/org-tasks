@@ -56,8 +56,7 @@
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -163,8 +162,7 @@
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -251,8 +249,7 @@
         "title": "New"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -313,8 +310,7 @@
         "body": "Body\n* Extra\n"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -377,8 +373,7 @@
         "body": "Body"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -445,8 +440,7 @@ parent body
         "body": "正文"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -509,8 +503,7 @@ parent body
         "state": "UNKNOWN"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -564,8 +557,7 @@ parent body
         "title": ""
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -620,8 +612,7 @@ parent body
         "state": "TODO"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -752,8 +743,7 @@ parent body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -818,8 +808,7 @@ parent body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -882,8 +871,7 @@ Child body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -951,8 +939,7 @@ Child body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1018,8 +1005,7 @@ Child body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1081,8 +1067,7 @@ Child body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1147,8 +1132,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1213,8 +1197,7 @@ DEADLINE: ordinary text
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1292,8 +1275,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1353,8 +1335,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1415,8 +1396,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1479,8 +1459,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1544,8 +1523,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1606,8 +1584,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1667,8 +1644,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1746,8 +1722,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -1809,8 +1784,7 @@ Body␠␠
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2185,8 +2159,7 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2261,8 +2234,7 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2340,10 +2312,6 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo",
-    "other"
   ]
 }
 #+end_example
@@ -2416,8 +2384,7 @@ child
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2487,8 +2454,7 @@ child
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2556,8 +2522,7 @@ child
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2634,8 +2599,7 @@ child
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2694,8 +2658,7 @@ second
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2748,8 +2711,7 @@ first
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2804,8 +2766,7 @@ unchanged␠␠
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -2830,7 +2791,7 @@ unchanged␠␠
 
 ** coalesce-outbox
 
-目的：同组多次修改同一文件只登记最终快照的一个上传意图。
+目的：同组多次修改同一文件只保存最终内容，不登记上传意图。
 
 目录： ~core/tests/task_operations_cases/transaction/coalesce-outbox~ 。
 
@@ -2887,9 +2848,6 @@ unchanged␠␠
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -2972,9 +2930,6 @@ unchanged␠␠
         }
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -3048,9 +3003,6 @@ unchanged␠␠
         }
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -3153,8 +3105,7 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3230,9 +3181,6 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -3310,8 +3258,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3423,8 +3370,7 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3492,8 +3438,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3548,8 +3493,7 @@ Body
         "title": "Bad"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3603,8 +3547,7 @@ Body
         "title": "TODO Other"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3642,8 +3585,7 @@ Body
 
 #+begin_example
 {
-  "operations": [],
-  "queueRepoIds": []
+  "operations": []
 }
 #+end_example
 
@@ -3703,8 +3645,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3762,8 +3703,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3824,8 +3764,7 @@ Body
         }
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -3884,7 +3823,6 @@ Body
       }
     }
   ],
-  "queueRepoIds": [],
   "fileVersions": [
     {
       "repoId": "repo",
@@ -3949,8 +3887,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -4008,8 +3945,7 @@ Body
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -4063,8 +3999,7 @@ Body
         "title": "Bad"
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -4354,8 +4289,7 @@ Old
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -4423,8 +4357,7 @@ Old
         ]
       }
     }
-  ],
-  "queueRepoIds": []
+  ]
 }
 #+end_example
 
@@ -4504,9 +4437,6 @@ SCHEDULED: <2026-11-11 Wed>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -4614,9 +4544,6 @@ CLOSED: [2026-11-01 Sun 10:00]
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -4712,9 +4639,6 @@ CLOSED: [2026-11-01 Sun 10:00]
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -4813,9 +4737,6 @@ CLOCK: [2025-08-09 Sat 16:28]--[2025-08-09 Sat 16:55] =>  0:27
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -4931,9 +4852,6 @@ SCHEDULED: <2027-07-02 Fri +1y>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -5033,9 +4951,6 @@ SCHEDULED: <2028-07-02 Sun +1y>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -5133,9 +5048,6 @@ SCHEDULED: <2026-11-11 Wed>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -5241,9 +5153,6 @@ CLOSED: [2026-11-01 Sun 09:00]
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -5354,9 +5263,6 @@ SCHEDULED: <2026-11-11 Wed>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -5475,9 +5381,6 @@ SCHEDULED: <2026-11-23 Mon .+4w/5w>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_example
@@ -5581,9 +5484,6 @@ SCHEDULED: <{{DATE+28d}} .+4w/5w>
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -5651,9 +5551,6 @@ Body␠␠
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -5723,9 +5620,6 @@ Body␠␠
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -5790,9 +5684,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -5854,9 +5745,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -5916,9 +5804,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -5982,9 +5867,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -6049,9 +5931,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -6101,9 +5980,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -6152,9 +6028,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -6203,9 +6076,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -6255,9 +6125,6 @@ Old notes
         ]
       }
     }
-  ],
-  "queueRepoIds": [
-    "repo"
   ]
 }
 #+end_src
@@ -6270,7 +6137,7 @@ Old notes
 
 - 成功操作组连续追加准确 before、after；末尾操作失败不改变 workspace、历史或已有 outbox。
 - 可选文件版本拒绝过期请求；正确版本执行成功，操作历史可完整序列化往返。
-- 提交准备阶段遇到不可写 outbox 目标时，保留原文件、内存和历史。
+- 普通修改不读写 outbox；已有同名不可写控制内容不阻止业务文件提交。
 - Core 创建时无条件生成 CREATED，重新加载后仍能投影创建时间和任务身份；拒绝显式修改时间或关闭自动创建时间。
 - 完成状态来自文件有效配置，覆盖嵌套 SETUPFILE、文件内覆盖、配置重新读取、自定义完成与待办状态；按显式日志配置生成 CLOSED，恢复时清理已有 CLOSED，保留 CREATED、子条目和其他规划，失败整组回滚。
 - 拒绝符号链接及不存在的父目录，不跟随链接或创建意外目录。

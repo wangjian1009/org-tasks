@@ -1,3 +1,4 @@
+export interface QueryOrderPart { readonly value: number | string | null; readonly descending: boolean; readonly missingLast: boolean; }
 export interface TitleCount {
   readonly completed: number | null;
   readonly total: number | null;
@@ -55,8 +56,46 @@ export interface TaskConfilictSelection { path?: TaskPath; id: string; action: '
 export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
 export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
-export interface TaskOperationGroup { operations: TaskOperation[]; queueRepoIds?: string[]; fileVersions?: TaskFileVersion[]; }
-export type DataChangeEvent = { type: 'repositoryChanged'; repoId: string };
+export interface TaskOperationGroup { operationId?: string | null; operations: TaskOperation[]; fileVersions?: TaskFileVersion[]; }
+// 事件中的记录是纯数据，不具有 native Task/OrgFileMetadata 对象的方法。
+export interface DataFileRecord {
+  repoId: string; path: string; title: string | null; titleParts: TitlePart[];
+  projectName: string | null; category: string | null; tagOptions: string[];
+  priorityOptions: TaskPriority[]; defaultPriority: TaskPriority; tagGroups: string[][];
+  hasConflict: boolean; isIgnore: boolean; taskStateCounts: TaskStateCount[];
+  byteLength: number; modifiedAt: number | null;
+}
+export interface DataDateRecord { date: string; active: boolean; }
+export interface DataTaskRecord {
+  id: string; fullPath: TaskPath; fileMetadata: DataFileRecord; fileVersion: string;
+  editContent: TaskEditContent; supportTags: SupportTags | null; category: string | null;
+  line: number; column: number; byteOffset: number; level: number;
+  state: TaskState | null; stateType: 'Todo' | 'Done' | 'None'; priority: TaskPriority | null;
+  ownTags: string[]; inheritedTags: string[]; title: string; body: string; addressLinks: AddressLink[];
+  isRepeating: boolean; isHabit: boolean; hasAttach: boolean;
+  scheduled: DataDateRecord | null; deadline: DataDateRecord | null;
+  scheduledWarning: string | null; deadlineWarning: string | null;
+  closed: DataDateRecord | null; closedAt: number | null;
+  created: DataDateRecord | null; createdAt: number | null; modifiedAt: number | null;
+  events: DataDateRecord[];
+}
+export interface TaskDataSnapshot { task: DataTaskRecord; position: TaskPosition; view?: Task; }
+export interface TaskDataChange {
+  kind: 'created' | 'updated' | 'deleted' | 'moved';
+  before: TaskDataSnapshot | null; after: TaskDataSnapshot | null;
+}
+export interface FileDataChange {
+  before: DataFileRecord | null; after: DataFileRecord;
+  beforeVersion: string | null; afterVersion: string;
+  beforeView?: OrgFileMetadata; afterView?: OrgFileMetadata;
+}
+export type DataChangeEvent = {
+  type: 'repositoryChanged'; repoId: string; operationId: string | null;
+  files: FileDataChange[] | null; changes: TaskDataChange[];
+  removedFiles?: OrgFileRef[]; categories?: TaskCategory[];
+};
+export type QuerySubscriptionStatus = 'current' | 'awaitingEvents' | 'invalidated' | 'closed';
+export interface QuerySubscriptionStart { subscriptionId: number; data: CoreQueryResult; operationId: string | null; }
 export type DataChangeMonitor = (event: DataChangeEvent) => void;
 export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; includeProjectRoots?: boolean; }
 export interface RefileTarget {
@@ -105,6 +144,7 @@ export interface TaskLogOther { type: 'other'; html: string; }
 export type TaskLog = TaskStateChange | TaskNote | TaskClosingNote | TaskPlanningLog | TaskRefile | TaskClock | TaskLogOther;
 
 export class Task {
+  readonly orderKey?: QueryOrderPart[];
   private constructor();
   isDone(): boolean;
   project(): string | null;
@@ -203,7 +243,7 @@ export interface TaskQuery {
   expression?: string;
   categories?: (string | null)[];
   excludedFiles?: OrgFileRef[];
-  includeComposeTasks?: boolean;
+
 }
 
 export interface TaskCategory {
@@ -254,7 +294,11 @@ export type NotificationUpdate =
   | { type: 'globalNotificationsChanged' };
 export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
+export interface HttpServerInfo { readonly address: string; }
 export class Workspace {
+  startHttpServer(port?: number): Promise<HttpServerInfo>;
+  stopHttpServer(): Promise<void>;
+  httpServerStatus(): Promise<HttpServerInfo | null>;
   constructor();
   getSettings(): Promise<CoreSettings>;
   setSettings(settings: CoreSettings): Promise<void>;
@@ -266,6 +310,9 @@ export class Workspace {
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
   query(queries: CoreQuery[]): Promise<CoreQueryResult[]>;
+  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null): Promise<QuerySubscriptionStart>;
+  querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>;
+  unsubscribeQuery(subscriptionId: number): void;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
@@ -294,6 +341,7 @@ export class Repo {
 }
 
 export interface OrgFileMetadata {
+  readonly orderKey?: QueryOrderPart[];
   readonly priorityOptions: TaskPriority[];
   readonly defaultPriority: TaskPriority;
   taskPriorityOf(category: PeriodCategory): TaskPriority | null;

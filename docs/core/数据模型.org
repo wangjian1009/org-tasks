@@ -20,6 +20,8 @@
 
 ~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~TaskOperationGroup~ 是统一任务修改输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
+~OrgWorkspace~ 的定义已提取到上层 ~core::workspace~ ，crate 根保持同名导出。 ~core::query_subscription~ 是独立组合模块， ~model~ 与 ~editor~ 不依赖它。查询订阅的初始结果归调用方，句柄只保留成员 ID、文件版本和数值摘要，详见 [[file:查询订阅设计.org][查询订阅设计]]。
+
 调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
 
 仓库按需读盘和跨进程同步模型见 [[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。 ~OrgRepo~ 仅持有身份、根目录配置和默认 TODO 配置，移除 ~files~ 与扫描规则缓存； ~load_files(ignore_files)~ 异步返回操作拥有的文件集合。以下同步租约与恢复对象仍为私有执行状态。
@@ -54,7 +56,9 @@
   todo\_defaults: TodoConfig \\
   task\_operation\_history: TaskOperationHistory
 }{execute\_task\_operations(group): () \\
-task\_merge\_operations(request): TaskMergePlan}
+task\_merge\_operations(request): TaskMergePlan \\
+subscribe\_query(query): QuerySubscriptionStart \\
+unsubscribe\_query(subscription)}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
   root\_directory: String \\
@@ -120,8 +124,9 @@ count: usize}{}
 \end{umlpackage}
 
 \begin{umlpackage}[x=0,y=-9.3]{Editing}
-\umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\
-queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
+\umlclass[x=0,y=0]{TaskOperationGroup}{operation\_id: Option\textless String\textgreater \\
+operations: Vec\textless TaskOperation\textgreater \\
+file\_versions: Vec\textless TaskFileVersion\textgreater}{}
 \umlclass[x=8.5,y=0]{OrgRepoWriteIntent}{
   relative\_path: String \\
   content\_hash: String
@@ -478,7 +483,7 @@ pub struct OrgRepo {
 
 * 任务写入意图
 
-~OrgRepoWriteIntent~ 保存待上传文件的相对路径和最终内容哈希；原始内容只保存在用户 Org 文件、运行时回退快照及既有同步快照中。操作组仅为指定仓库的实际变更文件登记意图，同一文件在一组中多次修改只登记一个最终版本。
+~OrgRepoWriteIntent~ 保存待上传文件的相对路径和最终内容哈希；原始内容只保存在用户 Org 文件、运行时回退快照及既有同步快照中。普通任务操作不再登记上传意图；旧 outbox 的读取和同步确认能力保留。任务操作的变更路由来自本次内存工作区与语义事件，不为识别变更追加磁盘读写。
 
 #+begin_src rust
 pub struct OrgRepoWriteIntent {
@@ -808,7 +813,7 @@ pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
     pub excluded_files: Vec<OrgFileRef>,
-    pub include_compose_tasks: bool,
+
 }
 
 pub struct FileQuery {
@@ -983,6 +988,8 @@ logbook\_html: String \\
 
 以下类型均定义于 ~core::model~ 。 ~TaskOperationGroup~ 代表一次批量修改， ~operations~ 按列表顺序执行。各类操作分别拥有独立数据结构，不共享输入基类。JSON 操作以 ~type~ 区分 ~Creation~ 、 ~Modification~ 、 ~Movement~ 、 ~Deletion~ 和 ~ConfilictSelection~ ，对应数据位于 ~data~ ；结构体字段使用 camelCase。
 
+~operation_id~ 是可选操作来源标识，JSON 为 ~operationId~ ，缺省或空值表示 ~None~ 。实际提交成功后，同一操作产生的仓库数据变化通知透传该标识；它不改变操作规则和事务语义，也不作为幂等键。同步、重置和旧调用无来源标识时，通知保留空值。
+
 #+begin_src rust
 /// after 必须是 parent 的直属子节点；为空时插入到首个子节点之前。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -996,9 +1003,9 @@ pub struct TaskPosition {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskOperationGroup {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
     pub operations: Vec<TaskOperation>,
-    #[serde(default)]
-    pub queue_repo_ids: Vec<OrgRepoId>,
     #[serde(default)]
     pub file_versions: Vec<TaskFileVersion>,
 }
@@ -1178,7 +1185,7 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 *** 文件内 TRIGGER
 
-待办进入完成状态后，在状态日志与重复调度之后解释 ~TRIGGER~ ，支持文件内的目标查找、条件、状态、日期、标签、优先级和属性动作。联动目标共用本文件隔离快照、版本校验、回退、outbox 和单次通知；不支持跨文件联动。不支持动作静默跳过并继续后续规则，已支持动作的非法参数或循环联动使整组回滚。实现范围与 Edna 对照依据见 [[file:TRIGGER触发器设计.org][文件内 TRIGGER 触发器]] 。不新增公开模型或宿主专属操作类型。
+待办进入完成状态后，在状态日志与重复调度之后解释 ~TRIGGER~ ，支持文件内的目标查找、条件、状态、日期、标签、优先级和属性动作。联动目标共用本文件隔离快照、版本校验、回退、语义变更日志和单次通知；不支持跨文件联动。不支持动作静默跳过并继续后续规则，已支持动作的非法参数或循环联动使整组回滚。实现范围与 Edna 对照依据见 [[file:TRIGGER触发器设计.org][文件内 TRIGGER 触发器]] 。不新增公开模型或宿主专属操作类型。
 
 *** 配置驱动的日志
 
@@ -1200,19 +1207,49 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 ~TaskMergeRequest.paths~ 严格按用户选择顺序排列。第一条记录作为保留位置，标题改为“合并: 原始标题”；所选全部记录（包括第一条）转换为同一个正文列表，正文缩进到所属项，子记录递归转为嵌套列表。状态、日期、优先级和自身属性保留第一条记录的原值，其他元数据及日志随原始标题存入 ~#+begin_comment org_tasks_merge_original~ 块，使用逗号转义保护标题与块结束符。阅读与备注投影隐藏该归档，备注编辑保持归档字节；再次合并时旧归档平铺保留，避免复制整份历史。
 
-~TaskMergePlan~ 包含普通 ~operation_group~ 与结果 ~main_path~ ，不增加 ~TaskOperation~ 变体。来源根及第一条记录原有的子树按原文逆序生成 Deletion，随后使用删除后的路径生成一次 Modification，修改 BODY 与 TITLE。规划复用原执行器在内存中验证版本、路径及结构，但不写盘或生成历史；真实执行只提交一组操作，复用原有文件版本、回退和 outbox 机制。
+~TaskMergePlan~ 包含普通 ~operation_group~ 与结果 ~main_path~ ，不增加 ~TaskOperation~ 变体。来源根及第一条记录原有的子树按原文逆序生成 Deletion，随后使用删除后的路径生成一次 Modification，修改 BODY 与 TITLE。规划复用原执行器在内存中验证版本、路径及结构，但不写盘或生成历史；真实执行只提交一组操作，复用原有文件版本、回退和语义变更日志机制。
 
 规划拒绝重复、祖先与后代重叠、跨文件、受保护冲突节点，以及转换为列表后会丢失 ID／CUSTOM_ID 或当前文件标题引用的情况。第一条记录自身 ID 保留，其余标题定位引用不自动迁移。 ~main_path~ 按最终标题与出现序号重新投影，供合并成功后定位。
 
 ** 顺序、提交与失败处理
 
-1. 根据操作组收集所需源文件、目标 parent 和 after 所在文件；验证安全路径、仓库归属和可选的 ~file_versions~ ，将原始内容加载到隔离内存快照。不存在的 Org 文件可由创建操作产生，移动目标须已存在于本组内存快照；父目录须已存在，加载阶段不创建目录，不跟随文件符号链接。
+1. 根据操作组收集所需源文件、目标 parent 和 after 所在文件；验证安全路径、仓库归属和可选的 ~file_versions~ ，按仓库 ID 和文件相对路径去重，每个业务文件读取一次，将原始内容加载到隔离内存快照。不存在的 Org 文件可由创建操作产生，移动目标须已存在于本组内存快照；父目录须已存在，加载阶段不创建目录，不跟随文件符号链接。
 2. 按 operations 顺序执行；后续操作使用前面步骤产生的新路径。组内改名、移动、重名项序号变化后，旧路径可能失效，Core 不猜测调用意图。提交成功后发布仓库数据变化事件；失败或无实际文件变化不发布。
 3. 任一内存操作失败即丢弃全组，不修改用户文件、outbox 或操作历史。受影响但未修改的文件不重复写入。
-4. 所有内存操作完成后，准备完整临时文件、回退字节和最终 outbox；再次核对原始磁盘字节，统一进入提交。普通提交 I/O 失败时以已准备的原始字节回滚已替换文件，并清理本次临时文件和意图。
+4. 所有内存操作完成后，准备完整临时文件和回退字节；依据文件身份、长度与修改时刻检查并发写入，不再次读取业务文件内容。每个实际变更文件只将最终内容替换到正式路径一次，不创建上传意图。普通提交 I/O 失败时以已经加载的原始字节回滚已替换文件，并清理本次临时文件。
 5. 全部文件提交成功后释放本次文件集合并发布数据变化通知，将一次 ~TaskFallbackGroup~ 与原操作组一起追加到 ~TaskOperationHistory~ 。失败的组不形成成功历史，也不发布数据变化事件。
 
-单文件替换采用同目录原子重命名。普通文件系统不提供跨文件、跨仓库的整体原子替换；进程崩溃、介质不可写或回滚期间的外部并发写入不能仅靠内存保证恢复。检测到回滚目标已被外部写入时保留回退文件并明确返回存储错误，不覆盖外部数据，也不将部分提交登记为成功。当前契约覆盖可正常完成回滚的执行错误，崩溃恢复与持久化事务日志另行设计。
+单文件替换采用同目录原子重命名。暂存与回退文件是提交保护材料，不属于额外业务保存。元信息校验能够检测通常的文件替换与写入，但无法保证识别绕过仓库锁并刻意恢复文件元信息的外部写入。普通文件系统不提供跨文件、跨仓库的整体原子替换；进程崩溃、介质不可写或回滚期间的外部并发写入不能仅靠内存保证恢复。检测到回滚目标已被外部写入时保留回退文件并明确返回存储错误，不覆盖外部数据，也不将部分提交登记为成功。当前契约覆盖可正常完成回滚的执行错误，崩溃恢复与持久化事务日志另行设计。
+
+** 修改执行时生成数据事件
+
+~MutationJournal~ 是一次操作组私有的内存对象。文件加载后按当前树序号分配事务内节点令牌，初始任务投影只生成一次；令牌不持久化、不暴露给宿主，也不使用字节偏移或路径作为稳定身份。普通 ~OrgFile.clone()~ 不复制日志，验证探针与预览不会产生真实提交事件。
+
+~replace~ 在真实写入时登记更新，完全相同的字节替换不登记。创建、删除与移动在执行分支直接登记各自的语义；移动把源子树令牌移交给目标文件，同文件移动复用同一内存文件，不推断为删除加创建。重名序号、位置、文件版本与继承数据可能影响同文件其他记录，因此写入同时维护该文件已有节点的更新投影。完整主树替换明确删除旧树、创建新树，不猜测节点对应关系。
+
+~TRIGGER~ 的状态、属性、规划、标签、优先级、日志、重复调度、祖先恢复和统计更新沿用同一写入原语，在实际修改时登记同一日志。它们与用户直接修改共用 ~operation_id~ ，不产生第二个修改请求。事件不通过查询、扫描或文件前后差分生成；组结束时只对已登记变更补齐最终投影。同一令牌多次修改合并为原始到最终快照；已存在节点一旦移动保留 ~Moved~ 语义，新建后移动仍为 ~Created~ ，新建后删除不产生幽灵记录。
+
+~DataChangeEvent::RepositoryChanged~ 保留仓库身份和可空 ~operation_id~ ，新增 ~files: Option<Vec<FileDataChange>>~ 与 ~changes: Vec<TaskDataChange>~ 。普通修改成功后， ~files=Some(...)~ 是已提交文件的准确集合；同步、重载等旧入口保留 ~files=None~ 的失效语义，不能当作空增量。查询订阅遇到这些旧入口时仅标记失效，不自动查询。
+
+~TaskDataChange.kind~ 为 ~Created~ 、 ~Updated~ 、 ~Deleted~ 或 ~Moved~ 。 ~before~ 、 ~after~ 使用 ~Option<TaskDataSnapshot>~ ；每个快照由原有 ~FilterTask~ 数据与 ~TaskPosition~ 构成，包含身份、完整路径、父节点、前一兄弟节点和排序所需位置。 ~FileDataChange~ 保存前后 ~OrgFileMetadata~ 及文件版本；新文件的前值为空。跨仓库移动把同一旧新映射发送给源、目标仓库的通知，接收方按记录身份应用增量，不能因为见过 ~operation_id~ 就丢弃后续通知。
+
+所有事件仅在整组文件保存成功、追加回退历史并释放仓库锁后发布；失败不发布部分事件，无实际文件变化不发布。事件接收只维护数据，不触发写操作。 ~FilterTask~ 的序列化保留查询所需的原始标签和日期信息；Bridge 直接转发这些纯数据，它们不具有 native 对象方法。
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{MutationJournal}{事务内节点令牌 \\ 已登记变更类型}{}
+\umlclass[x=7,y=0]{TaskDataChange}{kind: TaskDataChangeKind \\ before: Option of TaskDataSnapshot \\ after: Option of TaskDataSnapshot}{}
+\umlclass[x=7,y=-4]{TaskDataSnapshot}{task: FilterTask \\ position: TaskPosition}{}
+\umlclass[x=0,y=-4]{DataChangeEvent}{repo\_id \\ operation\_id \\ files \\ changes}{}
+\umlclass[x=0,y=-8]{FileDataChange}{before / after: OrgFileMetadata \\ before\_version / after\_version}{}
+\umluniassoc{MutationJournal}{TaskDataChange}
+\umluniassoc{TaskDataChange}{TaskDataSnapshot}
+\umluniassoc{DataChangeEvent}{TaskDataChange}
+\umluniassoc{DataChangeEvent}{FileDataChange}
+\end{tikzpicture}}
+\end{center}
 
 ** 回退历史与未来撤销
 
@@ -1224,7 +1261,8 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\ queue\_repo\_ids: Vec\textless OrgRepoId\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
+\umlclass[x=0,y=0]{TaskOperationGroup}{operation\_id: Option\textless String\textgreater \\
+operations: Vec\textless TaskOperation\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
 \umlclass[x=8,y=0,type=enumeration]{TaskOperation}{Creation \\ Modification \\ Movement \\ Deletion \\ ConfilictSelection}{}
 \umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater}{}
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
@@ -1374,7 +1412,7 @@ path: String}{}
 
 应用修改候选时，Core 先按稳定 ~Org ID~ 或生成期标题路径定位原任务；定位成功只更新已确认的字段，保留远端未涉及字段、子任务和原始字节。定位失败不猜测同名记录，只有明确选择插入位置后才使用完整记录插入。字段应用、完整记录插入和丢弃均使用同一版本校验、冲突保护与事务提交。
 
-~TaskConfilictSelection~ 作为普通 ~TaskOperation~ 变体提交，携带文件根 path、ID、动作与可选 target。Discard 移除候选，UseLocal 根据受控目标采用候选；最后一点删除后移除容器及其生成分隔符。操作复用普通文件版本、提交、回退和 outbox，不接受历史同步 ID 或任意完整文件字节。
+~TaskConfilictSelection~ 作为普通 ~TaskOperation~ 变体提交，携带文件根 path、ID、动作与可选 target。Discard 移除候选，UseLocal 根据受控目标采用候选；最后一点删除后移除容器及其生成分隔符。操作复用普通文件版本、提交、回退和语义变更日志，不接受历史同步 ID 或任意完整文件字节。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
@@ -1662,7 +1700,7 @@ finish(options): TaskOperationGroup \\
 discard()}
 \umlclass[x=0,y=-5]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\
 file\_versions: Vec\textless TaskFileVersion\textgreater \\
-queue\_repo\_ids: Vec\textless OrgRepoId\textgreater}{}
+file\_versions: Vec\textless TaskFileVersion\textgreater}{}
 \umlclass[x=8,y=-5]{PreviewState}{original: OrgFile (main) \\
 conflicts: Vec\textless ConflictPoint\textgreater \\
 resolved: Set\textless String\textgreater \\
@@ -1712,7 +1750,7 @@ pub enum TaskRepeatMode { Cumulative, CatchUp, AfterCompletion }
 pub enum TaskRepeatUnit { Hour, Day, Week, Month, Year }
 #+end_src
 
-~SCHEDULE_REPEAT~ 与 ~DEADLINE_REPEAT~ 接收 ~TaskRepeatRule~ 或空值。三种模式分别写为 ~+~ 、 ~++~ 和 ~.+~ ；序列化名称为 ~cumulative~ 、 ~catchUp~ 、 ~afterCompletion~ ，单位为 ~hour~ 、 ~day~ 、 ~week~ 、 ~month~ 、 ~year~ 。间隔须大于零，按小时重复须已有具体时刻。添加规则前须已有对应日期，可在同一操作组先设置日期；规则修改只替换重复器 token，保留原有重复窗口后缀、日期、星期、时刻、预警、另一个规划字段及其他字节。停止重复只移除该规划字段的重复器与其窗口，不清除日期，不修改状态。规则编辑复用原版本校验、事务、回退、outbox 和数据通知。
+~SCHEDULE_REPEAT~ 与 ~DEADLINE_REPEAT~ 接收 ~TaskRepeatRule~ 或空值。三种模式分别写为 ~+~ 、 ~++~ 和 ~.+~ ；序列化名称为 ~cumulative~ 、 ~catchUp~ 、 ~afterCompletion~ ，单位为 ~hour~ 、 ~day~ 、 ~week~ 、 ~month~ 、 ~year~ 。间隔须大于零，按小时重复须已有具体时刻。添加规则前须已有对应日期，可在同一操作组先设置日期；规则修改只替换重复器 token，保留原有重复窗口后缀、日期、星期、时刻、预警、另一个规划字段及其他字节。停止重复只移除该规划字段的重复器与其窗口，不清除日期，不修改状态。规则编辑复用原版本校验、事务、回退、语义变更日志和数据通知。
 
 日期修改也从原规划字段读取时间戳，对 ~orgize~ 尚未识别的重复窗口进行等长遮罩后取得日期节点，确保修改日期不会丢失 ~.+4w/5w~ 等原规则。
 
@@ -1806,3 +1844,24 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 ~DocumentLinkTarget~ 是运行时只读值，包含 ~target~ 与 ~priority~ ，通过 ~DocumentSection.link_targets~ 关联到当前文件的前言或标题直属区域。Core 从 orgize AST 提取专用目标、NAME 命名元素、标题与 CUSTOM_ID，保留文件顺序，按专用目标、命名元素、标题的顺序匹配普通目标。源码、示例中的伪目标不参与解析；索引不保存到 Org、同步记录或 Preferences。
 
 完整 HTML 和分段阅读共用同一目标语义。内部链接的 ~org-internal:~ URI 只存在于展示投影，原始 ~TextLink.url~ 和编辑输入继续保留 ~#custom-id~ 、 ~*标题~ 或普通目标名。HTML 的目标键元数据使用 JSON 与 HTML 属性转义，宿主消费元数据而不解释 Org 源码；图标、菜单、焦点与滚动属于宿主交互。
+
+* 查询订阅运行时模型
+
+~QuerySubscriptionStart~ 保存一次启动得到的 ~CoreQueryResult~ 与 ~QuerySubscription~ 。初始数据直接转交调用方，句柄不持有其副本。句柄的固定查询、成员 ID、文件版本和分类数值摘要是运行时状态，不写入仓库、同步历史或 outbox；取消或析构时释放。完整数据流与内嵌 UML 见 [[file:查询订阅设计.org][查询订阅设计]]。
+
+~DataChangeEvent::RepositoryChanged~ 增加默认省略的 ~removed_files~ 和 ~categories~ 。前者是订阅结果中的文件移除身份，不表示删除底层文件；后者是任务查询的完整分类摘要。普通仓库事件保持空列表和空值，原有修改生成流程不依赖查询订阅。
+
+* 查询排序投影
+
+~QueryOrdering~ 是通过 Workspace 创建的只读查询上下文，只持有解析后的条件与仓库身份顺序。 ~QueryOrderPart~ 由可空的 ~QueryOrderValue~ 、方向和缺失值策略组成；键不含正文、语法树或底层对象引用，不属于持久化领域状态。Harmony 将它作为可选 ~orderKey~ 附在页面只读记录中，页面缓存随该记录保存；查询订阅仍不保留完整任务快照。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{QueryOrdering}{固定条件 \\ 仓库顺序}{task\_key() \\ file\_key()}
+\umlclass[x=6,y=0]{QueryOrderPart}{value: optional scalar \\ descending: bool \\ missing\_last: bool}{}
+\umlclass[x=6,y=-3]{QueryOrderValue}{Number \\ Text}{}
+\umluniassoc{QueryOrdering}{QueryOrderPart}
+\umluniassoc{QueryOrderPart}{QueryOrderValue}
+\end{tikzpicture}
+\end{center}

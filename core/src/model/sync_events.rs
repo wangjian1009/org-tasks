@@ -8,6 +8,9 @@ pub(crate) enum SyncCommitted {
     Repository {
         root_directory: String,
         repo_id: String,
+        operation_id: Option<String>,
+        files: Option<Vec<super::FileDataChange>>,
+        changes: Vec<super::TaskDataChange>,
     },
 }
 type Callback = Arc<dyn Fn(&SyncCommitted) + Send + Sync>;
@@ -47,9 +50,23 @@ pub(crate) fn subscribe(callback: Callback) -> SyncSubscription {
     SyncSubscription(id)
 }
 pub(crate) fn publish(repo: &super::OrgRepo) {
+    publish_operation(repo, None);
+}
+pub(crate) fn publish_operation(repo: &super::OrgRepo, operation_id: Option<&str>) {
+    publish_changes(repo, operation_id, None, Vec::new());
+}
+pub(crate) fn publish_changes(
+    repo: &super::OrgRepo,
+    operation_id: Option<&str>,
+    files: Option<Vec<super::FileDataChange>>,
+    changes: Vec<super::TaskDataChange>,
+) {
     publish_event(SyncCommitted::Repository {
         root_directory: repo.root_directory.clone(),
         repo_id: repo.id.clone(),
+        operation_id: operation_id.map(str::to_owned),
+        files,
+        changes,
     });
 }
 fn publish_event(event: SyncCommitted) {

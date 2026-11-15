@@ -56,13 +56,13 @@ impl Fixture {
         let file = p.file().await.unwrap();
         self.workspace
             .execute_task_operations(&TaskOperationGroup {
+                operation_id: None,
                 operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
                     path: Some(file.full_path()),
                     id: p.conflict_id().into(),
                     action,
                     target: None,
                 })],
-                queue_repo_ids: vec![],
                 file_versions: vec![TaskFileVersion {
                     repo_id: file.repo_id.clone(),
                     file: file.path.clone(),
@@ -318,7 +318,7 @@ async fn finish_returns_source_operations_without_writing_and_host_uses_unified_
     let opts = ConflictPreviewFinishOptions {
         preview_version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
     };
-    let mut group = p.finish(opts.clone()).await.unwrap();
+    let group = p.finish(opts.clone()).await.unwrap();
     assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
     assert!(f.workspace.task_operation_history.entries.is_empty());
     assert!(
@@ -343,7 +343,7 @@ async fn finish_returns_source_operations_without_writing_and_host_uses_unified_
     );
     assert_eq!(p.finish(opts).await.unwrap(), group);
     assert!(p.file().await.is_err());
-    group.queue_repo_ids = vec![f.workspace.repos()[0].id.clone()];
+
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(
         std::fs::read(f.root.join("repo/a.org")).unwrap(),
@@ -351,7 +351,7 @@ async fn finish_returns_source_operations_without_writing_and_host_uses_unified_
     );
     assert_eq!(
         f.workspace.repos()[0].pending_writes().await.unwrap().len(),
-        1
+        0
     );
     assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
 }
@@ -397,6 +397,7 @@ async fn new_copy_invalidates_old_paths_and_mixed_operations_fail_before_writing
     let file = current.file().await.unwrap();
     let real = f.workspace.repos()[0].file("a.org").await.unwrap();
     let group = TaskOperationGroup {
+        operation_id: None,
         operations: vec![TaskOperation::Deletion(TaskDeletion {
             path: real.node_paths()[0].clone(),
         })],
@@ -405,7 +406,6 @@ async fn new_copy_invalidates_old_paths_and_mixed_operations_fail_before_writing
             file: current.id().into(),
             version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
@@ -421,6 +421,7 @@ async fn ordinary_modifications_use_preview_full_paths_and_keep_other_candidates
     let path = file.editable_node_paths()[0].clone();
     f.workspace
         .execute_task_operations(&TaskOperationGroup {
+            operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
                 path,
                 modifications: vec![TaskModification::Title(Some("Adjusted".into()))],
@@ -430,7 +431,6 @@ async fn ordinary_modifications_use_preview_full_paths_and_keep_other_candidates
                 file: p.id().into(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![],
         })
         .await
         .unwrap();
@@ -485,6 +485,7 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
     let mut missing = copied.editable_node_paths()[0].clone();
     missing.titles = vec!["不存在".into()];
     let group = TaskOperationGroup {
+        operation_id: None,
         operations: vec![
             TaskOperation::Modification(TaskModificationOperation {
                 path: copied.editable_node_paths()[0].clone(),
@@ -497,7 +498,6 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
             file: p.id().into(),
             version: LocalFileVersion::from_bytes(copied.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(
@@ -543,6 +543,7 @@ async fn missing_stable_id_requires_explicit_target_and_finish_remaps_it() {
     assert!(conflict.requires_target);
     assert!(conflict.suggested_target.is_none());
     let mut group = TaskOperationGroup {
+        operation_id: None,
         operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
             path: Some(file.full_path()),
             id: conflict.id,
@@ -554,7 +555,6 @@ async fn missing_stable_id_requires_explicit_target_and_finish_remaps_it() {
             file: file.path.clone(),
             version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     assert!(matches!(
         f.workspace.execute_task_operations(&group).await,
@@ -622,13 +622,13 @@ async fn creation_movement_and_deletion_are_recorded_in_order_with_all_paths_rem
     );
     f.workspace
         .execute_task_operations(&TaskOperationGroup {
+            operation_id: None,
             operations: vec![TaskOperation::Creation(creation)],
             file_versions: vec![TaskFileVersion {
                 repo_id: "<preview>".into(),
                 file: p.id().into(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![],
         })
         .await
         .unwrap();
@@ -645,6 +645,7 @@ async fn creation_movement_and_deletion_are_recorded_in_order_with_all_paths_rem
     moved.titles = vec!["Work".into(), "New".into()];
     f.workspace
         .execute_task_operations(&TaskOperationGroup {
+            operation_id: None,
             operations: vec![
                 TaskOperation::Movement(movement),
                 TaskOperation::Deletion(TaskDeletion { path: moved }),
@@ -654,7 +655,6 @@ async fn creation_movement_and_deletion_are_recorded_in_order_with_all_paths_rem
                 file: p.id().into(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![],
         })
         .await
         .unwrap();
@@ -767,13 +767,13 @@ async fn every_conflict_choice_in_one_preview_is_returned_in_order() {
         .collect();
     f.workspace
         .execute_task_operations(&TaskOperationGroup {
+            operation_id: None,
             operations,
             file_versions: vec![TaskFileVersion {
                 repo_id: file.repo_id.clone(),
                 file: file.path.clone(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![],
         })
         .await
         .unwrap();
@@ -872,6 +872,7 @@ async fn keeping_current_changes_only_the_independent_choice_set() {
     assert!(preview.changes().await.unwrap().changes.is_empty());
     let file = preview.file().await.unwrap();
     let duplicate = TaskOperationGroup {
+        operation_id: None,
         operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
             path: Some(file.full_path()),
             id: preview.conflict_id().into(),
@@ -883,7 +884,6 @@ async fn keeping_current_changes_only_the_independent_choice_set() {
             file: file.path.clone(),
             version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     assert!(
         f.workspace
@@ -910,6 +910,7 @@ async fn failed_group_rolls_back_both_main_edits_and_separate_conflict_choices()
     let mut missing = before.full_path();
     missing.titles = vec!["不存在".into()];
     let group = TaskOperationGroup {
+        operation_id: None,
         operations: vec![
             TaskOperation::ConfilictSelection(TaskConfilictSelection {
                 path: Some(before.full_path()),
@@ -924,7 +925,6 @@ async fn failed_group_rolls_back_both_main_edits_and_separate_conflict_choices()
             file: before.path.clone(),
             version: LocalFileVersion::from_bytes(before.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(
@@ -959,13 +959,13 @@ async fn ordinary_preview_operations_cannot_insert_new_conflict_nodes() {
     );
     creation.tags = vec!["CONFLICT".into(), "ARCHIVE".into()];
     let group = TaskOperationGroup {
+        operation_id: None,
         operations: vec![TaskOperation::Creation(creation)],
         file_versions: vec![TaskFileVersion {
             repo_id: before.repo_id.clone(),
             file: before.path.clone(),
             version: LocalFileVersion::from_bytes(before.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(
@@ -1007,13 +1007,13 @@ async fn empty_main_remains_empty_until_a_separate_candidate_is_inserted() {
     };
     f.workspace
         .execute_task_operations(&TaskOperationGroup {
+            operation_id: None,
             operations: vec![TaskOperation::ConfilictSelection(selection)],
             file_versions: vec![TaskFileVersion {
                 repo_id: file.repo_id.clone(),
                 file: file.path.clone(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![],
         })
         .await
         .unwrap();
@@ -1098,6 +1098,7 @@ async fn full_file_candidate_replaces_only_the_separated_main_document() {
     );
     assert_eq!(preview.conflicts().await.unwrap().len(), 1);
     let group = TaskOperationGroup {
+        operation_id: None,
         operations: vec![TaskOperation::ConfilictSelection(TaskConfilictSelection {
             path: Some(file.full_path()),
             id: "whole".into(),
@@ -1109,7 +1110,6 @@ async fn full_file_candidate_replaces_only_the_separated_main_document() {
             file: file.path.clone(),
             version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
         }],
-        queue_repo_ids: vec![],
     };
     f.workspace.execute_task_operations(&group).await.unwrap();
     let edited = preview.file().await.unwrap();

@@ -47,6 +47,9 @@ test('分享后直接加载收件箱，备忘入口继续使用独立页面参�
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
+    '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
+    '../services/HttpApiService': { HttpApiService: { async start() {}, async stop() {} } },
+    '../services/DataSetManager': { DataSetManager: { async flushAll() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
     '../ui/Theme': { UiColor: {} }
   }, { LocalStorage: class { constructor(values) { this.values = values; } } })('entryability/EntryAbility').default;
@@ -213,10 +216,10 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   assert.deepEqual(f.calls[0].group.operations[0].data.position.parent, { repoId: 'core-work', file: 'inbox.org', titles: [] });
   await f.FileTargetService.select({}, 'someday', 'work', 'inbox.org');
   await f.FileTargetService.query(f.config, 'someday');
-  assert.deepEqual(f.queries[1].query, { expression: 'b."inbox.org" it.todo', includeComposeTasks: true });
+  assert.deepEqual(f.queries[1].query, { expression: 'b."inbox.org" it.todo' });
   await f.FileTargetService.select({}, 'memo', 'personal', 'inbox.org');
   await f.FileTargetService.query(f.config, 'memo');
-  assert.deepEqual(Object.keys(f.queries[2].query).sort(), ['expression', 'includeComposeTasks']);
+  assert.deepEqual(Object.keys(f.queries[2].query).sort(), ['expression']);
   assert.equal(f.queries[2].query.expression, 'b."inbox.org" .o.modified');
 });
 
@@ -270,7 +273,6 @@ test('保存提交标题，使用配置 inbox 与既有上传规则', async () =
   assert.deepEqual(f.calls[0], { repos: f.config.repos, group: {
     operations: [{ type: 'Creation', data: { position: { parent: { repoId: 'core-personal', file: 'notes/inbox.org', titles: [] } },
       title: '周五前交报销', body: '', scheduled: null, state: 'TODO' } }],
-    queueRepoIds: ['core-personal'],
     fileVersions: [{ repoId: 'core-personal', file: 'notes/inbox.org', version: 'version-personal' }]
   }, todoDefaults: '#+TODO: TODO | DONE' });
 });
@@ -779,7 +781,7 @@ test('地址更新后直接打开收件箱，导航失败重试不重复修改�
   assert.equal(f.requests.length, 1);
   assert.deepEqual(f.requests[0], { operations: [{ type: 'Modification', data: { path: f.task.fullPath,
     modifications: [{ field: 'ADDRESS_LINK', value: { oldUri: 'geo:31,120', newUri: 'geo:32,121' } }] } }],
-    queueRepoIds: ['core-id'], fileVersions: [{ repoId: 'core-id', file: 'tasks.org', version: 'v1' }] });
+ fileVersions: [{ repoId: 'core-id', file: 'tasks.org', version: 'v1' }] });
   assert.equal(f.closes(), 0);
   f.failNavigation(undefined);
   await f.page.updateTask();

@@ -35,7 +35,7 @@ export class InboxService {
     if (repo.id !== first.repoId) throw new InboxMergeChangedError('收件箱身份已变化，请刷新后重新选择')
     const request: CoreTaskMergeRequest = { paths: records.map(item => item.fullPath), fileVersion: first.fileVersion }
     const plan: CoreTaskMergePlan = await workspace.taskMergeOperations(request)
-    plan.operationGroup.queueRepoIds = settings.webdavEnabled ? [repo.id] : []
+
     await workspace.executeTaskOperations(plan.operationGroup)
     return plan.mainPath
   }
@@ -43,7 +43,7 @@ export class InboxService {
   static async load(config: AppConfig): Promise<InboxSnapshot> {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const prepared = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
-    const recent: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created', includeComposeTasks: true,
+    const recent: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created',
       excludedFiles: prepared ? [prepared.reference] : [] }
     const results = await PageQueryService.query(config, prepared
       ? [prepared.task, prepared.file, { type: 'task', query: recent }] : [{ type: 'task', query: recent }])
@@ -70,12 +70,6 @@ export class InboxService {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repos = await workspace.repos()
-    const queueRepoIds: string[] = []
-    for (const repo of repos) {
-      await repo.load()
-      const settings = config.repos.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
-      if (settings?.webdavEnabled) queueRepoIds.push(repo.id)
-    }
     let parent: CoreTaskPath | undefined = action === 'move' ? target!.fullPath : undefined
     const operations: CoreTaskOperation[] = []
     let modifications: CoreTaskModification[] = []
@@ -123,6 +117,6 @@ export class InboxService {
     const fileVersions: CoreTaskFileVersion[] = tasks.map((task: CoreTask): CoreTaskFileVersion =>
       ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion }))
     if (target && (action === 'someday' || action === 'move')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
-    await workspace.executeTaskOperations({ operations, queueRepoIds, fileVersions })
+    await workspace.executeTaskOperations({ operations, fileVersions })
   }
 }

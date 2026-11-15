@@ -1,8 +1,9 @@
+import { TaskEditorDataManager } from '../services/TaskEditorDataManager'
 import { TaskDateDialog } from '../components/editors/TaskDateDialog'
 import { TaskInlineSession, TaskInlineService } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/CoreNotificationService'
+import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
@@ -28,6 +29,12 @@ import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefi
 @Entry
 @Component
 struct Inbox {
+  private taskEditorManager: TaskEditorDataManager | undefined = undefined
+  private editorDataManager(): TaskEditorDataManager {
+    if (!this.taskEditorManager) this.taskEditorManager = new TaskEditorDataManager(this.getUIContext().getHostContext()!)
+    return this.taskEditorManager
+  }
+
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State records: CoreTask[] = []
   @State recentGroups: RecentDay[] = []
@@ -519,7 +526,7 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskEditor({ task, dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+    TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(task), dateDisplay: TaskDateDisplay.Creation, regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
@@ -619,7 +626,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskEditor({ task: record, enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+                      TaskEditor({ dataManager: this.editorDataManager(), dataSet: this.editorDataManager().dataSet(record), enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
                         swipe: (left: boolean): void => { this.swipeRecord(record, left) } })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })

@@ -1,9 +1,8 @@
+import { ProjectDataManager } from '../services/ProjectDataManager'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
-import { AppConfigService } from '../services/AppConfigService'
-import { NotebookService } from '../services/NotebookService'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { ProjectDocumentView, ProjectDocumentNavigation } from '../components/ProjectDocumentView'
@@ -29,6 +28,7 @@ struct ProjectDetail {
   @State refreshMessage: string = ''
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
+  private projectDataManager: ProjectDataManager | undefined = undefined
   private readingState: string = ''
   @State renderRevision: number = 0
   private navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
@@ -46,6 +46,9 @@ struct ProjectDetail {
   private fileIdentity: string = ''
   @State pageVisible: boolean = true
 
+  aboutToDisappear(): void {
+    this.projectDataManager?.close().catch((): void => { console.error('关闭项目数据集失败') })
+  }
   onPageShow() { this.pageVisible = true; this.loadFile() }
   // 页面退出时使进行中的文件读取失效。
   onPageHide() { this.pageVisible = false; this.loadRevision++ }
@@ -93,15 +96,19 @@ struct ProjectDetail {
       const params = this.getUIContext().getRouter().getParams() as ProjectParams
       const repoId = params.repoId || ''
       const path = params.path || ''
-      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const file = await NotebookService.open(config.repos, repoId, path, config.todoDefaults, config.coreSettings)
+      if (!this.projectDataManager || this.projectDataManager.repoId !== repoId || this.projectDataManager.path !== path) {
+        this.projectDataManager?.close().catch((): void => {})
+        this.projectDataManager = new ProjectDataManager(this.getUIContext().getHostContext()!, repoId, path)
+      }
+      const snapshot = await this.projectDataManager.load()
+      const file = snapshot.file
       if (revision !== this.loadRevision) return
       if (!file) throw new Error('项目文件已不存在，请返回存储库列表。')
       if (file.project() === null) {
         await this.getUIContext().getRouter().replaceUrl({ url: 'pages/FileDetail', params: { repoId, path } })
         return
       }
-      const sections = projectReadingSections(file)
+      const sections = projectReadingSections(file, snapshot.tasks)
       const fileTags = file.fileTags().filter((tag: string) => tag !== 'todo')
       const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
@@ -113,7 +120,7 @@ struct ProjectDetail {
       this.specialTags = specialTags
       this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
       if (changed) {
-        this.readingState = ''
+        if (identity !== this.fileIdentity) this.readingState = ''
         this.fileIdentity = identity
         this.fileVersion = file.fileVersion
         this.renderReady = false
@@ -166,7 +173,7 @@ struct ProjectDetail {
                 .onClick((): void => { this.loadFile() })
             }
             Stack() {
-              ProjectDocumentView({ sections: this.sections, fileTags: this.fileTags, specialTags: this.specialTags,
+              ProjectDocumentView({ dataManager: this.projectDataManager, sections: this.sections, fileTags: this.fileTags, specialTags: this.specialTags,
                 revision: `${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
                 internalLinkProcessor: this.internalLinks,
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,

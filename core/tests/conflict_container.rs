@@ -35,6 +35,7 @@ impl Fixture {
     async fn group(&self, ids: &[String]) -> TaskOperationGroup {
         let file = self.file().await;
         TaskOperationGroup {
+            operation_id: None,
             operations: ids
                 .iter()
                 .map(|id| {
@@ -49,7 +50,6 @@ impl Fixture {
                 file: file.path.clone(),
                 version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
             }],
-            queue_repo_ids: vec![file.repo_id.clone()],
         }
     }
 }
@@ -133,7 +133,7 @@ async fn one_footer_keeps_safely_merged_main_bytes_and_discard_all_uses_task_ope
             assert_eq!(f.workspace.task_operation_history.entries.len(), 2);
             assert_eq!(
                 f.workspace.repos()[0].pending_writes().await.unwrap().len(),
-                2
+                0
             );
         }
     }

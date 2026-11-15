@@ -106,7 +106,7 @@ pub fn merge(
 
 *** OrgWorkspace
 
-~OrgWorkspace~ 聚合应用中的零到多个仓库。它是运行时构造输入，不是持久化实体。
+~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。它是运行时构造输入，不是持久化实体。
 
 #+begin_src rust
 impl OrgWorkspace {
@@ -323,7 +323,7 @@ pub struct OrgRepoWriteIntent {
 }
 #+end_src
 
-所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果只表示提交完成，返回 ~Ok(())~ ；失败通过 ~CoreError~ 返回。实际变更由 ~OrgWorkspace.watch_data_changes~ 发布仓库数据失效事件，调用方收到事件后重新查询。回退正文只保存在 Core 的 ~TaskOperationHistory~ 。
+所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果只表示提交完成，返回 ~Ok(())~ ；失败通过 ~CoreError~ 返回。实际变更由 ~OrgWorkspace.watch_data_changes~ 发布原有 ~DataChangeEvent::RepositoryChanged~ 事件；任务操作新增 ~files~ 和 ~changes~ 增量，携带文件元信息、前后版本、任务旧新快照与位置，接收方无需再次查询。变更类型在执行修改时直接登记，触发器联动也登记到同一操作组；同文件移动显式保留旧新映射。同步和重载等旧入口的 ~files=None~ 仍表示仓库失效，相关增量能力尚未接入。回退正文只保存在 Core 的 ~TaskOperationHistory~ 。
 
 *** SourcePosition 与 SourceRange
 
@@ -625,7 +625,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 * 通用结构化任务查询
 
-~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 、 ~excluded_files~ 与 ~include_compose_tasks~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
+~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 与 ~excluded_files~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
 
 ~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 、 ~ARCHIVE~ 、 ~CONFLICT~ 或 ~ATTACH~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、 ~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
 
@@ -809,13 +809,13 @@ pub struct TaskLinkChange { pub field: TaskLinkField, pub link: TextLink, pub va
 
 ~task_merge_operations~ 接受 ~TaskMergeRequest { paths, file_version }~ ，按选择顺序把同一文件内至少两条互不重叠的记录转换为正文列表，结果标题为“合并: 第一条所选记录的原始标题”。第一条记录保留原位置及自身状态、规划和属性，原子记录转为嵌套列表。元数据与日志保存在专用 Org comment 块中，阅读与备注编辑不展示这些归档。
 
-返回 ~TaskMergePlan { operation_group, main_path }~ ，操作组仅包含普通 Deletion 和 Modification，以及原文件版本。删除按原文逆序排列，修改使用删除后的完整路径；规划在内存副本中验证，不写盘、不产生历史或通知。调用方仅补充需要 outbox 的仓库 ID，再通过既有 ~execute_task_operations~ 一次提交； ~main_path~ 供成功后定位，不作为提交修改的路径。该接口是内容操作规划，不创建预览页面或临时文档。
+返回 ~TaskMergePlan { operation_group, main_path }~ ，操作组仅包含普通 Deletion 和 Modification，以及原文件版本。删除按原文逆序排列，修改使用删除后的完整路径；规划在内存副本中验证，不写盘、不产生历史或通知。调用方通过既有 ~execute_task_operations~ 一次提交，Core 根据执行时登记的语义变更发布数据事件； ~main_path~ 供成功后定位，不作为提交修改的路径。该接口是内容操作规划，不创建预览页面或临时文档。
 
 路径重复、祖先与后代重叠、跨文件、受保护冲突节点、将被转换为列表的记录带 ID／CUSTOM_ID，或当前文件存在其标题链接引用时拒绝。未涉及范围保留原字节；其他文件与仓库外的标题定位链接不自动重写。
 
 Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部操作；任一步失败丢弃全部工作快照，磁盘、历史与 outbox 不变。全部内存操作完成后才准备临时文件、校验磁盘原始字节并提交。普通提交失败回滚已修改文件；回滚期间发生外部写入时保留恢复材料并报错，不能宣称跨文件崩溃原子性。
 
-~file_versions~ 可由调用方提交源或目标文件的已读版本，过期时整组拒绝。 ~queue_repo_ids~ 指定需要 outbox 的 Core 仓库 ID，一组内同一文件仅登记最终变更版本。任务正文和回退原文不写入 outbox，执行操作组不自动上传远端。
+~file_versions~ 可由调用方提交源或目标文件的已读版本，过期时整组拒绝。 Core 在提交过程中根据原始字节和最终字节识别实际变更的文件，自动为这些文件登记 outbox；一组内同一文件仅登记最终变更版本，未变化文件不登记。调用方无需指定仓库或文件的上传意图。任务正文和回退原文不写入 outbox，执行操作组不自动上传远端。
 
 ~TaskFallbackGroup~ 在提交成功后自动加入运行时 ~TaskOperationHistory~ ，保存实际变更文件的原始前后字节及文件是否原先存在。失败不追加历史；后续 undo、redo 可复用这些记录，本轮未提供相应执行入口。完整类型、顺序规则及错误边界见 [[file:数据模型.org::*统一任务操作模型][统一任务操作模型]] 。
 
@@ -854,7 +854,9 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 冲突与同步提示只由 Rust 的统一批量查询从当前文件及基线索引计算，不回放历史，也不依赖进程内标记。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 
 
-~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调只携带 Core 仓库 ID，不携带任务快照。任务操作、同步提交、冲突解决、重置和显式 ~reload~ 成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主必须异步重新查询，不能在回调中重入 workspace 锁。
+~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调携带 Core 仓库 ID 和可空的 ~operationId~ ，普通任务提交另有 ~files~ 和 ~changes~ 增量；普通操作组提供来源标识时透传，同步、重置或旧调用没有标识时为空。任务操作、同步提交、冲突解决、重置和显式 ~reload~ 成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主通过数据集应用增量；旧入口的 ~files=None~ 保留失效语义。回调不能重入 workspace 锁。
+新增页面数据集采用启动查询一次、随后由通用查询订阅维护的设计，见 [[file:../harmony/页面数据集设计.org][页面数据集设计]] 。Core 查询订阅已实现，由 Workspace 对外组合，启动时一次返回查询结果和句柄；具体接口见 [[file:查询订阅设计.org][查询订阅设计]] 。旧入口的仓库失效事件仍不能当作数据增量；原有订阅接口与调用行为保持兼容。
+
 ~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 保留通知失效订阅；回调不查询内容，由宿主调度统一批次，完整数据类型见通知模型。
 
 全局同步提示产生或清除使用 ~NotificationUpdate::GlobalNotificationsChanged~ ，不虚构仓库 ID，完整契约见 [[file:同步核心设计.org::*通知更新、模型与职责][同步核心设计]]。
@@ -871,7 +873,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在含 ~SETUPFILE~ 的源文件有效配置中验证， ~CLOSED~ 随状态自动维护，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 
-统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~DataChangeEvent::RepositoryChanged~；失败或无实际文件变化不发布。数据回调只用于安排异步重查，不能重入当前 workspace 锁。~watch_notifications~ 继续只服务通知区域。
+统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~DataChangeEvent::RepositoryChanged~；失败或无实际文件变化不发布。数据回调应用提交增量，不能重入当前 workspace 锁，也不能生成新的修改操作。~watch_notifications~ 继续只服务通知区域。
 
 * 任务冲突与普通同步
 
@@ -897,7 +899,7 @@ impl OrgFile {
 
 ~TITLE~ 更新后，Core 识别标题中已有或新输入的分数与百分比统计并重算；先校验标题没有被重新解释为状态、优先级或标签，再改写派生统计。~CHECKLIST~ 的新增、删除和完成状态切换更新 checkbox 统计；~TODO~ 设置、清除与切换更新父标题的子任务统计，按 ~COOKIE_DATA~ 的 ~recursive~ 配置向上更新。来源混合、递归继承边界与完成状态规则见 [[file:数据模型.org::*标题统计更新][标题统计更新]]，语义依据 [[info:org#Breaking Down Tasks][Org Info：任务分解]] 与 [[info:org#Checkboxes][Org Info：checkbox]] 。
 
-统计修改与原操作在同一事务中提交，复用版本校验、回退历史与 ~watch_data_changes~ ；每个实际变更的仓库在提交后只广播一次数据失效事件，失败或最终字节未变化不广播。计数完成不会自动修改父任务状态。标题投影仍只读取文件中的统计值，宿主收到事件后重新查询，不自行计算进度或以操作返回值触发刷新。
+统计修改与原操作在同一事务中提交，复用版本校验、回退历史与 ~watch_data_changes~ ；每个实际变更的仓库在提交后只广播一次包含增量的数据事件，失败或最终字节未变化不广播。计数完成不会自动修改父任务状态。标题投影仍只读取文件中的统计值，宿主收到事件后应用统计快照，不自行计算进度或以操作返回值触发查询。
 
 调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；成功只返回提交完成，宿主通过数据变化监听后重新读取最新投影。
 
@@ -982,7 +984,7 @@ file_at 从当前地址读取文件根快照，真实文件受仓库锁保护，
 
 ~project~ 在同一 preview 锁内校验工作版本、冲突 ID 与目标，并通过正式取舍规则计算内存投影，返回候选正文、HTML、两端变化片段及版本化范围。它不写工作副本，不消费冲突材料，不追加操作；未选择任何取舍时仍不能 finish。目标无法唯一确定时返回 ~targetRequired~ 和本地候选，不猜测插入位置；材料不可用时返回 ~unavailable~ 。结构／顺序冲突可只读比较完整主树，正式采用仍需要显式 ~ReplaceMain~ 与页面确认。旧对象、过期版本或非法目标沿用预览错误机制。
 
-finish 要求用户看到的 preview_version 与当前副本一致、主树不含冲突节点、取舍记录与已选择 ID 一致，未选择材料在独立集合中保持。它返回保持顺序且路径映射为 sourcePath 的 operations、创建时的真实 file_versions 和空 queue_repo_ids，同时结束副本。应用按当前配置填入 queue_repo_ids 后调用现有统一入口；真实版本校验、提交失败回滚、outbox、回退记录及事件仍遵循统一操作组契约。finish 不执行这些真实副作用。
+finish 要求用户看到的 preview_version 与当前副本一致、主树不含冲突节点、取舍记录与已选择 ID 一致，未选择材料在独立集合中保持。它返回保持顺序且路径映射为 sourcePath 的 operations 和创建时的真实 file_versions，同时结束副本。应用直接调用现有统一入口，Core 自动识别实际变更文件并登记 outbox；真实版本校验、提交失败回滚、outbox、回退记录及事件仍遵循统一操作组契约。finish 不执行这些真实副作用。
 
 ~render_html~ 的标题节点携带 data-org-start、data-org-end 与唯一文档内锚点，范围来自同一 Core 语法树。共享控件按文件版本关联变化，缺少精确正文块锚点时定位至最近标题并提供精确源行差异。
 
@@ -1067,3 +1069,83 @@ impl OrgFileMetadata {
 ~DocumentSection.link_targets: Vec<DocumentLinkTarget>~ 是同版本只读目标索引，JSON 字段为 ~linkTargets~ 。 ~DocumentLinkTarget { target: String, priority: u8 }~ 的优先级为专用目标 0、NAME 命名元素 1、标题 2；标题同时提供 ~*标题~ 、同名普通目标及可选的 ~#CUSTOM_ID~ 键。相同优先级按文件顺序匹配，索引不包含字面代码中的伪目标或受保护冲突子树，不新增持久化状态。
 
 ~TitlePart.href~ 与安全 HTML 中的内部链接使用 ~org-internal:~ URI，仅编码运行时跳转目标，不改写原文件。Core 在 HTML 中提供 ~data-org-link-targets~ JSON 目标键和 ~data-org-link-priority~ ，以及链接的 ~data-org-url~ 原始目标。宿主只读取这些语义元数据，负责验证当前视图是否可定位并执行滚动；不解析或重建 Org。外部链接仍只允许已有协议， ~file:~ 和可执行协议不进入系统打开链路。 ~[[#id]]~ 、 ~[[*标题]]~ 与普通目标的原始写入形式不变，修改继续使用现有链接局部编辑与版本校验。
+
+* 修改提交事件载荷
+
+#+begin_src rust
+pub enum TaskDataChangeKind { Created, Updated, Deleted, Moved }
+pub struct TaskDataSnapshot {
+    pub task: FilterTask,
+    pub position: TaskPosition,
+}
+pub struct TaskDataChange {
+    pub kind: TaskDataChangeKind,
+    pub before: Option<TaskDataSnapshot>,
+    pub after: Option<TaskDataSnapshot>,
+}
+pub struct FileDataChange {
+    pub before: Option<OrgFileMetadata>,
+    pub after: OrgFileMetadata,
+    pub before_version: Option<String>,
+    pub after_version: String,
+}
+pub enum DataChangeEvent {
+    RepositoryChanged {
+        repo_id: OrgRepoId,
+        operation_id: Option<String>,
+        files: Option<Vec<FileDataChange>>,
+        changes: Vec<TaskDataChange>,
+        removed_files: Vec<OrgFileRef>,
+        categories: Option<Vec<TaskCategory>>,
+    },
+}
+#+end_src
+
+这些结构为只读运行时值，JSON 使用 camelCase。 ~TaskDataChangeKind~ 序列化为 ~created~ 、 ~updated~ 、 ~deleted~ 、 ~moved~ 。 ~FilterTask~ 保留原有查询数据， ~FilterDate~ 序列化为日期字符串与活动标记；不为事件新增持久化。跨文件或跨仓库移动的 ~before~ 与 ~after~ 保留真实来源，跨仓库通知分别路由到两侧。完整规则与内嵌 UML 见 [[file:数据模型.org::*修改执行时生成数据事件][修改执行时生成数据事件]]。
+
+* Workspace 查询订阅
+
+#+begin_src rust
+impl OrgWorkspace {
+    pub async fn subscribe_query<F>(
+        &self,
+        query: CoreQuery,
+        on_change: F,
+    ) -> Result<QuerySubscriptionStart, CoreError>
+    where F: Fn(DataChangeEvent) + Send + Sync + 'static;
+
+    pub fn unsubscribe_query(&self, subscription: &mut QuerySubscription);
+    pub fn query_subscription_status(&self, subscription: &QuerySubscription) -> QuerySubscriptionStatus;
+}
+
+pub struct QuerySubscriptionStart {
+    pub data: CoreQueryResult,
+    pub subscription: QuerySubscription,
+}
+#+end_src
+
+初始数据从同一次查询返回，后续回调仅发送按固定查询过滤的数据增量，不读盘、不重新查询、不提交修改。支持任务与文件数据查询，不接受通知查询。句柄不公开操作方法，状态与取消均通过 Workspace 执行，析构自动解除订阅。初始交错、版本等待、分类摘要和失效边界见 [[file:查询订阅设计.org][查询订阅设计]]。
+
+* 通用查询排序上下文
+
+#+begin_src rust
+impl OrgWorkspace {
+    pub fn query_ordering(&self, query: &CoreQuery) -> Result<QueryOrdering, CoreError>;
+}
+impl QueryOrdering {
+    pub fn task_key(&self, task: &FilterTask) -> Vec<QueryOrderPart>;
+    pub fn file_key(&self, file: &OrgFileMetadata) -> Vec<QueryOrderPart>;
+}
+pub enum QueryOrderValue { Number(i64), Text(String) }
+pub struct QueryOrderPart {
+    pub value: Option<QueryOrderValue>,
+    pub descending: bool,
+    pub missing_last: bool,
+}
+#+end_src
+
+该接口是纯内存查询能力，不读取文件、不提交修改。键由现有 Core 比较规则生成，JSON 使用可空的数值或字符串，以及 ~descending~ 、 ~missingLast~ 标记。Task 的末级比较保持路径、字节位置与仓库顺序，File 保持仓库顺序与路径；不支持通知查询。具体规则见 [[file:查询语言设计.org::*可比较排序键][可比较排序键]]。
+
+* APP 内嵌 HTTP 服务
+
+Workspace 提供服务启动、停止接口，APP 决定何时调用；服务与界面共享 Workspace，仅暴露查询与修改。生命周期、REST 请求和错误契约单独见 [[file:APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。

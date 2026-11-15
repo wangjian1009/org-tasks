@@ -134,6 +134,7 @@ function overview(action = '', memoId = '') {
   }
   class ViewPU {
     constructor(_, localStorage) { this.storage = localStorage; }
+    declareWatch() {}
     finalizeConstruction() {}
     createLocalStorageProp(key, fallback) { return new Property(this.storage?.[key] ?? fallback); }
     createStorageLink(_, fallback) { return new Property(fallback); }
@@ -142,7 +143,7 @@ function overview(action = '', memoId = '') {
     exports: {}, ViewPU, ListScroller: class {}, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
     LocalStorage: { getShared: () => storage }, registerNamedRoute(callback) { factory = callback; },
     require(name) {
-      if (name.includes('CoreNotificationService')) return { emptyCoreNotificationsState: () => ({}) };
+      if (name.includes('NotificationManager')) return { emptyCoreNotificationsState: () => ({}) };
       if (name.includes('AppConfigService')) return { AppConfigService: { async load() { return {}; } } };
       if (name.includes('FileTargetService')) return { FileTargetService: { async query(_, kind) {
         assert.equal(kind, 'memo'); return available ? { tasks } : undefined;

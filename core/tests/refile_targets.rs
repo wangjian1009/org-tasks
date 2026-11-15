@@ -176,13 +176,12 @@ async fn queries_exclude_conflicts_before_matching_other_system_tags() {
 }
 
 #[tokio::test]
-async fn structured_query_flags_and_categories_still_apply_before_returning_tags() {
+async fn query_categories_and_expression_apply_before_returning_tags() {
     let source = "#+CATEGORY: Work\n* DONE Parent :REFILE:work:\n** TODO Child :home:\n";
     let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
     let query = TaskQuery {
         expression: ".it.done t.REFILE".into(),
         categories: vec![Some("Work".into())],
-        include_compose_tasks: false,
         ..Default::default()
     };
     let result = workspace.query(&[(&query).into()]).await.unwrap().remove(0).into_task().unwrap();

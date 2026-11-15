@@ -2,10 +2,11 @@ import { common } from '@kit.AbilityKit'
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit'
 import { AppConfigService } from './AppConfigService'
 import { BackgroundSyncPresentation } from './BackgroundSyncPresentation'
-import { NativeCoreService } from './NativeCoreService'
+import { DataSetManager } from './DataSetManager'
+import { NotificationManager } from './NotificationManager'
 import { RepositorySyncService, RepositorySyncState, SyncStartPolicy, SyncStartResult } from './RepositorySyncService'
 
-// 每次退后台至多一个会话；本地变化由 Core 读盘判断，不缓存 dirty 标记。
+// 每次退后台至多一个会话；是否新建会话由共享本地同步通知决定。
 export class BackgroundRepositorySyncService {
   private static operation: Promise<void> | undefined = undefined
 
@@ -24,7 +25,7 @@ export class BackgroundRepositorySyncService {
     const presentation = new BackgroundSyncPresentation(context)
     const observer = (state: RepositorySyncState): void => { presentation.update(state) }
     try {
-      // 先保护配置读取和 Core 检查，取得数据传输长时任务后立即释放短时任务。
+      // 保护排队修改、通知归并及配置读取，取得长时任务后释放短时任务。
       delayId = backgroundTaskManager.requestSuspendDelay('检查并同步本地修改', (): void => {
         expired = true
         if (delayId !== -1) {
@@ -36,10 +37,14 @@ export class BackgroundRepositorySyncService {
       let requested: SyncStartResult | undefined = undefined
       if (RepositorySyncService.runningSync()) {
         requested = RepositorySyncService.start(context, { triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
-      } else {
+      }
+      try { await DataSetManager.flushAll() }
+      catch (_) { console.error('页面缓存保存失败') }
+      if (expired) return
+      if (!requested) {
+        if (!await NotificationManager.hasSyncRequired() || expired) return
         const config = await AppConfigService.load(context, false)
-        const changed = await NativeCoreService.hasLocalWebDavChanges(config.repos, config.todoDefaults, config.coreSettings)
-        if (!changed || expired) return
+        if (!config.repos.some(repo => repo.webdavEnabled) || expired) return
         if (RepositorySyncService.runningSync()) {
           requested = RepositorySyncService.start(context, { triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
         }

@@ -1,5 +1,5 @@
 import { CoreNotification, CoreSyncConflictNotification } from '../services/NativeCoreService'
-import { NotificationRepository } from '../services/CoreNotificationService'
+import { NotificationRepository } from '../services/NotificationManager'
 
 export function syncConflictRepositoryName(notification: CoreSyncConflictNotification, repositories: NotificationRepository[]): string {
   return repositories.find((repo: NotificationRepository) => repo.coreRepoId === notification.repoId)?.name || '存储库'
