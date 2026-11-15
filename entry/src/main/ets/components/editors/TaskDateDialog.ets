@@ -98,13 +98,14 @@ export struct TaskDateDialog {
   }
   @Builder
   day(day: TaskCalendarDay) {
+    // 同月选日复用 ForEach 节点，选中样式必须直接观察当前日期草稿。
     Row() {
       Text(day.label).fontSize(13).textAlign(TextAlign.Center).width(30).height(30)
-        .fontColor(day.selected ? UiColor.onPrimary : day.today ? this.color() : day.inMonth ? UiColor.text : UiColor.disabled)
-        .backgroundColor(day.selected ? this.color() : Color.Transparent).borderRadius(15)
-        .border({ width: day.today && !day.selected ? 1 : 0, color: this.color() })
-    }.id(`inline_day_${day.date}`).width('100%').height(44).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
-      .accessibilityText(`${day.date}${day.today ? '，今天' : ''}${day.selected ? '，已选中' : ''}`)
+        .fontColor(day.date === this.date ? UiColor.onPrimary : day.today ? this.color() : day.inMonth ? UiColor.text : UiColor.disabled)
+        .backgroundColor(day.date === this.date ? this.color() : Color.Transparent).borderRadius(15)
+        .border({ width: day.today && day.date !== this.date ? 1 : 0, color: this.color() })
+    }.id(`inline_day_${day.date}`).width('100%').height(40).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+      .accessibilityText(`${day.date}${day.today ? '，今天' : ''}${day.date === this.date ? '，已选中' : ''}`)
       .enabled(!this.busy).onClick(() => { this.pick(day.date) })
   }
   @Builder
@@ -165,18 +166,19 @@ export struct TaskDateDialog {
       ForEach(['一', '二', '三', '四', '五', '六', '日'], (label: string) => {
         Text(label).fontSize(11).fontColor(UiColor.secondary).textAlign(TextAlign.Center).layoutWeight(1)
       })
-    }.width('100%').height(24)
+    }.width('100%').height(20)
     Grid() {
       ForEach(taskCalendarDays(this.year, this.month, this.date), (day: TaskCalendarDay) => {
         GridItem() { this.day(day) }
       }, (day: TaskCalendarDay) => day.key)
-    }.width('100%').height(264).columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr').rowsGap(0).columnsGap(2)
+    }.width('100%').height(240).columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr').rowsGap(0).columnsGap(2)
+      .enableScrollInteraction(false)
     if (this.allowTime) {
       Row() {
         Text(this.start ? '时间' : '＋ 添加时间').fontSize(15).fontColor(this.color()).layoutWeight(1)
         if (this.start) { Text(`${this.start}${this.end ? `–${this.end}` : ''}`).fontSize(15).fontColor(UiColor.text) }
         Image($r('app.media.ui_next')).width(18).height(18)
-      }.id('inline_date_time').width('100%').height(48).enabled(!this.busy).onClick(() => { this.editTime() })
+      }.id('inline_date_time').width('100%').height(44).enabled(!this.busy).onClick(() => { this.editTime() })
       if (this.batch && !this.timeChanged) {
         Text('只改日期时，各任务保留原时间；添加或清除时间将应用到全部选中任务。').fontSize(12).fontColor(UiColor.secondary).width('100%')
       } else if (this.timeChanged && !this.start) {
@@ -192,12 +194,10 @@ export struct TaskDateDialog {
       .enabled(!this.busy && (!!this.date || !!this.selected)).onClick(() => { this.commit() })
   }
   build() {
-    Scroll() {
-      Column({ space: 8 }) {
-        if (this.editingTime) { this.timePanel() } else { this.datePanel() }
-        if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
-      }.width('100%').padding(16)
-    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 360, maxHeight: '85%' })
-      .backgroundColor(UiColor.dialog).borderRadius(20)
+    Column({ space: 4 }) {
+      if (this.editingTime) { this.timePanel() } else { this.datePanel() }
+      if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
+    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 360 }).padding(12)
+      .backgroundColor(UiColor.dialog).borderRadius(20).clip(true)
   }
 }
