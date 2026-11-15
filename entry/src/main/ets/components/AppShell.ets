@@ -380,9 +380,9 @@ export struct AppShell {
                 .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`)
                 .onClick((): void => { this.openDrawer() })
             }
-            TitleText({ text: this.title, parts: this.titleParts, textSize: 22, weight: FontWeight.Medium, lineLimit: 1 }).flexShrink(1)
+            TitleText({ text: this.title, parts: this.titleParts, textSize: 22, weight: FontWeight.Medium, lineLimit: 1,
+              openLinks: this.back, activate: (): void => { this.openDrawer() } }).flexShrink(1)
               .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`).enabled(!this.busy)
-              .onClick((): void => { this.openDrawer() })
             if (this.titleContext) {
               Text(this.titleContext).fontSize(11).fontColor(UiColor.secondary).maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(2)
