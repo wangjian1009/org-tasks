@@ -615,9 +615,72 @@ fn query_tasks_json(handle: u64, expression: String) -> Result<String, CoreError
     encode(&result[0]["tasks"])
 }
 
+// 宿主查询别名只在请求上下文内解析，Core 始终接收真实仓库 ID。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct QueryRepositoryBinding {
+    id: String,
+    root_directory: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BoundQueryRequest {
+    queries: Vec<org_tasks_core::CoreQuery>,
+    #[serde(default)]
+    repository_bindings: Vec<QueryRepositoryBinding>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WorkspaceQueryRequest {
+    Queries(Vec<org_tasks_core::CoreQuery>),
+    Bound(BoundQueryRequest),
+}
+
+fn resolve_query_repositories(
+    workspace: &OrgWorkspace,
+    queries: &mut [org_tasks_core::CoreQuery],
+    bindings: &[QueryRepositoryBinding],
+) -> Result<(), CoreError> {
+    let mut identities = BTreeMap::new();
+    for binding in bindings {
+        if binding.id.is_empty() || identities.contains_key(&binding.id) {
+            return Err(CoreError::InvalidInput("查询仓库别名为空或重复"));
+        }
+        let repo = workspace.repo_by_root_directory(&binding.root_directory)
+            .ok_or(CoreError::InvalidInput("查询仓库目录不属于 workspace"))?;
+        if workspace.repo(&binding.id).is_some_and(|existing| existing.id != repo.id) {
+            return Err(CoreError::InvalidInput("查询仓库别名与 Core 身份冲突"));
+        }
+        identities.insert(binding.id.clone(), repo.id.clone());
+    }
+    let resolve = |id: &mut String| {
+        if let Some(value) = identities.get(id) { *id = value.clone(); }
+    };
+    for query in queries {
+        let files = match query {
+            org_tasks_core::CoreQuery::Task { query, repo_ids } => {
+                for id in repo_ids { resolve(id); }
+                query.include_files.iter_mut().chain(&mut query.exclude_files)
+            }
+            org_tasks_core::CoreQuery::File { query } => {
+                query.include_files.iter_mut().chain(&mut query.exclude_files)
+            }
+            org_tasks_core::CoreQuery::Notification { .. } => continue,
+        };
+        for file in files { resolve(&mut file.repo_id); }
+    }
+    Ok(())
+}
+
 pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, CoreError> {
-    let queries: Vec<org_tasks_core::CoreQuery> =
-        serde_json::from_str(&query_json).map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
+    let request: WorkspaceQueryRequest = serde_json::from_str(&query_json)
+        .map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
+    let (mut queries, bindings) = match request {
+        WorkspaceQueryRequest::Queries(queries) => (queries, Vec::new()),
+        WorkspaceQueryRequest::Bound(request) => (request.queries, request.repository_bindings),
+    };
     let session = workspace_for_handle(handle)?;
     if queries.is_empty() {
         return encode(&Vec::<serde_json::Value>::new());
@@ -625,6 +688,7 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
     let workspace = session
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    resolve_query_repositories(&workspace, &mut queries, &bindings)?;
     let roots = workspace
         .repos()
         .iter()
@@ -2947,13 +3011,18 @@ fn query_event_value(event: &org_tasks_core::DataChangeEvent, ordering: &org_tas
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct QuerySubscriptionRequest { query: org_tasks_core::CoreQuery, #[serde(default)] operation_id: Option<String> }
+struct QuerySubscriptionRequest {
+    query: org_tasks_core::CoreQuery,
+    #[serde(default)] operation_id: Option<String>,
+    #[serde(default)] repository_bindings: Vec<QueryRepositoryBinding>,
+}
 
 pub fn workspace_subscribe_query_json(handle: u64, query: String, monitor: u64) -> Result<(u64, String), CoreError> {
     let monitor = Arc::new(DataChangeMonitor(monitor));
-    let request: QuerySubscriptionRequest = serde_json::from_str(&query).map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
+    let mut request: QuerySubscriptionRequest = serde_json::from_str(&query).map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
     let workspace = workspace_for_handle(handle)?;
     let workspace = workspace.lock().map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
+    resolve_query_repositories(&workspace, std::slice::from_mut(&mut request.query), &request.repository_bindings)?;
     let ordering = Arc::new(workspace.query_ordering(&request.query)?);
     let event_ordering = ordering.clone();
     let started = runtime(handle)?.block_on(workspace.subscribe_query(request.query, move |event| {
@@ -3139,5 +3208,56 @@ mod configuration_validation_tests {
         assert_eq!(normalized["additionStates"][0]["category"], "Cancel");
         assert!(validate_configuration_json(r#"{"coreSettings":{"additionStates":[{"name":"TODO","category":"Done"}]}}"#.into()).is_err());
         assert!(validate_configuration_json(r#"{"todoDefaults":"invalid"}"#.into()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod query_repository_binding_tests {
+    use super::*;
+
+    #[test]
+    fn query_and_subscription_resolve_host_ids_in_the_same_worker_request() {
+        let handle = create_workspace().unwrap();
+        let root = std::env::temp_dir().join(format!("org-query-bindings-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let first = root.join("first");
+        let second = root.join("second");
+        for directory in [&first, &second] {
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(directory.join("same.org"), "* TODO Visible\n").unwrap();
+            workspace_add_repo(handle, directory.to_string_lossy().into()).unwrap();
+        }
+        let core_id = repo_id(handle, second.to_string_lossy().into()).unwrap();
+        let reference = serde_json::json!({"repoId":"host-second","path":"same.org"});
+        let bindings = serde_json::json!([{"id":"host-second","rootDirectory":second}]);
+        let task = serde_json::json!({"type":"task","repoIds":["host-second"],"query":{"includeFiles":[reference],"expression":"it.todo"}});
+        let file = serde_json::json!({"type":"file","query":{"includeFiles":[reference]}});
+        let response = workspace_query_json(handle, serde_json::json!({"queries":[task,file],"repositoryBindings":bindings}).to_string()).unwrap();
+        let values: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(values[0]["result"]["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(values[0]["result"]["tasks"][0]["repoId"], core_id);
+        assert_eq!(values[1]["result"][0]["repoId"], core_id);
+        let (id, response) = workspace_subscribe_query_json(handle,
+            serde_json::json!({"query":task,"repositoryBindings":bindings,"operationId":"dataset/test/1/query"}).to_string(), 0).unwrap();
+        let started: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(started["data"]["result"]["tasks"][0]["repoId"], core_id);
+        assert_eq!(started["operationId"], "dataset/test/1/query");
+        let response = workspace_query_json(handle, serde_json::json!({
+            "queries":[{"type":"task","query":{"includeFiles":[reference],"excludeFiles":[reference]}}],
+            "repositoryBindings":bindings}).to_string()).unwrap();
+        let values: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert!(values[0]["result"]["tasks"].as_array().unwrap().is_empty());
+        for invalid in [
+            serde_json::json!([{"id":"","rootDirectory":second}]),
+            serde_json::json!([{"id":"host-second","rootDirectory":root.join("missing")}]),
+            serde_json::json!([{"id":"host-second","rootDirectory":second},{"id":"host-second","rootDirectory":first}]),
+            serde_json::json!([{"id":core_id,"rootDirectory":first}]),
+        ] {
+            assert!(workspace_query_json(handle, serde_json::json!({"queries":[task],"repositoryBindings":invalid}).to_string()).is_err());
+            assert!(workspace_subscribe_query_json(handle, serde_json::json!({"query":task,"repositoryBindings":invalid}).to_string(), 0).is_err());
+        }
+        workspace_unsubscribe_query(handle, id);
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

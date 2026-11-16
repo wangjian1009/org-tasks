@@ -480,7 +480,7 @@ test('旧取消分类交给 Core 规范化，读取不改写配置，保存使�
       async defaultSyncOptions() { return { excludedDirectories: [] }; }
     },
     '@kit.ArkData': { preferences: { async getPreferences() {
-      return { async get(key, fallback) { return values.has(key) ? values.get(key) : fallback; },
+      return { async has(key) { return values.has(key); }, async get(key, fallback) { return values.has(key) ? values.get(key) : fallback; },
         async put(key, value) { values.set(key, value); }, async flush() {} };
     } } },
     './CredentialService': { CredentialService: {} }
@@ -511,7 +511,7 @@ test('旧路径配置不猜测仓库，明确绑定能持久化，删除仓库�
       async normalizeSyncOptions(value) { return value; }
     },
     '@kit.ArkData': { preferences: { async getPreferences() {
-      return { async get(key, fallback) { return values.has(key) ? values.get(key) : fallback; },
+      return { async has(key) { return values.has(key); }, async get(key, fallback) { return values.has(key) ? values.get(key) : fallback; },
         async put(key, value) { values.set(key, value); }, async flush() {} };
     } } },
     './CredentialService': { CredentialService: {
@@ -574,7 +574,7 @@ test('仅捕捉本地标题时不读取安全存储，常规配置读取仍保�
   let credentialReads = 0;
   const load = etsLoader({
     'liborg_tasks_harmony.so': { async validateConfiguration({coreSettings}) { return coreSettings??{additionStates:[]}; }, Workspace: class {async getSettings(){return {additionStates:[]};}}, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
-    '@kit.ArkData': { preferences: { async getPreferences() { return { async get(key, fallback) { return key === 'repos' ? JSON.stringify([repo]) : fallback; } }; } } },
+    '@kit.ArkData': { preferences: { async getPreferences() { return { async has(key) { return key === 'repos'; }, async get(key, fallback) { return key === 'repos' ? JSON.stringify([repo]) : fallback; } }; } } },
     './CredentialService': { CredentialService: { async getWebDavPassword() { credentialReads++; return 'test-password'; } } }
   });
   const { AppConfigService } = load('services/AppConfigService');
@@ -831,4 +831,21 @@ test('地址更新写入失败保留选择，重试成功后才打开收件箱',
   assert.equal(f.requests.length, 2);
   assert.equal(f.destinations.length, 1);
   assert.equal(f.closes(), 1);
+});
+
+test('已有完整本地配置时，不读取 native 默认值或凭据，显式空 TODO 配置保持原值',async()=>{
+ const repo=repository('local');
+ const values=new Map([['repos',JSON.stringify([repo])],['todoDefaults',''],['coreSettings',JSON.stringify({additionStates:[]})]]);
+ const unexpected=async()=>{throw new Error('缓存恢复前不应发起 native 请求或读取凭据')};
+ const load=etsLoader({
+  'liborg_tasks_harmony.so':{defaultTodoSettings:unexpected,defaultSyncOptions:unexpected,validateConfiguration:unexpected},
+  '@kit.ArkData':{preferences:{async getPreferences(){return{
+   async has(key){return values.has(key)},async get(key,fallback){return values.has(key)?values.get(key):fallback}
+  }}}},
+  './CredentialService':{CredentialService:{getWebDavPassword:unexpected}}
+ });
+ const {AppConfigService}=load('services/AppConfigService');
+ const config=await AppConfigService.load({},false);
+ assert.equal(config.todoDefaults,'');assert.deepEqual(config.repos[0].excludedDirectories,[]);
+ assert.equal(config.repos[0].id,'local');
 });

@@ -14,6 +14,11 @@ export class PreferencesStore {
     } catch (error) { throw storageFailure('打开本地存储失败', error) }
   }
 
+  async has(key: string): Promise<boolean> {
+    try { return await this.store.has(key) }
+    catch (error) { throw storageFailure('读取本地存储失败', error) }
+  }
+
   async get(key: string, fallback: preferences.ValueType): Promise<preferences.ValueType> {
     try { return await this.store.get(key, fallback) }
     catch (error) { throw storageFailure('读取本地存储失败', error) }

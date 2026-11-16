@@ -70,6 +70,7 @@ import {
   TaskLinkChange as NativeTaskLinkChange,
   AddressLink as NativeAddressLink,
   TitleCount as NativeTitleCount,
+  QueryRepositoryBinding as NativeQueryRepositoryBinding,
   CoreQuery as NativeCoreQuery,
   CoreQueryResult as NativeCoreQueryResult,
   FileQuery as NativeFileQuery,
@@ -123,6 +124,7 @@ export type CoreLinkValue = NativeLinkValue
 export type CoreTaskLinkChange = NativeTaskLinkChange
 export type CoreAddressLink = NativeAddressLink
 export type CoreTitleCount = NativeTitleCount
+export type CoreQueryRepositoryBinding = NativeQueryRepositoryBinding
 export type CoreQuery = NativeCoreQuery
 export type CoreQueryResult = NativeCoreQueryResult
 export type CoreFileQuery = NativeFileQuery
@@ -283,7 +285,10 @@ export class CoreWorkspace {
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
   async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
   stopWatchingDataChanges(subscriptionId: number): void { this.native.stopWatchingDataChanges(subscriptionId) }
-  async subscribeQuery(query: CoreQuery, monitor: CoreDataChangeMonitor, operationId: string | null = null): Promise<CoreQuerySubscriptionStart> { return await this.native.subscribeQuery(query, monitor, operationId) }
+  async subscribeQuery(query: CoreQuery, monitor: CoreDataChangeMonitor, operationId: string | null = null,
+    repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<CoreQuerySubscriptionStart> {
+    return await this.native.subscribeQuery(query, monitor, operationId, repositoryBindings)
+  }
   async querySubscriptionStatus(id: number): Promise<CoreQuerySubscriptionStatus> { return await this.native.querySubscriptionStatus(id) }
   unsubscribeQuery(id: number): void { this.native.unsubscribeQuery(id) }
 
@@ -304,8 +309,8 @@ export class CoreWorkspace {
     await this.native.removeRepo(rootDirectory)
   }
 
-  async query(queries: CoreQuery[]): Promise<CoreQueryResult[]> {
-    return await this.native.query(queries)
+  async query(queries: CoreQuery[], repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<CoreQueryResult[]> {
+    return await this.native.query(queries, repositoryBindings)
   }
 
 }

@@ -11,7 +11,7 @@
 
 DataSetManager 不提供总事件订阅，也不执行任务查询或注册数据变化监控。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅 tasks 和 priority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
-DataSetDefinition 必须声明一个 query。它可以是任务或文件元信息的 CoreQuery，也可以是宿主的 document 查询；后者用已有 Workspace.fileAt 一次读取完整文件及全部节点，不扩展 Core 对外接口。需要配置文件入口时，页面提供纯定义函数，管理器加载配置和仓库身份后调用；该函数只组装请求，不执行底层查询。
+DataSetDefinition 必须声明一个 query。它可以是任务或文件元信息的 CoreQuery，也可以是宿主的 document 查询；后者用已有 Workspace.fileAt 一次读取完整文件及全部节点，不扩展 Core 对外接口。需要配置文件入口时，页面提供纯定义函数，管理器只加载本地配置并同步取得全局 Workspace 后调用；该函数只组装请求，不读取仓库列表或执行底层查询。查询中需要把宿主配置 ID 映射成 Core ID 时，随定义提供 ~repositoryBindings~ ，在查询工作线程内按已配置根目录解析。
 
 配置变化由管理器在内部重新配置已有 DataSet，保持对象和页面订阅稳定。用户改变筛选时调用对应 DataSet.setQuery，只重新加载该数据集；旧查询的订阅与迟到结果不能覆盖新查询。页面不重建查询实例或通过总事件回调重新读取数据。
 
@@ -43,7 +43,7 @@ DataSetDefinition 必须声明一个 query。它可以是任务或文件元信�
 
 底层事件返回路径没有指向提交操作的分支。一个用户请求只产生一次提交；Core 的内部关联处理仍属于原操作，不由数据集追加第二次提交。
 
-启动时先恢复磁盘中的已确认快照并显示，再执行一次初始查询并建立订阅，比较初始结果后发布差异。初始化快照与开始接收事件之间必须有一致的边界，不能漏掉初始化期间发生的变化。
+启动时先读取本地配置、生成查询定义并恢复磁盘中的已确认快照，然后执行后台配置接入、初始查询与订阅，比较初始结果后发布差异。全局 Workspace 通过同步入口取得；恢复缓存前不调用 ~workspaceFor~ 、 ~Workspace.repos~ 或查询，不等待其他页面的全局用户提交队列。任务与入口元信息缓存都已发布时，页面立即展示版本 0 的只读内容，查询未完成不再显示初始加载圈；首次查询完成后保持当前行身份并开放编辑。初始化快照与开始接收事件之间必须有一致的边界，不能漏掉初始化期间发生的变化。
 
 * 数据集与管理器接口
 
@@ -51,8 +51,8 @@ DataSetDefinition 必须声明一个 query。它可以是任务或文件元信�
 interface DocumentDataSetQuery { type: 'document'; query: CoreOrgFileRef }
 type DataSetQuery = CoreQuery | DocumentDataSetQuery
 interface DocumentDataSetSnapshot { identity: string; file: CoreOrgFile; tasks: CoreTask[] }
-interface DataSetDefinition { name: string; query: DataSetQuery }
-type DataSetDefinitionFactory = (config: AppConfig, repos: CoreRepo[]) => DataSetDefinition[]
+interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
+type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
 class DataSetManager {
   static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory): DataSetManager
   dataSet(name: string): DataSet
@@ -184,7 +184,7 @@ pub struct QuerySubscriptionStart {
 
 保存边界为所有已排队的修改提交完成、对应事件已经处理完成。队列未清空时自动保存不会写盘，显式 ~flush()~ 也等待队列清空。不能在一个修改批次中途保存任意阶段；等待结束后一次取得整个页面的已确认快照。临时文件完成完整写入、 ~fsync~ 与关闭后，在原子替换前再次检查没有新修改、确认数据没有变化；否则放弃本次临时文件，等下一个稳定边界重取快照。
 
-只保存确认层，不保存输入草稿或未确认的乐观字段。页面关闭先等待操作与事件，解除订阅以固定关闭边界，再保存；应用退后台调用 ~flushAll()~ 。每个页面文件的写入串行化，同名页面的新实例获得缓存写入权，旧实例稍后关闭不会覆盖新实例的缓存。缓存故障不改变 Core 提交结果；结构损坏、格式或上下文范围不匹配时跳过缓存，继续启动时的查询。每个缓存项另存 queryKey，按对应 DataSet 的查询签名独立匹配；切换任务筛选只使该数据集缓存失配，未变的范围或文件数据集仍可从版本 0 恢复。
+只保存确认层，不保存输入草稿或未确认的乐观字段。页面关闭先等待操作与事件，解除订阅以固定关闭边界，再保存；应用退后台调用 ~flushAll()~ 。每个页面文件的写入串行化，同名页面的新实例获得缓存写入权，旧实例稍后关闭不会覆盖新实例的缓存。缓存故障不改变 Core 提交结果；结构损坏、格式或上下文范围不匹配时跳过缓存，继续启动时的查询。每个缓存项另存 queryKey，按对应 DataSet 的查询和仓库绑定签名独立匹配；切换任务筛选只使该数据集缓存失配，未变的范围或文件数据集仍可从版本 0 恢复。
 
 提交失败只撤销对应乐观阶段，保留其他已确认事件与后续排队字段，不自动查询。缺少前序事件或位置版本冲突时停止该次写入并报告错误；用户可显式刷新。发现订阅失效时拒绝当前写入，由管理类按外部失效路径刷新并重建订阅，不自动重放失败操作。
 
@@ -192,7 +192,7 @@ pub struct QuerySubscriptionStart {
 
 ~TaskEditor~ 直接接收 ~dataSet: DataSet~ 和 ~taskId~ 。数据集已经固定查询范围，组合层只传入对象和稳定行 ID；编辑器不再接收任务副本、查询名称、绑定包装对象或专用管理器。读取、字段修改和记录订阅均调用这个 DataSet。编辑器不注册 Core 全局监听，也不提供回退至逐任务查询的兼容路径。页面列表的稳定行键使用 ~taskKey()~ ，改名、移动和重名序号调整按事件身份映射保留原行；新建临时行确认后继续沿用同一行键，避免控件状态串到另一个同名节点。编辑器未显式传入 ~instanceKey~ 时也使用 DataSet 的稳定行键，保持编辑会话和焦点身份一致。控件分别记录标题和备注的实际修改标记，焦点或关联更新不会把未改的旧字段写回。每次保存只提交变更字段；确认事件中的关联字段由管理类更新。
 
-各任务页面的组合层直接提供当前 DataSet。今天页声明 tasks、priority、files 三个数据集，DataSetManager 以“今天”为缓存名管理集合；其他任务视图同样独立声明查询。缓存版本 0 阶段只读，首次查询完成后开放编辑。隐藏页面保留实例，离开页面关闭；配置范围变化时管理器重新配置已有 DataSet。每个 DataSet 合并外部失效事件后排队刷新，并每分钟检查跨天变化。分类与项目分组使用当前快照引用更新成员，行身份使用稳定键，避免界面保留旧成员数组。已有有效快照在刷新期间保持可编辑，不短暂切换只读；编辑会话中控件独立接收字段与关联变化，列表成员和顺序延后至会话结束再应用，防止移动输入框导致失焦并隐式提交草稿。
+各任务页面的组合层直接提供当前 DataSet。今天页声明 tasks、priority、files 三个数据集，DataSetManager 以“今天”为缓存名管理集合；其他任务视图同样独立声明查询。缓存版本 0 阶段只读，首次查询完成后开放编辑。隐藏页面保留实例，离开页面关闭；配置范围变化时管理器重新配置已有 DataSet。每个 DataSet 在缓存已发布后完成共享 Workspace 的配置准备、合并外部失效事件并排队刷新，并每分钟检查跨天变化。分类与项目分组使用当前快照引用更新成员，行身份使用稳定键，避免界面保留旧成员数组。已有有效快照在刷新期间保持可编辑，不短暂切换只读；编辑会话中控件独立接收字段与关联变化，列表成员和顺序延后至会话结束再应用，防止移动输入框导致失焦并隐式提交草稿。
 
 * 当前进度与未完成项
 
@@ -330,7 +330,7 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 ** 任务页面
 
-各页面在 defineDataSets 中声明命名数据集，创建并启动 DataSetManager，再分别订阅各个 DataSet。需要配置文件入口时，页面将纯定义函数交给管理类，由管理类加载配置和仓库身份后调用；缓存读取与恢复由 DataSetManager 完成，每个查询的底层订阅和记录变化由对应 DataSet 完成。页面分别消费各 DataSet 的事件和快照，渲染任务、标签候选、入口状态与计划筛选候选。配置变化、缓存恢复和查询换代均在内部处理，页面只刷新关联展示，不处理 scope、版本或总事件分发。重复出现复用当前实例。
+各页面在 defineDataSets 中声明命名数据集，创建并启动 DataSetManager，再分别订阅各个 DataSet。需要配置文件入口时，页面将纯定义函数交给管理类，由管理类只根据本地配置调用；缓存读取与恢复由 DataSetManager 完成，每个查询的底层订阅和记录变化由对应 DataSet 完成。页面分别消费各 DataSet 的事件和快照，渲染任务、标签候选、入口状态与计划筛选候选。配置变化、缓存恢复和查询换代均在内部处理，页面只刷新关联展示，不处理 scope、版本或总事件分发。重复出现复用当前实例。
 
 收件箱维护 tasks、target、recent、files；未配置入口时不提交无范围 tasks 查询，recent 仍独立可用。某天只维护配置文件的 tasks 与 target，任务通过 ~includeFiles~ 指定同一个 Core 仓库 ID 与相对路径，移除全范围 files 订阅；备忘使用配置文件的 tasks、target、files；有效空文件与失效文件仍通过元信息区分。计划通过 range 维护完整范围，tasks 维护当前筛选查询，选择分类或项目后仅切换 tasks DataSet 的查询；候选始终来自完整范围，选择失效后显示 range 并绑定对应编辑数据集。筛选前先保存编辑，失败保留草稿；快速切换无需等待旧查询，旧结果不能覆盖新范围。新范围快照发布时重建对应控件绑定，避免记录沿用已关闭的数据管理对象。
 
@@ -350,7 +350,7 @@ document DataSet 只在取得完整快照后向页面发布 document 事件；�
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{AppShell}{navigation UI}{render()}
-\umlclass[x=6,y=0]{PageDefinition}{named query or file source}{defineDataSets(config, repos)}
+\umlclass[x=6,y=0]{PageDefinition}{named query or file source \\ repository bindings}{defineDataSets(config)}
 \umlclass[x=0,y=-4]{SnapshotDataManager}{confirmed snapshot}{start() \\ refresh() \\ subscribe() \\ close()}
 \umlclass[x=6,y=-4]{DataSetManager}{collection / context / cache}{dataSet(name) \\ flush()}
 \umlclass[x=3,y=-8]{Page}{interaction state}{render(snapshot)}
@@ -392,3 +392,9 @@ document DataSet 只在取得完整快照后向页面发布 document 事件；�
 2026-11-16 在专用模拟器与隔离仓库验证：某天只维护 tasks、target 两个数据集，两项查询均定位配置文件。展开记录期间外部修改备注实时呈现；界面完成使任务移出，外部恢复待办后重新进入，备注保持。配置文件内新增与删除自动更新，其他文件新增不会混入列表。
 
 确认缓存只含上述两项数据集及其文件范围；本次最终 tasks、target 确认版本分别为 11、12。普通冷启动后重新进入某天，任务、备注与状态和同一 Workspace 的查询结果一致；普通启动未恢复临时 HTTP 服务，结束验收后停止服务并确认不可连接。缓存版本 0、首次查询版本 1 及无配置入口不发起全范围查询由管理对象回归核对。
+
+* 缓存恢复与后台查询解耦验收
+
+2026-11-16 验证全局 Workspace 直接复用，查询定义仅消费本地配置，不单独读取仓库列表。后台配置与首次查询保持等待时，某天的 tasks、target 已先恢复为版本 0，页面加载条件结束，缓存只读；后台返回新内容后保持稳定行身份、推进为版本 1 并开放编辑。其他页面有排队修改时，新页面也能先恢复缓存，不等待全局用户队列。
+
+专用模拟器通过同一 Workspace 的 HTTP 修改核对展开备注更新、界面完成后移出、外部恢复后移入，以及文件范围内新增删除、范围外新增隔离。关闭前确认缓存只含 tasks、target，本次确认版本分别为 7、8；普通冷启动后内容、备注和状态与 API 一致。普通启动未恢复临时服务，结束验收后停止服务并核对不可连接。580 项宿主回归与 Harmony bridge 检查通过，正式包和数据准备包构建均无告警。

@@ -50,10 +50,18 @@ function fixture() {
     const data=new Map(),sets=new Map(),overrides=new Map();let ready=false,started,definitions=[];
     const emit=name=>{for(const fn of sets.get(name)?.listeners??[])fn({name,type:'refresh'})};
     const query=async(requestSet,requestToken)=>{
-      let nextDefinitions=typeof source==='function'?source(config,repos):source;
+      let nextDefinitions=typeof source==='function'?source(config):source;
       nextDefinitions=nextDefinitions.map(item=>overrides.has(item.name)?{...item,query:overrides.get(item.name)}:item);
       for(const item of nextDefinitions)manager.dataSet(item.name);
-      const results=await workspace.query(nextDefinitions.map(item=>item.query));
+      // 模拟工作线程的请求别名解析，页面本身没有仓库列表读取。
+      const requests=nextDefinitions.map(item=>{
+        const request=structuredClone(item.query),bindings=item.repositoryBindings??[];
+        const resolve=id=>{const binding=bindings.find(binding=>binding.id===id);return binding?repos.find(repo=>repo.rootDirectory===binding.rootDirectory).id:id;};
+        if(request.repoIds)request.repoIds=request.repoIds.map(resolve);
+        for(const key of ['includeFiles','excludeFiles'])for(const file of request.query[key]??[])file.repoId=resolve(file.repoId);
+        return request;
+      });
+      const results=await workspace.query(requests);
       if(requestSet&&sets.get(requestSet)?.request!==requestToken)return;
       definitions=nextDefinitions;
       for(let i=0;i<definitions.length;i++)data.set(definitions[i].name,{data:results[i],version:1});

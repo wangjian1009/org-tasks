@@ -711,6 +711,25 @@ Core 的 ~FilterTask.has_attach()~ 映射为 Harmony 任务快照的只读布尔
 
 查询订阅已通过 Workspace 的 Harmony native 方法提供，首次结果与句柄由同一次 Core 查询返回。现有 JSON 数据事件类型声明增加可选 ~removedFiles~ 与 ~categories~ ，旧仓库事件省略它们，C++ 转发与现有页面处理保持原行为。
 
+* 查询请求的仓库身份绑定
+
+页面数据集只根据本地配置组装查询，不单独读取仓库列表。配置 ID 与 Core 仓库 ID 仍保持各自身份；Harmony 查询可携带本次请求专用的 ~repositoryBindings~ ，在工作线程取得同一 Workspace 锁后，按根目录将明确绑定的查询别名解析为 Core ID，再调用原有 Core 查询或订阅。结果与后续修改路径始终返回、使用真实 Core ID，别名不进入 Core 查询协议、Org 文件或同步记录。
+
+#+begin_src ts
+interface QueryRepositoryBinding { id: string; rootDirectory: string }
+class Workspace {
+  query(queries: CoreQuery[], repositoryBindings?: QueryRepositoryBinding[]): Promise<CoreQueryResult[]>
+  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null,
+    repositoryBindings?: QueryRepositoryBinding[]): Promise<QuerySubscriptionStart>
+}
+#+end_src
+
+绑定只解析 ~repoIds~ 、 ~includeFiles~ 和 ~excludeFiles~ 的身份，不求值任务条件。空别名、重复别名、不属于当前 Workspace 的目录以及与其他真实 Core ID 冲突的别名均拒绝；未命中绑定的真实 ID 继续交给 Core 校验。省略绑定保留原调用方式。C++ 只编组结构化请求，Rust bridge 在同一个 worker 请求内完成映射，避免同步读取 Repo 属性或先查询仓库清单。
+
+批量查询的 ABI 内部载荷可为 ~{ queries, repositoryBindings }~ ，原查询数组仍接受；订阅载荷在原 ~{ query, operationId }~ 外增加可选 ~repositoryBindings~ 。Core 的 ~TaskQuery~ 、 ~CoreQuery~ 及 APP HTTP 查询请求仍只接受真实 Core 仓库 ID，不接受宿主别名。
+
+页面 DataSetManager 同步取得长期 Workspace，缓存恢复与查询定义均不等待身份读取。每个 DataSet 在缓存发布后完成配置准备，再把查询、绑定与订阅一起交给工作线程；读取期间缓存保持版本 0 且只读，后续正常推进到版本 1。绑定只含宿主 ID 和根目录，不含凭据。
+
 * 页面数据集的查询订阅桥接
 
 ~subscribeQuery~ 在 worker 中调用 Core 的 Workspace 入口，返回 ~{ subscriptionId, data, operationId }~ 。 ~operationId~ 是宿主初始读取请求的关联字段，原样回显，不改变 Core 查询条件；管理类用它恢复全量刷新版本。查询句柄归创建它的 Workspace 所有，状态读取和取消都通过 Workspace 执行；取消、初始化失败与 Workspace 释放均清理监控资源。

@@ -1471,17 +1471,23 @@ napi_value WorkspaceHttpServer(napi_env env, napi_callback_info info)
 // includeFiles / excludeFiles 随完整查询对象交给工作线程；范围计算与先包含再排除由 Core 完成。
 napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
+    size_t argc = 2;
+    napi_value args[2] = {nullptr};
     napi_value self;
     WorkspaceWrap* workspace = nullptr;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 1 ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr || workspace->handle == 0) {
         napi_throw_error(env, nullptr, "Workspace.query 参数无效");
         return nullptr;
     }
     auto* work = new WorkspaceStringWork();
-    if (!EncodeJson(env, args[0], &work->expression)) {
+    napi_value request = args[0];
+    if (argc == 2 && (napi_create_object(env, &request) != napi_ok ||
+        napi_set_named_property(env, request, "queries", args[0]) != napi_ok ||
+        napi_set_named_property(env, request, "repositoryBindings", args[1]) != napi_ok)) {
+        delete work; return nullptr;
+    }
+    if (!EncodeJson(env, request, &work->expression)) {
         delete work;
         napi_throw_error(env, nullptr, "任务查询参数无效");
         return nullptr;
@@ -1617,7 +1623,7 @@ napi_value WorkspaceWatchDataChanges(napi_env env, napi_callback_info info)
 }
 napi_value WorkspaceSubscribeQuery(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3; napi_value args[3], self, name; napi_valuetype type; WorkspaceWrap* workspace = nullptr;
+    size_t argc = 4; napi_value args[4], self, name; napi_valuetype type; WorkspaceWrap* workspace = nullptr;
     if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 2 ||
         napi_typeof(env, args[1], &type) != napi_ok || type != napi_function ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
@@ -1626,9 +1632,11 @@ napi_value WorkspaceSubscribeQuery(napi_env env, napi_callback_info info)
     auto* work = new WorkspaceStringWork();
     napi_value request, operation;
     napi_get_null(env, &operation);
-    if (argc == 3) operation = args[2];
+    if (argc >= 3) operation = args[2];
     if (napi_create_object(env, &request) != napi_ok || napi_set_named_property(env, request, "query", args[0]) != napi_ok ||
-        napi_set_named_property(env, request, "operationId", operation) != napi_ok || !EncodeJson(env, request, &work->expression)) { delete work; return nullptr; }
+        napi_set_named_property(env, request, "operationId", operation) != napi_ok ||
+        (argc == 4 && napi_set_named_property(env, request, "repositoryBindings", args[3]) != napi_ok) ||
+        !EncodeJson(env, request, &work->expression)) { delete work; return nullptr; }
     auto* watch = new DataChangeWatch(); watch->projected = true;
     if (napi_create_reference(env, args[1], 1, &watch->callback) != napi_ok) { delete watch; delete work; return nullptr; }
     if (napi_create_string_utf8(env, "OrgTasksQueryMonitor", NAPI_AUTO_LENGTH, &name) != napi_ok ||

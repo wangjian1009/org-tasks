@@ -1,14 +1,14 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreOrgFileMetadata, CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
+import { CoreOrgFileMetadata, CoreQueryRepositoryBinding, CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
 import { inboxRecordQuery, memoRecordQuery, overviewTaskQuery } from './TaskViewQueries'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }
 export interface ResolvedFileTarget { repository: RepoConfig; repo: CoreRepo; path: string; metadata: CoreOrgFileMetadata; tagOptions: string[]; tagGroups: string[][] }
-export interface PreparedFileTarget { task: CoreQuery; file: CoreQuery; reference: CoreOrgFileRef }
+export interface PreparedFileTarget { task: CoreQuery; file: CoreQuery; reference: CoreOrgFileRef; repositoryBindings?: CoreQueryRepositoryBinding[] }
 export interface FileTargetQueryResult extends CoreTaskQueryResult { tagOptions: string[]; tagGroups: string[][] }
 
 export function configuredFileTarget(config: AppConfig, kind: FileTargetKind): FileTarget {
@@ -52,6 +52,19 @@ export class FileTargetService {
       kind === 'memo' ? memoRecordQuery(reference) : inboxRecordQuery(reference)
     return { task: { type: 'task', repoIds: [repo.id], query },
       file: { type: 'file', query: { includeFiles: [reference] } }, reference }
+  }
+
+  // 只组装本地查询；宿主 ID 在本次请求的工作线程内按根目录解析为 Core ID。
+  static prepareConfigured(config: AppConfig, kind: FileTargetKind): PreparedFileTarget | undefined {
+    const repository = fileTargetRepository(config, kind)
+    if (!repository) return undefined
+    const target = configuredFileTarget(config, kind)
+    const reference: CoreOrgFileRef = { repoId: repository.id, path: target.path }
+    const query = kind === 'someday' ? overviewTaskQuery('someday', reference) :
+      kind === 'memo' ? memoRecordQuery(reference) : inboxRecordQuery(reference)
+    return { task: { type: 'task', repoIds: [reference.repoId], query },
+      file: { type: 'file', query: { includeFiles: [reference] } }, reference,
+      repositoryBindings: [{ id: repository.id, rootDirectory: repository.rootDirectory }] }
   }
 
   static result(task: CoreQueryResult | undefined, metadata: CoreQueryResult | undefined): FileTargetQueryResult | undefined {

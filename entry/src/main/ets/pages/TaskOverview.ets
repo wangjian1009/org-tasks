@@ -19,7 +19,7 @@ import { LogbookTaskList } from '../components/LogbookTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
 import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreRepo, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, TodayTimedTaskItem, todayLayout, todaySections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups, plannedRegionOptions } from '../ui/PlannedPresentation'
@@ -139,11 +139,12 @@ struct TaskOverview {
     if (!layout || !this.dataManager || !sameTodaySections(this.sections, layout.sections, keyOf)) this.sections = layout?.sections ?? (this.view === 'anytime' ? todaySections(this.visibleTasks) : [])
   }
 
-  defineDataSets(config: AppConfig, repos: CoreRepo[], view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
+  defineDataSets(config: AppConfig, view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
     const definitions: DataSetDefinition[] = []
     if (view === 'memo' || view === 'someday') {
-      const target = FileTargetService.prepare(config, repos, view)
-      if (target) definitions.push({ name: 'tasks', query: target.task }, { name: 'target', query: target.file })
+      const target = FileTargetService.prepareConfigured(config, view)
+      if (target) definitions.push({ name: 'tasks', query: target.task, repositoryBindings: target.repositoryBindings },
+        { name: 'target', query: target.file, repositoryBindings: target.repositoryBindings })
     } else {
       definitions.push({ name: view === 'planned' ? 'range' : 'tasks', query: { type: 'task', query: overviewTaskQuery(view) } })
       if (view === 'today') definitions.push({ name: 'priority', query: { type: 'task', query: todayPriorityQuery() } })
@@ -164,7 +165,7 @@ struct TaskOverview {
     if (!this.dataManager) {
       const view = this.view
       this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, overviewTitle(view),
-        (config: AppConfig, repos: CoreRepo[]): DataSetDefinition[] => this.defineDataSets(config, repos, view, null))
+        (config: AppConfig): DataSetDefinition[] => this.defineDataSets(config, view, null))
       this.tasksDataSet = this.dataManager.dataSet('tasks')
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       if (view === 'today') {

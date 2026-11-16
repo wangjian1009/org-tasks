@@ -78,7 +78,7 @@ export class DataSetManager {
         const request = (this.queryRequests.get(name) ?? 0) + 1
         this.queryRequests.set(name, request)
         this.overrides.set(name, query)
-        const definition: DataSetDefinition = { name, query }
+        const definition: DataSetDefinition = { name, query, repositoryBindings: dataSet!.repositoryBindings }
         this.definitions = this.definitions.filter(item => item.name !== name).concat(definition)
         this.resetCache()
         await dataSet!.configure(this.config!, this.workspace!, definition)
@@ -111,12 +111,12 @@ export class DataSetManager {
   }
   private async initialize(generation: number): Promise<void> {
     const config = await AppConfigService.load(this.context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    const definitions = typeof this.source === 'function' ? this.source(config, await workspace.repos()) : this.source
+    const workspace = NativeCoreService.start()
+    const definitions = typeof this.source === 'function' ? this.source(config) : this.source
     this.validate(definitions)
     if (this.closed || this.closing || generation !== this.generation) return
     const resolved = definitions.map((definition): DataSetDefinition => this.overrides.has(definition.name)
-      ? { name: definition.name, query: this.overrides.get(definition.name)! } : definition)
+      ? { name: definition.name, query: this.overrides.get(definition.name)!, repositoryBindings: definition.repositoryBindings } : definition)
     for (const definition of resolved) this.dataSet(definition.name)
     this.config = config; this.workspace = workspace; this.definitions = resolved
     this.resetCache()
@@ -129,6 +129,7 @@ export class DataSetManager {
     }
     try {
       const cached = await this.cache?.read()
+      if (this.closed || this.closing || generation !== this.generation) return
       if (cached && cached.length === names.length && cached.every(item => names.includes(item.name))) {
         for (const item of cached) {
           const dataSet = this.sets.get(item.name)!
@@ -150,7 +151,11 @@ export class DataSetManager {
     this.cache = resolved.some(definition => definition.query.type === 'document') ? undefined : new PageDataCache(this.context, this.pageName, this.scope)
     this.savedRevision = ''
   }
-  private queryKey(dataSet: DataSet): string { return JSON.stringify(dataSet.query) ?? '' }
+  private queryKey(dataSet: DataSet): string {
+    return dataSet.repositoryBindings.length > 0
+      ? JSON.stringify({ query: dataSet.query, repositoryBindings: dataSet.repositoryBindings })
+      : JSON.stringify(dataSet.query) ?? ''
+  }
   hasValidScope(): boolean { return !this.closed && !this.closing }
   isReady(): boolean { return this.initialized && Array.from(this.sets.values()).every(dataSet => dataSet.isReady()) }
   async refresh(): Promise<void> { await this.start(); await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.refresh())) }

@@ -25,7 +25,8 @@ export class AppConfigService {
     const memoFile = await store.get('memoFile', DEFAULT_CONFIG.memoFile) as string
     const memoRepoId = await store.get('memoRepoId', DEFAULT_CONFIG.memoRepoId) as string
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
-    const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
+    const todoDefaults = await store.has('todoDefaults')
+      ? await store.get('todoDefaults', '') as string : await defaultTodoSettings()
     const savedCoreSettings = await store.get('coreSettings', '') as string
     let coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await validateConfiguration({})
     // 旧分类拼写交给 Core 的兼容反序列化处理，设置界面与后续保存只接收规范名称。
@@ -120,7 +121,8 @@ export class AppConfigService {
     if (encoded.length > 0) {
       const persisted = JSON.parse(encoded) as RepoConfig[]
       const repositories: RepoConfig[] = []
-      const defaults: NativeSyncOptions = await defaultSyncOptions()
+      const defaults: NativeSyncOptions | undefined = persisted.some(repository => repository.excludedDirectories === undefined || repository.excludedDirectories === null)
+        ? await defaultSyncOptions() : undefined
       for (const repository of persisted) {
         repositories.push({
           id: repository.id,
@@ -130,7 +132,7 @@ export class AppConfigService {
           webdavUrl: repository.webdavUrl,
           webdavUsername: repository.webdavUsername,
           webdavPassword: includeCredentials ? await CredentialService.getWebDavPassword(repository.id) : '',
-          excludedDirectories: repository.excludedDirectories ?? defaults.excludedDirectories.slice()
+          excludedDirectories: repository.excludedDirectories ?? defaults!.excludedDirectories.slice()
         })
       }
       return repositories

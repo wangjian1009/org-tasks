@@ -237,6 +237,8 @@ export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 export type SyncTriggerReason = 'appStartup' | 'appBackground' | 'manual';
 export interface SyncOptions { excludedDirectories: string[]; triggerReason?: SyncTriggerReason; }
 
+export interface QueryRepositoryBinding { id: string; rootDirectory: string; }
+
 export interface OrgFileRef { repoId: string; path: string; }
 
 export interface TaskQuery {
@@ -313,8 +315,8 @@ export class Workspace {
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
   validateRepository(rootDirectory: string): Promise<void>;
-  query(queries: CoreQuery[]): Promise<CoreQueryResult[]>;
-  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null): Promise<QuerySubscriptionStart>;
+  query(queries: CoreQuery[], repositoryBindings?: QueryRepositoryBinding[]): Promise<CoreQueryResult[]>;
+  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null, repositoryBindings?: QueryRepositoryBinding[]): Promise<QuerySubscriptionStart>;
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>;
   unsubscribeQuery(subscriptionId: number): void;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;

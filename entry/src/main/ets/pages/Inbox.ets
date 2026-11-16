@@ -24,7 +24,7 @@ import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
 import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
-import { CoreBridgeError, CoreRepo, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 @Entry
 @Component
@@ -587,19 +587,20 @@ struct Inbox {
     .width('calc(100% + 24vp)').margin({ left: -12, right: -12 })
   }
 
-  defineDataSets(config: AppConfig, repos: CoreRepo[]): DataSetDefinition[] {
-    const target = FileTargetService.prepare(config, repos, 'inbox')
+  defineDataSets(config: AppConfig): DataSetDefinition[] {
+    const target = FileTargetService.prepareConfigured(config, 'inbox')
     const definitions: DataSetDefinition[] = []
-    if (target) definitions.push({ name: 'tasks', query: target.task }, { name: 'target', query: target.file })
+    if (target) definitions.push({ name: 'tasks', query: target.task, repositoryBindings: target.repositoryBindings },
+      { name: 'target', query: target.file, repositoryBindings: target.repositoryBindings })
     definitions.push({ name: 'recent', query: { type: 'task', query: { expression: 'cr.ge.-2d cr.le.today .o.created',
-      excludeFiles: target ? [target.reference] : [] } } }, { name: 'files', query: { type: 'file', query: {} } })
+      excludeFiles: target ? [target.reference] : [] } }, repositoryBindings: target?.repositoryBindings }, { name: 'files', query: { type: 'file', query: {} } })
     return definitions
   }
 
   async loadRecords(reload: boolean = false) {
     if (!this.dataManager) {
       this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, '收件箱',
-        (config: AppConfig, repos: CoreRepo[]): DataSetDefinition[] => this.defineDataSets(config, repos))
+        (config: AppConfig): DataSetDefinition[] => this.defineDataSets(config))
       this.tasksDataSet = this.dataManager.dataSet('tasks')
       this.recentDataSet = this.dataManager.dataSet('recent')
       this.targetDataSet = this.dataManager.dataSet('target')

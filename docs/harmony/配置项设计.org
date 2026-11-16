@@ -20,6 +20,8 @@
 
 配置、捕捉草稿和日历映射通过 ~PreferencesStore~ 处理 Preferences 的同步异常与异步失败。封装将读取、写入和刷新失败统一作为 Promise 拒绝交给调用方，不在存储层返回缺省值或报告保存成功；日历映射读取失败仍由原调用方决定恢复方式。错误摘要仅包含操作说明与平台错误码，不包含键值、文件路径或凭据；既有存储名称、字段和保存顺序保持原样。
 
+已有配置优先只读本地 Preferences：已保存的 ~todoDefaults~ （包括显式空字符串）直接使用原值，只有字段缺失才读取 native 默认值；已保存仓库均具有 ~excludedDirectories~ 时不再重复读取默认同步选项。规范的 ~coreSettings~ 直接反序列化，缺失配置或旧分类迁移仍交给既有校验入口。常规缓存恢复不为已保存默认值占用 native 工作线程。
+
 ~OrgWorkspace~ 是应用级核心结构；一个应用通常只构造一个。CalendarKit 映射、N-API service 实例和退出同步的后台运行任务都是 Harmony 运行时概念，不是 ~OrgWorkspace~ 或 ~OrgRepo~ 的字段。
 
 * 配置模型

@@ -4,14 +4,14 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { TaskCreation, TaskModification } from 'liborg_tasks_harmony.so'
 import { AppConfig } from '../models/OrgTask'
-import { CoreDataChangeEvent, CoreQuery, CoreQueryResult, CoreTask, CoreRepo, CoreOrgFile, CoreOrgFileRef, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject, NativeCoreService } from './NativeCoreService'
+import { CoreDataChangeEvent, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFile, CoreOrgFileRef, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject, NativeCoreService } from './NativeCoreService'
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
 import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
 
 export interface DocumentDataSetQuery { type: 'document'; query: CoreOrgFileRef }
 export type DataSetQuery = CoreQuery | DocumentDataSetQuery
-export interface DataSetDefinition { name: string; query: DataSetQuery }
+export interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
 export interface DocumentDataSetSnapshot { identity: string; file: CoreOrgFile; tasks: CoreTask[] }
 export interface TaskDataChange { task?: CoreTask; removed?: boolean; blocked?: boolean; error?: string; rejectedChanges?: TaskModification[] }
 export class DataSetWriteError extends Error {
@@ -19,7 +19,7 @@ export class DataSetWriteError extends Error {
   constructor(message: string, committed: boolean) { super(message); this.committed = committed }
 }
 export interface DataSetClock { owner: string; next: () => number; metadata?: (repoId: string, path: string) => CoreOrgFileMetadata | undefined }
-export type DataSetDefinitionFactory = (config: AppConfig, repos: CoreRepo[]) => DataSetDefinition[]
+export type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
 interface DataSetSubmission { readonly operationId: string; readonly completion: Promise<void> }
 export interface ManagedDataSet { readonly revision: number; readonly name: string; readonly version: number; readonly confirmedVersion: number; readonly data: CoreQueryResult; readonly optimistic: boolean }
 export interface DataSetIdentity { before: string; after: string }
@@ -113,6 +113,7 @@ export class DataSet {
   private externalRefreshing: boolean = false
   readonly name: string
   get identity(): string { return this.epoch }
+  private config: AppConfig | undefined = undefined
   private connection: CoreWorkspace | undefined = undefined
   private definition: DataSetDefinition | undefined = undefined
   private queryWork: Promise<void> | undefined = undefined
@@ -136,13 +137,13 @@ export class DataSet {
     for (const id of this.subscriptions.values()) this.workspace?.unsubscribeQuery(id)
     this.subscriptions.clear(); this.stopExternalUpdates()
     await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
-    await UserOperationQueue.whenIdle()
+    if (this.connection) await UserOperationQueue.whenIdle()
     if (request !== this.configureRequest || this.closed) return
     this.documentSnapshot = undefined
     this.confirmed.clear(); this.versions.clear(); this.views.clear(); this.taskIndex.clear(); this.rowIds.clear(); this.files.clear()
     this.closed = false; this.closing = false; this.shutdown = undefined; this.scopeChanged = false
     this.epoch = util.generateRandomUUID(); this.sequence = 0
-    this.initialization = undefined; this.connection = workspace
+    this.initialization = undefined; this.config = config; this.connection = workspace
     this.definition = definition
     this.loadError = ''
     this.publish({ name: this.name, type: 'refresh', version: 0, operationId: this.operationId(0, 'query'), optimistic: false, added: [], removed: [], updated: [] })
@@ -161,6 +162,7 @@ export class DataSet {
     await work
   }
   get query(): DataSetQuery | undefined { return this.definition?.query }
+  get repositoryBindings(): CoreQueryRepositoryBinding[] { return this.definition?.repositoryBindings ?? [] }
   get document(): DocumentDataSetSnapshot | undefined { return this.documentSnapshot }
   get data(): CoreQueryResult | undefined { return this.get(this.name)?.data }
   get version(): number { return this.get(this.name)?.version ?? 0 }
@@ -265,7 +267,12 @@ export class DataSet {
       this.publish({ name: this.name, type: 'ready', version: 1, operationId: this.operationId(1, 'refresh'), optimistic: false, added: [], removed: [], updated: [] })
       return
     }
+    // 缓存已由管理器发布；配置接入属于后台查询准备，不阻塞缓存恢复。
+    const epoch = this.epoch, config = this.config!
+    await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    if (!this.hasValidScope() || epoch !== this.epoch) return
     await this.connectExternalUpdates()
+    if (!this.hasValidScope() || epoch !== this.epoch) return
     await this.load(++this.sequence)
   }
   private async connectExternalUpdates(): Promise<void> {
@@ -366,7 +373,7 @@ export class DataSet {
           const queue = this.initialEvents.get(this.name)
           if (queue) queue.push(event)
           else this.onCoreDataChanged(this.name, event, operationId)
-        }, operationId)
+        }, operationId, this.repositoryBindings)
         if (this.closed || this.generation !== operationId) {
           workspace.unsubscribeQuery(result.subscriptionId)
           throw new Error('数据集查询已变化')
