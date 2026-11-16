@@ -191,7 +191,8 @@ const countsCode = ts.transpileModule(fs.readFileSync(countsFile, 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 });
 const countsView = {};
-vm.runInThisContext('(function(exports){' + countsCode.outputText + '\n})', { filename: countsFile })(countsView);
+vm.runInThisContext('(function(exports,require){' + countsCode.outputText + '\n})', { filename: countsFile })(countsView,
+  name => { assert.equal(name, './Theme'); return { UiColor: { primary: 'active', secondary: 'neutral', done: 'done' } }; });
 
 test('计数投影区分空值、零总数与有效比例，不从普通标题猜测计数', () => {
   const { titleCounts, titleCountLabel, titleCountValue } = countsView;

@@ -10,6 +10,9 @@ import { FrameCallback } from '@ohos.arkui.UIContext'
 import { TaskInlineFocus } from '../ui/TaskInlineFocus'
 import { CoreTitlePart, CoreTextLink, CoreLinkValue } from '../services/NativeCoreService'
 import { UiColor, UiSize } from '../ui/Theme'
+import { titleCountInline } from './TitleCountInline'
+import { titleCounts } from '../ui/TitleCountPresentation'
+import { CoreTitleCount } from '../services/NativeCoreService'
 
 interface MapAppChoice {
   title: string
@@ -81,7 +84,9 @@ export struct LinkView {
   @Prop parts: CoreTitlePart[] = []
   @Prop textSize: number = UiSize.taskFont
   @Prop weight: FontWeight = FontWeight.Normal
+  @Prop showCounts: boolean = false
   @Prop lineLimit: number = 0
+  @Prop lineHeight: number | undefined = undefined
   @Prop cancelled: boolean = false
   @Prop copyable: boolean = false
   @Prop openLinks: boolean = true
@@ -520,7 +525,10 @@ export struct LinkView {
           }
         })
       }
-    }.fontSize(this.textSize).fontWeight(this.weight).fontColor(UiColor.text)
+      if (this.showCounts) {
+        ForEach(titleCounts(this.parts), (count: CoreTitleCount) => { titleCountInline(count) })
+      }
+    }.fontSize(this.textSize).fontWeight(this.weight).fontColor(UiColor.text).lineHeight(this.lineHeight)
       .maxLines(this.lineLimit > 0 ? this.lineLimit : 2147483647).textOverflow({ overflow: TextOverflow.Ellipsis })
       .wordBreak(WordBreak.BREAK_ALL).copyOption(this.copyable ? CopyOptions.LocalDevice : CopyOptions.None)
       .onClick((event: ClickEvent): void => { LinkEditController.protectInteraction(); if (!this.editing && Date.now() >= this.suppressClickUntil) this.activate?.() }).flexShrink(1)

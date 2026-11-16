@@ -1,14 +1,12 @@
 import { CoreTitleCount } from '../services/NativeCoreService'
-import { titleCountDescription, titleCountLabel, titleCountValue } from '../ui/TitleCountPresentation'
-import { UiColor } from '../ui/Theme'
+import { titleCountColor, titleCountDescription, titleCountLabel, titleCountValue } from '../ui/TitleCountPresentation'
 
 @Component
 export struct TitleCountBadge {
   @Prop count: CoreTitleCount = { completed: null, total: null }
 
   color(): string {
-    if (this.count.total !== null && this.count.total > 0 && this.count.completed === this.count.total) return UiColor.done
-    return this.count.completed !== null && this.count.completed > 0 ? UiColor.primary : UiColor.secondary
+    return titleCountColor(this.count)
   }
 
   build() {

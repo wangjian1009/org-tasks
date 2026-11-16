@@ -1,4 +1,10 @@
 import { CoreTitleCount, CoreTitlePart } from '../services/NativeCoreService'
+import { UiColor } from './Theme'
+
+export function titleCountColor(count: CoreTitleCount): string {
+  if (count.total !== null && count.total > 0 && count.completed === count.total) return UiColor.done
+  return count.completed !== null && count.completed > 0 ? UiColor.primary : UiColor.secondary
+}
 
 // 只消费 Core 的计数投影，不从标题文字推断 Org 语法。
 export function titleCounts(parts: CoreTitlePart[]): CoreTitleCount[] {

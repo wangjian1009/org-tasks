@@ -982,7 +982,7 @@ export struct TaskEditor {
         this.priorityBadge()
         Column({ space: 2 }) {
           TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, editable: false,
-            lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
+            lineLimit: 1, lineHeight: UiSize.taskTitleLineHeight, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
             activate: (): void => { this.toggleFromCompact() } })
             .width('100%').constraintSize({ minWidth: 0 })
           if (taskSourceText(this.value(), false, this.regionPolicy())) {
@@ -1217,21 +1217,24 @@ export struct TaskEditor {
   }
 
   @Builder
-  editorContent() {
+  expandedHeader() {
+    // 控件固定在首行槽位；标题留白由行高推导，后续文字只向下增长。
     Row({ space: 6 }) {
-      Row() { this.stateIndicator() }.constraintSize({ minHeight: UiSize.taskRow })
+      Row() { this.stateIndicator() }.height(UiSize.taskRow)
       if (this.value().isHabit) {
-        Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
+        Row() { Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务') }.height(UiSize.taskRow)
       } else if (this.value().isRepeating) {
-        Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
+        Row() { Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务') }.height(UiSize.taskRow)
       }
       Row({ space: 4 }) {
-        this.priorityBadge(true)
+        if (this.value().priority) {
+          Row() { this.priorityBadge(!this.readOnly) }.height(UiSize.taskRow)
+        }
         Column({ space: 2 }) {
           if (this.headingInput) {
             TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
               .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-              .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
+              .width('100%').lineHeight(UiSize.taskTitleLineHeight).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
               .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
               .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
               .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
@@ -1245,25 +1248,27 @@ export struct TaskEditor {
           } else {
             TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
               weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
-              editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor, showCounts: false,
+              editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor, showCounts: true, lineHeight: UiSize.taskTitleLineHeight,
               changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
               linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
-              activate: (): void => { this.editHeading() } }).width('100%')
+              activate: (): void => { if (this.readOnly) this.toggle(); else this.editHeading() } }).width('100%')
           }
-        }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
-          .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Start)
-        if (titleCounts(this.value().headingParts).length > 0) {
-          TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
-            .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
-        }
-      }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
+        }.layoutWeight(1).constraintSize({ minWidth: 0 }).padding({ top: (UiSize.taskRow - UiSize.taskTitleLineHeight) / 2,
+            bottom: (UiSize.taskRow - UiSize.taskTitleLineHeight) / 2 })
+          .alignItems(HorizontalAlign.Start)
+      }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Top)
       this.collapseButton()
-    }.width('100%').padding({ left: 8 }).alignItems(VerticalAlign.Center)
+    }.width('100%').padding({ left: 8 }).alignItems(VerticalAlign.Top)
       .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
         targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu,
         backgroundBlurStyle: BlurStyle.NONE, mask: { color: Color.Transparent }, focusable: true,
         autoCancel: !this.working && !this.priorityBusy, onWillDismiss: !this.working && !this.priorityBusy,
         onStateChange: (event): void => { this.priorityOpen = event.isVisible } })
+  }
+
+  @Builder
+  editorContent() {
+    this.expandedHeader()
     Column({ space: 12 }) {
       if (!this.contentHidden) { this.bodyBlocks() }
       if (this.displayTags().length > 0) {
@@ -1365,29 +1370,7 @@ export struct TaskEditor {
   }
   @Builder
   readOnlyContent() {
-    Row({ space: 6 }) {
-      Row() { this.stateIndicator() }.constraintSize({ minHeight: UiSize.taskRow })
-      if (this.value().isHabit) {
-        Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
-      } else if (this.value().isRepeating) {
-        Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务')
-      }
-      Row({ space: 4 }) {
-        this.priorityBadge()
-        Column() {
-          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-            editable: false,
-            cancelled: this.value().state?.category === TaskStateCategory.Cancel,
-            showCounts: false, activate: (): void => { this.toggle() } }).width('100%')
-        }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
-          .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Start)
-        if (titleCounts(this.value().headingParts).length > 0) {
-          TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
-            .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
-        }
-      }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
-      this.collapseButton()
-    }.width('100%').padding({ left: 8 }).alignItems(VerticalAlign.Center)
+    this.expandedHeader()
     Column({ space: 12 }) {
       if (!this.contentHidden) { this.bodyBlocks() }
       if (this.displayTags().length > 0) {
