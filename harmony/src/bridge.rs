@@ -919,6 +919,28 @@ mod tests {
     }
 
     #[test]
+    fn file_new_crosses_the_existing_operation_bridge_with_template_and_initial_tasks() {
+        let root = std::env::temp_dir().join(format!("org-file-new-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
+        let repo_id = workspace_for_handle(handle).unwrap().repos()[0].id.clone();
+        let group = serde_json::json!({"operations":[{"type":"FileNew","data":{
+            "path":{"repoId":repo_id,"file":"project.org","titles":[]},
+            "templateContent":"#+TITLE: {{name}}\n#+FILETAGS: :project:\n#+SETUPFILE: {{setup}}\n",
+            "arguments":{"name":"新项目"},"initTasks":[{"title":"初始任务","state":"TODO"}]
+        }}]});
+        workspace_execute_task_operations(handle, group.to_string()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&workspace_query_json(handle,
+            r#"[{"type":"file","query":{}},{"type":"task","query":{}}]"#.into()).unwrap()).unwrap();
+        assert_eq!(value[0]["result"][0]["projectName"],"新项目");
+        assert_eq!(value[1]["result"]["tasks"][0]["heading"],"初始任务");
+        assert!(workspace_execute_task_operations(handle, group.to_string()).is_err());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn unified_query_json_dispatches_all_kinds_and_rejects_the_old_task_array_protocol() {
         let handle = create_workspace().unwrap();
         let root = std::env::temp_dir().join(format!("org-unified-bridge-{}", std::process::id()));
@@ -2186,6 +2208,7 @@ pub fn workspace_execute_task_operations(
     handle: u64,
     request: String,
 ) -> Result<String, CoreError> {
+    // FileNew 模板、初始化任务和事务校验均由 Core 解释，bridge 只透传结构化操作组。
     let group: org_tasks_core::TaskOperationGroup = serde_json::from_str(&request)
         .map_err(|_| CoreError::InvalidInput("任务操作组参数无效"))?;
     let session = workspace_for_handle(handle)?;

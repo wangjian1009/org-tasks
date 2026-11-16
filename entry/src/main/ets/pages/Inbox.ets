@@ -3,6 +3,9 @@ import { AppConfig } from '../models/OrgTask'
 import { FileTargetService } from '../services/FileTargetService'
 import { CaptureService } from '../services/CaptureService'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
+import { ProjectCreateService } from '../services/ProjectCreateService'
+import { ProjectCreateSheet } from '../components/editors/ProjectCreateSheet'
+import { ProjectRepositoryOption, ProjectLocation } from '../ui/ProjectCreatePresentation'
 import { TaskDateDialog } from '../components/editors/TaskDateDialog'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
@@ -64,6 +67,13 @@ struct Inbox {
   @StorageLink('taskInlineActive') inlineActive: string = ''
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
+  private enableConvertToProject: boolean = true
+  @State projectOpen: boolean = false
+  @State projectTyping: boolean = false
+  @State projectSource: CoreTask | undefined = undefined
+  @State projectRepositories: ProjectRepositoryOption[] = []
+  @State projectMessage: string = ''
+  private projectKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
   @State captureOpen: boolean = false
   @State captureTitle: string = ''
   @State captureSaving: boolean = false
@@ -109,7 +119,7 @@ struct Inbox {
       !this.mergeBusy && !this.selectionStarting && !this.actionBusy && !this.captureSaving && (!this.captureOpen || !this.captureTitle))
     this.visible = true; this.loadRecords(); this.prepareRecentLayout()
   }
-  onPageHide() { this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.visible = false; this.dateDialog?.close(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
+  onPageHide() { this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.visible = false; this.dateDialog?.close(); this.closeProject(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
     this.stopExternalGuard?.()
     for (const stop of this.stops) stop()
@@ -117,6 +127,7 @@ struct Inbox {
     this.dataManager?.close().catch((): void => { console.error('保存收件箱数据失败') })
     this.dataManager = undefined
     this.dateDialog?.close()
+    this.closeProject()
     clearTimeout(this.captureFocusTimer)
     clearTimeout(this.actionTimer)
     clearTimeout(this.mergeFocusTimer)
@@ -127,6 +138,11 @@ struct Inbox {
 
   onBackPress(): boolean {
     if (this.mergeBusy || this.selectionStarting) return true
+    if (this.projectOpen) {
+      if (this.projectTyping) { this.getUIContext().getFocusController().clearFocus(); this.projectTyping = false; return true }
+      if (!this.actionBusy) this.closeProject()
+      return true
+    }
     if (this.batchTargetOpen) { this.closeTargetPopup(); return true }
     if (this.selectingRecords) { this.cancelSelection(); return true }
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
@@ -292,9 +308,19 @@ struct Inbox {
     }, 260)
   }
 
+  swipeProject(record: CoreTask): void {
+    if (!this.enableConvertToProject || this.actionBusy || this.selectionStarting || this.mergeBusy || this.selectingRecords ||
+      this.drawerOpen || this.captureOpen || this.projectOpen || this.checklistDragging || this.inlineTyping) return
+    try { this.listScroller.closeAllSwipeActions() } catch (_) {}
+    clearTimeout(this.actionTimer)
+    this.actionTimer = setTimeout((): void => { if (this.visible) this.openProject(record) }, 260)
+  }
+
   @Builder
   swipeMenu(record: CoreTask) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy, idPrefix: 'inbox_swipe',
+      enableConvertToProject: this.enableConvertToProject,
+      convertToProject: (): void => { this.swipeProject(record) },
       items: taskSwipeMenu(this.actionPolicy, (action: TaskSwipeAction): void => {
         if (action === 'select') this.startSelection(record)
         else this.swipeAction(record, action)
@@ -317,6 +343,64 @@ struct Inbox {
         else this.perform('move', target)
       },
       retry: (): void => { this.refreshMoveTargets() } })
+  }
+
+  async openProject(record: CoreTask): Promise<void> {
+    if (!this.enableConvertToProject || !this.pageReady || this.actionBusy || this.selectingRecords || this.projectOpen) return
+    this.actionBusy = true
+    try {
+      if (this.tasksDataSet!.error) await this.tasksDataSet!.refresh()
+      if (!await TaskInlineSession.end(true)) return
+      await this.tasksDataSet!.settle()
+      if (!this.visible || this.tasksDataSet!.error) return
+      const source = this.tasksDataSet!.getTask(record.id)
+      if (!source) return
+      const repositories = await ProjectCreateService.repositories(this.getUIContext().getHostContext()!)
+      if (!this.visible) return
+      this.projectRepositories = repositories
+      this.projectSource = source
+      this.projectMessage = ''
+      this.projectKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
+      this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+      this.projectOpen = true
+    } catch (error) {
+      try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(error as CoreBridgeError), duration: 3000 }) } catch (_) {}
+    } finally { this.actionBusy = false }
+  }
+
+  closeProject(): void {
+    if (this.actionBusy) return
+    if (this.projectSource) this.getUIContext().setKeyboardAvoidMode(this.projectKeyboardAvoidMode)
+    this.projectOpen = false
+    this.projectTyping = false
+    this.projectSource = undefined
+    this.projectRepositories = []
+    this.projectMessage = ''
+  }
+
+  async createProject(location: ProjectLocation, name: string, fileName: string): Promise<void> {
+    const source = this.projectSource
+    if (!this.enableConvertToProject || !source || !this.projectOpen || this.actionBusy) return
+    this.actionBusy = true
+    this.projectMessage = ''
+    try {
+      await this.tasksDataSet!.operate(async (operationId: string): Promise<void> => {
+        await ProjectCreateService.convert(this.getUIContext().getHostContext()!, source, location, name, fileName, operationId)
+      })
+      this.actionBusy = false
+      this.closeProject()
+    } catch (error) { this.projectMessage = coreErrorMessage(error as CoreBridgeError) }
+    finally { this.actionBusy = false }
+  }
+
+  @Builder
+  projectPanel() {
+    ProjectCreateSheet({ repositories: this.projectRepositories, initialRepoId: this.projectSource?.repoId || '',
+      initialRegion: this.projectSource?.category || '',
+      initialName: this.projectSource?.heading || '', busy: this.actionBusy, message: this.projectMessage,
+      typingChanged: (typing: boolean): void => { this.projectTyping = typing },
+      cancel: (): void => { this.closeProject() },
+      create: (location: ProjectLocation, name: string, fileName: string): void => { this.createProject(location, name, fileName) } })
   }
 
   async loadTargets() {
@@ -716,11 +800,22 @@ struct Inbox {
           }
         }.width('100%').height('100%')
       }
+      // 独立节点分别绑定项目和移动面板，避免同一节点的 sheet 被后一次绑定覆盖。
+      Column().width(0).height(0)
+      .bindSheet($$this.projectOpen, this.projectPanel, {
+        height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM,
+        backgroundColor: '#363A38', showClose: false,
+        onWillDismiss: (action): void => {
+          if (this.projectTyping) { this.getUIContext().getFocusController().clearFocus(); this.projectTyping = false; return }
+          if (!this.actionBusy) { action.dismiss(); this.closeProject() }
+        },
+        onDisappear: (): void => { this.closeProject() }
+      })
       Button({ type: ButtonType.Circle }) {
         Image($r('app.media.ui_add_primary')).width(28).height(28)
       }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
         .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
-        .visibility(this.drawerOpen || this.captureOpen || this.selected || this.inlineTyping || this.selectingRecords || this.selectionStarting ? Visibility.Hidden : Visibility.Visible)
+        .visibility(this.drawerOpen || this.captureOpen || this.projectOpen || this.selected || this.inlineTyping || this.selectingRecords || this.selectionStarting ? Visibility.Hidden : Visibility.Visible)
         .enabled(!this.actionBusy).accessibilityText('记一条')
         .onClick((): void => { this.capture() })
       if (this.selectingRecords) {

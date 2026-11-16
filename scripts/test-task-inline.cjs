@@ -328,17 +328,20 @@ test('展开备注点击普通文字才进入原文，保存或刷新失败保�
 
 function finishFixture(textSaved = true, checkSaved = true) {
   const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
-  const method = fs.readFileSync(filename, 'utf8').match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];
-  const code = ts.transpileModule('export class InlineFinish {' + method + '\n}', {
+  const source = fs.readFileSync(filename, 'utf8');
+  const collapse = source.match(/  private collapseAnimated\(\): void \{[\s\S]*?\n  \}/)[0];
+  const method = source.match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];
+  const code = ts.transpileModule('export class InlineFinish {' + method + collapse + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} }, released = [];
   vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) }, { Done: 'Done' });
   let checkCalls = 0;
-  const state = { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
+  global.Curve = { EaseInOut: 0 };
+  const state = Object.assign(new module.exports.InlineFinish(), { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
     pending: Promise.resolve(), cancelCheckDrag() {}, checkFocus: { cancel() {} }, headingController: { stopEditing() {} }, notesController: { stopEditing() {} },
-    getUIContext: () => ({ getFocusController: () => ({ clearFocus() {} }) }),
-    saveText: async () => textSaved, saveCheck: async () => { checkCalls++; return checkSaved; } };
+    getUIContext: () => ({ getFocusController: () => ({ clearFocus() {} }), animateTo(_, change) { change(); } }),
+    saveText: async () => textSaved, saveCheck: async () => { checkCalls++; return checkSaved; } });
   return { state, released, checkCalls: () => checkCalls, finish: () => module.exports.InlineFinish.prototype.finish.call(state, true) };
 }
 

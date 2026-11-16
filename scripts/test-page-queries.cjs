@@ -89,6 +89,7 @@ function fixture() {
     if (!source) cache.set(filename,module);
     const code=ts.transpileModule(source||fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
     const requireLocal=dependency=>{
+      if (dependency==='@ohos.arkui.UIContext') return {FrameCallback:class{}};
       if (dependency.endsWith('/PageDataCache')) return { PageDataCache: class {
         constructor(_, name, scope) { this.key = name + scope; }
         async read() { return structuredClone(disk.get(this.key)); }
@@ -113,7 +114,7 @@ function fixture() {
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
     if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
     if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','defineDataSets','taskDataSet'])];
-    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','defineDataSets'];
+    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','defineDataSets','prepareRecentLayout'];
     const chunks=methods.map(method=>{
       const oneLine=text.split('\n').find(line=>new RegExp('^  (?:private )?'+method+'\\(').test(line)&&line.trim().endsWith('}'));
       if(oneLine)return oneLine;
@@ -121,7 +122,7 @@ function fixture() {
       assert.ok(match,'未找到方法 '+method); return match[0];
     });
     const View=load(name,prelude+'\nexport class QueryPage {\n'+chunks.join('\n')+'\n}').QueryPage;
-    const view=Object.assign(new View(),{stops:[],selectedPlanRegion:null,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
+    const view=Object.assign(new View(),{stops:[],selectedPlanRegion:null,planGroups:[],planRegionOptions:[],logbookTaskGroups:[],listHeight:0,recentLayoutReady:false,recentLayoutPending:false,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
       selectedTags:[],includeUntagged:false,tagOptions:[],tagGroups:[],sections:[],timedItems:[],priorityOrder:[],visible:false,
       getUIContext:()=>({getHostContext:()=>({})}),closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
     if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
@@ -369,19 +370,20 @@ test('批次失败保留通知，页面查询不重复注册应用级通知订�
   assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,snapshots);
 });
 
-test('原位编辑重读卡片时同批发布同步提示，恢复基线后清除，失败保留快照',async()=>{
-  const f=fixture(),service=f.load('services/TaskInlineService').TaskInlineService;
+test('任务快照查询时同批发布同步提示，恢复基线后清除，失败保留通知',async()=>{
+  const f=fixture(),service=f.load('services/PageQueryService').PageQueryService;
   const task={id:'editing',repoId:'core-a',filePath:'same.org',fileVersion:'new',tags:['新增标签']};
   let changed=true;
   f.query(batch=>batch.map(request=>request.type==='notification' ?
     {type:'notification',result:changed?[{type:'syncRequired'}]:[]} : {type:'task',result:{tasks:[task]}}));
-  assert.equal(await service.reload({},task),task);
+  const reload=()=>service.query(f.config,[{type:'task',query:{includeFiles:[{repoId:task.repoId,path:task.filePath}]}}]);
+  assert.equal((await reload())[0].result.tasks[0],task);
   assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['task','notification']);
   assert.deepEqual(f.writes.filter(write=>write.key==='coreNotifications').at(-1).value.notifications,[{type:'syncRequired'}]);
-  changed=false;await service.reload({},task);
+  changed=false;await reload();
   assert.deepEqual(f.writes.filter(write=>write.key==='coreNotifications').at(-1).value.notifications,[]);
   const before=f.writes.filter(write=>write.key==='coreNotifications').length;
-  f.fail();await assert.rejects(service.reload({},task),/整批读取失败/);
+  f.fail();await assert.rejects(reload(),/整批读取失败/);
   assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,before);
 });
 

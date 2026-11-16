@@ -2,6 +2,7 @@ export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someda
 
 export enum TaskOperation {
   Move = 'move',
+  Project = 'project',
   Schedule = 'schedule',
   Deadline = 'deadline',
   Someday = 'someday',

@@ -10,6 +10,8 @@ import {
   FileConflict as NativeFileConflict,
   TaskPath as NativeTaskPath,
   TaskFileVersion as NativeTaskFileVersion,
+  TaskFileNew as NativeTaskFileNew,
+  TaskFileInitialTask as NativeTaskFileInitialTask,
   TaskOperation as NativeTaskOperation,
   TaskOperationGroup as NativeTaskOperationGroup,
   TaskMergeRequest as NativeTaskMergeRequest,
@@ -165,6 +167,8 @@ export type CoreRefileTargetQuery = NativeRefileTargetQuery
 export type CoreRefileTarget = NativeRefileTarget
 export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion
+export type CoreTaskFileNew = NativeTaskFileNew
+export type CoreTaskFileInitialTask = NativeTaskFileInitialTask
 export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskMergeRequest = NativeTaskMergeRequest

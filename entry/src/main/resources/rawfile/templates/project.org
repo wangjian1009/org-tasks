@@ -1,0 +1,6 @@
+#+TITLE: {{project_name}}
+#+PROJECT_NAME: {{project_name}}
+#+FILETAGS: :project:
+#+CATEGORY: {{category}}
+#+SETUPFILE: {{setup_file}}
+

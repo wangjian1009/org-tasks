@@ -1084,18 +1084,18 @@ pub(super) async fn load_setup_settings_cached(
                 .unwrap_or(value);
             let value = value.strip_prefix("file:").unwrap_or(value).trim();
             let relative = Path::new(value);
-            if relative.is_absolute()
-                || relative
-                    .components()
-                    .any(|component| matches!(component, std::path::Component::ParentDir))
-            {
-                continue;
+            if relative.is_absolute() { continue; }
+            let mut setup_path = current_dir.to_path_buf();
+            let mut valid = true;
+            for part in relative.components() {
+                match part {
+                    std::path::Component::CurDir => {},
+                    std::path::Component::Normal(name) => setup_path.push(name),
+                    std::path::Component::ParentDir => { if !setup_path.pop() { valid = false; break; } },
+                    _ => { valid = false; break; },
+                }
             }
-            let setup_path = current_dir.join(relative);
-            let setup_path = setup_path
-                .components()
-                .filter(|part| !matches!(part, std::path::Component::CurDir))
-                .collect::<PathBuf>();
+            if !valid { continue; }
             let normalized = setup_path
                 .to_string_lossy()
                 .replace(std::path::MAIN_SEPARATOR, "/");

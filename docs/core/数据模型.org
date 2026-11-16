@@ -1033,7 +1033,7 @@ logbook\_html: String \\
 
 * 统一任务操作模型
 
-以下类型均定义于 ~core::model~ 。 ~TaskOperationGroup~ 代表一次批量修改， ~operations~ 按列表顺序执行。各类操作分别拥有独立数据结构，不共享输入基类。JSON 操作以 ~type~ 区分 ~Creation~ 、 ~Modification~ 、 ~Movement~ 、 ~Deletion~ 和 ~ConfilictSelection~ ，对应数据位于 ~data~ ；结构体字段使用 camelCase。
+以下类型均定义于 ~core::model~ 。 ~TaskOperationGroup~ 代表一次批量修改， ~operations~ 按列表顺序执行。各类操作分别拥有独立数据结构，不共享输入基类。JSON 操作以 ~type~ 区分 ~FileNew~ 、 ~Creation~ 、 ~Modification~ 、 ~Movement~ 、 ~Deletion~ 和 ~ConfilictSelection~ ，对应数据位于 ~data~ ；结构体字段使用 camelCase。
 
 ~operation_id~ 是可选操作来源标识，JSON 为 ~operationId~ ，缺省或空值表示 ~None~ 。实际提交成功后，同一操作产生的仓库数据变化通知透传该标识；它不改变操作规则和事务语义，也不作为幂等键。同步、重置和旧调用无来源标识时，通知保留空值。
 
@@ -1060,6 +1060,7 @@ pub struct TaskOperationGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", deny_unknown_fields)]
 pub enum TaskOperation {
+    FileNew(TaskFileNew),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
     Movement(TaskMovement),
@@ -1188,6 +1189,44 @@ pub struct TaskOperationRecord {
 pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 #+end_src
+
+** 模板文件创建
+
+~FileNew(TaskFileNew)~ 与 ~Creation~ 平级，由同一 ~TaskOperationGroup~ 执行。目标是 ~path: TaskPath~ 文件根路径，不覆盖已经存在的文件。~template_content~ 非空时优先使用内联模板，否则读取同一仓库的 ~template_path~ ；两者为空时创建空文档。~arguments~ 是字符串映射，扫描模板中的 ~{{name}}~ 后逐项取值，缺少参数或占位符无效时整组失败。~init_tasks~ 是新任务的数据参数，不是既有记录路径；完整语义见 [[file:文件模板与项目转换设计.org][模板与项目转换设计]]。
+
+#+begin_src rust
+pub struct TaskFileNew {
+    pub path: TaskPath,
+    pub template_path: String,
+    pub template_content: String,
+    pub arguments: BTreeMap<String, String>,
+    pub init_tasks: Vec<TaskFileInitialTask>,
+}
+
+pub struct TaskFileInitialTask {
+    pub title: String,
+    pub body: String,
+    pub state: Option<String>,
+    pub priority: Option<String>,
+    pub tags: Vec<String>,
+    pub scheduled: Option<String>,
+    pub deadline: Option<String>,
+}
+#+end_src
+
+#+begin_export latex
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec of TaskOperation}{}
+\umlclass[x=7,y=0]{TaskFileNew}{path: TaskPath \\ template\_path: String \\ template\_content: String \\ arguments: Map \\ init\_tasks: Vec of TaskFileInitialTask}{}
+\umlclass[x=7,y=-5]{TaskFileInitialTask}{title: String \\ body: String \\ state: Option of String \\ priority: Option of String \\ tags: Vec of String \\ scheduled: Option of String \\ deadline: Option of String}{}
+\umldep{TaskOperationGroup}{TaskFileNew}
+\umlcompo[mult1=1,mult2=0..*]{TaskFileNew}{TaskFileInitialTask}
+\end{tikzpicture}
+#+end_export
+
+没有根标题时，初始化任务按第一层添加；首个根标题没有状态时，添加为其子标题；首个根标题有状态时，添加在整个子树后方作为同级标题。多条初始化任务保持输入顺序，字段校验、创建时间及状态日志复用 ~Creation~ 。模板中的根标题保留模板原文，不额外回填创建时间。
+
+模板实际文件头中的 ~SETUPFILE~ 根据仓库根目录 ~.setup.org~ 的存在性填写或移除，不修改源码块中的字面声明。模板、设置和目标的读取依赖参与提交前校验；源版本变化、任意初始化失败或普通提交失败时不留下新文件或部分迁移。成功的新文件及其任务进入既有变更通知与操作历史。
 
 ** 创建与字段修改
 

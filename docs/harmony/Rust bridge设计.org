@@ -774,3 +774,11 @@ Rust 持有监控对象至最后一个在途请求退出，超时和关闭清理
 Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继续保留快照与生命周期；properties 为 Core 生成的自身属性表，原始事件记录同步携带该表。页面快照按相同属性表恢复方法，旧缓存缺少属性表时按空表读取。PROPERTY 的本地待确认值仅更新目标属性，正式结果、失败恢复和跨字段副作用仍由 DataSet 与 Core 事件归并。
 
 项目标题操作使用 task.property('VISIBILITY') 判断 folded，通过 DataSet.updateTask 提交 PROPERTY 将值设为 folded 或 all；不新增 isSubtreeFolded 等专用标记，不改变 TaskEditContent，也不向控件添加折叠状态参数。
+
+* FileNew 与收件箱项目转换
+
+~TaskOperationType~ 增加与 ~Creation~ 平级的 ~FileNew~ ，~TaskOperation.data~ 增加 ~TaskFileNew~ 。~TaskFileNew~ 包含 ~path: TaskPath~ 、可选 ~templatePath~ 、~templateContent~ 、~arguments: Record<string, string>~ 和 ~initTasks: TaskFileInitialTask[]~ ；~TaskFileInitialTask~ 使用 ~Creation~ 的标题、正文、状态、优先级、标签、计划和截止字段，不接受位置。
+
+Rust 由 Core 反序列化并执行新增枚举；C++ 继续通过既有 ~Workspace.executeTaskOperations~ 的结构化编组与 worker，ArkTS wrapper 提供对应类型别名，不在 bridge 扫描模板、判断根标题或生成 Org 内容。HTTP 和 CLI 的既有操作组入口同步获得该类型，不增加另一个创建文件接口。
+
+Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数。~ProjectCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。

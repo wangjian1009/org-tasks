@@ -1840,6 +1840,7 @@ napi_value WorkspaceExecuteTaskOperations(napi_env env, napi_callback_info info)
         napi_throw_error(env, nullptr, "Workspace.executeTaskOperations 参数无效"); return nullptr;
     }
     auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->execute_operations = true;
+    // FileNew 与既有任务操作使用同一结构化编组和 worker，不在 bridge 读取模板或修改文件。
     if (!EncodeJson(env, args[0], &work->expression)) { delete work; napi_throw_error(env, nullptr, "任务整理参数无效"); return nullptr; }
     return QueueWorkspaceString(env, work, "OrgTasksExecuteTaskOperations", self);
 }

@@ -20,6 +20,7 @@ struct WorkingFile {
     file: OrgFile,
     stamp: Option<FileStamp>,
     before_metadata: Option<OrgFileMetadata>,
+    new_file: Option<(String, String)>,
 }
 
 /// 文件内容只读一次；提交期间用文件身份、长度与修改时刻检查外部写入。
@@ -87,6 +88,7 @@ impl WorkspaceState {
         let mut touched = BTreeSet::new();
         for operation in &source_group.operations {
             match operation {
+                TaskOperation::FileNew(data) => { touched.insert(data.path.repo_id.clone()); }
                 TaskOperation::ConfilictSelection(data) => {
                     if let Some(path) = &data.path { touched.insert(path.repo_id.clone()); }
                     else { touched.extend(self.repos().iter().map(|repo| repo.id.clone())); }
@@ -283,6 +285,10 @@ async fn load_files_with_dependencies(
     let mut keys = BTreeSet::new();
     for operation in &group.operations {
         let (source, position) = match operation {
+            TaskOperation::FileNew(data) => {
+                if !data.path.titles.is_empty() { return Err(CoreError::InvalidInput("新文件必须使用文件根路径")); }
+                (Some(&data.path), None)
+            }
             TaskOperation::ConfilictSelection(data) => {
                 if let Some(path) = &data.path {
                     path.validate()?;
@@ -378,7 +384,7 @@ async fn load_files_with_dependencies(
         file.modified_at = stamp.as_ref().and_then(stamp_timestamp);
         file.scan_ignored = scan_rules[&repo_id].excludes(&path);
         let before_metadata = original.as_ref().map(|_| file.metadata(file.scan_ignored));
-        files.insert((repo_id, path), WorkingFile { disk, exists: original.is_some(), original, file, stamp, before_metadata });
+        files.insert((repo_id, path), WorkingFile { disk, exists: original.is_some(), original, file, stamp, before_metadata, new_file: None });
     }
     for version in &group.file_versions {
         let item = &files[&(version.repo_id.clone(), version.file.clone())];
@@ -392,6 +398,40 @@ async fn load_files_with_dependencies(
             return Err(CoreError::InvalidState("任务文件版本已变化，请刷新后重试"));
         }
     }
+    for operation in &group.operations {
+        let TaskOperation::FileNew(data) = operation else { continue };
+        let file_key = key(&data.path)?;
+        let item = &files[&file_key];
+        if item.original.is_some() || item.new_file.is_some() {
+            return Err(CoreError::InvalidState("目标文件已存在，不能覆盖"));
+        }
+        let repo = workspace.repo(&file_key.0).expect("已验证仓库");
+        let root = Path::new(&repo.root_directory);
+        let cache = setup_caches.entry(repo.id.clone()).or_default();
+        let template = if !data.template_content.is_empty() || data.template_path.is_empty() {
+            data.template_content.clone()
+        } else {
+            super::validate_relative_path(&data.template_path)?;
+            if data.template_path.split('/').any(|part| part == ".sync") {
+                return Err(CoreError::InvalidInput("模板不能位于控制目录"));
+            }
+            let bytes = read_template_dependency(root, &data.template_path, cache).await?
+                .ok_or(CoreError::InvalidInput("模板文件不存在"))?;
+            String::from_utf8(bytes).map_err(|_| CoreError::InvalidInput("模板必须是 UTF-8 文本"))?
+        };
+        // SETUPFILE 是文件头语义，字面源码不触发额外配置读取。
+        let has_setup = orgize::Org::parse(&template).document().keywords()
+            .any(|keyword| keyword.key().eq_ignore_ascii_case("SETUPFILE"));
+        let setup_exists = has_setup && read_template_dependency(root, ".setup.org", cache).await?.is_some();
+        let prefix = "../".repeat(file_key.1.split('/').count() - 1);
+        let setup_path = format!("{prefix}.setup.org");
+        let source = super::file_template::render(&template, &data.arguments,
+            setup_exists.then_some(setup_path.as_str()))?;
+        let setup = super::service::load_setup_settings_cached(root, &file_key.1, source.as_bytes(), cache).await?;
+        // 在隔离阶段验证模板，执行时才登记新标题及其语义事件。
+        repo.parse_file_with_setup(file_key.1.clone(), source.as_bytes().to_vec(), setup.clone())?;
+        files.get_mut(&file_key).unwrap().new_file = Some((source, setup));
+    }
     for (repo_id, cache) in setup_caches {
         let root = PathBuf::from(&workspace.repo(&repo_id).expect("已验证仓库").root_directory);
         for (path, original) in cache {
@@ -401,6 +441,18 @@ async fn load_files_with_dependencies(
         }
     }
     Ok((files, dependencies))
+}
+
+async fn read_template_dependency(
+    root: &Path,
+    path: &str,
+    cache: &mut BTreeMap<String, Option<Vec<u8>>>,
+) -> Result<Option<Vec<u8>>, CoreError> {
+    let disk = checked_disk(root, path).await?;
+    if let Some(bytes) = cache.get(path) { return Ok(bytes.clone()); }
+    let bytes = read_optional(&disk).await?;
+    cache.insert(path.into(), bytes.clone());
+    Ok(bytes)
 }
 
 pub(super) async fn checked_disk(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
@@ -533,6 +585,7 @@ fn execute(
     }
     // 先在完整快照上校验，不能借临时分离容器绕过冲突路径保护。
     match operation {
+        TaskOperation::FileNew(data) => { key(&data.path)?; }
         TaskOperation::Modification(data) => {
             locate(&files[&key(&data.path)?].file, &data.path)?;
         }
@@ -578,6 +631,33 @@ fn execute_inner(
     operation: &TaskOperation,
 ) -> Result<Option<TaskPath>, CoreError> {
     match operation {
+        TaskOperation::FileNew(data) => {
+            let file_key = key(&data.path)?;
+            let item = files.get_mut(&file_key).expect("已加载文件");
+            if item.exists { return Err(CoreError::InvalidState("目标文件已存在，不能覆盖")); }
+            let (source, setup) = item.new_file.take().ok_or(CoreError::InvalidInput("新文件模板未准备"))?;
+            item.file.todo_setup = setup;
+            replace(&mut item.file, 0..0, source.as_bytes())?;
+            let count = super::mutation_journal::headlines(&item.file).len();
+            if let Some(tracker) = &mut item.file.mutation_journal { tracker.create(0, count); }
+            item.exists = true;
+            let first = item.file.path_headlines().into_iter().next();
+            let (parent, mut after) = match first {
+                None => (data.path.clone(), None),
+                Some((path, node)) if node.todo_keyword().is_none() => (path, None),
+                Some((path, _)) => (data.path.clone(), Some(path)),
+            };
+            for task in &data.init_tasks {
+                let creation = TaskCreation {
+                    position: TaskPosition { parent: parent.clone(), after },
+                    title: task.title.clone(), body: task.body.clone(), state: task.state.clone(),
+                    priority: task.priority.clone(), tags: task.tags.clone(),
+                    scheduled: task.scheduled.clone(), deadline: task.deadline.clone(),
+                };
+                after = execute(files, &TaskOperation::Creation(creation))?;
+            }
+            Ok(Some(data.path.clone()))
+        }
         TaskOperation::ConfilictSelection(data) => {
             let keys = files
                 .iter()
@@ -1799,6 +1879,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_commit_removes_a_new_file_and_preserves_the_source() {
+        let root = std::env::temp_dir().join(format!("file-new-rollback-{}", super::super::service::generate_repo_id().unwrap()));
+        fs::create_dir(&root).await.unwrap();
+        fs::write(root.join("z-inbox.org"), "* TODO 草稿\n正文\n").await.unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
+        let id=repo.id.clone();let workspace=OrgWorkspace::start(vec![repo]).await.unwrap();
+        let group: TaskOperationGroup=serde_json::from_value(serde_json::json!({"operations":[
+            {"type":"FileNew","data":{"path":{"repoId":id,"file":"a-new.org","titles":[]},"templateContent":"#+TITLE: 项目\n"}},
+            {"type":"Movement","data":{"path":{"repoId":id,"file":"z-inbox.org","titles":["草稿"]},
+                "position":{"parent":{"repoId":id,"file":"a-new.org","titles":[]}}}}
+        ]})).unwrap();
+        let mut files=load_files(&workspace.state_for_test().await.unwrap(),&group).await.unwrap();
+        for op in &group.operations {execute(&mut files,op).unwrap();}
+        assert!(commit_prepared(&files,Some(1)).await.is_err());
+        assert!(!root.join("a-new.org").exists());
+        assert_eq!(fs::read_to_string(root.join("z-inbox.org")).await.unwrap(),"* TODO 草稿\n正文\n");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(),2);
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn failures_during_each_commit_step_restore_all_files() {
         for failure in 0..2 {
             let root = std::env::temp_dir().join(format!(
@@ -1857,7 +1959,7 @@ mod tests {
 pub(super) fn edit_preview(file: OrgFile, group: &TaskOperationGroup) -> Result<OrgFile, CoreError> {
     let file_key = key(&file.full_path())?;
     let mut files = BTreeMap::from([(file_key.clone(), WorkingFile {
-        disk: PathBuf::new(), original: None, exists: true, file, stamp: None, before_metadata: None,
+        disk: PathBuf::new(), original: None, exists: true, file, stamp: None, before_metadata: None, new_file: None,
     })]);
     for operation in &group.operations { execute(&mut files, operation)?; }
     Ok(files.remove(&file_key).unwrap().file)

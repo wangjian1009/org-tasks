@@ -9,6 +9,7 @@ pub(crate) mod conflict_preview;
 pub(crate) mod data_changes;
 mod editor;
 mod file_keywords;
+mod file_template;
 mod merge;
 mod mutation_journal;
 mod plain_links;

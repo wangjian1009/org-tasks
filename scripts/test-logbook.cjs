@@ -83,10 +83,10 @@ test('缺失或无效完成时间放在末尾，不借用创建时间，空快�
 });
 const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
 function readOnlyCard(instanceKey = 'event-A') {
-  const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'finish', 'persist', 'saveText', 'saveCheck',
+  const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'toggleFromCompact', 'collapseAnimated', 'finish', 'persist', 'saveText', 'saveCheck',
     'openMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
   const chunks = methods.map(name => {
-    const result = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
+    const result = source.match(new RegExp('  (?:private )?(?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(result, name); return result[0];
   });
   let released;
@@ -210,7 +210,7 @@ test('批量删除仍一次提交删除操作与去重后的源文件版本', as
 function batchList() {
   const source = fs.readFileSync('entry/src/main/ets/components/LogbookTaskList.ets', 'utf8');
   const chunks = ['allItems', 'selectedItems', 'startSelection', 'toggleSelection', 'resetSelection', 'restoreTasks', 'removeTasks', 'performTasks']
-    .map(name => source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'))[0]);
+    .map(name => source.match(new RegExp('  (?:private )?(?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'))[0]);
   const calls = [], messages = [];
   let perform = async () => {};
   const { List } = compile(`import { LogbookService } from 'service';

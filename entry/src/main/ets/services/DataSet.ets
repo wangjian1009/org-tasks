@@ -377,6 +377,7 @@ export class DataSet {
           this.requestExternalRefresh(); throw new Error('数据订阅已失效，正在刷新页面')
         }
         await execute(operationId)
+        this.loadError = ''
         this.versions.set(this.name, Math.max(this.versions.get(this.name) ?? 0, version))
         this.rebuild(this.name, operationId, this.pending.length > 0)
             this.publish({ name, type: 'complete', version, operationId, optimistic: false, added: [], removed: [], updated: [],

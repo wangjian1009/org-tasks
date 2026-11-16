@@ -24,9 +24,10 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility' })
     const ability = await delegator.waitAbilityMonitor(monitor, 10000)
     const context = ability.context
+    const projectData = abilityDelegatorRegistry.getArguments().parameters['-s projectData'] === 'true'
     const pageData = abilityDelegatorRegistry.getArguments().parameters['-s pageData'] === 'true'
     const notificationWebDav = abilityDelegatorRegistry.getArguments().parameters['-s notificationWebDav'] === 'true'
-    const testDirectory = notificationWebDav || pageData ? `notification-data-qa-${Date.now()}` : 'today-data-qa'
+    const testDirectory = projectData ? `project-conversion-qa-${Date.now()}` : notificationWebDav || pageData ? `notification-data-qa-${Date.now()}` : 'today-data-qa'
     const directory = `${context.filesDir}/${testDirectory}`
     const today = localDate(new Date())
     const tomorrow = localDate(new Date(Date.now() + 86400000))
@@ -49,10 +50,18 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     config.repos = [{ id: 'today-simulator-qa', name: '模拟器验证', rootDirectory: directory, webdavEnabled: notificationWebDav,
       webdavUrl: notificationWebDav ? `http://127.0.0.1:18789/${testDirectory}/` : '',
       webdavUsername: notificationWebDav ? 'qa' : '', webdavPassword: notificationWebDav ? 'qa' : '', excludedDirectories: [] }]
+    if (projectData) {
+      const targetDirectory = `${directory}-target`
+      await fs.mkdir(targetDirectory, true)
+      const setup = await fs.open(`${targetDirectory}/.setup.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
+      try { await fs.write(setup.fd, '#+TODO: TODO INPROGRESS | DONE\n'); await fs.fsync(setup.fd) } finally { await fs.close(setup) }
+      config.repos.push({ id: 'project-target-qa', name: '项目目标', rootDirectory: targetDirectory,
+        webdavEnabled: false, webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] })
+    }
     config.inboxRepoId = 'today-simulator-qa'; config.inboxFile = 'tasks.org'
     config.somedayRepoId = 'today-simulator-qa'; config.somedayFile = 'someday.org'; config.memoRepoId = ''; config.memoFile = ''
     if (pageData) { config.memoRepoId = 'today-simulator-qa'; config.memoFile = 'memo.org' }
-    if (notificationWebDav) config.todoDefaults = '#+TODO: TODO INPROGRESS | DONE'
+    if (notificationWebDav || projectData) config.todoDefaults = '#+TODO: TODO INPROGRESS | DONE'
     await AppConfigService.save(context, config)
     if (notificationWebDav) {
       const request = RepositorySyncService.start(context, { triggerReason: 'manual', policy: SyncStartPolicy.Wait })

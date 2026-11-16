@@ -82,11 +82,13 @@ test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终�
     const root = { children: [] }, stack = [root];
     const current = () => stack.at(-1);
     const Row = { create() { const node = { children: [], parent: current() }; current().children.push(node); stack.push(node); },
-      pop() { stack.pop(); }, width() {}, layoutWeight() {}, constraintSize() {}, padding() {}, accessibilityText() {} };
+      pop() { stack.pop(); }, width() {}, layoutWeight() {}, constraintSize() {}, padding() {}, accessibilityText() {}, onTouch(callback) { current().touch = callback; } };
     const If = { create() {}, pop() {} };
     const Gesture = { create(priority, mask) { current().gesture = { priority, mask }; }, pop() {} };
     const TapGesture = { create() {}, onAction(action) { current().gesture.action = action; }, pop() {} };
-    const code = ts.transpileModule('export class Card {' + builder + '}', {
+    const toggleFromCompact = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8')
+      .match(/  private toggleFromCompact\(\): void \{[\s\S]*?\n  \}/)[0];
+    const code = ts.transpileModule('export class Card {' + builder + toggleFromCompact + '}', {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     }).outputText;
     const module = { exports: {} };

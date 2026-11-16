@@ -428,6 +428,11 @@ fn operation_access(group: &crate::TaskOperationGroup) -> Access {
     };
     for operation in &group.operations {
         let known = match operation {
+            FileNew(data) => insert(&data.path)
+                .and_then(|_| insert(&crate::TaskPath::file(data.path.repo_id.clone(), ".setup.org".into())))
+                .and_then(|_| if data.template_content.is_empty() && !data.template_path.is_empty() {
+                    insert(&crate::TaskPath::file(data.path.repo_id.clone(), data.template_path.clone()))
+                } else { Some(()) }),
             Creation(data) => insert(&data.position.parent)
                 .and_then(|_| data.position.after.as_ref().map_or(Some(()), &mut insert)),
             Modification(data) => insert(&data.path),

@@ -599,6 +599,9 @@ impl WorkspaceState {
                 "预览操作组不能为空",
             ));
         }
+        if group.operations.iter().any(|op| matches!(op, TaskOperation::FileNew(_))) {
+            return Err(CoreError::InvalidInput("冲突预览不能创建文件"));
+        }
         for path in operation_paths(group) {
             path.validate()?;
             if path.repo_id != "<preview>" || path.file.as_ref() != Some(&state.id) {
@@ -674,6 +677,7 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
     let mut paths = Vec::new();
     for op in &group.operations {
         match op {
+            TaskOperation::FileNew(v) => paths.push(&v.path),
             TaskOperation::Creation(v) => {
                 paths.push(&v.position.parent);
                 paths.extend(v.position.after.iter());
@@ -1395,6 +1399,7 @@ fn remap_operation(
         Ok(())
     }
     match &mut operation {
+        TaskOperation::FileNew(_) => return Err(CoreError::InvalidInput("冲突预览不能创建文件")),
         TaskOperation::Creation(v) => position(&mut v.position, id, source)?,
         TaskOperation::Modification(v) => path(&mut v.path, id, source)?,
         TaskOperation::Deletion(v) => path(&mut v.path, id, source)?,

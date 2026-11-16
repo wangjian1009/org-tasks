@@ -24,11 +24,46 @@ pub struct TaskOperationGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", deny_unknown_fields)]
 pub enum TaskOperation {
+    FileNew(TaskFileNew),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
     Movement(TaskMovement),
     Deletion(TaskDeletion),
     ConfilictSelection(TaskConfilictSelection),
+}
+
+/// 文件创建与任务创建共用操作组；初始化任务的位置由生成文档的首个根标题决定。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileNew {
+    pub path: TaskPath,
+    #[serde(default)]
+    pub template_path: String,
+    #[serde(default)]
+    pub template_content: String,
+    #[serde(default)]
+    pub arguments: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub init_tasks: Vec<TaskFileInitialTask>,
+}
+
+/// 采用与 Creation 相同的字段及校验，不接受由调用方指定的插入位置。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileInitialTask {
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub scheduled: Option<String>,
+    #[serde(default)]
+    pub deadline: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

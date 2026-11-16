@@ -31,6 +31,14 @@ export interface TaskCreation {
   position: TaskPosition; title: string; body?: string; state?: string | null; priority?: string | null;
   tags?: string[]; scheduled?: string | null; deadline?: string | null;
 }
+export interface TaskFileInitialTask {
+  title: string; body?: string; state?: string | null; priority?: string | null;
+  tags?: string[]; scheduled?: string | null; deadline?: string | null;
+}
+export interface TaskFileNew {
+  path: TaskPath; templatePath?: string; templateContent?: string;
+  arguments?: Record<string, string>; initTasks?: TaskFileInitialTask[];
+}
 export interface TaskAddressChange { oldUri: string; newUri: string; }
 export type TaskModificationField = 'PROPERTY' | 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'CONTENT_BLOCK' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
 export type TaskRepeatMode = 'cumulative' | 'catchUp' | 'afterCompletion';
@@ -54,8 +62,8 @@ export interface TaskDeletion { path: TaskPath; }
 export interface TaskMergeRequest { paths: TaskPath[]; fileVersion: string; }
 export interface TaskMergePlan { operationGroup: TaskOperationGroup; mainPath: TaskPath; }
 export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
-export type TaskOperationType = 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
-export interface TaskOperation { type: TaskOperationType; data: TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
+export type TaskOperationType = 'FileNew' | 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
+export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operationId?: string | null; operations: TaskOperation[]; fileVersions?: TaskFileVersion[]; }
 // 事件中的记录是纯数据，不具有 native Task/OrgFileMetadata 对象的方法。

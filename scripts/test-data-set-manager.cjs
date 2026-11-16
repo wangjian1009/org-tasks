@@ -433,3 +433,13 @@ test('通用属性修改保留其他字段，失败回滚属性快照，成功�
   assert.equal(set.getTask('A').property('VISIBILITY'),null);
  }finally{await f.cleanup()}
 });
+
+test('操作重试成功后清理上次操作错误，后续编辑继续使用同一数据集',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const data=manager.dataSet('tasks');
+  await assert.rejects(data.operate(async()=>{throw new Error('目标文件已存在')}),/已存在/);
+  assert.equal(data.error,'目标文件已存在');
+  await data.operate(async operationId=>{await f.workspace.executeTaskOperations({operationId,operations:[{type:'Modification',data:{path:f.rows()[0].fullPath,modifications:[{field:'NOTES',value:'重试成功'}]}}]})});
+  assert.equal(data.error,'');assert.equal(data.getTask('A').editContent.notes,'重试成功');assert.equal(f.groups.length,1);
+ }finally{await f.cleanup()}
+});
