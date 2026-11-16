@@ -111,6 +111,8 @@ impl OrgWorkspace {
                 CoreQuery::File { query } => !query.file_tags.is_empty(),
                 _ => false,
             });
+        // 执行器只服务于本次查询；结果编组仍在调用方当前 runtime 中完成。
+        let executor = crate::executor::Executor::new()?;
         let mut roots = BTreeMap::new();
         for repo in self
             .repos()
@@ -181,7 +183,6 @@ impl OrgWorkspace {
             }
             candidates.retain(|path| !queries.iter().any(|query| query.needs_file(&repo.id, path)));
             let repo = (*repo).clone();
-            let executor = self.executor.clone();
             let ignored = candidates.into_iter().collect::<Vec<_>>();
             let repo_id = repo.id.clone();
             let sender = sender.clone();

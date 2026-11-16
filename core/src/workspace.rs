@@ -4,25 +4,13 @@ use crate::model::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
 
 pub type OrgWorkspaceValidationError = CoreError;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrgWorkspace {
     pub repos: Vec<OrgRepo>,
     pub todo_defaults: TodoConfig,
     pub task_operation_history: crate::model::TaskOperationHistory,
     pub(crate) preview: crate::model::conflict_preview::PreviewStore,
-    pub(crate) executor: crate::executor::Executor,
 }
-
-impl PartialEq for OrgWorkspace {
-    fn eq(&self, other: &Self) -> bool {
-        self.repos == other.repos
-            && self.todo_defaults == other.todo_defaults
-            && self.task_operation_history == other.task_operation_history
-            && self.preview == other.preview
-    }
-}
-
-impl Eq for OrgWorkspace {}
 
 impl OrgWorkspace {
     /// 为当前共享 Workspace 启动 APP 内嵌接口，不创建独立服务或另一份数据上下文。
@@ -89,7 +77,6 @@ impl OrgWorkspace {
             todo_defaults: TodoConfig::default(),
             task_operation_history: Default::default(),
             preview: Default::default(),
-            executor: crate::executor::Executor::new()?,
         })
     }
 

@@ -106,7 +106,7 @@ pub fn merge(
 
 *** OrgWorkspace
 
-~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。Workspace 同时持有内部多线程 ~Executor~ ，查询中的独立读取、解析和任务投影通过通道逐项回送，排序、分类和事务提交仍由当前调用上下文完成。它是运行时构造输入，不是持久化实体。
+~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。每次查询函数临时创建多线程 ~Executor~ ，查询中的独立读取、解析和任务投影通过通道逐项回送，排序、分类和事务提交仍由当前调用上下文完成。它是运行时构造输入，不是持久化实体。
 
 #+begin_src rust
 impl OrgWorkspace {
