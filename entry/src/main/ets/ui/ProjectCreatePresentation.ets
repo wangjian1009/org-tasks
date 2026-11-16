@@ -19,6 +19,6 @@ export function projectInputError(repoId: string, name: string, fileName: string
   const path = fileName.trim()
   if (!path || path === '.org') return '请输入文件名'
   if (path === '.' || path === '..' || /[\/\\\r\n\u0000]/.test(path)) return '文件名不能包含目录分隔符或换行'
-  if (/[\r\n\u0000]/.test(region)) return 'Region 名称不能包含换行或控制字符'
+  if (/[\r\n\u0000]/.test(region)) return '分类名称不能包含换行或控制字符'
   return ''
 }

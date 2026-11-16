@@ -103,8 +103,8 @@ export struct ProjectCreateSheet {
   saveRegion(): boolean {
     if (this.busy) return false
     const name = this.newRegionName.trim()
-    if (!name) { this.inputError = '请输入 Region 名称'; return false }
-    if (/[\r\n\u0000]/.test(name)) { this.inputError = 'Region 名称不能包含换行或控制字符'; return false }
+    if (!name) { this.inputError = '请输入分类名称'; return false }
+    if (/[\r\n\u0000]/.test(name)) { this.inputError = '分类名称不能包含换行或控制字符'; return false }
     if (!this.regionOptions().includes(name)) this.newRegions = [...this.newRegions, { repoId: this.repoId, name }]
     this.region = name
     this.addingRegion = false
@@ -117,7 +117,7 @@ export struct ProjectCreateSheet {
   regionEditor() {
     Column({ space: 18 }) {
       Row() {
-        Text('新建 Region').fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+        Text('新建分类').fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
         Button('取消').id('project_create_region_cancel').height(44).fontColor(UiColor.secondary)
           .backgroundColor(Color.Transparent).enabled(!this.busy).onClick((): void => {
             this.addingRegion = false; this.newRegionName = ''; this.inputError = ''
@@ -125,11 +125,11 @@ export struct ProjectCreateSheet {
       }.width('100%')
       Text(this.repositories.find(option => option.repoId === this.repoId)?.name || '')
         .fontSize(14).fontColor(UiColor.secondary).width('100%')
-      TextInput({ text: this.newRegionName, placeholder: 'Region 名称' }).id('project_create_region_name')
+      TextInput({ text: this.newRegionName, placeholder: '分类名称' }).id('project_create_region_name')
         .height(48).fontSize(16).fontColor(UiColor.text).backgroundColor('#414542').enabled(!this.busy)
         .onChange((value: string): void => { this.newRegionName = value })
       if (this.inputError) { Text(this.inputError).fontSize(14).fontColor(UiColor.error).width('100%') }
-      Button('添加 Region').id('project_create_region_save').width('100%').height(48).backgroundColor(UiColor.primary)
+      Button('添加分类').id('project_create_region_save').width('100%').height(48).backgroundColor(UiColor.primary)
         .fontColor(UiColor.onPrimary).enabled(!this.busy).onClick((): void => { this.saveRegion() })
     }.width('100%')
   }
@@ -157,11 +157,11 @@ export struct ProjectCreateSheet {
                 .borderRadius(12).padding({ left: 12, right: 12 }).accessibilityText('位置：选择存储库')
                 .enabled(!this.busy).onSelect((index: number): void => { this.selectRepository(index) })
               Text('·').width(6).fontSize(18).fontColor(UiColor.secondary).textAlign(TextAlign.Center)
-              Select(['不设置 Region'].concat(this.regionOptions(), ['新建 Region']).map((value: string): SelectOption => ({ value })))
+              Select(['无'].concat(this.regionOptions(), ['新建分类']).map((value: string): SelectOption => ({ value })))
                 .id('project_create_region').selected(Math.max(0, this.regionOptions().indexOf(this.region) + 1))
-                .value(this.region || '不设置 Region').layoutWeight(1).height(48).font({ size: 14 })
+                .value(this.region || '无').layoutWeight(1).height(48).font({ size: 14 })
                 .fontColor(UiColor.text).backgroundColor('#414542').borderRadius(12).padding({ left: 12, right: 12 })
-                .enabled(!this.busy && !!this.repoId).accessibilityText('位置：选择 Region（CATEGORY）')
+                .enabled(!this.busy && !!this.repoId).accessibilityText('位置：选择分类')
                 .onSelect((index: number): void => { this.selectRegion(index) })
             }.layoutWeight(1)
           }.width('100%')

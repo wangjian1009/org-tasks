@@ -1,7 +1,8 @@
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfigService } from './AppConfigService'
-import { CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService, fileResult } from './NativeCoreService'
+import { configuredFileTarget } from './FileTargetService'
+import { CoreOrgFileRef, CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService, fileResult } from './NativeCoreService'
 import { ProjectRepositoryOption, ProjectLocation, projectFileName, projectInputError } from '../ui/ProjectCreatePresentation'
 
 // 模板替换、SETUPFILE、文件创建与原记录移动全部交给 Core 的同一个操作组。
@@ -10,7 +11,13 @@ export class ProjectCreateService {
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repos = await workspace.repos()
-    const files = fileResult((await workspace.query([{ type: 'file', query: {} }]))[0])
+    const excludeFiles: CoreOrgFileRef[] = []
+    for (const target of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday'), configuredFileTarget(config, 'memo')]) {
+      const configured = config.repos.find(item => item.id === target.repoId)
+      const repo = repos.find(item => item.rootDirectory === configured?.rootDirectory)
+      if (repo && target.path) excludeFiles.push({ repoId: repo.id, path: target.path })
+    }
+    const files = fileResult((await workspace.query([{ type: 'file', query: { excludeFiles } }]))[0])
     return repos.map((repo: CoreRepo): ProjectRepositoryOption => ({ repoId: repo.id,
       name: config.repos.find(item => item.rootDirectory === repo.rootDirectory)?.name || '未命名存储库',
       regions: Array.from(new Set(files.filter(file => file.repoId === repo.id && !file.isIgnore && !!file.category)

@@ -15,23 +15,44 @@ function load(file, mocks = {}) {
   return module.exports;
 }
 const presentation = load('entry/src/main/ets/ui/ProjectCreatePresentation.ets');
+const { configuredFileTarget } = load('entry/src/main/ets/services/FileTargetService.ets', {
+  './AppConfigService': {}, './NativeCoreService': {}, './PageQueryService': {}, './TaskViewQueries': {}
+});
 function fixture() {
-  const writes = [], reads = [];
+  const writes = [], reads = [], queries = [];
   let failure, readFailure, repos = [{ id:'core-source',rootDirectory:'/source' },{id:'core-target',rootDirectory:'/target'}];
   const config = {repos:[{id:'host-source',name:'源仓库',rootDirectory:'/source'},{id:'host-target',name:'目标仓库',rootDirectory:'/target'}]};
-  const workspace = {async repos(){return repos}, async query(){return [{type:'file',result:[{repoId:'core-source',category:'工作',isIgnore:false},{repoId:'core-source',category:'生活',isIgnore:false},{repoId:'core-source',category:'工作',isIgnore:false},{repoId:'core-target',category:'研究',isIgnore:false},{repoId:'core-target',category:'隐藏',isIgnore:true}]}]}, async executeTaskOperations(group){writes.push(group);if(failure)throw failure}};
+  const files = [{repoId:'core-source',path:'work.org',category:'工作',isIgnore:false},{repoId:'core-source',path:'life.org',category:'生活',isIgnore:false},{repoId:'core-source',path:'other.org',category:'工作',isIgnore:false},{repoId:'core-target',path:'research.org',category:'研究',isIgnore:false},{repoId:'core-target',path:'hidden.org',category:'隐藏',isIgnore:true}];
+  const workspace = {async repos(){return repos}, async query(batch){queries.push(batch);const excluded=batch[0].query.excludeFiles ?? [];return [{type:'file',result:files.filter(file=>!excluded.some(target=>target.repoId===file.repoId && target.path===file.path))}]}, async executeTaskOperations(group){writes.push(group);if(failure)throw failure}};
   const {ProjectCreateService}=load('entry/src/main/ets/services/ProjectCreateService.ets',{
     '@kit.ArkTS':{util:{TextDecoder:{create:()=>({decodeToString:value=>Buffer.from(value).toString('utf8')})}}},
     './AppConfigService':{AppConfigService:{async load(){return config}}},
+    './FileTargetService':{configuredFileTarget},
     './NativeCoreService':{fileResult:value=>value.result,NativeCoreService:{async workspaceFor(){return workspace}}},
     '../ui/ProjectCreatePresentation':presentation
   });
   const context={resourceManager:{async getRawFileContent(file){reads.push(file);if(readFailure)throw readFailure;return fs.readFileSync(path.join('entry/src/main/resources/rawfile',file))}}};
   const source={id:'task',repoId:'core-source',filePath:'inbox.org',fileVersion:'source-version',category:'工作',fullPath:{repoId:'core-source',file:'inbox.org',titles:['草稿'],occurrence:2}};
-  return {ProjectCreateService,context,source,writes,reads,fail(error){failure=error},failRead(){readFailure=new Error('raw')},removeRepos(){repos=[]}};
+  return {ProjectCreateService,context,source,writes,reads,queries,config,files,fail(error){failure=error},failRead(){readFailure=new Error('raw')},removeRepos(){repos=[]}};
 }
 test('仓库候选使用真实 Core ID，展示名称按宿主目录映射',async()=>{
   const f=fixture();assert.deepEqual(await f.ProjectCreateService.repositories(f.context),[{repoId:'core-source',name:'源仓库',regions:['工作','生活']},{repoId:'core-target',name:'目标仓库',regions:['研究']}]);
+});
+test('分类候选通过 Core 排除三种配置用途文件，按真实仓库与路径匹配并保留普通文件的同名分类',async()=>{
+  const f=fixture();Object.assign(f.config,{inboxRepoId:'host-source',inboxFile:'inbox.org',somedayRepoId:'host-target',somedayFile:'someday.org',memoRepoId:'host-source',memoFile:'memo.org'});
+  f.files.push({repoId:'core-source',path:'inbox.org',category:'收件分类'},
+    {repoId:'core-target',path:'someday.org',category:'某天分类'},
+    {repoId:'core-source',path:'memo.org',category:'工作'},
+    {repoId:'core-target',path:'inbox.org',category:'同名普通文件'});
+  const options=await f.ProjectCreateService.repositories(f.context);
+  assert.deepEqual(f.queries[0],[{type:'file',query:{excludeFiles:[{repoId:'core-source',path:'inbox.org'},{repoId:'core-target',path:'someday.org'},{repoId:'core-source',path:'memo.org'}]}}]);
+  assert.deepEqual(options[0].regions,['工作','生活']);
+  assert.deepEqual(options[1].regions,['同名普通文件','研究']);
+});
+test('用途配置缺失、路径为空或仓库失效时不误排除普通文件',async()=>{
+  const f=fixture();Object.assign(f.config,{inboxRepoId:'removed',inboxFile:'work.org',somedayRepoId:'host-source',somedayFile:'',memoFile:'life.org'});
+  const options=await f.ProjectCreateService.repositories(f.context);
+  assert.deepEqual(f.queries[0][0].query.excludeFiles,[]);assert.deepEqual(options[0].regions,['工作','生活']);
 });
 test('转换一次提交 FileNew 和 Movement，源版本、重名序号与操作身份完整保留',async()=>{
   const f=fixture();await f.ProjectCreateService.convert(f.context,f.source,{repoId:'core-target',region:'新 Region'},' 新项目 ','自选文件','operation');
@@ -97,9 +118,9 @@ test('新建 Region 仅保存在当前仓库草稿，切换后不泄漏到其他
 test('提交可以同时确认新 Region，并把位置和项目字段完整传给创建入口',()=>{
   const {form,calls}=locationForm();form.addingRegion=true;form.newRegionName='新 Region';form.submit();
   assert.deepEqual(calls,[[{repoId:'source',region:'新 Region'},'项目','项目.org']]);
-  form.addingRegion=true;form.newRegionName=' ';form.submit();assert.equal(calls.length,1);assert.match(form.inputError,/Region/);
+  form.addingRegion=true;form.newRegionName=' ';form.submit();assert.equal(calls.length,1);assert.match(form.inputError,/分类/);
   form.newRegionName='工作\n#+TITLE: 覆盖';assert.equal(form.saveRegion(),false);
-  assert.match(presentation.projectInputError('source','项目','项目','工作\n其他'),/Region/);
+  assert.match(presentation.projectInputError('source','项目','项目','工作\n其他'),/分类/);
   form.busy=true;form.newRegionName='提交中';const count=form.newRegions.length;assert.equal(form.saveRegion(),false);assert.equal(form.newRegions.length,count);
 });
 
