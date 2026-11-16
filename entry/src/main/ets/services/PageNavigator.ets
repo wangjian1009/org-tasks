@@ -74,11 +74,15 @@ export class PageNavigator {
           { name: 'inbox', query: target.task }, { name: 'file', query: target.file }
         ])
         this.dataSets = manager
+        const inbox = manager.dataSet('inbox')
+        const file = manager.dataSet('file')
         const update = (): void => {
           if (revision !== this.dataRevision || !manager.hasValidScope()) return
-          this.inboxCount = FileTargetService.result(manager.get('inbox')?.data, manager.get('file')?.data)?.tasks.length ?? 0
+          this.inboxCount = FileTargetService.result(inbox.data, file.data)?.tasks.length ?? 0
         }
-        this.stopData = manager.subscribe(update)
+        const stopInbox = inbox.subscribe(update)
+        const stopFile = file.subscribe(update)
+        this.stopData = (): void => { stopInbox(); stopFile() }
         await manager.start()
         update()
       } catch (_) {

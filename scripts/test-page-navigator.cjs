@@ -41,11 +41,12 @@ function fixture() {
       assert.equal(name, 'page-navigation'); assert.deepEqual(definitions.map(item => item.name), ['inbox', 'file']);
       const listeners = new Set(), values = new Map();
       const manager = { closed: false, hasValidScope: () => !manager.closed,
-        get: name => values.get(name), subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+        dataSet(name) { return { get data() { return values.get(name)?.data; },
+          subscribe(fn) { const callback = event => { if(event.name === name) fn(event); }; listeners.add(callback); return () => listeners.delete(callback); } }; },
         update() {
           values.set('inbox', { data: { type: 'task', result: { tasks: Array(count).fill({}), categories: [] } } });
           values.set('file', { data: { type: 'file', result: existing ? [{}] : [] } });
-          for (const fn of listeners) fn({ name: 'inbox', type: 'refresh' });
+          for (const name of ['inbox','file']) for (const fn of listeners) fn({ name, type: 'refresh' });
         },
         async start() { manager.update(); }, async close() { manager.closed = true; listeners.clear(); }
       }; managers.push(manager); return manager;
