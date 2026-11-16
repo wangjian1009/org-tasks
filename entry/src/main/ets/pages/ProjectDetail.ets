@@ -10,6 +10,9 @@ import { ProjectDocumentView, ProjectDocumentNavigation } from '../components/Pr
 import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, projectReadingSections, reconcileProjectSections } from '../ui/ProjectReadingPresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
+import { ProjectFileHeader } from '../components/ProjectFileHeader'
+import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPresentation'
+import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
 
 interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
 interface ProjectFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
@@ -20,11 +23,12 @@ interface ProjectParams { repoId?: string; path?: string }
 @Component
 struct ProjectDetail {
   @State title: string = ''
-  @State titleContext: string = ''
   @State sections: ProjectReadingSection[] = []
   @State fileTags: string[] = []
   @State tagOptions: string[] = []
-  @State selectedTag: string = ''
+  @State tagRows: string[][] = []
+  @State tagGroups: string[][] = []
+  @State selectedTags: string[] = []
   @State matchedIds: string[] = []
   @State filtering: boolean = false
   @State filterMessage: string = ''
@@ -117,7 +121,7 @@ struct ProjectDetail {
     if (force || this.message || this.refreshMessage || !this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
       this.refreshing = true; this.filterRequest++; this.filtering = false
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
-      if (this.repoId !== repoId || this.path !== path) this.selectedTag = ''
+      if (this.repoId !== repoId || this.path !== path) this.selectedTags = []
       this.repoId = repoId; this.path = path
       this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', [{
         name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
@@ -148,12 +152,17 @@ struct ProjectDetail {
     }
   }
 
-  tagExpression(): string { return this.selectedTag ? `t.${JSON.stringify(this.selectedTag)}` : '' }
+  tagExpression(): string { return projectTagExpression(this.selectedTags, this.tagGroups) }
 
   async selectTag(tag: string): Promise<void> {
     if (!await TaskInlineSession.end(true)) return
+    this.selectedTags = tag ? toggleTaskTag({ tags: this.selectedTags, includeUntagged: false }, tag, this.tagGroups).tags : []
+    await this.updateTagQuery()
+  }
+
+  async updateTagQuery(): Promise<void> {
     const request = ++this.filterRequest
-    this.selectedTag = tag; this.filtering = true; this.filterMessage = ''
+    this.filtering = true; this.filterMessage = ''
     const manager = this.dataManager
     const matches = manager?.dataSet('matches')
     await matches?.setQuery({ type: 'task', repoIds: [this.repoId], query: {
@@ -168,7 +177,16 @@ struct ProjectDetail {
   refreshDocument(): void {
     if (!this.pageVisible || this.refreshing || TaskInlineSession.active() || !this.fileVersion) return
     const metadata = this.dataManager?.dataSet('metadata').data
-    if (metadata?.type === 'file') this.tagOptions = metadata.result[0]?.tagOptions.filter(tag => !this.specialTags.includes(tag) && tag !== 'todo') ?? []
+    if (metadata?.type === 'file' && metadata.result[0]) {
+      const file = metadata.result[0]
+      const expression = this.tagExpression()
+      this.title = projectHeaderTitle(file.category ?? '', file.projectName ?? '')
+      this.tagOptions = file.tagOptions.filter(tag => !this.specialTags.includes(tag) && tag !== 'todo')
+      this.tagRows = file.tagRows ?? [this.tagOptions]
+      this.tagGroups = file.tagGroups
+      this.selectedTags = reconcileTaskTags({ tags: this.selectedTags, includeUntagged: false }, this.tagOptions, this.tagGroups).tags
+      if (expression !== this.tagExpression()) { this.updateTagQuery(); return }
+    }
     const matches = this.dataManager?.dataSet('matches').data
     if (matches?.type === 'task' && !this.filtering && !this.filterMessage) this.matchedIds = matches.result.tasks.map(task => task.id)
     const data = this.fileDataSet?.data
@@ -204,8 +222,7 @@ struct ProjectDetail {
       const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
       const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion || this.documentSession !== this.fileDataSet!.identity
-      this.title = file.project() || '未命名项目'
-      this.titleContext = file.category() || ''
+      this.title = projectHeaderTitle(file.category() || '', file.project() || '')
       this.sections = sections
       this.fileTags = fileTags
       this.specialTags = specialTags
@@ -232,7 +249,7 @@ struct ProjectDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.title || '项目', titleContext: this.titleContext, activeRoute: 'pages/ProjectDetail',
+      AppShell({ title: this.title || '项目', activeRoute: 'pages/ProjectDetail',
         back: PageNavigator.shared.path.depth > 1, drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.refreshing,
         backAction: (): void => { this.onBackPress() },
@@ -264,28 +281,19 @@ struct ProjectDetail {
               Text(this.refreshMessage).fontSize(12).fontColor(UiColor.error).width('100%').padding(12)
                 .onClick((): void => { this.loadFile() })
             }
-            if (!this.sourceMode && this.tagOptions.length > 0) {
-              Scroll() {
-                Row({ space: 8 }) {
-                  ForEach([''].concat(this.tagOptions), (tag: string) => {
-                    Button(tag || '全部', { type: ButtonType.Normal }).fontSize(13).height(36)
-                      .padding({ left: 12, right: 12 }).borderRadius(18)
-                      .fontColor(this.selectedTag === tag ? UiColor.surface : UiColor.secondary)
-                      .backgroundColor(this.selectedTag === tag ? UiColor.primary : UiColor.projectBlock)
-                      .accessibilityText(`${tag || '全部'}，${this.selectedTag === tag ? '已选中' : '未选中'}`)
-                      .onClick((): void => { this.selectTag(this.selectedTag === tag ? '' : tag) })
-                  }, (tag: string) => tag)
-                }.padding({ left: 12, right: 12, top: 4, bottom: 8 })
-              }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+            if (!this.sourceMode && (this.tagOptions.length > 0 || this.fileTags.some(tag => !this.specialTags.includes(tag)))) {
+              ProjectFileHeader({ fileTags: this.fileTags.filter(tag => !this.specialTags.includes(tag)),
+                tags: this.tagOptions, rows: this.tagRows, groups: this.tagGroups, selectedTags: this.selectedTags,
+                toggle: (tag: string): void => { this.selectTag(tag) }, clear: (): void => { this.selectTag('') } })
             }
             if (this.filtering) { Text('正在筛选').fontSize(12).fontColor(UiColor.secondary).padding(8) }
             if (this.filterMessage) {
               Text(`筛选失败：${this.filterMessage}，点击重试`).fontSize(12).fontColor(UiColor.error).padding(8)
-                .onClick((): void => { this.selectTag(this.selectedTag) })
+                .onClick((): void => { this.updateTagQuery() })
             }
             Stack() {
               ForEach([this.documentSession], (identity: string) => {
-              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds, tagFiltered: this.selectedTag.length > 0, fileTags: this.fileTags, specialTags: this.specialTags,
+              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds, tagFiltered: this.selectedTags.length > 0, fileTags: [], specialTags: this.specialTags,
                 revision: `${this.documentSession}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
                 internalLinkProcessor: this.internalLinks,
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,

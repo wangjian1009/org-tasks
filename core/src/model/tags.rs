@@ -60,14 +60,29 @@ impl OrgFile {
         self.support_tags().map_or_else(Vec::new, |config| config.groups)
     }
 
+    /// 文件头 TAGS 的显示行，保留声明顺序与显式换行，不改变候选及互斥规则。
+    pub fn tag_rows(&self) -> Vec<Vec<String>> {
+        self.configured_tags().1
+    }
+
     pub(crate) fn support_tags(&self) -> Option<SupportTags> {
+        self.configured_tags().0
+    }
+
+    fn configured_tags(&self) -> (Option<SupportTags>, Vec<Vec<String>>) {
         let mut tags = Vec::new();
         let mut groups = Vec::new();
+        let mut rows = Vec::new();
         let mut group: Option<Vec<String>> = None;
         let mut configured = false;
         for value in self.file_keywords.values("TAGS") {
             configured = true;
+            let mut row = Vec::new();
             for token in value.split_whitespace() {
+                if token == "\\n" {
+                    if !row.is_empty() { rows.push(std::mem::take(&mut row)); }
+                    continue;
+                }
                 if token == "{" {
                     group = Some(Vec::new());
                     continue;
@@ -83,12 +98,14 @@ impl OrgFile {
                         continue;
                     }
                     push_unique(&mut tags, tag);
+                    push_unique(&mut row, tag);
                     if let Some(group) = &mut group {
                         push_unique(group, tag);
                     }
                 }
             }
+            if !row.is_empty() { rows.push(row); }
         }
-        configured.then_some(SupportTags { tags, groups })
+        (configured.then_some(SupportTags { tags, groups }), rows)
     }
 }

@@ -709,6 +709,7 @@ pub struct OrgFileMetadata {
     pub category: Option<String>,
     pub tag_options: Vec<String>,
     pub tag_groups: Vec<Vec<String>>,
+    pub tag_rows: Vec<Vec<String>>,
     pub is_ignore: bool,
     pub task_state_counts: Vec<TaskStateCount>,
     pub byte_length: usize,
@@ -732,7 +733,7 @@ pub struct TaskStateCount {
 
 ~is_ignore~ 表示相对路径是否命中 ~.orgzlyignore~ ，宿主文件选择列表必须过滤该项；~task_state_counts~ 是按文件有效 TODO 状态聚合的数组，只返回出现过的有效状态，保留 Core 状态声明顺序；所有层级均统计，无 TODO 标题与受保护的冲突子树不计入，空文件或命中 ~.orgzlyignore~ 时数组为空。任务树总数是数组数量之和，已完成数是分类为 ~Done~ 的数量；宿主不按状态名称重新判断。 ~byte_length~ 来自源字节长度， ~modified_at~ 使用扫描目录时已有的文件属性，转换为 Unix 毫秒时间，无可用值时为 ~None~ 。读取轻量清单不重新 stat 文件；需要最新信息时先加载仓库。文件对象的克隆与默认 TODO 设置更新保留已读取的磁盘时间，内存中直接创建的文件时间为 ~None~ 。这些信息不写入同步历史，也不用于替代同步版本判断。
 
-~OrgFile.tag_options() -> Vec<String>~ 返回文件头 ~TAGS~ 定义的候选，去重并去除系统标签；~tag(k)~ 去掉快捷键，没有快捷键的标签也保留。~OrgFile.tag_groups() -> Vec<Vec<String>>~ 返回花括号定义的互斥组，保留组及成员的声明顺序。~OrgFileMetadata.tag_options~ 与 ~tag_groups~ 携带相同的轻量投影，空文件仍保留配置，宿主无需复制正文或另行解析。配置不向任务赋标签，完整语义见 [[file:查询语言设计.org::*文件头 TAGS 配置][文件头 TAGS 配置]] 。
+~OrgFile.tag_options() -> Vec<String>~ 返回文件头 ~TAGS~ 定义的候选，去重并去除系统标签； ~tag(k)~ 去掉快捷键，没有快捷键的标签也保留。 ~OrgFile.tag_groups() -> Vec<Vec<String>>~ 返回花括号定义的互斥组，保留组及成员的声明顺序。 ~OrgFileMetadata.tag_options~ 与 ~tag_groups~ 携带相同的轻量投影，空文件仍保留配置，宿主无需复制正文或另行解析。 ~OrgFile.tag_rows() -> Vec<Vec<String>>~ 与 ~OrgFileMetadata.tag_rows~ 按源顺序保留每条 ~TAGS~ 声明及显式 ~\n~ 换行后的非空显示行，行内候选去重，跨行重复声明仍保留。行仅用于展示，不改变候选、互斥关系或原文字节。配置不向任务赋标签，完整语义见 [[file:查询语言设计.org::*文件头 TAGS 配置][文件头 TAGS 配置]] 。
 
 * 整篇只读渲染
 

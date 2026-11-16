@@ -70,7 +70,7 @@ export interface TaskOperationGroup { operationId?: string | null; operations: T
 export interface DataFileRecord {
   repoId: string; path: string; title: string | null; titleParts: TitlePart[];
   projectName: string | null; category: string | null; tagOptions: string[];
-  priorityOptions: TaskPriority[]; defaultPriority: TaskPriority; tagGroups: string[][];
+  priorityOptions: TaskPriority[]; defaultPriority: TaskPriority; tagGroups: string[][]; tagRows: string[][];
   hasConflict: boolean; isIgnore: boolean; taskStateCounts: TaskStateCount[];
   byteLength: number; modifiedAt: number | null;
 }
@@ -376,6 +376,7 @@ export interface OrgFileMetadata {
   readonly titleParts: TitlePart[];
   readonly tagOptions: string[];
   readonly tagGroups: string[][];
+  readonly tagRows: string[][];
   readonly isIgnore: boolean;
   readonly hasConflict: boolean;
   readonly taskStateCounts: TaskStateCount[];

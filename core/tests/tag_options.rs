@@ -108,3 +108,16 @@ async fn supported_tags_preserve_exclusive_groups_and_are_scoped_to_the_origin_f
     assert_eq!(child.support_tags(), Some(config));
     assert_eq!(tasks.iter().find(|task| task.title() == "Other").unwrap().support_tags().unwrap().tags, ["unrelated"]);
 }
+
+#[tokio::test]
+async fn header_tag_rows_preserve_declarations_and_explicit_breaks_without_changing_bytes() {
+    let source = "#+TAGS: before { iOS(i) Android(a) } after\r\n#+TAGS: BUG(b) FEAT(f) \\n home(h) REFILE\r\n#+TAGS:\r\n#+begin_src org\r\n#+TAGS: fake\r\n#+end_src\r\n* TODO Task\r\n#+TAGS: body\r\n";
+    let ws = workspace(source).await;
+    let files = ws.repos()[0].load_files(&[]).await.unwrap();
+    let file = &files[0];
+    let expected = vec![vec!["before", "iOS", "Android", "after"], vec!["BUG", "FEAT"], vec!["home"]];
+    assert_eq!(file.tag_rows(), expected);
+    assert_eq!(support::query_files(&ws.repos()[0]).await.unwrap()[0].tag_rows, expected);
+    assert_eq!(file.tag_groups(), vec![vec!["iOS", "Android"]]);
+    assert_eq!(file.source_bytes(), source.as_bytes());
+}

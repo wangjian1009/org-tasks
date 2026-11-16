@@ -59,6 +59,7 @@ interface MetadataFields {
   titleParts: TitlePart[]
   tagOptions: string[]
   tagGroups: string[][]
+  tagRows?: string[][]
   isIgnore: boolean
   hasConflict: boolean
   taskStateCounts: TaskStateCount[]
@@ -239,6 +240,7 @@ export function metadataRecord(value: CoreOrgFileMetadata): MetadataRecord {
     titleParts: value.titleParts,
     tagOptions: value.tagOptions,
     tagGroups: value.tagGroups,
+    tagRows: value.tagRows,
     isIgnore: value.isIgnore,
     hasConflict: value.hasConflict,
     taskStateCounts: value.taskStateCounts,
@@ -258,6 +260,7 @@ export class PageMetadataSnapshot implements CoreOrgFileMetadata {
   readonly titleParts: TitlePart[]
   readonly tagOptions: string[]
   readonly tagGroups: string[][]
+  readonly tagRows: string[][]
   readonly isIgnore: boolean
   readonly hasConflict: boolean
   readonly taskStateCounts: TaskStateCount[]
@@ -278,6 +281,7 @@ export class PageMetadataSnapshot implements CoreOrgFileMetadata {
     this.titleParts = record.value.titleParts
     this.tagOptions = record.value.tagOptions
     this.tagGroups = record.value.tagGroups
+    this.tagRows = record.value.tagRows ?? [record.value.tagOptions]
     this.isIgnore = record.value.isIgnore
     this.hasConflict = record.value.hasConflict
     this.taskStateCounts = record.value.taskStateCounts

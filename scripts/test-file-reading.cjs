@@ -26,6 +26,8 @@ function load(filename, mocks = {}, transform = source => source) {
 const base = 'entry/src/main/ets/';
 const navigation = load(base + 'ui/OrgDocumentNavigation.ets');
 const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
+const projectHeader = load(base + 'ui/ProjectHeaderPresentation.ets');
+const tagFilter = load(base + 'ui/TaskTagFilterPresentation.ets');
 const projectReading = load(base + 'ui/ProjectReadingPresentation.ets');
 const internalLinkProcessors = load(base + 'ui/InternalLinkProcessor.ets');
 const theme = load(base + 'ui/Theme.ets');
@@ -437,6 +439,8 @@ function projectPageFixture() {
       async close(){}
     } },
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
+    '../components/ProjectFileHeader': {}, '../ui/ProjectHeaderPresentation': projectHeader,
+    '../ui/TaskTagFilterPresentation': tagFilter,
     '../components/AppShell': {}, '../components/controls/EmptyState': {},
     '../components/OrgFilePreviewView': { OrgFilePreviewNavigation: class {
       async captureReadingState() { return capture; } closePanel() { return false; }
@@ -467,13 +471,13 @@ test('项目标签切换先保存并收起任务，失败不切换，快速切�
   f.page.dataManager = { dataSet: name => { assert.equal(name, 'matches'); return matches; } };
   f.setEnd(async collapse => { assert.equal(collapse, true); return false; });
   await f.page.selectTag('design');
-  assert.equal(f.page.selectedTag, ''); assert.equal(pending.length, 0);
+  assert.deepEqual(f.page.selectedTags, []); assert.equal(pending.length, 0);
   f.setEnd(async collapse => { assert.equal(collapse, true); return true; });
   const first = f.page.selectTag('design'); await new Promise(resolve => setImmediate(resolve));
   const last = f.page.selectTag('unused'); await new Promise(resolve => setImmediate(resolve));
   assert.equal(pending[0].query.query.expression, 't."design"');
   pending[0].resolve(); await first;
-  assert.equal(f.page.filtering, true); assert.equal(f.page.selectedTag, 'unused');
+  assert.equal(f.page.filtering, true); assert.deepEqual(f.page.selectedTags, ['design', 'unused']);
   matches.error = '查询失败'; pending[1].resolve(); await last;
   assert.equal(f.page.filtering, false); assert.equal(f.page.filterMessage, '查询失败');
 });
@@ -775,4 +779,57 @@ test('项目首次读取期间隐藏后再次显示会重新加载，不复用�
  f.setOpen(()=>{reads++;return reads===1?new Promise(done=>resolve=done):Promise.resolve(f.file('visible'));});
  const first=f.page.loadFile();f.page.onPageHide();resolve(f.file('hidden'));await first;assert.equal(f.page.fileVersion,'');
  f.page.onPageShow();await new Promise(done=>setImmediate(done));assert.equal(reads,2);assert.equal(f.page.fileVersion,'visible');assert.equal(f.page.refreshing,false);
+});
+
+
+test('文件头标签保留声明行、组边界与普通标签，隐藏候选不留下空行', () => {
+  assert.deepEqual(projectHeader.projectHeaderRows([
+    ['before', 'iOS', 'Android', 'after'], ['hidden'], ['BUG', 'FEAT']
+  ], ['before', 'iOS', 'Android', 'after', 'BUG', 'FEAT'], [['iOS', 'Android'], ['BUG', 'FEAT']]), [
+    [{ tags: ['before'], grouped: false }, { tags: ['iOS', 'Android'], grouped: true }, { tags: ['after'], grouped: false }],
+    [{ tags: ['BUG', 'FEAT'], grouped: true }]
+  ]);
+  assert.equal(projectHeader.projectHeaderTitle('研发', '手机应用'), '研发 . 手机应用');
+  assert.equal(projectHeader.projectHeaderTitle('', ''), '未命名项目');
+});
+
+test('项目分组标签切换与取消，跨组交集、普通标签并集并交给 Core 求值', async () => {
+  const f = projectPageFixture(), expressions = [];
+  f.page.refreshDocument = () => {};
+  f.page.tagGroups = [['iOS', 'Android'], ['BUG', 'FEAT']];
+  f.page.dataManager = { dataSet: () => ({ error: '', async setQuery(query) { expressions.push(query.query.expression); } }) };
+  for (const tag of ['iOS', 'Android', 'BUG', 'work', 'home', 'Android', 'BUG', 'work', 'home']) await f.page.selectTag(tag);
+  assert.deepEqual(expressions, [
+    't."iOS"', 't."Android"', 't."Android" and t."BUG"',
+    't."Android" and t."BUG" and t."work"',
+    't."Android" and t."BUG" and (t."work" or t."home")',
+    't."BUG" and (t."work" or t."home")', '(t."work" or t."home")', 't."home"', ''
+  ]);
+  await f.page.selectTag('iOS'); await f.page.selectTag('');
+  assert.deepEqual(f.page.selectedTags, []);
+  assert.equal(expressions.at(-1), '');
+});
+
+test('项目文件配置更新移除失效选择、采用新分组并刷新匹配，标题随分类更新', () => {
+  const f = projectPageFixture(), expressions = [];
+  f.page.fileVersion = 'v1'; f.page.selectedTags = ['removed', 'design', 'product'];
+  const metadata = { category: '研发', projectName: '新项目', tagOptions: ['product', 'design'],
+    tagGroups: [['product', 'design']], tagRows: [['product'], ['design']] };
+  f.page.dataManager = { dataSet: () => ({ data: { type: 'file', result: [metadata] } }) };
+  f.page.updateTagQuery = () => expressions.push(f.page.tagExpression());
+  f.page.refreshDocument();
+  assert.equal(f.page.title, '研发 . 新项目');
+  assert.deepEqual(f.page.selectedTags, ['product']);
+  assert.deepEqual(f.page.tagRows, [['product'], ['design']]);
+  assert.deepEqual(expressions, ['t."product"']);
+});
+
+test('文件配置分行穿过元信息缓存，旧缓存恢复为单行', () => {
+  const snapshots = load(base + 'services/PageDataSnapshot.ets', { './NativeCoreService': {} });
+  const metadata = { tagOptions: ['a', 'b', 'c'], tagGroups: [['a', 'b']], tagRows: [['a', 'b'], ['c']],
+    taskStateOf: () => null, taskPriorityOf: () => null };
+  const record = JSON.parse(JSON.stringify(snapshots.metadataRecord(metadata)));
+  assert.deepEqual(new snapshots.PageMetadataSnapshot(record).tagRows, [['a', 'b'], ['c']]);
+  delete record.value.tagRows;
+  assert.deepEqual(new snapshots.PageMetadataSnapshot(record).tagRows, [['a', 'b', 'c']]);
 });

@@ -346,6 +346,7 @@ interface OrgFileMetadata {
   readonly titleParts: TitlePart[]
   readonly tagOptions: string[]
   readonly tagGroups: string[][]
+  readonly tagRows: string[][]
   readonly isIgnore: boolean
   readonly taskStateCounts: TaskStateCount[]
   readonly byteLength: number
@@ -484,7 +485,7 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 * 备忘标签候选
 
-~OrgFileMetadata.tagOptions: string[]~ 和 ~tagGroups: string[][]~ 分别由 Core 的 ~OrgFile.tag_options()~ 与 ~tag_groups()~ 生成，通过既有文件元信息 JSON 原样透传；C++ worker 与 文件结果包装不解析标签，不增加独立 native 请求。 ~FileTargetService.resolve~ 只保留所选文件的候选和互斥组， ~FileTargetService.query~ 在现有任务与分类结果旁携带这些配置；其他文件或仓库配置不混入。
+~OrgFileMetadata.tagOptions: string[]~ 和 ~tagGroups: string[][]~ 分别由 Core 的 ~OrgFile.tag_options()~ 与 ~tag_groups()~ 生成，新增 ~tagRows: string[][]~ 透传 Core 的 ~tag_rows()~ 分行投影，元信息快照与缓存保留该字段，旧缓存缺失时以候选构成单行；通过既有文件元信息 JSON 原样透传；C++ worker 与 文件结果包装不解析标签，不增加独立 native 请求。 ~FileTargetService.resolve~ 只保留所选文件的候选和互斥组， ~FileTargetService.query~ 在现有任务与分类结果旁携带这些配置；其他文件或仓库配置不混入。
 
 Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保留花括号互斥组，不为任务赋标签。备忘页把候选与完整 ~Task.tags~ 快照合并，按配置顺序区分各组；同组单选、组间交集，未分组标签按并集匹配，其他页面仍使用原有筛选方式。 ~TAGS~ 中未使用的候选可以显示，但只有任务实际标签参与匹配；不在 ArkTS 解析 Org。
 

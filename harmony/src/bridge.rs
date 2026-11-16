@@ -859,7 +859,7 @@ fn priority_options(
 struct HarmonyBridgeFileMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     order_key: Option<Vec<org_tasks_core::QueryOrderPart>>,
-    // category 与 taskStateCounts 随 Core 元信息原样序列化，不在宿主解析或统计。
+    // category、taskStateCounts 与 tagRows 随 Core 元信息原样序列化，不在宿主解析或统计。
     #[serde(flatten)]
     metadata: org_tasks_core::OrgFileMetadata,
     task_priority_options: BTreeMap<String, Option<org_tasks_core::TaskPriority>>,
@@ -1402,6 +1402,7 @@ mod tests {
             metadata[0]["tagGroups"],
             serde_json::json!([["家居", "unused"]])
         );
+        assert_eq!(metadata[0]["tagRows"], serde_json::json!([["家居", "unused"]]));
         let tasks: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
             &query_task_results_json(handle, r#"[{"expression":"t.家居"}]"#.into()).unwrap(),
         )
