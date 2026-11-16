@@ -157,11 +157,23 @@ async fn queries(
     let Json(queries) = body.map_err(invalid_json)?;
     let results = workspace.query(&queries).await?;
     let results = results.into_iter().map(|result| match result {
-        CoreQueryResult::Task(result) => json!({"type":"task","result":{"tasks":result.tasks,"categories":result.categories}}),
+        CoreQueryResult::Task(result) => json!({"type":"task","result":{"tasks":result.tasks,"categories":result.categories,"fullFiles":result.full_files.iter().map(full_file_value).collect::<Vec<_>>()}}),
         CoreQueryResult::File(files) => json!({"type":"file","result":files}),
         CoreQueryResult::Notification(notifications) => json!({"type":"notification","result":notifications}),
     }).collect::<Vec<_>>();
     Ok(Json(json!(results)))
+}
+// HTTP 只编组 Core 的完整文件快照，不重新读取或解析原文。
+fn full_file_value(file: &crate::OrgFile) -> Value {
+    json!({
+        "repoId": file.repo_id, "path": file.path,
+        "source": std::str::from_utf8(file.source_bytes()).expect("Org 文件已验证 UTF-8"),
+        "fileVersion": crate::LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+        "todo": file.todo, "title": file.title(), "category": file.category(),
+        "projectName": file.project(), "hasConflict": file.has_conflict(),
+        "fileTags": file.file_tags(), "specialTags": file.special_tags(),
+        "documentSections": file.document_sections(), "nodes": file.nodes(),
+    })
 }
 async fn modify(
     State(workspace): State<SharedWorkspace>,

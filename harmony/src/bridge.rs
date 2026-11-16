@@ -603,17 +603,18 @@ fn resolve_query_repositories(
         if let Some(value) = identities.get(id) { *id = value.clone(); }
     };
     for query in queries {
-        let files = match query {
+        match query {
             org_tasks_core::CoreQuery::Task { query, repo_ids } => {
                 for id in repo_ids { resolve(id); }
-                query.include_files.iter_mut().chain(&mut query.exclude_files)
+                for file in query.include_files.iter_mut().chain(&mut query.exclude_files).chain(&mut query.full_files) {
+                    resolve(&mut file.repo_id);
+                }
             }
             org_tasks_core::CoreQuery::File { query } => {
-                query.include_files.iter_mut().chain(&mut query.exclude_files)
+                for file in query.include_files.iter_mut().chain(&mut query.exclude_files) { resolve(&mut file.repo_id); }
             }
-            org_tasks_core::CoreQuery::Notification { .. } => continue,
-        };
-        for file in files { resolve(&mut file.repo_id); }
+            org_tasks_core::CoreQuery::Notification { .. } => {}
+        }
     }
     Ok(())
 }
@@ -651,6 +652,7 @@ fn query_result_value(result: org_tasks_core::CoreQueryResult, roots: &BTreeMap<
                         let mut view = task_from_filter(task)?; view.order_key = key; Ok(view)
                     }).collect::<Result<Vec<_>, CoreError>>()?,
                     "categories": result.categories,
+                    "fullFiles": result.full_files.iter().map(file_snapshot).collect::<Result<Vec<_>, _>>()?,
                 }
             }),
             org_tasks_core::CoreQueryResult::File(files) => serde_json::json!({ "type": "file", "result": files.into_iter().map(|file| {
@@ -3119,12 +3121,15 @@ mod query_repository_binding_tests {
         let core_id = repo_id(handle, second.to_string_lossy().into()).unwrap();
         let reference = serde_json::json!({"repoId":"host-second","path":"same.org"});
         let bindings = serde_json::json!([{"id":"host-second","rootDirectory":second}]);
-        let task = serde_json::json!({"type":"task","repoIds":["host-second"],"query":{"includeFiles":[reference],"expression":"it.todo"}});
+        let task = serde_json::json!({"type":"task","repoIds":["host-second"],"query":{"includeFiles":[reference],"fullFiles":[reference],"expression":"it.todo"}});
         let file = serde_json::json!({"type":"file","query":{"includeFiles":[reference]}});
         let response = workspace_query_json(handle, serde_json::json!({"queries":[task,file],"repositoryBindings":bindings}).to_string()).unwrap();
         let values: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(values[0]["result"]["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(values[0]["result"]["tasks"][0]["repoId"], core_id);
+        assert_eq!(values[0]["result"]["fullFiles"][0]["repoId"], core_id);
+        assert_eq!(values[0]["result"]["fullFiles"][0]["source"], "* TODO Visible\n");
+        assert_eq!(values[0]["result"]["fullFiles"][0]["nodes"].as_array().unwrap().len(), 1);
         assert_eq!(values[1]["result"][0]["repoId"], core_id);
         let (ids, response) = workspace_subscribe_query_json(handle,
             serde_json::json!([{"query":task,"repositoryBindings":bindings,"operationId":"dataset/test/1/query"}]).to_string(), vec![0]).unwrap();

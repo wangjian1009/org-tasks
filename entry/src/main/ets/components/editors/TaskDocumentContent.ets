@@ -16,6 +16,7 @@ export struct TaskDocumentContent {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
+  @Prop contentRevision: string = ''
   @Prop readonly: boolean = false
   @Prop projectReading: boolean = false
   @Prop contentBackground: string = UiColor.surface
@@ -187,7 +188,7 @@ export struct TaskDocumentContent {
     Column({ space: 8 }) {
       TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
-        revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '', contentBackground: this.contentBackground,
+        revision: this.contentRevision || this.current?.fileVersion || this.task?.fileVersion || '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
         checklist: (index: number): void => { this.checklist(index) },
         begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),

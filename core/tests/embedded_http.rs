@@ -50,6 +50,14 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
     let (status, initial) = post(&client, &format!("{base}/queries"), query.clone()).await;
     assert_eq!(status, 200);
     assert_eq!(initial[0]["result"]["tasks"][0]["title"], "Original");
+    let (status, full) = post(&client, &format!("{base}/queries"), json!([{"type":"task","query":{
+        "expression":"it.done","includeFiles":[{"repoId":repo_id,"path":"tasks.org"}],
+        "fullFiles":[{"repoId":repo_id,"path":"tasks.org"}]
+    }}])).await;
+    assert_eq!(status, 200);
+    assert!(full[0]["result"]["tasks"].as_array().unwrap().is_empty());
+    assert_eq!(full[0]["result"]["fullFiles"][0]["source"], "* TODO Original\n");
+    assert_eq!(full[0]["result"]["fullFiles"][0]["repoId"], repo_id);
     let (status, created) = post(&client, &format!("{base}/task-operation-groups"), json!({"operationId":"http/test-create", "operations":[{"type":"Creation","data":{"position":{"parent":{"repoId":repo_id,"file":"tasks.org","titles":[]}},"title":"Created","state":"TODO"}}]})).await;
     assert_eq!(
         (status, created["status"].as_str()),

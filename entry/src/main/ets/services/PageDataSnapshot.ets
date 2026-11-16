@@ -309,7 +309,7 @@ export function restoreDataSet(data: CachedDataSet): CoreQueryResult {
       !item.value || typeof item.value.id !== 'string' || typeof item.value.fileVersion !== 'string' ||
       typeof item.value.heading !== 'string' || !item.value.fullPath || !item.value.editContent ||
       !Array.isArray(item.states) || item.states.length !== 5 || !Array.isArray(item.priorities) || item.priorities.length !== 3)) throw new Error('页面任务缓存无效')
-    return { type: 'task', result: { tasks: data.tasks.map(item => new PageTaskSnapshot(item)), categories: data.categories } }
+    return { type: 'task', result: { tasks: data.tasks.map(item => new PageTaskSnapshot(item)), categories: data.categories, fullFiles: [] } }
   }
   if (data.type === 'file') {
     if (!Array.isArray(data.files) || data.files.some(item => !item.value || typeof item.value.repoId !== 'string' ||

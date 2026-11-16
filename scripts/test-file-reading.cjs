@@ -367,18 +367,19 @@ function projectPageFixture() {
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
-    '../services/DataSetManager': { DataSetManager: class {
-      static create(){return new this();}
+    '../services/DataManager': { DataManager: class {
+      static create(context,page,definitions,options){assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
       dataSet(){return this;}
       get document(){return this.file?{file:this.file,tasks:this.file.nodes()}:undefined;}
       get data(){return this.getConfirmed().data;}
       get error(){return this.failure??'';}
-      constructor(){this.listeners=new Set();}
+      constructor(){this.listeners=new Set();this.identity=String(Math.random());}
       hasValidScope(){return true;}
       subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
       getFile(){return this.file;}
       getConfirmed(){return{data:{type:'task',result:{tasks:this.file?.nodes()??[]}}};}
-      async start(){return this.refresh();}
+      taskKey(id){return id;}
+      async start(){await this.refresh();if(this.failure)throw new Error(this.failure);return[{name:'tasks',fullFiles:[this.file]}];}
       async refresh(){try{this.file=await open();this.failure='';for(const fn of this.listeners)fn({name:'tasks',type:'document'});}catch(error){this.failure=error.message;for(const fn of this.listeners)fn({name:'tasks',type:'error',message:error.message});}}
       async close(){}
     } },
@@ -407,14 +408,14 @@ function projectPageFixture() {
 }
 
 test('项目刷新保留同文件阅读位置，新文件版本更新文档与定位坐标', async () => {
-  const f = projectPageFixture(); await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  const f = projectPageFixture(); await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content, '项目原文');
   const revision = f.page.renderRevision;
-  await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve));
   assert.match(f.page.readingState, /org-node-12/);
-  assert.equal(f.page.renderRevision, revision);
+  assert.ok(f.page.renderRevision > revision);
   f.setOpen(async () => f.file('v2'));
-  await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(JSON.parse(f.page.readingState).scroll,80);
   assert.ok(f.page.renderRevision > revision);
 });
@@ -426,7 +427,7 @@ test('项目原文切换保留文档状态，刷新失败保留上次全文与�
   await f.page.toggleSource(); assert.equal(f.page.sourceMode, false);
   assert.equal(f.page.readingState, reading);
   f.setOpen(async () => { throw new Error('离线'); });
-  await (f.page.dataManager ? f.page.dataManager.refresh() : f.page.loadFile()); await new Promise(resolve=>setImmediate(resolve));
+  await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
   assert.match(f.page.refreshMessage, /离线/);
@@ -458,7 +459,7 @@ test('项目文件改为普通文件时跳转，含冲突的项目仍展示文�
   f.setOpen(async () => ({ ...f.file(), project: () => null }));
   await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes[0].url, 'pages/FileDetail');
   f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
-  await f.page.dataManager.refresh(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 1);
+  await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 1);
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
 });
@@ -538,6 +539,7 @@ function nativeProjectFixture() {
   let save = async () => true;
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
     '../services/DataSetManager': { DataSetManager: class {} },
+    '../ui/ProjectReadingPresentation': projectReading,
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args) } }
   }, source => source.split('  @Builder\n')[0]
@@ -627,7 +629,7 @@ test('项目完整文档通过管理对象快照更新，源码与章节使用�
   const f=projectPageFixture();await f.page.loadFile();await new Promise(resolve=>setImmediate(resolve));
   f.page.sourceMode=true;
   f.setOpen(async()=>({...f.file('changed'),sourceBytes:()=>Buffer.from('* DONE 已完成'),documentSections:()=>[{path:null,html:'<p>完成后的正文与进度</p>'}]}));
-  await f.page.dataManager.refresh();await new Promise(resolve=>setImmediate(resolve));
+  await f.page.refreshFile();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(f.page.content,'* DONE 已完成');assert.equal(f.page.sections[0].html,'<p>完成后的正文与进度</p>');
   assert.equal(f.page.fileVersion,'changed');
 });
@@ -669,4 +671,37 @@ test('项目页面隐藏、原文模式及刷新期间禁用内部跳转，保�
   await assert.rejects(pending,/无法定位/);
   assert.equal(f.view.scroller.lastScroll,undefined);
   assert.equal(await page.internalLinks.isValid('*章节'),false);
+});
+
+
+test('项目属性变化保留文档结构，新增删除与移动仅更新成员顺序', () => {
+ const task=(id,title=id)=>({id,heading:title,fullPath:{repoId:'r',file:'p.org',titles:[title]},editContent:{blocks:[]}});
+ const a=task('a'),b=task('b');const preamble={key:'preamble',node:null,blocks:[],linkTargets:[]};
+ const sections=[preamble,{key:'a',node:a,blocks:[],linkTargets:[]},{key:'b',node:b,blocks:[],linkTargets:[]}];
+ assert.equal(projectReading.reconcileProjectSections(sections,[{...a,heading:'修改属性',modifiedAt:123},b],t=>t.id),sections);
+ const moved=projectReading.reconcileProjectSections(sections,[b,a],t=>t.id);assert.equal(moved[0],preamble);assert.equal(moved[1],sections[2]);assert.equal(moved[2],sections[1]);
+ const replaced=projectReading.reconcileProjectSections(sections,[a,task('c')],t=>t.id);assert.equal(replaced[1],sections[1]);assert.equal(replaced[2].key,'c');
+});
+
+test('项目章节按稳定任务身份订阅，属性修改保留正文修订，正文变化仅更新当前章节', () => {
+ const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
+ const {Section}=load(base+'components/ProjectTaskSection.ets',{
+  '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
+  '../ui/Theme':theme
+ },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
+ const value=(body='正文',extra={})=>({id:'a',heading:'标题',modifiedAt:null,fileVersion:'v1',editContent:{blocks:[{id:'10',kind:'text',source:body,html:'<p>'+body+'</p>',paragraph:true,blankLinesBefore:0,items:[]}]},...extra});
+ const section=new Section();section.taskId='stable-a';section.dataSet={watchTask(id,fn){assert.equal(id,'stable-a');listener=fn;fn({task:value()});return()=>stopped=true;}};
+ section.aboutToAppear();const revision=section.bodyRevision;
+ listener({task:value('正文',{fileVersion:'v2',priority:{name:'A'}})});assert.equal(section.bodyRevision,revision);assert.equal(section.node.fileVersion,'v2');
+ listener({task:value('新正文',{fileVersion:'v3'})});assert.equal(section.bodyRevision,revision+1);
+ active=true;listener({task:value('编辑中外部修改',{fileVersion:'v4'})});assert.equal(section.node.fileVersion,'v3');active=false;section.inlineChanged();assert.equal(section.node.fileVersion,'v4');
+ section.aboutToDisappear();assert.equal(stopped,true);
+});
+
+
+test('项目首次读取期间隐藏后再次显示会重新加载，不复用已丢弃的一次性文件', async () => {
+ const f=projectPageFixture();let resolve,reads=0;
+ f.setOpen(()=>{reads++;return reads===1?new Promise(done=>resolve=done):Promise.resolve(f.file('visible'));});
+ const first=f.page.loadFile();f.page.onPageHide();resolve(f.file('hidden'));await first;assert.equal(f.page.fileVersion,'');
+ f.page.onPageShow();await new Promise(done=>setImmediate(done));assert.equal(reads,2);assert.equal(f.page.fileVersion,'visible');assert.equal(f.page.refreshing,false);
 });

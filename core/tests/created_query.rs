@@ -225,7 +225,7 @@ async fn exclude_files_are_structured_repository_specific_and_legacy_paths_are_r
     assert_eq!(
         serde_json::to_value(TaskQuery::default()).unwrap(),
         serde_json::json!({
-            "expression": "", "categories": [], "includeFiles": [], "excludeFiles": []
+            "expression": "", "categories": [], "includeFiles": [], "excludeFiles": [], "fullFiles": [], "includeIgnored": false
         })
     );
 }

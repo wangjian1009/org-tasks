@@ -9,9 +9,9 @@
 
 今天、收件箱、计划、随时、某天、备忘、日志簿和项目详情均直接使用 DataSet。每个页面声明命名数据集，由 DataSetManager 管理集合、共享连接上下文和页面缓存；每个 DataSet 只持有一个查询，独立消费该查询的订阅结果，并维护任务索引、编辑能力与变化事件。编辑器和项目文档不再创建专用管理器。侧边栏与非任务阅读结果沿用各自的只读管理对象。
 
-DataSetManager 不提供总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅 tasks 和 priority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
+DataManager 与原导出名 DataSetManager 共用实现，不提供总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅 tasks 和 priority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
-DataSetDefinition 必须声明一个 query。它可以是任务或文件元信息的 CoreQuery，也可以是宿主的 document 查询；后者用已有 Workspace.fileAt 一次读取完整文件及全部节点，不扩展 Core 对外接口。需要配置文件入口时，页面提供纯定义函数，管理器只加载本地配置并同步取得全局 Workspace 后调用；该函数只组装请求，不读取仓库列表或执行底层查询。查询中需要把宿主配置 ID 映射成 Core ID 时，随定义提供 ~repositoryBindings~ ，在查询工作线程内按已配置根目录解析。
+DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再提供宿主 document 查询。管理器将完整文件作为首次加载的一次性返回值交给页面，DataSet 只维护记录与属性。需要配置文件入口时，页面提供纯定义函数；仓库别名通过 ~repositoryBindings~ 在工作线程映射。
 
 收件箱初始化将 tasks、recent、target、files 一次批量订阅；出现与显示生命周期复用同一个初始化 Promise，不各自查询或额外刷新。独立回调只消费该批已取得的结果，首屏等 tasks、recent、target 都取得快照或明确失败后才统一发布界面；回调不会触发第二次读取。最近新增等待主列表首次测量完成后整段显示，读取中或空结果不渲染前置留白及加载占位。已有缓存恢复为版本 0 后按相同边界展示，首次查询完成后再开放编辑。
 
@@ -50,15 +50,17 @@ DataSetDefinition 必须声明一个 query。它可以是任务或文件元信�
 * 数据集与管理器接口
 
 #+begin_src typescript
-interface DocumentDataSetQuery { type: 'document'; query: CoreOrgFileRef }
-type DataSetQuery = CoreQuery | DocumentDataSetQuery
-interface DocumentDataSetSnapshot { identity: string; file: CoreOrgFile; tasks: CoreTask[] }
+type DataSetQuery = CoreQuery
+interface DataManagerOptions { cache?: boolean }
+interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
 type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
+// DataManager 与 DataSetManager 是同一实现的两个导出名。
 class DataSetManager {
-  static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory): DataSetManager
+  static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory, options?: DataManagerOptions): DataSetManager
   dataSet(name: string): DataSet
-  start(): Promise<void>
+  start(): Promise<DataLoadResult[]>
+  refresh(): Promise<void>
   flush(): Promise<void>
   close(): Promise<void>
   static flushAll(): Promise<void>
@@ -67,14 +69,12 @@ class DataSet {
   readonly name: string
   readonly query: DataSetQuery | undefined
   readonly identity: string
-  readonly document: DocumentDataSetSnapshot | undefined
   readonly data: CoreQueryResult | undefined
   readonly error: string
   isReady(): boolean
   subscribe(listener: (event: DataSetEvent) => void): () => void
   getTask(id: string): CoreTask | undefined
   taskKey(id: string): string
-  getFile(): CoreOrgFile | undefined
   updateTaskFields(id: string, changes: TaskModification[], sourceVersion?: string): CoreTask
   updateTask(id: string, changes: TaskModification[], sourceVersion?: string): Promise<CoreTask>
   watchTask(id: string, listener: (change: TaskDataChange) => void): () => void
@@ -87,9 +87,9 @@ class DataSet {
 }
 #+end_src
 
-DataSet 构造当前查询的订阅项及私有 callback，交给 DataSetManager 合并调用，仍独立消费初始结果与范围内增量；同步等旧入口只提供仓库失效时，由该 DataSet 持有的失效监控合并刷新。document 查询在同一对象内读取完整文件，并处理原始提交事件的身份映射。管理器提供共享上下文、批量订阅和按名读取订阅状态，不向页面暴露 Workspace。首次加载及整页刷新各发起一次批量调用；单个查询换代只重建该项，其他数据集不重新读取。配置变化、页面关闭及过期请求返回时，由 Manager 清理对应 ID。
+DataSet 构造当前查询的订阅项及私有 callback，交给 DataSetManager 合并调用，仍独立消费初始结果与范围内增量；同步等旧入口只提供仓库失效时，由该 DataSet 持有的失效监控合并刷新。完整文件仅由管理器分离并作为 start 返回值交给页面，不进入 DataSet。管理器提供共享上下文、批量订阅和按名读取订阅状态，不向页面暴露 Workspace。首次加载及整页刷新各发起一次批量调用；单个查询换代只重建该项，其他数据集不重新读取。配置变化、页面关闭及过期请求返回时，由 Manager 清理对应 ID。
 
-DataSetEvent 包含 insert、remove、update、refresh、ready、complete、document 与 error。事件属于发出它的 DataSet，页面不用按 name 路由。目标记录错误仍以 targetKey 定位，rejectedChanges 保留被拒绝的用户字段；committed 表明已写入但后续确认失败，禁止重复提交。阶段版本和 operationId 由 DataSet 内部维护，页面只展示 data、error 和就绪状态。
+DataSetEvent 包含 insert、remove、update、refresh、ready、complete与 error。事件属于发出它的 DataSet，页面不用按 name 路由。目标记录错误仍以 targetKey 定位，rejectedChanges 保留被拒绝的用户字段；committed 表明已写入但后续确认失败，禁止重复提交。阶段版本和 operationId 由 DataSet 内部维护，页面只展示 data、error 和就绪状态。
 
 同一管理器内的数据集共享操作来源和递增提交阶段；原始增量由各自的查询订阅过滤，不因另一个数据集的同页编辑重复查询。其他页面或 HTTP 的修改由目标 DataSet 合并刷新。全局用户操作队列保证连续提交有序，失败只撤销本次乐观字段，不重放写入。
 
@@ -275,17 +275,17 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 编辑、确认与页面切换在 50 条任务的专用模拟器列表中验证：修改前后可见记录及其位置不变；从今天切换到随时再返回，恢复同一记录，测量误差为 2 像素。滚动记录使用可见项身份与局部偏移，插入同步提示等前置行不会使保存的阅读位置指向另一条任务；布局空闲回调不覆盖用户滚动结果。
 
-* 项目详情：文件内存 DataSet，不使用页面缓存
+* 项目详情：一次性文件与任务局部更新
 
-项目详情在页面内定义单个 document DataSet，查询固定 Core 仓库 ID 与相对文件路径。每次进入页面从 Core 读取当前完整文件，用该文件的全部 nodes 构造内存 DataSet；文档分段复用同一份节点数组，不另发逐任务查询。完成、取消、无状态标题和组合节点均保留，受保护的冲突子树沿用 Core 文件投影规则。
+项目页创建 ~DataManager~ ，显式指定 ~cache: false~ 。每次打开重新启动查询订阅：使用空表达式获取全部标题， ~includeFiles~ 与 ~fullFiles~ 指向真实 Core 仓库和目标路径， ~includeIgnored: true~ 保留已打开文件的全部可编辑标题。任务、普通标题、完成与取消节点均保留，冲突子树继续按 Core 规则排除。
 
-完整文件数据集同样按 CoreTask.id、有效 taskId 与稳定行 ID 建立索引。ProjectDocumentView 将稳定行 ID 和同一个 DataSet 注入 TaskEditor，正文修改直接调用 updateTask。DataSet.document 原子提供同一确认阶段的完整文件、节点和查询身份；document 事件通知页面更新完整文档；不在控件内逐任务回查。
+~start(): Promise<DataLoadResult[]>~ 返回命名查询的一次性文件数组，管理器在交给 DataSet 前移除完整文件。首次成功后不保存文件或包含文件的已完成 Promise；后续刷新、外部更新与配置接入都不再请求 ~fullFiles~ 。页面从文件提取导言、文件标签、源文本与文档分段，用完整 ~path~ 关联 Task，随后释放文件对象；查看原文使用本次打开时的源文本，显式“刷新项目”开启新的阅读会话重新取得一次完整文件；会话身份驱动文档组件重建，即使文件版本相同也重新绑定新 DataSet，并恢复阅读偏移。
 
-该页面不创建 PageDataCache，不读写 page-data 目录，不恢复上次进程的数据，也没有缓存版本 0 阶段；内存 DataSet 仅服务当前打开的文件与界面生命周期。修改字段先进入内存模型并通知目标控件，真实修改异步排队提交。完成后重新读取文件的全部节点，确认内容相同不重复通知，关联字段变化才更新相应绑定。外部文件变化同样由管理对象读取完整文件，不逐编辑器回查。
+DataSet 不提供 document、getFile 或完整文件事件，不再有文件确认重读。编辑统一使用 updateTask，Core 的原始提交事件维护改名、移动和重名出现序号的映射，控件按稳定行 ID 订阅 Task。每个 ProjectTaskSection 维护自己的标题与段落，Task 修改时间和实际字段变化只驱动该章节；正文从 Task.editContent.blocks 取得。位置 ID 与文件版本仅更新编辑上下文，可见正文未变化时保留 HTML 修订号；属性修改不重建文档容器或其他章节。
 
-改名、移动和删除的身份映射只消费 Core 原始提交事件，不按标题、节点顺序或内容猜测；同名重建创建新的绑定，旧编辑器不能提交到重建节点。编辑和错误恢复复用 DataSetManager 的共享提交队列、字段乐观层与定向错误机制。文件读取使用已有 Workspace.fileAt 与完整 nodes 接口，不扩展 Core 查询协议；包含完整文件查询的管理器不读写页面缓存，但 flush 仍等待已提交修改和文档确认，供退后台同步使用。
+新增、删除及顺序变化只调整受影响章节的成员；保留其他章节实例和滚动位置。目录打开时读取最新任务名称与状态。编辑会话期间延迟应用章节外部快照，结束后应用最新 Task，避免打断草稿；失败沿用原有定向回滚和禁止重复提交规则。页级阅读状态与任务数据缓存分离，不读取或写入 page-data 目录。flush 仍等待提交及事件确认。
 
-项目文档在同一文件的新版本上保留当前阅读偏移，同时重建章节位置索引；切换到其他文件才清除阅读状态。这是当前打开页面的交互状态，与任务数据的持久化缓存无关。
+2026-11-16 已在独立 OrgFullFileQA 模拟器与隔离仓库验证：API 修改优先级后，任务标题和正文 Web 实例 ID 均保持；标题与正文修改在当前页面显示；界面完成任务后 API 确认 DONE；新增、删除普通章节保留已有任务实例；失效版本提交返回冲突并保留原内容。相同文件版本的显式刷新重新绑定新 DataSet，刷新后仍可通过界面编辑。首次文件的一次性返回、后续请求不带完整文件、不写项目缓存及隐藏期间读取失效由管理器与页面回归覆盖。
 
 * 跨页面共享通知
 
@@ -350,7 +350,7 @@ SnapshotDataManager 为非任务查询结果提供统一的 start、refresh、su
 
 NotebookDataManager 发布仓库分组与当前配置；FileDataManager 发布普通文件或指定同步历史备份和读取上下文；SyncLogDataManager 发布排序后的同步记录、仓库身份与展示名，展开详情由 SyncLogDetailDataManager 按固定同步 ID 发布完整记录。完整文件、历史与同步规则仍调用既有 Core 接口，管理类不解析 Org。页面的渲染、原文切换、目录定位与展开状态只使用管理对象快照；普通文件变为项目时沿用既有导航。
 
-document DataSet 只在取得完整快照后向页面发布 document 事件；原始身份映射和乐观字段只通知记录订阅，避免把旧语法树与新节点身份混合展示。外部文件更新和自身提交后的确认读取同时更新内存任务绑定与完整文档，项目页直接消费快照，不由 AppShell 再触发第二次读取。编辑会话期间保留最新文档快照，结束输入后应用；同文件更新保留阅读偏移，隐藏后不执行旧导航。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的补读也统一调用 NotificationManager，不由通知控件拼装底层查询。
+项目页首次获取文件，随后通过 Task 更新标题与正文，属性修改不重建整个文档；外部更新由管理器合并刷新任务，不重新获取完整文件。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的补读也统一调用 NotificationManager，不由通知控件拼装底层查询。
 
 \begin{center}
 \begin{tikzpicture}

@@ -1,5 +1,5 @@
 import { PageNavigator } from '../services/PageNavigator'
-import { DataSetManager, DataSet, DataSetEvent } from '../services/DataSetManager'
+import { DataManager, DataSet, DataSetEvent } from '../services/DataManager'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -8,7 +8,7 @@ import { CoreBridgeError, CoreOrgFile, CoreTask, coreErrorMessage } from '../ser
 import { UiColor } from '../ui/Theme'
 import { ProjectDocumentView, ProjectDocumentNavigation } from '../components/ProjectDocumentView'
 import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
-import { ProjectReadingSection, projectReadingSections } from '../ui/ProjectReadingPresentation'
+import { ProjectReadingSection, projectReadingSections, reconcileProjectSections } from '../ui/ProjectReadingPresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
 
 interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
@@ -35,11 +35,12 @@ struct ProjectDetail {
   private fileDataSet: DataSet | undefined = undefined
   private stopFile: (() => void) | undefined = undefined
   @StorageLink('taskInlineActive') @Watch('projectInlineChanged') projectInlineActive: string = ''
-  private dataManager: DataSetManager | undefined = undefined
+  private dataManager: DataManager | undefined = undefined
   private repoId: string = ''
   private path: string = ''
   private readingState: string = ''
   @State renderRevision: number = 0
+  @State documentSession: string = ''
   private navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
   private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
     async (target: string): Promise<boolean> =>
@@ -51,6 +52,7 @@ struct ProjectDetail {
   )
   private sourceNavigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
   private loadRevision: number = 0
+  private needsReload: boolean = false
   private fileVersion: string = ''
   private fileIdentity: string = ''
   @State pageVisible: boolean = true
@@ -59,9 +61,13 @@ struct ProjectDetail {
     this.stopFile?.(); this.stopFile = undefined
     this.dataManager?.close().catch((): void => { console.error('关闭项目数据集失败') })
   }
-  onPageShow() { this.pageVisible = true; this.loadFile(); this.refreshDocument() }
+  onPageShow() {
+    this.pageVisible = true
+    const reload = this.needsReload; this.needsReload = false
+    this.loadFile(reload); this.refreshDocument()
+  }
   // 页面退出时使进行中的文件读取失效。
-  onPageHide() { this.pageVisible = false; this.loadRevision++ }
+  onPageHide() { this.needsReload = this.loading || this.refreshing; this.pageVisible = false; this.loadRevision++ }
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
@@ -94,34 +100,49 @@ struct ProjectDetail {
 
   async refreshFile() {
     if (this.refreshing || !await TaskInlineSession.end(true)) return
-    await this.fileDataSet?.refresh()
+    await this.rememberReading()
+    await this.loadFile(true)
   }
 
-  async loadFile() {
+  async loadFile(force: boolean = false) {
     if (!this.pageVisible) return
     const params = this.getUIContext().getRouter().getParams() as ProjectParams
     const repoId = params.repoId || '', path = params.path || ''
-    if (!this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
+    if (force || this.message || this.refreshMessage || !this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
+      this.refreshing = true
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
       this.repoId = repoId; this.path = path
-      this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, 'project', [{ name: 'tasks', query: { type: 'document', query: { repoId, path } } }])
+      this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', [{
+        name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
+          includeFiles: [{ repoId, path }], fullFiles: [{ repoId, path }], includeIgnored: true } }
+      }], { cache: false })
       const manager = this.dataManager
       const fileDataSet = manager.dataSet('tasks')
       this.fileDataSet = fileDataSet
-      this.stopFile = fileDataSet.subscribe((): void => {
+      this.stopFile = fileDataSet.subscribe((event: DataSetEvent): void => {
         if (fileDataSet !== this.fileDataSet) return
-        const snapshot = fileDataSet.document
-        if (!snapshot && !fileDataSet.error) return
-        const state: ProjectFileState = { snapshot, message: fileDataSet.error }
-        this.applyFileState(state)
+        if (event.type === 'error' && !event.targetKey) this.applyFileState({ message: fileDataSet.error })
+        else this.refreshDocument()
       })
-      await manager.start().catch((error: Error): void => { this.applyFileState({ message: error.message }) })
+      try {
+        const results = await manager.start()
+        if (manager !== this.dataManager) return
+        const file = results.find(result => result.name === 'tasks')?.fullFiles[0]
+        const data = fileDataSet.data
+        await this.applyFileState({ snapshot: { file, tasks: data?.type === 'task' ? data.result.tasks : [] }, message: '' })
+      } catch (error) {
+        if (manager === this.dataManager) await this.applyFileState({ message: (error as Error).message })
+      }
     }
   }
 
   refreshDocument(): void {
-    const snapshot = this.fileDataSet?.document
-    if (snapshot || this.fileDataSet?.error) this.applyFileState({ snapshot, message: this.fileDataSet?.error ?? '' })
+    if (!this.pageVisible || this.refreshing || TaskInlineSession.active() || !this.fileVersion) return
+    const data = this.fileDataSet?.data
+    if (data?.type !== 'task') return
+    const sections = reconcileProjectSections(this.sections, data.result.tasks,
+      (task: CoreTask): string => this.fileDataSet!.taskKey(task.id))
+    if (sections !== this.sections) this.sections = sections
   }
 
   projectInlineChanged(): void { if (!this.projectInlineActive) this.refreshDocument() }
@@ -145,10 +166,11 @@ struct ProjectDetail {
         return
       }
       const sections = projectReadingSections(file, snapshot.tasks)
+      for (const section of sections) if (section.node) section.key = this.fileDataSet!.taskKey(section.node.id)
       const fileTags = file.fileTags().filter((tag: string) => tag !== 'todo')
       const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
-      const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion
+      const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion || this.documentSession !== this.fileDataSet!.identity
       this.title = file.project() || '未命名项目'
       this.titleContext = file.category() || ''
       this.sections = sections
@@ -159,6 +181,7 @@ struct ProjectDetail {
         if (identity !== this.fileIdentity) this.readingState = ''
         this.fileIdentity = identity
         this.fileVersion = file.fileVersion
+        this.documentSession = this.fileDataSet!.identity
         this.renderReady = false
         this.renderRevision++
       }
@@ -209,17 +232,19 @@ struct ProjectDetail {
                 .onClick((): void => { this.loadFile() })
             }
             Stack() {
+              ForEach([this.documentSession], (identity: string) => {
               ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, fileTags: this.fileTags, specialTags: this.specialTags,
-                revision: `${this.fileDataSet?.document?.identity ?? 'pending'}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
+                revision: `${this.documentSession}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
                 internalLinkProcessor: this.internalLinks,
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
                 ready: (): void => { this.renderReady = true } })
                 .width('100%').height('100%').visibility(this.sourceMode ? Visibility.None : Visibility.Visible)
+              }, (identity: string) => identity)
               if (this.sourceMode) {
                 OrgFilePreviewView({ content: this.content, displayMode: 'source',
                   title: this.title,
-                  revision: `${this.fileDataSet?.document?.identity ?? 'pending'}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.sourceNavigation })
+                  revision: `${this.documentSession}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.sourceNavigation })
                   .width('100%').height('100%')
               }
             }.width('100%').layoutWeight(1)

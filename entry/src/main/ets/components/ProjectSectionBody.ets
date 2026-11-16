@@ -10,6 +10,7 @@ export struct ProjectSectionBody {
   @Prop task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
+  @Prop contentRevision: string = ''
   @Prop contentBackground: string = UiColor.surface
   @State bodyHeight: number = 0
 
@@ -26,7 +27,7 @@ export struct ProjectSectionBody {
     Stack({ alignContent: Alignment.TopStart }) {
       this.bodyGuide()
       TaskDocumentContent({ modify: this.modify, internalLinkProcessor: this.internalLinkProcessor, task: this.task,
-        blocks: this.blocks, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
+        blocks: this.blocks, contentRevision: this.contentRevision, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
         .padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })
         .onAreaChange((_old: Area, area: Area): void => { this.bodyHeight = Math.max(0, Number(area.height)) })
     }.width('100%')

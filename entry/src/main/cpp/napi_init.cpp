@@ -598,7 +598,19 @@ bool ProjectQueryResults(napi_env env, napi_value results)
         if (napi_get_element(env, results, index, &item) != napi_ok ||
             napi_get_named_property(env, item, "type", &type) != napi_ok || !ReadString(env, type, &kind) ||
             napi_get_named_property(env, item, "result", &result) != napi_ok) return false;
-        if (kind == "task") { if (!ProjectTaskResult(env, result)) return false; }
+        if (kind == "task") {
+            if (!ProjectTaskResult(env, result)) return false;
+            napi_value files;
+            uint32_t file_count = 0;
+            if (napi_get_named_property(env, result, "fullFiles", &files) != napi_ok ||
+                napi_get_array_length(env, files, &file_count) != napi_ok) return false;
+            for (uint32_t file_index = 0; file_index < file_count; file_index++) {
+                napi_value data;
+                if (napi_get_element(env, files, file_index, &data) != napi_ok) return false;
+                napi_value file = CreateOrgFileObject(env, data);
+                if (file == nullptr || napi_set_element(env, files, file_index, file) != napi_ok) return false;
+            }
+        }
         else if (kind == "file") { if (!ProjectFileResult(env, result)) return false; }
         else if (kind != "notification") return false;
     }
@@ -1060,7 +1072,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             else if (work->preview_action == "file" || work->preview_action == "sourceFile" || work->preview_action == "fileAt") projected = CreateOrgFileObject(env, result);
             if (projected != nullptr) napi_resolve_deferred(env, work->deferred, projected);
             else RejectFileProjection(env, work->deferred);
-        } else if (!work->refile_targets && !work->get_settings && !work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options) {
+        } else if (!work->refile_targets && !work->get_settings && !work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options && !work->validate_configuration) {
             if (ProjectQueryResults(env, result)) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {

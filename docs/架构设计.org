@@ -127,7 +127,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 侧边栏通过只读 SidebarDataManager 统一管理计数、文件入口与项目列表，复用完整批量查询和 PageDataCache；组件只接收管理对象快照。整个 Workspace 的变化在管理层合并刷新，缓存项目较少或为空也不会限制新项目发现；完整生命周期见 [[file:harmony/页面数据集设计.org::*侧边栏：完整批次与只读缓存][侧边栏数据管理]]。
 
-各任务页面独立声明查询定义并直接持有 DataSetManager，由管理器处理配置和缓存，由 Manager 合并底层订阅调用并管理各 ID，每个 DataSet 自己处理按 ID 访问、编辑及事件；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情由 document DataSet 发布完整文件与内存任务更新。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
+各任务页面独立声明查询定义并直接持有 DataSetManager，由管理器处理配置和缓存，由 Manager 合并底层订阅调用并管理各 ID，每个 DataSet 自己处理按 ID 访问、编辑及事件；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情禁用 DataManager 缓存，首次查询附带的完整文件直接返回页面，管理器与 DataSet 均不持有；后续通过 Task 订阅局部更新标题与正文。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
 
 * 应用共享通知管理
 

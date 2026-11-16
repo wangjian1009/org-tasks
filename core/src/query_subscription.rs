@@ -190,7 +190,7 @@ impl Hub {
     fn receive(&self, event: DataChangeEvent) {
         {
             let mut state = self.state.lock().unwrap();
-            if state.closed {
+            if state.closed || state.invalidated {
                 return;
             }
             let DataChangeEvent::RepositoryChanged { repo_id, files, .. } = &event;
@@ -249,7 +249,9 @@ impl Hub {
 }
 
 impl State {
-    fn new(query: CoreQuery) -> Self {
+    fn new(mut query: CoreQuery) -> Self {
+        // 完整文件仅随初始查询返回，不参与后续增量订阅。
+        if let CoreQuery::Task { query, .. } = &mut query { query.full_files.clear(); }
         Self {
             query,
             today: chrono::Local::now().date_naive(),
@@ -540,7 +542,7 @@ fn task_result(
     let categories = BTreeMap::from([(file_key(file), normalized_category(file.category.clone()))]);
     evaluate_query(
         query,
-        if file.is_ignore { Vec::new() } else { tasks },
+        if file.is_ignore && !query.include_ignored { Vec::new() } else { tasks },
         &categories,
         today,
     )
@@ -705,6 +707,25 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[tokio::test]
+    async fn full_files_are_initial_values_and_task_edits_continue_without_reloading() {
+        let mut f = Fixture::new().await;
+        let reference = crate::OrgFileRef { repo_id: f.workspace.repos()[0].id.clone(), path: "a.org".into() };
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let capture = events.clone();
+        let started = f.workspace.subscribe_query(vec![QuerySubscriptionRequest::new(TaskQuery {
+            include_files: vec![reference.clone()], full_files: vec![reference], ..Default::default()
+        }.into(), move |event| capture.lock().unwrap().push(event))]).await.unwrap().remove(0);
+        let initial = match &started.data { CoreQueryResult::Task(result) => result, _ => panic!("必须是任务结果") };
+        assert_eq!(initial.full_files.len(), 1);
+        let before = crate::model::test_support::repository_accesses(f.root.to_str().unwrap())[1];
+        f.change("新标题").await;
+        assert_eq!(started.subscription.status(), QuerySubscriptionStatus::Current);
+        assert!(!events.lock().unwrap().is_empty());
+        assert_eq!(crate::model::test_support::repository_accesses(f.root.to_str().unwrap())[1], before);
+        assert_eq!(initial.full_files[0].source_bytes(), b"* TODO A\n");
     }
 
     #[tokio::test]

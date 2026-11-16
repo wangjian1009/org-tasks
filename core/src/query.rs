@@ -92,10 +92,18 @@ impl WorkspaceState {
                         }
                     }
                     Filter::validate_expression(&query.expression)?;
-                    for file in query.include_files.iter().chain(&query.exclude_files) {
+                    for file in query.include_files.iter().chain(&query.exclude_files).chain(&query.full_files) {
                         validate_query_file(file)?;
                         if !self.repos().iter().any(|repo| repo.id == file.repo_id) {
                             return Err(CoreError::InvalidInput("查询文件的仓库不属于 workspace"));
+                        }
+                    }
+                    for file in &query.full_files {
+                        if (!repo_ids.is_empty() && !repo_ids.contains(&file.repo_id))
+                            || (!query.include_files.is_empty() && !query.include_files.contains(file))
+                            || query.exclude_files.contains(file)
+                        {
+                            return Err(CoreError::InvalidInput("完整文件必须属于当前任务查询的文件范围"));
                         }
                     }
                 }
@@ -380,17 +388,20 @@ impl WorkspaceState {
                     let tasks = all
                         .iter()
                         .filter(|task| {
-                            !task.file_metadata().is_ignore
+                            (task_query.include_ignored || !task.file_metadata().is_ignore)
                                 && query.needs_file(task.repo_id(), task.path())
                         })
                         .cloned()
                         .collect();
-                    CoreQueryResult::Task(evaluate_query(
-                        task_query,
-                        tasks,
-                        &file_categories,
-                        today,
-                    ))
+                    let mut result = evaluate_query(task_query, tasks, &file_categories, today);
+                    let mut seen = BTreeSet::new();
+                    result.full_files = task_query.full_files.iter()
+                        .filter(|reference| seen.insert((reference.repo_id.clone(), reference.path.clone())))
+                        .filter_map(|reference| loaded.get(&reference.repo_id)?.iter()
+                            .find(|file| file.path == reference.path && (task_query.include_ignored || !file.scan_ignored)))
+                        .cloned()
+                        .collect();
+                    CoreQueryResult::Task(result)
                 }
                 CoreQuery::File { query: file_query } => {
                     let files = metadata
@@ -528,6 +539,7 @@ pub(crate) fn evaluate_query(
     TaskQueryResult {
         tasks: all,
         categories,
+        full_files: Vec::new(),
     }
 }
 
@@ -658,6 +670,60 @@ mod tests {
                 .collect(),
         ).await
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn full_files_share_loading_with_nodes_and_preserve_source_and_empty_files() {
+        let workspace = workspace().await;
+        let repo = workspace.repos().remove(0);
+        let root = std::path::Path::new(&repo.root_directory);
+        let source = "#+TITLE: 项目\r\n#+FILETAGS: :project:\r\n* TODO 待办\r\n正文\r\n* DONE 完成\r\n* 普通章节\r\n* 受保护 :CONFLICT:\r\n** 隐藏\r\n";
+        std::fs::write(root.join("project.org"), source).unwrap();
+        std::fs::write(root.join("empty.org"), "").unwrap();
+        std::fs::write(root.join("bad.org"), [0xff]).unwrap();
+        std::fs::write(root.join(".orgzlyignore"), "project.org\n").unwrap();
+        let reference = |path: &str| OrgFileRef { repo_id: repo.id.clone(), path: path.into() };
+        let query = TaskQuery {
+            include_files: vec![reference("project.org"), reference("empty.org"), reference("missing.org")],
+            full_files: vec![reference("project.org"), reference("empty.org"), reference("project.org"), reference("missing.org")],
+            include_ignored: true,
+            ..Default::default()
+        };
+        let before = crate::model::test_support::repository_accesses(&repo.root_directory);
+        let mut results = workspace.query(&[query.clone().into(), query.clone().into()]).await.unwrap();
+        let first = results.remove(0).into_task().unwrap();
+        let second = results.remove(0).into_task().unwrap();
+        let after = crate::model::test_support::repository_accesses(&repo.root_directory);
+        assert_eq!([after[0] - before[0], after[1] - before[1]], [1, 1]);
+        assert_eq!(first.tasks.len(), 3);
+        assert_eq!(first.full_files.len(), 2);
+        assert_eq!(first.full_files[0].source_bytes(), source.as_bytes());
+        assert!(first.full_files[1].source_bytes().is_empty());
+        assert!(std::ptr::eq(first.full_files[0].syntax(), second.full_files[0].syntax()));
+        assert!(first.tasks.iter().all(|task| task.file_version() == crate::LocalFileVersion::from_bytes(source.as_bytes()).content_hash));
+        let filtered = workspace.query(&[TaskQuery { expression: "it.todo".into(), categories: vec![Some("不存在".into())], ..query.clone() }.into()]).await.unwrap().remove(0).into_task().unwrap();
+        assert!(filtered.tasks.is_empty());
+        assert_eq!(filtered.full_files.len(), 2);
+        let ignored = workspace.query(&[TaskQuery { include_ignored: false, ..query }.into()]).await.unwrap().remove(0).into_task().unwrap();
+        assert!(ignored.tasks.is_empty());
+        assert_eq!(ignored.full_files.len(), 1);
+        assert_eq!(ignored.full_files[0].path, "empty.org");
+    }
+
+    #[tokio::test]
+    async fn full_files_outside_query_scope_are_rejected_before_loading() {
+        let workspace = workspace().await;
+        let repos = workspace.repos();
+        let reference = OrgFileRef { repo_id: repos[0].id.clone(), path: "capture.org".into() };
+        let invalid = [
+            CoreQuery::Task { repo_ids: vec![repos[1].id.clone()], query: TaskQuery { full_files: vec![reference.clone()], ..Default::default() } },
+            TaskQuery { include_files: vec![OrgFileRef { path: "other.org".into(), ..reference.clone() }], full_files: vec![reference.clone()], ..Default::default() }.into(),
+            TaskQuery { exclude_files: vec![reference.clone()], full_files: vec![reference.clone()], ..Default::default() }.into(),
+            TaskQuery { full_files: vec![OrgFileRef { path: "../unsafe.org".into(), ..reference }], ..Default::default() }.into(),
+        ];
+        let before = crate::model::test_support::repository_accesses(&repos[0].root_directory);
+        for query in invalid { assert!(matches!(workspace.query(&[query]).await, Err(CoreError::InvalidInput(_)))); }
+        assert_eq!(before, crate::model::test_support::repository_accesses(&repos[0].root_directory));
     }
 
     #[tokio::test]

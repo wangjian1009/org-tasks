@@ -130,6 +130,7 @@ export type CoreQuery = NativeCoreQuery
 export type CoreQueryResult = NativeCoreQueryResult
 export type CoreFileQuery = NativeFileQuery
 export type CoreTaskQuery = NativeTaskQuery
+// fullFiles 只随单次查询或订阅初始结果返回，由调用方消费。
 export type CoreTaskQueryResult = NativeTaskQueryResult
 
 export interface CoreSyncSnapshot {

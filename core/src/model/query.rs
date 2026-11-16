@@ -10,6 +10,8 @@ pub struct TaskQuery {
     pub categories: Vec<Option<String>>,
     pub include_files: Vec<OrgFileRef>,
     pub exclude_files: Vec<OrgFileRef>,
+    pub full_files: Vec<OrgFileRef>,
+    pub include_ignored: bool,
 }
 
 /// 精确到仓库与文件的查询范围对象。
@@ -32,6 +34,7 @@ pub struct TaskCategory {
 pub struct TaskQueryResult {
     pub tasks: Vec<FilterTask>,
     pub categories: Vec<TaskCategory>,
+    pub full_files: Vec<super::OrgFile>,
 }
 
 /// 通用查询共享一次仓库访问，各项结果分别应用自己的文件范围。

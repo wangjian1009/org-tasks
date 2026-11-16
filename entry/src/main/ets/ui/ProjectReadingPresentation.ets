@@ -36,3 +36,15 @@ export function projectContentGap(blocks: CoreContentBlock[], index: number): nu
   const current = blocks[index]
   return previous.paragraph && current.paragraph ? (current.blankLinesBefore >= 2 ? 12 : 0) : 12
 }
+
+// 成员与源顺序变化才更新文档容器，属性和正文由各章节的任务订阅局部更新。
+export function reconcileProjectSections(previous: ProjectReadingSection[], tasks: CoreTask[], key: (task: CoreTask) => string): ProjectReadingSection[] {
+  const preamble = previous.filter(section => section.node === null)
+  const old = new Map<string, ProjectReadingSection>()
+  for (const section of previous) if (section.node) old.set(section.key, section)
+  const next = preamble.concat(tasks.map((task: CoreTask): ProjectReadingSection => {
+    const identity = key(task)
+    return old.get(identity) ?? { key: identity, node: task, html: '', blocks: task.editContent.blocks, linkTargets: [] }
+  }))
+  return previous.length === next.length && previous.every((section, index) => section === next[index]) ? previous : next
+}

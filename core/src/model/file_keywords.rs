@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 /// 文件头关键字的语义值；Org 的 #+、冒号与源节点只留在无损语法树中。
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct FileKeywords {
     values: BTreeMap<String, Vec<String>>,
     pub(super) properties: BTreeMap<String, String>,

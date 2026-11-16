@@ -247,6 +247,8 @@ export interface TaskQuery {
   categories?: (string | null)[];
   includeFiles?: OrgFileRef[];
   excludeFiles?: OrgFileRef[];
+  fullFiles?: OrgFileRef[];
+  includeIgnored?: boolean;
 }
 
 export interface TaskCategory {
@@ -258,6 +260,7 @@ export interface TaskCategory {
 export interface TaskQueryResult {
   tasks: Task[];
   categories: TaskCategory[];
+  fullFiles: OrgFile[];
 }
 
 export interface FileQuery {

@@ -4,15 +4,13 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { TaskCreation, TaskModification } from 'liborg_tasks_harmony.so'
 import { AppConfig } from '../models/OrgTask'
-import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFile, CoreOrgFileRef, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
+import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
 import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
 
-export interface DocumentDataSetQuery { type: 'document'; query: CoreOrgFileRef }
-export type DataSetQuery = CoreQuery | DocumentDataSetQuery
+export type DataSetQuery = CoreQuery
 export interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
-export interface DocumentDataSetSnapshot { identity: string; file: CoreOrgFile; tasks: CoreTask[] }
 export interface TaskDataChange { task?: CoreTask; removed?: boolean; blocked?: boolean; error?: string; rejectedChanges?: TaskModification[] }
 export class DataSetWriteError extends Error {
   readonly committed: boolean
@@ -32,7 +30,7 @@ export interface ManagedDataSet { readonly revision: number; readonly name: stri
 export interface DataSetIdentity { before: string; after: string }
 export interface DataSetEvent {
   name: string
-  type: 'insert' | 'remove' | 'update' | 'refresh' | 'complete' | 'ready' | 'error' | 'document'
+  type: 'insert' | 'remove' | 'update' | 'refresh' | 'complete' | 'ready' | 'error'
   version: number
   dataVersion?: number
   operationId: string
@@ -89,11 +87,9 @@ export class DataSet {
   private owner: string = util.generateRandomUUID()
   private epoch: string = util.generateRandomUUID()
   private readonly clock: DataSetClock | undefined
-  private documentSnapshot: DocumentDataSetSnapshot | undefined = undefined
   private readonly taskListeners: Set<(event: DataSetEvent) => void> = new Set()
   private readonly listeners: Set<(event: DataSetEvent) => void> = new Set()
   private readonly confirmed: Map<string, CoreQueryResult> = new Map()
-  private readonly files: Map<string, CoreOrgFile> = new Map()
   private readonly versions: Map<string, number> = new Map()
   private readonly views: Map<string, ManagedDataSet> = new Map()
   private readonly taskIndex: Map<string, Map<string, CoreTask>> = new Map()
@@ -144,8 +140,7 @@ export class DataSet {
     await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
     if (this.connection) await UserOperationQueue.whenIdle()
     if (request !== this.configureRequest || this.closed) return
-    this.documentSnapshot = undefined
-    this.confirmed.clear(); this.versions.clear(); this.views.clear(); this.taskIndex.clear(); this.rowIds.clear(); this.files.clear()
+    this.confirmed.clear(); this.versions.clear(); this.views.clear(); this.taskIndex.clear(); this.rowIds.clear()
     this.closed = false; this.closing = false; this.shutdown = undefined; this.scopeChanged = false
     this.epoch = util.generateRandomUUID(); this.sequence = 0
     this.initialization = undefined; this.config = config; this.connection = workspace
@@ -168,7 +163,6 @@ export class DataSet {
   }
   get query(): DataSetQuery | undefined { return this.definition?.query }
   get repositoryBindings(): CoreQueryRepositoryBinding[] { return this.definition?.repositoryBindings ?? [] }
-  get document(): DocumentDataSetSnapshot | undefined { return this.documentSnapshot }
   get data(): CoreQueryResult | undefined { return this.get(this.name)?.data }
   get version(): number { return this.get(this.name)?.version ?? 0 }
   get revision(): number { return this.get(this.name)?.revision ?? 0 }
@@ -214,7 +208,6 @@ export class DataSet {
     return this.taskIndex.get(name)?.get(key)
   }
   getTask(id: string, name: string = this.name): CoreTask | undefined { return this.findTask(name, id) }
-  getFile(name: string = this.name): CoreOrgFile | undefined { return this.files.get(name) }
   updateTaskFields(id: string, changes: TaskModification[], sourceVersion?: string, name: string = this.name): CoreTask {
     return this.updateFields(name, id, changes, sourceVersion)
   }
@@ -237,7 +230,7 @@ export class DataSet {
           blocked: event.committed === true || !!event.message && ['版本', '失效', '已变化'].some(value => event.message!.includes(value)), rejectedChanges: event.rejectedChanges })
         return
       }
-      if (event.type === 'ready' || event.type === 'complete' || event.type === 'document') return
+      if (event.type === 'ready' || event.type === 'complete') return
       if (!current && previous) { previous = undefined; listener({ removed: true }); return }
       if (current && (!previous || event.updated.includes(taskKey(current)) || event.added.includes(taskKey(current)) ||
         event.identities?.some(identity => identity.before === recordKey && identity.after !== recordKey))) {
@@ -267,7 +260,7 @@ export class DataSet {
     if (this.scopeChanged || !this.connection) throw new Error('数据集尚未配置')
     this.workspace = this.connection
     if (!this.definition) {
-      this.applyFullResult(this.name, { type: 'task', result: { tasks: [], categories: [] } }, this.operationId(1, 'refresh'))
+      this.applyFullResult(this.name, { type: 'task', result: { tasks: [], categories: [], fullFiles: [] } }, this.operationId(1, 'refresh'))
       this.ready = true
       this.publish({ name: this.name, type: 'ready', version: 1, operationId: this.operationId(1, 'refresh'), optimistic: false, added: [], removed: [], updated: [] })
       return
@@ -282,16 +275,6 @@ export class DataSet {
     const owner = this.epoch
     const id = await workspace.watchDataChanges((event: CoreDataChangeEvent): void => {
       if (owner !== this.epoch || workspace !== this.workspace || this.closed) return
-      const definition = this.definition
-      const file = definition?.query.type === 'document' ? definition.query.query : undefined
-      if (file && event.repoId === file.repoId && event.changes.length) {
-        const changes = event.changes.flatMap((change: CoreTaskDataChange): CoreTaskDataChange[] => {
-          const before = change.before?.task.fullPath.file === file.path ? change.before : null
-          const after = change.after?.task.fullPath.file === file.path ? change.after : null
-          return before || after ? [{ kind: change.kind, before, after }] : []
-        })
-        if (changes.length) this.remapFileIdentities(this.name, changes, event.operationId ?? this.generation)
-      }
       if (this.eventVersion(event.operationId) === undefined) this.requestExternalRefresh()
     })
     if (!this.hasValidScope() || owner !== this.epoch || workspace !== this.workspace) { workspace.stopWatchingDataChanges(id); return }
@@ -300,37 +283,6 @@ export class DataSet {
       const day = new Date().toDateString()
       if (day !== this.day) { this.day = day; this.requestExternalRefresh() }
     }, 60000)
-  }
-  private remapFileIdentities(name: string, changes: CoreTaskDataChange[], operationId: string): void {
-    const data = this.confirmed.get(name)
-    if (data?.type !== 'task') return
-    const previousIds = this.rowIds.get(name) ?? new Map<string, string>()
-    const ids = new Map(previousIds)
-    const identities: DataSetIdentity[] = []
-    for (const change of changes) if (change.before) ids.delete(taskKeyFromRaw(change.before.task.fullPath.repoId, change.before.task.id))
-    for (const change of changes) {
-      const before = change.before ? taskKeyFromRaw(change.before.task.fullPath.repoId, change.before.task.id) : ''
-      const after = change.after ? taskKeyFromRaw(change.after.task.fullPath.repoId, change.after.task.id) : ''
-      if (after) ids.set(after, previousIds.get(before) ?? util.generateRandomUUID())
-      if (before && after) identities.push({ before, after })
-      for (const pending of this.pending) if (pending.key === before && change.before) {
-        const frame = identityFrame({ repoId: change.before.task.fullPath.repoId, changes: [change], files: [], type: 'repositoryChanged', operationId },
-          change.before.task.fullPath.repoId, change.before.task.fullPath.file!)
-        if (after && !pending.identityFrames.has(frame)) { pending.key = after; pending.identityFrames.add(frame) }
-        if (!after && !pending.identityFrames.has(frame)) pending.missingFrames.add(frame)
-      }
-    }
-    this.rowIds.set(name, ids)
-    const tasks = data.result.tasks.flatMap((task: CoreTask): CoreTask[] => {
-      const change = changes.find(item => item.before && taskKeyFromRaw(item.before.task.fullPath.repoId, item.before.task.id) === taskKey(task))
-      if (!change) return [task]
-      if (!change.after) return []
-      const record = taskRecord(task)
-      record.value.id = change.after.task.id; record.value.fullPath = change.after.task.fullPath
-      return [new PageTaskSnapshot(record)]
-    })
-    this.confirmed.set(name, { type: 'task', result: { tasks, categories: data.result.categories } })
-    this.rebuild(name, operationId, this.pending.length > 0, identities)
   }
   private stopExternalUpdates(): void {
     if (this.externalWatch) this.workspace?.stopWatchingDataChanges(this.externalWatch)
@@ -367,11 +319,7 @@ export class DataSet {
     }
     const definition = this.definition!
     try {
-      if (definition.query.type === 'document') {
-        activate()
-        await this.loadFile(definition, operationId)
-      }
-      else {
+      {
         if (!this.clock) throw new Error('数据集缺少订阅管理器')
         const result = await this.clock.subscribe(this.name, { query: definition.query, callback: (event: CoreDataChangeEvent): void => {
           if (this.closed || this.generation !== operationId) return
@@ -400,18 +348,6 @@ export class DataSet {
       throw error as Error
     }
   }
-  private async loadFile(definition: DataSetDefinition, operationId: string, acceptedOperationId?: string): Promise<void> {
-    const reference = (definition.query as DocumentDataSetQuery).query
-    const file = await this.workspace!.fileAt({ repoId: reference.repoId, file: reference.path, titles: [] })
-    if (this.closed || this.scopeChanged || this.generation !== operationId) return
-    this.files.set(definition.name, file)
-    for (const edit of this.pending) if (edit.id === acceptedOperationId) edit.observed.add(definition.name)
-    this.applyFullResult(definition.name, { type: 'task', result: { tasks: file.nodes(), categories: [] } }, operationId)
-    const data = this.confirmed.get(this.name)!
-    this.documentSnapshot = { identity: this.epoch, file, tasks: data.type === 'task' ? data.result.tasks : [] }
-    this.publish({ name: definition.name, type: 'document', version: this.eventVersion(operationId) ?? this.sequence,
-      operationId, optimistic: false, added: [], removed: [], updated: [] })
-  }
   private applyFullResult(name: string, data: CoreQueryResult, operationId: string): void {
     this.loadError = ''
     this.confirmed.set(name, restoreDataSet(cacheDataSet(name, data)))
@@ -424,11 +360,7 @@ export class DataSet {
     if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
-    // 普通查询由管理器合并后统一排队；完整文档沿用单文件读取。
-    const work = this.query?.type === 'document'
-      ? UserOperationQueue.submit(async (): Promise<void> => { await this.load(version) },
-        [...this.scopeFiles(), JSON.stringify(['$dataset', this.epoch, this.name])])
-      : this.load(version)
+    const work = this.load(version)
     this.track(work)
     return work
   }
@@ -559,7 +491,6 @@ export class DataSet {
         }
         await workspace.executeTaskOperations(group)
         committed = true
-        if (this.definition?.query.type === 'document') await this.loadFile(this.definition, this.generation, edit.id)
         // Native 保证本次产生的数据事件先于 Promise 完成；没有命中变化的操作也在此结束阶段。
         this.finishEdit(edit, false)
       } catch (error) {
@@ -631,7 +562,7 @@ export class DataSet {
         tasks.push(new PageTaskSnapshot(taskRecord(change.after.view)))
       }
       tasks.sort(compareRecords)
-      this.confirmed.set(name, { type: 'task', result: { tasks, categories: event.categories ?? data.result.categories } })
+      this.confirmed.set(name, { type: 'task', result: { tasks, categories: event.categories ?? data.result.categories, fullFiles: [] } })
     } else if (data.type === 'file') {
       const keys = new Set((event.removedFiles ?? []).map(file => JSON.stringify([file.repoId, file.path])))
       for (const file of event.files ?? []) keys.add(JSON.stringify([file.after.repoId, file.after.path]))
@@ -665,7 +596,7 @@ export class DataSet {
         if (edit.kind === 'remove') tasks = tasks.filter(task => taskKey(task) !== edit.key)
         if (edit.kind === 'update') tasks = tasks.map(task => taskKey(task) === edit.key ? projectTaskFields(task, edit.changes) : task)
       }
-      data = { type: 'task', result: { tasks, categories: confirmed.result.categories } }
+      data = { type: 'task', result: { tasks, categories: confirmed.result.categories, fullFiles: [] } }
     }
     const previous = this.views.get(name)
     if (data.type === 'task') {
@@ -707,7 +638,6 @@ export class DataSet {
   }
   private publish(event: DataSetEvent): void {
     for (const listener of this.taskListeners) { try { listener(event) } catch (_) { console.error('任务记录监听处理失败') } }
-    if (this.query?.type === 'document' && event.type !== 'document' && event.type !== 'ready' && !(event.type === 'error' && !event.targetKey)) return
     for (const listener of this.listeners) { try { listener(event) } catch (_) { console.error('页面数据监听处理失败') } }
   }
   private emitError(name: string, id: string, error: Error, targetKey?: string, rejectedChanges?: TaskModification[], committed: boolean = false): void {

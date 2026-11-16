@@ -166,7 +166,7 @@ pub struct OrgFile {
     pub(crate) modified_at: Option<TimestampMs>,
     pub(crate) scan_ignored: bool,
     mutation_journal: Option<mutation_journal::FileJournal>,
-    syntax: orgize::Org,
+    syntax: std::sync::Arc<orgize::Org>,
     file_keywords: file_keywords::FileKeywords,
     priority_options: Vec<TaskPriority>,
     default_priority: TaskPriority,
@@ -256,7 +256,7 @@ impl OrgFile {
             modified_at: None,
             scan_ignored: false,
             mutation_journal: None,
-            syntax,
+            syntax: std::sync::Arc::new(syntax),
             file_keywords,
             priority_options,
             default_priority,
@@ -308,7 +308,7 @@ impl OrgFile {
         self.priority_options = priority_options;
         self.default_priority = default_priority;
         self.todo = todo;
-        self.syntax = syntax;
+        self.syntax = std::sync::Arc::new(syntax);
         self.file_keywords = file_keywords;
         Ok(())
     }
@@ -316,17 +316,21 @@ impl OrgFile {
 
 impl Clone for OrgFile {
     fn clone(&self) -> Self {
-        let mut file = Self::with_todo_defaults_and_setup(
-            self.repo_id.clone(),
-            self.path.clone(),
-            self.source_bytes.clone(),
-            self.todo_defaults.clone(),
-            self.todo_setup.clone(),
-        )
-        .expect("已加载的 Org 文件必须可重新解析");
-        file.modified_at = self.modified_at;
-        file.scan_ignored = self.scan_ignored;
-        file
+        Self {
+            repo_id: self.repo_id.clone(),
+            path: self.path.clone(),
+            source_bytes: self.source_bytes.clone(),
+            todo: self.todo.clone(),
+            todo_defaults: self.todo_defaults.clone(),
+            todo_setup: self.todo_setup.clone(),
+            modified_at: self.modified_at,
+            scan_ignored: self.scan_ignored,
+            mutation_journal: None,
+            syntax: self.syntax.clone(),
+            file_keywords: self.file_keywords.clone(),
+            priority_options: self.priority_options.clone(),
+            default_priority: self.default_priority.clone(),
+        }
     }
 }
 

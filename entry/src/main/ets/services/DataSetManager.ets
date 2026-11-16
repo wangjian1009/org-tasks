@@ -2,12 +2,15 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
+import { CoreOrgFile, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { PageDataCache } from './PageDataCache'
 import { cacheDataSet, restoreDataSet } from './PageDataSnapshot'
 import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueue, DataSetClock, DataSetQuery } from './DataSet'
 
 export { DataSet, DataSetDefinition, DataSetDefinitionFactory, DataSetQuery, DataSetEvent, TaskDataChange, DataSetWriteError } from './DataSet'
+
+export interface DataManagerOptions { cache?: boolean }
+export interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 
 interface DataSetCacheRepository { id: string; rootDirectory: string; excludedDirectories: string[] }
 interface DataSetCacheScope { repositories: DataSetCacheRepository[]; todoDefaults: string; coreSettings: CoreSettingsObject; names: string[] }
@@ -37,7 +40,10 @@ export class DataSetManager {
   private pendingSubscriptions: PendingSubscription[] = []
   private subscribeTimer: number = -1
   private cache: PageDataCache | undefined = undefined
-  private running: Promise<void> | undefined = undefined
+  private running: Promise<DataLoadResult[]> | undefined = undefined
+  private readonly cacheEnabled: boolean
+  private initialFilesDelivered: boolean = false
+  private captureFiles: ((result: DataLoadResult) => void) | undefined = undefined
   private initialized: boolean = false
   private closed: boolean = false
   private closing: boolean = false
@@ -54,7 +60,7 @@ export class DataSetManager {
     unsubscribe: (name: string): void => this.stopSubscription(name),
     status: async (name: string) => {
       const id = this.subscriptions.get(name)
-      return id === undefined ? (this.sets.get(name)?.query?.type === 'document' ? 'current' : 'closed') : await this.workspace!.querySubscriptionStatus(id)
+      return id === undefined ? 'closed' : await this.workspace!.querySubscriptionStatus(id)
     },
     owner: util.generateRandomUUID(), next: (): number => ++this.phase, metadata: (repoId: string, path: string): CoreOrgFileMetadata | undefined => {
     for (const dataSet of this.sets.values()) if (dataSet.data?.type === 'file') {
@@ -71,10 +77,11 @@ export class DataSetManager {
     for (const dataSet of this.sets.values()) dataSet.invalidate()
     this.start().catch((error: Error): void => { for (const dataSet of this.sets.values()) dataSet.reportError(error) })
   }
-  static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory): DataSetManager {
-    return new DataSetManager(context, pageName, definitions)
+  static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory, options: DataManagerOptions = {}): DataSetManager {
+    return new DataSetManager(context, pageName, definitions, options)
   }
-  private constructor(context: Context, pageName: string, source: DataSetDefinition[] | DataSetDefinitionFactory) {
+  private constructor(context: Context, pageName: string, source: DataSetDefinition[] | DataSetDefinitionFactory, options: DataManagerOptions) {
+    this.cacheEnabled = options.cache !== false
     this.context = context; this.pageName = pageName; this.source = typeof source === 'function' ? source : JSON.parse(JSON.stringify(source)) as DataSetDefinition[]
     if (typeof source !== 'function') {
       this.validate(source)
@@ -121,21 +128,21 @@ export class DataSetManager {
     }
     return dataSet
   }
-  start(): Promise<void> {
+  start(): Promise<DataLoadResult[]> {
     if (this.closed || this.closing) return Promise.reject(new Error('数据集管理器已关闭'))
-    if (this.initialized) return Promise.resolve()
+    if (this.initialized) return Promise.resolve([])
     if (this.running) return this.running
     const generation = this.generation
     const running = this.initialize(generation).finally((): void => { if (this.running === running) this.running = undefined })
     this.running = running
     return running
   }
-  private async initialize(generation: number): Promise<void> {
+  private async initialize(generation: number): Promise<DataLoadResult[]> {
     const config = await AppConfigService.load(this.context, false)
     const workspace = NativeCoreService.start()
     const definitions = typeof this.source === 'function' ? this.source(config) : this.source
     this.validate(definitions)
-    if (this.closed || this.closing || generation !== this.generation) return
+    if (this.closed || this.closing || generation !== this.generation) return []
     const resolved = definitions.map((definition): DataSetDefinition => this.overrides.has(definition.name)
       ? { name: definition.name, query: this.overrides.get(definition.name)!, repositoryBindings: definition.repositoryBindings } : definition)
     for (const definition of resolved) this.dataSet(definition.name)
@@ -146,11 +153,11 @@ export class DataSetManager {
     for (const entry of this.sets.entries()) {
       const name = entry[0], dataSet = entry[1]
       await dataSet.configure(config, workspace, resolved.find(definition => definition.name === name))
-      if (this.closed || generation !== this.generation) return
+      if (this.closed || generation !== this.generation) return []
     }
     try {
       const cached = await this.cache?.read()
-      if (this.closed || this.closing || generation !== this.generation) return
+      if (this.closed || this.closing || generation !== this.generation) return []
       if (cached && cached.length === names.length && cached.every(item => names.includes(item.name))) {
         for (const item of cached) {
           const dataSet = this.sets.get(item.name)!
@@ -158,12 +165,21 @@ export class DataSetManager {
         }
       }
     } catch (_) { /* 缓存不可用时仍由每个数据集执行首次查询。 */ }
-    if (this.closed || generation !== this.generation) return
+    if (this.closed || generation !== this.generation) return []
     await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    if (this.closed || generation !== this.generation) return
-    await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.start()))
-    if (this.closed || generation !== this.generation || scope !== this.scope) return
-    this.initialized = true; this.savedRevision = ''; this.scheduleSave()
+    if (this.closed || generation !== this.generation) return []
+    const loaded: DataLoadResult[] = []
+    const capture = !this.initialFilesDelivered ? (result: DataLoadResult): void => { loaded.push(result) } : undefined
+    this.captureFiles = capture
+    try {
+      await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.start()))
+      if (this.closed || generation !== this.generation || scope !== this.scope) return []
+      this.initialFilesDelivered = true
+      this.initialized = true; this.savedRevision = ''; this.scheduleSave()
+      return loaded
+    } finally {
+      if (this.captureFiles === capture) this.captureFiles = undefined
+    }
   }
   private stopSubscription(name: string): void {
     const id = this.subscriptions.get(name)
@@ -200,7 +216,14 @@ export class DataSetManager {
           this.subscriptionRequests.set(entry.name, entry.request)
           entry.activate()
         }
-        const results = await workspace.subscribeQuery(active.map(entry => entry.request))
+        const capture = this.captureFiles
+        const results = await workspace.subscribeQuery(active.map(entry => {
+          const request = JSON.parse(JSON.stringify({ query: entry.request.query, operationId: entry.request.operationId,
+            repositoryBindings: entry.request.repositoryBindings })) as CoreQuerySubscriptionRequest
+          request.callback = entry.request.callback
+          if (request.query.type === 'task') request.query.query.fullFiles = capture ? request.query.query.fullFiles : []
+          return request
+        }))
         if (results.length !== active.length) {
           for (const result of results) workspace.unsubscribeQuery(result.subscriptionId)
           throw new Error('批量订阅结果数量不一致')
@@ -212,6 +235,11 @@ export class DataSetManager {
             entry.reject(new Error('数据集查询已变化'))
           } else {
             this.subscriptions.set(entry.name, result.subscriptionId)
+            if (result.data.type === 'task') {
+              const files = result.data.result.fullFiles ?? []
+              if (capture && files.length) capture({ name: entry.name, fullFiles: files })
+              result.data.result.fullFiles = []
+            }
             entry.resolve(result)
           }
         }
@@ -221,12 +249,12 @@ export class DataSetManager {
     work.catch((error: Error): void => { for (const entry of entries) entry.reject(error) })
   }
   private resetCache(): void {
-    const config = this.config!, resolved = this.definitions, names = Array.from(this.sets.keys())
+    const config = this.config!, names = Array.from(this.sets.keys())
     const identity: DataSetCacheScope = { repositories: config.repos.map((repo): DataSetCacheRepository =>
       ({ id: repo.id, rootDirectory: repo.rootDirectory, excludedDirectories: repo.excludedDirectories ?? [] })),
       todoDefaults: config.todoDefaults, coreSettings: config.coreSettings, names }
     this.scope = JSON.stringify(identity)
-    this.cache = resolved.some(definition => definition.query.type === 'document') ? undefined : new PageDataCache(this.context, this.pageName, this.scope)
+    this.cache = this.cacheEnabled ? new PageDataCache(this.context, this.pageName, this.scope) : undefined
     this.savedRevision = ''
   }
   private queryKey(dataSet: DataSet): string {
@@ -267,7 +295,7 @@ export class DataSetManager {
       await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.close()))
       await this.flush()
     } finally {
-      this.closed = true; clearTimeout(this.saveTimer)
+      this.closed = true; this.captureFiles = undefined; clearTimeout(this.saveTimer)
       for (const name of Array.from(this.subscriptions.keys())) this.stopSubscription(name)
       for (const stop of this.stops.values()) stop()
       this.stopIdle(); AppConfigService.stopWatchingChanges(this.configChanged); DataSetManager.active.delete(this)

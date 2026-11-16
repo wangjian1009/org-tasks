@@ -1,13 +1,11 @@
-import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
 import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { ProjectSectionBody } from './ProjectSectionBody'
-import { OrgHeadingView } from './OrgHeadingView'
-import { TaskSwipeEditor } from './TaskSwipeEditor'
+import { ProjectTaskSection } from './ProjectTaskSection'
 import { TaskInlineSession } from '../services/TaskInlineService'
-import { TaskDateDisplay, RegionAreaPolicy, taskTagColor } from '../ui/TaskListPresentation'
+import { taskTagColor } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
 
 export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
@@ -35,6 +33,8 @@ export struct ProjectDocumentView {
   ready: () => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
+  @State outlineItems: ProjectReadingSection[] = []
+  private stopTasks: (() => void) | undefined = undefined
 
   linkSection(target: string): ProjectReadingSection | undefined {
     let priority = Infinity
@@ -54,6 +54,7 @@ export struct ProjectDocumentView {
 
   aboutToAppear() {
     this.active = true
+    this.stopTasks = this.dataSet?.subscribe((): void => { if (this.outlineVisible) this.updateOutline() })
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
       this.active && this.showing && this.linkSection(target) !== undefined
     this.navigation.followInternalLink = async (target: string): Promise<void> => {
@@ -63,7 +64,7 @@ export struct ProjectDocumentView {
     }
     try { this.pendingOffset = (JSON.parse(this.readingState) as Record<string, number>).scroll } catch (_) {}
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
-    this.navigation.openOutline = (): void => { this.outlineVisible = true }
+    this.navigation.openOutline = (): void => { this.updateOutline(); this.outlineVisible = true }
     this.navigation.closePanel = (): boolean => {
       if (!this.outlineVisible) return false
       this.outlineVisible = false
@@ -71,7 +72,7 @@ export struct ProjectDocumentView {
     }
   }
 
-  aboutToDisappear() { this.active = false; this.outlineVisible = false }
+  aboutToDisappear() { this.stopTasks?.(); this.stopTasks = undefined; this.active = false; this.outlineVisible = false }
 
   visibilityChanged() {
     if (!this.showing) return
@@ -98,15 +99,22 @@ export struct ProjectDocumentView {
     return true
   }
 
+  updateOutline(): void {
+    this.outlineItems = projectOutlineSections(this.sections.map((section: ProjectReadingSection): ProjectReadingSection => ({
+      key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
+      html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
+    })))
+  }
+
   @Builder
   outlineSheet() {
     Column({ space: 12 }) {
       Text('文档目录').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%')
-      if (projectOutlineSections(this.sections).length === 0) {
+      if (this.outlineItems.length === 0) {
         Text('本文没有章节标题').fontSize(14).fontColor(UiColor.secondary).padding(24)
       }
       List() {
-        ForEach(projectOutlineSections(this.sections), (section: ProjectReadingSection) => {
+        ForEach(this.outlineItems, (section: ProjectReadingSection) => {
           if (section.node) {
             ListItem() {
               Text(section.node.heading).fontSize(15).fontColor(UiColor.text).width('100%')
@@ -137,25 +145,14 @@ export struct ProjectDocumentView {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
             if (section.node) {
-              if (section.node.state) {
-                TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(section.node.id), internalLinkProcessor: this.internalLinkProcessor, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
-                  instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
-                  regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
-                  .width('100%')
-              } else {
-                OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: section.node, specialTags: this.specialTags }).width('100%')
-              }
-            }
-            if (section.blocks.length > 0) {
-              ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
-                const data = this.taskDataSet().getTask(task.taskId ?? task.id)
-                if (!data) throw new Error('项目节点已不在当前数据集中')
-                return await this.taskDataSet().updateTask(this.taskDataSet().taskKey(data.id), changes, task.fileVersion)
-              }, internalLinkProcessor: this.internalLinkProcessor, task: section.node, blocks: section.blocks,
-                contentBackground: section.node ? UiColor.surface : UiColor.projectBlock }).width('100%')
+              ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: section.key,
+                internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
+            } else if (section.blocks.length > 0) {
+              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
+                contentBackground: UiColor.projectBlock }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
-            .padding({ left: section.node ? Math.min(section.node.fullPath.titles.length - 1, 2) * 8 : (section.blocks.length > 0 ? 16 : 0),
+            .padding({ left: section.node ? 0 : (section.blocks.length > 0 ? 16 : 0),
               right: !section.node && section.blocks.length > 0 ? 16 : 0,
               top: !section.node && section.blocks.length > 0 ? 16 : 0, bottom: !section.node && section.blocks.length > 0 ? 16 : 0 })
             .backgroundColor(section.node ? Color.Transparent : UiColor.projectBlock).borderRadius(section.node ? 0 : 12)

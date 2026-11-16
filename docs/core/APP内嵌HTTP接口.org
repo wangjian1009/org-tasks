@@ -209,3 +209,7 @@ HTTP 请求由 Harmony Rust 的等待通道转交 C++ TSFN，ArkTS 在 UI 线程
 #+end_src
 
 未知路径返回 404，不支持的方法返回 405。冲突后应重新查询当前状态，由调用方决定是否重新提交；服务不会自动覆盖或重试用户修改。
+
+* 完整文件查询结果
+
+Task 请求支持 ~fullFiles~ 和 ~includeIgnored~ ，语义与 [[file:统一批量查询接口设计.org::*Task 查询附带完整文件][Core 查询契约]] 一致。 ~result.fullFiles~ 的每项包含 ~repoId~ 、 ~path~ 、 ~source~ 、 ~fileVersion~ 、 ~todo~ 、 ~title~ 、 ~category~ 、 ~projectName~ 、 ~hasConflict~ 、 ~fileTags~ 、 ~specialTags~ 、 ~documentSections~ 与 ~nodes~ 。原文使用 UTF-8 字符串，保留原有换行与未修改字节；与同项任务来自同次读取，不通过另一轮查询补齐。

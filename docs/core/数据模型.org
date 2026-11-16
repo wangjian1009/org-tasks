@@ -834,7 +834,7 @@ trigger\_reason: SyncTriggerReason}{}
 
 ~CoreQuery~ 是唯一通用读取请求的枚举，分为 Task、File 和 Notification； ~OrgWorkspace.query~ 返回 ~Result<Vec<CoreQueryResult>, CoreError>~ ，成功数组与输入的位置、种类一一对应。结果不含逐项错误，任一错误使整批失败。请求与结果都是运行时值，不写入同步记录、outbox 或仓库缓存。
 
-~TaskQuery~ 的状态范围统一由 ~expression~ 表达， ~TaskQueryResult~ 保持原有字段。Task 分支的外层 ~repo_ids~ 指定 Core 仓库范围，空数组表示全部仓库，不把页面或控件语义放进领域请求。File 只返回元信息，Notification 只返回当前通知，三者复用同次加载的文件和配置。
+~TaskQuery~ 的状态范围统一由 ~expression~ 表达， ~TaskQueryResult~ 增加一次性完整文件结果。Task 分支的外层 ~repo_ids~ 指定 Core 仓库范围，空数组表示全部仓库，不把页面或控件语义放进领域请求。File 只返回元信息，Notification 只返回当前通知，三者复用同次加载的文件和配置。
 
 #+begin_src rust
 pub struct TaskQuery {
@@ -842,7 +842,14 @@ pub struct TaskQuery {
     pub categories: Vec<Option<String>>,
     pub include_files: Vec<OrgFileRef>,
     pub exclude_files: Vec<OrgFileRef>,
+    pub full_files: Vec<OrgFileRef>,
+    pub include_ignored: bool,
+}
 
+pub struct TaskQueryResult {
+    pub tasks: Vec<FilterTask>,
+    pub categories: Vec<TaskCategory>,
+    pub full_files: Vec<OrgFile>,
 }
 
 pub struct FileQuery {
@@ -885,7 +892,15 @@ include\_ignored: bool}{}
 \umlclass[x=6,y=-7]{TaskQuery}{expression: String \\
 categories: Vec\textless Option\textless String\textgreater\textgreater \\
 include\_files: Vec\textless OrgFileRef\textgreater \\
-exclude\_files: Vec\textless OrgFileRef\textgreater}{}
+exclude\_files: Vec\textless OrgFileRef\textgreater \\
+full\_files: Vec\textless OrgFileRef\textgreater \\
+include\_ignored: bool}{}
+\umlclass[x=6,y=-12]{TaskQueryResult}{tasks: Vec\textless FilterTask\textgreater \\
+categories: Vec\textless TaskCategory\textgreater \\
+full\_files: Vec\textless OrgFile\textgreater}{}
+\umlclass[x=-3,y=-12]{OrgFile}{共享不可变语法树}{}
+\umluniassoc{CoreQueryResult}{TaskQueryResult}
+\umluniassoc[mult2=0..*]{TaskQueryResult}{OrgFile}
 \umldep{OrgWorkspace}{CoreQuery}
 \umldep{OrgWorkspace}{CoreQueryResult}
 \umldep{CoreQuery}{FileQuery}
@@ -1907,3 +1922,13 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 \umluniassoc{QueryOrderPart}{QueryOrderValue}
 \end{tikzpicture}
 \end{center}
+
+* Task 查询附带完整文件
+
+~TaskQuery.full_files: Vec<OrgFileRef>~ 指定本次结果需要附带的完整文件，默认空数组； ~TaskQueryResult.full_files: Vec<OrgFile>~ 返回独立文件值。Harmony 与 JSON 对应 ~fullFiles~ ，查询种类仍为 ~task~ 。完整文件与节点复用同批加载和已解析语法树，不另调 ~file_at~ ，同批重复文件不重新解析。文件克隆共享不可变语法树，修改时重建自己的语法树，原始字节仍独立持有。
+
+~full_files~ 必须属于本项外层仓库范围和包含／排除后的文件范围，越界、未知仓库或非法路径使整批失败。返回文件不受表达式与分类命中影响：零节点、零命中与零字节文件仍可返回；不存在的文件不返回。重复引用去重并保留首次请求顺序。完整原文保留冲突内容，节点和文档分段继续排除受保护冲突子树。
+
+~TaskQuery.include_ignored: bool~ 默认 false；设置为 true 时同时保留被任务扫描规则隐藏的标题与完整文件，便于直接打开已有项目。默认行为与普通任务查询一致，不因 ~full_files~ 隐式绕过忽略规则。
+
+订阅启动可以附带完整文件，但仅初始结果包含该值；后续按既有任务条件发送增量，不保存或刷新文件 AST。宿主取得文件后负责提取需要的展示数据，文件不是查询成员缓存。

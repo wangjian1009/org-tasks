@@ -72,7 +72,7 @@ export class FileTargetService {
     const file = fileResult(metadata)[0]
     if (!file) return undefined
     const result = taskResult(task)
-    return { tasks: result.tasks, categories: result.categories,
+    return { tasks: result.tasks, categories: result.categories, fullFiles: [],
       tagOptions: file.tagOptions ?? [], tagGroups: file.tagGroups ?? [] }
   }
 
