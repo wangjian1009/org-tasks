@@ -111,8 +111,6 @@ impl OrgWorkspace {
                 CoreQuery::File { query } => !query.file_tags.is_empty(),
                 _ => false,
             });
-        // 执行器只服务于本次查询；结果编组仍在调用方当前 runtime 中完成。
-        let executor = crate::executor::Executor::new()?;
         let mut roots = BTreeMap::new();
         for repo in self
             .repos()
@@ -137,12 +135,6 @@ impl OrgWorkspace {
         for (root, repo) in &roots {
             crate::model::access::recover(root, &repo.id).await?;
         }
-        let mut loaded = BTreeMap::new();
-        let mut changed = false;
-        let mut file_categories = BTreeMap::new();
-        let mut all = Vec::new();
-        let mut metadata = Vec::new();
-        let mut notifications = Vec::new();
         let expected = roots.len();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(expected.max(1));
         let mut jobs = Vec::with_capacity(expected);
@@ -186,7 +178,7 @@ impl OrgWorkspace {
             let ignored = candidates.into_iter().collect::<Vec<_>>();
             let repo_id = repo.id.clone();
             let sender = sender.clone();
-            jobs.push(executor.spawn(async move {
+            jobs.push(tokio::spawn(async move {
                 let result = async {
                     let files = repo
                         .load_files_in_unlocked(&ignored, included.as_ref())
@@ -226,55 +218,67 @@ impl OrgWorkspace {
             }));
         }
         drop(sender);
-        let mut received = 0;
-        while let Some(result) = receiver.recv().await {
-            match result {
-                QueryWorkResult::Task(task) => all.push(task),
-                QueryWorkResult::File { repo_id, file } => {
-                    file_categories.insert(
-                        (file.repo_id.clone(), file.path.clone()),
-                        normalized_category(file.category()),
-                    );
-                    if need_files {
-                        metadata.push(file.metadata(file.scan_ignored));
+        // 合并任务也交给调用方 runtime；生产任务只负责读取文件和投影结果。
+        let merge_job = tokio::spawn(async move {
+            let mut loaded = BTreeMap::new();
+            let changed = false;
+            let mut file_categories = BTreeMap::new();
+            let mut all = Vec::new();
+            let mut metadata = Vec::new();
+            let mut notifications = Vec::new();
+            let mut received = 0;
+            while let Some(result) = receiver.recv().await {
+                match result {
+                    QueryWorkResult::Task(task) => all.push(task),
+                    QueryWorkResult::File { repo_id, file } => {
+                        file_categories.insert(
+                            (file.repo_id.clone(), file.path.clone()),
+                            normalized_category(file.category()),
+                        );
+                        if need_files {
+                            metadata.push(file.metadata(file.scan_ignored));
+                        }
+                        if need_notifications && file.has_conflict() {
+                            notifications.push(crate::CoreNotification::SyncConflict(
+                                crate::SyncConflictNotification {
+                                    repo_id: file.repo_id.clone(),
+                                    path: file.path.clone(),
+                                },
+                            ));
+                        }
+                        loaded.entry(repo_id).or_insert_with(Vec::new).push(file);
                     }
-                    if need_notifications && file.has_conflict() {
-                        notifications.push(crate::CoreNotification::SyncConflict(
-                            crate::SyncConflictNotification {
-                                repo_id: file.repo_id.clone(),
-                                path: file.path.clone(),
-                            },
-                        ));
+                    QueryWorkResult::RepositoryFinished => received += 1,
+                    QueryWorkResult::Failed(error) => {
+                        for job in &jobs {
+                            job.abort();
+                        }
+                        for job in jobs {
+                            let _ = job.await;
+                        }
+                        return Err(error);
                     }
-                    loaded.entry(repo_id).or_insert_with(Vec::new).push(file);
-                }
-                QueryWorkResult::RepositoryFinished => {
-                    received += 1;
-                }
-                QueryWorkResult::Failed(error) => {
-                    for job in &jobs {
-                        job.abort();
-                    }
-                    for job in jobs {
-                        let _ = job.await;
-                    }
-                    return Err(error);
                 }
             }
-        }
-        if received != expected {
-            for job in &jobs {
-                job.abort();
+            if received != expected {
+                for job in &jobs {
+                    job.abort();
+                }
+                for job in jobs {
+                    let _ = job.await;
+                }
+                return Err(CoreError::Store("查询任务提前结束".into()));
             }
             for job in jobs {
-                let _ = job.await;
+                job.await
+                    .map_err(|error| CoreError::Store(format!("查询任务失败: {error}")))?;
             }
-            return Err(CoreError::Store("查询执行器提前结束".into()));
-        }
-        for job in jobs {
-            job.await
-                .map_err(|error| CoreError::Store(format!("查询执行器任务失败: {error}")))?;
-        }
+            Ok::<_, CoreError>((loaded, changed, file_categories, all, metadata, notifications))
+        });
+        let (loaded, mut changed, file_categories, mut all, mut metadata, mut notifications) =
+            merge_job
+                .await
+                .map_err(|error| CoreError::Store(format!("查询合并任务失败: {error}")))??;
         if need_notifications {
             for (repo_id, files) in &loaded {
                 let root = roots

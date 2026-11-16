@@ -964,7 +964,8 @@ async fn scan_org_files(
     ignore_files: &[String],
     included_files: Option<&std::collections::BTreeSet<String>>,
 ) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
-    let mut candidates = Vec::new();
+    // 目录遍历发现一个文件就立即提交读取任务；扫描与正文读取重叠执行。
+    let mut jobs = tokio::task::JoinSet::new();
     let mut directories = vec![std::path::PathBuf::new()];
     while let Some(relative) = directories.pop() {
         let mut entries = fs::read_dir(root.join(&relative))
@@ -1001,20 +1002,17 @@ async fn scan_org_files(
                     .modified()
                     .ok()
                     .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
-                candidates.push((path, entry.path(), modified_at));
+                let disk = entry.path();
+                jobs.spawn(async move {
+                    let source_bytes = fs::read(disk)
+                        .await
+                        .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
+                    let mut file = OrgRepoSourceFile::new(path, source_bytes)?;
+                    file.modified_at = modified_at;
+                    Ok::<_, CoreError>(file)
+                });
             }
         }
-    }
-    let mut jobs = tokio::task::JoinSet::new();
-    for (path, disk, modified_at) in candidates {
-        jobs.spawn(async move {
-            let source_bytes = fs::read(disk)
-                .await
-                .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
-            let mut file = OrgRepoSourceFile::new(path, source_bytes)?;
-            file.modified_at = modified_at;
-            Ok::<_, CoreError>(file)
-        });
     }
     let mut files = Vec::with_capacity(jobs.len());
     while let Some(result) = jobs.join_next().await {

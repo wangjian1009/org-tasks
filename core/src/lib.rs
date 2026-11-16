@@ -30,7 +30,6 @@ impl Display for CoreError {
 impl std::error::Error for CoreError {}
 
 mod filter;
-mod executor;
 mod merge;
 pub mod model;
 pub mod query;
