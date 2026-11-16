@@ -188,8 +188,8 @@ export struct TaskBlockView {
             this.openMenu(event.fingerList[0]?.localX ?? 0, event.fingerList[0]?.localY ?? 0)
           }))
       } else {
-        OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, embedded: true, embeddedPadding: 0,
-          projectReading: this.projectReading,
+        OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, reloadOnRevision: false, embedded: true, embeddedPadding: 0,
+          projectReading: this.projectReading, horizontalParentFirst: !this.projectReading,
           editable: !this.readonly && !this.disabled && this.changeLink !== undefined,
           linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
           changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,

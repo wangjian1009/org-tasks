@@ -145,7 +145,7 @@ export struct LogbookTaskList {
         begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
           TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
             dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
-            rightSwipeAction: 'none', enableSwipeActions: false,
+            rightSwipeAction: 'none',
             regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
             referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
         }

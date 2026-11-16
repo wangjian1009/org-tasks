@@ -1,3 +1,4 @@
+import { TaskContentSlot, reconcileTaskContent } from '../../ui/TaskContentPresentation'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { TaskTextBlock } from './TaskTextBlock'
@@ -11,9 +12,10 @@ import { UiColor } from '../../ui/Theme'
 import { projectContentGap } from '../../ui/ProjectReadingPresentation'
 
 @Component
-export struct TaskContentBlocks {
+export struct TaskContentEditor {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
-  @Prop blocks: CoreContentBlock[] = []
+  @Prop @Watch('contentChanged') blocks: CoreContentBlock[] = []
+  @State private slots: TaskContentSlot[] = []
   @Prop readonly: boolean = false
   @Prop projectReading: boolean = false
   @Prop checklistEditing: boolean = false
@@ -30,6 +32,16 @@ export struct TaskContentBlocks {
   linkEditingChanged: (editing: boolean) => void = () => {}
   @BuilderParam checklist: (index: number) => void = this.readChecklist
 
+  aboutToAppear(): void { this.contentChanged() }
+
+  contentChanged(): void {
+    const next = reconcileTaskContent(this.slots, this.blocks)
+    if (next !== this.slots) this.slots = next
+  }
+
+  blockFor(key: string): CoreContentBlock { return this.slots.find(slot => slot.key === key)!.block }
+  indexFor(key: string): number { return this.slots.findIndex(slot => slot.key === key) }
+
   @Builder
   readChecklist(index: number) {
     TaskChecklistBlock({ items: this.blocks[index].items, readonly: this.readonly, ownerKey: this.ownerKey, blockId: this.blocks[index].id }).width('100%')
@@ -37,32 +49,32 @@ export struct TaskContentBlocks {
 
   build() {
     Column({ space: this.projectReading ? 0 : 12 }) {
-      ForEach(this.blocks, (block: CoreContentBlock, index: number) => {
+      ForEach(this.slots, (slot: TaskContentSlot) => {
         Column() {
-          if (this.blocks[index].kind === 'checklist') {
-            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled,
+          if (this.blockFor(slot.key).kind === 'checklist') {
+            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled,
               revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(index) }, begin: this.begin, save: this.save,
+              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
               editingChanged: this.editingChanged }).width('100%')
-          } else if (this.blocks[index].kind === 'list') {
-            TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+          } else if (this.blockFor(slot.key).kind === 'list') {
+            TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')
-          } else if (this.blocks[index].kind === 'table') {
-            TaskTableBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+          } else if (this.blockFor(slot.key).kind === 'table') {
+            TaskTableBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')
           } else {
-            TaskTextBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+            TaskTextBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')
           }
-        }.width('100%').margin({ top: this.projectReading ? projectContentGap(this.blocks, index) : 0 })
-      }, (_block: CoreContentBlock, index: number): string => `${this.ownerKey}:${index}`)
+        }.width('100%').margin({ top: this.projectReading ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0 })
+      }, (slot: TaskContentSlot): string => slot.key)
     }.width('100%')
   }
 }

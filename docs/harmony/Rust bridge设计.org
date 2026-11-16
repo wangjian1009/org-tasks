@@ -698,7 +698,9 @@ Core 的 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 原样透传为 ~
 
 区块修改使用既有 ~Workspace.executeTaskOperations~ ， ~TaskModification.field~ 为 ~CONTENT_BLOCK~ ，值为 ~{ type: 'replace', id, source }~ 或 ~{ type: 'link', id, link, value }~ 。整块替换覆盖四类区块，空原文删除当前区块，checkbox 统计由 Core 在同一事务内更新；单项清单操作继续使用结构化接口。参数形状与 N-API 编组保持一致。任务列表与完整项目文件中的节点均提交原文件版本，不以新快照替换旧位置身份。写入、范围验证、链接生成、原换行适配与字节保真统一在 Core 执行，UI 只保存草稿并处理错误。
 
-~TaskContentBlocks~ 根据 Core 的区块类型组装 ~TaskTextBlock~ 、 ~TaskListBlock~ 、 ~TaskTableBlock~ 和 ~TaskChecklistBlock~ 。 ~readonly~ 只关闭修改入口和操作，阅读布局保持一致；项目文档通过 ~TaskDocumentContent~ 直接复用这些控件，文件前言只读，节点正文通过现有文档编辑会话与版本校验保存。
+~TaskContentEditor~ 根据 Core 的区块类型组装 ~TaskTextBlock~ 、 ~TaskListBlock~ 、 ~TaskTableBlock~ 和 ~TaskChecklistBlock~ 。 ~readonly~ 只关闭修改入口和操作，阅读布局保持一致；项目文档通过 ~TaskDocumentContent~ 直接复用这些控件，文件前言只读，节点正文通过现有文档编辑会话与版本校验保存。
+
+共享正文控件先比较区块列表，未变化节点重用原引用，控件身份独立于数组索引；区块原文改变时仅更新相应子控件，定位与版本继续用于写入校验。正文 WebView 仅在片段变化时重新加载，不因文件版本推进重载相同内容；链接编辑仍取得真实版本。嵌套逻辑树的新增投影另见 [[file:TaskContentEditor设计.org][TaskContentEditor 设计]]，该 Core 接口扩展尚未确认。
 
 项目正文显式传递 ~projectReading~ 到共享区块和嵌入 WebView。相邻普通段落根据 ~blankLinesBefore~ 使用正常换行或固定 12vp 段距，结构区块之间保留 12vp；main／section 包装内部同样去除段落与首尾默认留白。普通任务与日志沿用默认布局。正文归属竖线按实测高度收尾，每层 8vp、最多 16vp 的子级缩进由项目宿主组装，不进入 Core。
 

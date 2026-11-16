@@ -23,6 +23,34 @@ const controller = load('ui/TaskBlockController');
 const policy = load('ui/TaskLogPresentation');
 const prefix = name => source => source.split('  build()')[0].replace(/@Component\n|@(Prop|State|Watch\([^)]*\))\s*/g, '')
   .replace('export struct ' + name, 'export class ' + name) + '}';
+
+const equality = load('services/PageDataEquality', { './PageDataSnapshot': {} });
+const { reconcileTaskContent } = load('ui/TaskContentPresentation', { '../services/PageDataEquality': equality });
+const contentBlock = (id, source, kind = 'text') => ({ id, kind, source, html: '<p>' + source + '</p>',
+  paragraph: kind === 'text', blankLinesBefore: 0, items: [] });
+test('正文未变化复用同一列表与节点，只修改一个区块时保留其他分支', () => {
+  const initial = reconcileTaskContent([], [contentBlock('1','第一段'), contentBlock('20','第二段')]);
+  assert.equal(reconcileTaskContent(initial, initial.map(slot => ({...slot.block}))), initial);
+  const changed = reconcileTaskContent(initial, [contentBlock('1','第一段'), contentBlock('20','新段落')]);
+  assert.equal(changed[0], initial[0]); assert.equal(changed[1].key, initial[1].key);
+  assert.equal(changed[1].block.source, '新段落'); assert.notEqual(changed[1], initial[1]);
+});
+test('前方插入与字节位置移动不销毁后续控件，删除和重排只调整成员', () => {
+  const initial = reconcileTaskContent([], [contentBlock('1','段落'),contentBlock('20','表格','table')]);
+  const inserted = reconcileTaskContent(initial, [contentBlock('1','新段落'),contentBlock('30','段落'),contentBlock('50','表格','table')]);
+  assert.equal(inserted[1].key, initial[0].key); assert.equal(inserted[2].key, initial[1].key);
+  assert.equal(inserted[1].block.id, '30');
+  const reordered = reconcileTaskContent(inserted, [inserted[2].block, inserted[1].block]);
+  assert.equal(reordered[0], inserted[2]); assert.equal(reordered[1], inserted[1]);
+});
+test('重复内容保留独立身份，类型变化建立新的控件', () => {
+  const initial = reconcileTaskContent([], [contentBlock('1','相同'),contentBlock('20','相同')]);
+  assert.notEqual(initial[0].key,initial[1].key);
+  const same = reconcileTaskContent(initial, [contentBlock('2','相同'),contentBlock('21','相同')]);
+  assert.deepEqual(same.map(slot=>slot.key),initial.map(slot=>slot.key));
+  const changed = reconcileTaskContent(same, [contentBlock('2','表格','table'),same[1].block]);
+  assert.notEqual(changed[0].key,same[0].key); assert.equal(changed[1],same[1]);
+});
 function blockFixture() {
   const copies = [], messages = [];
   const { TaskBlockView } = load('components/editors/TaskBlockView', {
@@ -246,7 +274,7 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
     key==='overlay'?value=>overlays.push(value.builder):()=>{}});
   const rect = new Proxy({}, {get:(_,key)=>key==='height'?value=>guideHeights.push(value):()=>{}});
   const module = {exports:{}};
-  const globals = {module,TaskContentBlocks:component('blocks'),TaskChecklistBlock:component('checklist'),
+  const globals = {module,TaskContentEditor:component('blocks'),TaskChecklistBlock:component('checklist'),
     TaskBlockView:component('block'),TaskDocumentContent:component('document'),ForEach:noop,Rect:rect,
     Alignment:{TopStart:'top'},HitTestMode:{None:'none'},projectContentGap:()=>0,
     ViewPU:{create(){}},__Common__:common,Column:noop,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
@@ -259,10 +287,10 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
 }
 
 test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskContentBlocks',['initialRender']);
+  const f=compiledBuilders('TaskContentEditor',['initialRender','blockFor','indexFor']);
   const block={id:'20',kind:'checklist',items:[{id:'42',text:'项目清单'}]};
   const rendered=[];
-  Object.assign(f.host,{blocks:[block],checklist(index){assert.equal(this,f.host);rendered.push(this.blocks[index]);}});
+  Object.assign(f.host,{blocks:[block],slots:[{key:'one',block}],checklist(index){assert.equal(this,f.host);rendered.push(this.blocks[index]);}});
   f.host.initialRender();
   const shell=f.children.find(child=>child.kind==='block');
   assert.equal(shell.nativeChecklist,true);

@@ -2,7 +2,7 @@ import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistItem, CoreTaskModification, CoreTextLink, CoreLinkValue, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { DataSetWriteError } from '../../services/DataSet'
 import { TaskInlineSession } from '../../services/TaskInlineService'
-import { TaskContentBlocks } from './TaskContentBlocks'
+import { TaskContentEditor } from './TaskContentEditor'
 import { TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
@@ -185,7 +185,7 @@ export struct TaskDocumentContent {
 
   build() {
     Column({ space: 8 }) {
-      TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
+      TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,

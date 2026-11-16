@@ -11,7 +11,8 @@ interface ConflictCardHit { id: string; action: string }
 @Component
 export struct OrgContentView {
   @Prop @Watch('documentChanged') fragment: string = ''
-  @Prop @Watch('documentChanged') revision: string = ''
+  @Prop @Watch('revisionChanged') revision: string = ''
+  @Prop reloadOnRevision: boolean = true
   @Prop empty: boolean = false
   @Prop embedded: boolean = false
   @Prop horizontalParentFirst: boolean = false
@@ -136,6 +137,11 @@ export struct OrgContentView {
   reportError(error: CoreBridgeError) {
     this.error = `阅读视图加载失败：${coreErrorMessage(error)}`
     this.failed(this.error)
+  }
+
+  revisionChanged() {
+    // 内容区块仍向链接控件传递真实版本；状态等外部字段变化无需重载相同正文。
+    if (this.reloadOnRevision) this.documentChanged()
   }
 
   documentChanged() {

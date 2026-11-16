@@ -25,7 +25,7 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
 import { TitleText } from '../TitleText'
 import { LinkEditController } from '../LinkView'
 import { CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
-import { TaskContentBlocks } from './TaskContentBlocks'
+import { TaskContentEditor } from './TaskContentEditor'
 import { TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { CoreContentBlock } from '../../services/NativeCoreService'
@@ -37,6 +37,7 @@ import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
 import { TaskChecklistDrag, checklistSiblings, checklistMovePreview, checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
 import { FrameCallback, KeyboardAvoidMode } from '@ohos.arkui.UIContext'
 import { window } from '@kit.ArkUI'
+import { RightSwipe } from '../RightSwipe'
 
 class ChecklistFocusFrame extends FrameCallback {
   private callback: () => void
@@ -65,9 +66,8 @@ export struct TaskEditor {
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
-  @Prop enableSwipeActions: boolean = false
   @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
-  swipe: (left: boolean) => void = () => {}
+  @Prop rightSwipeEnabled: boolean = true
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
   @State expanded: boolean = false
@@ -131,7 +131,7 @@ export struct TaskEditor {
   private pending: Promise<void> = Promise.resolve()
   private checkSaving: Promise<boolean> | undefined = undefined
   private continueCheck: boolean = false
-  private checklistTouch: boolean = false
+  @State private checklistTouch: boolean = false
   private checkHeights: Map<string, number> = new Map()
   private checkScroller: ListScroller = new ListScroller()
   private checkDrag: TaskChecklistDrag | undefined = undefined
@@ -169,12 +169,6 @@ export struct TaskEditor {
   }
   private async modifyTask(task: CoreTask, changes: CoreTaskModification[]): Promise<void> {
     await this.localDataSet().updateTaskFields(this.taskId, changes, task.fileVersion)
-  }
-
-  horizontalSwipe(offsetX: number) {
-    if ((this.readOnly && !this.allowCompletion) || this.typing || this.checklistTouch || this.draggingCheck) return
-    if (offsetX > 48) this.rightSwipe()
-    else if (offsetX < -48 && this.enableSwipeActions) this.swipe(true)
   }
 
   rightSwipe() {
@@ -1197,11 +1191,11 @@ export struct TaskEditor {
 
   @Builder
   bodyBlocks() {
-    TaskContentBlocks({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.value().editContent.blocks, readonly: this.readOnly,
+    TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.value().editContent.blocks, readonly: this.readOnly,
       checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, ownerKey: this.ownerKey,
-      contentBackground: this.value().state?.category === TaskStateCategory.Doing ? '#00000000' : UiColor.taskCard,
+      contentBackground: '#00000000',
       editor: this.blockEditor, linkEditor: this.linkEditor,
       checklist: (index: number): void => { this.checklistBlock(index) },
       begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
@@ -1397,7 +1391,8 @@ export struct TaskEditor {
     }.width('100%').padding({ left: 27 })
   }
 
-  build() {
+  @Builder
+  taskContent() {
     Column() {
       if (this.expanded) {
         Column() {
@@ -1412,8 +1407,7 @@ export struct TaskEditor {
           if (this.value().logs.length > 0) {
             TaskLogView({ internalLinkProcessor: this.internalLinkProcessor,
               logs: this.value().logs, expanded: taskLogVisible(this.logShowPolicy, this.logbookExpanded),
-              contentBackground: this.value().state?.category === TaskStateCategory.Doing
-                ? '#00000000' : UiColor.taskCard }).width('100%').padding({ left: 27 })
+              contentBackground: '#00000000' }).width('100%').padding({ left: 27 })
               .margin({ top: taskLogVisible(this.logShowPolicy, this.logbookExpanded) ? 8 : 0 })
           }
         }.width('100%').padding(12)
@@ -1468,9 +1462,13 @@ export struct TaskEditor {
         },
         onDisappear: (): void => { this.closeMove() }
       })
-      .priorityGesture(PanGesture({ direction: this.enableSwipeActions ? PanDirection.Right : PanDirection.Horizontal, distance: 48 }).onActionEnd((event: GestureEvent) => {
-        this.horizontalSwipe(event.offsetX)
-      }))
-      .onGestureJudgeBegin(() => this.readOnly || this.rightSwipeAction === 'none' || this.checklistTouch || this.typing ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
+  }
+
+  build() {
+    RightSwipe({ disabled: !this.rightSwipeEnabled || this.readOnly || this.rightSwipeAction === 'none' || this.checklistTouch || this.typing ||
+      this.draggingCheck || this.completing || this.working || this.moveBusy || this.moveOpen || this.snapshotBlocked || this.removed,
+      action: (): void => { this.rightSwipe() } }) {
+      this.taskContent()
+    }
   }
 }

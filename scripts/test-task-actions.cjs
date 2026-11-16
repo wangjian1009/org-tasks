@@ -43,7 +43,7 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.equal(typeof value.end.builder, 'function');
     value.end.builder();
     assert.deepEqual(renders, [[page, record]]);
-    assert.equal(typeof value.start?.onAction, 'function', '右滑应注册移动动作');
+    assert.equal(typeof value.start?.onAction, 'function', '收件箱保留原生右滑，内部共享手势关闭');
     assert.equal(value.start.actionAreaDistance, 48);
     renders.length = 0;
     page.actionPolicy = taskActionPolicy();
@@ -151,16 +151,13 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
 const cardFile = 'entry/src/main/ets/components/editors/TaskEditor.ets';
 const cardSource = fs.readFileSync(cardFile, 'utf8');
 test('收件箱左滑交给原生菜单且保留右滑，日志簿只读模式拒绝卡片手势', () => {
-  const direction = cardSource.match(/\.priorityGesture\(PanGesture\(\{ direction: ([^,\n]+), distance: 48/)[1];
-  const decision = cardSource.match(/\.onGestureJudgeBegin\(\(\) => ([^\n]+)\)/)[1];
-  const { gesture } = compile(`const PanDirection = { Right:'right', Horizontal:'horizontal' };
-    const GestureJudgeResult = { REJECT:'reject', CONTINUE:'continue' };
-    export function gesture() { return { direction: ${direction}, decision: ${decision} }; }`, cardFile);
-  const inbox = { enableSwipeActions:true, rightSwipeAction:'move', readOnly:false };
-  assert.deepEqual(gesture.call(inbox), {direction:'right',decision:'continue'});
-  assert.deepEqual(gesture.call({enableSwipeActions:false,rightSwipeAction:'schedule'}), {direction:'horizontal',decision:'continue'});
-  for (const blocked of [{readOnly:true}, {rightSwipeAction:'none'}, {checklistTouch:true}, {typing:true}]) {
-    assert.equal(gesture.call({...inbox,...blocked}).decision, 'reject');
+  const disabled = cardSource.match(/RightSwipe\(\{ disabled: ([\s\S]*?),\n      action:/)[1];
+  const { gesture } = compile(`export function gesture() { return Boolean(${disabled}); }`, cardFile);
+  const inbox = { rightSwipeEnabled: true, rightSwipeAction:'move', readOnly:false };
+  assert.equal(gesture.call(inbox), false);
+  assert.equal(gesture.call({rightSwipeEnabled:true,rightSwipeAction:'schedule'}), false);
+  for (const blocked of [{rightSwipeEnabled:false}, {readOnly:true}, {rightSwipeAction:'none'}, {checklistTouch:true}, {typing:true}]) {
+    assert.equal(gesture.call({...inbox,...blocked}), true);
   }
 });
 
@@ -169,25 +166,20 @@ function cardMethod(name, async = false) {
 }
 
 function swipeCard(page) {
-  const { Card } = compile('export class Card {' + cardMethod('horizontalSwipe') + cardMethod('rightSwipe') + '}', cardFile);
+  const { Card } = compile('export class Card {' + cardMethod('rightSwipe') + '}', cardFile);
   const calls = [], policy = pagePolicy(page);
   const state = Object.assign(new Card(), {
-    rightSwipeAction: policy.rightSwipeAction, enableSwipeActions: page === 'inbox',
+    rightSwipeAction: policy.rightSwipeAction,
     dates: deadline => calls.push(deadline ? 'deadline' : 'schedule'),
-    toggleDoing: () => calls.push('doing'), openMove: () => calls.push('move'), swipe: left => calls.push(left ? 'menu' : 'right')
+    toggleDoing: () => calls.push('doing'), openMove: () => calls.push('move')
   });
   return { state, calls };
 }
 
-test('六个区域右滑分别执行移动、日期或进行中，左滑不执行右滑动作', () => {
+test('六个区域的右滑完成回调分别执行移动、日期或进行中', () => {
   for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'doing', inbox: 'move', recent: 'schedule' })) {
     const f = swipeCard(page);
-    f.state.horizontalSwipe(60); assert.deepEqual(f.calls, [action], page);
-    f.calls.length = 0;
-    f.state.horizontalSwipe(-60); assert.deepEqual(f.calls, page === 'inbox' ? ['menu'] : [], page);
-    f.calls.length = 0;
-    for (const offset of [-48, 0, 48]) f.state.horizontalSwipe(offset);
-    assert.deepEqual(f.calls, [], page);
+    f.state.rightSwipe(); assert.deepEqual(f.calls, [action], page);
   }
   const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
   assert.deepEqual(inboxMenu.map(item => item.id), ['someday', 'memo', 'delete', 'select']);
@@ -197,7 +189,7 @@ test('六个区域右滑分别执行移动、日期或进行中，左滑不执�
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
   for (const flag of ['typing', 'checklistTouch', 'draggingCheck', 'completing', 'working', 'moveBusy', 'moveOpen', 'snapshotBlocked', 'removed']) {
     const f = swipeCard('today'); f.state[flag] = true;
-    f.state.horizontalSwipe(60); assert.deepEqual(f.calls, [], flag);
+    f.state.rightSwipe(); assert.deepEqual(f.calls, [], flag);
   }
 });
 

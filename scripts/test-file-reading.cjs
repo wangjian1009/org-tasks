@@ -201,6 +201,25 @@ test('文档载入中切换相同正文的版本，完成回调仍只发布最�
   view.aboutToDisappear();view.pageEnded();assert.equal(ready.length, 2);
 });
 
+test('任务区块仅版本变化不重载相同正文，正文改变仍加载，文档默认按版本刷新', () => {
+  const loads = [];
+  const { Content } = load(base + 'components/OrgContentView.ets', {
+    '@kit.ArkWeb': { webview: { WebviewController: class { loadData(data) { loads.push(decodeURIComponent(data)); } } } },
+    '../ui/OrgDocumentPresentation': presentation, '../ui/Theme': theme,
+    '../services/NativeCoreService': { coreErrorMessage: e => e.message },
+    './LinkView': { LinkEditController: class {} }
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
+  const view = new Content(); view.fragment = '<p>正文</p>'; view.pageEnded(); view.pageEnded();
+  const initial = loads.length;
+  view.reloadOnRevision = false; view.revision = '状态切换后的版本'; view.revisionChanged();
+  assert.equal(loads.length, initial); assert.equal(view.loaded, true);
+  view.fragment = '<p>真正修改正文</p>'; view.documentChanged();
+  assert.equal(loads.length, initial + 1); assert.match(loads.at(-1), /真正修改正文/);
+  view.pageEnded(); view.reloadOnRevision = true; view.revisionChanged();
+  assert.equal(loads.length, initial + 2);
+});
+
 test('正文带详情卡时在原生滚动容器中定位，离开后的旧定位不会滚动新快照', async () => {
   const f=fixture();f.page.flowContent=true;f.page.contentWidth=390;f.page.viewportHeight=600;
   f.page.footerOffset=900;f.evaluate(async()=> '2');

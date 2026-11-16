@@ -278,20 +278,6 @@ struct Inbox {
     }, 260)
   }
 
-  swipeRecord(record: CoreTask, left: boolean) {
-    if (this.actionBusy || this.selected || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
-    const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
-    if (!node) return
-    if (left) {
-      try {
-        ListItemSwipeActionManager.expand(node, ListItemSwipeActionDirection.END)
-      } catch (_) {
-        // 节点已销毁时忽略展开操作。
-      }
-    }
-    else this.swipeAction(record, 'move')
-  }
-
   @Builder
   swipeMenu(record: CoreTask) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy, idPrefix: 'inbox_swipe',
@@ -303,7 +289,7 @@ struct Inbox {
 
   @Builder
   swipeMoveIndicator() {
-    // 右滑只作为直接移动手势，不显示额外提示栏。
+    // 收件箱保留原生列表右滑，避免与整卡共享手势同时识别。
     Row().width(1).height(1).opacity(0)
   }
 
@@ -677,8 +663,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), enableSwipeActions: true, rightSwipeAction: this.actionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
-                        swipe: (left: boolean): void => { this.swipeRecord(record, left) } })
+                      TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), rightSwipeAction: this.actionPolicy.rightSwipeAction, rightSwipeEnabled: false, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
                           .width('100%').padding({ left: 27 })
