@@ -1339,7 +1339,7 @@ mod tests {
             .unwrap();
         let mut other = OrgRepo::new(other_root.to_string_lossy().into()).unwrap();
         other.load::<CompletedSync>().await.unwrap();
-        let mut workspace = crate::OrgWorkspace::start(vec![repo, other]).await.unwrap();
+        let workspace = crate::OrgWorkspace::start(vec![repo, other]).await.unwrap();
         let result = workspace
             .query(&[(crate::TaskQuery::default()).into()])
             .await
@@ -1377,7 +1377,7 @@ mod tests {
         );
 
         // 规则变更与删除在下一次 load 生效；已有完整字节不受影响。
-        let repo = &mut workspace.repos[0];
+        let repo = &mut workspace.repos()[0];
         let original = repo
             .file("hidden.org")
             .await

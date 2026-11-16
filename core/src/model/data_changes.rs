@@ -62,12 +62,18 @@ pub struct DataChangeSubscription {
 }
 
 impl OrgWorkspace {
-    /// 注册独立数据监控；多个订阅同时有效，回调不能重入当前 workspace 锁。
+    /// 注册独立数据监控；多个订阅同时有效，回调不能同步等待当前 Workspace 的后续业务命令。
     pub fn watch_data_changes<F>(&self, callback: F) -> DataChangeSubscription
     where
         F: Fn(DataChangeEvent) + Send + Sync + 'static,
     {
-        let subscription = self.notifications.subscribe(move |event| {
+        watch(&self.notifications, callback)
+    }
+}
+
+pub(crate) fn watch<F>(center: &super::notification_center::NotificationCenter, callback: F) -> DataChangeSubscription
+where F: Fn(DataChangeEvent) + Send + Sync + 'static {
+        let subscription = center.subscribe(move |event| {
             let super::sync_events::SyncCommitted::Repository {
                 repo_id,
                 operation_id,
@@ -86,7 +92,6 @@ impl OrgWorkspace {
         DataChangeSubscription {
             subscription,
         }
-    }
 }
 
 #[cfg(test)]

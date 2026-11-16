@@ -67,7 +67,7 @@ fn legacy_cancel_declarations_preserve_source_and_normalize_settings() {
 
 #[tokio::test]
 async fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
-    let mut workspace = workspace().await;
+    let workspace = workspace().await;
     assert_eq!(
         workspace.get_settings(),
         CoreSettings {
@@ -80,7 +80,7 @@ async fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
             state("UNASSIGNED", None),
         ],
     };
-    workspace.set_settings(configured.clone()).unwrap();
+    workspace.set_settings(configured.clone()).await.unwrap();
     let mut copy = workspace.get_settings();
     copy.addition_states.clear();
     assert_eq!(workspace.get_settings(), configured);
@@ -94,24 +94,24 @@ async fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
         vec![state("BAD NAME", None)],
         vec![state("WAITING(w)", Some(TaskStateCategory::Wait))],
     ] {
-        let before = workspace.clone();
+        let before = (workspace.get_settings(), workspace.repos());
         assert!(
             workspace
                 .set_settings(CoreSettings {
                     addition_states: invalid
-                })
+                }).await
                 .is_err()
         );
-        assert_eq!(workspace, before);
+        assert_eq!((workspace.get_settings(), workspace.repos()), before);
     }
-    workspace.set_settings(CoreSettings::default()).unwrap();
+    workspace.set_settings(CoreSettings::default()).await.unwrap();
     assert!(workspace.get_settings().addition_states.is_empty());
 }
 
 #[tokio::test]
 async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_semantics() {
     use TaskStateCategory::*;
-    let mut workspace = workspace().await;
+    let workspace = workspace().await;
     let configured = CoreSettings {
         addition_states: vec![
             state("RUN", Some(Doing)),
@@ -120,7 +120,7 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
             state("FINISH", Some(Done)),
         ],
     };
-    workspace.set_settings(configured).unwrap();
+    workspace.set_settings(configured).await.unwrap();
     let results = workspace
         .query(&[
             TaskQuery::default().into(),
@@ -158,7 +158,7 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
     workspace
         .set_settings(CoreSettings {
             addition_states: vec![state("RUN", Some(Wait)), state("FINISH", None)],
-        })
+        }).await
         .unwrap();
     let after = workspace
         .query(&[TaskQuery::default().into()])
@@ -179,11 +179,11 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
 #[tokio::test]
 async fn added_repositories_inherit_settings_and_query_filters_use_categories() {
     use TaskStateCategory::*;
-    let mut workspace = workspace().await;
+    let workspace = workspace().await;
     workspace
         .set_settings(CoreSettings {
             addition_states: vec![state("STOP", Some(Cancel))],
-        })
+        }).await
         .unwrap();
     let mut other = OrgRepo::new("/unused/add-settings".into()).unwrap();
     other.id = "other".into();
@@ -194,7 +194,7 @@ async fn added_repositories_inherit_settings_and_query_filters_use_categories() 
     )
     .unwrap();
     support::push_file(&mut other, file);
-    workspace.add_repo(other).unwrap();
+    workspace.add_repo(other).await.unwrap();
     let tasks = workspace
         .query(&[TaskQuery {
             expression: "it.done".into(),

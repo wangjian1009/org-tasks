@@ -39,7 +39,7 @@ async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir()
  const configService={AppConfigService:{load:async()=>config,watchChanges:listener=>configListeners.add(listener),stopWatchingChanges:listener=>configListeners.delete(listener)}};
  const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'../ui/QueryOrderPresentation':load('entry/src/main/ets/ui/QueryOrderPresentation.ets',{}),'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
  const {DataSetManager}=load('entry/src/main/ets/services/DataSetManager.ets',{'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataCache':cache,'./PageDataSnapshot':snapshots,'./DataSet':dataSets});
- const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
+ const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{Queue:dataSets.UserOperationQueue,holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
 
 test('每页一个 JSON 文件，缓存恢复版本为0、首次查询为1，原生方法恢复为只读模型方法',async()=>{const f=await fixture();try{const first=f.manager();await first.start();assert.equal(first.dataSet('tasks').snapshot().version,1);await first.close();const file=f.file('今天');const envelope=JSON.parse(await fsp.readFile(file,'utf8'));assert.equal(envelope.dataSets.length,1);assert.equal(typeof envelope.dataSets[0].tasks,'object');assert.equal((await fsp.readFile(file,'utf8')).includes('PRIVATE_PASSWORD_MARKER'),false);const second=f.manager();const versions=[];second.dataSet('tasks').subscribe(event=>versions.push(event.version));const delay=f.delaySubscribe();const start=second.start();await until(()=>second.dataSet('tasks').snapshot()?.version===0&&f.calls.length===2);assert.equal(second.dataSet('tasks').snapshot().version,0);assert.equal(second.dataSet('tasks').getTask('A').isDone(),false);assert.equal(second.dataSet('tasks').getTask('A').taskStateOf('Done').name,'DONE');delay.resolve();await start;assert.equal(second.dataSet('tasks').snapshot().version,1);assert.deepEqual([...new Set(versions)],[0,1]);assert.deepEqual(await fsp.readdir(path.dirname(file)),['今天.json']);}finally{await f.cleanup()}});
 
@@ -292,5 +292,40 @@ test('其他页面有排队修改时，新页面仍先恢复缓存',async()=>{
   assert.equal(page.dataSet('tasks').getTask('A').editContent.notes,'old');
   write.resolve();await editing;backend.resolve();await start;
   assert.equal(page.dataSet('tasks').getTask('A').editContent.notes,'排队修改');
+ }finally{await f.cleanup()}
+});
+
+test('不同文件同时推进，多文件编辑等待全部依赖且空闲等待覆盖后续请求',async()=>{
+ const f=await fixture();const held=gate();const releaseLater=gate();try{
+  const entered=[];
+  const first=f.Queue.submit(async()=>{entered.push('a');await held.promise},['a']);
+  const movement=f.Queue.submit(async()=>{entered.push('ab');await releaseLater.promise},['a','b']);
+  const later=f.Queue.submit(async()=>{entered.push('b')},['b']);
+  const independent=f.Queue.submit(async()=>{entered.push('c')},['c']);
+  await independent;assert.deepEqual(entered,['a','c']);assert.equal(f.Queue.isIdle(),false);
+  let idle=false;const waiting=f.Queue.whenIdle().then(()=>{idle=true});
+  held.resolve();await first;await until(()=>entered.includes('ab'));assert.equal(idle,false);assert.equal(entered.includes('b'),false);
+  releaseLater.resolve();await Promise.all([movement,later,waiting]);assert.deepEqual(entered,['a','c','ab','b']);assert.equal(f.Queue.isIdle(),true);
+ }finally{held.resolve();releaseLater.resolve();await f.Queue.whenIdle();await f.cleanup()}
+});
+
+test('同文件前次失败后继续执行，其他仓库同名文件独立推进',async()=>{
+ const f=await fixture();const held=gate();try{
+  const first=f.Queue.submit(async()=>{await held.promise;throw new Error('提交失败')},['repo-a/a.org']);
+  const rejected=assert.rejects(first,/提交失败/);let later=false;
+  const second=f.Queue.submit(async()=>{later=true},['repo-a/a.org']);
+  await f.Queue.submit(async()=>{},['repo-b/a.org']);assert.equal(later,false);
+  held.resolve();await Promise.all([rejected,second]);assert.equal(later,true);await f.Queue.whenIdle();assert.equal(f.Queue.isIdle(),true);
+ }finally{held.resolve();await f.Queue.whenIdle();await f.cleanup()}
+});
+
+
+test('刷新期间同文件编辑等待新订阅就绪，再使用最新确认快照提交',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const held=f.delaySubscribe();
+  const refresh=manager.refresh();await until(()=>f.calls.length===2);
+  const write=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'刷新之后的编辑'}]);
+  await tick();assert.equal(f.groups.length,0);held.resolve();await Promise.all([refresh,write]);
+  assert.equal(f.groups.length,1);assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'刷新之后的编辑');
  }finally{await f.cleanup()}
 });

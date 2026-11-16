@@ -22,9 +22,29 @@
 
 ~OrgWorkspace~ 的定义已提取到上层 ~core::workspace~ ，crate 根保持同名导出。 ~core::query_subscription~ 是独立组合模块， ~model~ 与 ~editor~ 不依赖它。查询订阅的初始结果归调用方，句柄只保留成员 ID、文件版本和数值摘要，详见 [[file:查询订阅设计.org][查询订阅设计]]。
 
-调度、线程、SDK 生命周期、监控回调、认证材料、文件系统访问和网络 I/O 都是宿主或适配层的运行时概念，不是本章的核心数据结构。实体关系的 TikZ UML 源码与本文同步维护。
+线程、SDK 生命周期和认证材料由宿主或适配层管理；Core 的命令调度、监控回调、文件系统访问和网络 I/O 属于运行时行为，不是持久化实体。实体关系的 TikZ UML 源码与本文同步维护。
 
 仓库按需读盘和跨进程同步模型见 [[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。 ~OrgRepo~ 仅持有身份、根目录配置和默认 TODO 配置，移除 ~files~ 与扫描规则缓存； ~load_files(ignore_files)~ 异步返回操作拥有的文件集合。以下同步租约与恢复对象仍为私有执行状态。
+
+* Workspace 命令与快照
+
+~OrgWorkspace~ 是可克隆的命令句柄，公开方法使用 ~&self~ 或消费句柄，不借出可变仓库引用。 ~WorkspaceState~ 、 ~Command~ 、 ~Access~ 和 ~Snapshot~ 均为私有运行时状态，不进入 Org、同步记录或 Preferences。宿主提供 Tokio 执行上下文， ~start~ 只启动普通异步 task；命令 ~process~ 与 NotificationCenter 的 ~process~ 共用该 runtime。
+
+~WorkspaceState~ 独占仓库配置、默认设置、操作回退历史与调度生命周期。查询和修改 task 取得本次配置上下文；只有命令循环归并成功提交产生的回退记录、发布独立快照并交回答复。快照持有仓库配置、TodoConfig 和历史，调用方修改返回值不会修改 Workspace。 ~Access~ 区分 Query、Files、Exclusive 和 Stop：读取批次并发，文件修改按完整依赖保序，独占命令等待在途批次结束；后来的查询不能越过写入屏障。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{WorkspaceHandle}{sender: Command channel \\ snapshot: Snapshot receiver}{query() \\ execute() \\ stop()}
+\umlclass[x=7,y=0]{WorkspaceProcess}{state: WorkspaceState \\ queue: Command deque \\ active: Task set}{dispatch() \\ complete()}
+\umlclass[x=0,y=-4]{WorkspaceState}{repos: Vec of OrgRepo \\ todo defaults: TodoConfig \\ history: TaskOperationHistory}{}
+\umlclass[x=7,y=-4]{Snapshot}{repos: Vec of OrgRepo \\ defaults: TodoConfig \\ history: TaskOperationHistory}{}
+\umldep{WorkspaceHandle}{WorkspaceProcess}
+\umlcompo{WorkspaceProcess}{WorkspaceState}
+\umldep{WorkspaceState}{Snapshot}
+\umldep{WorkspaceHandle}{Snapshot}
+\end{tikzpicture}
+\end{center}
 
 * 同步执行与重置恢复对象
 
@@ -52,9 +72,9 @@
 
 \begin{umlpackage}{Workspace}
 \umlclass[x=0,y=0]{OrgWorkspace}{
-  repos: Vec\textless OrgRepo\textgreater \\
-  todo\_defaults: TodoConfig \\
-  task\_operation\_history: TaskOperationHistory
+  sender: UnboundedSender\textless Command\textgreater \\
+  snapshot: Receiver\textless Snapshot\textgreater \\
+  completed: Receiver\textless Result\textgreater
 }{start(repos): OrgWorkspace \\ stop(): () \\ execute\_task\_operations(group): () \\
 task\_merge\_operations(request): TaskMergePlan \\
 subscribe\_query(query): QuerySubscriptionStart \\
@@ -453,9 +473,17 @@ pub struct TaskPosition {
 
 #+begin_src rust
 pub struct OrgWorkspace {
-    pub repos: Vec<OrgRepo>,
-    pub todo_defaults: TodoConfig,
-    pub task_operation_history: TaskOperationHistory,
+    sender: UnboundedSender<Command>,
+    snapshot: watch::Receiver<Arc<Snapshot>>,
+    completed: watch::Receiver<Option<Result<(), CoreError>>>,
+    // 通知与内部服务生命周期句柄也为私有字段。
+}
+
+struct WorkspaceState {
+    repos: Vec<OrgRepo>,
+    todo_defaults: TodoConfig,
+    task_operation_history: TaskOperationHistory,
+    // 预览和通知等运行时上下文归属本次 Workspace。
 }
 
 pub struct OrgRepo {
@@ -591,7 +619,7 @@ pub struct WebDavSyncFileDetail {
 
 全局默认配置由宿主编辑、保存并在运行时传给 Rust；core 不读取 Preferences，也不向 ~.sync/~ 写入默认配置。Rust 的 ~TodoConfig::default()~ 是唯一缺省来源， ~to_settings()~ 返回可编辑声明文本，初始为 ~#+TODO: TODO | DONE~ 。外部只有未保存配置时才获取默认值，已经保存的空配置表示禁用默认识别。
 
-~OrgWorkspace.todo_defaults~ 向新仓库传递默认配置， ~OrgRepo.todo_defaults~ 用于扫描、下载、新增和合并。每个 ~OrgFile.todo~ 提供源字节与默认配置共同决定的有效元信息；文件保留运行时默认配置，以便克隆和局部编辑后重新解析。这些信息不是另一套 Org AST，不写入同步记录。
+Workspace 私有状态中的 ~todo_defaults~ 向新仓库传递默认配置， ~OrgRepo.todo_defaults~ 用于扫描、下载、新增和合并。每个 ~OrgFile.todo~ 提供源字节与默认配置共同决定的有效元信息；文件保留运行时默认配置，以便克隆和局部编辑后重新解析。这些信息不是另一套 Org AST，不写入同步记录。
 
 #+begin_src rust
 pub enum TodoSource { GlobalDefault, InBuffer }

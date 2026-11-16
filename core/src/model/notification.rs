@@ -33,7 +33,7 @@ pub struct NotificationSubscription {
 }
 
 impl OrgWorkspace {
-    /// 通知模块注册同步提交回调，统一转发更新。回调不能重入当前仓库锁。
+    /// 通知模块注册同步提交回调，统一转发更新。回调不能同步等待当前 Workspace 的后续业务命令。
     pub fn watch_notifications<F>(&self, callback: F) -> NotificationSubscription
     where
         F: Fn(NotificationUpdate) + Send + Sync + 'static,

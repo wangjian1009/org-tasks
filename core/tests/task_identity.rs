@@ -112,9 +112,12 @@ async fn repo_path_file_path_and_task_ancestors_scope_the_identity() {
         workspace("/repo", "other/inbox.org", source).await.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
     );
     assert_ne!(id, tasks("* TODO Other project\n** TODO Child\n").await[1].id());
-    let mut rebuilt = workspace("/repo", "inbox.org", source).await;
-    rebuilt.repos[0].id = support::id("new-repo-id");
-    std::fs::write(std::path::Path::new(&rebuilt.repos[0].root_directory).join(".sync/id"), format!("{}\n", rebuilt.repos[0].id)).unwrap();
+    let rebuilt = workspace("/repo", "inbox.org", source).await;
+    let mut repo = rebuilt.repos().remove(0);
+    rebuilt.remove_repo_by_root_directory(&repo.root_directory).await.unwrap();
+    repo.id = support::id("new-repo-id");
+    std::fs::write(std::path::Path::new(&repo.root_directory).join(".sync/id"), format!("{}\n", repo.id)).unwrap();
+    rebuilt.add_repo(repo).await.unwrap();
     assert_eq!(id, rebuilt.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id());
 }
 

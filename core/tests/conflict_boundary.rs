@@ -53,7 +53,7 @@ impl Fixture {
             std::fs::read(self.root.join("a.org")).unwrap(),
             SOURCE.as_bytes()
         );
-        assert!(self.workspace.task_operation_history.entries.is_empty());
+        assert!(self.workspace.task_operation_history().entries.is_empty());
         assert!(
             self.workspace.repos()[0]
                 .pending_writes()

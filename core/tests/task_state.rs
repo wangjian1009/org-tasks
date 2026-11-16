@@ -64,7 +64,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn repeating_completion_uses_setup_logs_and_commits_one_versioned_change() {
     let source = "#+SETUPFILE: \"settings/outer file.org\"\r\n* NEXT Task\r\nSCHEDULED: <2000-01-01 Sat .+1d/3d> DEADLINE: <2030-01-01 Tue>\r\n:PROPERTIES:\r\n:CREATED: [2000-01-01 Sat 09:00]\r\n:ID: stable\r\n:END:\r\n备注  \r\n- [ ] Item\r\n#+begin_src org\r\n<2000-01-01 Sat +1d>\r\n#+end_src\r\n* Other\r\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     tokio::fs::create_dir(f.root.join("settings"))
         .await
         .unwrap();
@@ -115,8 +115,8 @@ async fn repeating_completion_uses_setup_logs_and_commits_one_versioned_change()
     assert!(result.contains(&day(before)) || result.contains(&day(after)));
     assert_eq!(events.lock().unwrap().len(), 1);
     assert_eq!(events.lock().unwrap()[0].1, result);
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
-    let fallback = &f.workspace.task_operation_history.entries[0]
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
+    let fallback = &f.workspace.task_operation_history().entries[0]
         .fallback_group
         .files[0];
     assert_eq!(fallback.before.as_deref(), Some(source));
@@ -132,7 +132,7 @@ async fn repeating_completion_uses_setup_logs_and_commits_one_versioned_change()
 
 #[tokio::test]
 async fn logs_are_opt_in_and_setup_without_todo_keeps_default_states() {
-    let mut f = Fixture::new("#+SETUPFILE: defaults.org\n* TODO Task\nBody\n").await;
+    let f = Fixture::new("#+SETUPFILE: defaults.org\n* TODO Task\nBody\n").await;
     tokio::fs::write(f.root.join("defaults.org"), "#+STARTUP: logdrawer\n")
         .await
         .unwrap();
@@ -168,7 +168,7 @@ async fn completion_is_blocked_only_by_unfinished_descendants() {
         "** DONE Child\n*** TODO Grandchild\n",
     ] {
         let source = format!("* TODO Parent\nBody\n{child}");
-        let mut f = Fixture::new(&source).await;
+        let f = Fixture::new(&source).await;
         let group = f
             .group(
                 "Parent",
@@ -187,7 +187,7 @@ async fn completion_is_blocked_only_by_unfinished_descendants() {
                 .contains("未完成子任务")
         );
         assert_eq!(f.source(), source);
-        assert!(f.workspace.task_operation_history.entries.is_empty());
+        assert!(f.workspace.task_operation_history().entries.is_empty());
         assert!(
             f.workspace.repos()[0]
                 .pending_writes()
@@ -206,7 +206,7 @@ async fn completion_is_blocked_only_by_unfinished_descendants() {
         "** Group\n*** DONE Child\n",
     ] {
         let source = format!("* TODO Parent\n{child}");
-        let mut f = Fixture::new(&source).await;
+        let f = Fixture::new(&source).await;
         let group = f
             .group("Parent", vec![TaskModification::Todo(Some("DONE".into()))])
             .await;
@@ -222,7 +222,7 @@ async fn completion_is_blocked_only_by_unfinished_descendants() {
 async fn reopening_a_child_restores_completed_ancestors_and_preserves_other_bytes() {
     for state in [Some("OPEN".into()), None] {
         let source = "#+TODO: OPEN WAIT | FINISHED CANCELLED\r\n* CANCELLED Grandparent [1/1]\r\nCLOSED: [2026-11-01 Sun 09:00]\r\n** Group\r\n*** FINISHED Parent [1/1]\r\nCLOSED: [2026-11-01 Sun 09:00]\r\n:LOGBOOK:\r\n- 已有日志\r\n:END:\r\n**** FINISHED Child\r\nCLOSED: [2026-11-01 Sun 09:00]\r\nSCHEDULED: <2026-11-20 Fri +1d>\r\n正文  \r\n**** FINISHED Sibling\r\n* Other\r\n";
-        let mut f = Fixture::new(source).await;
+        let f = Fixture::new(source).await;
         let events = Arc::new(Mutex::new(0));
         let observed = events.clone();
         let _subscription = f
@@ -265,7 +265,7 @@ async fn reopening_a_child_restores_completed_ancestors_and_preserves_other_byte
             "{saved}"
         );
         assert_eq!(*events.lock().unwrap(), 1);
-        assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+        assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
         assert_eq!(
             f.workspace.repos()[0].pending_writes().await.unwrap().len(),
             0
@@ -278,7 +278,7 @@ async fn reopening_a_child_restores_completed_ancestors_and_preserves_other_byte
 #[tokio::test]
 async fn reopening_uses_each_ancestor_workflow_and_logging_settings() {
     let source = "#+TODO: TODO | DONE\n#+TODO: READY(r!) WAIT | FINISHED\n#+STARTUP: logdrawer\n* FINISHED Parent\nCLOSED: [2026-11-01 Sun 09:00]\n** DONE Child\n* DONE Unrelated\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let group = f
         .group("Child", vec![TaskModification::Todo(Some("TODO".into()))])
         .await;
@@ -301,7 +301,7 @@ async fn reopening_crosses_pending_ancestors_and_repeating_completion_restores_p
         let source = format!(
             "* DONE Grandparent [0/1]\n** TODO Parent [0/1]\n*** {initial} Child\n{scheduled}"
         );
-        let mut f = Fixture::new(&source).await;
+        let f = Fixture::new(&source).await;
         let group = f
             .group("Child", vec![TaskModification::Todo(Some(target.into()))])
             .await;
@@ -321,7 +321,7 @@ async fn reopening_crosses_pending_ancestors_and_repeating_completion_restores_p
 #[tokio::test]
 async fn ancestor_logging_failure_rolls_back_child_and_all_ancestor_changes() {
     let source = "* DONE Grandparent\n:PROPERTIES:\n:LOG_INTO_DRAWER: invalid-name\n:END:\n** DONE Parent\nCLOSED: [2026-11-01 Sun 09:00]\n:PROPERTIES:\n:LOG_INTO_DRAWER: LOGBOOK\n:END:\n*** DONE Child\nCLOSED: [2026-11-01 Sun 09:00]\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let events = Arc::new(Mutex::new(0));
     let observed = events.clone();
     let _subscription = f
@@ -339,7 +339,7 @@ async fn ancestor_logging_failure_rolls_back_child_and_all_ancestor_changes() {
             .contains("drawer")
     );
     assert_eq!(f.source(), source);
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     assert!(
         f.workspace.repos()[0]
             .pending_writes()
@@ -353,7 +353,7 @@ async fn ancestor_logging_failure_rolls_back_child_and_all_ancestor_changes() {
 #[tokio::test]
 async fn trigger_reopening_a_child_uses_the_same_ancestor_rules() {
     let source = "* TODO Source\n:PROPERTIES:\n:TRIGGER: ids(\"child\") todo!(TODO)\n:END:\n* DONE Parent [1/1]\n** DONE Child\n:PROPERTIES:\n:ID: child\n:END:\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let group = f
         .group("Source", vec![TaskModification::Todo(Some("DONE".into()))])
         .await;
@@ -376,7 +376,7 @@ async fn invalid_repeater_rolls_back_title_state_logs_and_upload_intents() {
         let source = format!(
             "#+TODO: TODO | DONE(!)\n#+STARTUP: logdrawer logrepeat\n* TODO Task\nSCHEDULED: {stamp}\nBody\n"
         );
-        let mut f = Fixture::new(&source).await;
+        let f = Fixture::new(&source).await;
         let events = Arc::new(Mutex::new(0));
         let observed = events.clone();
         let _subscription = f
@@ -400,7 +400,7 @@ async fn invalid_repeater_rolls_back_title_state_logs_and_upload_intents() {
                 .contains(error)
         );
         assert_eq!(f.source(), source);
-        assert!(f.workspace.task_operation_history.entries.is_empty());
+        assert!(f.workspace.task_operation_history().entries.is_empty());
         assert!(
             f.workspace.repos()[0]
                 .pending_writes()
@@ -414,7 +414,7 @@ async fn invalid_repeater_rolls_back_title_state_logs_and_upload_intents() {
 
 #[tokio::test]
 async fn completion_repeats_real_timestamps_in_the_title_through_the_public_executor() {
-    let mut f = Fixture::new("* TODO Task <2026-11-10 Tue +1w>\nBody\n").await;
+    let f = Fixture::new("* TODO Task <2026-11-10 Tue +1w>\nBody\n").await;
     let group = f
         .group(
             "Task <2026-11-10 Tue +1w>",
@@ -423,12 +423,12 @@ async fn completion_repeats_real_timestamps_in_the_title_through_the_public_exec
         .await;
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(f.source(), "* TODO Task <2026-11-17 Tue +1w>\nBody\n");
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
 }
 
 #[tokio::test]
 async fn repeating_completion_clears_checkboxes_and_refreshes_title_statistics() {
-    let mut f = Fixture::new(
+    let f = Fixture::new(
         "* TODO Task [2/3]\nSCHEDULED: <2026-11-10 Tue +1w>\n- [X] 已完成\n- [-] 部分完成\n- [ ] 待办\n",
     )
     .await;
@@ -454,7 +454,7 @@ async fn state_changes_without_logging_configuration_only_replace_the_state() {
     ] {
         let body = ":LOGBOOK:\r\n- 已有日志\r\n:END:\r\n正文  \r\n";
         let original = format!("{prefix}* TODO Task\r\n{body}");
-        let mut f = Fixture::new(&original).await;
+        let f = Fixture::new(&original).await;
         for state in [Some("DONE"), Some("DONE"), Some("TODO"), None] {
             let group = f.group("Task", vec![TaskModification::Todo(state.map(str::to_owned))]).await;
             f.workspace.execute_task_operations(&group).await.unwrap();
@@ -476,7 +476,7 @@ async fn reopening_closed_tasks_preserves_history_dates_and_version_guards() {
         let body = "SCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\r\n:PROPERTIES:\r\n:CREATED: [2026-10-01 Thu 08:00]\r\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\r\n:END:\r\n";
         let history = "- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\r\n  历史说明保留  \r\n:END:\r\n正文  \r\n* Other\r\n不受影响  \r\n";
         let source = format!("{keywords}* {initial} Task\r\nCLOSED: [2026-11-01 Sun 09:00]\r\n{body}:LOGBOOK:\r\n{history}");
-        let mut f = Fixture::new(&source).await;
+        let f = Fixture::new(&source).await;
         let events = Arc::new(Mutex::new(0));
         let observed = events.clone();
         let _subscription = f.workspace.watch_data_changes(move |_| *observed.lock().unwrap() += 1);
@@ -490,7 +490,7 @@ async fn reopening_closed_tasks_preserves_history_dates_and_version_guards() {
         if logs {
             assert!(saved.contains(&format!("- State \"READY\"      from \"{initial}\"")), "{saved}");
         }
-        assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+        assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
         assert_eq!(f.workspace.repos()[0].pending_writes().await.unwrap().len(), 0);
         assert_eq!(*events.lock().unwrap(), 1);
         assert!(f.workspace.execute_task_operations(&group).await.is_err());
@@ -501,7 +501,7 @@ async fn reopening_closed_tasks_preserves_history_dates_and_version_guards() {
 
 #[tokio::test]
 async fn repeated_reopening_and_completion_append_logs_from_local_keyword_markers() {
-    let mut f = Fixture::new(
+    let f = Fixture::new(
         "#+SETUPFILE: .setup.org\r\n#+TODO: TODO(t!) INPROGRESS(p) WAIT(w) | DONE(d!)\r\n* DONE Task\r\nCLOSED: [2026-11-01 Sun 09:00]\r\n:LOGBOOK:\r\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\r\n  历史说明保留  \r\n:END:\r\n正文  \r\n* Other\r\n不受影响  \r\n",
     ).await;
     tokio::fs::write(
@@ -537,7 +537,7 @@ async fn created_completed_tasks_record_closing_information_only_when_enabled() 
         ("#+STARTUP: lognotedone logdrawer\n", true, true),
         ("#+STARTUP: logdone\n#+PROPERTY: LOGGING nil\n", false, false),
     ] {
-        let mut f = Fixture::new(&format!("{prefix}* Keep\n")).await;
+        let f = Fixture::new(&format!("{prefix}* Keep\n")).await;
         let mut creation = TaskCreation::new(TaskPosition {
             parent: TaskPath::file(f.workspace.repos()[0].id.clone(), "tasks.org".into()),
             after: None,
@@ -560,7 +560,7 @@ async fn created_completed_tasks_record_closing_information_only_when_enabled() 
 #[tokio::test]
 async fn repeating_completion_runs_local_trigger_after_repeat_and_refreshes_the_saved_dates() {
     let original = "#+TODO: NEXT WAIT | FINISHED\r\n#+STARTUP: logrepeat logdrawer\r\n* NEXT Task\r\nSCHEDULED: <2000-01-01 Sat .+1d/3d>\r\n:PROPERTIES:\r\n:TRIGGER: self scheduled!(\"+2d\") next-sibling todo!(WAIT)\r\n:CREATED: [2000-01-01 Sat 09:00]\r\n:END:\r\n备注  \r\n* NEXT Other\r\nBody  \r\n";
-    let mut f = Fixture::new(original).await;
+    let f = Fixture::new(original).await;
     let group = f
         .group(
             "Task",
@@ -595,7 +595,7 @@ async fn repeating_completion_runs_local_trigger_after_repeat_and_refreshes_the_
         TaskRepeatMode::AfterCompletion
     );
     assert_eq!(repo.pending_writes().await.unwrap().len(), 0);
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     assert_eq!(f.source(), saved);
 }
@@ -603,7 +603,7 @@ async fn repeating_completion_runs_local_trigger_after_repeat_and_refreshes_the_
 #[tokio::test]
 async fn trigger_targets_stay_local_and_unsupported_actions_do_not_interrupt_supported_ones() {
     let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: self clock-in! archive! future-action!(anything) scheduled!(\"next week\") if self variable-set?(unknown t) then todo!(INVALID) else todo!(INVALID) endif set-property!(\"LOCAL\" \"yes\") ids(\"outside\") todo!(DONE) file(\"other.org\") todo!(DONE) next-sibling todo!(DONE)\n:END:\n* TODO Other\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let other = "* TODO External\n:PROPERTIES:\n:ID: outside\n:END:\n";
     tokio::fs::write(f.root.join("other.org"), other)
         .await
@@ -620,7 +620,7 @@ async fn trigger_targets_stay_local_and_unsupported_actions_do_not_interrupt_sup
         std::fs::read_to_string(f.root.join("other.org")).unwrap(),
         other
     );
-    let fallback = &f.workspace.task_operation_history.entries[0]
+    let fallback = &f.workspace.task_operation_history().entries[0]
         .fallback_group
         .files;
     assert_eq!(fallback.len(), 1);
@@ -630,7 +630,7 @@ async fn trigger_targets_stay_local_and_unsupported_actions_do_not_interrupt_sup
 #[tokio::test]
 async fn trigger_changes_before_the_source_keep_following_modifications_on_the_source() {
     let source = "* TODO First\n* TODO Task\n:PROPERTIES:\n:TRIGGER: previous-sibling todo!(DONE) set-property!(\"PADDING\" \"some text before source\")\n:END:\nNotes\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let group = f
         .group(
             "Task",
@@ -661,7 +661,7 @@ async fn malformed_failed_and_recursive_triggers_roll_back_the_entire_operation_
     ] {
         let source =
             format!("* TODO Task\n:PROPERTIES:\n:TRIGGER: {trigger}\n:END:\n* TODO Other\n");
-        let mut f = Fixture::new(&source).await;
+        let f = Fixture::new(&source).await;
         let group = f
             .group("Task", vec![TaskModification::Todo(Some("DONE".into()))])
             .await;
@@ -670,7 +670,7 @@ async fn malformed_failed_and_recursive_triggers_roll_back_the_entire_operation_
             "{trigger}"
         );
         assert_eq!(f.source(), source);
-        assert!(f.workspace.task_operation_history.entries.is_empty());
+        assert!(f.workspace.task_operation_history().entries.is_empty());
         assert!(
             f.workspace.repos()[0]
                 .pending_writes()

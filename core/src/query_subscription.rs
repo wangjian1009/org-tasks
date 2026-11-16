@@ -847,12 +847,12 @@ mod tests {
     }
     #[tokio::test]
     async fn bootstrap_insertions_preserve_workspace_order_for_equal_sort_keys() {
-        let mut first = Fixture::new().await;
+        let first = Fixture::new().await;
         let second = Fixture::new().await;
         std::fs::write(first.root.join("a.org"), "").unwrap();
         first
             .workspace
-            .add_repo(second.workspace.repos()[0].clone())
+            .add_repo(second.workspace.repos()[0].clone()).await
             .unwrap();
         let (subscription, _) = first.pending();
         let snapshot = first.snapshot().await;

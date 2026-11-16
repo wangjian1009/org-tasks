@@ -60,7 +60,7 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn setup_configuration_snapshots_and_priority_writes_are_atomic_and_lossless() {
     let source = "#+SETUPFILE: .setup.org\r\n* TODO Task\r\n正文  \r\n* TODO [#Z] Legacy\r\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     std::fs::write(f.root.join(".setup.org"), "#+SETUPFILE: inner.org\n").unwrap();
     std::fs::write(f.root.join("inner.org"), "#+PRIORITIES: B D C\n").unwrap();
     let file = f.workspace.repos()[0].file("tasks.org").await.unwrap();
@@ -109,7 +109,7 @@ async fn setup_configuration_snapshots_and_priority_writes_are_atomic_and_lossle
             .contains("优先级不属于")
     );
     assert_eq!(f.source(), source);
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     assert!(
         f.workspace.repos()[0]
             .pending_writes()
@@ -175,7 +175,7 @@ async fn setup_configuration_snapshots_and_priority_writes_are_atomic_and_lossle
 async fn repository_loader_ignores_body_and_source_block_priority_keywords() {
     let source =
         "#+begin_src org\n#+PRIORITIES: D F E\n#+end_src\n* TODO Task\n#+PRIORITIES: B D C\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let file = f.workspace.repos()[0].file("tasks.org").await.unwrap();
     assert_eq!(
         file.nodes()[0]

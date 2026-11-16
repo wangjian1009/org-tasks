@@ -1,4 +1,4 @@
-use crate::OrgWorkspace;
+use crate::workspace::WorkspaceState;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -126,12 +126,7 @@ impl OrgRepo {
     }
 }
 
-impl OrgWorkspace {
-    /// 汇总已加载仓库中的所有显式 REFILE 标题，不重新读取磁盘。
-    pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, crate::CoreError> {
-        self.query_refile_targets(&RefileTargetQuery::default()).await
-    }
-
+impl WorkspaceState {
     pub async fn query_refile_targets(
         &self,
         query: &RefileTargetQuery,

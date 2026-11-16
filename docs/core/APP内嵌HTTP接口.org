@@ -7,7 +7,7 @@
 
 本接口用于在 APP 运行时，从外部查询、修改当前数据并观察真实界面的数据驱动行为。服务与 UI 共享同一个 Workspace，不新建仓库上下文，不作为独立进程运行。Core 管理监听与通用路径注册，Harmony 在服务启动后注册导航处理器。已有 HTTP Web App 宿主保持自身职责。
 
-~OrgWorkspace::start_http_server(Arc<Mutex<OrgWorkspace>>, SocketAddr)~ 返回持有监听资源的 ~EmbeddedHttpServer~ ，通过 ~address()~ 取得实际监听地址； ~OrgWorkspace::stop_http_server(&mut EmbeddedHttpServer)~ 停止接收请求并等待在途请求完成。丢弃句柄也会发出停止信号。仅允许回环地址，端口 0 表示由系统分配端口。
+~OrgWorkspace::start_http_server(OrgWorkspace, SocketAddr)~ 返回持有监听资源的 ~EmbeddedHttpServer~ ，通过 ~address()~ 取得实际监听地址； ~OrgWorkspace::stop_http_server(&mut EmbeddedHttpServer)~ 停止接收请求并等待在途请求完成。丢弃句柄也会发出停止信号。仅允许回环地址，端口 0 表示由系统分配端口。
 
 Core 不读取宿主启动参数、不决定自动启动。Harmony APP 只在 ~Want.parameters.httpApiEnabled === true~ 时调用当前 Workspace 启动接口，固定监听 ~127.0.0.1:8787~ 。普通点击图标启动不提供服务；不增加设置入口或持久化开关。进程退出后服务自然结束，下次普通启动不会恢复。
 
@@ -188,7 +188,7 @@ PUT 先校验全部节点和目标，再结束原位编辑并调用 ~PageNavigat
 \end{tikzpicture}
 #+end_export
 
-HTTP 请求由 Harmony Rust 的等待通道转交 C++ TSFN，ArkTS 在 UI 线程处理后通过请求 ID 归还响应；等待不持有 Workspace 业务锁。服务关闭取消在途请求，排队回调检查会话有效性后执行；宿主无响应时 15 秒返回 503。GET 在路径正在切换时同样返回 409，避免读取中间路径。
+HTTP 请求由 Harmony Rust 的等待通道转交 C++ TSFN，ArkTS 在 UI 线程处理后通过请求 ID 归还响应；等待仅持有命令句柄，不持有 Workspace 整体锁。服务关闭取消在途请求，排队回调检查会话有效性后执行；宿主无响应时 15 秒返回 503。GET 在路径正在切换时同样返回 409，避免读取中间路径。
 
 * 验证记录
 

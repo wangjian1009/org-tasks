@@ -1,5 +1,5 @@
 //! 仓库外单文档预览；记录成功操作，结束后由应用通过统一数据接口提交。
-use crate::OrgWorkspace;
+use crate::workspace::WorkspaceState;
 use super::*;
 use crate::{CoreError, FilterTask};
 use orgize::{ast::Headline, rowan::ast::AstNode, SyntaxKind};
@@ -415,11 +415,7 @@ async fn read_working(state: &PreviewState) -> Result<OrgFile, CoreError> {
     file.reparse()?;
     Ok(file)
 }
-impl OrgWorkspace {
-    pub fn with_preview_root(mut self, root: PathBuf) -> Result<Self, CoreError> {
-        self.set_preview_root(root)?;
-        Ok(self)
-    }
+impl WorkspaceState {
     pub fn set_preview_root(&mut self, root: PathBuf) -> Result<(), CoreError> {
         if self.preview.root.as_ref().is_some_and(|p| p == &root) {
             return Ok(());

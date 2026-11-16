@@ -320,6 +320,7 @@ export class Workspace {
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>;
   unsubscribeQuery(subscriptionId: number): void;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;
+  // Core 按文件调度修改，等待前序查询；Promise 在提交事件处理后完成。
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>;

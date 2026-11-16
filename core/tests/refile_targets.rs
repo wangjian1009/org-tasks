@@ -170,7 +170,7 @@ async fn queries_exclude_conflicts_before_matching_other_system_tags() {
     assert!(tasks[0].inherited_tags().is_empty());
     assert_eq!(workspace.refile_targets().await.unwrap().len(), 1);
     assert_eq!(
-        serialize_file(&workspace.repos[0].load_files(&[]).await.unwrap()[0]),
+        serialize_file(&workspace.repos()[0].load_files(&[]).await.unwrap()[0]),
         source.as_bytes()
     );
 }

@@ -108,9 +108,11 @@ pub fn merge(
 
 ~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。Core 不创建或持有 runtime，查询中的独立读取、解析和任务投影通过调用方 runtime 上的 Tokio 任务执行，并经通道逐项回送；结果合并也作为 Tokio 任务执行，查询完成后返回。它是运行时构造输入，不是持久化实体。
 
-~start(repos).await~ 在宿主提供的持续运行 Tokio 上校验仓库集合、初始化通知中心与内部任务管理，并启动本 Workspace 专属的 ~NotificationCenter::process~ ；不读取仓库文件，也不创建或拥有 runtime。 ~stop().await~ 禁止接收新的查询、修改和后台任务，先等待在途操作与普通后台任务完成，再通过 oneshot 通知 process 停止；process 关闭请求入口、处理完已入队请求并解除全部订阅，stop 等待处理任务完成；APP 内嵌 HTTP 服务接收停止信号后优雅结束。重复或并发调用 stop 均等待同一批任务，取消一次等待不会丢失任务句柄；某个任务失败时仍等待其余任务，并返回错误。停止后不能重新启动同一对象，应调用 start 创建新对象。
+~start(repos).await~ 在宿主提供的持续运行 Tokio 上校验仓库集合、初始化通知中心与内部任务管理，并启动本 Workspace 专属的命令 ~process~ 和 ~NotificationCenter::process~ ；不读取仓库文件，也不创建或拥有 runtime。 ~stop().await~ 禁止接收新的查询、修改和后台任务，先等待在途操作与普通后台任务完成，再通过 oneshot 通知 process 停止；process 关闭请求入口、处理完已入队请求并解除全部订阅，stop 等待处理任务完成；APP 内嵌 HTTP 服务接收停止信号后优雅结束。重复或并发调用 stop 均等待同一批任务，取消一次等待不会丢失任务句柄；某个任务失败时仍等待其余任务，并返回错误。停止后不能重新启动同一对象，应调用 start 创建新对象。
 
-Workspace 的 clone 共享任务与通知生命周期；停止任一副本会停止所有副本的内部服务。若宿主使用外部 mutex 包装 Workspace，应在短暂加锁取得副本后释放锁，再等待 stop，避免 HTTP 等收尾请求等待同一把锁。宿主必须先等待 stop，再关闭对应 runtime；独立 OrgRepo 或 OrgRepoSyncController 的同步工作由其宿主另行管理，不属于 Workspace 启动的内部任务。
+Workspace 的 clone 共享同一命令队列、配置快照、历史与停止结果；停止任一副本会停止全部副本。 ~OrgWorkspace~ 只持有命令句柄，私有 ~WorkspaceState~ 归异步 ~process~ 独占，宿主直接克隆句柄，不包装整体 mutex。 ~start~ 在宿主当前 Tokio 上启动命令和通知处理 task；宿主先等待 ~stop~ ，再关闭 runtime。独立 OrgRepo 的业务不自动进入 Workspace 调度，活动应用的查询、修改和同步应通过 Workspace 提交。
+
+连续查询可并发。修改等前面的查询完成，再按 ~repoId~ 与安全文件相对路径登记完整依赖；相同文件顺序执行，不同文件并发准备，跨文件操作组不拆分。修改等待期间保留其文件依赖，后续查询不能越过它。同步、配置、加载、重置与停止是独占屏障；同步完成前不执行后续业务查询。失败命令释放调度占用，不阻止后续命令；取消等待不取消已受理业务。配置与历史 getter 返回最近完成命令发布的独立快照，不等同于等待队列排空。
 
 #+begin_src rust
 impl OrgWorkspace {
@@ -120,22 +122,24 @@ impl OrgWorkspace {
 
     pub fn notification_center(&self) -> &NotificationCenter;
 
-    pub fn repos(&self) -> &[OrgRepo];
+    pub fn repos(&self) -> Vec<OrgRepo>;
 
-    pub fn repo(&self, repo_id: &OrgRepoId) -> Option<&OrgRepo>;
+    pub fn repo(&self, repo_id: &OrgRepoId) -> Option<OrgRepo>;
 
-    pub fn repo_mut(&mut self, repo_id: &OrgRepoId) -> Option<&mut OrgRepo>;
+    pub fn task_operation_history(&self) -> TaskOperationHistory;
 
-    pub fn add_repo(&mut self, repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError>;
+    pub fn todo_defaults(&self) -> TodoConfig;
 
-    pub fn remove_repo_by_root_directory(&mut self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
+    pub async fn add_repo(&self, repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError>;
+
+    pub async fn remove_repo_by_root_directory(&self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
     pub async fn query(&self, queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError>;
 
     pub async fn refile_targets(&self) -> Result<Vec<RefileTarget>, CoreError>;
 
     pub async fn execute_task_operations(
-        &mut self, group: &TaskOperationGroup,
+        &self, group: &TaskOperationGroup,
     ) -> Result<(), CoreError>;
 
     pub async fn task_merge_operations(
@@ -145,7 +149,25 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~start~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由调用方 runtime 上的 ~tokio::spawn~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~start~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主通过 ~Workspace.load_repo::<P>~ 读取或创建稳定 ID，或加入已经独立加载的仓库；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。仓库快照不能用于原地修改 Workspace；仓库读取通过 ~read_repo~ 纳入查询批次，加载、同步与重置分别通过 ~load_repo~ 、 ~sync_repo~ 和 ~reset_repo~ 提交。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由调用方 runtime 上的 ~tokio::spawn~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+
+~set_todo_defaults(&self, defaults).await~ 更新完整默认配置； ~set_todo_defaults_text(&self, source).await~ 在同一配置命令中解析 TODO 文本并保留执行时的 CoreSettings，避免宿主读取旧快照后覆盖并发更新。 ~set_preview_root(&self, root).await~ 与 ~with_preview_root(self, root).await~ 均等待预览配置屏障完成。原 ~repo_mut~ 、 ~repo_mut_by_root_directory~ 和公开可变字段已移除。
+
+#+begin_src rust
+impl OrgWorkspace {
+    pub async fn load_repo<P: SyncPolicy + 'static>(&self, root: &str) -> Result<(), CoreError>;
+    pub async fn reset_repo(&self, root: &str) -> Result<(), CoreError>;
+    pub async fn read_repo<T, F, Fut>(&self, root: &str, read: F) -> Result<T, CoreError>
+    where T: Send + 'static, F: FnOnce(OrgRepo) -> Fut + Send + 'static,
+          Fut: Future<Output = Result<T, CoreError>> + Send + 'static;
+    pub async fn sync_repo<P: SyncPolicy + 'static>(
+        &self, root: &str, policy: P, started_at: TimestampMs,
+        cancellation: Option<SyncCancellation>, progress: Option<SyncProgressReporter>, options: SyncOptions,
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>;
+}
+#+end_src
+
+~read_repo~ 的闭包只取得独立仓库配置，必须只执行只读业务；不能重入并等待当前 Workspace 的后续命令。 ~sync_repo~ 自动传递本 Workspace 的 NotificationCenter；TS 对象归属和 JSON 协议保持原样。 ~start_http_server~ 直接接收 Workspace 句柄，移除外层 ~Arc<Mutex<OrgWorkspace>>~ 。
 
 ~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
@@ -278,7 +300,7 @@ impl OrgFile {
 #+begin_src rust
 impl OrgWorkspace {
     pub async fn execute_task_operations(
-        &mut self, group: &TaskOperationGroup,
+        &self, group: &TaskOperationGroup,
     ) -> Result<(), CoreError>;
 }
 impl FilterTask {
@@ -589,7 +611,7 @@ OrgFile.conflict_ids 与 conflicts 分别返回 ID 和结构化描述，普通�
 let defaults = TodoConfig::default();
 let editable_settings = defaults.to_settings();
 let configured = TodoConfig::from_settings(&editable_settings)?;
-workspace.set_todo_defaults(configured.clone())?;
+workspace.set_todo_defaults(configured.clone()).await?;
 repo.set_todo_defaults(configured)?;
 let file = OrgFile::with_todo_defaults(repo_id, path, bytes, defaults)?;
 let metadata = &file.todo;
@@ -618,7 +640,7 @@ impl CoreSettings {
 
 impl OrgWorkspace {
     pub fn get_settings(&self) -> CoreSettings;
-    pub fn set_settings(&mut self, settings: CoreSettings) -> Result<(), CoreError>;
+    pub async fn set_settings(&self, settings: CoreSettings) -> Result<(), CoreError>;
 }
 impl FilterTask {
     pub fn state(&self) -> Option<&TaskState>;
@@ -825,7 +847,7 @@ pub struct TaskLinkChange { pub field: TaskLinkField, pub link: TextLink, pub va
 
 路径重复、祖先与后代重叠、跨文件、受保护冲突节点、将被转换为列表的记录带 ID／CUSTOM_ID，或当前文件存在其标题链接引用时拒绝。未涉及范围保留原字节；其他文件与仓库外的标题定位链接不自动重写。
 
-Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部操作；任一步失败丢弃全部工作快照，磁盘、历史与 outbox 不变。全部内存操作完成后才准备临时文件、校验磁盘原始字节并提交。普通提交失败回滚已修改文件；回滚期间发生外部写入时保留恢复材料并报错，不能宣称跨文件崩溃原子性。
+Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部操作；任一步失败丢弃全部工作快照，磁盘、历史与 outbox 不变。读取快照后释放仓库锁，再在独立工作快照执行修改。提交前重新加锁并执行恢复检查，校验全部源文件、版本约束文件与 SETUPFILE、忽略规则等读取依赖；变化时整组拒绝。全部内存操作完成后才准备临时文件、校验磁盘版本并提交。普通提交失败回滚已修改文件；回滚期间发生外部写入时保留恢复材料并报错，不能宣称跨文件崩溃原子性。
 
 ~file_versions~ 可由调用方提交源或目标文件的已读版本，过期时整组拒绝。 Core 在提交过程中根据原始字节和最终字节识别实际变更的文件，自动为这些文件登记 outbox；一组内同一文件仅登记最终变更版本，未变化文件不登记。调用方无需指定仓库或文件的上传意图。任务正文和回退原文不写入 outbox，执行操作组不自动上传远端。
 
@@ -866,7 +888,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 冲突与同步提示只由 Rust 的统一批量查询从当前文件及基线索引计算，不回放历史，也不依赖进程内标记。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 
 
-~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调携带 Core 仓库 ID 和可空的 ~operationId~ ，普通任务提交另有 ~files~ 和 ~changes~ 增量；普通操作组提供来源标识时透传，同步、重置或旧调用没有标识时为空。任务操作、同步提交、冲突解决和重置成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主通过数据集应用增量；旧入口的 ~files=None~ 保留失效语义。回调不能重入 workspace 锁。
+~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调携带 Core 仓库 ID 和可空的 ~operationId~ ，普通任务提交另有 ~files~ 和 ~changes~ 增量；普通操作组提供来源标识时透传，同步、重置或旧调用没有标识时为空。任务操作、同步提交、冲突解决和重置成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主通过数据集应用增量；旧入口的 ~files=None~ 保留失效语义。回调不能同步等待当前 Workspace 的后续业务命令。
 新增页面数据集采用启动查询一次、随后由通用查询订阅维护的设计，见 [[file:../harmony/页面数据集设计.org][页面数据集设计]] 。Core 查询订阅已实现，由 Workspace 对外组合，启动时一次返回查询结果和句柄；具体接口见 [[file:查询订阅设计.org][查询订阅设计]] 。旧入口的仓库失效事件仍不能当作数据增量；原有订阅接口与调用行为保持兼容。
 
 ~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 保留通知失效订阅；回调不查询内容，由宿主调度统一批次，完整数据类型见通知模型。
@@ -960,10 +982,10 @@ FileConflict 同时返回完整候选原文、候选 HTML、主树展示锚点�
 
 #+begin_src rust
 impl OrgWorkspace {
-    pub fn with_preview_root(self, root: PathBuf) -> Result<Self, CoreError>;
-    pub fn set_preview_root(&mut self, root: PathBuf) -> Result<(), CoreError>;
+    pub async fn with_preview_root(self, root: PathBuf) -> Result<Self, CoreError>;
+    pub async fn set_preview_root(&self, root: PathBuf) -> Result<(), CoreError>;
     pub async fn create_conflict_preview(
-        &mut self, request: ConflictPreviewRequest,
+        &self, request: ConflictPreviewRequest,
     ) -> Result<ConflictPreview, CoreError>;
     pub async fn file_at(&self, path: &TaskPath) -> Result<OrgFile, CoreError>;
 }

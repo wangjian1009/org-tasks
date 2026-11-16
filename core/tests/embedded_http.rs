@@ -25,7 +25,7 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
         })
         .await
         .unwrap();
-    let workspace = Arc::new(Mutex::new(workspace));
+    let workspace = workspace.clone();
     let mut server = OrgWorkspace::start_http_server(workspace, "127.0.0.1:0".parse().unwrap())
         .await
         .unwrap();
@@ -111,7 +111,7 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn host_handlers_register_after_start_without_core_knowing_host_semantics() {
-    let workspace = Arc::new(Mutex::new(OrgWorkspace::start(vec![]).await.unwrap()));
+    let workspace = OrgWorkspace::start(vec![]).await.unwrap();
     let mut server = OrgWorkspace::start_http_server(workspace, "127.0.0.1:0".parse().unwrap()).await.unwrap();
     let base = format!("http://{}", server.address());
     let client = reqwest::Client::new();

@@ -362,13 +362,13 @@ async fn file_query_tag_membership_emits_file_insertions_and_removals() {
 
 #[tokio::test]
 async fn cross_repository_movement_updates_each_scope_and_keeps_the_operation_id() {
-    let mut source = Fixture::new(&[("a.org", "* TODO Moving\n** TODO Child\n")]).await;
+    let source = Fixture::new(&[("a.org", "* TODO Moving\n** TODO Child\n")]).await;
     let target = Fixture::new(&[("a.org", "* TODO Target\n")]).await;
     let source_id = source.workspace.repos()[0].id.clone();
     let target_id = target.workspace.repos()[0].id.clone();
     source
         .workspace
-        .add_repo(target.workspace.repos()[0].clone())
+        .add_repo(target.workspace.repos()[0].clone()).await
         .unwrap();
     let all: CoreQuery = TaskQuery::default().into();
     let only_source = CoreQuery::Task {

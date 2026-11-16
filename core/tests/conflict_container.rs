@@ -80,7 +80,7 @@ async fn one_footer_keeps_safely_merged_main_bytes_and_discard_all_uses_task_ope
                 merge(base.as_bytes(), local.as_bytes(), &merged).unwrap(),
                 merged
             );
-            let mut f = Fixture::new(&merged).await;
+            let f = Fixture::new(&merged).await;
             let file = f.file().await;
             assert!(file.has_conflict());
             assert_eq!(file.conflict_ids().len(), 2);
@@ -130,7 +130,7 @@ async fn one_footer_keeps_safely_merged_main_bytes_and_discard_all_uses_task_ope
                 std::fs::read(f.root.join("a.org")).unwrap(),
                 expected_main.as_bytes()
             );
-            assert_eq!(f.workspace.task_operation_history.entries.len(), 2);
+            assert_eq!(f.workspace.task_operation_history().entries.len(), 2);
             assert_eq!(
                 f.workspace.repos()[0].pending_writes().await.unwrap().len(),
                 0
@@ -143,7 +143,7 @@ async fn one_footer_keeps_safely_merged_main_bytes_and_discard_all_uses_task_ope
 async fn invalid_stale_or_duplicate_selections_leave_the_entire_group_unwritten() {
     let base = b"* A\nbase\n";
     let merged = merge(base, b"* A\nlocal\n", b"* A\nremote\n").unwrap();
-    let mut f = Fixture::new(&merged).await;
+    let f = Fixture::new(&merged).await;
     let ids = f.file().await.conflict_ids();
     let mut stale = f.group(&ids).await;
     stale.file_versions[0].version = "stale".into();
@@ -159,7 +159,7 @@ async fn invalid_stale_or_duplicate_selections_leave_the_entire_group_unwritten(
     for group in [stale, duplicate, unknown] {
         assert!(f.workspace.execute_task_operations(&group).await.is_err());
         assert_eq!(std::fs::read(f.root.join("a.org")).unwrap(), merged);
-        assert!(f.workspace.task_operation_history.entries.is_empty());
+        assert!(f.workspace.task_operation_history().entries.is_empty());
         assert!(
             f.workspace.repos()[0]
                 .pending_writes()
@@ -187,7 +187,7 @@ fn conflict_points_keep_user_properties_and_code_literals_visible() {
 async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_normal_content() {
     for remote in ["* A\nremote", "* A\nremote\n"] {
         let merged = merge(b"* A\nbase\n", b"* A\nlocal\n", remote.as_bytes()).unwrap();
-        let mut f = Fixture::new(&merged).await;
+        let f = Fixture::new(&merged).await;
         let original_ids = f.file().await.conflict_ids();
         let normal = f.file().await.node_paths()[0].clone();
         f.workspace
@@ -216,7 +216,7 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
             remote.as_bytes().to_vec(),
         )
         .unwrap();
-        let mut plain = Fixture::new(clean.source_bytes()).await;
+        let plain = Fixture::new(clean.source_bytes()).await;
         let plain_path = plain.file().await.node_paths()[0].clone();
         plain
             .workspace

@@ -20,12 +20,11 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 ~NativeCoreService.start()~ 在 EntryAbility 启动时取得进程唯一 Workspace； ~workspaceFor~ 串行更新同一对象的默认设置、附加状态和仓库集合。目录集合变化不替换 native handle、NotificationCenter 或运行时。 ~validateConfiguration~ 在工作线程调用 Core 的配置默认值、校验和兼容反序列化，不创建 Workspace，也不修改活动配置。 ~validateRepository(rootDirectory)~ 在工作线程创建独立 OrgRepo 值并调用 Core 身份加载验证目录，不将临时目录加入活动仓库集合，也不创建另一个 Workspace。
 
-仓库同步与重置在短期 Workspace 锁内取得 NotificationCenter 的克隆，显式传给 Core 业务入口；它只引用本 Workspace 的请求 channel。同步的网络阶段继续释放 Workspace 锁，通知不按目录或 Core 仓库 ID 向其他 Workspace 转发。
-
+WorkspaceSession 直接持有可克隆的 Core 命令句柄，不再持有 ~Arc<Mutex<OrgWorkspace>>~ 。查询、仓库读取、修改、同步、重置和配置更新都提交给 Core 调度；同步与重置由命令内部显式传递本 Workspace 的 NotificationCenter，通知不按目录或仓库 ID 向其他 Workspace 转发。连续查询可并发，修改等前序查询结束后按文件衔接，同步作为独占屏障；同步期间后续业务读取等待整轮完成，配置快照读取不等待网络。TS、C ABI 的参数、返回结构和 Promise 形式保持原约定。
 
 应用启动时创建一个 Workspace，后续仓库增删、设置变化和目录校验均复用该对象。 ~WorkspaceSession~ 在 Core 之外持有一个持续运行的多线程 ~tokio::Runtime~ ，创建会话时在该上下文等待 ~OrgWorkspace::start(Vec::new())~ 。普通请求、通知相关读取、同步、预览与 APP 内嵌 HTTP 服务复用所属会话的运行时；不再为单次请求创建运行时，也不保留独立的全局 HTTP 运行时。没有 Workspace 的连接检查使用独立的临时执行上下文。
 
-N-API 对象继续按既有引用计数保持会话存活。最后一个引用释放时先从会话表移除对象并解除宿主订阅，再由运行时的阻塞工作任务等待 ~OrgWorkspace::stop()~ ；等待前取得 Workspace 副本并释放其锁，避免与 HTTP 收尾互相等待。Workspace 先等待业务与普通任务完成，再通过 oneshot 停止 NotificationCenter 的 process，等待已入队请求处理及监控器释放后才释放该运行时；finalizer 不在 ArkUI 线程等待异步退出。
+N-API 对象继续按既有引用计数保持会话存活。最后一个引用释放时先从会话表移除对象并解除宿主订阅，再由运行时的阻塞工作任务等待 ~OrgWorkspace::stop()~ ；等待直接使用 Workspace 命令句柄副本，不持有会话表锁。Core 的 ~start~ 不创建或持有 runtime，只在当前上下文启动命令与通知两个异步 task。Workspace 先排空已受理命令、等待业务与普通任务完成，再通过 oneshot 停止 NotificationCenter 的 process，等待已入队请求处理及监控器释放后才释放该运行时；finalizer 不在 ArkUI 线程等待异步退出。
 
 * 接口设计规范
 
@@ -47,6 +46,8 @@ N-API 对象继续按既有引用计数保持会话存活。最后一个引用�
 * 验证记录
 
 2026-11-16 在专用模拟器的独立 QA 仓库验证：HTTP 修改当前页面任务标题后无需重新打开页面即可收到增量更新；界面完成任务后，HTTP 查询读到 DONE。非法触发器提交失败时，文件版本和任务状态保持不变；验证完成后恢复 QA 标题与待办状态，并关闭测试监听。Core 同时覆盖相同目录与仓库 ID 的不同 Workspace 之间通知隔离、channel 顺序、停止排空与取消等待后继续收尾。
+
+2026-11-16 命令调度重构已验证：Core 在宿主当前 Tokio 上启动异步 task，查询批次、文件依赖、独占同步和停止排空的顺序回归通过；Harmony 与 APP 内嵌 HTTP 共用同一无整体 mutex 的命令句柄。专用模拟器确认 UI 与 HTTP 双向增量、跨文件失败回滚、缓存重启和普通启动不恢复测试监听。
 
 * 配置校验
 
@@ -215,7 +216,7 @@ class RepositorySyncService {
 
 Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复制后交给 ~org_tasks_harmony_free_string~ 释放。释放接口在 Rust 声明为 ~unsafe extern "C"~ ：非空参数必须是本 bridge 返回、尚未释放的原始指针，不得改变字符串长度，释放后不得访问或再次释放；空指针无操作。错误字符串使用同一所有权约定。Rust 调用方在 ~unsafe~ 块中保证这些条件；C++ 保持原有 C ABI，ArkTS 接口不暴露字符串指针。
 
-同步的网络阶段使用从当前仓库配置和身份取得的独立执行对象，不持有整个 workspace mutex；本轮同步锁和分阶段仓库锁由 Core 内部管理。成功后 bridge 仅短暂交回稳定身份，不用旧执行对象覆盖并发请求的快照；文件列表请求重新通过 Core 读盘；新增 ~loadFiles(ignoreFiles)~ 及其 C ABI、N-API 接入，替换原文件集合访问；其他请求与结果字段保持原约定。该变化允许同进程页面请求在下载和上传期间进入 Core，具体协议与缓存迁移边界见 [[file:../core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
+同步通过 ~Workspace.sync_repo~ 命令取得执行时的仓库配置与身份，不持有整体 workspace mutex；Core 管理本轮同步锁和分阶段仓库锁，结束后由命令循环发布配置快照。文件列表通过 ~read_repo~ 纳入查询批次， ~loadFiles(ignoreFiles)~ 的 C ABI、N-API、请求和结果字段保持原约定。同一 Workspace 的页面查询等待同步屏障结束；底层网络阶段释放仓库锁供其他进程访问。具体协议见 [[file:../core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
 
 ~Workspace~ 与 ~Repo~ 持有同一个 opaque workspace handle 的引用；最后一个引用释放后，Harmony session 释放 core workspace。 ~Repo~ 从 workspace 取得，不能直接构造。
 
@@ -398,7 +399,7 @@ interface TitleCount {
 ~TitlePart.count~ 与嵌套的 ~completed~ 、 ~total~ 由 Core 生成，经 Rust 序列化与 C++ JSON 编组原样透传，适用于文件元信息、文件标题与任务标题，不添加同步请求或原文解析。 ~NativeCoreService~ 导出 ~CoreTitleCount~ ，计数随标题片段进入任务快照渲染键。 ~TitleCountBadge~ 使用 ArkUI 的 ~ProgressType.Ring~ 在运行时按有效比例绘制； ~TitleCounts~ 管理多个计数的换行与窄屏图标回退。 ~TitleText~ 只组合普通文字、链接与计数标记；今天收起行单独为计数和日期保留宽度，展开与任务编辑共用同款标记，不重复“已完成”说明。文件阅读使用 Core 的安全标题 HTML 与宿主样式绘制同款圆环。
 * 快速捕捉复用
 
-快速捕捉复用 ~Workspace.executeTaskOperations~ 的 ~Creation~ ，提交 ~title~ ，以文件根节点作为 ~position.parent~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。保存时由 Harmony 的 ~CaptureEntityService~ 调用华为 Natural Language Kit 识别地址和时间；完整输入保留为 ~title~ ，地址链接通过已有 ~body~ 字段传递，归一化时间转换为完整 Org 时间戳后通过已有 ~scheduled~ 字段传递。识别失败时正文为空、计划时间为空，不改动 bridge 类型或复制 Core 的写入校验、Org 解析与同步规则。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续使用该 workspace 的 native 锁。
+快速捕捉复用 ~Workspace.executeTaskOperations~ 的 ~Creation~ ，提交 ~title~ ，以文件根节点作为 ~position.parent~ 让新标题出现在收件箱顶部，不新增独立捕捉领域 API。保存时由 Harmony 的 ~CaptureEntityService~ 调用华为 Natural Language Kit 识别地址和时间；完整输入保留为 ~title~ ，地址链接通过已有 ~body~ 字段传递，归一化时间转换为完整 Org 时间戳后通过已有 ~scheduled~ 字段传递。识别失败时正文为空、计划时间为空，不改动 bridge 类型或复制 Core 的写入校验、Org 解析与同步规则。Core 在实际保存时按设备本地时间写入 ~:CREATED: [YYYY-MM-DD Ddd HH:MM]~ ，草稿阶段不生成时间，后续读取与同步不更新时间。应用内“+”和外部文字、语音及意图入口共用 ~CaptureService.save~ 。所有外部入口先进入同一前台捕捉窗口；分享扩展只传递标题，不另建仓库写入会话。 ~NativeCoreService.workspaceFor~ 串行取得或初始化共享 session，避免两个窗口冷启动时为同一配置同时创建不同 workspace；后续编辑与同步继续通过该 Workspace 的命令 channel 调度。
 
 捕捉窗口首屏不静态导入 native service。草稿读取由轻量 ~CaptureDraftStore~ 负责； ~CaptureSaveSession~ 在首屏显示后异步导入宿主捕捉服务、取得共享 workspace。页面输入不等待初始化，保存请求等待同一初始化 Promise，再沿用 ~Workspace.executeTaskOperations~ 完成提交；初始化失败会在保存时返回，下一次保存可重新初始化。
 
@@ -606,7 +607,7 @@ Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的�
 
 ~Workspace.query(queries: CoreQuery[]): Promise<CoreQueryResult[]>~ 是唯一通用任务查询入口，旧单对象请求拒绝；单查询提交单项数组并取第零项结果。Rust、C ABI、C++ N-API 与 ArkTS wrapper 一次传递整批，C++ 将 Task 结果分支的 ~tasks~ 包装为 Task 对象。 ~results[i]~ 对应 ~queries[i]~ ，空结果和重复查询均保留位置。
 
-Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不取得业务锁、不加载文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/批量查询接口设计.org][批量查询接口设计]]。
+Harmony 每批提交一个 Workspace 查询命令，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不读取业务文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/批量查询接口设计.org][批量查询接口设计]]。
 
 侧边栏将八项任务查询、三个目标文件元信息与通知合为一个批次，并按输入位置显示计数。收件箱、某天和备忘以 Core 仓库 ID 与相对路径隔离同名文件，空文件与失效文件通过同批 File 结果区分。
 

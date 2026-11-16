@@ -972,7 +972,7 @@ void ExecuteWorkspaceString(napi_env, void* data)
 void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
 {
     auto* work = static_cast<WorkspaceStringWork*>(data);
-    // 无论本次修改成功或失败，先合并已经产生的事件，再完成用户请求。
+    // Core 已完成命令调度；先在 UI 线程合并已产生的事件，再完成本次修改 Promise。
     if (work->execute_operations && status == napi_ok) {
         napi_value owner; WorkspaceWrap* workspace = nullptr;
         if (napi_get_reference_value(env, work->owner, &owner) == napi_ok &&

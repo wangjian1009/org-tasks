@@ -1,3 +1,4 @@
+use crate::workspace::WorkspaceState;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
@@ -7,7 +8,9 @@ use crate::model::{
     CoreQuery, CoreQueryResult, FileQuery, OrgFileRef, TaskCategory, TaskQuery,
     TaskQueryResult,
 };
-use crate::{CoreError, FilterTask, OrgWorkspace};
+use crate::{CoreError, FilterTask};
+#[cfg(test)]
+use crate::OrgWorkspace;
 
 impl CoreQuery {
     pub(crate) fn includes_repo(&self, id: &str) -> bool {
@@ -61,7 +64,7 @@ enum QueryWorkResult {
     Failed(CoreError),
 }
 
-impl OrgWorkspace {
+impl WorkspaceState {
     /// 唯一通用查询入口；按输入顺序返回结果，任一错误使整批失败。
     pub async fn query(&self, queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError> {
         let _activity = self.tasks.enter()?;
@@ -1031,14 +1034,14 @@ mod tests {
         )
         .unwrap();
         crate::model::test_support::write_files(&mut repo, vec![file]);
-        let mut workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         workspace
             .set_settings(crate::CoreSettings {
                 addition_states: vec![crate::TaskState {
                     name: "OTHER".into(),
                     category: None,
                 }],
-            })
+            }).await
             .unwrap();
         let cases = [
             (
@@ -1454,8 +1457,8 @@ mod tests {
 
     #[tokio::test]
     async fn pending_undated_task_query_excludes_notes_done_and_either_planning_field() {
-        let mut workspace = workspace().await;
-        let mut repo = &mut workspace.repos[0];
+        let workspace = workspace().await;
+        let mut repo = &mut workspace.repos()[0];
         {
             let value = OrgFile::new(repo.id.clone(), "undated.org".into(),
             "#+CATEGORY: Work\n#+TODO: NEXT | CLOSED\n* NEXT Undated task\n* Plain heading\n* CLOSED Completed task\n* NEXT Scheduled task\nSCHEDULED: <2026-11-09 Mon>\n* NEXT Deadline task\nDEADLINE: <2026-11-10 Tue>\n".as_bytes().to_vec()).unwrap();

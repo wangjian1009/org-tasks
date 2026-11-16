@@ -12,7 +12,7 @@ use org_tasks_core::{
 use serde::{Deserialize, Serialize};
 
 struct WorkspaceSession {
-    workspace: Arc<Mutex<OrgWorkspace>>,
+    workspace: OrgWorkspace,
     runtime: Arc<crate::runtime::WorkspaceRuntime>,
     references: usize,
     previews: BTreeMap<String, org_tasks_core::ConflictPreview>,
@@ -345,7 +345,7 @@ pub fn create_workspace() -> Result<u64, CoreError> {
     sessions.sessions.insert(
         handle,
         WorkspaceSession {
-            workspace: Arc::new(Mutex::new(workspace)),
+            workspace,
             runtime,
             references: 1,
             previews: BTreeMap::new(),
@@ -390,10 +390,10 @@ pub fn release_workspace(handle: u64) {
         let removed = ids.into_iter().filter_map(|id| subscriptions.remove(&id)).collect::<Vec<_>>();
         drop(subscriptions);
         drop(removed);
-        // Finalizer 可能位于 UI 线程；收尾在宿主运行时等待，且不占用会话或 Workspace 锁。
+        // Finalizer 可能位于 UI 线程；收尾在宿主运行时等待，且不持有会话表锁。
         let runtime = session.runtime.clone();
         session.runtime.spawn_blocking(move || {
-            let workspace = session.workspace.lock().unwrap_or_else(|error| error.into_inner()).clone();
+            let workspace = session.workspace;
             if let Err(error) = runtime.block_on(workspace.stop()) {
                 eprintln!("停止 Workspace 失败: {error}");
             }
@@ -403,9 +403,6 @@ pub fn release_workspace(handle: u64) {
 
 pub fn workspace_repo_roots(handle: u64) -> Result<Vec<String>, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     Ok(workspace
         .repos()
         .iter()
@@ -415,21 +412,15 @@ pub fn workspace_repo_roots(handle: u64) -> Result<Vec<String>, CoreError> {
 
 pub fn workspace_remove_repo(handle: u64, root_directory: String) -> Result<(), CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    workspace.remove_repo_by_root_directory(&root_directory)?;
+    runtime(handle)?.block_on(workspace.remove_repo_by_root_directory(&root_directory))?;
     Ok(())
 }
 
 pub fn workspace_add_repo(handle: u64, root_directory: String) -> Result<(), CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let mut repository = OrgRepo::new(root_directory)?;
     runtime(handle)?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    workspace.add_repo(repository)
+    runtime(handle)?.block_on(workspace.add_repo(repository))
 }
 
 pub fn validate_configuration_json(request: String) -> Result<String, CoreError> {
@@ -445,7 +436,7 @@ pub fn validate_configuration_json(request: String) -> Result<String, CoreError>
 
 pub fn workspace_validate_repository(handle: u64, root_directory: String) -> Result<(), CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let defaults = workspace.lock().map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?.todo_defaults.clone();
+    let defaults = workspace.todo_defaults();
     let mut repo = OrgRepo::new(root_directory)?;
     repo.set_todo_defaults(defaults)?;
     runtime(handle)?.block_on(repo.load::<WebDavSyncPolicy>())?;
@@ -454,56 +445,21 @@ pub fn workspace_validate_repository(handle: u64, root_directory: String) -> Res
 
 pub fn repo_load(handle: u64, root_directory: String) -> Result<(), CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    let runtime = runtime(handle)?;
-    runtime.block_on(repository.load::<WebDavSyncPolicy>())?;
-    Ok(())
+    runtime(handle)?.block_on(workspace.load_repo::<WebDavSyncPolicy>(&root_directory))
 }
 
 pub fn repo_reset(handle: u64, root_directory: String) -> Result<(), CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let notifications = workspace.notification_center().clone();
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime(handle)?.block_on(repository.reset(Some(&notifications)))?;
-    let repo_id = repository.id.clone();
-    // 重置后不保留这个仓库的旧操作回退原文。
-    workspace.task_operation_history.entries.retain(|entry| {
-        !entry
-            .fallback_group
-            .files
-            .iter()
-            .any(|file| file.repo_id == repo_id)
-    });
-    Ok(())
+    runtime(handle)?.block_on(workspace.reset_repo(&root_directory))
 }
 
 /// 读取仓库已完成的同步记录。历史由 core 从 `.sync/history` 恢复，宿主只接收展示投影。
 pub fn repo_history_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime(handle)?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    encode(
-        &runtime(handle)?
-            .block_on(repository.history_summaries())?
-            .into_iter()
-            .map(bridge_sync_summary)
-            .collect::<Result<Vec<_>, CoreError>>()?,
-    )
+    let records = runtime(handle)?.block_on(workspace.read_repo(&root_directory, |repo| async move {
+        repo.history_summaries().await
+    }))?;
+    encode(&records.into_iter().map(bridge_sync_summary).collect::<Result<Vec<_>, CoreError>>()?)
 }
 
 pub fn repo_history_detail_json(
@@ -512,14 +468,9 @@ pub fn repo_history_detail_json(
     sync_id: String,
 ) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime(handle)?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    let detail = runtime(handle)?.block_on(repository.history_detail(&sync_id))?;
+    let detail = runtime(handle)?.block_on(workspace.read_repo(&root_directory, move |repo| async move {
+        repo.history_detail(&sync_id).await
+    }))?;
     encode(&HarmonyBridgeSyncDetail {
         summary: bridge_sync_summary(detail.summary)?,
         files: detail.files.into_iter().map(|file| {
@@ -535,9 +486,7 @@ pub fn repo_history_detail_json(
 
 pub fn repo_full_path_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let session = workspace_for_handle(handle)?;
-    let workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let workspace = session;
     let repo = workspace
         .repo_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
@@ -546,9 +495,6 @@ pub fn repo_full_path_json(handle: u64, root_directory: String) -> Result<String
 
 pub fn repo_id(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
     let repository = workspace
         .repo_by_root_directory(&root_directory)
         .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
@@ -577,8 +523,6 @@ fn query_task_results_json(handle: u64, queries: String) -> Result<String, CoreE
 fn query_files_json(handle: u64, root: String) -> Result<String, CoreError> {
     let session = workspace_for_handle(handle)?;
     let repo_id = session
-        .lock()
-        .unwrap()
         .repo_by_root_directory(&root)
         .ok_or(CoreError::InvalidInput("仓库不存在"))?
         .id
@@ -685,9 +629,7 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
     if queries.is_empty() {
         return encode(&Vec::<serde_json::Value>::new());
     }
-    let workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let workspace = session;
     resolve_query_repositories(&workspace, &mut queries, &bindings)?;
     let roots = workspace
         .repos()
@@ -695,7 +637,6 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
         .map(|repo| (repo.id.clone(), repo.root_directory.clone()))
         .collect::<BTreeMap<_, _>>();
     let results = runtime(handle)?.block_on(workspace.query(&queries))?;
-    drop(workspace);
     let values = results.into_iter().map(|result| query_result_value(result, &roots, None)).collect::<Result<Vec<_>, _>>()?;
     encode(&values)
 }
@@ -749,16 +690,6 @@ pub fn repo_sync_json(
         })
     };
     let workspace = workspace_for_handle(workspace_handle)?;
-    let (mut repository, notifications) = {
-        let workspace = workspace
-            .lock()
-            .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-        let repository = workspace
-            .repo_by_root_directory(&root_directory)
-            .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?
-            .clone();
-        (repository, workspace.notification_center().clone())
-    };
     let runtime = runtime(workspace_handle)?;
     let options = if options_json.trim().is_empty() {
         SyncOptions::default()
@@ -766,25 +697,8 @@ pub fn repo_sync_json(
         serde_json::from_str::<SyncOptions>(&options_json)
             .map_err(|_| CoreError::InvalidInput("同步参数无效"))?
     };
-    let record = runtime.block_on(repository.sync_with_options(
-        &policy,
-        started_at,
-        &SyncCancellation::default(),
-        &SyncProgressReporter::default(),
-        options,
-        Some(&notifications),
-    ))?;
-    // 只交回稳定身份，避免同步开始前取得的对象覆盖网络期间其他请求更新的快照。
-    if record.result == Some(OrgRepoSyncResult::Succeeded) {
-        let mut workspace = workspace
-            .lock()
-            .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-        if let Some(current) = workspace.repo_mut_by_root_directory(&root_directory) {
-            if current.id.is_empty() || current.id == repository.id {
-                current.id = repository.id;
-            }
-        }
-    }
+    let record = runtime.block_on(workspace.sync_repo(&root_directory, policy, started_at,
+        Some(SyncCancellation::default()), Some(SyncProgressReporter::default()), options))?;
     encode(&bridge_sync_summary(
         org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&record)?,
     )?)
@@ -822,22 +736,11 @@ pub fn repo_load_files_json(
     let ignore_files: Vec<String> = serde_json::from_str(&ignore_files_json)
         .map_err(|_| CoreError::InvalidInput("排除文件必须是仓库相对路径列表"))?;
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime(handle)?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    let files = runtime(handle)?
-        .block_on(repository.load_files(&ignore_files))?
-        .iter()
-        .map(file_snapshot)
-        .collect::<Result<Vec<_>, _>>()?;
-    encode(&HarmonyBridgeRepository {
-        id: repository.id.clone(),
-        files,
-    })
+    let snapshot = runtime(handle)?.block_on(workspace.read_repo(&root_directory, move |repo| async move {
+        let files = repo.load_files(&ignore_files).await?.iter().map(file_snapshot).collect::<Result<Vec<_>, _>>()?;
+        Ok(HarmonyBridgeRepository { id: repo.id, files })
+    }))?;
+    encode(&snapshot)
 }
 
 fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, CoreError> {
@@ -890,14 +793,14 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
     })
 }
 
-fn workspace_for_handle(handle: u64) -> Result<Arc<Mutex<OrgWorkspace>>, CoreError> {
+fn workspace_for_handle(handle: u64) -> Result<OrgWorkspace, CoreError> {
     let sessions = workspace_sessions()
         .lock()
         .map_err(|_| CoreError::Store("Harmony workspace session 锁不可用".into()))?;
     sessions
         .sessions
         .get(&handle)
-        .map(|session| Arc::clone(&session.workspace))
+        .map(|session| session.workspace.clone())
         .ok_or(CoreError::InvalidInput("workspace handle 无效"))
 }
 
@@ -1243,10 +1146,7 @@ mod tests {
         std::fs::write(root.join("broken.org"), [0xff]).unwrap();
         assert!(query_task_results_json(handle, request.to_string()).is_err());
         // 空批次不碰业务锁，即使磁盘已损坏也返回空数组。
-        let session = workspace_for_handle(handle).unwrap();
-        let _guard = session.lock().unwrap();
         assert_eq!(query_task_results_json(handle, "[]".into()).unwrap(), "[]");
-        drop(_guard);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1658,10 +1558,7 @@ mod tests {
         let core_tasks = runtime(handle)
             .unwrap()
             .block_on(
-                session
-                    .lock()
-                    .unwrap()
-                    .query(&[(org_tasks_core::TaskQuery::default()).into()]),
+                session.query(&[(org_tasks_core::TaskQuery::default()).into()]),
             )
             .unwrap()
             .remove(0)
@@ -1713,10 +1610,7 @@ mod tests {
         let expected = runtime(handle)
             .unwrap()
             .block_on(
-                projection
-                    .lock()
-                    .unwrap()
-                    .query(&[(org_tasks_core::TaskQuery {
+                projection.query(&[(org_tasks_core::TaskQuery {
                         expression: "cr.ge.-2d cr.le.today .o.created".into(),
                         ..Default::default()
                     })
@@ -2092,21 +1986,14 @@ mod tests {
 
 pub fn repo_conflicts_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repository = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime(handle)?.block_on(repository.load::<WebDavSyncPolicy>())?;
-    encode(&runtime(handle)?.block_on(repository.pending_sync_conflicts())?)
+    encode(&runtime(handle)?.block_on(workspace.read_repo(&root_directory, |repo| async move {
+        repo.pending_sync_conflicts().await
+    }))?)
 }
 
 pub fn workspace_get_settings_json(handle: u64) -> Result<String, CoreError> {
     let session = workspace_for_handle(handle)?;
-    let workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let workspace = session;
     encode(&workspace.get_settings())
 }
 
@@ -2114,21 +2001,13 @@ pub fn workspace_set_settings(handle: u64, json: String) -> Result<(), CoreError
     let settings: org_tasks_core::CoreSettings = serde_json::from_str(&json)
         .map_err(|_| CoreError::InvalidInput("CoreSettings 参数无效"))?;
     let session = workspace_for_handle(handle)?;
-    let mut workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    workspace.set_settings(settings)
+    let workspace = session;
+    runtime(handle)?.block_on(workspace.set_settings(settings))
 }
 
 pub fn workspace_set_todo_defaults(handle: u64, settings: String) -> Result<(), CoreError> {
-    let defaults = org_tasks_core::TodoConfig::from_settings(&settings)?;
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let core_settings = workspace.get_settings();
-    workspace.set_todo_defaults(defaults)?;
-    workspace.set_settings(core_settings)
+    runtime(handle)?.block_on(workspace.set_todo_defaults_text(&settings))
 }
 
 pub fn repo_file_json(
@@ -2137,14 +2016,10 @@ pub fn repo_file_json(
     path: String,
 ) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let mut workspace = workspace
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repo = workspace
-        .repo_mut_by_root_directory(&root_directory)
-        .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-    runtime(handle)?.block_on(repo.load::<WebDavSyncPolicy>())?;
-    encode(&file_snapshot(&runtime(handle)?.block_on(repo.file(&path))?)?)
+    let file = runtime(handle)?.block_on(workspace.read_repo(&root_directory, move |repo| async move {
+        repo.file(&path).await
+    }))?;
+    encode(&file_snapshot(&file)?)
 }
 
 #[cfg(test)]
@@ -2262,18 +2137,13 @@ mod todo_tests {
     }
 }
 
-/// 放置目标和任务整理均由 Core 求值，bridge 只持有会话锁并调度运行时。
+/// 放置目标和任务整理均由 Core 求值，bridge 只取得命令句柄并在宿主运行时等待结果。
 pub fn workspace_refile_targets_json(handle: u64, query_json: String) -> Result<String, CoreError> {
     let query: org_tasks_core::RefileTargetQuery = serde_json::from_str(&query_json)
         .map_err(|_| CoreError::InvalidInput("放置目标查询参数无效"))?;
     let session = workspace_for_handle(handle)?;
-    let mut workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let workspace = session;
     let runtime = runtime(handle)?;
-    for repo in &mut workspace.repos {
-        runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
-    }
     // 包括 titleParts 的完整 Core 投影，保持标题原文与展示分段各自的边界。
     encode(&runtime.block_on(workspace.query_refile_targets(&query))?)
 }
@@ -2285,9 +2155,7 @@ pub fn workspace_execute_task_operations(
     let group: org_tasks_core::TaskOperationGroup = serde_json::from_str(&request)
         .map_err(|_| CoreError::InvalidInput("任务操作组参数无效"))?;
     let session = workspace_for_handle(handle)?;
-    let mut workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let workspace = session;
     runtime(handle)?.block_on(workspace.execute_task_operations(&group))?;
     Ok("{}".into())
 }
@@ -2296,9 +2164,7 @@ pub fn workspace_task_merge_operations(handle: u64, request: String) -> Result<S
     let request: org_tasks_core::TaskMergeRequest =
         serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("记录合并参数无效"))?;
     let session = workspace_for_handle(handle)?;
-    let workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
+    let workspace = session;
     encode(&runtime(handle)?.block_on(workspace.task_merge_operations(&request))?)
 }
 
@@ -2322,17 +2188,11 @@ pub fn repo_history_operation(
     let request: Request =
         serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("历史文件参数无效"))?;
     let session = workspace_for_handle(handle)?;
-    let mut workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("Harmony workspace 锁不可用".into()))?;
-    let repo = workspace
-        .repo_mut_by_root_directory(&root)
-        .ok_or(CoreError::InvalidInput("仓库不属于 workspace"))?;
-    let runtime = runtime(handle)?;
-    runtime.block_on(repo.load::<WebDavSyncPolicy>())?;
+    let workspace = session;
+    runtime(handle)?.block_on(workspace.read_repo(&root, move |repo| async move {
     match request {
         Request::LastEffectSync => {
-            let current = runtime.block_on(repo.last_effect_sync())?;
+            let current = repo.last_effect_sync().await?;
             let summary = current
                 .map(|r| {
                     bridge_sync_summary(
@@ -2347,9 +2207,10 @@ pub fn repo_history_operation(
             path,
             resolved,
         } => encode(&file_snapshot(
-            &runtime.block_on(repo.history_file(&sync_id, &path, resolved))?,
+            &repo.history_file(&sync_id, &path, resolved).await?,
         )?),
     }
+    }))
 }
 
 static NOTIFICATION_SUBSCRIPTIONS: OnceLock<
@@ -2383,9 +2244,7 @@ impl Drop for NotificationMonitor {
 pub fn workspace_watch_notifications(handle: u64, monitor: u64) -> Result<u64, CoreError> {
     let monitor = NotificationMonitor(monitor);
     let session = workspace_for_handle(handle)?;
-    let workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
+    let workspace = session;
     let subscription = workspace.watch_notifications(move |event| {
         let _keep_alive = &monitor;
         if let Ok(json) = serde_json::to_string(&event)
@@ -2431,9 +2290,7 @@ impl Drop for DataChangeMonitor {
 pub fn workspace_watch_data_changes(handle: u64, monitor: u64) -> Result<u64, CoreError> {
     let monitor = DataChangeMonitor(monitor);
     let session = workspace_for_handle(handle)?;
-    let workspace = session
-        .lock()
-        .map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
+    let workspace = session;
     let subscription = workspace.watch_data_changes(move |event| {
         let _keep_alive = &monitor;
         if let Ok(json) = serde_json::to_string(&event)
@@ -2554,13 +2411,11 @@ pub fn workspace_preview_operation(handle: u64, request: String) -> Result<Strin
     let request: Request =
         serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("预览请求参数无效"))?;
     let session = workspace_for_handle(handle)?;
-    let mut workspace = session
-        .lock()
-        .map_err(|_| CoreError::InvalidState("工作区锁不可用"))?;
+    let workspace = session;
     let runtime = runtime(handle)?;
     match request {
         Request::Configure { root } => {
-            workspace.set_preview_root(root.into())?;
+            runtime.block_on(workspace.set_preview_root(root.into()))?;
             encode(&serde_json::json!({}))
         }
         Request::Create { request } => {
@@ -2761,7 +2616,7 @@ mod sync_concurrency_tests {
     use std::time::Duration;
 
     #[test]
-    fn network_sync_does_not_block_other_workspace_requests_or_restore_old_file_snapshots() {
+    fn queries_wait_for_sync_without_restoring_old_file_snapshots() {
         let root = std::env::temp_dir().join(format!(
             "org-harmony-concurrent-{}",
             org_tasks_core::model::LocalFileVersion::from_bytes(
@@ -2841,11 +2696,11 @@ mod sync_concurrency_tests {
             read.send(repo_snapshot_json(handle, read_directory))
                 .unwrap();
         });
-        let snapshot = reading.recv_timeout(Duration::from_secs(2));
+        assert!(matches!(reading.recv_timeout(Duration::from_millis(100)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+        // 配置快照不等待网络，业务查询按同步屏障等待。
+        assert_eq!(workspace_repo_roots(handle).unwrap(), vec![directory.clone()]);
         resume.send(()).unwrap();
-        let snapshot = snapshot
-            .expect("网络同步不能占住整个 workspace mutex")
-            .unwrap();
+        let snapshot = reading.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
         assert!(snapshot.contains("Edited during network"));
         reader.join().unwrap();
         let result = syncing.join().unwrap().unwrap();
@@ -3021,7 +2876,6 @@ pub fn workspace_subscribe_query_json(handle: u64, query: String, monitor: u64) 
     let monitor = Arc::new(DataChangeMonitor(monitor));
     let mut request: QuerySubscriptionRequest = serde_json::from_str(&query).map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
     let workspace = workspace_for_handle(handle)?;
-    let workspace = workspace.lock().map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
     resolve_query_repositories(&workspace, std::slice::from_mut(&mut request.query), &request.repository_bindings)?;
     let ordering = Arc::new(workspace.query_ordering(&request.query)?);
     let event_ordering = ordering.clone();
@@ -3045,7 +2899,6 @@ pub fn workspace_subscribe_query_json(handle: u64, query: String, monitor: u64) 
 
 pub fn workspace_query_subscription_status(handle: u64, id: u64) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let workspace = workspace.lock().map_err(|_| CoreError::Store("workspace 锁不可用".into()))?;
     let subscriptions = QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("查询订阅锁不可用".into()))?;
     let (owner, subscription) = subscriptions.get(&id).ok_or(CoreError::InvalidInput("查询订阅不存在"))?;
     if *owner != handle { return Err(CoreError::InvalidInput("查询订阅不属于 workspace")); }
@@ -3088,8 +2941,7 @@ mod page_data_bridge_tests {
         workspace_unsubscribe_query(other, id);
         assert!(workspace_query_subscription_status(handle, id).is_ok());
         let workspace = workspace_for_handle(handle).unwrap();
-        let workspace = workspace.lock().unwrap();
-        let repo = &workspace.repos()[0];
+            let repo = &workspace.repos()[0];
         let file = runtime(handle).unwrap().block_on(repo.file("a.org")).unwrap();
         let task = runtime(handle).unwrap().block_on(repo.nodes()).unwrap().remove(0);
         let event = org_tasks_core::DataChangeEvent::RepositoryChanged {
@@ -3104,8 +2956,7 @@ mod page_data_bridge_tests {
         assert_eq!(value["changes"][0]["after"]["view"]["heading"], "Task");
         assert_eq!(value["changes"][0]["after"]["view"]["isDone"], false);
         assert!(value["files"][0]["afterView"]["taskPriorityOptions"].is_object());
-        drop(workspace);
-        workspace_unsubscribe_query(handle, id);
+            workspace_unsubscribe_query(handle, id);
         assert!(workspace_query_subscription_status(handle, id).is_err());
         let (id, _) = workspace_subscribe_query_json(handle, r#"{"query":{"type":"file","query":{}}}"#.into(), 0).unwrap();
         release_workspace(handle);
@@ -3162,7 +3013,7 @@ mod embedded_http_tests {
             send.send(()).unwrap();
         });
         receive.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
-        let workspace = workspace_for_handle(handle).unwrap().lock().unwrap().clone();
+        let workspace = workspace_for_handle(handle).unwrap();
         release_workspace(handle);
         assert!(runtime(handle).is_err());
         executor.block_on(async {

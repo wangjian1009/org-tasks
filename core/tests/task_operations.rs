@@ -52,7 +52,7 @@ impl Drop for Fixture {
 
 #[tokio::test]
 async fn operation_id_is_forwarded_after_commit_and_never_leaks_into_other_updates() {
-    let mut fixture = Fixture::new("* TODO Original\n").await;
+    let fixture = Fixture::new("* TODO Original\n").await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let received = observed.clone();
     let _subscription = fixture.workspace.watch_data_changes(move |event| {
@@ -85,7 +85,7 @@ fn operation_id_is_optional_and_preserves_legacy_operation_group_json() {
 #[tokio::test]
 async fn repeat_rule_group_is_atomic_versioned_and_keeps_the_other_planning_field() {
     let source = "* TODO Task\r\nDEADLINE: <2026-12-01 Tue ++1m -2d>\r\nNotes  \r\n";
-    let mut fixture = Fixture::new(source).await;
+    let fixture = Fixture::new(source).await;
     let mut group = fixture.group("unused").await;
     let repo_id = fixture.workspace.repos()[0].id.clone();
     group.file_versions = vec![TaskFileVersion {
@@ -180,7 +180,7 @@ async fn repeat_rule_group_is_atomic_versioned_and_keeps_the_other_planning_fiel
 #[tokio::test]
 async fn progress_changes_keep_nested_write_paths_but_do_not_bypass_file_versions() {
     let source = "* TODO Parent [/]\n** TODO Child [0/2]\nOld notes\n";
-    let mut fixture = Fixture::new(source).await;
+    let fixture = Fixture::new(source).await;
     let file = &fixture.workspace.repos()[0].load_files(&[]).await.unwrap()[0];
     let path = file.node_paths()[1].clone();
     assert_eq!(path.titles, ["Parent", "Child"]);
@@ -246,11 +246,11 @@ async fn merge_request(f: &Fixture, selected: &[usize]) -> TaskMergeRequest {
 #[tokio::test]
 async fn merging_plans_only_deletions_and_modifications_in_selection_order() {
     let source = "#+TITLE: Inbox\r\n前言  \r\n* DONE First :old:\r\nCLOSED: [2026-11-01 Sun]\r\n:LOGBOOK:\r\n- Old log\r\n:END:\r\nFirst body  \r\n** TODO Child\r\nchild body\r\n* TODO Main :keep:\r\nSCHEDULED: <2026-11-14 Sat>\r\n:PROPERTIES:\r\n:ID: keep-main\r\n:END:\r\nMain body\r\n** Existing\r\noriginal child\r\n* Last\r\n- [ ] tent\r\n#+begin_src org\r\n,* literal heading\r\n#+end_src\r\n* Unrelated  \r\nDo not touch\r\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let request = merge_request(&f, &[2, 4, 0]).await;
-    let snapshot = f.workspace.clone();
+    let snapshot = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
     let plan = f.workspace.task_merge_operations(&request).await.unwrap();
-    assert_eq!(f.workspace, snapshot);
+    assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
     assert_eq!(
         fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),
         source
@@ -299,9 +299,9 @@ async fn merging_plans_only_deletions_and_modifications_in_selection_order() {
         f.workspace.repos()[0].pending_writes().await.unwrap().len(),
         0
     );
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
     assert_eq!(
-        f.workspace.task_operation_history.entries[0]
+        f.workspace.task_operation_history().entries[0]
             .fallback_group
             .files[0]
             .before
@@ -331,12 +331,12 @@ async fn merging_rejects_overlapping_selection_identity_targets_and_conflicts_wi
     ] {
         let f = Fixture::new(source).await;
         let request = merge_request(&f, &selected).await;
-        let snapshot = f.workspace.clone();
+        let snapshot = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
         assert!(
             f.workspace.task_merge_operations(&request).await.is_err(),
             "{source}"
         );
-        assert_eq!(f.workspace, snapshot);
+        assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
         assert_eq!(
             fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),
             source
@@ -353,7 +353,7 @@ async fn merging_rejects_overlapping_selection_identity_targets_and_conflicts_wi
 
 #[tokio::test]
 async fn merging_keeps_first_selected_duplicate_and_converts_children_to_nested_lists() {
-    let mut f=Fixture::new("* Same\nfirst\n* Same\nsecond\n* Parent\n** Source\nbody\n**** TODO Nested\n#+begin_src org\n,**** literal\n#+end_src\n").await;
+    let f=Fixture::new("* Same\nfirst\n* Same\nsecond\n* Parent\n** Source\nbody\n**** TODO Nested\n#+begin_src org\n,**** literal\n#+end_src\n").await;
     let request = merge_request(&f, &[1, 3, 0]).await;
     let plan = f.workspace.task_merge_operations(&request).await.unwrap();
     f.workspace
@@ -377,7 +377,7 @@ async fn merging_keeps_first_selected_duplicate_and_converts_children_to_nested_
 #[tokio::test]
 async fn merging_group_version_prevents_partial_deletion_and_archives_cannot_end_early() {
     let source = "* Main\n* Source\n:LOGBOOK:\n#+end_comment\nlog\n:END:\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let request = merge_request(&f, &[0, 1]).await;
     let plan = f.workspace.task_merge_operations(&request).await.unwrap();
     let newer = source.replace("* Main", "* Main changed");
@@ -393,7 +393,7 @@ async fn merging_group_version_prevents_partial_deletion_and_archives_cannot_end
         fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),
         newer
     );
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     fs::write(f.root.join("tasks.org"), source).await.unwrap();
     f.workspace
         .execute_task_operations(&plan.operation_group)
@@ -409,7 +409,7 @@ async fn merging_group_version_prevents_partial_deletion_and_archives_cannot_end
 
 #[tokio::test]
 async fn repeated_merging_keeps_archives_out_of_notes_and_notes_edits_preserve_metadata() {
-    let mut f = Fixture::new(
+    let f = Fixture::new(
         "* Main\nnotes\n* Source\n:PROPERTIES:\n:CREATED: [2026-11-10 Tue]\n:END:\nextra\n",
     )
     .await;
@@ -425,7 +425,7 @@ async fn repeated_merging_keeps_archives_out_of_notes_and_notes_edits_preserve_m
     let mut content = fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
     content.push_str("* Third\nmore\n");
     fs::write(f.root.join("tasks.org"), &content).await.unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -470,7 +470,7 @@ async fn repeated_merging_keeps_archives_out_of_notes_and_notes_edits_preserve_m
 
 #[tokio::test]
 async fn task_operations_notify_only_after_changed_files_are_committed() {
-    let mut f = Fixture::new("* TODO Original\n").await;
+    let f = Fixture::new("* TODO Original\n").await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events = observed.clone();
     let file = f.root.join("tasks.org");
@@ -508,7 +508,7 @@ async fn task_operations_notify_only_after_changed_files_are_committed() {
 #[tokio::test]
 async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
     let source = "* TODO Task [0/2]\r\n- [ ] First\r\n- [ ] Second\r\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events = observed.clone();
     let disk = f.root.join("tasks.org");
@@ -579,7 +579,7 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
             f.workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes()
         );
     }
-    let before = f.workspace.clone();
+    let before = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
     let file = &f.workspace.repos()[0].load_files(&[]).await.unwrap()[0];
     let path = file.node_paths()[0].clone();
     let id = file.task_edit_content(&path).unwrap().checklist[0]
@@ -596,7 +596,7 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
         ..Default::default()
     };
     assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
-    assert_eq!(f.workspace, before);
+    assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), before);
     assert_eq!(
         std::fs::read(f.root.join("tasks.org")).unwrap(),
         source.as_bytes()
@@ -610,7 +610,7 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
         serde_json::from_str(include_str!("data/title_statistics_emacs.json")).unwrap();
     for case in reference["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
-        let mut f = Fixture::new(case["source"].as_str().unwrap()).await;
+        let f = Fixture::new(case["source"].as_str().unwrap()).await;
         let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let events = observed.clone();
         let disk = f.root.join("tasks.org");
@@ -682,10 +682,8 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
                 assert!(matches!(&events.last().unwrap().0,
                     DataChangeEvent::RepositoryChanged { operation_id: None, repo_id: id, .. } if id == &repo_id), "{name}");
                 assert_eq!(events.last().unwrap().1, expected, "{name}");
-                let history = &f
-                    .workspace
-                    .task_operation_history
-                    .entries
+                let operation_history = f.workspace.task_operation_history();
+                let history = &operation_history.entries
                     .last()
                     .unwrap()
                     .fallback_group
@@ -701,7 +699,7 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
 #[tokio::test]
 async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event() {
     let source = "#+PRIORITIES: A C B\r\n#+STARTUP: logdone\r\n* TODO Root [/] [%]\r\n:PROPERTIES:\r\n:COOKIE_DATA: todo recursive\r\n:END:\r\n** TODO Parent [/]\r\n*** TODO Child\r\nOld notes  \r\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events = observed.clone();
     let _subscription = f
@@ -738,7 +736,7 @@ async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event(
         expected.as_bytes()
     );
     assert_eq!(observed.lock().unwrap().len(), 1);
-    let snapshot = f.workspace.clone();
+    let snapshot = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
     let child = f.workspace.repos()[0].load_files(&[]).await.unwrap()[0].node_paths()[2].clone();
     let mut invalid = TaskOperationGroup {
         operations: vec![
@@ -756,7 +754,7 @@ async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event(
         ..Default::default()
     };
     assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
-    assert_eq!(f.workspace, snapshot);
+    assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
     invalid.operations.pop();
     invalid.file_versions.push(TaskFileVersion {
         repo_id: f.workspace.repos()[0].id.clone(),
@@ -764,7 +762,7 @@ async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event(
         version: LocalFileVersion::from_bytes(source.as_bytes()).content_hash,
     });
     assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
-    assert_eq!(f.workspace, snapshot);
+    assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
     assert_eq!(
         std::fs::read(f.root.join("tasks.org")).unwrap(),
         expected.as_bytes()
@@ -775,13 +773,13 @@ async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event(
 #[tokio::test]
 async fn title_statistics_never_allow_field_injection_or_publish_failed_edits() {
     let source = "* Note\n- [X] First\n- [ ] Second\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events = observed.clone();
     let _subscription = f
         .workspace
         .watch_data_changes(move |event| events.lock().unwrap().push(event));
-    let snapshot = f.workspace.clone();
+    let snapshot = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
     for title in [
         "TODO Other [/]",
         "[#A] Other [/]",
@@ -795,7 +793,7 @@ async fn title_statistics_never_allow_field_injection_or_publish_failed_edits() 
                 .is_err(),
             "{title}"
         );
-        assert_eq!(f.workspace, snapshot);
+        assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
         assert_eq!(
             std::fs::read(f.root.join("tasks.org")).unwrap(),
             source.as_bytes()
@@ -807,13 +805,13 @@ async fn title_statistics_never_allow_field_injection_or_publish_failed_edits() 
 #[tokio::test]
 async fn successful_groups_accumulate_history_and_failed_group_does_not_publish() {
     let source = "* TODO Original\r\nBody  \r\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     f.workspace
         .execute_task_operations(&f.group("One").await)
         .await
         .unwrap();
     assert_eq!(
-        f.workspace.task_operation_history.entries[0]
+        f.workspace.task_operation_history().entries[0]
             .fallback_group
             .files[0]
             .before
@@ -824,7 +822,7 @@ async fn successful_groups_accumulate_history_and_failed_group_does_not_publish(
         .execute_task_operations(&f.group("Two").await)
         .await
         .unwrap();
-    let snapshot = f.workspace.clone();
+    let snapshot = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
     let mut invalid = f.group("Three").await;
     invalid
         .operations
@@ -835,8 +833,8 @@ async fn successful_groups_accumulate_history_and_failed_group_does_not_publish(
             },
         }));
     assert!(f.workspace.execute_task_operations(&invalid).await.is_err());
-    assert_eq!(f.workspace, snapshot);
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 2);
+    assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 2);
     assert_eq!(
         fs::read(f.root.join("tasks.org")).await.unwrap(),
         b"* TODO Two\r\nBody  \r\n"
@@ -849,7 +847,7 @@ async fn successful_groups_accumulate_history_and_failed_group_does_not_publish(
 
 #[tokio::test]
 async fn file_version_and_history_serialization_preserve_the_public_contract() {
-    let mut f = Fixture::new("* Original\n").await;
+    let f = Fixture::new("* Original\n").await;
     let mut group = f.group("Changed").await;
     group.file_versions.push(TaskFileVersion {
         repo_id: f.workspace.repos()[0].id.clone(),
@@ -859,7 +857,7 @@ async fn file_version_and_history_serialization_preserve_the_public_contract() {
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
     group.file_versions[0].version = LocalFileVersion::from_bytes(b"* Original\n").content_hash;
     f.workspace.execute_task_operations(&group).await.unwrap();
-    let history = &f.workspace.task_operation_history;
+    let history = &f.workspace.task_operation_history();
     let decoded: TaskOperationHistory =
         serde_json::from_str(&serde_json::to_string(history).unwrap()).unwrap();
     assert_eq!(*history, decoded);
@@ -867,23 +865,23 @@ async fn file_version_and_history_serialization_preserve_the_public_contract() {
 
 #[tokio::test]
 async fn ordinary_modification_does_not_read_or_write_outbox() {
-    let mut f = Fixture::new("* Original\n").await;
+    let f = Fixture::new("* Original\n").await;
     fs::write(f.root.join(".sync/outbox"), b"blocked").await.unwrap();
     f.workspace.execute_task_operations(&f.group("Changed").await).await.unwrap();
     assert_eq!(fs::read(f.root.join("tasks.org")).await.unwrap(), b"* Changed\n");
     assert_eq!(fs::read(f.root.join(".sync/outbox")).await.unwrap(), b"blocked");
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
     assert_eq!(std::fs::read_dir(&f.root).unwrap().count(), 2);
 }
 
 #[tokio::test]
 async fn creation_always_generates_created_and_survives_reload() {
-    let mut f = Fixture::new("* Existing\n").await;
+    let f = Fixture::new("* Existing\n").await;
     let id = f.workspace.repos()[0].id.clone();
     let group:TaskOperationGroup=serde_json::from_value(serde_json::json!({"operations":[{"type":"Creation","data":{
         "position":{"parent":{"repoId":id,"file":"tasks.org"}},"title":"Captured","state":"TODO"}}]})).unwrap();
     f.workspace.execute_task_operations(&group).await.unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -1077,7 +1075,7 @@ async fn closed_cleanup_and_failed_completion_share_the_operation_transaction() 
         fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),
         source
     );
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     set_state(&mut f, Some("TODO")).await;
     let cleared = fs::read_to_string(f.root.join("tasks.org")).await.unwrap();
     assert!(!cleared.contains("CLOSED:"));
@@ -1121,7 +1119,7 @@ fn timestamps_cannot_be_set_or_disabled_by_operation_inputs() {
 #[cfg(unix)]
 #[tokio::test]
 async fn symlinks_and_missing_parent_directories_never_escape_or_create_directories() {
-    let mut f = Fixture::new("* Original\n").await;
+    let f = Fixture::new("* Original\n").await;
     std::os::unix::fs::symlink(f.root.join("tasks.org"), f.root.join("linked.org")).unwrap();
     for file in ["linked.org", "missing/tasks.org"] {
         let mut group = f.group("Changed").await;
@@ -1182,14 +1180,14 @@ async fn someday_group_cleans_only_root_planning_and_preserves_properties_childr
         let original = format!(
             "* {state}[#A] Item :work:\nSCHEDULED: <2026-11-08 Sun +1w> DEADLINE: <2026-11-09 Mon> CLOSED: [2026-11-07 Sat]\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\nBody  \n** Child\nSCHEDULED: <2026-11-10 Tue>\n"
         );
-        let mut f = Fixture::new(&original).await;
+        let f = Fixture::new(&original).await;
         fs::write(
             f.root.join("someday.org"),
             "* Later :REFILE:\nParent body\n** Existing\n* Other :REFILE:\n",
         )
         .await
         .unwrap();
-        f.workspace.repos[0]
+        f.workspace.repos()[0]
             .load::<WebDavSyncPolicy>()
             .await
             .unwrap();
@@ -1212,16 +1210,16 @@ async fn someday_group_cleans_only_root_planning_and_preserves_properties_childr
 async fn someday_group_rejects_target_todo_mismatch_without_publishing_modifications() {
     let original = "* DONE Item\nSCHEDULED: <2026-11-08 Sun +1w>\n";
     let target = "#+TODO: NEXT | FINISHED\n* Later :REFILE:\n";
-    let mut f = Fixture::new(original).await;
+    let f = Fixture::new(original).await;
     fs::write(f.root.join("someday.org"), target).await.unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
-    let snapshot = f.workspace.clone();
+    let snapshot = (f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history());
     let group = someday_group(&f.workspace).await;
     assert!(f.workspace.execute_task_operations(&group).await.is_err());
-    assert_eq!(f.workspace, snapshot);
+    assert_eq!((f.workspace.repos(), f.workspace.todo_defaults(), f.workspace.task_operation_history()), snapshot);
     assert_eq!(
         fs::read_to_string(f.root.join("tasks.org")).await.unwrap(),
         original
@@ -1245,7 +1243,7 @@ async fn someday_group_rejects_target_todo_mismatch_without_publishing_modificat
 async fn move_to_project_root_preserves_preamble_and_precedes_the_first_heading() {
     for tail in ["* 原有章节\r\n原有正文  \r\n", ""] {
         let source = "* TODO 移动记录\r\n正文  \r\n** TODO 子任务\r\n";
-        let mut fixture = Fixture::new(source).await;
+        let fixture = Fixture::new(source).await;
         let preamble = "#+FILETAGS: :project:\r\n#+TITLE: 项目\r\n\r\n头部正文  \r\n\r\n";
         fs::write(fixture.root.join("project.org"), format!("{preamble}{tail}")).await.unwrap();
         let targets = fixture.workspace.query_refile_targets(&RefileTargetQuery {

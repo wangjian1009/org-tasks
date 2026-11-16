@@ -33,7 +33,7 @@ impl Fixture {
         repo.load::<WebDavSyncPolicy>().await.unwrap();
         let workspace = OrgWorkspace::start(vec![repo]).await
             .unwrap()
-            .with_preview_root(base.join("previews"))
+            .with_preview_root(base.join("previews")).await
             .unwrap();
         Self {
             root: base,
@@ -124,7 +124,7 @@ async fn read_only_projection_matches_adoption_without_consuming_or_recording_th
         })
     ));
     assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     assert!(
         f.workspace.repos()[0]
             .pending_writes()
@@ -298,7 +298,7 @@ async fn copy_uses_reserved_repo_and_uuid_and_never_enters_queries_or_events() {
             .unwrap()
             .is_empty()
     );
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     assert!(
         p.changes()
             .await
@@ -320,7 +320,7 @@ async fn finish_returns_source_operations_without_writing_and_host_uses_unified_
     };
     let group = p.finish(opts.clone()).await.unwrap();
     assert_eq!(std::fs::read(f.root.join("repo/a.org")).unwrap(), f.source);
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     assert!(
         f.workspace.repos()[0]
             .pending_writes()
@@ -353,7 +353,7 @@ async fn finish_returns_source_operations_without_writing_and_host_uses_unified_
         f.workspace.repos()[0].pending_writes().await.unwrap().len(),
         0
     );
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
 }
 #[tokio::test]
 async fn finishing_preserves_source_version_and_later_submission_rejects_external_changes() {
@@ -457,7 +457,7 @@ async fn preview_root_inside_repository_is_rejected() {
     assert!(
         f.workspace
             .clone()
-            .with_preview_root(f.root.join("repo/previews"))
+            .with_preview_root(f.root.join("repo/previews")).await
             .is_err()
     );
 }
@@ -474,7 +474,7 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
     )
     .unwrap();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -533,7 +533,7 @@ async fn missing_stable_id_requires_explicit_target_and_finish_remaps_it() {
     let mut f = Fixture::new().await;
     f.source = merge(b"* Work\nbase\n", b"* Work\nlocal\n", b"* Work\nremote\n").unwrap();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -595,7 +595,7 @@ async fn task_without_stable_id_finds_unique_task_with_same_title() {
     )
     .unwrap();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -682,7 +682,7 @@ async fn discard_preserves_crlf_bom_and_missing_final_newline_and_anchors_are_by
     let local = "\u{feff}#+TITLE: 中文\r\n* 任务\r\n本地";
     f.source = merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -714,9 +714,9 @@ async fn discard_preserves_crlf_bom_and_missing_final_newline_and_anchors_are_by
 async fn another_workspace_does_not_clean_a_live_preview_lease() {
     let mut f = Fixture::new().await;
     let p = f.preview().await;
-    let mut independent = OrgWorkspace::start(vec![f.workspace.repos()[0].clone()]).await
+    let independent = OrgWorkspace::start(vec![f.workspace.repos()[0].clone()]).await
         .unwrap()
-        .with_preview_root(f.root.join("previews"))
+        .with_preview_root(f.root.join("previews")).await
         .unwrap();
     let file = independent.repos()[0].file("a.org").await.unwrap();
     let second = independent
@@ -745,7 +745,7 @@ async fn every_conflict_choice_in_one_preview_is_returned_in_order() {
     )
     .unwrap();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -981,7 +981,7 @@ async fn empty_main_remains_empty_until_a_separate_candidate_is_inserted() {
     // 空远端与本地新增通常可直接合并，使用现有容器格式构造离线候选。
     f.source = "\n* 同步冲突 :CONFLICT:ARCHIVE:\n** Local\n:PROPERTIES:\n:CONFILICT_ID: local\n:END:\n#+CONFLICT_REASON: create\n*** TODO Local\nbody\n".as_bytes().to_vec();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -1040,7 +1040,7 @@ async fn legacy_conflict_footer_is_separated_and_archive_never_leaks_to_adopted_
         .replace(":CONFLICT:ARCHIVE:", ":CONFLICT:")
         .into_bytes();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();
@@ -1069,7 +1069,7 @@ async fn full_file_candidate_replaces_only_the_separated_main_document() {
     let mut f = Fixture::new().await;
     f.source = "#+TITLE: Remote\n* Remote\nremote body\n\n* 同步冲突 :CONFLICT:ARCHIVE:\n** 文件结构\n:PROPERTIES:\n:CONFILICT_ID: whole\n:END:\n#+CONFLICT_REASON: structure\n#+begin_example\n,#+TITLE: Local\n,* TODO Local\nlocal body\n#+end_example\n".as_bytes().to_vec();
     std::fs::write(f.root.join("repo/a.org"), &f.source).unwrap();
-    f.workspace.repos[0]
+    f.workspace.repos()[0]
         .load::<WebDavSyncPolicy>()
         .await
         .unwrap();

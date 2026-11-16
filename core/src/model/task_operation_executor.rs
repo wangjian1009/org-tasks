@@ -1,3 +1,5 @@
+use crate::workspace::WorkspaceState;
+#[cfg(test)]
 use crate::OrgWorkspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -48,7 +50,7 @@ async fn file_stamp(path: &Path) -> Result<Option<FileStamp>, CoreError> {
     }))
 }
 
-impl OrgWorkspace {
+impl WorkspaceState {
     /// 按当前原文与版本规划普通操作，不写盘或发布历史。
     pub async fn task_merge_operations(&self, request: &TaskMergeRequest) -> Result<TaskMergePlan, CoreError> {
         let _activity = self.tasks.enter()?;
@@ -133,7 +135,8 @@ impl OrgWorkspace {
         for (root, id) in &roots {
             super::access::recover(Path::new(root), id).await?;
         }
-        let mut files = load_files(self, source_group).await?;
+        let (mut files, dependencies) = load_files_with_dependencies(self, source_group).await?;
+        drop(guards);
         for operation in &mut resolved_group.operations {
             if let TaskOperation::ConfilictSelection(selection) = operation {
                 selection.path = Some(selection_path(&files, selection)?);
@@ -164,6 +167,23 @@ impl OrgWorkspace {
                 .collect(),
         };
         journal.validate(files.values().map(|item| &item.file))?;
+        // 解析和编辑不占仓库锁；重新进入提交阶段时校验全部读取依赖。
+        let mut guards = Vec::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        for root in roots.keys() {
+            guards.push(crate::webdav::transaction::lock_before(Path::new(root), deadline).await?);
+        }
+        for (root, id) in &roots { super::access::recover(Path::new(root), id).await?; }
+        for item in files.values() {
+            if file_stamp(&item.disk).await? != item.stamp {
+                return Err(CoreError::InvalidState("修改准备期间任务文件已变化，请刷新后重试"));
+            }
+        }
+        for (root, path, original) in dependencies {
+            if crate::webdav::transaction::read(&root, &path).await? != original {
+                return Err(CoreError::InvalidState("修改准备期间文件配置已变化，请刷新后重试"));
+            }
+        }
         commit(&mut files).await?;
         let changed_keys = fallback.files.iter().map(|file| (file.repo_id.clone(), file.file.clone())).collect::<BTreeSet<_>>();
         let changes = journal.finish(files.iter().map(|((repo_id, _), item)|
@@ -247,9 +267,19 @@ fn key(path: &TaskPath) -> Result<FileKey, CoreError> {
 }
 
 async fn load_files(
-    workspace: &OrgWorkspace,
+    workspace: &WorkspaceState,
     group: &TaskOperationGroup,
 ) -> Result<BTreeMap<FileKey, WorkingFile>, CoreError> {
+    Ok(load_files_with_dependencies(workspace, group).await?.0)
+}
+
+type ReadDependencies = Vec<(PathBuf, String, Option<Vec<u8>>)>;
+
+async fn load_files_with_dependencies(
+    workspace: &WorkspaceState,
+    group: &TaskOperationGroup,
+) -> Result<(BTreeMap<FileKey, WorkingFile>, ReadDependencies), CoreError> {
+    let mut dependencies = Vec::new();
     let mut keys = BTreeSet::new();
     for operation in &group.operations {
         let (source, position) = match operation {
@@ -326,10 +356,16 @@ async fn load_files(
     for (repo_id, _) in loaded.keys() {
         if !scan_rules.contains_key(repo_id) {
             let repo = workspace.repo(repo_id).expect("已验证仓库");
-            scan_rules.insert(
-                repo_id.clone(),
-                TaskScanRules::load(Path::new(&repo.root_directory)).await?,
-            );
+            let root = PathBuf::from(&repo.root_directory);
+            let path = super::task_scan::TASK_SCAN_RULES_PATH;
+            file_stamp(&root.join(path)).await?;
+            let original = read_optional(&root.join(path)).await?;
+            let rules = match &original {
+                Some(bytes) => TaskScanRules::parse(std::str::from_utf8(bytes).map_err(|_| CoreError::Store(".orgzlyignore 必须是 UTF-8".into()))?)?,
+                None => TaskScanRules::default(),
+            };
+            dependencies.push((root, path.into(), original));
+            scan_rules.insert(repo_id.clone(), rules);
         }
     }
     let mut files = BTreeMap::new();
@@ -356,7 +392,15 @@ async fn load_files(
             return Err(CoreError::InvalidState("任务文件版本已变化，请刷新后重试"));
         }
     }
-    Ok(files)
+    for (repo_id, cache) in setup_caches {
+        let root = PathBuf::from(&workspace.repo(&repo_id).expect("已验证仓库").root_directory);
+        for (path, original) in cache {
+            if !files.contains_key(&(repo_id.clone(), path.clone())) {
+                dependencies.push((root.clone(), path, original));
+            }
+        }
+    }
+    Ok((files, dependencies))
 }
 
 pub(super) async fn checked_disk(root: &Path, path: &str) -> Result<PathBuf, CoreError> {
@@ -1712,7 +1756,7 @@ mod tests {
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
         let id = repo.id.clone();
-        let mut workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let group = serde_json::json!({"operations":[
             {"type":"Modification","data":{"path":{"repoId":id,"file":"a.org","titles":["Source"]},"modifications":[{"field":"TODO","value":"DONE"}]}},
             {"type":"Movement","data":{"path":{"repoId":id,"file":"a.org","titles":["Source"]},"position":{"parent":{"repoId":id,"file":"b.org","titles":["Target"]}}}},
@@ -1739,7 +1783,7 @@ mod tests {
         let group: TaskOperationGroup = serde_json::from_value(serde_json::json!({"operations":[
             {"type":"Modification","data":{"path":{"repoId":repo.id,"file":"a.org","titles":["Original"]},"modifications":[{"field":"TITLE","value":"Changed"}]}}
         ]})).unwrap();
-        let mut files = load_files(&workspace, &group).await.unwrap();
+        let mut files = load_files(&workspace.state_for_test().await.unwrap(), &group).await.unwrap();
         execute(&mut files, &group.operations[0]).unwrap();
         let external = root.join("external");
         fs::write(&external, b"* TODO External\n").await.unwrap();
@@ -1790,7 +1834,7 @@ mod tests {
                 ],
                 ..Default::default()
             };
-            let mut files = load_files(&workspace, &group).await.unwrap();
+            let mut files = load_files(&workspace.state_for_test().await.unwrap(), &group).await.unwrap();
             for operation in &group.operations {
                 execute(&mut files, operation).unwrap();
             }

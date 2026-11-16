@@ -70,7 +70,7 @@ impl Drop for Fixture {
 
 #[tokio::test]
 async fn same_file_move_keeps_explicit_mapping_for_duplicate_paths_subtree_and_siblings() {
-    let mut f = Fixture::new(
+    let f = Fixture::new(
         "* TODO Group :old:\n** TODO Item\n*** TODO Child\n** TODO Item\n* TODO Target :new:\n",
     )
     .await;
@@ -153,7 +153,7 @@ async fn reordering_with_unchanged_path_and_id_is_still_an_explicit_move() {
             Some("C"),
         ),
     ] {
-        let mut f = Fixture::new("* TODO A\n* TODO B\n* TODO C\n").await;
+        let f = Fixture::new("* TODO A\n* TODO B\n* TODO C\n").await;
         let after = after
             .map(|title| serde_json::json!({"repoId":"$repo","file":"a.org","titles":[title]}));
         let group = f.group(serde_json::json!([{"type":"Movement","data":{
@@ -203,7 +203,7 @@ async fn cross_repository_move_routes_the_same_mapping_to_both_repositories_afte
     let target_id = target.workspace.repos()[0].id.clone();
     source
         .workspace
-        .add_repo(target.workspace.repos()[0].clone())
+        .add_repo(target.workspace.repos()[0].clone()).await
         .unwrap();
     // 订阅范围在创建时固定，新增仓库后重新建立本次监控。
     let observed = source.events.clone();
@@ -252,7 +252,7 @@ async fn cross_repository_move_routes_the_same_mapping_to_both_repositories_afte
 
 #[tokio::test]
 async fn repeated_moves_and_renames_in_one_group_keep_original_identity_and_final_position() {
-    let mut f = Fixture::new("* TODO A\n* TODO B\n* TODO C\n").await;
+    let f = Fixture::new("* TODO A\n* TODO B\n* TODO C\n").await;
     let group = f.group(serde_json::json!([
         {"type":"Movement","data":{"path":{"repoId":"$repo","file":"a.org","titles":["A"]},"position":{"parent":{"repoId":"$repo","file":"a.org","titles":["B"]}}}},
         {"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["B","A"]},"modifications":[{"field":"TITLE","value":"Renamed"}]}},
@@ -298,7 +298,7 @@ async fn repeated_moves_and_renames_in_one_group_keep_original_identity_and_fina
 async fn trigger_cascade_properties_and_ancestor_statistics_publish_final_data_with_same_operation_id()
  {
     let source = "* TODO Parent [0/3]\n** TODO Source\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n** TODO Middle\n:PROPERTIES:\n:TRIGGER: next-sibling set-property!(\"STYLE\" \"habit\") todo!(DONE)\n:END:\n** TODO Last\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let group = f.group(serde_json::json!([{"type":"Modification","data":{
         "path":{"repoId":"$repo","file":"a.org","titles":["Parent","Source"]},
         "modifications":[{"field":"TODO","value":"DONE"}]
@@ -364,7 +364,7 @@ async fn trigger_cascade_properties_and_ancestor_statistics_publish_final_data_w
 async fn failed_operation_after_trigger_discards_all_data_events_and_noop_is_silent() {
     let source =
         "* TODO Source\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n";
-    let mut f = Fixture::new(source).await;
+    let f = Fixture::new(source).await;
     let failed = f.group(serde_json::json!([
         {"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["Source"]},"modifications":[{"field":"TODO","value":"DONE"}]}},
         {"type":"Deletion","data":{"path":{"repoId":"$repo","file":"a.org","titles":["Missing"]}}}
@@ -375,7 +375,7 @@ async fn failed_operation_after_trigger_discards_all_data_events_and_noop_is_sil
         source
     );
     assert!(f.events.lock().unwrap().is_empty());
-    assert!(f.workspace.task_operation_history.entries.is_empty());
+    assert!(f.workspace.task_operation_history().entries.is_empty());
     let noop = f.group(serde_json::json!([{"type":"Modification","data":{
         "path":{"repoId":"$repo","file":"a.org","titles":["Source"]},
         "modifications":[{"field":"TITLE","value":"Source"}]
@@ -386,7 +386,7 @@ async fn failed_operation_after_trigger_discards_all_data_events_and_noop_is_sil
 
 #[tokio::test]
 async fn create_move_delete_coalesces_by_execution_identity_without_ghost_nodes() {
-    let mut f = Fixture::new("* TODO Existing\n").await;
+    let f = Fixture::new("* TODO Existing\n").await;
     tokio::fs::write(f.root.join("b.org"), "* TODO Target\n")
         .await
         .unwrap();

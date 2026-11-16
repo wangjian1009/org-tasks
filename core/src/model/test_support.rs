@@ -7,7 +7,7 @@ pub(crate) async fn append_fixture(
     path: &str,
     title: &str,
 ) -> Result<(), CoreError> {
-    let mut workspace = OrgWorkspace::start(vec![repo.clone()]).await?;
+    let workspace = OrgWorkspace::start(vec![repo.clone()]).await?;
     let parent = TaskPath::file(repo.id.clone(), path.into());
     let after = repo
         .load_files(&[]).await?
@@ -27,7 +27,8 @@ pub(crate) async fn append_fixture(
         ..Default::default()
     };
     workspace.execute_task_operations(&group).await?;
-    let changed = &workspace.task_operation_history.entries.last().unwrap().fallback_group.files[0];
+    let history = workspace.task_operation_history();
+    let changed = &history.entries.last().unwrap().fallback_group.files[0];
     let directory = std::path::Path::new(&repo.root_directory).join(".sync/outbox");
     tokio::fs::create_dir_all(&directory).await.map_err(|error| CoreError::Store(error.to_string()))?;
     let intent = OrgRepoWriteIntent {
@@ -36,7 +37,7 @@ pub(crate) async fn append_fixture(
     };
     super::write_intent::write_new(&directory.join(format!("{}.json", super::service::generate_repo_id()?)),
         &serde_json::to_vec(&intent).unwrap()).await?;
-    *repo = workspace.repos.remove(0);
+    *repo = workspace.repos().remove(0);
     Ok(())
 }
 

@@ -184,7 +184,7 @@ pub async fn run() -> Result<(), String> {
 }
 
 async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
-    let mut workspace = OrgWorkspace::start(vec![repo]).await.map_err(|error| error.to_string())?;
+    let workspace = OrgWorkspace::start(vec![repo]).await.map_err(|error| error.to_string())?;
     let result = async { match command.target {
         TaskTarget::All => print_tasks(
             workspace
@@ -219,7 +219,7 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
                 repo.load::<WebDavSyncPolicy>()
                     .await
                     .map_err(|e| e.to_string())?;
-                workspace.add_repo(repo).map_err(|e| e.to_string())?;
+                workspace.add_repo(repo).await.map_err(|e| e.to_string())?;
             }
             let bytes = tokio::fs::read(args.operations)
                 .await
@@ -231,7 +231,7 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
                 .await
                 .map_err(|e| e.to_string())?;
             print_json(&serde_json::json!({
-                "history": workspace.task_operation_history, "nodes": task_nodes(&workspace).await?}))
+                "history": workspace.task_operation_history(), "nodes": task_nodes(&workspace).await?}))
         }
     }}.await;
     let stopped = workspace.stop().await.map_err(|error| error.to_string());

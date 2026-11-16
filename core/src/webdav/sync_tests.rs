@@ -330,7 +330,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
     let path = file.node_paths()[0].clone();
     let item = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
     let repo_id = repo.id.clone();
-    let mut workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
+    let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
     workspace.execute_task_operations(&crate::TaskOperationGroup {
         operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
@@ -345,7 +345,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
         }],
     }).await.unwrap();
     assert_eq!(workspace.query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap(), vec![crate::CoreNotification::SyncRequired]);
-    repo = workspace.repos.remove(0);
+    repo = workspace.repos().remove(0);
     let remote = String::from_utf8(base.to_vec()).unwrap().replace("Project [/]", "Project [1/2]").replace("Child [%]", "Child [50%]").replace("Notes", "Remote notes");
     state.lock().unwrap().files.insert("a.org".into(), Remote { data: remote.into_bytes(), etag: "\"remote\"".into() });
     let expected = String::from_utf8(base.to_vec()).unwrap()
@@ -448,7 +448,7 @@ async fn checklist_sort_only_sync_uploads_without_conflict() {
     let path = file.node_paths()[0].clone();
     let item = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
     let repo_id = repo.id.clone();
-    let mut workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
+    let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
     workspace.execute_task_operations(&crate::TaskOperationGroup {
         operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
@@ -457,7 +457,7 @@ async fn checklist_sort_only_sync_uploads_without_conflict() {
         })],
         file_versions: vec![crate::TaskFileVersion { repo_id, file: "a.org".into(), version: LocalFileVersion::from_bytes(base).content_hash }],
     }).await.unwrap();
-    repo = workspace.repos.remove(0);
+    repo = workspace.repos().remove(0);
     let result = sync(&mut repo, &policy, 2).await;
     assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
     assert!(result.files.iter().all(|file| file.state != OrgRepoSyncFileState::Conflict));
@@ -495,7 +495,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
             creation.body = "新增备注\n".into();
             operations.push(TaskOperation::Creation(creation));
         }
-        let mut workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
+        let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
         workspace.execute_task_operations(&TaskOperationGroup {
             operation_id: None,
             operations,
@@ -504,7 +504,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
         let expected = tokio::fs::read(root.join("a.org")).await.unwrap();
         if move_checklist { assert!(String::from_utf8_lossy(&expected).contains("- [ ] 调整顺序\n- [X] 展示清单\n")); }
         if insert_node { assert!(String::from_utf8_lossy(&expected).contains("* TODO 新增任务\n")); }
-        repo = workspace.repos.remove(0);
+        repo = workspace.repos().remove(0);
         for time in [2, 3] {
             let record = sync(&mut repo, &policy, time).await;
             assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
@@ -1992,7 +1992,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
         file_versions:vec![crate::TaskFileVersion{repo_id:repo.id.clone(),file:"a.org".into(),version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash}],
     };
     let count=state.lock().unwrap().requests.len();
-    let mut workspace=crate::OrgWorkspace::start(vec![repo]).await.unwrap();
+    let workspace=crate::OrgWorkspace::start(vec![repo]).await.unwrap();
     workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(state.lock().unwrap().requests.len(),count);
     assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(),remote.as_bytes());
@@ -2000,7 +2000,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     assert_eq!(tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap(),original_base);
     let notices=workspace.query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap();
     assert_eq!(notices,vec![crate::CoreNotification::SyncRequired]);
-    repo=workspace.repos.remove(0);
+    repo=workspace.repos().remove(0);
     let detail=repo.history_detail(&conflict.id).await.unwrap();
     assert_eq!(detail.files[0].outcome,WebDavSyncFileOutcome::Conflict);
     assert!(detail.files[0].backup.is_none());
@@ -2078,7 +2078,7 @@ async fn downloads_release_repository_lock_and_merge_reads_edits_made_during_net
     assert!(root.join("sync").exists());
     let file = reader.file("a.org").await.unwrap();
     let task = crate::filter::tasks_from_repo(&reader).await.unwrap().remove(0);
-    let mut workspace = crate::OrgWorkspace::start(vec![reader]).await.unwrap();
+    let workspace = crate::OrgWorkspace::start(vec![reader]).await.unwrap();
     let group = crate::TaskOperationGroup {
         operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {

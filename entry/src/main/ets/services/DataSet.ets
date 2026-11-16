@@ -43,34 +43,33 @@ export interface DataSetEvent {
 }
 interface PendingEdit {
   id: string; version: number; name: string; kind: 'update' | 'remove' | 'create' | 'move'; key: string
-  changes: TaskModification[]; creation?: TaskCreation; draft?: CoreTask
+  files: string[]; changes: TaskModification[]; creation?: TaskCreation; draft?: CoreTask
   target?: CoreRefileTarget; sourceVersion: string; observed: Set<string>; identityFrames: Set<string>; missingFrames: Set<string>
 }
 
-// 共用用户操作队列，事件、缓存恢复与刷新均不能在此队列中生成修改操作。
+// 按文件衔接用户编辑意图；真实查询、修改与同步的执行顺序由 Core 调度。
 export class UserOperationQueue {
-  private static tail: Promise<void> = Promise.resolve()
-  private static outstanding: number = 0
+  private static tails: Map<string, Promise<void>> = new Map()
+  private static pending: Set<Promise<void>> = new Set()
   private static listeners: Set<() => void> = new Set()
-  static isIdle(): boolean { return UserOperationQueue.outstanding === 0 }
+  static isIdle(): boolean { return UserOperationQueue.pending.size === 0 }
   static watchIdle(listener: () => void): () => void {
     UserOperationQueue.listeners.add(listener)
     return (): void => { UserOperationQueue.listeners.delete(listener) }
   }
   static async whenIdle(): Promise<void> {
-    while (true) {
-      const tail = UserOperationQueue.tail
-      await tail
-      if (tail === UserOperationQueue.tail && UserOperationQueue.isIdle()) return
-    }
+    while (!UserOperationQueue.isIdle()) await Promise.all(Array.from(UserOperationQueue.pending))
   }
-  static submit(work: () => Promise<void>): Promise<void> {
-    UserOperationQueue.outstanding++
-    const result = UserOperationQueue.tail.then(work)
+  static submit(work: () => Promise<void>, files: string[] = []): Promise<void> {
+    const keys = Array.from(new Set(files))
+    const before = keys.map(key => UserOperationQueue.tails.get(key) ?? Promise.resolve())
+    const result = Promise.all(before).then(work)
     const settled = result.then((): void => {}, (): void => {})
-    UserOperationQueue.tail = settled
+    for (const key of keys) UserOperationQueue.tails.set(key, settled)
+    UserOperationQueue.pending.add(settled)
     settled.then((): void => {
-      UserOperationQueue.outstanding--
+      UserOperationQueue.pending.delete(settled)
+      for (const key of keys) if (UserOperationQueue.tails.get(key) === settled) UserOperationQueue.tails.delete(key)
       if (UserOperationQueue.isIdle()) for (const listener of UserOperationQueue.listeners) listener()
     })
     return result
@@ -421,7 +420,8 @@ export class DataSet {
     if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
-    const work = UserOperationQueue.submit(async (): Promise<void> => { await this.load(version) })
+    const work = UserOperationQueue.submit(async (): Promise<void> => { await this.load(version) },
+      [...this.scopeFiles(), JSON.stringify(['$dataset', this.epoch, this.name])])
     this.track(work)
     return work
   }
@@ -445,7 +445,7 @@ export class DataSet {
             this.publish({ name, type: 'complete', version, operationId, optimistic: false, added: [], removed: [], updated: [],
           succeeded: true, result: this.getConfirmed(name) })
       } catch (error) { this.emitError(name, operationId, error as Error); throw error as Error }
-    })
+    }, this.scopeFiles())
     this.track(work)
     await work
   }
@@ -494,17 +494,30 @@ export class DataSet {
     if (!task) throw new Error('任务不在当前数据集中')
     const edit = this.edit(name, 'move', task, [])
     edit.target = JSON.parse(JSON.stringify(target)) as CoreRefileTarget
+    edit.files.push(JSON.stringify([target.repoId, target.path]))
     await this.submit(edit)
   }
   private edit(name: string, kind: 'update' | 'remove' | 'create' | 'move', task: CoreTask, changes: TaskModification[], sourceVersion?: string): PendingEdit {
     if (this.closing || this.closed || !this.ready) throw new Error('页面数据集当前不可编辑')
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
-    return { id: this.operationId(version, kind), version, name, kind, key: taskKey(task),
+    return { id: this.operationId(version, kind), version, name, kind, key: taskKey(task), files: [JSON.stringify([task.repoId, task.filePath])],
       sourceVersion: sourceVersion ?? task.fileVersion, changes: JSON.parse(JSON.stringify(changes)) as TaskModification[],
       observed: new Set(), identityFrames: new Set(), missingFrames: new Set() }
   }
+  private scopeFiles(): string[] {
+    const files: string[] = []
+    for (const data of this.confirmed.values()) {
+      if (data.type === 'task') for (const task of data.result.tasks) files.push(JSON.stringify([task.repoId, task.filePath]))
+      else if (data.type === 'file') for (const file of data.result) files.push(JSON.stringify([file.repoId, file.path]))
+    }
+    for (const edit of this.pending) files.push(...edit.files)
+    return Array.from(new Set(files))
+  }
   private submit(edit: PendingEdit): Promise<void> {
+    for (const pending of this.pending) {
+      if (pending.key === edit.key && pending.target) edit.files.push(JSON.stringify([pending.target.repoId, pending.target.path]))
+    }
     this.pending.push(edit)
     this.rebuild(this.name, edit.id, true)
     const work = UserOperationQueue.submit(async (): Promise<void> => {
@@ -552,7 +565,7 @@ export class DataSet {
         if (committed) throw new DataSetWriteError((error as Error).message, true)
         throw error as Error
       }
-    })
+    }, edit.files)
     this.track(work)
     return work
   }

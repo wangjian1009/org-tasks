@@ -119,7 +119,7 @@ impl Fixture {
             before,
             "失败时必须保留普通文件、历史及同步控制数据的全部字节"
         );
-        assert!(self.workspace.task_operation_history.entries.is_empty());
+        assert!(self.workspace.task_operation_history().entries.is_empty());
         assert_eq!(self.events.load(Ordering::Relaxed), 0);
         assert!(
             self.workspace.repos()[0]
@@ -131,7 +131,7 @@ impl Fixture {
     }
     async fn assert_one_commit(&self, before: &str) {
         assert_eq!(self.events.load(Ordering::Relaxed), 1);
-        let history = &self.workspace.task_operation_history.entries;
+        let history = &self.workspace.task_operation_history().entries;
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].fallback_group.files.len(), 1);
         let file = &history[0].fallback_group.files[0];
@@ -335,7 +335,7 @@ async fn every_unsupported_action_and_cross_file_finder_is_a_silent_noop() {
             "* TODO Task\n:PROPERTIES:\n:TRIGGER: self future-start! {unsupported} self tag!(\":after:\")\n:END:\n备注  \n"
         );
         let external = "* TODO External :work:\n:PROPERTIES:\n:ID: external\n:END:\n";
-        let mut f = Fixture::new(&[("tasks.org", &source), ("other.org", external)]).await;
+        let f = Fixture::new(&[("tasks.org", &source), ("other.org", external)]).await;
         let group = f.group().await;
         f.workspace.execute_task_operations(&group).await.unwrap();
         assert!(
@@ -354,7 +354,7 @@ async fn every_unsupported_action_and_cross_file_finder_is_a_silent_noop() {
 #[tokio::test]
 async fn one_successful_cascade_has_one_event_and_stale_retry_has_no_side_effects() {
     let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Last\n";
-    let mut f = Fixture::new(&[("tasks.org", source)]).await;
+    let f = Fixture::new(&[("tasks.org", source)]).await;
     let group = f.group().await;
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(f.source().matches("* DONE ").count(), 3);
@@ -376,7 +376,7 @@ async fn one_successful_cascade_has_one_event_and_stale_retry_has_no_side_effect
 async fn random_target_selection_preserves_membership_and_never_selects_the_source() {
     for _ in 0..8 {
         let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: relatives(forward-no-wrap random-sort 1) tag!(\":chosen:\")\n:END:\n* TODO A\n* TODO B\n* TODO C\n";
-        let mut f = Fixture::new(&[("tasks.org", source)]).await;
+        let f = Fixture::new(&[("tasks.org", source)]).await;
         let group = f.group().await;
         f.workspace.execute_task_operations(&group).await.unwrap();
         let saved = f.source();
@@ -405,20 +405,20 @@ async fn random_target_selection_preserves_membership_and_never_selects_the_sour
 #[tokio::test]
 async fn completed_cascade_does_not_read_or_write_outbox() {
     let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n";
-    let mut f = Fixture::new(&[("tasks.org", source)]).await;
+    let f = Fixture::new(&[("tasks.org", source)]).await;
     let group = f.group().await;
     std::fs::write(f.root.join(".sync/outbox"), "不能替换的原始控制数据").unwrap();
     f.workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(std::fs::read_to_string(f.root.join(".sync/outbox")).unwrap(), "不能替换的原始控制数据");
     assert!(f.source().contains("* DONE Other"));
     assert_eq!(f.events.load(Ordering::Relaxed), 1);
-    assert_eq!(f.workspace.task_operation_history.entries.len(), 1);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
 }
 
 #[tokio::test]
 async fn creation_in_a_completed_state_does_not_run_its_own_trigger() {
     let source = "* TODO Task\n原有正文\n";
-    let mut f = Fixture::new(&[("tasks.org", source)]).await;
+    let f = Fixture::new(&[("tasks.org", source)]).await;
     let mut group = f.group().await;
     let mut creation = TaskCreation::new(
         TaskPosition {
@@ -456,7 +456,7 @@ async fn local_match_defaults_and_missing_target_conditions_do_not_escape_the_fi
         let source =
             format!("* TODO Task\n:PROPERTIES:\n:TRIGGER: {finder}\n:END:\n* TODO Target :work:\n");
         let external = "* TODO External :work:\n";
-        let mut f = Fixture::new(&[("tasks.org", &source), ("other.org", external)]).await;
+        let f = Fixture::new(&[("tasks.org", &source), ("other.org", external)]).await;
         let group = f.group().await;
         f.workspace.execute_task_operations(&group).await.unwrap();
         assert!(
@@ -474,7 +474,7 @@ async fn local_match_defaults_and_missing_target_conditions_do_not_escape_the_fi
 #[tokio::test]
 async fn linked_change_event_observes_all_committed_nodes_and_is_not_emitted_for_noop_or_failure() {
     let source = "#+TODO: TODO NEXT | DONE\n* TODO Task\nSCHEDULED: <2026-11-01 Sun +1d>\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(DONE)\n:END:\n* TODO Other\n:PROPERTIES:\n:TRIGGER: next-sibling todo!(NEXT)\n:END:\n* TODO Last\n";
-    let mut f = Fixture::new(&[("tasks.org", source)]).await;
+    let f = Fixture::new(&[("tasks.org", source)]).await;
     let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = observations.clone();
     let disk = f.root.join("tasks.org");

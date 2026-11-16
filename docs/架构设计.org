@@ -53,7 +53,11 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 
 ~core::model~ 的仓库加载、同步控制器以及 ~core::webdav~ 的文件与 HTTP I/O 均运行于 Tokio。CLI 使用 Tokio 驱动 Core；HTTP 和 Harmony 只提供操作入口，不另建仓库加载或同步算法。
 
-~OrgWorkspace.start(repos).await~ 与 ~stop().await~ 定义 Core 内部服务生命周期，运行时由宿主创建和持有。Harmony 在应用启动时创建唯一的 Workspace，会话在 Core 之外持有一个持续运行的多线程 ~tokio::Runtime~ ，配置变化更新同一 Workspace 的仓库集合与设置；全部仓库请求与内嵌 HTTP 服务复用它，N-API 请求返回后仍继续驱动任务。最后一个宿主引用释放后，在工作线程等待 Workspace 停止与回调收尾，再释放运行时；等待时不持有会话表或 Workspace 锁。CLI 复用进程运行时，在 Workspace 操作完成后显式停止。
+~OrgWorkspace.start(repos).await~ 与 ~stop().await~ 定义 Core 内部服务生命周期，运行时由宿主创建和持有。Harmony 在应用启动时创建唯一的 Workspace，会话在 Core 之外持有一个持续运行的多线程 ~tokio::Runtime~ ，配置变化更新同一 Workspace 的仓库集合与设置；全部仓库请求与内嵌 HTTP 服务复用它，N-API 请求返回后仍继续驱动任务。最后一个宿主引用释放后，在工作线程等待 Workspace 停止与回调收尾，再释放运行时；等待时不持有会话表锁。CLI 复用进程运行时，在 Workspace 操作完成后显式停止。
+
+Workspace 是可克隆的命令句柄，不暴露可变字段或 ~&mut self~ 接口，也不使用 ~Arc<Mutex<OrgWorkspace>>~ 。 ~start~ 只在当前宿主 Tokio 上启动命令处理与通知处理两个异步 task，不创建或拥有 runtime。命令处理循环独占仓库配置、操作历史和调度状态；业务 task 使用本次独立上下文，完成后由处理循环归并状态、发布快照并交回答复。配置和历史的同步读取返回已发布的独立快照，不借出内部可变引用。
+
+所有业务查询、修改与同步通过 Workspace channel 调度。连续查询可异步并发；修改必须等待前面的全部查询完成，同一文件按受理顺序执行，不同文件可并发准备。跨文件操作组同时登记全部文件依赖，等待中的较早操作保留其依赖，但不阻塞无关文件。后续查询不能越过已排队修改。同步、仓库加载、重置和配置更新作为独占屏障，等前面的查询和修改结束后执行；同步期间收到的新查询等待整轮同步及通知收尾。等待调用被取消不取消已受理命令。底层跨进程仓库锁继续保护磁盘快照、恢复和提交，不承担 Workspace 命令调度。
 
 每个 Workspace 只处理自己发起的通知。修改、同步与重置业务显式传递其 ~NotificationCenter~ ，不使用全局监控表或广播。NotificationCenter 只持有请求 sender，订阅、取消和事件由 channel 交给 process；监控器和 ID 只在 process 内管理。Workspace 在业务收尾后通过 oneshot 停止 process，并等待队列排空。普通查询不产生通知，不保留 Workspace reload 接口。
 
@@ -133,4 +137,4 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * APP 临时 HTTP 接口
 
-APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共享活动 Workspace。普通点击图标不启动服务，也不保存开关；Core 不读取宿主启动参数。Core 提供查询、批量修改和通用宿主路径注册；Harmony 在同一测试监听注册导航 GET／PUT，通过 N-API 通道调用 PageNavigator。Core 不依赖 ArkTS，不保存页面语义；宿主处理器在 UI 线程执行，等待 HTTP 响应时不持有 Workspace 业务锁。生命周期和 REST 定义见 [[file:core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
+APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共享活动 Workspace。普通点击图标不启动服务，也不保存开关；Core 不读取宿主启动参数。Core 提供查询、批量修改和通用宿主路径注册；Harmony 在同一测试监听注册导航 GET／PUT，通过 N-API 通道调用 PageNavigator。Core 不依赖 ArkTS，不保存页面语义；宿主处理器在 UI 线程执行，等待 HTTP 响应时只保留 Workspace 命令句柄。生命周期和 REST 定义见 [[file:core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。

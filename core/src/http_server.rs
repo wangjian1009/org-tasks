@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use tokio::{net::TcpListener, sync::oneshot};
 use tower::ServiceExt;
 
-type SharedWorkspace = Arc<Mutex<OrgWorkspace>>;
+type SharedWorkspace = OrgWorkspace;
 
 pub struct EmbeddedHttpServer {
     address: SocketAddr,
@@ -31,8 +31,7 @@ impl EmbeddedHttpServer {
         if !address.ip().is_loopback() {
             return Err(CoreError::InvalidInput("APP 内嵌接口仅允许回环监听"));
         }
-        let tasks = workspace.lock()
-            .map_err(|_| CoreError::Store("Workspace 锁不可用".into()))?.tasks.clone();
+        let tasks = workspace.tasks.clone();
         tasks.ensure_running()?;
         let listener = TcpListener::bind(address)
             .await
@@ -156,15 +155,7 @@ async fn queries(
     body: Result<Json<Vec<CoreQuery>>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Json(queries) = body.map_err(invalid_json)?;
-    let runtime = tokio::runtime::Handle::current();
-    let results = tokio::task::spawn_blocking(move || {
-        let workspace = workspace
-            .lock()
-            .map_err(|_| CoreError::Store("Workspace 锁不可用".into()))?;
-        runtime.block_on(workspace.query(&queries))
-    })
-    .await
-    .map_err(|_| CoreError::Store("查询请求执行失败".into()))??;
+    let results = workspace.query(&queries).await?;
     let results = results.into_iter().map(|result| match result {
         CoreQueryResult::Task(result) => json!({"type":"task","result":{"tasks":result.tasks,"categories":result.categories}}),
         CoreQueryResult::File(files) => json!({"type":"file","result":files}),
@@ -184,15 +175,7 @@ async fn modify(
         ));
     }
     let operation_id = group.operation_id.clone();
-    let runtime = tokio::runtime::Handle::current();
-    tokio::task::spawn_blocking(move || {
-        let mut workspace = workspace
-            .lock()
-            .map_err(|_| CoreError::Store("Workspace 锁不可用".into()))?;
-        runtime.block_on(workspace.execute_task_operations(&group))
-    })
-    .await
-    .map_err(|_| CoreError::Store("修改请求执行失败".into()))??;
+    workspace.execute_task_operations(&group).await?;
     Ok(Json(
         json!({"operationId":operation_id,"status":"committed"}),
     ))

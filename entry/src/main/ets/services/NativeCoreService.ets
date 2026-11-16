@@ -279,6 +279,7 @@ export class CoreWorkspace {
   async createConflictPreview(request: CoreConflictPreviewRequest): Promise<CoreConflictPreview> { return await this.native.createConflictPreview(request) }
   async fileAt(path: CoreTaskPath): Promise<CoreOrgFile> { return await this.native.fileAt(path) }
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
+  // 命令由 Core 统一调度；不同文件可并发，同文件在事件确认后衔接。
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async taskMergeOperations(request: CoreTaskMergeRequest): Promise<CoreTaskMergePlan> { return await this.native.taskMergeOperations(request) }
   async watchNotifications(monitor: CoreNotificationUpdateMonitor): Promise<void> { await this.native.watchNotifications(monitor) }

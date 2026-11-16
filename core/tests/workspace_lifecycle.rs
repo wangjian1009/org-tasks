@@ -1,5 +1,5 @@
 use org_tasks_core::{OrgWorkspace, QuerySubscriptionStatus, TaskQuery};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_closes_subscriptions_and_http_servers_across_workspace_clones() {
@@ -9,7 +9,7 @@ async fn stop_closes_subscriptions_and_http_servers_across_workspace_clones() {
         .await
         .unwrap();
     let owner = workspace.clone();
-    let shared = Arc::new(Mutex::new(workspace));
+    let shared = workspace.clone();
     let mut server =
         OrgWorkspace::start_http_server(shared.clone(), "127.0.0.1:0".parse().unwrap())
             .await
@@ -58,7 +58,7 @@ async fn mutations_and_reset_notify_only_the_workspace_that_started_them() {
     std::fs::write(root.join("tasks.org"), "* TODO Original\n").unwrap();
     let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
     repo.load::<webdav::WebDavSyncPolicy>().await.unwrap();
-    let mut first = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
+    let first = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
     let second = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
     let first_count = Arc::new(AtomicUsize::new(0));
     let second_count = Arc::new(AtomicUsize::new(0));

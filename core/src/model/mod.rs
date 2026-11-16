@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod access;
 pub(crate) mod conflict;
 pub(crate) mod conflict_preview;
-mod data_changes;
+pub(crate) mod data_changes;
 mod editor;
 mod file_keywords;
 mod merge;
