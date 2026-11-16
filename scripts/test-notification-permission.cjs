@@ -147,6 +147,7 @@ test('从系统设置返回重新读取授权状态，已开启时刷新角标',
 test('主窗口与前台两个条件均满足才检查授权，后台及销毁停止请求', async () => {
   const starts = [], stops = [], loads = [];
   const Ability = load('entryability/EntryAbility', {
+    '../services/NativeCoreService': { NativeCoreService: { start() {} } },
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },

@@ -37,6 +37,9 @@ pub struct QuerySubscription {
 
 impl QuerySubscription {
     pub(crate) fn status(&self) -> QuerySubscriptionStatus {
+        if self.watch.as_ref().is_some_and(|watch| !watch.subscription.is_active()) {
+            return QuerySubscriptionStatus::Closed;
+        }
         self.hub.state.lock().unwrap().status()
     }
     pub(crate) fn cancel(&mut self) {
@@ -623,7 +626,7 @@ mod tests {
             std::fs::write(root.join("a.org"), "* TODO A\n").unwrap();
             let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
             repo.load::<WebDavSyncPolicy>().await.unwrap();
-            let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+            let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
             let raw = Arc::new(Mutex::new(Vec::new()));
             let capture = raw.clone();
             let _watch =
@@ -782,7 +785,8 @@ mod tests {
             .await
             .unwrap();
         let accesses = crate::model::test_support::repository_accesses(f.root.to_str().unwrap());
-        crate::model::sync_events::publish(&f.workspace.repos()[0]);
+        crate::model::sync_events::publish(&f.workspace.notifications, &f.workspace.repos()[0]);
+        f.workspace.notifications.flush().await.unwrap();
         assert_eq!(
             started.subscription.status(),
             QuerySubscriptionStatus::Invalidated
@@ -808,6 +812,7 @@ mod tests {
         let (subscription, _) = f.pending();
         let weak = Arc::downgrade(&subscription.hub);
         drop(subscription);
+        f.workspace.notifications.flush().await.unwrap();
         assert!(weak.upgrade().is_none());
     }
 

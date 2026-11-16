@@ -47,6 +47,7 @@ function repository(id) {
 
 test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只加载目标页面', async () => {
   const EntryAbility = etsLoader({
+    '../services/NativeCoreService': { NativeCoreService: { start() {} } },
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
@@ -469,6 +470,7 @@ test('旧取消分类交给 Core 规范化，读取不改写配置，保存使�
   const requests = [];
   const load = etsLoader({
     'liborg_tasks_harmony.so': {
+      async validateConfiguration({coreSettings}) { if(coreSettings)requests.push(coreSettings);return structuredClone(canonical); },
       Workspace: class {
         async setTodoDefaults() {}
         async setSettings(settings) { requests.push(settings); }
@@ -502,6 +504,7 @@ test('旧路径配置不猜测仓库，明确绑定能持久化，删除仓库�
   ]);
   const load = etsLoader({
     'liborg_tasks_harmony.so': {
+      async validateConfiguration({coreSettings}) { return coreSettings??{additionStates:[]}; },
       Workspace: class { async setTodoDefaults() {} async getSettings(){return {additionStates:[]};} async setSettings(){} },
       async defaultTodoSettings() { return '#+TODO: TODO | DONE'; },
       async defaultSyncOptions() { return { excludedDirectories: [] }; },
@@ -545,14 +548,24 @@ test('两个窗口冷启动只创建一个共享 workspace，继续复用同一�
     async setSettings(settings){ this.settings = settings; }
     async addRepo(rootDirectory) { const repo = { rootDirectory }; this.repositories.push(repo); return repo; }
     async repos() { return this.repositories; }
+    async removeRepo(root) { this.repositories = this.repositories.filter(repo => repo.rootDirectory !== root); }
+    async validateRepository() {}
   }
   const load = etsLoader({ 'liborg_tasks_harmony.so': { Workspace, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; } } });
   const { NativeCoreService } = load('services/NativeCoreService');
+  const started = NativeCoreService.start();
   const repos = [repository('personal')];
   const sessions = await Promise.all(Array.from({ length: 8 }, () => NativeCoreService.workspaceFor(repos)));
   assert.equal(created, 1);
   assert.ok(sessions.every(session => session === sessions[0]));
   assert.equal((await sessions[0].repos()).length, 1);
+  assert.equal(started, sessions[0]);
+  const changed = await NativeCoreService.workspaceFor([repository('work')]);
+  assert.equal(changed, started);
+  assert.deepEqual((await changed.repos()).map(repo => repo.rootDirectory), [repository('work').rootDirectory]);
+  await NativeCoreService.validateRepository('/draft');
+  assert.equal((await changed.repos()).length, 1);
+  assert.equal(created, 1);
 });
 
 test('仅捕捉本地标题时不读取安全存储，常规配置读取仍保留凭据', async () => {
@@ -560,7 +573,7 @@ test('仅捕捉本地标题时不读取安全存储，常规配置读取仍保�
   repo.webdavEnabled = true;
   let credentialReads = 0;
   const load = etsLoader({
-    'liborg_tasks_harmony.so': { Workspace: class {async getSettings(){return {additionStates:[]};}}, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
+    'liborg_tasks_harmony.so': { async validateConfiguration({coreSettings}) { return coreSettings??{additionStates:[]}; }, Workspace: class {async getSettings(){return {additionStates:[]};}}, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; }, async defaultSyncOptions() { return { excludedDirectories: [] }; } },
     '@kit.ArkData': { preferences: { async getPreferences() { return { async get(key, fallback) { return key === 'repos' ? JSON.stringify([repo]) : fallback; } }; } } },
     './CredentialService': { CredentialService: { async getWebDavPassword() { credentialReads++; return 'test-password'; } } }
   });

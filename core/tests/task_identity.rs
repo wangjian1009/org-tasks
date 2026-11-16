@@ -1,15 +1,15 @@
 mod support;
 use org_tasks_core::{FilterTask, OrgFile, OrgRepo, OrgWorkspace, TaskQuery};
 
-fn workspace(root: &str, path: &str, source: &str) -> OrgWorkspace {
+async fn workspace(root: &str, path: &str, source: &str) -> OrgWorkspace {
     let mut repo = OrgRepo::new(root.into()).unwrap();
     repo.id = "repo".into();
     { let value = vec![OrgFile::new(repo.id.clone(), path.into(), source.as_bytes().to_vec()).unwrap()]; support::write_files(&mut repo, value); }
-    OrgWorkspace::new(vec![repo]).unwrap()
+    OrgWorkspace::start(vec![repo]).await.unwrap()
 }
 
 async fn tasks(source: &str) -> Vec<FilterTask> {
-    workspace("/repo", "inbox.org", source).query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks
+    workspace("/repo", "inbox.org", source).await.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks
 }
 
 #[tokio::test]
@@ -105,14 +105,14 @@ async fn repo_path_file_path_and_task_ancestors_scope_the_identity() {
     let id = tasks(source).await[1].id().to_owned();
     assert_ne!(
         id,
-        workspace("/other", "inbox.org", source).query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
+        workspace("/other", "inbox.org", source).await.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
     );
     assert_ne!(
         id,
-        workspace("/repo", "other/inbox.org", source).query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
+        workspace("/repo", "other/inbox.org", source).await.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id()
     );
     assert_ne!(id, tasks("* TODO Other project\n** TODO Child\n").await[1].id());
-    let mut rebuilt = workspace("/repo", "inbox.org", source);
+    let mut rebuilt = workspace("/repo", "inbox.org", source).await;
     rebuilt.repos[0].id = support::id("new-repo-id");
     std::fs::write(std::path::Path::new(&rebuilt.repos[0].root_directory).join(".sync/id"), format!("{}\n", rebuilt.repos[0].id)).unwrap();
     assert_eq!(id, rebuilt.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks[1].id());
@@ -123,7 +123,7 @@ async fn duplicate_paths_are_distinct_and_ids_do_not_depend_on_query_filters() {
     let source = "* TODO Project\n** TODO Repeat [0/1]\n** DONE Repeat [1/1]\n";
     let all = tasks(source).await;
     assert_ne!(all[1].id(), all[2].id());
-    let ws = workspace("/repo", "inbox.org", source);
+    let ws = workspace("/repo", "inbox.org", source).await;
     let done = ws
         .query(&[(TaskQuery {
             expression: "it.done".into(),
@@ -142,7 +142,7 @@ async fn display_content_changes_keep_identity_without_rewriting_source() {
     let before = tasks("* TODO [#A] Project :old:\nBody\n").await;
     let source =
         "* DONE [#C] Project [1/1] :new:\r\nSCHEDULED: <2026-11-06 Fri>\r\nChanged body\r\n";
-    let ws = workspace("/repo", "inbox.org", source);
+    let ws = workspace("/repo", "inbox.org", source).await;
     let after = ws.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
     assert_eq!(before[0].id(), after[0].id());
     assert_ne!(before[0].body(), after[0].body());

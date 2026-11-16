@@ -38,10 +38,10 @@
 #+begin_src rust
 let mut repo = OrgRepo::new("/data/org".into())?;
 repo.load::<WebDavSyncPolicy>().await?;
-let workspace = OrgWorkspace::new(vec![repo])?;
+let workspace = OrgWorkspace::start(vec![repo]).await?;
 #+end_src
 
-~OrgWorkspace::new~ 校验已加载仓库的 ID 唯一性； ~OrgRepo::new~ 只校验根目录。 ~load~ 仅读取或创建 ~.sync/id~ ；它不会请求 WebDAV、创建后台线程或写入同步记录。
+~OrgWorkspace::start~ 校验已加载仓库的 ID 唯一性； ~OrgRepo::new~ 只校验根目录。 ~load~ 仅读取或创建 ~.sync/id~ ；它不会请求 WebDAV、创建后台线程或写入同步记录。
 
 ** 解析、编辑并写回 org 文件
 
@@ -108,9 +108,17 @@ pub fn merge(
 
 ~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。Core 不创建或持有 runtime，查询中的独立读取、解析和任务投影通过调用方 runtime 上的 Tokio 任务执行，并经通道逐项回送；结果合并也作为 Tokio 任务执行，查询完成后返回。它是运行时构造输入，不是持久化实体。
 
+~start(repos).await~ 在宿主提供的持续运行 Tokio 上校验仓库集合、初始化通知中心与内部任务管理，并启动本 Workspace 专属的 ~NotificationCenter::process~ ；不读取仓库文件，也不创建或拥有 runtime。 ~stop().await~ 禁止接收新的查询、修改和后台任务，先等待在途操作与普通后台任务完成，再通过 oneshot 通知 process 停止；process 关闭请求入口、处理完已入队请求并解除全部订阅，stop 等待处理任务完成；APP 内嵌 HTTP 服务接收停止信号后优雅结束。重复或并发调用 stop 均等待同一批任务，取消一次等待不会丢失任务句柄；某个任务失败时仍等待其余任务，并返回错误。停止后不能重新启动同一对象，应调用 start 创建新对象。
+
+Workspace 的 clone 共享任务与通知生命周期；停止任一副本会停止所有副本的内部服务。若宿主使用外部 mutex 包装 Workspace，应在短暂加锁取得副本后释放锁，再等待 stop，避免 HTTP 等收尾请求等待同一把锁。宿主必须先等待 stop，再关闭对应 runtime；独立 OrgRepo 或 OrgRepoSyncController 的同步工作由其宿主另行管理，不属于 Workspace 启动的内部任务。
+
 #+begin_src rust
 impl OrgWorkspace {
-    pub fn new(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError>;
+    pub async fn start(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError>;
+
+    pub async fn stop(&self) -> Result<(), CoreError>;
+
+    pub fn notification_center(&self) -> &NotificationCenter;
 
     pub fn repos(&self) -> &[OrgRepo];
 
@@ -137,7 +145,7 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由调用方 runtime 上的 ~tokio::spawn~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~start~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由调用方 runtime 上的 ~tokio::spawn~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 ~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
@@ -604,6 +612,10 @@ pub struct TaskState {
 pub struct CoreSettings {
     pub addition_states: Vec<TaskState>,
 }
+impl CoreSettings {
+    pub fn validate(&self) -> Result<(), CoreError>;
+}
+
 impl OrgWorkspace {
     pub fn get_settings(&self) -> CoreSettings;
     pub fn set_settings(&mut self, settings: CoreSettings) -> Result<(), CoreError>;
@@ -617,7 +629,7 @@ impl OrgFileMetadata {
 }
 #+end_src
 
-~get_settings()~ 返回独立设置副本；~set_settings()~ 在校验成功后整体替换设置并向已有与后续新增仓库传播。非法状态、默认状态覆盖、附加名称重复时返回错误且保留旧设置。~category=None~ 表示附加状态尚未分类。设置由宿主保存，Core 不读取 Preferences。
+~CoreSettings.validate()~ 提供不依赖 Workspace 的附加状态校验，宿主可在保存草稿前调用，不修改活动设置。 ~get_settings()~ 返回独立设置副本；~set_settings()~ 在校验成功后整体替换设置并向已有与后续新增仓库传播。非法状态、默认状态覆盖、附加名称重复时返回错误且保留旧设置。~category=None~ 表示附加状态尚未分类。设置由宿主保存，Core 不读取 Preferences。
 
 ~state()~ 返回当前任务实际状态对象；无状态标题返回 ~None~。任务与文件元信息的 ~task_state_of(category)~ 均按该文件有效流程顺序返回首个匹配状态；缺失时返回 ~None~ 。返回目标状态为值副本，与所属快照的文件版本一致。界面提交修改时使用目标的 ~name~ 。
 
@@ -854,14 +866,18 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 冲突与同步提示只由 Rust 的统一批量查询从当前文件及基线索引计算，不回放历史，也不依赖进程内标记。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 
 
-~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调携带 Core 仓库 ID 和可空的 ~operationId~ ，普通任务提交另有 ~files~ 和 ~changes~ 增量；普通操作组提供来源标识时透传，同步、重置或旧调用没有标识时为空。任务操作、同步提交、冲突解决、重置和显式 ~reload~ 成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主通过数据集应用增量；旧入口的 ~files=None~ 保留失效语义。回调不能重入 workspace 锁。
+~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调携带 Core 仓库 ID 和可空的 ~operationId~ ，普通任务提交另有 ~files~ 和 ~changes~ 增量；普通操作组提供来源标识时透传，同步、重置或旧调用没有标识时为空。任务操作、同步提交、冲突解决和重置成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主通过数据集应用增量；旧入口的 ~files=None~ 保留失效语义。回调不能重入 workspace 锁。
 新增页面数据集采用启动查询一次、随后由通用查询订阅维护的设计，见 [[file:../harmony/页面数据集设计.org][页面数据集设计]] 。Core 查询订阅已实现，由 Workspace 对外组合，启动时一次返回查询结果和句柄；具体接口见 [[file:查询订阅设计.org][查询订阅设计]] 。旧入口的仓库失效事件仍不能当作数据增量；原有订阅接口与调用行为保持兼容。
 
 ~OrgWorkspace.watch_notifications(callback) -> NotificationSubscription~ 保留通知失效订阅；回调不查询内容，由宿主调度统一批次，完整数据类型见通知模型。
 
 全局同步提示产生或清除使用 ~NotificationUpdate::GlobalNotificationsChanged~ ，不虚构仓库 ID，完整契约见 [[file:同步核心设计.org::*通知更新、模型与职责][同步核心设计]]。
 
-订阅对象销毁即解除，回调在注册表锁外执行；回调不能重入调用时仍持有的仓库锁，宿主通过线程安全队列转到 UI 后再查询。页面监听数据失效后，在下一批同时重读正文和通知，通知区域只消费该批返回的通知快照；同步控件只负责发起同步和展示进度，不在 Promise 完成后直接刷新正文。
+通知与数据订阅均通过 Workspace 自己的 ~NotificationCenter~ 发送 channel 请求。NotificationCenter 只保存 sender；process 独占订阅表、监控器和递增 ID。订阅、取消、事件和处理确认共用一个 mpsc 队列，按入队顺序处理；不维护全局监控表，不广播给其他 Workspace，也不按仓库目录跨 Workspace 路由。回调在该 Workspace 的 Tokio process 任务内串行执行，监控器注册与分发不使用显式互斥锁。
+
+任务修改直接传递本 Workspace 的 NotificationCenter。宿主在工作线程从 Workspace 取得 ~notification_center()~ 并显式传给仓库同步与重置业务；独立 OrgRepo 操作可以传入 None，不查找或推断其他 Workspace。~OrgRepo.sync_with_options(..., options, notifications: Option<&NotificationCenter>)~ 与 ~OrgRepo.reset(notifications: Option<&NotificationCenter>)~ 在发送后等待处理确认，失败同步已经发布基线时同样通知当前 Workspace。任务修改及订阅初始化也等待此前入队事件处理完成，保证增量在修改请求返回前归并。
+
+订阅销毁只提交取消请求，不阻塞等待 process；已入队的先前事件仍按顺序处理。Workspace stop 在结束在途业务后发送 oneshot 停止信号，并等待 process 排空队列与释放监控器。回调不得阻塞等待同一 process 的请求确认，也不能重入仍持有的 Workspace 业务锁；宿主经线程安全队列转到 UI 后再发起查询。普通查询只读取当前文件，不发布失效通知；Workspace 不提供 reload 接口。
 
 * 失败同步的本地提交边界
 
@@ -881,7 +897,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 仓库重置与文件冲突标志
 
-~OrgRepo.reset().await~ 清空本地目录内的文件、历史、基线、冲突快照、忽略规则与 outbox，保留 ~.sync/id~ 原字节、固定的仓库锁和同步锁文件及根目录。Core 负责仓库锁、暂存、恢复和更新发布；不访问远端，也不修改宿主配置。句柄身份过期时拒绝执行。完整故障边界见 [[file:同步核心设计.org::*仓库重置][同步核心设计]]。
+~OrgRepo.reset(Some(workspace.notification_center())).await~ 清空本地目录内的文件、历史、基线、冲突快照、忽略规则与 outbox，保留 ~.sync/id~ 原字节、固定的仓库锁和同步锁文件及根目录。Core 负责仓库锁、暂存、恢复和更新发布；不访问远端，也不修改宿主配置。句柄身份过期时拒绝执行。完整故障边界见 [[file:同步核心设计.org::*仓库重置][同步核心设计]]。
 
 ~OrgFile.has_conflict() -> bool~ 与 ~OrgFileMetadata.has_conflict~ 从真实标题的 ~CONFLICT~ 自有标签取得，Serde 字段为 ~hasConflict~ 。源码块中的同名文本不参与；无冲突容器时不额外写文件头标记，宿主仅消费结果。
 

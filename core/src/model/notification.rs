@@ -3,7 +3,6 @@ use crate::OrgWorkspace;
 use serde::{Deserialize, Serialize};
 
 use super::OrgRepoId;
-use crate::CoreError;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreNotification {
@@ -30,7 +29,7 @@ pub enum NotificationUpdate {
 }
 
 pub struct NotificationSubscription {
-    _sync_subscription: super::sync_events::SyncSubscription,
+    _subscription: super::notification_center::Subscription,
 }
 
 impl OrgWorkspace {
@@ -39,36 +38,13 @@ impl OrgWorkspace {
     where
         F: Fn(NotificationUpdate) + Send + Sync + 'static,
     {
-        let roots = self
-            .repos()
-            .iter()
-            .map(|repo| repo.root_directory.clone())
-            .collect::<Vec<_>>();
-        let subscription =
-            super::sync_events::subscribe(std::sync::Arc::new(move |event| match event {
-                super::sync_events::SyncCommitted::Repository {
-                    root_directory,
-                    repo_id,
-                    ..
-                } if roots.contains(root_directory) => {
-                    callback(NotificationUpdate::RepositoryChanged {
-                        repo_id: repo_id.clone(),
-                    })
-                }
-                _ => {}
-            }));
+        let subscription = self.notifications.subscribe(move |event| {
+            let super::sync_events::SyncCommitted::Repository { repo_id, .. } = event;
+            callback(NotificationUpdate::RepositoryChanged { repo_id: repo_id.clone() });
+        });
         NotificationSubscription {
-            _sync_subscription: subscription,
+            _subscription: subscription,
         }
-    }
-
-    /// 本地重新加载也是数据提交入口，普通只读查询不广播更新。
-    pub async fn reload(&mut self) -> Result<(), CoreError> {
-        for repo in &mut self.repos {
-            repo.load::<crate::webdav::WebDavSyncPolicy>().await?;
-            super::sync_events::publish(repo);
-        }
-        Ok(())
     }
 
 }

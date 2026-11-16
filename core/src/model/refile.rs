@@ -136,6 +136,7 @@ impl OrgWorkspace {
         &self,
         query: &RefileTargetQuery,
     ) -> Result<Vec<RefileTarget>, crate::CoreError> {
+        let _activity = self.tasks.enter()?;
         for file in query.files.iter().chain(&query.excluded_files) {
             super::validate_relative_path(&file.path)?;
             if file.repo_id.is_empty() {

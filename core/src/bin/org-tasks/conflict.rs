@@ -28,7 +28,10 @@ pub(crate) async fn run(repo: OrgRepo, _history: History, command: ConflictComma
                 operations: ids.into_iter().map(|id| TaskOperation::ConfilictSelection(TaskConfilictSelection { path:None, target:None,id,action:TaskConfilictAction::Discard})).collect(),
                 file_versions: vec![TaskFileVersion { repo_id:repo.id.clone(), file:path, version:LocalFileVersion::from_bytes(file.source_bytes()).content_hash }],
             };
-            OrgWorkspace::new(vec![repo]).map_err(|e|e.to_string())?.execute_task_operations(&group).await.map_err(|e|e.to_string())?;
+            let mut workspace = OrgWorkspace::start(vec![repo]).await.map_err(|e| e.to_string())?;
+            let result = workspace.execute_task_operations(&group).await.map_err(|e| e.to_string());
+            let stopped = workspace.stop().await.map_err(|e| e.to_string());
+            result.and(stopped)?;
             println!("已丢弃全部冲突，后续同步上传本地结果。");
         }
     }

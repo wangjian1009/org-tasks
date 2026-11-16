@@ -14,7 +14,7 @@ fn local(value: &str) -> i64 {
 #[tokio::test]
 async fn modified_time_uses_only_own_valid_last_modified_property() {
     let source = "#+PROPERTY: LAST_MODIFIED [2026-11-09 Mon 12:00]\n* Parent\n:PROPERTIES:\n:last_modified: [2026-11-08 Sun 09:30]\n:END:\n** Child\nBody [2026-11-09 Mon 12:00]\n* DateOnly\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-07 Sat]\n:END:\n* CreatedOnly\n:PROPERTIES:\n:CREATED: [2026-11-09 Mon 10:00]\n:END:\n* BadDate\n:PROPERTIES:\n:LAST_MODIFIED: [2026-02-30 Mon 12:00]\n:END:\n* BadTime\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 25:00]\n:END:\n* Text\n:PROPERTIES:\n:LAST_MODIFIED: prefix [2026-11-08 Sun 12:00]\n:END:\n* Range\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun]--[2026-11-09 Mon]\n:END:\n* Literal\n#+begin_src org\n:PROPERTIES:\n:LAST_MODIFIED: [2026-11-08 Sun 12:00]\n:END:\n#+end_src\n";
-    let workspace = OrgWorkspace::new(vec![repo("a", &[("notes.org", source)])]).unwrap();
+    let workspace = OrgWorkspace::start(vec![repo("a", &[("notes.org", source)])]).await.unwrap();
     let tasks = workspace
         .query(&[(TaskQuery {
             expression: ".o.modified".into(),
@@ -56,7 +56,7 @@ fn repo(id: &str, files: &[(&str, &str)]) -> OrgRepo {
 #[tokio::test]
 async fn created_properties_project_own_valid_dates_times_and_sort_by_time() {
     let source = "#+PROPERTY: CREATED [2026-11-08 Sun 11:00]\n* Parent\n:PROPERTIES:\n:created: [2026-11-08 Sun 10:00]\n:END:\n** Child\nBody [2026-11-08 Sun 12:00]\n* TODO Morning\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 09:00]\n:END:\n* DONE Noon\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n* Note\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun]\n:END:\n* BadDate\n:PROPERTIES:\n:CREATED: [2026-02-30 Mon 12:00]\n:END:\n* BadTime\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 25:00]\n:END:\n* Text\n:PROPERTIES:\n:CREATED: prefix [2026-11-08 Sun 12:00]\n:END:\n* Fake\n#+begin_src org\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 12:00]\n:END:\n#+end_src\n";
-    let w = OrgWorkspace::new(vec![repo("a", &[("inbox.org", source)])]).unwrap();
+    let w = OrgWorkspace::start(vec![repo("a", &[("inbox.org", source)])]).await.unwrap();
     let tasks = w
         .query(&[(TaskQuery {
             expression: ".o.created".into(),
@@ -107,7 +107,7 @@ async fn three_calendar_days_include_full_dates_done_memo_and_cancelled() {
         entry("Memo", today, "23:59"),
         entry("Future", today + Duration::days(1), "00:00")
     );
-    let w = OrgWorkspace::new(vec![repo("a", &[("tasks.org", &source)])]).unwrap();
+    let w = OrgWorkspace::start(vec![repo("a", &[("tasks.org", &source)])]).await.unwrap();
     let query = TaskQuery {
         expression: "cr.ge.-2d cr.le.today .o.created".into(),
         ..Default::default()
@@ -145,10 +145,10 @@ fn entry(title: &str, date: NaiveDate, time: &str) -> String {
 #[tokio::test]
 async fn exclude_files_are_structured_repository_specific_and_legacy_paths_are_rejected() {
     let source = "* Note\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n";
-    let w = OrgWorkspace::new(vec![
+    let w = OrgWorkspace::start(vec![
         repo("a", &[("inbox.org", source)]),
         repo("b", &[("inbox.org", source)]),
-    ])
+    ]).await
     .unwrap();
     let q = TaskQuery {
         exclude_files: vec![OrgFileRef {

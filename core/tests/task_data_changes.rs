@@ -15,7 +15,7 @@ impl Fixture {
         tokio::fs::write(root.join("a.org"), source).await.unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
         repo.load::<WebDavSyncPolicy>().await.unwrap();
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let observed = events.clone();
         let _subscription =

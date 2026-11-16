@@ -635,6 +635,7 @@ impl OrgRepo {
             cancellation,
             progress,
             SyncOptions::default(),
+            None,
         )
         .await
     }
@@ -646,9 +647,26 @@ impl OrgRepo {
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
         options: SyncOptions,
+        notifications: Option<&super::notification_center::NotificationCenter>,
     ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where
         P: SyncPolicy,
+    {
+        let result = self.sync_with_options_inner(policy, started_at, cancellation, progress, options, notifications).await;
+        if let Some(notifications) = notifications { notifications.flush().await?; }
+        result
+    }
+
+    async fn sync_with_options_inner<P>(
+        &mut self,
+        policy: &P,
+        started_at: TimestampMs,
+        cancellation: &SyncCancellation,
+        progress: &SyncProgressReporter,
+        options: SyncOptions,
+        notifications: Option<&super::notification_center::NotificationCenter>,
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
+    where P: SyncPolicy,
     {
         let options = options.normalized()?;
         let guard = crate::webdav::transaction::lock(Path::new(&self.root_directory)).await?;
@@ -670,7 +688,7 @@ impl OrgRepo {
         )
         .await?;
         drop(guard);
-        let completion_notice = super::sync_events::CompletionNotice::new(self);
+        let completion_notice = super::sync_events::CompletionNotice::new(self, notifications);
         let slot = crate::webdav::transaction::CommitSlot::new(
             Path::new(&self.root_directory),
             started_at,
@@ -1321,7 +1339,7 @@ mod tests {
             .unwrap();
         let mut other = OrgRepo::new(other_root.to_string_lossy().into()).unwrap();
         other.load::<CompletedSync>().await.unwrap();
-        let mut workspace = crate::OrgWorkspace::new(vec![repo, other]).unwrap();
+        let mut workspace = crate::OrgWorkspace::start(vec![repo, other]).await.unwrap();
         let result = workspace
             .query(&[(crate::TaskQuery::default()).into()])
             .await
@@ -1474,7 +1492,8 @@ mod tests {
                         trigger_reason,
                         ..SyncOptions::default()
                     },
-                )
+            None,
+        )
                 .await
                 .unwrap();
             assert_eq!(record.result, Some(OrgRepoSyncResult::Failed));

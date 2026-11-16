@@ -1407,7 +1407,7 @@ mod tests {
         let mut repo = crate::OrgRepo::new("/unused/keyword-only".into()).unwrap();
         repo.id = "repo".into();
         crate::model::test_support::push_file(&mut repo, file(source));
-        let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
         let task = workspace.query(&[(crate::TaskQuery::default()).into()]).await.unwrap()
             .remove(0).into_task().unwrap().tasks.remove(0);
         let rendered = task.render_content();
@@ -1442,7 +1442,7 @@ mod tests {
         let mut repo = crate::OrgRepo::new("/tmp/render-only".into()).unwrap();
         repo.id = "repo".into();
         { let value = file; crate::model::test_support::push_file(&mut repo, value); };
-        let workspace = crate::OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
         let task = workspace.query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks.remove(0);
         let rendered = task.render_content();
         assert!(rendered.body_html.contains("<b>粗体</b>"));

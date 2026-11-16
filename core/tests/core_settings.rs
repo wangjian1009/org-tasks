@@ -4,13 +4,13 @@ use org_tasks_core::{
     TaskStateCategory,
 };
 
-fn workspace() -> OrgWorkspace {
+async fn workspace() -> OrgWorkspace {
     let mut repo = OrgRepo::new("/unused/core-settings".into()).unwrap();
     repo.id = "settings".into();
     let file = OrgFile::new(repo.id.clone(), "tasks.org".into(),
         b"#+TODO: OPEN RUN HOLD STOP FINISH | END\n* OPEN One\n* RUN Two\n* HOLD Three\n* STOP Four\n* FINISH Five\n* END Six\n* Plain\n".to_vec()).unwrap();
     support::push_file(&mut repo, file);
-    OrgWorkspace::new(vec![repo]).unwrap()
+    OrgWorkspace::start(vec![repo]).await.unwrap()
 }
 
 fn state(name: &str, category: Option<TaskStateCategory>) -> TaskState {
@@ -65,9 +65,9 @@ fn legacy_cancel_declarations_preserve_source_and_normalize_settings() {
     assert!(!settings.contains("Cancle"));
 }
 
-#[test]
-fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
-    let mut workspace = workspace();
+#[tokio::test]
+async fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
+    let mut workspace = workspace().await;
     assert_eq!(
         workspace.get_settings(),
         CoreSettings {
@@ -111,7 +111,7 @@ fn settings_are_owned_objects_and_invalid_updates_are_atomic() {
 #[tokio::test]
 async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_semantics() {
     use TaskStateCategory::*;
-    let mut workspace = workspace();
+    let mut workspace = workspace().await;
     let configured = CoreSettings {
         addition_states: vec![
             state("RUN", Some(Doing)),
@@ -179,7 +179,7 @@ async fn tasks_and_file_metadata_choose_the_same_valid_state_and_keep_snapshot_s
 #[tokio::test]
 async fn added_repositories_inherit_settings_and_query_filters_use_categories() {
     use TaskStateCategory::*;
-    let mut workspace = workspace();
+    let mut workspace = workspace().await;
     workspace
         .set_settings(CoreSettings {
             addition_states: vec![state("STOP", Some(Cancel))],

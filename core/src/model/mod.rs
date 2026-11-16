@@ -13,6 +13,7 @@ mod merge;
 mod mutation_journal;
 mod plain_links;
 pub(crate) mod notification;
+pub(crate) mod notification_center;
 mod project;
 mod priority;
 pub(crate) mod properties;
@@ -45,6 +46,7 @@ pub use data_changes::*;
 pub use editor::*;
 pub use merge::*;
 pub use notification::*;
+pub use notification_center::NotificationCenter;
 pub use query::*;
 pub use priority::{PeriodCategory, TaskPriority};
 pub use refile::*;
@@ -602,8 +604,8 @@ pub(crate) fn validate_relative_path(value: &str) -> Result<(), CoreError> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn workspace_rejects_duplicate_repo_ids() {
+    #[tokio::test]
+    async fn workspace_rejects_duplicate_repo_ids() {
         let repo = crate::model::test_support::with_files(
             OrgRepo {
                 id: "repo-1".into(),
@@ -613,7 +615,7 @@ mod tests {
             Vec::new(),
             Default::default(),
         );
-        assert!(crate::OrgWorkspace::new(vec![repo.clone(), repo]).is_err());
+        assert!(crate::OrgWorkspace::start(vec![repo.clone(), repo]).await.is_err());
     }
 
     #[test]

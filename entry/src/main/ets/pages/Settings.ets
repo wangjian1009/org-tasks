@@ -1,6 +1,6 @@
 import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
-import { Workspace } from 'liborg_tasks_harmony.so'
+import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
@@ -207,9 +207,7 @@ struct Settings {
       const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const additions = current.coreSettings.additionStates.filter((state: CoreTaskState) => state.name !== remove)
       if (!remove) additions.push({ name, category: this.stateCategories[index] })
-      const validation = new Workspace()
-      await validation.setSettings({ additionStates: additions })
-      current.coreSettings = await validation.getSettings()
+      current.coreSettings = await validateConfiguration({ coreSettings: { additionStates: additions } })
       await AppConfigService.save(this.getUIContext().getHostContext()!, current)
       this.config = current
       this.coreSettings = current.coreSettings

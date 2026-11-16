@@ -1,3 +1,4 @@
+import { NativeCoreService } from '../services/NativeCoreService'
 import { NotificationManager } from '../services/NotificationManager'
 import { PageNavigator, primaryPage } from '../services/PageNavigator'
 import { PagePath } from '../services/PagePath'
@@ -25,6 +26,7 @@ export default class EntryAbility extends UIAbility {
   private notificationBackgrounded: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    NativeCoreService.start()
     this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }

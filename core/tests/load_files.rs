@@ -109,7 +109,7 @@ async fn query_extracts_relative_exclusions_for_each_repository_before_file_load
         b"#+CATEGORY: Work\n* TODO Visible\n- [ ] Item\n",
     )
     .await;
-    let workspace = OrgWorkspace::new(vec![a.repo.clone(), b.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![a.repo.clone(), b.repo.clone()]).await.unwrap();
     let result = workspace
         .query(&[(TaskQuery {
             exclude_files: vec![OrgFileRef {
@@ -144,7 +144,7 @@ async fn scan_rules_are_read_per_operation_and_do_not_hide_files_from_load_files
     f.write("b.org", b"* TODO B\n").await;
     f.write(".orgzlyignore", b"a.org\n").await;
     assert_eq!(f.repo.load_files(&[]).await.unwrap().len(), 2);
-    let workspace = OrgWorkspace::new(vec![f.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
     let first = workspace.query(&[(TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap();
     assert_eq!(first.tasks[0].path(), "b.org");
     f.write(".orgzlyignore", b"b.org\n").await;
@@ -163,7 +163,7 @@ async fn task_includes_skip_other_files_and_repositories_before_reading() {
     a.write("unrelated/broken.org", &[0xff]).await;
     b.write("nested/selected.org", &[0xff]).await;
     let reference = OrgFileRef { repo_id: a.repo.id.clone(), path: "nested/selected.org".into() };
-    let workspace = OrgWorkspace::new(vec![a.repo.clone(), b.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![a.repo.clone(), b.repo.clone()]).await.unwrap();
     let result = workspace.query(&[TaskQuery {
         include_files: vec![reference.clone(), reference],
         expression: "it.todo".into(),
@@ -181,7 +181,7 @@ async fn task_and_file_ranges_subtract_exclusions_from_includes_before_reading()
     f.write("broken.org", &[0xff]).await;
     let selected = OrgFileRef { repo_id: f.repo.id.clone(), path: "selected.org".into() };
     let broken = OrgFileRef { repo_id: f.repo.id.clone(), path: "broken.org".into() };
-    let workspace = OrgWorkspace::new(vec![f.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
     for include_files in [vec![], vec![selected.clone(), broken.clone()], vec![broken.clone()]] {
         let expected = usize::from(include_files.is_empty() || include_files.contains(&selected));
         let results = workspace.query(&[
@@ -200,7 +200,7 @@ async fn mixed_query_ranges_load_the_union_and_do_not_hide_files_needed_by_other
     f.write("b.org", b"* TODO B\n").await;
     f.write("broken.org", &[0xff]).await;
     let reference = |path: &str| OrgFileRef { repo_id: f.repo.id.clone(), path: path.into() };
-    let workspace = OrgWorkspace::new(vec![f.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
     let a: CoreQuery = TaskQuery { include_files: vec![reference("a.org")], exclude_files: vec![reference("b.org")], ..Default::default() }.into();
     let b = CoreQuery::File { query: FileQuery { include_files: vec![reference("b.org")], ..Default::default() } };
     let results = workspace.query(&[a.clone(), b]).await.unwrap();
@@ -219,7 +219,7 @@ async fn mixed_query_ranges_load_the_union_and_do_not_hide_files_needed_by_other
 async fn removed_book_conditions_and_invalid_file_scopes_are_rejected() {
     let f = Fixture::new().await;
     f.write("selected.org", b"* TODO b.selected.org\n").await;
-    let workspace = OrgWorkspace::new(vec![f.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
     for expression in ["b.selected.org", ".b.selected.org", "it.todo (b.\"selected.org\")"] {
         assert!(matches!(workspace.query(&[TaskQuery { expression: expression.into(), ..Default::default() }.into()]).await,
             Err(CoreError::InvalidInput(_))));

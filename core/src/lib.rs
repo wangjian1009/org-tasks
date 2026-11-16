@@ -39,6 +39,7 @@ pub use query_subscription::{QuerySubscription, QuerySubscriptionStart, QuerySub
 pub use query::{QueryOrderPart, QueryOrderValue, QueryOrdering};
 pub mod webdav;
 pub mod workspace;
+mod workspace_tasks;
 pub use workspace::{OrgWorkspace, OrgWorkspaceValidationError};
 
 pub use filter::{AddressLink, FilterDate, FilterStateType, FilterTask};

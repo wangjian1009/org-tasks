@@ -24,7 +24,7 @@ async fn queries_match_original_attachment_tags_but_hide_them_in_results() {
     let mut repo = OrgRepo::new("/unused/attachment-tags".into()).unwrap();
     repo.id = "repo".into();
     support::push_file(&mut repo, file(source));
-    let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+    let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
     let result = workspace.query(&[TaskQuery { expression: "t.ATTACH".into(), ..Default::default() }.into()]).await.unwrap().remove(0).into_task().unwrap();
     assert_eq!(result.tasks.len(), 2);
     assert!(result.tasks[0].has_attach());

@@ -16,7 +16,7 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
     let mut repo = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
     repo.load::<WebDavSyncPolicy>().await.unwrap();
     let repo_id = repo.id.clone();
-    let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+    let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
     let events = Arc::new(Mutex::new(Vec::new()));
     let capture = events.clone();
     let subscription = workspace
@@ -111,7 +111,7 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn host_handlers_register_after_start_without_core_knowing_host_semantics() {
-    let workspace = Arc::new(Mutex::new(OrgWorkspace::new(vec![]).unwrap()));
+    let workspace = Arc::new(Mutex::new(OrgWorkspace::start(vec![]).await.unwrap()));
     let mut server = OrgWorkspace::start_http_server(workspace, "127.0.0.1:0".parse().unwrap()).await.unwrap();
     let base = format!("http://{}", server.address());
     let client = reqwest::Client::new();

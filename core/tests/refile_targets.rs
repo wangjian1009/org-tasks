@@ -101,13 +101,13 @@ async fn workspace_targets_keep_repository_file_segment_and_duplicate_identity()
     );
     // 显式目标属于完整文件访问，不受任务扫描范围限制。
     { let value = TaskScanRules::parse("a.org\n").unwrap(); support::set_rules(&mut second, value); }
-    let workspace = OrgWorkspace::new(vec![
+    let workspace = OrgWorkspace::start(vec![
         second,
         repo(
             "a",
             &[("a.org", "* TODO [[https://example.org][名称]] :REFILE:\n")],
         ),
-    ])
+    ]).await
     .unwrap();
     let targets = workspace.refile_targets().await.unwrap();
     let a_id = support::id("a");
@@ -135,7 +135,7 @@ async fn workspace_targets_keep_repository_file_segment_and_duplicate_identity()
         json["headingPath"],
         serde_json::json!(["标题 / 分段", "相同"])
     );
-    assert_eq!(OrgWorkspace::new(vec![]).unwrap().refile_targets().await.unwrap(), []);
+    assert_eq!(OrgWorkspace::start(vec![]).await.unwrap().refile_targets().await.unwrap(), []);
 }
 
 #[tokio::test]
@@ -144,7 +144,7 @@ async fn queries_exclude_conflicts_before_matching_other_system_tags() {
 ** TODO Child :REFILE:CONFLICT:home:refile:\n\
 *** TODO Grandchild :next:\n\
 * TODO Other :REFILE:refile:\n";
-    let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
+    let workspace = OrgWorkspace::start(vec![repo("r", &[("tasks.org", source)])]).await.unwrap();
     for (expression, expected) in [
         ("", 1),
         ("t.REFILE", 1),
@@ -178,7 +178,7 @@ async fn queries_exclude_conflicts_before_matching_other_system_tags() {
 #[tokio::test]
 async fn query_categories_and_expression_apply_before_returning_tags() {
     let source = "#+CATEGORY: Work\n* DONE Parent :REFILE:work:\n** TODO Child :home:\n";
-    let workspace = OrgWorkspace::new(vec![repo("r", &[("tasks.org", source)])]).unwrap();
+    let workspace = OrgWorkspace::start(vec![repo("r", &[("tasks.org", source)])]).await.unwrap();
     let query = TaskQuery {
         expression: ".it.done t.REFILE".into(),
         categories: vec![Some("Work".into())],
@@ -233,7 +233,7 @@ async fn targets_read_the_current_tree_after_edits_without_reusing_stale_positio
 async fn target_query_scopes_files_before_categories_and_keeps_peer_repository_files() {
     use org_tasks_core::RefileTargetQuery;
     let source = "#+CATEGORY: Hidden\n* First :REFILE:\n* Second :REFILE:\n";
-    let w = OrgWorkspace::new(vec![
+    let w = OrgWorkspace::start(vec![
         repo(
             "a",
             &[
@@ -246,7 +246,7 @@ async fn target_query_scopes_files_before_categories_and_keeps_peer_repository_f
             "b",
             &[("someday.org", "#+CATEGORY: Peer\n* Peer :REFILE:\n")],
         ),
-    ])
+    ]).await
     .unwrap();
     let query = RefileTargetQuery {
         files: vec![],
@@ -298,11 +298,11 @@ async fn target_query_scopes_files_before_categories_and_keeps_peer_repository_f
 async fn project_roots_are_opt_in_scoped_and_keep_file_identity_without_refile_headings() {
     use org_tasks_core::RefileTargetQuery;
     let source = "#+FILETAGS: :project:\r\n#+TITLE: 项目\r\n头部正文  \r\n* 章节 :REFILE:\r\n";
-    let workspace = OrgWorkspace::new(vec![repo("r", &[
+    let workspace = OrgWorkspace::start(vec![repo("r", &[
         ("project.org", source),
         ("empty.org", "#+FILETAGS: :project:\n正文\n"),
         ("ordinary.org", "#+TITLE: 普通文件\n"),
-    ])]).unwrap();
+    ])]).await.unwrap();
     assert_eq!(workspace.refile_targets().await.unwrap().len(), 1);
     let query = RefileTargetQuery {
         include_project_roots: true,

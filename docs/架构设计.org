@@ -53,6 +53,10 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 
 ~core::model~ 的仓库加载、同步控制器以及 ~core::webdav~ 的文件与 HTTP I/O 均运行于 Tokio。CLI 使用 Tokio 驱动 Core；HTTP 和 Harmony 只提供操作入口，不另建仓库加载或同步算法。
 
+~OrgWorkspace.start(repos).await~ 与 ~stop().await~ 定义 Core 内部服务生命周期，运行时由宿主创建和持有。Harmony 在应用启动时创建唯一的 Workspace，会话在 Core 之外持有一个持续运行的多线程 ~tokio::Runtime~ ，配置变化更新同一 Workspace 的仓库集合与设置；全部仓库请求与内嵌 HTTP 服务复用它，N-API 请求返回后仍继续驱动任务。最后一个宿主引用释放后，在工作线程等待 Workspace 停止与回调收尾，再释放运行时；等待时不持有会话表或 Workspace 锁。CLI 复用进程运行时，在 Workspace 操作完成后显式停止。
+
+每个 Workspace 只处理自己发起的通知。修改、同步与重置业务显式传递其 ~NotificationCenter~ ，不使用全局监控表或广播。NotificationCenter 只持有请求 sender，订阅、取消和事件由 channel 交给 process；监控器和 ID 只在 process 内管理。Workspace 在业务收尾后通过 oneshot 停止 process，并等待队列排空。普通查询不产生通知，不保留 Workspace reload 接口。
+
 ArkUI 线程不得执行 Core 请求。C++ N-API bridge 必须通过 ~napi_create_async_work~ 在工作线程调用 Rust；ArkTS 通过 ~NativeCoreService~ 打开并持有 native ~Workspace~ 、 ~Repo~ 与 ~WebDavSyncPolicy~ 对象。涉及仓库锁、文件或网络的操作返回 Promise，资源生命周期与释放规则遵循 [[file:harmony/Rust bridge设计.org][Rust bridge 设计]]。
 
 TS 领域接口按 ~Workspace -> Repo -> OrgFile~ 访问对象。Rust 字段映射为属性，方法与行为归属原领域对象；结构化参数直接使用 TS 对象，JSON 编组只发生在 bridge 内部。新增或修改接口时，同时更新 Rust 实现、C++ N-API 注册、类型声明、ArkTS wrapper、全部调用方及设计对照表。
@@ -123,7 +127,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 应用共享通知管理
 
-~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化重新绑定活动 Workspace，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。
+~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化更新同一 Workspace 的仓库与设置，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。
 
 页面通过 AppStorage 的 ~coreNotifications~ 共享只读快照，不持有管理对象。通知及仓库展示上下文按内容比较，结果相同不发布；过期请求不能覆盖新结果，失败保留最近成功快照。任务仍由页面 DataSetManager 处理增量确认，通知刷新不驱动今天页任务重查。详细生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 

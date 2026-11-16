@@ -14,6 +14,8 @@
 extern "C" void org_tasks_harmony_free_string(char* value);
 extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
+extern "C" char* org_tasks_harmony_validate_configuration(const char* request);
+extern "C" int32_t org_tasks_harmony_workspace_validate_repository(uint64_t handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_default_todo_settings();
 extern "C" char* org_tasks_harmony_default_task_states();
 extern "C" char* org_tasks_harmony_workspace_get_settings(uint64_t handle);
@@ -27,7 +29,6 @@ extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
 extern "C" uint64_t org_tasks_harmony_workspace_watch_notifications(uint64_t handle, uint64_t monitor);
 extern "C" void org_tasks_harmony_workspace_unwatch_notifications(uint64_t subscription);
-extern "C" int32_t org_tasks_harmony_workspace_reload(uint64_t handle);
 extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t monitor);
 extern "C" uint64_t org_tasks_harmony_workspace_watch_data_changes(uint64_t handle, uint64_t monitor);
 extern "C" char* org_tasks_harmony_workspace_subscribe_query(uint64_t handle, const char* query, uint64_t monitor, uint64_t* subscription);
@@ -124,7 +125,6 @@ struct WorkspaceStringWork {
     uint64_t http_monitor = 0;
     uint64_t query_id = 0;
     struct DataChangeWatch* query_watch = nullptr;
-    bool reload = false;
     uint64_t monitor_handle = 0;
     uint64_t subscription_id = 0;
     uint64_t subscription_generation = 0;
@@ -135,6 +135,8 @@ struct WorkspaceStringWork {
             else org_tasks_harmony_notification_monitor_release(monitor_handle);
         }
     }
+    bool validate_configuration = false;
+    bool validate_repository = false;
     bool refile_targets = false;
     bool execute_operations = false;
     bool merge_operations = false;
@@ -936,9 +938,11 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->monitor_handle = 0;
         work->subscription_id = org_tasks_harmony_workspace_watch_data_changes(work->handle, monitor);
         if (work->subscription_id != 0) work->response = std::to_string(work->subscription_id);
-    } else if (work->reload) {
-        if (org_tasks_harmony_workspace_reload(work->handle) == 0) work->response = "{}";
 
+    } else if (work->validate_configuration) {
+        work->response = TakeRustString(org_tasks_harmony_validate_configuration(work->expression.c_str()));
+    } else if (work->validate_repository) {
+        if (org_tasks_harmony_workspace_validate_repository(work->handle, work->expression.c_str()) == 0) work->response = "{}";
     } else if (work->refile_targets) {
         work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle, work->expression.c_str()));
     } else if (work->execute_operations) {
@@ -1004,7 +1008,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
                 work->subscription_id = 0;
             }
             napi_resolve_deferred(env, work->deferred, result);
-        } else if (work->todo_defaults || work->set_settings || work->reload) {
+        } else if (work->todo_defaults || work->set_settings || work->validate_repository) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!ParseJson(env, work->response, &result)) {
@@ -1418,7 +1422,7 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
         return nullptr;
     }
     napi_value resource_name;
-    if ((!work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
+    if ((!work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options && !work->validate_configuration && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
         napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceString, CompleteWorkspaceString, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
@@ -1676,15 +1680,29 @@ napi_value WorkspaceStopWatchingDataChanges(napi_env env, napi_callback_info inf
     if (it != workspace->data_change_subscriptions.end()) workspace->data_change_subscriptions.erase(it);
     napi_get_undefined(env, &result); return result;
 }
-napi_value WorkspaceReload(napi_env env, napi_callback_info info)
+napi_value ValidateConfiguration(napi_env env, napi_callback_info info)
 {
-    WorkspaceWrap* workspace = nullptr;
-    napi_value self;
-    if (!UnwrapWorkspace(env, info, &workspace, &self)) return nullptr;
-    auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->reload = true;
-    return QueueWorkspaceString(env, work, "OrgTasksWorkspaceReload", self);
+    size_t argc = 1; napi_value args[1], self;
+    auto* work = new WorkspaceStringWork(); work->validate_configuration = true;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 || !EncodeJson(env, args[0], &work->expression)) {
+        delete work; napi_throw_error(env, nullptr, "配置校验参数无效"); return nullptr;
+    }
+    return QueueWorkspaceString(env, work, "OrgTasksValidateConfiguration", self);
 }
 
+napi_value WorkspaceValidateRepository(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self; WorkspaceWrap* workspace = nullptr;
+    std::string root;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        !ReadString(env, args[0], &root) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "仓库目录无效"); return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->handle = workspace->handle; work->validate_repository = true; work->expression = root;
+    return QueueWorkspaceString(env, work, "OrgTasksValidateRepository", self);
+}
 
 napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
 {
@@ -2277,6 +2295,9 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value normalize_sync_options;
     napi_create_function(env, "normalizeSyncOptions", NAPI_AUTO_LENGTH, NormalizeSyncOptions, nullptr, &normalize_sync_options);
     napi_set_named_property(env, exports, "normalizeSyncOptions", normalize_sync_options);
+    napi_value validate_configuration;
+    napi_create_function(env, "validateConfiguration", NAPI_AUTO_LENGTH, ValidateConfiguration, nullptr, &validate_configuration);
+    napi_set_named_property(env, exports, "validateConfiguration", validate_configuration);
     napi_property_descriptor workspace_descriptors[] = {
         {"setPreviewRoot", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("configure")},
         {"createConflictPreview", nullptr, PreviewRequest, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("create")},
@@ -2287,6 +2308,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"repos", nullptr, WorkspaceRepos, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"validateRepository", nullptr, WorkspaceValidateRepository, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"taskMergeOperations", nullptr, WorkspaceTaskMergeOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -2301,7 +2323,6 @@ static napi_value Init(napi_env env, napi_value exports)
         {"stopWatchingNotifications", nullptr, WorkspaceStopWatchingNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"watchDataChanges", nullptr, WorkspaceWatchDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stopWatchingDataChanges", nullptr, WorkspaceStopWatchingDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"reload", nullptr, WorkspaceReload, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value workspace_class;
     napi_define_class(env, "Workspace", NAPI_AUTO_LENGTH, WorkspaceConstructor, nullptr,

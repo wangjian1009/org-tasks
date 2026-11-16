@@ -42,7 +42,7 @@ impl Fixture {
         }
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<WebDavSyncPolicy>().await.unwrap();
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let events = Arc::new(AtomicUsize::new(0));
         let observed = events.clone();
         let subscription = workspace.watch_data_changes(move |_| {

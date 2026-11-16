@@ -25,7 +25,7 @@ impl Fixture {
         repo.load::<WebDavSyncPolicy>().await.unwrap();
         Self {
             root,
-            workspace: OrgWorkspace::new(vec![repo]).unwrap(),
+            workspace: OrgWorkspace::start(vec![repo]).await.unwrap(),
         }
     }
     async fn group(&self, title: &str) -> TaskOperationGroup {

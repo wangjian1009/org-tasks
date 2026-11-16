@@ -10,6 +10,8 @@ pub struct OrgWorkspace {
     pub todo_defaults: TodoConfig,
     pub task_operation_history: crate::model::TaskOperationHistory,
     pub(crate) preview: crate::model::conflict_preview::PreviewStore,
+    pub(crate) notifications: crate::model::notification_center::NotificationCenter,
+    pub(crate) tasks: crate::workspace_tasks::WorkspaceTasks,
 }
 
 impl OrgWorkspace {
@@ -45,10 +47,12 @@ impl OrgWorkspace {
     where
         F: Fn(crate::DataChangeEvent) + Send + Sync + 'static,
     {
+        let _activity = self.tasks.enter()?;
         let mut subscription = crate::query_subscription::prepare(query.clone(), on_change)?;
         let monitor = subscription.monitor();
         subscription.attach(self.watch_data_changes(monitor));
         let snapshot = self.query_snapshot(&[query], true).await?;
+        self.notifications.flush().await?;
         let repo_order = self
             .repos
             .iter()
@@ -70,15 +74,34 @@ impl OrgWorkspace {
         subscription.cancel();
     }
 
-    pub fn new(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError> {
+    /// 在宿主持续运行的 Tokio 运行时中启动；克隆共享内部任务与通知生命周期。
+    pub async fn start(repos: Vec<OrgRepo>) -> Result<Self, OrgWorkspaceValidationError> {
         validate_repositories(&repos)?;
+        tokio::runtime::Handle::try_current()
+            .map_err(|_| CoreError::InvalidState("Workspace 必须在 Tokio 运行时中启动"))?;
+        let (notifications, requests) = crate::model::notification_center::NotificationCenter::new();
+        let tasks = crate::workspace_tasks::WorkspaceTasks::new();
+        let (stop, stopping) = tokio::sync::oneshot::channel();
+        tasks.spawn_finalizer(stop, crate::model::notification_center::NotificationCenter::process(requests, stopping))?;
         Ok(Self {
             repos,
             todo_defaults: TodoConfig::default(),
             task_operation_history: Default::default(),
             preview: Default::default(),
+            notifications,
+            tasks,
         })
     }
+
+    /// 停止接收内部任务与通知，等待已启动任务和在途回调退出；可重复等待。
+    pub async fn stop(&self) -> Result<(), CoreError> {
+        let tasks = self.tasks.stop().await;
+        self.preview.invalidate();
+        tasks
+    }
+
+    /// 供宿主将当前 Workspace 的通知上下文显式传入仓库业务。
+    pub fn notification_center(&self) -> &crate::NotificationCenter { &self.notifications }
 
     pub fn get_settings(&self) -> crate::model::CoreSettings {
         self.todo_defaults.core_settings.clone()
@@ -219,7 +242,7 @@ mod tests {
             ],
             Default::default(),
         );
-        let workspace = OrgWorkspace::new(vec![first, second]).unwrap();
+        let workspace = OrgWorkspace::start(vec![first, second]).await.unwrap();
         let tasks = workspace
             .query(&[(crate::TaskQuery {
                 expression: "i.todo".into(),
@@ -238,9 +261,9 @@ mod tests {
         assert_eq!(tasks[1].repo_id(), crate::model::test_support::id("repo-2"));
     }
 
-    #[test]
-    fn repo_mut_returns_only_the_repository_with_matching_identity() {
-        let mut workspace = OrgWorkspace::new(vec![crate::model::test_support::with_files(
+    #[tokio::test]
+    async fn repo_mut_returns_only_the_repository_with_matching_identity() {
+        let mut workspace = OrgWorkspace::start(vec![crate::model::test_support::with_files(
             OrgRepo {
                 id: "repo-1".into(),
                 root_directory: "/tmp/one".into(),
@@ -248,7 +271,7 @@ mod tests {
             },
             Vec::new(),
             Default::default(),
-        )])
+        )]).await
         .unwrap();
 
         workspace
@@ -266,8 +289,8 @@ mod tests {
         assert!(workspace.repo_mut(&"unknown".into()).is_none());
     }
 
-    #[test]
-    fn add_repo_rejects_duplicate_repository_identity() {
+    #[tokio::test]
+    async fn add_repo_rejects_duplicate_repository_identity() {
         let repo = crate::model::test_support::with_files(
             OrgRepo {
                 id: "repo-1".into(),
@@ -277,24 +300,24 @@ mod tests {
             Vec::new(),
             Default::default(),
         );
-        let mut workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
+        let mut workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
 
         assert!(workspace.add_repo(repo).is_err());
         assert_eq!(workspace.repos().len(), 1);
     }
 
-    #[test]
-    fn workspace_accepts_unloaded_repository_until_load_assigns_its_identity() {
+    #[tokio::test]
+    async fn workspace_accepts_unloaded_repository_until_load_assigns_its_identity() {
         let repo = OrgRepo::new("/tmp/one".into()).unwrap();
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
 
         assert!(workspace.repos()[0].id.is_empty());
     }
 
-    #[test]
-    fn removes_repository_by_root_directory() {
+    #[tokio::test]
+    async fn removes_repository_by_root_directory() {
         let mut workspace =
-            OrgWorkspace::new(vec![OrgRepo::new("/tmp/one".into()).unwrap()]).unwrap();
+            OrgWorkspace::start(vec![OrgRepo::new("/tmp/one".into()).unwrap()]).await.unwrap();
 
         let removed = workspace.remove_repo_by_root_directory("/tmp/one").unwrap();
 
@@ -319,7 +342,7 @@ mod tests {
             .unwrap();
             crate::model::test_support::push_file(&mut repo, value);
         };
-        let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let mut workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         workspace
             .set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: OPEN | END").unwrap())
             .unwrap();

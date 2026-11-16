@@ -122,10 +122,7 @@ function settingsFixture() {
     coreSettings: { additionStates: [] }, fileDisplayMode: 'rendered' };
   let saved, validationFailure, saveFailure;
   const settings = load('pages/Settings', 'Settings', {
-    'liborg_tasks_harmony.so': { Workspace: class {
-      async setSettings(value) { if (validationFailure) throw validationFailure; this.value = value; }
-      async getSettings() { return this.value; }
-    } },
+    'liborg_tasks_harmony.so': { async validateConfiguration({coreSettings}) { if (validationFailure) throw validationFailure; return coreSettings; } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
     '../services/AppConfigService': { AppConfigService: {
       async load() { return structuredClone(config); }, async save(context, value) { if (saveFailure) throw saveFailure; saved = value; }

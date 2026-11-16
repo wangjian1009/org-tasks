@@ -1,7 +1,7 @@
 mod support;
 use org_tasks_core::{OrgFile, OrgRepo, OrgWorkspace, TaskQuery};
 
-fn workspace(source: &str) -> OrgWorkspace {
+async fn workspace(source: &str) -> OrgWorkspace {
     let mut repo = OrgRepo::new("/unused/projects".into()).unwrap();
     repo.id = "repo".into();
     let file = OrgFile::new(
@@ -11,7 +11,7 @@ fn workspace(source: &str) -> OrgWorkspace {
     )
     .unwrap();
     support::push_file(&mut repo, file);
-    OrgWorkspace::new(vec![repo]).unwrap()
+    OrgWorkspace::start(vec![repo]).await.unwrap()
 }
 
 #[tokio::test]
@@ -89,7 +89,7 @@ async fn only_file_project_tags_enable_names_and_project_name_precedes_title() {
             None,
         ),
     ] {
-        let workspace = workspace(source);
+        let workspace = workspace(source).await;
         let metadata = support::query_files(&workspace.repos()[0]).await.unwrap();
         assert_eq!(metadata[0].project(), expected, "{source}");
         let result = workspace
@@ -113,7 +113,7 @@ async fn only_file_project_tags_enable_names_and_project_name_precedes_title() {
 #[tokio::test]
 async fn task_projects_delegate_to_shared_file_metadata_and_keep_their_original_snapshot() {
     let workspace =
-        workspace("#+FILETAGS: :project:\n#+TITLE: Original\n* TODO First\n** TODO Second\n");
+        workspace("#+FILETAGS: :project:\n#+TITLE: Original\n* TODO First\n** TODO Second\n").await;
     let tasks = workspace
         .query(&[(TaskQuery::default()).into()])
         .await

@@ -77,7 +77,7 @@ async fn one_conflict_notice_per_current_file_and_one_global_dirty_notice() {
     ])
     .await;
     let b = Fixture::new(&[("a.org", "* TODO Normal\n")]).await;
-    let workspace = OrgWorkspace::new(vec![a.repo.clone(), b.repo.clone()]).unwrap();
+    let workspace = OrgWorkspace::start(vec![a.repo.clone(), b.repo.clone()]).await.unwrap();
     let notices = workspace.query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap();
     assert_eq!(required(&notices), 1);
     let conflicts = notices
@@ -108,29 +108,29 @@ async fn baseline_comparison_detects_edit_creation_deletion_and_survives_workspa
         ("empty.org", Some("")),
         ("gone.org", None),
     ]);
-    assert!(!OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+    assert!(!OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     assert!(
-        OrgWorkspace::new(vec![f.repo.clone()])
+        OrgWorkspace::start(vec![f.repo.clone()]).await
             .unwrap()
             .query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap()
             .is_empty()
     );
     for changed in ["* Changed\n", ""] {
         std::fs::write(f.root.join("a.org"), changed).unwrap();
-        assert!(OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+        assert!(OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     }
     std::fs::remove_file(f.root.join("a.org")).unwrap();
-    assert!(OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+    assert!(OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     std::fs::write(f.root.join("a.org"), "* A\n").unwrap();
-    assert!(!OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+    assert!(!OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     std::fs::write(f.root.join("new.org"), "* New\n").unwrap();
     f.repo.load::<WebDavSyncPolicy>().await.unwrap();
-    assert!(OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+    assert!(OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     let mut reopened = OrgRepo::new(f.root.to_string_lossy().into()).unwrap();
     reopened.load::<WebDavSyncPolicy>().await.unwrap();
     assert_eq!(
         required(
-            &OrgWorkspace::new(vec![reopened])
+            &OrgWorkspace::start(vec![reopened]).await
                 .unwrap()
                 .query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap()
         ),
@@ -138,7 +138,7 @@ async fn baseline_comparison_detects_edit_creation_deletion_and_survives_workspa
     );
     std::fs::remove_file(f.root.join("new.org")).unwrap();
     f.repo.load::<WebDavSyncPolicy>().await.unwrap();
-    assert!(!OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+    assert!(!OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
 }
 
 #[tokio::test]
@@ -146,12 +146,12 @@ async fn corrupt_baseline_is_an_error_and_query_does_not_write_history_or_outbox
     let f = Fixture::new(&[("a.org", "* A\n")]).await;
     f.baseline(&[("a.org", Some("* A\n"))]);
     let before = std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap();
-    OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired));
+    OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[org_tasks_core::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired));
     assert_eq!(
         std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap(),
         before
     );
     assert!(f.repo.pending_writes().await.unwrap().is_empty());
     std::fs::write(f.root.join(".sync/remote_base/current.json"), b"broken").unwrap();
-    assert!(OrgWorkspace::new(vec![f.repo.clone()]).unwrap().query(&[CoreQuery::Notification { query: Default::default() }]).await.is_err());
+    assert!(OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().query(&[CoreQuery::Notification { query: Default::default() }]).await.is_err());
 }

@@ -50,7 +50,8 @@ pub struct CoreSettings {
 }
 
 impl CoreSettings {
-    pub(crate) fn validate(&self) -> Result<(), CoreError> {
+    /// 独立校验附加状态，宿主校验草稿时无需创建或修改 Workspace。
+    pub fn validate(&self) -> Result<(), CoreError> {
         let defaults = default_task_state_categories();
         let mut names = std::collections::HashSet::new();
         for state in &self.addition_states {
@@ -731,7 +732,7 @@ mod tests {
             let value = vec![f];
             crate::model::test_support::write_files(&mut repo, value);
         }
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let done = workspace
             .query(&[(crate::TaskQuery {
                 expression: "it.done".into(),
@@ -846,7 +847,7 @@ mod tests {
                 let value = file.clone();
                 crate::model::test_support::push_file(&mut repo, value);
             };
-            let actual = OrgWorkspace::new(vec![repo])
+            let actual = OrgWorkspace::start(vec![repo]).await
                 .unwrap()
                 .query(&[(crate::TaskQuery::default()).into()])
                 .await

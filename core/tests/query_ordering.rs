@@ -54,7 +54,7 @@ async fn scalar_order_keys_match_all_core_sort_fields_and_preserve_workspace_tie
         repo.load::<WebDavSyncPolicy>().await.unwrap();
         repos.push(repo);
     }
-    let workspace = OrgWorkspace::new(repos).unwrap();
+    let workspace = OrgWorkspace::start(repos).await.unwrap();
     for field in [
         "",
         "book",

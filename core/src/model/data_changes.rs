@@ -45,7 +45,7 @@ pub enum DataChangeEvent {
         repo_id: OrgRepoId,
         #[serde(rename = "operationId")]
         operation_id: Option<String>,
-        /// None 表示现有同步、重载等入口的失效通知；Some 表示本次提交的精确文件集合。
+        /// None 表示同步、重置等入口的失效通知；Some 表示本次提交的精确文件集合。
         files: Option<Vec<FileDataChange>>,
         changes: Vec<TaskDataChange>,
         /// 文件数据离开接收范围；不代表删除底层文件。
@@ -58,7 +58,7 @@ pub enum DataChangeEvent {
 }
 
 pub struct DataChangeSubscription {
-    _sync_subscription: super::sync_events::SyncSubscription,
+    pub(crate) subscription: super::notification_center::Subscription,
 }
 
 impl OrgWorkspace {
@@ -67,20 +67,13 @@ impl OrgWorkspace {
     where
         F: Fn(DataChangeEvent) + Send + Sync + 'static,
     {
-        let roots = self
-            .repos()
-            .iter()
-            .map(|repo| repo.root_directory.clone())
-            .collect::<Vec<_>>();
-        let subscription = super::sync_events::subscribe(std::sync::Arc::new(move |event| {
+        let subscription = self.notifications.subscribe(move |event| {
             let super::sync_events::SyncCommitted::Repository {
-                root_directory,
                 repo_id,
                 operation_id,
                 files,
                 changes,
             } = event;
-            if roots.contains(root_directory) {
                 callback(DataChangeEvent::RepositoryChanged {
                     repo_id: repo_id.clone(),
                     operation_id: operation_id.clone(),
@@ -89,10 +82,9 @@ impl OrgWorkspace {
                     removed_files: Vec::new(),
                     categories: None,
                 });
-            }
-        }));
+        });
         DataChangeSubscription {
-            _sync_subscription: subscription,
+            subscription,
         }
     }
 }
@@ -102,8 +94,8 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn multiple_subscriptions_receive_and_can_cancel_repository_changes() {
+    #[tokio::test]
+    async fn multiple_subscriptions_receive_and_can_cancel_repository_changes() {
         let repo = crate::model::test_support::with_files(
             crate::OrgRepo {
                 id: "repo".into(),
@@ -113,7 +105,7 @@ mod tests {
             Vec::new(),
             Default::default(),
         );
-        let workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
         let first = Arc::new(Mutex::new(Vec::new()));
         let second = Arc::new(Mutex::new(Vec::new()));
         let first_capture = first.clone();
@@ -124,11 +116,13 @@ mod tests {
         let _second_subscription = workspace.watch_data_changes(move |event| {
             second_capture.lock().unwrap().push(event);
         });
-        super::super::sync_events::publish(&repo);
+        super::super::sync_events::publish(&workspace.notifications, &repo);
+        workspace.notifications.flush().await.unwrap();
         assert_eq!(first.lock().unwrap().len(), 1);
         assert_eq!(second.lock().unwrap().len(), 1);
         drop(first_subscription);
-        super::super::sync_events::publish(&repo);
+        super::super::sync_events::publish(&workspace.notifications, &repo);
+        workspace.notifications.flush().await.unwrap();
         assert_eq!(first.lock().unwrap().len(), 1);
         assert_eq!(second.lock().unwrap().len(), 2);
     }

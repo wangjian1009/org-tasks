@@ -393,7 +393,7 @@ mod tests {
         let session = Session::begin(&root, &repo.id, 1).await.unwrap();
         drop(guard);
         let reset_root = root.clone();
-        let reset = tokio::spawn(async move { repo.reset().await });
+        let reset = tokio::spawn(async move { repo.reset(None).await });
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             while !reset_root.join("reset").exists() {
                 tokio::task::yield_now().await;
@@ -493,7 +493,7 @@ mod tests {
         drop(guard);
         next.finish().await.unwrap();
         drop(next);
-        repo.reset().await.unwrap();
+        repo.reset(None).await.unwrap();
         assert_eq!(fs::metadata(root.join(LOCK)).await.unwrap().ino(), inode);
         fs::remove_dir_all(root).await.unwrap();
     }

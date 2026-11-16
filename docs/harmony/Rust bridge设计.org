@@ -16,6 +16,17 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 拥有行为和资源的对象使用 class，Rust 的结构体数据投影使用 interface；Rust 字段在 TS 中保留为属性，行为保留为方法，使用 camelCase 命名。涉及 core 锁、文件或网络 I/O 的操作返回 Promise；文件对象中的只读值可同步访问。JSON 只在 bridge 内部编组，不作为 TS 调用参数或公开的仓库/文件快照接口。
 
+* Workspace 运行时与收尾
+
+~NativeCoreService.start()~ 在 EntryAbility 启动时取得进程唯一 Workspace； ~workspaceFor~ 串行更新同一对象的默认设置、附加状态和仓库集合。目录集合变化不替换 native handle、NotificationCenter 或运行时。 ~validateConfiguration~ 在工作线程调用 Core 的配置默认值、校验和兼容反序列化，不创建 Workspace，也不修改活动配置。 ~validateRepository(rootDirectory)~ 在工作线程创建独立 OrgRepo 值并调用 Core 身份加载验证目录，不将临时目录加入活动仓库集合，也不创建另一个 Workspace。
+
+仓库同步与重置在短期 Workspace 锁内取得 NotificationCenter 的克隆，显式传给 Core 业务入口；它只引用本 Workspace 的请求 channel。同步的网络阶段继续释放 Workspace 锁，通知不按目录或 Core 仓库 ID 向其他 Workspace 转发。
+
+
+应用启动时创建一个 Workspace，后续仓库增删、设置变化和目录校验均复用该对象。 ~WorkspaceSession~ 在 Core 之外持有一个持续运行的多线程 ~tokio::Runtime~ ，创建会话时在该上下文等待 ~OrgWorkspace::start(Vec::new())~ 。普通请求、通知相关读取、同步、预览与 APP 内嵌 HTTP 服务复用所属会话的运行时；不再为单次请求创建运行时，也不保留独立的全局 HTTP 运行时。没有 Workspace 的连接检查使用独立的临时执行上下文。
+
+N-API 对象继续按既有引用计数保持会话存活。最后一个引用释放时先从会话表移除对象并解除宿主订阅，再由运行时的阻塞工作任务等待 ~OrgWorkspace::stop()~ ；等待前取得 Workspace 副本并释放其锁，避免与 HTTP 收尾互相等待。Workspace 先等待业务与普通任务完成，再通过 oneshot 停止 NotificationCenter 的 process，等待已入队请求处理及监控器释放后才释放该运行时；finalizer 不在 ArkUI 线程等待异步退出。
+
 * 接口设计规范
 
 本节是 Harmony TS 领域接口的固定约定。新增或修改接口时，必须同时检查 Rust 类型定义、N-API 声明、ArkTS wrapper、调用方及本文对照表，不能只调整 TS 类型声明。
@@ -33,6 +44,14 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 跨语言必需的适配必须在本文列明，包括 Promise、命名转换、查询/设置文本解析和面向手机的结果投影；适配不能成为随意改变行为归属的理由。修改既有接口时必须迁移全部调用方，并验证对象方法、空值、错误传播、字节保真和异步生命周期。
 
+* 验证记录
+
+2026-11-16 在专用模拟器的独立 QA 仓库验证：HTTP 修改当前页面任务标题后无需重新打开页面即可收到增量更新；界面完成任务后，HTTP 查询读到 DONE。非法触发器提交失败时，文件版本和任务状态保持不变；验证完成后恢复 QA 标题与待办状态，并关闭测试监听。Core 同时覆盖相同目录与仓库 ID 的不同 Workspace 之间通知隔离、channel 顺序、停止排空与取消等待后继续收尾。
+
+* 配置校验
+
+~validateConfiguration({ todoDefaults?, coreSettings? }): Promise<CoreSettings>~ 是独立 native 函数，在 worker 中使用 Core 校验 TODO 声明与附加状态，并返回规范化的 CoreSettings。省略 coreSettings 时返回 Rust 默认值；兼容旧 Cancle 输入。AppConfigService 的读取迁移、保存校验及设置页草稿校验均使用该入口，不创建临时 Workspace，也不提前改变活动 Workspace 的设置。
+
 * 公开接口
 
 #+begin_src ts
@@ -47,6 +66,7 @@ class Workspace {
   repos(): Promise<Repo[]>
   addRepo(rootDirectory: string): Promise<Repo>
   removeRepo(rootDirectory: string): Promise<void>
+  validateRepository(rootDirectory: string): Promise<void>
   query(queries: CoreQuery[]): Promise<CoreQueryResult[]>
   subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null): Promise<QuerySubscriptionStart>
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>
@@ -55,7 +75,6 @@ class Workspace {
   stopWatchingNotifications(): void
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>
   stopWatchingDataChanges(subscriptionId: number): void
-  reload(): Promise<void>
 }
 
 type DataChangeMonitor = (event: DataChangeEvent) => void
@@ -450,7 +469,7 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 ~NotificationManager~ 由 EntryAbility 管理应用级生命周期，独立持有活动 Workspace 的通知监控，启动及恢复前台读取通知，配置变化重新绑定。Core 成功提交、同步与全局通知事件合并触发仅包含 NotificationQuery 的统一查询批次，既有页面批次的通知结果也交给它发布。内容相同不发布，失败保留快照，过期读取或旧生命周期回调不能覆盖新状态。页面只消费 AppStorage 的共享通知快照，今天页的 DataSetManager 不因通知读取重查任务。实现边界见 [[file:页面数据集设计.org::*跨页面共享通知][跨页面共享通知]]。
 
-~AppShell~ 仍通过 CoreDataChangeService 驱动未迁移页面的数据刷新；同步区域不持有数据版本、冲突列表或通知刷新职责， ~RepositorySyncService~ 的 Promise 完成不直接刷新页面。普通本地同步通过 ~Workspace.reload~ 由 Core 发出更新；任务操作组成功提交后也由 Core 统一发布受影响仓库的更新，无实际变更或失败时不发布，避免在宿主补造完成通知。TRIGGER 的来源与全部关联目标共用这一事件。TaskEditor 只订阅注入的管理对象，保留输入草稿；关联任务更新与通知更新分别由相应管理类维护。
+页面由各自的数据管理对象处理增量与快照。修改、同步和重置向所属 Workspace 的 NotificationCenter 提交事件，process 串行调用监控器，再通过独立 TSFN 转交 ArkTS。普通本地读取直接 query，不提供 Workspace.reload，也不补造数据变更通知。任务操作组等待事件处理确认后才完成 Promise，C++ 继续在完成请求前归并已排队的查询订阅事件；TRIGGER 来源与关联目标沿用同一条链路。TaskEditor 只订阅注入的管理对象，关联任务和通知分别由相应管理类维护。
 
 ~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源是统一查询的 Notification 结果分支 。
 
@@ -480,7 +499,7 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 同步目录、历史与新增通知的全部领域规则统一见 [[file:../core/同步核心设计.org][同步核心设计]]，bridge 不扫描目录比较 resolved 与远端文件，也不在 ArkTS 去重或持久化提示。
 
-TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复用统一查询的 Notification 分支读取。一个应用进程最多一条，后来同类通知由 Rust 丢弃；不因多仓库、重复读取或 workspace 重建增加实例，应用重启不恢复。
+TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复用统一查询的 Notification 分支读取。一个应用进程最多一条，后来同类通知由 Rust 丢弃；不因多仓库或重复读取增加实例，应用重启不恢复。
 
 通知组件点击后复用 ~RepositorySyncService~ 发起当前配置全部仓库的普通同步；已有会话不并发重启，错误走现有反馈。Core 在成功确认待上传结果后清除提示，失败或取消时保留。C++ 和 ArkTS 不提前删除本地展示来模拟消费。
 

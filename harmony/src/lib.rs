@@ -4,6 +4,7 @@
 //! core 执行；ArkTS 只持有 bridge 暴露的对象并渲染结构化数据。
 
 mod bridge;
+mod runtime;
 mod http_ui;
 
 use std::cell::RefCell;
@@ -82,6 +83,15 @@ pub extern "C" fn org_tasks_harmony_workspace_retain(handle: u64) -> bool {
             remember_error(&error);
             false
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_validate_repository(handle: u64, root_directory: *const c_char) -> i32 {
+    clear_last_error();
+    match read_c_string(root_directory).and_then(|root| bridge::workspace_validate_repository(handle, root)) {
+        Ok(()) => 0,
+        Err(error) => { remember_error(&error); -1 }
     }
 }
 
@@ -404,6 +414,11 @@ pub extern "C" fn org_tasks_harmony_repo_file(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_validate_configuration(request: *const c_char) -> *mut c_char {
+    string_result(read_c_string(request).and_then(bridge::validate_configuration_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
     string_result(
         serde_json::to_string(&org_tasks_core::TodoConfig::default().to_settings())
@@ -545,17 +560,6 @@ pub extern "C" fn org_tasks_harmony_workspace_watch_data_changes(handle: u64, mo
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_unwatch_data_changes(id: u64) {
     bridge::workspace_unwatch_data_changes(id);
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_reload(handle: u64) -> i32 {
-    clear_last_error();
-    match bridge::workspace_reload(handle) {
-        Ok(()) => 0,
-        Err(e) => {
-            remember_error(&e);
-            -1
-        }
-    }
 }
 
 #[unsafe(no_mangle)]

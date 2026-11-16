@@ -62,6 +62,7 @@ test('监听失败拒绝启动并清理配置监听，之后可以重试', async
 test('普通启动不启用 HTTP，仅显式布尔测试参数生效，销毁停止', async () => {
   let starts = 0, stops = 0;
   const Ability = load('entryability/EntryAbility', {
+    '../services/NativeCoreService': { NativeCoreService: { start() {} } },
     '@kit.AbilityKit': { UIAbility: class {}, ConfigurationConstant: { ColorMode: { COLOR_MODE_DARK: 1 } } },
     '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
     '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() { starts++; }, async stop() { stops++; } } },

@@ -55,7 +55,7 @@
   repos: Vec\textless OrgRepo\textgreater \\
   todo\_defaults: TodoConfig \\
   task\_operation\_history: TaskOperationHistory
-}{execute\_task\_operations(group): () \\
+}{start(repos): OrgWorkspace \\ stop(): () \\ execute\_task\_operations(group): () \\
 task\_merge\_operations(request): TaskMergePlan \\
 subscribe\_query(query): QuerySubscriptionStart \\
 unsubscribe\_query(subscription)}
@@ -443,7 +443,7 @@ pub struct TaskPosition {
 
 * 工作空间与仓库
 
-~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库批量 ~TaskQuery~ 查询，不表示后台任务、线程池、网络客户端或持久化实现。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
+~OrgWorkspace~ 是应用级管理对象，负责聚合仓库和提供跨仓库批量 ~TaskQuery~ 查询，持有通知中心与内部任务生命周期，不拥有 Tokio runtime、线程池或网络客户端。一个应用通常只需要一个 workspace；测试、隔离导入或多账户场景可以构造多个 workspace。
 
 ~OrgRepo~ 是一个独立文件仓库。其 ~rootDirectory~ 在构造时由宿主提供，用于扫描和解析该仓库内的文件；该绝对路径不能写入 core 的持久化状态。 ~load_files(ignore_files)~ 每次从磁盘返回独立文件集合，仓库不保留它；同步历史属于仓库的本地控制数据，由专用历史方法读取； ~load::<P>~ 仅处理身份； ~sync~ 自行恢复并回溯，不要求外部传入或保留历史快照，历史通过既有控制目录与本轮同步状态关联，仓库对象不持有历史集合。文件路径通过 ~repoId~ 与相对 ~path~ 定位。
 
@@ -705,7 +705,7 @@ pub struct TodoMetadata {
   Cancel}{}
 \umlclass[x=7,y=0]{TaskState}{name: String \\
   category: Option\textless TaskStateCategory\textgreater}{defaults()}
-\umlclass[x=14,y=0]{CoreSettings}{addition\_states: Vec\textless TaskState\textgreater}{}
+\umlclass[x=14,y=0]{CoreSettings}{addition\_states: Vec\textless TaskState\textgreater}{validate()}
 \umlassoc{TaskState}{TaskStateCategory}
 \umluniassoc[mult1=1,mult2=0..*]{CoreSettings}{TaskState}
 \umlclass[x=0,y=-6]{FilterTask}{state: Option\textless TaskState\textgreater}{state() \\
@@ -1431,7 +1431,11 @@ ConfilictSelection}{}
 
 * 通知更新订阅模型
 
-通知更新与注意事项快照分开。 ~RepositoryChanged~ 表示指定仓库的数据已提交，按订阅根目录过滤； ~GlobalNotificationsChanged~ 仅保留原公开事件类型兼容；当前通知由仓库更新事件触发重查，不再使用进程全局提示标志。两者均不持久化，回调在注册表锁外执行，订阅销毁解除。
+~OrgWorkspace~ 内部持有 ~NotificationCenter~ 和 ~WorkspaceTasks~ 。start 创建本 Workspace 私有 mpsc 通道，并在宿主 Tokio 上启动 process；Workspace 克隆共享同一通道与生命周期。NotificationCenter 仅保存 sender，不持有监控器、订阅表、订阅 ID 或回调进入状态；这些数据均是 process 内的局部变量。订阅句柄只保存取消请求所需的令牌和状态接收端，不在中心内建立共享状态表。
+
+订阅、取消、事件和处理确认统一经 channel 按序交给 process。各 Workspace 的通道完全独立，业务函数显式接收自己的 NotificationCenter；相同仓库目录、相同 Core 仓库 ID 也不构成跨 Workspace 通知关系。回调在 process 内串行执行，不持有监控器注册锁；查询订阅的增量通过处理确认保持在修改返回前交付。WorkspaceTasks 先停止普通后台任务并等待在途业务，再通过 oneshot 向 process 发送停止信号，等待其排空已入队请求与释放监控器；取消一次 stop 等待不会丢失完成句柄。上述数据均不持久化。
+
+通知更新与注意事项快照分开。 ~RepositoryChanged~ 表示指定仓库的数据已提交，仅发送给发起操作的 Workspace； ~GlobalNotificationsChanged~ 仅保留原公开事件类型兼容；当前通知由仓库更新事件触发重查，不再使用进程全局提示标志。两者均不持久化，回调在 process 内串行执行，订阅销毁发送取消请求。
 
 #+begin_src rust
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -1447,12 +1451,21 @@ pub enum NotificationUpdate {
   RepositoryChanged(repo\_id: OrgRepoId) \\
   GlobalNotificationsChanged
 }{}
-\umlclass[x=8,y=0]{NotificationSubscription}{sync\_subscription: SyncSubscription}{}
+\umlclass[x=8,y=0]{NotificationSubscription}{subscription: Subscription}{}
+\umlclass[x=0,y=-4]{NotificationCenter}{sender: UnboundedSender}{subscribe() \\ unsubscribe() \\ publish() \\ process() \\ flush()}
+\umlclass[x=0,y=-8]{OrgWorkspace}{notifications: NotificationCenter \\
+tasks: WorkspaceTasks}{start() \\ stop()}
+\umlclass[x=8,y=-8]{WorkspaceTasks}{stopping \\
+tasks \\
+finalizers \\
+active}{stop()}
+\umluniassoc{OrgWorkspace}{NotificationCenter}
+\umluniassoc{OrgWorkspace}{WorkspaceTasks}
+\umldep{NotificationSubscription}{NotificationCenter}
 \umlclass[x=8,y=-4]{SyncCommitted}{
-  Repository(root\_directory, repo\_id) \\
-  GlobalNotificationsChanged
+  Repository(repo\_id, operation\_id, files, changes)
 }{}
-\umluniassoc{NotificationSubscription}{SyncCommitted}
+\umldep{NotificationCenter}{SyncCommitted}
 \umldep{NotificationSubscription}{NotificationUpdate}
 \end{tikzpicture}
 

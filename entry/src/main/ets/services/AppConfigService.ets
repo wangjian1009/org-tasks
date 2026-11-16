@@ -1,6 +1,6 @@
 // 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
-import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, CoreSettings, Workspace } from 'liborg_tasks_harmony.so'
+import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, CoreSettings, validateConfiguration } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { PreferencesStore } from './PreferencesStore'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
@@ -27,12 +27,10 @@ export class AppConfigService {
     const calendarName = await store.get('calendarName', DEFAULT_CONFIG.calendarName) as string
     const todoDefaults = await store.get('todoDefaults', await defaultTodoSettings()) as string
     const savedCoreSettings = await store.get('coreSettings', '') as string
-    let coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await new Workspace().getSettings()
+    let coreSettings: CoreSettings = savedCoreSettings ? JSON.parse(savedCoreSettings) as CoreSettings : await validateConfiguration({})
     // 旧分类拼写交给 Core 的兼容反序列化处理，设置界面与后续保存只接收规范名称。
     if (savedCoreSettings.includes('"Cancle"')) {
-      const migration = new Workspace()
-      await migration.setSettings(coreSettings)
-      coreSettings = await migration.getSettings()
+      coreSettings = await validateConfiguration({ coreSettings })
     }
     const fileDisplayMode = await store.get('fileDisplayMode', DEFAULT_CONFIG.fileDisplayMode) as string
     return {
@@ -58,9 +56,7 @@ export class AppConfigService {
         throw new Error('收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
       }
     }
-    const validation: Workspace = new Workspace()
-    await validation.setTodoDefaults(config.todoDefaults)
-    await validation.setSettings(config.coreSettings)
+    const coreSettings = await validateConfiguration({ todoDefaults: config.todoDefaults, coreSettings: config.coreSettings })
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
@@ -88,7 +84,7 @@ export class AppConfigService {
     await store.put('memoRepoId', config.memoRepoId)
     await store.put('calendarName', config.calendarName.trim())
     await store.put('todoDefaults', config.todoDefaults)
-    await store.put('coreSettings', JSON.stringify(config.coreSettings))
+    await store.put('coreSettings', JSON.stringify(coreSettings))
     await store.put('fileDisplayMode', config.fileDisplayMode)
     await store.flush()
     AppConfigService.changeListeners.forEach((listener: () => void): void => { listener() })

@@ -471,6 +471,7 @@ impl OrgWorkspace {
         &mut self,
         request: ConflictPreviewRequest,
     ) -> Result<ConflictPreview, CoreError> {
+        let _activity = self.tasks.enter()?;
         request.file.validate()?;
         if !request.file.titles.is_empty() || request.file.repo_id == "<preview>" {
             return Err(CoreError::InvalidInput("预览源必须是真实文件根路径"));
@@ -556,6 +557,7 @@ impl OrgWorkspace {
         Ok(preview)
     }
     pub async fn file_at(&self, path: &TaskPath) -> Result<OrgFile, CoreError> {
+        let _activity = self.tasks.enter()?;
         path.validate()?;
         if !path.titles.is_empty() {
             return Err(CoreError::InvalidInput("读取文档必须使用文件根路径"));

@@ -51,6 +51,7 @@ async fn file_stamp(path: &Path) -> Result<Option<FileStamp>, CoreError> {
 impl OrgWorkspace {
     /// 按当前原文与版本规划普通操作，不写盘或发布历史。
     pub async fn task_merge_operations(&self, request: &TaskMergeRequest) -> Result<TaskMergePlan, CoreError> {
+        let _activity = self.tasks.enter()?;
         let first = request.paths.first().ok_or(CoreError::InvalidInput("请至少选择两条记录"))?;
         let file = first.file.clone().ok_or(CoreError::InvalidInput("合并必须指定文件"))?;
         if request.paths.iter().any(|path| path.repo_id != first.repo_id || path.file != first.file) {
@@ -72,6 +73,7 @@ impl OrgWorkspace {
         &mut self,
         group: &TaskOperationGroup,
     ) -> Result<(), CoreError> {
+        let _activity = self.tasks.enter()?;
         if super::conflict_preview::has_preview_path(group) {
             return self.execute_preview_operations(group).await;
         }
@@ -194,10 +196,10 @@ impl OrgWorkspace {
             let changes = changes.iter().filter(|change|
                 [&change.before, &change.after].into_iter().flatten()
                     .any(|snapshot| snapshot.task.repo_id() == repo_id)).cloned().collect();
-            super::sync_events::publish_changes(self.repo(repo_id).expect("已验证仓库"),
+            super::sync_events::publish_changes(&self.notifications, self.repo(repo_id).expect("已验证仓库"),
                 group.operation_id.as_deref(), Some(changed_files), changes);
         }
-        Ok(())
+        self.notifications.flush().await
     }
 }
 
@@ -1710,7 +1712,7 @@ mod tests {
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
         let id = repo.id.clone();
-        let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let mut workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let group = serde_json::json!({"operations":[
             {"type":"Modification","data":{"path":{"repoId":id,"file":"a.org","titles":["Source"]},"modifications":[{"field":"TODO","value":"DONE"}]}},
             {"type":"Movement","data":{"path":{"repoId":id,"file":"a.org","titles":["Source"]},"position":{"parent":{"repoId":id,"file":"b.org","titles":["Target"]}}}},
@@ -1733,7 +1735,7 @@ mod tests {
         fs::write(root.join("a.org"), b"* TODO Original\n").await.unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
-        let workspace = OrgWorkspace::new(vec![repo.clone()]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
         let group: TaskOperationGroup = serde_json::from_value(serde_json::json!({"operations":[
             {"type":"Modification","data":{"path":{"repoId":repo.id,"file":"a.org","titles":["Original"]},"modifications":[{"field":"TITLE","value":"Changed"}]}}
         ]})).unwrap();
@@ -1766,7 +1768,7 @@ mod tests {
                 .await
                 .unwrap();
             let id = repo.id.clone();
-            let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+            let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
             let group = TaskOperationGroup {
                 operations: vec![
                     TaskOperation::Deletion(TaskDeletion {

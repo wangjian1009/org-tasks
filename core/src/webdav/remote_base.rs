@@ -685,7 +685,7 @@ mod tests {
         .await
         .unwrap();
         assert!(Store::load(&root, "origin").await.is_err());
-        repo.reset().await.unwrap();
+        repo.reset(None).await.unwrap();
         assert!(
             Store::load(&root, "origin")
                 .await

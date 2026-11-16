@@ -161,7 +161,7 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
 
 impl OrgRepo {
     /// 清空本地内容、历史、基线与意图；身份、根目录和宿主配置保持不变，不访问远端。
-    pub async fn reset(&mut self) -> Result<(), CoreError> {
+    pub async fn reset(&mut self, notifications: Option<&super::notification_center::NotificationCenter>) -> Result<(), CoreError> {
         let root = Path::new(&self.root_directory);
         let meta = fs::symlink_metadata(root).await.map_err(io)?;
         if !meta.is_dir()
@@ -194,7 +194,10 @@ impl OrgRepo {
             recover(root).await?;
             self.id = id;
             drop(guard);
-            super::sync_events::publish(self);
+            if let Some(notifications) = notifications {
+                super::sync_events::publish(notifications, self);
+                notifications.flush().await?;
+            }
             return Ok(());
         }
     }
@@ -238,7 +241,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        repo.reset().await.unwrap();
+        repo.reset(None).await.unwrap();
         assert_eq!(fs::read(root.join(".sync/id")).await.unwrap(), identity);
         assert!(repo.load_files(&[]).await.unwrap().is_empty());
         assert!(repo.load::<WebDavSyncPolicy>().await.unwrap().is_empty());
@@ -262,7 +265,7 @@ mod tests {
                 std::ffi::OsString::from("id")
             ]
         );
-        repo.reset().await.unwrap();
+        repo.reset(None).await.unwrap();
         assert_eq!(fs::read(root.join(".sync/id")).await.unwrap(), identity);
         fs::remove_dir_all(root).await.unwrap();
     }
@@ -273,14 +276,14 @@ mod tests {
         fs::write(root.join("A.org"), b"keep").await.unwrap();
         let guard = transaction::lock(&root).await.unwrap();
         assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(20), repo.reset())
+            tokio::time::timeout(std::time::Duration::from_millis(20), repo.reset(None))
                 .await
                 .is_err()
         );
         assert_eq!(fs::read(root.join("A.org")).await.unwrap(), b"keep");
         drop(guard);
         repo.id = "stale".into();
-        assert!(repo.reset().await.is_err());
+        assert!(repo.reset(None).await.is_err());
         assert_eq!(fs::read(root.join("A.org")).await.unwrap(), b"keep");
         fs::remove_dir_all(root).await.unwrap();
     }
@@ -342,7 +345,7 @@ mod tests {
         fs::create_dir(&external).await.unwrap();
         fs::write(external.join("keep.org"), b"keep").await.unwrap();
         std::os::unix::fs::symlink(&external, root.join("link")).unwrap();
-        repo.reset().await.unwrap();
+        repo.reset(None).await.unwrap();
         assert_eq!(fs::read(external.join("keep.org")).await.unwrap(), b"keep");
         assert!(!root.join("link").exists());
         fs::remove_dir_all(root).await.unwrap();

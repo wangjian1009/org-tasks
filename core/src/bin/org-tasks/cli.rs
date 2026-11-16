@@ -184,8 +184,8 @@ pub async fn run() -> Result<(), String> {
 }
 
 async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
-    let mut workspace = OrgWorkspace::new(vec![repo]).map_err(|error| error.to_string())?;
-    match command.target {
+    let mut workspace = OrgWorkspace::start(vec![repo]).await.map_err(|error| error.to_string())?;
+    let result = async { match command.target {
         TaskTarget::All => print_tasks(
             workspace
                 .query(&[(org_tasks_core::TaskQuery::default()).into()])
@@ -233,7 +233,9 @@ async fn task(repo: OrgRepo, command: TaskCommand) -> Result<(), String> {
             print_json(&serde_json::json!({
                 "history": workspace.task_operation_history, "nodes": task_nodes(&workspace).await?}))
         }
-    }
+    }}.await;
+    let stopped = workspace.stop().await.map_err(|error| error.to_string());
+    result.and(stopped)
 }
 
 async fn task_nodes(workspace: &OrgWorkspace) -> Result<Vec<serde_json::Value>, String> {
@@ -825,7 +827,7 @@ mod tests {
             vec![file],
             Default::default(),
         );
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let tasks = workspace
             .query(&[(org_tasks_core::TaskQuery::default()).into()])
             .await

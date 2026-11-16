@@ -106,7 +106,7 @@ Harmony 根据 ~repos~ 构造一个 ~OrgWorkspace~ ，由 core 加载各根目�
 
 * 设置、更新与删除
 
-设置页修改文件展示方式、添加或移除附加状态时显式保存当前操作，文件入口在底部面板确认后保存；不编辑全局 TODO 流程。保存前重新读取其他配置，避免覆盖其他页面的更新。文件展示方式只影响后续普通文件详情和历史备份阅读；分类变化后更新活动 workspace。目录集合变化时 workspace 重建，目录不变时沿用 session；WebDAV 策略在下一次同步按已保存参数构造。
+设置页修改文件展示方式、添加或移除附加状态时显式保存当前操作，文件入口在底部面板确认后保存；不编辑全局 TODO 流程。保存前重新读取其他配置，避免覆盖其他页面的更新。文件展示方式只影响后续普通文件详情和历史备份阅读；分类变化后更新活动 workspace。应用启动时创建唯一 workspace；目录集合变化时在同一对象增删仓库，始终沿用 session；WebDAV 策略在下一次同步按已保存参数构造。
 
 当前新建流程：校验表单、按需创建应用管理的目录、调用 core 验证目录并初始化其身份、写入凭据、写入 Preferences。配置 ID 在 core 验证前由宿主生成，不随目录 ID 变化。删除时经用户确认移除配置与密码，保留本地文件。
 
@@ -153,9 +153,9 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 
 手机设置已移除默认 TODO 流程编辑框和恢复默认按钮。已有 ~org_tasks_config.todoDefaults~ 继续读取和传给 Core，其他设置操作保持其原值。唯一缺省来源仍是 Rust ~TodoConfig::default()~ ，Harmony 通过异步 ~defaultTodoSettings()~ 获取未保存配置的初始值；已保存空字符串仍表示禁用全局识别，不回退默认。 ~DEFAULT_CONFIG.todoDefaults~ 的空值仅用于加载前占位。
 
-宿主整体保存配置时继续通过 ~Workspace.setTodoDefaults~ 校验兼容值，不写入 Org 文件、同步历史或 outbox。移除手机编辑入口不清空全局默认，也不改变文件声明覆盖规则。
+宿主整体保存配置时继续通过无状态的 ~validateConfiguration~ 调用 Core 校验 TODO 配置与附加状态，不写入 Org 文件、同步历史或 outbox。移除手机编辑入口不清空全局默认，也不改变文件声明覆盖规则。
 
-每次取得 workspace 时由外部显式传入默认配置。目录不变时沿用 session；设置变化时更新同一 native workspace 并重解析文件。文件自己的声明整组覆盖全局值，查询、后台同步、日程、笔记本与新增任务共用相同配置。合并提交前重新读取外部配置，使旧对象受到 core 版本校验。
+每次取得 workspace 时由外部显式传入默认配置。仓库目录变化也沿用同一 session；设置变化时更新同一 native workspace 并重解析文件。文件自己的声明整组覆盖全局值，查询、后台同步、日程、笔记本与新增任务共用相同配置。合并提交前重新读取外部配置，使旧对象受到 core 版本校验。
 
 空全局配置表示默认不识别 TODO；文件仍可用声明启用自己的流程。文件内空 ~#+TODO:~ 则清空该文件的状态。输入错误明确显示；分类、快捷键和日志标记由 Core 解释，状态日志按有效配置触发。
 
@@ -163,7 +163,7 @@ WebDAV 表单的“测试连接”使用当前草稿中的地址、用户名和�
 
 “设置 → 任务状态分类”逐一展示 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ 。默认状态作为只读文本展示，附加状态提供输入、添加与移除；非法状态或重复归属显示中文错误并保留输入。分类用于识别运行状态，与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 配置独立。
 
-~CoreSettings~ 通过 ~Workspace.getSettings()~ 与 ~Workspace.setSettings()~ 读写，Preferences 的 ~org_tasks_config.coreSettings~ 以 JSON 保存 ~{ additionStates: [{ name, category }] }~ ，与原有 TODO 流程文本独立。缺失时从空 Workspace 获取默认对象，不将固定默认状态复制到 ArkTS。设置页按五类组织附加值，默认标签通过 ~NativeCoreService.defaultTaskStates()~ 获取 Core 只读映射并直接列出实际名称，附加值带 ×，与分类名称、默认标签和末尾 + 同行排布，宽度不足时自然换行；点击 + 后展开输入；添加与移除只修改附加列表，错误保留输入。分类设置随全部前后台 Core 请求传入。旧配置中的 ~Cancle~ 通过 Core 的兼容反序列化规范为 ~Cancel~ ，设置界面与后续保存统一使用新名称；加载时不改写 Preferences。默认映射不保存到 Preferences，也不参与附加列表写回。
+~CoreSettings~ 通过 ~Workspace.getSettings()~ 与 ~Workspace.setSettings()~ 读写，Preferences 的 ~org_tasks_config.coreSettings~ 以 JSON 保存 ~{ additionStates: [{ name, category }] }~ ，与原有 TODO 流程文本独立。缺失时通过 ~validateConfiguration({})~ 取得 Core 默认对象，不将固定默认状态复制到 ArkTS。设置页按五类组织附加值，默认标签通过 ~NativeCoreService.defaultTaskStates()~ 获取 Core 只读映射并直接列出实际名称，附加值带 ×，与分类名称、默认标签和末尾 + 同行排布，宽度不足时自然换行；点击 + 后展开输入；添加与移除只修改附加列表，错误保留输入。分类设置随全部前后台 Core 请求传入。旧配置中的 ~Cancle~ 通过 Core 的兼容反序列化规范为 ~Cancel~ ，设置界面与后续保存统一使用新名称；加载时不改写 Preferences。默认映射不保存到 Preferences，也不参与附加列表写回。
 
 Core 固定默认值、跨配置来源合并顺序与分隔规则见 [[file:../core/数据模型.org::*任务运行状态分类][任务运行状态分类]]。文件或 ~SETUPFILE~ 可携带相同声明，随原 Org 配置读取；手机设置编辑的仅为全局附加值。
 

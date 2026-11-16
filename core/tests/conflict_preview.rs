@@ -31,7 +31,7 @@ impl Fixture {
         std::fs::write(base.join("repo/a.org"), &source).unwrap();
         let mut repo = OrgRepo::new(base.join("repo").to_str().unwrap().into()).unwrap();
         repo.load::<WebDavSyncPolicy>().await.unwrap();
-        let workspace = OrgWorkspace::new(vec![repo])
+        let workspace = OrgWorkspace::start(vec![repo]).await
             .unwrap()
             .with_preview_root(base.join("previews"))
             .unwrap();
@@ -714,7 +714,7 @@ async fn discard_preserves_crlf_bom_and_missing_final_newline_and_anchors_are_by
 async fn another_workspace_does_not_clean_a_live_preview_lease() {
     let mut f = Fixture::new().await;
     let p = f.preview().await;
-    let mut independent = OrgWorkspace::new(vec![f.workspace.repos()[0].clone()])
+    let mut independent = OrgWorkspace::start(vec![f.workspace.repos()[0].clone()]).await
         .unwrap()
         .with_preview_root(f.root.join("previews"))
         .unwrap();

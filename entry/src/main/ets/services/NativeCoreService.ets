@@ -286,7 +286,6 @@ export class CoreWorkspace {
   async subscribeQuery(query: CoreQuery, monitor: CoreDataChangeMonitor, operationId: string | null = null): Promise<CoreQuerySubscriptionStart> { return await this.native.subscribeQuery(query, monitor, operationId) }
   async querySubscriptionStatus(id: number): Promise<CoreQuerySubscriptionStatus> { return await this.native.querySubscriptionStatus(id) }
   unsubscribeQuery(id: number): void { this.native.unsubscribeQuery(id) }
-  async reload(): Promise<void> { await this.native.reload() }
 
   async repos(): Promise<CoreRepo[]> {
     const repos = await this.native.repos()
@@ -295,6 +294,10 @@ export class CoreWorkspace {
 
   async addRepo(rootDirectory: string): Promise<CoreRepo> {
     return new CoreRepo(await this.native.addRepo(rootDirectory))
+  }
+
+  async validateRepository(rootDirectory: string): Promise<void> {
+    await this.native.validateRepository(rootDirectory)
   }
 
   async removeRepo(rootDirectory: string): Promise<void> {
@@ -308,13 +311,18 @@ export class CoreWorkspace {
 }
 
 let activeWorkspace: CoreWorkspace | undefined = undefined
-let activeWorkspaceKey: string = ''
+let activeRepositoryRoots: string[] = []
 let activeTodoDefaults: string | undefined = undefined
 let activeCoreSettings: string = ''
 let workspaceQueue: Promise<void> = Promise.resolve()
 
 // 页面通过同一 workspace session 调用 core，不解释 org 内容或同步规则。
 export class NativeCoreService {
+  static start(): CoreWorkspace {
+    if (!activeWorkspace) activeWorkspace = new CoreWorkspace(new NativeWorkspace())
+    return activeWorkspace
+  }
+
   static defaultTaskStates(): Promise<CoreTaskState[]> { return defaultTaskStates() }
 
   static async query(repositories: RepoConfig[], queries: CoreQuery[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreQueryResult[]> {
@@ -347,38 +355,34 @@ export class NativeCoreService {
   }
 
   static async validateRepository(rootDirectory: string): Promise<void> {
-    const workspace = new CoreWorkspace(new NativeWorkspace())
-    const repo = await workspace.addRepo(rootDirectory)
-    await repo.load()
+    await NativeCoreService.start().validateRepository(rootDirectory)
   }
 
   static async workspaceFor(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreWorkspace> {
     const request = workspaceQueue.then(async (): Promise<CoreWorkspace> => {
       const settings = todoDefaults ?? await defaultTodoSettings()
       const encodedCoreSettings = JSON.stringify(coreSettings ?? { additionStates: [] } as CoreSettings)
-      const workspaceKey = repositories.map((repository: RepoConfig) => repository.rootDirectory).join('\n')
-      if (activeWorkspace && activeWorkspaceKey === workspaceKey) {
-        if (activeTodoDefaults !== settings) {
-          await activeWorkspace.setTodoDefaults(settings)
-          activeTodoDefaults = settings
-        }
-        if (activeCoreSettings !== encodedCoreSettings) {
-          await activeWorkspace.setSettings(coreSettings ?? { additionStates: [] })
-          activeCoreSettings = encodedCoreSettings
-        }
-        return activeWorkspace
+      const workspace = NativeCoreService.start()
+      if (activeTodoDefaults !== settings) {
+        await workspace.setTodoDefaults(settings)
+        activeTodoDefaults = settings
       }
-      const workspace = new CoreWorkspace(new NativeWorkspace())
-      await workspace.setTodoDefaults(settings)
-      await workspace.setSettings(coreSettings ?? { additionStates: [] })
-      for (const repository of repositories) {
-        await workspace.addRepo(repository.rootDirectory)
+      if (activeCoreSettings !== encodedCoreSettings) {
+        await workspace.setSettings(coreSettings ?? { additionStates: [] })
+        activeCoreSettings = encodedCoreSettings
       }
-      activeWorkspace = workspace
-      activeWorkspaceKey = workspaceKey
-      activeTodoDefaults = settings
-      activeCoreSettings = encodedCoreSettings
-      return activeWorkspace
+      const requestedRoots = repositories.map((repository: RepoConfig) => repository.rootDirectory)
+      for (const root of activeRepositoryRoots.slice()) {
+        if (requestedRoots.includes(root)) continue
+        await workspace.removeRepo(root)
+        activeRepositoryRoots = activeRepositoryRoots.filter(item => item !== root)
+      }
+      for (const root of requestedRoots) {
+        if (activeRepositoryRoots.includes(root)) continue
+        await workspace.addRepo(root)
+        activeRepositoryRoots.push(root)
+      }
+      return workspace
     })
     workspaceQueue = request.then((): void => {}, (): void => {})
     return await request
@@ -391,7 +395,6 @@ export class NativeCoreService {
 
   static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreTask[]> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
-    await workspace.reload()
     return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
   }
 

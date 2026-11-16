@@ -64,7 +64,10 @@ enum QueryWorkResult {
 impl OrgWorkspace {
     /// 唯一通用查询入口；按输入顺序返回结果，任一错误使整批失败。
     pub async fn query(&self, queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError> {
-        Ok(self.query_snapshot(queries, false).await?.results)
+        let _activity = self.tasks.enter()?;
+        let results = self.query_snapshot(queries, false).await?.results;
+        self.notifications.flush().await?;
+        Ok(results)
     }
 
     /// 一次读取同时返回查询结果与可选的原始投影；普通查询不保留原始投影。
@@ -73,6 +76,7 @@ impl OrgWorkspace {
         queries: &[CoreQuery],
         retain_data: bool,
     ) -> Result<QuerySnapshot, CoreError> {
+        let activity = std::sync::Arc::new(self.tasks.enter()?);
         if queries.is_empty() {
             return Ok(QuerySnapshot::default());
         }
@@ -191,7 +195,9 @@ impl OrgWorkspace {
             let ignored = candidates.into_iter().collect::<Vec<_>>();
             let repo_id = repo.id.clone();
             let sender = sender.clone();
+            let activity = activity.clone();
             jobs.push(tokio::spawn(async move {
+                let _activity = activity;
                 let result = async {
                     let files = repo
                         .load_files_in_unlocked(&ignored, included.as_ref())
@@ -232,7 +238,9 @@ impl OrgWorkspace {
         }
         drop(sender);
         // 合并任务也交给调用方 runtime；生产任务只负责读取文件和投影结果。
+        let merge_activity = activity.clone();
         let merge_job = tokio::spawn(async move {
+            let _activity = merge_activity;
             let mut loaded = BTreeMap::new();
             let changed = false;
             let mut file_categories = BTreeMap::new();
@@ -590,7 +598,7 @@ mod tests {
     use super::*;
     use crate::{NotificationQuery, OrgFile, OrgRepo};
 
-    fn workspace() -> OrgWorkspace {
+    async fn workspace() -> OrgWorkspace {
         let sources = [
             (
                 "r1",
@@ -625,7 +633,7 @@ mod tests {
                 "#+CATEGORY: Inbox\n* DONE Other inbox\n",
             ),
         ];
-        OrgWorkspace::new(
+        OrgWorkspace::start(
             ["r1", "r2"]
                 .into_iter()
                 .map(|id| {
@@ -645,13 +653,13 @@ mod tests {
                     repo
                 })
                 .collect(),
-        )
+        ).await
         .unwrap()
     }
 
     #[tokio::test]
     async fn batch_preserves_positions_and_independent_results_with_one_access_per_repository() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let before = workspace
             .repos()
             .iter()
@@ -706,7 +714,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_exclusions_are_intersected_before_loading_and_applied_per_query() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let repo = &workspace.repos()[0];
         std::fs::write(
             std::path::Path::new(&repo.root_directory).join("broken.org"),
@@ -774,7 +782,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_and_invalid_batches_do_not_acquire_repository_locks_or_load_files() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let before = workspace
             .repos()
             .iter()
@@ -820,7 +828,7 @@ mod tests {
 
     #[tokio::test]
     async fn mixed_queries_share_one_repository_access_and_keep_all_result_positions() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let repo = &workspace.repos()[0];
         std::fs::write(
             std::path::Path::new(&repo.root_directory).join(".orgzlyignore"),
@@ -888,7 +896,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_queries_filter_sources_tags_and_project_status_without_modifying_task_queries() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let repo = &workspace.repos()[0];
         std::fs::write(
             std::path::Path::new(&repo.root_directory).join("project.org"),
@@ -1023,7 +1031,7 @@ mod tests {
         )
         .unwrap();
         crate::model::test_support::write_files(&mut repo, vec![file]);
-        let mut workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let mut workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         workspace
             .set_settings(crate::CoreSettings {
                 addition_states: vec![crate::TaskState {
@@ -1107,7 +1115,7 @@ mod tests {
 
     #[tokio::test]
     async fn generic_defaults_include_all_records_and_expressions_filter_in_core() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let result = workspace
             .query(&[(TaskQuery::default()).into()])
             .await
@@ -1169,7 +1177,7 @@ mod tests {
 
     #[tokio::test]
     async fn categories_are_values_with_union_and_empty_means_no_category_filter() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let query = TaskQuery {
             categories: vec![
                 Some("Work".into()),
@@ -1264,7 +1272,7 @@ mod tests {
             .unwrap();
             crate::model::test_support::push_file(&mut repo, value);
         };
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let result = workspace
             .query(&[(TaskQuery::default()).into()])
             .await
@@ -1279,7 +1287,7 @@ mod tests {
 
     #[tokio::test]
     async fn ui_can_request_inbox_using_file_scope_and_include_all_record_types() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let query = TaskQuery {
             include_files: workspace.repos().iter().map(|repo| OrgFileRef {
                 repo_id: repo.id.clone(), path: "capture.org".into(),
@@ -1343,7 +1351,7 @@ mod tests {
         }).collect();
             crate::model::test_support::write_files(&mut repo, value);
         }
-        let workspace = OrgWorkspace::new(vec![repo]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let results = workspace.query(&[
             TaskQuery { expression: "has.address it.todo".into(), ..Default::default() }.into(),
             TaskQuery {
@@ -1427,7 +1435,7 @@ mod tests {
             let value = crate::TaskScanRules::parse("ann.org\n").unwrap();
             crate::model::test_support::set_rules(&mut repository, value);
         }
-        let workspace = OrgWorkspace::new(vec![repository]).unwrap();
+        let workspace = OrgWorkspace::start(vec![repository]).await.unwrap();
         let result = workspace
             .query(&[(TaskQuery {
                 expression: ".it.done s.none d.none".into(),
@@ -1446,7 +1454,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_undated_task_query_excludes_notes_done_and_either_planning_field() {
-        let mut workspace = workspace();
+        let mut workspace = workspace().await;
         let mut repo = &mut workspace.repos[0];
         {
             let value = OrgFile::new(repo.id.clone(), "undated.org".into(),
@@ -1484,7 +1492,7 @@ mod tests {
 
     #[tokio::test]
     async fn parent_tasks_remain_queryable_independently_of_their_children() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         let result = workspace
             .query(&[category_query().into()])
             .await
@@ -1516,7 +1524,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsafe_exclusions_are_rejected_and_json_defaults_are_generic() {
-        let workspace = workspace();
+        let workspace = workspace().await;
         for path in ["", "../capture.org", "/capture.org", "a\\capture.org"] {
             assert!(
                 workspace

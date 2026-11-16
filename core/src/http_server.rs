@@ -11,7 +11,7 @@ use axum::{
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{net::TcpListener, sync::oneshot};
 use tower::ServiceExt;
 
 type SharedWorkspace = Arc<Mutex<OrgWorkspace>>;
@@ -21,7 +21,7 @@ pub struct EmbeddedHttpServer {
     handlers: Arc<Mutex<Router>>,
     paths: std::collections::HashSet<String>,
     shutdown: Option<oneshot::Sender<()>>,
-    task: Option<JoinHandle<Result<(), CoreError>>>,
+    task: Arc<crate::workspace_tasks::Task>,
 }
 impl EmbeddedHttpServer {
     pub(crate) async fn start(
@@ -31,6 +31,9 @@ impl EmbeddedHttpServer {
         if !address.ip().is_loopback() {
             return Err(CoreError::InvalidInput("APP 内嵌接口仅允许回环监听"));
         }
+        let tasks = workspace.lock()
+            .map_err(|_| CoreError::Store("Workspace 锁不可用".into()))?.tasks.clone();
+        tasks.ensure_running()?;
         let listener = TcpListener::bind(address)
             .await
             .map_err(|error| CoreError::Store(format!("无法启动 APP HTTP 接口: {error}")))?;
@@ -56,20 +59,27 @@ impl EmbeddedHttpServer {
                 }
             });
         let (shutdown, stopped) = oneshot::channel();
-        let task = tokio::spawn(async move {
+        let task = tasks.spawn(move |mut stopping| async move {
             axum::serve(listener, router)
-                .with_graceful_shutdown(async {
-                    let _ = stopped.await;
+                .with_graceful_shutdown(async move {
+                    tokio::select! {
+                        _ = stopped => {},
+                        _ = async {
+                            while !*stopping.borrow_and_update() {
+                                if stopping.changed().await.is_err() { break; }
+                            }
+                        } => {},
+                    }
                 })
                 .await
                 .map_err(|error| CoreError::Store(format!("APP HTTP 接口运行失败: {error}")))
-        });
+        })?;
         Ok(Self {
             address,
             handlers,
             paths: Default::default(),
             shutdown: Some(shutdown),
-            task: Some(task),
+            task,
         })
     }
     /// 为当前测试服务注册宿主路径；请求与处理器均保持通用 HTTP 语义。
@@ -99,10 +109,7 @@ impl EmbeddedHttpServer {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
-        if let Some(task) = self.task.take() {
-            task.await
-                .map_err(|error| CoreError::Store(format!("停止 APP HTTP 接口失败: {error}")))??;
-        }
+        self.task.wait().await?;
         *self
             .handlers
             .lock()

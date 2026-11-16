@@ -7,7 +7,7 @@ pub(crate) async fn append_fixture(
     path: &str,
     title: &str,
 ) -> Result<(), CoreError> {
-    let mut workspace = OrgWorkspace::new(vec![repo.clone()])?;
+    let mut workspace = OrgWorkspace::start(vec![repo.clone()]).await?;
     let parent = TaskPath::file(repo.id.clone(), path.into());
     let after = repo
         .load_files(&[]).await?

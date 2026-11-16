@@ -312,6 +312,7 @@ export class Workspace {
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
   removeRepo(rootDirectory: string): Promise<void>;
+  validateRepository(rootDirectory: string): Promise<void>;
   query(queries: CoreQuery[]): Promise<CoreQueryResult[]>;
   subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null): Promise<QuerySubscriptionStart>;
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>;
@@ -323,7 +324,6 @@ export class Workspace {
   stopWatchingNotifications(): void;
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>;
   stopWatchingDataChanges(subscriptionId: number): void;
-  reload(): Promise<void>;
 }
 
 export class Repo {
@@ -439,3 +439,9 @@ export class ConflictPreview {
   finish(options: ConflictPreviewFinishOptions): Promise<TaskOperationGroup>;
   discard(): Promise<void>;
 }
+
+export interface ConfigurationValidation {
+  todoDefaults?: string;
+  coreSettings?: CoreSettings;
+}
+export function validateConfiguration(request: ConfigurationValidation): Promise<CoreSettings>;
