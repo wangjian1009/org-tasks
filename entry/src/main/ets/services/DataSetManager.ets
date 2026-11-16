@@ -64,7 +64,7 @@ export class DataSetManager {
     DataSetManager.active.add(this)
   }
   private validate(definitions: DataSetDefinition[]): void {
-    if (!definitions.length || new Set(definitions.map(item => item.name)).size !== definitions.length ||
+    if ((!definitions.length && !this.sets.size) || new Set(definitions.map(item => item.name)).size !== definitions.length ||
       definitions.some(item => !item.name || !item.query || item.query.type === 'notification')) throw new Error('页面数据集定义无效')
   }
   dataSet(name: string): DataSet {

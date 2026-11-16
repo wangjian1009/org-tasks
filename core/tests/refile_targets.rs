@@ -194,7 +194,7 @@ async fn query_categories_and_expression_apply_before_returning_tags() {
     assert!(
         workspace
             .query(&[(TaskQuery {
-                excluded_files: vec![OrgFileRef {
+                exclude_files: vec![OrgFileRef {
                     repo_id: support::id("r"),
                     path: "tasks.org".into()
                 }],

@@ -129,13 +129,13 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'||view==='memo'?['task','file','file']:view==='today'||view==='planned'?['task','task','file']:['task','file']);
+    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'?['task','file']:view==='memo'?['task','file','file']:view==='today'||view==='planned'?['task','task','file']:['task','file']);
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
     if(view==='someday') {
       assert.deepEqual(f.batches[0][0].repoIds,['core-b']);
-      assert.deepEqual(f.batches[0][0].query,{expression:'b."same.org" it.todo'});
+      assert.deepEqual(f.batches[0][0].query,{expression:'it.todo',includeFiles:[{repoId:'core-b',path:'same.org'}]});
     }
     if(view==='memo')assert.deepEqual(page.tagOptions,['未使用标签']);
   });
@@ -172,7 +172,7 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   assert.equal(page.tasks, projectTasks);
   assert.equal(f.batches[2][1].query.categories, undefined, '项目选择替换分类条件');
   assert.deepEqual(f.batches[2][1].repoIds, ['core-a']);
-  assert.ok(f.batches[2][1].query.expression.endsWith('b."project.org"'));
+  assert.deepEqual(f.batches[2][1].query.includeFiles,[{repoId:'core-a',path:'project.org'}]);
   assert.ok(f.batches[2][1].query.expression.includes('.is.habit'));
   await page.selectPlanRegion(null);
   assert.equal(page.tasks, tasks);
@@ -180,14 +180,14 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   assert.equal(f.batches.length,3,'取消筛选直接展示范围数据集，不重新查询');
 });
 
-test('计划未分类与字面同名分类保持独立，项目路径正确转义', () => {
+test('计划未分类与字面同名分类保持独立，项目路径通过结构化范围传递', () => {
   const f = fixture(), { plannedRegionQuery } = f.load('services/TaskViewQueries');
   const region = { key:'category',kind:'category',category:null,title:'未分类',repoId:'',filePath:'' };
   assert.deepEqual(plannedRegionQuery(region).query.categories, [null]);
   assert.deepEqual(plannedRegionQuery({...region,category:'未分类'}).query.categories, ['未分类']);
   const project = plannedRegionQuery({...region,kind:'project',repoId:'core-b',filePath:'项目 (a) "b"\\c.org'});
   assert.deepEqual(project.repoIds, ['core-b']);
-  assert.ok(project.query.expression.endsWith('b."项目 (a) \\"b\\"\\\\c.org"'));
+  assert.deepEqual(project.query.includeFiles, [{repoId:'core-b',path:'项目 (a) \"b\"\\c.org'}]);
 });
 
 test('计划刷新清除已消失的选择，同批回退全部，读取失败后可重试', async () => {
@@ -279,7 +279,7 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
   assert.equal(page.message,'');assert.equal(f.batches.length,1);
   assert.deepEqual(f.batches[0].map(item=>item.type),['task','file','task','file']);
   assert.deepEqual(f.batches[0][0].repoIds,['core-a']);
-  assert.deepEqual(f.batches[0][2].query.excludedFiles,[{repoId:'core-a',path:'same.org'}]);
+  assert.deepEqual(f.batches[0][2].query.excludeFiles,[{repoId:'core-a',path:'same.org'}]);
   assert.equal(page.needsConfiguration,false);
 });
 
@@ -292,7 +292,7 @@ test('侧边栏任务、项目、入口文件和通知合为一个批次，跨�
   assert.deepEqual(f.batches[0][4].query,{expression:'it.done'});
   assert.deepEqual(f.batches[0][1].query,{expression:'it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'});
   assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
-  assert.deepEqual(f.batches[0][8].query,{expression:'b."same.org" it.todo'});
+  assert.deepEqual(f.batches[0][8].query,{expression:'it.todo',includeFiles:[{repoId:'core-b',path:'same.org'}]});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
 });
 

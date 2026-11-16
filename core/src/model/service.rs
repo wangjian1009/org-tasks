@@ -985,7 +985,9 @@ async fn scan_org_files(
                 continue;
             }
             if metadata.is_dir() {
-                if name == ".sync" {
+                if name == ".sync" || included_files.is_some_and(|files| {
+                    !files.iter().any(|path| Path::new(path).starts_with(&child))
+                }) {
                     continue;
                 }
                 directories.push(child);

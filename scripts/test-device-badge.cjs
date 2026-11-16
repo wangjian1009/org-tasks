@@ -86,10 +86,10 @@ test('后台单次刷新只发一个混合批次，按 Core 仓库隔离收件�
   const batch = f.batches[0];
   assert.deepEqual(batch.map(query => query.type), ['task', 'notification', 'task', 'file']);
   assert.equal(batch[0].query.expression, 'it.todo d.lt.tomorrow');
-  assert.deepEqual(Object.keys(batch[0].query).sort(), ['excludedFiles', 'expression']);
-  assert.deepEqual(batch[0].query.excludedFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
+  assert.deepEqual(Object.keys(batch[0].query).sort(), ['excludeFiles', 'expression']);
+  assert.deepEqual(batch[0].query.excludeFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
   assert.deepEqual(batch[2].repoIds, ['core-a']);
-  assert.deepEqual(batch[2].query, { expression: 'b."inbox.org"' });
+  assert.deepEqual(batch[2].query, { expression: '', includeFiles:[{repoId:'core-a',path:'inbox.org'}] });
   assert.deepEqual(batch[3].query.includeFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
   assert.equal(f.callbacks.size, 0); assert.equal(f.timers.size, 0);
 });
@@ -98,7 +98,7 @@ test('未配置或失效收件箱贡献零，不回退到其他文件；总数�
   const f = fixture(); f.missing(); await f.service.refresh({}); assert.deepEqual(f.writes, [4]);
   f.config.inboxRepoId = ''; f.counts(10, 0, 0); await f.service.refresh({});
   assert.deepEqual(f.writes, [4, 0]); assert.equal(f.batches[1].length, 2);
-  assert.deepEqual(f.batches[1][0].query.excludedFiles, []);
+  assert.deepEqual(f.batches[1][0].query.excludeFiles, []);
 });
 
 test('查询或系统写入失败保留原数字，后续请求正常恢复', async () => {

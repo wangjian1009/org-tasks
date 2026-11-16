@@ -57,7 +57,7 @@ export class DeviceBadgeService {
         const inbox = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
         const queries: CoreQuery[] = [
           { type: 'task', query: { expression: 'it.todo d.lt.tomorrow',
-            excludedFiles: inbox ? [inbox.reference] : [] } },
+            excludeFiles: inbox ? [inbox.reference] : [] } },
           { type: 'notification', query: {} }
         ]
         if (inbox) { queries.push(inbox.task); queries.push(inbox.file) }

@@ -149,7 +149,7 @@ struct TaskOverview {
       if (view === 'today') definitions.push({ name: 'priority', query: { type: 'task', query: todayPriorityQuery() } })
       if (view === 'planned') definitions.push({ name: 'tasks', query: region ? plannedRegionQuery(region) : { type: 'task', query: overviewTaskQuery('planned') } })
     }
-    definitions.push({ name: 'files', query: { type: 'file', query: {} } })
+    if (view !== 'someday') definitions.push({ name: 'files', query: { type: 'file', query: {} } })
     return definitions
   }
 

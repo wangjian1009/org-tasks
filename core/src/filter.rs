@@ -17,10 +17,6 @@ pub(crate) struct Filter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum FilterExpression {
-    InBook {
-        value: String,
-        negated: bool,
-    },
     State {
         value: Option<crate::TaskStateCategory>,
         negated: bool,
@@ -382,6 +378,17 @@ impl FilterDate {
 }
 
 impl Filter {
+    pub(crate) fn validate_expression(source: &str) -> Result<(), crate::CoreError> {
+        if tokenize(source).iter().any(|token| {
+            token.strip_prefix('.').unwrap_or(token).starts_with("b.")
+        }) {
+            return Err(crate::CoreError::InvalidInput(
+                "文件范围请使用 includeFiles/excludeFiles，不支持 b. 表达式条件",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn parse(source: &str) -> Self {
         let mut parser = DottedFilterParser::new(source);
         let expression = parser.parse_expression(false);
@@ -841,9 +848,6 @@ fn source_position(source: &[u8], offset: usize) -> (u32, u32) {
 
 fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: NaiveDate) -> bool {
     match expression {
-        FilterExpression::InBook { value, negated } => {
-            apply_negation(task.path() == *value, *negated)
-        }
         FilterExpression::State { value, negated } => apply_negation(
             task.state.as_ref().and_then(|state| state.category) == *value,
             *negated,
@@ -1229,7 +1233,6 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
         ("it.", 0),
         ("ps.", 1),
         ("tn.", 2),
-        ("b.", 3),
         ("i.", 4),
         ("p.", 5),
         ("t.", 6),
@@ -1257,10 +1260,6 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
                 1 => single_letter(value)
                     .map(|value| FilterExpression::SetPriority { value, negated }),
                 2 => Some(FilterExpression::OwnTag {
-                    value: unquote(value),
-                    negated,
-                }),
-                3 => Some(FilterExpression::InBook {
                     value: unquote(value),
                     negated,
                 }),
@@ -1635,13 +1634,9 @@ mod tests {
                 ]),
             ]))
         );
-        assert_eq!(
-            Filter::parse("b.\"book(1) name\"").expression,
-            Some(FilterExpression::InBook {
-                value: "book(1) name".into(),
-                negated: false
-            })
-        );
+        assert!(Filter::validate_expression("b.\"book(1) name\"").is_err());
+        assert!(Filter::validate_expression(".b.old.org").is_err());
+        assert!(Filter::validate_expression("\"b.old.org\"").is_ok());
     }
 
     #[test]

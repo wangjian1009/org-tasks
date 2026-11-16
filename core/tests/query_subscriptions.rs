@@ -460,7 +460,7 @@ async fn excluded_ignored_and_unchanged_records_do_not_produce_member_events() {
     ])
     .await;
     let query: CoreQuery = TaskQuery {
-        excluded_files: vec![OrgFileRef {
+        exclude_files: vec![OrgFileRef {
             repo_id: f.workspace.repos()[0].id.clone(),
             path: "b.org".into(),
         }],
@@ -499,4 +499,25 @@ async fn new_files_enter_empty_task_and_file_subscriptions_from_the_same_creatio
     assert_eq!(changes[0].kind, TaskDataChangeKind::Created);
     task_data.assert_matches(&f.workspace, &tasks).await;
     file_data.assert_matches(&f.workspace, &files).await;
+}
+
+#[tokio::test]
+async fn included_file_subscription_ignores_other_files_and_tracks_membership_changes() {
+    let mut f = Fixture::new(&[("a.org", "* TODO A\n"), ("b.org", "* TODO B\n")]).await;
+    let reference = |path: &str| OrgFileRef { repo_id: f.workspace.repos()[0].id.clone(), path: path.into() };
+    let query: CoreQuery = TaskQuery {
+        expression: "it.todo".into(),
+        include_files: vec![reference("a.org"), reference("b.org")],
+        exclude_files: vec![reference("b.org")],
+        ..Default::default()
+    }.into();
+    let (_subscription, mut receiver) = f.subscribe(query.clone()).await;
+    f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"b.org","titles":["B"]},"modifications":[{"field":"TITLE","value":"Other"}]}}])).await;
+    assert!(receiver.consume().is_empty());
+    f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["A"]},"modifications":[{"field":"TODO","value":"DONE"}]}}])).await;
+    receiver.assert_matches(&f.workspace, &query).await;
+    assert!(receiver.data.clone().into_task().unwrap().tasks.is_empty());
+    f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["A"]},"modifications":[{"field":"TODO","value":"TODO"}]}}])).await;
+    receiver.assert_matches(&f.workspace, &query).await;
+    assert_eq!(receiver.data.clone().into_task().unwrap().tasks.len(), 1);
 }

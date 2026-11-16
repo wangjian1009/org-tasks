@@ -3,24 +3,16 @@ use serde::{Deserialize, Serialize};
 use crate::filter::FilterTask;
 use crate::CoreError;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct TaskQuery {
     pub expression: String,
     pub categories: Vec<Option<String>>,
-    pub excluded_files: Vec<OrgFileRef>,
-}
-impl Default for TaskQuery {
-    fn default() -> Self {
-        Self {
-            expression: String::new(),
-            categories: Vec::new(),
-            excluded_files: Vec::new(),
-        }
-    }
+    pub include_files: Vec<OrgFileRef>,
+    pub exclude_files: Vec<OrgFileRef>,
 }
 
-/// 精确到仓库与文件的查询排除对象。
+/// 精确到仓库与文件的查询范围对象。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OrgFileRef {
@@ -42,7 +34,7 @@ pub struct TaskQueryResult {
     pub categories: Vec<TaskCategory>,
 }
 
-/// 通用查询共享一次仓库访问；TaskQuery 的字段与求值规则保持原定义。
+/// 通用查询共享一次仓库访问，各项结果分别应用自己的文件范围。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum CoreQuery {

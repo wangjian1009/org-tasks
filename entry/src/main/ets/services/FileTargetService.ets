@@ -47,9 +47,9 @@ export class FileTargetService {
     const target = configuredFileTarget(config, kind)
     const repo = repos.find(item => item.rootDirectory === repository.rootDirectory)
     if (!repo) return undefined
-    const query = kind === 'someday' ? overviewTaskQuery('someday', target.path) :
-      kind === 'memo' ? memoRecordQuery(target.path) : inboxRecordQuery(target.path)
     const reference: CoreOrgFileRef = { repoId: repo.id, path: target.path }
+    const query = kind === 'someday' ? overviewTaskQuery('someday', reference) :
+      kind === 'memo' ? memoRecordQuery(reference) : inboxRecordQuery(reference)
     return { task: { type: 'task', repoIds: [repo.id], query },
       file: { type: 'file', query: { includeFiles: [reference] } }, reference }
   }

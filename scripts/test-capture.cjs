@@ -224,16 +224,16 @@ test('同名文件只查询和写入选中的仓库，某天和备忘的完成�
   assert.deepEqual(result.tasks.map(task => task.heading), ['work']);
   assert.deepEqual(f.queries[0].repos.map(repo => repo.id), ['personal', 'work']);
   assert.deepEqual(f.queries[0].repoIds, ['core-work']);
-  assert.equal(f.queries[0].query.expression, 'b."inbox.org"');
+  assert.deepEqual(f.queries[0].query, {expression:'',includeFiles:[{repoId:'core-work',path:'inbox.org'}]});
   await f.CaptureService.save({}, '标题');
   assert.deepEqual(f.calls[0].group.operations[0].data.position.parent, { repoId: 'core-work', file: 'inbox.org', titles: [] });
   await f.FileTargetService.select({}, 'someday', 'work', 'inbox.org');
   await f.FileTargetService.query(f.config, 'someday');
-  assert.deepEqual(f.queries[1].query, { expression: 'b."inbox.org" it.todo' });
+  assert.deepEqual(f.queries[1].query, { expression: 'it.todo', includeFiles:[{repoId:'core-work',path:'inbox.org'}] });
   await f.FileTargetService.select({}, 'memo', 'personal', 'inbox.org');
   await f.FileTargetService.query(f.config, 'memo');
-  assert.deepEqual(Object.keys(f.queries[2].query).sort(), ['expression']);
-  assert.equal(f.queries[2].query.expression, 'b."inbox.org" .o.modified');
+  assert.deepEqual(Object.keys(f.queries[2].query).sort(), ['expression','includeFiles']);
+  assert.equal(f.queries[2].query.expression, '.o.modified');
 });
 
 test('备忘文件候选标签只取所选文件的 Core 元信息，不混入其他文件配置', async () => {
@@ -245,7 +245,7 @@ test('备忘文件候选标签只取所选文件的 Core 元信息，不混入�
   assert.deepEqual(result.tagOptions, ['家居', 'unused']);
   assert.deepEqual(result.tagGroups, [['家居', 'unused']]);
   assert.equal(f.queries.length, 1);
-  assert.equal(f.queries[0].query.expression, 'b."inbox.org" .o.modified');
+  assert.equal(f.queries[0].query.expression, '.o.modified');
 });
 
 test('同批查询识别已删除或忽略文件，不创建同名文件，保留原目标供重新选择', async () => {

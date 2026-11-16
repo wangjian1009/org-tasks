@@ -1,22 +1,22 @@
-import { CoreQuery, CoreTaskQuery } from './NativeCoreService'
+import { CoreQuery, CoreTaskQuery, CoreOrgFileRef } from './NativeCoreService'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 
-// 只组装界面所需的查询请求；任务筛选、完成类型与父子关系均由 core 求值。
-export function inboxRecordQuery(inboxFile: string): CoreTaskQuery {
-  const path = inboxFile.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  return { expression: `b."${path}"` }
+// 只组装查询请求；文件范围由 Core 在扫描时应用，不进入表达式。
+export function inboxRecordQuery(file: CoreOrgFileRef): CoreTaskQuery {
+  return { expression: '', includeFiles: [file] }
 }
 
-export function memoRecordQuery(memoFile: string, tag: string = ''): CoreTaskQuery {
+export function memoRecordQuery(file: CoreOrgFileRef, tag: string = ''): CoreTaskQuery {
   const escapedTag = tag.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  const tagExpression = tag.length > 0 ? ` t."${escapedTag}"` : ''
-  return { expression: `${inboxRecordQuery(memoFile).expression}${tagExpression} .o.modified` }
+  const tagExpression = tag.length > 0 ? `t."${escapedTag}" ` : ''
+  return { expression: `${tagExpression}.o.modified`, includeFiles: [file] }
 }
 
-// TODO 来自所选仓库，note 仅来自配置的备忘文件；地址与完成状态由 Core 判断。
-export function shareLocationTaskQuery(memoFile: string = ''): CoreTaskQuery {
-  const scope = memoFile ? `(it.todo or (${inboxRecordQuery(memoFile).expression} it.none))` : 'it.todo'
-  return { expression: `has.address ${scope}` }
+// 两项查询的状态范围互斥；待办来自所选仓库，无状态记录仅来自备忘文件。
+export function shareLocationTaskQueries(memoFile?: CoreOrgFileRef): CoreTaskQuery[] {
+  const queries: CoreTaskQuery[] = [{ expression: 'has.address it.todo' }]
+  if (memoFile) queries.push({ expression: 'has.address it.none', includeFiles: [memoFile] })
+  return queries
 }
 
 export type TaskOverview = 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook'
@@ -32,14 +32,14 @@ export function overviewTitle(view: TaskOverview): string {
   }
 }
 
-export function overviewTaskQuery(view: TaskOverview, somedayFile: string = '', memoFile: string = ''): CoreTaskQuery {
+export function overviewTaskQuery(view: TaskOverview, file?: CoreOrgFileRef): CoreTaskQuery {
   let expression = ''
   switch (view) {
     case 'today': expression = '.it.done (s.le.today or d.le.today)'; break
     case 'planned': expression = '.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'; break
     case 'anytime': expression = 'it.todo s.none d.none'; break
-    case 'someday': expression = `${inboxRecordQuery(somedayFile).expression} it.todo`; break
-    case 'memo': return memoRecordQuery(memoFile)
+    case 'someday': return { expression: 'it.todo', includeFiles: file ? [file] : [] }
+    case 'memo': return file ? memoRecordQuery(file) : { expression: '.o.modified' }
     case 'logbook': expression = 'it.done'; break
   }
   return { expression }
@@ -62,7 +62,7 @@ export function plannedRegionQuery(region: TaskRegionData | null): CoreQuery {
   if (region?.kind === 'category') {
     query.categories = [region.category]
   } else if (region?.kind === 'project') {
-    query.expression = `(${query.expression}) ${inboxRecordQuery(region.filePath).expression}`
+    query.includeFiles = [{ repoId: region.repoId, path: region.filePath }]
     return { type: 'task', query, repoIds: [region.repoId] }
   }
   return { type: 'task', query }

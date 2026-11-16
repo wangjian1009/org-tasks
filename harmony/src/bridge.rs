@@ -1140,7 +1140,7 @@ mod tests {
         assert!(
             query_task_results_json(
                 handle,
-                r#"[{}, {"excludedFiles": [{"repoId":"", "path":"tasks.org"}]}]"#.into()
+                r#"[{}, {"excludeFiles": [{"repoId":"", "path":"tasks.org"}]}]"#.into()
             )
             .is_err()
         );
@@ -1541,7 +1541,7 @@ mod tests {
         workspace_add_repo(handle, root_directory.clone()).unwrap();
         let query = || -> serde_json::Value {
             serde_json::from_str::<Vec<serde_json::Value>>(
-                &query_task_results_json(handle, r#"[{"expression":"b.\"inbox.org\""}]"#.into())
+                &query_task_results_json(handle, serde_json::json!([{"includeFiles":[{"repoId":repo_id(handle, root_directory.clone()).unwrap(),"path":"inbox.org"}]}]).to_string())
                     .unwrap(),
             )
             .unwrap()
@@ -1633,7 +1633,7 @@ mod tests {
             .tasks
             .len();
         assert_eq!(result["tasks"].as_array().unwrap().len(), expected);
-        let excluded = serde_json::json!({ "excludedFiles": [{ "repoId":tasks[0]["repoId"], "path":"tasks.org" }] });
+        let excluded = serde_json::json!({ "excludeFiles": [{ "repoId":tasks[0]["repoId"], "path":"tasks.org" }] });
         let result: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
             &query_task_results_json(handle, serde_json::json!([excluded]).to_string()).unwrap(),
         )
@@ -1799,7 +1799,7 @@ mod tests {
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
         let tasks: serde_json::Value = serde_json::from_str::<Vec<serde_json::Value>>(
-            &query_task_results_json(handle, r#"[{"expression":"b.inbox.org"}]"#.into()).unwrap(),
+            &query_task_results_json(handle, serde_json::json!([{"includeFiles":[{"repoId":repo_id(handle, root.to_string_lossy().into_owned()).unwrap(),"path":"inbox.org"}]}]).to_string()).unwrap(),
         )
         .unwrap()
         .remove(0);

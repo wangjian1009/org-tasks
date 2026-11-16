@@ -1,11 +1,12 @@
 import { common } from '@kit.AbilityKit'
-import { CoreAddressLink, CoreTask, NativeCoreService, taskResult } from '../services/NativeCoreService'
+import { CoreAddressLink, CoreOrgFileRef, CoreQuery, CoreTask, NativeCoreService, taskResult } from '../services/NativeCoreService'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
 import { FileTargetService } from '../services/FileTargetService'
 import { ShareLocationRequest, SharedLocation, parseSharedLocation, resolveAmapShortUrl } from '../services/SharedLocationService'
 import { UiColor } from '../ui/Theme'
-import { shareLocationTaskQuery } from '../services/TaskViewQueries'
+import { compareRecords } from '../ui/QueryOrderPresentation'
+import { shareLocationTaskQueries } from '../services/TaskViewQueries'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
 import { ListSectionHeader } from '../components/controls/ListSectionHeader'
 
@@ -90,9 +91,11 @@ struct ShareLocation {
       const memoTarget = await FileTargetService.resolve(config, 'memo')
       for (const repository of config.repos) {
         if (request !== this.loadRequest) return
-        const query = shareLocationTaskQuery(memoTarget?.repository.id === repository.id ? memoTarget.path : '')
-        const result = taskResult((await NativeCoreService.query([repository], [{ type: 'task', query }], config.todoDefaults, config.coreSettings))[0])
-        for (const task of result.tasks) { results.push(task); repositories.set(task.id, repository) }
+        const reference: CoreOrgFileRef | undefined = memoTarget?.repository.id === repository.id ? { repoId: memoTarget.repo.id, path: memoTarget.path } : undefined
+        const queries: CoreQuery[] = shareLocationTaskQueries(reference).map(query => ({ type: 'task', query } as CoreQuery))
+        const batch = await NativeCoreService.query([repository], queries, config.todoDefaults, config.coreSettings)
+        const tasks: CoreTask[] = batch.flatMap(result => taskResult(result).tasks).sort(compareRecords)
+        for (const task of tasks) { results.push(task); repositories.set(task.id, repository) }
       }
       if (request !== this.loadRequest) return
       this.taskRepositories = repositories

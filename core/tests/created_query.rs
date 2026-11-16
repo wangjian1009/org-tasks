@@ -143,7 +143,7 @@ fn entry(title: &str, date: NaiveDate, time: &str) -> String {
 }
 
 #[tokio::test]
-async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_rejected() {
+async fn exclude_files_are_structured_repository_specific_and_legacy_paths_are_rejected() {
     let source = "* Note\n:PROPERTIES:\n:CREATED: [2026-11-08 Sun 11:00]\n:END:\n";
     let w = OrgWorkspace::new(vec![
         repo("a", &[("inbox.org", source)]),
@@ -151,7 +151,7 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
     ])
     .unwrap();
     let q = TaskQuery {
-        excluded_files: vec![OrgFileRef {
+        exclude_files: vec![OrgFileRef {
             repo_id: support::id("a"),
             path: "inbox.org".into(),
         }],
@@ -169,7 +169,7 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
     assert_eq!(tasks[0].repo_id(), support::id("b"));
     assert!(
         w.query(&[(TaskQuery {
-            excluded_files: vec![
+            exclude_files: vec![
                 OrgFileRef {
                     repo_id: support::id("a"),
                     path: "inbox.org".into()
@@ -190,13 +190,13 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
             .tasks
             .is_empty()
     );
-    assert!(serde_json::from_str::<TaskQuery>(r#"{"excludedFiles":["inbox.org"]}"#).is_err());
+    assert!(serde_json::from_str::<TaskQuery>(r#"{"excludeFiles":["inbox.org"]}"#).is_err());
     assert!(
-        serde_json::from_str::<TaskQuery>(r#"{"excludedFiles":[{"path":"inbox.org"}]}"#).is_err()
+        serde_json::from_str::<TaskQuery>(r#"{"excludeFiles":[{"path":"inbox.org"}]}"#).is_err()
     );
     assert!(
         w.query(&[(TaskQuery {
-            excluded_files: vec![OrgFileRef {
+            exclude_files: vec![OrgFileRef {
                 repo_id: "".into(),
                 path: "inbox.org".into()
             }],
@@ -208,7 +208,7 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
     );
     assert!(
         w.query(&[(TaskQuery {
-            excluded_files: vec![OrgFileRef {
+            exclude_files: vec![OrgFileRef {
                 repo_id: support::id("a"),
                 path: "../x.org".into()
             }],
@@ -225,7 +225,7 @@ async fn excluded_files_are_structured_repository_specific_and_legacy_paths_are_
     assert_eq!(
         serde_json::to_value(TaskQuery::default()).unwrap(),
         serde_json::json!({
-            "expression": "", "categories": [], "excludedFiles": []
+            "expression": "", "categories": [], "includeFiles": [], "excludeFiles": []
         })
     );
 }

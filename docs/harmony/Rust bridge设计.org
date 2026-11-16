@@ -287,8 +287,8 @@ interface OrgFileRef { repoId: string; path: string }
 interface TaskQuery {
   expression?: string
   categories?: (string | null)[]
-  excludedFiles?: OrgFileRef[]
-
+  includeFiles?: OrgFileRef[]
+  excludeFiles?: OrgFileRef[]
 }
 interface TaskCategory {
   key: string
@@ -301,7 +301,7 @@ interface TaskQueryResult {
 }
 #+end_src
 
-Rust 默认不限制表达式、分类和文件，组合任务包含开关默认为真，状态范围只由表达式决定。没有选择分类时传空 ~categories~ 。UI 根据收件箱设置组装 ~excludedFiles~ 或文件查询表达式；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。 ~.it.none~ 表示具有状态， ~.it.done~ 表示排除完成与取消；旧 ~includeDone~ 字段由 Rust 按未知字段拒绝。C++ N-API 原样编组整个查询数组，ArkTS wrapper 直接复用 native ~TaskQuery~ 类型，不再编组独立的状态包含开关。
+Rust 默认不限制表达式、分类和文件，组合任务包含开关默认为真，状态范围只由表达式决定。没有选择分类时传空 ~categories~ 。两个文件范围字段同时配置时取包含集合减排除集合；C++ 在工作线程原样传递结构化请求，Core 在扫描阶段应用范围。UI 根据收件箱设置组装 ~includeFiles~ 与 ~excludeFiles~ 文件范围；Core 没有 ~inboxFile~ 、 ~toggleCategory~ 、选中状态或页面视图字段。 ~TaskViewQueries.ets~ 只生成请求对象，不处理返回记录。 ~.it.none~ 表示具有状态， ~.it.done~ 表示排除完成与取消；旧 ~includeDone~ 字段由 Rust 按未知字段拒绝。C++ N-API 原样编组整个查询数组，ArkTS wrapper 直接复用 native ~TaskQuery~ 类型，不再编组独立的状态包含开关。
 
 不得在 ~AppShell~ 、 ~CategoryTasks~ 、 ~Inbox~ 或 ArkTS service 中按条件重新过滤查询结果；页面可以维护 checkbox 状态并组装新请求，再使用 Core 的新结果替换旧列表。文件详情的数据按已确定的仓库与文件身份关联属于显示投影，不承担查询求值。今天、随时、某天和备忘的标签筛选条是明确的展示层例外，仅按已取得的 ~task.tags~ 控制本页任务可见性，不更改上述 bridge、查询参数或原始快照；不新增 Core 请求，不影响全局计数。
 
@@ -413,9 +413,9 @@ interface TitleCount {
 
 * Query 文件引用与创建日期扩展
 
-~TaskQuery.excludedFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
+~TaskQuery.includeFiles~ 与 ~excludeFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径先包含再排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
 
-~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，使用 ~excludedFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
+~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，使用 ~excludeFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 
 * 同步详情投影
 
@@ -464,7 +464,7 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 ~FilterTask.body_first_line()~ 在 Rust 查询投影时映射为只读、可枚举的 ~Task.bodyFirstLine: string | null~ ，C++、ArkTS wrapper 与路由完整透传，空正文保留 ~null~ 。任务 ~modifiedAt~ 通过 Core 的 ~modified_at()~ 获取，Core 仅解释标题自身的 ~LAST_MODIFIED~ 属性；属性缺失时为 ~null~ 。备忘摘要只组合 ~modifiedAt ?? createdAt~ 的本地日期、有效 ~tags~ 与 ~bodyFirstLine~ ，不从原始正文或 HTML 推断第一行。
 
-~FileTargetService.query~ 的备忘文件请求使用 ~b."路径" .o.modified~ ，完成与组合标题开关均开启。排序与缺失值置末由 Core 统一处理；宿主沿用返回顺序。固定卡片点击进入既有 ~MemoEdit~ ，左滑删除继续通过 ~NoteService.remove~ 提交带完整路径和文件版本的 Deletion。
+~FileTargetService.query~ 的备忘文件请求通过 ~includeFiles~ 指定配置文件，使用 ~.o.modified~ 排序。排序与缺失值置末由 Core 统一处理；宿主沿用返回顺序。固定卡片点击进入既有 ~MemoEdit~ ，左滑删除继续通过 ~NoteService.remove~ 提交带完整路径和文件版本的 Deletion。
 
 * 任务卡片原位编辑
 
@@ -575,7 +575,7 @@ finish 返回保持原顺序、路径已映射至源文件的 TaskOperationGroup
 
 * 查询结果与文件加载生命周期
 
-Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的仓库文件快照。 ~load_files~ 经新增的 ~org_tasks_harmony_repo_load_files~ 在既有 N-API worker 中执行，JSON 数组只在 ABI 内编组为相对路径列表； ~Repo.loadFiles~ 返回独立值对象。任务请求继续使用既有 ~TaskQuery.excludedFiles~ ，Core 按仓库 ID 提取相对路径，不在 ArkTS 执行文件筛选。
+Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的仓库文件快照。 ~load_files~ 经新增的 ~org_tasks_harmony_repo_load_files~ 在既有 N-API worker 中执行，JSON 数组只在 ABI 内编组为相对路径列表； ~Repo.loadFiles~ 返回独立值对象。任务请求继续使用既有 ~TaskQuery.includeFiles~ 与 ~excludeFiles~ ，Core 按仓库 ID 提取相对路径，不在 ArkTS 执行文件筛选。
 
 ~FilterTask.file_version()~ 和 ~edit_content()~ 在 Core 投影时从同一文件产生，bridge 直接构造既有 ~Task.fileVersion~ 与 ~editContent~ ，不再二次查找源文件。结果字段、版本算法和错误枚举不变；Rust 磁盘接口采用异步 ~Result~ ，TS 保持 Promise 错误传播。
 
@@ -607,7 +607,7 @@ Harmony 每批只取得一次 workspace 业务 Mutex，Core 每仓库加锁一�
 
 * 唯一统一查询接口
 
-系统已移除 ~org_tasks_harmony_workspace_notifications~ 与 ~org_tasks_harmony_repo_file_metadata~ 两个 FFI 符号、对应 N-API 方法、类型声明和 ArkTS 读取封装。通用读取只有 ~Workspace.query(queries: CoreQuery[]): Promise<CoreQueryResult[]>~ ，旧 TaskQuery 数组协议拒绝；TaskQuery 字段不变，作为 Task 分支的 query 参数。
+系统已移除 ~org_tasks_harmony_workspace_notifications~ 与 ~org_tasks_harmony_repo_file_metadata~ 两个 FFI 符号、对应 N-API 方法、类型声明和 ArkTS 读取封装。通用读取只有 ~Workspace.query(queries: CoreQuery[]): Promise<CoreQueryResult[]>~ ，旧 TaskQuery 数组协议拒绝；TaskQuery 作为 Task 分支的 query 参数，文件范围为 ~includeFiles~ 与 ~excludeFiles~ ，先包含再排除；旧 ~excludedFiles~ 与 ~b.~ 文件表达式由 Core 拒绝。
 
 JSON 请求按 ~type~ 区分 task、file、notification，结果使用对应 type 与 result。C++ 只在 Task 结果中包装原生 Task，在 File 结果中为元信息注册项目访问方法，Notification 结果直接透传。一次 async work 调用整个批次，整个结果组装成功后才 resolve，任一包装失败 reject 整个 Promise。
 

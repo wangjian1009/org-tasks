@@ -90,7 +90,7 @@ export class MemoCardService {
     const target = FileTargetService.prepare(config, await workspace.repos(), 'memo')
     if (!target) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
     const results = await workspace.query([{ type: 'task', repoIds: [target.reference.repoId],
-      query: memoRecordQuery(target.reference.path, tag) }, target.file])
+      query: memoRecordQuery(target.reference, tag) }, target.file])
     const metadata = fileResult(results[1])[0]
     if (!metadata) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
     const result = taskResult(results[0])

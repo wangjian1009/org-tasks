@@ -7,7 +7,7 @@
 
 本文定义已实施的唯一通用批量查询入口，任务、文件元信息和通知共用同次仓库访问。现行接口仍见 [[file:批量查询接口设计.org][批量查询接口设计]]。本轮新增 ~CoreQuery~ 、 ~CoreQueryResult~ 、 ~FileQuery~ 与 ~NotificationQuery~ ，使任务、文件元信息和当前通知可以在同一个查询数组中表达；文件元信息与任务另增加 ~project()~ 访问方法。
 
-~TaskQuery~ 和 ~TaskQueryResult~ 保持原定义与既有过滤语义，不向其中新增文件范围、文件元信息或通知字段。本次不向 TaskQuery 增加字段；仓库范围由外层 CoreQuery 承载。
+~TaskQuery~ 通过 ~include_files~ 与 ~exclude_files~ 表达文件范围，替代旧 ~excluded_files~ 和表达式的文件条件；状态与排序继续使用表达式。 ~TaskQueryResult~ 保持原定义，仓库范围由外层 CoreQuery 承载。
 
 * 统一入口与结果
 
@@ -63,12 +63,12 @@ pub struct FileQuery {
 | 字段 | 默认值 | 语义 |
 |-
 | ~include_files~ | 空数组 | 非空时只查询所列具体文件，多项取并集；空数组不限制文件范围。每项精确匹配 Core 仓库 ID 与安全相对路径，不支持裸路径或通配符。 |
-| ~exclude_files~ | 空数组 | 非空时排除所列具体文件；空数组不排除。不得与非空 ~include_files~ 同时使用。 |
+| ~exclude_files~ | 空数组 | 非空时排除所列具体文件；空数组不排除。与 ~include_files~ 同时非空时，从包含集合扣除排除集合。 |
 | ~file_tags~ | 空数组 | 任务标签条件，空数组不限制；匹配任务的有效标签，不解释为文件中声明的候选标签。多个标签取并集，文件中存在至少一条具有任一标签的任务即返回该文件元信息。 |
 | ~is_project~ | ~None~ | 三态条件：不筛选项目属性、只保留项目文件范围、只保留非项目文件范围，依次对应 ~None~ 、 ~Some(true)~ 、 ~Some(false)~ 。项目依据文件级 ~project~ 标签判断，与标题是否有子任务无关。 |
 | ~include_ignored~ | ~false~ | 是否包含被任务扫描规则隐藏的文件。为真时保留这些文件，且元信息的 ~is_ignore~ 为真；为假时不返回。 |
 
-~include_files~ 与 ~exclude_files~ 均非空时，在加锁与加载前返回输入错误，整批失败；二者均省略或为空时不限制文件范围。重复文件引用按集合处理。空仓库 ID、未知仓库 ID 和非法路径均是输入错误。
+TaskQuery 与 FileQuery 均先取非空 ~include_files~ 指定集合（空数组表示全部），再扣除 ~exclude_files~ ，允许两者同时配置；两者均省略或为空时不限制文件范围。重复文件引用按集合处理。空仓库 ID、未知仓库 ID 和非法路径均是输入错误。
 
 ~is_project~ 在 Rust 中使用 ~Option<bool>~ ，省略或 JSON ~null~ 表示不限制， ~true~ 与 ~false~ 分别表示只保留项目或非项目；不能用默认 ~false~ 代替未指定。该字段只属于 FileQuery，不修改 TaskQuery 的既有组合任务开关。
 
@@ -102,7 +102,7 @@ impl FilterTask {
 
 ~FileQuery.is_project~ 依据文件级 ~project~ 标签判断，不能根据任务标题层级判断，也不能依赖项目名称是否为空来判断。 名称优先取文件头 ~#+PROJECT_NAME:~ ，也可回退到顶部属性 drawer 或 ~#+PROPERTY: PROJECT_NAME~ 提供的文件默认属性；名称与 title 均缺失或名称为空时返回空字符串保留项目身份，由界面显示“未命名项目”。不使用路径或文件名作为名称回退。
 
-Harmony 的文件元信息与 Task 同时暴露 ~project(): string | null~ 方法。Rust 计算项目名称，C++ 仅包装该快照值为方法，ArkTS 不重新判断标签或属性。 ~TaskQuery~ 和 ~TaskQueryResult~ 的请求与结果字段保持原定义。
+Harmony 的文件元信息与 Task 同时暴露 ~project(): string | null~ 方法。Rust 计算项目名称，C++ 仅包装该快照值为方法，ArkTS 不重新判断标签或属性。 项目访问方法不增加查询请求字段；文件范围继续使用 ~TaskQuery.include_files~ 与 ~exclude_files~ ， ~TaskQueryResult~ 保持原定义。
 
 * NotificationQuery 定义
 
@@ -162,7 +162,8 @@ JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响�
     "type": "task",
     "repoIds": ["core-repo-id"],
     "query": {
-      "expression": "b.\"someday.org\" it.todo"
+      "expression": "it.todo",
+      "includeFiles": [{ "repoId": "core-repo-id", "path": "someday.org" }]
     }
   },
   {
@@ -181,7 +182,7 @@ JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响�
 
 整批预先校验全部请求并收集数据需求。每个涉及的仓库仅取得一次业务锁、执行一次恢复检查和一次 Org 文件加载；Harmony 仅取得一次 workspace 业务 Mutex。任务、文件元信息、冲突判断与本地文件 hash 均复用这次读取。
 
-只有所有查询种类都不需要的文件，才允许在底层正文读取前排除。例如所有 TaskQuery 都排除某文件，但 FileQuery 需要其元信息或 NotificationQuery 需要检查它，该文件仍加载一次；TaskQuery 的排除在其自身求值前执行。NotificationQuery 覆盖整个 workspace，因此包含它的批次必须取得完整文件范围，不能用任务排除集合缩小通知范围。
+任务文件范围与 FileQuery 一样在扫描阶段参与候选集合计算，有限包含集合的祖先目录之外不再遍历。只有所有查询种类都不需要的文件，才允许在底层正文读取前排除。例如所有 TaskQuery 都排除某文件，但 FileQuery 需要其元信息或 NotificationQuery 需要检查它，该文件仍加载一次；TaskQuery 的排除在其自身求值前执行。NotificationQuery 覆盖整个 workspace，因此包含它的批次必须取得完整文件范围，不能用任务排除集合缩小通知范围。
 
 NotificationQuery 还需在同次锁内按需读取远端基线索引，使用已加载的本地字节计算 hash 并比较，覆盖修改、新增和删除；不得调用现有会再次加锁、再次加载和重读本地正文的公开 ~notifications()~ 或 ~has_local_changes()~ 流程。基线索引等同步元信息不属于 Org 文件正文，不读取完整同步历史或基线正文。
 

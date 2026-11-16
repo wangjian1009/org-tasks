@@ -5,7 +5,7 @@
 
 * 唯一查询入口
 
-系统通过异步 ~OrgWorkspace.query(&[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError>~ 批量读取任务、文件元信息和通知。请求字段、枚举、Harmony 编组及页面批次定义统一见 [[file:统一批量查询接口设计.org][统一批量查询接口设计]]。 ~TaskQuery~ 与 ~TaskQueryResult~ 的字段保持原定义，放入 CoreQuery 的 Task 分支；不保留独立任务、文件元信息或通知读取入口。
+系统通过异步 ~OrgWorkspace.query(&[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError>~ 批量读取任务、文件元信息和通知。请求字段、枚举、Harmony 编组及页面批次定义统一见 [[file:统一批量查询接口设计.org][统一批量查询接口设计]]。 ~TaskQuery~ 的文件范围使用 ~include_files~ 与 ~exclude_files~ ，按包含集合减排除集合处理； ~TaskQueryResult~ 保持原定义，放入 CoreQuery 的 Task 分支；不保留独立任务、文件元信息或通知读取入口。
 
 * 批量契约
 

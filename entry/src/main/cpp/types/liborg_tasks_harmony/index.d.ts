@@ -242,8 +242,8 @@ export interface OrgFileRef { repoId: string; path: string; }
 export interface TaskQuery {
   expression?: string;
   categories?: (string | null)[];
-  excludedFiles?: OrgFileRef[];
-
+  includeFiles?: OrgFileRef[];
+  excludeFiles?: OrgFileRef[];
 }
 
 export interface TaskCategory {

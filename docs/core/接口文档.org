@@ -17,7 +17,7 @@
 
 [[file:仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]] 定义仓库锁有界异步等待、同步独立存活租约、阶段目录和重置意图恢复。 ~OrgRepo~ 不保存文件快照或扫描规则；原 ~files~ 字段和 ~files()~ 已移除，使用异步 ~load_files(ignore_files: &[String]) -> Result<Vec<OrgFile>, CoreError>~ 按次读取。依赖磁盘的查询、文件元信息、节点和目标方法使用异步 ~Result~ ，保持既有请求数据结构和错误枚举。 ~fileVersion~ 算法不变。
 
-~ignore_files~ 只接受当前仓库的安全相对路径，在读取正文和解析前精确排除。统一查询结合 Task、File 和 Notification 的数据需求，只把整批均不需要的文件传给底层排除；各项 Task 的 excluded_files 在其自身求值前应用。 ~.orgzlyignore~ 独立按既有任务规则生效。 ~load()~ 仅初始化身份，不读取业务数据或执行恢复；其原泛型返回类型保留并返回空集合，历史应通过专用历史方法读取。
+~ignore_files~ 只接受当前仓库的安全相对路径，在读取正文和解析前精确排除。统一查询结合 Task、File 和 Notification 的数据需求，只把整批均不需要的文件传给底层排除；各项 Task 的 ~include_files~ 与 ~exclude_files~ 在扫描时合并，并在自身求值前分别应用。 ~.orgzlyignore~ 独立按既有任务规则生效。 ~load()~ 仅初始化身份，不读取业务数据或执行恢复；其原泛型返回类型保留并返回空集合，历史应通过专用历史方法读取。
 
 每次真实业务访问在仓库锁内处理 ~reset~ 及失去同步租约的恢复材料；活动同步的网络阶段允许普通读写。同步在合并前重新读取本地内容，提交时校验文件版本与基线，禁止覆盖上传期间新增的编辑。查询结果中的 ~file_version()~ 和 ~edit_content()~ 来自同次读取，调用方直接消费该独立结果，不回查仓库数据。
 
@@ -625,7 +625,7 @@ Creation 的显式状态按目标文件有效配置验证；文件尚不存在�
 
 * 通用结构化任务查询
 
-~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 与 ~excluded_files~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
+~OrgWorkspace.query(&[CoreQuery])~ 返回与请求逐项对应的结果数组，Task 结果分支包含 Core 过滤后的任务列表和分类摘要，File 分支返回文件元信息数组，Notification 分支返回当前通知数组。Task 分支的请求字段为 ~expression~ 、 ~categories~ 、 ~include_files~ 与 ~exclude_files~ ，完整 Rust 定义及语义见 [[file:查询语言设计.org][查询语言设计]] 。界面需求由 UI 组装为通用请求，Core 不持有收件箱或控件专属字段。所有任务过滤统一由 Core 执行，宿主不得对返回的列表再实现分类、完成、文件或父子关系过滤。
 
 ~query~ 完成查询匹配后，从每个任务返回值的 ~own_tags~ 和 ~inherited_tags~ 中排除精确等于 ~REFILE~ 、 ~ARCHIVE~ 、 ~CONFLICT~ 或 ~ATTACH~ 的系统标签，其他标签顺序不变。表达式仍在完整原始标签上求值，因此 ~t.REFILE~ 、 ~tn.REFILE~ 与对应的 ~ARCHIVE~ 查询保留原有匹配语义；不隐藏带这些标签的任务，不修改源文件。
 
@@ -821,7 +821,7 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 * 查询文件定位与创建日期条件
 
-~TaskQuery.excluded_files~ 类型为 ~Vec<OrgFileRef>~ ，每项包含 ~repo_id~ 与 ~path~ ，两者共同表示具体文件。仓库 ID 使用 Core 的稳定身份，路径是安全的仓库相对文件路径；空仓库 ID 或非法路径返回输入错误。一个排除对象仅影响所属仓库中的该文件，不影响其他仓库的同名文件。数组省略或为空表示不排除；接口不再接受裸路径字符串数组。JSON 对应 ~excludedFiles: [{ repoId, path }]~ 。
+~TaskQuery.include_files~ 与 ~exclude_files~ 均为 ~Vec<OrgFileRef>~ ，每项包含 Core 稳定仓库 ID 与安全相对 ~path~ 。非空包含集合限定可读取文件，空包含集合表示不限制，然后减去排除集合；同时配置合法，排除优先。空 ID、未知仓库或非法路径返回输入错误。旧 ~excludedFiles~ 字段和表达式 ~b.文件~ 、 ~.b.文件~ 不再支持，返回输入错误；查询文件必须使用 JSON 的 ~includeFiles~ 与 ~excludeFiles~ 。扫描阶段只读取同批至少一个查询需要的文件，不读取无关文件正文，也不解析其 UTF-8 或 Org。
 
 创建日期筛选通过 ~TaskQuery.expression~ 表达，不新增时间范围字段。 ~FilterTask.created()~ 与 ~created_at()~ 从任务自身的 ~CREATED~ 属性投影；缺失或非法值不匹配 ~cr.ge.-2d cr.le.today~ 。该表达式覆盖今天及前两个本地自然日，而非滚动 72 小时。完整时刻排序通过 ~o.created~ 或 ~.o.created~ 取得；日内时间用于排序和展示投影，不改变自然日筛选边界。所有能力继续通过 ~OrgWorkspace.query~ 暴露。
 
@@ -1011,7 +1011,7 @@ finish 要求用户看到的 preview_version 与当前副本一致、主树不�
 
 系统仅提供 ~query(queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError>~ 异步查询接口，单查询也传单项数组。成功时结果数组长度与输入相同， ~results[i]~ 对应 ~queries[i]~ ；空命中和重复查询不改变位置。任一错误使整批失败，不返回部分结果。空批次不加业务锁、不读取仓库。
 
-每仓库在本批锁内加载一次，只有所有查询种类都不需要的文件传入底层 ~ignore_files~ ；其余加载后在各项查询求值前排除。多仓库锁按规范化目录排序取得，完成全部加载后释放，后续计算消费本次独立快照。完整签名、错误路径与 Harmony 编组见 [[file:批量查询接口设计.org][批量查询接口设计]]。
+每仓库在本批锁内加载一次，任务与文件查询按 ~include_files~ 减 ~exclude_files~ 确定范围，只有所有查询种类都不需要的文件才在扫描读正文前跳过；其余加载后在各项查询求值前排除。多仓库锁按规范化目录排序取得，完成全部加载后释放，后续计算消费本次独立快照。完整签名、错误路径与 Harmony 编组见 [[file:批量查询接口设计.org][批量查询接口设计]]。
 
 * 结构化重复规则修改
 

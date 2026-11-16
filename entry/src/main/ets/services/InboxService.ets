@@ -45,7 +45,7 @@ export class InboxService {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const prepared = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
     const recent: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created',
-      excludedFiles: prepared ? [prepared.reference] : [] }
+      excludeFiles: prepared ? [prepared.reference] : [] }
     const results = await PageQueryService.query(config, prepared
       ? [prepared.task, prepared.file, { type: 'task', query: recent }] : [{ type: 'task', query: recent }])
     return { inbox: prepared ? FileTargetService.result(results[0], results[1]) : undefined,

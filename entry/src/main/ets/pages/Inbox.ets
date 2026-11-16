@@ -592,7 +592,7 @@ struct Inbox {
     const definitions: DataSetDefinition[] = []
     if (target) definitions.push({ name: 'tasks', query: target.task }, { name: 'target', query: target.file })
     definitions.push({ name: 'recent', query: { type: 'task', query: { expression: 'cr.ge.-2d cr.le.today .o.created',
-      excludedFiles: target ? [target.reference] : [] } } }, { name: 'files', query: { type: 'file', query: {} } })
+      excludeFiles: target ? [target.reference] : [] } } }, { name: 'files', query: { type: 'file', query: {} } })
     return definitions
   }
 

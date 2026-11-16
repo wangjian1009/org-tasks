@@ -12,12 +12,16 @@ use crate::{CoreError, FilterTask, OrgWorkspace};
 impl CoreQuery {
     pub(crate) fn includes_repo(&self, id: &str) -> bool {
         match self {
-            Self::Task { repo_ids, .. } => {
-                repo_ids.is_empty() || repo_ids.iter().any(|item| item == id)
+            Self::Task { query, repo_ids } => {
+                (repo_ids.is_empty() || repo_ids.iter().any(|item| item == id))
+                    && (query.include_files.is_empty()
+                        || query.include_files.iter().any(|file| file.repo_id == id
+                            && !query.exclude_files.contains(file)))
             }
             Self::File { query } => {
                 query.include_files.is_empty()
-                    || query.include_files.iter().any(|file| file.repo_id == id)
+                    || query.include_files.iter().any(|file| file.repo_id == id
+                        && !query.exclude_files.contains(file))
             }
             Self::Notification { .. } => true,
         }
@@ -32,7 +36,10 @@ impl CoreQuery {
                 .any(|file| file.repo_id == id && file.path == path)
         };
         match self {
-            Self::Task { query, .. } => !contains(&query.excluded_files),
+            Self::Task { query, .. } => {
+                (query.include_files.is_empty() || contains(&query.include_files))
+                    && !contains(&query.exclude_files)
+            },
             Self::File { query } => {
                 (query.include_files.is_empty() || contains(&query.include_files))
                     && !contains(&query.exclude_files)
@@ -77,16 +84,15 @@ impl OrgWorkspace {
                             return Err(CoreError::InvalidInput("查询仓库不属于 workspace"));
                         }
                     }
-                    for file in &query.excluded_files {
+                    Filter::validate_expression(&query.expression)?;
+                    for file in query.include_files.iter().chain(&query.exclude_files) {
                         validate_query_file(file)?;
+                        if !self.repos().iter().any(|repo| repo.id == file.repo_id) {
+                            return Err(CoreError::InvalidInput("查询文件的仓库不属于 workspace"));
+                        }
                     }
                 }
                 CoreQuery::File { query } => {
-                    if !query.include_files.is_empty() && !query.exclude_files.is_empty() {
-                        return Err(CoreError::InvalidInput(
-                            "include_files 和 exclude_files 不能同时使用",
-                        ));
-                    }
                     for file in query.include_files.iter().chain(&query.exclude_files) {
                         validate_query_file(file)?;
                         if !self.repos().iter().any(|repo| repo.id == file.repo_id) {
@@ -144,8 +150,15 @@ impl OrgWorkspace {
             for query in queries.iter().filter(|query| query.includes_repo(&repo.id)) {
                 let refs = match query {
                     CoreQuery::Task { query, .. } => {
-                        included = None;
-                        &query.excluded_files
+                        if query.include_files.is_empty() {
+                            included = None;
+                        }
+                        if let Some(paths) = &mut included {
+                            paths.extend(query.include_files.iter()
+                                .filter(|file| file.repo_id == repo.id)
+                                .map(|file| file.path.clone()));
+                        }
+                        &query.exclude_files
                     }
                     CoreQuery::File { query } => {
                         if query.include_files.is_empty() {
@@ -706,7 +719,7 @@ mod tests {
         };
         let queries = [
             TaskQuery {
-                excluded_files: vec![
+                exclude_files: vec![
                     broken.clone(),
                     OrgFileRef {
                         repo_id: repo.id.clone(),
@@ -716,7 +729,7 @@ mod tests {
                 ..Default::default()
             },
             TaskQuery {
-                excluded_files: vec![broken.clone()],
+                exclude_files: vec![broken.clone()],
                 ..Default::default()
             },
         ];
@@ -785,7 +798,7 @@ mod tests {
                 .query(&[
                     (TaskQuery::default()).into(),
                     (TaskQuery {
-                        excluded_files: vec![OrgFileRef {
+                        exclude_files: vec![OrgFileRef {
                             repo_id,
                             path: path.into(),
                         }],
@@ -943,7 +956,7 @@ mod tests {
                     }
                 }])
                 .await
-                .is_err()
+                .unwrap().remove(0).into_files().unwrap().is_empty()
         );
         assert_eq!(
             crate::model::test_support::repository_accesses(&repo.root_directory),
@@ -984,7 +997,7 @@ mod tests {
 
     fn category_query() -> TaskQuery {
         TaskQuery {
-            excluded_files: vec![
+            exclude_files: vec![
                 OrgFileRef {
                     repo_id: crate::model::test_support::id("r1"),
                     path: "capture.org".into(),
@@ -1265,10 +1278,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ui_can_request_inbox_using_expression_and_include_all_record_types() {
+    async fn ui_can_request_inbox_using_file_scope_and_include_all_record_types() {
         let workspace = workspace();
         let query = TaskQuery {
-            expression: "b.capture.org".into(),
+            include_files: workspace.repos().iter().map(|repo| OrgFileRef {
+                repo_id: repo.id.clone(), path: "capture.org".into(),
+            }).collect(),
             ..Default::default()
         };
         let result = workspace
@@ -1284,7 +1299,9 @@ mod tests {
         assert_eq!(
             workspace
                 .query(&[(TaskQuery {
-                    expression: "b.work.org".into(),
+                    include_files: workspace.repos().iter().map(|repo| OrgFileRef {
+                        repo_id: repo.id.clone(), path: "work.org".into(),
+                    }).collect(),
                     ..Default::default()
                 })
                 .into()])
@@ -1327,17 +1344,17 @@ mod tests {
             crate::model::test_support::write_files(&mut repo, value);
         }
         let workspace = OrgWorkspace::new(vec![repo]).unwrap();
-        let query = TaskQuery {
-            expression: "has.address (it.todo or (b.notes.org it.none))".into(),
-            ..Default::default()
-        };
-        let result = workspace
-            .query(&[(&query).into()])
-            .await
-            .unwrap()
-            .remove(0)
-            .into_task()
-            .unwrap();
+        let results = workspace.query(&[
+            TaskQuery { expression: "has.address it.todo".into(), ..Default::default() }.into(),
+            TaskQuery {
+                expression: "has.address it.none".into(),
+                include_files: vec![OrgFileRef { repo_id: workspace.repos()[0].id.clone(), path: "notes.org".into() }],
+                ..Default::default()
+            }.into(),
+        ]).await.unwrap();
+        let mut result = results[0].clone().into_task().unwrap();
+        result.tasks.extend(results[1].clone().into_task().unwrap().tasks);
+        result.tasks.sort_by(|left, right| left.path().cmp(right.path()).then(left.byte_offset().cmp(&right.byte_offset())));
         let titles = result
             .tasks
             .iter()
@@ -1504,7 +1521,7 @@ mod tests {
             assert!(
                 workspace
                     .query(&[(TaskQuery {
-                        excluded_files: vec![OrgFileRef {
+                        exclude_files: vec![OrgFileRef {
                             repo_id: crate::model::test_support::id("r1"),
                             path: path.into()
                         }],

@@ -1464,6 +1464,7 @@ napi_value WorkspaceHttpServer(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceHttp", self);
 }
 
+// includeFiles / excludeFiles 随完整查询对象交给工作线程；范围计算与先包含再排除由 Core 完成。
 napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;

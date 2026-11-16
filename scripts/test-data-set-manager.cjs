@@ -37,7 +37,7 @@ async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir()
  const projection=load('entry/src/main/ets/services/PageDataProjection.ets',{'../ui/TaskChecklistReorder':reorder,'@kit.ArkTS':{util},'./PageDataEquality':equality,'./PageDataSnapshot':snapshots});
  const cache=load('entry/src/main/ets/services/PageDataCache.ets',{'@kit.CoreFileKit':{fileIo:io},'@kit.ArkTS':{util}});
  const configService={AppConfigService:{load:async()=>config,watchChanges:listener=>configListeners.add(listener),stopWatchingChanges:listener=>configListeners.delete(listener)}};
- const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
+ const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'../ui/QueryOrderPresentation':load('entry/src/main/ets/ui/QueryOrderPresentation.ets',{}),'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
  const {DataSetManager}=load('entry/src/main/ets/services/DataSetManager.ets',{'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataCache':cache,'./PageDataSnapshot':snapshots,'./DataSet':dataSets});
  const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
 
@@ -241,5 +241,17 @@ test('文档数据集只发布完整文档事件，文件和节点属于同一�
 
 test('查询变化只影响对应数据集缓存匹配，范围数据集仍可从版本0恢复',async()=>{
  const f=await fixture();try{const definitions=[{name:'range',query:{type:'task',query:{}}},{name:'tasks',query:{type:'task',query:{}}}];const first=f.manager('计划',definitions);await first.start();await first.dataSet('tasks').setQuery({type:'task',query:{expression:'selected'}});await first.close();const second=f.manager('计划',definitions),rangeVersions=[],taskVersions=[];second.dataSet('range').subscribe(event=>{if(second.dataSet('range').data)rangeVersions.push(event.version)});second.dataSet('tasks').subscribe(event=>{if(second.dataSet('tasks').data)taskVersions.push(event.version)});await second.start();assert.ok(rangeVersions.includes(0));assert.equal(taskVersions.includes(0),false);assert.equal(second.dataSet('tasks').query.query.expression,undefined);
+ }finally{await f.cleanup()}
+});
+
+test('入口未配置时保留已声明的空数据集，不创建无范围查询',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager('某天',()=>[]);
+  const tasks=manager.dataSet('tasks'),target=manager.dataSet('target');
+  await manager.start();
+  assert.equal(manager.isReady(),true);
+  assert.deepEqual(tasks.data.result.tasks,[]);
+  assert.equal(target.isReady(),true);
+  assert.equal(f.calls.length,0);
  }finally{await f.cleanup()}
 });
