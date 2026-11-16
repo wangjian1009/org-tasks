@@ -774,6 +774,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn inbox_batch_scans_once_and_reads_each_file_once() {
+        let f = Fixture::new().await;
+        let recent_path = f.root.join("recent.org");
+        let today = chrono::Local::now().format("%Y-%m-%d %a %H:%M");
+        std::fs::write(&recent_path, format!("* TODO Recent\n:PROPERTIES:\n:CREATED: [{today}]\n:END:\n")).unwrap();
+        let reference = OrgFileRef { repo_id: f.workspace.repos()[0].id.clone(), path: "a.org".into() };
+        let root = f.root.to_str().unwrap();
+        let before = crate::model::test_support::repository_accesses(root);
+        let paths = [f.root.join("a.org"), recent_path];
+        let reads = paths.each_ref().map(|path| crate::model::test_support::file_accesses(path));
+        let started = f.workspace.subscribe_query(vec![
+            QuerySubscriptionRequest::new(TaskQuery { include_files: vec![reference.clone()], ..Default::default() }.into(), |_| {}),
+            QuerySubscriptionRequest::new(CoreQuery::File { query: crate::FileQuery { include_files: vec![reference.clone()], ..Default::default() } }, |_| {}),
+            QuerySubscriptionRequest::new(TaskQuery { expression: "cr.ge.-2d cr.le.today .o.created".into(), exclude_files: vec![reference], ..Default::default() }.into(), |_| {}),
+            QuerySubscriptionRequest::new(CoreQuery::File { query: Default::default() }, |_| {}),
+        ]).await.unwrap();
+        let after = crate::model::test_support::repository_accesses(root);
+        assert_eq!([after[0] - before[0], after[1] - before[1]], [1, 1]);
+        for (path, before) in paths.iter().zip(reads) {
+            let after = crate::model::test_support::file_accesses(path);
+            assert_eq!([after[0] - before[0], after[1] - before[1]], [1, 0], "{}", path.display());
+        }
+        assert_eq!(started.len(), 4);
+        assert_eq!(started[0].data.clone().into_task().unwrap().tasks.len(), 1);
+        assert_eq!(started[1].data.clone().into_files().unwrap().len(), 1);
+        assert_eq!(started[2].data.clone().into_task().unwrap().tasks.len(), 1);
+        assert_eq!(started[3].data.clone().into_files().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
     async fn batch_initial_categories_and_versions_respect_each_query_file_scope() {
         let f = Fixture::new().await;
         std::fs::write(f.root.join("other.org"), "#+CATEGORY: Other\n* TODO Other\n").unwrap();

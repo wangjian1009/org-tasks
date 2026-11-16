@@ -23,6 +23,82 @@ function load(file, mocks) {
   }, module, module.exports, name => ({ name }));
   return module.exports;
 }
+
+function snapshotFixture() {
+  const source = fs.readFileSync('entry/src/main/ets/pages/Inbox.ets', 'utf8');
+  const methods = ['applyPageSnapshot', 'prepareRecentLayout'].map(name =>
+    source.match(new RegExp('  ' + name + '\\(\\): void \\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
+  const code = ts.transpileModule('export class InboxSnapshot {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const module = { exports: {} }, frames = [];
+  let editing = false;
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,recentDays,InboxLayoutFrame){' + code + '})')(
+    module, module.exports, { active: () => editing }, load('ui/InboxPresentation', {}).recentDays,
+    class { constructor(callback) { this.callback = callback; } });
+  const dataSet = () => ({ data: undefined, error: '', ready: false, isReady() { return this.ready; } });
+  const state = Object.assign(new module.exports.InboxSnapshot(), {
+    tasksDataSet: dataSet(), targetDataSet: dataSet(), recentDataSet: dataSet(),
+    records: [], recentGroups: [], loading: true, recentLayoutReady: false, recentLayoutPending: false,
+    listHeight: 0, visible: true, selectingRecords: false, mergeBusy: false,
+    measureRows() {}, getUIContext: () => ({ postFrameCallback: frame => frames.push(frame) })
+  });
+  const task = id => ({ id, createdAt: Date.now(), project: () => null });
+  const tasks = values => ({ type: 'task', result: { tasks: values, categories: [] } });
+  const target = { type: 'file', result: [{ path: 'inbox.org' }] };
+  return { state, frames, task, tasks, target, editing: value => { editing = value; } };
+}
+
+test('收件箱首屏等待同批全部快照，不因最近新增先返回而显示临时空态', () => {
+  for (const order of [['tasksDataSet', 'targetDataSet', 'recentDataSet'], ['recentDataSet', 'tasksDataSet', 'targetDataSet']]) {
+    const f = snapshotFixture(), main = f.task('main'), recent = f.task('recent');
+    for (let index = 0; index < order.length; index++) {
+      const name = order[index];
+      f.state[name].data = name === 'targetDataSet' ? f.target : f.tasks([name === 'tasksDataSet' ? main : recent]);
+      f.state.applyPageSnapshot();
+      assert.equal(f.state.loading, index < 2);
+      if (index < 2) { assert.deepEqual(f.state.records, []); assert.deepEqual(f.state.recentGroups, []); }
+    }
+    assert.deepEqual(f.state.records, [main]);
+    assert.deepEqual(f.state.recentGroups[0].tasks, [recent]);
+    assert.equal(f.state.recentLayoutReady, false);
+    f.state.listHeight = 600; f.state.prepareRecentLayout(); f.state.prepareRecentLayout();
+    assert.equal(f.frames.length, 1);
+    f.frames.shift().callback();
+    assert.equal(f.state.recentLayoutReady, true);
+    assert.equal(f.state.pageReady, false);
+    f.state.tasksDataSet.ready = true; f.state.applyPageSnapshot();
+    assert.equal(f.state.pageReady, true);
+    assert.equal(f.frames.length, 0);
+  }
+});
+
+test('收件箱缓存先统一显示且只读，首次测量后才显示近期整段，空结果不产生分组', () => {
+  const f = snapshotFixture();
+  f.state.tasksDataSet.data = f.tasks([f.task('cached')]);
+  f.state.targetDataSet.data = f.target;
+  f.state.recentDataSet.data = f.tasks([]);
+  f.state.applyPageSnapshot();
+  assert.equal(f.state.loading, false);
+  assert.equal(f.state.pageReady, false);
+  assert.deepEqual(f.state.recentGroups, []);
+  assert.equal(f.frames.length, 0);
+  f.state.listHeight = 600; f.state.prepareRecentLayout();
+  f.state.visible = false; f.frames.shift().callback();
+  assert.equal(f.state.recentLayoutReady, false);
+});
+
+test('近期读取失败结束首屏等待，已有内容在编辑会话结束后统一应用', () => {
+  const f = snapshotFixture();
+  f.state.tasksDataSet.data = f.tasks([f.task('main')]); f.state.targetDataSet.data = f.target;
+  f.state.recentDataSet.error = '读取失败'; f.state.applyPageSnapshot();
+  assert.equal(f.state.loading, false); assert.equal(f.state.recentMessage, '读取失败');
+  f.editing(true); f.state.recentDataSet.error = ''; f.state.recentDataSet.data = f.tasks([f.task('new')]);
+  f.state.applyPageSnapshot(); assert.deepEqual(f.state.recentGroups, []);
+  f.editing(false); f.state.applyPageSnapshot();
+  assert.equal(f.state.recentMessage, ''); assert.equal(f.state.recentGroups[0].tasks[0].id, 'new');
+});
+
 const target = (id, category) => ({ repoId: id, path: 'projects.org', fullPath: { repoId: id, file: 'projects.org', titles: ['Parent', 'Same'], occurrence: 1 }, headingPath: ['Parent', 'Same'],
   position: { line: 1, column: 0, byte_offset: 0 }, category, projectName: null, fileVersion: 'target-version' });
 test('按文件 CATEGORY 合并分组，同名目标保持独立，未分类置后', () => {

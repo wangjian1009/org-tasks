@@ -11,6 +11,7 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
+import { FrameCallback } from '@ohos.arkui.UIContext'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskEditor } from '../components/editors/TaskEditor'
@@ -25,6 +26,13 @@ import { InboxService, InboxAction } from '../services/InboxService'
 import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
 import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
 import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
+
+class InboxLayoutFrame extends FrameCallback {
+  private callback: () => void
+  constructor(callback: () => void) { super(); this.callback = callback }
+  onFrame(_time: number): void {}
+  onIdle(_remaining: number): void { this.callback() }
+}
 
 @Entry
 @Component
@@ -41,7 +49,8 @@ struct Inbox {
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State records: CoreTask[] = []
   @State recentGroups: RecentDay[] = []
-  @State recentLoading: boolean = true
+  @State recentLayoutReady: boolean = false
+  private recentLayoutPending: boolean = false
   @State recentMessage: string = ''
   @State rowTotalHeight: number = 0
   @State emptyHeight: number = 80
@@ -95,7 +104,7 @@ struct Inbox {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.mergeBusy && !this.selectionStarting && !this.actionBusy && !this.captureSaving && (!this.captureOpen || !this.captureTitle))
-    this.visible = true; this.loadRecords()
+    this.visible = true; this.loadRecords(); this.prepareRecentLayout()
   }
   onPageHide() { this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.visible = false; this.dateDialog?.close(); clearTimeout(this.actionTimer); clearTimeout(this.mergeFocusTimer); this.closeTargetPopup(); if (!this.mergeBusy) this.resetSelection() }
   aboutToDisappear() {
@@ -594,20 +603,12 @@ struct Inbox {
       this.recentDataSet = this.dataManager.dataSet('recent')
       this.targetDataSet = this.dataManager.dataSet('target')
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
-      this.stops.push(this.recentDataSet.subscribe((): void => {
-        const data = this.recentDataSet?.data
-        this.recentGroups = recentDays(data?.type === 'task' ? data.result.tasks : [])
-        this.recentMessage = this.recentDataSet?.error ?? ''; this.recentLoading = !data && !this.recentMessage
-      }))
-      this.stops.push(this.targetDataSet.subscribe((): void => {
-        const data = this.targetDataSet?.data
-        this.needsConfiguration = !!data && (data.type !== 'file' || data.result.length === 0)
-        this.applyPageSnapshot()
-      }))
+      this.stops.push(this.recentDataSet.subscribe((): void => { this.applyPageSnapshot() }))
+      this.stops.push(this.targetDataSet.subscribe((): void => { this.applyPageSnapshot() }))
     }
     try {
       await this.dataManager.start()
-      if (reload) await this.tasksDataSet!.refresh()
+      if (reload) await (this.recentDataSet?.error ? this.recentDataSet : this.targetDataSet?.error ? this.targetDataSet : this.tasksDataSet)!.refresh()
     } catch (error) { this.loading = false; this.message = (error as Error).message }
   }
 
@@ -617,16 +618,33 @@ struct Inbox {
     const dataSet = this.tasksDataSet
     if (!dataSet || TaskInlineSession.active() || this.selectingRecords || this.mergeBusy) return
     const data = dataSet.data
-    this.pageReady = dataSet.isReady()
+    const target = this.targetDataSet?.data, recent = this.recentDataSet?.data
     this.message = dataSet.error || this.targetDataSet?.error || ''
-    this.loading = !data && !this.message
+    this.recentMessage = this.recentDataSet?.error ?? ''
+    // 同批结果独立通知；首屏等所需快照齐备，缓存也遵循相同发布边界。
+    this.loading = (!data && !dataSet.error) || (!target && !this.targetDataSet?.error) || (!recent && !this.recentMessage)
+    if (this.loading) { this.recentLayoutReady = false; return }
+    this.pageReady = dataSet.isReady()
+    this.needsConfiguration = !!target && (target.type !== 'file' || target.result.length === 0)
     this.records = data?.type === 'task' ? data.result.tasks : []
+    this.recentGroups = recentDays(recent?.type === 'task' ? recent.result.tasks : [])
     this.measureRows()
+    this.prepareRecentLayout()
     if (this.selected) {
       const selected = this.records.find((record: CoreTask) => record.id === this.selected?.id)
       if (!selected) this.closeTargetPopup()
       else this.selected = selected
     }
+  }
+
+  prepareRecentLayout(): void {
+    if (this.loading || this.recentLayoutReady || this.recentLayoutPending || this.listHeight <= 0) return
+    this.recentLayoutPending = true
+    // 主列表首次测量完成后再插入近期整段，避免零行高留白先把分隔栏画到错误位置。
+    this.getUIContext().postFrameCallback(new InboxLayoutFrame((): void => {
+      this.recentLayoutPending = false
+      if (this.visible && !this.loading) this.recentLayoutReady = true
+    }))
   }
 
   build() {
@@ -635,7 +653,7 @@ struct Inbox {
         activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
         pullToSync: true, pullDisabled: this.selectingRecords, busy: this.actionBusy || this.mergeBusy || this.selectionStarting }) {
         Column() {
-          if (this.loading && this.recentGroups.length === 0) {
+          if (this.loading) {
             NotificationEmptyState({ title: '正在读取收件箱', busy: true })
           } else {
             List({ scroller: this.listScroller }) {
@@ -685,13 +703,11 @@ struct Inbox {
                   end: { builder: (): void => { this.swipeMenu(record) } },
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
               }, (record: CoreTask) => this.taskDataSet().taskKey(record.id))
-              if (this.records.length > 0 || this.recentGroups.length > 0) {
+              if (this.recentLayoutReady && this.recentGroups.length > 0) {
                 ListItem() {
                   Column().width('100%').height(unplannedSpacer(this.listHeight,
                     this.records.length > 0 ? this.rowTotalHeight : this.emptyHeight))
                 }.fullWidthItem()
-              }
-              if (this.recentGroups.length > 0) {
                 ListItem() { this.plannedDivider() }.fullWidthItem()
                 ListItem() { Column().height(16).width('100%') }.fullWidthItem()
                 ForEach(this.recentGroups, (day: RecentDay) => {
@@ -702,10 +718,7 @@ struct Inbox {
                   ListItem() { Column().height(16).width('100%') }.fullWidthItem()
                 }, (day: RecentDay) => JSON.stringify(day))
               }
-              if (this.recentLoading) {
-                ListItem() { Text('正在读取近期记录…').fontSize(14).fontColor(UiColor.secondary).padding(16) }.fullWidthItem()
-              }
-              if (this.recentMessage) {
+              if (this.recentLayoutReady && this.recentMessage) {
                 ListItem() {
                   Text(this.recentMessage + '，点击重试').fontSize(14).fontColor(UiColor.error).padding(16)
                     .onClick((): void => { this.loadRecords(true) })
@@ -717,6 +730,7 @@ struct Inbox {
               .layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
                 this.listHeight = parseFloat(newArea.height.toString())
+                this.prepareRecentLayout()
               })
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)

@@ -364,6 +364,35 @@ test('Manager 首次加载与整页刷新各调用一次批量订阅，独立 ca
  } finally {await f.cleanup()}
 });
 
+test('收件箱两个启动生命周期复用一次四项批量读取，初始化完成后再进入也不刷新', async()=>{
+ const f=await fixture();try {
+  const source=fs.readFileSync('entry/src/main/ets/pages/Inbox.ets','utf8');
+  const define=source.match(/  defineDataSets\(config: AppConfig\): DataSetDefinition\[\] \{[\s\S]*?\n  \}/)[0];
+  const loadRecords=source.match(/  async loadRecords\(reload: boolean = false\) \{[\s\S]*?\n  \}/)[0];
+  const appear=source.match(/  aboutToAppear\(\) \{[^\n]*\}/)[0];
+  const show=source.match(/  onPageShow\(\) \{[\s\S]*?\n  \}/)[0];
+  const module={exports:{}},reference={repoId:'repo',path:'a.org'};
+  const code=ts.transpileModule('export class Inbox {'+define+loadRecords+appear+show+'}',{
+   compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}
+  }).outputText;
+  vm.runInThisContext('(function(module,exports,DataSetManager,FileTargetService,PageNavigator){'+code+'})')(
+   module,module.exports,{create:(_context,page,definitions)=>f.manager(page,definitions)},
+   {prepareConfigured:()=>({task:{type:'task',query:{includeFiles:[reference]}},file:{type:'file',query:{includeFiles:[reference]}},reference})},
+   {shared:{watchExternalLeaveGuard:()=>()=>{}}});
+  const page=Object.assign(new module.exports.Inbox(),{stops:[],applyPageSnapshot(){},prepareRecentLayout(){},getUIContext:()=>({getHostContext:()=>f.context})});
+  const hold=f.holdWorkspace();
+  page.aboutToAppear();page.onPageShow();
+  hold.resolve();await page.dataManager.start();
+  assert.deepEqual(f.batches.map(batch=>batch.length),[4]);
+  assert.deepEqual(f.batches[0].map(item=>item.query.type),['task','task','file','file']);
+  assert.equal(f.batches[0].filter(item=>item.query.query.expression==='cr.ge.-2d cr.le.today .o.created').length,1);
+  page.onPageShow();await page.dataManager.start();
+  assert.deepEqual(f.batches.map(batch=>batch.length),[4]);
+  assert.equal(f.repositoryReads(),0);assert.equal(f.fileReads(),0);
+  for(const stop of page.stops)stop();
+ }finally{await f.cleanup()}
+});
+
 test('在途批次期间关闭页面会清理整批 ID，不留下事件订阅',async()=>{
  const f=await fixture();try {
   const manager=f.manager('关闭批次',[{name:'tasks',query:{type:'task',query:{}}},{name:'files',query:{type:'file',query:{}}}]);

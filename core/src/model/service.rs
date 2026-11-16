@@ -1024,6 +1024,8 @@ async fn scan_org_files(
                     .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
                 let disk = entry.path();
                 jobs.spawn(async move {
+                    #[cfg(test)]
+                    super::test_support::record_file_access(&disk, 0);
                     let source_bytes = fs::read(disk)
                         .await
                         .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
