@@ -356,6 +356,9 @@ export struct TaskEditor {
     this.referenceTime = Date.now()
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
   }
+  private collapseAnimated(): void {
+    this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = false })
+  }
   private compactTouch(event: TouchEvent): void {
     const touch = event.touches[0]
     if (event.type === TouchType.Down && touch) {
@@ -375,7 +378,7 @@ export struct TaskEditor {
   }
   async finish(collapse: boolean): Promise<boolean> {
     if (this.readOnly) {
-      if (collapse) { this.expanded = false; TaskInlineSession.release(this.ownerKey) }
+      if (collapse) { this.collapseAnimated(); TaskInlineSession.release(this.ownerKey) }
       return true
     }
     if (this.moveBusy) return false
@@ -396,7 +399,7 @@ export struct TaskEditor {
     if (!this.snapshotBlocked) this.message = ''
     if (collapse) {
       this.priorityOpen = false
-      this.expanded = false
+      this.collapseAnimated()
       TaskInlineSession.release(this.ownerKey)
     }
     return true
@@ -1216,7 +1219,7 @@ export struct TaskEditor {
   @Builder
   editorContent() {
     Row({ space: 6 }) {
-      this.stateIndicator()
+      Row() { this.stateIndicator() }.constraintSize({ minHeight: UiSize.taskRow })
       if (this.value().isHabit) {
         Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
       } else if (this.value().isRepeating) {
@@ -1224,32 +1227,38 @@ export struct TaskEditor {
       }
       Row({ space: 4 }) {
         this.priorityBadge(true)
-        if (this.headingInput) {
-          TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
-            .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-            .layoutWeight(1).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
-            .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
-            .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
-            .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
-            .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
-            .onChange((value: string) => { this.heading = value; this.headingEditing = true; this.headingDirty = value !== this.headingBaseline })
-            .onFocus(() => { this.headingEditing = true; this.inputFocus() })
-            .onBlur(() => { this.finishHeading() })
-            .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
-            .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
-            .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
-        } else {
-          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-            weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
-            editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor,
-            changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
-            linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
-            activate: (): void => { this.editHeading() } })
-            .layoutWeight(1).constraintSize({ minHeight: 24 })
+        Column({ space: 2 }) {
+          if (this.headingInput) {
+            TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
+              .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
+              .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
+              .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
+              .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
+              .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
+              .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
+              .onChange((value: string) => { this.heading = value; this.headingEditing = true; this.headingDirty = value !== this.headingBaseline })
+              .onFocus(() => { this.headingEditing = true; this.inputFocus() })
+              .onBlur(() => { this.finishHeading() })
+              .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
+              .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
+              .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
+          } else {
+            TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+              weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+              editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor, showCounts: false,
+              changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
+              linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
+              activate: (): void => { this.editHeading() } }).width('100%')
+          }
+        }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
+          .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Start)
+        if (titleCounts(this.value().headingParts).length > 0) {
+          TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
+            .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
         }
       }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
       this.collapseButton()
-    }.width('100%').alignItems(VerticalAlign.Top)
+    }.width('100%').padding({ left: 8 }).alignItems(VerticalAlign.Center)
       .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
         targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu,
         backgroundBlurStyle: BlurStyle.NONE, mask: { color: Color.Transparent }, focusable: true,
@@ -1357,7 +1366,7 @@ export struct TaskEditor {
   @Builder
   readOnlyContent() {
     Row({ space: 6 }) {
-      this.stateIndicator()
+      Row() { this.stateIndicator() }.constraintSize({ minHeight: UiSize.taskRow })
       if (this.value().isHabit) {
         Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务')
       } else if (this.value().isRepeating) {
@@ -1365,13 +1374,20 @@ export struct TaskEditor {
       }
       Row({ space: 4 }) {
         this.priorityBadge()
-        TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-          editable: false,
-          cancelled: this.value().state?.category === TaskStateCategory.Cancel,
-          activate: (): void => { this.toggle() } }).layoutWeight(1)
+        Column() {
+          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+            editable: false,
+            cancelled: this.value().state?.category === TaskStateCategory.Cancel,
+            showCounts: false, activate: (): void => { this.toggle() } }).width('100%')
+        }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
+          .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Start)
+        if (titleCounts(this.value().headingParts).length > 0) {
+          TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
+            .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
+        }
       }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
       this.collapseButton()
-    }.width('100%').alignItems(VerticalAlign.Top)
+    }.width('100%').padding({ left: 8 }).alignItems(VerticalAlign.Center)
     Column({ space: 12 }) {
       if (!this.contentHidden) { this.bodyBlocks() }
       if (this.displayTags().length > 0) {
@@ -1417,7 +1433,7 @@ export struct TaskEditor {
               contentBackground: '#00000000' }).width('100%').padding({ left: 27 })
               .margin({ top: taskLogVisible(this.logShowPolicy, this.logbookExpanded) ? 8 : 0 })
           }
-        }.width('100%').padding({ left: 12, right: 12, bottom: 12 })
+        }.width('100%').padding({ right: 8, bottom: 12 })
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
         if (taskSourceText(this.value(), true, this.regionPolicy())) {
           Text(taskSourceText(this.value(), true, this.regionPolicy())).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
