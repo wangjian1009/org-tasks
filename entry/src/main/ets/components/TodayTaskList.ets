@@ -1,10 +1,12 @@
 import { FrameCallback } from '@ohos.arkui.UIContext'
 import { DataSet } from '../services/DataSet'
 import { PageListPosition } from '../services/PageListPosition'
+import { TaskInlineSession } from '../services/TaskInlineService'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { taskRenderKey } from '../ui/TaskPresentation'
-import { TodaySection, TodayTaskItem, TodayTaskGroup, TodayTimedTaskItem } from '../ui/TodayPresentation'
+import { TodaySection, TodayTaskItem, TodayTaskGroup, TodayTimedTaskItem, todayPreviewGroups, todayRegionKey } from '../ui/TodayPresentation'
+import { UiColor } from '../ui/Theme'
 import { RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { TaskRegion } from './TaskRegion'
 import { CategoryRegion } from './CategoryRegion'
@@ -40,12 +42,19 @@ export struct TodayTaskList {
   @Prop timedItems: TodayTimedTaskItem[] = []
   @Prop referenceTime: number = Date.now()
   @Prop expandOnRowClick: boolean = false
+  @Prop regionPreviewLimit: number = 0
+  @State expandedRegionKeys: string[] = []
 
   aboutToAppear(): void {
     this.active = true
     this.showNotifications = this.notificationState.notifications.length > 0
     const position = PageListPosition.read(this.positionKey)
     const found = position.key ? this.positionKeys().indexOf(position.key) : -1
+    // 重进预览页时，之前展开区中的记录可能已隐藏，不恢复失效的索引和像素锚点。
+    if (this.regionPreviewLimit > 0 && position.key && found < 0) {
+      this.initialIndex = 0; this.firstIndex = 0; this.pendingOffset = 0; this.pendingAnchor = undefined
+      return
+    }
     this.initialIndex = found >= 0 ? found : position.index; this.firstIndex = this.initialIndex
     this.pendingOffset = position.offset; this.pendingAnchor = position.anchor
   }
@@ -84,7 +93,10 @@ export struct TodayTaskList {
     if (this.timedItems.length > 0) keys.push('schedule-heading', 'schedule-items')
     for (const section of this.sections) {
       keys.push(section.key)
-      for (const group of section.groups) keys.push(group.project === null ? JSON.stringify([group.items[0].task.repoId, group.items[0].task.id]) : group.key)
+      for (const group of this.sectionGroups(section.key)) {
+        keys.push(group.project === null ? JSON.stringify([group.items[0].task.repoId, group.items[0].task.id]) : group.key)
+        if (this.ordinaryMoreAfter(section.key, group.key)) keys.push(todayRegionKey(section.key))
+      }
     }
     return keys
   }
@@ -121,7 +133,37 @@ export struct TodayTaskList {
   }
 
   private sectionGroups(sectionKey: string): TodayTaskGroup[] {
-    return this.sections.find(section => section.key === sectionKey)?.groups ?? []
+    const section = this.sections.find(section => section.key === sectionKey)
+    return section ? todayPreviewGroups(section, this.regionPreviewLimit, this.expandedRegionKeys) : []
+  }
+
+  private ordinaryMoreAfter(sectionKey: string, groupKey: string): boolean {
+    if (this.regionPreviewLimit <= 0 || this.expandedRegionKeys.includes(todayRegionKey(sectionKey))) return false
+    const ordinary = this.sections.find(section => section.key === sectionKey)?.groups.filter(group => group.project === null) ?? []
+    return ordinary.length > this.regionPreviewLimit && ordinary[this.regionPreviewLimit - 1].key === groupKey
+  }
+
+  private projectHasMore(sectionKey: string, groupKey: string): boolean {
+    if (this.regionPreviewLimit <= 0 || this.expandedRegionKeys.includes(todayRegionKey(sectionKey, groupKey))) return false
+    return (this.sections.find(section => section.key === sectionKey)?.groups.find(group => group.key === groupKey)?.items.length ?? 0) > this.regionPreviewLimit
+  }
+
+  private async expandRegion(sectionKey: string, groupKey: string): Promise<void> {
+    if (!await TaskInlineSession.end(true)) return
+    const key = todayRegionKey(sectionKey, groupKey)
+    if (this.active && !this.expandedRegionKeys.includes(key)) this.expandedRegionKeys = this.expandedRegionKeys.concat(key)
+  }
+
+  @Builder
+  loadMore(sectionKey: string, groupKey: string) {
+    ListItem() {
+      Button('加载更多', { type: ButtonType.Normal })
+        .id(`region_more:${todayRegionKey(sectionKey, groupKey)}`)
+        .fontSize(14).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        .height(40).constraintSize({ minWidth: 96 }).margin({ left: 24 })
+        .accessibilityText(`加载${this.sections.find(section => section.key === sectionKey)?.category || '未分类'}${groupKey ? '项目' : ''}区域的全部任务`)
+        .onClick((): void => { this.expandRegion(sectionKey, groupKey) })
+    }
   }
 
   private projectItems(sectionKey: string, groupKey: string): TodayTaskItem[] {
@@ -139,6 +181,9 @@ export struct TodayTaskList {
       ForEach(this.projectItems(sectionKey, groupKey), (item: TodayTaskItem) => {
         this.taskItem(item)
       }, (item: TodayTaskItem) => this.taskDataSet().taskKey(item.task.id))
+      if (this.projectHasMore(sectionKey, groupKey)) {
+        this.loadMore(sectionKey, groupKey)
+      }
     }
   }
 
@@ -162,6 +207,9 @@ export struct TodayTaskList {
             this.projectBlock(section.key, group.key)
           } else {
             this.taskItem(group.items[0])
+            if (this.ordinaryMoreAfter(section.key, group.key)) {
+              this.loadMore(section.key, '')
+            }
           }
         }, (group: TodayTaskGroup) => group.project === null ? this.taskDataSet().taskKey(group.items[0].task.id) : group.key)
       }, (section: TodaySection) => section.key)

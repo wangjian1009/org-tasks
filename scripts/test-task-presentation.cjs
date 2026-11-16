@@ -720,6 +720,31 @@ test('项目名称相同但仓库或文件不同，区块保持真实文件身�
   assert.deepEqual(groups.map(group => group.items.map(item => item.task.id)), [['a', 'd'], ['b'], ['c']]);
 });
 
+test('随时普通任务和每个项目独立预览三条，展开、筛选和增删不截断源快照', () => {
+  const { anytimeSections, todayPreviewGroups, todayRegionKey } = loadGrouping('TodayPresentation', {});
+  const values = Array.from({ length: 5 }, (_, i) => [
+    task(`p-${i}`, { category: '工作', projectName: '项目甲' }), task(`n-${i}`, { category: '工作' }),
+    task(`q-${i}`, { category: '工作', projectName: '项目甲', repoId: 'other' })
+  ]).flat();
+  const section = anytimeSections(values)[0];
+  const ids = groups => groups.map(group => group.items.map(item => item.task.id));
+  const initial = todayPreviewGroups(section, 3, []);
+  assert.deepEqual(ids(initial), [['n-0'], ['n-1'], ['n-2'], ['p-0', 'p-1', 'p-2'], ['q-0', 'q-1', 'q-2']]);
+  const projectKey = todayRegionKey(section.key, initial[3].key);
+  const expanded = [projectKey];
+  assert.deepEqual(ids(todayPreviewGroups(section, 3, expanded)).slice(-2),
+    [['p-0', 'p-1', 'p-2', 'p-3', 'p-4'], ['q-0', 'q-1', 'q-2']]);
+  expanded.push(todayRegionKey(section.key));
+  assert.equal(todayPreviewGroups(section, 3, expanded).filter(group => group.project === null).length, 5);
+  const filtered = anytimeSections(values.filter(value => !['p-0', 'p-1', 'p-2', 'n-0'].includes(value.id)))[0];
+  assert.deepEqual(ids(todayPreviewGroups(filtered, 3, expanded)).slice(-2), [['q-0', 'q-1', 'q-2'], ['p-3', 'p-4']]);
+  assert.equal(section.items.length, 15);
+  assert.equal(section.groups.flatMap(group => group.items).length, 15);
+  assert.equal(values.length, 15);
+  assert.equal(todayPreviewGroups(section, 0, []).flatMap(group => group.items).length, 15);
+  assert.deepEqual(anytimeSections([]), []);
+});
+
 
 test('分类与项目同名时保持平级，同名项目按仓库文件隔离，缺失与字面分类互不合并', () => {
   const { taskRegionGroups } = loadRegionPresentation();

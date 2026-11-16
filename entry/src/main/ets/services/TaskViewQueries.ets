@@ -37,7 +37,7 @@ export function overviewTaskQuery(view: TaskOverview, file?: CoreOrgFileRef): Co
   switch (view) {
     case 'today': expression = '.it.done (s.le.today or d.le.today)'; break
     case 'planned': expression = '.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'; break
-    case 'anytime': expression = 'it.todo s.none d.none'; break
+    case 'anytime': expression = 'it.todo s.none d.none o.priority .o.created'; break
     case 'someday': return { expression: 'it.todo', includeFiles: file ? [file] : [] }
     case 'memo': return file ? memoRecordQuery(file) : { expression: '.o.modified' }
     case 'logbook': expression = 'it.done'; break

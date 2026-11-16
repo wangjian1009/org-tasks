@@ -445,6 +445,25 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
     [['low'],['high','project-low']]);
 });
 
+test('随时通过 Core 按优先级和创建时间倒序查询，项目分组与标签筛选保持原顺序', async () => {
+  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const values=[plannedTask('high-new','core-a','plain.org','工作'), plannedTask('project-high','core-a','project.org','工作','项目'),
+    plannedTask('high-old','core-a','plain.org','工作'), plannedTask('project-low','core-a','project.org','工作','项目')];
+  values.forEach(task=>{task.tags=task.id==='high-new'?['隐藏']:['显示'];});
+  f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:
+    {type:'task',result:{tasks:values,categories:[]}}));
+  page.view='anytime'; await page.loadTasks();
+  assert.equal(page.message,'');
+  assert.equal(f.batches[0][0].query.expression,'it.todo s.none d.none o.priority .o.created');
+  assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
+    [['high-new'],['high-old'],['project-high','project-low']]);
+  page.applyTagFilter({tags:['显示'],includeUntagged:false});
+  assert.equal(f.batches.length,1);
+  assert.equal(page.tasks.length,4);
+  assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
+    [['high-old'],['project-high','project-low']]);
+});
+
 test('今天页面将当日时刻接入顶部，筛选后清空时间区但仍保留基础快照', async () => {
   const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
   const today=f.load('ui/Theme').localDate(new Date());

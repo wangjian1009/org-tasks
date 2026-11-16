@@ -116,6 +116,37 @@ export function todaySections(tasks: CoreTask[], groupProjects: boolean = false,
   })
 }
 
+// 随时沿用 Core 的优先级／创建时间顺序，分类内先展示普通任务，再展示各项目。
+export function anytimeSections(tasks: CoreTask[]): TodaySection[] {
+  return todaySections(tasks, true).map((section: TodaySection): TodaySection => {
+    section.groups = section.groups.filter(group => group.project === null)
+      .concat(section.groups.filter(group => group.project !== null))
+    return section
+  })
+}
+
+export function todayRegionKey(sectionKey: string, projectKey: string = ''): string {
+  return JSON.stringify([sectionKey, projectKey])
+}
+
+// 仅裁剪呈现范围，完整快照保留在数据集和分区中；各普通任务区与项目区独立展开。
+export function todayPreviewGroups(section: TodaySection, limit: number, expanded: string[]): TodayTaskGroup[] {
+  if (limit <= 0) return section.groups
+  let ordinaryCount = 0
+  const ordinaryExpanded = expanded.includes(todayRegionKey(section.key))
+  const result: TodayTaskGroup[] = []
+  for (const group of section.groups) {
+    if (group.project === null) {
+      if (ordinaryExpanded || ordinaryCount < limit) result.push(group)
+      ordinaryCount++
+    } else {
+      result.push({ key: group.key, project: group.project,
+        items: expanded.includes(todayRegionKey(section.key, group.key)) ? group.items : group.items.slice(0, limit) })
+    }
+  }
+  return result
+}
+
 // 内容字段由行自己的数据管理监控更新；成员、分区及顺序未变时保留原容器。
 export function sameTodaySections(left: TodaySection[], right: TodaySection[], keyOf: (task: CoreTask) => string): boolean {
   return left.length === right.length && left.every((section: TodaySection, index: number): boolean => {

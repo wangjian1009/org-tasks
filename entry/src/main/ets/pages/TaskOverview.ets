@@ -22,7 +22,7 @@ import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPres
 import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { TodaySection, TodayTimedTaskItem, todayLayout, todaySections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
+import { TodaySection, TodayTimedTaskItem, todayLayout, anytimeSections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
 import { PlannedGroup, plannedGroups, plannedRegionOptions, samePlannedGroups } from '../ui/PlannedPresentation'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { LogbookGroup, logbookGroups } from '../ui/LogbookPresentation'
@@ -137,7 +137,8 @@ struct TaskOverview {
     const layout = this.view === 'today' ? todayLayout(this.visibleTasks, this.priorityOrder, new Date(this.referenceTime)) : null
     const keyOf = (task: CoreTask): string => this.taskDataSet().taskKey(task.id) ?? task.id
     if (!layout || !this.dataManager || !sameTodayTimedItems(this.timedItems, layout.timedItems, keyOf)) this.timedItems = layout?.timedItems ?? []
-    if (!layout || !this.dataManager || !sameTodaySections(this.sections, layout.sections, keyOf)) this.sections = layout?.sections ?? (this.view === 'anytime' ? todaySections(this.visibleTasks) : [])
+    const sections = layout?.sections ?? (this.view === 'anytime' ? anytimeSections(this.visibleTasks) : [])
+    if (!this.dataManager || !sameTodaySections(this.sections, sections, keyOf)) this.sections = sections
   }
 
   defineDataSets(config: AppConfig, view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
@@ -278,6 +279,7 @@ struct TaskOverview {
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime,
+            regionPreviewLimit: this.view === 'anytime' ? 3 : 0,
             expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {
