@@ -78,9 +78,9 @@ struct Inbox {
   private targetRequest: number = 0
   private actionTimer: number = -1
   private actionPolicy: TaskPageActionPolicy = taskActionPolicy({
-    singleOperations: [TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete],
+    singleOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete],
     bulkOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete, TaskOperation.Merge]
-  }, 'move')
+  }, 'schedule')
   private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()
@@ -288,7 +288,7 @@ struct Inbox {
   }
 
   @Builder
-  swipeMoveIndicator() {
+  swipeScheduleIndicator() {
     // 收件箱保留原生列表右滑，避免与整卡共享手势同时识别。
     Row().width(1).height(1).opacity(0)
   }
@@ -414,7 +414,8 @@ struct Inbox {
     if (this.mergeBusy || this.actionBusy || this.mergeInvalid) return false
     if (this.selectingRecords) {
       if (!taskBatchMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return false
-    } else if (!taskSwipeMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return false
+    } else if (!taskSwipeMenu(this.actionPolicy, (): void => {}).some(item => item.id === action) &&
+      !(sources?.length === 1 && action === this.actionPolicy.rightSwipeAction)) return false
     const records = sources || this.selectedRecords()
     if (records.length === 0) return false
     this.mergeBusy = true
@@ -675,9 +676,9 @@ struct Inbox {
                       this.measureRows()
                     })
                 }.fullWidthItem().id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
-                  start: this.actionPolicy.rightSwipeAction === 'move' ? {
-                    builder: (): void => { this.swipeMoveIndicator() }, actionAreaDistance: 48,
-                    onAction: (): void => { this.swipeAction(record, 'move') }
+                  start: this.actionPolicy.rightSwipeAction === 'schedule' ? {
+                    builder: (): void => { this.swipeScheduleIndicator() }, actionAreaDistance: 48,
+                    onAction: (): void => { this.swipeAction(record, 'schedule') }
                   } : undefined,
                   end: { builder: (): void => { this.swipeMenu(record) } },
                   edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)

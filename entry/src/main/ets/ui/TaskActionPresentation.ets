@@ -49,9 +49,9 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'inbox': case 'someday': return taskActionPolicy({}, 'move')
+    case 'someday': return taskActionPolicy({}, 'move')
     case 'today': return taskActionPolicy({}, 'doing')
-    case 'planned': case 'anytime': case 'recent': return taskActionPolicy({}, 'schedule')
+    case 'inbox': case 'planned': case 'anytime': case 'recent': return taskActionPolicy({}, 'schedule')
     default: return taskActionPolicy()
   }
 }

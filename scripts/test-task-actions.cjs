@@ -32,9 +32,9 @@ function pagePolicy(page) {
 function checkDeferredSwipeMenu(expression, filename) {
   const { options } = compile('export function options(record) { return ' + expression + '; }', filename,
     { actions });
-  const renders = [], record = { id: 'source-record' };
+  const renders = [], activated = [], record = { id: 'source-record' };
   const page = { selectingRecords: false, actionPolicy: pagePolicy('inbox'),
-    swipeMenu(value) { renders.push([this, value]); } };
+    swipeMenu(value) { renders.push([this, value]); }, swipeAction(value, action) { activated.push([value, action]); } };
   // 只注入框架常量，执行产品表达式本身：普通布局阶段不得产生菜单节点。
   global.SwipeEdgeEffect = { None: 0 };
   try {
@@ -45,6 +45,8 @@ function checkDeferredSwipeMenu(expression, filename) {
     assert.deepEqual(renders, [[page, record]]);
     assert.equal(typeof value.start?.onAction, 'function', '收件箱保留原生右滑，内部共享手势关闭');
     assert.equal(value.start.actionAreaDistance, 48);
+    value.start.onAction();
+    assert.deepEqual(activated, [[record, 'schedule']], '收件箱主列表右滑设置 SCHEDULED');
     renders.length = 0;
     page.actionPolicy = taskActionPolicy();
     assert.equal(typeof options.call(page, record).end.builder, 'function');
@@ -134,11 +136,11 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   assert.deepEqual(taskBatchMenu(defaults, () => {}), []);
   assert.deepEqual(defaults.singleOperations, []); assert.deepEqual(defaults.bulkOperations, []);
   const inbox = pagePolicy('inbox');
-  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['someday', 'memo', 'delete', 'select']);
+  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete', 'select']);
   assert.deepEqual(taskBatchMenu(inbox, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete', 'merge']);
   assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete', 'restore']);
   inbox.singleOperations.length = 0;
-  assert.equal(pagePolicy('inbox').singleOperations.length, 3);
+  assert.equal(pagePolicy('inbox').singleOperations.length, 4);
   const input = { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] };
   const policy = taskActionPolicy(input);
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
@@ -177,13 +179,39 @@ function swipeCard(page) {
 }
 
 test('六个区域的右滑完成回调分别执行移动、日期或进行中', () => {
-  for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'doing', inbox: 'move', recent: 'schedule' })) {
+  assert.equal(taskPageActionPolicy('inbox').rightSwipeAction, 'schedule');
+  assert.equal(taskPageActionPolicy('recent').rightSwipeAction, 'schedule');
+  for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'doing', inbox: 'schedule', recent: 'schedule' })) {
     const f = swipeCard(page);
     f.state.rightSwipe(); assert.deepEqual(f.calls, [action], page);
   }
   const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
-  assert.deepEqual(inboxMenu.map(item => item.id), ['someday', 'memo', 'delete', 'select']);
-  assert.equal(taskSwipeMenuWidth(inboxMenu), 208);
+  assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'someday', 'memo', 'delete', 'select']);
+  assert.equal(taskSwipeMenuWidth(inboxMenu), 256);
+});
+
+test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同一入口，批量能力仍独立校验', async () => {
+  const source = fs.readFileSync('entry/src/main/ets/pages/Inbox.ets', 'utf8');
+  const method = source.match(/  async performSelected\([^\n]+\n[\s\S]*?\n  \}/)[0];
+  const writes = [];
+  const { Inbox } = compile("import { taskBatchMenu, taskSwipeMenu } from 'actions'; import { InboxService } from 'service'; export class Inbox {" + method + '}', 'Inbox.ets', {
+    actions, service: { InboxService: { async performMany(...args) { writes.push(args); } } }
+  });
+  const record = { id: 'source' }, date = { date: '2026-11-17' };
+  const page = Object.assign(new Inbox(), { actionPolicy: pagePolicy('inbox'), records: [record],
+    tasksDataSet: { async operate(work) { await work('operation'); } },
+    getUIContext: () => ({ getHostContext: () => ({}) }), selectedRecords: () => [record],
+    resetSelection() {}, async loadRecords() {} });
+  assert.equal(await page.performSelected('schedule', undefined, date, [record]), true);
+  assert.equal(writes.length, 1); assert.equal(writes[0][2], 'schedule'); assert.equal(writes[0][4], date);
+  assert.equal(await page.performSelected('move', { id: 'target' }, undefined, [record]), true);
+  assert.equal(writes[1][2], 'move');
+  assert.equal(await page.performSelected('schedule', undefined, date, [record, record]), false);
+  page.selectingRecords = true;
+  assert.equal(await page.performSelected('schedule', undefined, date, [record]), false);
+  page.selectingRecords = false; page.actionPolicy = taskActionPolicy();
+  assert.equal(await page.performSelected('schedule', undefined, date, [record]), false);
+  assert.equal(writes.length, 2);
 });
 
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
