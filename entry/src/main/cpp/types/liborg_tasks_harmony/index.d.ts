@@ -95,6 +95,7 @@ export type DataChangeEvent = {
   removedFiles?: OrgFileRef[]; categories?: TaskCategory[];
 };
 export type QuerySubscriptionStatus = 'current' | 'awaitingEvents' | 'invalidated' | 'closed';
+export interface QuerySubscriptionRequest { query: CoreQuery; callback: DataChangeMonitor; operationId?: string | null; repositoryBindings?: QueryRepositoryBinding[]; }
 export interface QuerySubscriptionStart { subscriptionId: number; data: CoreQueryResult; operationId: string | null; }
 export type DataChangeMonitor = (event: DataChangeEvent) => void;
 export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; includeProjectRoots?: boolean; }
@@ -316,7 +317,7 @@ export class Workspace {
   removeRepo(rootDirectory: string): Promise<void>;
   validateRepository(rootDirectory: string): Promise<void>;
   query(queries: CoreQuery[], repositoryBindings?: QueryRepositoryBinding[]): Promise<CoreQueryResult[]>;
-  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null, repositoryBindings?: QueryRepositoryBinding[]): Promise<QuerySubscriptionStart>;
+  subscribeQuery(requests: QuerySubscriptionRequest[]): Promise<QuerySubscriptionStart[]>;
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>;
   unsubscribeQuery(subscriptionId: number): void;
   refileTargets(query?: RefileTargetQuery): Promise<RefileTarget[]>;

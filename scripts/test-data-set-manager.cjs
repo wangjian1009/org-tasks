@@ -19,8 +19,8 @@ function metadata(){const base=task();return{repoId:'repo',path:'a.org',title:'A
 async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'org-data-set-'));const handles=new Map();const gates=[];let partial=Infinity;let writeFailure=false;let diskDelay;let discarded=0;const io={OpenMode:{CREATE:1,TRUNC:2,READ_WRITE:4},access:async p=>{try{await fsp.access(p);return true}catch(e){if(e.code==='ENOENT')return false;throw e}},stat:p=>fsp.stat(p),readText:p=>fsp.readFile(p,'utf8'),mkdir:(p)=>fsp.mkdir(p,{recursive:true}),listFile:p=>fsp.readdir(p),open:async p=>{const handle=await fsp.open(p,'w+');handles.set(handle.fd,handle);return{fd:handle.fd}},write:async(fd,buffer)=>{if(diskDelay){const pending=diskDelay;diskDelay=undefined;pending.entered.resolve();await pending.promise}if(writeFailure)throw new Error('写盘失败');return(await handles.get(fd).write(Buffer.from(buffer).subarray(0,partial))).bytesWritten},fsync:fd=>handles.get(fd).sync(),close:async file=>{const handle=handles.get(file.fd);handles.delete(file.fd);await handle.close()},rename:(a,b)=>fsp.rename(a,b),unlink:async p=>{await fsp.unlink(p);discarded++}};
  const util={generateRandomUUID:()=>crypto.randomUUID(),TextEncoder:class{encodeInto(text){return new TextEncoder().encode(text)}}};
  const config={repos:[{id:'config',rootDirectory:'/repo',webdavPassword:'PRIVATE_PASSWORD_MARKER'}],todoDefaults:'DEFAULT',coreSettings:{additionStates:[]}};
- let workspaceDelay;let repositoryReads=0;const rawCallbacks=new Map();const subscriptions=new Map();let nextSub=1;let rows=[task()];let fileReads=0;let fileVersion=1;let failNext=false;let delay;let subDelay;let sideEffect=false;let keyPolicy=(_row,index)=>[{value:index,descending:false,missingLast:false}];const calls=[];const groups=[];
- const native={async repos(){repositoryReads++;throw new Error('页面不得单独读取仓库列表')},async fileAt(){fileReads++;const snapshot=rows.slice();return{fileVersion:'file-'+fileVersion,nodes:()=>snapshot};},watchDataChanges:async callback=>{const id=nextSub++;rawCallbacks.set(id,callback);return id},stopWatchingDataChanges:id=>rawCallbacks.delete(id),subscribeQuery:async(query,callback,operationId)=>{const id=nextSub++;subscriptions.set(id,{query,callback});calls.push(query);const data=query.type==='file'?{type:'file',result:[metadata()]}:{type:'task',result:{tasks:rows.map((row,index)=>task(row.id,{...row,orderKey:keyPolicy(row,index)})),categories:[{key:'category:Work',category:'Work',count:rows.length}]}};if(subDelay){const pending=subDelay;subDelay=undefined;await pending.promise}return{subscriptionId:id,data,operationId}},unsubscribeQuery:id=>subscriptions.delete(id),querySubscriptionStatus:async()=> 'current',query:async()=>{throw new Error('禁止重新查询')},executeTaskOperations:async group=>{groups.push(group);if(delay){const pending=delay;delay=undefined;await pending.promise}if(failNext){failNext=false;throw new Error('提交失败')}
+ let workspaceDelay;let repositoryReads=0;const rawCallbacks=new Map();const subscriptions=new Map();let nextSub=1;let rows=[task()];let fileReads=0;let fileVersion=1;let failNext=false;let delay;let subDelay;let sideEffect=false;let keyPolicy=(_row,index)=>[{value:index,descending:false,missingLast:false}];const calls=[];const batches=[];const groups=[];
+ const native={async repos(){repositoryReads++;throw new Error('页面不得单独读取仓库列表')},async fileAt(){fileReads++;const snapshot=rows.slice();return{fileVersion:'file-'+fileVersion,nodes:()=>snapshot};},watchDataChanges:async callback=>{const id=nextSub++;rawCallbacks.set(id,callback);return id},stopWatchingDataChanges:id=>rawCallbacks.delete(id),subscribeQuery:async requests=>{batches.push(requests);return await Promise.all(requests.map(async({query,callback,operationId})=>{const id=nextSub++;subscriptions.set(id,{query,callback});calls.push(query);const data=query.type==='file'?{type:'file',result:[metadata()]}:{type:'task',result:{tasks:rows.map((row,index)=>task(row.id,{...row,orderKey:keyPolicy(row,index)})),categories:[{key:'category:Work',category:'Work',count:rows.length}]}};if(subDelay){const pending=subDelay;subDelay=undefined;await pending.promise}return{subscriptionId:id,data,operationId}}))},unsubscribeQuery:id=>subscriptions.delete(id),querySubscriptionStatus:async()=> 'current',query:async()=>{throw new Error('禁止重新查询')},executeTaskOperations:async group=>{groups.push(group);if(delay){const pending=delay;delay=undefined;await pending.promise}if(failNext){failNext=false;throw new Error('提交失败')}
   for(const expected of group.fileVersions??[]){const current=rows.find(row=>row.repoId===expected.repoId&&row.filePath===expected.file);if(current&&current.fileVersion!==expected.version)throw new Error('文件版本冲突')}
   const old=rows.slice();fileVersion++;
   for(const operation of group.operations){if(operation.type==='Creation'){const data=operation.data;rows=rows.map(item=>item.heading===data.title&&item.fullPath.titles.length===1?task(data.title+'#'+((item.fullPath.occurrence??1)+1),{...item,id:data.title+'#'+((item.fullPath.occurrence??1)+1),taskId:data.title+'#'+((item.fullPath.occurrence??1)+1),fullPath:{...item.fullPath,occurrence:(item.fullPath.occurrence??1)+1}}):item);rows.unshift(task(data.title,{fileVersion:'file-'+fileVersion,heading:data.title,fullPath:{...data.position.parent,titles:[data.title],occurrence:1},state:data.state?{name:data.state,category:'Todo'}:null}))}else{const index=rows.findIndex(item=>JSON.stringify(item.fullPath)===JSON.stringify(operation.data.path));assert.ok(index>=0,'写入必须使用最新路径');if(operation.type==='Deletion')rows.splice(index,1);else if(operation.type==='Modification'){let current=rows[index];for(const change of operation.data.modifications){if(change.field==='TITLE')current=task('renamed-'+change.value,{...current,id:'renamed-'+change.value,taskId:'renamed-'+change.value,heading:change.value,fullPath:{...current.fullPath,titles:[change.value]},headingParts:[{text:change.value,href:null,isLink:false,count:null,link:null}]});else if(change.field==='NOTES')current=task(current.id,{...current,body:change.value,editContent:{...current.editContent,notes:change.value,notesHtml:'<p>'+change.value+'</p>'}});else if(change.field==='PRIORITY')current=task(current.id,{...current,priority:current.priorityOptions.find(p=>p.name===change.value)??null});}rows[index]=current}}}
@@ -39,7 +39,7 @@ async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir()
  const configService={AppConfigService:{load:async()=>config,watchChanges:listener=>configListeners.add(listener),stopWatchingChanges:listener=>configListeners.delete(listener)}};
  const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'../ui/QueryOrderPresentation':load('entry/src/main/ets/ui/QueryOrderPresentation.ets',{}),'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
  const {DataSetManager}=load('entry/src/main/ets/services/DataSetManager.ets',{'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataCache':cache,'./PageDataSnapshot':snapshots,'./DataSet':dataSets});
- const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{Queue:dataSets.UserOperationQueue,holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
+ const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{Queue:dataSets.UserOperationQueue,holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:()=>{for(const callback of rawCallbacks.values())callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:null,changes:[]})},ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,batches,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs);managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
 
 test('每页一个 JSON 文件，缓存恢复版本为0、首次查询为1，原生方法恢复为只读模型方法',async()=>{const f=await fixture();try{const first=f.manager();await first.start();assert.equal(first.dataSet('tasks').snapshot().version,1);await first.close();const file=f.file('今天');const envelope=JSON.parse(await fsp.readFile(file,'utf8'));assert.equal(envelope.dataSets.length,1);assert.equal(typeof envelope.dataSets[0].tasks,'object');assert.equal((await fsp.readFile(file,'utf8')).includes('PRIVATE_PASSWORD_MARKER'),false);const second=f.manager();const versions=[];second.dataSet('tasks').subscribe(event=>versions.push(event.version));const delay=f.delaySubscribe();const start=second.start();await until(()=>second.dataSet('tasks').snapshot()?.version===0&&f.calls.length===2);assert.equal(second.dataSet('tasks').snapshot().version,0);assert.equal(second.dataSet('tasks').getTask('A').isDone(),false);assert.equal(second.dataSet('tasks').getTask('A').taskStateOf('Done').name,'DONE');delay.resolve();await start;assert.equal(second.dataSet('tasks').snapshot().version,1);assert.deepEqual([...new Set(versions)],[0,1]);assert.deepEqual(await fsp.readdir(path.dirname(file)),['今天.json']);}finally{await f.cleanup()}});
 
@@ -327,5 +327,62 @@ test('刷新期间同文件编辑等待新订阅就绪，再使用最新确认�
   const write=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'刷新之后的编辑'}]);
   await tick();assert.equal(f.groups.length,0);held.resolve();await Promise.all([refresh,write]);
   assert.equal(f.groups.length,1);assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'刷新之后的编辑');
+ }finally{await f.cleanup()}
+});
+
+
+test('Manager 首次加载与整页刷新各调用一次批量订阅，独立 callback、结果与 ID 按数据集管理', async()=>{
+ const f=await fixture();try {
+  const manager=f.manager('批量页',[
+   {name:'tasks',query:{type:'task',query:{}}},
+   {name:'done',query:{type:'task',query:{expression:'it.done'}}},
+   {name:'files',query:{type:'file',query:{}}}
+  ]);
+  await manager.start();
+  assert.deepEqual(f.batches.map(batch=>batch.length),[3]);
+  assert.equal(new Set(f.batches[0].map(item=>item.callback)).size,3);
+  assert.equal(f.subscriptions.size,3);
+  const ids=Array.from(f.subscriptions.keys());
+  const fileBefore=manager.dataSet('files').data;
+  const doneBefore=manager.dataSet('done').data;
+  const original=manager.dataSet('tasks').getTask('A');
+  f.batches[0][0].callback({type:'repositoryChanged',repoId:'repo',operationId:null,files:[],changes:[
+   {kind:'deleted',before:{task:{id:'A',fullPath:original.fullPath}},after:null}
+  ]});
+  assert.equal(manager.dataSet('tasks').getTask('A'),undefined);
+  assert.equal(manager.dataSet('done').data,doneBefore);
+  assert.equal(manager.dataSet('files').data,fileBefore);
+  await manager.refresh();
+  assert.deepEqual(f.batches.map(batch=>batch.length),[3,3]);
+  assert.equal(f.subscriptions.size,3);
+  assert.ok(ids.every(id=>!f.subscriptions.has(id)));
+  await manager.dataSet('tasks').setQuery({type:'task',query:{expression:'it.todo'}});
+  assert.deepEqual(f.batches.map(batch=>batch.length),[3,3,1]);
+  assert.equal(f.subscriptions.size,3);
+  await manager.close();
+  assert.equal(f.subscriptions.size,0);
+ } finally {await f.cleanup()}
+});
+
+test('在途批次期间关闭页面会清理整批 ID，不留下事件订阅',async()=>{
+ const f=await fixture();try {
+  const manager=f.manager('关闭批次',[{name:'tasks',query:{type:'task',query:{}}},{name:'files',query:{type:'file',query:{}}}]);
+  const hold=f.delaySubscribe();const starting=manager.start();
+  await until(()=>f.batches.length===1);
+  const closing=manager.close();hold.resolve();
+  await Promise.all([starting,closing]);
+  assert.equal(f.subscriptions.size,0);
+ }finally{await f.cleanup()}
+});
+
+
+test('批量刷新等待在途编辑完成后再更换订阅，不丢失前一阶段事件',async()=>{
+ const f=await fixture();try {
+  const manager=f.manager('等待编辑',[{name:'tasks',query:{type:'task',query:{}}},{name:'files',query:{type:'file',query:{}}}]);await manager.start();
+  const hold=f.delay();const editing=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'先提交'}]);
+  await until(()=>f.groups.length===1);const refreshing=manager.refresh();
+  await new Promise(resolve=>setTimeout(resolve,20));assert.equal(f.batches.length,1);assert.equal(f.subscriptions.size,2);
+  hold.resolve();await Promise.all([editing,refreshing]);
+  assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'先提交');assert.equal(f.batches.length,2);assert.equal(f.batches[1].length,2);
  }finally{await f.cleanup()}
 });

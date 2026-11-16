@@ -45,6 +45,7 @@ import {
   TaskDataChange as NativeTaskDataChange,
   DataChangeMonitor as NativeDataChangeMonitor,
   QuerySubscriptionStart as NativeQuerySubscriptionStart,
+  QuerySubscriptionRequest as NativeQuerySubscriptionRequest,
   QuerySubscriptionStatus as NativeQuerySubscriptionStatus,
   HttpServerInfo as NativeHttpServerInfo,
   HttpUiHandler, HttpUiRequest, HttpUiResponse,
@@ -171,6 +172,7 @@ export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
 export type CoreTaskDataChange = NativeTaskDataChange
 export type CoreDataChangeEvent = NativeDataChangeEvent
 export type CoreDataChangeMonitor = NativeDataChangeMonitor
+export type CoreQuerySubscriptionRequest = NativeQuerySubscriptionRequest
 export type CoreQuerySubscriptionStart = NativeQuerySubscriptionStart
 export type CoreQuerySubscriptionStatus = NativeQuerySubscriptionStatus
 export type CoreHttpUiHandler = HttpUiHandler
@@ -286,9 +288,8 @@ export class CoreWorkspace {
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
   async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
   stopWatchingDataChanges(subscriptionId: number): void { this.native.stopWatchingDataChanges(subscriptionId) }
-  async subscribeQuery(query: CoreQuery, monitor: CoreDataChangeMonitor, operationId: string | null = null,
-    repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<CoreQuerySubscriptionStart> {
-    return await this.native.subscribeQuery(query, monitor, operationId, repositoryBindings)
+  async subscribeQuery(requests: CoreQuerySubscriptionRequest[]): Promise<CoreQuerySubscriptionStart[]> {
+    return await this.native.subscribeQuery(requests)
   }
   async querySubscriptionStatus(id: number): Promise<CoreQuerySubscriptionStatus> { return await this.native.querySubscriptionStatus(id) }
   unsubscribeQuery(id: number): void { this.native.unsubscribeQuery(id) }

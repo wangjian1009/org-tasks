@@ -14,10 +14,13 @@
 \begin{center}
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{OrgWorkspace}{}{subscribe\_query() \\ unsubscribe\_query()}
+\umlclass[x=0,y=0]{OrgWorkspace}{}{subscribe\_query(requests) \\ unsubscribe\_query()}
 \umlclass[x=7,y=0]{QuerySubscription}{固定查询 \\ 命中 ID 集合 \\ 文件版本 \\ 分类计数}{内部过滤与归并}
 \umlclass[x=0,y=-4]{QueryModel}{CoreQuery \\ CoreQueryResult}{}
 \umlclass[x=7,y=-4]{DataChangeEvent}{文件与任务变化}{}
+\umlclass[x=0,y=-8]{QuerySubscriptionRequest}{query \\ callback}{}
+\umldep{OrgWorkspace}{QuerySubscriptionRequest}
+\umldep{QuerySubscriptionRequest}{QueryModel}
 \umldep{OrgWorkspace}{QuerySubscription}
 \umldep{OrgWorkspace}{QueryModel}
 \umldep{QuerySubscription}{QueryModel}
@@ -29,16 +32,18 @@
 
 #+begin_src rust
 impl OrgWorkspace {
-    pub async fn subscribe_query<F>(
+    pub async fn subscribe_query(
         &self,
-        query: CoreQuery,
-        on_change: F,
-    ) -> Result<QuerySubscriptionStart, CoreError>
-    where
-        F: Fn(DataChangeEvent) + Send + Sync + 'static;
+        requests: Vec<QuerySubscriptionRequest>,
+    ) -> Result<Vec<QuerySubscriptionStart>, CoreError>;
 
     pub fn unsubscribe_query(&self, subscription: &mut QuerySubscription);
     pub fn query_subscription_status(&self, subscription: &QuerySubscription) -> QuerySubscriptionStatus;
+}
+
+pub struct QuerySubscriptionRequest {
+    pub query: CoreQuery,
+    pub callback: Box<dyn Fn(DataChangeEvent) + Send + Sync>,
 }
 
 pub struct QuerySubscriptionStart {
@@ -53,6 +58,10 @@ pub enum QuerySubscriptionStatus {
     Closed,
 }
 #+end_src
+
+~subscribe_query~ 只接收订阅项数组，不保留单项参数协议。每项携带自己的 ~query~ 和 ~callback~ ，结果数组按输入位置逐项返回独立的 ~QuerySubscriptionStart~ 。所有查询共享一次 ~query_snapshot~ ：每个涉及的仓库只加锁、扫描目录与加载文件一次，各项的包含／排除范围取所需文件并集；空数组不扫描文件，任一项校验或加载失败使整批失败，并清理本批已注册的监控。
+
+共享仅限初始读取。每项仍持有独立固定查询、成员身份、版本状态与回调；同一原始变化分别按各项查询过滤和转换，结果直接发送到各自 callback。各 callback 的事件语义保持原样，单项取消不影响同批其他订阅。重复查询保留独立位置、结果与生命周期。
 
 ~Task~ 和 ~File~ 查询均受支持； ~Notification~ 不属于数据订阅，返回输入错误，继续使用原有通知监控。所有参数验证、仓库范围、安全路径、忽略规则、表达式、分类及排序沿用普通查询。查询定义在创建后固定，句柄对外不提供查询条件的修改入口；状态也通过 Workspace 读取。
 
@@ -83,10 +92,10 @@ pub enum QuerySubscriptionStatus {
 
 * 启动交错、版本与边界
 
-先注册监控，再执行一次查询。启动期间事件排队，比较初始文件版本与事件的前后版本：快照已经包含的事件链整体去重，查询之后的事件合并进返回的初始数据，不先发送一个过期快照再要求调用方重查。
+先为本批全部项注册独立监控，再执行一次批量查询。启动期间事件排队，比较初始文件版本与事件的前后版本：快照已经包含的事件链整体去重，查询之后的事件合并进返回的初始数据，不先发送一个过期快照再要求调用方重查。
 
 运行中只有当前版本与事件前版本衔接时才应用增量；最终版本已经确认的重复事件不再次通知。乱序事件等待前序版本，不回滚到旧数据，也不重新读取磁盘。事件处理与通知分发均在模块内部排序。暂存队列最多保留 256 个原始事件，长期正常状态不保存事件载荷。
 
 ~AwaitingEvents~ 表示等待缺失的版本前序， ~Invalidated~ 表示已无法保证当前完整性。同步、重置等入口的 ~files=None~ 没有增量载荷，模块仅标记失效，不把失效通知转发为数据变化，也不自动查询。超过事件暂存边界同样标记失效。任务查询固定启动时的本地日期，跨自然日后标记失效；仓库集合或默认配置变化后应显式重建订阅。恢复由调用方显式重新启动订阅完成，不在事件回调或修改后隐式启动查询。
 
-Core 接口和 Harmony bridge 已接通，界面管理类已实现，Today 页面实例尚未接入。同步等旧入口补充完整增量前，不能声称所有外部变化均可自动校正。
+Core 接口和 Harmony bridge 已接通，任务页面由 DataSetManager 合并订阅调用并清理各订阅 ID，各 DataSet 继续独立消费自己的结果与变化事件。同步等旧入口补充完整增量前，不能声称所有外部变化均可自动校正。

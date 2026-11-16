@@ -20,11 +20,11 @@ async fn shared_workspace_http_queries_mutations_events_and_lifecycle() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let capture = events.clone();
     let subscription = workspace
-        .subscribe_query(TaskQuery::default().into(), move |event| {
+        .subscribe_query(vec![QuerySubscriptionRequest::new(TaskQuery::default().into(), move |event| {
             capture.lock().unwrap().push(event)
-        })
+        })])
         .await
-        .unwrap();
+        .unwrap().remove(0);
     let workspace = workspace.clone();
     let mut server = OrgWorkspace::start_http_server(workspace, "127.0.0.1:0".parse().unwrap())
         .await

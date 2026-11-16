@@ -4,7 +4,7 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { TaskCreation, TaskModification } from 'liborg_tasks_harmony.so'
 import { AppConfig } from '../models/OrgTask'
-import { CoreDataChangeEvent, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFile, CoreOrgFileRef, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject, NativeCoreService } from './NativeCoreService'
+import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFile, CoreOrgFileRef, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
 import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
@@ -18,7 +18,14 @@ export class DataSetWriteError extends Error {
   readonly committed: boolean
   constructor(message: string, committed: boolean) { super(message); this.committed = committed }
 }
-export interface DataSetClock { owner: string; next: () => number; metadata?: (repoId: string, path: string) => CoreOrgFileMetadata | undefined }
+export interface DataSetClock {
+  owner: string
+  next: () => number
+  metadata?: (repoId: string, path: string) => CoreOrgFileMetadata | undefined
+  subscribe: (name: string, request: CoreQuerySubscriptionRequest, activate: () => void) => Promise<CoreQuerySubscriptionStart>
+  unsubscribe: (name: string) => void
+  status: (name: string) => Promise<CoreQuerySubscriptionStatus>
+}
 export type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
 interface DataSetSubmission { readonly operationId: string; readonly completion: Promise<void> }
 export interface ManagedDataSet { readonly revision: number; readonly name: string; readonly version: number; readonly confirmedVersion: number; readonly data: CoreQueryResult; readonly optimistic: boolean }
@@ -91,7 +98,6 @@ export class DataSet {
   private readonly views: Map<string, ManagedDataSet> = new Map()
   private readonly taskIndex: Map<string, Map<string, CoreTask>> = new Map()
   private readonly rowIds: Map<string, Map<string, string>> = new Map()
-  private readonly subscriptions: Map<string, number> = new Map()
   private readonly initialEvents: Map<string, CoreDataChangeEvent[]> = new Map()
   private readonly pending: PendingEdit[] = []
   private readonly writes: Set<Promise<void>> = new Set()
@@ -126,15 +132,15 @@ export class DataSet {
   }
   invalidate(): void {
     this.scopeChanged = true; this.ready = false; this.generation = ''
-    for (const id of this.subscriptions.values()) this.workspace?.unsubscribeQuery(id)
-    this.subscriptions.clear(); this.stopExternalUpdates()
+    this.clock?.unsubscribe(this.name)
+    this.stopExternalUpdates()
     this.publish({ name: this.name, type: 'refresh', version: this.version, operationId: this.operationId(this.sequence, 'context'), optimistic: false, added: [], removed: [], updated: [] })
   }
   async configure(config: AppConfig, workspace: CoreWorkspace, definition?: DataSetDefinition): Promise<void> {
     const request = ++this.configureRequest
     this.scopeChanged = true; this.generation = ''; this.ready = false
-    for (const id of this.subscriptions.values()) this.workspace?.unsubscribeQuery(id)
-    this.subscriptions.clear(); this.stopExternalUpdates()
+    this.clock?.unsubscribe(this.name)
+    this.stopExternalUpdates()
     await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
     if (this.connection) await UserOperationQueue.whenIdle()
     if (request !== this.configureRequest || this.closed) return
@@ -267,12 +273,8 @@ export class DataSet {
       return
     }
     // 缓存已由管理器发布；配置接入属于后台查询准备，不阻塞缓存恢复。
-    const epoch = this.epoch, config = this.config!
-    await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    if (!this.hasValidScope() || epoch !== this.epoch) return
-    await this.connectExternalUpdates()
-    if (!this.hasValidScope() || epoch !== this.epoch) return
-    await this.load(++this.sequence)
+    // 立即把查询交给管理器收集；各监控注册的完成顺序不拆散页面首次批次。
+    await Promise.all([this.connectExternalUpdates(), this.load(++this.sequence)])
   }
   private async connectExternalUpdates(): Promise<void> {
     const workspace = this.workspace
@@ -359,25 +361,27 @@ export class DataSet {
     if (!workspace) throw new Error('底层连接尚未建立')
     if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
     const operationId = this.operationId(version, 'refresh')
-    this.generation = operationId
-    for (const id of this.subscriptions.values()) workspace.unsubscribeQuery(id)
-    this.subscriptions.clear(); this.initialEvents.clear()
+    const activate = (): void => {
+      this.generation = operationId
+      this.initialEvents.clear(); this.initialEvents.set(this.name, [])
+    }
     const definition = this.definition!
-    this.initialEvents.set(this.name, [])
     try {
-      if (definition.query.type === 'document') await this.loadFile(definition, operationId)
+      if (definition.query.type === 'document') {
+        activate()
+        await this.loadFile(definition, operationId)
+      }
       else {
-        const result = await workspace.subscribeQuery(definition.query, (event: CoreDataChangeEvent): void => {
+        if (!this.clock) throw new Error('数据集缺少订阅管理器')
+        const result = await this.clock.subscribe(this.name, { query: definition.query, callback: (event: CoreDataChangeEvent): void => {
           if (this.closed || this.generation !== operationId) return
           const queue = this.initialEvents.get(this.name)
           if (queue) queue.push(event)
           else this.onCoreDataChanged(this.name, event, operationId)
-        }, operationId, this.repositoryBindings)
+        }, operationId, repositoryBindings: this.repositoryBindings }, activate)
         if (this.closed || this.generation !== operationId) {
-          workspace.unsubscribeQuery(result.subscriptionId)
           throw new Error('数据集查询已变化')
         }
-        this.subscriptions.set(this.name, result.subscriptionId)
         this.applyFullResult(this.name, result.data, result.operationId ?? operationId)
         const events = this.initialEvents.get(this.name) ?? []
         this.initialEvents.delete(this.name)
@@ -389,8 +393,8 @@ export class DataSet {
       this.scheduleExternalRefresh()
     } catch (error) {
       if (this.generation !== operationId) throw error as Error
-      for (const id of this.subscriptions.values()) workspace.unsubscribeQuery(id)
-      this.subscriptions.clear(); this.initialEvents.clear()
+      this.clock?.unsubscribe(this.name)
+      this.initialEvents.clear()
       this.generation = ''; this.ready = false
       this.emitError(this.name, operationId, error as Error)
       throw error as Error
@@ -420,8 +424,11 @@ export class DataSet {
     if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
-    const work = UserOperationQueue.submit(async (): Promise<void> => { await this.load(version) },
-      [...this.scopeFiles(), JSON.stringify(['$dataset', this.epoch, this.name])])
+    // 普通查询由管理器合并后统一排队；完整文档沿用单文件读取。
+    const work = this.query?.type === 'document'
+      ? UserOperationQueue.submit(async (): Promise<void> => { await this.load(version) },
+        [...this.scopeFiles(), JSON.stringify(['$dataset', this.epoch, this.name])])
+      : this.load(version)
     this.track(work)
     return work
   }
@@ -434,10 +441,8 @@ export class DataSet {
     const work = UserOperationQueue.submit(async (): Promise<void> => {
       try {
         if (!this.hasValidScope()) throw new Error('页面数据范围已变化')
-        for (const id of this.subscriptions.values()) {
-          if (await this.workspace!.querySubscriptionStatus(id) !== 'current') {
-            this.requestExternalRefresh(); throw new Error('数据订阅已失效，正在刷新页面')
-          }
+        if (this.clock && await this.clock.status(this.name) !== 'current') {
+          this.requestExternalRefresh(); throw new Error('数据订阅已失效，正在刷新页面')
         }
         await execute(operationId)
         this.versions.set(this.name, Math.max(this.versions.get(this.name) ?? 0, version))
@@ -505,7 +510,7 @@ export class DataSet {
       sourceVersion: sourceVersion ?? task.fileVersion, changes: JSON.parse(JSON.stringify(changes)) as TaskModification[],
       observed: new Set(), identityFrames: new Set(), missingFrames: new Set() }
   }
-  private scopeFiles(): string[] {
+  scopeFiles(): string[] {
     const files: string[] = []
     for (const data of this.confirmed.values()) {
       if (data.type === 'task') for (const task of data.result.tasks) files.push(JSON.stringify([task.repoId, task.filePath]))
@@ -526,11 +531,9 @@ export class DataSet {
       let committed: boolean = false
       try {
         if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
-        for (const id of this.subscriptions.values()) {
-          if (await workspace.querySubscriptionStatus(id) !== 'current') {
-            this.requestExternalRefresh()
-            throw new Error('数据订阅已失效，正在刷新页面')
-          }
+        if (this.clock && await this.clock.status(this.name) !== 'current') {
+          this.requestExternalRefresh()
+          throw new Error('数据订阅已失效，正在刷新页面')
         }
         let group: CoreTaskOperationGroup
         if (edit.kind === 'create') {
@@ -725,15 +728,13 @@ export class DataSet {
       await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
       await UserOperationQueue.whenIdle()
       // 固定关闭边界：先解除事件，再持久化最后一个已确认阶段。
-      for (const id of this.subscriptions.values()) this.workspace?.unsubscribeQuery(id)
-      this.subscriptions.clear()
+      this.clock?.unsubscribe(this.name)
       this.closed = true
       this.stopExternalUpdates()
     } finally {
       this.closed = true
       this.stopExternalUpdates()
-      for (const id of this.subscriptions.values()) this.workspace?.unsubscribeQuery(id)
-      this.subscriptions.clear(); this.listeners.clear(); this.taskListeners.clear();
+      this.clock?.unsubscribe(this.name); this.listeners.clear(); this.taskListeners.clear();
     }
   }
 }

@@ -77,7 +77,7 @@
   completed: Receiver\textless Result\textgreater
 }{start(repos): OrgWorkspace \\ stop(): () \\ execute\_task\_operations(group): () \\
 task\_merge\_operations(request): TaskMergePlan \\
-subscribe\_query(query): QuerySubscriptionStart \\
+subscribe\_query(requests): QuerySubscriptionStart[] \\
 unsubscribe\_query(subscription)}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
   id: OrgRepoId \\
@@ -1889,7 +1889,7 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 
 * 查询订阅运行时模型
 
-~QuerySubscriptionStart~ 保存一次启动得到的 ~CoreQueryResult~ 与 ~QuerySubscription~ 。初始数据直接转交调用方，句柄不持有其副本。句柄的固定查询、成员 ID、文件版本和分类数值摘要是运行时状态，不写入仓库、同步历史或 outbox；取消或析构时释放。完整数据流与内嵌 UML 见 [[file:查询订阅设计.org][查询订阅设计]]。
+~QuerySubscriptionRequest~ 由一项固定查询与独立 callback 组成，Workspace 接收其数组并共享一次初始文件加载，按输入位置返回独立结果数组。请求只在启动期间存在，不合并各订阅的成员状态或回调。 ~QuerySubscriptionStart~ 保存一次启动得到的 ~CoreQueryResult~ 与 ~QuerySubscription~ 。初始数据直接转交调用方，句柄不持有其副本。句柄的固定查询、成员 ID、文件版本和分类数值摘要是运行时状态，不写入仓库、同步历史或 outbox；取消或析构时释放。完整数据流与内嵌 UML 见 [[file:查询订阅设计.org][查询订阅设计]]。
 
 ~DataChangeEvent::RepositoryChanged~ 增加默认省略的 ~removed_files~ 和 ~categories~ 。前者是订阅结果中的文件移除身份，不表示删除底层文件；后者是任务查询的完整分类摘要。普通仓库事件保持空列表和空值，原有修改生成流程不依赖查询订阅。
 

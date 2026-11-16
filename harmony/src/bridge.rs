@@ -2872,29 +2872,46 @@ struct QuerySubscriptionRequest {
     #[serde(default)] repository_bindings: Vec<QueryRepositoryBinding>,
 }
 
-pub fn workspace_subscribe_query_json(handle: u64, query: String, monitor: u64) -> Result<(u64, String), CoreError> {
-    let monitor = Arc::new(DataChangeMonitor(monitor));
-    let mut request: QuerySubscriptionRequest = serde_json::from_str(&query).map_err(|_| CoreError::InvalidInput("查询参数无效"))?;
+pub fn workspace_subscribe_query_json(handle: u64, source: String, monitors: Vec<u64>) -> Result<(Vec<u64>, String), CoreError> {
+    // 接管全部回调资源；任何校验或查询失败都会自动释放。
+    let monitors = monitors.into_iter().map(|monitor| Arc::new(DataChangeMonitor(monitor))).collect::<Vec<_>>();
+    let mut requests: Vec<QuerySubscriptionRequest> = serde_json::from_str(&source)
+        .map_err(|_| CoreError::InvalidInput("批量订阅参数无效"))?;
+    if requests.len() != monitors.len() {
+        return Err(CoreError::InvalidInput("订阅参数与回调数量不一致"));
+    }
     let workspace = workspace_for_handle(handle)?;
-    resolve_query_repositories(&workspace, std::slice::from_mut(&mut request.query), &request.repository_bindings)?;
-    let ordering = Arc::new(workspace.query_ordering(&request.query)?);
-    let event_ordering = ordering.clone();
-    let started = runtime(handle)?.block_on(workspace.subscribe_query(request.query, move |event| {
-        let _keep_alive = &monitor;
-        if let Ok(json) = query_event_value(&event, &event_ordering).and_then(|value| encode(&value))
-            .and_then(|value| CString::new(value).map_err(|_| CoreError::InvalidState("无法编码数据事件"))) {
-            #[cfg(not(test))]
-            unsafe { org_tasks_harmony_data_change_update(monitor.0, json.as_ptr()); }
-            #[cfg(test)]
-            let _ = json;
-        }
-    }))?;
-    let data = query_result_value(started.data, &BTreeMap::new(), Some(&ordering))?;
-    let id = NEXT_QUERY_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let response = encode(&serde_json::json!({"subscriptionId": id, "data": data, "operationId": request.operation_id}))?;
-    QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("查询订阅锁不可用".into()))?
-        .insert(id, (handle, started.subscription));
-    Ok((id, response))
+    let mut subscriptions = Vec::with_capacity(requests.len());
+    let mut orderings = Vec::with_capacity(requests.len());
+    for (request, monitor) in requests.iter_mut().zip(monitors) {
+        resolve_query_repositories(&workspace, std::slice::from_mut(&mut request.query), &request.repository_bindings)?;
+        let ordering = workspace.query_ordering(&request.query)?;
+        let event_ordering = ordering.clone();
+        subscriptions.push(org_tasks_core::QuerySubscriptionRequest::new(request.query.clone(), move |event| {
+            let _keep_alive = &monitor;
+            if let Ok(json) = query_event_value(&event, &event_ordering).and_then(|value| encode(&value))
+                .and_then(|value| CString::new(value).map_err(|_| CoreError::InvalidState("无法编码数据事件"))) {
+                #[cfg(not(test))]
+                unsafe { org_tasks_harmony_data_change_update(monitor.0, json.as_ptr()); }
+                #[cfg(test)]
+                let _ = json;
+            }
+        }));
+        orderings.push(ordering);
+    }
+    let started = runtime(handle)?.block_on(workspace.subscribe_query(subscriptions))?;
+    let ids = started.iter().map(|_| NEXT_QUERY_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)).collect::<Vec<_>>();
+    let values = started.iter().enumerate().map(|(index, start)| {
+        query_result_value(start.data.clone(), &BTreeMap::new(), Some(&orderings[index])).map(|data| serde_json::json!({
+            "subscriptionId": ids[index], "data": data, "operationId": requests[index].operation_id
+        }))
+    }).collect::<Result<Vec<_>, _>>()?;
+    let response = encode(&values)?;
+    let mut subscriptions = QUERY_SUBSCRIPTIONS.get_or_init(Default::default).lock().map_err(|_| CoreError::Store("查询订阅锁不可用".into()))?;
+    for (id, start) in ids.iter().copied().zip(started) {
+        subscriptions.insert(id, (handle, start.subscription));
+    }
+    Ok((ids, response))
 }
 
 pub fn workspace_query_subscription_status(handle: u64, id: u64) -> Result<String, CoreError> {
@@ -2923,14 +2940,34 @@ pub fn workspace_unsubscribe_query(handle: u64, id: u64) {
 mod page_data_bridge_tests {
     use super::*;
     #[test]
+    fn batch_returns_independent_ids_and_rejects_the_single_subscription_protocol() {
+        let handle = create_workspace().unwrap();
+        let (ids, source) = workspace_subscribe_query_json(handle,
+            r#"[{"query":{"type":"task","query":{}},"operationId":"first"},{"query":{"type":"file","query":{}},"operationId":"second"}]"#.into(), vec![0, 0]).unwrap();
+        let values: serde_json::Value = serde_json::from_str(&source).unwrap();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
+        assert_eq!(values[0]["operationId"], "first");
+        assert_eq!(values[1]["operationId"], "second");
+        assert_eq!(values[0]["data"]["type"], "task");
+        assert_eq!(values[1]["data"]["type"], "file");
+        workspace_unsubscribe_query(handle, ids[0]);
+        assert!(workspace_query_subscription_status(handle, ids[0]).is_err());
+        assert_eq!(workspace_query_subscription_status(handle, ids[1]).unwrap(), "\"current\"");
+        assert!(workspace_subscribe_query_json(handle, r#"{"query":{"type":"task","query":{}}}"#.into(), vec![0]).is_err());
+        assert_eq!(workspace_subscribe_query_json(handle, "[]".into(), vec![]).unwrap().1, "[]");
+        release_workspace(handle);
+    }
+
+    #[test]
     fn query_subscription_projects_initial_data_events_and_enforces_owner_lifetime() {
         let root = std::env::temp_dir().join(format!("harmony-query-subscription-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("a.org"), "* TODO Task\n").unwrap();
         let handle = create_workspace().unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
-        let (_, response) = workspace_subscribe_query_json(handle, r#"{"query":{"type":"task","query":{}},"operationId":"dataset/page/1/refresh"}"#.into(), 0).unwrap();
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let (_, response) = workspace_subscribe_query_json(handle, r#"[{"query":{"type":"task","query":{}},"operationId":"dataset/page/1/refresh"}]"#.into(), vec![0]).unwrap();
+        let response: serde_json::Value = serde_json::from_str::<serde_json::Value>(&response).unwrap()[0].clone();
         let id = response["subscriptionId"].as_u64().unwrap();
         assert_eq!(response["operationId"], "dataset/page/1/refresh");
         assert_eq!(response["data"]["result"]["tasks"][0]["heading"], "Task");
@@ -2958,7 +2995,8 @@ mod page_data_bridge_tests {
         assert!(value["files"][0]["afterView"]["taskPriorityOptions"].is_object());
             workspace_unsubscribe_query(handle, id);
         assert!(workspace_query_subscription_status(handle, id).is_err());
-        let (id, _) = workspace_subscribe_query_json(handle, r#"{"query":{"type":"file","query":{}}}"#.into(), 0).unwrap();
+        let (ids, _) = workspace_subscribe_query_json(handle, r#"[{"query":{"type":"file","query":{}}}]"#.into(), vec![0]).unwrap();
+        let id = ids[0];
         release_workspace(handle);
         assert!(!QUERY_SUBSCRIPTIONS.get().unwrap().lock().unwrap().contains_key(&id));
         release_workspace(other);
@@ -3088,9 +3126,10 @@ mod query_repository_binding_tests {
         assert_eq!(values[0]["result"]["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(values[0]["result"]["tasks"][0]["repoId"], core_id);
         assert_eq!(values[1]["result"][0]["repoId"], core_id);
-        let (id, response) = workspace_subscribe_query_json(handle,
-            serde_json::json!({"query":task,"repositoryBindings":bindings,"operationId":"dataset/test/1/query"}).to_string(), 0).unwrap();
-        let started: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let (ids, response) = workspace_subscribe_query_json(handle,
+            serde_json::json!([{"query":task,"repositoryBindings":bindings,"operationId":"dataset/test/1/query"}]).to_string(), vec![0]).unwrap();
+        let id = ids[0];
+        let started: serde_json::Value = serde_json::from_str::<serde_json::Value>(&response).unwrap()[0].clone();
         assert_eq!(started["data"]["result"]["tasks"][0]["repoId"], core_id);
         assert_eq!(started["operationId"], "dataset/test/1/query");
         let response = workspace_query_json(handle, serde_json::json!({
@@ -3105,7 +3144,7 @@ mod query_repository_binding_tests {
             serde_json::json!([{"id":core_id,"rootDirectory":first}]),
         ] {
             assert!(workspace_query_json(handle, serde_json::json!({"queries":[task],"repositoryBindings":invalid}).to_string()).is_err());
-            assert!(workspace_subscribe_query_json(handle, serde_json::json!({"query":task,"repositoryBindings":invalid}).to_string(), 0).is_err());
+            assert!(workspace_subscribe_query_json(handle, serde_json::json!([{"query":task,"repositoryBindings":invalid}]).to_string(), vec![0]).is_err());
         }
         workspace_unsubscribe_query(handle, id);
         release_workspace(handle);

@@ -581,15 +581,19 @@ pub extern "C" fn org_tasks_harmony_preview_release(handle: u64, id: *const c_ch
 
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_workspace_subscribe_query(handle: u64, query: *const c_char, monitor: u64, subscription_id: *mut u64) -> *mut c_char {
+pub extern "C" fn org_tasks_harmony_workspace_subscribe_query(
+    handle: u64, query: *const c_char, monitors: *const u64, count: usize, subscription_ids: *mut u64,
+) -> *mut c_char {
+    let monitors = if count == 0 { Vec::new() } else if monitors.is_null() {
+        return string_result(Err(CoreError::InvalidInput("订阅回调数组无效")));
+    } else { unsafe { std::slice::from_raw_parts(monitors, count) }.to_vec() };
     match read_c_string(query) {
-        Ok(query) => string_result(bridge::workspace_subscribe_query_json(handle, query, monitor).map(|(id, json)| {
-            if !subscription_id.is_null() { unsafe { *subscription_id = id; } }
+        Ok(query) => string_result(bridge::workspace_subscribe_query_json(handle, query, monitors).map(|(ids, json)| {
+            if !subscription_ids.is_null() { unsafe { std::ptr::copy_nonoverlapping(ids.as_ptr(), subscription_ids, ids.len()); } }
             json
         })),
         Err(error) => {
-            // 即使请求字符串无效，bridge 也需要接管并释放 monitor。
-            let _ = bridge::workspace_subscribe_query_json(handle, String::new(), monitor);
+            let _ = bridge::workspace_subscribe_query_json(handle, String::new(), monitors);
             string_result(Err(error))
         }
     }

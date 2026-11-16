@@ -51,9 +51,9 @@ impl Fixture {
         let capture = events.clone();
         let started = self
             .workspace
-            .subscribe_query(query, move |event| capture.lock().unwrap().push(event))
+            .subscribe_query(vec![QuerySubscriptionRequest::new(query, move |event| capture.lock().unwrap().push(event))])
             .await
-            .unwrap();
+            .unwrap().remove(0);
         (
             started.subscription,
             Receiver {
@@ -422,24 +422,24 @@ async fn unsupported_and_invalid_queries_fail_without_affecting_other_subscripti
     let f = Fixture::new(&[("a.org", "* TODO A\n")]).await;
     assert!(
         f.workspace
-            .subscribe_query(
+            .subscribe_query(vec![QuerySubscriptionRequest::new(
                 CoreQuery::Notification {
                     query: Default::default()
                 },
                 |_| panic!("不应发布事件")
-            )
+            )])
             .await
             .is_err()
     );
     assert!(
         f.workspace
-            .subscribe_query(
+            .subscribe_query(vec![QuerySubscriptionRequest::new(
                 CoreQuery::Task {
                     query: TaskQuery::default(),
                     repo_ids: vec!["missing".into()]
                 },
                 |_| panic!("不应发布事件")
-            )
+            )])
             .await
             .is_err()
     );

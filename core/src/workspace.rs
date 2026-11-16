@@ -35,28 +35,29 @@ pub(crate) struct WorkspaceState {
 }
 
 impl WorkspaceState {
-    /// 启动查询与订阅，只加载一次；初始数据直接交给调用方。
-    pub async fn subscribe_query<F>(
+    /// 批量启动独立订阅，只共享一次文件加载；结果顺序与请求一致。
+    pub async fn subscribe_query(
         &self,
-        query: crate::CoreQuery,
-        on_change: F,
-    ) -> Result<crate::QuerySubscriptionStart, CoreError>
-    where
-        F: Fn(crate::DataChangeEvent) + Send + Sync + 'static,
-    {
+        requests: Vec<crate::QuerySubscriptionRequest>,
+    ) -> Result<Vec<crate::QuerySubscriptionStart>, CoreError> {
         let _activity = self.tasks.enter()?;
-        let mut subscription = crate::query_subscription::prepare(query.clone(), on_change)?;
-        let monitor = subscription.monitor();
-        subscription.attach(crate::model::data_changes::watch(&self.notifications, monitor));
-        let snapshot = self.query_snapshot(&[query], true).await?;
+        if requests.is_empty() { return Ok(Vec::new()); }
+        let queries = requests.iter().map(|request| request.query.clone()).collect::<Vec<_>>();
+        let mut subscriptions = Vec::with_capacity(requests.len());
+        for request in requests {
+            let mut subscription = crate::query_subscription::prepare(request.query, request.callback)?;
+            let monitor = subscription.monitor();
+            subscription.attach(crate::model::data_changes::watch(&self.notifications, monitor));
+            subscriptions.push(subscription);
+        }
+        let mut snapshot = self.query_snapshot(&queries, true).await?;
         self.notifications.flush().await?;
-        let repo_order = self
-            .repos
-            .iter()
-            .map(|repo| repo.id.clone())
-            .collect::<Vec<_>>();
-        let data = subscription.initialize(snapshot, &repo_order);
-        Ok(crate::QuerySubscriptionStart { data, subscription })
+        let repo_order = self.repos.iter().map(|repo| repo.id.clone()).collect::<Vec<_>>();
+        let results = std::mem::take(&mut snapshot.results);
+        Ok(subscriptions.into_iter().zip(results).map(|(subscription, data)| {
+            let data = subscription.initialize(data, &snapshot, &repo_order);
+            crate::QuerySubscriptionStart { data, subscription }
+        }).collect())
     }
 
     /// 停止接收内部任务与通知，等待已启动任务和在途回调退出；可重复等待。

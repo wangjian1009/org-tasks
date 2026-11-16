@@ -7,9 +7,9 @@
 
 * 范围与职责
 
-今天、收件箱、计划、随时、某天、备忘、日志簿和项目详情均直接使用 DataSet。每个页面声明命名数据集，由 DataSetManager 管理集合、共享连接上下文和页面缓存；每个 DataSet 只持有一个查询，拥有该查询的底层订阅、任务索引、编辑能力与变化事件。编辑器和项目文档不再创建专用管理器。侧边栏与非任务阅读结果沿用各自的只读管理对象。
+今天、收件箱、计划、随时、某天、备忘、日志簿和项目详情均直接使用 DataSet。每个页面声明命名数据集，由 DataSetManager 管理集合、共享连接上下文和页面缓存；每个 DataSet 只持有一个查询，独立消费该查询的订阅结果，并维护任务索引、编辑能力与变化事件。编辑器和项目文档不再创建专用管理器。侧边栏与非任务阅读结果沿用各自的只读管理对象。
 
-DataSetManager 不提供总事件订阅，也不执行任务查询或注册数据变化监控。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅 tasks 和 priority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
+DataSetManager 不提供总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅 tasks 和 priority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
 DataSetDefinition 必须声明一个 query。它可以是任务或文件元信息的 CoreQuery，也可以是宿主的 document 查询；后者用已有 Workspace.fileAt 一次读取完整文件及全部节点，不扩展 Core 对外接口。需要配置文件入口时，页面提供纯定义函数，管理器只加载本地配置并同步取得全局 Workspace 后调用；该函数只组装请求，不读取仓库列表或执行底层查询。查询中需要把宿主配置 ID 映射成 Core ID 时，随定义提供 ~repositoryBindings~ ，在查询工作线程内按已配置根目录解析。
 
@@ -85,7 +85,7 @@ class DataSet {
 }
 #+end_src
 
-DataSet 内部注册当前查询的 subscribeQuery，消费范围内的增量；同步等旧入口只提供仓库失效时，由该 DataSet 持有的失效监控合并刷新。document 查询在同一对象内读取完整文件，并处理原始提交事件的身份映射。管理器只向数据集提供共享上下文，不向页面暴露 Workspace。
+DataSet 构造当前查询的订阅项及私有 callback，交给 DataSetManager 合并调用，仍独立消费初始结果与范围内增量；同步等旧入口只提供仓库失效时，由该 DataSet 持有的失效监控合并刷新。document 查询在同一对象内读取完整文件，并处理原始提交事件的身份映射。管理器提供共享上下文、批量订阅和按名读取订阅状态，不向页面暴露 Workspace。首次加载及整页刷新各发起一次批量调用；单个查询换代只重建该项，其他数据集不重新读取。配置变化、页面关闭及过期请求返回时，由 Manager 清理对应 ID。
 
 DataSetEvent 包含 insert、remove、update、refresh、ready、complete、document 与 error。事件属于发出它的 DataSet，页面不用按 name 路由。目标记录错误仍以 targetKey 定位，rejectedChanges 保留被拒绝的用户字段；committed 表明已写入但后续确认失败，禁止重复提交。阶段版本和 operationId 由 DataSet 内部维护，页面只展示 data、error 和就绪状态。
 
@@ -95,12 +95,13 @@ DataSetEvent 包含 insert、remove、update、refresh、ready、complete、docu
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{Page}{named definitions}{render() \\ onUserEdit()}
-\umlclass[x=6,y=0]{DataSetManager}{context \\ dataSets \\ page cache}{start() \\ dataSet(name) \\ flush() \\ close()}
-\umlclass[x=0,y=-5]{DataSet}{one query \\ task index \\ subscription}{subscribe() \\ getTask(id) \\ updateTaskFields()}
+\umlclass[x=6,y=0]{DataSetManager}{context \\ dataSets \\ subscription IDs \\ page cache}{start() \\ dataSet(name) \\ flush() \\ close()}
+\umlclass[x=0,y=-5]{DataSet}{one query \\ task index \\ private callback}{subscribe() \\ getTask(id) \\ updateTaskFields()}
 \umlclass[x=6,y=-5]{CoreWorkspace}{existing rules}{subscribeQuery() \\ executeTaskOperations()}
 \umlcompo{DataSetManager}{DataSet}
 \umluniassoc{Page}{DataSetManager}
 \umluniassoc{Page}{DataSet}
+\umldep{DataSetManager}{CoreWorkspace}
 \umldep{DataSet}{CoreWorkspace}
 \end{tikzpicture}
 \end{center}
@@ -125,19 +126,22 @@ pub struct TaskOperationGroup {
 
 新增通用查询订阅模块，维护固定查询条件、已确认成员和订阅生命周期。模块监听既有变化能力，对变化内容按条件过滤和归并，再转发现有 ~DataChangeEvent~ 结构中的数据变化通知。
 
-不新增查询专用事件类型，不改变既有修改规则、事务语义和普通查询行为。订阅句柄可承载初始快照及取消订阅能力；数据集内部持有句柄，页面不可直接接收它的底层事件。
+不新增查询专用事件类型，不改变既有修改规则、事务语义和普通查询行为。订阅句柄可承载初始快照及取消订阅能力；Manager 管理各数据集的独立句柄，页面不可直接接收它的底层事件。
 
 #+begin_src rust
 impl OrgWorkspace {
-    pub async fn subscribe_query<F>(
+    pub async fn subscribe_query(
         &self,
-        query: CoreQuery,
-        on_change: F,
-    ) -> Result<QuerySubscriptionStart, CoreError>
-    where F: Fn(DataChangeEvent) + Send + Sync + 'static;
+        requests: Vec<QuerySubscriptionRequest>,
+    ) -> Result<Vec<QuerySubscriptionStart>, CoreError>;
 
     pub fn unsubscribe_query(&self, subscription: &mut QuerySubscription);
     pub fn query_subscription_status(&self, subscription: &QuerySubscription) -> QuerySubscriptionStatus;
+}
+
+pub struct QuerySubscriptionRequest {
+    pub query: CoreQuery,
+    pub callback: Box<dyn Fn(DataChangeEvent) + Send + Sync>,
 }
 
 pub struct QuerySubscriptionStart {
@@ -330,7 +334,7 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 ** 任务页面
 
-各页面在 defineDataSets 中声明命名数据集，创建并启动 DataSetManager，再分别订阅各个 DataSet。需要配置文件入口时，页面将纯定义函数交给管理类，由管理类只根据本地配置调用；缓存读取与恢复由 DataSetManager 完成，每个查询的底层订阅和记录变化由对应 DataSet 完成。页面分别消费各 DataSet 的事件和快照，渲染任务、标签候选、入口状态与计划筛选候选。配置变化、缓存恢复和查询换代均在内部处理，页面只刷新关联展示，不处理 scope、版本或总事件分发。重复出现复用当前实例。
+各页面在 defineDataSets 中声明命名数据集，创建并启动 DataSetManager，再分别订阅各个 DataSet。需要配置文件入口时，页面将纯定义函数交给管理类，由管理类只根据本地配置调用；缓存读取与恢复由 DataSetManager 完成，各查询的底层调用与句柄清理由 Manager 合并管理，每项记录变化仍由对应 DataSet 独立处理。页面分别消费各 DataSet 的事件和快照，渲染任务、标签候选、入口状态与计划筛选候选。配置变化、缓存恢复和查询换代均在内部处理，页面只刷新关联展示，不处理 scope、版本或总事件分发。重复出现复用当前实例。
 
 收件箱维护 tasks、target、recent、files；未配置入口时不提交无范围 tasks 查询，recent 仍独立可用。某天只维护配置文件的 tasks 与 target，任务通过 ~includeFiles~ 指定同一个 Core 仓库 ID 与相对路径，移除全范围 files 订阅；备忘使用配置文件的 tasks、target、files；有效空文件与失效文件仍通过元信息区分。计划通过 range 维护完整范围，tasks 维护当前筛选查询，选择分类或项目后仅切换 tasks DataSet 的查询；候选始终来自完整范围，选择失效后显示 range 并绑定对应编辑数据集。筛选前先保存编辑，失败保留草稿；快速切换无需等待旧查询，旧结果不能覆盖新范围。新范围快照发布时重建对应控件绑定，避免记录沿用已关闭的数据管理对象。
 
@@ -406,3 +410,12 @@ document DataSet 只在取得完整快照后向页面发布 document 事件；�
 全局空闲判断仅跟踪全部在途与排队请求，缓存保存、关闭和退后台等待其排空；某次修改失败只移除自身乐观层，不阻止后续文件请求。Core 返回前仍确认通知处理，C++ 在完成修改 Promise 前归并已排队查询事件。
 
 2026-11-16 在专用模拟器的独立 QA 仓库验证：两个文件同时经 HTTP 创建与改名后，当前今天页直接收到增量；界面完成任务后 HTTP 回读 DONE，正文保持。非法跨文件操作整组回滚，后续同文件字段修改继续成功。空闲缓存保存的确认版本为 9、10、11，普通冷启动后页面内容保持并重新确认到版本 1；普通启动不恢复测试服务。结束后通过操作组清理临时任务，两个文件内容 hash 与验收前一致。
+
+
+* 批量订阅接入验收
+
+2026-11-16 在专用模拟器与隔离 QA 仓库完成实际界面和同一 Workspace 的 HTTP 联合验证。今天页外部新增、改名与改期移出均自动更新；计划页的范围与筛选数据集随外部改名、删除正确归并；收件箱、随时、某天、备忘和日志簿切换后正常显示。界面编辑标题后，API 确认原备注保留；界面完成带 TRIGGER 的来源任务，关联任务一起完成并移出今天；非法触发器提交失败后任务保持 TODO，错误显示于对应行。
+
+普通重启后界面保留保存内容，API 重新连接后与界面一致，已删除记录未从缓存恢复；普通启动不恢复临时 HTTP 服务。本轮新增记录已通过 API 清理，结束后停止临时服务并确认监听释放。
+
+Core 回归确认同批多项查询每仓库仅一次加锁和文件加载，结果、分类与版本范围分别对应各项查询，回调与取消独立；空批次和错误批次不加载文件。Manager 回归确认首次加载和整页刷新各一次 native 调用、单项换代不重查其他数据集、关闭清理全部 ID，以及刷新等待前序编辑事件归并后再替换订阅。缓存恢复版本 0、首次查询版本 1、连续提交与失败回滚沿用数据集回归验证。正式包和数据准备包均构建成功，无编译告警。

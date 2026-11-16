@@ -303,16 +303,12 @@ impl OrgWorkspace {
         })
         .await
     }
-    pub async fn subscribe_query<F>(
+    pub async fn subscribe_query(
         &self,
-        query: crate::CoreQuery,
-        callback: F,
-    ) -> Result<crate::QuerySubscriptionStart, CoreError>
-    where
-        F: Fn(crate::DataChangeEvent) + Send + Sync + 'static,
-    {
+        requests: Vec<crate::QuerySubscriptionRequest>,
+    ) -> Result<Vec<crate::QuerySubscriptionStart>, CoreError> {
         self.request(Access::Query, move |state| {
-            Box::pin(async move { state.subscribe_query(query, callback).await })
+            Box::pin(async move { state.subscribe_query(requests).await })
         })
         .await
     }

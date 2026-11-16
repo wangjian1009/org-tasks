@@ -180,7 +180,7 @@ impl OrgWorkspace {
 
 * 查询订阅
 
-~OrgWorkspace.subscribe_query(CoreQuery, callback)~ 将启动查询与数据监控合并为一次接口，返回初始结果和订阅句柄。Task 与 File 分支的条件、排序、组合任务、分类及标签规则与普通查询一致；Notification 分支继续使用原有通知监控。模块仅在启动读盘一次，随后对现有事件载荷在内存中求值，不再次加载或查询。接口和失效边界见 [[file:查询订阅设计.org][查询订阅设计]]。
+~OrgWorkspace.subscribe_query(Vec<QuerySubscriptionRequest>)~ 将多项订阅启动合并为一次批量查询，每项包含自己的 CoreQuery 和 callback，按输入位置返回独立初始结果与订阅句柄。Task 与 File 分支的条件、排序、组合任务、分类及标签规则与普通查询一致；Notification 分支继续使用原有通知监控。模块仅在启动读盘一次，随后对现有事件载荷在内存中求值，不再次加载或查询。接口和失效边界见 [[file:查询订阅设计.org][查询订阅设计]]。
 
 * 可比较排序键
 

@@ -1,13 +1,13 @@
-use org_tasks_core::{OrgWorkspace, QuerySubscriptionStatus, TaskQuery};
+use org_tasks_core::{OrgWorkspace, QuerySubscriptionRequest, QuerySubscriptionStatus, TaskQuery};
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_closes_subscriptions_and_http_servers_across_workspace_clones() {
     let workspace = OrgWorkspace::start(vec![]).await.unwrap();
     let subscription = workspace
-        .subscribe_query(TaskQuery::default().into(), |_| {})
+        .subscribe_query(vec![QuerySubscriptionRequest::new(TaskQuery::default().into(), |_| {})])
         .await
-        .unwrap();
+        .unwrap().remove(0);
     let owner = workspace.clone();
     let shared = workspace.clone();
     let mut server =
@@ -26,7 +26,7 @@ async fn stop_closes_subscriptions_and_http_servers_across_workspace_clones() {
     assert!(owner.query(&[]).await.is_err());
     assert!(
         owner
-            .subscribe_query(TaskQuery::default().into(), |_| {})
+            .subscribe_query(vec![QuerySubscriptionRequest::new(TaskQuery::default().into(), |_| {})])
             .await
             .is_err()
     );

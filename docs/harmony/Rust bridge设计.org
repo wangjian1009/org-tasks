@@ -69,7 +69,7 @@ class Workspace {
   removeRepo(rootDirectory: string): Promise<void>
   validateRepository(rootDirectory: string): Promise<void>
   query(queries: CoreQuery[]): Promise<CoreQueryResult[]>
-  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null): Promise<QuerySubscriptionStart>
+  subscribeQuery(requests: QuerySubscriptionRequest[]): Promise<QuerySubscriptionStart[]>
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>
   unsubscribeQuery(subscriptionId: number): void
   watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>
@@ -78,6 +78,12 @@ class Workspace {
   stopWatchingDataChanges(subscriptionId: number): void
 }
 
+interface QuerySubscriptionRequest {
+  query: CoreQuery
+  callback: DataChangeMonitor
+  operationId?: string | null
+  repositoryBindings?: QueryRepositoryBinding[]
+}
 type DataChangeMonitor = (event: DataChangeEvent) => void
 type DataChangeEvent = { type: 'repositoryChanged', repoId: string, operationId: string | null, files: FileDataChange[] | null, changes: TaskDataChange[], removedFiles?: OrgFileRef[], categories?: TaskCategory[] }
 
@@ -720,20 +726,19 @@ Core 的 ~FilterTask.has_attach()~ 映射为 Harmony 任务快照的只读布尔
 interface QueryRepositoryBinding { id: string; rootDirectory: string }
 class Workspace {
   query(queries: CoreQuery[], repositoryBindings?: QueryRepositoryBinding[]): Promise<CoreQueryResult[]>
-  subscribeQuery(query: CoreQuery, monitor: DataChangeMonitor, operationId?: string | null,
-    repositoryBindings?: QueryRepositoryBinding[]): Promise<QuerySubscriptionStart>
+  subscribeQuery(requests: QuerySubscriptionRequest[]): Promise<QuerySubscriptionStart[]>
 }
 #+end_src
 
 绑定只解析 ~repoIds~ 、 ~includeFiles~ 和 ~excludeFiles~ 的身份，不求值任务条件。空别名、重复别名、不属于当前 Workspace 的目录以及与其他真实 Core ID 冲突的别名均拒绝；未命中绑定的真实 ID 继续交给 Core 校验。省略绑定保留原调用方式。C++ 只编组结构化请求，Rust bridge 在同一个 worker 请求内完成映射，避免同步读取 Repo 属性或先查询仓库清单。
 
-批量查询的 ABI 内部载荷可为 ~{ queries, repositoryBindings }~ ，原查询数组仍接受；订阅载荷在原 ~{ query, operationId }~ 外增加可选 ~repositoryBindings~ 。Core 的 ~TaskQuery~ 、 ~CoreQuery~ 及 APP HTTP 查询请求仍只接受真实 Core 仓库 ID，不接受宿主别名。
+批量查询的 ABI 内部载荷可为 ~{ queries, repositoryBindings }~ ，原查询数组仍接受；订阅载荷为 ~{ query, operationId, repositoryBindings }[]~ ，每项绑定独立解析，同一别名可以在不同项中绑定不同目录。Core 的 ~TaskQuery~ 、 ~CoreQuery~ 及 APP HTTP 查询请求仍只接受真实 Core 仓库 ID，不接受宿主别名。
 
-页面 DataSetManager 同步取得长期 Workspace，缓存恢复与查询定义均不等待身份读取。每个 DataSet 在缓存发布后完成配置准备，再把查询、绑定与订阅一起交给工作线程；读取期间缓存保持版本 0 且只读，后续正常推进到版本 1。绑定只含宿主 ID 和根目录，不含凭据。
+页面 DataSetManager 同步取得长期 Workspace，缓存恢复与查询定义均不等待身份读取。DataSetManager 在缓存发布后一次完成配置准备，将各 DataSet 的查询、独立 callback、operationId 与绑定组装为订阅项数组，一次交给工作线程；读取期间缓存保持版本 0 且只读，后续正常推进到版本 1。绑定只含宿主 ID 和根目录，不含凭据。
 
 * 页面数据集的查询订阅桥接
 
-~subscribeQuery~ 在 worker 中调用 Core 的 Workspace 入口，返回 ~{ subscriptionId, data, operationId }~ 。 ~operationId~ 是宿主初始读取请求的关联字段，原样回显，不改变 Core 查询条件；管理类用它恢复全量刷新版本。查询句柄归创建它的 Workspace 所有，状态读取和取消都通过 Workspace 执行；取消、初始化失败与 Workspace 释放均清理监控资源。
+~subscribeQuery~ 在 worker 中调用 Core 的 Workspace 入口，接收订阅项数组，返回 ~{ subscriptionId, data, operationId }[]~ 。 ~operationId~ 是宿主初始读取请求的关联字段，原样回显，不改变 Core 查询条件；管理类用它恢复全量刷新版本。每项有独立 C++ 回调引用和 TSFN，Rust 分别持有回调资源，直接接收该项经 Core 查询转换后的事件。查询句柄归创建它的 Workspace 所有，DataSetManager 按数据集名管理 ID，状态读取和取消都通过 Workspace 执行；取消、初始化失败与 Workspace 释放均清理监控资源。
 
 订阅复用 ~DataChangeEvent~ ，保留 Core 的原始任务、文件、身份映射与操作来源。Harmony 对任务快照补充可选 ~view~ ，对文件补充 ~beforeView~ 和 ~afterView~ ，复用既有任务／文件元信息投影；C++ 将这些值构造成具有原有方法的对象。旧 ~watchDataChanges~ 的原始载荷保持不变，ArkTS 不从原始 Org 字节补齐显示字段。
 

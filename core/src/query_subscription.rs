@@ -16,6 +16,21 @@ type FileKey = (String, String);
 type Members = BTreeMap<FileKey, BTreeSet<String>>;
 const MAX_PENDING_EVENTS: usize = 256;
 
+/// 批量启动中的一个独立查询与回调；批次只共享初始文件加载。
+pub struct QuerySubscriptionRequest {
+    pub query: CoreQuery,
+    pub callback: Box<dyn Fn(DataChangeEvent) + Send + Sync>,
+}
+
+impl QuerySubscriptionRequest {
+    pub fn new<F>(query: CoreQuery, callback: F) -> Self
+    where
+        F: Fn(DataChangeEvent) + Send + Sync + 'static,
+    {
+        Self { query, callback: Box::new(callback) }
+    }
+}
+
 /// 初始数据归调用方所有，订阅不会保存其副本。
 pub struct QuerySubscriptionStart {
     pub data: CoreQueryResult,
@@ -108,26 +123,27 @@ impl QuerySubscription {
     }
     pub(crate) fn initialize(
         &self,
-        mut snapshot: crate::query::QuerySnapshot,
+        mut data: CoreQueryResult,
+        snapshot: &crate::query::QuerySnapshot,
         repo_order: &[String],
     ) -> CoreQueryResult {
-        let mut data = snapshot.results.remove(0);
         {
             let mut state = self.hub.state.lock().unwrap();
             state.today = snapshot.evaluated_on.expect("非空启动查询具有求值日期");
             state.members = members_from_result(&data);
             let mut tasks_by_file = BTreeMap::<FileKey, Vec<FilterTask>>::new();
-            for task in snapshot.tasks {
-                tasks_by_file.entry(task_key(&task)).or_default().push(task);
+            for task in &snapshot.tasks {
+                tasks_by_file.entry(task_key(task)).or_default().push(task.clone());
             }
-            for (file, version) in snapshot.files {
-                let key = file_key(&file);
+            for (file, version) in &snapshot.files {
+                if !state.query.needs_file(&file.repo_id, &file.path) { continue; }
+                let key = file_key(file);
                 if let CoreQuery::Task { query, .. } = &state.query {
                     let tasks = tasks_by_file.remove(&key).unwrap_or_default();
                     let categories = task_result(query, &file, tasks, state.today).categories;
                     state.counts.insert(key.clone(), categories);
                 }
-                state.versions.insert(key, version);
+                state.versions.insert(key, version.clone());
             }
             // 查询期间排队的事件若已包含在快照中则去重，其余增量合并进返回数据。
             let events = state.drain();
@@ -682,7 +698,7 @@ mod tests {
             subscription: &QuerySubscription,
             snapshot: crate::query::QuerySnapshot,
         ) -> CoreQueryResult {
-            subscription.initialize(snapshot, &[self.workspace.repos()[0].id.clone()])
+            subscription.initialize(snapshot.results[0].clone(), &snapshot, &[self.workspace.repos()[0].id.clone()])
         }
     }
     impl Drop for Fixture {
@@ -697,9 +713,9 @@ mod tests {
         let before = crate::model::test_support::repository_accesses(f.root.to_str().unwrap())[1];
         let started = f
             .workspace
-            .subscribe_query(f.query(), |_| {})
+            .subscribe_query(vec![QuerySubscriptionRequest::new(f.query(), |_| {})])
             .await
-            .unwrap();
+            .unwrap().remove(0);
         assert_eq!(
             crate::model::test_support::repository_accesses(f.root.to_str().unwrap())[1],
             before + 1
@@ -714,6 +730,83 @@ mod tests {
             started.subscription.status(),
             QuerySubscriptionStatus::Current
         );
+    }
+
+    #[tokio::test]
+    async fn batch_shares_loading_but_keeps_callbacks_results_and_cancellation_independent() {
+        let mut f = Fixture::new().await;
+        let first = Arc::new(Mutex::new(Vec::new()));
+        let second = Arc::new(Mutex::new(Vec::new()));
+        let files = Arc::new(Mutex::new(Vec::new()));
+        let capture_first = first.clone();
+        let capture_second = second.clone();
+        let capture_files = files.clone();
+        let before = crate::model::test_support::repository_accesses(f.root.to_str().unwrap());
+        let mut started = f.workspace.subscribe_query(vec![
+            QuerySubscriptionRequest::new(f.query(), move |event| capture_first.lock().unwrap().push(event)),
+            QuerySubscriptionRequest::new(TaskQuery { expression: "it.done".into(), ..Default::default() }.into(),
+                move |event| capture_second.lock().unwrap().push(event)),
+            QuerySubscriptionRequest::new(CoreQuery::File { query: Default::default() },
+                move |event| capture_files.lock().unwrap().push(event)),
+            QuerySubscriptionRequest::new(f.query(), |_| {}),
+        ]).await.unwrap();
+        let after = crate::model::test_support::repository_accesses(f.root.to_str().unwrap());
+        assert_eq!([after[0] - before[0], after[1] - before[1]], [1, 1]);
+        assert_eq!(started.len(), 4);
+        assert_eq!(started[0].data, started[3].data);
+        assert_eq!(started[0].data.clone().into_task().unwrap().tasks.len(), 1);
+        assert!(started[1].data.clone().into_task().unwrap().tasks.is_empty());
+        assert_eq!(started[2].data.clone().into_files().unwrap().len(), 1);
+        f.change("B").await;
+        assert_eq!(first.lock().unwrap().len(), 1);
+        assert!(second.lock().unwrap().is_empty());
+        let event = files.lock().unwrap()[0].clone();
+        let DataChangeEvent::RepositoryChanged { changes, files: changed_files, .. } = event;
+        assert!(changes.is_empty());
+        assert_eq!(changed_files.unwrap().len(), 1);
+        f.workspace.unsubscribe_query(&mut started[0].subscription);
+        f.change("C").await;
+        assert_eq!(first.lock().unwrap().len(), 1);
+        assert_eq!(files.lock().unwrap().len(), 2);
+        assert_eq!(started[0].subscription.status(), QuerySubscriptionStatus::Closed);
+        assert_eq!(started[2].subscription.status(), QuerySubscriptionStatus::Current);
+        assert_eq!(crate::model::test_support::repository_accesses(f.root.to_str().unwrap())[1], after[1]);
+    }
+
+    #[tokio::test]
+    async fn batch_initial_categories_and_versions_respect_each_query_file_scope() {
+        let f = Fixture::new().await;
+        std::fs::write(f.root.join("other.org"), "#+CATEGORY: Other\n* TODO Other\n").unwrap();
+        let reference = OrgFileRef { repo_id: f.workspace.repos()[0].id.clone(), path: "a.org".into() };
+        let started = f.workspace.subscribe_query(vec![
+            QuerySubscriptionRequest::new(TaskQuery { include_files: vec![reference], ..Default::default() }.into(), |_| {}),
+            QuerySubscriptionRequest::new(f.query(), |_| {}),
+        ]).await.unwrap();
+        let scoped = started[0].data.clone().into_task().unwrap();
+        let all = started[1].data.clone().into_task().unwrap();
+        assert_eq!(scoped.tasks.len(), 1);
+        assert_eq!(scoped.categories.iter().map(|category| category.count).sum::<usize>(), 1);
+        assert_eq!(all.tasks.len(), 2);
+        assert_eq!(all.categories.iter().map(|category| category.count).sum::<usize>(), 2);
+        assert_eq!(started[0].subscription.hub.state.lock().unwrap().versions.len(), 1);
+        assert_eq!(started[1].subscription.hub.state.lock().unwrap().versions.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn empty_and_invalid_subscription_batches_do_not_load_files_or_leave_observers() {
+        let f = Fixture::new().await;
+        let before = crate::model::test_support::repository_accesses(f.root.to_str().unwrap());
+        assert!(f.workspace.subscribe_query(vec![]).await.unwrap().is_empty());
+        let token = Arc::new(());
+        let weak = Arc::downgrade(&token);
+        let requests = vec![
+            QuerySubscriptionRequest::new(f.query(), move |_| { let _keep_alive = &token; }),
+            QuerySubscriptionRequest::new(TaskQuery { expression: "b.invalid".into(), ..Default::default() }.into(), |_| {}),
+        ];
+        assert!(f.workspace.subscribe_query(requests).await.is_err());
+        f.workspace.notifications.flush().await.unwrap();
+        assert!(weak.upgrade().is_none());
+        assert_eq!(crate::model::test_support::repository_accesses(f.root.to_str().unwrap()), before);
     }
 
     #[tokio::test]
@@ -781,9 +874,9 @@ mod tests {
         let capture = events.clone();
         let mut started = f
             .workspace
-            .subscribe_query(f.query(), move |event| capture.lock().unwrap().push(event))
+            .subscribe_query(vec![QuerySubscriptionRequest::new(f.query(), move |event| capture.lock().unwrap().push(event))])
             .await
-            .unwrap();
+            .unwrap().remove(0);
         let accesses = crate::model::test_support::repository_accesses(f.root.to_str().unwrap());
         crate::model::sync_events::publish(&f.workspace.notifications, &f.workspace.repos()[0]);
         f.workspace.notifications.flush().await.unwrap();
@@ -867,7 +960,7 @@ mod tests {
             .map(|repo| repo.id.clone())
             .collect::<Vec<_>>();
         let data = subscription
-            .initialize(snapshot, &repo_order)
+            .initialize(snapshot.results[0].clone(), &snapshot, &repo_order)
             .into_task()
             .unwrap();
         let expected = first

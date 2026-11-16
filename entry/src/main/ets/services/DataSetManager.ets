@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
+import { CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { PageDataCache } from './PageDataCache'
 import { cacheDataSet, restoreDataSet } from './PageDataSnapshot'
 import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueue, DataSetClock, DataSetQuery } from './DataSet'
@@ -12,7 +12,17 @@ export { DataSet, DataSetDefinition, DataSetDefinitionFactory, DataSetQuery, Dat
 interface DataSetCacheRepository { id: string; rootDirectory: string; excludedDirectories: string[] }
 interface DataSetCacheScope { repositories: DataSetCacheRepository[]; todoDefaults: string; coreSettings: CoreSettingsObject; names: string[] }
 
-// 管理命名数据集及页面缓存；查询、原始订阅和变化事件均归各个 DataSet。
+interface PendingSubscription {
+  name: string
+  identity: string
+  generation: number
+  request: CoreQuerySubscriptionRequest
+  activate: () => void
+  resolve: (result: CoreQuerySubscriptionStart) => void
+  reject: (error: Error) => void
+}
+
+// 管理命名数据集、批量订阅句柄及页面缓存；各 DataSet 独立处理自己的结果与变化事件。
 export class DataSetManager {
   private static active: Set<DataSetManager> = new Set()
   private readonly context: Context
@@ -22,6 +32,10 @@ export class DataSetManager {
   private readonly queryRequests: Map<string, number> = new Map()
   private readonly overrides: Map<string, DataSetQuery> = new Map()
   private readonly stops: Map<string, () => void> = new Map()
+  private readonly subscriptions: Map<string, number> = new Map()
+  private readonly subscriptionRequests: Map<string, CoreQuerySubscriptionRequest> = new Map()
+  private pendingSubscriptions: PendingSubscription[] = []
+  private subscribeTimer: number = -1
   private cache: PageDataCache | undefined = undefined
   private running: Promise<void> | undefined = undefined
   private initialized: boolean = false
@@ -35,7 +49,14 @@ export class DataSetManager {
   private workspace: CoreWorkspace | undefined = undefined
   private definitions: DataSetDefinition[] = []
   private phase: number = 1
-  private clock: DataSetClock = { owner: util.generateRandomUUID(), next: (): number => ++this.phase, metadata: (repoId: string, path: string): CoreOrgFileMetadata | undefined => {
+  private clock: DataSetClock = {
+    subscribe: (name: string, request: CoreQuerySubscriptionRequest, activate: () => void): Promise<CoreQuerySubscriptionStart> => this.queueSubscription(name, request, activate),
+    unsubscribe: (name: string): void => this.stopSubscription(name),
+    status: async (name: string) => {
+      const id = this.subscriptions.get(name)
+      return id === undefined ? (this.sets.get(name)?.query?.type === 'document' ? 'current' : 'closed') : await this.workspace!.querySubscriptionStatus(id)
+    },
+    owner: util.generateRandomUUID(), next: (): number => ++this.phase, metadata: (repoId: string, path: string): CoreOrgFileMetadata | undefined => {
     for (const dataSet of this.sets.values()) if (dataSet.data?.type === 'file') {
       const metadata = dataSet.data.result.find(file => file.repoId === repoId && file.path === path)
       if (metadata) return metadata
@@ -138,9 +159,66 @@ export class DataSetManager {
       }
     } catch (_) { /* 缓存不可用时仍由每个数据集执行首次查询。 */ }
     if (this.closed || generation !== this.generation) return
+    await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    if (this.closed || generation !== this.generation) return
     await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.start()))
     if (this.closed || generation !== this.generation || scope !== this.scope) return
     this.initialized = true; this.savedRevision = ''; this.scheduleSave()
+  }
+  private stopSubscription(name: string): void {
+    const id = this.subscriptions.get(name)
+    this.subscriptions.delete(name); this.subscriptionRequests.delete(name)
+    if (id !== undefined) this.workspace?.unsubscribeQuery(id)
+  }
+  private queueSubscription(name: string, request: CoreQuerySubscriptionRequest, activate: () => void): Promise<CoreQuerySubscriptionStart> {
+    this.subscriptionRequests.set(name, request)
+    const work = new Promise<CoreQuerySubscriptionStart>((resolve, reject): void => {
+      this.pendingSubscriptions.push({ name, identity: this.sets.get(name)!.identity, generation: this.generation, request, activate, resolve, reject })
+    })
+    if (this.subscribeTimer < 0) this.subscribeTimer = setTimeout((): void => {
+      this.subscribeTimer = -1
+      this.submitSubscriptions()
+    }, 0)
+    return work
+  }
+  private currentSubscription(entry: PendingSubscription): boolean {
+    return !this.closed && entry.generation === this.generation && this.sets.get(entry.name)?.identity === entry.identity &&
+      this.subscriptionRequests.get(entry.name) === entry.request
+  }
+  private submitSubscriptions(): void {
+    const entries = this.pendingSubscriptions
+    this.pendingSubscriptions = []
+    const workspace = this.workspace!
+    const keys = entries.flatMap(entry => [...(this.sets.get(entry.name)?.scopeFiles() ?? []), JSON.stringify(['$dataset', entry.identity, entry.name])])
+    const execute = async (): Promise<void> => {
+      const active = entries.filter(entry => this.currentSubscription(entry))
+      for (const entry of entries) if (!active.includes(entry)) entry.reject(new Error('数据集查询已变化'))
+      if (!active.length) return
+      try {
+        for (const entry of active) {
+          this.stopSubscription(entry.name)
+          this.subscriptionRequests.set(entry.name, entry.request)
+          entry.activate()
+        }
+        const results = await workspace.subscribeQuery(active.map(entry => entry.request))
+        if (results.length !== active.length) {
+          for (const result of results) workspace.unsubscribeQuery(result.subscriptionId)
+          throw new Error('批量订阅结果数量不一致')
+        }
+        for (let index = 0; index < active.length; index++) {
+          const entry = active[index], result = results[index]
+          if (!this.currentSubscription(entry)) {
+            workspace.unsubscribeQuery(result.subscriptionId)
+            entry.reject(new Error('数据集查询已变化'))
+          } else {
+            this.subscriptions.set(entry.name, result.subscriptionId)
+            entry.resolve(result)
+          }
+        }
+      } catch (error) { for (const entry of active) entry.reject(error as Error) }
+    }
+    const work = entries.some(entry => this.sets.get(entry.name)?.isReady()) ? UserOperationQueue.submit(execute, keys) : execute()
+    work.catch((error: Error): void => { for (const entry of entries) entry.reject(error) })
   }
   private resetCache(): void {
     const config = this.config!, resolved = this.definitions, names = Array.from(this.sets.keys())
@@ -190,6 +268,7 @@ export class DataSetManager {
       await this.flush()
     } finally {
       this.closed = true; clearTimeout(this.saveTimer)
+      for (const name of Array.from(this.subscriptions.keys())) this.stopSubscription(name)
       for (const stop of this.stops.values()) stop()
       this.stopIdle(); AppConfigService.stopWatchingChanges(this.configChanged); DataSetManager.active.delete(this)
     }

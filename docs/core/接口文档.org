@@ -1145,15 +1145,18 @@ pub enum DataChangeEvent {
 
 #+begin_src rust
 impl OrgWorkspace {
-    pub async fn subscribe_query<F>(
+    pub async fn subscribe_query(
         &self,
-        query: CoreQuery,
-        on_change: F,
-    ) -> Result<QuerySubscriptionStart, CoreError>
-    where F: Fn(DataChangeEvent) + Send + Sync + 'static;
+        requests: Vec<QuerySubscriptionRequest>,
+    ) -> Result<Vec<QuerySubscriptionStart>, CoreError>;
 
     pub fn unsubscribe_query(&self, subscription: &mut QuerySubscription);
     pub fn query_subscription_status(&self, subscription: &QuerySubscription) -> QuerySubscriptionStatus;
+}
+
+pub struct QuerySubscriptionRequest {
+    pub query: CoreQuery,
+    pub callback: Box<dyn Fn(DataChangeEvent) + Send + Sync>,
 }
 
 pub struct QuerySubscriptionStart {
@@ -1162,7 +1165,7 @@ pub struct QuerySubscriptionStart {
 }
 #+end_src
 
-初始数据从同一次查询返回，后续回调仅发送按固定查询过滤的数据增量，不读盘、不重新查询、不提交修改。支持任务与文件数据查询，不接受通知查询。句柄不公开操作方法，状态与取消均通过 Workspace 执行，析构自动解除订阅。初始交错、版本等待、分类摘要和失效边界见 [[file:查询订阅设计.org][查询订阅设计]]。
+订阅项数组共用一次批量查询加载，按输入位置返回独立结果与句柄；空数组不加载，任一项失败清理本批监控。每项保留独立 callback，后续回调仅发送按该项固定查询过滤的数据增量，不读盘、不重新查询、不提交修改。支持任务与文件数据查询，不接受通知查询。句柄不公开操作方法，状态与取消均通过 Workspace 执行，析构自动解除订阅。初始交错、版本等待、分类摘要和失效边界见 [[file:查询订阅设计.org][查询订阅设计]]。
 
 * 通用查询排序上下文
 
