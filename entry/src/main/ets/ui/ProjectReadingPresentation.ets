@@ -53,30 +53,39 @@ export interface ProjectReadingItem {
   section: ProjectReadingSection
   hasChildren: boolean
   contextOnly: boolean
+  visible: boolean
 }
 
-// 仅编排文档树的可见层级；标签命中集合由 Core 查询提供。
+// 完整保留源节点；标签命中集合由 Core 查询提供，展示只更新可见性与祖先路径。
 export function projectReadingItems(sections: ProjectReadingSection[], matches: string[] | null = null): ProjectReadingItem[] {
   const result: ProjectReadingItem[] = []
+  const parents: number[] = []
+  const available: boolean[] = []
+  const ancestors: number[] = []
+  const matched = matches === null ? null : new Set<string>(matches)
   let hiddenLevel = 0
   for (let index = 0; index < sections.length; index++) {
     const section = sections[index], node = section.node
-    if (!node) { result.push({ section, hasChildren: false, contextOnly: false }); continue }
-    if (hiddenLevel && node.level > hiddenLevel) continue
-    hiddenLevel = node.editContent.ownTags.includes('ARCHIVE') || (node.property('VISIBILITY') === 'folded') ? node.level : 0
+    if (!node) {
+      result.push({ section, hasChildren: false, contextOnly: false, visible: true })
+      parents.push(-1); available.push(true)
+      continue
+    }
+    while (ancestors.length > 0 && sections[ancestors[ancestors.length - 1]].node!.level >= node.level) ancestors.pop()
+    parents.push(ancestors.length > 0 ? ancestors[ancestors.length - 1] : -1)
+    ancestors.push(index)
+    const hidden = hiddenLevel > 0 && node.level > hiddenLevel
+    if (!hidden) hiddenLevel = node.editContent.ownTags.includes('ARCHIVE') || node.property('VISIBILITY') === 'folded' ? node.level : 0
     const next = sections[index + 1]?.node
     const hasChildren = next !== null && next !== undefined && next.level > node.level
-    if (matches !== null && !matches.includes(node.id)) {
-      // 祖先仅作定位上下文，命中内容与源顺序保持不变。
-      let context = false
-      for (let child = index + 1; child < sections.length; child++) {
-        const descendant = sections[child].node
-        if (!descendant || descendant.level <= node.level) break
-        if (matches.includes(descendant.id)) { context = true; break }
-      }
-      if (!context) continue
-    }
-    result.push({ section, hasChildren, contextOnly: matches !== null && !matches.includes(node.id) })
+    const contextOnly = matched !== null && !!node.state && !matched.has(node.id)
+    available.push(!hidden)
+    result.push({ section, hasChildren, contextOnly, visible: !hidden && !contextOnly })
+  }
+  // 普通章节与命中任务的所有祖先均保留；归档和主动折叠继续优先隐藏后代。
+  for (let index = result.length - 1; index >= 0; index--) {
+    const parent = parents[index]
+    if (result[index].visible && parent >= 0 && available[parent]) result[parent].visible = true
   }
   return result
 }

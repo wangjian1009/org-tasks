@@ -48,7 +48,7 @@ test('项目归档只隐藏后代，保留同级标题；叶任务和父任务�
     id, level, property: () => null, editContent: { ownTags: archived ? ['ARCHIVE'] : [] }
   } });
   const source = [section('archive', 1, true), section('hidden', 3), section('sibling', 1), section('leaf', 2)];
-  assert.deepEqual(projectReading.projectReadingItems(source).map(item => [item.section.key, item.hasChildren]),
+  assert.deepEqual(projectReading.projectReadingItems(source).filter(item => item.visible).map(item => [item.section.key, item.hasChildren]),
     [['archive', true], ['sibling', true], ['leaf', false]]);
   source[0].node.editContent.ownTags = [];
   assert.equal(projectReading.projectReadingItems(source).length, 4);
@@ -59,20 +59,41 @@ test('项目折叠直接读取 Task 通用属性，隐藏直属后代并保留�
     id, level, property: name => name === 'VISIBILITY' ? visibility : null, editContent: { ownTags: [] }
   } });
   const sections = [section('folded', 1, 'folded'), section('child', 2), section('deep', 4), section('sibling', 1)];
-  assert.deepEqual(projectReading.projectReadingItems(sections).map(item => item.section.key), ['folded', 'sibling']);
+  assert.deepEqual(projectReading.projectReadingItems(sections).filter(item => item.visible).map(item => item.section.key), ['folded', 'sibling']);
   sections[0] = section('folded', 1, 'all');
   assert.equal(projectReading.projectReadingItems(sections).length, 4);
 });
 
-test('项目标签可见性使用查询命中身份，仅补齐祖先上下文并保持源顺序', () => {
-  const section = (id, level) => ({ key: id, node: { id, level, property: () => null, editContent: { ownTags: [] } } });
+test('项目标签只过滤任务，普通章节及正文完整保留，命中任务的全部祖先保持源顺序', () => {
+  const section = (id, level, task = false) => ({ key: id, node: { id, level, state: task ? {name:'TODO'} : null,
+    property: () => null, editContent: { ownTags: [] } }, blocks: [{source:'正文 '+id}] });
   const source = [{ key: 'preamble', node: null }, section('root', 1), section('other', 2),
-    section('match', 2), section('deep', 3), section('end', 1)];
-  assert.deepEqual(projectReading.projectReadingItems(source, ['deep']).map(item => item.section.key),
-    ['preamble', 'root', 'match', 'deep']);
-  assert.deepEqual(projectReading.projectReadingItems(source, ['deep']).map(item => item.contextOnly), [false, true, true, false]);
-  assert.deepEqual(projectReading.projectReadingItems(source, []).map(item => item.section.key), ['preamble']);
+    section('parentTask', 2, true), section('middle', 3), section('deepTask', 4, true),
+    section('filteredTask', 2, true), section('end', 1)];
+  const snapshot = JSON.stringify(source);
+  const all = projectReading.projectReadingItems(source, ['deepTask']);
+  assert.equal(all.length, source.length);
+  assert.ok(all.every((item,index) => item.section === source[index]));
+  assert.equal(all.find(item=>item.section.key==='filteredTask').visible,false);
+  const items = all.filter(item=>item.visible);
+  assert.deepEqual(items.map(item => item.section.key), ['preamble', 'root', 'other', 'parentTask', 'middle', 'deepTask', 'end']);
+  assert.deepEqual(items.map(item => item.contextOnly), [false, false, false, true, false, false, false]);
+  assert.equal(items[2].section.blocks[0].source, '正文 other');
+  assert.equal(JSON.stringify(source), snapshot);
+  assert.deepEqual(projectReading.projectReadingItems(source, []).filter(item => item.visible).map(item => item.section.key),
+    ['preamble', 'root', 'other', 'parentTask', 'middle', 'end']);
   assert.equal(projectReading.projectReadingItems(source).length, source.length);
+});
+
+test('未命中父任务保留其普通子章节路径，已归档与已收起子树继续隐藏', () => {
+  const section = (id, level, state = null, tags = [], folded = false) => ({key:id,node:{id,level,state,
+    editContent:{ownTags:tags},property:()=>folded?'folded':null}});
+  const source = [section('parent',1,{name:'TODO'}),section('chapter',2),
+    section('archived',1,null,['ARCHIVE']),section('archivedTask',2,{name:'TODO'}),
+    section('folded',1,null,[],true),section('foldedTask',2,{name:'TODO'}),section('tail',1)];
+  const items = projectReading.projectReadingItems(source, ['archivedTask','foldedTask']).filter(item=>item.visible);
+  assert.deepEqual(items.map(item=>item.section.key),['parent','chapter','archived','folded','tail']);
+  assert.equal(items[0].contextOnly,true);
 });
 
 function fixture() {
@@ -663,7 +684,7 @@ test('项目任务展开后可从更多菜单查看和收起日志，没有日�
   const card = new Card();
   card.logShowPolicy = 'LogShowBySwitch';
   let logs = [{ type: 'taskNote', timestamp: '2026-11-14 09:00', noteHtml: '<p>任务日志</p>' }];
-  card.documentMode = true; card.readOnly = false; card.logbookExpanded = false;
+  card.readOnly = false; card.logbookExpanded = false;
   card.value = () => ({ logs });
   const show = card.moreItems().find(item => item.title === '日志');
   assert.ok(show);

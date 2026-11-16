@@ -686,7 +686,7 @@ Core 的 ~TextLink~ 、 ~LinkValue~ 、 ~TaskLinkChange~ 分别透传为同名 T
 
 ~LinkView.editable~ 默认为假； ~editing~ 由控件维护， ~editingChanged~ 向宿主报告输入状态。控件通过 ~change~ 异步回调提交结构化改动，保存成功后退出编辑，失败保留字段与错误。标题通过 ~TitleText~ 、备注通过 ~OrgContentView~ 透传属性与回调，宿主不拼接 Org。备注 Web 只读写 Core 生成的链接元数据与展示 DOM，通过限定的 ~OrgTaskLinks~ 代理传递选择、草稿、保存和取消；所有菜单、跳转和编辑后反馈仍在公共控件中处理。
 
-共享 ~LinkEditController~ 在结束输入、切换字段或收起任务前顺序等待链接草稿保存。 ~TaskInlineService.modify~ 对 ~LINK~ 与清单一样校验原快照，不先重查再把旧位置套到新文件。编辑期间遇到外部版本变化，卡片保留原快照与草稿并阻止提交；本次提交成功后的新快照正常接入。浏览器中的两字段表单只处理 UI，不构造 Org 字符串或执行源文件内容。
+共享 ~LinkEditController~ 在结束输入、切换字段或收起任务前顺序等待链接草稿保存。 DataSet 提交 ~LINK~ 与清单一样使用点选时的文件版本及原始定位，Core 校验原快照，不先重查再把旧位置套到新文件。编辑期间遇到外部版本变化，卡片保留原快照与草稿并阻止提交；本次提交成功后的新快照正常接入。浏览器中的两字段表单只处理 UI，不构造 Org 字符串或执行源文件内容。
 
 * 规划日期与时间编辑
 

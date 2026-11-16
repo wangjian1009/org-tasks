@@ -7,6 +7,8 @@ import { ProjectTaskSection } from './ProjectTaskSection'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { taskTagColor } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
+import { TitleText } from './TitleText'
+import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 
 export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
@@ -26,6 +28,9 @@ export struct ProjectDocumentView {
   @Prop @Watch('updateDocument') matchedIds: string[] = []
   @Prop @Watch('updateDocument') tagFiltered: boolean = false
   @State readingItems: ProjectReadingItem[] = []
+  @State visibleKeys: string[] = []
+  @State contextKeys: string[] = []
+  @State parentKeys: string[] = []
   @StorageLink('taskInlineActive') @Watch('updateDocument') inlineActive: string = ''
   @Prop fileTags: string[] = []
   @Prop specialTags: string[] = []
@@ -45,7 +50,7 @@ export struct ProjectDocumentView {
     let found: ProjectReadingSection | undefined = undefined
     for (const section of this.sections) {
       for (const destination of section.linkTargets) {
-        if (this.readingItems.length > 0 && !this.readingItems.some(item => item.section.key === section.key)) continue
+        if (this.readingItems.length > 0 && !this.visibleKeys.includes(section.key)) continue
         if (destination.target === target && destination.priority < priority) { found = section; priority = destination.priority }
       }
     }
@@ -98,7 +103,7 @@ export struct ProjectDocumentView {
   async openChapter(section: ProjectReadingSection): Promise<boolean> {
     const revision = this.revision
     if (!await TaskInlineSession.end(false) || !this.active || !this.showing || revision !== this.revision) return false
-    if (this.readingItems.length > 0 && !this.readingItems.some(item => item.section.key === section.key)) return false
+    if (this.readingItems.length > 0 && !this.visibleKeys.includes(section.key)) return false
     const offset = this.offsets.get(section.key)
     if (offset === undefined) return false
     this.outlineVisible = false
@@ -107,7 +112,7 @@ export struct ProjectDocumentView {
   }
 
   updateOutline(): void {
-    this.outlineItems = projectOutlineSections(this.readingItems.map(item => item.section).map((section: ProjectReadingSection): ProjectReadingSection => ({
+    this.outlineItems = projectOutlineSections(this.readingItems.filter(item => item.visible).map(item => item.section).map((section: ProjectReadingSection): ProjectReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     })))
@@ -120,6 +125,9 @@ export struct ProjectDocumentView {
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     }))
     this.readingItems = projectReadingItems(current, this.tagFiltered ? this.matchedIds : null)
+    this.visibleKeys = this.readingItems.filter(item => item.visible).map(item => item.section.key)
+    this.contextKeys = this.readingItems.filter(item => item.contextOnly).map(item => item.section.key)
+    this.parentKeys = this.readingItems.filter(item => item.hasChildren).map(item => item.section.key)
     if (this.outlineVisible) this.updateOutline()
   }
 
@@ -134,9 +142,32 @@ export struct ProjectDocumentView {
         ForEach(this.outlineItems, (section: ProjectReadingSection) => {
           if (section.node) {
             ListItem() {
-              Text(section.node.heading).fontSize(15).fontColor(UiColor.text).width('100%')
-                .padding({ left: Math.min(section.node.level - 1, 4) * 8, top: 12, bottom: 12 })
-                .constraintSize({ minHeight: 48 }).onClick((): void => { this.openChapter(section) })
+              Column({ space: 0 }) {
+                if (section.node.level === 1) { Divider().color(UiColor.divider).strokeWidth(1) }
+                Row({ space: 8 }) {
+                  if (section.node.level === 1) {
+                    Image($r('app.media.ui_document_outline')).width(18).height(18).fillColor(UiColor.secondary)
+                      .accessibilityLevel('no')
+                  } else {
+                    Text('›').fontSize(18).fontColor(UiColor.secondary).width(12).accessibilityLevel('no')
+                  }
+                  if (section.node.priority) {
+                    Text(section.node.priority.name).fontSize(12).fontWeight(FontWeight.Medium)
+                      .fontColor(priorityColor(section.node.priority.category)).textAlign(TextAlign.Center)
+                      .constraintSize({ minWidth: 24, minHeight: 22 }).padding({ left: 5, right: 5, top: 2, bottom: 2 })
+                      .backgroundColor(priorityBackground(section.node.priority.category)).borderRadius(6).flexShrink(0)
+                      .accessibilityText(priorityLabel(section.node.priority))
+                  }
+                  TitleText({ text: section.node.heading, parts: section.node.headingParts,
+                    textSize: section.node.level === 1 ? 18 : section.node.level === 2 ? 16 : 14,
+                    weight: section.node.level === 1 ? FontWeight.Bold : section.node.level === 2 ? FontWeight.Medium : FontWeight.Normal,
+                    openLinks: false }).layoutWeight(1)
+                }.width('100%').alignItems(VerticalAlign.Center)
+                  .padding({ left: Math.min(section.node.level - 1, 4) * 20, top: 12, bottom: 12 })
+                  .constraintSize({ minHeight: section.node.level === 1 ? 56 : 48 })
+              }.width('100%').margin({ top: section.node.level === 1 ? 16 : 0 })
+                .priorityGesture(TapGesture().onAction((): void => { this.openChapter(section) }), GestureMask.IgnoreInternal)
+                .accessibilityDescription(`${section.node.level} 级章节，点击定位正文`)
             }
           }
         }, (section: ProjectReadingSection) => section.key)
@@ -156,27 +187,28 @@ export struct ProjectDocumentView {
             }, (tag: string) => tag)
           }.width('100%').padding({ top: 8, bottom: 12 })
         }
-        ForEach(this.readingItems, (item: ProjectReadingItem) => {
-          Column({ space: item.section.node ? 0 : 12 }) {
-            if (!item.section.node && item.section.blocks.length > 0) {
+        ForEach(this.sections, (section: ProjectReadingSection) => {
+          Column({ space: section.node ? 0 : 12 }) {
+            if (!section.node && section.blocks.length > 0) {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
-            if (item.section.node) {
-              ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: item.section.key, hasChildren: item.hasChildren, contextOnly: item.contextOnly,
+            if (section.node) {
+              ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: section.key, hasChildren: this.parentKeys.includes(section.key), contextOnly: this.contextKeys.includes(section.key),
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
-            } else if (item.section.blocks.length > 0) {
-              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: item.section.blocks,
+            } else if (section.blocks.length > 0) {
+              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
                 contentBackground: UiColor.projectBlock }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
-            .padding({ left: item.section.node ? 0 : (item.section.blocks.length > 0 ? 16 : 0),
-              right: !item.section.node && item.section.blocks.length > 0 ? 16 : 0,
-              top: !item.section.node && item.section.blocks.length > 0 ? 16 : 0, bottom: !item.section.node && item.section.blocks.length > 0 ? 16 : 0 })
-            .backgroundColor(item.section.node ? Color.Transparent : UiColor.projectBlock).borderRadius(item.section.node ? 0 : 12)
-            .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(item.section.key, Number(area.position.y)) })
-        }, (item: ProjectReadingItem) => `${this.revision}:${item.section.key}:${item.hasChildren}:${item.contextOnly}`)
-        if (this.tagFiltered && this.readingItems.every(item => item.section.node === null)) {
-          Text('没有匹配标签的内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
+            .padding({ left: section.node ? 0 : (section.blocks.length > 0 ? 16 : 0),
+              right: !section.node && section.blocks.length > 0 ? 16 : 0,
+              top: !section.node && section.blocks.length > 0 ? 16 : 0, bottom: !section.node && section.blocks.length > 0 ? 16 : 0 })
+            .backgroundColor(section.node ? Color.Transparent : UiColor.projectBlock).borderRadius(section.node ? 0 : 12)
+            .visibility(this.visibleKeys.includes(section.key) ? Visibility.Visible : Visibility.None)
+            .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
+        }, (section: ProjectReadingSection) => `${this.revision}:${section.key}`)
+        if (this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
+          Text('没有匹配标签的任务').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
         }
         if (this.sections.every((section: ProjectReadingSection) => section.node === null && section.blocks.length === 0)) {
           Text('项目还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })

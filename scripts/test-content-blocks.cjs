@@ -152,23 +152,23 @@ function projectFixture() {
   let fail, reloadFail;
   const task = { id: 'task', fileVersion: 'v1', editContent: { blocks: [], checklist: [{id:'42',text:'First'},{id:'43',text:'Second'}] } };
   let refreshed = { ...task, fileVersion: 'v2' };
-  const service = { async modify(context, snapshot, changes, documentMode) {
-    writes.push({ snapshot, changes, documentMode });if (fail) throw fail;
+  const service = { async modify(context, snapshot, changes) {
+    writes.push({ snapshot, changes });if (fail) throw fail;
   }, async reload() { if (reloadFail) throw reloadFail;return refreshed; } };
   const { TaskDocumentContent } = load('components/editors/TaskDocumentContent', {
     '../../services/NativeCoreService': { coreErrorMessage: e => e.message },
     '../../services/DataSetManager':{},
-    '../../services/TaskInlineService': { TaskInlineService: service, TaskInlineSession: { async begin() { return true; }, release() { releases++; } } },
+    '../../services/TaskInlineService': { TaskInlineSession: { async begin() { return true; }, release() { releases++; } } },
     '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class { async finish() { return true; } } },
     '../../ui/Theme': { UiColor: { surface: 'surface' } }, '@kit.ArkUI': { KeyboardAvoidMode: { RESIZE: 1 } }
   }, source => prefix('TaskDocumentContent')(source.split('  @Builder\n')[0]));
-  const editor = new TaskDocumentContent();editor.active = true;editor.task = task;editor.modify=async(snapshot,changes)=>{await service.modify({},snapshot,changes,true);try{return await service.reload()}catch(error){error.committed=true;throw error;}};editor.getUIContext = () => ({ getHostContext: () => ({}), setKeyboardAvoidMode() {} });
+  const editor = new TaskDocumentContent();editor.active = true;editor.task = task;editor.modify=async(snapshot,changes)=>{await service.modify({},snapshot,changes);try{return await service.reload()}catch(error){error.committed=true;throw error;}};editor.getUIContext = () => ({ getHostContext: () => ({}), setKeyboardAvoidMode() {} });
   return { editor, task, writes, releases: () => releases, refreshWith: value => { refreshed = value; }, fail: value => { fail = value; }, reloadFail: value => { reloadFail = value; } };
 }
 test('项目区块保留原版本提交，成功重读；只读前言不提交', async () => {
   const f = projectFixture();assert.equal(await f.editor.session(), true);
   await f.editor.saveBlock({ id: '42' }, 'Changed');assert.equal(f.writes[0].snapshot, f.task);
-  assert.equal(f.writes[0].documentMode, true);assert.deepEqual(f.writes[0].changes, [{field:'CONTENT_BLOCK',value:{type:'replace',id:'42',source:'Changed'}}]);
+  assert.deepEqual(f.writes[0].changes, [{field:'CONTENT_BLOCK',value:{type:'replace',id:'42',source:'Changed'}}]);
   assert.equal(f.editor.current.fileVersion, 'v2');
   f.editor.readonly = true;assert.equal(await f.editor.saveBlock({id:'42'}, 'Blocked'), false);assert.equal(f.writes.length, 1);
 });
@@ -298,15 +298,17 @@ test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽',
   assert.deepEqual(rendered,[block]);
 });
 
-test('编译后的项目竖线随实测正文高度变化并在正文底部前收尾，前言不画线', {skip:!fs.existsSync(emittedChecklist)}, () => {
+test('编译后的项目竖线仅在二级及更深正文按实测高度收尾，一级与前言不画线', {skip:!fs.existsSync(emittedChecklist)}, () => {
   const f=compiledBuilders('ProjectSectionBody',['initialRender','bodyGuide'],'components');
-  Object.assign(f.host,{task:{state:null},blocks:[],bodyHeight:0});
+  Object.assign(f.host,{task:{state:null,level:2},blocks:[],bodyHeight:0});
   f.host.initialRender();assert.equal(f.children[0].projectReading,true);
   for(const height of [52,26,130]){
     f.areaChanges[0]({}, {height});f.host.bodyGuide();
     assert.equal(f.guideHeights.at(-1),height-6);
   }
-  f.host.task=null;f.areaChanges[0]({}, {height:100});f.host.bodyGuide();
+  f.host.task={state:null,level:1};f.areaChanges[0]({}, {height:100});f.host.bodyGuide();
+  f.host.task={state:{name:'TODO'},level:1};f.host.bodyGuide();
+  f.host.task=null;f.host.bodyGuide();
   assert.deepEqual(f.overlays,[], '装饰线不能使用会拦截整块正文触摸的 overlay');
   assert.deepEqual(f.guideHeights,[46,20,124]);
 });

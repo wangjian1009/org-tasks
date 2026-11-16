@@ -57,7 +57,6 @@ export struct TaskEditor {
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
-  @Prop documentMode: boolean = false
   @Prop contentHidden: boolean = false
   @Prop expandOnRowClick: boolean = false
   @Prop hiddenTags: string[] = []
@@ -1333,7 +1332,7 @@ export struct TaskEditor {
           .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
         Blank().layoutWeight(1)
         this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
-        if (!this.documentMode && !this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
+        if (!this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
         Button({ type: ButtonType.Normal }) {
           Row({ space: 4 }) {
             Image(this.deadlineIcon()).width(16).height(16)
@@ -1428,29 +1427,6 @@ export struct TaskEditor {
               if (this.regionArea().project !== null) this.openProject()
             })
         }
-      } else if (this.documentMode) {
-        Row({ space: 10 }) {
-          this.stateIndicator()
-          this.priorityBadge()
-          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
-            editable: false,
-            weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
-            activate: (): void => { this.toggle() } }).layoutWeight(1)
-        }.width('100%').constraintSize({ minHeight: 48 }).alignItems(VerticalAlign.Center)
-        if (this.displayTags().length > 0) {
-          Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(this.displayTags(), (tag: string) => {
-              Text(tag).fontSize(12).fontColor('#F5F5F5').wordBreak(WordBreak.BREAK_ALL)
-                .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10)
-                .backgroundColor(taskTagColor(tag)).margin({ right: 6, bottom: 6 })
-            }, (tag: string) => tag)
-          }.width('100%').padding({ left: 28 })
-        }
-        if (this.expandedPlanningText()) {
-          Text(this.expandedPlanningText()).fontSize(12).fontColor(UiColor.secondary)
-            .width('100%').padding({ left: 28, bottom: 8 })
-        }
-        if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       } else {
         this.compactRow()
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }

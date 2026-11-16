@@ -16,7 +16,7 @@ export struct ProjectSectionBody {
 
   @Builder
   bodyGuide() {
-    if (this.task && this.bodyHeight > 6) {
+    if (this.task && this.task.level > 1 && this.bodyHeight > 6) {
       Rect().width(1).height(this.bodyHeight - 6).fill(UiColor.divider)
         .position({ x: this.task.state ? 8 : 0, y: 3 })
         .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')

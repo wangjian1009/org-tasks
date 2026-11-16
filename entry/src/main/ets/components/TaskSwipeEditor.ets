@@ -12,7 +12,6 @@ export struct TaskSwipeEditor {
   dataSet: DataSet | undefined = undefined
   taskId: string = ''
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
-  @Prop documentMode: boolean = false
   @Prop contentHidden: boolean = false
   @Prop hiddenTags: string[] = []
   @Prop instanceKey: string = ''
@@ -37,7 +36,7 @@ export struct TaskSwipeEditor {
     RightSwipe({ disabled: this.readOnly || this.rightSwipeAction === 'none',
       canActivate: (): boolean => this.controller.canActivate(), action: (): void => { this.activate() } }) {
       TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, controller: this.controller,
-        internalLinkProcessor: this.internalLinkProcessor, documentMode: this.documentMode,
+        internalLinkProcessor: this.internalLinkProcessor,
         contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
         readOnly: this.readOnly, expandOnRowClick: this.expandOnRowClick,
         dateDisplay: this.dateDisplay, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,

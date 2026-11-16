@@ -11,20 +11,20 @@
 
 ~TaskEditor~ 的根节点为普通容器，列表宿主在外层提供 ~ListItem~ ，项目文档可直接在 ~Column~ 中嵌入同一编辑器。可选的 ~scrollHost~ 与 ~scrollHostId~ 由宿主提供，用于清单拖动时滚动所在列表或文档。日期与来源由 ~dateDisplay~ 、 ~regionAreaPolicy~ 控制，日志簿通过 ~readOnly~ 与 ~allowCompletion~ 复用只读内容和恢复待办操作。
 
-项目文档通过 ~documentMode: true~ 与 ~contentHidden: true~ 显示任务标题和字段操作；正文由 ~TaskDocumentContent~ 在卡片外直接组合文本、列表、表格和清单区块。列表与项目共用任务快照、版本校验和编辑会话，宿主负责分组、滚动与导航。
+项目文档与其他任务列表统一使用 TaskEditor 的紧凑行，收起时标题、优先级、进度、标签与日期在同一行内排布，最小行高 44vp；不再提供 documentMode 布局参数。父任务通过 ~contentHidden: true~ 将正文保留在卡片外，叶任务在共享卡片展开区显示正文；正文由 ~TaskDocumentContent~ 在卡片外直接组合文本、列表、表格和清单区块。列表与项目共用任务快照、版本校验和编辑会话，宿主负责分组、滚动与导航。
 
 #+begin_src typescript
 import { TaskEditor } from '../components/editors/TaskEditor'
 
 // 列表宿主提供原生列表项。
 ListItem() {
-  TaskEditor({ task, scrollHost: this.listScroller, scrollHostId: 'task_list' })
+  TaskEditor({ dataSet: this.dataSet, taskId, scrollHost: this.listScroller, scrollHostId: 'task_list' })
 }
 
 // 项目宿主在连续文档中直接嵌入。
 Column() {
-  TaskEditor({ task, documentMode: true, contentHidden: true,
-    instanceKey: `project:${task.id}`, scrollHost: this.scroller,
+  TaskEditor({ dataSet: this.dataSet, taskId, contentHidden: true,
+    instanceKey: `project:${taskId}`, scrollHost: this.scroller,
     scrollHostId: 'project_document_scroll' })
 }
 #+end_src
@@ -938,7 +938,7 @@ AppShell 不注册页面数据失效订阅；通知监控与读取由应用级 N
 
 装饰竖线作为不参与命中的独立子节点绘制，不覆盖正文。Web 正文通过触摸计时触发长按，抬手、滚动、取消、快照变化或离开时撤销；关闭区块的系统选词菜单，链接表单保留文本选择。区块共用长按菜单：文字、普通列表、纯 checkbox 清单和表格均提供“拷贝／编辑／删除”。拷贝保留整块 Org 原文；编辑通过本区块原文输入完成，删除提交空原文；checkbox 统计由 Core 重算。菜单沿用链接菜单的颜色、图标和 44vp 行高，以短暂细描边标出操作范围；只读仅提供拷贝。链接和链接表单优先处理，不同时打开区块菜单；清单长按与单击互斥，长按抬手不进入单项编辑；勾选、短按单项编辑与新增继续独立，清单输入期间不弹出整块菜单。菜单操作保留点选时的文件版本与区块身份，结束其他草稿失败或快照变化时不套用旧位置。
 
-项目正文通过 ~ProjectSectionBody~ 取得实际高度，再绘制 1vp 归属竖线，上下各收 3vp；禁止使用相对滚动容器的百分比高度。末尾分隔留白、下一章节和同级任务均不延续上一组竖线。层级每层缩进 8vp、最多 16vp；普通章节正文缩进 8vp，任务正文保持 28vp 并与标题文字对齐；目录层级同样使用 8vp 步长。
+项目一级节点的直属正文不绘制归属竖线；二级及更深节点通过 ~ProjectSectionBody~ 取得实际高度，再绘制 1vp 归属竖线，上下各收 3vp；禁止使用相对滚动容器的百分比高度。末尾分隔留白、下一章节和同级任务均不延续上一组竖线。层级每层缩进 8vp、最多 16vp；普通章节正文缩进 8vp，任务正文保持 28vp 并与标题文字对齐；目录层级使用 20vp 步长，最多 80vp，结合一级分隔线与分级字号区分层级。
 
 项目正文 HTML 的 main／section 包装内也执行段落与首尾 margin 归零，避免短区块叠加浏览器默认留白；普通列表标记缩进为 24px、嵌套列表为 20px，checkbox 子项每层为 8vp。
 
@@ -991,8 +991,24 @@ TaskEditor 由组合层直接传入 DataSet 和任务 ID，内嵌字段控件通
 
 标题归档复用 Core 的 TAGS 修改，仅增加或删除自身 ARCHIVE 标签并保留其余原始标签。归档后保留灰色标题及“已归档”，隐藏直属正文与全部后代；取消归档恢复同一子树。此操作不移动文件、不删除任务。属性修改由原有 DataSet 提交，失败显示可重试错误并恢复确认快照。
 
-标签筛选置于标题栏下方，横向排列“全部”及文件元信息的 tagOptions；不从任务内容推断候选，未使用的配置标签也保留。单选标签由页面转换为通用 TaskQuery 标签表达式，命中结果由单独 DataSet 维护；完整文档数据集继续维护正文与编辑，视图只按命中身份编排文档并补齐祖先标题路径，未命中祖先不显示正文，不在 UI 求值标签。切换不改变源顺序、文件内容与全局计数；空结果提示“没有匹配标签的内容”，失败保留重试入口。归档子树保持隐藏。
+标签筛选置于标题栏下方，横向排列“全部”及文件元信息的 tagOptions；不从任务内容推断候选，未使用的配置标签也保留。单选标签由页面转换为通用 TaskQuery 标签表达式，命中身份由独立 DataSet 维护。筛选只控制有状态任务：普通章节和直属正文始终保留，命中任务及全部祖先保持原层级，未命中的父任务仅保留标题作为路径，未命中的叶任务隐藏。归档与主动收起的后代继续隐藏。无命中时保留文档章节，提示“没有匹配标签的任务”。
+
+完整文档控件树始终由全量 sections 构建，节点键只包含阅读会话与稳定任务身份，不包含筛选、上下文或可见性状态。过滤后的节点通过 Visibility.None 隐藏，不从 ForEach 成员中删除；普通章节正文和父任务正文控件也保留，以可见性切换。清除筛选复用原任务、正文 WebView 和订阅，不重新加载完整文件。标签匹配仍由既有 Core 查询计算，UI 不解释标签或 Org；成员实际增删、文件刷新与新阅读会话仍按既有规则更新结构。
 
 普通列表沿用 Core 安全 HTML，条目间距 6px、根标记缩进 24px、嵌套缩进 20px，标记使用辅助色，长文字保持悬挂缩进；有序列表编号使用等宽数字，描述列表突出术语。链接、整块编辑与原文字节保真边界保持原有契约。
 
 Org 的标准子树可见性属性为 VISIBILITY，folded 表示收起，all 表示展开；children 与 content 另有层级语义。标题菜单直接提交 PROPERTY 修改为 folded／all，读取 Task.property('VISIBILITY')；收起后隐藏正文与后代并显示“已收起”，可从提示或菜单展开，重新打开页面保留文件中的状态。属性表属于 Task，不进入 TaskEditContent，也不增加折叠专用字段或控件参数。归档状态优先，归档期间折叠菜单禁用。布局与交互源文件仍为项目文档阅读的当前 Harmony 画板。
+
+* 项目目录层级与标题标记
+
+ProjectDetail 的一级节点直属正文移除装饰竖线，保留原有正文缩进与段距；二级及更深正文继续按实测高度绘制归属线，前言仍不画线。
+
+目录继续只列当前可见的普通章节，保持文件顺序与完整路径定位。一级章节使用文档图标、18fp 粗体、通栏分隔线、上间距 16vp 和最小 56vp 行高；二级使用 16fp 中等字重，三级及更深使用 14fp 常规字重，子级使用辅助色箭头。每层缩进 20vp，最多 80vp，子级最小行高 48vp；长标题自然换行，深层的无障碍说明保留真实级数。
+
+目录直接消费 Core 的 priority 与 headingParts，不解析标题原文。显式优先级按共享颜色显示徽章，未显式设置时不补默认优先级；分数进度使用共享 TitleText 与统计徽章，去掉 Org 方括号，空统计保留共享占位，代码和链接中的字面标记不误作进度；百分比沿用 Core 的文本投影。标题文字、优先级、进度与行内空白均可定位当前章节，目录中的链接文字也执行章节定位，不跳转到外部页面。
+
+* 项目任务统一紧凑行
+
+项目页的 TaskSwipeEditor 与 TaskEditor 移除 documentMode 参数，收起状态统一调用 compactRow，不再为项目保留标题、标签与规划信息分行的独立布局。紧凑行最小高度为 44vp，标题单行省略，标签、进度、日期及提示图标沿用共享宽度分配策略；详情仍在展开卡片中查看。父任务外置正文、叶任务展开正文、文档层级、目录和筛选的可见性规则继续由项目文档组合层维护。
+
+expandOnRowClick 继续独立控制收起行的点击范围，项目页保留默认值 false；链接直接跳转，标题与进度等入口展开。检查清单操作入口只由 contentHidden 控制，叶任务展开后可使用共享新增入口。服务层不再保留旧 TaskInlineService 读写类及其按页面模式分支的查询／文件读取路径，全部任务修改与快照交付统一由 DataSet 承担；仍保留 TaskInlineSession 会话协调和 TaskInlineMissingError 错误类型。
