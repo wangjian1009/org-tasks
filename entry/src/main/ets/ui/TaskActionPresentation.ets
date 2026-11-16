@@ -49,8 +49,7 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'someday': return taskActionPolicy({}, 'move')
-    case 'today': case 'inbox': case 'planned': case 'anytime': case 'recent': return taskActionPolicy({}, 'schedule')
+    case 'today': case 'inbox': case 'planned': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({}, 'schedule')
     default: return taskActionPolicy()
   }
 }
@@ -89,10 +88,14 @@ function taskOperationMenu(operations: TaskBatchAction[], activate: (action: Tas
   return items
 }
 
-export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: TaskSwipeAction) => void): TaskActionItem[] {
-  const items = taskOperationMenu(policy.singleOperations, (action: TaskBatchAction): void => {
+export function taskSingleMenu(operations: TaskSingleOperation[], activate: (action: TaskSingleOperation) => void): TaskActionItem[] {
+  return taskOperationMenu(operations, (action: TaskBatchAction): void => {
     if (action !== TaskOperation.Merge && action !== TaskOperation.Restore) activate(action)
   })
+}
+
+export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: TaskSwipeAction) => void): TaskActionItem[] {
+  const items = taskSingleMenu(policy.singleOperations, activate)
   items.push({ id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action: () => activate(TaskOperation.Select) })
   return items
 }

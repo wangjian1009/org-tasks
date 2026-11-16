@@ -16,6 +16,7 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskEditor } from '../components/editors/TaskEditor'
 import { TaskSwipeEditor } from '../components/TaskSwipeEditor'
+import { TaskSwipeItem } from '../components/TaskSwipeItem'
 import { TaskRegion } from '../components/TaskRegion'
 import { RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/editors/MoveToTarget'
@@ -549,7 +550,10 @@ struct Inbox {
     TaskRegion({ category: group.category || '未分类',
       project: group.kind === 'project' ? group : null }) {
       ForEach(group.items, (task: CoreTask) => {
-        ListItem() { this.recentTask(task) }
+        TaskSwipeItem({ dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id),
+          readOnly: !this.pageReady, busy: this.selectingRecords || this.selectionStarting || this.mergeBusy || this.actionBusy }) {
+          this.recentTask(task)
+        }
       }, (task: CoreTask) => taskRenderKey(task))
     }
   }

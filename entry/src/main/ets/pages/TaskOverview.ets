@@ -11,6 +11,7 @@ import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskSwipeEditor } from '../components/TaskSwipeEditor'
+import { TaskSwipeItem } from '../components/TaskSwipeItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
@@ -236,6 +237,14 @@ struct TaskOverview {
   }
 
   @Builder
+  taskRow(task: CoreTask) {
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady }) {
+      TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady,
+        referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
+    }
+  }
+
+  @Builder
   overviewContent() {
     Column() {
       if (this.view === 'planned') {
@@ -292,9 +301,7 @@ struct TaskOverview {
                 }.margin({ bottom: 12 })
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
               } else {
-                ListItem() {
-                  TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
-                }
+                this.taskRow(task)
               }
             }, (task: CoreTask) => taskRenderKey(task))
             if (this.view === 'memo') {

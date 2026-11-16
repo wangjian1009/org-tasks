@@ -11,6 +11,7 @@ import { CategoryRegion } from './CategoryRegion'
 import { ScheduleRegion } from './ScheduleRegion'
 import { taskRegion, TaskRegionData } from '../ui/TaskRegionPresentation'
 import { TaskSwipeEditor } from './TaskSwipeEditor'
+import { TaskSwipeItem } from './TaskSwipeItem'
 
 interface NotificationListAnchor { key: string; y: number }
 class NotificationLayoutFrame extends FrameCallback {
@@ -105,8 +106,18 @@ export struct TodayTaskList {
 
   @Builder
   taskItem(item: TodayTaskItem) {
-    TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, referenceTime: this.referenceTime,
-      expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly }) {
+      TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, referenceTime: this.referenceTime,
+        expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
+    }
+  }
+
+  @Builder
+  timedTaskItem(item: TodayTimedTaskItem) {
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly }) {
+      TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
+        referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
+    }
   }
 
   private sectionGroups(sectionKey: string): TodayTaskGroup[] {
@@ -126,7 +137,7 @@ export struct TodayTaskList {
   projectBlock(sectionKey: string, groupKey: string) {
     TaskRegion({ project: this.projectArea(sectionKey, groupKey) }) {
       ForEach(this.projectItems(sectionKey, groupKey), (item: TodayTaskItem) => {
-        ListItem() { this.taskItem(item) }
+        this.taskItem(item)
       }, (item: TodayTaskItem) => this.taskDataSet().taskKey(item.task.id))
     }
   }
@@ -140,10 +151,7 @@ export struct TodayTaskList {
         ListItem() { ScheduleRegion() }
         ListItemGroup() {
           ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
-            ListItem() {
-              TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
-                referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
-            }
+            this.timedTaskItem(item)
           }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
         }.width('100%')
       }
@@ -153,7 +161,7 @@ export struct TodayTaskList {
           if (group.project !== null) {
             this.projectBlock(section.key, group.key)
           } else {
-            ListItem() { this.taskItem(group.items[0]) }
+            this.taskItem(group.items[0])
           }
         }, (group: TodayTaskGroup) => group.project === null ? this.taskDataSet().taskKey(group.items[0].task.id) : group.key)
       }, (section: TodaySection) => section.key)

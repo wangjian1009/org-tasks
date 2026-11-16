@@ -171,8 +171,8 @@ function swipeCard(page) {
   return { state, editor, controller, calls };
 }
 
-test('今天与其他任务页由外层右滑设置计划，某天保留移动，日志簿关闭右滑', () => {
-  for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'schedule', inbox: 'schedule', recent: 'schedule' })) {
+test('今天、计划、随时、某天与最近新增均由外层右滑设置计划，日志簿关闭右滑', () => {
+  for (const [page, action] of Object.entries({ someday: 'schedule', anytime: 'schedule', planned: 'schedule', today: 'schedule', inbox: 'schedule', recent: 'schedule' })) {
     const f = swipeCard(page);
     f.state.activate(); assert.deepEqual(f.calls, [action], page);
   }
@@ -186,7 +186,7 @@ test('外部控制器仅作用于绑定卡片，卡片离开后不再打开编�
   const a = swipeCard('today'), b = swipeCard('someday');
   a.state.activate(); assert.deepEqual(a.calls, ['schedule']); assert.deepEqual(b.calls, []);
   a.controller.release(); a.state.activate(); assert.deepEqual(a.calls, ['schedule']);
-  b.state.activate(); assert.deepEqual(b.calls, ['move']);
+  b.state.activate(); assert.deepEqual(b.calls, ['schedule']);
 });
 
 test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同一入口，批量能力仍独立校验', async () => {

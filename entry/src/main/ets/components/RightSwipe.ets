@@ -47,7 +47,7 @@ export struct RightSwipe {
         .width('100%').translate({ x: this.dragOffset })
     }.width('100%').clip(true)
       .onAreaChange((_old: Area, area: Area): void => { this.contentWidth = Number(area.width) })
-      .parallelGesture(PanGesture({ direction: PanDirection.Right, distance: 8 })
+      .priorityGesture(PanGesture({ direction: PanDirection.Right, distance: 8 })
         .tag('shared_right_swipe')
         .onActionStart((event: GestureEvent): void => { this.drag(event.offsetX) })
         .onActionUpdate((event: GestureEvent): void => { this.drag(event.offsetX) })

@@ -7,6 +7,7 @@ import { CoreTask } from '../services/NativeCoreService'
 import { TaskRegion } from './TaskRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { TaskSwipeEditor } from './TaskSwipeEditor'
+import { TaskSwipeItem } from './TaskSwipeItem'
 
 @Component
 export struct PlannedTaskList {
@@ -80,7 +81,9 @@ export struct PlannedTaskList {
     TaskRegion({ category: this.region(groupKey, regionKey).kind === 'project' ? null : this.region(groupKey, regionKey).category || '未分类',
       project: this.region(groupKey, regionKey).kind === 'project' ? this.region(groupKey, regionKey) : null }) {
       ForEach(this.region(groupKey, regionKey).items, (item: PlannedTaskItem) => {
-        ListItem() { this.taskItem(this.taskKey(item.task), groupKey) }
+        TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskKey(item.task), readOnly: this.readOnly }) {
+          this.taskItem(this.taskKey(item.task), groupKey)
+        }
       }, (item: PlannedTaskItem) => this.taskKey(item.task))
     }
   }
@@ -98,7 +101,9 @@ export struct PlannedTaskList {
       if (this.group(groupKey).scheduleItems.length > 0) {
         TaskRegion({ category: '日程' }) {
           ForEach(this.group(groupKey).scheduleItems, (item: PlannedScheduleItem) => {
-            ListItem() { this.scheduleTaskItem(this.taskKey(item.task), groupKey) }
+            TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskKey(item.task), readOnly: this.readOnly }) {
+              this.scheduleTaskItem(this.taskKey(item.task), groupKey)
+            }
           }, (item: PlannedScheduleItem) => this.taskKey(item.task))
         }
       }
@@ -107,7 +112,9 @@ export struct PlannedTaskList {
       }, (region: PlannedTaskGroup) => region.key)
     } else {
       ForEach(this.group(groupKey).items, (item: PlannedTaskItem) => {
-        ListItem() { this.taskItem(this.taskKey(item.task), groupKey) }
+        TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskKey(item.task), readOnly: this.readOnly }) {
+          this.taskItem(this.taskKey(item.task), groupKey)
+        }
       }, (item: PlannedTaskItem) => this.taskKey(item.task))
     }
     if (this.group(groupKey).kind === 'day' && this.group(groupKey).items.length === 0) {
