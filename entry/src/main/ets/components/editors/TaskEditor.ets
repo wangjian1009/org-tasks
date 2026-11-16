@@ -1137,13 +1137,18 @@ export struct TaskEditor {
     return this.checkItems().filter((item: CoreTaskChecklistItem): boolean => block.items.some((original: CoreTaskChecklistItem): boolean => original.id === item.id))
   }
 
+  // Builder 只保留区块序号，每次渲染从当前快照读取位置 ID 和条目。
+  checkBlock(index: number): CoreContentBlock {
+    return this.value().editContent.blocks[index] ?? { id: 'new', kind: 'checklist', paragraph: false, blankLinesBefore: 0, source: '', html: '', items: [] }
+  }
+
   @Builder
-  checklistBlock(block: CoreContentBlock) {
-    TaskChecklistBlock({ items: this.blockItems(block), readonly: this.readOnly, sorting: true,
+  checklistBlock(index: number) {
+    TaskChecklistBlock({ items: this.blockItems(this.checkBlock(index)), readonly: this.readOnly, sorting: true,
       disabled: this.working || this.snapshotBlocked, editingId: this.checkId, editingText: this.checkText,
-      adding: this.addingCheck && this.lastChecklist(block), newText: this.newCheck,
-      showAdd: this.lastChecklist(block), ownerKey: this.ownerKey, blockId: block.id,
-      dragging: this.draggingCheck && this.dragBlockId === block.id,
+      adding: this.addingCheck && this.lastChecklist(this.checkBlock(index)), newText: this.newCheck,
+      showAdd: this.lastChecklist(this.checkBlock(index)), ownerKey: this.ownerKey, blockId: this.checkBlock(index).id,
+      dragging: this.draggingCheck && this.dragBlockId === this.checkBlock(index).id,
       dragTop: this.dragTop, dragHeight: this.dragHeight, dragPlaceholder: this.dragPlaceholder,
       dragValid: this.dragValid, dragItems: this.dragItems, scroller: this.checkScroller,
       grip: (item: CoreTaskChecklistItem, floating: boolean): void => { this.checklistGrip(item, floating) },
@@ -1198,7 +1203,7 @@ export struct TaskEditor {
       revision: this.value().fileVersion, ownerKey: this.ownerKey,
       contentBackground: this.value().state?.category === TaskStateCategory.Doing ? '#00000000' : UiColor.taskCard,
       editor: this.blockEditor, linkEditor: this.linkEditor,
-      checklist: (block: CoreContentBlock): void => { this.checklistBlock(block) },
+      checklist: (index: number): void => { this.checklistBlock(index) },
       begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
       save: (block: CoreContentBlock, source: string): Promise<boolean> => this.saveBlock(block, source),
       changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),
@@ -1217,7 +1222,7 @@ export struct TaskEditor {
       }
     }
     if (!this.readOnly && this.addingCheck && this.value().editContent.checklist.length === 0) {
-      this.checklistBlock({ id: 'new', kind: 'checklist', paragraph: false, blankLinesBefore: 0, source: '', html: '', items: [] })
+      this.checklistBlock(-1)
     }
   }
 

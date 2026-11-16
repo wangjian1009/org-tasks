@@ -262,7 +262,7 @@ test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽',
   const f=compiledBuilders('TaskContentBlocks',['initialRender']);
   const block={id:'20',kind:'checklist',items:[{id:'42',text:'项目清单'}]};
   const rendered=[];
-  Object.assign(f.host,{blocks:[block],checklist(value){assert.equal(this,f.host);rendered.push(value);}});
+  Object.assign(f.host,{blocks:[block],checklist(index){assert.equal(this,f.host);rendered.push(this.blocks[index]);}});
   f.host.initialRender();
   const shell=f.children.find(child=>child.kind==='block');
   assert.equal(shell.nativeChecklist,true);
@@ -284,7 +284,7 @@ test('编译后的项目竖线随实测正文高度变化并在正文底部前�
 });
 
 test('编译后的任务区块回调在子组件中执行时仍使用任务宿主，清单与拖动手柄均能创建', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock']);
+  const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock','checkBlock']);
   const item={id:'42',text:'日志回归验证 20261112',checked:false,depth:0};
   const block={id:'20',kind:'checklist',items:[item]};
   const calls=[];
@@ -293,7 +293,7 @@ test('编译后的任务区块回调在子组件中执行时仍使用任务宿�
     checklistGrip(value,floating){assert.equal(this,f.host);calls.push([value,floating]);}});
   f.host.bodyBlocks();
   const blocks=f.children.find(child=>child.kind==='blocks');assert.ok(blocks);
-  blocks.checklist.call(blocks,block);
+  blocks.checklist.call(blocks,0);
   const checklist=f.children.find(child=>child.kind==='checklist');assert.ok(checklist);assert.equal(checklist.items[0],item);
   checklist.grip.call(checklist,item,false);
   assert.deepEqual(calls,[[item,false]]);
@@ -305,6 +305,35 @@ test('编译后的项目正文清单回调保持文档宿主，避免借用区�
   Object.assign(f.host,{content:()=>[block],isReadonly(){assert.equal(this,f.host);return false;},lastChecklist(){assert.equal(this,f.host);return true;},message:''});
   f.host.initialRender();
   const blocks=f.children.find(child=>child.kind==='blocks');assert.ok(blocks);
-  blocks.checklist.call(blocks,block);
+  blocks.checklist.call(blocks,0);
   const checklist=f.children.find(child=>child.kind==='checklist');assert.ok(checklist);assert.equal(checklist.items,block.items);
+});
+
+test('编译后的项目清单在连续新增、勾选、删除和位置 ID 改变后读取当前快照', {skip:!fs.existsSync(emittedChecklist)}, () => {
+  const f=compiledBuilders('TaskDocumentContent',['initialRender','checklist','lastChecklist']);
+  let blocks=[{id:'20',kind:'checklist',items:[{id:'42',text:'原条目',checked:false}]}];
+  Object.assign(f.host,{content:()=>blocks,isReadonly:()=>false,adding:true,message:''});
+  f.host.initialRender();f.children.find(child=>child.kind==='blocks').checklist(0);
+  const checklist=f.children.find(child=>child.kind==='checklist');
+  for (const items of [
+    [...blocks[0].items,{id:'60',text:'新增一',checked:false}],
+    [{id:'43',text:'原条目',checked:true},{id:'61',text:'新增一',checked:false},{id:'80',text:'新增二',checked:false}],
+    [{id:'43',text:'原条目',checked:true},{id:'61',text:'新增一',checked:false}]
+  ]) {
+    blocks=[{id:String(Number(blocks[0].id)+1),kind:'checklist',items}];
+    const current=checklist.paramsGenerator_();
+    assert.equal(current.items,items);assert.equal(current.blockId,blocks[0].id);
+    assert.equal(current.showAdd,true);assert.equal(current.adding,true);
+  }
+});
+
+test('编译后的任务编辑清单在新快照条目 ID 全部移动后仍显示完整清单', {skip:!fs.existsSync(emittedChecklist)}, () => {
+  const f=compiledBuilders('TaskEditor',['checklistBlock','checkBlock','blockItems','lastChecklist']);
+  let blocks=[{id:'20',kind:'checklist',items:[{id:'42',text:'原条目'}]}];
+  Object.assign(f.host,{value:()=>({editContent:{blocks}}),checkItems:()=>blocks[0].items,addingCheck:true});
+  f.host.checklistBlock(0);
+  const checklist=f.children.find(child=>child.kind==='checklist');
+  blocks=[{id:'21',kind:'checklist',items:[{id:'43',text:'原条目'},{id:'61',text:'新增条目'}]}];
+  const current=checklist.paramsGenerator_();
+  assert.deepEqual(current.items,blocks[0].items);assert.equal(current.blockId,'21');assert.equal(current.showAdd,true);
 });

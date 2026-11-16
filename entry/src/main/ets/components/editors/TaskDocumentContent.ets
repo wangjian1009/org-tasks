@@ -166,11 +166,11 @@ export struct TaskDocumentContent {
   }
 
   @Builder
-  checklist(block: CoreContentBlock) {
-    TaskChecklistBlock({ items: block.items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
+  checklist(index: number) {
+    TaskChecklistBlock({ items: this.content()[index].items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
       indentStep: this.projectReading ? 8 : 12,
-      ownerKey: this.owner, blockId: block.id, editingId: this.editingId, editingText: this.editingText,
-      adding: this.adding && this.lastChecklist(block), newText: this.newText, showAdd: this.lastChecklist(block),
+      ownerKey: this.owner, blockId: this.content()[index].id, editingId: this.editingId, editingText: this.editingText,
+      adding: this.adding && this.lastChecklist(this.content()[index]), newText: this.newText, showAdd: this.lastChecklist(this.content()[index]),
       toggle: (change: CoreTaskChecklistChange): void => { this.changeCheck(change) },
       edit: (item: CoreTaskChecklistItem): void => { this.editCheck(item) },
       editChanged: (text: string): void => { this.editingText = text },
@@ -189,7 +189,7 @@ export struct TaskDocumentContent {
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
-        checklist: (block: CoreContentBlock): void => { this.checklist(block) },
+        checklist: (index: number): void => { this.checklist(index) },
         begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
         save: (block: CoreContentBlock, source: string): Promise<boolean> => this.saveBlock(block, source),
         changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),

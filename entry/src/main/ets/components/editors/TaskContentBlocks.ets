@@ -28,11 +28,11 @@ export struct TaskContentBlocks {
   changeLink: ((block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
-  @BuilderParam checklist: (block: CoreContentBlock) => void = this.readChecklist
+  @BuilderParam checklist: (index: number) => void = this.readChecklist
 
   @Builder
-  readChecklist(block: CoreContentBlock) {
-    TaskChecklistBlock({ items: block.items, readonly: this.readonly, ownerKey: this.ownerKey, blockId: block.id }).width('100%')
+  readChecklist(index: number) {
+    TaskChecklistBlock({ items: this.blocks[index].items, readonly: this.readonly, ownerKey: this.ownerKey, blockId: this.blocks[index].id }).width('100%')
   }
 
   build() {
@@ -43,7 +43,7 @@ export struct TaskContentBlocks {
             TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled,
               revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(this.blocks[index]) }, begin: this.begin, save: this.save,
+              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(index) }, begin: this.begin, save: this.save,
               editingChanged: this.editingChanged }).width('100%')
           } else if (this.blocks[index].kind === 'list') {
             TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blocks[index], readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
