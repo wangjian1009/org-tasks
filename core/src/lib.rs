@@ -30,11 +30,14 @@ impl Display for CoreError {
 impl std::error::Error for CoreError {}
 
 mod filter;
+mod executor;
 mod merge;
 pub mod model;
+pub mod query;
 pub mod http_server;
 pub mod query_subscription;
 pub use query_subscription::{QuerySubscription, QuerySubscriptionStart, QuerySubscriptionStatus};
+pub use query::{QueryOrderPart, QueryOrderValue, QueryOrdering};
 pub mod webdav;
 pub mod workspace;
 pub use workspace::{OrgWorkspace, OrgWorkspaceValidationError};

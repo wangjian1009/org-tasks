@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::model::query::{
+use crate::query::{
     evaluate_query, file_matches_query, normalized_category,
 };
 use crate::model::{
@@ -105,7 +105,7 @@ impl QuerySubscription {
     }
     pub(crate) fn initialize(
         &self,
-        mut snapshot: crate::model::query::QuerySnapshot,
+        mut snapshot: crate::query::QuerySnapshot,
         repo_order: &[String],
     ) -> CoreQueryResult {
         let mut data = snapshot.results.remove(0);
@@ -668,7 +668,7 @@ mod tests {
             subscription.attach(self.workspace.watch_data_changes(subscription.monitor()));
             (subscription, events)
         }
-        async fn snapshot(&self) -> crate::model::query::QuerySnapshot {
+        async fn snapshot(&self) -> crate::query::QuerySnapshot {
             self.workspace
                 .query_snapshot(&[self.query()], true)
                 .await
@@ -677,7 +677,7 @@ mod tests {
         fn finish(
             &self,
             subscription: &QuerySubscription,
-            snapshot: crate::model::query::QuerySnapshot,
+            snapshot: crate::query::QuerySnapshot,
         ) -> CoreQueryResult {
             subscription.initialize(snapshot, &[self.workspace.repos()[0].id.clone()])
         }

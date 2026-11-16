@@ -16,7 +16,7 @@ pub(crate) mod notification;
 mod project;
 mod priority;
 pub(crate) mod properties;
-pub(crate) mod query;
+mod query;
 mod refile;
 mod render;
 mod text_link;

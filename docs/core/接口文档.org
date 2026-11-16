@@ -106,7 +106,7 @@ pub fn merge(
 
 *** OrgWorkspace
 
-~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。它是运行时构造输入，不是持久化实体。
+~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。Workspace 同时持有内部多线程 ~Executor~ ，查询中的独立读取、解析和任务投影通过通道逐项回送，排序、分类和事务提交仍由当前调用上下文完成。它是运行时构造输入，不是持久化实体。
 
 #+begin_src rust
 impl OrgWorkspace {
@@ -137,7 +137,7 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。 异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影，解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~new~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主必须逐个调用 ~OrgRepo.load::<P>~ 读取或创建稳定 ID；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。对已加载仓库执行同步或编辑前，可用 ~repo_mut~ 按稳定 ID 取得该仓库。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由多线程 ~Executor~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 ~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
