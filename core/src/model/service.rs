@@ -936,8 +936,13 @@ where
 }
 
 pub(crate) fn generate_repo_id() -> Result<OrgRepoId, CoreError> {
+    generate_uuid()
+}
+
+// 仓库身份与新文档属性共用 UUID v4 生成规则。
+pub(crate) fn generate_uuid() -> Result<String, CoreError> {
     let mut bytes = [0_u8; 16];
-    getrandom::fill(&mut bytes).map_err(|_| CoreError::Store("无法生成仓库 ID".into()))?;
+    getrandom::fill(&mut bytes).map_err(|_| CoreError::Store("无法生成 UUID".into()))?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     Ok(format!(
@@ -1083,6 +1088,7 @@ pub(super) async fn load_setup_settings_cached(
                 .and_then(|value| value.strip_suffix('"'))
                 .unwrap_or(value);
             let value = value.strip_prefix("file:").unwrap_or(value).trim();
+            if value.is_empty() { continue; }
             let relative = Path::new(value);
             if relative.is_absolute() { continue; }
             let mut setup_path = current_dir.to_path_buf();

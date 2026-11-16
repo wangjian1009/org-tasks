@@ -1,7 +1,10 @@
 use org_tasks_core::{webdav::WebDavSyncPolicy, *};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs;
+
+static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct Fixture {
     root: PathBuf,
@@ -13,10 +16,7 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!(
             "file-new-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).await.unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
@@ -131,7 +131,7 @@ async fn file_new_reads_template_arguments_and_root_setup_including_nested_targe
     fs::create_dir(f.root.join("projects")).await.unwrap();
     fs::write(
         f.root.join("template.org"),
-        "#+TITLE: {{项目}}\n#+SETUPFILE: {{setup}}\n#+FILETAGS: :project:\n",
+        "#+TITLE: {{项目}}\n#+SETUPFILE:\n#+FILETAGS: :project:\n",
     )
     .await
     .unwrap();
@@ -164,11 +164,11 @@ async fn file_new_reads_template_arguments_and_root_setup_including_nested_targe
 }
 
 #[tokio::test]
-async fn file_new_inline_content_wins_and_missing_setup_line_is_removed() {
+async fn file_new_inline_content_wins_and_missing_setup_keeps_an_empty_declaration() {
     let f = Fixture::new().await;
     let mut op = f.operation(
         "project.org",
-        "#+TITLE: {{name}}\r\n#+SETUPFILE: {{setup}}\r\n",
+        "#+TITLE: {{name}}\r\n#+SETUPFILE:\r\n",
         vec![],
     );
     let TaskOperation::FileNew(data) = &mut op else {
@@ -179,7 +179,7 @@ async fn file_new_inline_content_wins_and_missing_setup_line_is_removed() {
     f.execute(vec![op]).await.unwrap();
     assert_eq!(
         fs::read(f.root.join("project.org")).await.unwrap(),
-        "#+TITLE: 项目\r\n".as_bytes()
+        "#+TITLE: 项目\r\n#+SETUPFILE:\r\n".as_bytes()
     );
     f.execute(vec![f.operation("empty.org", "", vec![])])
         .await
@@ -352,4 +352,52 @@ fn file_new_initial_tasks_are_creation_data_and_reject_source_paths() {
     invalid["data"]["initTasks"] =
         serde_json::json!([{"repoId":"repo","file":"inbox.org","titles":["旧任务"]}]);
     assert!(serde_json::from_value::<TaskOperation>(invalid).is_err());
+}
+
+#[tokio::test]
+async fn project_template_assigns_unique_persistent_ids_and_resolves_optional_setup() {
+    for has_setup in [false, true] {
+        let f = Fixture::new().await;
+        if has_setup {
+            fs::write(f.root.join(".setup.org"), "#+TODO: READY | FINISHED\n")
+                .await
+                .unwrap();
+        }
+        let mut ids = Vec::new();
+        for name in ["first.org", "second.org"] {
+            let mut op = f.operation(name,
+                ":PROPERTIES:\n:ID:\n:END:\n#+TITLE: {{name}}\n#+FILETAGS: :project:todo:\n#+SETUPFILE:\n",
+                vec![TaskFileInitialTask { title: "初始任务".into(),
+                    state: Some(if has_setup { "READY" } else { "TODO" }.into()), ..Default::default() }]);
+            let TaskOperation::FileNew(data) = &mut op else {
+                unreachable!()
+            };
+            data.arguments.insert("name".into(), "项目".into());
+            f.execute(vec![op]).await.unwrap();
+            let source = fs::read_to_string(f.root.join(name)).await.unwrap();
+            let id = source
+                .lines()
+                .find_map(|line| line.strip_prefix(":ID: "))
+                .unwrap();
+            assert!(
+                regex::Regex::new(
+                    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                )
+                .unwrap()
+                .is_match(id)
+            );
+            ids.push(id.to_owned());
+            assert!(source.contains(if has_setup {
+                "#+SETUPFILE: .setup.org\n"
+            } else {
+                "#+SETUPFILE:\n"
+            }));
+            let file = f.file(name).await;
+            assert_eq!(file.project().as_deref(), Some("项目"));
+            assert_eq!(file.file_tags(), vec!["project", "todo"]);
+            assert_eq!(file.node_paths()[0].titles, vec!["初始任务"]);
+            assert_eq!(fs::read_to_string(f.root.join(name)).await.unwrap(), source);
+        }
+        assert_ne!(ids[0], ids[1]);
+    }
 }

@@ -857,11 +857,13 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 ~FileNew~ 通过既有 ~execute_task_operations~ 执行，目标 ~path~ 仅接受文件根路径。请求字段及类型见 [[file:数据模型.org::*模板文件创建][数据模型]]；~initTasks~ 接受新任务字段，不接受已有记录的 ~TaskPath~ 。~templateContent~ 非空时优先使用，否则按目标仓库读取 ~templatePath~ 。模板参数采用 ~{{name}}~ ，缺参、无效占位符、已有目标或失败的初始化任务都会使整个操作组失败。
 
+模板属性抽屉中的空 ~ID~ 由 Core 生成 UUID v4；已有 ID 保留。空 ~#+SETUPFILE:~ 声明由 Core 根据目标仓库 ~.setup.org~ 是否存在补全路径或保留空值，不需要参数。
+
 #+begin_src json
 {
   "operations": [{"type": "FileNew", "data": {
     "path": {"repoId": "实际仓库ID", "file": "新项目.org", "titles": []},
-    "templateContent": "#+TITLE: {{name}}\n#+FILETAGS: :project:\n#+SETUPFILE: {{setup}}\n",
+    "templateContent": ":PROPERTIES:\n:ID:\n:END:\n#+TITLE: {{name}}\n#+FILETAGS: :project:todo:\n#+SETUPFILE:\n",
     "arguments": {"name": "新项目"},
     "initTasks": [{"title": "第一项任务", "state": "TODO"}]
   }}]

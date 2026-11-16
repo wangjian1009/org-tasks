@@ -927,7 +927,7 @@ mod tests {
         let repo_id = workspace_for_handle(handle).unwrap().repos()[0].id.clone();
         let group = serde_json::json!({"operations":[{"type":"FileNew","data":{
             "path":{"repoId":repo_id,"file":"project.org","titles":[]},
-            "templateContent":"#+TITLE: {{name}}\n#+FILETAGS: :project:\n#+SETUPFILE: {{setup}}\n",
+            "templateContent":"#+TITLE: {{name}}\n#+FILETAGS: :project:\n#+SETUPFILE:\n",
             "arguments":{"name":"新项目"},"initTasks":[{"title":"初始任务","state":"TODO"}]
         }}]});
         workspace_execute_task_operations(handle, group.to_string()).unwrap();

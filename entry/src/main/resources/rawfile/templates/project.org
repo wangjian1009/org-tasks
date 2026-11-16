@@ -1,6 +1,9 @@
+:PROPERTIES:
+:ID:
+:END:
 #+TITLE: {{project_name}}
 #+PROJECT_NAME: {{project_name}}
-#+FILETAGS: :project:
+#+FILETAGS: :project:todo:
 #+CATEGORY: {{category}}
-#+SETUPFILE: {{setup_file}}
+#+SETUPFILE:
 
