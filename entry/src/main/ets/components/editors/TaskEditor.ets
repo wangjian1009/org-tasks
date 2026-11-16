@@ -135,6 +135,9 @@ export struct TaskEditor {
   private checkScrollTimer: number = -1
   private dragPointerX: number = 0
   private dragPointerY: number = 0
+  private compactTouchMoved: boolean = false
+  private compactTouchX: number = 0
+  private compactTouchY: number = 0
   private dragEpoch: number = 0
   private gripPress: string = ''
   private gripX: number = 0
@@ -353,6 +356,23 @@ export struct TaskEditor {
     this.logbookExpanded = false
     this.referenceTime = Date.now()
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
+  }
+  private compactTouch(event: TouchEvent): void {
+    const touch = event.touches[0]
+    if (event.type === TouchType.Down && touch) {
+      this.compactTouchMoved = false
+      this.compactTouchX = touch.windowX
+      this.compactTouchY = touch.windowY
+    } else if (event.type === TouchType.Move && touch &&
+      Math.hypot(touch.windowX - this.compactTouchX, touch.windowY - this.compactTouchY) > 8) {
+      this.compactTouchMoved = true
+    } else if (event.type === TouchType.Cancel) {
+      this.compactTouchMoved = true
+    }
+  }
+  private toggleFromCompact(): void {
+    if (this.compactTouchMoved) return
+    this.toggle()
   }
   async finish(collapse: boolean): Promise<boolean> {
     if (this.readOnly) {
@@ -590,7 +610,7 @@ export struct TaskEditor {
         .backgroundColor(priorityBackground(this.value().priority!.category)).borderRadius(6).flexShrink(0)
         .responseRegion({ x: 0, y: -11, width: '100%', height: 44 })
         .accessibilityText(`${priorityLabel(this.value().priority)}，点击${editable ? '修改' : '展开'}`)
-        .onClick(() => { if (editable) this.priorities(); else this.toggle() })
+        .onClick(() => { if (editable) this.priorities(); else this.toggleFromCompact() })
     }
   }
 
@@ -903,7 +923,7 @@ export struct TaskEditor {
       }
     }.constraintSize({ maxWidth: this.layout().tagWidth }).alignItems(VerticalAlign.Center).flexShrink(0)
       .accessibilityText(`标签：${this.displayTags().join('、')}`)
-      .onClick((): void => { this.toggle() })
+      .onClick((): void => { this.toggleFromCompact() })
   }
 
   @Builder
@@ -961,19 +981,19 @@ export struct TaskEditor {
         Column({ space: 2 }) {
           TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, editable: false,
             lineLimit: 1, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
-            activate: (): void => { this.toggle() } })
+            activate: (): void => { this.toggleFromCompact() } })
             .width('100%').constraintSize({ minWidth: 0 })
           if (taskSourceText(this.value(), false, this.regionPolicy())) {
             this.categoryProject()
           }
         }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Start)
-          .onClick((): void => { this.toggle() })
+          .onClick((): void => { this.toggleFromCompact() })
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Center)
       if (titleCounts(this.value().headingParts).length > 0) {
         TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
           .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
-          .onClick((): void => { this.toggle() })
+          .onClick((): void => { this.toggleFromCompact() })
       }
       if (this.displayTags().length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
       if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
@@ -1003,7 +1023,7 @@ export struct TaskEditor {
         .width(48).maxLines(1).flexShrink(0)
         .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' :
           this.timeDisplay === TaskTimeDisplay.Creation ? '创建' : this.timeDisplay === TaskTimeDisplay.Closed ? '完成' : '计划'} ${this.leadingTime()}`)
-        .onClick((): void => { this.toggle() })
+        .onClick((): void => { this.toggleFromCompact() })
     }
   }
 
@@ -1045,14 +1065,16 @@ export struct TaskEditor {
           .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
           .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
           // 整个内容区统一识别点击，避免子控件截获或重复触发展开；状态框位于手势区域之外。
-          .priorityGesture(TapGesture().onAction((): void => { this.toggle() }), GestureMask.IgnoreInternal)
+          .priorityGesture(TapGesture().onAction((): void => { this.toggleFromCompact() }), GestureMask.IgnoreInternal)
       }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
+        .onTouch((event: TouchEvent) => { this.compactTouch(event) })
     } else {
       Row({ space: 6 }) {
         this.compactTime()
         this.stateIndicator()
         this.compactContent()
       }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })
+        .onTouch((event: TouchEvent) => { this.compactTouch(event) })
     }
   }
 
@@ -1226,7 +1248,8 @@ export struct TaskEditor {
             activate: (): void => { this.editHeading() } })
             .layoutWeight(1).constraintSize({ minHeight: 24 })
         }
-      }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
+      }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
+      this.collapseButton()
     }.width('100%').alignItems(VerticalAlign.Top)
       .bindPopup(this.priorityOpen, { builder: this.priorityPopup, placement: Placement.BottomLeft,
         targetSpace: 6, enableArrow: false, radius: 10, popupColor: UiColor.menu,
@@ -1252,6 +1275,19 @@ export struct TaskEditor {
       }
     }.width('100%').padding({ left: 27 })
   }
+
+  @Builder
+  collapseButton() {
+    Row() {
+      Button({ type: ButtonType.Normal }) {
+        Image($r('app.media.ui_up')).width(14).height(14)
+      }.id('inline_collapse_button').width(14).height(14).padding(0)
+        .backgroundColor(Color.Transparent).stateEffect(false)
+        .responseRegion({ x: -9, y: -9, width: 32, height: 32 })
+        .accessibilityText('收起任务').onClick(() => { this.toggle() })
+    }.width(14).height(UiSize.taskRow).justifyContent(FlexAlign.Center).flexShrink(0)
+  }
+
   @Builder
   attributeButton(icon: Resource, label: string, activate: () => void) {
     Button({ type: ButtonType.Normal }) { Image(icon).width(18).height(18) }
@@ -1334,7 +1370,8 @@ export struct TaskEditor {
           editable: false,
           cancelled: this.value().state?.category === TaskStateCategory.Cancel,
           activate: (): void => { this.toggle() } }).layoutWeight(1)
-      }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Top)
+      }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
+      this.collapseButton()
     }.width('100%').alignItems(VerticalAlign.Top)
     Column({ space: 12 }) {
       if (!this.contentHidden) { this.bodyBlocks() }
@@ -1381,7 +1418,7 @@ export struct TaskEditor {
               contentBackground: '#00000000' }).width('100%').padding({ left: 27 })
               .margin({ top: taskLogVisible(this.logShowPolicy, this.logbookExpanded) ? 8 : 0 })
           }
-        }.width('100%').padding(12)
+        }.width('100%').padding({ left: 12, right: 12, bottom: 12 })
           .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? Color.Transparent : UiColor.taskCard).borderRadius(12)
         if (taskSourceText(this.value(), true, this.regionPolicy())) {
           Text(taskSourceText(this.value(), true, this.regionPolicy())).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(11).fontColor(UiColor.secondary)
@@ -1420,7 +1457,7 @@ export struct TaskEditor {
       }
     }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)
       .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.taskDoingTint : Color.Transparent).borderRadius(12)
-      .alignItems(HorizontalAlign.Start).margin({ top: this.expanded ? 8 : 0, bottom: this.expanded ? 8 : 0 })
+      .alignItems(HorizontalAlign.Start).margin({ bottom: this.expanded ? 8 : 0 })
       .onAreaChange((oldArea: Area, area: Area) => {
         this.rowWidth = parseFloat(area.width.toString())
       })
