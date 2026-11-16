@@ -4,6 +4,7 @@ import { AppConfigService } from './AppConfigService'
 import { CoreHttpUiRequest, CoreHttpUiResponse, CoreWorkspace, CoreTask, NativeCoreService, fileResult } from './NativeCoreService'
 import { PageNavigator } from './PageNavigator'
 import { PagePath, PageRoute, PageParameters } from './PagePath'
+import { MemoNavigation } from './MemoNavigation'
 import { TaskInlineSession } from './TaskInlineService'
 
 interface NavigationState { pages: PageRoute[] }
@@ -78,7 +79,7 @@ export class HttpNavigationService {
         case 'pages/FileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath']; break
         case 'pages/RepositorySettings': allowed = ['repoId']; break
         case 'pages/SyncLog': allowed = ['repoId', 'syncId']; break
-        case 'pages/MemoEdit': allowed = ['task', 'create']; break
+        case 'pages/MemoEdit': allowed = ['task', 'create', 'memoId']; break
       }
       if (Object.keys(p).some(key => !allowed.includes(key))) throw new NavigationError(400, '页面包含不支持的参数')
       if ((p.repoId !== undefined && typeof p.repoId !== 'string') || (p.path !== undefined && typeof p.path !== 'string') ||
@@ -89,8 +90,11 @@ export class HttpNavigationService {
       if (p.section !== undefined && !SECTIONS.includes(p.section)) throw new NavigationError(400, '设置分组无效')
       if (['pages/ProjectDetail', 'pages/FileDetail', 'pages/ConflictFile'].includes(page.url) && (!p.repoId || !p.path)) throw new NavigationError(400, '必须指定 repoId 和 path')
       if (page.url === 'pages/SyncLog' && !p.repoId) throw new NavigationError(400, '必须指定 repoId')
-      if (page.url === 'pages/MemoEdit' && (p.create !== undefined && typeof p.create !== 'boolean' ||
-        (p.create === true) === (p.task !== undefined))) throw new NavigationError(400, '备忘页必须指定 create=true 或 task')
+      if (page.url === 'pages/MemoEdit' && ((p.create !== undefined && typeof p.create !== 'boolean') ||
+        (p.memoId !== undefined && (typeof p.memoId !== 'string' || !p.memoId)) ||
+        [p.create === true, p.task !== undefined, p.memoId !== undefined].filter(value => value).length !== 1)) {
+        throw new NavigationError(400, '备忘页必须指定 create=true、task 或 memoId 之一')
+      }
     }
   }
 
@@ -115,6 +119,11 @@ export class HttpNavigationService {
       if (!file) throw new NavigationError(404, '文件不存在')
       if (page.url === 'pages/ProjectDetail' && file.project() === null) throw new NavigationError(404, '此文件不是项目')
       if (page.url === 'pages/FileDetail' && file.project() !== null) return { url: 'pages/ProjectDetail', params: { repoId, path: p.path } }
+    }
+    if (page.url === 'pages/MemoEdit' && p.memoId) {
+      const task = await MemoNavigation.findInConfig(config, p.memoId)
+      if (!task) throw new NavigationError(404, '备忘不存在')
+      return { url: page.url, params: { task } }
     }
     if (page.url === 'pages/MemoEdit' && p.task !== undefined) {
       const ref = p.task

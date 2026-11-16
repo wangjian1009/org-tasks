@@ -25,7 +25,7 @@ const { PagePath } = paths;
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(check) { for (let n = 0; n < 200; n++) { if (check()) return; await tick(); } assert.fail('等待状态超时'); }
 function fixture() {
-  const configCallbacks = new Set(), managers = [], stack = [], messages = [];
+  const configCallbacks = new Set(), managers = [], stack = [], messages = [], loads = [];
   let count = 0, configured = true, existing = true, fail = false, delay;
   const workspace = { async repos() { return []; } };
   const { PageNavigator, primaryPage } = load('PageNavigator', {
@@ -54,14 +54,14 @@ function fixture() {
   const navigator = new PageNavigator();
   stack.push(primaryPage('today'));
   const router = {
-    async pushUrl(page) { if (fail) throw new Error('路由失败'); if (delay) await delay; stack.push(page); },
-    async replaceUrl(page) { if (fail) throw new Error('路由失败'); if (delay) await delay; stack[stack.length - 1] = page; },
+    async pushUrl(page) { loads.push(['push',page]); if (fail) throw new Error('路由失败'); if (delay) await delay; stack.push(page); },
+    async replaceUrl(page) { loads.push(['replace',page]); if (fail) throw new Error('路由失败'); if (delay) await delay; stack[stack.length - 1] = page; },
     back() { assert.ok(stack.length > 1); stack.pop(); }, clear() { stack.splice(0, stack.length - 1); }
   };
   const context = { getHostContext: () => ({}), getRouter: () => router,
     getPromptAction: () => ({ showToast: value => messages.push(value) }) };
-  const verify = () => assert.deepEqual(navigator.path.pages, stack.map(page => ({ url: page.url, params: page.params })));
-  return { navigator, primaryPage, context, stack, managers, messages, configCallbacks, verify,
+  const verify = () => assert.deepEqual(navigator.path.pages.slice(-stack.length), stack.map(page => ({ url: page.url, params: page.params })));
+  return { navigator, primaryPage, context, stack, managers, messages, configCallbacks, verify, loads,
     start: async () => { navigator.start({}); await until(() => managers.length && navigator.dataLoading === undefined); },
     count(value) { count = value; managers.at(-1)?.update(); },
     missing() { existing = false; managers.at(-1)?.update(); },
@@ -146,4 +146,36 @@ test('配置变化关闭旧订阅并重建数据集；关闭清理监听和数�
   f.count(1); await f.navigator.openPrimary(f.context, { url: 'pages/Settings' }); await f.navigator.back(f.context);
   assert.equal(f.navigator.path.current.url, 'pages/Inbox');
   await f.navigator.close(); assert.equal(f.configCallbacks.size, 0); assert.equal(f.managers[1].closed, true);
+});
+
+
+test('完整路径只加载末级页面，返回才加载未创建的祖先并保留参数', async () => {
+  const f = fixture();
+  const root = { url: 'pages/TaskOverview', params: { view: 'memo' } };
+  const middle = { url: 'pages/ProjectDetail', params: { repoId: 'r', path: 'p.org' } };
+  const edit = { url: 'pages/MemoEdit', params: { memoId: 'id' } };
+  await f.navigator.setPath(f.context, new PagePath([root, middle, edit]));
+  assert.equal(f.loads.length, 1); assert.deepEqual(f.loads[0], ['replace',edit]);
+  assert.equal(f.stack.length, 1); assert.equal(f.navigator.path.depth, 3); f.verify();
+  await f.navigator.pushPage(f.context, { url: 'pages/FileDetail', params: { path: 'a.org' } });
+  await f.navigator.back(f.context); assert.equal(f.loads.length, 2); assert.deepEqual(f.navigator.path.current, edit); f.verify();
+  await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, middle); assert.equal(f.loads.length, 3); f.verify();
+  await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, {url:root.url, params:root.params}); assert.equal(f.loads.length, 4); f.verify();
+});
+
+test('直接加载路径后返回失败保留当前页面，替换末级不会丢失懒加载祖先', async () => {
+  const f = fixture(), root = { url: 'pages/Files' }, edit = { url: 'pages/MemoEdit', params: { create: true } };
+  await f.navigator.setPath(f.context, new PagePath([root, edit]));
+  const before = f.navigator.path; f.fail(true);
+  assert.equal(await f.navigator.back(f.context), false); assert.equal(f.navigator.path, before); f.verify();
+  f.fail(false); await f.navigator.replacePage(f.context, { url: 'pages/ProjectDetail', params: { path: 'p.org' } });
+  await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, {url:root.url, params:root.params}); f.verify();
+});
+
+
+test('窗口直接恢复完整路径不会创建父页，第一次返回按父参数加载', async () => {
+  const f=fixture(), root={url:'pages/TaskOverview',params:{view:'memo'}}, edit={url:'pages/MemoEdit',params:{create:true}};
+  f.stack[0]=edit;f.navigator.restore(new PagePath([root,edit]));
+  assert.equal(f.loads.length,0);f.verify();await f.navigator.back(f.context);
+  assert.equal(f.loads.length,1);assert.deepEqual(f.loads[0],['replace',root]);f.verify();
 });

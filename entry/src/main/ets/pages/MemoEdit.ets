@@ -1,3 +1,4 @@
+import { MemoNavigation } from '../services/MemoNavigation'
 import { PageNavigator } from '../services/PageNavigator'
 import { AppConfigService } from '../services/AppConfigService'
 import { PageQueryService } from '../services/PageQueryService'
@@ -10,12 +11,16 @@ import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService
 import { EmptyState } from '../components/controls/EmptyState'
 import { UiColor } from '../ui/Theme'
 
-interface MemoParams { task?: CoreTask; create?: boolean }
+interface MemoParams { task?: CoreTask; create?: boolean; memoId?: string }
 
-@Entry
+@Entry({ useSharedStorage: true })
 @Component
 struct MemoEdit {
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @LocalStorageProp('entryMemoId') entryMemoId: string = ''
+  @LocalStorageProp('entryMemoCreate') entryMemoCreate: boolean = false
+  @State loadingMemo: boolean = false
+  private memoRequest: number = 0
   @State memo: CoreTask | undefined = undefined
   @State heading: string = ''
   @State body: string = ''
@@ -25,22 +30,38 @@ struct MemoEdit {
   @State message: string = ''
 
   aboutToAppear() {
-    const params = this.getUIContext().getRouter().getParams() as MemoParams | undefined
+    const routeParams = this.getUIContext().getRouter().getParams() as MemoParams | undefined
+    const params: MemoParams = routeParams && Object.keys(routeParams).length > 0 ? routeParams :
+      { create: this.entryMemoCreate, memoId: this.entryMemoId }
     this.memo = params?.task
     this.creating = params?.create === true
     this.heading = this.memo?.heading || ''
     this.body = this.memo?.body || ''
+    if (!this.memo && !this.creating && params.memoId) this.loadMemo(params.memoId)
+  }
+
+  async loadMemo(memoId: string): Promise<void> {
+    const request = ++this.memoRequest
+    this.loadingMemo = true
+    try {
+      const task = await MemoNavigation.find(this.getUIContext().getHostContext()!, memoId)
+      if (request !== this.memoRequest) return
+      if (!task) { this.message = '此备忘已变更或删除，请从列表重新选择'; return }
+      this.memo = task; this.heading = task.heading; this.body = task.body
+    } catch (_) {
+      if (request === this.memoRequest) this.message = '读取备忘失败，请返回列表重试'
+    } finally { if (request === this.memoRequest) this.loadingMemo = false }
   }
 
   private stopExternalGuard: (() => void) | undefined = undefined
   onPageShow() {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
-      !this.working && (this.committed || this.heading === (this.memo?.heading || '') && this.body === (this.memo?.body || '')))
+      !this.working && !this.loadingMemo && (this.committed || this.heading === (this.memo?.heading || '') && this.body === (this.memo?.body || '')))
     this.refreshNotifications()
   }
   onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
-  aboutToDisappear(): void { this.stopExternalGuard?.() }
+  aboutToDisappear(): void { this.memoRequest++; this.stopExternalGuard?.() }
 
   async refreshNotifications() {
     try {
@@ -59,6 +80,7 @@ struct MemoEdit {
 
   async saveAndBack(discardEmpty: boolean = false) {
     if (this.working) return
+    if (this.loadingMemo) { this.memoRequest++; this.loadingMemo = false }
     const leavingEmpty = discardEmpty && this.creating && !this.heading && !this.body
     if (!this.committed && !leavingEmpty && (this.memo || this.creating) && this.heading.trim().length === 0) {
       this.message = '标题不能为空'
@@ -116,7 +138,7 @@ struct MemoEdit {
         TextInput({ text: this.heading, placeholder: '标题' }).height(48).layoutWeight(1)
           .margin({ left: 12 }).padding({ left: 0, right: 0 }).fontSize(22).fontColor(UiColor.text)
           .placeholderColor(UiColor.secondary).backgroundColor(Color.Transparent)
-          .enabled(!this.working && !this.committed).onChange((value: string): void => { this.heading = value })
+          .enabled(!this.loadingMemo && !this.working && !this.committed).onChange((value: string): void => { this.heading = value })
         if (this.creating) {
           Button({ type: ButtonType.Normal }) {
             Image($r('app.media.ui_done')).width(24).height(24)
@@ -141,8 +163,11 @@ struct MemoEdit {
         Text(this.message).width('100%').padding({ left: 16, right: 16, top: 8, bottom: 8 })
           .fontSize(13).fontColor(UiColor.error).backgroundColor(UiColor.container)
       }
-      if (!this.memo && !this.creating) {
-        EmptyState({ title: '无法打开此备忘', detail: '请从备忘列表进入。' })
+      if (this.loadingMemo) {
+        EmptyState({ title: '正在读取备忘', busy: true })
+      } else if (!this.memo && !this.creating) {
+        EmptyState({ title: '无法打开此备忘', detail: '请从备忘列表重新选择。',
+          actionLabel: '返回备忘列表', action: (): void => { this.saveAndBack(true) } })
       } else {
         MemoEditor({ task: this.memo, editable: true, disabled: this.working || this.committed, bodyValue: this.body,
           bodyChanged: (value: string): void => { this.body = value } })

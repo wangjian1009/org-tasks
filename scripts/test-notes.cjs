@@ -107,18 +107,19 @@ test('Core 版本冲突原样返回给页面，不以新版本自动重试覆盖
 });
 
 // 仅转译页面的状态与提交方法，ArkUI 布局由实际 HAP 编译检查。
-function page(name, service, router, notifications = { async refresh() {} }) {
+function page(name, service, router, notifications = { async refresh() {} }, findMemo = async () => undefined) {
   const filename = path.resolve('entry/src/main/ets/pages/' + name + '.ets');
   let source = fs.readFileSync(filename, 'utf8');
   source = source.slice(0, source.indexOf('\n  build()')) + '\n}';
-  source = source.replace(/^@(Entry|Component)\n/gm, '').replace(/^  @State /gm, '  ')
-    .replace(/^  @StorageLink\('[^']+'\) /gm, '  ').replace('struct ' + name, 'export class ' + name);
+  source = source.replace(/^@(Entry(?:\([^\n]*\))?|Component)\n/gm, '').replace(/^  @State /gm, '  ')
+    .replace(/^  @(?:StorageLink|LocalStorageProp)\('[^']+'\) /gm, '  ').replace('struct ' + name, 'export class ' + name);
   const module = { exports: {} };
   const compiled = ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + compiled + '\n})', { filename })(dependency => {
     if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
+    if (dependency.endsWith('/MemoNavigation')) return { MemoNavigation: { find: findMemo } };
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
     if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };
     if (dependency.endsWith('/AppConfigService')) return { AppConfigService: { async load() { return {repos:[]}; } } };
@@ -187,4 +188,36 @@ test('空白新建返回不写入，保存空标题提示修正', async () => {
   assert.equal(navigations, 0);
   await memo.saveAndBack(true);
   assert.equal(navigations, 1);
+});
+
+
+test('直接加载编辑页按 memoId 取最新记录，不依赖备忘列表查询完成', async () => {
+  const latest = { id: 'm', heading: '最新标题', body: '最新正文' }; let reads = 0;
+  const memo = page('MemoEdit', {}, { getParams: () => ({}) }, undefined, async (_, id) => {
+    assert.equal(id, 'm'); reads++; return latest;
+  });
+  memo.entryMemoId = 'm'; memo.aboutToAppear();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(memo.memo, latest); assert.equal(memo.heading, '最新标题'); assert.equal(reads, 1);
+  await memo.refreshNotifications(); assert.equal(reads, 1);
+});
+
+test('直接加载新建页不查询备忘；路由参数优先于残留的启动参数', () => {
+  const memo = page('MemoEdit', {}, { getParams: () => undefined }, undefined, () => assert.fail('新增不应读取记录'));
+  memo.entryMemoCreate = true; memo.aboutToAppear(); assert.equal(memo.creating, true);
+  const current = { heading: '列表点选', body: '对应正文' };
+  const pushed = page('MemoEdit', {}, { getParams: () => ({ task: current }) });
+  pushed.entryMemoCreate = true; pushed.entryMemoId = '旧记录'; pushed.aboutToAppear();
+  assert.equal(pushed.creating, false); assert.equal(pushed.memo, current);
+});
+
+test('失效 memoId 不打开其他记录，退出后迟到读取不覆盖页面', async () => {
+  const missing = page('MemoEdit', {}, { getParams: () => ({ memoId: 'missing' }) });
+  missing.aboutToAppear(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(missing.memo, undefined); assert.match(missing.message, /变更或删除/);
+  let release;
+  const memo = page('MemoEdit', {}, { getParams: () => ({ memoId: 'm' }) }, undefined,
+    () => new Promise(resolve => { release = resolve; }));
+  memo.aboutToAppear(); memo.aboutToDisappear(); release({ heading: '迟到标题', body: '正文' });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(memo.memo, undefined);
 });

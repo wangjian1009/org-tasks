@@ -44,8 +44,6 @@ struct TaskOverview {
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
   @LocalStorageProp('entryView') entryView: string = ''
-  @LocalStorageProp('entryMemoAction') entryMemoAction: string = ''
-  @LocalStorageProp('entryMemoId') entryMemoId: string = ''
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
@@ -69,7 +67,6 @@ struct TaskOverview {
   @State deletingMemo: boolean = false
   @StorageLink('taskInlineActive') @Watch('pageInlineChanged') pageInlineActive: string = ''
   private pageLayoutDeferred: boolean = false
-  private entryMemoOpened: boolean = false
 
   aboutToAppear() {
     this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view ||
@@ -93,29 +90,6 @@ struct TaskOverview {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     PageNavigator.shared.back(this.getUIContext())
     return true
-  }
-
-  async openEntryMemo(): Promise<void> {
-    if (this.view !== 'memo' || this.entryMemoOpened || !this.entryMemoAction) return
-    this.entryMemoOpened = true
-    try {
-      if (this.entryMemoAction === 'create') {
-        await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { create: true } })
-      } else if (this.entryMemoAction === 'edit') {
-        const task = this.tasks.find((item: CoreTask): boolean => item.id === this.entryMemoId)
-        if (task) {
-          await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { task } })
-        } else {
-          try {
-            this.getUIContext().getPromptAction().showToast({ message: '此备忘已变更或删除，请从列表重新选择' })
-          } catch (_) {
-            // 页面退出时提示可能不可用。
-          }
-        }
-      }
-    } catch (_) {
-      this.entryMemoOpened = false
-    }
   }
 
   supportsTagFilter(): boolean {
@@ -243,7 +217,6 @@ struct TaskOverview {
     this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged }, this.tagOptions, this.tagGroups))
     this.planGroups = this.view === 'planned' ? plannedGroups(this.tasks) : []
     this.logbookTaskGroups = this.view === 'logbook' ? logbookGroups(this.tasks, new Date(this.referenceTime)) : []
-    this.openEntryMemo()
   }
 
   overviewIcon(): Resource {

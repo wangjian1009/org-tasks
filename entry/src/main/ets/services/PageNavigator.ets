@@ -22,6 +22,7 @@ export class PageNavigator {
   private dataRevision: number = 0
   private dataLoading: Promise<void> | undefined = undefined
   private navigating: boolean = false
+  private nativeDepth: number = 1
   private configurationChanged = (): void => { this.refreshInbox() }
 
   get path(): PagePath { return this.state }
@@ -34,7 +35,9 @@ export class PageNavigator {
   canLeaveExternally(): boolean { return this.externalLeaveGuard?.() ?? true }
 
   // WindowStage 重新加载根页面时同时重建路径，不保留旧窗口历史。
-  reset(page: PageRoute): void { this.state = new PagePath([page]) }
+  reset(page: PageRoute): void { this.restore(new PagePath([page])) }
+  // WindowStage 只加载末级页面；祖先节点留待实际返回时加载。
+  restore(path: PagePath): void { this.state = path; this.nativeDepth = 1 }
 
   start(context: Context): void {
     if (this.context) return
@@ -97,9 +100,7 @@ export class PageNavigator {
   // 业务可直接设置完整路径；一级入口始终重建为单节点路径。
   async setPath(context: UIContext, path: PagePath): Promise<boolean> {
     return this.transition(context, async (): Promise<void> => {
-      const pages = path.pages
-      await this.replaceRoot(context, pages[0])
-      for (const page of pages.slice(1)) await this.push(context, page)
+      await this.replacePath(context, path)
     })
   }
 
@@ -123,8 +124,13 @@ export class PageNavigator {
   back(context: UIContext): Promise<boolean> {
     return this.transition(context, async (): Promise<void> => {
       if (this.state.depth > 1) {
-        context.getRouter().back()
-        this.state = this.state.parent()
+        if (this.nativeDepth > 1) {
+          context.getRouter().back()
+          this.state = this.state.parent()
+          this.nativeDepth--
+        } else {
+          await this.replacePath(context, this.state.parent())
+        }
         return
       }
       // 不等待查询或网络：返回使用当前订阅快照，尚无结果时按空收件箱处理。
@@ -136,17 +142,22 @@ export class PageNavigator {
   }
 
   private async replaceRoot(context: UIContext, page: PageRoute): Promise<void> {
+    await this.replacePath(context, new PagePath([page]))
+  }
+
+  private async replacePath(context: UIContext, path: PagePath): Promise<void> {
     const previous = this.state
-    this.state = new PagePath([page])
-    try { await context.getRouter().replaceUrl(page) }
+    this.state = path
+    try { await context.getRouter().replaceUrl(path.current) }
     catch (error) { this.state = previous; throw error as Error }
     context.getRouter().clear()
+    this.nativeDepth = 1
   }
 
   private async push(context: UIContext, page: PageRoute): Promise<void> {
     const previous = this.state
     this.state = previous.push(page)
-    try { await context.getRouter().pushUrl(page) }
+    try { await context.getRouter().pushUrl(page); this.nativeDepth++ }
     catch (error) { this.state = previous; throw error as Error }
   }
 

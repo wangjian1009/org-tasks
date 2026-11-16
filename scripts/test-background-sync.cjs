@@ -198,6 +198,8 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
   for (const contentFirst of [true, false]) {
     const requests = [], callbacks = [], context = {}; let backgroundRequests = 0;
     const Ability = compile('../entryability/EntryAbility', name => {
+      if (name.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
+      if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
       if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
       if (name === '../services/HttpApiService') return { HttpApiService: { attachWindow() {} } };
       if (name === '@kit.AbilityKit') return { UIAbility: class {} };

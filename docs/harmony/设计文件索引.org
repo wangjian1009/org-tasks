@@ -55,7 +55,7 @@
 | [[file:../../design/当前实现/同步日志与详情.fig][同步日志与详情]] | Harmony 当前实现 | 30 Harmony 同步日志单行标题与同步详情（当前实现） |
 | [[file:../../design/当前实现/收件箱左滑操作.fig][收件箱左滑操作]] | Harmony 当前实现 | 31 Harmony 收件箱左滑操作（当前实现） |
 | [[file:../../design/当前实现/仓库图标与通知样式.fig][仓库图标与通知样式]] | Harmony 当前实现 | 32 Harmony 仓库图标与通知单句样式（当前实现） |
-| [[file:../../design/当前实现/桌面备忘卡片.fig][桌面备忘卡片]] | Harmony 当前实现 | 35 Harmony 桌面备忘卡片 |
+| [[file:../../design/当前实现/桌面备忘卡片.fig][桌面备忘卡片]] | Harmony 当前实现 | 35 Harmony 桌面备忘卡片；新增与条目使用完整路径直接进入编辑页，返回时加载列表 |
 | [[file:../../design/当前实现/共享任务卡片.fig][共享任务卡片]] | Harmony 当前实现 | 36 Harmony 共享任务卡片（当前实现） |
 | [[file:../../design/当前实现/共享任务卡片.fig][共享任务卡片]] | Harmony 当前实现 | 63 Harmony 正文分块与只读一致性（当前实现），见 [[file:../../design/previews/63 Harmony 正文分块与只读一致性.png][三态预览]] |
 | [[file:../../design/当前实现/共享任务卡片.fig][共享任务卡片]] | 任务编辑交互 | 01 点击任务原位展开；36 Harmony 当前画板包含今天页除 checkbox 外整行内容与留白的点击范围 |

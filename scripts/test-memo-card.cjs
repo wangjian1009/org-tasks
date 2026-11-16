@@ -101,13 +101,14 @@ test('标题栏、加号与同名条目分别打开列表、新增和所点记�
   f.click('Row', 0);
   f.click('Button');
   f.click('Row', 2);
-  assert.deepEqual(f.actions.map(action => JSON.parse(JSON.stringify(action.params))), [
-    { page: 'memo' }, { page: 'memo', memoAction: 'create' },
-    { page: 'memo', memoAction: 'edit', memoId: 'id-second' }
+  assert.deepEqual(f.actions.map(action => JSON.parse(action.params.navigation)), [
+    { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }] },
+    { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }, { url: 'pages/MemoEdit', params: { create: true } }] },
+    { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }, { url: 'pages/MemoEdit', params: { memoId: 'id-second' } }] }
   ]);
   f.update(['同名备忘', '同名备忘'], '暂无备忘', ['id-second', 'id-first']);
   f.click('Row', 1);
-  assert.equal(f.actions.at(-1).params.memoId, 'id-second');
+  assert.equal(JSON.parse(f.actions.at(-1).params.navigation).pages[1].params.memoId, 'id-second');
   assert.equal(f.actions.length, 4);
 });
 
@@ -120,87 +121,6 @@ test('已显示记录改名、重排、减少和清空后不保留旧标题', ()
   assert.deepEqual(f.texts().filter(text => text !== '全部备忘'), ['暂无备忘']);
   f.update([], '暂时无法读取备忘，点击打开应用');
   assert.ok(f.texts().includes('暂时无法读取备忘，点击打开应用'));
-});
-
-function overview(action = '', memoId = '') {
-  const filename = path.resolve('entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/pages/TaskOverview.ts');
-  const storage = { entryView: 'memo', entryMemoAction: action, entryMemoId: memoId };
-  const routes = [], toasts = [];
-  let factory, tasks = [], available = true;
-  class Property {
-    constructor(value) { this.value = value; }
-    get() { return this.value; }
-    set(value) { this.value = value; }
-  }
-  class ViewPU {
-    constructor(_, localStorage) { this.storage = localStorage; }
-    declareWatch() {}
-    finalizeConstruction() {}
-    createLocalStorageProp(key, fallback) { return new Property(this.storage?.[key] ?? fallback); }
-    createStorageLink(_, fallback) { return new Property(fallback); }
-  }
-  vm.runInNewContext(compile(fs.readFileSync(filename, 'utf8')), {
-    exports: {}, ViewPU, ListScroller: class {}, ObservedPropertySimplePU: Property, ObservedPropertyObjectPU: Property,
-    LocalStorage: { getShared: () => storage }, registerNamedRoute(callback) { factory = callback; },
-    require(name) {
-      if (name.includes('PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
-      if (name.includes('DataSetManager')) return {DataSetManager:{create(){const sets=new Map();return{
-        dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,subscribe(fn){this.fn=fn;return()=>{}},isReady:()=>true,error:'',get data(){return name==='tasks'?{type:'task',result:{tasks:available?tasks:[]}}:{type:'file',result:available?[{}]:[]}}});return sets.get(name)},
-        async start(){await Promise.resolve();for(const dataSet of sets.values())dataSet.fn?.();}
-      }}}};
-      if (name.includes('TaskViewQueries')) return {overviewTitle:()=> '备忘'};
-      if (name.includes('TaskInlineService')) return {TaskInlineSession:{active:()=>false}};
-      if (name.includes('NotificationManager')) return { emptyCoreNotificationsState: () => ({}) };
-      if (name.includes('AppConfigService')) return { AppConfigService: { async load() { return {}; } } };
-      if (name.includes('FileTargetService')) return { FileTargetService: { async query(_, kind) {
-        assert.equal(kind, 'memo'); return available ? { tasks } : undefined;
-      } } };
-      if (name.includes('TaskTagFilterPresentation')) return {
-        taskTagOptions: () => [], reconcileTaskTags: selection => selection, filterTasksByTags: tasks => tasks
-      };
-      if (name.includes('NativeCoreService')) return { coreErrorMessage: error => error.message };
-      return {};
-    }
-  }, { filename });
-  const instance = factory();
-  instance.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
-    getParams: () => undefined, async pushUrl(route) { routes.push(route); }
-  }), getPromptAction: () => ({ showToast(toast) { toasts.push(toast.message); } }) });
-  instance.aboutToAppear();
-  return { instance, routes, toasts, tasks(value) { tasks = value; }, invalidate() { available = false; } };
-}
-
-test('实际编译页面读取窗口启动参数，新增与列表入口分离，返回刷新不会重复打开', async () => {
-  const f = overview('create');
-  assert.equal(f.instance.view, 'memo');
-  await f.instance.loadTasks();
-  assert.equal(f.routes[0]?.url, 'pages/MemoEdit');
-  assert.equal(f.routes[0]?.params.create, true);
-  await f.instance.loadTasks();
-  assert.equal(f.routes.length, 1);
-  const list = overview();
-  await list.instance.loadTasks();
-  assert.equal(list.routes.length, 0);
-});
-
-test('条目编辑使用最新查询中的对应记录，同名不混淆，失效条目不打开其他记录', async () => {
-  const f = overview('edit', 'second');
-  const latest = { id: 'second', heading: '同名', body: '最新正文', fileVersion: 'new-version' };
-  f.tasks([{ id: 'first', heading: '同名' }, latest]);
-  await f.instance.loadTasks();
-  assert.equal(f.routes[0]?.params.task, latest);
-  await f.instance.loadTasks();
-  assert.equal(f.routes.length, 1);
-  const removed = overview('edit', 'removed');
-  removed.tasks([{ id: 'another', heading: '同名' }]);
-  await removed.instance.loadTasks();
-  assert.equal(removed.routes.length, 0);
-  assert.match(removed.toasts[0], /变更或删除/);
-  const invalid = overview('edit', 'second');
-  invalid.invalidate();
-  await invalid.instance.loadTasks();
-  assert.equal(invalid.routes.length, 0);
-  assert.equal(invalid.instance.needsConfiguration, true);
 });
 
 function extension() {

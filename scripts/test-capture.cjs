@@ -26,6 +26,8 @@ function etsLoader(mocks = {}, globals = {}) {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     });
     const localRequire = dependency => {
+      if (dependency.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
+      if (dependency.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
       if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
       if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
       if (dependency.endsWith('/DeviceBadgeService')) return { DeviceBadgeService: { async refresh() {}, start() {}, stop() {} } };
@@ -43,7 +45,7 @@ function repository(id) {
     webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] };
 }
 
-test('分享后直接加载收件箱，备忘入口继续使用独立页面参数', async () => {
+test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只加载目标页面', async () => {
   const EntryAbility = etsLoader({
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
@@ -66,26 +68,36 @@ test('分享后直接加载收件箱，备忘入口继续使用独立页面参�
   ability.onNewWant({ parameters: { page: 'inbox' } }, {});
   await ability.onWindowStageCreate(stage);
   assert.deepEqual(pages, ['pages/Inbox']);
-  assert.deepEqual(destinations[0], { entryMemoAction: '', entryMemoId: '' });
+  assert.deepEqual(destinations[0], { entryView: undefined, entryMemoCreate: undefined, entryMemoId: undefined });
   ability.onNewWant({ parameters: { page: 'inbox' } }, {});
   assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox']);
   ability.onNewWant({}, {});
   assert.equal(pages.length, 2);
-  ability.onNewWant({ parameters: { page: 'memo', memoAction: 'create' } }, {});
-  assert.equal(pages.at(-1), 'pages/TaskOverview');
-  assert.equal(destinations.at(-1).entryView, 'memo');
-  assert.equal(destinations.at(-1).entryMemoAction, 'create');
-  ability.onNewWant({ parameters: { page: 'memo', memoAction: 'edit', memoId: 'core-record' } }, {});
-  assert.equal(destinations.at(-1).entryMemoAction, 'edit');
+  const memoRoot = { url: 'pages/TaskOverview', params: { view: 'memo' } };
+  const wantPath = pages => ({ parameters: { navigation: JSON.stringify({ pages }) } });
+  ability.onNewWant(wantPath([memoRoot, { url: 'pages/MemoEdit', params: { create: true } }]), {});
+  assert.equal(pages.at(-1), 'pages/MemoEdit');
+  assert.equal(destinations.at(-1).entryView, undefined);
+  assert.equal(destinations.at(-1).entryMemoCreate, true);
+  ability.onNewWant(wantPath([memoRoot, { url: 'pages/MemoEdit', params: { memoId: 'core-record' } }]), {});
+  assert.equal(destinations.at(-1).entryMemoCreate, undefined);
+  assert.equal(pages.at(-1), 'pages/MemoEdit');
   assert.equal(destinations.at(-1).entryMemoId, 'core-record');
-  ability.onNewWant({ parameters: { page: 'memo' } }, {});
-  assert.equal(destinations.at(-1).entryMemoAction, '');
-  assert.equal(destinations.at(-1).entryMemoId, '');
-  const cold = new EntryAbility();
-  cold.onNewWant({ parameters: { page: 'memo', memoAction: 'edit', memoId: 'cold-record' } }, {});
-  await cold.onWindowStageCreate(stage);
+  ability.onNewWant(wantPath([memoRoot]), {});
   assert.equal(destinations.at(-1).entryView, 'memo');
-  assert.equal(destinations.at(-1).entryMemoAction, 'edit');
+  assert.equal(destinations.at(-1).entryMemoId, undefined);
+  const directPath = { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } },
+    { url: 'pages/MemoEdit', params: { memoId: 'direct-record' } }] };
+  const loadsBefore = pages.length;
+  ability.onNewWant({ parameters: { navigation: JSON.stringify(directPath) } }, {});
+  assert.equal(pages.length, loadsBefore + 1); assert.equal(pages.at(-1), 'pages/MemoEdit');
+  assert.equal(destinations.at(-1).entryMemoId, 'direct-record');
+  const cold = new EntryAbility();
+  cold.onNewWant(wantPath([memoRoot, { url: 'pages/MemoEdit', params: { memoId: 'cold-record' } }]), {});
+  await cold.onWindowStageCreate(stage);
+  assert.equal(destinations.at(-1).entryView, undefined);
+  assert.equal(destinations.at(-1).entryMemoCreate, undefined);
+  assert.equal(pages.at(-1), 'pages/MemoEdit');
   assert.equal(destinations.at(-1).entryMemoId, 'cold-record');
 });
 

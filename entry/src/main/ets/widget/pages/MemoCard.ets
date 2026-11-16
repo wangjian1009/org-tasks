@@ -1,4 +1,7 @@
 /** 桌面备忘服务卡片，数据由 MemoFormExtension 写入 FormBindingData。 */
+interface MemoCardPageParameters { view?: string; create?: boolean; memoId?: string }
+interface MemoCardPage { url: string; params?: MemoCardPageParameters }
+interface MemoCardPath { pages: MemoCardPage[] }
 const memoCardStorage: LocalStorage = new LocalStorage()
 
 @Entry(memoCardStorage)
@@ -14,16 +17,22 @@ struct MemoCard {
   @LocalStorageProp('memoCardMessage') message: string = '正在读取备忘…'
 
   private openMemo(): void {
-    postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { page: 'memo' } })
+    this.navigate()
   }
 
   private createMemo(): void {
-    postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { page: 'memo', memoAction: 'create' } })
+    this.navigate({ url: 'pages/MemoEdit', params: { create: true } })
   }
 
   private editMemo(index: number): void {
     const memoId = [this.itemId1, this.itemId2, this.itemId3][index]
-    postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { page: 'memo', memoAction: 'edit', memoId } })
+    this.navigate({ url: 'pages/MemoEdit', params: { memoId } })
+  }
+
+  private navigate(target?: MemoCardPage): void {
+    const path: MemoCardPath = { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }] }
+    if (target) path.pages.push(target)
+    postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { navigation: JSON.stringify(path) } })
   }
 
   build() {

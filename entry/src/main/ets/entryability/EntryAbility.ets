@@ -1,5 +1,7 @@
 import { NotificationManager } from '../services/NotificationManager'
 import { PageNavigator, primaryPage } from '../services/PageNavigator'
+import { PagePath } from '../services/PagePath'
+import { entryNavigation } from '../services/EntryNavigation'
 // 应用入口
 
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit'
@@ -12,14 +14,11 @@ import { DeviceBadgeService } from '../services/DeviceBadgeService'
 import { HttpApiService } from '../services/HttpApiService'
 import { NotificationPermissionService } from '../services/NotificationPermissionService'
 
-interface MainPageStorage { entryView?: string; entryMemoAction?: string; entryMemoId?: string }
+interface MainPageStorage { entryView?: string; entryMemoCreate?: boolean; entryMemoId?: string }
 
 export default class EntryAbility extends UIAbility {
   private mainStage: window.WindowStage | undefined = undefined
-  private initialPage: string = 'pages/TaskOverview'
-  private initialView: string | undefined = undefined
-  private memoAction: string = ''
-  private memoId: string = ''
+  private initialPath: PagePath = new PagePath([primaryPage('today')])
   private foreground: boolean = false
   private contentReady: boolean = false
   private startupSyncRequested: boolean = false
@@ -51,31 +50,22 @@ export default class EntryAbility extends UIAbility {
   }
 
   private readDestination(want: Want): boolean {
-    if (want.parameters?.page !== 'inbox' && want.parameters?.page !== 'memo') return false
-    this.initialPage = want.parameters?.page === 'memo' ? 'pages/TaskOverview' : 'pages/Inbox'
-    this.initialView = want.parameters?.page === 'memo' ? 'memo' : undefined
-    this.memoAction = ''
-    this.memoId = ''
-    if (want.parameters.page === 'memo') {
-      const action = want.parameters.memoAction
-      if (typeof action === 'string' && (action === 'create' || action === 'edit')) this.memoAction = action
-      if (typeof want.parameters.memoId === 'string') this.memoId = want.parameters.memoId
-    }
+    const path = entryNavigation(want)
+    if (!path) return false
+    this.initialPath = path
     return true
   }
 
   private loadMainPage(stage: window.WindowStage) {
     this.contentReady = false
     PageNavigator.shared.start(this.context)
-    PageNavigator.shared.reset(primaryPage(this.initialPage === 'pages/Inbox' ? 'inbox' : this.initialView === 'memo' ? 'memo' : 'today'))
-    const data: MainPageStorage = {}
-    if (this.initialView) data.entryView = this.initialView
-    data.entryMemoAction = this.memoAction
-    data.entryMemoId = this.memoId
-    this.memoAction = ''
-    this.memoId = ''
+    const path = this.initialPath
+    const page = path.current
+    PageNavigator.shared.restore(path)
+    const data: MainPageStorage = { entryView: page.params?.view,
+      entryMemoCreate: page.params?.create, entryMemoId: page.params?.memoId }
     const storage = new LocalStorage(data)
-    stage.loadContent(this.initialPage, storage, (err) => {
+    stage.loadContent(page.url, storage, (err) => {
       if (err && err.code !== 0) {
         console.error('加载页面失败:', JSON.stringify(err))
         return

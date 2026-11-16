@@ -25,6 +25,7 @@ function fixture() {
     async query(value){queries.push(value);if(delay)await delay;return [{type:'file',result:missing?[]:[{project:()=>project?'项目':null}]}]},
     async fileAt(){if(missing)throw new Error('missing');return {nodes:()=>[task]}}};
   const service=load('HttpNavigationService',{
+    './MemoNavigation': { MemoNavigation: { async findInConfig(_, id) { return !missing && id === 'memo' ? task : undefined; } } },
     './AppConfigService':{AppConfigService:{async load(){return config}}},
     './NativeCoreService':{NativeCoreService:{async workspaceFor(){return workspace}},fileResult:value=>value.result},
     './PageNavigator':{PageNavigator:{shared:navigator}},'./PagePath':{PagePath},
@@ -74,4 +75,13 @@ test('备忘按稳定身份读取真实 native Task，JSON 不能伪造编辑快
   assert.equal(result.status,200);assert.equal(f.applied[0].current.params.task,f.task);
   assert.equal(result.body.pages[0].params.task.heading,'真实备忘');
   assert.equal((await f.call('PUT',{pages:[{url:'pages/MemoEdit',params:{task:{repoId:'core',filePath:'memo.org',id:'missing'}}}]})).status,404);
+});
+
+
+test('memoId 与卡片入口共用当前备忘文件身份解析，目标失效返回404', async () => {
+  const f=fixture();
+  const page={pages:[{url:'pages/TaskOverview',params:{view:'memo'}},{url:'pages/MemoEdit',params:{memoId:'memo'}}]};
+  assert.equal((await f.call('PUT',page)).status,200);assert.equal(f.applied[0].current.params.task,f.task);
+  f.missing();assert.equal((await f.call('PUT',page)).status,404);
+  assert.equal((await f.call('PUT',{pages:[{url:'pages/MemoEdit',params:{create:true,memoId:'memo'}}]})).status,400);
 });
