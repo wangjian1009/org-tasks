@@ -152,9 +152,16 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .embedded.project-reading.embedded-section > main > section > :first-child { margin-top: 0; }
 .embedded.project-reading.embedded-section > :last-child,
 .embedded.project-reading.embedded-section > main > section > :last-child { margin-bottom: 0; }
-.embedded.project-reading.embedded-section ul, .embedded.project-reading.embedded-section ol { padding-left: 20px; }
+.embedded.project-reading.embedded-section ul, .embedded.project-reading.embedded-section ol { padding-left: 24px; margin: 0; }
+.embedded.project-reading.embedded-section li { padding-left: 4px; margin: 6px 0; }
+.embedded.project-reading.embedded-section li:first-child { margin-top: 0; }
+.embedded.project-reading.embedded-section li:last-child { margin-bottom: 0; }
+.embedded.project-reading.embedded-section li::marker { color: ${UiColor.secondary}; font-variant-numeric: tabular-nums; }
+.embedded.project-reading.embedded-section li > dl { margin: 4px 0; }
+.embedded.project-reading.embedded-section li > dl > dt { font-weight: 600; color: ${UiColor.text}; }
+.embedded.project-reading.embedded-section li > dl > dd { margin-left: 0; }
 .embedded.project-reading.embedded-section li > p { margin: 0; }
-.embedded.project-reading.embedded-section li > ul, .embedded.project-reading.embedded-section li > ol { margin: 4px 0 0; padding-left: 16px; }
+.embedded.project-reading.embedded-section li > ul, .embedded.project-reading.embedded-section li > ol { margin: 6px 0 0; padding-left: 20px; }
 .file-reading.project-reading p { margin: 0 0 20px; }
 .file-reading.project-reading ul, .file-reading.project-reading ol { margin: 0 0 20px; }
 .file-reading.project-reading li { margin: 4px 0; }

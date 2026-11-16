@@ -43,6 +43,7 @@ export interface PageTaskFields {
   hasText: boolean
   isRepeating: boolean
   isHabit: boolean
+  properties: Record<string, string>
   hasAttach: boolean
 }
 export interface PageTaskRecord { value: PageTaskFields; done: boolean; states: PageStateAnswer[]; priorities: PagePriorityAnswer[] }
@@ -125,6 +126,7 @@ export function taskRecord(value: CoreTask): PageTaskRecord {
     hasText: value.hasText,
     isRepeating: value.isRepeating,
     isHabit: value.isHabit,
+    properties: value.properties,
     hasAttach: value.hasAttach,
   }, done: value.isDone(), states: states(value), priorities: priorities(value) }
 }
@@ -168,7 +170,9 @@ export class PageTaskSnapshot {
   readonly hasText: boolean
   readonly isRepeating: boolean
   readonly isHabit: boolean
+  readonly properties: Record<string, string>
   readonly hasAttach: boolean
+  property: (name: string) => string | null
   isDone: () => boolean
   project: () => string | null
   taskStateOf: (category: TaskStateCategory) => TaskState | null
@@ -211,7 +215,9 @@ export class PageTaskSnapshot {
     this.hasList = record.value.hasList
     this.hasText = record.value.hasText
     this.isRepeating = record.value.isRepeating
+    this.property = (name: string): string | null => this.properties[name.replace(/[a-z]/g, (letter: string): string => letter.toUpperCase())] ?? null
     this.isHabit = record.value.isHabit
+    this.properties = record.value.properties ?? {}
     this.hasAttach = record.value.hasAttach
     this.isDone = (): boolean => record.done
     this.project = (): string | null => record.value.projectName

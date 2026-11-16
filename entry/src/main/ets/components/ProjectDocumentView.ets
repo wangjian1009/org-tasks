@@ -1,6 +1,6 @@
 import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
-import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } from '../ui/ProjectReadingPresentation'
+import { ProjectReadingSection, visibleProjectTags, projectOutlineSections, projectReadingItems, ProjectReadingItem } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { ProjectSectionBody } from './ProjectSectionBody'
 import { ProjectTaskSection } from './ProjectTaskSection'
@@ -22,7 +22,11 @@ export struct ProjectDocumentView {
     return this.dataSet
   }
 
-  @Prop sections: ProjectReadingSection[] = []
+  @Prop @Watch('updateDocument') sections: ProjectReadingSection[] = []
+  @Prop @Watch('updateDocument') matchedIds: string[] = []
+  @Prop @Watch('updateDocument') tagFiltered: boolean = false
+  @State readingItems: ProjectReadingItem[] = []
+  @StorageLink('taskInlineActive') @Watch('updateDocument') inlineActive: string = ''
   @Prop fileTags: string[] = []
   @Prop specialTags: string[] = []
   @Prop @Watch('snapshotChanged') revision: string = ''
@@ -41,6 +45,7 @@ export struct ProjectDocumentView {
     let found: ProjectReadingSection | undefined = undefined
     for (const section of this.sections) {
       for (const destination of section.linkTargets) {
+        if (this.readingItems.length > 0 && !this.readingItems.some(item => item.section.key === section.key)) continue
         if (destination.target === target && destination.priority < priority) { found = section; priority = destination.priority }
       }
     }
@@ -54,7 +59,8 @@ export struct ProjectDocumentView {
 
   aboutToAppear() {
     this.active = true
-    this.stopTasks = this.dataSet?.subscribe((): void => { if (this.outlineVisible) this.updateOutline() })
+    this.stopTasks = this.dataSet?.subscribe((): void => { this.updateDocument() })
+    this.updateDocument()
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
       this.active && this.showing && this.linkSection(target) !== undefined
     this.navigation.followInternalLink = async (target: string): Promise<void> => {
@@ -92,6 +98,7 @@ export struct ProjectDocumentView {
   async openChapter(section: ProjectReadingSection): Promise<boolean> {
     const revision = this.revision
     if (!await TaskInlineSession.end(false) || !this.active || !this.showing || revision !== this.revision) return false
+    if (this.readingItems.length > 0 && !this.readingItems.some(item => item.section.key === section.key)) return false
     const offset = this.offsets.get(section.key)
     if (offset === undefined) return false
     this.outlineVisible = false
@@ -100,10 +107,20 @@ export struct ProjectDocumentView {
   }
 
   updateOutline(): void {
-    this.outlineItems = projectOutlineSections(this.sections.map((section: ProjectReadingSection): ProjectReadingSection => ({
+    this.outlineItems = projectOutlineSections(this.readingItems.map(item => item.section).map((section: ProjectReadingSection): ProjectReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     })))
+  }
+
+  updateDocument(): void {
+    if (TaskInlineSession.active()) return
+    const current = this.sections.map((section: ProjectReadingSection): ProjectReadingSection => ({
+      key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
+      html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
+    }))
+    this.readingItems = projectReadingItems(current, this.tagFiltered ? this.matchedIds : null)
+    if (this.outlineVisible) this.updateOutline()
   }
 
   @Builder
@@ -139,29 +156,32 @@ export struct ProjectDocumentView {
             }, (tag: string) => tag)
           }.width('100%').padding({ top: 8, bottom: 12 })
         }
-        ForEach(this.sections, (section: ProjectReadingSection) => {
-          Column({ space: section.node ? 0 : 12 }) {
-            if (!section.node && section.blocks.length > 0) {
+        ForEach(this.readingItems, (item: ProjectReadingItem) => {
+          Column({ space: item.section.node ? 0 : 12 }) {
+            if (!item.section.node && item.section.blocks.length > 0) {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
-            if (section.node) {
-              ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: section.key,
+            if (item.section.node) {
+              ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: item.section.key, hasChildren: item.hasChildren, contextOnly: item.contextOnly,
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
-            } else if (section.blocks.length > 0) {
-              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
+            } else if (item.section.blocks.length > 0) {
+              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: item.section.blocks,
                 contentBackground: UiColor.projectBlock }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)
-            .padding({ left: section.node ? 0 : (section.blocks.length > 0 ? 16 : 0),
-              right: !section.node && section.blocks.length > 0 ? 16 : 0,
-              top: !section.node && section.blocks.length > 0 ? 16 : 0, bottom: !section.node && section.blocks.length > 0 ? 16 : 0 })
-            .backgroundColor(section.node ? Color.Transparent : UiColor.projectBlock).borderRadius(section.node ? 0 : 12)
-            .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
-        }, (section: ProjectReadingSection) => `${this.revision}:${section.key}`)
+            .padding({ left: item.section.node ? 0 : (item.section.blocks.length > 0 ? 16 : 0),
+              right: !item.section.node && item.section.blocks.length > 0 ? 16 : 0,
+              top: !item.section.node && item.section.blocks.length > 0 ? 16 : 0, bottom: !item.section.node && item.section.blocks.length > 0 ? 16 : 0 })
+            .backgroundColor(item.section.node ? Color.Transparent : UiColor.projectBlock).borderRadius(item.section.node ? 0 : 12)
+            .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(item.section.key, Number(area.position.y)) })
+        }, (item: ProjectReadingItem) => `${this.revision}:${item.section.key}:${item.hasChildren}:${item.contextOnly}`)
+        if (this.tagFiltered && this.readingItems.every(item => item.section.node === null)) {
+          Text('没有匹配标签的内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
+        }
         if (this.sections.every((section: ProjectReadingSection) => section.node === null && section.blocks.length === 0)) {
           Text('项目还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
         }
-      }.width('100%').constraintSize({ maxWidth: 740 }).padding({ left: 20, right: 20, top: 12, bottom: 48 })
+      }.width('100%').padding({ left: 12, right: 12, top: 4, bottom: 48 })
     }.id('project_document_scroll').width('100%').height('100%').align(Alignment.Top)
       .scrollBar(BarState.Auto)
       .onAppear((): void => { this.ready() })

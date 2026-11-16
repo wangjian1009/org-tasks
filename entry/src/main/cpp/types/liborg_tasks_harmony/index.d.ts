@@ -32,7 +32,7 @@ export interface TaskCreation {
   tags?: string[]; scheduled?: string | null; deadline?: string | null;
 }
 export interface TaskAddressChange { oldUri: string; newUri: string; }
-export type TaskModificationField = 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'CONTENT_BLOCK' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
+export type TaskModificationField = 'PROPERTY' | 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'CONTENT_BLOCK' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
 export type TaskRepeatMode = 'cumulative' | 'catchUp' | 'afterCompletion';
 export type TaskRepeatUnit = 'hour' | 'day' | 'week' | 'month' | 'year';
 export interface TaskRepeatRule { mode: TaskRepeatMode; interval: number; unit: TaskRepeatUnit; }
@@ -46,7 +46,8 @@ export interface SupportTags { readonly tags: string[]; readonly groups: string[
 export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string } | { type: 'move'; id: string; beforeId: string | null };
 export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly paragraph: boolean; readonly blankLinesBefore: number; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
 export type ContentBlockChange = { type: 'replace'; id: string; source: string } | { type: 'link'; id: string; link: TextLink; value: LinkValue | null };
-export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
+export interface TaskPropertyChange { name: string; value: string | null; }
+export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskPropertyChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskDeletion { path: TaskPath; }
@@ -72,7 +73,7 @@ export interface DataTaskRecord {
   line: number; column: number; byteOffset: number; level: number;
   state: TaskState | null; stateType: 'Todo' | 'Done' | 'None'; priority: TaskPriority | null;
   ownTags: string[]; inheritedTags: string[]; title: string; body: string; addressLinks: AddressLink[];
-  isRepeating: boolean; isHabit: boolean; hasAttach: boolean;
+  isRepeating: boolean; isHabit: boolean; properties: Record<string, string>; hasAttach: boolean;
   scheduled: DataDateRecord | null; deadline: DataDateRecord | null;
   scheduledWarning: string | null; deadlineWarning: string | null;
   closed: DataDateRecord | null; closedAt: number | null;
@@ -148,6 +149,7 @@ export class Task {
   readonly orderKey?: QueryOrderPart[];
   private constructor();
   isDone(): boolean;
+  property(name: string): string | null;
   project(): string | null;
   readonly projectName: string | null;
   // Core 生成的明文逻辑路径，独立于源字节偏移、状态和首尾进度。
@@ -189,6 +191,7 @@ export class Task {
   readonly hasText: boolean;
   readonly isRepeating: boolean;
   readonly isHabit: boolean;
+  readonly properties: Readonly<Record<string, string>>;
   readonly hasAttach: boolean;
 }
 

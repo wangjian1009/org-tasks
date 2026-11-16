@@ -140,6 +140,7 @@ pub struct TaskPlanningInfo {
     deny_unknown_fields
 )]
 pub enum TaskModification {
+    Property { name: String, value: Option<String> },
     Title(Option<String>),
     Body(Option<String>),
     Notes(Option<String>),

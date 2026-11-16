@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -152,6 +153,8 @@ pub struct FilterTask {
     pub(crate) is_repeating: bool,
     /// 当前标题自身的 STYLE 属性为 habit；不继承父标题或文件默认值。
     pub(crate) is_habit: bool,
+    /// 标题自身的规范化属性表；不继承父标题或文件默认值。
+    properties: BTreeMap<String, String>,
     /// 当前标题自身显式带有 ATTACH；不继承父标题或文件标签。
     pub(crate) has_attach: bool,
     pub(crate) scheduled: Option<FilterDate>,
@@ -297,6 +300,14 @@ impl FilterTask {
 
     pub fn has_attach(&self) -> bool {
         self.has_attach
+    }
+
+    pub fn properties(&self) -> &BTreeMap<String, String> {
+        &self.properties
+    }
+
+    pub fn property(&self, name: &str) -> Option<&str> {
+        self.properties.get(&name.to_ascii_uppercase()).map(String::as_str)
     }
 
     pub fn is_habit(&self) -> bool {
@@ -565,6 +576,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             has_attach: headline.tags().any(|tag| tag == crate::model::ATTACH_TAG),
             is_repeating: planning_repeats(&headline),
             is_habit: crate::model::properties::own(&headline, "STYLE").as_deref() == Some("habit"),
+            properties: crate::model::properties::own_values(&headline),
             scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
             deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
             scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),

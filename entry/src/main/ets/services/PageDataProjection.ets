@@ -1,7 +1,7 @@
 import { samePageTask } from './PageDataEquality'
 import { checklistMovePreview } from '../ui/TaskChecklistReorder'
 import { util } from '@kit.ArkTS'
-import { TaskModification, TaskPlanningEdit, TaskEditContent, TaskStateCategory, PeriodCategory, TaskCreation, TaskChecklistChange, TaskChecklistItem, ContentBlock, ContentBlockChange } from 'liborg_tasks_harmony.so'
+import { TaskModification, TaskPlanningEdit, TaskEditContent, TaskStateCategory, PeriodCategory, TaskCreation, TaskChecklistChange, TaskChecklistItem, ContentBlock, ContentBlockChange, TaskPropertyChange } from 'liborg_tasks_harmony.so'
 import { CoreTask, CoreOrgFileMetadata } from './NativeCoreService'
 import { PageTaskRecord, PageTaskSnapshot, PageStateAnswer, PagePriorityAnswer, PageTaskFields, taskRecord } from './PageDataSnapshot'
 
@@ -34,6 +34,15 @@ function modify(record: PageTaskRecord, change: TaskModification): boolean {
     value.bodyHtml = draftHtml(notes); value.bodyFirstLine = notes.split('\n').find(line => line.trim().length > 0)?.trim() ?? null
     value.hasText = notes.trim().length > 0
     value.editContent = content(value.editContent, notes)
+  } else if (change.field === 'PROPERTY') {
+    const property = change.value as TaskPropertyChange
+    const properties: Record<string, string> = {}
+    const name = property.name.replace(/[a-z]/g, (letter: string): string => letter.toUpperCase())
+    if (value.properties) {
+      for (const key of Object.keys(value.properties)) if (key !== name) properties[key] = value.properties[key]
+    }
+    if (property.value !== null) properties[name] = property.value
+    value.properties = properties
   } else if (change.field === 'TODO' && (typeof change.value === 'string' || change.value === null)) {
     const selected = record.states.find(answer => answer.value?.name === change.value)?.value ?? null
     if (change.value !== null && !selected) return false
@@ -109,7 +118,7 @@ export function createPageTask(metadata: CoreOrgFileMetadata, version: string, c
       scheduledRepeat: null, deadlineRepeat: null, scheduledPlanning: null, deadlinePlanning: null },
     filePath: metadata.path, fileName: metadata.path.split('/').pop() ?? metadata.path, level: creation.position.parent.titles.length + 1,
     body: creation.body ?? '', bodyFirstLine: creation.body?.split('\n')[0] ?? null, addressLinks: [], bodyHtml: draftHtml(creation.body ?? ''), logbookHtml: '', logs: [],
-    progress: -1, hasList: false, hasText: !!creation.body, isRepeating: false, isHabit: false, hasAttach: false
+    progress: -1, hasList: false, hasText: !!creation.body, isRepeating: false, isHabit: false, properties: {}, hasAttach: false
   }
   return new PageTaskSnapshot({ value, done: state?.category === 'Done' || state?.category === 'Cancel', states: answers, priorities: priorityAnswers })
 }

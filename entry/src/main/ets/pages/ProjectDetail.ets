@@ -23,6 +23,12 @@ struct ProjectDetail {
   @State titleContext: string = ''
   @State sections: ProjectReadingSection[] = []
   @State fileTags: string[] = []
+  @State tagOptions: string[] = []
+  @State selectedTag: string = ''
+  @State matchedIds: string[] = []
+  @State filtering: boolean = false
+  @State filterMessage: string = ''
+  private filterRequest: number = 0
   @State specialTags: string[] = []
   @State content: string = ''
   @State sourceMode: boolean = false
@@ -67,7 +73,7 @@ struct ProjectDetail {
     this.loadFile(reload); this.refreshDocument()
   }
   // 页面退出时使进行中的文件读取失效。
-  onPageHide() { this.needsReload = this.loading || this.refreshing; this.pageVisible = false; this.loadRevision++ }
+  onPageHide() { this.needsReload = this.loading || this.refreshing; this.pageVisible = false; this.loadRevision++; this.filterRequest++; this.filtering = false }
   onBackPress(): boolean {
     if (this.navigation.closePanel()) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
@@ -109,21 +115,27 @@ struct ProjectDetail {
     const params = this.getUIContext().getRouter().getParams() as ProjectParams
     const repoId = params.repoId || '', path = params.path || ''
     if (force || this.message || this.refreshMessage || !this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
-      this.refreshing = true
+      this.refreshing = true; this.filterRequest++; this.filtering = false
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
+      if (this.repoId !== repoId || this.path !== path) this.selectedTag = ''
       this.repoId = repoId; this.path = path
       this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', [{
         name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
           includeFiles: [{ repoId, path }], fullFiles: [{ repoId, path }], includeIgnored: true } }
-      }], { cache: false })
+      }, { name: 'matches', query: { type: 'task', repoIds: [repoId], query: {
+        expression: this.tagExpression(), includeFiles: [{ repoId, path }], includeIgnored: true
+      } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } }], { cache: false })
       const manager = this.dataManager
       const fileDataSet = manager.dataSet('tasks')
       this.fileDataSet = fileDataSet
-      this.stopFile = fileDataSet.subscribe((event: DataSetEvent): void => {
+      const stopTasks = fileDataSet.subscribe((event: DataSetEvent): void => {
         if (fileDataSet !== this.fileDataSet) return
         if (event.type === 'error' && !event.targetKey) this.applyFileState({ message: fileDataSet.error })
         else this.refreshDocument()
       })
+      const stopMatches = manager.dataSet('matches').subscribe((): void => { this.refreshDocument() })
+      const stopMetadata = manager.dataSet('metadata').subscribe((): void => { this.refreshDocument() })
+      this.stopFile = (): void => { stopTasks(); stopMatches(); stopMetadata() }
       try {
         const results = await manager.start()
         if (manager !== this.dataManager) return
@@ -136,8 +148,29 @@ struct ProjectDetail {
     }
   }
 
+  tagExpression(): string { return this.selectedTag ? `t.${JSON.stringify(this.selectedTag)}` : '' }
+
+  async selectTag(tag: string): Promise<void> {
+    if (!await TaskInlineSession.end(true)) return
+    const request = ++this.filterRequest
+    this.selectedTag = tag; this.filtering = true; this.filterMessage = ''
+    const manager = this.dataManager
+    const matches = manager?.dataSet('matches')
+    await matches?.setQuery({ type: 'task', repoIds: [this.repoId], query: {
+      expression: this.tagExpression(), includeFiles: [{ repoId: this.repoId, path: this.path }], includeIgnored: true
+    } })
+    if (request !== this.filterRequest || manager !== this.dataManager || !this.pageVisible) return
+    this.filtering = false
+    this.filterMessage = matches?.error ?? ''
+    this.refreshDocument()
+  }
+
   refreshDocument(): void {
     if (!this.pageVisible || this.refreshing || TaskInlineSession.active() || !this.fileVersion) return
+    const metadata = this.dataManager?.dataSet('metadata').data
+    if (metadata?.type === 'file') this.tagOptions = metadata.result[0]?.tagOptions.filter(tag => !this.specialTags.includes(tag) && tag !== 'todo') ?? []
+    const matches = this.dataManager?.dataSet('matches').data
+    if (matches?.type === 'task' && !this.filtering && !this.filterMessage) this.matchedIds = matches.result.tasks.map(task => task.id)
     const data = this.fileDataSet?.data
     if (data?.type !== 'task') return
     const sections = reconcileProjectSections(this.sections, data.result.tasks,
@@ -193,7 +226,7 @@ struct ProjectDetail {
       if (hasSnapshot) this.refreshMessage = `${message}。当前保留上次读取的内容。`
       else this.message = message
     } finally {
-      if (revision === this.loadRevision) { this.loading = false; this.refreshing = false }
+      if (revision === this.loadRevision) { this.loading = false; this.refreshing = false; this.refreshDocument() }
     }
   }
 
@@ -231,9 +264,28 @@ struct ProjectDetail {
               Text(this.refreshMessage).fontSize(12).fontColor(UiColor.error).width('100%').padding(12)
                 .onClick((): void => { this.loadFile() })
             }
+            if (!this.sourceMode && this.tagOptions.length > 0) {
+              Scroll() {
+                Row({ space: 8 }) {
+                  ForEach([''].concat(this.tagOptions), (tag: string) => {
+                    Button(tag || '全部', { type: ButtonType.Normal }).fontSize(13).height(36)
+                      .padding({ left: 12, right: 12 }).borderRadius(18)
+                      .fontColor(this.selectedTag === tag ? UiColor.surface : UiColor.secondary)
+                      .backgroundColor(this.selectedTag === tag ? UiColor.primary : UiColor.projectBlock)
+                      .accessibilityText(`${tag || '全部'}，${this.selectedTag === tag ? '已选中' : '未选中'}`)
+                      .onClick((): void => { this.selectTag(this.selectedTag === tag ? '' : tag) })
+                  }, (tag: string) => tag)
+                }.padding({ left: 12, right: 12, top: 4, bottom: 8 })
+              }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+            }
+            if (this.filtering) { Text('正在筛选').fontSize(12).fontColor(UiColor.secondary).padding(8) }
+            if (this.filterMessage) {
+              Text(`筛选失败：${this.filterMessage}，点击重试`).fontSize(12).fontColor(UiColor.error).padding(8)
+                .onClick((): void => { this.selectTag(this.selectedTag) })
+            }
             Stack() {
               ForEach([this.documentSession], (identity: string) => {
-              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, fileTags: this.fileTags, specialTags: this.specialTags,
+              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds, tagFiltered: this.selectedTag.length > 0, fileTags: this.fileTags, specialTags: this.specialTags,
                 revision: `${this.documentSession}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
                 internalLinkProcessor: this.internalLinks,
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,

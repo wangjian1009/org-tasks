@@ -43,6 +43,38 @@ test('项目普通段落区分单空行与多空行，首段和结构区块保�
   ];
   assert.deepEqual(blocks.map((_, index) => projectReading.projectContentGap(blocks, index)), [0, 0, 0, 12, 12, 12, 12]);
 });
+test('项目归档只隐藏后代，保留同级标题；叶任务和父任务正确区分', () => {
+  const section = (id, level, archived = false) => ({ key: id, node: {
+    id, level, property: () => null, editContent: { ownTags: archived ? ['ARCHIVE'] : [] }
+  } });
+  const source = [section('archive', 1, true), section('hidden', 3), section('sibling', 1), section('leaf', 2)];
+  assert.deepEqual(projectReading.projectReadingItems(source).map(item => [item.section.key, item.hasChildren]),
+    [['archive', true], ['sibling', true], ['leaf', false]]);
+  source[0].node.editContent.ownTags = [];
+  assert.equal(projectReading.projectReadingItems(source).length, 4);
+});
+
+test('项目折叠直接读取 Task 通用属性，隐藏直属后代并保留下一同级', () => {
+  const section = (id, level, visibility = null) => ({ key: id, node: {
+    id, level, property: name => name === 'VISIBILITY' ? visibility : null, editContent: { ownTags: [] }
+  } });
+  const sections = [section('folded', 1, 'folded'), section('child', 2), section('deep', 4), section('sibling', 1)];
+  assert.deepEqual(projectReading.projectReadingItems(sections).map(item => item.section.key), ['folded', 'sibling']);
+  sections[0] = section('folded', 1, 'all');
+  assert.equal(projectReading.projectReadingItems(sections).length, 4);
+});
+
+test('项目标签可见性使用查询命中身份，仅补齐祖先上下文并保持源顺序', () => {
+  const section = (id, level) => ({ key: id, node: { id, level, property: () => null, editContent: { ownTags: [] } } });
+  const source = [{ key: 'preamble', node: null }, section('root', 1), section('other', 2),
+    section('match', 2), section('deep', 3), section('end', 1)];
+  assert.deepEqual(projectReading.projectReadingItems(source, ['deep']).map(item => item.section.key),
+    ['preamble', 'root', 'match', 'deep']);
+  assert.deepEqual(projectReading.projectReadingItems(source, ['deep']).map(item => item.contextOnly), [false, true, true, false]);
+  assert.deepEqual(projectReading.projectReadingItems(source, []).map(item => item.section.key), ['preamble']);
+  assert.equal(projectReading.projectReadingItems(source).length, source.length);
+});
+
 function fixture() {
   const calls = [], toasts = [];
   let evaluate = async () => JSON.stringify({ chapters: [{ index: 0, level: 1, title: '章节' }], activeIndex: 0 });
@@ -189,7 +221,7 @@ test('文档载入中切换相同正文的版本，完成回调仍只发布最�
     '../ui/Theme': theme,
     '../services/NativeCoreService': { coreErrorMessage: e => e.message },
     './LinkView': { LinkEditController: class {async finish(){return true}} }
-  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
     .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
   const view = new Content();view.ready = () => ready.push(view.fragment);
   view.fragment = '<p>旧内容</p>';view.pageEnded();
@@ -208,7 +240,7 @@ test('任务区块仅版本变化不重载相同正文，正文改变仍加载�
     '../ui/OrgDocumentPresentation': presentation, '../ui/Theme': theme,
     '../services/NativeCoreService': { coreErrorMessage: e => e.message },
     './LinkView': { LinkEditController: class {} }
-  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
     .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
   const view = new Content(); view.fragment = '<p>正文</p>'; view.pageEnded(); view.pageEnded();
   const initial = loads.length;
@@ -328,7 +360,7 @@ test('链接字段切换引起 Web 滚动后，不按旧坐标结束链接草稿
     '../ui/OrgDocumentPresentation': presentation, '../ui/Theme': theme,
     '../services/NativeCoreService': { coreErrorMessage: e => e.message },
     './LinkView': { LinkEditController: class { async finish() { finished++;return true; } } }
-  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
     .replace('export struct OrgContentView', 'class Content') + '}\nmodule.exports = { Content };');
   const view = new Content();view.loaded = true;view.widthVp = 390;
   view.activate = () => { activated++; };
@@ -406,6 +438,24 @@ function projectPageFixture() {
   }) });
   return { page, file, routes, setOpen: fn => { open = fn; }, setEnd: fn => { end = fn; } };
 }
+
+test('项目标签切换先保存并收起任务，失败不切换，快速切换只采用最后请求', async () => {
+  const f = projectPageFixture(), pending = [];
+  f.page.refreshDocument = () => {};
+  const matches = { error: '', setQuery: query => new Promise(resolve => pending.push({ query, resolve })) };
+  f.page.dataManager = { dataSet: name => { assert.equal(name, 'matches'); return matches; } };
+  f.setEnd(async collapse => { assert.equal(collapse, true); return false; });
+  await f.page.selectTag('design');
+  assert.equal(f.page.selectedTag, ''); assert.equal(pending.length, 0);
+  f.setEnd(async collapse => { assert.equal(collapse, true); return true; });
+  const first = f.page.selectTag('design'); await new Promise(resolve => setImmediate(resolve));
+  const last = f.page.selectTag('unused'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(pending[0].query.query.expression, 't."design"');
+  pending[0].resolve(); await first;
+  assert.equal(f.page.filtering, true); assert.equal(f.page.selectedTag, 'unused');
+  matches.error = '查询失败'; pending[1].resolve(); await last;
+  assert.equal(f.page.filtering, false); assert.equal(f.page.filterMessage, '查询失败');
+});
 
 test('项目刷新保留同文件阅读位置，新文件版本更新文档与定位坐标', async () => {
   const f = projectPageFixture(); await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve));
@@ -541,9 +591,9 @@ function nativeProjectFixture() {
     '../services/DataSetManager': { DataSetManager: class {} },
     '../ui/ProjectReadingPresentation': projectReading,
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
-    '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args) } }
+    '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args), active: () => false } }
   }, source => source.split('  @Builder\n')[0]
-    .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g, '')
+    .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
     .replace('export struct ProjectDocumentView', 'class View') + '}\nmodule.exports = { View };');
   const view = new View(); view.aboutToAppear();
   return { view, save: fn => { save = fn; } };

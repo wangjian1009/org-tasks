@@ -36,7 +36,7 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     const file = await fs.open(`${directory}/tasks.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
     try { await fs.write(file.fd, source + habitSource); await fs.fsync(file.fd) } finally { await fs.close(file) }
     const project = await fs.open(`${directory}/project.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
-    try { await fs.write(project.fd, '#+TITLE: 项目验收\n#+FILETAGS: :project:\n#+PROJECT_NAME: 项目验收\n* TODO QA项目\n原备注\n'); await fs.fsync(project.fd) } finally { await fs.close(project) }
+    try { await fs.write(project.fd, '#+TITLE: 项目验收\n#+FILETAGS: :project:\n#+PROJECT_NAME: 项目验收\n#+TAGS: product design unused\n项目导言\n* 验收章节\n正文说明\n- 第一条普通列表\n  - 嵌套条目\n- 第二条普通列表\n** TODO QA项目 :product:\n原备注\n*** TODO QA子任务 :design:\n子任务备注\n** TODO QA叶任务 :design:\n叶任务正文只在展开后显示\n- 第一项\n- 第二项\n* 归档章节 :ARCHIVE:\n归档正文不应显示\n** TODO QA归档后代\n* 后续章节\n后续正文\n'); await fs.fsync(project.fd) } finally { await fs.close(project) }
     const someday = await fs.open(`${directory}/someday.org`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
     try { await fs.write(someday.fd, '#+TITLE: 某天验收\n* TODO QA某天\n原备注\n'); await fs.fsync(someday.fd) } finally { await fs.close(someday) }
     if (pageData) {

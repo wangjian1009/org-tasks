@@ -128,6 +128,7 @@ pub struct HarmonyBridgeTask {
     pub has_text: bool,
     pub is_repeating: bool,
     pub is_habit: bool,
+    pub properties: BTreeMap<String, String>,
     pub has_attach: bool,
 }
 
@@ -326,6 +327,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         has_text: content.has_text,
         is_repeating: task.is_repeating(),
         is_habit: task.is_habit(),
+        properties: task.properties().clone(),
         has_attach: task.has_attach(),
     })
 }
@@ -1632,6 +1634,36 @@ mod tests {
         .unwrap()
         .remove(0);
         assert!(result["tasks"].as_array().unwrap().is_empty());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generic_properties_round_trip_without_a_folding_specific_interface() {
+        let root = std::env::temp_dir().join(format!("org-properties-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "* Heading\r\n:PROPERTIES:\r\n:KEEP: untouched\r\n:VISIBILITY: all\r\n:END:\r\n正文  \r\n** TODO Child\r\n子正文\r\n";
+        std::fs::write(root.join("tasks.org"), source).unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        for value in [serde_json::json!("folded"), serde_json::json!("all"), serde_json::Value::Null] {
+            let before: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
+            let task = &before[0]["tasks"][0];
+            let request = serde_json::json!({"operations":[{"type":"Modification","data":{
+                "path":task["fullPath"], "modifications":[{"field":"PROPERTY","value":{"name":"VISIBILITY","value":value}}]
+            }}],"fileVersions":[{"repoId":task["repoId"],"file":task["filePath"],"version":task["fileVersion"]}]});
+            workspace_execute_task_operations(handle, request.to_string()).unwrap();
+            let after: serde_json::Value = serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
+            assert_eq!(after[0]["tasks"][0]["properties"]["VISIBILITY"], value);
+            assert_eq!(after[0]["tasks"][0]["properties"]["KEEP"], "untouched");
+            assert!(after[0]["tasks"][1]["properties"]["VISIBILITY"].is_null());
+            assert!(after[0]["tasks"][0].get("isSubtreeFolded").is_none());
+            assert!(after[0]["tasks"][0]["editContent"].get("visibility").is_none());
+        }
+        let actual = std::fs::read_to_string(root.join("tasks.org")).unwrap();
+        // 工作区会维护修改时间；其余原属性、正文与子树仍完整保留。
+        assert!(actual.contains(":KEEP: untouched\r\n"));
+        assert!(actual.ends_with("正文  \r\n** TODO Child\r\n子正文\r\n"));
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

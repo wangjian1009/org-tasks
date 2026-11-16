@@ -472,11 +472,38 @@ napi_value TaskTaskPriorityOf(napi_env env, napi_callback_info info)
     return StateOption(env, options, args[0], "优先级分类无效");
 }
 
+napi_value TaskProperty(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1], self, data, properties, value; TaskWrap* task = nullptr;
+    std::string name;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        !ReadString(env, args[0], &name) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&task)) != napi_ok || task == nullptr ||
+        napi_get_reference_value(env, task->data, &data) != napi_ok ||
+        napi_get_named_property(env, data, "properties", &properties) != napi_ok) {
+        napi_throw_error(env, nullptr, "Task.property 参数无效"); return nullptr;
+    }
+    for (char& c : name) if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+    napi_valuetype type;
+    bool exists = false;
+    if (napi_typeof(env, properties, &type) != napi_ok) return nullptr;
+    if (type != napi_object) {
+        // 旧缓存和无属性任务没有值；名称规范化后再做实际查找。
+        napi_get_null(env, &value); return value;
+    }
+    napi_value key;
+    if (napi_create_string_utf8(env, name.c_str(), name.size(), &key) != napi_ok ||
+        napi_has_own_property(env, properties, key, &exists) != napi_ok) return nullptr;
+    if (!exists) { napi_get_null(env, &value); return value; }
+    if (napi_get_property(env, properties, key, &value) != napi_ok) return nullptr;
+    return value;
+}
+
 bool BindTaskSnapshotMethods(napi_env env, napi_value task)
 {
     // ArkUI @Prop 会深拷贝字段与原型，但不会复制 napi_wrap。绑定函数保留原快照及其生命周期。
     // 方法必须可枚举才能随字段复制；JSON.stringify 仍会自动忽略函数。
-    for (const char* name : {"taskStateOf", "taskPriorityOf", "isDone", "project"}) {
+    for (const char* name : {"taskStateOf", "taskPriorityOf", "isDone", "project", "property"}) {
         napi_value method, bind, bound;
         if (napi_get_named_property(env, task, name, &method) != napi_ok ||
             napi_get_named_property(env, method, "bind", &bind) != napi_ok ||
@@ -526,7 +553,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     // id 为 Core 的明文逻辑路径；区块及其 paragraph、blankLinesBefore 均随 editContent.blocks 与文档快照原样透传。
     // CONTENT_BLOCK、清单及链接操作沿用原文件版本，在 worker 中由 Core 校验源范围。
     for (const char* name : {"orderKey", "id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
-        "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit", "hasAttach"}) {
+        "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit", "properties", "hasAttach"}) {
         napi_value value;
         if (napi_get_named_property(env, data, name, &value) != napi_ok) return nullptr;
         napi_property_descriptor property = {name, nullptr, nullptr, nullptr, nullptr, value, napi_enumerable, nullptr};
@@ -2274,6 +2301,7 @@ EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor task_descriptors[] = {
+        {"property", nullptr, TaskProperty, nullptr, nullptr, nullptr, napi_default_method, nullptr},
         // 原型允许拷贝器以赋值建立同名实例函数；正式快照上的绑定函数仍只读。
         {"taskPriorityOf", nullptr, TaskTaskPriorityOf, nullptr, nullptr, nullptr, napi_default_method, nullptr},
         {"taskStateOf", nullptr, TaskTaskStateOf, nullptr, nullptr, nullptr, napi_default_method, nullptr},

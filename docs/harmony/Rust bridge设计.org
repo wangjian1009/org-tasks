@@ -155,6 +155,8 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgFile.title_parts()~ | ~file.titleParts()~ | Core 解析文件标题中的文字与外部链接，返回有序 ~TitlePart[]~ 。 |
 | ~FilterTask.title_parts()~ | ~task.headingParts~ | bridge 在构造任务对象时投影，C++ 保留可枚举只读属性，路由传递不丢失链接。 |
 | ~OrgFile.category()~ | ~file.category()~ | 未配置或文件分类为 ~ARCHIVE~ 时为 ~null~ ，显式空声明为空字符串。 |
+| FilterTask.property(name)、properties() | task.property(name)、task.properties | 读取标题自身的通用属性；缺失为 null，空值为空字符串，名称按 ASCII 大写查找；属性表随查询、事件及缓存快照传递。 |
+| TaskModification::Property | { field: 'PROPERTY', value: { name, value } } | 复用现有异步修改入口设置或删除属性；控件直接提交，不新增折叠参数。 |
 | ~FilterTask.is_habit()~ | ~task.isHabit~ | 只读、可枚举的布尔查询快照；Core 判断标题自身的 ~STYLE=habit~ ，C++ 与 ArkTS 仅透传。 |
 | ~FilterTask.category()~ 、 ~is_repeating()~ | ~task.category~ 、 ~task.isRepeating~ | 只读、可枚举的查询快照；分类保留 ~null~ 与空字符串，重复标志来自 Core 的时间戳解析。 |
 | ~FilterTask.created_at()~ 、 ~closed_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.closedAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，关闭时间来自标题自身的真实 ~CLOSED~ 规划节点，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
@@ -766,3 +768,9 @@ Rust 持有监控对象至最后一个在途请求退出，超时和关闭清理
 ~TaskQuery~ 增加 ~fullFiles?: OrgFileRef[]~ 与 ~includeIgnored?: boolean~ ， ~TaskQueryResult~ 增加 ~fullFiles: OrgFile[]~ 。Rust bridge 将 Core 同批返回的文件投影成既有文件快照，C++ 在 ~ProjectQueryResults~ 中包装为原生 ~OrgFile~ 对象；属性、方法、源字节与版本和独立文件读取一致。仓库别名绑定同时覆盖 ~fullFiles~ 的引用，编组仍在工作线程执行，不从 getter 读盘。
 
 订阅仅初始结果返回完整文件，后续事件沿用任务增量。 ~DataManager.start()~ 截取一次性文件并直接返回页面，交给 DataSet 的任务结果始终不包含实际文件对象。管理器不缓存文件或已完成的加载 Promise，项目页通过 ~cache: false~ 禁止页面缓存；原生 ~Workspace.fileAt~ 继续供独立文件和预览调用，不再作为项目数据集的读取路径。
+
+* 通用属性与项目折叠
+
+Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继续保留快照与生命周期；properties 为 Core 生成的自身属性表，原始事件记录同步携带该表。页面快照按相同属性表恢复方法，旧缓存缺少属性表时按空表读取。PROPERTY 的本地待确认值仅更新目标属性，正式结果、失败恢复和跨字段副作用仍由 DataSet 与 Core 事件归并。
+
+项目标题操作使用 task.property('VISIBILITY') 判断 folded，通过 DataSet.updateTask 提交 PROPERTY 将值设为 folded 或 all；不新增 isSubtreeFolded 等专用标记，不改变 TaskEditContent，也不向控件添加折叠状态参数。

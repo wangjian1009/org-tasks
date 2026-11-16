@@ -103,7 +103,7 @@ export type CoreContentBlockChange = NativeContentBlockChange
 // 文件 category 与 projectName 来自同一 Core 快照，供导航展示分区。
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 
-// 逻辑身份、state、category、hasList、hasText、isRepeating 与 isHabit 均由 Core 投影，宿主不解析 Org 或重新计算。
+// 逻辑身份、state、category、hasList、hasText、isRepeating、isHabit 与 properties 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTaskChecklistItem = NativeTaskChecklistItem
 // 包含 move / beforeId；与 siblingGroup 一起透传，排序规则由 Core 验证。
 export type CoreTaskChecklistChange = NativeTaskChecklistChange

@@ -451,6 +451,37 @@ fn insert_line(file: &mut OrgFile, at: usize, content: &str) -> Result<(), CoreE
     )
 }
 
+// 通用属性修改只操作 drawer；有专用领域修改项的字段不能从此入口绕过规则。
+pub(super) fn modify_property(
+    file: &mut OrgFile,
+    headline: &Headline,
+    name: &str,
+    value: Option<&str>,
+) -> Result<(), CoreError> {
+    if name.is_empty() || name.ends_with('+')
+        || name.chars().any(|c| c.is_whitespace() || c == ':' || c.is_control())
+        || value.is_some_and(|value| value.contains(['\r', '\n', '\0']))
+    {
+        return Err(CoreError::InvalidInput("属性名称或值无效"));
+    }
+    let name = name.to_ascii_uppercase();
+    if matches!(name.as_str(), "TODO" | "PRIORITY" | "TAGS" | "SCHEDULED" | "DEADLINE" | "CLOSED" | "CREATED") {
+        return Err(CoreError::InvalidInput("该属性必须通过专用字段修改，或为只读字段"));
+    }
+    if let Some(value) = value {
+        return set_property(file, headline, &name, value);
+    }
+    if let Some(drawer) = metadata_node(file, headline).properties() {
+        let ranges: Vec<_> = drawer.node_properties().filter_map(|entry| {
+            super::properties::entries(&drawer).any(|property| property.name == name &&
+                property.value_range.start() >= entry.start() && property.value_range.end() <= entry.end())
+                .then_some(u32::from(entry.start()) as usize..u32::from(entry.end()) as usize)
+        }).collect();
+        for range in ranges.into_iter().rev() { replace(file, range, &[])?; }
+    }
+    Ok(())
+}
+
 pub(super) fn set_property(
     file: &mut OrgFile,
     headline: &Headline,
@@ -805,6 +836,47 @@ fn repeat_edits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn property_operations_preserve_unrelated_bytes_and_project_only_own_values() {
+        let source = "#+PROPERTY: VISIBILITY folded\r\n* Heading\r\n:PROPERTIES:\r\n:KEEP: unchanged  \r\n:visibility:   all\r\n:EMPTY:   \r\n:END:\r\n正文  \r\n** Child\r\n子正文";
+        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let before = file.nodes();
+        assert_eq!(before[0].property("visibility"), Some("all"));
+        assert_eq!(before[0].property("EMPTY"), Some(""));
+        assert_eq!(before[1].property("VISIBILITY"), None);
+        let change: super::super::TaskModification = serde_json::from_value(serde_json::json!({
+            "field": "PROPERTY", "value": {"name": "VISIBILITY", "value": "folded"}
+        })).unwrap();
+        let node = file.syntax().first_node::<Headline>().unwrap();
+        super::super::task_operation_executor::modify(&mut file, &node, &change).unwrap();
+        assert_eq!(file.source_bytes(), source.replace(":visibility:   all", ":visibility:   folded").as_bytes());
+        assert_eq!(file.nodes()[0].property("VISIBILITY"), Some("folded"));
+        assert_eq!(before[0].property("VISIBILITY"), Some("all"));
+        let node = file.syntax().first_node::<Headline>().unwrap();
+        modify_property(&mut file, &node, "visibility", None).unwrap();
+        assert_eq!(file.source_bytes(), source.replace(":visibility:   all\r\n", "").as_bytes());
+        assert_eq!(file.nodes()[0].property("VISIBILITY"), None);
+        assert_eq!(file.nodes()[1].property("VISIBILITY"), None);
+    }
+
+    #[test]
+    fn property_insertion_and_invalid_inputs_keep_org_structure_intact() {
+        let source = "* Heading\nSCHEDULED: <2026-11-16 Mon>\n正文\n** Child\n子正文\n";
+        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let node = file.syntax().first_node::<Headline>().unwrap();
+        modify_property(&mut file, &node, "visibility", Some("folded")).unwrap();
+        assert_eq!(file.source_bytes(), source.replace("正文\n**", ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n正文\n**").as_bytes());
+        let original = file.source_bytes().to_vec();
+        for (name, value) in [("TODO", "DONE"), ("CREATED", "x"), ("A:B", "x"), ("VISIBILITY+", "x"), ("VISIBILITY", "all\n** injected")] {
+            let node = file.syntax().first_node::<Headline>().unwrap();
+            assert!(modify_property(&mut file, &node, name, Some(value)).is_err());
+            assert_eq!(file.source_bytes(), original);
+        }
+        let node = file.syntax().first_node::<Headline>().unwrap();
+        modify_property(&mut file, &node, "MISSING", None).unwrap();
+        assert_eq!(file.source_bytes(), original);
+    }
 
     fn normalize(source: &str) -> (Vec<String>, Vec<String>) {
         let mut ordinary = Vec::new();

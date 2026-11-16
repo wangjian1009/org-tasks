@@ -130,6 +130,12 @@ impl Properties {
     }
 }
 
+pub(crate) fn own_values(headline: &Headline) -> BTreeMap<String, String> {
+    Properties::from_headline(headline).map(|properties| {
+        properties.iter().map(|(name, value)| (name.to_owned(), value)).collect()
+    }).unwrap_or_default()
+}
+
 pub(crate) fn own(headline: &Headline, name: &str) -> Option<String> {
     Properties::from_headline(headline)?.get(name)
 }

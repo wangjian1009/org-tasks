@@ -18,6 +18,8 @@ export struct ProjectTaskSection {
   dataSet: DataSet | undefined = undefined
   taskId: string = ''
   @Prop specialTags: string[] = []
+  @Prop hasChildren: boolean = false
+  @Prop contextOnly: boolean = false
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   scrollHost: Scroller = new Scroller()
   @State node: CoreTask | undefined = undefined
@@ -59,16 +61,22 @@ export struct ProjectTaskSection {
       if (this.node) {
         if (this.node.state) {
           TaskSwipeEditor({ dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
-            documentMode: true, contentHidden: true, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,
+            documentMode: true, contentHidden: this.hasChildren || this.contextOnly, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,
             dateDisplay: TaskDateDisplay.Schedule, regionAreaPolicy: RegionAreaPolicy.None,
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll' }).width('100%')
         } else {
-          OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: this.node, specialTags: this.specialTags }).width('100%')
+          OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: this.node, specialTags: this.specialTags,
+            modify: async (changes: CoreTaskModification[]): Promise<void> => {
+              await this.dataSet!.updateTask(this.taskId, changes, this.node!.fileVersion)
+            } }).width('100%')
         }
-        ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
-          return await this.dataSet!.updateTask(this.taskId, changes, task.fileVersion)
-        }, internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,
-          contentRevision: `${this.bodyRevision}`, contentBackground: UiColor.surface }).width('100%')
+        if (!(this.node.property('VISIBILITY') === 'folded') && !this.contextOnly && (!this.node.state || this.hasChildren) && !this.node.editContent.ownTags.includes('ARCHIVE')) {
+          ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
+            return await this.dataSet!.updateTask(this.taskId, changes, task.fileVersion)
+          }, internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,
+            contentRevision: `${this.bodyRevision}`, contentBackground: UiColor.surface }).width('100%')
+            .margin({ bottom: this.hasChildren && this.node.editContent.blocks.length > 0 ? 24 : 8 })
+        }
       }
     }.width('100%').padding({ left: this.node ? Math.min(this.node.fullPath.titles.length - 1, 2) * 8 : 0 })
   }

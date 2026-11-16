@@ -48,3 +48,35 @@ export function reconcileProjectSections(previous: ProjectReadingSection[], task
   }))
   return previous.length === next.length && previous.every((section, index) => section === next[index]) ? previous : next
 }
+
+export interface ProjectReadingItem {
+  section: ProjectReadingSection
+  hasChildren: boolean
+  contextOnly: boolean
+}
+
+// 仅编排文档树的可见层级；标签命中集合由 Core 查询提供。
+export function projectReadingItems(sections: ProjectReadingSection[], matches: string[] | null = null): ProjectReadingItem[] {
+  const result: ProjectReadingItem[] = []
+  let hiddenLevel = 0
+  for (let index = 0; index < sections.length; index++) {
+    const section = sections[index], node = section.node
+    if (!node) { result.push({ section, hasChildren: false, contextOnly: false }); continue }
+    if (hiddenLevel && node.level > hiddenLevel) continue
+    hiddenLevel = node.editContent.ownTags.includes('ARCHIVE') || (node.property('VISIBILITY') === 'folded') ? node.level : 0
+    const next = sections[index + 1]?.node
+    const hasChildren = next !== null && next !== undefined && next.level > node.level
+    if (matches !== null && !matches.includes(node.id)) {
+      // 祖先仅作定位上下文，命中内容与源顺序保持不变。
+      let context = false
+      for (let child = index + 1; child < sections.length; child++) {
+        const descendant = sections[child].node
+        if (!descendant || descendant.level <= node.level) break
+        if (matches.includes(descendant.id)) { context = true; break }
+      }
+      if (!context) continue
+    }
+    result.push({ section, hasChildren, contextOnly: matches !== null && !matches.includes(node.id) })
+  }
+  return result
+}
