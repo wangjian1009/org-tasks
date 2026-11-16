@@ -3,6 +3,7 @@
 export struct RightSwipe {
   @BuilderParam content: () => void = this.emptyContent
   @Prop disabled: boolean = false
+  canActivate: () => boolean = (): boolean => true
   action: () => void = () => {}
   @State private dragOffset: number = 0
   private contentWidth: number = 0
@@ -35,7 +36,7 @@ export struct RightSwipe {
       onFinish: (): void => {
         if (!this.active || !this.returning || generation !== this.generation) return
         this.returning = false
-        if (trigger && !this.disabled) this.action()
+        if (trigger && !this.disabled && this.canActivate()) this.action()
       }
     }, (): void => { this.dragOffset = 0 })
   }
@@ -52,7 +53,7 @@ export struct RightSwipe {
         .onActionUpdate((event: GestureEvent): void => { this.drag(event.offsetX) })
         .onActionEnd((event: GestureEvent): void => { this.release(event.offsetX) })
         .onActionCancel((): void => { this.rebound(false) }))
-      .onGestureJudgeBegin((info: GestureInfo) => info.tag === 'shared_right_swipe' && (this.disabled || this.returning)
+      .onGestureJudgeBegin((info: GestureInfo) => info.tag === 'shared_right_swipe' && (this.disabled || this.returning || !this.canActivate())
         ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }
 }

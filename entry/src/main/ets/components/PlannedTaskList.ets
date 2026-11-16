@@ -6,8 +6,7 @@ import { PlannedGroup, PlannedScheduleItem, PlannedTaskGroup, PlannedTaskItem, p
 import { CoreTask } from '../services/NativeCoreService'
 import { TaskRegion } from './TaskRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
-import { TaskEditor } from './editors/TaskEditor'
-import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
+import { TaskSwipeEditor } from './TaskSwipeEditor'
 
 @Component
 export struct PlannedTaskList {
@@ -23,7 +22,6 @@ export struct PlannedTaskList {
   @Prop readOnly: boolean = false
   @Prop groups: PlannedGroup[] = []
   @Prop referenceTime: number = Date.now()
-  @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
 
   private group(key: string): PlannedGroup { return this.groups.find(group => group.key === key)! }
   private region(groupKey: string, key: string): PlannedTaskGroup { return this.group(groupKey).groups.find(region => region.key === key)! }
@@ -63,18 +61,17 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(taskKey: string, groupKey: string) {
-    TaskEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: taskKey,
+    TaskSwipeEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: taskKey,
       dateDisplay: this.dateDisplay(groupKey, taskKey), regionAreaPolicy: this.regionPolicy(groupKey, taskKey),
-      rightSwipeAction: this.rightSwipeAction,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       referenceTime: this.referenceTime })
   }
 
   @Builder
   scheduleTaskItem(taskKey: string, groupKey: string) {
-    TaskEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: taskKey,
+    TaskSwipeEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: taskKey,
       dateDisplay: TaskDateDisplay.None, timeDisplay: this.scheduleItem(groupKey, taskKey).timeDisplay,
-      regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.rightSwipeAction,
+      regionAreaPolicy: RegionAreaPolicy.None,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })
   }
 

@@ -10,7 +10,7 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
-import { TaskEditor } from '../components/editors/TaskEditor'
+import { TaskSwipeEditor } from '../components/TaskSwipeEditor'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
@@ -268,11 +268,11 @@ struct TaskOverview {
           NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime') {
-          TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(),
+          TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime,
             expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {
-          PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, groups: this.planGroups, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction() })
+          PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, groups: this.planGroups, referenceTime: this.referenceTime })
         } else if (this.view === 'logbook') {
           LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => { await this.taskDataSet().operate( async (operationId: string): Promise<void> => {
             if (action === 'restore') await LogbookService.restore(this.getUIContext().getHostContext()!, tasks, operationId)
@@ -293,7 +293,7 @@ struct TaskOverview {
                   .swipeAction({ end: this.memoDeleteAction(task), edgeEffect: SwipeEdgeEffect.None })
               } else {
                 ListItem() {
-                  TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
+                  TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
                 }
               }
             }, (task: CoreTask) => taskRenderKey(task))

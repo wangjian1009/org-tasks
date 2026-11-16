@@ -152,42 +152,41 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
 
 const cardFile = 'entry/src/main/ets/components/editors/TaskEditor.ets';
 const cardSource = fs.readFileSync(cardFile, 'utf8');
-test('收件箱左滑交给原生菜单且保留右滑，日志簿只读模式拒绝卡片手势', () => {
-  const disabled = cardSource.match(/RightSwipe\(\{ disabled: ([\s\S]*?),\n      action:/)[1];
-  const { gesture } = compile(`export function gesture() { return Boolean(${disabled}); }`, cardFile);
-  const inbox = { rightSwipeEnabled: true, rightSwipeAction:'move', readOnly:false };
-  assert.equal(gesture.call(inbox), false);
-  assert.equal(gesture.call({rightSwipeEnabled:true,rightSwipeAction:'schedule'}), false);
-  for (const blocked of [{rightSwipeEnabled:false}, {readOnly:true}, {rightSwipeAction:'none'}, {checklistTouch:true}, {typing:true}]) {
-    assert.equal(gesture.call({...inbox,...blocked}), true);
-  }
-});
-
 function cardMethod(name, async = false) {
   return cardSource.match(new RegExp('  ' + (async ? 'async ' : '') + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
 }
 
+const controllerFile = 'entry/src/main/ets/ui/TaskEditorController.ets';
+const { TaskEditorController } = compile(fs.readFileSync(controllerFile, 'utf8'), controllerFile);
 function swipeCard(page) {
-  const { Card } = compile('export class Card {' + cardMethod('rightSwipe') + '}', cardFile);
-  const calls = [], policy = pagePolicy(page);
-  const state = Object.assign(new Card(), {
-    rightSwipeAction: policy.rightSwipeAction,
-    dates: deadline => calls.push(deadline ? 'deadline' : 'schedule'),
-    toggleDoing: () => calls.push('doing'), openMove: () => calls.push('move')
-  });
-  return { state, calls };
+  const adapterFile = 'entry/src/main/ets/components/TaskSwipeEditor.ets';
+  const source = fs.readFileSync(adapterFile, 'utf8');
+  const method = source.match(/  activate\(\): void \{[\s\S]*?\n  \}/)[0];
+  const { Card } = compile('export class Card {' + method + '}', adapterFile);
+  const { Availability } = compile('export class Availability {' + cardSource.match(/  actionsAvailable\(\): boolean \{[\s\S]*?\n  \}/)[0] + '}', cardFile);
+  const editor = Object.assign(new Availability(), { appeared: true });
+  const controller = new TaskEditorController(), calls = [];
+  controller.bind(() => editor.actionsAvailable(), () => calls.push('schedule'), () => calls.push('move'));
+  const state = Object.assign(new Card(), { rightSwipeAction: pagePolicy(page).rightSwipeAction, controller });
+  return { state, editor, controller, calls };
 }
 
-test('六个区域的右滑完成回调分别执行移动、日期或进行中', () => {
-  assert.equal(taskPageActionPolicy('inbox').rightSwipeAction, 'schedule');
-  assert.equal(taskPageActionPolicy('recent').rightSwipeAction, 'schedule');
-  for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'doing', inbox: 'schedule', recent: 'schedule' })) {
+test('今天与其他任务页由外层右滑设置计划，某天保留移动，日志簿关闭右滑', () => {
+  for (const [page, action] of Object.entries({ someday: 'move', anytime: 'schedule', planned: 'schedule', today: 'schedule', inbox: 'schedule', recent: 'schedule' })) {
     const f = swipeCard(page);
-    f.state.rightSwipe(); assert.deepEqual(f.calls, [action], page);
+    f.state.activate(); assert.deepEqual(f.calls, [action], page);
   }
+  const logbook = swipeCard('logbook'); logbook.state.activate(); assert.deepEqual(logbook.calls, []);
   const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
   assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'someday', 'memo', 'delete', 'select']);
   assert.equal(taskSwipeMenuWidth(inboxMenu), 256);
+});
+
+test('外部控制器仅作用于绑定卡片，卡片离开后不再打开编辑入口', () => {
+  const a = swipeCard('today'), b = swipeCard('someday');
+  a.state.activate(); assert.deepEqual(a.calls, ['schedule']); assert.deepEqual(b.calls, []);
+  a.controller.release(); a.state.activate(); assert.deepEqual(a.calls, ['schedule']);
+  b.state.activate(); assert.deepEqual(b.calls, ['move']);
 });
 
 test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同一入口，批量能力仍独立校验', async () => {
@@ -215,9 +214,9 @@ test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同�
 });
 
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
-  for (const flag of ['typing', 'checklistTouch', 'draggingCheck', 'completing', 'working', 'moveBusy', 'moveOpen', 'snapshotBlocked', 'removed']) {
-    const f = swipeCard('today'); f.state[flag] = true;
-    f.state.rightSwipe(); assert.deepEqual(f.calls, [], flag);
+  for (const flag of ['readOnly', 'typing', 'checklistTouch', 'draggingCheck', 'completing', 'working', 'moveBusy', 'moveOpen', 'snapshotBlocked', 'removed']) {
+    const f = swipeCard('today'); f.editor[flag] = true;
+    f.state.activate(); assert.deepEqual(f.calls, [], flag);
   }
 });
 
@@ -236,7 +235,7 @@ function moveCard() {
     { targets: () => targets(), move: async (_context, source, selected) => { calls.push({ source: state.moveSource, action: 'move', target: selected }); await write(); } },
     values => [{ category: '工作', targets: values }], Missing, error => error.message);
   const state = Object.assign(new module.exports.MoveCard(), {
-    rightSwipeAction: 'move', appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
+    appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
     localDataSet:()=>({}),localDataSet: () => ({ moveTargets: () => targets(), moveTask: async (_id, selected) => { calls.push({ source: state.moveSource, action: 'move', target: selected }); await write(); } }),
     currentTask: () => read(), value: () => ({ fileVersion: 'old' }), prepare: async () => true, finish: () => save(),
     applySnapshot: task => { state.current = task; }, getUIContext: () => ({ getHostContext: () => ({}) }),

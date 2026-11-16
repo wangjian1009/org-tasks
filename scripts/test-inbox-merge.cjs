@@ -67,6 +67,7 @@ function fixture() {
     '../services/DataSetManager': {},
     '../services/TaskInlineService': { TaskInlineSession: { active: () => false, async end() { return saveResult; } } },
     '../services/NotificationManager': { emptyCoreNotificationsState: () => ({ notifications: [] }) },
+    '@ohos.arkui.UIContext': { FrameCallback: class {} },
     '@kit.ArkUI': { KeyboardAvoidMode: { OFFSET: 0 } },
     '../services/InboxService': { InboxService },
     '../ui/InboxPresentation': { recentDays: () => [] },
@@ -80,6 +81,8 @@ function fixture() {
   page.dataManager={hasValidScope:()=>true,isReady:()=>true,get(name){return name==='target'?{data:{type:'file',result:[{}]}}:{data:{type:'task',result:{tasks:name==='tasks'?page.records:[]}}};},async runOperation(_,work){await work('test/merge');started=false;},subscribe(fn){listener=fn;return()=>{}},async start(){if(started)return;started=true;try{const value=await InboxService.load(config);page.records=value.inbox?.tasks??[];}catch(error){page.message=error.message;page.tasksDataSet.error=error.message;}page.applyPageSnapshot();},
     merge:async rows=>{const result=await InboxService.merge({},rows);started=false;return result;}};
   page.tasksDataSet={isReady:()=>true,error:'',get data(){return{type:'task',result:{tasks:page.records}}},async operate(work){await work('test/merge');started=false;}};
+  page.targetDataSet = { data: { type: 'file', result: [{}] }, error: '' };
+  page.recentDataSet = { data: { type: 'task', result: { tasks: [] } }, error: '' };
   page.getUIContext = () => ({ getHostContext: () => ({}), getPromptAction: () => ({ showToast: v => notices.push(v) }) });
   page.closeTargetPopup = () => {};
   page.loadRecentRecords = () => {};

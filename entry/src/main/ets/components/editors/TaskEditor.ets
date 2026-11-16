@@ -2,6 +2,7 @@ import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { ProjectNavigation } from '../../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
+import { TaskEditorController } from '../../ui/TaskEditorController'
 import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineSession } from '../../services/TaskInlineService'
@@ -13,7 +14,6 @@ import { repeatSummary } from '../../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
 import { MoveToTarget } from './MoveToTarget'
 import { RefileSection, refileSections } from '../../ui/MoveToTargetPresentation'
-import { TaskRightSwipeAction } from '../../ui/TaskActionPresentation'
 import { PopupMenuButton } from '../controls/PopupMenuButton'
 import { PopupMenuItem } from '../controls/PopupMenu'
 import { inlineDateLabel, inlineDate, inlinePlanningLabel } from '../../ui/TaskInlinePresentation'
@@ -37,7 +37,6 @@ import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
 import { TaskChecklistDrag, checklistSiblings, checklistMovePreview, checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
 import { FrameCallback, KeyboardAvoidMode } from '@ohos.arkui.UIContext'
 import { window } from '@kit.ArkUI'
-import { RightSwipe } from '../RightSwipe'
 
 class ChecklistFocusFrame extends FrameCallback {
   private callback: () => void
@@ -53,6 +52,7 @@ export struct TaskEditor {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   dataSet: DataSet | undefined = undefined
   taskId: string = ''
+  controller: TaskEditorController | undefined = undefined
   private stopDataSet: (() => void) | undefined = undefined
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
@@ -66,8 +66,6 @@ export struct TaskEditor {
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
-  @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
-  @Prop rightSwipeEnabled: boolean = true
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
   @State expanded: boolean = false
@@ -120,7 +118,6 @@ export struct TaskEditor {
   @State checkPreview: CoreTaskChecklistItem[] = []
   @State checkLayoutRevision: number = 0
   @State snapshotBlocked: boolean = false
-  @StorageLink('taskInlineDateRequest') @Watch('dateRequested') dateRequest: string = ''
   @Prop referenceTime: number = Date.now()
   private ownerKey: string = ''
   private appeared: boolean = false
@@ -154,8 +151,9 @@ export struct TaskEditor {
     AppStorage.setOrCreate('taskInlineTyping', this.typing)
   }
 
-  dateRequested() {
-    if (this.dateRequest.startsWith(`${this.value().id}\n`)) this.dates(false)
+  actionsAvailable(): boolean {
+    return this.appeared && !this.readOnly && !this.completing && !this.working && !this.moveBusy && !this.moveOpen &&
+      !this.snapshotBlocked && !this.removed && !this.typing && !this.checklistTouch && !this.draggingCheck
   }
   value(): CoreTask { return this.editTask ?? this.localDataSet().getTask(this.taskId)! }
   private localDataSet(): DataSet {
@@ -171,21 +169,9 @@ export struct TaskEditor {
     await this.localDataSet().updateTaskFields(this.taskId, changes, task.fileVersion)
   }
 
-  rightSwipe() {
-    if (this.readOnly) return
-    if (this.completing || this.working || this.moveBusy || this.moveOpen || this.snapshotBlocked || this.removed ||
-      this.typing || this.checklistTouch || this.draggingCheck) return
-    switch (this.rightSwipeAction) {
-      case 'schedule': this.dates(false); break
-      case 'doing': this.toggleDoing(); break
-      case 'move': this.openMove(); break
-      case 'none': break
-    }
-  }
-
   async openMove() {
     if (this.readOnly) return
-    if (this.rightSwipeAction !== 'move' || this.completing || this.working || this.moveBusy || this.snapshotBlocked || this.draggingCheck || this.typing) return
+    if (this.completing || this.working || this.moveBusy || this.snapshotBlocked || this.draggingCheck || this.typing) return
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
@@ -254,23 +240,6 @@ export struct TaskEditor {
       choose: (target: CoreRefileTarget): void => { this.moveTo(target) }, retry: (): void => { this.openMove() } })
   }
 
-  async toggleDoing() {
-    if (this.readOnly) return
-    const previous = this.value().state?.category
-    const category = previous === TaskStateCategory.Doing ? TaskStateCategory.Todo : TaskStateCategory.Doing
-    if (this.rightSwipeAction !== 'doing' || this.completing || this.working || this.draggingCheck || this.typing || this.snapshotBlocked ||
-      this.value().state === null || this.value().isDone() || !this.value().taskStateOf(category)) return
-    this.completing = true
-    try {
-      if (!await this.prepare() || !await this.finish(false)) return
-      const state = this.value().taskStateOf(category)
-      if (this.value().state?.category !== previous || !state) return
-      await this.persist([{ field: 'TODO', value: state.name }])
-    } finally {
-      this.completing = false
-      if (!this.expanded) TaskInlineSession.release(this.ownerKey)
-    }
-  }
   async complete() {
     if (this.readOnly && !this.allowCompletion) return
     const reopen = this.value().isDone()
@@ -329,6 +298,8 @@ export struct TaskEditor {
   aboutToAppear() {
     this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
     this.appeared = true
+    this.controller?.bind((): boolean => this.actionsAvailable(),
+      (): void => { this.dates(false) }, (): void => { this.openMove() })
     this.stopDataSet = this.localDataSet().watchTask(this.taskId, (change: TaskDataChange): void => {
       if (!this.appeared) return
       ++this.refreshRequest
@@ -350,6 +321,7 @@ export struct TaskEditor {
     this.stopDataSet?.(); this.stopDataSet = undefined
     this.priorityOpen = false
     this.appeared = false
+    this.controller?.release()
     ++this.moveRequest
     this.moveOpen = false; this.moveSource = undefined
     ++this.refreshRequest
@@ -1391,8 +1363,7 @@ export struct TaskEditor {
     }.width('100%').padding({ left: 27 })
   }
 
-  @Builder
-  taskContent() {
+  build() {
     Column() {
       if (this.expanded) {
         Column() {
@@ -1464,11 +1435,4 @@ export struct TaskEditor {
       })
   }
 
-  build() {
-    RightSwipe({ disabled: !this.rightSwipeEnabled || this.readOnly || this.rightSwipeAction === 'none' || this.checklistTouch || this.typing ||
-      this.draggingCheck || this.completing || this.working || this.moveBusy || this.moveOpen || this.snapshotBlocked || this.removed,
-      action: (): void => { this.rightSwipe() } }) {
-      this.taskContent()
-    }
-  }
 }

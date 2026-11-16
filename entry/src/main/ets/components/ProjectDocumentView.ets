@@ -5,7 +5,7 @@ import { ProjectReadingSection, visibleProjectTags, projectOutlineSections } fro
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { ProjectSectionBody } from './ProjectSectionBody'
 import { OrgHeadingView } from './OrgHeadingView'
-import { TaskEditor } from './editors/TaskEditor'
+import { TaskSwipeEditor } from './TaskSwipeEditor'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { TaskDateDisplay, RegionAreaPolicy, taskTagColor } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
@@ -138,7 +138,7 @@ export struct ProjectDocumentView {
             }
             if (section.node) {
               if (section.node.state) {
-                TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(section.node.id), internalLinkProcessor: this.internalLinkProcessor, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
+                TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(section.node.id), internalLinkProcessor: this.internalLinkProcessor, documentMode: true, contentHidden: true, hiddenTags: this.specialTags,
                   instanceKey: `project:${section.node.id}`, dateDisplay: TaskDateDisplay.Schedule,
                   regionAreaPolicy: RegionAreaPolicy.None, scrollHost: this.scroller, scrollHostId: 'project_document_scroll' })
                   .width('100%')

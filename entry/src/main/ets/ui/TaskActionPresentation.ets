@@ -16,7 +16,7 @@ export type TaskSingleOperation = TaskOperation.Move | TaskOperation.Schedule | 
   TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskSingleOperation | TaskOperation.Restore | TaskOperation.Merge
-export type TaskRightSwipeAction = 'schedule' | 'doing' | 'move' | 'none'
+export type TaskRightSwipeAction = 'schedule' | 'move' | 'none'
 
 export interface TaskActionOperations {
   singleOperations?: TaskSingleOperation[]
@@ -50,8 +50,7 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
     case 'someday': return taskActionPolicy({}, 'move')
-    case 'today': return taskActionPolicy({}, 'doing')
-    case 'inbox': case 'planned': case 'anytime': case 'recent': return taskActionPolicy({}, 'schedule')
+    case 'today': case 'inbox': case 'planned': case 'anytime': case 'recent': return taskActionPolicy({}, 'schedule')
     default: return taskActionPolicy()
   }
 }

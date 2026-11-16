@@ -23,6 +23,7 @@ function fixture() {
   const animations = [], calls = [];
   swipe.contentWidth = 360;
   swipe.disabled = false;
+  swipe.canActivate = () => true;
   swipe.action = () => calls.push(swipe.dragOffset);
   swipe.getUIContext = () => ({ animateTo(options, update) { animations.push(options); update(); } });
   swipe.aboutToAppear();
@@ -56,4 +57,13 @@ test('回弹期间不接受新位移，完成后下一次手势可再次执行',
   f.swipe.drag(80); assert.equal(f.swipe.dragOffset, 80);
   f.swipe.release(80); f.finish(); assert.deepEqual(f.calls, [0, 0]);
   f.swipe.drag(10000); assert.equal(f.swipe.dragOffset, 270);
+});
+
+test('回弹完成前编辑器进入输入或保存状态时丢弃动作', () => {
+  const f = fixture(); let available = true;
+  f.swipe.canActivate = () => available;
+  f.swipe.release(100); available = false; f.finish();
+  assert.deepEqual(f.calls, []);
+  available = true; f.swipe.release(100); f.finish();
+  assert.deepEqual(f.calls, [0]);
 });

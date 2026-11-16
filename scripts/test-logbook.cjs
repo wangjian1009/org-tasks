@@ -84,7 +84,7 @@ test('缺失或无效完成时间放在末尾，不借用创建时间，空快�
 const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
 function readOnlyCard(instanceKey = 'event-A') {
   const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'finish', 'persist', 'saveText', 'saveCheck',
-    'rightSwipe', 'openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
+    'openMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
   const chunks = methods.map(name => {
     const result = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(result, name); return result[0];
@@ -150,12 +150,11 @@ test('日志簿收起标题的实际点击回调可展开只读卡片，再点�
   assert.equal(card.expanded, false);
   assert.equal(card.typing, undefined);
 });
-test('只读模式阻止所有编辑、完成、清单修改与左右滑动，保存不产生请求', async () => {
+test('只读模式阻止所有编辑、完成与清单修改，保存不产生请求', async () => {
   const { card } = readOnlyCard();
-  for (const name of ['openMove', 'toggleDoing', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus']) {
+  for (const name of ['openMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus']) {
     await card[name]();
   }
-  card.rightSwipe();
   assert.equal(await card.persist([{ field: 'TITLE', value: '不允许的修改' }]), false);
   assert.equal(await card.saveText(), true); assert.equal(await card.saveCheck(false), true);
   assert.equal(card.editTask, undefined); assert.equal(card.typing, undefined);

@@ -15,6 +15,8 @@ import { FrameCallback } from '@ohos.arkui.UIContext'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskEditor } from '../components/editors/TaskEditor'
+import { TaskSwipeEditor } from '../components/TaskSwipeEditor'
+import { TaskRegion } from '../components/TaskRegion'
 import { RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/editors/MoveToTarget'
 import { TaskSwipeActions } from '../components/TaskSwipeActions'
@@ -539,40 +541,13 @@ struct Inbox {
 
   @Builder
   recentTask(task: CoreTask) {
-    TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
-  }
-
-  @Builder
-  recentProjectHeader(group: RecentTaskGroup) {
-    Column({ space: 8 }) {
-      Text(group.title).fontSize(12).fontWeight(FontWeight.Regular).fontColor(UiColor.projectLabel)
-        .width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      Divider().color(UiColor.outline).strokeWidth(0.5)
-    }.width('100%').padding({ left: 8, right: 8, top: 10, bottom: 8 })
-  }
-
-  @Builder
-  recentCategoryHeader(group: RecentTaskGroup) {
-    Column({ space: 10 }) {
-      Row({ space: 10 }) {
-        Image($r('app.media.ui_category')).width(22).height(22).accessibilityLevel('no')
-        Text(group.category || '未分类').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
-          .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
-      Divider().color(UiColor.outline).strokeWidth(0.5)
-    }.width('100%').padding({ left: 8, right: 8, top: 24, bottom: 8 })
+    TaskSwipeEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
   }
 
   @Builder
   recentRegion(group: RecentTaskGroup) {
-    if (group.kind === 'project') {
-      ListItemGroup({ header: this.recentProjectHeader(group) }) {
-        ForEach(group.items, (task: CoreTask) => {
-          ListItem() { this.recentTask(task) }
-        }, (task: CoreTask) => taskRenderKey(task))
-      }.width('100%').padding({ bottom: 8 }).margin({ top: 12 })
-    } else {
-      ListItem() { this.recentCategoryHeader(group) }
+    TaskRegion({ category: group.category || '未分类',
+      project: group.kind === 'project' ? group : null }) {
       ForEach(group.items, (task: CoreTask) => {
         ListItem() { this.recentTask(task) }
       }, (task: CoreTask) => taskRenderKey(task))
@@ -684,7 +659,7 @@ struct Inbox {
                       selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
                       highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
                       begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), rightSwipeAction: this.actionPolicy.rightSwipeAction, rightSwipeEnabled: false, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' })
+                      TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' })
                       if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
                         OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
                           .width('100%').padding({ left: 27 })

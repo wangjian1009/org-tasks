@@ -10,8 +10,7 @@ import { TaskRegion } from './TaskRegion'
 import { CategoryRegion } from './CategoryRegion'
 import { ScheduleRegion } from './ScheduleRegion'
 import { taskRegion, TaskRegionData } from '../ui/TaskRegionPresentation'
-import { TaskEditor } from './editors/TaskEditor'
-import { TaskRightSwipeAction } from '../ui/TaskActionPresentation'
+import { TaskSwipeEditor } from './TaskSwipeEditor'
 
 interface NotificationListAnchor { key: string; y: number }
 class NotificationLayoutFrame extends FrameCallback {
@@ -39,7 +38,6 @@ export struct TodayTaskList {
   @Prop sections: TodaySection[] = []
   @Prop timedItems: TodayTimedTaskItem[] = []
   @Prop referenceTime: number = Date.now()
-  @Prop rightSwipeAction: TaskRightSwipeAction = 'schedule'
   @Prop expandOnRowClick: boolean = false
 
   aboutToAppear(): void {
@@ -107,7 +105,7 @@ export struct TodayTaskList {
 
   @Builder
   taskItem(item: TodayTaskItem) {
-    TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
+    TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, referenceTime: this.referenceTime,
       expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
@@ -143,9 +141,8 @@ export struct TodayTaskList {
         ListItemGroup() {
           ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
             ListItem() {
-              TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
-                referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction,
-                expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
+              TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
+                referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
             }
           }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
         }.width('100%')
