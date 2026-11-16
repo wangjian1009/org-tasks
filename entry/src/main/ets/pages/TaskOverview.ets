@@ -22,7 +22,7 @@ import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitl
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, TodayTimedTaskItem, todayLayout, todaySections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
-import { PlannedGroup, plannedGroups, plannedRegionOptions } from '../ui/PlannedPresentation'
+import { PlannedGroup, plannedGroups, plannedRegionOptions, samePlannedGroups } from '../ui/PlannedPresentation'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { LogbookGroup, logbookGroups } from '../ui/LogbookPresentation'
 import { filterTasksByTags, reconcileTaskTags, taskTagOptions, TaskTagSelection } from '../ui/TaskTagFilterPresentation'
@@ -216,7 +216,10 @@ struct TaskOverview {
     this.tagOptions = this.supportsTagFilter() ? taskTagOptions(this.tasks, this.view === 'memo' ? file?.tagOptions ?? [] : []) : []
     if (new Date(this.referenceTime).toDateString() !== new Date().toDateString()) this.referenceTime = Date.now()
     this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged }, this.tagOptions, this.tagGroups))
-    this.planGroups = this.view === 'planned' ? plannedGroups(this.tasks) : []
+    if (this.view === 'planned') {
+      const groups = plannedGroups(this.tasks)
+      if (!samePlannedGroups(this.planGroups, groups, (task: CoreTask): string => dataSet.taskKey(task.id) ?? task.id)) this.planGroups = groups
+    }
     this.logbookTaskGroups = this.view === 'logbook' ? logbookGroups(this.tasks, new Date(this.referenceTime)) : []
   }
 
@@ -235,6 +238,10 @@ struct TaskOverview {
   @Builder
   overviewContent() {
     Column() {
+      if (this.view === 'planned') {
+        RegionProjectFilter({ options: this.planRegionOptions, selectedKey: this.selectedPlanRegion?.key ?? '',
+          changed: (region: TaskRegionData | null): void => { this.selectPlanRegion(region) } })
+      }
       if (this.loading) {
         NotificationEmptyState({ title: '正在读取任务', busy: true })
       } else if (this.needsConfiguration) {
@@ -248,10 +255,6 @@ struct TaskOverview {
           dataSet.refresh().catch((error: Error): void => { this.message = error.message })
         } })
       } else {
-        if (this.view === 'planned') {
-          RegionProjectFilter({ options: this.planRegionOptions, selectedKey: this.selectedPlanRegion?.key ?? '',
-            changed: (region: TaskRegionData | null): void => { this.selectPlanRegion(region) } })
-        }
         if (this.supportsTagFilter()) {
           TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags, exclusiveGroups: this.tagGroups,
             includeUntagged: this.includeUntagged, changed: (selection: TaskTagSelection): void => {

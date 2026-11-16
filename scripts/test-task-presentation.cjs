@@ -343,6 +343,84 @@ test('计划日将项目与分类平级归组', () => {
   assert.deepEqual(day.groups.map(group => [group.kind, group.title, group.items.length]), [['project', '项目甲', 2], ['category', '未分类', 1]]);
 });
 
+test('计划缓存确认和内容修改保留布局，成员、日期、区域与时刻变化更新布局', () => {
+  const { plannedGroups, samePlannedGroups } = loadGrouping('PlannedPresentation', {});
+  const original = task('original', { scheduled: '2026-11-08', heading: '原标题', category: '工作' });
+  const before = plannedGroups([original]);
+  const keyOf = value => value.id === 'renamed' ? 'original' : value.id;
+  assert.equal(samePlannedGroups(before, plannedGroups([task('original', {
+    scheduled: original.scheduled, heading: original.heading, category: '工作'
+  })]), keyOf), true);
+  assert.equal(samePlannedGroups(before, plannedGroups([task('renamed', {
+    scheduled: original.scheduled, heading: '新标题', category: '工作', body: '新正文', tags: ['标签']
+  })]), keyOf), true);
+  for (const changes of [{ scheduled: '2026-11-09' }, { category: '生活' }, { projectName: '新项目' },
+    { editContent: { scheduledPlanning: { date: original.scheduled, time: { start: '10:00' } } } }]) {
+    assert.equal(samePlannedGroups(before, plannedGroups([task('original', {
+      scheduled: original.scheduled, category: '工作', ...changes
+    })]), keyOf), false);
+  }
+  assert.equal(samePlannedGroups(before, plannedGroups([]), keyOf), false);
+  assert.equal(samePlannedGroups(before, plannedGroups([original, task('new', { scheduled: original.scheduled })]), keyOf), false);
+  const timed = (start, deadline = false) => plannedGroups([task('time', {
+    scheduled: deadline ? '' : original.scheduled, deadline: deadline ? original.scheduled : '',
+    editContent: { [deadline ? 'deadlinePlanning' : 'scheduledPlanning']: { date: original.scheduled, time: { start } } }
+  })]);
+  assert.equal(samePlannedGroups(timed('10:00'), timed('11:00'), keyOf), false);
+  assert.equal(samePlannedGroups(timed('10:00'), timed('10:00', true), keyOf), false);
+});
+
+test('计划保留日期和区域标识后，从当前快照读取新增、删除与改期成员', () => {
+  const { plannedGroups } = loadGrouping('PlannedPresentation', {});
+  const source = fs.readFileSync('entry/src/main/ets/components/PlannedTaskList.ets', 'utf8');
+  const helpers = source.slice(source.indexOf('  private group('), source.indexOf('  @Builder'));
+  const code = ts.transpileModule('class List {' + helpers + '} exports.List = List;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const result = {};
+  vm.runInNewContext(code, { exports: result, TaskDateDisplay: presentation.TaskDateDisplay,
+    RegionAreaPolicy: presentation.RegionAreaPolicy, plannedTaskDate: presentation.taskDisplayDate });
+  const list = new result.List();
+  const original = task('original', { scheduled: '2026-11-08', category: '工作' });
+  const tasks = new Map([[original.id, original]]);
+  list.taskDataSet = () => ({ taskKey: id => id, getTask: key => tasks.get(key) });
+  list.groups = plannedGroups([original]);
+  const groupKey = 'day:2026-11-08', regionKey = list.group(groupKey).groups[0].key;
+  const retained = () => list.region(groupKey, regionKey).items.map(item => list.taskKey(item.task));
+  assert.deepEqual(retained(), ['original']);
+  const added = task('added', { scheduled: original.scheduled, category: '工作' });
+  tasks.set(added.id, added); list.groups = plannedGroups([original, added]);
+  assert.deepEqual(retained().sort(), ['added', 'original']);
+  tasks.delete(original.id); list.groups = plannedGroups([added]);
+  assert.deepEqual(retained(), ['added']);
+  const moved = task('added', { scheduled: '2026-11-09', category: '工作' });
+  tasks.set(moved.id, moved); list.groups = plannedGroups([moved]);
+  assert.equal(list.group(groupKey).groups.length, 0);
+  assert.equal(list.region('day:2026-11-09', regionKey).items[0].task, moved);
+});
+
+test('计划筛选初次测量前和空候选时显示有宽度的全部，测量后再补候选', () => {
+  const source = fs.readFileSync('entry/src/main/ets/components/RegionProjectFilter.ets', 'utf8');
+  const helpers = source.slice(source.indexOf('  chipWidth('), source.indexOf('  @Builder'));
+  const code = ts.transpileModule('class Filter {' + helpers + '} exports.Filter = Filter;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  const result = {};
+  vm.runInThisContext('(function(exports, FontWeight){' + code + '})')(result, { Medium: 'Medium' });
+  const filter = new result.Filter();
+  filter.getUIContext = () => ({ getMeasureUtils: () => ({ measureText: ({ textContent }) => textContent.length * 14 }), px2vp: value => value });
+  filter.options = [{ key: 'work', title: '工作' }, { key: 'home', title: '生活' }];
+  filter.availableWidth = 0;
+  assert.equal(filter.chipWidth('全部'), 50);
+  assert.deepEqual(filter.collapsedOptions(), []);
+  filter.availableWidth = 336;
+  assert.equal(filter.chipWidth('全部'), 50);
+  assert.deepEqual(filter.collapsedOptions(), filter.options);
+  filter.options = [];
+  assert.equal(filter.chipWidth('全部'), 50);
+  assert.equal(filter.overflows(), false);
+});
+
 test('计划日把带时刻任务提升到日程区并按时间排序，计划优先且不重复', () => {
   const { plannedGroups } = loadGrouping('PlannedPresentation', {
     './Theme': { localDate }, './TaskListPresentation': presentation

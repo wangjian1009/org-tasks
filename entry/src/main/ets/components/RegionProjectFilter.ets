@@ -14,7 +14,8 @@ export struct RegionProjectFilter {
     const width = this.getUIContext().getMeasureUtils().measureText({
       textContent: label, fontSize: 14, fontWeight: FontWeight.Medium
     })
-    return Math.min(this.availableWidth, Math.ceil(Math.min(128, this.getUIContext().px2vp(width))) + 22)
+    const measured = Math.ceil(Math.min(128, this.getUIContext().px2vp(width))) + 22
+    return this.availableWidth > 0 ? Math.min(this.availableWidth, measured) : measured
   }
 
   toggleWidth(): number { return 32 }
@@ -27,6 +28,8 @@ export struct RegionProjectFilter {
   }
 
   collapsedOptions(): TaskRegionData[] {
+    // 首次测量前按空候选显示“全部”，保留单行高度，不绘制零宽按钮。
+    if (this.availableWidth <= 0) return []
     if (!this.overflows()) return this.options
     const selected = this.options.find((region: TaskRegionData) => region.key === this.selectedKey)
     // 收起时优先保留当前选择，避免筛选条件藏在展开区域。

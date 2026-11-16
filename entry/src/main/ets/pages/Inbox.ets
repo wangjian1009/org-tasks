@@ -89,6 +89,8 @@ struct Inbox {
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
   private stopExternalGuard: (() => void) | undefined = undefined
+  aboutToAppear() { this.loadRecords() }
+
   onPageShow() {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>

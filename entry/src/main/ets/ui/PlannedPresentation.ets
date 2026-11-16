@@ -46,6 +46,31 @@ export interface PlannedGroup {
   groups: PlannedTaskGroup[]
 }
 
+// 字段内容由 TaskEditor 自己订阅；布局未变化时保留日期、区域与任务行容器。
+export function samePlannedGroups(left: PlannedGroup[], right: PlannedGroup[], keyOf: (task: CoreTask) => string): boolean {
+  return left.length === right.length && left.every((group: PlannedGroup, index: number): boolean => {
+    const next = right[index]
+    return group.key === next.key && group.kind === next.kind && group.date === next.date &&
+      group.title === next.title && group.subtitle === next.subtitle && group.items.length === next.items.length &&
+      group.items.every((item: PlannedTaskItem, itemIndex: number): boolean => {
+        const other = next.items[itemIndex]
+        return keyOf(item.task) === keyOf(other.task) && plannedTaskDate(item.task) === plannedTaskDate(other.task) &&
+          (plannedTaskDate(item.task) === item.task.scheduled) === (plannedTaskDate(other.task) === other.task.scheduled) &&
+          (item.task.project() === null) === (other.task.project() === null)
+      }) && group.scheduleItems.length === next.scheduleItems.length &&
+      group.scheduleItems.every((item: PlannedScheduleItem, itemIndex: number): boolean => {
+        const other = next.scheduleItems[itemIndex]
+        return keyOf(item.task) === keyOf(other.task) && item.time === other.time && item.timeDisplay === other.timeDisplay
+      }) && group.groups.length === next.groups.length &&
+      group.groups.every((region: PlannedTaskGroup, regionIndex: number): boolean => {
+        const other = next.groups[regionIndex]
+        return region.key === other.key && region.title === other.title && region.category === other.category &&
+          region.items.length === other.items.length && region.items.every((item: PlannedTaskItem, itemIndex: number): boolean =>
+            keyOf(item.task) === keyOf(other.items[itemIndex].task))
+      })
+  })
+}
+
 const monthNames: string[] = ['一月', '二月', '三月', '四月', '五月', '六月',
   '七月', '八月', '九月', '十月', '十一月', '十二月']
 const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
