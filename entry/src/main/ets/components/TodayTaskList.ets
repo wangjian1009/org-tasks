@@ -163,14 +163,24 @@ export struct TodayTaskList {
     if (this.active && !this.expandedRegionKeys.includes(key)) this.expandedRegionKeys = this.expandedRegionKeys.concat(key)
   }
 
+  private remainingCount(sectionKey: string, groupKey: string): number {
+    const groups = this.sections.find(section => section.key === sectionKey)?.groups ?? []
+    const total = groupKey ? (groups.find(group => group.key === groupKey)?.items.length ?? 0) :
+      groups.filter(group => group.project === null).length
+    return Math.max(0, total - this.regionPreviewLimit)
+  }
+
   @Builder
   loadMore(sectionKey: string, groupKey: string) {
     ListItem() {
-      Button('加载更多', { type: ButtonType.Normal })
+      Button({ type: ButtonType.Normal }) {
+        Text(`还显示 ${this.remainingCount(sectionKey, groupKey)} 个`)
+          .fontSize(12).fontColor(UiColor.secondary).width('100%').textAlign(TextAlign.Start)
+      }
         .id(`region_more:${todayRegionKey(sectionKey, groupKey)}`)
-        .fontSize(14).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
-        .height(40).constraintSize({ minWidth: 96 }).margin({ left: 24 })
-        .accessibilityText(`加载${this.sections.find(section => section.key === sectionKey)?.category || '未分类'}${groupKey ? '项目' : ''}区域的全部任务`)
+        .backgroundColor(Color.Transparent).borderRadius(0)
+        .width('100%').height(40).padding({ left: 8, right: 8 })
+        .accessibilityText(`加载${this.sections.find(section => section.key === sectionKey)?.category || '未分类'}${groupKey ? '项目' : ''}区域剩余的 ${this.remainingCount(sectionKey, groupKey)} 个任务`)
         .onClick((): void => { this.expandRegion(sectionKey, groupKey) })
     }
   }
