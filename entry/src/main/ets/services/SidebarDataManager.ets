@@ -22,16 +22,17 @@ export interface SidebarSnapshot {
   somedayCount: number
   memoCount: number
   logbookCount: number
+  trashCount: number
   projects: CoreOrgFileMetadata[]
   message: string
 }
 interface SidebarCacheRepo { id: string; rootDirectory: string; excludedDirectories: string[] }
 interface SidebarCacheScope { repositories: SidebarCacheRepo[]; todoDefaults: string; coreSettings: CoreSettingsObject; queries: CoreQuery[] }
-interface SidebarQueryPlan { queries: CoreQuery[]; positions: number[] }
+interface SidebarQueryPlan { queries: CoreQuery[]; positions: number[]; trashPosition: number }
 
 export function emptySidebarSnapshot(): SidebarSnapshot {
   return { version: 0, inboxCount: -1, todayCount: -1, todayAttentionCount: 0, plannedCount: -1,
-    waitingCount: -1, anytimeCount: -1, somedayCount: -1, memoCount: -1, logbookCount: -1, projects: [], message: '' }
+    waitingCount: -1, anytimeCount: -1, somedayCount: -1, memoCount: -1, logbookCount: -1, trashCount: -1, projects: [], message: '' }
 }
 
 // 只读侧边栏数据入口：缓存不限定订阅范围，任何仓库变化均可引入新项目。
@@ -112,7 +113,10 @@ export class SidebarDataManager {
       positions.push(target ? queries.length : -1)
       if (target) { queries.push(target.task); queries.push(target.file) }
     }
-    return { queries, positions }
+    const trashPosition = trashRepo ? queries.length : -1
+    if (trashRepo) queries.push({ type: 'task', query: { expression: '.o.deleted',
+      includeFiles: [{ repoId: trashRepo.id, path: TRASH_FILE }] }, repoIds: [trashRepo.id] })
+    return { queries, positions, trashPosition }
   }
 
   private async read(): Promise<void> {
@@ -152,7 +156,8 @@ export class SidebarDataManager {
           const current = this.snapshot
           const next: SidebarSnapshot = { version: current.version, inboxCount: current.inboxCount, todayCount: current.todayCount,
             todayAttentionCount: current.todayAttentionCount, plannedCount: current.plannedCount, waitingCount: current.waitingCount, anytimeCount: current.anytimeCount,
-            somedayCount: current.somedayCount, memoCount: current.memoCount, logbookCount: current.logbookCount, projects: current.projects,
+            somedayCount: current.somedayCount, memoCount: current.memoCount, logbookCount: current.logbookCount,
+            trashCount: current.trashCount, projects: current.projects,
             message: `读取导航失败：${coreErrorMessage(error as CoreBridgeError)}` }
           this.publish(next)
         }
@@ -166,7 +171,8 @@ export class SidebarDataManager {
     this.publish({ version, todayCount: taskResult(results[0]).tasks.length, todayAttentionCount: taskResult(results[1]).tasks.length,
       plannedCount: taskResult(results[2]).tasks.length, anytimeCount: taskResult(results[3]).tasks.length,
       logbookCount: taskResult(results[4]).tasks.length, projects: fileResult(results[5]), waitingCount: taskResult(results[6]).tasks.length,
-      inboxCount: counts[0], somedayCount: counts[1], memoCount: counts[2], message: '' })
+      inboxCount: counts[0], somedayCount: counts[1], memoCount: counts[2],
+      trashCount: plan.trashPosition < 0 ? 0 : taskResult(results[plan.trashPosition]).tasks.length, message: '' })
   }
 
   private publish(next: SidebarSnapshot): void {
@@ -175,7 +181,7 @@ export class SidebarDataManager {
       previous.inboxCount === next.inboxCount && previous.todayCount === next.todayCount &&
       previous.todayAttentionCount === next.todayAttentionCount && previous.plannedCount === next.plannedCount &&
       previous.waitingCount === next.waitingCount && previous.anytimeCount === next.anytimeCount && previous.somedayCount === next.somedayCount &&
-      previous.memoCount === next.memoCount && previous.logbookCount === next.logbookCount &&
+      previous.memoCount === next.memoCount && previous.logbookCount === next.logbookCount && previous.trashCount === next.trashCount &&
       previous.projects.length === next.projects.length && previous.projects.every((file, index) => samePageMetadata(file, next.projects[index]))
     this.snapshot = next
     if (!unchanged) for (const listener of this.listeners) listener(next)

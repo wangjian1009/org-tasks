@@ -40,7 +40,7 @@ function fixture() {
     async watchDataChanges(callback) { dataCallbacks.push(callback); return dataCallbacks.length; }, stopWatchingDataChanges() {}
   };
   const native = { taskResult:value=>{assert.equal(value.type,'task');return value.result;},
-    fileResult:value=>{assert.equal(value.type,'file');return value.result;},
+    fileResult:value=>{assert.equal(value.type,'file');for(const file of value.result)if(!file.project)Object.defineProperty(file,'project',{value(){return this.projectName??null;},enumerable:false});return value.result;},
     notificationResult:value=>{assert.equal(value.type,'notification');return value.result;},
     coreErrorMessage:error=>error.message,
     NativeCoreService:{async workspaceFor(actual) { assert.equal(actual,config.repos); return workspace; },
@@ -81,6 +81,7 @@ function fixture() {
       async refresh(){return query()},async close(){for(const set of sets.values())set.listeners.clear();configCallbacks.delete(configChanged)}};
     managers.push({manager,pageName,definitions});return manager;
   }}};
+  let regionOrder=null; const orderCallbacks=new Set();
   const cache = new Map();
   const storage = {setOrCreate(key,value){writes.push({key,value});}};
   function load(name, source) {
@@ -91,6 +92,7 @@ function fixture() {
     const code=ts.transpileModule(source||fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
     const requireLocal=dependency=>{
       if (dependency==='@ohos.arkui.UIContext') return {FrameCallback:class{}};
+      if (dependency.endsWith('/RegionOrderService')) return {RegionOrderService:{async load(){return regionOrder;},watchChanges(fn){orderCallbacks.add(fn);},stopWatchingChanges(fn){orderCallbacks.delete(fn);}}};
       if (dependency.endsWith('/PageDataCache')) return { PageDataCache: class {
         constructor(_, name, scope) { this.key = name + scope; }
         async read() { return structuredClone(disk.get(this.key)); }
@@ -129,7 +131,7 @@ function fixture() {
     if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
     return view;
   }
-  return {disk,configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
+  return {disk,order(value){regionOrder=value;for(const fn of orderCallbacks)fn(value);},configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
     missing(){missing=true;}, fail(){fail=true;}, query(fn){customQuery=fn;}};
 }
 
@@ -317,6 +319,48 @@ test('侧边栏任务、项目、入口文件和通知合为一个批次，跨�
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
 });
 
+test('废纸篓计数与其他导航共用批次，缓存、外部变更和失败保留使用同一快照',async()=>{
+  const f=fixture();
+  f.config.repos.push({id:'org-tasks-system',rootDirectory:'/system',webdavEnabled:false});
+  (await f.workspace.repos()).push({id:'core-system',rootDirectory:'/system'});
+  let count=3,fail=false;
+  f.query(batch=>{
+    if(fail)throw new Error('计数读取失败');
+    return batch.map(request=>request.type==='task'?{type:'task',result:{tasks:Array(request.repoIds?.[0]==='core-system'?count:0).fill({})}}:
+      {type:request.type,result:[]});
+  });
+  const page=f.page('components/AppShell',['loadNavigation']);
+  await page.loadNavigation();
+  assert.equal(page.trashCount,3);assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,15);
+  assert.deepEqual(f.batches[0][13],{type:'task',query:{expression:'.o.deleted',includeFiles:[{repoId:'core-system',path:'trash.org'}]},repoIds:['core-system']});
+  assert.equal(f.batches[0][14].type,'notification');
+  page.sidebarManager.close();
+  const restored=f.page('components/AppShell',['loadNavigation']),seen=[];
+  restored.sidebarManager.subscribe(value=>seen.push([value.version,value.trashCount]));
+  await restored.loadNavigation();assert.ok(seen.some(([version,n])=>version===0&&n===3));
+  count=1;f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,1);
+  fail=true;f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,1);assert.match(restored.navMessage,/计数读取失败/);
+  fail=false;count=0;f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,0);
+});
+
+test('侧边栏采用共享分区与项目顺序，保存和恢复默认不增加 Core 查询',async()=>{
+  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
+  const files=[{repoId:'core-a',path:'a.org',category:'工作',projectName:'甲'},
+    {repoId:'core-b',path:'b.org',category:'工作',projectName:'乙'},
+    {repoId:'core-a',path:'c.org',category:'生活',projectName:'生活项目'}];
+  f.query(batch=>sidebarResults(batch,files));await page.loadNavigation();
+  const calls=f.batches.length;
+  const order={version:1,regions:['category:生活','category:工作'],projects:[{region:'category:工作',keys:[JSON.stringify(['core-a','a.org'])]}]};
+  f.order(order);
+  assert.deepEqual(page.projectGroups.map(group=>group.category),['生活','工作']);
+  assert.deepEqual(page.projectGroups[1].files.map(file=>file.path),['a.org','b.org']);
+  await page.loadNavigation();assert.equal(f.batches.length,calls);
+  f.order(null);
+  assert.deepEqual(page.projectGroups.map(group=>group.category),['工作','生活']);
+  assert.deepEqual(page.projectGroups[0].files.map(file=>file.path),['b.org','a.org']);
+  assert.equal(f.batches.length,calls);
+});
+
 test('今天红色徽标独立消费关注任务的 Core 结果，不按今天列表重筛或改动总数',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   f.query(batch=>batch.map((request,index)=>request.type==='task'
@@ -348,10 +392,11 @@ test('项目按文件 CATEGORY 展示分区，保留同名身份与组内顺序�
   const files=[{repoId:'a',path:'empty.org',category:null},{repoId:'a',path:'work.org',category:'工作',projectName:'同名'},
     {repoId:'b',path:'personal.org',category:'个人'}, {repoId:'b',path:'work.org',category:'工作',projectName:'同名'},
     {repoId:'a',path:'blank.org',category:''},{repoId:'a',path:'named.org',category:'未分类'}];
+  for(const file of files)file.project=()=>file.projectName??null;
   const groups=projectSections(files);
-  assert.deepEqual(groups.map(group=>group.category),['工作','个人','未分类','']);
-  assert.deepEqual(groups[0].files,[files[1],files[3]]);
-  assert.deepEqual(groups[3].files,[files[0],files[4]]);
+  assert.deepEqual(groups.map(group=>group.category),['个人','工作','未分类','']);
+  assert.deepEqual(groups[1].files,[files[1],files[3]]);
+  assert.deepEqual(groups[3].files,[files[4],files[0]]);
   assert.deepEqual(projectSections([]),[]);
 });
 

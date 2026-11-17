@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
-  console.log('用法: node scripts/test-today-region-order.cjs\n验证今天分区和项目排序、普通任务固定在下方、新增项追加、失效记录延迟清理，以及确认、取消、恢复默认和保存失败。');
+  console.log('用法: node scripts/test-region-order.cjs\n验证今天分区和项目排序、普通任务固定在下方、新增项追加、失效记录延迟清理，以及确认、取消、恢复默认和保存失败。');
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
@@ -12,15 +12,15 @@ function load(file, mocks = {}, sheet = false) {
   let source = fs.readFileSync('entry/src/main/ets/' + file + '.ets', 'utf8');
   if (sheet) source = source.split('  @Builder')[0] + '}';
   source = source.replace(/^@Component\n/gm, '').replace(/^  @(State|Prop|Link) /gm, '  ')
-    .replace('export struct TodayRegionOrderSheet', 'export class TodayRegionOrderSheet');
+    .replace('export struct RegionOrderSheet', 'export class RegionOrderSheet');
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText + '\n})')(name => { assert.ok(name in mocks, name); return mocks[name]; }, module, module.exports);
   return module.exports;
 }
-const p = load('ui/TodayRegionOrderPresentation');
-const projectKey = p.todayOrderProjectKey;
+const p = load('ui/RegionOrderPresentation');
+const projectKey = p.orderProjectKey;
 function file(path, category, project, repoId = 'repo') {
   return { repoId, path, category, project: () => project, isIgnore: false };
 }
@@ -35,7 +35,7 @@ function layout() {
       {key:'a',project:'项目甲',items:[{task:a}]}]}] };
 }
 function catalog() {
-  return p.todayOrderCatalog([file('a.org','工作','项目甲'),file('b.org','工作','项目乙'),
+  return p.regionOrderCatalog([file('a.org','工作','项目甲'),file('b.org','工作','项目乙'),
     file('empty.org','生活','空项目'),file('uncategorized.org',null,null),file('literal.org','未分类',null)],layout());
 }
 test('目录覆盖无今日任务的已知项目，缺失分类与字面未分类身份独立，忽略文件不进入编辑目录',()=>{
@@ -44,19 +44,19 @@ test('目录覆盖无今日任务的已知项目，缺失分类与字面未分�
   assert.ok(result.some(r=>r.key==='uncategorized'));
   assert.ok(result.some(r=>r.key==='category:未分类'));
   const ignored=file('ignored.org','隐藏','隐藏项目');ignored.isIgnore=true;
-  assert.ok(!p.todayOrderCatalog([ignored],{timedItems:[],sections:[]}).some(r=>r.key==='category:隐藏'));
+  assert.ok(!p.regionOrderCatalog([ignored],{timedItems:[],sections:[]}).some(r=>r.key==='category:隐藏'));
 });
 
 test('任务快照中的特殊文件不能重新引入已排除的分类或项目，同名普通文件按仓库保留',()=>{
   const input=layout();
-  const result=p.todayOrderCatalog([file('b.org','工作','项目乙')],input);
+  const result=p.regionOrderCatalog([file('b.org','工作','项目乙')],input);
   assert.deepEqual(result[0].projects.map(project=>project.key),[projectKey('repo','b.org')]);
   assert.equal(result[0].taskCount,1);
-  assert.deepEqual(p.todayOrderCatalog([],input),[]);
+  assert.deepEqual(p.regionOrderCatalog([],input),[]);
   const another=task('other','工作','同名项目','a.org','other');
   input.sections[0].groups.push({key:'other',project:'同名项目',items:[{task:another}]});
   input.sections[0].items.push({task:another});
-  const sameName=p.todayOrderCatalog([file('a.org','工作','同名项目','other')],input);
+  const sameName=p.regionOrderCatalog([file('a.org','工作','同名项目','other')],input);
   assert.deepEqual(sameName[0].projects.map(project=>project.key),[projectKey('other','a.org')]);
   assert.equal(sameName[0].taskCount,1);
 });
@@ -68,24 +68,24 @@ test('日程固定置顶且不进入排序目录，旧配置不能移动日程�
   assert.equal(result[0].items,input.sections[0].items);
   assert.deepEqual(p.todayVisibleRegionKeys(result,true,order),['schedule','category:工作']);
   assert.ok(!catalog().some(region=>region.key==='schedule'));
-  const saved=p.todayOrderFromDraft([{key:'schedule',title:'日程',projects:[],taskCount:1},...catalog()],catalog());
+  const saved=p.regionOrderFromDraft([{key:'schedule',title:'日程',projects:[],taskCount:1},...catalog()],catalog());
   assert.ok(!saved.regions.includes('schedule'));
 });
 test('新增分类和项目追加到对应层级末尾，展示与目录读取保留已保存的失效记录',()=>{
   const order={version:1,regions:['category:失效','category:生活','schedule'],projects:[{region:'category:工作',keys:['失效项目',projectKey('repo','b.org')]}]};
-  const before=JSON.stringify(order), result=p.orderedTodayCatalog(catalog(),order);
+  const before=JSON.stringify(order), result=p.orderedRegionCatalog(catalog(),order);
   assert.equal(result[0].key,'category:生活');
   assert.ok(!result.some(region=>region.key==='schedule'));
   assert.deepEqual(result.find(r=>r.key==='category:工作').projects.map(p=>p.key),[projectKey('repo','b.org'),projectKey('repo','a.org')]);
   assert.equal(JSON.stringify(order),before);
   const restored={...catalog()[1],key:'category:失效'};
-  assert.equal(p.orderedTodayCatalog([...catalog(),restored],order)[0].key,'category:失效');
+  assert.equal(p.orderedRegionCatalog([...catalog(),restored],order)[0].key,'category:失效');
 });
 test('再次确认编辑才清理失效项，无今日任务项目仍保留，编辑期间新项追加末尾',()=>{
   const order={version:1,regions:['category:旧','category:生活'],projects:[{region:'category:旧',keys:['gone']},{region:'category:工作',keys:['gone',projectKey('repo','b.org')]}]};
-  const draft=p.orderedTodayCatalog(catalog(),order),current=catalog();
+  const draft=p.orderedRegionCatalog(catalog(),order),current=catalog();
   current.find(r=>r.key==='category:工作').projects.push({key:projectKey('repo','new.org'),title:'新增项目',taskCount:0});
-  const saved=p.todayOrderFromDraft(draft,current);
+  const saved=p.regionOrderFromDraft(draft,current);
   assert.ok(!saved.regions.includes('category:旧'));
   assert.ok(!JSON.stringify(saved).includes('gone'));
   assert.ok(JSON.stringify(saved).includes('empty.org'));
@@ -96,7 +96,7 @@ test('同名项目按仓库文件区分，项目改名保留顺序身份',()=>{
   l.sections[0].groups[1].project='改名';
   const order={version:1,regions:[],projects:[{region:'category:工作',keys:[projectKey('repo','b.org')]}]};
   assert.equal(p.orderTodaySections(l.sections,order)[0].groups[0].project,'改名');
-  const cat=p.todayOrderCatalog([file('a.org','工作','同名','one'),file('a.org','工作','同名','two')],{sections:[],timedItems:[]});
+  const cat=p.regionOrderCatalog([file('a.org','工作','同名','one'),file('a.org','工作','同名','two')],{sections:[],timedItems:[]});
   assert.equal(new Set(cat[0].projects.map(p=>p.key)).size,2);
 });
 function storageFixture() {
@@ -104,34 +104,46 @@ function storageFixture() {
   const memory=new Map([['repos','原仓库配置']]),disk=new Map(memory),writes=[];
   const store={async get(key,fallback){return memory.get(key)??fallback;},async put(key,value){writes.push(['put',key]);memory.set(key,value);},
     async delete(key){writes.push(['delete',key]);memory.delete(key);},async flush(){if(hold)await hold;if(failFlush){failFlush--;throw new Error('磁盘写入失败');}disk.clear();for(const [key,value] of memory)disk.set(key,value);}};
-  const {TodayRegionOrderService:service}=load('services/TodayRegionOrderService',{
+  const {RegionOrderService:service}=load('services/RegionOrderService',{
     './AppConfigService':{APP_CONFIG_PREFERENCES:'org_tasks_config'},'./PreferencesStore':{PreferencesStore:{async open(_,name){assert.equal(name,'org_tasks_config');return store;}}}
   });
   return {service,memory,disk,writes,fail(){failFlush=1;},hold(p){hold=p;}};
 }
 test('排序单键落盘并跨读取恢复，恢复默认删除该键，仓库配置保持原值',async()=>{
-  const f=storageFixture(),order=p.todayOrderFromDraft(catalog(),catalog());
+  const f=storageFixture(),order=p.regionOrderFromDraft(catalog(),catalog());
   assert.equal(await f.service.load({}),null);
   await f.service.save({},order);
   assert.deepEqual(await f.service.load({}),order);
   assert.equal(f.disk.get('repos'),'原仓库配置');
-  assert.deepEqual([...new Set(f.writes.map(w=>w[1]))],['todayRegionOrder']);
+  assert.deepEqual([...new Set(f.writes.map(w=>w[1]))],['regionOrder']);
   await f.service.save({},null);
-  assert.ok(!f.disk.has('todayRegionOrder'));
+  assert.ok(!f.disk.has('regionOrder'));
 });
 test('写盘失败拒绝保存并恢复旧值，后续重试成功；损坏配置不被自动覆盖',async()=>{
-  const f=storageFixture(),before={version:1,regions:['schedule'],projects:[]},after=p.todayOrderFromDraft(catalog(),catalog());
+  const f=storageFixture(),before={version:1,regions:['schedule'],projects:[]},after=p.regionOrderFromDraft(catalog(),catalog());
   await f.service.save({},before);f.fail();
   await assert.rejects(f.service.save({},after),/磁盘写入失败/);
   assert.deepEqual(await f.service.load({}),before);
   await f.service.save({},after);assert.deepEqual(await f.service.load({}),after);
-  f.memory.set('todayRegionOrder','{bad');
+  f.memory.set('regionOrder','{bad');
   await assert.rejects(f.service.load({}),/无法读取/);
-  assert.equal(f.memory.get('todayRegionOrder'),'{bad');
+  assert.equal(f.memory.get('regionOrder'),'{bad');
+});
+
+test('旧参数不被读取或迁移，保存成功后才通知共享顺序，失败不发布',async()=>{
+  const f=storageFixture(),order=p.regionOrderFromDraft(catalog(),catalog()),events=[];
+  f.memory.set('todayRegionOrder',JSON.stringify(order));
+  assert.equal(await f.service.load({}),null);assert.equal(f.writes.length,0);
+  const changed=value=>events.push(value);f.service.watchChanges(changed);
+  f.fail();await assert.rejects(f.service.save({},order),/磁盘写入失败/);assert.equal(events.length,0);
+  await f.service.save({},order);assert.deepEqual(events,[order]);
+  await f.service.save({},null);assert.deepEqual(events,[order,null]);
+  assert.equal(await f.service.load({}),null);
+  f.service.stopWatchingChanges(changed);await f.service.save({},order);assert.equal(events.length,2);
 });
 function sheetFixture() {
-  const {TodayRegionOrderSheet:Sheet}=load('components/editors/TodayRegionOrderSheet',{
-    '../../ui/TodayRegionOrderPresentation':p,'../../services/NativeCoreService':{coreErrorMessage:e=>e.message}
+  const {RegionOrderSheet:Sheet}=load('components/editors/RegionOrderSheet',{
+    '../../ui/RegionOrderPresentation':p,'../../services/NativeCoreService':{coreErrorMessage:e=>e.message}
   },true);
   const sheet=new Sheet(),writes=[],dialogs=[];
   sheet.catalog=catalog();sheet.initialOrder=null;sheet.visible=true;sheet.busy=false;

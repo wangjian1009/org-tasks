@@ -1,21 +1,21 @@
-import { TodayRegionOrder, TodayProjectOrder, TodayOrderRegion, TodayOrderProject, orderedTodayCatalog } from '../../ui/TodayRegionOrderPresentation'
+import { RegionOrder, ProjectOrder, OrderRegion, OrderProject, orderedRegionCatalog } from '../../ui/RegionOrderPresentation'
 import { coreErrorMessage, CoreBridgeError } from '../../services/NativeCoreService'
 import { UiColor } from '../../ui/Theme'
 
-export class TodayRegionOrderSheetController {
+export class RegionOrderSheetController {
   requestClose: () => void = () => {}
 }
 
 @Component
-export struct TodayRegionOrderSheet {
-  @Prop catalog: TodayOrderRegion[] = []
-  @Prop initialOrder: TodayRegionOrder | null = null
+export struct RegionOrderSheet {
+  @Prop catalog: OrderRegion[] = []
+  @Prop initialOrder: RegionOrder | null = null
   @Prop readError: string = ''
   @Link visible: boolean
   @Link busy: boolean
-  controller: TodayRegionOrderSheetController = new TodayRegionOrderSheetController()
-  save: (draft: TodayOrderRegion[], reset: boolean) => Promise<void> = async () => {}
-  @State draft: TodayOrderRegion[] = []
+  controller: RegionOrderSheetController = new RegionOrderSheetController()
+  save: (draft: OrderRegion[], reset: boolean) => Promise<void> = async () => {}
+  @State draft: OrderRegion[] = []
   @State expanded: string[] = []
   @State resetDraft: boolean = false
   @State readErrorCleared: boolean = false
@@ -23,7 +23,7 @@ export struct TodayRegionOrderSheet {
   private original: string = ''
 
   aboutToAppear(): void {
-    this.draft = orderedTodayCatalog(this.catalog, this.initialOrder)
+    this.draft = orderedRegionCatalog(this.catalog, this.initialOrder)
     this.original = this.signature()
     this.controller.requestClose = (): void => { this.cancel() }
   }
@@ -31,7 +31,7 @@ export struct TodayRegionOrderSheet {
   aboutToDisappear(): void { this.controller.requestClose = (): void => {} }
 
   private signature(): string {
-    return JSON.stringify(this.draft.map((region): TodayProjectOrder => ({ region: region.key, keys: region.projects.map(project => project.key) })))
+    return JSON.stringify(this.draft.map((region): ProjectOrder => ({ region: region.key, keys: region.projects.map(project => project.key) })))
   }
 
   cancel(): void {
@@ -43,7 +43,7 @@ export struct TodayRegionOrderSheet {
     } else this.visible = false
   }
 
-  toggle(region: TodayOrderRegion): void {
+  toggle(region: OrderRegion): void {
     if (this.busy || region.projects.length === 0) return
     this.expanded = this.expanded.includes(region.key) ? this.expanded.filter(key => key !== region.key) : this.expanded.concat(region.key)
   }
@@ -66,7 +66,7 @@ export struct TodayRegionOrderSheet {
 
   restoreDefaults(): void {
     if (this.busy) return
-    this.draft = orderedTodayCatalog(this.catalog, null)
+    this.draft = orderedRegionCatalog(this.catalog, null)
     this.resetDraft = true
     this.readErrorCleared = true
     this.message = ''
@@ -87,7 +87,7 @@ export struct TodayRegionOrderSheet {
   }
 
   @Builder
-  regionHeader(region: TodayOrderRegion) {
+  regionHeader(region: OrderRegion) {
     Row({ space: 8 }) {
       if (region.projects.length > 0) {
         Text(this.expanded.includes(region.key) ? '⌄' : '›').fontSize(22).fontColor(UiColor.secondary).width(20).textAlign(TextAlign.Center)
@@ -96,26 +96,26 @@ export struct TodayRegionOrderSheet {
       Text(region.title).fontSize(16).fontColor(UiColor.text).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       if (region.taskCount === 0) { Text('暂无任务').fontSize(12).fontColor(UiColor.secondary) }
       this.handle(region.title)
-    }.id(`today_order_region:${region.key}`).height(56).width('100%')
+    }.id(`region_order_region:${region.key}`).height(56).width('100%')
       .onClick((): void => { this.toggle(region) })
   }
 
   @Builder
-  projectRow(project: TodayOrderProject) {
+  projectRow(project: OrderProject) {
     Row({ space: 8 }) {
       Text(project.title).fontSize(15).fontColor(UiColor.text).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       if (project.taskCount === 0) { Text('暂无任务').fontSize(12).fontColor(UiColor.secondary) }
       this.handle(project.title)
-    }.id(`today_order_project:${project.key}`).height(48).width('100%').padding({ left: 56 })
+    }.id(`region_order_project:${project.key}`).height(48).width('100%').padding({ left: 56 })
   }
 
   build() {
     Column() {
       Row() {
-        Button('取消').id('today_order_cancel').fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+        Button('取消').id('region_order_cancel').fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.busy).onClick((): void => { this.cancel() })
         Text('调整分区顺序').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1).textAlign(TextAlign.Center)
-        Button(this.busy ? '保存中' : '完成').id('today_order_done').fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        Button(this.busy ? '保存中' : '完成').id('region_order_done').fontColor(UiColor.primary).backgroundColor(Color.Transparent)
           .enabled(!this.busy && (!this.readError || this.readErrorCleared)).onClick((): void => { this.confirm() })
       }.height(56).width('100%')
       Text('长按拖动分类与项目；日程固定置顶，普通任务固定在项目下方。')
@@ -124,27 +124,27 @@ export struct TodayRegionOrderSheet {
         Text(this.message || this.readError).fontSize(13).fontColor(UiColor.error).padding(12).width('100%')
       }
       List() {
-        ForEach(this.draft, (region: TodayOrderRegion) => {
+        ForEach(this.draft, (region: OrderRegion) => {
           ListItem() {
             Column() {
               this.regionHeader(region)
               if (this.expanded.includes(region.key) && region.projects.length > 0) {
                 List() {
-                  ForEach(region.projects, (project: TodayOrderProject) => {
+                  ForEach(region.projects, (project: OrderProject) => {
                     ListItem() { this.projectRow(project) }
-                  }, (project: TodayOrderProject) => project.key)
+                  }, (project: OrderProject) => project.key)
                     .onMove((from: number, to: number): void => { this.moveProject(region.key, from, to) })
                 }.height(region.projects.length * 48).width('100%').enableScrollInteraction(false).scrollBar(BarState.Off)
               }
               Divider().color(UiColor.outline).strokeWidth(0.5)
             }.width('100%')
           }
-        }, (region: TodayOrderRegion) => region.key)
+        }, (region: OrderRegion) => region.key)
           .onMove((from: number, to: number): void => { this.moveRegion(from, to) },
             { onDragStart: (_index: number): void => { this.expanded = [] } })
-      }.id('today_order_list').layoutWeight(1).width('100%').padding({ left: 12, right: 12 })
+      }.id('region_order_list').layoutWeight(1).width('100%').padding({ left: 12, right: 12 })
         .enabled(!this.busy).edgeEffect(EdgeEffect.None).scrollBar(BarState.Off)
-      Button('恢复默认顺序').id('today_order_reset').height(48).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+      Button('恢复默认顺序').id('region_order_reset').height(48).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
         .enabled(!this.busy).onClick((): void => { this.restoreDefaults() })
     }.width('100%').height('100%').padding({ bottom: 16 }).backgroundColor(UiColor.container)
   }

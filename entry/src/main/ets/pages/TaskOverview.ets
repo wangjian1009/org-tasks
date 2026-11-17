@@ -18,10 +18,10 @@ import { PlannedTaskList } from '../components/PlannedTaskList'
 import { RegionProjectFilter } from '../components/RegionProjectFilter'
 import { LogbookTaskList } from '../components/LogbookTaskList'
 import { TaskTagFilter } from '../components/TaskTagFilter'
-import { TodayRegionOrderSheet, TodayRegionOrderSheetController } from '../components/editors/TodayRegionOrderSheet'
+import { RegionOrderSheet, RegionOrderSheetController } from '../components/editors/RegionOrderSheet'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
-import { TodayRegionOrderService } from '../services/TodayRegionOrderService'
-import { TodayRegionOrder, TodayOrderRegion, todayOrderCatalog, todayOrderFromDraft, orderTodaySections, todayVisibleRegionKeys } from '../ui/TodayRegionOrderPresentation'
+import { RegionOrderService } from '../services/RegionOrderService'
+import { RegionOrder, OrderRegion, regionOrderCatalog, regionOrderFromDraft, orderTodaySections, todayVisibleRegionKeys } from '../ui/RegionOrderPresentation'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
 import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
@@ -63,14 +63,14 @@ struct TaskOverview {
   @State sections: TodaySection[] = []
   @State timedItems: TodayTimedTaskItem[] = []
   @State todayRegionKeys: string[] = []
-  @State orderCatalog: TodayOrderRegion[] = []
-  @State todayOrder: TodayRegionOrder | null = null
+  @State orderCatalog: OrderRegion[] = []
+  @State regionOrder: RegionOrder | null = null
   @State orderSheetOpen: boolean = false
   @State orderSaving: boolean = false
   @State orderReadError: string = ''
   private orderLoaded: boolean = false
   private orderActive: boolean = false
-  private orderController: TodayRegionOrderSheetController = new TodayRegionOrderSheetController()
+  private orderController: RegionOrderSheetController = new RegionOrderSheetController()
   @State planGroups: PlannedGroup[] = []
   @State planRegionOptions: TaskRegionData[] = []
   @State selectedPlanRegion: TaskRegionData | null = null
@@ -88,7 +88,7 @@ struct TaskOverview {
     this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view ||
       (this.entryView === 'memo' ? 'memo' : 'today')
     this.orderActive = true
-    if (this.view === 'today') this.loadTodayOrder()
+    if (this.view === 'today') this.loadRegionOrder()
     this.loadTasks()
   }
 
@@ -156,16 +156,16 @@ struct TaskOverview {
     const layout = this.view === 'today' ? todayLayout(this.visibleTasks, this.priorityOrder, new Date(this.referenceTime)) : null
     const keyOf = (task: CoreTask): string => this.taskDataSet().taskKey(task.id) ?? task.id
     if (!layout || !this.dataManager || !sameTodayTimedItems(this.timedItems, layout.timedItems, keyOf)) this.timedItems = layout?.timedItems ?? []
-    const sections = layout ? orderTodaySections(layout.sections, this.todayOrder) : ((this.view === 'anytime' || this.view === 'waiting') ? anytimeSections(this.visibleTasks) : [])
+    const sections = layout ? orderTodaySections(layout.sections, this.regionOrder) : ((this.view === 'anytime' || this.view === 'waiting') ? anytimeSections(this.visibleTasks) : [])
     if (!this.dataManager || !sameTodaySections(this.sections, sections, keyOf)) this.sections = sections
-    if (layout) this.todayRegionKeys = todayVisibleRegionKeys(sections, layout.timedItems.length > 0, this.todayOrder)
+    if (layout) this.todayRegionKeys = todayVisibleRegionKeys(sections, layout.timedItems.length > 0, this.regionOrder)
   }
 
-  async loadTodayOrder(): Promise<void> {
+  async loadRegionOrder(): Promise<void> {
     try {
-      const order = await TodayRegionOrderService.load(this.getUIContext().getHostContext()!)
+      const order = await RegionOrderService.load(this.getUIContext().getHostContext()!)
       if (!this.orderActive) return
-      this.todayOrder = order; this.orderReadError = ''; this.orderLoaded = true
+      this.regionOrder = order; this.orderReadError = ''; this.orderLoaded = true
       this.applyPageSnapshot()
     } catch (error) {
       if (this.orderActive) { this.orderReadError = coreErrorMessage(error as CoreBridgeError); this.orderLoaded = false }
@@ -174,12 +174,12 @@ struct TaskOverview {
 
   todayActions(): PopupMenuItem[] {
     return this.view === 'today' ? [{ title: '调整分区顺序', disabled: !this.pageReady,
-      action: (): void => { this.openTodayOrder() } }] : []
+      action: (): void => { this.openRegionOrder() } }] : []
   }
 
-  async openTodayOrder(): Promise<void> {
+  async openRegionOrder(): Promise<void> {
     if (this.orderSheetOpen || this.orderSaving || !this.pageReady || !await TaskInlineSession.end(true)) return
-    if (!this.orderLoaded) await this.loadTodayOrder()
+    if (!this.orderLoaded) await this.loadRegionOrder()
     if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) {
       try { this.getUIContext().getPromptAction().showToast({ message: '分类与项目尚未读取完成，请稍后重试' }) }
       catch (_) { console.error('显示分区读取提示失败') }
@@ -189,20 +189,20 @@ struct TaskOverview {
     this.orderSheetOpen = true
   }
 
-  async saveTodayOrder(draft: TodayOrderRegion[], reset: boolean): Promise<void> {
+  async saveRegionOrder(draft: OrderRegion[], reset: boolean): Promise<void> {
     if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) throw new Error('分类与项目尚未读取完成，请稍后重试')
-    const order = reset ? null : todayOrderFromDraft(draft, this.orderCatalog)
-    await TodayRegionOrderService.save(this.getUIContext().getHostContext()!, order)
+    const order = reset ? null : regionOrderFromDraft(draft, this.orderCatalog)
+    await RegionOrderService.save(this.getUIContext().getHostContext()!, order)
     if (!this.orderActive) return
-    this.todayOrder = order; this.orderReadError = ''; this.orderLoaded = true
+    this.regionOrder = order; this.orderReadError = ''; this.orderLoaded = true
     this.applyPageSnapshot()
   }
 
   @Builder
-  todayOrderSheet() {
-    TodayRegionOrderSheet({ catalog: this.orderCatalog, initialOrder: this.todayOrder, readError: this.orderReadError,
+  regionOrderSheet() {
+    RegionOrderSheet({ catalog: this.orderCatalog, initialOrder: this.regionOrder, readError: this.orderReadError,
       visible: $orderSheetOpen, busy: $orderSaving, controller: this.orderController,
-      save: async (draft: TodayOrderRegion[], reset: boolean): Promise<void> => { await this.saveTodayOrder(draft, reset) } })
+      save: async (draft: OrderRegion[], reset: boolean): Promise<void> => { await this.saveRegionOrder(draft, reset) } })
   }
 
   defineDataSets(config: AppConfig, view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
@@ -298,7 +298,7 @@ struct TaskOverview {
     this.tasks = data?.type === 'task' ? data.result.tasks : []
     if (this.view === 'today') {
       const files = this.orderFilesDataSet?.data
-      this.orderCatalog = todayOrderCatalog(files?.type === 'file' ? files.result : [], todayLayout(this.tasks, this.priorityOrder, new Date(this.referenceTime)))
+      this.orderCatalog = regionOrderCatalog(files?.type === 'file' ? files.result : [], todayLayout(this.tasks, this.priorityOrder, new Date(this.referenceTime)))
     }
     this.tagGroups = this.view === 'memo' ? file?.tagGroups ?? [] : []
     this.tagOptions = this.supportsTagFilter() ? taskTagOptions(this.tasks, this.view === 'memo' ? file?.tagOptions ?? [] : []) : []
@@ -425,7 +425,7 @@ struct TaskOverview {
           })
       }
     }.width('100%').height('100%')
-      .bindSheet($$this.orderSheetOpen, this.todayOrderSheet, {
+      .bindSheet($$this.orderSheetOpen, this.regionOrderSheet, {
         height: '80%', detents: ['80%', '95%'], preferType: SheetType.BOTTOM,
         backgroundColor: UiColor.container, showClose: false,
         onWillDismiss: (_action): void => { this.orderController.requestClose() }

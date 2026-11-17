@@ -1,6 +1,7 @@
 import { AppConfig } from '../models/OrgTask'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
 import { CoreOrgFileMetadata, CoreTaskStateCount } from '../services/NativeCoreService'
+import { RegionOrder, orderedKeys, orderProjectKey, orderRegionKey } from './RegionOrderPresentation'
 
 export function fileTaskCount(file: CoreOrgFileMetadata): number {
   return file.taskStateCounts.reduce((total: number, item: CoreTaskStateCount): number => total + item.count, 0)
@@ -21,7 +22,7 @@ export interface ProjectSection {
 }
 
 // 仅组织 Core 已筛选的项目结果；同名项目保持各自真实文件身份。
-export function projectSections(files: CoreOrgFileMetadata[]): ProjectSection[] {
+export function projectSections(files: CoreOrgFileMetadata[], order: RegionOrder | null = null): ProjectSection[] {
   const sections: ProjectSection[] = []
   for (const file of files) {
     const category = file.category || ''
@@ -29,8 +30,17 @@ export function projectSections(files: CoreOrgFileMetadata[]): ProjectSection[] 
     if (!section) { section = { category, files: [] }; sections.push(section) }
     section.files.push(file)
   }
-  return sections.filter((item: ProjectSection): boolean => item.category.length > 0)
-    .concat(sections.filter((item: ProjectSection): boolean => item.category.length === 0))
+  const compareName = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
+  const defaults = sections.filter(item => item.category.length > 0).sort((left, right) => compareName(left.category, right.category))
+    .concat(sections.filter(item => item.category.length === 0))
+  return orderedKeys(defaults.map(section => orderRegionKey(section.category)), order?.regions ?? []).map((key): ProjectSection => {
+    const section = defaults.find(item => orderRegionKey(item.category) === key)!
+    const projects = section.files.slice().sort((left, right) => compareName(left.project() || '', right.project() || '') ||
+      compareName(orderProjectKey(left.repoId, left.path), orderProjectKey(right.repoId, right.path)))
+    const projectKeys = orderedKeys(projects.map(file => orderProjectKey(file.repoId, file.path)),
+      order?.projects.find(item => item.region === key)?.keys ?? [])
+    return { category: section.category, files: projectKeys.map(id => projects.find(file => orderProjectKey(file.repoId, file.path) === id)!) }
+  })
 }
 
 export function fileSizeLabel(bytes: number): string {

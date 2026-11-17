@@ -312,7 +312,7 @@ DataSet 不提供 document、getFile 或完整文件事件，不再有文件确�
 
 侧边栏全部数据由 SidebarDataManager 管理。AppShell 只订阅只读快照并展示计数、今天关注徽标、入口状态与项目分组；打开抽屉只启动管理对象，不执行 Core 查询，不通过底层版本变化刷新导航。页面正文与侧边栏分别由各自管理对象维护，AppShell 不参与任何正文刷新。文件入口导航前的配置有效性检查也经管理对象完成。
 
-管理对象以一个 CoreQuery 批次读取九项任务计数、完整项目文件列表、三个入口文件状态与共享通知。项目查询始终为全范围的 ~FileQuery { isProject: true }~ ，不按缓存项目或已显示文件收窄；项目身份、忽略规则和成员资格仍由 Core 判定。通知由 PageQueryService 交给应用共享 NotificationManager，不在侧边栏建立第二份通知状态。
+管理对象以一个 CoreQuery 批次读取任务入口及废纸篓计数、完整项目文件列表、三个入口文件状态与共享通知。废纸篓查询精确包含系统仓库的 trash.org，使用与列表相同的 .o.deleted 表达式，计数纳入缓存版本、失效重读和失败保留，不另发查询。项目查询始终为全范围的 ~FileQuery { isProject: true }~ ，不按缓存项目或已显示文件收窄；项目身份、忽略规则和成员资格仍由 Core 判定。通知由 PageQueryService 交给应用共享 NotificationManager，不在侧边栏建立第二份通知状态。AppShell 从 RegionOrderService 读取共享 regionOrder，保存通知只对已有项目快照重新分组排序，不重建侧边栏数据查询；退出时解除偏好监听，迟到读取不得覆盖新保存顺序。
 
 确认后的全部查询结果通过 PageDataCache 存在 ~filesDir/page-data/v1/sidebar.json~ 。缓存范围包含仓库身份、目录、排除目录、TODO 默认配置、Core 设置与完整查询定义，不含凭据。恢复时发布版本 0，首次读取发布版本 1，后续成功刷新递增；缓存读取失败继续完整查询。配置范围改变时清除旧范围展示，重新匹配缓存和查询。
 

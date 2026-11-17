@@ -1,47 +1,47 @@
 import { CoreOrgFileMetadata } from '../services/NativeCoreService'
 import { TodayLayout, TodaySection, TodayTaskGroup } from './TodayPresentation'
 
-export interface TodayProjectOrder { region: string; keys: string[] }
-export interface TodayRegionOrder { version: number; regions: string[]; projects: TodayProjectOrder[] }
-export interface TodayOrderProject { key: string; title: string; taskCount: number }
-export interface TodayOrderRegion {
+export interface ProjectOrder { region: string; keys: string[] }
+export interface RegionOrder { version: number; regions: string[]; projects: ProjectOrder[] }
+export interface OrderProject { key: string; title: string; taskCount: number }
+export interface OrderRegion {
   key: string
   title: string
   taskCount: number
-  projects: TodayOrderProject[]
+  projects: OrderProject[]
 }
 
-export function todayOrderProjectKey(repoId: string, filePath: string): string {
+export function orderProjectKey(repoId: string, filePath: string): string {
   return JSON.stringify([repoId, filePath])
 }
 
-function categoryKey(category: string | null): string { return category ? `category:${category}` : 'uncategorized' }
+export function orderRegionKey(category: string | null): string { return category ? `category:${category}` : 'uncategorized' }
 
 function compareName(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0 }
 
 // 已知文件定义有效分类与项目；今天没有任务不代表排序项失效。
-export function todayOrderCatalog(files: CoreOrgFileMetadata[], layout: TodayLayout): TodayOrderRegion[] {
-  const regions = new Map<string, TodayOrderRegion>()
+export function regionOrderCatalog(files: CoreOrgFileMetadata[], layout: TodayLayout): OrderRegion[] {
+  const regions = new Map<string, OrderRegion>()
   const allowedFiles = new Set<string>()
-  const ensure = (key: string, title: string): TodayOrderRegion => {
+  const ensure = (key: string, title: string): OrderRegion => {
     let region = regions.get(key)
     if (!region) { region = { key, title, taskCount: 0, projects: [] }; regions.set(key, region) }
     return region
   }
   for (const file of files) {
     if (file.isIgnore) continue
-    allowedFiles.add(todayOrderProjectKey(file.repoId, file.path))
-    const region = ensure(categoryKey(file.category), file.category || '未分类')
+    allowedFiles.add(orderProjectKey(file.repoId, file.path))
+    const region = ensure(orderRegionKey(file.category), file.category || '未分类')
     const project = file.project()
-    if (project !== null) region.projects.push({ key: todayOrderProjectKey(file.repoId, file.path), title: project || '未命名项目', taskCount: 0 })
+    if (project !== null) region.projects.push({ key: orderProjectKey(file.repoId, file.path), title: project || '未命名项目', taskCount: 0 })
   }
   for (const section of layout.sections) {
     const region = regions.get(section.key)
     if (!region) continue
-    region.taskCount = section.items.filter(item => allowedFiles.has(todayOrderProjectKey(item.task.repoId, item.task.filePath))).length
+    region.taskCount = section.items.filter(item => allowedFiles.has(orderProjectKey(item.task.repoId, item.task.filePath))).length
     for (const group of section.groups) {
       if (group.project === null) continue
-      const task = group.items[0].task, key = todayOrderProjectKey(task.repoId, task.filePath)
+      const task = group.items[0].task, key = orderProjectKey(task.repoId, task.filePath)
       const project = region.projects.find(item => item.key === key)
       if (project) project.taskCount = group.items.length
     }
@@ -55,15 +55,15 @@ export function todayOrderCatalog(files: CoreOrgFileMetadata[], layout: TodayLay
   return result
 }
 
-function orderedKeys(available: string[], saved: string[]): string[] {
+export function orderedKeys(available: string[], saved: string[]): string[] {
   const result = saved.filter((key, index) => available.includes(key) && saved.indexOf(key) === index)
   for (const key of available) if (!result.includes(key)) result.push(key)
   return result
 }
 
 // 读取和日常展示只比较位置；失效项不从已保存配置中删除。
-export function orderedTodayCatalog(catalog: TodayOrderRegion[], order: TodayRegionOrder | null): TodayOrderRegion[] {
-  return orderedKeys(catalog.filter(region => region.key !== 'schedule').map(region => region.key), order?.regions ?? []).map((key): TodayOrderRegion => {
+export function orderedRegionCatalog(catalog: OrderRegion[], order: RegionOrder | null): OrderRegion[] {
+  return orderedKeys(catalog.filter(region => region.key !== 'schedule').map(region => region.key), order?.regions ?? []).map((key): OrderRegion => {
     const region = catalog.find(item => item.key === key)!
     const projects = orderedKeys(region.projects.map(project => project.key), order?.projects.find(item => item.region === key)?.keys ?? [])
     return { key, title: region.title, taskCount: region.taskCount,
@@ -72,21 +72,21 @@ export function orderedTodayCatalog(catalog: TodayOrderRegion[], order: TodayReg
 }
 
 // 仅在确认编辑时由完整有效目录生成新配置，统一清理失效项并登记新增项。
-export function todayOrderFromDraft(draft: TodayOrderRegion[], current: TodayOrderRegion[]): TodayRegionOrder {
-  const draftOrder: TodayRegionOrder = { version: 1, regions: draft.map(region => region.key),
-    projects: draft.map((region): TodayProjectOrder => ({ region: region.key, keys: region.projects.map(project => project.key) })) }
-  const valid = orderedTodayCatalog(current, draftOrder)
+export function regionOrderFromDraft(draft: OrderRegion[], current: OrderRegion[]): RegionOrder {
+  const draftOrder: RegionOrder = { version: 1, regions: draft.map(region => region.key),
+    projects: draft.map((region): ProjectOrder => ({ region: region.key, keys: region.projects.map(project => project.key) })) }
+  const valid = orderedRegionCatalog(current, draftOrder)
   return { version: 1, regions: valid.map(region => region.key),
-    projects: valid.filter(region => region.projects.length > 0).map((region): TodayProjectOrder => ({ region: region.key, keys: region.projects.map(project => project.key) })) }
+    projects: valid.filter(region => region.projects.length > 0).map((region): ProjectOrder => ({ region: region.key, keys: region.projects.map(project => project.key) })) }
 }
 
-export function orderTodaySections(sections: TodaySection[], order: TodayRegionOrder | null): TodaySection[] {
+export function orderTodaySections(sections: TodaySection[], order: RegionOrder | null): TodaySection[] {
   const keys = orderedKeys(sections.map(section => section.key), order?.regions ?? [])
   return keys.map((key): TodaySection => {
     const section = sections.find(item => item.key === key)!
     const projects = section.groups.filter(group => group.project !== null).sort((left, right) =>
       compareName(left.project || '', right.project || '') || compareName(left.key, right.key))
-    const projectKey = (group: TodayTaskGroup): string => todayOrderProjectKey(group.items[0].task.repoId, group.items[0].task.filePath)
+    const projectKey = (group: TodayTaskGroup): string => orderProjectKey(group.items[0].task.repoId, group.items[0].task.filePath)
     const projectKeys = orderedKeys(projects.map(projectKey), order?.projects.find(item => item.region === key)?.keys ?? [])
     return { key: section.key, category: section.category, items: section.items,
       groups: projectKeys.map(id => projects.find(group => projectKey(group) === id)!)
@@ -94,7 +94,7 @@ export function orderTodaySections(sections: TodaySection[], order: TodayRegionO
   })
 }
 
-export function todayVisibleRegionKeys(sections: TodaySection[], hasSchedule: boolean, order: TodayRegionOrder | null): string[] {
+export function todayVisibleRegionKeys(sections: TodaySection[], hasSchedule: boolean, order: RegionOrder | null): string[] {
   const keys = orderedKeys(sections.map(section => section.key), order?.regions ?? [])
   if (hasSchedule) keys.unshift('schedule')
   return keys

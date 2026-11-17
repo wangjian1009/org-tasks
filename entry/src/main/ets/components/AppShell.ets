@@ -15,6 +15,8 @@ import { ProjectNavigation } from '../services/ProjectNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
 import { overviewTitle, TaskOverview } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
+import { RegionOrderService } from '../services/RegionOrderService'
+import { RegionOrder } from '../ui/RegionOrderPresentation'
 
 @Component
 export struct AppShell {
@@ -49,6 +51,8 @@ export struct AppShell {
   @State somedayCount: number = -1
   @State memoCount: number = -1
   @State logbookCount: number = -1
+  @State trashCount: number = -1
+  @State regionOrder: RegionOrder | null = null
   @State projects: CoreOrgFileMetadata[] = []
   @State projectGroups: ProjectSection[] = []
   @State navMessage: string = ''
@@ -56,6 +60,8 @@ export struct AppShell {
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   private sidebarManager: SidebarDataManager | undefined = undefined
   private stopSidebar: (() => void) | undefined = undefined
+  private orderChanged: ((order: RegionOrder | null) => void) | undefined = undefined
+  private orderRevision: number = 0
 
   titleLabel(): string {
     return this.titleParts.length > 0 ? this.titleParts.map((part: CoreTitlePart) => part.text).join('') : this.title
@@ -66,6 +72,9 @@ export struct AppShell {
   aboutToDisappear() {
     this.stopSidebar?.(); this.stopSidebar = undefined
     this.sidebarManager?.close(); this.sidebarManager = undefined
+    if (this.orderChanged) RegionOrderService.stopWatchingChanges(this.orderChanged)
+    this.orderChanged = undefined
+    this.orderRevision++
   }
 
   async openDrawer() {
@@ -80,6 +89,12 @@ export struct AppShell {
 
   navigationDataManager(): SidebarDataManager {
     if (!this.sidebarManager) {
+      this.orderChanged = (order: RegionOrder | null): void => {
+        this.orderRevision = (this.orderRevision ?? 0) + 1
+        this.regionOrder = order
+        this.projectGroups = projectSections(this.projects, order)
+      }
+      RegionOrderService.watchChanges(this.orderChanged)
       this.sidebarManager = new SidebarDataManager(this.getUIContext().getHostContext()!)
       this.stopSidebar = this.sidebarManager.subscribe((snapshot: SidebarSnapshot): void => {
         this.inboxCount = snapshot.inboxCount
@@ -91,8 +106,9 @@ export struct AppShell {
         this.somedayCount = snapshot.somedayCount
         this.memoCount = snapshot.memoCount
         this.logbookCount = snapshot.logbookCount
+        this.trashCount = snapshot.trashCount
         this.projects = snapshot.projects
-        this.projectGroups = projectSections(snapshot.projects)
+        this.projectGroups = projectSections(snapshot.projects, this.regionOrder)
         this.navMessage = snapshot.message
       })
     }
@@ -100,7 +116,15 @@ export struct AppShell {
   }
 
   async loadNavigation() {
-    await this.navigationDataManager().start()
+    const manager = this.navigationDataManager()
+    const request = this.orderRevision = (this.orderRevision ?? 0) + 1
+    let orderError = ''
+    await Promise.all([manager.start(), RegionOrderService.load(this.getUIContext().getHostContext()!).then((order: RegionOrder | null): void => {
+      if (request !== this.orderRevision) return
+      this.regionOrder = order
+      this.projectGroups = projectSections(this.projects, order)
+    }).catch((error: Error): void => { orderError = error.message })])
+    if (orderError && request === this.orderRevision) this.navMessage = orderError
   }
 
   async openPrimary(view: TaskOverview | 'inbox') {
@@ -195,18 +219,21 @@ export struct AppShell {
   }
 
   @Builder
-  navItem(title: string, icon: Resource, route: string, selected: boolean = false, count: number = -1) {
+  navItem(title: string, icon: Resource, route: string, selected: boolean = false) {
     Row({ space: 12 }) {
       Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
       Text(title).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerText).fontWeight(selected ? FontWeight.Medium : FontWeight.Normal)
         .layoutWeight(1)
-      if (count >= 0) {
-        Text(`${count}`).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary)
+      if (this.navigationCount(route) >= 0) {
+        Text(`${this.navigationCount(route)}`).fontSize(UiSize.drawerFont).fontColor(UiColor.drawerSecondary)
       }
     }.width('100%').height(UiSize.drawerRow).padding({ left: 16, right: 16 }).borderRadius(12)
       .backgroundColor(selected ? UiColor.drawerSelected : Color.Transparent)
+      .accessibilityText(`${title}${this.navigationCount(route) >= 0 ? `，${this.navigationCount(route)} 条` : ''}`)
       .onClick((): void => { this.navigate(route) })
   }
+
+  navigationCount(route: string): number { return route === 'pages/Trash' ? this.trashCount : -1 }
 
   @Builder
   drawer() {
@@ -238,7 +265,7 @@ export struct AppShell {
             Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)
           }
         }.width('100%').padding({ left: 12, right: 12, bottom: 16 })
-      }.layoutWeight(1).width('100%').padding({ top: 16 }).align(Alignment.TopStart)
+      }.layoutWeight(1).width('100%').padding({ top: 16 }).align(Alignment.TopStart).scrollBar(BarState.Off)
       Divider().color(UiColor.drawerOutline)
       this.navItem('设置', $r('app.media.nav_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
     }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.drawer)
