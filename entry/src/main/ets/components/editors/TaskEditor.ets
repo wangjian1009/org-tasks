@@ -29,7 +29,7 @@ import { TaskContentEditor } from './TaskContentEditor'
 import { TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { CoreContentBlock } from '../../services/NativeCoreService'
-import { LogShowPolicy, taskLogVisible } from '../../ui/TaskLogPresentation'
+import { LogShowPolicy, taskLogVisible, taskNoteEntries, taskEventLogs } from '../../ui/TaskLogPresentation'
 import { TaskLogView } from './TaskLogView'
 import { TitleCounts } from '../TitleCounts'
 import { titleCounts, titleCountsWidth } from '../../ui/TitleCountPresentation'
@@ -1201,13 +1201,13 @@ export struct TaskEditor {
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) } }).width('100%')
     if (!this.readOnly && this.value().editContent.blocks.length === 0) {
       if (this.notesInput) {
-        TextArea({ text: this.notes, controller: this.notesController, placeholder: '备注' }).id(`inline_notes_${this.ownerKey}`)
+        TextArea({ text: this.notes, controller: this.notesController, placeholder: '添加正文' }).id(`inline_notes_${this.ownerKey}`)
           .enabled(!this.working && !this.snapshotBlocked).width('100%').height('auto').minLines(1).maxLines(1000)
           .fontSize(14).fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0)
           .onChange((value: string): void => { this.notes = value; this.notesEditing = true; this.notesDirty = value !== this.notesBaseline })
           .onBlur((): void => { this.finishNotes() })
       } else {
-        Text('备注').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
+        Text('添加正文').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
           .onClick((): void => { this.editNotes() })
       }
     }
@@ -1267,6 +1267,15 @@ export struct TaskEditor {
   }
 
   @Builder
+  logbookNotes() {
+    if (taskNoteEntries(this.value().logs).length > 0) {
+      TaskLogView({ internalLinkProcessor: this.internalLinkProcessor,
+        logs: taskNoteEntries(this.value().logs), notesOnly: true,
+        contentBackground: '#00000000' }).width('100%').margin({ top: 6, bottom: 10 })
+    }
+  }
+
+  @Builder
   editorContent() {
     this.expandedHeader()
     Column({ space: 12 }) {
@@ -1281,6 +1290,7 @@ export struct TaskEditor {
           }, (tag: string) => tag)
         }.width('100%')
       }
+      this.logbookNotes()
       if (this.message) {
         Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%')
         Button('重新载入').height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
@@ -1320,7 +1330,7 @@ export struct TaskEditor {
       items.push({ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
         { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
-    if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && this.value().logs.length > 0) {
+    if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {
       items.push({ title: '日志',
         icon: this.logbookExpanded ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
         action: () => { this.logbookExpanded = !this.logbookExpanded } })
@@ -1382,6 +1392,7 @@ export struct TaskEditor {
           }, (tag: string) => tag)
         }.width('100%')
       }
+      this.logbookNotes()
       if (this.expandedPlanningText()) {
         Text(this.expandedPlanningText())
           .fontSize(12).fontColor(UiColor.secondary).width('100%')
@@ -1410,9 +1421,9 @@ export struct TaskEditor {
               this.attributes()
             }
           }.width('100%')
-          if (this.value().logs.length > 0) {
+          if (taskEventLogs(this.value().logs).length > 0) {
             TaskLogView({ internalLinkProcessor: this.internalLinkProcessor,
-              logs: this.value().logs, expanded: taskLogVisible(this.logShowPolicy, this.logbookExpanded),
+              logs: taskEventLogs(this.value().logs), expanded: taskLogVisible(this.logShowPolicy, this.logbookExpanded),
               contentBackground: '#00000000' }).width('100%').padding({ left: 27 })
               .margin({ top: taskLogVisible(this.logShowPolicy, this.logbookExpanded) ? 8 : 0 })
           }

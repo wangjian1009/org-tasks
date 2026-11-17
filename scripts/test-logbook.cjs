@@ -81,6 +81,7 @@ test('缺失或无效完成时间放在末尾，不借用创建时间，空快�
   assert.deepEqual(groups[1].items.map(item => [item.task.id, item.timestamp]), [['A', null], ['B', null]]);
   assert.equal(logbookGroups([], now).length, 0);
 });
+const { taskEventLogs } = compile(fs.readFileSync('entry/src/main/ets/ui/TaskLogPresentation.ets', 'utf8'));
 const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
 function readOnlyCard(instanceKey = 'event-A') {
   const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'toggleFromCompact', 'collapseAnimated', 'finish', 'persist', 'saveText', 'saveCheck',
@@ -91,7 +92,7 @@ function readOnlyCard(instanceKey = 'event-A') {
   });
   let released;
   const session = { begin: async () => true, release: key => { released = key; } };
-  const { Card } = compile('export class Card {\n' + chunks.join('\n') + '\n}', { session });
+  const { Card } = compile('import { taskEventLogs } from \'logs\'; export class Card {\n' + chunks.join('\n') + '\n}', { session, logs: { taskEventLogs } });
   const card = Object.assign(new Card(), { readOnly: true, logShowPolicy: 'LogShowBySwitch', instanceKey, task: task('A', null, null), dataChanges: { revision: 1 },
     localDataSet:()=>({key:instanceKey,task:card.task}),localDataSet() { return { dataSet:()=>({key:instanceKey}),getTask:()=>card.task,watchTask() { return () => {}; } }; },
     getUIContext() { return { animateTo(_, change) { change(); } }; } });
@@ -102,7 +103,7 @@ function readOnlyCard(instanceKey = 'event-A') {
 test('只读卡片可展开收起，任务实例保持独立会话身份', async () => {
   const a = readOnlyCard('A'), b = readOnlyCard('B');
   global.$r = name => name;
-  a.card.task.logs = [{ type: 'taskNote', timestamp: '2026-11-13', noteHtml: '<p>历史</p>' }];
+  a.card.task.logs = [{ type: 'taskStateChange', from: 'TODO', to: 'DONE', timestamp: '2026-11-13', noteHtml: '<p>历史</p>' }];
   await a.card.toggle(); assert.equal(a.card.expanded, true);
   assert.equal(a.card.logbookExpanded, false);
   assert.deepEqual(a.card.moreItems().map(item => item.title), ['日志']);
@@ -121,6 +122,12 @@ test('只读卡片可展开收起，任务实例保持独立会话身份', async
   assert.notEqual(a.card.ownerKey, b.card.ownerKey);
 });
 const emittedTask = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/components/editors/TaskEditor.ts';
+test('只有 note 或完成说明时不提供日志开关', () => {
+  const { card } = readOnlyCard();
+  card.task.logs = [{ type: 'taskNote', timestamp: '2026-11-17', noteHtml: '<p>备注</p>' },
+    { type: 'taskClosingNote', timestamp: '2026-11-17', noteHtml: '<p>完成说明</p>' }];
+  assert.deepEqual(card.moreItems(), []);
+});
 test('日志簿收起标题的实际点击回调可展开只读卡片，再点标题可收起', { skip: !fs.existsSync(emittedTask) }, async () => {
   const file = ts.createSourceFile(emittedTask, fs.readFileSync(emittedTask, 'utf8'), ts.ScriptTarget.Latest, true);
   let params;
@@ -136,7 +143,8 @@ test('日志簿收起标题的实际点击回调可展开只读卡片，再点�
   }
   visit(file);
   assert.ok(params, '缺少收起标题的编译参数');
-  const { titleParams } = compile(`import { TaskStateCategory } from 'states'; export function titleParams() { return ${params}; }`, {
+  const { titleParams } = compile(`import { TaskStateCategory } from 'states'; import { UiSize } from 'theme'; export function titleParams() { return ${params}; }`, {
+    theme: { UiSize: { taskTitleLineHeight: 22 } },
     states: { TaskStateCategory: { Cancel: 'Cancel' } }
   });
   const { card } = readOnlyCard();
