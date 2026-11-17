@@ -783,3 +783,17 @@ Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继
 Rust 由 Core 反序列化并执行新增枚举；C++ 继续通过既有 ~Workspace.executeTaskOperations~ 的结构化编组与 worker，ArkTS wrapper 提供对应类型别名，不在 bridge 扫描模板、判断根标题或生成 Org 内容。HTTP 和 CLI 的既有操作组入口同步获得该类型，不增加另一个创建文件接口。
 
 Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数；随包模板声明 ~FILETAGS: :project:todo:~ ，顶部空 ~ID~ 由 Core 自动生成 UUID v4，空 SETUPFILE 由 Core 按目标库共享设置是否存在补全或保留，不提供这两个字段的模板参数。~ProjectCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。
+
+* 文件头顺序投影
+
+~OrgFile.headerEntries(): FileHeaderEntry[]~ 同步读取已返回文件快照；Rust worker 调用 ~OrgFile.header_entries()~ ，C++ N-API 原样透传，ArkTS wrapper 导出 ~CoreFileHeaderEntry~ 。每项包含 ~id~ 、 ~name~ 、 ~value~ 、 ~keyword~ 、 ~tags~ 和 ~edit~ ；顶部属性抽屉与 PROPERTY 声明的 ~keyword~ 为 false，避免同名属性被当作 TAGS 或 CATEGORY 配置。候选 ~tags~ 由 Core 对单条真实 TAGS 声明解析，去掉快捷键与组标记，顺序不变。字段不加入持久化或同步记录；FILETAGS 保留每条声明原值，包含 project、todo，界面只读展示。
+
+文件头 ~FileHeaderEntry.tags~ 同时投影真实 FILETAGS 声明中的标签，复用有效文件标签的名称校验，按单条声明保留顺序及内部用途标签。 ~value~ 仍保留声明原值，属性项不作为标签解析；Harmony 原样透传，UI 仅渲染中性只读标签，不解析 Org 或提供删除动作。
+
+* 文件头修改接入
+
+Core 元信息中的 file_version 与 header_entries 通过 Rust flatten 与 C++ 原样透传，并在 N-API 文件元信息对象上提供只读 fileVersion／headerEntries 属性。DataFileRecord 与 PageMetadataSnapshot 同步携带字段，旧缓存缺少时按空版本和空条目处理，确认快照前不开放编辑。
+
+NativeCoreService 导出 CoreFileHeaderValue、CoreFileHeaderValueChange 和带编辑描述的 CoreFileHeaderEntry。操作类型联合新增 FileHaderModification，仍由 Workspace.executeTaskOperations 在 worker 中反序列化和执行；DataSet.updateFileHeader 进入原用户操作队列，携带 operationId 与原版本，接口失败保留草稿，已提交后的确认错误带 committed 标记，不重复写入。
+
+查询和通知没有额外的文件头协议或 include_header 开关。元信息数据集直接更新 property 行与标题，任务数据集消费关联变化；界面不直接解析 Org、不按字段名猜测 Core 编辑能力。

@@ -583,12 +583,14 @@ bool ProjectFileResult(napi_env env, napi_value files)
     uint32_t length = 0;
     if (napi_get_array_length(env, files, &length) != napi_ok) return false;
     for (uint32_t index = 0; index < length; index++) {
-        napi_value metadata, project_name, category, task_state_counts, tag_rows;
+        napi_value metadata, project_name, category, task_state_counts, tag_rows, file_version, header_entries;
         if (napi_get_element(env, files, index, &metadata) != napi_ok ||
             napi_get_named_property(env, metadata, "projectName", &project_name) != napi_ok ||
             napi_get_named_property(env, metadata, "category", &category) != napi_ok ||
             napi_get_named_property(env, metadata, "taskStateCounts", &task_state_counts) != napi_ok ||
-            napi_get_named_property(env, metadata, "tagRows", &tag_rows) != napi_ok) return false;
+            napi_get_named_property(env, metadata, "tagRows", &tag_rows) != napi_ok ||
+            napi_get_named_property(env, metadata, "fileVersion", &file_version) != napi_ok ||
+            napi_get_named_property(env, metadata, "headerEntries", &header_entries) != napi_ok) return false;
         napi_value options, priorities, key; bool deleted;
         auto* states = new MetadataStates();
         if (napi_get_named_property(env, metadata, "taskStateOptions", &options) != napi_ok ||
@@ -610,6 +612,8 @@ bool ProjectFileResult(napi_env env, napi_value files)
             // 状态、分类与计数来自 Core 同次文件快照，嵌套数组原样透传。
             {"taskStateCounts", nullptr, nullptr, nullptr, nullptr, task_state_counts, napi_enumerable, nullptr},
             {"tagRows", nullptr, nullptr, nullptr, nullptr, tag_rows, napi_enumerable, nullptr},
+            {"fileVersion", nullptr, nullptr, nullptr, nullptr, file_version, napi_enumerable, nullptr},
+            {"headerEntries", nullptr, nullptr, nullptr, nullptr, header_entries, napi_enumerable, nullptr},
             {"project", nullptr, SnapshotProject, nullptr, nullptr, nullptr, napi_default, nullptr},
         };
         if (napi_define_properties(env, metadata, sizeof(properties) / sizeof(properties[0]), properties) != napi_ok) return false;
@@ -2337,6 +2341,7 @@ static napi_value Init(napi_env env, napi_value exports)
         // 直接返回 Core 的区块和内部链接目的地投影。
         {"documentSections", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("documentSections")},
         {"fileTags", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("fileTags")},
+        {"headerEntries", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("headerEntries")},
         {"specialTags", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("specialTags")},
         {"renderHtml", nullptr, OrgFileProperty, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("renderedHtml")},
         {"sourceBytes", nullptr, OrgFileSourceBytes, nullptr, nullptr, nullptr, napi_default, nullptr},

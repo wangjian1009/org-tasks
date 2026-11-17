@@ -1,6 +1,6 @@
-use crate::workspace::WorkspaceState;
 #[cfg(test)]
 use crate::OrgWorkspace;
+use crate::workspace::WorkspaceState;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -83,12 +83,38 @@ impl WorkspaceState {
         if group.operations.is_empty() {
             return Err(CoreError::InvalidInput("操作组不能为空"));
         }
+        let mut header_files = BTreeSet::new();
+        for operation in &group.operations {
+            if let TaskOperation::FileHaderModification(data) = operation {
+                let file = (data.file.repo_id.clone(), data.file.path.clone());
+                TaskPath::file(file.0.clone(), file.1.clone()).validate()?;
+                if !header_files.insert(file.clone()) {
+                    return Err(CoreError::InvalidInput("同一文件只能包含一项文件头修改"));
+                }
+                let versions = group
+                    .file_versions
+                    .iter()
+                    .filter(|v| v.repo_id == file.0 && v.file == file.1)
+                    .collect::<Vec<_>>();
+                if versions.len() != 1 || versions[0].version.is_empty() {
+                    return Err(CoreError::InvalidInput("文件头修改必须提供唯一的文件版本"));
+                }
+                if group.operations.iter().any(|op| matches!(op, TaskOperation::FileNew(v) if v.path.repo_id == file.0 && v.path.file.as_ref() == Some(&file.1))) {
+                    return Err(CoreError::InvalidInput("文件头修改不能引用同组新建文件"));
+                }
+            }
+        }
         let source_group = group;
         let mut resolved_group = group.clone();
         let mut touched = BTreeSet::new();
         for operation in &source_group.operations {
             match operation {
-                TaskOperation::FileNew(data) => { touched.insert(data.path.repo_id.clone()); }
+                TaskOperation::FileNew(data) => {
+                    touched.insert(data.path.repo_id.clone());
+                }
+                TaskOperation::FileHaderModification(data) => {
+                    touched.insert(data.file.repo_id.clone());
+                }
                 TaskOperation::ConfilictSelection(data) => {
                     if let Some(path) = &data.path { touched.insert(path.repo_id.clone()); }
                     else { touched.extend(self.repos().iter().map(|repo| repo.id.clone())); }
@@ -149,8 +175,36 @@ impl WorkspaceState {
         for ((repo_id, _), item) in &mut files {
             journal.attach(self.repo(repo_id).expect("已验证仓库"), &mut item.file);
         }
+        let initial_headers = files
+            .iter()
+            .map(|(key, item)| (key.clone(), item.file.header_entries()))
+            .collect::<BTreeMap<_, _>>();
         for operation in &group.operations {
-            execute(&mut files, operation)?;
+            if let TaskOperation::FileHaderModification(data) = operation {
+                let file_key = (data.file.repo_id.clone(), data.file.path.clone());
+                let current = files[&file_key].file.header_entries();
+                let original = &initial_headers[&file_key];
+                if current.len() != original.len()
+                    || current.iter().zip(original).any(|(a, b)| {
+                        a.name != b.name || a.keyword != b.keyword || a.value != b.value
+                    })
+                {
+                    return Err(CoreError::InvalidState(
+                        "本组先前操作已改变文件头，请重新载入",
+                    ));
+                }
+                let mut resolved = data.clone();
+                for change in &mut resolved.changes {
+                    let index = original
+                        .iter()
+                        .position(|entry| entry.id == change.entry_id)
+                        .ok_or(CoreError::InvalidState("文件属性条目不属于预期版本"))?;
+                    change.entry_id = current[index].id.clone();
+                }
+                execute(&mut files, &TaskOperation::FileHaderModification(resolved))?;
+            } else {
+                execute(&mut files, operation)?;
+            }
         }
         let fallback = TaskFallbackGroup {
             files: files
@@ -187,11 +241,29 @@ impl WorkspaceState {
             }
         }
         commit(&mut files).await?;
-        let changed_keys = fallback.files.iter().map(|file| (file.repo_id.clone(), file.file.clone())).collect::<BTreeSet<_>>();
-        let changes = journal.finish(files.iter().map(|((repo_id, _), item)|
-            (self.repo(repo_id).expect("已验证仓库"), &item.file))).into_iter().filter(|change|
-                [&change.before, &change.after].into_iter().flatten().any(|snapshot|
-                    changed_keys.contains(&(snapshot.task.repo_id().to_owned(), snapshot.task.path().to_owned())))).collect::<Vec<_>>();
+        let changed_keys = fallback
+            .files
+            .iter()
+            .map(|file| (file.repo_id.clone(), file.file.clone()))
+            .collect::<BTreeSet<_>>();
+        let changes =
+            journal
+                .finish(files.iter().map(|((repo_id, _), item)| {
+                    (self.repo(repo_id).expect("已验证仓库"), &item.file)
+                }))
+                .into_iter()
+                .filter(|change| {
+                    [&change.before, &change.after]
+                        .into_iter()
+                        .flatten()
+                        .any(|snapshot| {
+                            changed_keys.contains(&(
+                                snapshot.task.repo_id().to_owned(),
+                                snapshot.task.path().to_owned(),
+                            ))
+                        })
+                })
+                .collect::<Vec<_>>();
         self.task_operation_history
             .entries
             .push(TaskOperationRecord {
@@ -214,12 +286,25 @@ impl WorkspaceState {
                         before_version: item.original.as_ref().map(|bytes| LocalFileVersion::from_bytes(bytes).content_hash),
                         after_version: LocalFileVersion::from_bytes(item.file.source_bytes()).content_hash,
                     }
-                }).collect();
-            let changes = changes.iter().filter(|change|
-                [&change.before, &change.after].into_iter().flatten()
-                    .any(|snapshot| snapshot.task.repo_id() == repo_id)).cloned().collect();
-            super::sync_events::publish_changes(&self.notifications, self.repo(repo_id).expect("已验证仓库"),
-                group.operation_id.as_deref(), Some(changed_files), changes);
+                })
+                .collect();
+            let changes = changes
+                .iter()
+                .filter(|change| {
+                    [&change.before, &change.after]
+                        .into_iter()
+                        .flatten()
+                        .any(|snapshot| snapshot.task.repo_id() == repo_id)
+                })
+                .cloned()
+                .collect();
+            super::sync_events::publish_changes(
+                &self.notifications,
+                self.repo(repo_id).expect("已验证仓库"),
+                group.operation_id.as_deref(),
+                Some(changed_files),
+                changes,
+            );
         }
         self.notifications.flush().await
     }
@@ -299,6 +384,10 @@ async fn load_files_with_dependencies(
                         for path in org_paths(Path::new(&repo.root_directory)).await? { keys.insert((repo.id.clone(), path)); }
                     }
                 }
+                (None, None)
+            }
+            TaskOperation::FileHaderModification(data) => {
+                keys.insert((data.file.repo_id.clone(), data.file.path.clone()));
                 (None, None)
             }
             TaskOperation::Creation(data) => (None, Some(&data.position)),
@@ -399,7 +488,9 @@ async fn load_files_with_dependencies(
         }
     }
     for operation in &group.operations {
-        let TaskOperation::FileNew(data) = operation else { continue };
+        let TaskOperation::FileNew(data) = operation else {
+            continue;
+        };
         let file_key = key(&data.path)?;
         let item = &files[&file_key];
         if item.original.is_some() || item.new_file.is_some() {
@@ -580,12 +671,22 @@ fn execute(
     files: &mut BTreeMap<FileKey, WorkingFile>,
     operation: &TaskOperation,
 ) -> Result<Option<TaskPath>, CoreError> {
-    if matches!(operation, TaskOperation::ConfilictSelection(_)) {
+    if matches!(
+        operation,
+        TaskOperation::ConfilictSelection(_) | TaskOperation::FileHaderModification(_)
+    ) {
         return execute_inner(files, operation);
     }
     // 先在完整快照上校验，不能借临时分离容器绕过冲突路径保护。
     match operation {
-        TaskOperation::FileNew(data) => { key(&data.path)?; }
+        TaskOperation::FileNew(data) => {
+            key(&data.path)?;
+        }
+        TaskOperation::FileHaderModification(data) => {
+            if !files[&(data.file.repo_id.clone(), data.file.path.clone())].exists {
+                return Err(CoreError::InvalidState("文件不存在"));
+            }
+        }
         TaskOperation::Modification(data) => {
             locate(&files[&key(&data.path)?].file, &data.path)?;
         }
@@ -631,6 +732,16 @@ fn execute_inner(
     operation: &TaskOperation,
 ) -> Result<Option<TaskPath>, CoreError> {
     match operation {
+        TaskOperation::FileHaderModification(data) => {
+            let item = files
+                .get_mut(&(data.file.repo_id.clone(), data.file.path.clone()))
+                .expect("已加载文件");
+            if !item.exists {
+                return Err(CoreError::InvalidState("文件不存在"));
+            }
+            super::file_header::apply(&mut item.file, &data.changes)?;
+            Ok(None)
+        }
         TaskOperation::FileNew(data) => {
             let file_key = key(&data.path)?;
             let item = files.get_mut(&file_key).expect("已加载文件");
@@ -661,7 +772,12 @@ fn execute_inner(
         TaskOperation::ConfilictSelection(data) => {
             let keys = files
                 .iter()
-                .filter(|((repo_id, path), item)| data.path.as_ref().is_none_or(|p| &p.repo_id == repo_id && p.file.as_ref() == Some(path)) && item.file.conflict_ids().iter().any(|id| id == &data.id))
+                .filter(|((repo_id, path), item)| {
+                    data.path
+                        .as_ref()
+                        .is_none_or(|p| &p.repo_id == repo_id && p.file.as_ref() == Some(path))
+                        && item.file.conflict_ids().iter().any(|id| id == &data.id)
+                })
                 .map(|(key, _)| key.clone())
                 .collect::<Vec<_>>();
             if keys.len() != 1 {
@@ -1054,8 +1170,12 @@ pub(super) fn modify(
     modification: &TaskModification,
 ) -> Result<(), CoreError> {
     match modification {
-        TaskModification::Property { name, value } => super::task_state::modify_property(file, headline, name, value.as_deref()),
-        TaskModification::ContentBlock(change) => super::content_block::modify(file, headline, change),
+        TaskModification::Property { name, value } => {
+            super::task_state::modify_property(file, headline, name, value.as_deref())
+        }
+        TaskModification::ContentBlock(change) => {
+            super::content_block::modify(file, headline, change)
+        }
         TaskModification::Link(change) => super::text_link::modify_link(file, headline, change),
         TaskModification::Title(value) => {
             if let Some(value) = value {
@@ -1098,9 +1218,15 @@ pub(super) fn modify(
                     "标题或状态不能被 Org 重新解释为其他字段",
                 ));
             }
-            update_title_counts(file, start(headline), super::title_statistics::Trigger::Title)
+            update_title_counts(
+                file,
+                start(headline),
+                super::title_statistics::Trigger::Title,
+            )
         }
-        TaskModification::Todo(value) => super::task_state::modify(file, headline, value.as_deref()),
+        TaskModification::Todo(value) => {
+            super::task_state::modify(file, headline, value.as_deref())
+        }
         TaskModification::Priority(value) => {
             file.validate_priority(value.as_deref())?;
             if let Some(node) = headline
@@ -1236,10 +1362,26 @@ pub(super) fn modify(
             }
             Ok(())
         }
-        TaskModification::ScheduleRepeat(value) => super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_SCHEDULED, value),
-        TaskModification::DeadlineRepeat(value) => super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_DEADLINE, value),
-        TaskModification::Schedule(value) => modify_planning_value(file, headline, "SCHEDULED", SyntaxKind::PLANNING_SCHEDULED, value),
-        TaskModification::Deadline(value) => modify_planning_value(file, headline, "DEADLINE", SyntaxKind::PLANNING_DEADLINE, value),
+        TaskModification::ScheduleRepeat(value) => {
+            super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_SCHEDULED, value)
+        }
+        TaskModification::DeadlineRepeat(value) => {
+            super::task_repeat::modify_repeat(file, headline, SyntaxKind::PLANNING_DEADLINE, value)
+        }
+        TaskModification::Schedule(value) => modify_planning_value(
+            file,
+            headline,
+            "SCHEDULED",
+            SyntaxKind::PLANNING_SCHEDULED,
+            value,
+        ),
+        TaskModification::Deadline(value) => modify_planning_value(
+            file,
+            headline,
+            "DEADLINE",
+            SyntaxKind::PLANNING_DEADLINE,
+            value,
+        ),
         TaskModification::AddressLink(value) => {
             let change = value
                 .as_ref()
@@ -1343,7 +1485,15 @@ fn planning_edit_value(existing: Option<String>, edit: &TaskPlanningEdit) -> Res
 }
 
 fn parse_planning_time(value: &str) -> Result<chrono::NaiveTime, CoreError> {
-    if value.len() != 5 || !value.bytes().enumerate().all(|(i, b)| if i == 2 { b == b':' } else { b.is_ascii_digit() }) {
+    if value.len() != 5
+        || !value.bytes().enumerate().all(|(i, b)| {
+            if i == 2 {
+                b == b':'
+            } else {
+                b.is_ascii_digit()
+            }
+        })
+    {
         return Err(CoreError::InvalidInput("时间必须是 HH:MM"));
     }
     chrono::NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| CoreError::InvalidInput("时间必须是有效的 HH:MM"))

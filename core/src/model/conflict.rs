@@ -143,6 +143,9 @@ fn property(headline: &Headline, key: &str) -> Option<String> {
     super::properties::own(headline, key)
 }
 fn candidate(file: &OrgFile, point: &Headline, reason: &str) -> Result<Vec<u8>, CoreError> {
+    if reason == "header" {
+        return Ok(super::file_header::candidate_source(point)?.into_bytes());
+    }
     if matches!(reason, "structure" | "reorder") {
         let block = point
             .section()
@@ -182,6 +185,9 @@ fn conflict_material_valid(file: &OrgFile) -> Result<(), CoreError> {
     Ok(())
 }
 fn target_for(file: &OrgFile, point: &Headline, why: &str) -> Option<ConflictTarget> {
+    if why == "header" {
+        return Some(ConflictTarget::ReplaceMain);
+    }
     if matches!(
         why,
         "create" | "missing-parent" | "modify-missing" | "structure" | "reorder"
@@ -317,6 +323,23 @@ fn describe(
     {
         available_actions.push(TaskConfilictAction::UseLocal);
     }
+    if why == "header" {
+        let mut probe = main.clone();
+        if super::file_header::apply_candidate(&mut probe, point).is_ok() {
+            available_actions.push(TaskConfilictAction::UseLocal);
+        }
+    }
+    let candidate_html = if why == "header" {
+        format!(
+            "<pre>{}</pre>",
+            candidate_content
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        )
+    } else {
+        candidate_html
+    };
     Ok(FileConflict {
         id: point_id(point).ok_or(CoreError::InvalidInput("冲突点缺少定位 ID"))?,
         title: point.title_raw().trim_end().into(),
@@ -422,6 +445,18 @@ pub(super) fn select_point(
     {
         return Err(CoreError::InvalidInput("候选材料不完整，无法采用本地"));
     }
+    if description.reason == "header" {
+        if selection
+            .target
+            .as_ref()
+            .is_some_and(|target| !matches!(target, ConflictTarget::ReplaceMain))
+        {
+            return Err(CoreError::InvalidInput("文件属性候选只能应用到当前文件头"));
+        }
+        let (_, headline) = parse_point(file, point)?;
+        super::file_header::apply_candidate(file, &headline)?;
+        return Ok(Some(file.full_path()));
+    }
     let target = selection
         .target
         .clone()
@@ -481,9 +516,13 @@ pub(super) fn select_point(
                 .map_or(usize::from(node.end()), |child| usize::from(child.start()));
             if description.reason == "delete" {
                 let ordinal = super::mutation_journal::ordinal_at(&next, start);
-                if let Some(journal) = &mut next.mutation_journal { journal.delete(ordinal..ordinal + 1); }
+                if let Some(journal) = &mut next.mutation_journal {
+                    journal.delete(ordinal..ordinal + 1);
+                }
             }
-            if let Some(journal) = &next.mutation_journal { journal.touch(); }
+            if let Some(journal) = &next.mutation_journal {
+                journal.touch();
+            }
             next.source_bytes.splice(start..target_end, content);
             next.reparse()?;
             if description.reason == "delete" {

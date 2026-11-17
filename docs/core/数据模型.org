@@ -339,6 +339,20 @@ project(): Option\textless String\textgreater}
 
 * 文件头标签投影
 
+~OrgFile.header_entries()~ 按文件头源顺序投影关键字及顶部属性抽屉的名称和值，显示 ~TITLE~ ，将 ~PROPERTY~ 声明展开为实际属性名；未知关键字和属性同样保留。该结构供宿主按源顺序显示文件配置，并通过 Core 的编辑能力描述发起值修改。
+
+文件头 ~FileHeaderEntry.tags~ 同时投影真实 FILETAGS 声明中的标签，复用有效文件标签的名称校验，按单条声明保留顺序及内部用途标签。 ~value~ 仍保留声明原值，属性项不作为标签解析；Harmony 原样透传，UI 在阅读态渲染中性标签，编辑态按 Core 能力原位增删，保护 project／todo；不解析 Org。
+
+~FileHeaderEntry~ 包含 ~id: String~ 、 ~name: String~ 、 ~value: String~ 、 ~keyword: bool~ 、 ~tags: Vec<String>~ 与 ~edit: Option<FileHeaderEditSpec>~ 。id 绑定来源文件与版本，edit 描述值类型和不可移除标签，None 表示只读。 ~OrgFileMetadata~ 始终携带同版本的 ~file_version~ 和 ~header_entries~ ，不新增 FileQuery 参数。属性项不冒充同名关键字；TAGS 候选由 Core 按单条声明解析，重复声明独立保留，源文件字节不变。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgFile}{}{header\_entries(): Vec\textless FileHeaderEntry\textgreater}
+\umlclass[x=8,y=0]{FileHeaderEntry}{id: String \\ name: String \\ value: String \\ keyword: bool \\ tags: Vec\textless String\textgreater \\ edit: Option of FileHeaderEditSpec}{}
+\umldep{OrgFile}{FileHeaderEntry}
+\end{tikzpicture}
+\end{center}
+
 ~OrgFile.tag_options()~ 从文件头 ~TAGS~ 提取候选， ~OrgFile.tag_groups()~ 保留花括号定义的互斥组；快捷键不进入标签名称，没有快捷键的标签仍有效。 ~OrgFileMetadata.tag_options: Vec<String>~ 与 ~tag_groups: Vec<Vec<String>>~ 携带相同的只读投影，空文件仍保留配置。源码、示例和标题正文中的同名文本不参与。 ~OrgFile.tag_rows()~ 与 ~OrgFileMetadata.tag_rows: Vec<Vec<String>>~ 保留每条声明及显式 ~\n~ 分隔后的非空显示行，行内去重但保留跨行重复候选；分行与互斥组相互独立。配置只提供候选与互斥约束，不给任务赋标签；候选排除系统标签，不进入历史、outbox 或源文件。
 
 \begin{center}
@@ -1063,6 +1077,7 @@ pub struct TaskOperationGroup {
 #[serde(tag = "type", content = "data", deny_unknown_fields)]
 pub enum TaskOperation {
     FileNew(TaskFileNew),
+    FileHaderModification(FileHaderModification),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
     Movement(TaskMovement),
@@ -1352,7 +1367,7 @@ pub struct TaskFileInitialTask {
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{TaskOperationGroup}{operation\_id: Option\textless String\textgreater \\
 operations: Vec\textless TaskOperation\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
-\umlclass[x=8,y=0,type=enumeration]{TaskOperation}{Creation \\ Modification \\ Movement \\ Deletion \\ ConfilictSelection}{}
+\umlclass[x=8,y=0,type=enumeration]{TaskOperation}{FileNew \\ FileHaderModification \\ Creation \\ Modification \\ Movement \\ Deletion \\ ConfilictSelection}{}
 \umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater}{}
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
 \umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
@@ -1995,3 +2010,9 @@ TaskModification::Property { name, value } 表达通用 drawer 属性的设置�
 \umldep{TaskModification}{OrgFile}
 \end{tikzpicture}
 #+end_export
+
+* 文件头值修改模型
+
+~FileHaderModification~ 是 TaskOperation 的文件级变体，目标为 OrgFileRef，不伪装为标题节点。 ~changes~ 中的 ~FileHeaderValueChange~ 引用当前元信息的 entry_id，并使用 ~FileHeaderValue::Text~ 修改文本或配置值，使用 ~FileHeaderValue::Tags~ 修改单条 FILETAGS 或 TAGS 声明的标签列表；file_versions 强制参与校验。执行和回退仍沿用 TaskOperationGroup 与 TaskFileFallback，完整定义及关系见 [[file:文件头属性编辑设计.org][文件头属性编辑设计]]。
+
+TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对应候选 token、保留其他候选的快捷键和分组结构，并在声明末尾追加新候选，沿用该位置的分组上下文。原有 Text 配置请求继续支持；任务自身标签不变。

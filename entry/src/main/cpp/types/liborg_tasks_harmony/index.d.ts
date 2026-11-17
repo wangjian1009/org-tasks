@@ -62,8 +62,8 @@ export interface TaskDeletion { path: TaskPath; }
 export interface TaskMergeRequest { paths: TaskPath[]; fileVersion: string; }
 export interface TaskMergePlan { operationGroup: TaskOperationGroup; mainPath: TaskPath; }
 export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
-export type TaskOperationType = 'FileNew' | 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
-export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
+export type TaskOperationType = 'FileNew' | 'FileHaderModification' | 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'ConfilictSelection';
+export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | FileHaderModification | TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operationId?: string | null; operations: TaskOperation[]; fileVersions?: TaskFileVersion[]; }
 // 事件中的记录是纯数据，不具有 native Task/OrgFileMetadata 对象的方法。
@@ -72,7 +72,7 @@ export interface DataFileRecord {
   projectName: string | null; category: string | null; tagOptions: string[];
   priorityOptions: TaskPriority[]; defaultPriority: TaskPriority; tagGroups: string[][]; tagRows: string[][];
   hasConflict: boolean; isIgnore: boolean; taskStateCounts: TaskStateCount[];
-  byteLength: number; modifiedAt: number | null;
+  byteLength: number; modifiedAt: number | null; fileVersion: string; headerEntries: FileHeaderEntry[];
 }
 export interface DataDateRecord { date: string; active: boolean; }
 export interface DataTaskRecord {
@@ -114,6 +114,12 @@ export interface RefileTarget {
 }
 export interface DocumentLinkTarget { target: string; priority: number; }
 export interface DocumentSection { path: TaskPath | null; html: string; blocks: ContentBlock[]; linkTargets: DocumentLinkTarget[]; }
+export type FileHeaderValueKind = 'text' | 'category' | 'fileTags' | 'tagConfig';
+export interface FileHeaderEditSpec { kind: FileHeaderValueKind; protectedTags: string[]; }
+export interface FileHeaderEntry { id: string; name: string; value: string; keyword: boolean; tags: string[]; edit: FileHeaderEditSpec | null; }
+export type FileHeaderValue = { type: 'text'; value: string } | { type: 'tags'; value: string[] };
+export interface FileHeaderValueChange { entryId: string; value: FileHeaderValue; }
+export interface FileHaderModification { file: OrgFileRef; changes: FileHeaderValueChange[]; }
 export class OrgFile {
   private constructor();
   readonly repoId: string;
@@ -129,6 +135,7 @@ export class OrgFile {
   renderDocumentHtml(): string;
   documentSections(): DocumentSection[];
   fileTags(): string[];
+  headerEntries(): FileHeaderEntry[];
   specialTags(): string[];
   project(): string | null;
   conflicts(): FileConflict[];
@@ -382,6 +389,8 @@ export interface OrgFileMetadata {
   readonly taskStateCounts: TaskStateCount[];
   readonly byteLength: number;
   readonly modifiedAt: number | null;
+  readonly fileVersion: string;
+  readonly headerEntries: FileHeaderEntry[];
 }
 
 

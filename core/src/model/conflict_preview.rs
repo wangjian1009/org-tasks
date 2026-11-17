@@ -1,16 +1,16 @@
 //! 仓库外单文档预览；记录成功操作，结束后由应用通过统一数据接口提交。
-use crate::workspace::WorkspaceState;
 use super::*;
+use crate::workspace::WorkspaceState;
 use crate::{CoreError, FilterTask};
-use orgize::{ast::Headline, rowan::ast::AstNode, SyntaxKind};
+use orgize::{SyntaxKind, ast::Headline, rowan::ast::AstNode};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tokio::{fs, sync::Mutex};
@@ -599,7 +599,12 @@ impl WorkspaceState {
                 "预览操作组不能为空",
             ));
         }
-        if group.operations.iter().any(|op| matches!(op, TaskOperation::FileNew(_))) {
+        if group.operations.iter().any(|op| {
+            matches!(
+                op,
+                TaskOperation::FileNew(_) | TaskOperation::FileHaderModification(_)
+            )
+        }) {
             return Err(CoreError::InvalidInput("冲突预览不能创建文件"));
         }
         for path in operation_paths(group) {
@@ -678,6 +683,7 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
     for op in &group.operations {
         match op {
             TaskOperation::FileNew(v) => paths.push(&v.path),
+            TaskOperation::FileHaderModification(_) => {}
             TaskOperation::Creation(v) => {
                 paths.push(&v.position.parent);
                 paths.extend(v.position.after.iter());
@@ -707,7 +713,9 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
     paths
 }
 pub(super) fn has_preview_path(group: &TaskOperationGroup) -> bool {
-    operation_paths(group)
+    group.operations.iter().any(
+        |op| matches!(op, TaskOperation::FileHaderModification(v) if v.file.repo_id == "<preview>"),
+    ) || operation_paths(group)
         .iter()
         .any(|p| p.repo_id == "<preview>")
         || group.file_versions.iter().any(|v| v.repo_id == "<preview>")
@@ -1163,6 +1171,28 @@ fn diff_tasks(
     keys.extend(before_units.keys().cloned());
     keys.extend(after_units.keys().cloned());
     let mut changes = Vec::new();
+    let prefix_end = |file: &OrgFile| {
+        file.syntax()
+            .document()
+            .headlines()
+            .next()
+            .map_or(file.source_bytes().len(), |h| usize::from(h.start()))
+    };
+    let ae = prefix_end(before);
+    let be = prefix_end(after);
+    if a.get(..ae) != b.get(..be) {
+        changes.push(line_diff(
+            before,
+            after,
+            &a[..ae],
+            &b[..be],
+            ao,
+            bo,
+            area,
+            "text",
+        ));
+    }
+
     for key in keys {
         match (before_units.get(&key), after_units.get(&key)) {
             (Some(before_unit), Some(after_unit)) => {
@@ -1399,7 +1429,11 @@ fn remap_operation(
         Ok(())
     }
     match &mut operation {
-        TaskOperation::FileNew(_) => return Err(CoreError::InvalidInput("冲突预览不能创建文件")),
+        TaskOperation::FileNew(_) | TaskOperation::FileHaderModification(_) => {
+            return Err(CoreError::InvalidInput(
+                "冲突预览不支持直接创建文件或修改文件属性",
+            ));
+        }
         TaskOperation::Creation(v) => position(&mut v.position, id, source)?,
         TaskOperation::Modification(v) => path(&mut v.path, id, source)?,
         TaskOperation::Deletion(v) => path(&mut v.path, id, source)?,

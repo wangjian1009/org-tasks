@@ -1,5 +1,6 @@
 mod content_block;
 use crate::{CoreError, TimestampMs};
+pub use file_header::{FileHeaderEditSpec, FileHeaderEntry, FileHeaderValueKind};
 use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
@@ -8,20 +9,20 @@ pub(crate) mod conflict;
 pub(crate) mod conflict_preview;
 pub(crate) mod data_changes;
 mod editor;
+pub(crate) mod file_header;
 mod file_keywords;
 mod file_template;
 mod merge;
 mod mutation_journal;
-mod plain_links;
 pub(crate) mod notification;
 pub(crate) mod notification_center;
-mod project;
+mod plain_links;
 mod priority;
+mod project;
 pub(crate) mod properties;
 mod query;
 mod refile;
 mod render;
-mod text_link;
 pub(crate) mod reset;
 pub(crate) mod service;
 pub(crate) mod sync_events;
@@ -37,31 +38,32 @@ mod task_repeat;
 mod task_scan;
 mod task_state;
 mod task_trigger;
+mod text_link;
 mod title_statistics;
 mod todo;
 pub(crate) mod write_intent;
 
-pub use content_block::*;
 pub use conflict_preview::*;
+pub use content_block::*;
 pub use data_changes::*;
 pub use editor::*;
 pub use merge::*;
 pub use notification::*;
 pub use notification_center::NotificationCenter;
-pub use query::*;
 pub use priority::{PeriodCategory, TaskPriority};
+pub use query::*;
 pub use refile::*;
 pub use render::*;
-pub use text_link::{TextLink, LinkValue, TaskLinkField, TaskLinkChange};
 pub use service::*;
-pub use tags::SupportTags;
 pub(crate) use tags::ATTACH_TAG;
+pub use tags::SupportTags;
 pub use task_inline::*;
 pub use task_log::*;
 pub use task_operation::*;
 pub use task_path::*;
 pub use task_repeat::*;
 pub use task_scan::*;
+pub use text_link::{LinkValue, TaskLinkChange, TaskLinkField, TextLink};
 pub use todo::*;
 pub use write_intent::*;
 
@@ -101,6 +103,8 @@ pub struct OrgFileMetadata {
     pub task_state_counts: Vec<TaskStateCount>,
     pub byte_length: usize,
     pub modified_at: Option<TimestampMs>,
+    pub file_version: String,
+    pub header_entries: Vec<FileHeaderEntry>,
     #[serde(skip)]
     pub(crate) task_states: Vec<TaskState>,
 }
@@ -194,6 +198,8 @@ impl OrgFile {
             task_state_counts: if is_ignore { Vec::new() } else { self.task_state_counts() },
             byte_length: self.source_bytes().len(),
             modified_at: self.modified_at,
+            file_version: LocalFileVersion::from_bytes(self.source_bytes()).content_hash,
+            header_entries: self.header_entries(),
             task_states: self.todo.task_states(),
         }
     }
@@ -208,8 +214,13 @@ impl OrgFile {
             .filter_map(orgize::ast::Headline::cast)
             .filter(|headline| !Self::is_conflict_headline(headline))
         {
-            let Some(keyword) = headline.todo_keyword() else { continue };
-            if let Some(item) = counts.iter_mut().find(|item| item.state == keyword.as_ref()) {
+            let Some(keyword) = headline.todo_keyword() else {
+                continue;
+            };
+            if let Some(item) = counts
+                .iter_mut()
+                .find(|item| item.state == keyword.as_ref())
+            {
                 item.count += 1;
             }
         }
@@ -723,13 +734,19 @@ mod tests {
                 source.as_bytes()
             );
             let value = serde_json::to_value(&metadata[0]).unwrap();
-            assert_eq!(value.as_object().unwrap().len(), 15);
-            assert_eq!(value["defaultPriority"], serde_json::json!({"name": "B", "category": "Middle"}));
-            assert_eq!(value["priorityOptions"], serde_json::json!([
-                {"name": "A", "category": "Hight"},
-                {"name": "B", "category": "Middle"},
-                {"name": "C", "category": "Low"}
-            ]));
+            assert_eq!(value.as_object().unwrap().len(), 18);
+            assert_eq!(
+                value["defaultPriority"],
+                serde_json::json!({"name": "B", "category": "Middle"})
+            );
+            assert_eq!(
+                value["priorityOptions"],
+                serde_json::json!([
+                    {"name": "A", "category": "Hight"},
+                    {"name": "B", "category": "Middle"},
+                    {"name": "C", "category": "Low"}
+                ])
+            );
             assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));
             assert_eq!(value["tagGroups"], serde_json::json!([]));

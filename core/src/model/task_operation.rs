@@ -25,11 +25,39 @@ pub struct TaskOperationGroup {
 #[serde(tag = "type", content = "data", deny_unknown_fields)]
 pub enum TaskOperation {
     FileNew(TaskFileNew),
+    FileHaderModification(FileHaderModification),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
     Movement(TaskMovement),
     Deletion(TaskDeletion),
     ConfilictSelection(TaskConfilictSelection),
+}
+
+/// 文件头值修改，与任务操作共享版本校验和事务。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileHaderModification {
+    pub file: super::OrgFileRef,
+    pub changes: Vec<FileHeaderValueChange>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileHeaderValueChange {
+    pub entry_id: String,
+    pub value: FileHeaderValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    content = "value",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
+pub enum FileHeaderValue {
+    Text(String),
+    Tags(Vec<String>),
 }
 
 /// 文件创建与任务创建共用操作组；初始化任务的位置由生成文档的首个根标题决定。

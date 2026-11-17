@@ -743,6 +743,10 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 
 ** 完整文档语义投影
 
+~OrgFile.header_entries() -> Vec<FileHeaderEntry>~ 按源文件顺序返回文件头关键字和顶部属性抽屉；显示 ~TITLE~ ，并将 ~#+PROPERTY: Name Value~ 展开为名称和值。该投影保留未知配置供宿主只读展示，不修改原文字节；完整文件的 Harmony 快照以 ~headerEntries~ 暴露。每项包含 ~name~ 、 ~value~ 、 ~keyword~ 和 ~tags~ ：属性项的 ~keyword~ 为 false，真实 TAGS 声明的 ~tags~ 由 Core 去掉快捷键与组标记后投影；同名 PROPERTY 不视为配置候选。重复 FILETAGS 与 TAGS 各保留一项，不合并相邻声明。
+
+文件头 ~FileHeaderEntry.tags~ 同时投影真实 FILETAGS 声明中的标签，复用有效文件标签的名称校验，按单条声明保留顺序及内部用途标签。 ~value~ 仍保留声明原值，属性项不作为标签解析；Harmony 原样透传，UI 在阅读态渲染中性标签，编辑态按 Core 能力原位增删，保护 project／todo；不解析 Org。
+
 ~OrgFile.render_document_html()~ 基于同一语法树提供完整文件的语义 HTML，供需要连续阅读的宿主使用。与既有 ~render_html()~ 分离，保留普通文件和历史预览的原有行为。文件头提供项目名称、文档标题、分类、标签、有效属性、其他头关键字的语义键值以及同一快照的字节数与可用修改时间；未知内容转义保留，不执行 HTML、脚本或 Babel。真实标题与前言按源顺序完整输出；自有或祖先带 ~CONFLICT~ 标签的受保护子树不进入文档投影，原始字节与既有通用渲染保持完整，供原文与冲突处理使用。
 
 所有标题先以 ~section.heading~ 输出，标题摘要与内容分别使用 ~heading-summary~ 和 ~heading-content~ ；直属正文使用 ~heading-body~ ，与后代标题节点互为兄弟。有效 TODO 标题携带 ~data-org-task~ 、Core 状态分类 ~data-org-state~ 与直属正文存在标记 ~data-org-foldable~ ；仅有规划行或子标题、没有直属正文的任务不标记为可折叠。任务分类包含文件自定义流程，普通标题不误判为任务；属性与日志 drawer 直接完整展示。 ~data-org-start~ 、 ~data-org-end~ 与标题 ID 属于当前文件版本，版本变化后不能直接复用。
@@ -1228,3 +1232,13 @@ Workspace 提供服务启动、停止接口，APP 决定何时调用；服务与
 FilterTask.property(name) 返回当前标题自身属性的可空借用值，FilterTask.properties() 返回完整规范化属性表；名称按 ASCII 大写查找，空字符串与不存在分别返回 Some("") 和 None。属性追加合并、重复窗口规划后的 drawer 识别沿用 Properties，不继承祖先或文件默认值，不由宿主解析原文。
 
 统一修改入口接受 PROPERTY 修改项，value 为 { name, value }；内部 value 为字符串时设置，为 null 时删除该名称的基础及追加声明。名称与值通过 Core 校验，保留无关字节与文件版本校验，专用字段和不可修改的创建／关闭时间不能通过此入口绕过。具体字段边界见数据模型的“标题通用属性读写”。子树收起／展开直接修改 VISIBILITY 为 folded／all，不增加折叠专用访问接口或编辑上下文字段。
+
+* 文件头属性值修改
+
+~TaskOperation~ 新增 ~FileHaderModification(FileHaderModification)~ ，数据包含 ~file: OrgFileRef~ 与 ~changes: Vec<FileHeaderValueChange>~ ，每项包含当前版本的 ~entry_id~ 和结构化 ~FileHeaderValue~ （Text 或 Tags）。同一目标必须在 ~file_versions~ 中提供唯一版本，条目 ID 仅属于该文件该版本；编辑前按 Core 描述确认能力，未知字段只读，原有 project／todo 不可移除。执行仍使用 ~OrgWorkspace.execute_task_operations~ 并返回 ~Result<(), CoreError>~ ，不增加读取开关或新的写入入口。
+
+~OrgFileMetadata~ 始终包含 ~file_version: String~ 和 ~header_entries: Vec<FileHeaderEntry>~ 。条目新增 ~id~ 与 ~edit: Option<FileHeaderEditSpec>~ ，edit 包含值类型和保护标签；None 表示只读。FileQuery 保持不变。提交通过原有 ~DataChangeEvent::RepositoryChanged~ 上报，FileDataChange.before／after 中的完整元信息与 before_version／after_version 同版，关联任务按原订阅投影更新。
+
+原文、重复声明定位、值校验、同组操作、冲突与界面契约见 [[file:文件头属性编辑设计.org][文件头属性编辑设计]]。修改只覆盖声明值区间，保留字段名、未涉及空白、换行、其他声明与任务字节；TAGS 分组可跨声明校验，FILETAGS 保留原有标签顺序及内部空白。
+
+TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对应候选 token、保留其他候选的快捷键和分组结构，并在声明末尾追加新候选，沿用该位置的分组上下文。原有 Text 配置请求继续支持；任务自身标签不变。

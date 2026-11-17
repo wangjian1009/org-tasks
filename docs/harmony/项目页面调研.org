@@ -99,3 +99,17 @@ Notion 的格式说明将 Simple tables 与数据库区分：简单表格服务�
 * 后续评审关注点
 
 先评审 [[file:../../design/previews/60 Harmony 项目文档阅读.png][首次打开／任务展开／目录三态]] 与 [[file:../../design/previews/60 Harmony 项目全文展开.png][全部任务展开的全文]]，确认页首信息密度、任务收起时标题层次、展开后表格与段落衔接，以及目录面板是否仍让正文保持主体地位。该界面现已确认并实施，当前交付状态见 [[file:项目页面设计.org][项目页面设计]]；本文保留调研时的观察与取舍。
+
+* 文件头元信息展示补充调研
+
+2026-11-17 重新核对官方帮助页面，重点为元信息位置、字段类型及手机标签筛选。以下为网页资料观察，不代表实装测试；10fp 字号、原文顺序和并集规则来自本项目需求。
+
+| 官方资料 | 核对到的行为 | 项目页采用方式 |
+|-
+| [[https://help.obsidian.md/properties][Obsidian Properties]] | 属性以名称和值构成文件顶部的行；支持 Visible、Hidden、Source 三种显示模式，Source 显示 YAML 原文。 | 文件头属于文档开头，随正文滚动，名称用辅助色、值直接展示；按 Org 源顺序保留配置，不引入额外卡片或独立滚动区。 |
+| [[https://www.notion.com/help/database-properties][Notion Database properties]] | 文本、Select、Multi-Select 等字段有不同值类型；Created time、ID 等字段不可手动修改。 | 区分只读文字和可点击筛选值：TITLE、FILETAGS、未知属性只读，CATEGORY 与 TAGS 提供选择态。 |
+| [[https://culturedcode.com/things/support/articles/2803581/][Things Using Tags]] 的 iPad & iPhone 分支 | 手机从顶部更多菜单进入 Filter by Tag，筛选后有绿色筛选条；多标签匹配要求同时包含所有标签。 | 参考标签的选择反馈；本项目依用户要求常驻紧凑行、多标签取并集，不复制 Things 的菜单入口与交集规则。 |
+
+项目 property 区域采用 Obsidian 的无外框两列结构：字段名弱化，名称列固定 96vp、列间距 12vp，值统一起点，长字段名在列内换行；文字保持 10fp、行高 14vp，行最小高度 24vp。参考 Capacities 的轻量标签，FILETAGS 使用中性灰底小标签，原有 project、todo 只读保留。筛选候选高 20vp，未选中使用普通文字色，选中后青绿色底加深色文字与勾号。文件头与正文共用滚动，源顺序与并集逻辑保持既有规则。
+
+可复核的视觉资料为 [[https://obsidian.md/changelog/2023-08-31-desktop-v1.4.5/][Obsidian 1.4 官方属性编辑器截图]]、[[https://docs.capacities.io/reference/properties][Capacities Properties 的字段与标签截图]] 和 [[https://www.notion.com/help/layouts][Notion 布局编辑器的属性组截图]]。这里只借鉴 property 区域的列对齐、灰度和标签形态；来源图中的删除与新增属性入口不加入本应用。

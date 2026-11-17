@@ -65,6 +65,8 @@ pub struct HarmonyBridgeFile {
     pub document_sections: Vec<org_tasks_core::DocumentSection>,
     #[serde(rename = "fileTags")]
     pub file_tags: Vec<String>,
+    #[serde(rename = "headerEntries")]
+    pub header_entries: Vec<org_tasks_core::FileHeaderEntry>,
     #[serde(rename = "specialTags")]
     pub special_tags: Vec<String>,
     #[serde(rename = "projectName")]
@@ -646,27 +648,36 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
 
 fn query_result_value(result: org_tasks_core::CoreQueryResult, roots: &BTreeMap<String, String>, ordering: Option<&org_tasks_core::QueryOrdering>) -> Result<serde_json::Value, CoreError> {
     Ok(match result {
-
-            org_tasks_core::CoreQueryResult::Task(result) => serde_json::json!({
-                "type": "task", "result": {
-                    "tasks": result.tasks.into_iter().map(|task| {
-                        let key = ordering.map(|ordering| ordering.task_key(&task));
-                        let mut view = task_from_filter(task)?; view.order_key = key; Ok(view)
-                    }).collect::<Result<Vec<_>, CoreError>>()?,
-                    "categories": result.categories,
-                    "fullFiles": result.full_files.iter().map(file_snapshot).collect::<Result<Vec<_>, _>>()?,
-                }
-            }),
-            org_tasks_core::CoreQueryResult::File(files) => serde_json::json!({ "type": "file", "result": files.into_iter().map(|file| {
+        org_tasks_core::CoreQueryResult::Task(result) => serde_json::json!({
+            "type": "task", "result": {
+                "tasks": result.tasks.into_iter().map(|task| {
+                    let key = ordering.map(|ordering| ordering.task_key(&task));
+                    let mut view = task_from_filter(task)?; view.order_key = key; Ok(view)
+                }).collect::<Result<Vec<_>, CoreError>>()?,
+                "categories": result.categories,
+                "fullFiles": result.full_files.iter().map(file_snapshot).collect::<Result<Vec<_>, _>>()?,
+            }
+        }),
+        org_tasks_core::CoreQueryResult::File(files) => {
+            serde_json::json!({ "type": "file", "result": files.into_iter().map(|file| {
                 let key = ordering.map(|ordering| ordering.file_key(&file));
                 let mut view = file_metadata_snapshot(file); view.order_key = key; view
-            }).collect::<Vec<_>>() }),
-            org_tasks_core::CoreQueryResult::Notification(notifications) => {
-                let values = notifications.into_iter().map(|notification| {
-                    let mut value = serde_json::to_value(&notification).map_err(|_| CoreError::InvalidState("无法编码通知"))?;
-                    if let org_tasks_core::CoreNotification::SyncConflict(ref conflict) = notification {
-                        value["rootDirectory"] = roots.get(&conflict.repo_id)
-                            .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?.clone().into();
+            }).collect::<Vec<_>>() })
+        }
+        org_tasks_core::CoreQueryResult::Notification(notifications) => {
+            let values = notifications
+                .into_iter()
+                .map(|notification| {
+                    let mut value = serde_json::to_value(&notification)
+                        .map_err(|_| CoreError::InvalidState("无法编码通知"))?;
+                    if let org_tasks_core::CoreNotification::SyncConflict(ref conflict) =
+                        notification
+                    {
+                        value["rootDirectory"] = roots
+                            .get(&conflict.repo_id)
+                            .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?
+                            .clone()
+                            .into();
                     }
                     Ok(value)
                 }).collect::<Result<Vec<_>, CoreError>>()?;
@@ -783,6 +794,7 @@ fn file_snapshot(file: &org_tasks_core::OrgFile) -> Result<HarmonyBridgeFile, Co
         document_html: file.render_document_html(),
         document_sections: file.document_sections(),
         file_tags: file.file_tags(),
+        header_entries: file.header_entries(),
         special_tags: file.special_tags(),
         project_name: file.project(),
         conflicts,
@@ -859,7 +871,7 @@ fn priority_options(
 struct HarmonyBridgeFileMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     order_key: Option<Vec<org_tasks_core::QueryOrderPart>>,
-    // category、taskStateCounts 与 tagRows 随 Core 元信息原样序列化，不在宿主解析或统计。
+    // fileVersion、headerEntries 及现有元信息由 Core 同次生成，宿主原样序列化。
     #[serde(flatten)]
     metadata: org_tasks_core::OrgFileMetadata,
     task_priority_options: BTreeMap<String, Option<org_tasks_core::TaskPriority>>,
@@ -976,6 +988,11 @@ mod tests {
         let snapshot = serde_json::to_value(file_snapshot(&source_file).unwrap()).unwrap();
         assert_eq!(snapshot["projectName"], "Shared Project");
         assert_eq!(snapshot["fileTags"], serde_json::json!(["project"]));
+        assert_eq!(snapshot["headerEntries"][0]["name"], "TITLE");
+        assert_eq!(snapshot["headerEntries"][0]["value"], "Fallback");
+        assert_eq!(snapshot["headerEntries"][1]["name"], "FILETAGS");
+        assert_eq!(snapshot["headerEntries"][1]["value"], ":project:");
+        assert_eq!(snapshot["headerEntries"][1]["tags"], serde_json::json!(["project"]));
         assert_eq!(snapshot["specialTags"], serde_json::json!(["project", "REFILE", "ARCHIVE", "CONFLICT", "ATTACH"]));
         assert_eq!(snapshot["documentSections"].as_array().unwrap().len(), 3);
         assert!(snapshot["documentSections"][0]["path"].is_null());
@@ -2248,26 +2265,26 @@ pub fn repo_history_operation(
     let session = workspace_for_handle(handle)?;
     let workspace = session;
     runtime(handle)?.block_on(workspace.read_repo(&root, move |repo| async move {
-    match request {
-        Request::LastEffectSync => {
-            let current = repo.last_effect_sync().await?;
-            let summary = current
-                .map(|r| {
-                    bridge_sync_summary(
-                        org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&r)?,
-                    )
-                })
-                .transpose()?;
-            encode(&summary)
+        match request {
+            Request::LastEffectSync => {
+                let current = repo.last_effect_sync().await?;
+                let summary = current
+                    .map(|r| {
+                        bridge_sync_summary(
+                            org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&r)?,
+                        )
+                    })
+                    .transpose()?;
+                encode(&summary)
+            }
+            Request::File {
+                sync_id,
+                path,
+                resolved,
+            } => encode(&file_snapshot(
+                &repo.history_file(&sync_id, &path, resolved).await?,
+            )?),
         }
-        Request::File {
-            sync_id,
-            path,
-            resolved,
-        } => encode(&file_snapshot(
-            &repo.history_file(&sync_id, &path, resolved).await?,
-        )?),
-    }
     }))
 }
 
@@ -2945,16 +2962,25 @@ pub fn workspace_subscribe_query_json(handle: u64, source: String, monitors: Vec
         resolve_query_repositories(&workspace, std::slice::from_mut(&mut request.query), &request.repository_bindings)?;
         let ordering = workspace.query_ordering(&request.query)?;
         let event_ordering = ordering.clone();
-        subscriptions.push(org_tasks_core::QuerySubscriptionRequest::new(request.query.clone(), move |event| {
-            let _keep_alive = &monitor;
-            if let Ok(json) = query_event_value(&event, &event_ordering).and_then(|value| encode(&value))
-                .and_then(|value| CString::new(value).map_err(|_| CoreError::InvalidState("无法编码数据事件"))) {
-                #[cfg(not(test))]
-                unsafe { org_tasks_harmony_data_change_update(monitor.0, json.as_ptr()); }
-                #[cfg(test)]
-                let _ = json;
-            }
-        }));
+        subscriptions.push(org_tasks_core::QuerySubscriptionRequest::new(
+            request.query.clone(),
+            move |event| {
+                let _keep_alive = &monitor;
+                if let Ok(json) = query_event_value(&event, &event_ordering)
+                    .and_then(|value| encode(&value))
+                    .and_then(|value| {
+                        CString::new(value).map_err(|_| CoreError::InvalidState("无法编码数据事件"))
+                    })
+                {
+                    #[cfg(not(test))]
+                    unsafe {
+                        org_tasks_harmony_data_change_update(monitor.0, json.as_ptr());
+                    }
+                    #[cfg(test)]
+                    let _ = json;
+                }
+            },
+        ));
         orderings.push(ordering);
     }
     let started = runtime(handle)?.block_on(workspace.subscribe_query(subscriptions))?;
@@ -2992,7 +3018,6 @@ pub fn workspace_unsubscribe_query(handle: u64, id: u64) {
     drop(subscriptions);
     drop(removed);
 }
-
 
 #[cfg(test)]
 mod page_data_bridge_tests {
@@ -3208,6 +3233,55 @@ mod query_repository_binding_tests {
             assert!(workspace_subscribe_query_json(handle, serde_json::json!([{"query":task,"repositoryBindings":invalid}]).to_string(), vec![0]).is_err());
         }
         workspace_unsubscribe_query(handle, id);
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod file_header_edit_bridge_tests {
+    use super::*;
+    #[test]
+    fn header_modification_uses_metadata_ids_and_existing_operation_bridge() {
+        let root = std::env::temp_dir().join(format!(
+            "org-header-bridge-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("p.org"),"#+TITLE: 原名\r\n#+FILETAGS: :project:todo:\r\n#+CATEGORY: 工作\r\n* TODO Task\r\n正文\r\n").unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into_owned()).unwrap();
+        let read = || -> serde_json::Value {
+            serde_json::from_str(
+                &workspace_query_json(handle, r#"[{"type":"file","query":{}}]"#.into()).unwrap(),
+            )
+            .unwrap()
+        };
+        let before = read();
+        let file = &before[0]["result"][0];
+        let entry = &file["headerEntries"][0];
+        assert_eq!(entry["edit"]["kind"], "text");
+        assert!(entry["id"].is_string());
+        let group = serde_json::json!({"operationId":"header-bridge","fileVersions":[{"repoId":file["repoId"],"file":"p.org","version":file["fileVersion"]}],
+            "operations":[{"type":"FileHaderModification","data":{"file":{"repoId":file["repoId"],"path":"p.org"},"changes":[{"entryId":entry["id"],"value":{"type":"text","value":"新名"}}]}}]});
+        workspace_execute_task_operations(handle, group.to_string()).unwrap();
+        let next = read();
+        assert_eq!(next[0]["result"][0]["title"], "新名");
+        assert_ne!(next[0]["result"][0]["fileVersion"], file["fileVersion"]);
+        assert_eq!(
+            next[0]["result"][0]["headerEntries"][1]["edit"]["protectedTags"],
+            serde_json::json!(["project", "todo"])
+        );
+        assert!(workspace_execute_task_operations(handle, group.to_string()).is_err());
+        assert!(
+            std::fs::read_to_string(root.join("p.org"))
+                .unwrap()
+                .ends_with("* TODO Task\r\n正文\r\n")
+        );
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

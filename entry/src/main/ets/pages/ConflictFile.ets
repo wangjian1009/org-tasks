@@ -213,6 +213,7 @@ struct ConflictFile {
       case 'missing-parent': return '原父节点已消失，请为本地内容选择放置位置。'
       case 'reorder': return '两端同时调整了节点顺序，请确认采用的结构。'
       case 'structure': return '文件结构发生冲突，请确认是否替换主树。'
+      case 'header': return '文件属性存在不同修改，请比较后选择采用本地或保留当前；重复声明有歧义时需逐项编辑。'
       default: return '此处存在内容冲突，请核对应用前后的内容。'
     }
   }
@@ -348,6 +349,7 @@ struct ConflictFile {
       case 'missing-parent': return '放置'
       case 'reorder':
       case 'structure': return '替换主树'
+      case 'header': return '采用文件属性'
       default: return '应用'
     }
   }
@@ -423,7 +425,7 @@ struct ConflictFile {
     if (target.type === 'existing') return target.data.titles.join(' / ')
     if (target.type === 'insert') return target.data.after ? `${target.data.after.titles.join(' / ')} 之后` :
       target.data.parent.titles.length ? `${target.data.parent.titles.join(' / ')} 下第一项` : '文件中第一个标题'
-    return '完整主树'
+    return this.selectedConflict()?.reason === 'header' ? '当前文件属性' : '完整主树'
   }
 
   async chooseTarget(row: ConflictTargetRow) {

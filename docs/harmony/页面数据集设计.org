@@ -437,3 +437,9 @@ Core 回归确认同批多项查询每仓库仅一次加锁和文件加载，结
 任务与项目正文统一由 ~TaskContentEditor~ 管理。数据集只投递任务快照；共享正文控件在内部对比区块的类型、内容与定位，维持独立于数组索引的控件身份。未变化区块重用原引用，头部插入、删除、重排或定位偏移不销毁其他阅读节点。
 
 文件版本仍传递给链接与区块编辑的校验上下文，不作为正文重载条件。只有区块 HTML 真正变化才更新对应 WebView；任务状态底色由外壳绘制，正文持续透明。语法拆分仍由 Core 负责；嵌套逻辑树的具体投影扩展见 [[file:TaskContentEditor设计.org][TaskContentEditor 设计]]，尚待 Core 对外接口方案确认。
+
+* 项目文件头编辑
+
+现有文件元信息快照增加 fileVersion 与 headerEntries，项目页通过 metadata 数据集持续取得同版本条目。区域内所有字段以同一 sourceVersion 批量提交已修改项，TAGS／FILETAGS 使用标签数组值。DataSet.updateFileHeader(file, changes, sourceVersion) 复用 operate、UserOperationQueue、原 Workspace 操作组和来源关联；FileHaderModification 必须提交显式版本，不能借任务按最新版本保存的策略覆盖文件头旧草稿。
+
+外部属性更新由 Core 发出文件元信息与同文件任务投影，数据集分别归并，页面只刷新展示。整个属性区共用一次 TaskInlineSession，输入独立于确认快照；编辑中继续更新 headerEntries 与 headerVersion，推迟文档结构刷新。文件版本变化后保留草稿并提示重新编辑，不替换原 ID 自动重试。空项目的文件事件不能因缺少任务变化而忽略。完整接口见 [[file:../core/文件头属性编辑设计.org][文件头属性编辑设计]]。

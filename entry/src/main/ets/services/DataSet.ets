@@ -2,7 +2,7 @@ import { compareRecords } from '../ui/QueryOrderPresentation'
 import { samePageTask, samePageMetadata, samePageValue } from './PageDataEquality'
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
-import { TaskCreation, TaskModification } from 'liborg_tasks_harmony.so'
+import { TaskCreation, TaskModification, OrgFileRef, FileHeaderValueChange } from 'liborg_tasks_harmony.so'
 import { AppConfig } from '../models/OrgTask'
 import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
@@ -170,6 +170,21 @@ export class DataSet {
   async createTask(value: TaskCreation, sourceVersion?: string): Promise<void> { await this.create(this.name, value, sourceVersion) }
   async moveTask(id: string, target: CoreRefileTarget): Promise<void> { await this.move(this.name, id, target) }
   async removeTask(id: string): Promise<void> { await this.remove(this.name, id) }
+  async updateFileHeader(file: OrgFileRef, changes: FileHeaderValueChange[], sourceVersion: string): Promise<void> {
+    let committed = false
+    try {
+      await this.operate(async (operationId: string): Promise<void> => {
+        if (!this.workspace) throw new Error('底层连接不可用')
+        await this.workspace.executeTaskOperations({ operationId,
+          operations: [{ type: 'FileHaderModification', data: { file, changes } }],
+          fileVersions: [{ repoId: file.repoId, file: file.path, version: sourceVersion }] })
+        committed = true
+      })
+    } catch (error) {
+      if (committed) throw new DataSetWriteError((error as Error).message, true)
+      throw error as Error
+    }
+  }
   async operate(execute: (operationId: string) => Promise<void>): Promise<void> { await this.runOperation(this.name, execute) }
   restore(data: CoreQueryResult): void { this.confirmed.set(this.name, data); this.versions.set(this.name, 0); this.rebuild(this.name, this.operationId(0, 'cache'), false) }
   async settle(): Promise<void> {

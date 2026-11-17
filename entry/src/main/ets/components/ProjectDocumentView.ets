@@ -1,14 +1,15 @@
 import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
-import { ProjectReadingSection, visibleProjectTags, projectOutlineSections, projectReadingItems, ProjectReadingItem } from '../ui/ProjectReadingPresentation'
+import { ProjectReadingSection, projectOutlineSections, projectReadingItems, ProjectReadingItem } from '../ui/ProjectReadingPresentation'
 import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
 import { ProjectSectionBody } from './ProjectSectionBody'
 import { ProjectTaskSection } from './ProjectTaskSection'
 import { TaskInlineSession } from '../services/TaskInlineService'
-import { taskTagColor } from '../ui/TaskListPresentation'
 import { UiColor } from '../ui/Theme'
 import { TitleText } from './TitleText'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
+import { ProjectFileHeader, ProjectHeaderNavigation } from './ProjectFileHeader'
+import { CoreFileHeaderEntry, CoreFileHeaderValueChange } from '../services/NativeCoreService'
 
 export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
@@ -32,7 +33,18 @@ export struct ProjectDocumentView {
   @State contextKeys: string[] = []
   @State parentKeys: string[] = []
   @StorageLink('taskInlineActive') @Watch('updateDocument') inlineActive: string = ''
-  @Prop fileTags: string[] = []
+  @Prop headerEntries: CoreFileHeaderEntry[] = []
+  @Prop headerVersion: string = ''
+  @Prop categoryOptions: string[] = []
+  beforeHeaderEdit: () => Promise<boolean> = async () => true
+  saveHeader: (changes: CoreFileHeaderValueChange[], version: string) => Promise<void> = async () => {}
+
+  @Prop tagOptions: string[] = []
+  @Prop selectedTags: string[] = []
+  @Prop category: string = ''
+  @Prop selectedCategory: string = ''
+  toggleTag: (tag: string) => void = () => {}
+  toggleCategory: () => void = () => {}
   @Prop specialTags: string[] = []
   @Prop @Watch('snapshotChanged') revision: string = ''
   @Prop readingState: string = ''
@@ -43,6 +55,7 @@ export struct ProjectDocumentView {
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
   @State outlineItems: ProjectReadingSection[] = []
+  private headerNavigation: ProjectHeaderNavigation = new ProjectHeaderNavigation()
   private stopTasks: (() => void) | undefined = undefined
 
   linkSection(target: string): ProjectReadingSection | undefined {
@@ -77,6 +90,7 @@ export struct ProjectDocumentView {
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
     this.navigation.openOutline = (): void => { this.updateOutline(); this.outlineVisible = true }
     this.navigation.closePanel = (): boolean => {
+      if (this.headerNavigation.close()) return true
       if (!this.outlineVisible) return false
       this.outlineVisible = false
       return true
@@ -178,14 +192,12 @@ export struct ProjectDocumentView {
   build() {
     Scroll(this.scroller) {
       Column() {
-        if (visibleProjectTags(this.fileTags, this.specialTags).length > 0) {
-          Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(visibleProjectTags(this.fileTags, this.specialTags), (tag: string) => {
-              Text(tag).fontSize(12).fontColor(UiColor.text).wordBreak(WordBreak.BREAK_ALL)
-                .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(10)
-                .backgroundColor(taskTagColor(tag)).margin({ right: 6, bottom: 6 })
-            }, (tag: string) => tag)
-          }.width('100%').padding({ top: 8, bottom: 12 })
+        if (this.headerEntries.length > 0 || this.tagOptions.length > 0 || this.category) {
+          ProjectFileHeader({ headerEntries: this.headerEntries, fileVersion: this.headerVersion, categoryOptions: this.categoryOptions,
+            beforeEdit: this.beforeHeaderEdit, save: this.saveHeader, navigation: this.headerNavigation,
+            tags: this.tagOptions, selectedTags: this.selectedTags,
+            category: this.category, selectedCategory: this.selectedCategory,
+            toggle: this.toggleTag, toggleCategory: this.toggleCategory }).width('100%')
         }
         ForEach(this.sections, (section: ProjectReadingSection) => {
           Column({ space: section.node ? 0 : 12 }) {

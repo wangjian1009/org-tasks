@@ -416,11 +416,12 @@ test('长文档冲突卡片使用 Web 视口定位，保留浏览器滚动位置
 });
 
 function projectPageFixture() {
+  let inlineActive = false;
   let open = async () => file();
   let end = async () => true;
   let capture = '{"open":["org-node-12"],"anchor":"org-node-12","offset":0,"scroll":80}';
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
-    nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'work'], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
+    nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'todo', 'work'], headerEntries: () => [], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
     '../services/DataManager': { DataManager: class {
       static create(context,page,definitions,options){assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
@@ -454,14 +455,14 @@ function projectPageFixture() {
     '../services/NativeCoreService': { coreErrorMessage: error => error.message,
       NativeCoreService: { async workspaceFor() { return { async repos() { return [{ id: 'core', rootDirectory: '/repo' }]; } }; } } },
     '../ui/Theme': theme, '../ui/ProjectReadingPresentation': projectReading,
-    '../services/TaskInlineService': { TaskInlineSession: { active:()=>false,end: (...args) => end(...args) } }
+    '../services/TaskInlineService': { TaskInlineSession: { active:()=>inlineActive,end: (...args) => end(...args) } }
   }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@State |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g, '')
     .replace('struct ProjectDetail', 'class ProjectDetail') + '}\nmodule.exports = { ProjectDetail };');
   const page = new ProjectDetail(), routes = [];
   page.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
     getParams: () => ({ repoId: 'core', path: 'project.org' }), replaceUrl: async route => routes.push(route), back: () => routes.push('back')
   }) });
-  return { page, file, routes, setOpen: fn => { open = fn; }, setEnd: fn => { end = fn; } };
+  return { page, file, routes, setActive: value => { inlineActive = value; }, setOpen: fn => { open = fn; }, setEnd: fn => { end = fn; } };
 }
 
 test('项目标签切换先保存并收起任务，失败不切换，快速切换只采用最后请求', async () => {
@@ -616,6 +617,7 @@ function nativeProjectFixture() {
     '../services/DataSetManager': { DataSetManager: class {} },
     '../ui/ProjectReadingPresentation': projectReading,
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
+    './ProjectFileHeader': { ProjectHeaderNavigation: class { close() { return false; } } },
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args), active: () => false } }
   }, source => source.split('  @Builder\n')[0]
     .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
@@ -799,17 +801,17 @@ test('文件头标签保留声明行、组边界与普通标签，隐藏候选�
   assert.equal(projectHeader.projectHeaderTitle('', ''), '未命名项目');
 });
 
-test('项目分组标签切换与取消，跨组交集、普通标签并集并交给 Core 求值', async () => {
+test('项目分组标签切换与取消，所选标签整体取并集并交给 Core 求值', async () => {
   const f = projectPageFixture(), expressions = [];
   f.page.refreshDocument = () => {};
   f.page.tagGroups = [['iOS', 'Android'], ['BUG', 'FEAT']];
   f.page.dataManager = { dataSet: () => ({ error: '', async setQuery(query) { expressions.push(query.query.expression); } }) };
   for (const tag of ['iOS', 'Android', 'BUG', 'work', 'home', 'Android', 'BUG', 'work', 'home']) await f.page.selectTag(tag);
   assert.deepEqual(expressions, [
-    't."iOS"', 't."Android"', 't."Android" and t."BUG"',
-    't."Android" and t."BUG" and t."work"',
-    't."Android" and t."BUG" and (t."work" or t."home")',
-    't."BUG" and (t."work" or t."home")', '(t."work" or t."home")', 't."home"', ''
+    't."iOS"', 't."Android"', 't."Android" or t."BUG"',
+    't."Android" or t."BUG" or t."work"',
+    't."Android" or t."BUG" or t."work" or t."home"',
+    't."BUG" or t."work" or t."home"', 't."work" or t."home"', 't."home"', ''
   ]);
   await f.page.selectTag('iOS'); await f.page.selectTag('');
   assert.deepEqual(f.page.selectedTags, []);
@@ -838,4 +840,111 @@ test('文件配置分行穿过元信息缓存，旧缓存恢复为单行', () =>
   assert.deepEqual(new snapshots.PageMetadataSnapshot(record).tagRows, [['a', 'b'], ['c']]);
   delete record.value.tagRows;
   assert.deepEqual(new snapshots.PageMetadataSnapshot(record).tagRows, [['a', 'b', 'c']]);
+});
+
+function headerEditorFixture() {
+  class WriteError extends Error { constructor(message, committed) { super(message); this.committed = committed; } }
+  const { Header } = load(base + 'components/ProjectFileHeader.ets', {
+    '@kit.ArkUI': {}, '@kit.BasicServicesKit': {}, '../services/NativeCoreService': {},
+    '../ui/Theme': theme, '../services/DataSet': { DataSetWriteError: WriteError },
+    '../services/TaskInlineService': { TaskInlineSession: { begin: async () => true, release() {} } }
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop /g, '')
+    .replace('export struct ProjectFileHeader', 'class Header') + '}\nmodule.exports = { Header };');
+  const header = new Header(), calls = [], dialogs = [];
+  header.alive = true;
+  header.getUIContext = () => ({ showAlertDialog: value => dialogs.push(value), getPromptAction: () => ({ showToast() {} }) });
+  header.fileVersion = 'v1';
+  header.headerEntries = [{ id: 'entry-v1', name: 'TITLE', keyword: true, value: '原值', tags: [], edit: { kind: 'text', protectedTags: [] } }];
+  header.save = async (...args) => { calls.push(args); };
+  return { header, calls, dialogs, WriteError };
+}
+
+test('属性编辑捕获原版本；外部更新保留草稿并拒绝旧版本保存，不自动改用新 ID', async () => {
+  const { header, calls, dialogs } = headerEditorFixture();
+  await header.openEditor();
+  header.setText('entry-v1', '未保存草稿'); header.fileVersion = 'v2';
+  header.headerEntries = [{ ...header.headerEntries[0], id: 'entry-v2', value: '外部更新' }];
+  await header.submitEditor();
+  assert.equal(header.draft('entry-v1').text, '未保存草稿'); assert.equal(header.editing, true);
+  assert.equal(calls.length, 0); assert.match(header.message, /文件已更新/);
+  header.closeEditor(); assert.equal(header.editing, true);
+  dialogs[0].secondaryButton.action(); assert.equal(header.editing, false);
+  await header.openEditor();
+  header.setText('entry-v2', '本次修改'); await header.submitEditor();
+  assert.deepEqual(calls, [[[{entryId:'entry-v2',value:{type:'text',value:'本次修改'}}], 'v2']]);
+});
+
+test('文件属性已提交后的确认错误不能导致再次提交；未修改关闭不产生写入', async () => {
+  const { header, calls, WriteError } = headerEditorFixture();
+  await header.openEditor(); await header.submitEditor(); assert.equal(calls.length, 0);
+  await header.openEditor(); header.setText('entry-v1', '新值');
+  header.save = async (...args) => { calls.push(args); throw new WriteError('确认失败', true); };
+  await header.submitEditor(); assert.equal(header.saved, true); assert.match(header.message, /已保存/);
+  await header.submitEditor(); assert.equal(calls.length, 1); assert.equal(header.editing, false);
+});
+
+test('整个属性区进入编辑，所有可编辑字段批量保存；未知字段保持只读', async () => {
+  const { header, calls } = headerEditorFixture();
+  header.headerEntries.push({id:'readonly',name:'UNKNOWN',value:'原样',edit:null});
+  header.headerEntries.push({id:'category',name:'CATEGORY',value:'工作',tags:[],edit:{kind:'category',protectedTags:[]}});
+  await header.openEditor();
+  assert.equal(header.allowFilterClick(),false);
+  assert.equal(header.entries().length,3);assert.equal(header.drafts.length,2);
+  header.setText('entry-v1','新标题');header.setText('category','研发');
+  await header.submitEditor();
+  assert.deepEqual(calls,[[[{entryId:'entry-v1',value:{type:'text',value:'新标题'}},{entryId:'category',value:{type:'text',value:'研发'}}],'v1']]);
+  assert.equal(header.editing,false);
+});
+
+test('TAGS 与 FILETAGS 原位增删，保护标签不可删除，正在输入的标签随保存提交', async () => {
+  const { header,calls }=headerEditorFixture();
+  header.headerEntries=[{id:'filetags',name:'FILETAGS',value:':project:todo:work:',tags:['project','todo','work'],edit:{kind:'fileTags',protectedTags:['project','todo']}},
+    {id:'tags',name:'TAGS',value:'{ A(a) B(b) }',tags:['A','B'],edit:{kind:'tagConfig',protectedTags:[]}}];
+  await header.openEditor();header.suppressClickUntil=0;
+  header.removeTag('filetags','project');header.removeTag('filetags','todo');header.removeTag('filetags','work');
+  assert.deepEqual(header.draft('filetags').tags,['project','todo']);
+  header.setNewTag('filetags','home');header.addTag('filetags');header.setNewTag('filetags','home');header.addTag('filetags');
+  header.removeTag('tags','B');header.setNewTag('tags','C');
+  await header.submitEditor();
+  assert.deepEqual(calls,[[[{entryId:'filetags',value:{type:'tags',value:['project','todo','home']}},{entryId:'tags',value:{type:'tags',value:['A','C']}}],'v1']]);
+});
+
+test('取消整个属性区编辑丢弃标签和文本草稿，不触发写入', async () => {
+  const {header,calls,dialogs}=headerEditorFixture();await header.openEditor();
+  header.setText('entry-v1','取消的草稿');header.closeEditor();dialogs[0].secondaryButton.action();
+  assert.equal(header.editing,false);assert.equal(calls.length,0);
+  await header.openEditor();assert.equal(header.draft('entry-v1').text,'原值');
+});
+
+test('属性编辑期间元信息版本持续更新，文档结构推迟到编辑结束刷新', () => {
+ const f=projectPageFixture();f.page.fileVersion='v1';f.setActive(true);
+ const metadata={headerEntries:[{id:'external',name:'TITLE',value:'外部标题'}],fileVersion:'v2',category:'新分类',projectName:'新项目',tagOptions:[],tagGroups:[],tagRows:[]};
+ const oldSections=f.page.sections;
+ f.page.dataManager={dataSet:()=>({data:{type:'file',result:[metadata]}})};
+ f.page.refreshDocument();assert.equal(f.page.headerVersion,'v2');assert.equal(f.page.headerEntries,metadata.headerEntries);
+ assert.equal(f.page.sections,oldSections);assert.equal(f.page.title,'');
+ f.setActive(false);f.page.refreshDocument();assert.equal(f.page.title,'新分类 . 新项目');
+});
+
+test('返回优先交给属性原位编辑器，其次关闭目录', () => {
+ const f=nativeProjectFixture();let calls=0;
+ f.view.outlineVisible=true;f.view.headerNavigation.close=()=>{calls++;return true;};
+ assert.equal(f.view.navigation.closePanel(),true);assert.equal(f.view.outlineVisible,true);assert.equal(calls,1);
+ f.view.headerNavigation.close=()=>false;
+ assert.equal(f.view.navigation.closePanel(),true);assert.equal(f.view.outlineVisible,false);
+});
+
+test('加号只建立原位输入草稿，切换声明先收起前一标签，空值和重复值不新增', async () => {
+ const {header,calls}=headerEditorFixture();
+ header.headerEntries=[{id:'a',name:'TAGS',value:'A',tags:['A'],edit:{kind:'tagConfig',protectedTags:[]}},
+   {id:'b',name:'FILETAGS',value:':project:',tags:['project'],edit:{kind:'fileTags',protectedTags:['project']}}];
+ await header.openEditor();header.startTag('a');
+ assert.equal(header.creatingTagId,'a');assert.equal(header.dirty(),false);assert.equal(calls.length,0);
+ header.setNewTag('a','B');header.startTag('b');
+ assert.equal(header.creatingTagId,'b');assert.deepEqual(header.draft('a').tags,['A','B']);
+ header.addTag('b');assert.equal(header.creatingTagId,'');assert.deepEqual(header.draft('b').tags,['project']);
+ header.startTag('a');header.setNewTag('a','B');header.addTag('a');assert.deepEqual(header.draft('a').tags,['A','B']);
+ header.startTag('b');header.setNewTag('b','new');await header.submitEditor();
+ assert.deepEqual(calls,[[[{entryId:'a',value:{type:'tags',value:['A','B']}},{entryId:'b',value:{type:'tags',value:['project','new']}}],'v1']]);
+ assert.equal(header.creatingTagId,'');
 });

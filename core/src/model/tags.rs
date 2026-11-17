@@ -20,7 +20,7 @@ fn push_unique(tags: &mut Vec<String>, tag: &str) {
     }
 }
 
-fn configured_tag(token: &str) -> Option<&str> {
+pub(super) fn configured_tag(token: &str) -> Option<&str> {
     let tag = if let Some((tag, shortcut)) = token.split_once('(') {
         if shortcut.strip_suffix(')')?.chars().count() != 1 {
             return None;
@@ -30,6 +30,24 @@ fn configured_tag(token: &str) -> Option<&str> {
         token
     };
     valid_tag(tag).then_some(tag)
+}
+
+// 单条 TAGS 声明的候选；分组及快捷键不混入显示名称。
+pub(super) fn header_tag_names(value: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for tag in value.split_whitespace().filter_map(configured_tag) {
+        push_unique(&mut names, tag);
+    }
+    names
+}
+
+// 文件头单条 FILETAGS 使用与有效文件标签相同的名称校验，保留内部用途标签。
+pub(super) fn header_file_tag_names(value: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for tag in value.split(':').map(str::trim) {
+        push_unique(&mut names, tag);
+    }
+    names
 }
 
 impl OrgFile {
@@ -43,8 +61,8 @@ impl OrgFile {
     pub fn file_tags(&self) -> Vec<String> {
         let mut tags = Vec::new();
         for value in self.file_keywords.values("FILETAGS") {
-            for tag in value.split(':').map(str::trim) {
-                push_unique(&mut tags, tag);
+            for tag in header_file_tag_names(value) {
+                push_unique(&mut tags, &tag);
             }
         }
         tags

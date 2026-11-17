@@ -426,7 +426,10 @@ fn merge_tags_part(
     let remote_set = remote_tags.iter().cloned().collect::<BTreeSet<_>>();
     let mut merged = base_tags
         .into_iter()
-        .filter(|tag| !((base_set.contains(tag) && !local_set.contains(tag)) || (base_set.contains(tag) && !remote_set.contains(tag))))
+        .filter(|tag| {
+            !((base_set.contains(tag) && !local_set.contains(tag))
+                || (base_set.contains(tag) && !remote_set.contains(tag)))
+        })
         .collect::<Vec<_>>();
     for tag in local_tags.into_iter().chain(remote_tags) {
         if !merged.iter().any(|item| item == &tag) {
@@ -446,18 +449,22 @@ fn merge_tags_part(
 
 fn log_sort_key(row: &str) -> (bool, String) {
     row.find('[')
-        .and_then(|start| row[start + 1..].find(']').map(|end| row[start + 1..start + 1 + end].to_owned()))
+        .and_then(|start| {
+            row[start + 1..]
+                .find(']')
+                .map(|end| row[start + 1..start + 1 + end].to_owned())
+        })
         .map(|time| (false, time))
         .unwrap_or_else(|| (true, String::new()))
 }
 
 /// 自动合并多个 LOGBOOK 行时按时间排序；无时间的用户行稳定地排在末尾。
 fn sort_logbook_source(source: &str) -> String {
-    let Some(start) = source
-        .lines()
-        .enumerate()
-        .find_map(|(index, line)| line.trim().eq_ignore_ascii_case(":LOGBOOK:").then_some(index))
-    else {
+    let Some(start) = source.lines().enumerate().find_map(|(index, line)| {
+        line.trim()
+            .eq_ignore_ascii_case(":LOGBOOK:")
+            .then_some(index)
+    }) else {
         return source.into();
     };
     let lines = source.split_inclusive('\n').collect::<Vec<_>>();
@@ -792,9 +799,7 @@ fn without_inline_conflicts(file: &OrgFile) -> Vec<u8> {
         .path_headlines()
         .into_iter()
         .filter(|(_, headline)| headline.tags().any(|tag| tag == crate::model::CONFLICT_TAG))
-        .map(|(_, headline)| {
-            usize::from(headline.start())..usize::from(headline.end())
-        })
+        .map(|(_, headline)| usize::from(headline.start())..usize::from(headline.end()))
         .collect::<Vec<_>>();
     ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
     let mut outer = Vec::new();
@@ -1152,7 +1157,21 @@ fn merge_with_container(
     let b = reparse(base, conflict::main_source(base))?;
     let l = reparse(local, conflict::main_source(local))?;
     let r = reparse(remote, conflict::main_source(remote))?;
-    let merged = reparse(remote, merge_nodes(&b, &l, &r)?)?;
+    let mut merged = reparse(remote, merge_nodes(&b, &l, &r)?)?;
+    if let Some(payload) = crate::model::file_header::merge_headers(&b, &l, &r, &mut merged)? {
+        let id = hash(
+            &serde_json::to_vec(&(&remote.repo_id, &remote.path, "header", &payload))
+                .expect("冲突身份可序列化"),
+        );
+        if !points.iter().any(|point| point.id == id) {
+            let nl = if remote.source_bytes().windows(2).any(|v| v == b"\r\n") {
+                "\r\n"
+            } else {
+                "\n"
+            };
+            points.push(ConflictPoint { id: id.clone(), source: format!("** 文件属性{nl}:PROPERTIES:{nl}:CONFILICT_ID: {id}{nl}:END:{nl}#+CONFLICT_REASON: header{nl}#+begin_example{nl}{payload}{nl}#+end_example{nl}") });
+        }
+    }
     let mut pending = Vec::<PendingConflict>::new();
     for (_, headline) in merged.path_headlines() {
         if !headline.tags().any(|tag| tag == crate::model::CONFLICT_TAG) {
@@ -1544,18 +1563,25 @@ mod tests {
         format!("* {state} Work\n:PROPERTIES:\n:ID: stable\n:END:\n{body}\n")
     }
     #[test]
-    fn preamble_always_uses_remote_even_when_only_local_changed() {
+    fn ordinary_preamble_uses_remote_while_header_values_merge_and_compete() {
         let base = "#+TITLE: Base\r\nbase preface\r\n* A\r\nbase\r\n";
         let local = "#+TITLE: Local\r\nlocal preface\r\n* A\r\nlocal\r\n";
         assert_eq!(
             merge(base.as_bytes(), local.as_bytes(), base.as_bytes()).unwrap(),
-            b"#+TITLE: Base\r\nbase preface\r\n* A\r\nlocal\r\n"
+            b"#+TITLE: Local\r\nbase preface\r\n* A\r\nlocal\r\n"
         );
         let remote = "#+TITLE: Remote\r\nremote preface\r\n* A\r\nbase\r\n";
+        let result = file(
+            std::str::from_utf8(
+                &merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap(),
+            )
+            .unwrap(),
+        );
         assert_eq!(
-            merge(base.as_bytes(), local.as_bytes(), remote.as_bytes()).unwrap(),
+            crate::model::conflict::main_source(&result),
             b"#+TITLE: Remote\r\nremote preface\r\n* A\r\nlocal\r\n"
         );
+        assert_eq!(result.conflicts().unwrap()[0].reason, "header");
         assert_eq!(
             merge(b"base preface\n", b"local preface\n", b"remote preface\n").unwrap(),
             b"remote preface\n"

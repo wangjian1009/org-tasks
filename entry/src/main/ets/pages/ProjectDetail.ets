@@ -4,13 +4,12 @@ import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
-import { CoreBridgeError, CoreOrgFile, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreOrgFile, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { ProjectDocumentView, ProjectDocumentNavigation } from '../components/ProjectDocumentView'
 import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { ProjectReadingSection, projectReadingSections, reconcileProjectSections } from '../ui/ProjectReadingPresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
-import { ProjectFileHeader } from '../components/ProjectFileHeader'
 import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPresentation'
 import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
 
@@ -24,11 +23,15 @@ interface ProjectParams { repoId?: string; path?: string }
 struct ProjectDetail {
   @State title: string = ''
   @State sections: ProjectReadingSection[] = []
-  @State fileTags: string[] = []
+  @State headerEntries: CoreFileHeaderEntry[] = []
+  @State headerVersion: string = ''
+  @State categoryOptions: string[] = []
+  @State category: string = ''
   @State tagOptions: string[] = []
   @State tagRows: string[][] = []
   @State tagGroups: string[][] = []
   @State selectedTags: string[] = []
+  @State selectedCategory: string = ''
   @State matchedIds: string[] = []
   @State filtering: boolean = false
   @State filterMessage: string = ''
@@ -121,14 +124,15 @@ struct ProjectDetail {
     if (force || this.message || this.refreshMessage || !this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
       this.refreshing = true; this.filterRequest++; this.filtering = false
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
-      if (this.repoId !== repoId || this.path !== path) this.selectedTags = []
+      if (this.repoId !== repoId || this.path !== path) { this.selectedTags = []; this.selectedCategory = '' }
       this.repoId = repoId; this.path = path
       this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', [{
         name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
           includeFiles: [{ repoId, path }], fullFiles: [{ repoId, path }], includeIgnored: true } }
       }, { name: 'matches', query: { type: 'task', repoIds: [repoId], query: {
-        expression: this.tagExpression(), includeFiles: [{ repoId, path }], includeIgnored: true
-      } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } }], { cache: false })
+        expression: this.tagExpression(), categories: this.categoryQuery(), includeFiles: [{ repoId, path }], includeIgnored: true
+      } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } },
+        { name: 'categories', query: { type: 'file', query: {} } }], { cache: false })
       const manager = this.dataManager
       const fileDataSet = manager.dataSet('tasks')
       this.fileDataSet = fileDataSet
@@ -139,7 +143,8 @@ struct ProjectDetail {
       })
       const stopMatches = manager.dataSet('matches').subscribe((): void => { this.refreshDocument() })
       const stopMetadata = manager.dataSet('metadata').subscribe((): void => { this.refreshDocument() })
-      this.stopFile = (): void => { stopTasks(); stopMatches(); stopMetadata() }
+      const stopCategories = manager.dataSet('categories').subscribe((): void => { this.refreshDocument() })
+      this.stopFile = (): void => { stopTasks(); stopMatches(); stopMetadata(); stopCategories() }
       try {
         const results = await manager.start()
         if (manager !== this.dataManager) return
@@ -153,6 +158,13 @@ struct ProjectDetail {
   }
 
   tagExpression(): string { return projectTagExpression(this.selectedTags, this.tagGroups) }
+  categoryQuery(): string[] { return this.selectedCategory ? [this.selectedCategory] : [] }
+
+  async selectCategory(): Promise<void> {
+    if (!await TaskInlineSession.end(true)) return
+    this.selectedCategory = this.selectedCategory ? '' : this.category
+    await this.updateTagQuery()
+  }
 
   async selectTag(tag: string): Promise<void> {
     if (!await TaskInlineSession.end(true)) return
@@ -166,7 +178,7 @@ struct ProjectDetail {
     const manager = this.dataManager
     const matches = manager?.dataSet('matches')
     await matches?.setQuery({ type: 'task', repoIds: [this.repoId], query: {
-      expression: this.tagExpression(), includeFiles: [{ repoId: this.repoId, path: this.path }], includeIgnored: true
+      expression: this.tagExpression(), categories: this.categoryQuery(), includeFiles: [{ repoId: this.repoId, path: this.path }], includeIgnored: true
     } })
     if (request !== this.filterRequest || manager !== this.dataManager || !this.pageVisible) return
     this.filtering = false
@@ -175,18 +187,30 @@ struct ProjectDetail {
   }
 
   refreshDocument(): void {
-    if (!this.pageVisible || this.refreshing || TaskInlineSession.active() || !this.fileVersion) return
+    if (!this.pageVisible || this.refreshing || !this.fileVersion) return
     const metadata = this.dataManager?.dataSet('metadata').data
     if (metadata?.type === 'file' && metadata.result[0]) {
       const file = metadata.result[0]
+      this.headerEntries = file.headerEntries
+      this.headerVersion = file.fileVersion
+    }
+    if (TaskInlineSession.active()) return
+    if (metadata?.type === 'file' && metadata.result[0]) {
+      const file = metadata.result[0]
       const expression = this.tagExpression()
+      const selectedCategory = this.selectedCategory
       this.title = projectHeaderTitle(file.category ?? '', file.projectName ?? '')
       this.tagOptions = file.tagOptions.filter(tag => !this.specialTags.includes(tag) && tag !== 'todo')
       this.tagRows = file.tagRows ?? [this.tagOptions]
       this.tagGroups = file.tagGroups
+      this.category = file.category ?? ''
+      if (this.selectedCategory && this.selectedCategory !== this.category) this.selectedCategory = ''
       this.selectedTags = reconcileTaskTags({ tags: this.selectedTags, includeUntagged: false }, this.tagOptions, this.tagGroups).tags
-      if (expression !== this.tagExpression()) { this.updateTagQuery(); return }
+      if (expression !== this.tagExpression() || selectedCategory !== this.selectedCategory) { this.updateTagQuery(); return }
     }
+    const categories = this.dataManager?.dataSet('categories').data
+    if (categories?.type === 'file') this.categoryOptions = Array.from(new Set<string>(categories.result
+      .filter(file => file.repoId === this.repoId && !!file.category).map(file => file.category!))).sort()
     const matches = this.dataManager?.dataSet('matches').data
     if (matches?.type === 'task' && !this.filtering && !this.filterMessage) this.matchedIds = matches.result.tasks.map(task => task.id)
     const data = this.fileDataSet?.data
@@ -194,6 +218,12 @@ struct ProjectDetail {
     const sections = reconcileProjectSections(this.sections, data.result.tasks,
       (task: CoreTask): string => this.fileDataSet!.taskKey(task.id))
     if (sections !== this.sections) this.sections = sections
+  }
+
+  async saveHeader(changes: CoreFileHeaderValueChange[], version: string): Promise<void> {
+    if (!this.fileDataSet || !this.pageVisible) throw new Error('项目页面已离开')
+    await this.fileDataSet.updateFileHeader({ repoId: this.repoId, path: this.path }, changes, version)
+    this.refreshDocument()
   }
 
   projectInlineChanged(): void { if (!this.projectInlineActive) this.refreshDocument() }
@@ -218,13 +248,14 @@ struct ProjectDetail {
       }
       const sections = projectReadingSections(file, snapshot.tasks)
       for (const section of sections) if (section.node) section.key = this.fileDataSet!.taskKey(section.node.id)
-      const fileTags = file.fileTags().filter((tag: string) => tag !== 'todo')
       const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
       const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion || this.documentSession !== this.fileDataSet!.identity
       this.title = projectHeaderTitle(file.category() || '', file.project() || '')
       this.sections = sections
-      this.fileTags = fileTags
+      this.headerEntries = file.headerEntries()
+      this.headerVersion = file.fileVersion
+      this.category = file.category() ?? ''
       this.specialTags = specialTags
       this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
       if (changed) {
@@ -281,11 +312,6 @@ struct ProjectDetail {
               Text(this.refreshMessage).fontSize(12).fontColor(UiColor.error).width('100%').padding(12)
                 .onClick((): void => { this.loadFile() })
             }
-            if (!this.sourceMode && (this.tagOptions.length > 0 || this.fileTags.some(tag => !this.specialTags.includes(tag)))) {
-              ProjectFileHeader({ fileTags: this.fileTags.filter(tag => !this.specialTags.includes(tag)),
-                tags: this.tagOptions, rows: this.tagRows, groups: this.tagGroups, selectedTags: this.selectedTags,
-                toggle: (tag: string): void => { this.selectTag(tag) }, clear: (): void => { this.selectTag('') } })
-            }
             if (this.filtering) { Text('正在筛选').fontSize(12).fontColor(UiColor.secondary).padding(8) }
             if (this.filterMessage) {
               Text(`筛选失败：${this.filterMessage}，点击重试`).fontSize(12).fontColor(UiColor.error).padding(8)
@@ -293,7 +319,13 @@ struct ProjectDetail {
             }
             Stack() {
               ForEach([this.documentSession], (identity: string) => {
-              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds, tagFiltered: this.selectedTags.length > 0, fileTags: [], specialTags: this.specialTags,
+              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds,
+                tagFiltered: this.selectedTags.length > 0 || this.selectedCategory.length > 0,
+                headerEntries: this.headerEntries, headerVersion: this.headerVersion, categoryOptions: this.categoryOptions, tagOptions: this.tagOptions,
+                beforeHeaderEdit: async (): Promise<boolean> => TaskInlineSession.end(true),
+                saveHeader: (changes: CoreFileHeaderValueChange[], version: string): Promise<void> => this.saveHeader(changes, version),
+                selectedTags: this.selectedTags, category: this.category, selectedCategory: this.selectedCategory,
+                toggleTag: (tag: string): void => { this.selectTag(tag) }, toggleCategory: (): void => { this.selectCategory() }, specialTags: this.specialTags,
                 revision: `${this.documentSession}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.navigation,
                 internalLinkProcessor: this.internalLinks,
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,

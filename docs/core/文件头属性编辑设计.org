@@ -1,0 +1,481 @@
+#+TITLE: 文件头属性长按编辑与操作接口设计
+#+DATE: 2026-11-17
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 状态与结论
+
+本文件记录已确认并实施的接口与交互。已增加 ~TaskOperation::FileHaderModification~ ，通过现有 ~OrgWorkspace.execute_task_operations~ 与 ~Workspace.executeTaskOperations~ 提交；读取增加文件头快照与编辑能力投影，复用既有查询订阅、版本校验和事务。
+
+依据为 [[file:../架构设计.org][架构设计]]、[[file:接口文档.org][Core 接口]]、[[file:数据模型.org][数据模型]]、[[file:同步核心设计.org][同步设计]]、[[file:../harmony/页面数据集设计.org][页面数据集设计]] 与 [[file:../harmony/项目页面设计.org][项目页设计]]。本轮只设计 property 区域的长按编辑及配套接口。
+
+* 现有接口的不足
+
+1. ~FileHeaderEntry~ 只有名称、值、关键字标记和标签；没有精确条目身份或编辑能力。名称不能区分重复 TAGS、重复 FILETAGS、PROPERTY 声明与顶部属性抽屉。
+2. ~TaskModification::Property~ 操作标题节点自身的属性，不承担文件头关键字编辑；将空标题路径传入现有 Modification 会违反节点定位约定。
+3. ~OrgFileEdit::ReplaceRange~ 是 Core 的保真编辑工具，不是带持久化、并发保护的宿主文件头写入协议。
+4. 项目页目前只在初始完整文件中取得 headerEntries；现有 File 元信息没有可订阅的文件头内容与版本，保存后不能只更新当前页的本地数组。
+5. ~merge(B,L,R)~ 当前始终采用远端文件前言。本地文件头编辑遇到双方文件均有修改时，存在被远端前言覆盖的风险，必须配套修正后再开放交付。
+
+* 整区长按与原位编辑
+
+长按整个 property 区域直接进入编辑状态，所有支持编辑的声明在对应值列显示输入控件，未知属性仍逐行只读展示。字段名、原始顺序和双列布局不变，区域与正文共用滚动容器。区域末尾显示“编辑中”、取消与保存，不再提供属性弹出菜单或编辑弹层。
+
+阅读状态短按 CATEGORY／TAGS 继续筛选；长按成功消费该次手势，不同时触发筛选。编辑期间停止筛选点击，输入控件保留自己的长按操作。进入前先结束已有任务编辑，再冻结当前完整条目、可编辑值和同一文件版本；外部通知继续刷新确认快照，不覆盖冻结草稿。
+
+所有变更由一次 ~FileHaderModification~ 批量提交，未改字段不提交。输入期间返回先收键盘，再退出编辑；取消有未保存修改时确认放弃。保存成功后退出编辑并展示确认快照，失败保留输入。点击行末 ~+~ 后在原位置生成标签输入并聚焦，回车或失焦收为标签；空值丢弃、重复值不新增，仍在输入的非空标签也随保存提交。
+
+| 字段 | 原位编辑方式 | Core 校验 |
+|-
+| TITLE | 对应值列的文本输入 | 保留其他 TITLE 行，沿用已有标题合并规则。 |
+| PROJECT_NAME | 文本输入，支持关键字、PROPERTY 声明或顶部属性项 | 保留当前声明来源和追加标记，不写其他文件。 |
+| CATEGORY | 输入新分类，或选择本仓库已有分类 | 保存当前声明，新名称不写入 Preferences。 |
+| FILETAGS | 原有小标签显示删除标记，行末 ~+~ 原位新增并进入输入 | 该声明原有 project、todo 保持原样，不显示删除标记且不可删除；不补加原文件没有的标签。 |
+| TAGS | 每条声明独立显示删除标记与行末 ~+~ ，点击后原位输入 | Core 保留未删除候选的快捷键、分组括号、显式换行记号与内部空白；新候选追加到本声明末尾，沿用该位置的分组上下文。 |
+| 未识别属性、ID、TODO、PRIORITIES、SETUPFILE 等 | 原样只读展示 | 继续拒绝通用写入。 |
+
+编辑能力和保护标签由 Core 返回，UI 不解析 Org、不维护支持字段白名单。候选 TAGS 的增删不会改写任务自身标签。FILETAGS 的保护同时由界面与 Core 执行。
+
+* 读取接口扩展
+
+以下为已实施接口；保留现有字段，新增字段按 camelCase 传递。
+
+#+begin_src rust
+pub enum FileHeaderValueKind { Text, Category, FileTags, TagConfig }
+
+pub struct FileHeaderEditSpec {
+    pub kind: FileHeaderValueKind,
+    pub protected_tags: Vec<String>,
+}
+
+pub struct FileHeaderEntry {
+    pub id: String,                         // 新增：只属于当前文件版本的条目身份
+    pub name: String,
+    pub value: String,
+    pub keyword: bool,
+    pub tags: Vec<String>,
+    pub edit: Option<FileHeaderEditSpec>,    // 新增：None 表示只读
+}
+
+// 直接扩展现有 OrgFileMetadata；FileQuery 不变。
+// 新增 file_version: String 与 header_entries: Vec<FileHeaderEntry>。
+// JSON 对应 fileVersion 与 headerEntries，查询和通知始终携带。
+#+end_src
+
+~id~ 由 Core 根据当前文件来源和真实语法节点生成，区分关键字、PROPERTY 声明、属性抽屉与重复声明；宿主只能回传，不能拼接、解析或当作跨版本稳定 ID。它不写入 Org、outbox 或同步记录。条目来源和编辑范围始终从 Core 语法树校验，不信任 ID 字符串自身。
+
+~OrgFile.header_entries()~ 与 Harmony ~headerEntries()~ 继续可用于完整文件快照，但写入使用同版 ~OrgFileMetadata.file_version~ 。完整文件与查询中的条目生成规则一致。UI 以 ~edit == null~ 判断只读，根据 ~edit.kind~ 选择输入方式，按 ~protectedTags~ 展示锁定文件标签。
+
+项目页继续使用现有 metadata 数据集与 FileQuery，文件范围仍为当前 OrgFileRef。OrgFileMetadata 直接携带 file_version 与 header_entries，查询和通知使用相同的元信息结构，不增加读取开关或单独的文件头响应包装。事件生成使用本次提交已有的解析快照，不能在订阅回调中重新读盘。
+
+* 写操作扩展
+
+#+begin_src rust
+// 在现有枚举中增加一个变体；不重命名既有类型或方法。
+pub enum TaskOperation {
+    // 其余现有变体保持不变。
+    FileHaderModification(FileHaderModification),
+}
+
+pub struct FileHaderModification {
+    pub file: OrgFileRef,
+    pub changes: Vec<FileHeaderValueChange>,
+}
+
+pub struct FileHeaderValueChange {
+    pub entry_id: String,
+    pub value: FileHeaderValue,
+}
+
+// serde: tag = "type", content = "value", rename_all = "camelCase"
+pub enum FileHeaderValue {
+    Text(String),       // TITLE、PROJECT_NAME、CATEGORY、TAGS 配置值
+    Tags(Vec<String>),  // 当前 FILETAGS 或 TAGS 声明的完整目标标签列表
+}
+#+end_src
+
+~FileHaderModification.file~ 使用已有 OrgFileRef，不使用伪造的任务根节点。 ~changes~ 非空；同一文件在一组内只允许一个 FileHaderModification，同一 entryId 不能重复。UI 一次保存整个属性区内已修改的已有字段，所有条目使用进入编辑时的同一版本。
+
+每个目标文件必须在操作组 ~fileVersions~ 中提供且仅提供一个预期版本。文件不存在、版本过期、ID 不属于该文件、条目只读、值类型错误、含非法换行或试图移除受保护标签时，整组失败，沿用既有输入／状态错误类型。首批没有新增行、删除行、null 值或任意完整文件替换语义；空字符串只表示保留声明但清空值。
+
+所有条目身份先按操作组开始时的文件版本解析；同项内部按源位置倒序替换，避免前一项长度变化使后一项错位。允许与其他现有任务操作共享事务，操作仍按数组顺序执行；不能引用本组 FileNew 新建文件中的条目或此前操作产生的头部结构。Core 必须维护解析身份与实际源范围的一致性，不能在旧偏移上盲写。
+
+** 修改分类的 JSON 示例
+
+#+begin_src json
+{
+  "operationId": "project-header/change-category",
+  "fileVersions": [{
+    "repoId": "实际仓库ID",
+    "file": "project.org",
+    "version": "读取快照返回的版本"
+  }],
+  "operations": [{
+    "type": "FileHaderModification",
+    "data": {
+      "file": { "repoId": "实际仓库ID", "path": "project.org" },
+      "changes": [{
+        "entryId": "Core返回的CATEGORY条目ID",
+        "value": { "type": "text", "value": "研发" }
+      }]
+    }
+  }]
+}
+#+end_src
+
+FILETAGS 示例值为 ~{"type":"tags","value":["project","todo","work"]}~ 。API 继续提交 ~Workspace.executeTaskOperations(group)~ ，APP 内嵌 HTTP 与 HTTP 宿主沿用既有操作组入口，无新增文件头专用 REST 路径。
+
+* 修改请求、执行返回与通知的完整 Rust 定义
+
+本节集中列出本能力涉及的全部请求和通知外壳、文件头快照、文件元信息；没有省略既有 TaskOperation 变体或 DataChangeEvent 字段。未改动的任务创建、移动、删除、完整任务投影等类型通过 ~use org_tasks_core::...~ 复用，不重复设计其内部字段。下方集中展示类型定义；生产类型已归并到原有 Core 模型，未新建第二套同名模型。
+
+Core 的执行方法保持现有签名 ~OrgWorkspace::execute_task_operations(&self, group: &TaskOperationGroup) -> Result<(), CoreError>~ ，它是 async 方法。返回 Ok 表示整组执行成功，实际新值由同次提交的原有 DataChangeEvent 发布。Harmony 仍返回 Promise<void>，异常沿用既有 CoreBridgeError。
+
+#+begin_src rust
+use serde::{Deserialize, Serialize};
+use org_tasks_core::{
+    CoreError, FilterTask, OrgRepoId, TaskCreation, TaskDeletion,
+    TaskFileNew, TaskModificationOperation, TaskMovement,
+    TaskConfilictSelection, TaskPosition, TaskPriority, TaskState,
+    TaskStateCount, TimestampMs, TitlePart,
+};
+
+// 一、完整修改请求；现有任务操作的数据类型继续复用。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OrgFileRef {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileVersion {
+    pub repo_id: OrgRepoId,
+    pub file: String,
+    pub version: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskOperationGroup {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    pub operations: Vec<TaskOperation>,
+    #[serde(default)]
+    pub file_versions: Vec<TaskFileVersion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", deny_unknown_fields)]
+pub enum TaskOperation {
+    FileNew(TaskFileNew),
+    FileHaderModification(FileHaderModification), // 新增，按确认名称保留拼写。
+    Creation(TaskCreation),
+    Modification(TaskModificationOperation),
+    Movement(TaskMovement),
+    Deletion(TaskDeletion),
+    ConfilictSelection(TaskConfilictSelection),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileHaderModification {
+    pub file: OrgFileRef,
+    pub changes: Vec<FileHeaderValueChange>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileHeaderValueChange {
+    pub entry_id: String,
+    pub value: FileHeaderValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "camelCase", deny_unknown_fields)]
+pub enum FileHeaderValue {
+    Text(String),
+    Tags(Vec<String>),
+}
+
+// 二、执行返回值。此别名仅用于说明既有签名，不要求新增公开别名。
+pub type TaskOperationResult = Result<(), CoreError>;
+
+// 三、文件头查询与通知所携带的完整快照。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FileHeaderValueKind {
+    Text,
+    Category,
+    FileTags,
+    TagConfig,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileHeaderEditSpec {
+    pub kind: FileHeaderValueKind,
+    pub protected_tags: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileHeaderEntry {
+    pub id: String, // 新增；必须与该快照 file_version 一起使用。
+    pub name: String,
+    pub value: String,
+    pub keyword: bool,
+    pub tags: Vec<String>,
+    pub edit: Option<FileHeaderEditSpec>, // 新增；null 表示只读。
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct FileQuery {
+    pub include_files: Vec<OrgFileRef>,
+    pub exclude_files: Vec<OrgFileRef>,
+    pub file_tags: Vec<String>,
+    pub is_project: Option<bool>,
+    pub include_ignored: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgFileMetadata {
+    pub repo_id: OrgRepoId,
+    pub path: String,
+    pub title: Option<String>,
+    pub title_parts: Vec<TitlePart>,
+    pub project_name: Option<String>,
+    pub category: Option<String>,
+    pub tag_options: Vec<String>,
+    pub priority_options: Vec<TaskPriority>,
+    pub default_priority: TaskPriority,
+    pub tag_groups: Vec<Vec<String>>,
+    pub tag_rows: Vec<Vec<String>>,
+    pub has_conflict: bool,
+    pub is_ignore: bool,
+    pub task_state_counts: Vec<TaskStateCount>,
+    pub byte_length: usize,
+    pub modified_at: Option<TimestampMs>,
+    pub file_version: String, // 新增；本份元信息对应的文件版本。
+    pub header_entries: Vec<FileHeaderEntry>, // 新增；完整有序属性条目。
+    #[serde(skip)]
+    pub(crate) task_states: Vec<TaskState>, // 保持现有内部字段。
+}
+
+// 四、完整提交通知；保留现有事件名称与字段。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskDataChangeKind {
+    Created,
+    Updated,
+    Deleted,
+    Moved,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDataSnapshot {
+    pub task: FilterTask, // 复用既有完整任务投影。
+    pub position: TaskPosition,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDataChange {
+    pub kind: TaskDataChangeKind,
+    pub before: Option<TaskDataSnapshot>,
+    pub after: Option<TaskDataSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDataChange {
+    pub before: Option<OrgFileMetadata>,
+    pub after: OrgFileMetadata,
+    pub before_version: Option<String>,
+    pub after_version: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCategory {
+    pub key: String,
+    pub category: Option<String>,
+    pub count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DataChangeEvent {
+    RepositoryChanged {
+        #[serde(rename = "repoId")]
+        repo_id: OrgRepoId,
+        #[serde(rename = "operationId")]
+        operation_id: Option<String>,
+        // Some 为精确提交变化，None 为同步／重置等导致的失效通知。
+        files: Option<Vec<FileDataChange>>,
+        changes: Vec<TaskDataChange>,
+        #[serde(rename = "removedFiles", skip_serializing_if = "Vec::is_empty")]
+        removed_files: Vec<OrgFileRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        categories: Option<Vec<TaskCategory>>,
+    },
+}
+
+#+end_src
+
+** 返回和通知的语义
+
+| 场景 | 执行返回 | 通知与处理 |
+|-
+| 实际修改且整组提交成功 | Rust 返回 Ok(()) | 按每个实际变化仓库发布带同一 operationId 的 RepositoryChanged；不保证不同查询订阅回调与执行 Promise 的到达顺序。 |
+| 参数、只读范围或保护标签校验失败 | CoreError::InvalidInput | 整组不写入，不发布成功变更通知，保留编辑草稿。 |
+| 文件版本过期、条目失效或提交期间发生外部竞争 | CoreError::InvalidState | 整组失败，不自动改用新版本重试，保留草稿并提示重新载入。 |
+| I/O 或事务提交失败 | CoreError::Store | 既有事务回滚，不发布成功通知。 |
+| 输入与原值一致，未发生字节修改 | Ok(()) | 允许不发布事件；UI 的未修改草稿直接关闭，不能永远等待一个 no-op 通知。 |
+| 已提交后仅宿主的快照应用／确认失败 | Core 提交已经成功 | 由宿主记录 committed 状态并重试读取；不能再次提交同一编辑。 |
+
+CoreError 继续使用现有 InvalidInput、InvalidState、Store、Preview 定义，不为文件头编辑新增错误枚举。本能力不主动生成 Preview 错误。
+
+~fileVersions~ 在类型上保持现有默认空列表，以兼容其他操作；一旦操作组包含 FileHaderModification，Core 运行时必须校验其目标文件有唯一且非空的预期版本。 ~operationId~ 仍可省略，UI 提交时由数据管理层生成；它用于来源关联，不提供幂等重试保证。
+
+** 文件头快照如何上报
+
+1. 现有 File 初始查询直接返回扩展后的 OrgFileMetadata，包含 file_version 与 header_entries；空文件的条目列表为空，不额外套一层文件头响应。
+2. Core 在提交时用修改前后的语法树生成同版本元信息与任务变化。File 查询、任务共享 file_metadata 和通知中的文件元信息保持同一字段定义，查询订阅只处理范围和成员，不按页面裁剪文件头字段。
+3. ~FileDataChange.after.file_version~ 必须等于 after_version；before 存在时，before.file_version 必须与 before_version 一致。本能力不创建文件，因此正常成功事件有非空 before、Some(before_version) 和 after。
+4. header_entries 返回本版本完整有序条目列表，不只是被改的一行；新 id 属于新版本，结束编辑后下一次编辑必须使用最新 id 和版本。移除文件范围使用原有 removedFiles，与清空属性不同。
+5. CATEGORY、FILETAGS、PROJECT_NAME 及 TITLE 回退可能影响同文件任务；Core 必须重投影受影响任务及文件版本，按任务订阅成员变化发布 changes。Created／Deleted 在订阅结果中也可以只表示进入／离开当前查询，不等于底层新建／删除记录。
+6. File 订阅只需 files，changes 可为空；Task 订阅携带相应任务变化与需要更新的 categories。因此 UI 必须消费各数据集自己的回调，不能假设某一个通知包含其他订阅的全部数据。
+7. 空项目仍会有非空 files 和新的 header_entries，不能因为 changes 为空而吞掉文件头变更。同步／重置的 files=None 沿用既有失效恢复流程，由数据管理层刷新，页面不回查底层。
+8. 多仓库操作仍按每个仓库发布事件；整组未成功前不发布其中任何仓库的成功数据变化。各回调只在自己的查询范围内收到数据。
+
+** Rust 构造修改请求的示例
+
+#+begin_src rust
+let request = TaskOperationGroup {
+    operation_id: Some("project-header/change-category".into()),
+    operations: vec![TaskOperation::FileHaderModification(
+        FileHaderModification {
+            file: OrgFileRef {
+                repo_id: repo_id.clone(),
+                path: "project.org".into(),
+            },
+            changes: vec![FileHeaderValueChange {
+                entry_id: category_entry.id.clone(),
+                value: FileHeaderValue::Text("研发".into()),
+            }],
+        },
+    )],
+    file_versions: vec![TaskFileVersion {
+        repo_id,
+        file: "project.org".into(),
+        version: metadata.file_version.clone(),
+    }],
+};
+#+end_src
+
+上述 repo_id、category_entry 与 metadata 均来自同一次读取的实际文件元信息结果，不是自行生成的标识。保存 FILETAGS 时将 value 换成 FileHeaderValue::Tags，并保留该声明原有的受保护标签。
+
+* Core 执行与字节保真
+
+Core 在现有 Workspace 文件依赖队列和仓库事务中读取目标、校验版本、解析条目并应用修改。保留关键字大小写、缩进、冒号周围空白、换行风格、相邻空白行、其他声明和全部任务字节；文本值只替换自己的值区间，不对整个文件头重新序列化。
+
+TAGS 的标签数组请求仅删除对应名称的配置 token 并追加新候选，保留其他 token；Text 请求继续支持直接修改配置值，所有 TAGS 声明共同验证分组平衡。PROPERTY 声明只替换该声明的属性值，抽屉项只替换其值，不改变来源或追加标记。FILETAGS 对未涉及标签保留原有顺序与表示；新标签按用户新增顺序插入。保真范围需要同时覆盖多个声明、显式空值、CRLF、无末尾换行、源码块和正文同名字面内容。
+
+修改后重新生成文件元信息、任务的文件版本、候选配置、分类和项目名称；任务自身与祖先标签沿用既有投影规则。任务源字节未改不等于任务投影未改：CATEGORY、PROJECT_NAME、TITLE 回退和 FILETAGS 的变化都可能影响本文件全部任务，必须使用与全量查询相同的投影发布关联更新。若解释产生节点身份变化，事件应表达实际成员变更，不能错误绑定旧任务。
+
+既有磁盘并发检查、失败回滚、操作历史、完整文件回退组及 outbox 复用原流程。当前 outbox 只保存相对路径和内容 hash，本能力无需另存 UI 草稿、条目 ID 或文件头专用操作日志。未发生字节变化的保存可直接关闭，不产生无效写入。
+
+* 保存确认与页面更新
+
+页面通过文件头数据集的用户操作提交路径接入 FileHaderModification；数据管理层负责操作来源、文件队列与确认事件，继续复用 UserOperationQueue。编辑草稿与确认快照分开，暂不对全部任务继承标签和分类结果做乐观推导。
+
+提交期间禁用重复保存。成功提交并应用对应操作的确认快照后退出编辑；若已提交但刷新／确认失败，提示“已保存，刷新失败”，提供刷新重试，不能再次提交相同写操作。
+
+外部更新不覆盖当前输入。版本变化时保留草稿并提示重新载入；不得自动将旧 ID、旧版本替换成新版本后重试。关闭时让用户明确选择继续保留草稿或放弃，再从最新属性行重新进入编辑。编辑期间版本变化即禁用旧版本保存，保留冻结的条目与草稿。
+
+文件头从 metadata 数据集的 header_entries 更新，不由页面自行回查文件。元信息与任务数据集使用同一个管理对象合批初始化；分类、标题、文件标签和候选变化由 Core 事件更新，筛选移除失效选择并按现有查询重算。相同文档结构继续复用节点、编辑器和阅读位置；原文视图按当前约定在显式刷新时更新。
+
+* 同步必须配套修正
+
+当前 merge 已将真实文件头节点与普通前言分开处理。普通前言文字仍遵循原有远端规则；真实文件头关键字和顶部属性从前言中按 orgize 节点单独处理，不将字面源码误识别为配置。
+
+| B、L、R 中的变化 | 当前处理 |
+|-
+| 仅本地修改某条配置 | 将该项修改应用到远端，保留远端其他字段和任务变化。 |
+| 仅远端修改，或双方改成相同值 | 使用远端表示，不额外改格式。 |
+| 双方修改不同且可唯一定位的配置项 | 逐项合并，不把完整前言升级为冲突。 |
+| 同一项不同值，或重复声明增删／重排造成定位歧义 | 不猜测目标，保留远端主头部与本地候选，形成文件头冲突点。 |
+
+同步不能使用快照 entryId 跨 B、L、R 定位。匹配使用 Core 的语法来源、名称和基线声明对应关系；不能仅按当前出现序号覆盖重复行。首批对同一 FILETAGS 声明的竞争也按整项冲突处理，不隐式改变 TAGS 互斥组或受保护标签。
+
+文件头冲突沿用文件末尾 CONFLICT／ARCHIVE 容器，reason 增加 ~header~ ，候选在 example 区块中以转义 JSON 保存来源、冲突项和值，展示时由 Core 还原本地文件头并转义成安全 HTML；其投影、预览和采用本地动作必须明确作用于文件头，不能作为普通任务插入。仅在全部相关配置可以安全回放时采用本地，否则保留候选供逐项处理；放弃本地候选沿用既有丢弃操作。任何候选记录必须完整转义，不能执行其中的 Org 声明。
+
+冲突候选解析、预览、受控采用与手机冲突页已接入 header 分支。采用本地只修改发生竞争的唯一文件头字段，保留其他远端字段、正文与任务；重复声明存在歧义时只提供保留当前，并保留本地内容供逐项编辑。
+
+* 跨层影响与兼容
+
+| 层 | 当前变化 |
+|-
+| Core 模型与读取 | FileHeaderEntry 新增 id／edit；OrgFileMetadata 新增 file_version／header_entries；FileQuery 保持不变。 |
+| Core 操作执行 | 增加 FileHaderModification 变体与结构化值；接入依赖调度、版本检查、事务、历史及事件投影。 |
+| Core 同步与冲突 | 增加文件头合并和 header 冲突的安全保存、预览、采用及丢弃。 |
+| Harmony Rust／C++ | worker 中透传编辑描述、版本和查询投影；操作组解析接入新变体，不在 bridge 解析 Org。 |
+| TypeScript 类型与快照 | index.d.ts、NativeCoreService、DataFileRecord、PageMetadataSnapshot 同步支持 fileVersion、headerEntries 与编辑描述；旧缓存按无编辑能力处理，项目页仍禁用缓存。 |
+| ArkUI | 整区长按原位编辑、手势优先级、按类型编辑值、标签增删、只读／锁定态、批量草稿及失败反馈；沿用当前属性双列布局。 |
+| HTTP 与 CLI | 共用 Core 操作协议；旧变体结构不变，新变体在旧程序上明确拒绝，不声称双向兼容。 |
+
+新增变体会影响 Rust 穷尽匹配，冲突预览等操作分派必须显式接入或明确拒绝；不能只修改 TypeScript 声明。查询和通知直接复用完整 OrgFileMetadata，运行时继续通过既有共享元信息快照减少复制。
+
+* 类型关系
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskOperationGroup}{file\_versions}{}
+\umlclass[x=7,y=0]{FileHaderModification}{file: OrgFileRef \\ changes: Vec of FileHeaderValueChange}{}
+\umlclass[x=7,y=-4]{FileHeaderValueChange}{entry\_id: String \\ value: FileHeaderValue}{}
+\umlclass[x=0,y=-4]{OrgFileMetadata}{file\_version: String \\ header\_entries: Vec of FileHeaderEntry}{}
+\umlclass[x=0,y=-8]{FileHeaderEntry}{id: String \\ name: String \\ value: String \\ edit: Option of FileHeaderEditSpec}{}
+\umlcompo[mult2=0..*]{TaskOperationGroup}{FileHaderModification}
+\umlcompo[mult2=1..*]{FileHaderModification}{FileHeaderValueChange}
+\umlcompo[mult2=0..*]{OrgFileMetadata}{FileHeaderEntry}
+\umldep{FileHeaderValueChange}{FileHeaderEntry}
+\end{tikzpicture}
+\end{center}
+
+文件头内容通过既有提交事件上报，其关系如下：
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{OrgWorkspace}{}{execute\_task\_operations()}
+\umlclass[x=8,y=0]{DataChangeEvent}{operation\_id \\ files \\ changes}{}
+\umlclass[x=0,y=-4]{FileDataChange}{before \\ after \\ before\_version \\ after\_version}{}
+\umlclass[x=8,y=-4]{TaskDataChange}{kind \\ before \\ after}{}
+\umlclass[x=0,y=-8]{OrgFileMetadata}{file\_version \\ header\_entries}{}
+\umlclass[x=8,y=-8]{FileHeaderEntry}{id \\ value \\ edit}{}
+\umldep{OrgWorkspace}{DataChangeEvent}
+\umlcompo[mult2=0..*]{DataChangeEvent}{FileDataChange}
+\umlcompo[mult2=0..*]{DataChangeEvent}{TaskDataChange}
+\umldep{FileDataChange}{OrgFileMetadata}
+\umlcompo[mult2=0..*]{OrgFileMetadata}{FileHeaderEntry}
+\end{tikzpicture}
+\end{center}
+
+* 实施与验证记录
+
+Core 已接入 FileHaderModification、条目 ID 和编辑能力、严格文件版本检查、同组初始身份定位、原有事务与任务投影通知；Harmony Rust、C++、类型定义、页面快照与 DataSet 已同步接入。FileQuery 保持不变，OrgFileMetadata 始终携带 file_version 与 header_entries。
+
+项目属性区域长按直接进入原位编辑，阅读状态短按继续筛选。TITLE、PROJECT_NAME、CATEGORY、FILETAGS 和 TAGS 支持按类型编辑；未知属性仍只读，原有 project／todo 不可取消。文件标签的保留部分保持原顺序和内部空白，TAGS 分组可跨多条声明，修改只替换目标值区间。
+
+Core 回归覆盖局部字节保真、CRLF／无末尾换行、重复声明、空文件、属性追加、版本失效、保护标签、混合任务与文件头操作、元信息通知、三方合并及文件头冲突采用。界面回归覆盖草稿版本竞争、已提交后的确认错误防重复保存、只读字段、批量提交、标签原位增删、取消及长按筛选保护。
+
+2026-11-17 在专用模拟器的独立 QA 仓库验证：长按整个属性区域直接进入原位编辑；FILETAGS 添加普通标签、TAGS 删除及添加候选后统一保存，查询核对仅对应声明改变；文件原有 project 无删除入口，Core 同时拒绝移除。取消标签删除不写入；外部分类更新时文本草稿保持，旧版本保存被拒绝，取消后展示新确认快照。验收后通过同一 Core 操作恢复全部字段，文件 hash 与验收前一致。
+
+属性编辑沿用任务详情的透明背景原位输入方式，保持阅读态的 10fp 字号、14vp 行高、96vp 名称列、12vp 列间距、20vp 控件高度与至少 24vp 行高。字段不新增整行输入框或分类选择行，已有分类从同一行末尾的下拉入口选择。保存／取消位于区域末尾，既有属性的名称、值和标签起点保持对齐。

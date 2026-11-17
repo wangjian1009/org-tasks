@@ -18,15 +18,11 @@ export function projectHeaderRows(rows: string[][], options: string[], groups: s
   }).filter((row: ProjectHeaderTagSegment[]) => row.length > 0)
 }
 
-export function projectTagExpression(tags: string[], groups: string[][]): string {
-  const selectedGroups = groups.map((group: string[]) => group.filter((tag: string) => tags.includes(tag)))
-    .filter((group: string[]) => group.length > 0)
-  const others = tags.filter((tag: string) => !groups.some((group: string[]) => group.includes(tag)))
-  if (others.length > 0) selectedGroups.push(others)
-  return selectedGroups.map((group: string[]) => {
-    const expression = group.map((tag: string) => `t.${JSON.stringify(tag)}`).join(' or ')
-    return group.length > 1 ? `(${expression})` : expression
-  }).join(' and ')
+export function projectTagExpression(tags: string[], _groups: string[][]): string {
+  // 项目页的多个点击标签表示并集；互斥组只负责候选选择时的单选行为。
+  return Array.from(new Set<string>(tags))
+    .map((tag: string) => `t.${JSON.stringify(tag)}`)
+    .join(' or ')
 }
 
 export function projectHeaderTitle(region: string, project: string): string {

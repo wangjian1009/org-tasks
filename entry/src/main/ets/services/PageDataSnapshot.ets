@@ -1,5 +1,5 @@
 import { TaskPath, TitlePart, TaskState, TaskStateCategory, TaskPriority, PeriodCategory, SupportTags,
-  QueryOrderPart, TaskEditContent, AddressLink, TaskLog, TaskStateCount, TaskCategory } from 'liborg_tasks_harmony.so'
+  QueryOrderPart, TaskEditContent, AddressLink, TaskLog, TaskStateCount, TaskCategory, FileHeaderEntry } from 'liborg_tasks_harmony.so'
 import { CoreTask, CoreOrgFileMetadata, CoreQueryResult } from './NativeCoreService'
 
 export interface PageStateAnswer { category: TaskStateCategory; value: TaskState | null }
@@ -65,6 +65,8 @@ interface MetadataFields {
   taskStateCounts: TaskStateCount[]
   byteLength: number
   modifiedAt: number | null
+  fileVersion?: string
+  headerEntries?: FileHeaderEntry[]
 }
 export interface MetadataRecord { value: MetadataFields; states: PageStateAnswer[]; priorities: PagePriorityAnswer[] }
 function states(value: CoreTask | CoreOrgFileMetadata): PageStateAnswer[] {
@@ -246,6 +248,8 @@ export function metadataRecord(value: CoreOrgFileMetadata): MetadataRecord {
     taskStateCounts: value.taskStateCounts,
     byteLength: value.byteLength,
     modifiedAt: value.modifiedAt,
+    fileVersion: value.fileVersion,
+    headerEntries: value.headerEntries,
   }, states: states(value), priorities: priorities(value) }
 }
 export class PageMetadataSnapshot implements CoreOrgFileMetadata {
@@ -266,6 +270,8 @@ export class PageMetadataSnapshot implements CoreOrgFileMetadata {
   readonly taskStateCounts: TaskStateCount[]
   readonly byteLength: number
   readonly modifiedAt: number | null
+  readonly fileVersion: string
+  readonly headerEntries: FileHeaderEntry[]
   project: () => string | null
   taskStateOf: (category: TaskStateCategory) => TaskState | null
   taskPriorityOf: (category: PeriodCategory) => TaskPriority | null
@@ -287,6 +293,8 @@ export class PageMetadataSnapshot implements CoreOrgFileMetadata {
     this.taskStateCounts = record.value.taskStateCounts
     this.byteLength = record.value.byteLength
     this.modifiedAt = record.value.modifiedAt
+    this.fileVersion = record.value.fileVersion ?? ''
+    this.headerEntries = record.value.headerEntries ?? []
     this.project = (): string | null => record.value.projectName
     this.taskStateOf = (category: TaskStateCategory): TaskState | null => stateAnswer(record.states, category)
     this.taskPriorityOf = (category: PeriodCategory): TaskPriority | null => priorityAnswer(record.priorities, category)
