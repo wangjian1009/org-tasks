@@ -174,7 +174,7 @@ export struct LogbookTaskList {
           regionAreaPolicy: this.trashMode || group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
           referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
         if (this.trashMode) {
-          Text([item.task.property('SOURCE_CATEGORY'), item.task.property('SOURCE_PROJECT_NAME'), item.task.property('SOURCE_FILE')].filter((value: string | null): boolean => value !== null && value.length > 0).join(' · ') || '来源未记录')
+          Text([item.task.property('SOURCE_CATEGORY'), item.task.property('SOURCE_PROJECT_NAME')].filter((value: string | null): boolean => value !== null && value.length > 0).join(' · ') || '来源未记录')
             .fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ left: 26, bottom: 8 }).maxLines(2)
         }
         }.width('100%')
