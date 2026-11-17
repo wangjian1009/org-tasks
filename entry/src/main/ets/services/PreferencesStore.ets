@@ -33,6 +33,11 @@ export class PreferencesStore {
     try { await this.store.flush() }
     catch (error) { throw storageFailure('保存本地存储失败', error) }
   }
+
+  async delete(key: string): Promise<void> {
+    try { await this.store.delete(key) }
+    catch (error) { throw storageFailure('删除本地存储失败', error) }
+  }
 }
 
 function storageFailure(action: string, error: Object): Error {

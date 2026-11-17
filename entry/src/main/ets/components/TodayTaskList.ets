@@ -40,6 +40,7 @@ export struct TodayTaskList {
   private notificationLayout: number = 0
   @Prop sections: TodaySection[] = []
   @Prop timedItems: TodayTimedTaskItem[] = []
+  @Prop regionKeys: string[] = []
   @Prop referenceTime: number = Date.now()
   @Prop expandOnRowClick: boolean = false
   @Prop regionPreviewLimit: number = 0
@@ -90,14 +91,22 @@ export struct TodayTaskList {
 
   private positionKeys(): string[] {
     const keys: string[] = ['notifications']
-    if (this.timedItems.length > 0) keys.push('schedule-heading', 'schedule-items')
-    for (const section of this.sections) {
+    for (const regionKey of this.displayRegionKeys()) {
+      if (regionKey === 'schedule') { keys.push('schedule-heading', 'schedule-items'); continue }
+      const section = this.sections.find(item => item.key === regionKey)!
       keys.push(section.key)
       for (const group of this.sectionGroups(section.key)) {
         keys.push(group.project === null ? JSON.stringify([group.items[0].task.repoId, group.items[0].task.id]) : group.key)
         if (this.ordinaryMoreAfter(section.key, group.key)) keys.push(todayRegionKey(section.key))
       }
     }
+    return keys
+  }
+
+  private displayRegionKeys(): string[] {
+    if (this.regionKeys.length > 0) return this.regionKeys
+    const keys = this.sections.map(section => section.key)
+    if (this.timedItems.length > 0) keys.unshift('schedule')
     return keys
   }
 
@@ -187,32 +196,40 @@ export struct TodayTaskList {
     }
   }
 
+  @Builder
+  categoryBlock(section: TodaySection) {
+    ListItem() { CategoryRegion({ category: section.category || '未分类' }) }
+    ForEach(this.sectionGroups(section.key), (group: TodayTaskGroup) => {
+      if (group.project !== null) {
+        this.projectBlock(section.key, group.key)
+      } else {
+        this.taskItem(group.items[0])
+        if (this.ordinaryMoreAfter(section.key, group.key)) {
+          this.loadMore(section.key, '')
+        }
+      }
+    }, (group: TodayTaskGroup) => group.project === null ? this.taskDataSet().taskKey(group.items[0].task.id) : group.key)
+  }
+
   build() {
     List({ scroller: this.listScroller, initialIndex: this.initialIndex }) {
       // 保留零高度列表项，通知变化不改变后续编辑器的列表槽位。
       ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
         .height(this.showNotifications ? 'auto' : 0)
-      if (this.timedItems.length > 0) {
-        ListItem() { ScheduleRegion() }
-        ListItemGroup() {
-          ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
-            this.timedTaskItem(item)
-          }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
-        }.width('100%')
-      }
-      ForEach(this.sections, (section: TodaySection) => {
-        ListItem() { CategoryRegion({ category: section.category || '未分类' }) }
-        ForEach(this.sectionGroups(section.key), (group: TodayTaskGroup) => {
-          if (group.project !== null) {
-            this.projectBlock(section.key, group.key)
-          } else {
-            this.taskItem(group.items[0])
-            if (this.ordinaryMoreAfter(section.key, group.key)) {
-              this.loadMore(section.key, '')
-            }
-          }
-        }, (group: TodayTaskGroup) => group.project === null ? this.taskDataSet().taskKey(group.items[0].task.id) : group.key)
-      }, (section: TodaySection) => section.key)
+      ForEach(this.displayRegionKeys(), (key: string) => {
+        if (key === 'schedule') {
+          ListItem() { ScheduleRegion() }
+          ListItemGroup() {
+            ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
+              this.timedTaskItem(item)
+            }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
+          }.width('100%')
+        } else {
+          ForEach(this.sections.filter(section => section.key === key), (section: TodaySection) => {
+            this.categoryBlock(section)
+          }, (section: TodaySection) => section.key)
+        }
+      }, (key: string) => key)
     }.id('today_task_list').width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
       .onScrollIndex((start: number): void => { this.firstIndex = start })
       .onDidScroll((_offset: number, state: ScrollState): void => { if (state !== ScrollState.Idle) this.savePosition() })

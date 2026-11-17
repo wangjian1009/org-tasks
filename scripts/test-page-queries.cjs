@@ -21,6 +21,7 @@ function fixture() {
   const metadata = [{repoId:'core-a',path:'same.org',tagOptions:[],tagGroups:[],isIgnore:false},
     {repoId:'core-b',path:'same.org',tagOptions:[],tagGroups:[],isIgnore:false},
     {repoId:'core-a',path:'memo.org',tagOptions:['未使用标签'],tagGroups:[['互斥甲','互斥乙']],isIgnore:false}];
+  metadata.forEach(file=>{Object.setPrototypeOf(file,{project:()=>null});});
   const workspace = {
     async repos() { return repos; },
     async query(batch) {
@@ -438,11 +439,11 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
   assert.equal(f.batches.length,1);
   assert.equal(f.batches[0][1].query.expression,'.it.done (s.le.today or d.le.today) o.priority');
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
-    [['default'],['high','project-low'],['low']]);
+    [['high','project-low'],['default'],['low']]);
   page.applyTagFilter({tags:['显示'],includeUntagged:false});
   assert.equal(f.batches.length,1);
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
-    [['low'],['high','project-low']]);
+    [['high','project-low'],['low']]);
 });
 
 test('随时通过 Core 按优先级和创建时间倒序查询，项目分组与标签筛选保持原顺序', async () => {
