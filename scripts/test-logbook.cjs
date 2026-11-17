@@ -174,6 +174,9 @@ function batchService() {
     { id: 'local', rootDirectory: '/local', load: async () => loaded.push('local') }];
   const workspace = { repos: async () => repos, executeTaskOperations: async group => submissions.push(group) };
   const { LogbookService } = compile(fs.readFileSync('entry/src/main/ets/services/LogbookService.ets', 'utf8'), {
+    './TrashService': { TrashService: { perform: async (_, tasks, action, operationId) => {
+      assert.equal(action, 'trash'); submissions.push({operationId, operations:tasks.map(task=>({type:'Trash',data:{path:task.fullPath,target:{repoId:'system-core',path:'trash.org'}}})),fileVersions:[{repoId:tasks[0].repoId,file:tasks[0].filePath,version:tasks[0].fileVersion}]});
+    } } },
     './AppConfigService': { AppConfigService: { load: async () => ({ repos: [
       { rootDirectory: '/sync', webdavEnabled: true }, { rootDirectory: '/local', webdavEnabled: false }
     ] }) } },
@@ -212,12 +215,12 @@ test('批量删除仍一次提交删除操作与去重后的源文件版本', as
   const f = batchService(), tasks = [batchTask('A'), batchTask('B')];
   await f.service.remove({}, tasks);
   assert.equal(f.submissions.length, 1);
-  assert.deepEqual(f.submissions[0].operations, tasks.map(task => ({ type: 'Deletion', data: { path: task.fullPath } })));
+  assert.deepEqual(f.submissions[0].operations, tasks.map(task => ({ type: 'Trash', data: { path: task.fullPath, target:{repoId:'system-core',path:'trash.org'} } })));
   assert.equal(f.submissions[0].fileVersions.length, 1);
 });
 function batchList() {
   const source = fs.readFileSync('entry/src/main/ets/components/LogbookTaskList.ets', 'utf8');
-  const chunks = ['allItems', 'selectedItems', 'startSelection', 'toggleSelection', 'resetSelection', 'restoreTasks', 'removeTasks', 'performTasks']
+  const chunks = ['allItems', 'selectedItems', 'startSelection', 'toggleSelection', 'resetSelection', 'restoreTasks', 'removeTasks', 'performTasks', 'activateSwipe']
     .map(name => source.match(new RegExp('  (?:private )?(?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'))[0]);
   const calls = [], messages = [];
   let perform = async () => {};
@@ -233,7 +236,7 @@ function batchList() {
   const items = [batchTask('A'), batchTask('B')].map(task => ({ key: task.id, task }));
   const list = Object.assign(new List(), { ready:true,groups: [{ items }], selectedTaskKeys: [], selectingTasks: false,
     perform:async(tasks,action)=>{calls.push([action,tasks]);await perform();},
-    actionBusy: false, selectionSnapshot: [], listScroller: { closeAllSwipeActions() {} },
+    taskDataSet:()=>({settle:async()=>{},taskKey:id=>id}), trashMode:false, actionBusy: false, selectionSnapshot: [], listScroller: { closeAllSwipeActions() {} },
     policy: () => ({ singleOperations: ['delete'], bulkOperations: ['delete', 'restore'] }),
     refresh() { this.refreshed = true; }, getUIContext: () => ({ getHostContext: () => ({}),
       getPromptAction: () => ({ showToast: value => messages.push(value.message) }) }) });
@@ -263,4 +266,27 @@ test('刷新不替换多选源版本，失败保留选择并显示错误，关�
   assert.deepEqual(f.messages, ['文件版本已变化']); assert.equal(f.list.refreshed, undefined);
   f.list.policy = () => ({ singleOperations: ['delete'], bulkOperations: ['delete'] });
   await f.list.restoreTasks(); assert.equal(f.calls.length, 1);
+});
+
+
+test('废纸篓批量恢复依确认快照保留失败行与选择，不按整组成功全部移除',async()=>{
+ const f=batchList(),retained=new Set(['B']);
+ f.list.trashMode=true;f.list.policy=()=>({singleOperations:['restore','clear'],bulkOperations:['restore','clear']});
+ f.list.taskDataSet=()=>({taskKey:id=>id,settle:async()=>{},getTask:key=>retained.has(key)?f.items[1].task:undefined});
+ await f.list.startSelection(f.items[0]);f.list.toggleSelection(f.items[1]);
+ await f.list.restoreTasks();
+ assert.deepEqual(f.list.selectedTaskKeys,['B']);assert.equal(f.list.selectingTasks,true);
+ assert.match(f.messages[0],/1 条记录原位置不可用/);assert.equal(f.calls.length,1);
+ assert.deepEqual(f.calls[0][1].map(task=>task.id),['A','B']);
+ retained.clear();await f.list.restoreTasks();assert.equal(f.list.selectingTasks,false);
+});
+
+
+test('复用行的侧滑回调按稳定键读取当前版本，不提交初次构造时的旧快照',()=>{
+ const f=batchList(),current={...f.items[0].task,fileVersion:'after-cleanup'};let submitted;
+ f.list.taskDataSet=()=>({getTask:key=>key==='A'?current:undefined});
+ f.list.performTasks=(tasks,action)=>{submitted={tasks,action}};
+ f.list.activateSwipe(f.items[0],'restore');
+ assert.equal(submitted.tasks[0],current);assert.equal(submitted.action,'restore');
+ submitted=undefined;f.list.activateSwipe({key:'gone',task:f.items[0].task},'restore');assert.equal(submitted,undefined);
 });

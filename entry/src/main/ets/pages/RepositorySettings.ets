@@ -14,7 +14,7 @@ import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { SettingsField } from '../components/controls/SettingsField'
 import { LocalDirectorySheet } from '../components/editors/LocalDirectorySheet'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
-import { SYSTEM_REPOSITORY_ID } from '../services/SystemRepositoryService'
+import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 
 interface RepositoryParams { repoId?: string }
 

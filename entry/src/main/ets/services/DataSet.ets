@@ -8,6 +8,7 @@ import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptio
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
 import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
+import { TrashService } from './TrashService'
 
 export type DataSetQuery = CoreQuery
 export interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
@@ -509,9 +510,11 @@ export class DataSet {
               fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }, { repoId: edit.target.repoId, file: edit.target.path, version: edit.target.fileVersion }] }
           } else {
           const positional = edit.changes.some(change => change.field === 'CHECKLIST' || change.field === 'LINK' || change.field === 'CONTENT_BLOCK')
-          group = { operationId: edit.id, fileVersions: [{ repoId: task.repoId, file: task.filePath, version: positional ? edit.sourceVersion : task.fileVersion }],
-            operations: [edit.kind === 'remove' ? { type: 'Deletion', data: { path: task.fullPath } } :
-              { type: 'Modification', data: { path: task.fullPath, modifications: edit.changes } }] }
+          group = edit.kind === 'remove' && task.repoId !== '<preview>'
+            ? await TrashService.group(this.config!, workspace, [task], 'trash', edit.id)
+            : { operationId: edit.id, fileVersions: [{ repoId: task.repoId, file: task.filePath, version: positional ? edit.sourceVersion : task.fileVersion }],
+              operations: [edit.kind === 'remove' ? { type: 'Deletion', data: { path: task.fullPath } } :
+                { type: 'Modification', data: { path: task.fullPath, modifications: edit.changes } }] }
           }
         }
         await workspace.executeTaskOperations(group)
@@ -581,7 +584,14 @@ export class DataSet {
         }
       }
       const removed = new Set(event.changes.filter(change => !!change.before).map(change => taskKeyFromRaw(change.before!.task.fullPath.repoId, change.before!.task.id)))
-      const tasks = data.result.tasks.filter(task => !removed.has(taskKey(task)))
+      // 文件版本属于整份文件；未产生字段变化的记录也必须跟随已确认的文件事件。
+      const tasks = data.result.tasks.filter(task => !removed.has(taskKey(task))).map((task: CoreTask): CoreTask => {
+        const file = event.files?.find(file => file.after.repoId === task.repoId && file.after.path === task.filePath)
+        if (!file || task.fileVersion === file.afterVersion) return task
+        const record = taskRecord(task)
+        record.value.fileVersion = file.afterVersion
+        return new PageTaskSnapshot(record)
+      })
       for (const change of event.changes) if (change.after) {
         if (!change.after.view) { this.emitError(name, operationId, new Error('数据事件缺少任务显示快照')); return }
         tasks.push(new PageTaskSnapshot(taskRecord(change.after.view)))

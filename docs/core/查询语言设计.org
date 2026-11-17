@@ -55,7 +55,7 @@ interval 支持 ~none~ / ~no~ 、~now~ 、~today~ / ~tod~ 、~tomorrow~ / ~tmrw~
 
 * 排序与选项
 
-排序 token 为 ~o.<field>~ ；在前面增加点号表示降序。field 可为 ~book~ / ~b~ 、~title~ / ~t~ 、~scheduled~ / ~s~ 、~deadline~ / ~d~ 、~event~ / ~e~ 、~closed~ / ~c~ 、~created~ / ~cr~ 、 ~modified~ 、~priority~ / ~p~ 、~state~ / ~st~ 和 ~position~ / ~pos~ 。未指定排序时，任务按相对文件路径与源字节位置排序。
+排序 token 为 ~o.<field>~ ；在前面增加点号表示降序。field 可为 ~book~ / ~b~ 、~title~ / ~t~ 、~scheduled~ / ~s~ 、~deadline~ / ~d~ 、~event~ / ~e~ 、~closed~ / ~c~ 、~created~ / ~cr~ 、 ~modified~ 、 ~deleted~ 、~priority~ / ~p~ 、~state~ / ~st~ 和 ~position~ / ~pos~ 。未指定排序时，任务按相对文件路径与源字节位置排序。
 
 ~o.state~ / ~o.st~ 按分类顺序排列：未分类、 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 、 ~Cancel~ ；降序反转分类顺序。同分类继续按文件与源位置排序，不按状态名称排序。
 
@@ -194,3 +194,9 @@ impl OrgWorkspace {
 普通比较器与键生成共享 Core 的字段取值函数。修改时间缺失在两种方向均置末，其他字段保持现有 Option 比较规则；日期同时编码活动标记。文本使用 UTF-8 字节十六进制，跨语言比较仍与 Rust 的字节序一致，避免 UTF-16 对增补平面字符产生不同排序。仓库序号只作为稳定比较的末级依据；文件排序仍先按仓库顺序，再按路径。
 
 底层订阅不为此缓存完整记录；排序上下文只保存固定条件与仓库顺序，键附在宿主的只读快照中，由界面数据管理类持有。
+
+* 删除时间查询
+
+~deleted.<relation>.<interval>~ 使用与其他日期字段相同的本地自然日比较，例如 ~deleted.lt.-30d~ 查询删除日期早于 30 天边界的记录。只有自身存在非空 ~TRASH_ID~ 且没有子节点的记录，才从自身 ~ARCHIVE_TIME~ 属性读取删除时间；缺失、非法或仅有普通归档时间均不投影删除时间。~deleted_at()~ 返回可空 Unix 毫秒值，时区解释与创建时间一致，不生成或回填属性。
+
+~o.deleted~ 与 ~.o.deleted~ 按完整删除时间升序和降序排列；缺失值在两个方向下均置末，同值按文件与源位置排序。增量查询的 ~orderKey~ 同步携带缺失值置末策略。废纸篓的文件范围仍由 ~includeFiles~ 指定，不在查询语言中引入页面含义。

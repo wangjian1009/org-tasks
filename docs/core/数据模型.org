@@ -218,6 +218,8 @@ pub struct FilterTask {
     created: Option<FilterDate>,
     created_at: Option<TimestampMs>,
     modified_at: Option<TimestampMs>,
+    deleted: Option<FilterDate>,
+    deleted_at: Option<TimestampMs>,
     events: Vec<FilterDate>,
 }
 #+end_src
@@ -265,6 +267,7 @@ impl FilterTask {
     pub fn created(&self) -> Option<FilterDate>;
     pub fn created_at(&self) -> Option<TimestampMs>;
     pub fn modified_at(&self) -> Option<TimestampMs>;
+    pub fn deleted_at(&self) -> Option<TimestampMs>;
     pub fn events(&self) -> &[FilterDate];
 }
 impl FilterDate {
@@ -944,9 +947,11 @@ path: String}{}
 \umlclass[x=0,y=-4]{FilterTask}{created: Option\textless FilterDate\textgreater \\
 created\_at: Option\textless TimestampMs\textgreater \\
 closed\_at: Option\textless TimestampMs\textgreater \\
-modified\_at: Option\textless TimestampMs\textgreater}{created\_at(): Option\textless TimestampMs\textgreater \\
+modified\_at: Option\textless TimestampMs\textgreater \\
+deleted\_at: Option\textless TimestampMs\textgreater}{created\_at(): Option\textless TimestampMs\textgreater \\
 closed\_at(): Option\textless TimestampMs\textgreater \\
 modified\_at(): Option\textless TimestampMs\textgreater \\
+deleted\_at(): Option\textless TimestampMs\textgreater \\
 is\_cancelled(): bool}
 \umlclass[x=7,y=-4]{TaskQuery}{include\_files: Vec\textless OrgFileRef\textgreater \\
 exclude\_files: Vec\textless OrgFileRef\textgreater}{}
@@ -2033,3 +2038,7 @@ TaskModification::Property { name, value } 表达通用 drawer 属性的设置�
 ~FileHaderModification~ 是 TaskOperation 的文件级变体，目标为 OrgFileRef，不伪装为标题节点。 ~changes~ 中的 ~FileHeaderValueChange~ 引用当前元信息的 entry_id，并使用 ~FileHeaderValue::Text~ 修改文本或配置值，使用 ~FileHeaderValue::Tags~ 修改单条 FILETAGS 或 TAGS 声明的标签列表；file_versions 强制参与校验。执行和回退仍沿用 TaskOperationGroup 与 TaskFileFallback，完整定义及关系见 [[file:文件头属性编辑设计.org][文件头属性编辑设计]]。
 
 TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对应候选 token、保留其他候选的快捷键和分组结构，并在声明末尾追加新候选，沿用该位置的分组上下文。原有 Text 配置请求继续支持；任务自身标签不变。
+
+* 删除时间只读投影
+
+~FilterTask.deleted_at()~ 仅从没有子节点、且自身带非空 ~TRASH_ID~ 的记录读取自身 ~ARCHIVE_TIME~ ，返回可空本地 Unix 毫秒值；缺失或无效时为 ~None~ 。同一时间的日期部分用于 ~deleted.*~ 自然日筛选，完整时刻用于排序和宿主显示。读取不继承、不修改原文，普通 Org 归档条目不会被自动清理。

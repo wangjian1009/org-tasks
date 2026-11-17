@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, TimeZone};
@@ -75,6 +75,7 @@ enum FilterDateField {
     Deadline,
     Closed,
     Created,
+    Deleted,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,6 +121,7 @@ enum FilterSortField {
     Closed,
     Created,
     Modified,
+    Deleted,
     Priority,
     State,
     Position,
@@ -167,6 +169,8 @@ pub struct FilterTask {
     pub(crate) created: Option<FilterDate>,
     pub(crate) created_at: Option<crate::TimestampMs>,
     pub(crate) modified_at: Option<crate::TimestampMs>,
+    pub(crate) deleted: Option<FilterDate>,
+    pub(crate) deleted_at: Option<crate::TimestampMs>,
     pub(crate) events: Vec<FilterDate>,
 }
 
@@ -256,23 +260,30 @@ impl FilterTask {
         self.state_type
     }
 
-    pub fn priority(&self) -> Option<&crate::TaskPriority> { self.priority.as_ref() }
+    pub fn priority(&self) -> Option<&crate::TaskPriority> {
+        self.priority.as_ref()
+    }
 
-    pub fn default_priority(&self) -> &crate::TaskPriority { &self.file_metadata.default_priority }
+    pub fn default_priority(&self) -> &crate::TaskPriority {
+        &self.file_metadata.default_priority
+    }
 
     /// 未设置时使用所属文件的默认值，保留显式值的原始字母。
     pub fn effective_priority(&self) -> &crate::TaskPriority {
         self.priority().unwrap_or_else(|| self.default_priority())
     }
 
-    pub fn priority_options(&self) -> Vec<crate::TaskPriority> { self.file_metadata.priority_options() }
+    pub fn priority_options(&self) -> Vec<crate::TaskPriority> {
+        self.file_metadata.priority_options()
+    }
 
     pub fn task_priority_of(&self, category: crate::PeriodCategory) -> Option<crate::TaskPriority> {
         self.file_metadata.task_priority_of(category)
     }
 
-    fn priority_name(&self) -> Option<&str> { self.priority.as_ref().map(|item| item.name.as_str()) }
-
+    fn priority_name(&self) -> Option<&str> {
+        self.priority.as_ref().map(|item| item.name.as_str())
+    }
 
     pub fn own_tags(&self) -> &[String] {
         &self.own_tags
@@ -307,7 +318,9 @@ impl FilterTask {
     }
 
     pub fn property(&self, name: &str) -> Option<&str> {
-        self.properties.get(&name.to_ascii_uppercase()).map(String::as_str)
+        self.properties
+            .get(&name.to_ascii_uppercase())
+            .map(String::as_str)
     }
 
     pub fn is_habit(&self) -> bool {
@@ -342,6 +355,11 @@ impl FilterTask {
     /// 当前标题自身 LAST_MODIFIED 属性的时间；缺失或无效时为空。
     pub fn modified_at(&self) -> Option<crate::TimestampMs> {
         self.modified_at
+    }
+
+    /// 仅独立删除记录自身的 ARCHIVE_TIME；缺失或无效时为空。
+    pub fn deleted_at(&self) -> Option<crate::TimestampMs> {
+        self.deleted_at
     }
 
     pub fn events(&self) -> &[FilterDate] {
@@ -390,9 +408,10 @@ impl FilterDate {
 
 impl Filter {
     pub(crate) fn validate_expression(source: &str) -> Result<(), crate::CoreError> {
-        if tokenize(source).iter().any(|token| {
-            token.strip_prefix('.').unwrap_or(token).starts_with("b.")
-        }) {
+        if tokenize(source)
+            .iter()
+            .any(|token| token.strip_prefix('.').unwrap_or(token).starts_with("b."))
+        {
             return Err(crate::CoreError::InvalidInput(
                 "文件范围请使用 includeFiles/excludeFiles，不支持 b. 表达式条件",
             ));
@@ -550,6 +569,14 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         };
         let address_links = extract_address_links(&headline);
         let created = property_time(&headline, "CREATED");
+        let deleted = if headline.headlines().next().is_none()
+            && crate::model::properties::own(&headline, "TRASH_ID")
+                .is_some_and(|value| !value.is_empty())
+        {
+            property_time(&headline, "ARCHIVE_TIME")
+        } else {
+            None
+        };
         let edit_content = file
             .task_edit_content(&full_path)
             .expect("同一语法树生成的任务路径必须可定位");
@@ -567,7 +594,9 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             level: level as u32,
             state,
             state_type,
-            priority: headline.priority().map(|value| file_metadata.priority_value(value.as_ref())),
+            priority: headline
+                .priority()
+                .map(|value| file_metadata.priority_value(value.as_ref())),
             own_tags,
             inherited_tags,
             title: headline.title_raw().trim_end().to_owned(),
@@ -589,6 +618,8 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             created: created.map(|value| value.0),
             created_at: created.map(|value| value.1),
             modified_at: property_time(&headline, "LAST_MODIFIED").map(|value| value.1),
+            deleted: deleted.map(|value| value.0),
+            deleted_at: deleted.map(|value| value.1),
             events,
         });
     }
@@ -873,8 +904,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             apply_negation(matches, *negated)
         }
         FilterExpression::Priority { value, negated } => apply_negation(
-            task.effective_priority().name
-                .eq_ignore_ascii_case(value),
+            task.effective_priority().name.eq_ignore_ascii_case(value),
             *negated,
         ),
         FilterExpression::SetPriority { value, negated } => apply_negation(
@@ -957,6 +987,7 @@ fn dates_for_field(
         }
         FilterDateField::Closed => task.closed.into_iter().collect(),
         FilterDateField::Created => task.created.into_iter().collect(),
+        FilterDateField::Deleted => task.deleted.into_iter().collect(),
         FilterDateField::Event => task.events.clone(),
     }
 }
@@ -1025,8 +1056,16 @@ fn sort_tasks(tasks: &mut [FilterTask], orders: &[FilterSort]) {
     tasks.sort_by(|left, right| {
         for order in orders {
             // 修改时间缺失始终置末，不随升降序反转，也不使用创建时间替代。
-            if order.field == FilterSortField::Modified {
-                match (left.modified_at, right.modified_at) {
+            if matches!(
+                order.field,
+                FilterSortField::Modified | FilterSortField::Deleted
+            ) {
+                let values = if order.field == FilterSortField::Deleted {
+                    (left.deleted_at, right.deleted_at)
+                } else {
+                    (left.modified_at, right.modified_at)
+                };
+                match values {
                     (Some(_), None) => return Ordering::Less,
                     (None, Some(_)) => return Ordering::Greater,
                     _ => {}
@@ -1077,6 +1116,7 @@ fn sort_value(task: &FilterTask, field: FilterSortField) -> SortValue<'_> {
         FilterSortField::Closed => SortValue::Date(task.closed),
         FilterSortField::Created => SortValue::Time(task.created_at),
         FilterSortField::Modified => SortValue::Time(task.modified_at),
+        FilterSortField::Deleted => SortValue::Time(task.deleted_at),
         FilterSortField::Event => SortValue::Date(task.events.first().copied()),
         FilterSortField::Position => SortValue::Position(task.path(), task.byte_offset),
     }
@@ -1089,22 +1129,42 @@ fn compare_sort(left: &FilterTask, right: &FilterTask, field: FilterSortField) -
 pub(crate) fn order_text(value: &str) -> String {
     let mut result = String::with_capacity(value.len() * 2);
     const HEX: &[u8] = b"0123456789abcdef";
-    for byte in value.bytes() { result.push(HEX[(byte >> 4) as usize] as char); result.push(HEX[(byte & 15) as usize] as char); }
+    for byte in value.bytes() {
+        result.push(HEX[(byte >> 4) as usize] as char);
+        result.push(HEX[(byte & 15) as usize] as char);
+    }
     result
 }
 impl Filter {
     pub(crate) fn order_key(&self, task: &FilterTask) -> Vec<crate::QueryOrderPart> {
         use crate::{QueryOrderPart, QueryOrderValue};
         let mut keys = Vec::new();
-        for order in self.sort_orders.iter().cloned().chain([FilterSort { field: FilterSortField::Position, descending: false }]) {
+        for order in self.sort_orders.iter().cloned().chain([FilterSort {
+            field: FilterSortField::Position,
+            descending: false,
+        }]) {
             let values = match sort_value(task, order.field) {
                 SortValue::Text(value) => vec![Some(QueryOrderValue::Text(order_text(value)))],
                 SortValue::Number(value) => vec![Some(QueryOrderValue::Number(value as i64))],
                 SortValue::Time(value) => vec![value.map(QueryOrderValue::Number)],
-                SortValue::Date(value) => vec![value.map(|date| QueryOrderValue::Number(i64::from(date.date.num_days_from_ce()) * 2 + i64::from(date.active)))],
-                SortValue::Position(path, offset) => vec![Some(QueryOrderValue::Text(order_text(path))), Some(QueryOrderValue::Number(offset as i64))],
+                SortValue::Date(value) => vec![value.map(|date| {
+                    QueryOrderValue::Number(
+                        i64::from(date.date.num_days_from_ce()) * 2 + i64::from(date.active),
+                    )
+                })],
+                SortValue::Position(path, offset) => vec![
+                    Some(QueryOrderValue::Text(order_text(path))),
+                    Some(QueryOrderValue::Number(offset as i64)),
+                ],
             };
-            keys.extend(values.into_iter().map(|value| QueryOrderPart { value, descending: order.descending, missing_last: order.field == FilterSortField::Modified }));
+            keys.extend(values.into_iter().map(|value| QueryOrderPart {
+                value,
+                descending: order.descending,
+                missing_last: matches!(
+                    order.field,
+                    FilterSortField::Modified | FilterSortField::Deleted
+                ),
+            }));
         }
         keys
     }
@@ -1318,6 +1378,7 @@ fn parse_date_condition(token: &str) -> Option<FilterExpression> {
         "d" => FilterDateField::Deadline,
         "c" => FilterDateField::Closed,
         "cr" => FilterDateField::Created,
+        "deleted" => FilterDateField::Deleted,
         _ => return None,
     };
     let second = parts.next()?;
@@ -1367,6 +1428,7 @@ fn parse_sort(token: &str) -> Option<FilterSort> {
         "closed" | "close" | "c" => FilterSortField::Closed,
         "created" | "cr" => FilterSortField::Created,
         "modified" => FilterSortField::Modified,
+        "deleted" => FilterSortField::Deleted,
         "priority" | "prio" | "pri" | "p" => FilterSortField::Priority,
         "state" | "st" => FilterSortField::State,
         "position" | "pos" => FilterSortField::Position,
@@ -1520,6 +1582,44 @@ mod tests {
                 "second pending",
                 "plain"
             ]
+        );
+        assert_eq!(file.source_bytes(), source.as_bytes());
+    }
+
+    #[test]
+    fn deleted_time_requires_own_leaf_trash_marker_and_sorts_missing_last() {
+        let source = "* TODO Newer\n:PROPERTIES:\n:TRASH_ID: new\n:ARCHIVE_TIME: [2026-11-12 Thu 18:42]\n:END:\n* TODO Older\n:PROPERTIES:\n:TRASH_ID: old\n:ARCHIVE_TIME: [2026-10-01 Thu 09:00]\n:END:\n* TODO Archive only\n:PROPERTIES:\n:ARCHIVE_TIME: [2026-01-01 Thu 09:00]\n:END:\n* TODO Parent\n:PROPERTIES:\n:TRASH_ID: parent\n:ARCHIVE_TIME: [2026-01-01 Thu 09:00]\n:END:\n** TODO Child\n* TODO Invalid\n:PROPERTIES:\n:TRASH_ID: invalid\n:ARCHIVE_TIME: [2026-01-01 Thu 25:99]\n:END:\n";
+        let file = OrgFile::new(
+            "repo".into(),
+            "trash.org".into(),
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        let repo = OrgRepo::new("/tmp/deleted-time".into()).unwrap();
+        let tasks = tasks_from_file(&repo, &file);
+        assert!(tasks[0].deleted_at().unwrap() > tasks[1].deleted_at().unwrap());
+        assert!(tasks[2..].iter().all(|task| task.deleted_at().is_none()));
+        for (query, expected) in [
+            ("o.deleted", vec!["Older", "Newer"]),
+            (".o.deleted", vec!["Newer", "Older"]),
+        ] {
+            let mut sorted = tasks.clone();
+            Filter::parse(query).filter_tasks(&mut sorted);
+            assert_eq!(
+                sorted[..2]
+                    .iter()
+                    .map(FilterTask::title)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert!(sorted[2..].iter().all(|task| task.deleted_at().is_none()));
+        }
+        let mut expired = tasks.clone();
+        Filter::parse("deleted.lt.-30d")
+            .filter_tasks_at(&mut expired, NaiveDate::from_ymd_opt(2026, 11, 12).unwrap());
+        assert_eq!(
+            expired.iter().map(FilterTask::title).collect::<Vec<_>>(),
+            ["Older"]
         );
         assert_eq!(file.source_bytes(), source.as_bytes());
     }

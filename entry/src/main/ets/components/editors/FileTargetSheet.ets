@@ -4,7 +4,7 @@ import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../../se
 import { configuredFileTarget, FileTarget, FileTargetKind, FileTargetService, fileTargetName } from '../../services/FileTargetService'
 import { EmptyState } from '../controls/EmptyState'
 import { UiColor } from '../../ui/Theme'
-import { SYSTEM_REPOSITORY_ID } from '../../services/SystemRepositoryService'
+import { SYSTEM_REPOSITORY_ID } from '../../models/SystemRepository'
 
 @Component
 export struct FileTargetSheet {

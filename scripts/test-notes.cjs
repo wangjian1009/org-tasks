@@ -15,12 +15,13 @@ const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-l
 function fixture() {
   const requests = [];
   const repository = { id: 'host-id', rootDirectory: '/repo', webdavEnabled: true };
-  const config = { repos: [repository], todoDefaults: '#+TODO: NEXT | FINISHED' };
+  const config = { repos: [repository,{id: 'org-tasks-system',rootDirectory:'/system'}], todoDefaults: '#+TODO: NEXT | FINISHED' };
   const file = { fullPath: { repoId: 'core-id', file: 'notes.org', titles: [] }, fileVersion: 'current-file' };
   const repo = { id: 'core-id', rootDirectory: '/repo', async file() { return file; } };
   let failure, missingTarget = false;
-  const workspace = { async repos() { return [repo]; }, async executeTaskOperations(group) {
+  const workspace = { async repos() { return [repo,{id:'system-core',rootDirectory:'/system'}]; }, async executeTaskOperations(group) {
     if (failure) throw failure;
+    if (group.operations.some(op=>op.type==='Trash' && op.data.path.repoId!==repo.id)) throw new Error('目标仓库不可用');
     requests.push(group);
   } };
   const native = { async workspaceFor() { return workspace; }, async executeTaskOperations(repos, group, defaults) {
@@ -36,6 +37,10 @@ function fixture() {
       return missingTarget ? undefined : { repository, repo, path: 'notes.org' };
     } } }
   };
+  const trashModule={exports:{}};
+  const trashCode=ts.transpileModule(fs.readFileSync('entry/src/main/ets/services/TrashService.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  vm.runInThisContext('(function(require,module,exports){'+trashCode+'\n})')(name=> name==='../models/SystemRepository'?{SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org'}:mocks[name],trashModule,trashModule.exports);
+  mocks['./TrashService']=trashModule.exports;
   const filename = path.resolve('entry/src/main/ets/services/NoteService.ets');
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
@@ -82,7 +87,7 @@ test('标题与正文原子修改；清空正文传空字符串，未变更不�
 test('删除使用原快照版本，本地仓库不登记 WebDAV 上传', async () => {
   const f = fixture(); f.repository.webdavEnabled = false;
   await f.service.remove({}, f.note);
-  assert.deepEqual(f.requests[0], { operations: [{ type: 'Deletion', data: { path: f.note.fullPath } }],
+  assert.deepEqual(f.requests[0], { operationId: undefined, operations: [{ type: 'Trash', data: { path: f.note.fullPath, target:{repoId:'system-core',path:'trash.org'} } }],
  fileVersions: [{ repoId: 'core-id', file: 'notes.org', version: 'original-file' }] });
 });
 

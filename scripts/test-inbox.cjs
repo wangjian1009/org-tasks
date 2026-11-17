@@ -132,11 +132,11 @@ function fixture() {
   let ignored = false;
   const settings = { id: 'host-id', rootDirectory: '/repo', webdavEnabled: true };
   const repo = { id: 'core-id', rootDirectory: '/repo', async load() {}, async file() { return { fileVersion: 'memo-version', fullPath: { repoId: 'core-id', file: 'memo.org', titles: [] } }; } };
-  const task = { repoId: 'core-id', filePath: 'inbox.org', fileVersion: 'source-version', fullPath: { repoId: 'core-id', file: 'inbox.org', titles: ['Item'], occurrence: 1 } };
+  const task = { id: 'Item', repoId: 'core-id', filePath: 'inbox.org', fileVersion: 'source-version', fullPath: { repoId: 'core-id', file: 'inbox.org', titles: ['Item'], occurrence: 1 } };
   const workspace = { async query(batch) {return batch.map(()=>({type:'file',result:ignored?[]:[{path:'memo.org',isIgnore:false,fileVersion:'memo-version'}]}));}, async refileTargets() { return [target('core-id', 'Work')]; },
-    async repos() { return [repo]; }, async executeTaskOperations(group) { requests.push(group); } };
+    async repos() { return [repo,{id:'system-core',rootDirectory:'/system'}]; }, async executeTaskOperations(group) { requests.push(group); } };
   const { InboxService } = load('services/InboxService', {
-    './AppConfigService': { AppConfigService: { async load() { return { repos: [settings], memoRepoId: 'host-id', memoFile: 'memo.org' }; } } },
+    './AppConfigService': { AppConfigService: { async load() { return { repos: [settings,{id:'org-tasks-system',rootDirectory:'/system'}], memoRepoId: 'host-id', memoFile: 'memo.org' }; } } },
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.memoRepoId, path: config.memoFile }) },
     './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return workspace; } } }
   });
@@ -234,7 +234,7 @@ test('备忘使用配置文件顶部并清除根 TODO；失效目标不提交', 
 test('删除只提交源快照，不伪造目标；无目标移动不提交', async () => {
   const f = fixture();
   await f.InboxService.perform({}, f.task, 'delete');
-  assert.deepEqual(f.requests[0].operations, [{ type: 'Deletion', data: { path: f.task.fullPath } }]);
+  assert.deepEqual(f.requests[0].operations, [{ type: 'Trash', data: { path: f.task.fullPath, target: {repoId:'system-core',path:'trash.org'} } }]);
   assert.deepEqual(f.requests[0].fileVersions, [{ repoId: 'core-id', file: 'inbox.org', version: 'source-version' }]);
   await assert.rejects(f.InboxService.perform({}, f.task, 'move'), /请选择任务目标/);
   assert.equal(f.requests.length, 1);
@@ -501,7 +501,7 @@ test('最近移动选择串行持久化、去重并在重新加载后保留顺�
 
 test('批量分配与截止只提交一次，携带全部源版本并使用结构化规划值保留已有时刻与重复规则', async () => {
   for (const [action, field] of [['schedule', 'SCHEDULE'], ['deadline', 'DEADLINE']]) {
-    const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+    const f = fixture(), tasks = [f.task, { ...f.task, id: 'Second', fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
     await f.InboxService.performMany({}, tasks, action, undefined, { date: '2026-11-20' });
     assert.equal(f.requests.length, 1);
     assert.deepEqual(f.requests[0].operations, tasks.map(task => ({ type: 'Modification', data: {
@@ -514,7 +514,7 @@ test('批量分配与截止只提交一次，携带全部源版本并使用结�
 });
 
 test('批量移动一次提交所有源与共同目标，取消目标时不写入', async () => {
-  const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+  const f = fixture(), tasks = [f.task, { ...f.task, id: 'Second', fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
   const selected = target('core-id', 'Work');
   await assert.rejects(f.InboxService.performMany({}, tasks, 'move'), /请选择任务目标/);
   assert.equal(f.requests.length, 0);
@@ -526,14 +526,14 @@ test('批量移动一次提交所有源与共同目标，取消目标时不写�
 
 test('批量备忘只读取一次共同目标；批量删除不拆成多次提交', async () => {
   for (const action of ['memo', 'delete']) {
-    const f = fixture(), tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+    const f = fixture(), tasks = [f.task, { ...f.task, id: 'Second', fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
     let queries = 0;
     const query = f.workspace.query;
     f.workspace.query = async batch => { queries++; return await query(batch); };
     await f.InboxService.performMany({}, tasks, action);
     assert.equal(f.requests.length, 1);
     assert.equal(queries, action === 'memo' ? 1 : 0);
-    assert.deepEqual(f.requests[0].operations.map(op => op.type), action === 'memo' ? ['Modification', 'Movement', 'Modification', 'Movement'] : ['Deletion', 'Deletion']);
+    assert.deepEqual(f.requests[0].operations.map(op => op.type), action === 'memo' ? ['Modification', 'Movement', 'Modification', 'Movement'] : ['Trash', 'Trash']);
   }
 });
 

@@ -9,7 +9,7 @@ import { CachedDataSet, cacheDataSet, restoreDataSet } from './PageDataSnapshot'
 import { samePageMetadata } from './PageDataEquality'
 import { overviewTaskQuery, todayAttentionQuery } from './TaskViewQueries'
 import { CoreBridgeError, CoreOrgFileMetadata, CoreSettingsObject, CoreQuery, CoreQueryResult, NativeCoreService, taskResult, fileResult, coreErrorMessage } from './NativeCoreService'
-import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from './SystemRepositoryService'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 
 export interface SidebarSnapshot {
   version: number

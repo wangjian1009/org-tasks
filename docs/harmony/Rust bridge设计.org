@@ -297,6 +297,7 @@ class Task {
   taskStateOf(category: TaskStateCategory): TaskState | null
   readonly createdAt: number | null
   readonly closedAt: number | null
+  readonly deletedAt: number | null
   readonly modifiedAt: number | null
   isDone(): boolean
 }
@@ -493,7 +494,7 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 ~FilterTask.body_first_line()~ 在 Rust 查询投影时映射为只读、可枚举的 ~Task.bodyFirstLine: string | null~ ，C++、ArkTS wrapper 与路由完整透传，空正文保留 ~null~ 。任务 ~modifiedAt~ 通过 Core 的 ~modified_at()~ 获取，Core 仅解释标题自身的 ~LAST_MODIFIED~ 属性；属性缺失时为 ~null~ 。备忘摘要只组合 ~modifiedAt ?? createdAt~ 的本地日期、有效 ~tags~ 与 ~bodyFirstLine~ ，不从原始正文或 HTML 推断第一行。
 
-~FileTargetService.query~ 的备忘文件请求通过 ~includeFiles~ 指定配置文件，使用 ~.o.modified~ 排序。排序与缺失值置末由 Core 统一处理；宿主沿用返回顺序。固定卡片点击进入既有 ~MemoEdit~ ，左滑删除继续通过 ~NoteService.remove~ 提交带完整路径和文件版本的 Deletion。
+~FileTargetService.query~ 的备忘文件请求通过 ~includeFiles~ 指定配置文件，使用 ~.o.modified~ 排序。排序与缺失值置末由 Core 统一处理；宿主沿用返回顺序。固定卡片点击进入既有 ~MemoEdit~ ，左滑删除继续通过 ~NoteService.remove~ 提交带完整路径和文件版本的 Trash。
 
 * 任务卡片原位编辑
 
@@ -802,4 +803,10 @@ NativeCoreService 导出 CoreFileHeaderValue、CoreFileHeaderValueChange 和带�
 
 TaskOperationType 增加 ~Trash~ 与 ~Restore~ ，数据分别为 ~TaskTrash { path, target }~ 和 ~TaskRestore { path }~ 。Rust bridge 继续将既有结构化操作组反序列化交给 Core，C++ 沿用工作线程编组入口，ArkTS wrapper 导出对应类型别名，不新增 FFI 函数或 Workspace 方法。完整副本、系统属性、恢复依赖、文件任务、统一落盘和通知均由 Core 处理。
 
-~executeTaskOperations~ 仍返回 ~Promise<void>~ ：Restore 插入目标失败时保留来源并允许本组其余有效修改提交，因此 Promise 成功不能用来推断所选条目全部被恢复；页面须以最终数据集快照为准，不凭输入列表乐观清除所有恢复项。Core 的已有普通错误和程序异常仍通过拒绝 Promise 传递。手机废纸篓页面与日期显示策略尚未在本次执行器改造中接入。
+~executeTaskOperations~ 仍返回 ~Promise<void>~ ：Restore 插入目标失败时保留来源并允许本组其余有效修改提交，因此 Promise 成功不能用来推断所选条目全部被恢复；页面须以最终数据集快照为准，不凭输入列表乐观清除所有恢复项。Core 的已有普通错误和程序异常仍通过拒绝 Promise 传递。手机废纸篓页面与删除日期／时刻显示策略已接入，使用最终 DataSet 快照确认恢复结果。
+
+* 废纸篓界面投影
+
+~FilterTask.deleted_at()~ 由 Rust 映射到 bridge 的可空 ~deletedAt~ 毫秒字段，C++ 创建只读可枚举属性，TypeScript、PageTask、缓存与路由保持一致；旧缓存字段缺失时恢复为 ~null~ 。~TaskDateDisplay.Deleted~ 和 ~TaskTimeDisplay.Deleted~ 只格式化该字段，不解析 Org 或以其他时间补齐。
+
+宿主 ~TrashService~ 继续通过 ~executeTaskOperations~ 提交一个操作组，删除组装 ~Trash~ 、恢复组装 ~Restore~ ，永久清除与自动清理组装 ~Deletion~ 。设置与查询由宿主组装，来源属性写入、保真复制、叶节点限制、跨文件原子提交与恢复失败保留由 Core 执行。批量 UI 等待 DataSet 通知归并后核对稳定行身份；~Promise<void>~ 的成功不代表所有 Restore 都完成插入。

@@ -223,6 +223,7 @@ export struct AppShell {
           this.primaryItem('备忘', $r('app.media.nav_memo'), 'memo')
           Row().height(12)
           this.primaryItem('日志簿', $r('app.media.nav_logbook'), 'logbook')
+          this.navItem('废纸篓', $r('app.media.ui_delete'), 'pages/Trash', this.activeRoute === 'pages/Trash')
           Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
           if (this.projectGroups.length > 0) {
             Column({ space: 32 }) {

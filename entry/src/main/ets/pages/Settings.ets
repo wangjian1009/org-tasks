@@ -1,3 +1,4 @@
+import { TrashSettingsService } from '../services/TrashSettingsService'
 import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
@@ -17,7 +18,7 @@ import { FileTargetSheet } from '../components/editors/FileTargetSheet'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
-import { SystemRepositoryService } from '../services/SystemRepositoryService'
+import { isSystemRepository } from '../models/SystemRepository'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
 
 interface SettingsParams { section?: string }
@@ -27,6 +28,7 @@ interface SettingsParams { section?: string }
 struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
   @State section: string = ''
+  @State retentionDraft: string = '30'
   @State coreSettings: CoreSettingsObject = { additionStates: [] }
   @State defaultStates: CoreTaskState[] = []
   private stateCategories: TaskStateCategory[] = [TaskStateCategory.Todo, TaskStateCategory.Doing, TaskStateCategory.Wait, TaskStateCategory.Done, TaskStateCategory.Cancel]
@@ -133,6 +135,7 @@ struct Settings {
         const params = this.getUIContext().getRouter().getParams() as SettingsParams | undefined
         this.section = params?.section === '笔记与笔记本' ? '文件入口' : params?.section || ''
       }
+      this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
       this.config = config
       this.coreSettings = config.coreSettings
       this.fileDisplayMode = config.fileDisplayMode
@@ -228,11 +231,12 @@ struct Settings {
   @Builder
   homepage() {
     SettingsGroup({ title: '数据与同步' }) {
-      SettingsRow({ title: '存储库', value: `${this.config.repos.filter(repo => !SystemRepositoryService.isSystem(repo)).length} 个`, icon: $r('app.media.nav_repository'), divider: false,
+      SettingsRow({ title: '存储库', value: `${this.config.repos.filter(repo => !isSystemRepository(repo)).length} 个`, icon: $r('app.media.nav_repository'), divider: false,
         action: (): void => { this.openSection('存储库') } })
     }
     SettingsGroup({ title: '任务与笔记' }) {
       SettingsRow({ title: '文件入口', icon: $r('app.media.ui_folder'), action: (): void => { this.openSection('文件入口') } })
+      SettingsRow({ title: '废纸篓', value: `${this.retentionDraft} 天`, icon: $r('app.media.ui_delete'), action: (): void => { this.openSection('废纸篓') } })
       SettingsRow({ title: '任务状态分类', value: '5 类', icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
       SettingsChoiceRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染',
         icon: $r('app.media.ui_body'), divider: false, disabled: this.saving, items: this.displayModeChoices() })
@@ -242,6 +246,27 @@ struct Settings {
         detail: this.notificationState === 'error' ? '读取失败，点击重试' : '', icon: $r('app.media.ui_info'),
         action: (): void => { this.manageNotifications() } })
       SettingsRow({ title: '关于小清单', icon: $r('app.media.ui_info'), divider: false, action: (): void => { this.openSection('关于小清单') } })
+    }
+  }
+
+  async saveRetention() {
+    if (this.saving) return
+    this.saving = true
+    try {
+      if (!/^\d+$/.test(this.retentionDraft)) throw new Error('请输入整数天数')
+      await TrashSettingsService.saveRetentionDays(this.getUIContext().getHostContext()!, Number(this.retentionDraft))
+      this.message = '保留天数已保存'
+    } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
+    finally { this.saving = false }
+  }
+
+  @Builder
+  trashSettings() {
+    SettingsGroup({ title: '保留天数', detail: '默认保留 30 天，可设置 1 至 3650 天。打开废纸篓或笔记本时，按删除时间自动永久清除过期记录。删除时间缺失的记录会保留。' }) {
+      TextInput({ text: this.retentionDraft, placeholder: '保留天数' }).type(InputType.Number)
+        .id('trash_retention_days').onChange((value: string): void => { this.retentionDraft = value; this.message = '' })
+      Button(this.saving ? '保存中…' : '保存').id('trash_retention_save').enabled(!this.saving)
+        .onClick((): void => { this.saveRetention() }).margin(16)
     }
   }
 
@@ -296,10 +321,10 @@ struct Settings {
   @Builder
   repositories() {
     SettingsGroup({ title: '已配置的存储库', detail: '管理本地文件目录和 WebDAV 连接。浏览文件请使用侧边栏的“笔记本”。' }) {
-      if (this.config.repos.filter(repo => !SystemRepositoryService.isSystem(repo)).length === 0) {
+      if (this.config.repos.filter(repo => !isSystemRepository(repo)).length === 0) {
         Text('尚未配置存储库').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
       }
-      ForEach(this.config.repos.filter(repo => !SystemRepositoryService.isSystem(repo)), (repo: RepoConfig) => {
+      ForEach(this.config.repos.filter(repo => !isSystemRepository(repo)), (repo: RepoConfig) => {
         SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '不同步', detail: repo.rootDirectory,
           icon: $r('app.media.nav_repository'),
           action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })
@@ -324,6 +349,7 @@ struct Settings {
               } else if (!this.loaded) {
                 LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
               } else if (!this.section) { this.homepage() }
+              else if (this.section === '废纸篓') { this.trashSettings() }
               else if (this.section === '文件入口') { this.fileEntries() }
               else if (this.section === '任务状态分类') { this.categories() }
               else if (this.section === '存储库') { this.repositories() }

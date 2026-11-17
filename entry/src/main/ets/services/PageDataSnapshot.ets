@@ -19,6 +19,7 @@ export interface PageTaskFields {
   createdAt: number | null
   closedAt: number | null
   modifiedAt: number | null
+  deletedAt: number | null
   priority: TaskPriority | null
   priorityOptions: TaskPriority[]
   defaultPriority: TaskPriority
@@ -105,6 +106,7 @@ export function taskRecord(value: CoreTask): PageTaskRecord {
     createdAt: value.createdAt,
     closedAt: value.closedAt,
     modifiedAt: value.modifiedAt,
+    deletedAt: value.deletedAt ?? null,
     priority: value.priority,
     priorityOptions: value.priorityOptions,
     defaultPriority: value.defaultPriority,
@@ -149,6 +151,7 @@ export class PageTaskSnapshot {
   readonly createdAt: number | null
   readonly closedAt: number | null
   readonly modifiedAt: number | null
+  readonly deletedAt: number | null
   readonly priority: TaskPriority | null
   readonly priorityOptions: TaskPriority[]
   readonly defaultPriority: TaskPriority
@@ -195,6 +198,7 @@ export class PageTaskSnapshot {
     this.createdAt = record.value.createdAt
     this.closedAt = record.value.closedAt
     this.modifiedAt = record.value.modifiedAt
+    this.deletedAt = record.value.deletedAt ?? null
     this.priority = record.value.priority
     this.priorityOptions = record.value.priorityOptions
     this.defaultPriority = record.value.defaultPriority

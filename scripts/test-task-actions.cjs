@@ -25,7 +25,8 @@ function pagePolicy(page) {
   const file = page === 'inbox' ? 'entry/src/main/ets/pages/Inbox.ets' : 'entry/src/main/ets/components/LogbookTaskList.ets';
   if (!['inbox', 'logbook'].includes(page)) return taskPageActionPolicy(page);
   const source = fs.readFileSync(file, 'utf8');
-  const call = source.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, '([^']+)')?\)/);
+  const relevant = page === 'logbook' ? source.slice(source.indexOf('return taskActionPolicy',source.indexOf('bulkOperations: [TaskOperation.Restore, TaskOperation.Clear]'))) : source;
+  const call = relevant.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, '([^']+)')?\)/);
   return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')', { TaskOperation }), call[2]);
 }
 

@@ -1,3 +1,4 @@
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { PageNavigator } from '../services/PageNavigator'
 import { CoreOrgFileMetadata } from '../services/NativeCoreService'
 import { FileTargetKind } from '../services/FileTargetService'
@@ -13,6 +14,9 @@ export struct NotebookFileRow {
 
   openFile() {
     try {
+      if (this.configRepoId === SYSTEM_REPOSITORY_ID && this.file.path === TRASH_FILE) {
+        PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Trash' }); return
+      }
       const project = this.file.project() !== null
       PageNavigator.shared.pushPage(this.getUIContext(), {
         url: project ? 'pages/ProjectDetail' : this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',

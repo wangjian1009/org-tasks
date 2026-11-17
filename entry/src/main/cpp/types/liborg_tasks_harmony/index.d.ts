@@ -87,7 +87,7 @@ export interface DataTaskRecord {
   scheduled: DataDateRecord | null; deadline: DataDateRecord | null;
   scheduledWarning: string | null; deadlineWarning: string | null;
   closed: DataDateRecord | null; closedAt: number | null;
-  created: DataDateRecord | null; createdAt: number | null; modifiedAt: number | null;
+  created: DataDateRecord | null; createdAt: number | null; modifiedAt: number | null; deletedAt: number | null;
   events: DataDateRecord[];
 }
 export interface TaskDataSnapshot { task: DataTaskRecord; position: TaskPosition; view?: Task; }
@@ -183,6 +183,7 @@ export class Task {
   readonly createdAt: number | null;
   readonly closedAt: number | null;
   readonly modifiedAt: number | null;
+  readonly deletedAt: number | null;
   readonly priority: TaskPriority | null;
   readonly priorityOptions: TaskPriority[];
   readonly defaultPriority: TaskPriority;

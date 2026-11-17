@@ -11,7 +11,11 @@ const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openhar
 function load(file, mocks = {}) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module = {exports:{}};
-  vm.runInThisContext('(function(module,exports,require,$r){'+code+'\n})',{filename:file})(module,module.exports,name=>{assert.ok(name in mocks,name);return mocks[name]},value=>value);
+  vm.runInThisContext('(function(module,exports,require,$r){'+code+'\n})',{filename:file})(module,module.exports,name=>{if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
+    if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
+    if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository'})}};
+    if (name.endsWith('/TrashService')) return {TrashService:{perform:async()=>{throw new Error('本用例不执行删除')}}};
+    assert.ok(name in mocks,name);return mocks[name]},value=>value);
   return module.exports;
 }
 const presentation = load('entry/src/main/ets/ui/ProjectCreatePresentation.ets');

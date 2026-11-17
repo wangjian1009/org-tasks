@@ -275,3 +275,9 @@ ConflictFile 进入时把 ~<cacheDir>/org-conflict-previews~ 作为 setPreviewRo
 ~DataSetManager~ 在 ~context.filesDir/page-data/v1/<页面名>.json~ 保存一个页面的全部命名数据集。它是应用私有运行时缓存，不属于 Preferences、仓库内容或 ~.sync~ ；路径使用固定页面名，仓库范围、配置和查询在文件内部校验，不保存 WebDAV 凭据。
 
 UTF-8 JSON 以一次读取、一次解析恢复显示模型；缓存恢复的数据版本为 0，首次查询后为 1。只有全部修改提交完成且事件合并完成后，才把整个页面的确认层写入临时文件并原子替换；编辑中或排队中的乐观字段不落盘。关闭页面及退后台保存也遵守这一边界。格式、生命周期与版本协议见 [[file:页面数据集设计.org][页面数据集设计]]。
+
+* 系统仓库与废纸篓保留天数
+
+系统仓库运行时配置 ID 为 ~org-tasks-system~ ，目录为 ~context.filesDir/system-repository~ ，名称固定为“系统仓库”，不同步，不提供修改或删除。启动补齐缺失目录和随包 ~system/trash.org~ ，不覆盖已有文件。配置读取时追加运行时仓库，保存时排除它；设置仓库列表与普通文件目标选择器隐藏它，笔记本仍显示该仓库及废纸篓入口。恢复来源使用 Core 的持久仓库 ID。
+
+设置 → 废纸篓提供保留天数输入与“保存”。~TrashSettingsService~ 使用 Preferences ~org_tasks_config~ 的独立数字键 ~trashRetentionDays~ ，默认 30，有效范围为 1 至 3650 的整数。输入不立即写入；保存成功后生效，失败保留输入并显示错误，不重写仓库或凭据，也不重建 Workspace。打开废纸篓或笔记本时按当前值查询删除时间早于保留范围的记录并统一清除；时间缺失或非法者保留。清除应用数据后恢复默认。

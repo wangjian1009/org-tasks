@@ -1,6 +1,7 @@
 {
   "src": [
     "pages/Files",
+    "pages/Trash",
     "pages/SyncLog",
     "pages/Inbox",
     "pages/TaskOverview",

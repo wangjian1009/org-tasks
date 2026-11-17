@@ -1,5 +1,6 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
+import { TrashService } from './TrashService'
 import { FileTargetService } from './FileTargetService'
 import { CoreTask, CoreTaskModification, CoreTaskOperation, NativeCoreService } from './NativeCoreService'
 
@@ -28,7 +29,8 @@ export class NoteService {
   }
 
   static async remove(context: Context, note: CoreTask): Promise<void> {
-    await NoteService.execute(context, note, { type: 'Deletion', data: { path: note.fullPath } })
+    if (note.repoId === '<preview>') await NoteService.execute(context, note, { type: 'Deletion', data: { path: note.fullPath } })
+    else await TrashService.perform(context, [note], 'trash')
   }
 
   static async modify(context: Context, note: CoreTask, modifications: CoreTaskModification[]): Promise<void> {

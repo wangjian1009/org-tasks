@@ -1,6 +1,6 @@
 import { PageNavigator } from '../services/PageNavigator'
 import { AppConfig } from '../models/OrgTask'
-import { FileTargetService } from '../services/FileTargetService'
+import { FileTargetService, systemTrashExclusions } from '../services/FileTargetService'
 import { CaptureService } from '../services/CaptureService'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { ProjectCreateService } from '../services/ProjectCreateService'
@@ -404,7 +404,7 @@ struct Inbox {
   }
 
   activateBatch(action: TaskBatchAction) {
-    if (action === 'restore') return
+    if (action === 'restore' || action === 'clear') return
     if (this.mergeBusy || this.mergeInvalid || this.batchTargetOpen ||
       !taskBatchMenu(this.actionPolicy, (): void => {}).some(item => item.id === action)) return
     if (action === 'merge') { this.mergeSelected(); return }
@@ -418,7 +418,7 @@ struct Inbox {
       this.loadTargets()
     } else if (action === 'schedule' || action === 'deadline') this.chooseDate(action, records)
     else if (action === 'delete') {
-      this.getUIContext().showAlertDialog({ title: `删除 ${records.length} 条记录？`, message: '所选记录及其子记录将从文件中删除。',
+      this.getUIContext().showAlertDialog({ title: `删除 ${records.length} 条记录？`, message: '所选记录将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。',
         primaryButton: { value: '取消', action: (): void => {} },
         secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.performSelected('delete') } } })
     } else this.performSelected(action)
@@ -588,8 +588,9 @@ struct Inbox {
     const definitions: DataSetDefinition[] = []
     if (target) definitions.push({ name: 'tasks', query: target.task, repositoryBindings: target.repositoryBindings },
       { name: 'target', query: target.file, repositoryBindings: target.repositoryBindings })
+    const trash = systemTrashExclusions(config)
     definitions.push({ name: 'recent', query: { type: 'task', query: { expression: 'cr.ge.-2d cr.le.today .o.created',
-      excludeFiles: target ? [target.reference] : [] } }, repositoryBindings: target?.repositoryBindings }, { name: 'files', query: { type: 'file', query: {} } })
+      excludeFiles: (target ? [target.reference] : []).concat(trash.files) } }, repositoryBindings: (target?.repositoryBindings ?? []).concat(trash.repositoryBindings) }, { name: 'files', query: { type: 'file', query: {} } })
     return definitions
   }
 

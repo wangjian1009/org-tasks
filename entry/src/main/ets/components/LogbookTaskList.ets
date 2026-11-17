@@ -5,7 +5,7 @@ import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPr
 import { TaskEditor } from './editors/TaskEditor'
 import { LogShowPolicy } from '../ui/TaskLogPresentation'
 import { TaskRegion } from './TaskRegion'
-import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
+import { RegionAreaPolicy, TaskDateDisplay, TaskTimeDisplay } from '../ui/TaskListPresentation'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskSwipeActions } from './TaskSwipeActions'
@@ -27,6 +27,7 @@ export struct LogbookTaskList {
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop ready: boolean = false
+  @Prop trashMode: boolean = false
   @Prop groups: LogbookGroup[] = []
   @Prop referenceTime: number = Date.now()
   perform: (tasks: CoreTask[], action: 'delete' | 'restore') => Promise<void> = async (): Promise<void> => { throw new Error('未提供日志簿数据管理对象') }
@@ -37,7 +38,9 @@ export struct LogbookTaskList {
   @State busyAction: string = ''
   @State selectionStarting: boolean = false
 
-  policy() { return taskActionPolicy({ singleOperations: [TaskOperation.Delete],
+  policy() { if (this.trashMode) return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Clear],
+    bulkOperations: [TaskOperation.Restore, TaskOperation.Clear] })
+    return taskActionPolicy({ singleOperations: [TaskOperation.Delete],
     bulkOperations: [TaskOperation.Delete, TaskOperation.Restore] }) }
 
   allItems(): LogbookTaskItem[] {
@@ -95,16 +98,16 @@ export struct LogbookTaskList {
     if (this.actionBusy || items.length === 0) return
     const tasks = items.map((item: LogbookTaskItem): CoreTask => item.task)
     this.getUIContext().showAlertDialog({
-      title: tasks.length === 1 ? '删除这条记录？' : `删除 ${tasks.length} 条记录？`,
-      message: tasks.length === 1 ? `“${tasks[0].heading}”及其子记录将从文件中删除。` : '所选任务及其子记录将从文件中删除。',
+      title: this.trashMode ? `永久清除 ${tasks.length} 条记录？` : tasks.length === 1 ? '删除这条记录？' : `删除 ${tasks.length} 条记录？`,
+      message: this.trashMode ? '清除后无法恢复。确定永久删除所选记录？' : tasks.length === 1 ? `“${tasks[0].heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。` : '所选任务将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。',
       primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.removeTasks(tasks) } }
+      secondaryButton: { value: this.trashMode ? '清除' : '删除', fontColor: UiColor.error, action: (): void => { this.removeTasks(tasks) } }
     })
   }
 
   async removeTasks(tasks: CoreTask[]) {
     const operations = this.selectingTasks ? this.policy().bulkOperations : this.policy().singleOperations
-    if (!operations.includes(TaskOperation.Delete)) return
+    if (!operations.includes(this.trashMode ? TaskOperation.Clear : TaskOperation.Delete)) return
     await this.performTasks(tasks, 'delete')
   }
 
@@ -116,21 +119,39 @@ export struct LogbookTaskList {
   async performTasks(tasks: CoreTask[], action: 'delete' | 'restore') {
     if (this.actionBusy || tasks.length === 0) return
     this.actionBusy = true
-    this.busyAction = action
+    this.busyAction = this.trashMode && action === 'delete' ? 'clear' : action
     try {
       if (!await TaskInlineSession.end(true)) return
+      const keys = tasks.map(task => this.taskDataSet().taskKey(task.id))
       await this.perform(tasks, action)
-      this.resetSelection()
+      await this.taskDataSet().settle()
+      const retained = this.trashMode ? tasks.filter((task: CoreTask, index: number): boolean => this.taskDataSet().getTask(keys[index]) !== undefined) : []
+      if (action === 'restore' && retained.length > 0) {
+        this.selectedTaskKeys = this.selectedItems().filter(item => retained.some(task => task.id === item.task.id && task.repoId === item.task.repoId)).map(item => item.key)
+        this.getUIContext().getPromptAction().showToast({ message: `${retained.length} 条记录原位置不可用，已保留在废纸篓`, duration: 3000 })
+      } else this.resetSelection()
     } catch (error) {
       try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(error as CoreBridgeError), duration: 3000 }) }
       catch (_) {}
     } finally { this.actionBusy = false; this.busyAction = '' }
   }
 
+  activateSwipe(item: LogbookTaskItem, action: TaskSwipeAction) {
+    const task = this.taskDataSet().getTask(item.key)
+    if (!task) return
+    const current: LogbookTaskItem = { key: item.key, timestamp: this.trashMode ? task.deletedAt : task.closedAt, task }
+    if (action === 'select') this.startSelection(current)
+    else if (action === 'delete' || action === 'clear') this.confirmDelete([current])
+    else if (action === 'restore') this.performTasks([current.task], 'restore')
+  }
+
   @Builder
   swipeMenu(item: LogbookTaskItem, activate: (action: TaskOperation) => void) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting, idPrefix: 'logbook_swipe',
-      items: taskSwipeMenu(this.policy(), (action: TaskSwipeAction): void => { if (action === TaskOperation.Select) this.startSelection(item); else activate(action) }) })
+      items: taskSwipeMenu(this.policy(), (action: TaskSwipeAction): void => {
+        if (this.trashMode || action === TaskOperation.Select) this.activateSwipe(item, action)
+        else activate(action)
+      }) })
   }
 
   @Builder
@@ -146,10 +167,17 @@ export struct LogbookTaskList {
       busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
       heading: item.task.heading, horizontalInset: 0,
       begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
-        TaskEditor({ controller, allowDeletion: this.ready, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
-          dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
-          regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
+        Column() {
+        TaskEditor({ controller, allowDeletion: this.ready && !this.trashMode, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready && !this.trashMode, instanceKey: item.key,
+          dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : this.trashMode ? TaskDateDisplay.Deleted : TaskDateDisplay.Closed,
+          timeDisplay: this.trashMode && group.kind === 'day' ? TaskTimeDisplay.Deleted : TaskTimeDisplay.None,
+          regionAreaPolicy: this.trashMode || group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
           referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
+        if (this.trashMode) {
+          Text([item.task.property('CATEGORY'), item.task.property('PROJECT_NAME'), item.task.property('ARCHIVE_FILE')].filter((value: string | null): boolean => value !== null && value.length > 0).join(' · ') || '来源未记录')
+            .fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ left: 26, bottom: 8 }).maxLines(2)
+        }
+        }.width('100%')
       }
   }
 
@@ -162,7 +190,7 @@ export struct LogbookTaskList {
 
   @Builder
   groupItems(group: LogbookGroup) {
-    if (group.kind === 'day') {
+    if (group.kind === 'day' && !this.trashMode) {
       ForEach(this.currentGroup(group).groups, (region: LogbookTaskGroup) => {
         TaskRegion({ category: region.category || '未分类', project: region.kind === 'project' ? region : null }) {
           ForEach(this.currentItems(group, region.key), (item: LogbookTaskItem) => {
@@ -181,7 +209,7 @@ export struct LogbookTaskList {
   batchToolbar() {
     if (this.selectingTasks) {
       TaskBatchToolbar({ items: taskBatchMenu(this.policy(), (action: TaskBatchAction): void => {
-          if (action === 'delete') this.confirmDelete(this.selectedItems())
+          if (action === 'delete' || action === 'clear') this.confirmDelete(this.selectedItems())
           else if (action === 'restore') this.restoreTasks()
         }), count: this.selectedTaskKeys.length, busy: this.actionBusy, busyAction: this.busyAction,
         cancel: (): void => { this.resetSelection() }, idPrefix: 'logbook' })
@@ -198,7 +226,7 @@ export struct LogbookTaskList {
           ListItem() { this.groupHeader(this.currentGroup(group)) }
           this.groupItems(this.currentGroup(group))
         }, (group: LogbookGroup) => group.key)
-      }.id('logbook_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: this.selectingTasks ? 196 : 16 })
+      }.id('logbook_task_list').width('100%').height('100%').padding({ left: 20, right: 20, bottom: this.selectingTasks ? 196 : 16 })
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
         .edgeEffect(EdgeEffect.None)
       this.batchToolbar()

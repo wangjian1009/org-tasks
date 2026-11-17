@@ -25,6 +25,10 @@ function load(name, mocks, globals = {}) {
   vm.runInThisContext('(function(require,module,exports,LocalStorage,setTimeout,clearTimeout){' + output + '\n})', { filename })(name => {
     if (name.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
+    if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
+    if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
+    if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository'})}};
+    if (name.endsWith('/TrashService')) return {TrashService:{perform:async()=>{throw new Error('本用例不执行删除')}}};
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     if (Object.hasOwn(mocks, name)) return mocks[name];
     throw new Error('缺少平台替身: ' + name);

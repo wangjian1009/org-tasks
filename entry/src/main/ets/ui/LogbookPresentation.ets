@@ -23,7 +23,8 @@ export interface LogbookGroup {
 const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 
 // 任务范围由 Core 的 it.done 决定；每个已完成或已取消任务仅按 closedAt 编排一次。
-export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): LogbookGroup[] {
+export function logbookGroups(tasks: CoreTask[], now: Date = new Date(), timestampOf: (task: CoreTask) => number | null = task => task.closedAt,
+  keyOf: (task: CoreTask) => string = task => task.id): LogbookGroup[] {
   const groups: LogbookGroup[] = []
   const dailyStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)
   const monthlyStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 180)
@@ -48,7 +49,7 @@ export function logbookGroups(tasks: CoreTask[], now: Date = new Date()): Logboo
     group.items.push(item)
   }
   for (const task of tasks) {
-    add({ key: task.id, timestamp: task.closedAt, task })
+    add({ key: keyOf(task), timestamp: timestampOf(task), task })
   }
   for (const group of groups) {
     group.items.sort((left: LogbookTaskItem, right: LogbookTaskItem) => {

@@ -43,6 +43,7 @@ struct TaskOverview {
   private rangeDataSet: DataSet | undefined = undefined
   private targetDataSet: DataSet | undefined = undefined
   private orderFilesDataSet: DataSet | undefined = undefined
+  private trashConfig: AppConfig | undefined = undefined
   private stops: (() => void)[] = []
   @State pageReady: boolean = false
   private taskDataSet(): DataSet { return this.view === 'planned' && !this.selectedPlanRegion ? this.rangeDataSet! : this.tasksDataSet! }
@@ -121,7 +122,7 @@ struct TaskOverview {
 
   confirmDeleteMemo(task: CoreTask) {
     if (this.deletingMemo || !this.pageReady) return
-    this.getUIContext().showAlertDialog({ title: '删除这条备忘？', message: `“${task.heading}”及其子记录将从文件中删除。`,
+    this.getUIContext().showAlertDialog({ title: '删除这条备忘？', message: `“${task.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
       primaryButton: { value: '取消', action: (): void => {} },
       secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteMemo(task) } } })
   }
@@ -205,6 +206,7 @@ struct TaskOverview {
   }
 
   defineDataSets(config: AppConfig, view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
+    this.trashConfig = config
     const definitions: DataSetDefinition[] = []
     if (view === 'memo' || view === 'someday') {
       const target = FileTargetService.prepareConfigured(config, view)
@@ -222,7 +224,7 @@ struct TaskOverview {
     }
     const trash = systemTrashExclusions(config)
     for (const definition of definitions) {
-      if (definition.query.type === 'task' && view !== 'memo' && view !== 'someday') {
+      if (trash.files.length > 0 && definition.query.type === 'task' && view !== 'memo' && view !== 'someday') {
         definition.query.query.excludeFiles = (definition.query.query.excludeFiles ?? []).concat(trash.files)
         definition.repositoryBindings = (definition.repositoryBindings ?? []).concat(trash.repositoryBindings)
       }
@@ -233,7 +235,11 @@ struct TaskOverview {
   async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
     if (!await TaskInlineSession.end(true)) return
     this.selectedPlanRegion = region
-    if (region) await this.tasksDataSet?.setQuery(plannedRegionQuery(region))
+    if (region) {
+      const query = plannedRegionQuery(region)
+      if (query.type === 'task' && this.trashConfig) query.query.excludeFiles = systemTrashExclusions(this.trashConfig).files
+      await this.tasksDataSet?.setQuery(query)
+    }
     this.applyPageSnapshot()
   }
 
@@ -367,7 +373,7 @@ struct TaskOverview {
           PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, singleOperations: taskPageActionPolicy(this.view).singleOperations, groups: this.planGroups, referenceTime: this.referenceTime })
         } else if (this.view === 'logbook') {
           LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => {
-            await TaskSwipeOperations.submit(this.taskDataSet(), LogbookService.operationGroups(tasks, action), (): boolean => this.pageReady)
+            await TaskSwipeOperations.submit(this.taskDataSet(), await LogbookService.operationGroups(this.getUIContext().getHostContext()!, tasks, action), (): boolean => this.pageReady)
           }, groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
         } else {
           List({ scroller: this.listScroller }) {

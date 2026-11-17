@@ -107,7 +107,7 @@ struct MemoEdit {
     if (!this.memo || this.working || this.committed) return
     this.getUIContext().showAlertDialog({
       title: '删除备忘？',
-      message: `“${this.memo.heading}”及其子记录将从文件中删除。`,
+      message: `“${this.memo.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
       primaryButton: { value: '取消', action: () => {} },
       secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteMemo() } }
     })

@@ -2,8 +2,8 @@ import { Context } from '@kit.AbilityKit'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { RepoConfig } from '../models/OrgTask'
 
-export const SYSTEM_REPOSITORY_ID = 'org-tasks-system'
-export const TRASH_FILE = 'trash.org'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
+export { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 
 // 系统目录属于应用沙箱，初始化只补齐缺失文件，已有废纸篓绝不覆盖。
 export class SystemRepositoryService {

@@ -332,6 +332,7 @@ impl FilterTask {
     pub fn closed_at(&self) -> Option<TimestampMs>;
     pub fn created(&self) -> Option<FilterDate>;
     pub fn created_at(&self) -> Option<TimestampMs>;
+    pub fn deleted_at(&self) -> Option<TimestampMs>;
     pub fn modified_at(&self) -> Option<TimestampMs>;
     pub fn events(&self) -> &[FilterDate];
 }
@@ -1255,3 +1256,7 @@ FilterTask.property(name) 返回当前标题自身属性的可空借用值，Fil
 原文、重复声明定位、值校验、同组操作、冲突与界面契约见 [[file:文件头属性编辑设计.org][文件头属性编辑设计]]。修改只覆盖声明值区间，保留字段名、未涉及空白、换行、其他声明与任务字节；TAGS 分组可跨声明校验，FILETAGS 保留原有标签顺序及内部空白。
 
 TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对应候选 token、保留其他候选的快捷键和分组结构，并在声明末尾追加新候选，沿用该位置的分组上下文。原有 Text 配置请求继续支持；任务自身标签不变。
+
+* 删除时间只读投影
+
+~FilterTask.deleted_at() -> Option<TimestampMs>~ 返回独立废纸篓叶记录自身的删除时刻，来源为非空 ~TRASH_ID~ 标记及有效 ~ARCHIVE_TIME~ 。普通记录、子树、缺失或非法时间返回 ~None~ ；不继承祖先、不回填时间。既有查询入口支持 ~deleted.*~ 日期条件与 ~o.deleted~ 排序，详见 [[file:查询语言设计.org][查询语言设计]]；不新增提交端点。

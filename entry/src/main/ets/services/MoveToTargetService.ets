@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { configuredFileTarget, FileTarget } from './FileTargetService'
-import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from './SystemRepositoryService'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { CoreOrgFileRef, CoreRefileTarget, CoreTask, NativeCoreService } from './NativeCoreService'
 
 // 只编排移动入口的配置与快照；目标识别、移动与版本校验均由 Core 完成。

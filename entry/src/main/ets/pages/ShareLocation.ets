@@ -1,3 +1,4 @@
+import { isSystemRepository } from '../models/SystemRepository'
 import { common } from '@kit.AbilityKit'
 import { CoreAddressLink, CoreOrgFileRef, CoreQuery, CoreTask, NativeCoreService, taskResult } from '../services/NativeCoreService'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
@@ -90,6 +91,7 @@ struct ShareLocation {
       const results: CoreTask[] = []
       const memoTarget = await FileTargetService.resolve(config, 'memo')
       for (const repository of config.repos) {
+        if (isSystemRepository(repository)) continue
         if (request !== this.loadRequest) return
         const reference: CoreOrgFileRef | undefined = memoTarget?.repository.id === repository.id ? { repoId: memoTarget.repo.id, path: memoTarget.path } : undefined
         const queries: CoreQuery[] = shareLocationTaskQueries(reference).map(query => ({ type: 'task', query } as CoreQuery))

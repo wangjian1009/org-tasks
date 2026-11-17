@@ -1,3 +1,4 @@
+import { TrashDataManager } from '../services/TrashDataManager'
 import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
@@ -14,7 +15,7 @@ import { NotebookGroup } from '../services/NotebookService'
 import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { fileUsageKinds } from '../ui/NotebookPresentation'
-import { SYSTEM_REPOSITORY_ID } from '../services/SystemRepositoryService'
+import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 
 @Entry
 @Component
@@ -26,6 +27,7 @@ struct Files {
   @State drawerOpen: boolean = false
   @State showIgnoredRepoIds: string[] = []
   @State config: AppConfig = DEFAULT_CONFIG
+  private trashMaintenance: Promise<void> | undefined = undefined
   private dataManager: NotebookDataManager | undefined = undefined
   private stopData: (() => void) | undefined = undefined
   onPageShow(): void { this.loadFiles() }
@@ -48,6 +50,13 @@ struct Files {
   }
 
   async loadFiles(reload: boolean = false) {
+    if (!this.trashMaintenance) {
+      const trash = new TrashDataManager(this.getUIContext().getHostContext()!)
+      this.trashMaintenance = trash.start().catch((): void => {
+        try { this.getUIContext().getPromptAction().showToast({ message: '废纸篓过期清理失败，可打开废纸篓重试' }) }
+        catch (_) { console.error('显示废纸篓清理提示失败') }
+      }).finally(async (): Promise<void> => { await trash.close() }).catch((): void => { console.error('关闭废纸篓清理数据集失败') })
+    }
     if (!this.dataManager) {
       this.dataManager = new NotebookDataManager(this.getUIContext().getHostContext()!)
       this.stopData = this.dataManager.subscribe((state: SnapshotState<NotebookSnapshot>): void => {

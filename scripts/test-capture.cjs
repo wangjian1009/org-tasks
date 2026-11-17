@@ -30,6 +30,7 @@ function etsLoader(mocks = {}, globals = {}) {
       if (dependency.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
       if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
       if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
+      if (dependency.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{isSystem:repo=>repo.id==='org-tasks-system',ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository',webdavEnabled:false,excludedDirectories:[]})}};
       if (dependency.endsWith('/DeviceBadgeService')) return { DeviceBadgeService: { async refresh() {}, start() {}, stop() {} } };
       if (dependency.endsWith('/NotificationPermissionService')) return { NotificationPermissionService: { async start() {}, stop() {} } };
       if (dependency.startsWith('.')) return load(path.relative(sourceRoot, path.resolve(path.dirname(filename), dependency)));

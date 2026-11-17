@@ -1,7 +1,9 @@
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
+import { TrashService } from './TrashService'
 import { MoveToTargetService } from './MoveToTargetService'
 import { configuredFileTarget, FileTargetService, FileTargetQueryResult } from './FileTargetService'
 import { CoreRefileTarget, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, CoreTaskOperationGroup, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
@@ -44,9 +46,12 @@ export class InboxService {
 
   static async load(config: AppConfig): Promise<InboxSnapshot> {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    const prepared = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
+    const repos = await workspace.repos()
+    const system = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
+    const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
+    const prepared = FileTargetService.prepare(config, repos, 'inbox')
     const recent: CoreTaskQuery = { expression: 'cr.ge.-2d cr.le.today .o.created',
-      excludeFiles: prepared ? [prepared.reference] : [] }
+      excludeFiles: (prepared ? [prepared.reference] : []).concat(trashRepo ? [{ repoId: trashRepo.id, path: TRASH_FILE }] : []) }
     const results = await PageQueryService.query(config, prepared
       ? [prepared.task, prepared.file, { type: 'task', query: recent }] : [{ type: 'task', query: recent }])
     return { inbox: prepared ? FileTargetService.result(results[0], results[1]) : undefined,
@@ -82,6 +87,7 @@ export class InboxService {
     if ((action === 'schedule' || action === 'deadline') && date === undefined) throw new Error('请选择日期')
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    if (action === 'delete') return [await TrashService.group(config, workspace, tasks, 'trash')]
     const repos = await workspace.repos()
     let parent: CoreTaskPath | undefined = action === 'move' ? target!.fullPath : undefined
     let destinationVersion: CoreTaskFileVersion | undefined = undefined
@@ -126,8 +132,8 @@ export class InboxService {
       const operations: CoreTaskOperation[] = []
       if (modifications.length > 0) operations.push({ type: 'Modification', data: { path: task.fullPath, modifications } })
       if (action !== 'schedule' && action !== 'deadline') {
-        operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
-          { type: 'Deletion', data: { path: task.fullPath } })
+        if (!parent) throw new Error('移动目标不可用，请重新选择')
+        operations.push({ type: 'Movement', data: { path: task.fullPath, position: { parent } } })
       }
       const fileVersions: CoreTaskFileVersion[] = [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
       if (destinationVersion) fileVersions.push(destinationVersion)

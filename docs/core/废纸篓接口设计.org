@@ -10,7 +10,7 @@
 
 操作节点限制为没有子节点的记录。Trash、Restore 都制作独立副本；删除时附加的来源、CATEGORY、PROJECT_NAME 与删除时间等信息属于系统保留属性，直接覆盖，恢复时统一移除，不保留旧值。
 
-本设计已由 ~core/src/model/task_operation_executor/scheduler.rs~ 与 ~file_worker.rs~ 实现。公开提交入口保持不变，新增 TaskOperation 的 Trash、Restore 变体；手机废纸篓页面尚未接入。
+本设计已由 ~core/src/model/task_operation_executor/scheduler.rs~ 与 ~file_worker.rs~ 实现。公开提交入口保持不变，新增 TaskOperation 的 Trash、Restore 变体；手机废纸篓页面、保留天数设置与过期清理已接入，见 [[file:../harmony/废纸篓设计.org][废纸篓与系统仓库设计]]。
 
 * 自动加载与文件命令
 

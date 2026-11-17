@@ -1,3 +1,4 @@
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { Context } from '@kit.AbilityKit'
 import { notificationManager } from '@kit.NotificationKit'
 import { AppConfigService } from './AppConfigService'
@@ -54,10 +55,13 @@ export class DeviceBadgeService {
         const config = await AppConfigService.load(context, false)
         const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
         if (DeviceBadgeService.foreground) await DeviceBadgeService.connect(workspace)
-        const inbox = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
+        const repos = await workspace.repos()
+        const system = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
+        const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
+        const inbox = FileTargetService.prepare(config, repos, 'inbox')
         const queries: CoreQuery[] = [
           { type: 'task', query: { expression: 'it.todo d.lt.tomorrow',
-            excludeFiles: inbox ? [inbox.reference] : [] } },
+            excludeFiles: (inbox ? [inbox.reference] : []).concat(trashRepo ? [{ repoId: trashRepo.id, path: TRASH_FILE }] : []) } },
           { type: 'notification', query: {} }
         ]
         if (inbox) { queries.push(inbox.task); queries.push(inbox.file) }

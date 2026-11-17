@@ -9,7 +9,7 @@ import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModif
 import { TaskInlineSession } from '../../services/TaskInlineService'
 import { DataSet, TaskDataChange } from '../../services/DataSet'
 import { InboxService } from '../../services/InboxService'
-import { taskModificationGroup, taskDeletionGroup, taskMovementGroup } from '../../services/TaskOperationGroups'
+import { taskModificationGroup, taskMovementGroup } from '../../services/TaskOperationGroups'
 import { TaskInlineMissingError } from '../../services/TaskInlineService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
@@ -226,15 +226,17 @@ export struct TaskEditor {
     try {
       const source = await this.actionSource(allowed)
       if (!source || !allowed()) return undefined
+      const groups = await InboxService.operationGroups(this.getUIContext().getHostContext()!, [source], 'delete')
+      if (!this.appeared || !allowed()) return undefined
       const result = new TaskEditorActionResult()
       action = result; this.pendingAction = result
       this.deleteConfirming = true
-      this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${source.heading}”及其子记录将从文件中删除。`,
+      this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${source.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
         cancel: (): void => { this.cancelDelete() },
         primaryButton: { value: '取消', action: (): void => { this.cancelDelete() } },
         secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => {
           if (!this.appeared || !allowed()) { result.finish(); return }
-          result.finish(taskDeletionGroup(source))
+          result.finish(groups[0])
         } } })
       this.completing = false
       return await result.result
@@ -254,7 +256,8 @@ export struct TaskEditor {
       const source = await this.actionSource(allowed)
       if (!source) return
       if (expectedVersion && source.fileVersion !== expectedVersion) throw new Error('文件已变化，请重新确认删除')
-      return taskDeletionGroup(source)
+      const groups = await InboxService.operationGroups(this.getUIContext().getHostContext()!, [source], 'delete')
+      return groups[0]
     } finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
   }
 
@@ -1189,7 +1192,7 @@ export struct TaskEditor {
         .fontColor(this.timeDisplay === TaskTimeDisplay.Deadline ? this.deadlineColor() : UiColor.selection)
         .width(48).maxLines(1).flexShrink(0)
         .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' :
-          this.timeDisplay === TaskTimeDisplay.Creation ? '创建' : this.timeDisplay === TaskTimeDisplay.Closed ? '完成' : '计划'} ${this.leadingTime()}`)
+          this.timeDisplay === TaskTimeDisplay.Deleted ? '删除' : this.timeDisplay === TaskTimeDisplay.Creation ? '创建' : this.timeDisplay === TaskTimeDisplay.Closed ? '完成' : '计划'} ${this.leadingTime()}`)
         .onClick((): void => { this.toggleFromCompact() })
     }
   }

@@ -4,7 +4,7 @@ import { AppConfigService } from './AppConfigService'
 import { CoreOrgFileMetadata, CoreQueryRepositoryBinding, CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
 import { inboxRecordQuery, memoRecordQuery, overviewTaskQuery } from './TaskViewQueries'
-import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from './SystemRepositoryService'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }

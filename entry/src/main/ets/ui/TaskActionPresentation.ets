@@ -11,13 +11,14 @@ export enum TaskOperation {
   Someday = 'someday',
   Memo = 'memo',
   Delete = 'delete',
+  Clear = 'clear',
   Restore = 'restore',
   Merge = 'merge',
   Select = 'select'
 }
 
 type TaskCommonOperation = TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
-  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete
+  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore
 export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
@@ -93,8 +94,11 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
       case TaskOperation.Delete:
         items.push({ id: operation, title: '删除', label: '删除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '删除中…', action: () => activate(operation) })
         break
+      case TaskOperation.Clear:
+        items.push({ id: operation, title: '清除', label: '永久清除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '清除中…', action: () => activate(operation) })
+        break
       case TaskOperation.Restore:
-        items.push({ id: operation, title: '恢复', label: '恢复为待办', icon: $r('app.media.ui_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '恢复', label: '恢复', icon: $r('app.media.ui_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
         break
       case TaskOperation.Merge:
         items.push({ id: operation, title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),
@@ -108,7 +112,7 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
 export function taskSingleMenu(operations: TaskSingleOperation[], activate: (action: TaskSingleOperation) => void,
   toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
   return taskOperationMenu(operations, (action: TaskMenuOperation): void => {
-    if (action !== TaskOperation.Merge && action !== TaskOperation.Restore) activate(action)
+    if (action !== TaskOperation.Merge) activate(action)
   }, toggleStateCategory)
 }
 

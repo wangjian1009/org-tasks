@@ -111,7 +111,7 @@ export function createPageTask(metadata: CoreOrgFileMetadata, version: string, c
     id: `$pending:${util.generateRandomUUID()}`, fullPath: { repoId: metadata.repoId, file: metadata.path, titles: creation.position.parent.titles.concat([creation.title]), occurrence: 1 },
     taskId: null, fileVersion: version, repoId: metadata.repoId, heading: creation.title, category: metadata.category,
     projectName: metadata.project(), headingParts: [{ text: creation.title, href: null, isLink: false, count: null, link: null }],
-    state, createdAt: null, closedAt: null, modifiedAt: null, priority: metadata.priorityOptions.find(option => option.name === creation.priority) ?? null,
+    state, createdAt: null, closedAt: null, modifiedAt: null, deletedAt: null, priority: metadata.priorityOptions.find(option => option.name === creation.priority) ?? null,
     priorityOptions: metadata.priorityOptions, defaultPriority: metadata.defaultPriority, scheduled: '', deadline: '', tags, ownTags: tags, inheritedTags: [],
     supportTags: { tags: metadata.tagOptions, groups: metadata.tagGroups },
     editContent: { ownTags: tags, notes: creation.body ?? '', notesHtml: draftHtml(creation.body ?? ''), checklist: [], blocks: [],

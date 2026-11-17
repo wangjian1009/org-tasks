@@ -15,6 +15,7 @@ export enum TaskDateDisplay {
   Schedule = 'Schedule',
   Deadline = 'Deadline',
   Closed = 'Closed',
+  Deleted = 'Deleted',
   None = 'None'
 }
 
@@ -23,6 +24,7 @@ export enum TaskTimeDisplay {
   Schedule = 'Schedule',
   Deadline = 'Deadline',
   Closed = 'Closed',
+  Deleted = 'Deleted',
   None = 'None'
 }
 
@@ -32,7 +34,7 @@ export function taskTimeForDisplay(task: CoreTask, display: TaskTimeDisplay): st
     const planning = display === TaskTimeDisplay.Schedule ? task.editContent?.scheduledPlanning : task.editContent?.deadlinePlanning
     return planning?.time?.start ?? ''
   }
-  const timestamp = display === TaskTimeDisplay.Creation ? task.createdAt : display === TaskTimeDisplay.Closed ? task.closedAt : null
+  const timestamp = display === TaskTimeDisplay.Creation ? task.createdAt : display === TaskTimeDisplay.Closed ? task.closedAt : display === TaskTimeDisplay.Deleted ? task.deletedAt : null
   if (timestamp === null || !Number.isFinite(timestamp)) return ''
   const date = new Date(timestamp)
   return Number.isFinite(date.getTime()) ? `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}` : ''
@@ -76,9 +78,10 @@ export function taskDateIsToday(value: string, today: Date = new Date()): boolea
 
 // 按调用方选择读取日期；缺失时隐藏，不借用其他类型的日期。
 export function taskDateForDisplay(task: CoreTask, display: TaskDateDisplay): string {
-  if (display === TaskDateDisplay.Creation) {
-    if (task.createdAt === null || !Number.isFinite(task.createdAt)) return ''
-    const date = new Date(task.createdAt)
+  if (display === TaskDateDisplay.Creation || display === TaskDateDisplay.Deleted) {
+    const timestamp = display === TaskDateDisplay.Deleted ? task.deletedAt : task.createdAt
+    if (timestamp === null || !Number.isFinite(timestamp)) return ''
+    const date = new Date(timestamp)
     return Number.isFinite(date.getTime()) ? localDate(date) : ''
   }
   const value = display === TaskDateDisplay.Schedule ? task.scheduled :
