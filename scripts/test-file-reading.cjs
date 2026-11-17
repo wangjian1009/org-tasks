@@ -652,6 +652,32 @@ test('原生项目离开或切换版本后，迟到目录定位失效；切回�
   assert.equal(f.view.active, false);
 });
 
+test('项目首次阅读等待布局完成后跳过文件头，后续高度变化不重设位置', () => {
+  const f = nativeProjectFixture();
+  f.view.headerHeight = 240; f.view.viewportHeight = 600;
+  f.view.scheduleInitialOffset(); assert.equal(f.view.scroller.lastScroll, undefined);
+  f.view.contentHeight = 1500; f.view.scheduleInitialOffset();
+  assert.equal(f.view.scroller.lastScroll.yOffset, 240); assert.equal(f.view.initialOffsetApplied, true);
+  f.view.headerHeight = 320; f.view.scheduleInitialOffset();
+  assert.equal(f.view.scroller.lastScroll.yOffset, 240);
+});
+
+test('项目已有阅读位置包含页首零位置时，默认跳过文件头不覆盖用户位置', () => {
+  for (const offset of [0, 345]) {
+    const f = nativeProjectFixture(); f.view.readingState = JSON.stringify({ scroll: offset });
+    f.view.snapshotChanged(); f.view.headerHeight = 240; f.view.viewportHeight = 600; f.view.contentHeight = 1500;
+    f.view.scheduleInitialOffset(); assert.equal(f.view.scroller.lastScroll.yOffset, offset);
+  }
+});
+
+test('项目正文不足一屏时，默认阅读偏移限制在可滚动范围', () => {
+  for (const [height, expected] of [[750, 150], [500, 0]]) {
+    const f = nativeProjectFixture(); f.view.headerHeight = 240; f.view.viewportHeight = 600; f.view.contentHeight = height;
+    f.view.scheduleInitialOffset();
+    assert.equal(f.view.scroller.lastScroll?.yOffset ?? 0, expected); assert.equal(f.view.initialOffsetApplied, true);
+  }
+});
+
 test('标签窗口隐藏内部标签，修改普通互斥组仍保留原有项目和系统标记', async () => {
   const tagPresentation = load(base + 'ui/TaskTagsPresentation.ets');
   const { Dialog } = load(base + 'components/editors/TaskTagsDialog.ets', {
@@ -662,7 +688,7 @@ test('标签窗口隐藏内部标签，修改普通互斥组仍保留原有项�
   dialog.ownTags = ['project', 'REFILE', 'ATTACH', 'home']; dialog.inheritedTags = ['ARCHIVE'];
   dialog.visibleTags = [...dialog.ownTags]; dialog.hiddenTags = ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'];
   dialog.supportTags = { tags: ['work', 'home', 'project'], groups: [['work', 'home', 'project']] };
-  let written; dialog.change = async tags => { written = tags; return true; };
+  let written; dialog.changed = modification => { assert.equal(modification.field, 'TAGS'); written = modification.value; };
   dialog.aboutToAppear();
   assert.deepEqual(dialog.names, ['work', 'home']); assert.deepEqual(dialog.selectedNames(), ['home']);
   await dialog.toggle('work');
