@@ -14,6 +14,7 @@ import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPre
 import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
 import { AppConfig } from '../models/OrgTask'
 import { configuredSpecialFileExclusions } from '../services/FileTargetService'
+import { CoreNotificationsView } from '../components/CoreNotificationsView'
 
 interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
 interface ProjectFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
@@ -303,6 +304,7 @@ struct ProjectDetail {
           { title: '查看原文', action: (): void => { this.toggleSource() } }
         ] }) {
         Column() {
+          CoreNotificationsView({ disabled: this.refreshing })
           if (this.loading) {
             EmptyState({ title: '正在打开项目', busy: true })
           } else if (this.message) {
