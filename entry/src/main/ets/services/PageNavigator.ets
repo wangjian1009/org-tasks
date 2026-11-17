@@ -33,6 +33,7 @@ export class PageNavigator {
   private navigating: boolean = false
   private nativeDepth: number = 1
   private configurationChanged = (): void => { this.refreshInbox() }
+  private backHandlers: Map<string, () => boolean | Promise<boolean>> = new Map()
 
   get path(): PagePath { return this.state }
   isNavigating(): boolean { return this.navigating }
@@ -42,6 +43,10 @@ export class PageNavigator {
     return (): void => { if (this.externalLeaveGuard === guard) this.externalLeaveGuard = undefined }
   }
   canLeaveExternally(): boolean { return this.externalLeaveGuard?.() ?? true }
+  watchBackHandler(route: string, handler: () => boolean | Promise<boolean>): () => void {
+    this.backHandlers.set(route, handler)
+    return (): void => { if (this.backHandlers.get(route) === handler) this.backHandlers.delete(route) }
+  }
 
   // WindowStage 重新加载根页面时同时重建路径，不保留旧窗口历史。
   reset(page: PageRoute): void { this.restore(new PagePath([page])) }
@@ -136,6 +141,8 @@ export class PageNavigator {
 
   back(context: UIContext): Promise<boolean> {
     return this.transition(context, async (): Promise<void> => {
+      const handler = this.backHandlers.get(this.state.current.url)
+      if (handler && await handler()) return
       if (this.state.depth > 1) {
         if (this.nativeDepth > 1) {
           context.getRouter().back()

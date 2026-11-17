@@ -118,13 +118,3 @@ test('提交失败由滑动宿主反馈错误并恢复可用状态', async () =>
   f.writeWith(async () => { throw new Error('整组失败'); }); await f.state.activateOperation('toggleState');
   assert.deepEqual(f.messages, ['整组失败']); assert.equal(f.state.submitting, false);
 });
-
-test('调用点可收集多次弹窗结果后单次提交，也可对每次结果独立提交', async () => {
-  const f = fixture(), collected = []; f.state.singleOperations = ['schedule', 'deadline'];
-  f.state.operationChanged = group => collected.push(group);
-  await f.state.activateOperation('schedule'); await f.state.activateOperation('deadline');
-  assert.equal(collected.length, 2); assert.equal(f.submitted.length, 0); assert.equal(f.controller.submit, undefined);
-  await f.state.submitOperationGroups(collected); assert.equal(f.submitted.length, 1); assert.equal(f.submitted[0].operations.length, 2);
-  f.state.operationChanged = undefined; await f.state.activateOperation('schedule'); await f.state.activateOperation('deadline');
-  assert.equal(f.submitted.length, 3);
-});

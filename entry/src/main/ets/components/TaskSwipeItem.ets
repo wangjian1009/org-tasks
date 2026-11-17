@@ -35,7 +35,6 @@ export struct TaskSwipeItem {
   @Prop referenceTime: number = Date.now()
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
-  operationChanged: ((group: CoreTaskOperationGroup) => void) | undefined = undefined
   private controller: TaskEditorController = new TaskEditorController((group: CoreTaskOperationGroup): void => {
     this.receiveOperation(group).catch((error: Error): void => { this.reportOperationError(error) })
   })
@@ -121,7 +120,6 @@ export struct TaskSwipeItem {
 
   async receiveOperation(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
     if (this.hostBlocked() || !allowed()) return
-    if (this.operationChanged) { this.operationChanged(group); return }
     await this.submitOperationGroups([group], allowed)
   }
 

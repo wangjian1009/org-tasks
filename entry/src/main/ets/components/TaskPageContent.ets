@@ -68,6 +68,7 @@ export struct TaskPageContent {
   private orderLoaded: boolean = false
   private orderActive: boolean = false
   private orderController: RegionOrderSheetController = new RegionOrderSheetController()
+  private stopBackHandler: (() => void) | undefined = undefined
   @State planGroups: PlannedGroup[] = []
   @State planRegionOptions: TaskRegionData[] = []
   @State selectedPlanRegion: TaskRegionData | null = null
@@ -82,6 +83,7 @@ export struct TaskPageContent {
   private pageLayoutDeferred: boolean = false
 
   aboutToAppear() {
+    this.stopBackHandler = PageNavigator.shared.watchBackHandler(this.pageRoute, (): boolean => this.consumeBack())
     this.orderActive = true
     if (this.view === 'today') this.loadRegionOrder()
     this.loadTasks()
@@ -92,6 +94,7 @@ export struct TaskPageContent {
   }
 
   aboutToDisappear() {
+    this.stopBackHandler?.(); this.stopBackHandler = undefined
     this.orderActive = false
     for (const stop of this.stops) stop()
     this.stops = []
@@ -99,12 +102,11 @@ export struct TaskPageContent {
     this.dataManager = undefined
   }
 
-  onBackPress(): boolean {
+  private consumeBack(): boolean {
     if (this.orderSheetOpen) { this.orderController.requestClose(); return true }
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    PageNavigator.shared.back(this.getUIContext())
-    return true
+    return false
   }
 
   supportsTagFilter(): boolean {
