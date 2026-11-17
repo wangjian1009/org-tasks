@@ -14,6 +14,7 @@ import { NotebookGroup } from '../services/NotebookService'
 import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { fileUsageKinds } from '../ui/NotebookPresentation'
+import { SYSTEM_REPOSITORY_ID } from '../services/SystemRepositoryService'
 
 @Entry
 @Component
@@ -112,6 +113,7 @@ struct Files {
             .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.layoutWeight(1).height(48)
           .accessibilityText(`存储库 ${group.name}`)
+        if (group.configId !== SYSTEM_REPOSITORY_ID) {
         IconButton({ icon: $r('app.media.ui_settings'), label: `${group.name}：管理存储库`, disabled: group.configId.length === 0,
           iconSize: 20, buttonWidth: 40,
           action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } }) } })
@@ -122,6 +124,7 @@ struct Files {
         IconButton({ icon: $r('app.media.ui_sync_log'), label: `${group.name}：同步日志`, disabled: group.configId.length === 0,
           iconSize: 20, buttonWidth: 40,
           action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/SyncLog', params: { repoId: group.configId } }) } })
+        }
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)
     }.width('100%').padding({ left: 8, right: 8, top: 24, bottom: 8 }).backgroundColor(UiColor.surface)

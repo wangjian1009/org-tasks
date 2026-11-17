@@ -1,7 +1,8 @@
 import { Context } from '@kit.AbilityKit'
 import { RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { configuredFileTarget } from './FileTargetService'
+import { configuredFileTarget, FileTarget } from './FileTargetService'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from './SystemRepositoryService'
 import { CoreOrgFileRef, CoreRefileTarget, CoreTask, NativeCoreService } from './NativeCoreService'
 
 // 只编排移动入口的配置与快照；目标识别、移动与版本校验均由 Core 完成。
@@ -11,7 +12,8 @@ export class MoveToTargetService {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repos = await workspace.repos()
     const excludedFiles: CoreOrgFileRef[] = []
-    for (const file of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday')]) {
+    const files: FileTarget[] = [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday'), { repoId: SYSTEM_REPOSITORY_ID, path: TRASH_FILE }]
+    for (const file of files) {
       const configured = config.repos.find((item: RepoConfig) => item.id === file.repoId)
       const repo = repos.find(item => item.rootDirectory === configured?.rootDirectory)
       if (repo && file.path) {

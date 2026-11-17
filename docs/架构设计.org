@@ -59,6 +59,8 @@ Workspace 是可克隆的命令句柄，不暴露可变字段或 ~&mut self~ 接
 
 所有业务查询、修改与同步通过 Workspace channel 调度。连续查询可异步并发；修改必须等待前面的全部查询完成，同一文件按受理顺序执行，不同文件可并发准备。跨文件操作组同时登记全部文件依赖，等待中的较早操作保留其依赖，但不阻塞无关文件。后续查询不能越过已排队修改。同步、仓库加载、重置和配置更新作为独占屏障，等前面的查询和修改结束后执行；同步期间收到的新查询等待整轮同步及通知收尾。等待调用被取消不取消已受理命令。底层跨进程仓库锁继续保护磁盘快照、恢复和提交，不承担 Workspace 命令调度。
 
+任务操作的请求内部由主任务检查仓库锁并遍历操作，按需建立本请求的文件到 task 映射：文件任务启动即加载文件、生成 FileMetadata 并按需制作完整文件副本，主任务可立即向其 channel 发送修改，不在主调度器预读或等待 Metadata。普通操作按文件 FIFO 发送，跨文件 Movement、Trash、Restore 由主任务拆解并推进依赖。各文件独占内存语法树和变更日志，仅通过 channel 传递独立数据；执行期间不存盘、不向 UI 通知。全部操作和依赖完成后由文件 task 交出纯字节 Save 候选，复用原有统一提交、外部版本校验与回退；提交确认通过 channel 返回，最终 Metadata 与任务投影仍在文件 task 中生成，主任务收齐后统一通知。Restore 插入失败保留来源，其他错误放弃本次未提交修改。Restore 原仓库需由来源上下文确定，当前采用独占调度以保护动态文件依赖；公开修改入口及请求级返回值保持不变。详见 [[file:core/废纸篓接口设计.org][内部消息与执行过程]]。
+
 每个 Workspace 只处理自己发起的通知。修改、同步与重置业务显式传递其 ~NotificationCenter~ ，不使用全局监控表或广播。NotificationCenter 只持有请求 sender，订阅、取消和事件由 channel 交给 process；监控器和 ID 只在 process 内管理。Workspace 在业务收尾后通过 oneshot 停止 process，并等待队列排空。普通查询不产生通知，不保留 Workspace reload 接口。
 
 ArkUI 线程不得执行 Core 请求。C++ N-API bridge 必须通过 ~napi_create_async_work~ 在工作线程调用 Rust；ArkTS 通过 ~NativeCoreService~ 打开并持有 native ~Workspace~ 、 ~Repo~ 与 ~WebDavSyncPolicy~ 对象。涉及仓库锁、文件或网络的操作返回 Promise，资源生命周期与释放规则遵循 [[file:harmony/Rust bridge设计.org][Rust bridge 设计]]。

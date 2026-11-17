@@ -4,6 +4,7 @@ import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../../se
 import { configuredFileTarget, FileTarget, FileTargetKind, FileTargetService, fileTargetName } from '../../services/FileTargetService'
 import { EmptyState } from '../controls/EmptyState'
 import { UiColor } from '../../ui/Theme'
+import { SYSTEM_REPOSITORY_ID } from '../../services/SystemRepositoryService'
 
 @Component
 export struct FileTargetSheet {
@@ -27,7 +28,7 @@ export struct FileTargetSheet {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const groups = await NotebookService.list(config)
       if (this.disposed) return
-      this.groups = groups.map((group: NotebookGroup): NotebookGroup => ({
+      this.groups = groups.filter(group => group.configId !== SYSTEM_REPOSITORY_ID).map((group: NotebookGroup): NotebookGroup => ({
         repoId: group.repoId, configId: group.configId, name: group.name, rootDirectory: group.rootDirectory,
         files: group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore), message: group.message
       }))

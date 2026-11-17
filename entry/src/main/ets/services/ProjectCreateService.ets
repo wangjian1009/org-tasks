@@ -2,6 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfigService } from './AppConfigService'
 import { configuredFileTarget } from './FileTargetService'
+import { SystemRepositoryService } from './SystemRepositoryService'
 import { CoreOrgFileRef, CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService, fileResult } from './NativeCoreService'
 import { ProjectRepositoryOption, ProjectLocation, projectFileName, projectInputError } from '../ui/ProjectCreatePresentation'
 
@@ -18,7 +19,7 @@ export class ProjectCreateService {
       if (repo && target.path) excludeFiles.push({ repoId: repo.id, path: target.path })
     }
     const files = fileResult((await workspace.query([{ type: 'file', query: { excludeFiles } }]))[0])
-    return repos.map((repo: CoreRepo): ProjectRepositoryOption => ({ repoId: repo.id,
+    return repos.filter(repo => !config.repos.some(item => item.rootDirectory === repo.rootDirectory && SystemRepositoryService.isSystem(item))).map((repo: CoreRepo): ProjectRepositoryOption => ({ repoId: repo.id,
       name: config.repos.find(item => item.rootDirectory === repo.rootDirectory)?.name || '未命名存储库',
       regions: Array.from(new Set(files.filter(file => file.repoId === repo.id && !file.isIgnore && !!file.category)
         .map(file => file.category!))).sort() }))
@@ -30,6 +31,8 @@ export class ProjectCreateService {
     if (error) throw new Error(error)
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    const system = config.repos.find(item => SystemRepositoryService.isSystem(item))
+    if ((await workspace.repos()).some(repo => repo.id === location.repoId && repo.rootDirectory === system?.rootDirectory)) throw new Error('系统仓库不能创建项目')
     if (!(await workspace.repos()).some(repo => repo.id === location.repoId)) throw new Error('目标存储库已失效，请重新选择')
     let template: Uint8Array
     try { template = await context.resourceManager.getRawFileContent('templates/project.org') }

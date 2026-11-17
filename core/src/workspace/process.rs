@@ -453,6 +453,8 @@ fn operation_access(group: &crate::TaskOperationGroup) -> Access {
                 .and_then(|_| data.position.after.as_ref().map_or(Some(()), &mut insert)),
             Modification(data) => insert(&data.path),
             Deletion(data) => insert(&data.path),
+            Trash(data) => insert(&data.path).and_then(|_| insert(&crate::TaskPath::file(data.target.repo_id.clone(), data.target.path.clone()))),
+            Restore(_) => return Access::Exclusive,
             Movement(data) => insert(&data.path)
                 .and_then(|_| insert(&data.position.parent))
                 .and_then(|_| data.position.after.as_ref().map_or(Some(()), &mut insert)),

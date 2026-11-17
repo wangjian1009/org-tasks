@@ -13,6 +13,8 @@ import {
   TaskFileNew as NativeTaskFileNew,
   TaskFileInitialTask as NativeTaskFileInitialTask,
   TaskOperation as NativeTaskOperation,
+  TaskTrash as NativeTaskTrash,
+  TaskRestore as NativeTaskRestore,
   TaskOperationGroup as NativeTaskOperationGroup,
   TaskMergeRequest as NativeTaskMergeRequest,
   TaskMergePlan as NativeTaskMergePlan,
@@ -175,6 +177,8 @@ export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion
 export type CoreTaskFileNew = NativeTaskFileNew
 export type CoreTaskFileInitialTask = NativeTaskFileInitialTask
+export type CoreTaskTrash = NativeTaskTrash
+export type CoreTaskRestore = NativeTaskRestore
 export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskMergeRequest = NativeTaskMergeRequest

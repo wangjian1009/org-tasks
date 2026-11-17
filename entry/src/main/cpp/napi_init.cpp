@@ -1846,7 +1846,7 @@ napi_value WorkspaceExecuteTaskOperations(napi_env env, napi_callback_info info)
         napi_throw_error(env, nullptr, "Workspace.executeTaskOperations 参数无效"); return nullptr;
     }
     auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->execute_operations = true;
-    // FileNew 与既有任务操作使用同一结构化编组和 worker，不在 bridge 读取模板或修改文件。
+    // FileNew、Trash、Restore 复用结构化操作组与 worker；文件任务调度、复制和恢复均由 Rust Core 执行。
     if (!EncodeJson(env, args[0], &work->expression)) { delete work; napi_throw_error(env, nullptr, "任务整理参数无效"); return nullptr; }
     return QueueWorkspaceString(env, work, "OrgTasksExecuteTaskOperations", self);
 }

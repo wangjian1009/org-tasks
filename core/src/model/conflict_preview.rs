@@ -690,6 +690,8 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
             }
             TaskOperation::Modification(v) => paths.push(&v.path),
             TaskOperation::Deletion(v) => paths.push(&v.path),
+            TaskOperation::Trash(v) => paths.push(&v.path),
+            TaskOperation::Restore(v) => paths.push(&v.path),
             TaskOperation::Movement(v) => {
                 paths.push(&v.path);
                 paths.push(&v.position.parent);
@@ -1434,6 +1436,7 @@ fn remap_operation(
                 "冲突预览不支持直接创建文件或修改文件属性",
             ));
         }
+        TaskOperation::Trash(_) | TaskOperation::Restore(_) => return Err(CoreError::InvalidInput("冲突预览不能执行废纸篓操作")),
         TaskOperation::Creation(v) => position(&mut v.position, id, source)?,
         TaskOperation::Modification(v) => path(&mut v.path, id, source)?,
         TaskOperation::Deletion(v) => path(&mut v.path, id, source)?,

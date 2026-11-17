@@ -14,6 +14,7 @@ import { UiColor } from '../ui/Theme'
 import { DeviceBadgeService } from '../services/DeviceBadgeService'
 import { HttpApiService } from '../services/HttpApiService'
 import { NotificationPermissionService } from '../services/NotificationPermissionService'
+import { SystemRepositoryService } from '../services/SystemRepositoryService'
 
 interface MainPageStorage { entryView?: string; entryMemoCreate?: boolean; entryMemoId?: string }
 
@@ -27,6 +28,7 @@ export default class EntryAbility extends UIAbility {
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     NativeCoreService.start()
+    await SystemRepositoryService.ensure(this.context)
     this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }

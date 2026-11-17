@@ -797,3 +797,9 @@ Core 元信息中的 file_version 与 header_entries 通过 Rust flatten 与 C++
 NativeCoreService 导出 CoreFileHeaderValue、CoreFileHeaderValueChange 和带编辑描述的 CoreFileHeaderEntry。操作类型联合新增 FileHaderModification，仍由 Workspace.executeTaskOperations 在 worker 中反序列化和执行；DataSet.updateFileHeader 进入原用户操作队列，携带 operationId 与原版本，接口失败保留草稿，已提交后的确认错误带 committed 标记，不重复写入。
 
 查询和通知没有额外的文件头协议或 include_header 开关。元信息数据集直接更新 property 行与标题，任务数据集消费关联变化；界面不直接解析 Org、不按字段名猜测 Core 编辑能力。
+
+* 文件 task 调度与废纸篓操作
+
+TaskOperationType 增加 ~Trash~ 与 ~Restore~ ，数据分别为 ~TaskTrash { path, target }~ 和 ~TaskRestore { path }~ 。Rust bridge 继续将既有结构化操作组反序列化交给 Core，C++ 沿用工作线程编组入口，ArkTS wrapper 导出对应类型别名，不新增 FFI 函数或 Workspace 方法。完整副本、系统属性、恢复依赖、文件任务、统一落盘和通知均由 Core 处理。
+
+~executeTaskOperations~ 仍返回 ~Promise<void>~ ：Restore 插入目标失败时保留来源并允许本组其余有效修改提交，因此 Promise 成功不能用来推断所选条目全部被恢复；页面须以最终数据集快照为准，不凭输入列表乐观清除所有恢复项。Core 的已有普通错误和程序异常仍通过拒绝 Promise 传递。手机废纸篓页面与日期显示策略尚未在本次执行器改造中接入。

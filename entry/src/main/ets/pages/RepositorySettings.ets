@@ -14,6 +14,7 @@ import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { SettingsField } from '../components/controls/SettingsField'
 import { LocalDirectorySheet } from '../components/editors/LocalDirectorySheet'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
+import { SYSTEM_REPOSITORY_ID } from '../services/SystemRepositoryService'
 
 interface RepositoryParams { repoId?: string }
 
@@ -125,6 +126,7 @@ struct RepositorySettings {
     try {
       this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const params = this.getUIContext().getRouter().getParams() as RepositoryParams | undefined
+      if (params?.repoId === SYSTEM_REPOSITORY_ID) throw new Error('系统仓库由应用管理，不能修改')
       const existing = this.config.repos.find((item: RepoConfig) => item.id === params?.repoId)
       if (params?.repoId && !existing) throw new Error('此存储库已不存在，请返回存储库列表')
       this.existing = existing !== undefined

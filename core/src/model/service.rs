@@ -1066,6 +1066,26 @@ pub(super) async fn load_setup_settings_cached(
     source_bytes: &[u8],
     cache: &mut std::collections::BTreeMap<String, Option<Vec<u8>>>,
 ) -> Result<String, CoreError> {
+    load_setup_settings_with_reader(source_path, source_bytes, cache, |path| {
+        let root = root.to_path_buf();
+        async move {
+            #[cfg(test)]
+            super::test_support::record_file_access(&root.join(&path), 0);
+            crate::webdav::transaction::read(&root, &path).await
+        }
+    }).await
+}
+
+pub(super) async fn load_setup_settings_with_reader<F, Fut>(
+    source_path: &str,
+    source_bytes: &[u8],
+    cache: &mut std::collections::BTreeMap<String, Option<Vec<u8>>>,
+    mut read: F,
+) -> Result<String, CoreError>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<Vec<u8>>, CoreError>>,
+{
     let mut settings = Vec::new();
     let mut pending = vec![(PathBuf::from(source_path), source_bytes.to_vec())];
     let mut visited = std::collections::BTreeSet::new();
@@ -1111,9 +1131,7 @@ pub(super) async fn load_setup_settings_cached(
                 continue;
             }
             if !cache.contains_key(&normalized) {
-                #[cfg(test)]
-                super::test_support::record_file_access(&root.join(&normalized), 0);
-                let bytes = crate::webdav::transaction::read(root, &normalized).await?;
+                let bytes = read(normalized.clone()).await?;
                 cache.insert(normalized.clone(), bytes);
             }
             let Some(bytes) = &cache[&normalized] else {

@@ -747,6 +747,7 @@ mod tests {
                     {"name": "C", "category": "Low"}
                 ])
             );
+            assert_eq!(value["tagRows"], serde_json::json!([]));
             assert!(value["projectName"].is_null());
             assert_eq!(value["tagOptions"], serde_json::json!([]));
             assert_eq!(value["tagGroups"], serde_json::json!([]));

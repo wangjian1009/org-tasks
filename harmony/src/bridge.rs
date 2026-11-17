@@ -953,6 +953,33 @@ mod tests {
     }
 
     #[test]
+    fn trash_and_restore_reuse_the_existing_structured_operation_bridge() {
+        let root = std::env::temp_dir().join(format!("org-trash-bridge-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("tasks.org"), "* TODO Bridge leaf\n:PROPERTIES:\n:CREATED: [2020-01-01 Wed]\n:END:\nNotes\n").unwrap();
+        std::fs::write(root.join("trash.org"), "#+TITLE: 废纸篓\n").unwrap();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
+        let query = |file: &str| -> serde_json::Value {
+            let repo_id = workspace_for_handle(handle).unwrap().repos()[0].id.clone();
+            serde_json::from_str(&workspace_query_json(handle, serde_json::json!([{"type":"task","query":{"includeFiles":[{"repoId":repo_id,"path":file}]}}]).to_string()).unwrap()).unwrap()
+        };
+        let before = query("tasks.org");
+        let repo_id = before[0]["result"]["tasks"][0]["repoId"].clone();
+        workspace_execute_task_operations(handle, serde_json::json!({"operations":[{"type":"Trash","data":{"path":before[0]["result"]["tasks"][0]["fullPath"],"target":{"repoId":repo_id,"path":"trash.org"}}}]}).to_string()).unwrap();
+        assert!(query("tasks.org")[0]["result"]["tasks"].as_array().unwrap().is_empty());
+        let trash = query("trash.org");
+        assert!(trash[0]["result"]["tasks"][0]["properties"]["ARCHIVE_TIME"].is_string());
+        workspace_execute_task_operations(handle, serde_json::json!({"operations":[{"type":"Restore","data":{"path":trash[0]["result"]["tasks"][0]["fullPath"]}}]}).to_string()).unwrap();
+        let restored = query("tasks.org");
+        assert_eq!(restored[0]["result"]["tasks"][0]["heading"], "Bridge leaf");
+        assert_eq!(restored[0]["result"]["tasks"][0]["createdAt"], before[0]["result"]["tasks"][0]["createdAt"]);
+        assert!(query("trash.org")[0]["result"]["tasks"].as_array().unwrap().is_empty());
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn unified_query_json_dispatches_all_kinds_and_rejects_the_old_task_array_protocol() {
         let handle = create_workspace().unwrap();
         let root = std::env::temp_dir().join(format!("org-unified-bridge-{}", std::process::id()));
@@ -2226,7 +2253,7 @@ pub fn workspace_execute_task_operations(
     handle: u64,
     request: String,
 ) -> Result<String, CoreError> {
-    // FileNew 模板、初始化任务和事务校验均由 Core 解释，bridge 只透传结构化操作组。
+    // FileNew、Trash、Restore 的调度与统一提交均由 Core 解释，bridge 只透传结构化操作组。
     let group: org_tasks_core::TaskOperationGroup = serde_json::from_str(&request)
         .map_err(|_| CoreError::InvalidInput("任务操作组参数无效"))?;
     let session = workspace_for_handle(handle)?;

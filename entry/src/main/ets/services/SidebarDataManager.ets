@@ -9,6 +9,7 @@ import { CachedDataSet, cacheDataSet, restoreDataSet } from './PageDataSnapshot'
 import { samePageMetadata } from './PageDataEquality'
 import { overviewTaskQuery, todayAttentionQuery } from './TaskViewQueries'
 import { CoreBridgeError, CoreOrgFileMetadata, CoreSettingsObject, CoreQuery, CoreQueryResult, NativeCoreService, taskResult, fileResult, coreErrorMessage } from './NativeCoreService'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from './SystemRepositoryService'
 
 export interface SidebarSnapshot {
   version: number
@@ -99,6 +100,11 @@ export class SidebarDataManager {
       { type: 'task', query: overviewTaskQuery('logbook') }, { type: 'file', query: { isProject: true } },
       { type: 'task', query: overviewTaskQuery('waiting') }
     ]
+    const system = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
+    const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
+    if (trashRepo) for (const request of queries) {
+      if (request.type === 'task' || request.type === 'file') request.query.excludeFiles = [{ repoId: trashRepo.id, path: TRASH_FILE }]
+    }
     const positions: number[] = []
     const kinds: FileTargetKind[] = ['inbox', 'someday', 'memo']
     for (const kind of kinds) {

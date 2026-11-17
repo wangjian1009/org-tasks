@@ -17,6 +17,7 @@ import { FileTargetSheet } from '../components/editors/FileTargetSheet'
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
+import { SystemRepositoryService } from '../services/SystemRepositoryService'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
 
 interface SettingsParams { section?: string }
@@ -227,7 +228,7 @@ struct Settings {
   @Builder
   homepage() {
     SettingsGroup({ title: '数据与同步' }) {
-      SettingsRow({ title: '存储库', value: `${this.config.repos.length} 个`, icon: $r('app.media.nav_repository'), divider: false,
+      SettingsRow({ title: '存储库', value: `${this.config.repos.filter(repo => !SystemRepositoryService.isSystem(repo)).length} 个`, icon: $r('app.media.nav_repository'), divider: false,
         action: (): void => { this.openSection('存储库') } })
     }
     SettingsGroup({ title: '任务与笔记' }) {
@@ -295,10 +296,10 @@ struct Settings {
   @Builder
   repositories() {
     SettingsGroup({ title: '已配置的存储库', detail: '管理本地文件目录和 WebDAV 连接。浏览文件请使用侧边栏的“笔记本”。' }) {
-      if (this.config.repos.length === 0) {
+      if (this.config.repos.filter(repo => !SystemRepositoryService.isSystem(repo)).length === 0) {
         Text('尚未配置存储库').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
       }
-      ForEach(this.config.repos, (repo: RepoConfig) => {
+      ForEach(this.config.repos.filter(repo => !SystemRepositoryService.isSystem(repo)), (repo: RepoConfig) => {
         SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '不同步', detail: repo.rootDirectory,
           icon: $r('app.media.nav_repository'),
           action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })

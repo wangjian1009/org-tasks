@@ -10,9 +10,21 @@ type Token = u64;
 
 #[derive(Debug, Default)]
 struct State {
-    next: Token,
     before: BTreeMap<Token, TaskDataSnapshot>,
     pending: BTreeMap<Token, TaskDataChangeKind>,
+}
+
+fn next_token() -> Token {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 跨文件 task 仅传递独立数据，不共享各文件可变的日志状态。
+#[derive(Clone)]
+pub(super) struct TransferredNode {
+    token: Token,
+    before: Option<TaskDataSnapshot>,
+    kind: TaskDataChangeKind,
 }
 
 /// 所有文件共享同一日志，跨文件移动时把原有令牌移交给目标文件。
@@ -47,8 +59,7 @@ impl MutationJournal {
         let nodes = snapshots(repo, file)
             .into_iter()
             .map(|snapshot| {
-                let token = state.next;
-                state.next += 1;
+                let token = next_token();
                 state.before.insert(token, snapshot);
                 token
             })
@@ -89,6 +100,8 @@ impl MutationJournal {
 }
 
 impl FileJournal {
+    pub fn token_at(&self, ordinal: usize) -> Option<u64> { self.nodes.get(ordinal).copied() }
+
     /// 任意真实写入同时改变文件版本。保留同文件全部节点的新投影，覆盖位置、重名序号和继承变化。
     pub fn touch(&self) {
         let mut state = self.journal.0.lock().unwrap();
@@ -104,8 +117,7 @@ impl FileJournal {
         let mut state = self.journal.0.lock().unwrap();
         let mut tokens = Vec::new();
         for _ in 0..count {
-            let token = state.next;
-            state.next += 1;
+            let token = next_token();
             state.pending.insert(token, TaskDataChangeKind::Created);
             tokens.push(token);
         }
@@ -137,6 +149,26 @@ impl FileJournal {
 
     pub fn insert_moved(&mut self, ordinal: usize, tokens: Vec<Token>) {
         self.nodes.splice(ordinal..ordinal, tokens);
+    }
+
+    pub fn export_moved(&mut self, range: std::ops::Range<usize>) -> Vec<TransferredNode> {
+        let mut state = self.journal.0.lock().unwrap();
+        self.nodes.drain(range).map(|token| {
+            let before = state.before.get(&token).cloned();
+            let kind = if before.is_some() { TaskDataChangeKind::Moved } else { TaskDataChangeKind::Created };
+            if before.is_some() { state.pending.insert(token, kind); }
+            else { state.pending.remove(&token); }
+            TransferredNode { token, before, kind }
+        }).collect()
+    }
+
+    pub fn import_moved(&mut self, ordinal: usize, nodes: &[TransferredNode]) {
+        let mut state = self.journal.0.lock().unwrap();
+        for node in nodes {
+            if let Some(before) = &node.before { state.before.insert(node.token, before.clone()); }
+            state.pending.insert(node.token, node.kind);
+        }
+        self.nodes.splice(ordinal..ordinal, nodes.iter().map(|node| node.token));
     }
 
     /// 完整主树替换没有节点一一对应的语义，明确删除旧树、创建新树，不猜测移动或身份。
@@ -174,7 +206,7 @@ pub(super) fn ordinal_at(file: &OrgFile, offset: usize) -> usize {
         .count()
 }
 
-fn snapshots(repo: &OrgRepo, file: &OrgFile) -> Vec<TaskDataSnapshot> {
+pub(super) fn snapshots(repo: &OrgRepo, file: &OrgFile) -> Vec<TaskDataSnapshot> {
     let tasks = crate::filter::tasks_from_file(repo, file);
     let mut ancestors: Vec<usize> = Vec::new();
     let mut previous = BTreeMap::new();

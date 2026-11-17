@@ -30,6 +30,8 @@ pub enum TaskOperation {
     Modification(TaskModificationOperation),
     Movement(TaskMovement),
     Deletion(TaskDeletion),
+    Trash(TaskTrash),
+    Restore(TaskRestore),
     ConfilictSelection(TaskConfilictSelection),
 }
 
@@ -230,6 +232,21 @@ pub struct TaskMovement {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskDeletion {
+    pub path: TaskPath,
+}
+
+/// 将叶节点副本加入指定文件，并在同次提交中删除来源。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskTrash {
+    pub path: TaskPath,
+    pub target: super::OrgFileRef,
+}
+
+/// 按删除时记录的位置恢复叶节点；插入失败时保留废纸篓来源。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskRestore {
     pub path: TaskPath,
 }
 

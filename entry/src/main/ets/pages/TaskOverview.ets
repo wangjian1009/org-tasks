@@ -1,7 +1,7 @@
 import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { AppConfig } from '../models/OrgTask'
-import { FileTargetService, configuredSpecialFileExclusions } from '../services/FileTargetService'
+import { FileTargetService, configuredSpecialFileExclusions, systemTrashExclusions } from '../services/FileTargetService'
 import { LogbookService } from '../services/LogbookService'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
@@ -219,6 +219,13 @@ struct TaskOverview {
     if (view === 'today') {
       const exclusions = configuredSpecialFileExclusions(config)
       definitions.push({ name: 'orderFiles', query: { type: 'file', query: { excludeFiles: exclusions.files } }, repositoryBindings: exclusions.repositoryBindings })
+    }
+    const trash = systemTrashExclusions(config)
+    for (const definition of definitions) {
+      if (definition.query.type === 'task' && view !== 'memo' && view !== 'someday') {
+        definition.query.query.excludeFiles = (definition.query.query.excludeFiles ?? []).concat(trash.files)
+        definition.repositoryBindings = (definition.repositoryBindings ?? []).concat(trash.repositoryBindings)
+      }
     }
     return definitions
   }

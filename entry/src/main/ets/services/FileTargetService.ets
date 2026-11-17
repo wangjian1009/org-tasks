@@ -4,6 +4,7 @@ import { AppConfigService } from './AppConfigService'
 import { CoreOrgFileMetadata, CoreQueryRepositoryBinding, CoreRepo, CoreQuery, CoreQueryResult, CoreOrgFileRef, CoreTaskQueryResult, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
 import { inboxRecordQuery, memoRecordQuery, overviewTaskQuery } from './TaskViewQueries'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from './SystemRepositoryService'
 
 export type FileTargetKind = 'inbox' | 'someday' | 'memo'
 export interface FileTarget { repoId: string; path: string }
@@ -12,11 +13,18 @@ export interface PreparedFileTarget { task: CoreQuery; file: CoreQuery; referenc
 export interface FileTargetQueryResult extends CoreTaskQueryResult { tagOptions: string[]; tagGroups: string[][] }
 export interface ConfiguredFileExclusions { files: CoreOrgFileRef[]; repositoryBindings: CoreQueryRepositoryBinding[] }
 
+export function systemTrashExclusions(config: AppConfig): ConfiguredFileExclusions {
+  const repository = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
+  return repository ? { files: [{ repoId: repository.id, path: TRASH_FILE }],
+    repositoryBindings: [{ id: repository.id, rootDirectory: repository.rootDirectory }] } : { files: [], repositoryBindings: [] }
+}
+
 // 特殊文件按配置仓库和相对路径定位，由工作线程解析宿主仓库 ID。
 export function configuredSpecialFileExclusions(config: AppConfig): ConfiguredFileExclusions {
   const files: CoreOrgFileRef[] = []
   const repositoryBindings: CoreQueryRepositoryBinding[] = []
-  for (const target of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday'), configuredFileTarget(config, 'memo')]) {
+  for (const target of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday'), configuredFileTarget(config, 'memo'),
+    { repoId: SYSTEM_REPOSITORY_ID, path: TRASH_FILE } as FileTarget]) {
     const repository = config.repos.find(repo => repo.id === target.repoId)
     if (!repository || !target.path) continue
     if (!files.some(file => file.repoId === repository.id && file.path === target.path)) files.push({ repoId: repository.id, path: target.path })
@@ -33,7 +41,7 @@ export function configuredFileTarget(config: AppConfig, kind: FileTargetKind): F
 
 export function fileTargetRepository(config: AppConfig, kind: FileTargetKind): RepoConfig | undefined {
   const target = configuredFileTarget(config, kind)
-  if (!target.repoId || !target.path) return undefined
+  if (!target.repoId || !target.path || target.repoId === SYSTEM_REPOSITORY_ID) return undefined
   return config.repos.find((repo: RepoConfig) => repo.id === target.repoId)
 }
 
@@ -98,6 +106,7 @@ export class FileTargetService {
   }
 
   static async select(context: Context, kind: FileTargetKind, repoId: string, path: string): Promise<void> {
+    if (repoId === SYSTEM_REPOSITORY_ID) throw new Error('系统仓库不能作为文件入口')
     // 选择列表只是展示快照；提交前重新读取配置和 Core 元信息，保留其他页面的更新。
     const config = await AppConfigService.load(context)
     if (kind === 'inbox') { config.inboxRepoId = repoId; config.inboxFile = path }

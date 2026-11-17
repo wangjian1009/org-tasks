@@ -5,6 +5,7 @@ import { Context } from '@kit.AbilityKit'
 import { PreferencesStore } from './PreferencesStore'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
 import { CredentialService } from './CredentialService'
+import { SystemRepositoryService } from './SystemRepositoryService'
 
 export const APP_CONFIG_PREFERENCES = 'org_tasks_config'
 const REPOS_KEY = 'repos'
@@ -17,7 +18,8 @@ export class AppConfigService {
 
   static async load(context: Context, includeCredentials: boolean = true): Promise<AppConfig> {
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
-    const repos = await AppConfigService.loadRepositories(store, includeCredentials)
+    const repos = (await AppConfigService.loadRepositories(store, includeCredentials)).filter(repo => !SystemRepositoryService.isSystem(repo))
+    repos.push(await SystemRepositoryService.ensure(context))
     const inboxFile = await store.get('inboxFile', DEFAULT_CONFIG.inboxFile) as string
     const inboxRepoId = await store.get('inboxRepoId', DEFAULT_CONFIG.inboxRepoId) as string
     const somedayFile = await store.get('somedayFile', DEFAULT_CONFIG.somedayFile) as string
@@ -61,9 +63,11 @@ export class AppConfigService {
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const persisted: RepoConfig[] = []
     for (const repository of config.repos) {
+      if (SystemRepositoryService.isSystem(repository)) continue
       await normalizeSyncOptions({ excludedDirectories: repository.excludedDirectories } as SyncOptions)
     }
     for (const repository of config.repos) {
+      if (SystemRepositoryService.isSystem(repository)) continue
       await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)
       persisted.push({
         id: repository.id,
@@ -92,6 +96,7 @@ export class AppConfigService {
   }
 
   static async removeRepository(context: Context, configId: string): Promise<void> {
+    if (configId === 'org-tasks-system') throw new Error('系统仓库不能删除')
     const current = await AppConfigService.load(context)
     await AppConfigService.save(context, {
       repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
