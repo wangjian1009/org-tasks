@@ -8,7 +8,7 @@ import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { RegionAreaPolicy, TaskDateDisplay, TaskTimeDisplay } from '../ui/TaskListPresentation'
 import { TaskSwipeActions } from './TaskSwipeActions'
 import { TaskEditor } from './editors/TaskEditor'
-import { RightSwipe } from './RightSwipe'
+import { RightSwipe } from './controls/RightSwipe'
 
 // 列表和文档共用双向滑动入口；页面专属菜单与动作通过插槽和回调接入。
 @Component
@@ -83,23 +83,17 @@ export struct TaskSwipeItem {
     return !this.blocked() && this.rightSwipeAction !== undefined && this.controller.canActivate()
   }
 
-  activateRightSwipe(): void {
-    if (!this.rightSwipeAvailable()) return
-    if (this.rightSwipeAction !== undefined) this.activateOperation(this.rightSwipeAction, true)
-  }
-
   leftSwipeAvailable(): boolean {
     // 原生菜单只依赖宿主响应式状态；编辑器在子控件更新期间的瞬时状态由按钮执行时校验。
     return !this.gesturesBlocked() && (this.menuAvailable ? this.menuAvailable() : this.swipeMenuItems().length > 0)
   }
 
-  operationEnabled(action: TaskOperation, fromRight: boolean = false): boolean {
-    if (fromRight) return this.rightSwipeAction !== undefined && action === this.rightSwipeAction
-    return this.singleOperations.some(operation => operation === action)
+  operationEnabled(action: TaskOperation): boolean {
+    return this.singleOperations.some(operation => operation === action) || this.rightSwipeAction === action
   }
 
-  async activateOperation(action: TaskOperation, fromRight: boolean = false): Promise<void> {
-    const allowed = (): boolean => !this.hostBlocked() && this.operationEnabled(action, fromRight)
+  async activateOperation(action: TaskOperation): Promise<void> {
+    const allowed = (): boolean => !this.hostBlocked() && this.operationEnabled(action)
     if (this.submitting || !allowed()) return
     let group: CoreTaskOperationGroup | undefined = undefined
     try {
@@ -165,7 +159,9 @@ export struct TaskSwipeItem {
   @Builder
   swipeContent() {
     RightSwipe({ disabled: !this.interactionEnabled || this.readOnly || this.busy || this.rightSwipeAction === undefined,
-      canActivate: (): boolean => this.rightSwipeAvailable(), action: (): void => { this.activateRightSwipe() } }) {
+      canActivate: (): boolean => this.rightSwipeAvailable(), action: (): void => {
+        if (this.rightSwipeAction !== undefined) this.activateOperation(this.rightSwipeAction)
+      } }) {
       this.content(this.controller)
     }
   }

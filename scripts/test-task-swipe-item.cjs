@@ -40,7 +40,7 @@ function fixture() {
   state = Object.assign(new Item(), { active: true, interactionEnabled: true, readOnly: false, busy: false,
     inlineTyping: false, checklistDragging: false, submitting: false, controller,
     getUIContext: () => ({ getPromptAction: () => ({ showToast: options => messages.push(options.message) }) }),
-    dataSet: { async submitOperationGroup(group, allowed) { assert.equal(allowed(), true); submitted.push(group); await write(); } }, singleOperations: [], toggleStateCategory: null, rightSwipeAction: 'none' });
+    dataSet: { async submitOperationGroup(group, allowed) { assert.equal(allowed(), true); submitted.push(group); await write(); } }, singleOperations: [], toggleStateCategory: null, rightSwipeAction: undefined });
   return { state, calls, guards, submitted, messages, controller, writeWith: fn => write = fn, editable: value => editable = value, deletable: value => deletable = value };
 }
 test('七种单条操作全部调用编辑器接口，开始／暂停使用同一枚举的不同形态', async () => {
@@ -69,13 +69,13 @@ test('目标状态存在时才显示切换，等待、完成、取消、备忘�
 });
 test('左右滑共用宿主禁用状态，右滑完成时重新检查编辑器和配置', async () => {
   const f = fixture(); f.state.singleOperations = ['schedule']; f.state.rightSwipeAction = 'schedule';
-  f.state.activateRightSwipe(); assert.deepEqual(f.calls, ['startSchedule']);
+  f.state.activateOperation('schedule'); assert.deepEqual(f.calls, ['startSchedule']);
   for (const flag of ['readOnly', 'busy', 'inlineTyping', 'checklistDragging']) {
     f.state[flag] = true; assert.equal(f.state.leftSwipeAvailable(), false); assert.equal(f.state.rightSwipeAvailable(), false);
-    await f.state.activateOperation('schedule'); f.state.activateRightSwipe(); assert.equal(f.calls.length, 1); f.state[flag] = false;
+    await f.state.activateOperation('schedule'); f.state.activateOperation('schedule'); assert.equal(f.calls.length, 1); f.state[flag] = false;
   }
   f.editable(false); assert.equal(f.state.rightSwipeAvailable(), false); await f.state.activateOperation('schedule'); assert.equal(f.calls.length, 1);
-  f.editable(true); f.state.rightSwipeAction = 'none'; f.state.activateRightSwipe(); assert.equal(f.calls.length, 1);
+  f.editable(true); f.state.singleOperations = []; f.state.rightSwipeAction = undefined; f.state.activateOperation('schedule'); assert.equal(f.calls.length, 1);
   f.state.active = false; await f.state.activateOperation('schedule'); assert.equal(f.calls.length, 1);
 });
 test('只读编辑器可独立注册删除权限，滑动组件不把删除错误归入普通编辑权限', async () => {
@@ -85,9 +85,9 @@ test('只读编辑器可独立注册删除权限，滑动组件不把删除错�
 });
 test('取消编辑器绑定后所有旧动作失效，页面仍可提供专属菜单', async () => {
   const f = fixture(); f.state.singleOperations = ['delete']; f.state.rightSwipeAction = 'schedule'; f.controller.release();
-  await f.state.activateOperation('delete'); f.state.activateRightSwipe(); assert.deepEqual(f.calls, []);
+  await f.state.activateOperation('delete'); f.state.activateOperation('schedule'); assert.deepEqual(f.calls, []);
   f.state.menuAvailable = () => true; f.state.singleOperations = []; assert.equal(f.state.leftSwipeAvailable(), true);
-  f.state.activateRightSwipe(); assert.deepEqual(f.calls, []);
+  f.state.activateOperation('schedule'); assert.deepEqual(f.calls, []);
 });
 test('启用数组启停状态订阅，禁用后忽略迟到状态回调', () => {
   const f = fixture(); let listener, stopped = 0;

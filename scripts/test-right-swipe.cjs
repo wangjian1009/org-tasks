@@ -8,7 +8,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
-const source = fs.readFileSync('entry/src/main/ets/components/RightSwipe.ets', 'utf8');
+const source = fs.readFileSync('entry/src/main/ets/components/controls/RightSwipe.ets', 'utf8');
 // 使用产品中的状态和方法，去除 ArkUI 声明及渲染 DSL。
 const fields = source.slice(source.indexOf('  @State'), source.indexOf('  @Builder\n'))
   .replace('@State ', '');

@@ -26,8 +26,8 @@ function pagePolicy(page) {
   if (!['inbox', 'logbook'].includes(page)) return taskPageActionPolicy(page);
   const source = fs.readFileSync(file, 'utf8');
   const relevant = page === 'logbook' ? source.slice(source.indexOf('return taskActionPolicy',source.indexOf('bulkOperations: [TaskOperation.Restore, TaskOperation.Clear]'))) : source;
-  const call = relevant.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, '([^']+)')?\)/);
-  return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')', { TaskOperation }), call[2]);
+  const call = relevant.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, TaskOperation\.([A-Za-z]+))?\)/);
+  return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')', { TaskOperation }), call[2] ? TaskOperation[call[2]] : undefined);
 }
 
 function checkDeferredSwipeMenu(expression, filename) {
@@ -40,10 +40,10 @@ function checkDeferredSwipeMenu(expression, filename) {
   assert.deepEqual(renders, []);
   assert.equal(typeof value.menuContent, 'function'); value.menuContent(action => activated.push([record, action]));
   assert.deepEqual(renders, [[page, record]]);
-  assert.equal(value.rightSwipeAction, 'schedule'); assert.equal(value.rightAction, undefined);
+  assert.equal(value.rightSwipeAction, TaskOperation.Schedule); assert.equal(value.rightAction, undefined);
   assert.deepEqual(activated, [[record, 'schedule']]);
   renders.length = 0; page.actionPolicy = taskActionPolicy();
-  assert.equal(options.call(page, record).rightSwipeAction, 'none');
+  assert.equal(options.call(page, record).rightSwipeAction, undefined);
   for (const flag of ['selectingRecords', 'actionBusy', 'selectionStarting', 'mergeBusy', 'selected']) {
     page[flag] = true; assert.equal(options.call(page, record).busy, true, flag);
     if (flag === 'selectionStarting') assert.equal(options.call(page, record).interactionEnabled, false);
@@ -172,22 +172,22 @@ const { TaskEditorController } = compile(fs.readFileSync(controllerFile, 'utf8')
 function swipeCard(page) {
   const adapterFile = 'entry/src/main/ets/components/TaskSwipeItem.ets';
   const source = fs.readFileSync(adapterFile, 'utf8');
-  const method = ['hostBlocked', 'gesturesBlocked', 'blocked', 'rightSwipeAvailable', 'activateRightSwipe', 'operationEnabled', 'activateOperation'].map(name => source.match(new RegExp('  ' + '(?:async )?' + name + '\\([^\\n]*\\): [^\\n]+\\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
+  const method = ['hostBlocked', 'gesturesBlocked', 'blocked', 'rightSwipeAvailable',  'operationEnabled', 'activateOperation'].map(name => source.match(new RegExp('  ' + '(?:async )?' + name + '\\([^\\n]*\\): [^\\n]+\\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
   const { Card } = compile('import { TaskOperation } from \"actions\"; export class Card {' + method + '}', adapterFile, { actions });
   const { Availability } = compile('export class Availability {' + cardSource.match(/  actionsAvailable\(\): boolean \{[\s\S]*?\n  \}/)[0] + '}', cardFile);
   const editor = Object.assign(new Availability(), { appeared: true });
   const controller = new TaskEditorController(), calls = [];
   controller.bind({ actionsAvailable: () => editor.actionsAvailable(), deletionAvailable: () => editor.actionsAvailable(), startSchedule: async () => { calls.push('schedule'); }, startMove: async () => { calls.push('move'); } });
-  const state = Object.assign(new Card(), { active: true, interactionEnabled: true, rightSwipeAction: pagePolicy(page).rightSwipeAction, controller });
+  const state = Object.assign(new Card(), { active: true, interactionEnabled: true, singleOperations: [], rightSwipeAction: pagePolicy(page).rightSwipeAction, controller });
   return { state, editor, controller, calls };
 }
 
 test('今天、计划、随时、某天与最近新增均由外层右滑设置计划，日志簿关闭右滑', () => {
   for (const [page, action] of Object.entries({ someday: 'schedule', anytime: 'schedule', planned: 'schedule', today: 'schedule', inbox: 'schedule', recent: 'schedule' })) {
     const f = swipeCard(page);
-    f.state.activateRightSwipe(); assert.deepEqual(f.calls, [action], page);
+    f.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(f.calls, [action], page);
   }
-  const logbook = swipeCard('logbook'); logbook.state.activateRightSwipe(); assert.deepEqual(logbook.calls, []);
+  const logbook = swipeCard('logbook'); logbook.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(logbook.calls, []);
   const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
   assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'someday', 'memo', 'delete', 'select']);
   assert.equal(taskSwipeMenuWidth(inboxMenu), 256);
@@ -195,9 +195,9 @@ test('今天、计划、随时、某天与最近新增均由外层右滑设置�
 
 test('外部控制器仅作用于绑定卡片，卡片离开后不再打开编辑入口', () => {
   const a = swipeCard('today'), b = swipeCard('someday');
-  a.state.activateRightSwipe(); assert.deepEqual(a.calls, ['schedule']); assert.deepEqual(b.calls, []);
-  a.controller.release(); a.state.activateRightSwipe(); assert.deepEqual(a.calls, ['schedule']);
-  b.state.activateRightSwipe(); assert.deepEqual(b.calls, ['schedule']);
+  a.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(a.calls, ['schedule']); assert.deepEqual(b.calls, []);
+  a.controller.release(); a.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(a.calls, ['schedule']);
+  b.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(b.calls, ['schedule']);
 });
 
 test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同一入口，批量能力仍独立校验', async () => {
@@ -227,7 +227,7 @@ test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同�
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
   for (const flag of ['readOnly', 'typing', 'checklistTouch', 'draggingCheck', 'completing', 'working', 'moveBusy', 'moveOpen', 'snapshotBlocked', 'removed']) {
     const f = swipeCard('today'); f.editor[flag] = true;
-    f.state.activateRightSwipe(); assert.deepEqual(f.calls, [], flag);
+    f.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(f.calls, [], flag);
   }
 });
 
