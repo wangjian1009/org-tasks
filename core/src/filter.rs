@@ -357,7 +357,7 @@ impl FilterTask {
         self.modified_at
     }
 
-    /// 仅独立删除记录自身的 ARCHIVE_TIME；缺失或无效时为空。
+    /// 仅独立删除记录自身的 SOURCE_TIME；缺失或无效时为空。
     pub fn deleted_at(&self) -> Option<crate::TimestampMs> {
         self.deleted_at
     }
@@ -570,10 +570,10 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         let address_links = extract_address_links(&headline);
         let created = property_time(&headline, "CREATED");
         let deleted = if headline.headlines().next().is_none()
-            && crate::model::properties::own(&headline, "TRASH_ID")
+            && crate::model::properties::own(&headline, "SOURCE_TRASH_ID")
                 .is_some_and(|value| !value.is_empty())
         {
-            property_time(&headline, "ARCHIVE_TIME")
+            property_time(&headline, "SOURCE_TIME")
         } else {
             None
         };
@@ -1588,7 +1588,7 @@ mod tests {
 
     #[test]
     fn deleted_time_requires_own_leaf_trash_marker_and_sorts_missing_last() {
-        let source = "* TODO Newer\n:PROPERTIES:\n:TRASH_ID: new\n:ARCHIVE_TIME: [2026-11-12 Thu 18:42]\n:END:\n* TODO Older\n:PROPERTIES:\n:TRASH_ID: old\n:ARCHIVE_TIME: [2026-10-01 Thu 09:00]\n:END:\n* TODO Archive only\n:PROPERTIES:\n:ARCHIVE_TIME: [2026-01-01 Thu 09:00]\n:END:\n* TODO Parent\n:PROPERTIES:\n:TRASH_ID: parent\n:ARCHIVE_TIME: [2026-01-01 Thu 09:00]\n:END:\n** TODO Child\n* TODO Invalid\n:PROPERTIES:\n:TRASH_ID: invalid\n:ARCHIVE_TIME: [2026-01-01 Thu 25:99]\n:END:\n";
+        let source = "* TODO Newer\n:PROPERTIES:\n:SOURCE_TRASH_ID: new\n:SOURCE_TIME: [2026-11-12 Thu 18:42]\n:END:\n* TODO Older\n:PROPERTIES:\n:SOURCE_TRASH_ID: old\n:SOURCE_TIME: [2026-10-01 Thu 09:00]\n:END:\n* TODO Archive only\n:PROPERTIES:\n:SOURCE_TIME: [2026-01-01 Thu 09:00]\n:END:\n* TODO Parent\n:PROPERTIES:\n:SOURCE_TRASH_ID: parent\n:SOURCE_TIME: [2026-01-01 Thu 09:00]\n:END:\n** TODO Child\n* TODO Invalid\n:PROPERTIES:\n:SOURCE_TRASH_ID: invalid\n:SOURCE_TIME: [2026-01-01 Thu 25:99]\n:END:\n";
         let file = OrgFile::new(
             "repo".into(),
             "trash.org".into(),

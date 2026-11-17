@@ -8,7 +8,7 @@
 
 所有业务修改只作用于本次请求的内存副本。所有基础操作及依赖步骤完成后统一存盘，所有文件提交成功后才统一发布通知。除 Restore 插入失败可保留来源外，任何操作错误或程序异常均使整次请求失败，放弃本次未提交修改。
 
-操作节点限制为没有子节点的记录。Trash、Restore 都制作独立副本；删除时附加的来源、CATEGORY、PROJECT_NAME 与删除时间等信息属于系统保留属性，直接覆盖，恢复时统一移除，不保留旧值。
+操作节点限制为没有子节点的记录。Trash、Restore 都制作独立副本；删除时附加的来源与删除时间统一使用 SOURCE_ 前缀，覆盖同名前缀的旧值；恢复时清除所有 SOURCE_ 属性。CATEGORY、PROJECT_NAME 等自有业务属性保留。
 
 本设计已由 ~core/src/model/task_operation_executor/scheduler.rs~ 与 ~file_worker.rs~ 实现。公开提交入口保持不变，新增 TaskOperation 的 Trash、Restore 变体；手机废纸篓页面、保留天数设置与过期清理已接入，见 [[file:../harmony/废纸篓设计.org][废纸篓与系统仓库设计]]。
 
@@ -27,7 +27,7 @@ struct OrderId(u64);
 // 入队前已由主任务拆解成只访问当前文件的操作。
 enum Modification {
     Operation(TaskOperation),
-    Insert { copy: Box<RecordCopy>, position: TaskPosition, strict: bool, properties: Vec<(String, Option<String>)> },
+    Insert { copy: Box<RecordCopy>, position: TaskPosition, strict: bool, properties: Vec<(String, Option<String>)>, tags: Option<Vec<String>>, after_hint: bool },
     Extract { path: TaskPath },
 }
 
@@ -93,6 +93,8 @@ struct RecordCopy {
     source_text: String,
     category: Option<String>,
     project_name: Option<String>,
+    file_title: Option<String>,
+    file_id: Option<String>,
 }
 
 struct FileExecuteResult {
@@ -189,9 +191,24 @@ pub struct TaskTrash { pub path: TaskPath, pub target: OrgFileRef }
 pub struct TaskRestore { pub path: TaskPath }
 #+end_src
 
-Trash 的保留属性名单为 ARCHIVE_REPO、ARCHIVE_FILE、ARCHIVE_OLPATH、ARCHIVE_POSITION、ARCHIVE_TIME、ARCHIVE_TASK_TITLE、ARCHIVE_TASK_STATE、CATEGORY、PROJECT_NAME 与 TRASH_ID。ARCHIVE_POSITION 使用完整 TaskPosition，保留仓库 ID、相对路径、父节点和前一兄弟的重名序号；ARCHIVE_TASK_TITLE／STATE 确保源 TODO 声明与废纸篓不同也能恢复原始状态与标题。保留属性直接覆盖，恢复时全部移除，业务属性保留。
+Trash 的备份属性统一使用 ~SOURCE_~ 前缀，恢复时按前缀清除所有字段，包括未知扩展字段；不兼容旧的 ARCHIVE_* 与 TRASH_ID 格式，旧记录恢复直接报错，可清空废纸篓后重新使用。
 
-当前 Restore 原仓库、文件、父节点、前一兄弟缺失时均保留来源；不自动新建文件或回退到根部，且不会生成空文件。目标 TODO 配置不兼容同样保留来源。来源信息损坏、非叶节点、版本冲突和 task 异常仍是请求失败。恢复来源文件之外的依赖从上下文动态确定，外层 Workspace 暂时将 Restore 请求作为独占命令调度，保障与查询、同步及其他修改的先后关系。
+| 属性 | 含义 |
+|-
+| ~SOURCE_REPO~ 、 ~SOURCE_FILE~ | 原仓库持久 ID 与相对文件路径 |
+| ~SOURCE_OLPATH~ 、 ~SOURCE_POSITION~ | 父标题路径展示值，以及 after 为空的完整 TaskPosition；结构化父路径保留重名序号 |
+| ~SOURCE_BROTHER~ | 可选，JSON TaskPath，指定插入在原前一兄弟的完整子树之后；仅为提示，找不到或不在原父节点下时插入第一个子节点 |
+| ~SOURCE_TIME~ 、 ~SOURCE_TRASH_ID~ | Core 生成的删除时间与独立删除标记 |
+| ~SOURCE_TASK_TITLE~ 、 ~SOURCE_TASK_STATE~ | 原始标题与 TODO 状态，支持来源与废纸篓 TODO 配置不同 |
+| ~SOURCE_CATEGORY~ 、 ~SOURCE_PROJECT_NAME~ | 来源文件的分类与项目名；不覆盖节点原有业务属性 |
+| ~SOURCE_PARENT_TAGS~ | JSON 字符串数组，只记录从全部祖先补入、且本节点未直接声明的标签；去重，不包含文件标签；恢复时仅移除数组中的自有标签 |
+| ~SOURCE_ID~ | 原节点自有 ID；Trash 移除 ID 并备份，Restore 先还原 ID，再清除 SOURCE_ 属性；原来无 ID 时不生成 |
+| ~SOURCE_FILE_TITLE~ 、 ~SOURCE_FILE_ID~ | 来源文件标题与文件头属性抽屉 ID；未声明时为空，保留用于以后扩展，当前不参与定位 |
+
+Trash 创建独立副本前清除旧 SOURCE_ 属性，再写入本次来源信息。祖先标签只复制缺失值；本节点直接声明的同名标签在恢复后保留，废纸篓中新增的其他标签也保留。普通 Creation 复用 TaskPosition.after 作为位置提示，找不到或不属于指定父节点时插入首位，不增加公开参数；Movement 保持严格定位。Restore 将 SOURCE_BROTHER 带入同一位置提示规则，通过内部 Insert 新建副本，不使用普通 Creation 的自动时间和状态日志逻辑，保留原 CREATED、CLOSED 与日志。
+
+
+当前 Restore 原仓库、文件或父节点缺失时保留来源，前一兄弟缺失时插入父节点的第一个子节点；不自动新建文件或回退到根部，且不会生成空文件。目标 TODO 配置不兼容同样保留来源。来源信息损坏、非叶节点、版本冲突和 task 异常仍是请求失败。恢复来源文件之外的依赖从上下文动态确定，外层 Workspace 暂时将 Restore 请求作为独占命令调度，保障与查询、同步及其他修改的先后关系。
 
 * 验证
 

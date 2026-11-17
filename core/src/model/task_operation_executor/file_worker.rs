@@ -20,7 +20,9 @@ pub(super) enum FileModification {
         copy: Box<RecordCopy>,
         position: TaskPosition,
         strict: bool,
+        after_hint: bool,
         properties: Vec<(String, Option<String>)>,
+        tags: Option<Vec<String>>,
     },
     Extract {
         path: TaskPath,
@@ -40,6 +42,8 @@ pub(super) struct RecordCopy {
     pub source_text: String,
     pub category: Option<String>,
     pub project_name: Option<String>,
+    pub file_title: Option<String>,
+    pub file_id: Option<String>,
     pub headings: Vec<CopyHeading>,
     pub todo_defaults: TodoConfig,
     pub todo_setup: String,
@@ -124,6 +128,12 @@ pub(super) fn snapshot(repo: &OrgRepo, file: &OrgFile) -> Vec<RecordCopy> {
                 source_text: node.raw(),
                 category: file.category(),
                 project_name: file.project(),
+                file_title: file.title(),
+                file_id: file.syntax().document().properties().and_then(|drawer| {
+                    super::super::properties::entries(&drawer)
+                        .find(|entry| entry.name == "ID" && !entry.append)
+                        .map(|entry| entry.value)
+                }),
                 headings,
                 todo_defaults: file.todo_defaults.clone(),
                 todo_setup: setup.clone(),
@@ -318,15 +328,18 @@ fn apply(
             copy,
             position: target,
             strict,
+            after_hint,
             properties,
+            tags,
         } => {
             let mut copy = copy;
-            patch_copy(&mut copy, &properties)?;
+            patch_copy(&mut copy, &properties, tags)?;
             insert_copy(
                 files.get_mut(key).expect("已装载文件"),
                 &copy,
                 &target,
                 strict,
+                after_hint,
             )
             .map(|path| (Some(path), None))
         }
@@ -394,6 +407,7 @@ fn apply(
 fn patch_copy(
     copy: &mut RecordCopy,
     patches: &[(String, Option<String>)],
+    tags: Option<Vec<String>>,
 ) -> Result<(), CoreError> {
     let mut file = OrgFile::with_todo_defaults_and_setup(
         copy.source.task.repo_id().into(),
@@ -411,6 +425,15 @@ fn patch_copy(
             .1;
         super::super::task_state::modify_property(&mut file, &node, name, value.as_deref())?;
     }
+    if let Some(tags) = tags {
+        let node = file
+            .path_headlines()
+            .into_iter()
+            .next()
+            .ok_or(CoreError::InvalidInput("副本缺少记录"))?
+            .1;
+        modify(&mut file, &node, &TaskModification::Tags(Some(tags)))?;
+    }
     copy.source_text = String::from_utf8(file.source_bytes).expect("Org 文件为 UTF-8");
     Ok(())
 }
@@ -420,11 +443,16 @@ fn insert_copy(
     copy: &RecordCopy,
     target: &TaskPosition,
     strict: bool,
+    after_hint: bool,
 ) -> Result<TaskPath, CoreError> {
     if !item.exists {
         return Err(CoreError::InvalidInput("恢复目标文件不存在"));
     }
-    let (offset, level) = position(&item.file, target)?;
+    let (offset, level) = if after_hint {
+        position_hint(&item.file, target)?
+    } else {
+        position(&item.file, target)?
+    };
     let mut content = copy.source_text.clone();
     // 副本可能已添加属性，使用独立解析器重新计算标题偏移，不修改工作文件。
     let source = OrgFile::with_todo_defaults_and_setup(

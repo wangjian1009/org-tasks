@@ -197,6 +197,6 @@ impl OrgWorkspace {
 
 * 删除时间查询
 
-~deleted.<relation>.<interval>~ 使用与其他日期字段相同的本地自然日比较，例如 ~deleted.lt.-30d~ 查询删除日期早于 30 天边界的记录。只有自身存在非空 ~TRASH_ID~ 且没有子节点的记录，才从自身 ~ARCHIVE_TIME~ 属性读取删除时间；缺失、非法或仅有普通归档时间均不投影删除时间。~deleted_at()~ 返回可空 Unix 毫秒值，时区解释与创建时间一致，不生成或回填属性。
+~deleted.<relation>.<interval>~ 使用与其他日期字段相同的本地自然日比较，例如 ~deleted.lt.-30d~ 查询删除日期早于 30 天边界的记录。只有自身存在非空 ~SOURCE_TRASH_ID~ 且没有子节点的记录，才从自身 ~SOURCE_TIME~ 属性读取删除时间；缺失、非法或仅有普通归档时间均不投影删除时间。~deleted_at()~ 返回可空 Unix 毫秒值，时区解释与创建时间一致，不生成或回填属性。
 
 ~o.deleted~ 与 ~.o.deleted~ 按完整删除时间升序和降序排列；缺失值在两个方向下均置末，同值按文件与源位置排序。增量查询的 ~orderKey~ 同步携带缺失值置末策略。废纸篓的文件范围仍由 ~includeFiles~ 指定，不在查询语言中引入页面含义。

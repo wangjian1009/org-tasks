@@ -5,19 +5,6 @@ use super::*;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 
-const RESERVED: &[&str] = &[
-    "ARCHIVE_REPO",
-    "ARCHIVE_FILE",
-    "ARCHIVE_OLPATH",
-    "ARCHIVE_POSITION",
-    "ARCHIVE_TIME",
-    "ARCHIVE_TASK_TITLE",
-    "ARCHIVE_TASK_STATE",
-    "CATEGORY",
-    "PROJECT_NAME",
-    "TRASH_ID",
-];
-
 struct Scheduler {
     workers: BTreeMap<FileKey, mpsc::UnboundedSender<FileCommand>>,
     loading: BTreeSet<FileKey>,
@@ -391,37 +378,83 @@ pub(super) async fn run(
                 let title = copy.headings[0].title.clone();
                 let state = serde_json::to_string(&copy.headings[0].state)
                     .map_err(|_| CoreError::InvalidState("无法记录任务状态"))?;
-                let patches = vec![
-                    ("ARCHIVE_REPO".into(), Some(source_key.0.clone())),
-                    ("ARCHIVE_FILE".into(), Some(source_key.1.clone())),
+                let mut tags = copy.source.task.own_tags().to_vec();
+                let mut parent_tags = Vec::new();
+                for tag in copy.source.task.inherited_tags() {
+                    if !tags.contains(tag) {
+                        tags.push(tag.clone());
+                        parent_tags.push(tag.clone());
+                    }
+                }
+                let mut source_position = copy.source.position.clone();
+                let brother = source_position.after.take();
+                let mut patches = copy
+                    .source
+                    .task
+                    .properties()
+                    .keys()
+                    .filter(|name| name.starts_with("SOURCE_"))
+                    .map(|name| (name.clone(), None))
+                    .collect::<Vec<_>>();
+                patches.extend(vec![
+                    ("ID".into(), None),
                     (
-                        "ARCHIVE_OLPATH".into(),
+                        "SOURCE_ID".into(),
+                        copy.source.task.property("ID").map(str::to_owned),
+                    ),
+                    (
+                        "SOURCE_FILE_TITLE".into(),
+                        Some(copy.file_title.clone().unwrap_or_default()),
+                    ),
+                    (
+                        "SOURCE_FILE_ID".into(),
+                        Some(copy.file_id.clone().unwrap_or_default()),
+                    ),
+                    (
+                        "SOURCE_BROTHER".into(),
+                        brother
+                            .as_ref()
+                            .map(serde_json::to_string)
+                            .transpose()
+                            .map_err(|_| CoreError::InvalidState("无法记录前一兄弟节点"))?,
+                    ),
+                    (
+                        "SOURCE_PARENT_TAGS".into(),
+                        Some(
+                            serde_json::to_string(&parent_tags)
+                                .map_err(|_| CoreError::InvalidState("无法记录继承标签"))?,
+                        ),
+                    ),
+                    ("SOURCE_REPO".into(), Some(source_key.0.clone())),
+                    ("SOURCE_FILE".into(), Some(source_key.1.clone())),
+                    (
+                        "SOURCE_OLPATH".into(),
                         Some(copy.source.position.parent.titles.join("/")),
                     ),
                     (
-                        "ARCHIVE_POSITION".into(),
+                        "SOURCE_POSITION".into(),
                         Some(
-                            serde_json::to_string(&copy.source.position)
+                            serde_json::to_string(&source_position)
                                 .map_err(|_| CoreError::InvalidState("无法记录原位置"))?,
                         ),
                     ),
                     (
-                        "ARCHIVE_TIME".into(),
+                        "SOURCE_TIME".into(),
                         Some(
                             chrono::Local::now()
                                 .format("[%Y-%m-%d %a %H:%M]")
                                 .to_string(),
                         ),
                     ),
-                    ("ARCHIVE_TASK_TITLE".into(), Some(title)),
-                    ("ARCHIVE_TASK_STATE".into(), Some(state)),
-                    ("CATEGORY".into(), copy.category.clone()),
-                    ("PROJECT_NAME".into(), copy.project_name.clone()),
+                    ("SOURCE_TASK_TITLE".into(), Some(title)),
+                    ("SOURCE_TASK_STATE".into(), Some(state)),
+                    ("SOURCE_CATEGORY".into(), copy.category.clone()),
+                    ("SOURCE_PROJECT_NAME".into(), copy.project_name.clone()),
                     (
-                        "TRASH_ID".into(),
+                        "SOURCE_TRASH_ID".into(),
                         Some(super::super::service::generate_repo_id()?),
                     ),
-                ];
+                ]);
                 scheduler.ensure(workspace, group, &target_key)?;
                 scheduler.send(
                     &target_key,
@@ -432,7 +465,9 @@ pub(super) async fn run(
                             after: None,
                         },
                         strict: false,
+                        after_hint: true,
                         properties: patches,
+                        tags: Some(tags),
                     },
                     false,
                 )?;
@@ -455,16 +490,23 @@ pub(super) async fn run(
                 if copy.headings.len() != 1 {
                     return Err(CoreError::InvalidInput("废纸篓操作只支持没有子节点的记录"));
                 }
-                if copy.source.task.property("TRASH_ID").is_none() {
+                if copy.source.task.property("SOURCE_TRASH_ID").is_none() {
                     return Err(CoreError::InvalidInput("记录不包含删除来源信息"));
                 }
-                let position: TaskPosition = serde_json::from_str(
+                let mut position: TaskPosition = serde_json::from_str(
                     copy.source
                         .task
-                        .property("ARCHIVE_POSITION")
+                        .property("SOURCE_POSITION")
                         .ok_or(CoreError::InvalidInput("恢复来源位置不存在"))?,
                 )
                 .map_err(|_| CoreError::InvalidInput("恢复来源位置无效"))?;
+                position.after = copy
+                    .source
+                    .task
+                    .property("SOURCE_BROTHER")
+                    .map(serde_json::from_str)
+                    .transpose()
+                    .map_err(|_| CoreError::InvalidInput("恢复来源兄弟位置无效"))?;
                 let target_key = key(&position.parent)?;
                 if source_key == target_key {
                     return Err(CoreError::InvalidInput("恢复来源位置指向废纸篓本身"));
@@ -477,27 +519,53 @@ pub(super) async fn run(
                 copy.headings[0].title = copy
                     .source
                     .task
-                    .property("ARCHIVE_TASK_TITLE")
+                    .property("SOURCE_TASK_TITLE")
                     .ok_or(CoreError::InvalidInput("原任务标题不存在"))?
                     .into();
                 copy.headings[0].state = serde_json::from_str(
                     copy.source
                         .task
-                        .property("ARCHIVE_TASK_STATE")
+                        .property("SOURCE_TASK_STATE")
                         .ok_or(CoreError::InvalidInput("原任务状态不存在"))?,
                 )
                 .map_err(|_| CoreError::InvalidInput("原任务状态无效"))?;
-                let patches = RESERVED
+                let parent_tags: Vec<String> = copy
+                    .source
+                    .task
+                    .property("SOURCE_PARENT_TAGS")
+                    .map(serde_json::from_str)
+                    .transpose()
+                    .map_err(|_| CoreError::InvalidInput("恢复来源继承标签无效"))?
+                    .unwrap_or_default();
+                let tags = copy
+                    .source
+                    .task
+                    .own_tags()
                     .iter()
-                    .map(|name| ((*name).into(), None))
+                    .filter(|tag| !parent_tags.contains(tag))
+                    .cloned()
+                    .collect();
+                let mut patches = copy
+                    .source
+                    .task
+                    .properties()
+                    .keys()
+                    .filter(|name| name.starts_with("SOURCE_"))
+                    .map(|name| (name.clone(), None))
                     .collect::<Vec<_>>();
+                patches.push((
+                    "ID".into(),
+                    copy.source.task.property("SOURCE_ID").map(str::to_owned),
+                ));
                 let id = scheduler.send(
                     &target_key,
                     FileModification::Insert {
                         copy: Box::new(copy),
                         position,
                         strict: true,
+                        after_hint: true,
                         properties: patches,
+                        tags: Some(tags),
                     },
                     true,
                 )?;
@@ -538,7 +606,9 @@ pub(super) async fn run(
                         copy,
                         position: data.position.clone(),
                         strict: true,
+                        after_hint: false,
                         properties: Vec::new(),
+                        tags: None,
                     },
                     false,
                 )?;

@@ -467,7 +467,7 @@ pub struct TaskPosition {
 
 预览文件使用固定 ~repo_id="<preview>"~ 与本次创建 UUID 作为 file，其标题路径仍使用相同结构。它是临时文档地址而非仓库，详见本文“冲突预览模型”。
 
-~TaskPosition.parent~ 指向文件或标题，不能指向仓库节点。 ~after=None~ 表示插入为第一个子节点，位于 parent 自身正文之后；非空时 after 必须是 parent 的直属子节点，插入在其完整子树之后。文件作为 parent 时对应顶层标题。移动不能以自身或后代作为 parent 或 after；不要求目标带 REFILE 标签，展示层仍可从放置目标列表选择位置。
+~TaskPosition.parent~ 指向文件或标题，不能指向仓库节点。 ~after=None~ 表示插入为第一个子节点，位于 parent 自身正文之后；非空时 after 指向 parent 的直属子节点，插入在其完整子树之后。Creation 将 after 仅作为位置提示：节点缺失、属于其他父节点、文件或仓库时，插到 parent 的第一个子节点，不加载提示引用的其他文件或仓库；parent 仍必须存在。Movement 保持严格定位，after 不可用时报错。文件作为 parent 时对应顶层标题。移动不能以自身或后代作为 parent 或 after；不要求目标带 REFILE 标签，展示层仍可从放置目标列表选择位置。
 
 \begin{center}
 \begin{tikzpicture}
@@ -1059,7 +1059,7 @@ logbook\_html: String \\
 ~operation_id~ 是可选操作来源标识，JSON 为 ~operationId~ ，缺省或空值表示 ~None~ 。实际提交成功后，同一操作产生的仓库数据变化通知透传该标识；它不改变操作规则和事务语义，也不作为幂等键。同步、重置和旧调用无来源标识时，通知保留空值。
 
 #+begin_src rust
-/// after 必须是 parent 的直属子节点；为空时插入到首个子节点之前。
+/// after 指向 parent 的直属子节点；Creation 定位失败时插到首位，Movement 严格校验。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskPosition {
@@ -1386,7 +1386,7 @@ pub struct TaskFileInitialTask {
 \umlclass[x=0,y=0]{TaskOperationGroup}{operation\_id: Option\textless String\textgreater \\
 operations: Vec\textless TaskOperation\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
 \umlclass[x=8,y=0,type=enumeration]{TaskOperation}{FileNew \\ FileHaderModification \\ Creation \\ Modification \\ Movement \\ Deletion \\ Trash \\ Restore \\ ConfilictSelection}{}
-\umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater}{}
+\umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater}{after: 仅作位置提示}
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
 \umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
 \umlclass[x=7,y=-8]{TaskDeletion}{path: TaskPath}{}
@@ -2041,4 +2041,6 @@ TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对�
 
 * 删除时间只读投影
 
-~FilterTask.deleted_at()~ 仅从没有子节点、且自身带非空 ~TRASH_ID~ 的记录读取自身 ~ARCHIVE_TIME~ ，返回可空本地 Unix 毫秒值；缺失或无效时为 ~None~ 。同一时间的日期部分用于 ~deleted.*~ 自然日筛选，完整时刻用于排序和宿主显示。读取不继承、不修改原文，普通 Org 归档条目不会被自动清理。
+Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点 ~ID~ 暂存为 ~SOURCE_ID~ ，恢复时还原；祖先标签中本节点未直接声明的部分复制到节点，并以 JSON 数组记入 ~SOURCE_PARENT_TAGS~ ，恢复时移除这些复制标签。可选 ~SOURCE_BROTHER~ 为前一兄弟的完整 TaskPath，仅作插入提示，缺失或不在原父节点下时插到父节点第一个位置；父节点必须存在。 ~SOURCE_FILE_TITLE~ 与 ~SOURCE_FILE_ID~ 保存原文件标题及文件头 ID，无值时为空，当前不参与恢复定位。所有 ~SOURCE_~ 属性在恢复时按前缀清除；旧格式不兼容。完整属性说明见 [[file:废纸篓接口设计.org][废纸篓接口设计]]。
+
+~FilterTask.deleted_at()~ 仅从没有子节点、且自身带非空 ~SOURCE_TRASH_ID~ 的记录读取自身 ~SOURCE_TIME~ ，返回可空本地 Unix 毫秒值；缺失或无效时为 ~None~ 。同一时间的日期部分用于 ~deleted.*~ 自然日筛选，完整时刻用于排序和宿主显示。读取不继承、不修改原文，普通 Org 归档条目不会被自动清理。

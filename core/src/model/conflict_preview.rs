@@ -686,7 +686,6 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
             TaskOperation::FileHaderModification(_) => {}
             TaskOperation::Creation(v) => {
                 paths.push(&v.position.parent);
-                paths.extend(v.position.after.iter());
             }
             TaskOperation::Modification(v) => paths.push(&v.path),
             TaskOperation::Deletion(v) => paths.push(&v.path),
@@ -1437,7 +1436,12 @@ fn remap_operation(
             ));
         }
         TaskOperation::Trash(_) | TaskOperation::Restore(_) => return Err(CoreError::InvalidInput("冲突预览不能执行废纸篓操作")),
-        TaskOperation::Creation(v) => position(&mut v.position, id, source)?,
+        TaskOperation::Creation(v) => {
+            path(&mut v.position.parent, id, source)?;
+            if v.position.after.as_mut().is_some_and(|after| path(after, id, source).is_err()) {
+                v.position.after = None;
+            }
+        }
         TaskOperation::Modification(v) => path(&mut v.path, id, source)?,
         TaskOperation::Deletion(v) => path(&mut v.path, id, source)?,
         TaskOperation::Movement(v) => {

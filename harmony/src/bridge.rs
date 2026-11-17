@@ -973,7 +973,7 @@ mod tests {
         workspace_execute_task_operations(handle, serde_json::json!({"operations":[{"type":"Trash","data":{"path":before[0]["result"]["tasks"][0]["fullPath"],"target":{"repoId":repo_id,"path":"trash.org"}}}]}).to_string()).unwrap();
         assert!(query("tasks.org")[0]["result"]["tasks"].as_array().unwrap().is_empty());
         let trash = query("trash.org");
-        assert!(trash[0]["result"]["tasks"][0]["properties"]["ARCHIVE_TIME"].is_string());
+        assert!(trash[0]["result"]["tasks"][0]["properties"]["SOURCE_TIME"].is_string());
         workspace_execute_task_operations(handle, serde_json::json!({"operations":[{"type":"Restore","data":{"path":trash[0]["result"]["tasks"][0]["fullPath"]}}]}).to_string()).unwrap();
         let restored = query("tasks.org");
         assert_eq!(restored[0]["result"]["tasks"][0]["heading"], "Bridge leaf");

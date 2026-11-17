@@ -155,9 +155,6 @@ impl WorkspaceState {
                 }
                 TaskOperation::Creation(data) => {
                     touched.insert(data.position.parent.repo_id.clone());
-                    if let Some(after) = &data.position.after {
-                        touched.insert(after.repo_id.clone());
-                    }
                 }
                 TaskOperation::Modification(data) => {
                     touched.insert(data.path.repo_id.clone());
@@ -421,6 +418,16 @@ pub(super) fn position(file: &OrgFile, request: &TaskPosition) -> Result<(usize,
     }
 }
 
+/// 兄弟节点仅作插入提示；父节点仍须存在。
+pub(super) fn position_hint(file: &OrgFile, request: &TaskPosition) -> Result<(usize, usize), CoreError> {
+    let first = TaskPosition {
+        parent: request.parent.clone(),
+        after: None,
+    };
+    let fallback = position(file, &first)?;
+    Ok(position(file, request).unwrap_or(fallback))
+}
+
 pub(super) fn replace(
     file: &mut OrgFile,
     range: std::ops::Range<usize>,
@@ -484,7 +491,7 @@ fn execute(
             position(&files[&key(&data.position.parent)?].file, &data.position)?;
         }
         TaskOperation::Creation(data) => {
-            position(&files[&key(&data.position.parent)?].file, &data.position)?;
+            position_hint(&files[&key(&data.position.parent)?].file, &data.position)?;
         }
         TaskOperation::Trash(_) | TaskOperation::Restore(_) => return Err(CoreError::InvalidState("高级操作必须由请求调度器分解")),
         TaskOperation::ConfilictSelection(_) => unreachable!(),
@@ -578,7 +585,7 @@ fn execute_inner(
             let item = files
                 .get_mut(&key(&data.position.parent)?)
                 .expect("已加载文件");
-            let (offset, level) = position(&item.file, &data.position)?;
+            let (offset, level) = position_hint(&item.file, &data.position)?;
             validate_title(&data.title)?;
             validate_state(&item.file, data.state.as_deref())?;
             item.file.validate_priority(data.priority.as_deref())?;

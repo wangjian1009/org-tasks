@@ -2,7 +2,7 @@
 use super::{OrgRepoId, TaskPath};
 use serde::{Deserialize, Serialize};
 
-/// after 必须是 parent 的直属子节点；为空时插入到首个子节点之前。
+/// after 指向 parent 的直属子节点；Creation 定位失败时插到首位，Movement 严格校验。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskPosition {

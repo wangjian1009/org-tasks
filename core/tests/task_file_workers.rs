@@ -113,14 +113,14 @@ async fn trash_and_restore_preserve_leaf_fields_and_publish_only_after_all_files
     drop(_subscription);
     assert_eq!(events.lock().unwrap().len(), 2);
     let archived = f.nodes(&f.system, "trash.org").await[0].clone();
-    assert_eq!(
-        archived.property("ARCHIVE_REPO"),
-        Some(f.source.id.as_str())
-    );
-    assert_eq!(archived.property("CATEGORY"), Some("工作"));
-    assert_eq!(archived.property("PROJECT_NAME"), Some("核心"));
-    assert!(archived.property("ARCHIVE_TIME").is_some());
-    assert!(archived.property("TRASH_ID").is_some());
+    assert_eq!(archived.property("SOURCE_REPO"), Some(f.source.id.as_str()));
+    assert_eq!(archived.property("SOURCE_CATEGORY"), Some("工作"));
+    assert_eq!(archived.property("CATEGORY"), Some("old-reserved"));
+    assert_eq!(archived.property("SOURCE_ID"), Some("fixed-id"));
+    assert!(archived.property("ID").is_none());
+    assert_eq!(archived.property("SOURCE_PROJECT_NAME"), Some("核心"));
+    assert!(archived.property("SOURCE_TIME").is_some());
+    assert!(archived.property("SOURCE_TRASH_ID").is_some());
     f.restore(vec![archived.full_path().clone()]).await.unwrap();
     let restored = f
         .nodes(&f.source, "tasks.org")
@@ -134,12 +134,12 @@ async fn trash_and_restore_preserve_leaf_fields_and_publish_only_after_all_files
     assert_eq!(source.scheduled(), restored.scheduled());
     assert!(restored.body().contains("Notes  \n:LOGBOOK:\n- Note"));
     for property in [
-        "ARCHIVE_REPO",
-        "ARCHIVE_POSITION",
-        "CATEGORY",
-        "PROJECT_NAME",
-        "ARCHIVE_TIME",
-        "TRASH_ID",
+        "SOURCE_REPO",
+        "SOURCE_POSITION",
+        "SOURCE_CATEGORY",
+        "SOURCE_PROJECT_NAME",
+        "SOURCE_TIME",
+        "SOURCE_TRASH_ID",
     ] {
         assert!(restored.property(property).is_none(), "{property}");
     }
@@ -282,7 +282,7 @@ async fn restore_insertion_failure_keeps_source_but_other_restores_and_modificat
     );
     let remaining = f.nodes(&f.system, "trash.org").await;
     assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].property("ID"), Some("child"));
+    assert_eq!(remaining[0].property("SOURCE_ID"), Some("child"));
     assert!(
         !String::from_utf8(f.bytes(&f.source, "tasks.org").await)
             .unwrap()
@@ -377,19 +377,21 @@ async fn custom_todo_keywords_survive_trash_and_restore_without_changing_origina
 
 #[tokio::test]
 async fn system_properties_are_overwritten_and_removed_instead_of_restoring_old_values() {
-    let f = Fixture::new("* TODO Leaf\n:PROPERTIES:\n:TRASH_ID: invalid-old\n:ARCHIVE_FILE: old.org\n:CATEGORY: old\n:PROJECT_NAME: old-project\n:ID: business-id\n:END:\nbody\n", "#+TITLE: 废纸篓\n").await;
+    let f = Fixture::new("* TODO Leaf\n:PROPERTIES:\n:SOURCE_TRASH_ID: invalid-old\n:SOURCE_FILE: old.org\n:SOURCE_FUTURE: reserved\n:CATEGORY: old\n:PROJECT_NAME: old-project\n:ID: business-id\n:END:\nbody\n", "#+TITLE: 废纸篓\n").await;
     f.trash(vec![
         f.nodes(&f.source, "tasks.org").await[0].full_path().clone(),
     ])
     .await
     .unwrap();
     let archived = f.nodes(&f.system, "trash.org").await[0].clone();
-    assert_ne!(archived.property("TRASH_ID"), Some("invalid-old"));
-    assert_eq!(archived.property("ARCHIVE_FILE"), Some("tasks.org"));
+    assert_ne!(archived.property("SOURCE_TRASH_ID"), Some("invalid-old"));
+    assert_eq!(archived.property("SOURCE_FILE"), Some("tasks.org"));
     f.restore(vec![archived.full_path().clone()]).await.unwrap();
     let restored = f.nodes(&f.source, "tasks.org").await[0].clone();
     assert_eq!(restored.property("ID"), Some("business-id"));
-    for name in ["TRASH_ID", "ARCHIVE_FILE", "CATEGORY", "PROJECT_NAME"] {
+    assert_eq!(restored.property("CATEGORY"), Some("old"));
+    assert_eq!(restored.property("PROJECT_NAME"), Some("old-project"));
+    for name in ["SOURCE_TRASH_ID", "SOURCE_FILE", "SOURCE_FUTURE"] {
         assert!(restored.property(name).is_none());
     }
 }
@@ -446,4 +448,190 @@ async fn cross_file_move_then_delete_emits_one_final_deletion_without_a_stale_mo
     drop(changes);
     drop(events);
     assert!(f.nodes(&f.system, "trash.org").await.is_empty());
+}
+
+#[tokio::test]
+async fn trash_copies_only_missing_ancestor_tags_and_restores_id_and_file_metadata() {
+    let f = Fixture::new(":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: 来源文件\n#+FILETAGS: :file_tag:\n* Grand :grand:shared:\n** Parent :parent:shared:\n*** TODO Previous\n*** TODO Leaf :own:shared:\n:PROPERTIES:\n:ID: leaf-id\n:CREATED: [2020-01-01 Wed]\n:SOURCE_ID: stale\n:SOURCE_FUTURE: stale\n:END:\nnotes\n*** TODO Next\n", "#+TITLE: 废纸篓\n").await;
+    let original = f.nodes(&f.source, "tasks.org").await;
+    let source = original.iter().find(|task| task.title() == "Leaf").unwrap();
+    f.trash(vec![source.full_path().clone()]).await.unwrap();
+    let archived = f.nodes(&f.system, "trash.org").await.remove(0);
+    assert_eq!(archived.own_tags(), ["own", "shared", "grand", "parent"]);
+    assert_eq!(
+        archived.property("SOURCE_PARENT_TAGS"),
+        Some("[\"grand\",\"parent\"]")
+    );
+    assert_eq!(archived.property("SOURCE_FILE_TITLE"), Some("来源文件"));
+    assert_eq!(archived.property("SOURCE_FILE_ID"), Some("file-id"));
+    assert_eq!(archived.property("SOURCE_ID"), Some("leaf-id"));
+    assert!(archived.property("ID").is_none());
+    assert!(archived.property("SOURCE_FUTURE").is_none());
+    let brother: TaskPath =
+        serde_json::from_str(archived.property("SOURCE_BROTHER").unwrap()).unwrap();
+    assert_eq!(brother.titles.last().unwrap(), "Previous");
+    // 恢复必须按前缀清除后续扩展字段，也保留废纸篓中新加的自有标签。
+    f.workspace
+        .execute_task_operations(
+            &serde_json::from_value(serde_json::json!({"operations":[{
+                "type":"Modification", "data":{"path":archived.full_path(), "modifications":[
+                    {"field":"PROPERTY","value":{"name":"SOURCE_FUTURE","value":"future"}},
+                    {"field":"TAGS","value":["own","shared","grand","parent","added"]}
+                ]}
+            }]}))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    f.restore(vec![archived.full_path().clone()]).await.unwrap();
+    let restored = f
+        .nodes(&f.source, "tasks.org")
+        .await
+        .into_iter()
+        .find(|task| task.title() == "Leaf")
+        .unwrap();
+    assert_eq!(restored.own_tags(), ["own", "shared", "added"]);
+    assert_eq!(restored.property("ID"), Some("leaf-id"));
+    assert_eq!(restored.created_at(), source.created_at());
+    assert!(
+        restored
+            .properties()
+            .keys()
+            .all(|name| !name.starts_with("SOURCE_"))
+    );
+    let text = String::from_utf8(f.bytes(&f.source, "tasks.org").await).unwrap();
+    assert!(text.find("Previous").unwrap() < text.find("Leaf").unwrap());
+    assert!(text.find("Leaf").unwrap() < text.find("Next").unwrap());
+}
+
+#[tokio::test]
+async fn restore_missing_or_unrelated_brother_falls_back_to_first_child() {
+    for unrelated in [false, true] {
+        let f = Fixture::new(
+            "* Parent\n** TODO Previous\n** TODO Leaf\n** TODO Next\n* Other\n** TODO Unrelated\n",
+            "#+TITLE: 废纸篓\n",
+        )
+        .await;
+        let original = f.nodes(&f.source, "tasks.org").await;
+        f.trash(vec![original[2].full_path().clone()])
+            .await
+            .unwrap();
+        let archived = f.nodes(&f.system, "trash.org").await.remove(0);
+        if unrelated {
+            let value = serde_json::to_string(original[5].full_path()).unwrap();
+            f.workspace
+                .execute_task_operations(&TaskOperationGroup {
+                    operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                        path: archived.full_path().clone(),
+                        modifications: vec![TaskModification::Property {
+                            name: "SOURCE_BROTHER".into(),
+                            value: Some(value),
+                        }],
+                    })],
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        } else {
+            f.workspace
+                .execute_task_operations(&TaskOperationGroup {
+                    operations: vec![TaskOperation::Deletion(TaskDeletion {
+                        path: original[1].full_path().clone(),
+                    })],
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        f.restore(vec![archived.full_path().clone()]).await.unwrap();
+        let nodes = f.nodes(&f.source, "tasks.org").await;
+        assert_eq!(nodes[1].title(), "Leaf");
+        assert!(f.nodes(&f.system, "trash.org").await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn restore_without_brother_or_original_id_inserts_first_and_removes_source_fields() {
+    let f = Fixture::new("* TODO First\n* TODO Next\n", "#+TITLE: 废纸篓\n").await;
+    f.trash(vec![
+        f.nodes(&f.source, "tasks.org").await[0].full_path().clone(),
+    ])
+    .await
+    .unwrap();
+    let archived = f.nodes(&f.system, "trash.org").await.remove(0);
+    assert!(archived.property("SOURCE_BROTHER").is_none());
+    assert_eq!(archived.property("SOURCE_FILE_ID"), Some(""));
+    assert_eq!(archived.property("SOURCE_FILE_TITLE"), Some(""));
+    f.restore(vec![archived.full_path().clone()]).await.unwrap();
+    let restored = f.nodes(&f.source, "tasks.org").await.remove(0);
+    assert_eq!(restored.title(), "First");
+    assert!(restored.property("ID").is_none());
+    assert!(
+        restored
+            .properties()
+            .keys()
+            .all(|name| !name.starts_with("SOURCE_"))
+    );
+}
+
+#[tokio::test]
+async fn restore_rejects_legacy_metadata_without_modifying_either_file() {
+    let f = Fixture::new("* TODO Existing\n", "#+TITLE: 废纸篓\n* TODO Legacy\n:PROPERTIES:\n:TRASH_ID: old\n:ARCHIVE_POSITION: invalid\n:ARCHIVE_TIME: [2026-11-17 Tue 09:00]\n:END:\n").await;
+    let source = f.bytes(&f.source, "tasks.org").await;
+    let trash = f.bytes(&f.system, "trash.org").await;
+    let archived = f.nodes(&f.system, "trash.org").await.remove(0);
+    assert!(archived.deleted_at().is_none());
+    assert!(f.restore(vec![archived.full_path().clone()]).await.is_err());
+    assert_eq!(f.bytes(&f.source, "tasks.org").await, source);
+    assert_eq!(f.bytes(&f.system, "trash.org").await, trash);
+}
+
+#[tokio::test]
+async fn creation_uses_after_only_as_a_hint_without_loading_its_file_or_repository() {
+    for hint in [
+        "missing",
+        "other_parent",
+        "other_file",
+        "other_repo",
+        "valid",
+    ] {
+        let f = Fixture::new(
+            "* Parent\n** TODO Previous\n** TODO Next\n* Other\n** TODO Unrelated\n",
+            "#+TITLE: 废纸篓\n",
+        )
+        .await;
+        let nodes = f.nodes(&f.source, "tasks.org").await;
+        let mut after = nodes[1].full_path().clone();
+        match hint {
+            "missing" => *after.titles.last_mut().unwrap() = "Missing".into(),
+            "other_parent" => after = nodes[4].full_path().clone(),
+            "other_file" => after.file = Some("missing.org".into()),
+            "other_repo" => after.repo_id = "unregistered".into(),
+            _ => (),
+        }
+        f.workspace
+            .execute_task_operations(&TaskOperationGroup {
+                operations: vec![TaskOperation::Creation(TaskCreation::new(
+                    TaskPosition {
+                        parent: nodes[0].full_path().clone(),
+                        after: Some(after),
+                    },
+                    "Created".into(),
+                ))],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let result = f.nodes(&f.source, "tasks.org").await;
+        assert_eq!(
+            result[if hint == "valid" { 2 } else { 1 }].title(),
+            "Created",
+            "{hint}"
+        );
+        assert!(
+            !PathBuf::from(&f.source.root_directory)
+                .join("missing.org")
+                .exists()
+        );
+    }
 }
