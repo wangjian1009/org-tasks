@@ -19,7 +19,7 @@ function fixture() {
   let failSave=false,canLeave=true,busy=false,missing=false,active=true,delay,project=true;
   const applied=[],queries=[],config={repos:[{id:'host',rootDirectory:'/qa'}]};
   const task={id:'memo',repoId:'core',filePath:'memo.org',heading:'真实备忘',fullPath:{repoId:'core',file:'memo.org',titles:['真实备忘']}, isDone(){return false}};
-  const navigator={path:new PagePath([{url:'pages/TaskOverview',params:{view:'today'}}]),isNavigating:()=>busy,canLeaveExternally:()=>canLeave,
+  const navigator={path:new PagePath([{url:'pages/Today'}]),isNavigating:()=>busy,canLeaveExternally:()=>canLeave,
     async setPath(_,value){applied.push(value);navigator.path=value;return true}};
   const workspace={async repos(){return [{id:'core',rootDirectory:'/qa',async historyFile(){if(missing)throw new Error('missing')}}]},
     async query(value){queries.push(value);if(delay)await delay;return [{type:'file',result:missing?[]:[{project:()=>project?'项目':null}]}]},
@@ -35,7 +35,7 @@ function fixture() {
   const call=async(method,body)=>{const value=await service.handle(context,{method,body:typeof body==='string'?body:JSON.stringify(body)},()=>active);return{status:value.status,body:JSON.parse(value.body)}};
   return {call,navigator,applied,queries,task,missing(){missing=true},plain(){project=false},block(){canLeave=false},busy(){busy=true},failSave(){failSave=true},stop(){active=false},delay(value){delay=value}};
 }
-const overview=view=>({pages:[{url:'pages/TaskOverview',params:{view}}]});
+const overview=view=>({pages:[{url:'pages/'+view[0].toUpperCase()+view.slice(1)}]});
 const projectPath={pages:[{url:'pages/Files'},{url:'pages/ProjectDetail',params:{repoId:'core',path:'project.org'}}]};
 test('GET 返回真实路径，PUT 设置完整带参数路径并返回实际状态',async()=>{
   const f=fixture();assert.deepEqual((await f.call('GET')).body,overview('today'));
@@ -68,7 +68,7 @@ test('并发请求与等待期间关闭服务不执行迟到跳转',async()=>{
 test('普通文件入口自动规范化项目路径，省略任务视图时规范化为今天',async()=>{
   const f=fixture();const result=await f.call('PUT',{pages:[{url:'pages/FileDetail',params:{repoId:'core',path:'project.org'}}]});
   assert.equal(result.status,200);assert.equal(result.body.pages[0].url,'pages/ProjectDetail');
-  assert.deepEqual((await f.call('PUT',{pages:[{url:'pages/TaskOverview'}]})).body,overview('today'));
+  assert.deepEqual((await f.call('PUT',{pages:[{url:'pages/Today'}]})).body,overview('today'));
 });
 test('备忘按稳定身份读取真实 native Task，JSON 不能伪造编辑快照',async()=>{
   const f=fixture();const result=await f.call('PUT',{pages:[{url:'pages/MemoEdit',params:{task:{repoId:'core',filePath:'memo.org',id:'memo',heading:'伪造旧标题'}}}]});
@@ -80,7 +80,7 @@ test('备忘按稳定身份读取真实 native Task，JSON 不能伪造编辑快
 
 test('memoId 与卡片入口共用当前备忘文件身份解析，目标失效返回404', async () => {
   const f=fixture();
-  const page={pages:[{url:'pages/TaskOverview',params:{view:'memo'}},{url:'pages/MemoEdit',params:{memoId:'memo'}}]};
+  const page={pages:[{url:'pages/Memo'},{url:'pages/MemoEdit',params:{memoId:'memo'}}]};
   assert.equal((await f.call('PUT',page)).status,200);assert.equal(f.applied[0].current.params.task,f.task);
   f.missing();assert.equal((await f.call('PUT',page)).status,404);
   assert.equal((await f.call('PUT',{pages:[{url:'pages/MemoEdit',params:{create:true,memoId:'memo'}}]})).status,400);

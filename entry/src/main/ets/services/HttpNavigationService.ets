@@ -14,9 +14,8 @@ class NavigationError extends Error {
   readonly status: number
   constructor(status: number, message: string) { super(message); this.status = status }
 }
-const PAGE_NAMES: string[] = ['pages/Trash', 'pages/Inbox', 'pages/TaskOverview', 'pages/Files', 'pages/Settings', 'pages/ProjectDetail',
+const PAGE_NAMES: string[] = ['pages/Trash', 'pages/Inbox', 'pages/Today', 'pages/Planned', 'pages/Waiting', 'pages/Anytime', 'pages/Someday', 'pages/Memo', 'pages/Logbook', 'pages/Files', 'pages/Settings', 'pages/ProjectDetail',
   'pages/FileDetail', 'pages/RepositorySettings', 'pages/SyncLog', 'pages/ConflictFile', 'pages/MemoEdit']
-const OVERVIEWS: string[] = ['today', 'planned', 'waiting', 'anytime', 'someday', 'memo', 'logbook']
 const SECTIONS: string[] = ['', '废纸篓', '存储库', '文件入口', '任务状态分类', '应用程序', '关于小清单']
 
 // 只处理导航协议与页面身份；数据读取沿用当前 Workspace，页面语义留在 Harmony。
@@ -73,7 +72,6 @@ export class HttpNavigationService {
       if (!p || typeof p !== 'object' || Array.isArray(p)) throw new NavigationError(400, '页面参数无效')
       let allowed: string[] = []
       switch (page.url) {
-        case 'pages/TaskOverview': allowed = ['view']; break
         case 'pages/Settings': allowed = ['section']; break
         case 'pages/ProjectDetail': case 'pages/ConflictFile': allowed = ['repoId', 'path']; break
         case 'pages/FileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath']; break
@@ -86,7 +84,6 @@ export class HttpNavigationService {
         (p.syncId !== undefined && typeof p.syncId !== 'string') || (p.repositoryName !== undefined && typeof p.repositoryName !== 'string') ||
         (p.backupPath !== undefined && typeof p.backupPath !== 'string') ||
         (p.backupTime !== undefined && p.backupTime !== null && (typeof p.backupTime !== 'number' || !Number.isFinite(p.backupTime)))) throw new NavigationError(400, '页面参数类型无效')
-      if (p.view !== undefined && !OVERVIEWS.includes(p.view)) throw new NavigationError(400, '任务视图无效')
       if (p.section !== undefined && !SECTIONS.includes(p.section)) throw new NavigationError(400, '设置分组无效')
       if (['pages/ProjectDetail', 'pages/FileDetail', 'pages/ConflictFile'].includes(page.url) && (!p.repoId || !p.path)) throw new NavigationError(400, '必须指定 repoId 和 path')
       if (page.url === 'pages/SyncLog' && !p.repoId) throw new NavigationError(400, '必须指定 repoId')
@@ -100,7 +97,6 @@ export class HttpNavigationService {
 
   private static async resolve(page: PageRoute, config: AppConfig, workspace: CoreWorkspace): Promise<PageRoute> {
     const p = page.params ?? {}
-    if (page.url === 'pages/TaskOverview') return { url: page.url, params: { view: p.view ?? 'today' } }
     if (['pages/RepositorySettings', 'pages/SyncLog', 'pages/ConflictFile'].includes(page.url) && p.repoId &&
       !config.repos.some(repo => repo.id === p.repoId)) throw new NavigationError(404, '仓库不存在')
     if (page.url === 'pages/FileDetail' && p.syncId) {

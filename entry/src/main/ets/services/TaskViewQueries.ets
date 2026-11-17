@@ -19,9 +19,9 @@ export function shareLocationTaskQueries(memoFile?: CoreOrgFileRef): CoreTaskQue
   return queries
 }
 
-export type TaskOverview = 'today' | 'planned' | 'waiting' | 'anytime' | 'someday' | 'memo' | 'logbook'
+export type TaskView = 'today' | 'planned' | 'waiting' | 'anytime' | 'someday' | 'memo' | 'logbook'
 
-export function overviewTitle(view: TaskOverview): string {
+export function overviewTitle(view: TaskView): string {
   switch (view) {
     case 'today': return '今天'
     case 'planned': return '计划'
@@ -33,7 +33,7 @@ export function overviewTitle(view: TaskOverview): string {
   }
 }
 
-export function overviewTaskQuery(view: TaskOverview, file?: CoreOrgFileRef): CoreTaskQuery {
+export function overviewTaskQuery(view: TaskView, file?: CoreOrgFileRef): CoreTaskQuery {
   let expression = ''
   switch (view) {
     case 'today': expression = '.it.done (s.le.today or d.le.today)'; break

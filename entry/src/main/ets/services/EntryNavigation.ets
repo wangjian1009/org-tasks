@@ -13,7 +13,7 @@ export function entryNavigation(want: Want): PagePath | undefined {
       const pages = value.pages
       const root = pages[0]
       if (!root || Object.keys(root).some(key => key !== 'url' && key !== 'params') ||
-        root.url !== 'pages/TaskOverview' || root.params?.view !== 'memo' || Object.keys(root.params).some(key => key !== 'view')) return undefined
+        root.url !== 'pages/Memo' || root.params !== undefined && Object.keys(root.params).length > 0) return undefined
       if (pages.length === 1) return new PagePath(pages)
       const target = pages[1]
       if (pages.length !== 2 || !target || target.url !== 'pages/MemoEdit' || !target.params ||

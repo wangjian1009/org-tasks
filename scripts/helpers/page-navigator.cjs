@@ -1,6 +1,6 @@
 // 页面行为测试沿用原 Router 替身；路径与返回规则由 PageNavigator 专项测试覆盖。
 exports.pageNavigatorMock = {
-  primaryPage: view => view === 'inbox' ? { url: 'pages/Inbox' } : { url: 'pages/TaskOverview', params: { view } },
+  primaryPage: view => view === 'inbox' ? { url: 'pages/Inbox' } : { url: 'pages/' + view[0].toUpperCase() + view.slice(1) },
   PageNavigator: { shared: {
     path: { depth: 2 }, start() {}, reset() {}, restore() {}, async close() {}, watchExternalLeaveGuard() { return () => {}; },
     async pushPage(context, page) { await context.getRouter().pushUrl(page); return true; },

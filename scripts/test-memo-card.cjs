@@ -102,9 +102,9 @@ test('标题栏、加号与同名条目分别打开列表、新增和所点记�
   f.click('Button');
   f.click('Row', 2);
   assert.deepEqual(f.actions.map(action => JSON.parse(action.params.navigation)), [
-    { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }] },
-    { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }, { url: 'pages/MemoEdit', params: { create: true } }] },
-    { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }, { url: 'pages/MemoEdit', params: { memoId: 'id-second' } }] }
+    { pages: [{ url: 'pages/Memo' }] },
+    { pages: [{ url: 'pages/Memo' }, { url: 'pages/MemoEdit', params: { create: true } }] },
+    { pages: [{ url: 'pages/Memo' }, { url: 'pages/MemoEdit', params: { memoId: 'id-second' } }] }
   ]);
   f.update(['同名备忘', '同名备忘'], '暂无备忘', ['id-second', 'id-first']);
   f.click('Row', 1);

@@ -75,7 +75,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox']);
   ability.onNewWant({}, {});
   assert.equal(pages.length, 2);
-  const memoRoot = { url: 'pages/TaskOverview', params: { view: 'memo' } };
+  const memoRoot = { url: 'pages/Memo' };
   const wantPath = pages => ({ parameters: { navigation: JSON.stringify({ pages }) } });
   ability.onNewWant(wantPath([memoRoot, { url: 'pages/MemoEdit', params: { create: true } }]), {});
   assert.equal(pages.at(-1), 'pages/MemoEdit');
@@ -88,7 +88,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   ability.onNewWant(wantPath([memoRoot]), {});
   assert.equal(destinations.at(-1).entryView, 'memo');
   assert.equal(destinations.at(-1).entryMemoId, undefined);
-  const directPath = { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } },
+  const directPath = { pages: [{ url: 'pages/Memo' },
     { url: 'pages/MemoEdit', params: { memoId: 'direct-record' } }] };
   const loadsBefore = pages.length;
   ability.onNewWant({ parameters: { navigation: JSON.stringify(directPath) } }, {});

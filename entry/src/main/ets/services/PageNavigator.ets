@@ -5,10 +5,19 @@ import { AppConfigService } from './AppConfigService'
 import { DataSetManager } from './DataSetManager'
 import { FileTargetService } from './FileTargetService'
 import { NativeCoreService } from './NativeCoreService'
-import { TaskOverview } from './TaskViewQueries'
+import { TaskView } from './TaskViewQueries'
 
-export function primaryPage(view: TaskOverview | 'inbox'): PageRoute {
-  return view === 'inbox' ? { url: 'pages/Inbox' } : { url: 'pages/TaskOverview', params: { view } }
+export function primaryPage(view: TaskView | 'inbox'): PageRoute {
+  if (view === 'inbox') return { url: 'pages/Inbox' }
+  switch (view) {
+    case 'today': return { url: 'pages/Today' }
+    case 'planned': return { url: 'pages/Planned' }
+    case 'waiting': return { url: 'pages/Waiting' }
+    case 'anytime': return { url: 'pages/Anytime' }
+    case 'someday': return { url: 'pages/Someday' }
+    case 'memo': return { url: 'pages/Memo' }
+    case 'logbook': return { url: 'pages/Logbook' }
+  }
 }
 
 // 主窗口唯一的导航状态；平台 Router 只在这里执行路径变更。
@@ -139,7 +148,7 @@ export class PageNavigator {
       }
       // 不等待查询或网络：返回使用当前订阅快照，尚无结果时按空收件箱处理。
       const page = this.state.current
-      const today = page.url === 'pages/TaskOverview' && (page.params?.view ?? 'today') === 'today'
+      const today = page.url === 'pages/Today'
       const target = page.url === 'pages/Inbox' ? 'today' : today || this.inboxCount > 0 ? 'inbox' : 'today'
       await this.replaceRoot(context, primaryPage(target))
     })

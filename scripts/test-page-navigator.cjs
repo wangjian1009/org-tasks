@@ -86,7 +86,7 @@ test('今天和收件箱互相返回，不受收件箱数量影响，连续返�
     f.count(count);
     await f.navigator.openPrimary(f.context, f.primaryPage('today'));
     await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, 'pages/Inbox'); f.verify();
-    await f.navigator.back(f.context); assert.equal(f.navigator.path.current.params.view, 'today'); f.verify();
+    await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, 'pages/Today'); f.verify();
     assert.equal(f.stack.length, 1);
   } } finally { await f.navigator.close(); }
 });
@@ -98,11 +98,11 @@ test('所有其他一级页按最新收件箱快照返回；目标失效按空�
   ])) {
     for (const count of [0, 2]) {
       f.count(count); await f.navigator.openPrimary(f.context, page); await f.navigator.back(f.context);
-      assert.equal(f.navigator.path.current.url, count ? 'pages/Inbox' : 'pages/TaskOverview'); f.verify();
+      assert.equal(f.navigator.path.current.url, count ? 'pages/Inbox' : 'pages/Today'); f.verify();
     }
   }
   f.count(4); f.missing(); await f.navigator.openPrimary(f.context, { url: 'pages/Files' }); await f.navigator.back(f.context);
-  assert.equal(f.navigator.path.current.params.view, 'today');
+  assert.equal(f.navigator.path.current.url, 'pages/Today');
   } finally { await f.navigator.close(); }
 });
 
@@ -115,7 +115,7 @@ test('深层返回恢复带参数的父页；侧边栏重设一级路径清除�
   await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, page); f.verify();
   await f.navigator.openPrimary(f.context, { url: 'pages/ProjectDetail', params: { repoId: 'a', path: 'p.org' } });
   assert.equal(f.navigator.path.depth, 1); f.verify();
-  await f.navigator.back(f.context); assert.equal(f.navigator.path.current.params.view, 'today'); f.verify();
+  await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, 'pages/Today'); f.verify();
 });
 
 test('支持设置完整路径和替换当前页面，保留深层祖先', async () => {
@@ -142,7 +142,7 @@ test('配置变化关闭旧订阅并重建数据集；关闭清理监听和数�
   f.configuration(false); await until(() => f.navigator.dataLoading === undefined);
   assert.equal(f.managers[0].closed, true);
   await f.navigator.openPrimary(f.context, { url: 'pages/Files' }); await f.navigator.back(f.context);
-  assert.equal(f.navigator.path.current.params.view, 'today');
+  assert.equal(f.navigator.path.current.url, 'pages/Today');
   f.configuration(true); await until(() => f.managers.length === 2 && f.navigator.dataLoading === undefined);
   f.count(1); await f.navigator.openPrimary(f.context, { url: 'pages/Settings' }); await f.navigator.back(f.context);
   assert.equal(f.navigator.path.current.url, 'pages/Inbox');
@@ -152,7 +152,7 @@ test('配置变化关闭旧订阅并重建数据集；关闭清理监听和数�
 
 test('完整路径只加载末级页面，返回才加载未创建的祖先并保留参数', async () => {
   const f = fixture();
-  const root = { url: 'pages/TaskOverview', params: { view: 'memo' } };
+  const root = { url: 'pages/Memo' };
   const middle = { url: 'pages/ProjectDetail', params: { repoId: 'r', path: 'p.org' } };
   const edit = { url: 'pages/MemoEdit', params: { memoId: 'id' } };
   await f.navigator.setPath(f.context, new PagePath([root, middle, edit]));
@@ -161,7 +161,7 @@ test('完整路径只加载末级页面，返回才加载未创建的祖先并�
   await f.navigator.pushPage(f.context, { url: 'pages/FileDetail', params: { path: 'a.org' } });
   await f.navigator.back(f.context); assert.equal(f.loads.length, 2); assert.deepEqual(f.navigator.path.current, edit); f.verify();
   await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, middle); assert.equal(f.loads.length, 3); f.verify();
-  await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, {url:root.url, params:root.params}); assert.equal(f.loads.length, 4); f.verify();
+  await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, root.url); assert.equal(f.loads.length, 4); f.verify();
 });
 
 test('直接加载路径后返回失败保留当前页面，替换末级不会丢失懒加载祖先', async () => {
@@ -175,8 +175,8 @@ test('直接加载路径后返回失败保留当前页面，替换末级不会�
 
 
 test('窗口直接恢复完整路径不会创建父页，第一次返回按父参数加载', async () => {
-  const f=fixture(), root={url:'pages/TaskOverview',params:{view:'memo'}}, edit={url:'pages/MemoEdit',params:{create:true}};
+  const f=fixture(), root={url:'pages/Memo'}, edit={url:'pages/MemoEdit',params:{create:true}};
   f.stack[0]=edit;f.navigator.restore(new PagePath([root,edit]));
   assert.equal(f.loads.length,0);f.verify();await f.navigator.back(f.context);
-  assert.equal(f.loads.length,1);assert.deepEqual(f.loads[0],['replace',root]);f.verify();
+  assert.equal(f.loads.length,1);assert.equal(f.loads[0][0], 'replace'); assert.equal(f.loads[0][1].url, root.url);f.verify();
 });

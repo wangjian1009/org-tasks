@@ -66,7 +66,7 @@ export default class EntryAbility extends UIAbility {
     const path = this.initialPath
     const page = path.current
     PageNavigator.shared.restore(path)
-    const data: MainPageStorage = { entryView: page.params?.view,
+    const data: MainPageStorage = { entryView: undefined,
       entryMemoCreate: page.params?.create, entryMemoId: page.params?.memoId }
     const storage = new LocalStorage(data)
     stage.loadContent(page.url, storage, (err) => {

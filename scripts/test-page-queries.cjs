@@ -116,7 +116,7 @@ function fixture() {
     const filename=path.join(root,name+'.ets'),text=fs.readFileSync(filename,'utf8');
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
     if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
-    if(name==='pages/TaskOverview'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','defineDataSets','taskDataSet'])];
+    if(name==='components/TaskPageContent'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','defineDataSets','taskDataSet'])];
     if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','defineDataSets','prepareRecentLayout'];
     const chunks=methods.map(method=>{
       const oneLine=text.split('\n').find(line=>new RegExp('^  (?:private )?'+method+'\\(').test(line)&&line.trim().endsWith('}'));
@@ -137,7 +137,7 @@ function fixture() {
 
 for (const view of ['today','planned','anytime','logbook','someday','memo']) {
   test(view+(view==='today'?' 通过管理类启动固定数据集':' 首次加载定义独立任务与文件数据集'),async()=>{
-    const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+    const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
@@ -154,7 +154,7 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
 }
 
 test('今天排序候选通过 Core 排除三个特殊入口文件，宿主 ID 按仓库解析且同名普通文件保留',async()=>{
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='today';await page.loadTasks();
   assert.deepEqual(f.batches[0][3],{type:'file',query:{excludeFiles:[
     {repoId:'core-a',path:'same.org'},{repoId:'core-b',path:'same.org'},{repoId:'core-a',path:'memo.org'}]}});
@@ -170,7 +170,7 @@ function plannedTask(id, repoId, filePath, category, projectName = null) {
 }
 
 test('计划分类与项目单选互斥，候选保持完整，结果直接使用 Core 快照', async () => {
-  const f = fixture(), page = f.page('pages/TaskOverview',
+  const f = fixture(), page = f.page('components/TaskPageContent',
     ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
   const tasks = [plannedTask('a','core-a','project.org','工作','项目甲'),
     plannedTask('b','core-b','project.org','生活','项目甲'), plannedTask('c','core-a','plain.org',null)];
@@ -214,7 +214,7 @@ test('计划未分类与字面同名分类保持独立，项目路径通过结�
 });
 
 test('计划刷新清除已消失的选择，同批回退全部，读取失败后可重试', async () => {
-  const f = fixture(), page = f.page('pages/TaskOverview',
+  const f = fixture(), page = f.page('components/TaskPageContent',
     ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
   let tasks = [plannedTask('a','core-a','project.org','工作','项目甲')];
   f.query(batch => batch.map(request => request.type === 'file' ?
@@ -249,7 +249,7 @@ test('计划刷新清除已消失的选择，同批回退全部，读取失败�
 });
 
 test('计划快速切换时迟到结果不覆盖最后一次选择与任务', async () => {
-  const f = fixture(), page = f.page('pages/TaskOverview',
+  const f = fixture(), page = f.page('components/TaskPageContent',
     ['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
   const tasks = [plannedTask('a','core-a','a.org','工作','项目甲'),
     plannedTask('b','core-b','b.org','生活','项目乙')];
@@ -276,7 +276,7 @@ test('计划快速切换时迟到结果不覆盖最后一次选择与任务', as
 });
 
 test('日志簿向 Core 请求 Done 与 Cancel 分类，每个返回任务只展示一次关闭记录', async () => {
-  const f = fixture(), page = f.page('pages/TaskOverview', ['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f = fixture(), page = f.page('components/TaskPageContent', ['loadTasks','supportsTagFilter','applyTagFilter']);
   const tasks = [
     { id:'finished', project:()=>null, state:{name:'CUSTOM_FINISH',category:'Done'}, createdAt:1_700_000_000_000, closedAt:1_700_003_600_000 },
     { id:'cancelled', project:()=>null, state:{name:'CUSTOM_ABORT',category:'Cancel'}, createdAt:1_600_000_000_000, closedAt:1_700_000_000_000 },
@@ -409,7 +409,7 @@ test('项目进度按 Core 分类汇总，取消和未分类状态只计入总�
 });
 
 test('失效文件和未配置文件不退回全仓库任务，通知仍在同一个批次内加载',async()=>{
-  const f=fixture();f.missing();const page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f=fixture();f.missing();const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='memo';await page.loadTasks();assert.equal(page.needsConfiguration,true);assert.equal(f.batches.length,1);
   f.config.memoRepoId='';f.configChanged();await page.loadTasks();assert.equal(f.batches.length,2);
   assert.ok(f.batches[1].every(item=>item.type==='file'));
@@ -468,7 +468,7 @@ test('收件箱移动浮层已打开时，列表刷新仍只有一个混合查�
 
 
 test('页面重复出现只复用管理对象，AppShell 不再持有底层刷新机制',async()=>{
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='anytime';await page.loadTasks();const manager=page.dataManager;await page.loadTasks();
   assert.equal(page.dataManager,manager);assert.equal(f.batches.length,1);
   const shell=fs.readFileSync(path.join(root,'components/AppShell.ets'),'utf8');
@@ -485,7 +485,7 @@ test('存储库清单的全部仓库文件元信息与通知也使用同一批�
 
 
 test('今天同批读取来源顺序与优先级顺序，标签切换只重组当前快照', async () => {
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   const values=[plannedTask('low','core-a','plain.org','工作'), plannedTask('high','core-a','project.org','工作','项目'),
     plannedTask('default','core-a','plain.org','工作'), plannedTask('project-low','core-a','project.org','工作','项目')];
   values.forEach(task=>{task.tags=task.id==='default'?['隐藏']:['显示'];});
@@ -505,7 +505,7 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
 
 for (const view of ['anytime', 'waiting']) {
 test(`${view} 通过 Core 按优先级和创建时间倒序查询，项目分组与标签筛选保持原顺序`, async () => {
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   const values=[plannedTask('high-new','core-a','plain.org','工作'), plannedTask('project-high','core-a','project.org','工作','项目'),
     plannedTask('high-old','core-a','plain.org','工作'), plannedTask('project-low','core-a','project.org','工作','项目')];
   values.forEach(task=>{task.tags=task.id==='high-new'?['隐藏']:['显示'];});
@@ -526,7 +526,7 @@ test(`${view} 通过 Core 按优先级和创建时间倒序查询，项目分组
 
 
 test('今天页面将当日时刻接入顶部，筛选后清空时间区但仍保留基础快照', async () => {
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   const today=f.load('ui/Theme').localDate(new Date());
   const values=[plannedTask('timed','core-a','project.org','工作','项目'),plannedTask('ordinary','core-a','plain.org','个人')];
   values[0].scheduled=today;values[0].tags=['工作'];
@@ -545,7 +545,7 @@ test('今天页面将当日时刻接入顶部，筛选后清空时间区但仍�
 });
 
 test('今天编辑会话期间数据集继续更新，列表重排等会话结束后应用且不重新查询',async()=>{
-  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter','todayInlineChanged']);
+  const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter','todayInlineChanged']);
   const original=[plannedTask('old','core-a','plain.org','工作')];let rows=original;
   f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
   page.view='today';await page.loadTasks();assert.equal(page.tasks,original);
@@ -557,7 +557,7 @@ test('今天编辑会话期间数据集继续更新，列表重排等会话结�
 });
 
 test('今天内容字段更新与同值确认复用列表容器和参考日期，返回页面不重建分组',async()=>{
- const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+ const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
  let rows=[plannedTask('A','core-a','plain.org','工作'),plannedTask('B','core-a','plain.org','工作')];
  f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
  page.view='today';page.referenceTime=Date.now();await page.loadTasks();

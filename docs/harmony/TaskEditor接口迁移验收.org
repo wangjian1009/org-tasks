@@ -20,7 +20,7 @@ TaskEditor 收集标题、备注以及内嵌日期、标签、重复、优先级
 | 今天 | [[file:../../entry/src/main/ets/components/TodayTaskList.ets][TodayTaskList]]：普通任务与日程 | 页面 DataSetManager 绑定 DataManager 与 DataSet | 标题编辑及存盘，未改备注保留；另验证 50 条任务下编辑、确认、收起及切换返回的阅读位置 |
 | 随时 | [[file:../../entry/src/main/ets/components/TodayTaskList.ets][TodayTaskList]] | 列表组合层创建记录管理对象并绑定 DataSet | 标题编辑及 API 查询核对，未改备注保留 |
 | 计划 | [[file:../../entry/src/main/ets/components/PlannedTaskList.ets][PlannedTaskList]]：普通任务与日程 | 列表组合层显式注入 | 两种区域分别完成标题编辑与存盘，未改备注保留 |
-| 某天 | [[file:../../entry/src/main/ets/pages/TaskOverview.ets][TaskOverview]]：文件任务列表 | 页面组合层显式注入 | 绑定文件中的任务编辑成功，API 查询核对字段 |
+| 某天 | [[file:../../entry/src/main/ets/pages/Someday.ets][Someday]]：文件任务列表 | 页面组合层显式注入 | 绑定文件中的任务编辑成功，API 查询核对字段 |
 | 收件箱 | [[file:../../entry/src/main/ets/pages/Inbox.ets][Inbox]]：主列表与最近新增 | 页面组合层共享管理对象，分别绑定记录 | 两个区域分别完成标题编辑，未改字段保留；最近新增记录由 API 从收件箱外文件创建 |
 | 日志簿 | [[file:../../entry/src/main/ets/components/LogbookTaskList.ets][LogbookTaskList]] | 列表组合层注入，保留只读与完成操作策略 | 只读展开、重新打开任务，API 确认状态变为 Todo，列表更新 |
 | 项目详情 | [[file:../../entry/src/main/ets/components/ProjectDocumentView.ets][ProjectDocumentView]] | ProjectDataManager 从文件取得全部节点，按 taskId 查找绑定；不读写页面缓存 | 项目任务标题修改成功，正文与备注保持原样；完整文件 DataSet 的排队修改、真实事件身份映射和失败恢复通过专门检查 |

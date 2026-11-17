@@ -13,7 +13,7 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { SidebarDataManager, SidebarSnapshot } from '../services/SidebarDataManager'
 import { ProjectNavigation } from '../services/ProjectNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
-import { overviewTitle, TaskOverview } from '../services/TaskViewQueries'
+import { overviewTitle, TaskView } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
 import { RegionOrderService } from '../services/RegionOrderService'
 import { RegionOrder } from '../ui/RegionOrderPresentation'
@@ -127,7 +127,7 @@ export struct AppShell {
     if (orderError && request === this.orderRevision) this.navMessage = orderError
   }
 
-  async openPrimary(view: TaskOverview | 'inbox') {
+  async openPrimary(view: TaskView | 'inbox') {
     this.drawerOpen = false
     try {
       if ((view === 'inbox' || view === 'someday' || view === 'memo') && !await this.navigationDataManager().targetConfigured(view)) {
@@ -158,7 +158,7 @@ export struct AppShell {
   }
 
 
-  primaryCount(view: TaskOverview | 'inbox'): number {
+  primaryCount(view: TaskView | 'inbox'): number {
     switch (view) {
       case 'inbox': return this.inboxCount
       case 'today': return this.todayCount
@@ -172,7 +172,7 @@ export struct AppShell {
   }
 
   @Builder
-  primaryItem(title: string, icon: Resource, view: TaskOverview | 'inbox') {
+  primaryItem(title: string, icon: Resource, view: TaskView | 'inbox') {
     Row({ space: 12 }) {
       Image(icon).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
       Text(title).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium).fontColor(UiColor.drawerText).layoutWeight(1)
@@ -186,7 +186,7 @@ export struct AppShell {
       }
     }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)
       .backgroundColor(view === 'inbox' ? (this.activeRoute === 'pages/Inbox' ? UiColor.drawerSelected : Color.Transparent)
-        : this.activeRoute === 'pages/TaskOverview' && this.activeOverview === view ? UiColor.drawerSelected : Color.Transparent)
+        : this.activeRoute === primaryPage(view).url ? UiColor.drawerSelected : Color.Transparent)
       .accessibilityText(`${title}${this.primaryCount(view) >= 0 ? `，${this.primaryCount(view)} 条` : ''}${view === 'today' && this.todayAttentionCount > 0 ? `，需处理 ${this.todayAttentionCount} 个` : ''}`)
       .onClick((): void => { this.openPrimary(view) })
   }

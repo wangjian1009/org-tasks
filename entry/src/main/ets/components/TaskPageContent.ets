@@ -23,7 +23,7 @@ import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { RegionOrderService } from '../services/RegionOrderService'
 import { RegionOrder, OrderRegion, regionOrderCatalog, regionOrderFromDraft, orderTodaySections, todayVisibleRegionKeys } from '../ui/RegionOrderPresentation'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
-import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskOverview as OverviewKind } from '../services/TaskViewQueries'
+import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskView } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, TodayTimedTaskItem, todayLayout, anytimeSections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
@@ -32,11 +32,8 @@ import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { LogbookGroup, logbookGroups } from '../ui/LogbookPresentation'
 import { filterTasksByTags, reconcileTaskTags, taskTagOptions, TaskTagSelection } from '../ui/TaskTagFilterPresentation'
 
-interface OverviewParams { view?: OverviewKind }
-
-@Entry({ useSharedStorage: true })
 @Component
-struct TaskOverview {
+export struct TaskPageContent {
   private dataManager: DataSetManager | undefined = undefined
   private tasksDataSet: DataSet | undefined = undefined
   private priorityDataSet: DataSet | undefined = undefined
@@ -50,9 +47,9 @@ struct TaskOverview {
 
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
-  @LocalStorageProp('entryView') entryView: string = ''
+  @Prop view: TaskView = 'today'
+  @Prop pageRoute: string = 'pages/Today'
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
-  @State view: OverviewKind = 'today'
   @State tasks: CoreTask[] = []
   @State visibleTasks: CoreTask[] = []
   @State priorityOrder: string[] = []
@@ -85,8 +82,6 @@ struct TaskOverview {
   private pageLayoutDeferred: boolean = false
 
   aboutToAppear() {
-    this.view = (this.getUIContext().getRouter().getParams() as OverviewParams | undefined)?.view ||
-      (this.entryView === 'memo' ? 'memo' : 'today')
     this.orderActive = true
     if (this.view === 'today') this.loadRegionOrder()
     this.loadTasks()
@@ -205,7 +200,7 @@ struct TaskOverview {
       save: async (draft: OrderRegion[], reset: boolean): Promise<void> => { await this.saveRegionOrder(draft, reset) } })
   }
 
-  defineDataSets(config: AppConfig, view: OverviewKind, region: TaskRegionData | null): DataSetDefinition[] {
+  defineDataSets(config: AppConfig, view: TaskView, region: TaskRegionData | null): DataSetDefinition[] {
     this.trashConfig = config
     const definitions: DataSetDefinition[] = []
     if (view === 'memo' || view === 'someday') {
@@ -407,7 +402,7 @@ struct TaskOverview {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ title: overviewTitle(this.view), activeRoute: 'pages/TaskOverview', activeOverview: this.view,
+      AppShell({ title: overviewTitle(this.view), activeRoute: this.pageRoute, activeOverview: this.view,
         titleIcon: this.overviewIcon(),
         actionLabel: this.view === 'today' ? '今天更多操作' : '', actionMenuItems: this.todayActions(),
         drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo || this.orderSaving, pullDisabled: this.orderSheetOpen }) {

@@ -1,8 +1,6 @@
 import { CoreTask } from './NativeCoreService'
-import { TaskOverview } from './TaskViewQueries'
 
 export interface PageParameters {
-  readonly view?: TaskOverview
   readonly repoId?: string
   readonly path?: string
   readonly syncId?: string

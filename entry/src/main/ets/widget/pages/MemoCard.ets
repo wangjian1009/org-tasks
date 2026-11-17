@@ -30,7 +30,7 @@ struct MemoCard {
   }
 
   private navigate(target?: MemoCardPage): void {
-    const path: MemoCardPath = { pages: [{ url: 'pages/TaskOverview', params: { view: 'memo' } }] }
+    const path: MemoCardPath = { pages: [{ url: 'pages/Memo' }] }
     if (target) path.pages.push(target)
     postCardAction(this, { action: 'router', abilityName: 'EntryAbility', params: { navigation: JSON.stringify(path) } })
   }
