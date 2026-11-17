@@ -1,7 +1,7 @@
 import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { AppConfig } from '../models/OrgTask'
-import { FileTargetService } from '../services/FileTargetService'
+import { FileTargetService, configuredSpecialFileExclusions } from '../services/FileTargetService'
 import { LogbookService } from '../services/LogbookService'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
@@ -42,7 +42,7 @@ struct TaskOverview {
   private priorityDataSet: DataSet | undefined = undefined
   private rangeDataSet: DataSet | undefined = undefined
   private targetDataSet: DataSet | undefined = undefined
-  private filesDataSet: DataSet | undefined = undefined
+  private orderFilesDataSet: DataSet | undefined = undefined
   private stops: (() => void)[] = []
   @State pageReady: boolean = false
   private taskDataSet(): DataSet { return this.view === 'planned' && !this.selectedPlanRegion ? this.rangeDataSet! : this.tasksDataSet! }
@@ -179,7 +179,7 @@ struct TaskOverview {
   async openTodayOrder(): Promise<void> {
     if (this.orderSheetOpen || this.orderSaving || !this.pageReady || !await TaskInlineSession.end(true)) return
     if (!this.orderLoaded) await this.loadTodayOrder()
-    if (!this.filesDataSet?.isReady() || this.filesDataSet.error) {
+    if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) {
       try { this.getUIContext().getPromptAction().showToast({ message: '分类与项目尚未读取完成，请稍后重试' }) }
       catch (_) { console.error('显示分区读取提示失败') }
       return
@@ -189,7 +189,7 @@ struct TaskOverview {
   }
 
   async saveTodayOrder(draft: TodayOrderRegion[], reset: boolean): Promise<void> {
-    if (!this.filesDataSet?.isReady() || this.filesDataSet.error) throw new Error('分类与项目尚未读取完成，请稍后重试')
+    if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) throw new Error('分类与项目尚未读取完成，请稍后重试')
     const order = reset ? null : todayOrderFromDraft(draft, this.orderCatalog)
     await TodayRegionOrderService.save(this.getUIContext().getHostContext()!, order)
     if (!this.orderActive) return
@@ -216,6 +216,10 @@ struct TaskOverview {
       if (view === 'planned') definitions.push({ name: 'tasks', query: region ? plannedRegionQuery(region) : { type: 'task', query: overviewTaskQuery('planned') } })
     }
     if (view !== 'someday') definitions.push({ name: 'files', query: { type: 'file', query: {} } })
+    if (view === 'today') {
+      const exclusions = configuredSpecialFileExclusions(config)
+      definitions.push({ name: 'orderFiles', query: { type: 'file', query: { excludeFiles: exclusions.files } }, repositoryBindings: exclusions.repositoryBindings })
+    }
     return definitions
   }
 
@@ -234,8 +238,8 @@ struct TaskOverview {
       this.tasksDataSet = this.dataManager.dataSet('tasks')
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       if (view === 'today') {
-        this.filesDataSet = this.dataManager.dataSet('files')
-        this.stops.push(this.filesDataSet.subscribe((): void => { this.applyPageSnapshot() }))
+        this.orderFilesDataSet = this.dataManager.dataSet('orderFiles')
+        this.stops.push(this.orderFilesDataSet.subscribe((): void => { this.applyPageSnapshot() }))
         this.priorityDataSet = this.dataManager.dataSet('priority')
         this.stops.push(this.priorityDataSet.subscribe((): void => {
           const data = this.priorityDataSet?.data
@@ -280,7 +284,7 @@ struct TaskOverview {
     this.needsConfiguration = (this.view === 'memo' || this.view === 'someday') && !!target && !file
     this.tasks = data?.type === 'task' ? data.result.tasks : []
     if (this.view === 'today') {
-      const files = this.filesDataSet?.data
+      const files = this.orderFilesDataSet?.data
       this.orderCatalog = todayOrderCatalog(files?.type === 'file' ? files.result : [], todayLayout(this.tasks, this.priorityOrder, new Date(this.referenceTime)))
     }
     this.tagGroups = this.view === 'memo' ? file?.tagGroups ?? [] : []

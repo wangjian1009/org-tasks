@@ -139,7 +139,7 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'?['task','file']:view==='memo'?['task','file','file']:view==='today'||view==='planned'?['task','task','file']:['task','file']);
+    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'?['task','file']:view==='memo'?['task','file','file']:view==='today'?['task','task','file','file']:view==='planned'?['task','task','file']:['task','file']);
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
@@ -150,6 +150,17 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     if(view==='memo')assert.deepEqual(page.tagOptions,['未使用标签']);
   });
 }
+
+test('今天排序候选通过 Core 排除三个特殊入口文件，宿主 ID 按仓库解析且同名普通文件保留',async()=>{
+  const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
+  page.view='today';await page.loadTasks();
+  assert.deepEqual(f.batches[0][3],{type:'file',query:{excludeFiles:[
+    {repoId:'core-a',path:'same.org'},{repoId:'core-b',path:'same.org'},{repoId:'core-a',path:'memo.org'}]}});
+  const exclusions=f.load('services/FileTargetService').configuredSpecialFileExclusions;
+  f.config.somedayRepoId=f.config.inboxRepoId;f.config.somedayFile=f.config.inboxFile;
+  f.config.memoRepoId='missing';
+  assert.deepEqual(exclusions(f.config),{files:[{repoId:'host-a',path:'same.org'}],repositoryBindings:[{id:'host-a',rootDirectory:'/a'}]});
+});
 
 function plannedTask(id, repoId, filePath, category, projectName = null) {
   return { id, repoId, filePath, category, project: () => projectName, heading: id,

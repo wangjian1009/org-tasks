@@ -10,6 +10,20 @@ export interface FileTarget { repoId: string; path: string }
 export interface ResolvedFileTarget { repository: RepoConfig; repo: CoreRepo; path: string; metadata: CoreOrgFileMetadata; tagOptions: string[]; tagGroups: string[][] }
 export interface PreparedFileTarget { task: CoreQuery; file: CoreQuery; reference: CoreOrgFileRef; repositoryBindings?: CoreQueryRepositoryBinding[] }
 export interface FileTargetQueryResult extends CoreTaskQueryResult { tagOptions: string[]; tagGroups: string[][] }
+export interface ConfiguredFileExclusions { files: CoreOrgFileRef[]; repositoryBindings: CoreQueryRepositoryBinding[] }
+
+// 特殊文件按配置仓库和相对路径定位，由工作线程解析宿主仓库 ID。
+export function configuredSpecialFileExclusions(config: AppConfig): ConfiguredFileExclusions {
+  const files: CoreOrgFileRef[] = []
+  const repositoryBindings: CoreQueryRepositoryBinding[] = []
+  for (const target of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday'), configuredFileTarget(config, 'memo')]) {
+    const repository = config.repos.find(repo => repo.id === target.repoId)
+    if (!repository || !target.path) continue
+    if (!files.some(file => file.repoId === repository.id && file.path === target.path)) files.push({ repoId: repository.id, path: target.path })
+    if (!repositoryBindings.some(binding => binding.id === repository.id)) repositoryBindings.push({ id: repository.id, rootDirectory: repository.rootDirectory })
+  }
+  return { files, repositoryBindings }
+}
 
 export function configuredFileTarget(config: AppConfig, kind: FileTargetKind): FileTarget {
   if (kind === 'inbox') return { repoId: config.inboxRepoId, path: config.inboxFile }

@@ -92,7 +92,7 @@ export struct TodayRegionOrderSheet {
       if (region.projects.length > 0) {
         Text(this.expanded.includes(region.key) ? '⌄' : '›').fontSize(22).fontColor(UiColor.secondary).width(20).textAlign(TextAlign.Center)
       } else { Row().width(20) }
-      Image(region.key === 'schedule' ? $r('app.media.nav_planned') : $r('app.media.ui_category')).width(22).height(22).draggable(false)
+      Image($r('app.media.ui_category')).width(22).height(22).draggable(false)
       Text(region.title).fontSize(16).fontColor(UiColor.text).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       if (region.taskCount === 0) { Text('暂无任务').fontSize(12).fontColor(UiColor.secondary) }
       this.handle(region.title)
@@ -118,7 +118,7 @@ export struct TodayRegionOrderSheet {
         Button(this.busy ? '保存中' : '完成').id('today_order_done').fontColor(UiColor.primary).backgroundColor(Color.Transparent)
           .enabled(!this.busy && (!this.readError || this.readErrorCleared)).onClick((): void => { this.confirm() })
       }.height(56).width('100%')
-      Text('长按拖动调整顺序，点击分类展开项目；普通任务固定在项目下方。')
+      Text('长按拖动分类与项目；日程固定置顶，普通任务固定在项目下方。')
         .fontSize(13).fontColor(UiColor.secondary).padding({ left: 20, right: 20, bottom: 12 }).width('100%')
       if (this.message || (this.readError && !this.readErrorCleared)) {
         Text(this.message || this.readError).fontSize(13).fontColor(UiColor.error).padding(12).width('100%')
@@ -134,7 +134,7 @@ export struct TodayRegionOrderSheet {
                     ListItem() { this.projectRow(project) }
                   }, (project: TodayOrderProject) => project.key)
                     .onMove((from: number, to: number): void => { this.moveProject(region.key, from, to) })
-                }.height(region.projects.length * 48).width('100%').enableScrollInteraction(false)
+                }.height(region.projects.length * 48).width('100%').enableScrollInteraction(false).scrollBar(BarState.Off)
               }
               Divider().color(UiColor.outline).strokeWidth(0.5)
             }.width('100%')
@@ -143,7 +143,7 @@ export struct TodayRegionOrderSheet {
           .onMove((from: number, to: number): void => { this.moveRegion(from, to) },
             { onDragStart: (_index: number): void => { this.expanded = [] } })
       }.id('today_order_list').layoutWeight(1).width('100%').padding({ left: 12, right: 12 })
-        .enabled(!this.busy).edgeEffect(EdgeEffect.None)
+        .enabled(!this.busy).edgeEffect(EdgeEffect.None).scrollBar(BarState.Off)
       Button('恢复默认顺序').id('today_order_reset').height(48).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
         .enabled(!this.busy).onClick((): void => { this.restoreDefaults() })
     }.width('100%').height('100%').padding({ bottom: 16 }).backgroundColor(UiColor.container)

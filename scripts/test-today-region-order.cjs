@@ -46,18 +46,36 @@ test('目录覆盖无今日任务的已知项目，缺失分类与字面未分�
   const ignored=file('ignored.org','隐藏','隐藏项目');ignored.isIgnore=true;
   assert.ok(!p.todayOrderCatalog([ignored],{timedItems:[],sections:[]}).some(r=>r.key==='category:隐藏'));
 });
-test('自定义区域可位于日程之前，项目按保存顺序，普通任务始终在项目之后且不改变区内任务',()=>{
+
+test('任务快照中的特殊文件不能重新引入已排除的分类或项目，同名普通文件按仓库保留',()=>{
+  const input=layout();
+  const result=p.todayOrderCatalog([file('b.org','工作','项目乙')],input);
+  assert.deepEqual(result[0].projects.map(project=>project.key),[projectKey('repo','b.org')]);
+  assert.equal(result[0].taskCount,1);
+  assert.deepEqual(p.todayOrderCatalog([],input),[]);
+  const another=task('other','工作','同名项目','a.org','other');
+  input.sections[0].groups.push({key:'other',project:'同名项目',items:[{task:another}]});
+  input.sections[0].items.push({task:another});
+  const sameName=p.todayOrderCatalog([file('a.org','工作','同名项目','other')],input);
+  assert.deepEqual(sameName[0].projects.map(project=>project.key),[projectKey('other','a.org')]);
+  assert.equal(sameName[0].taskCount,1);
+});
+test('日程固定置顶且不进入排序目录，旧配置不能移动日程，普通任务始终在项目之后',()=>{
   const input=layout(), order={version:1,regions:['category:工作','schedule'],projects:[{region:'category:工作',keys:[projectKey('repo','b.org'),projectKey('repo','a.org')]}]};
   const result=p.orderTodaySections(input.sections,order);
   assert.deepEqual(result[0].groups.map(g=>g.items[0].task.id),['b','a','plain']);
   assert.deepEqual(input.sections[0].groups.map(g=>g.items[0].task.id),['plain','b','a']);
   assert.equal(result[0].items,input.sections[0].items);
-  assert.deepEqual(p.todayVisibleRegionKeys(result,true,order),['category:工作','schedule']);
+  assert.deepEqual(p.todayVisibleRegionKeys(result,true,order),['schedule','category:工作']);
+  assert.ok(!catalog().some(region=>region.key==='schedule'));
+  const saved=p.todayOrderFromDraft([{key:'schedule',title:'日程',projects:[],taskCount:1},...catalog()],catalog());
+  assert.ok(!saved.regions.includes('schedule'));
 });
 test('新增分类和项目追加到对应层级末尾，展示与目录读取保留已保存的失效记录',()=>{
   const order={version:1,regions:['category:失效','category:生活','schedule'],projects:[{region:'category:工作',keys:['失效项目',projectKey('repo','b.org')]}]};
   const before=JSON.stringify(order), result=p.orderedTodayCatalog(catalog(),order);
-  assert.deepEqual(result.slice(0,2).map(r=>r.key),['category:生活','schedule']);
+  assert.equal(result[0].key,'category:生活');
+  assert.ok(!result.some(region=>region.key==='schedule'));
   assert.deepEqual(result.find(r=>r.key==='category:工作').projects.map(p=>p.key),[projectKey('repo','b.org'),projectKey('repo','a.org')]);
   assert.equal(JSON.stringify(order),before);
   const restored={...catalog()[1],key:'category:失效'};
@@ -79,7 +97,7 @@ test('同名项目按仓库文件区分，项目改名保留顺序身份',()=>{
   const order={version:1,regions:[],projects:[{region:'category:工作',keys:[projectKey('repo','b.org')]}]};
   assert.equal(p.orderTodaySections(l.sections,order)[0].groups[0].project,'改名');
   const cat=p.todayOrderCatalog([file('a.org','工作','同名','one'),file('a.org','工作','同名','two')],{sections:[],timedItems:[]});
-  assert.equal(new Set(cat[1].projects.map(p=>p.key)).size,2);
+  assert.equal(new Set(cat[0].projects.map(p=>p.key)).size,2);
 });
 function storageFixture() {
   let failFlush=0, hold;
