@@ -424,7 +424,7 @@ function projectPageFixture() {
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'todo', 'work'], headerEntries: () => [], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
     '../services/DataManager': { DataManager: class {
-      static create(context,page,definitions,options){assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
+      static create(context,page,definitions,options){definitions=definitions({repos:[],inboxRepoId:'',inboxFile:'',somedayRepoId:'',somedayFile:'',memoRepoId:'',memoFile:''});assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
       dataSet(){return this;}
       get document(){return this.file?{file:this.file,tasks:this.file.nodes()}:undefined;}
       get data(){return this.getConfirmed().data;}
@@ -442,6 +442,7 @@ function projectPageFixture() {
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
     '../components/ProjectFileHeader': {}, '../ui/ProjectHeaderPresentation': projectHeader,
     '../ui/TaskTagFilterPresentation': tagFilter,
+    '../services/FileTargetService': { configuredSpecialFileExclusions: () => ({ files: [], repositoryBindings: [] }) },
     '../components/AppShell': {}, '../components/controls/EmptyState': {},
     '../components/OrgFilePreviewView': { OrgFilePreviewNavigation: class {
       async captureReadingState() { return capture; } closePanel() { return false; }

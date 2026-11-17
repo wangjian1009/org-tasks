@@ -186,11 +186,11 @@ export struct ProjectFileHeader {
   @Builder
   tagChip(tag: string) {
     Button({ type: ButtonType.Normal }) {
-      Text(this.selectedTags.includes(tag) ? `✓ ${tag}` : tag).fontSize(10).lineHeight(14)
+      Text(this.selectedTags.includes(tag) ? `✓ ${tag}` : tag).fontSize(16).lineHeight(22)
         .fontColor(this.selectedTags.includes(tag) ? UiColor.onPrimary : UiColor.text)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: 180 })
         .padding({ left: 6, right: 6, top: 3, bottom: 3 })
-    }.width('auto').height(20).padding(0).borderRadius(4).flexShrink(0)
+    }.width('auto').height(32).padding(0).borderRadius(4).flexShrink(0)
       .backgroundColor(this.selectedTags.includes(tag) ? UiColor.primary : Color.Transparent)
       .id(`project_filter_tag_${tag}`).onClick((): void => { if (this.allowFilterClick()) this.toggle(tag) })
       .accessibilityText(`${tag}，${this.selectedTags.includes(tag) ? '已选中，点击取消筛选' : '未选中，点击加入筛选'}`)
@@ -199,18 +199,18 @@ export struct ProjectFileHeader {
   @Builder
   categoryValue(value: string) {
     Button({ type: ButtonType.Normal }) {
-      Text(this.selectedCategory === value ? `✓ ${value}` : value).fontSize(10).lineHeight(14)
+      Text(this.selectedCategory === value ? `✓ ${value}` : value).fontSize(16).lineHeight(22)
         .fontColor(this.selectedCategory === value ? UiColor.onPrimary : UiColor.text)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: 180 })
         .padding({ left: 6, right: 6, top: 3, bottom: 3 })
-    }.width('auto').height(20).padding(0).borderRadius(4)
+    }.width('auto').height(32).padding(0).borderRadius(4)
       .backgroundColor(this.selectedCategory === value ? UiColor.primary : Color.Transparent)
       .id('project_filter_category').onClick((): void => { if (this.allowFilterClick()) this.toggleCategory() })
   }
 
   @Builder
   fileTag(tag: string) {
-    Text(tag).fontSize(10).lineHeight(14).fontColor(UiColor.secondary)
+    Text(tag).fontSize(16).lineHeight(22).fontColor(UiColor.secondary)
       .padding({ left: 6, right: 6, top: 2, bottom: 2 }).backgroundColor(UiColor.field).borderRadius(4)
   }
 
@@ -220,15 +220,15 @@ export struct ProjectFileHeader {
       ForEach(this.draft(entry.id).tags, (tag: string) => {
         Button({ type: ButtonType.Normal }) {
           Stack({ alignContent: Alignment.TopEnd }) {
-            Text(entry.edit!.kind !== 'fileTags' && this.selectedTags.includes(tag) ? `✓ ${tag}` : tag).fontSize(10).lineHeight(14)
+            Text(entry.edit!.kind !== 'fileTags' && this.selectedTags.includes(tag) ? `✓ ${tag}` : tag).fontSize(16).lineHeight(22)
               .fontColor(entry.edit!.kind === 'fileTags' ? UiColor.secondary : this.selectedTags.includes(tag) ? UiColor.onPrimary : UiColor.text)
               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: 180 })
               .padding({ left: 6, right: 6, top: 3, bottom: 3 })
             if (!entry.edit!.protectedTags.includes(tag)) {
-              Text('×').fontSize(8).lineHeight(10).fontColor(UiColor.secondary).hitTestBehavior(HitTestMode.None)
+              Text('×').fontSize(12).lineHeight(14).fontColor(UiColor.secondary).hitTestBehavior(HitTestMode.None)
             }
           }
-        }.height(20).padding(0).borderRadius(4).flexShrink(0)
+        }.height(32).padding(0).borderRadius(4).flexShrink(0)
           .backgroundColor(entry.edit!.kind === 'fileTags' ? UiColor.field : this.selectedTags.includes(tag) ? UiColor.primary : Color.Transparent)
           .id(`project_header_delete_${index}_${tag}`)
           .enabled(!this.busy && !this.saved && !entry.edit!.protectedTags.includes(tag))
@@ -236,8 +236,8 @@ export struct ProjectFileHeader {
           .onClick((): void => { this.removeTag(entry.id, tag) })
       }, (tag: string) => tag)
       if (this.creatingTagId === entry.id) {
-        TextInput({ text: this.draft(entry.id).newTag, placeholder: '标签' }).fontSize(10).placeholderFont({ size: 10 }).placeholderColor(UiColor.secondary).fontColor(UiColor.text).height(20)
-          .width(Math.min(160, Math.max(48, this.draft(entry.id).newTag.length * 10 + 16)))
+        TextInput({ text: this.draft(entry.id).newTag, placeholder: '标签' }).fontSize(16).placeholderFont({ size: 16 }).placeholderColor(UiColor.secondary).fontColor(UiColor.text).height(32)
+          .width(Math.min(160, Math.max(48, this.draft(entry.id).newTag.length * 16 + 16)))
           .padding({ left: 6, right: 6, top: 0, bottom: 0 }).backgroundColor(UiColor.field).borderRadius(4)
           .id(`project_header_tag_input_${index}`).enabled(!this.busy && !this.saved).defaultFocus(true)
           .onAppear((): void => { this.focusNewTag(entry.id, index) })
@@ -245,12 +245,12 @@ export struct ProjectFileHeader {
           .onBlur((): void => { this.addTag(entry.id) })
           .onSubmit((): void => { this.addTag(entry.id) })
       } else {
-        Button('+', { type: ButtonType.Normal }).fontSize(14).height(20).width(20).padding(0).borderRadius(4)
+        Button('+', { type: ButtonType.Normal }).fontSize(20).height(32).width(32).padding(0).borderRadius(4)
           .backgroundColor(Color.Transparent).fontColor(UiColor.primary).enabled(!this.busy && !this.saved)
           .accessibilityText(`添加 ${entry.name} 标签`).id(`project_header_add_${index}`)
           .onClick((): void => { this.startTag(entry.id) })
       }
-    }.width('100%').constraintSize({ minHeight: 20 })
+    }.width('100%').constraintSize({ minHeight: 32 })
   }
 
   @Builder
@@ -258,13 +258,13 @@ export struct ProjectFileHeader {
     if (this.tagEditor(entry)) { this.inlineTags(entry, index) }
     else {
       Row({ space: 2 }) {
-        TextInput({ text: this.draft(entry.id).text, placeholder: entry.name }).fontSize(10).placeholderFont({ size: 10 }).placeholderColor(UiColor.secondary).fontColor(UiColor.text).height(20)
+        TextInput({ text: this.draft(entry.id).text, placeholder: entry.name }).fontSize(16).placeholderFont({ size: 16 }).placeholderColor(UiColor.secondary).fontColor(UiColor.text).height(32)
           .padding({ left: 6, right: 6, top: 0, bottom: 0 }).backgroundColor(Color.Transparent).borderRadius(0).layoutWeight(1)
           .id(`project_header_value_${index}`).enabled(!this.busy && !this.saved)
           .onChange((value: string): void => { this.setText(entry.id, value) })
         if (entry.edit?.kind === 'category' && this.categoryOptions.length > 0) {
-          Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_down')).width(10).height(10).fillColor(UiColor.secondary) }
-            .width(20).height(20).padding(0)
+          Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_down')).width(16).height(16).fillColor(UiColor.secondary) }
+            .width(32).height(32).padding(0)
             .backgroundColor(Color.Transparent).fontColor(UiColor.secondary).enabled(!this.busy && !this.saved)
             .accessibilityText('选择已有分类')
             .bindMenu(this.categoryOptions.map((value: string): MenuElement => ({ value,
@@ -278,7 +278,7 @@ export struct ProjectFileHeader {
     Column({ space: 0 }) {
       ForEach(this.entries(), (entry: CoreFileHeaderEntry, index: number) => {
         Row({ space: 12 }) {
-          Text(`${this.label(entry)}:`).fontSize(10).lineHeight(14).fontColor(UiColor.disabled)
+          Text(`${this.label(entry)}:`).fontSize(16).lineHeight(22).fontColor(UiColor.disabled)
             .width(96).wordBreak(WordBreak.BREAK_ALL).padding({ top: 3, bottom: 3 }).flexShrink(0)
           Column() {
             if (this.editing && entry.edit) { this.inlineValue(entry, index) }
@@ -287,25 +287,25 @@ export struct ProjectFileHeader {
             } else if (entry.keyword && entry.name.toUpperCase() === 'TAGS') {
               Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(2), cross: LengthMetrics.vp(2) } }) {
                 ForEach(this.tagsForEntry(entry), (tag: string) => { this.tagChip(tag) }, (tag: string) => tag)
-              }.width('100%').constraintSize({ minHeight: 20 })
+              }.width('100%').constraintSize({ minHeight: 32 })
             } else if (entry.keyword && entry.name.toUpperCase() === 'FILETAGS' && entry.tags.length > 0) {
               Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(4), cross: LengthMetrics.vp(4) } }) {
                 ForEach(entry.tags, (tag: string) => { this.fileTag(tag) }, (tag: string) => tag)
               }.width('100%').padding({ top: 1, bottom: 1 })
             } else {
-              Text(entry.value).fontSize(10).lineHeight(14).fontColor(UiColor.text).wordBreak(WordBreak.BREAK_ALL)
+              Text(entry.value).fontSize(16).lineHeight(22).fontColor(UiColor.text).wordBreak(WordBreak.BREAK_ALL)
                 .width('100%').padding({ left: 6, right: 6, top: 3, bottom: 3 })
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        }.width('100%').alignItems(VerticalAlign.Top).constraintSize({ minHeight: 24 })
+        }.width('100%').alignItems(VerticalAlign.Top).constraintSize({ minHeight: 36 })
           .padding({ top: 2, bottom: 2 }).id(`project_property_${index}`)
       }, (entry: CoreFileHeaderEntry, index: number) => `${this.editing ? 'edit' : 'read'}:${entry.id}:${index}`)
       if (this.editing) {
         Row() {
-          Text('编辑中').fontSize(10).fontColor(UiColor.secondary).layoutWeight(1)
-          Button('取消', { type: ButtonType.Normal }).fontSize(10).height(20).backgroundColor(Color.Transparent)
+          Text('编辑中').fontSize(16).fontColor(UiColor.secondary).layoutWeight(1)
+          Button('取消', { type: ButtonType.Normal }).fontSize(16).height(32).backgroundColor(Color.Transparent)
             .fontColor(UiColor.secondary).enabled(!this.busy).id('project_header_cancel').onClick((): void => { this.closeEditor() })
-          Button(this.busy ? '保存中' : this.saved ? '结束编辑' : '保存', { type: ButtonType.Normal }).fontSize(10).height(20)
+          Button(this.busy ? '保存中' : this.saved ? '结束编辑' : '保存', { type: ButtonType.Normal }).fontSize(16).height(32)
             .backgroundColor(Color.Transparent).fontColor(UiColor.primary).enabled(!this.busy)
             .id('project_header_save').onClick((): void => { this.submitEditor() })
         }.width('100%').margin({ top: 4 })

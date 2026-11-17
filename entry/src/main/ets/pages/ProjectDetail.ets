@@ -12,6 +12,8 @@ import { ProjectReadingSection, projectReadingSections, reconcileProjectSections
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPresentation'
 import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
+import { AppConfig } from '../models/OrgTask'
+import { configuredSpecialFileExclusions } from '../services/FileTargetService'
 
 interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
 interface ProjectFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
@@ -126,13 +128,17 @@ struct ProjectDetail {
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
       if (this.repoId !== repoId || this.path !== path) { this.selectedTags = []; this.selectedCategory = '' }
       this.repoId = repoId; this.path = path
-      this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', [{
-        name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
-          includeFiles: [{ repoId, path }], fullFiles: [{ repoId, path }], includeIgnored: true } }
-      }, { name: 'matches', query: { type: 'task', repoIds: [repoId], query: {
-        expression: this.tagExpression(), categories: this.categoryQuery(), includeFiles: [{ repoId, path }], includeIgnored: true
-      } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } },
-        { name: 'categories', query: { type: 'file', query: {} } }], { cache: false })
+      this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', (config: AppConfig) => {
+        const exclusions = configuredSpecialFileExclusions(config)
+        return [{
+          name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
+            includeFiles: [{ repoId, path }], fullFiles: [{ repoId, path }], includeIgnored: true } }
+        }, { name: 'matches', query: { type: 'task', repoIds: [repoId], query: {
+          expression: this.tagExpression(), categories: this.categoryQuery(), includeFiles: [{ repoId, path }], includeIgnored: true
+        } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } },
+          { name: 'categories', query: { type: 'file', query: { excludeFiles: exclusions.files } },
+            repositoryBindings: exclusions.repositoryBindings }]
+      }, { cache: false })
       const manager = this.dataManager
       const fileDataSet = manager.dataSet('tasks')
       this.fileDataSet = fileDataSet
