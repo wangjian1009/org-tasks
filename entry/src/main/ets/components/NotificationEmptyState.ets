@@ -19,6 +19,7 @@ export struct NotificationEmptyState {
           .height(this.viewportHeight)
       }.width('100%')
     }.width('100%').layoutWeight(1).edgeEffect(EdgeEffect.None)
+      .scrollBar(BarState.Off)
       .onAreaChange((oldArea: Area, newArea: Area): void => {
         const height = parseFloat(newArea.height.toString())
         if (Number.isFinite(height) && height > 0 && height !== this.viewportHeight) this.viewportHeight = height
