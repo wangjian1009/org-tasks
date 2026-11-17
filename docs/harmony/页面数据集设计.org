@@ -82,6 +82,7 @@ class DataSet {
   removeTask(id: string): Promise<void>
   moveTask(id: string, target: CoreRefileTarget): Promise<void>
   operate(execute: (operationId: string) => Promise<void>): Promise<void>
+  submitOperationGroup(group: CoreTaskOperationGroup, allowed?: () => boolean): Promise<void>
   setQuery(query: DataSetQuery): Promise<void>
   refresh(): Promise<void>
 }
@@ -107,6 +108,10 @@ DataSetEvent 包含 insert、remove、update、refresh、ready、complete与 err
 \umldep{DataSet}{CoreWorkspace}
 \end{tikzpicture}
 \end{center}
+
+弹出数据编辑窗口不持有提交函数。日期、标签和重复等控件返回字段修改或修改数组，~startXXX~ 异步接口在确认后返回操作组，取消与页面退出返回空结果。调用点可在确认时提交一次、按变化连续处理，或累积多个结果后交合并入口提交；窗口关闭与持久化成败分开，由调用点维护提交错误与重试。普通任务字段的自动保存策略仍由相应调用点选择。
+
+任务动作的规划与提交分开：编辑器返回完整 ~CoreTaskOperationGroup~ ，滑动组件通过 ~TaskSwipeOperations.submit~ 合并一个或多个组，再调用 ~DataSet.submitOperationGroup~ 。数据集不重写组内的文件版本或操作顺序，提交时分配唯一 ~operationId~ ，按组携带的全部源／目标文件版本排队，并在实际执行前检查订阅范围与启用条件。整个组只产生一次用户提交及完成阶段；空组不推进版本。任务动作组不追加逐条乐观修改，Core 成功事件统一归并快照，失败保留确认数据；组提交错误以操作 ID 为目标上报，不覆盖查询加载状态或使整个列表进入读取失败，批量选择保留供重新选择后重试；缓存仍等待全部在途提交和事件处理结束。
 
 * Core 相关接口
 

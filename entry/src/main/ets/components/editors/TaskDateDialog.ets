@@ -1,8 +1,8 @@
 import { UiColor } from '../../ui/Theme'
-import { CoreTaskPlanningEdit, CoreTaskPlanningInfo } from '../../services/NativeCoreService'
+import { CoreTaskModification, CoreTaskPlanningEdit, CoreTaskPlanningInfo } from '../../services/NativeCoreService'
 import { inlineDate, TaskCalendarDay, taskCalendarDays } from '../../ui/TaskInlinePresentation'
 
-// 日期与时间均为草稿；只有主面板的“完成”向 Core 提交。
+// 仅编辑日期草稿并返回字段修改；持久化和提交频率由调用点决定。
 @CustomDialog
 export struct TaskDateDialog {
   controller: CustomDialogController
@@ -12,9 +12,10 @@ export struct TaskDateDialog {
   allowClear: boolean = true
   allowTime: boolean = true
   batch: boolean = false
-  failureMessage: () => string = () => '未能修改，请检查任务卡片上的错误提示'
+  closeOnConfirm: boolean = true
+  changed: (modification: CoreTaskModification) => void = () => {}
+  confirmed: (modification: CoreTaskModification) => void = () => {}
   closed: () => void = () => {}
-  choose: (value: CoreTaskPlanningEdit | null) => Promise<boolean> = async () => false
   @State year: number = new Date().getFullYear()
   @State month: number = new Date().getMonth()
   @State date: string = ''
@@ -43,12 +44,13 @@ export struct TaskDateDialog {
     if (next.getFullYear() < 1 || next.getFullYear() > 9999) return
     this.year = next.getFullYear(); this.month = next.getMonth()
   }
-  pick(value: string) {
+  pick(value: string, notify: boolean = true) {
     this.date = value; this.message = ''
     if (value) {
       const date = new Date(`${value}T12:00:00`)
       this.year = date.getFullYear(); this.month = date.getMonth()
     }
+    if (notify) this.changed(this.modification())
   }
   editTime() {
     this.draftStart = this.start || `${new Date().getHours().toString().padStart(2, '0')}:${new Date().getMinutes().toString().padStart(2, '0')}`
@@ -68,22 +70,28 @@ export struct TaskDateDialog {
   acceptTime() {
     if (this.draftEnd && this.draftEnd <= this.draftStart) { this.message = '结束时间必须晚于开始时间'; return }
     this.start = this.draftStart; this.end = this.draftEnd; this.timeChanged = true
-    if (!this.date) this.pick(inlineDate(new Date()))
-    this.editingTime = false; this.message = ''
+    if (!this.date) this.pick(inlineDate(new Date()), false)
+    this.editingTime = false; this.message = ''; this.changed(this.modification())
   }
   clearTime() {
     this.start = ''; this.end = ''; this.timeChanged = true
-    this.editingTime = false; this.message = ''
+    this.editingTime = false; this.message = ''; this.changed(this.modification())
   }
-  async commit() {
-    if (this.busy) return
-    this.busy = true; this.message = ''
+  clearDate() {
+    this.date = ''; this.start = ''; this.end = ''; this.timeChanged = true; this.message = ''
+    this.changed(this.modification())
+  }
+  modification(): CoreTaskModification {
     const value: CoreTaskPlanningEdit | null = this.date ? { date: this.date } : null
     if (value && this.timeChanged) value.time = this.start ? { start: this.start, end: this.end || null } : null
-    try {
-      if (await this.choose(value)) { this.controller.close(); this.closed() }
-      else this.message = this.failureMessage()
-    } finally { this.busy = false }
+    return { field: this.deadline ? 'DEADLINE' : 'SCHEDULE', value }
+  }
+  accept() {
+    if (this.busy) return
+    this.busy = true
+    try { this.confirmed(this.modification()) }
+    finally { this.busy = false }
+    if (this.closeOnConfirm) this.close()
   }
   @Builder
   quick(label: string, days: number) {
@@ -182,16 +190,16 @@ export struct TaskDateDialog {
       if (this.batch && !this.timeChanged) {
         Text('只改日期时，各任务保留原时间；添加或清除时间将应用到全部选中任务。').fontSize(12).fontColor(UiColor.secondary).width('100%')
       } else if (this.timeChanged && !this.start) {
-        Text('保存后仅保留日期').fontSize(12).fontColor(UiColor.secondary).width('100%')
+        Text('修改后仅保留日期').fontSize(12).fontColor(UiColor.secondary).width('100%')
       }
     }
     if (this.date) { Text(`已选：${this.date}`).fontSize(12).fontColor(UiColor.secondary).width('100%') }
     if (this.allowClear && (this.selected || this.date)) {
       Button('清除日期').id('inline_date_clear').width('100%').height(44).backgroundColor('#443337').fontColor(UiColor.error)
-        .enabled(!this.busy).onClick(() => { this.date = ''; this.start = ''; this.end = ''; this.timeChanged = true; this.message = '' })
+        .enabled(!this.busy).onClick(() => { this.clearDate() })
     }
     Button('完成').id('inline_date_save').width('100%').height(44).backgroundColor(this.color()).fontColor(UiColor.onPrimary)
-      .enabled(!this.busy && (!!this.date || !!this.selected)).onClick(() => { this.commit() })
+      .enabled(!this.busy && (!!this.date || !!this.selected)).onClick(() => { this.accept() })
   }
   build() {
     Column({ space: 4 }) {

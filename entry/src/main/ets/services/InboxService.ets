@@ -7,6 +7,7 @@ import { configuredFileTarget, FileTargetService, FileTargetQueryResult } from '
 import { CoreRefileTarget, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreTaskOperation, CoreTaskModification, CoreTaskFileVersion, CoreTaskQuery, CoreTaskMergeRequest, CoreTaskMergePlan, CoreTaskOperationGroup, NativeCoreService, taskResult, fileResult } from './NativeCoreService'
 
 import { PageQueryService } from './PageQueryService'
+import { mergeTaskOperationGroups } from './TaskOperationGroups'
 
 export interface InboxSnapshot { inbox: FileTargetQueryResult | undefined; recent: CoreTask[] }
 
@@ -65,14 +66,26 @@ export class InboxService {
   // 一次提交整组选中快照；任一版本或操作失效均由 Core 拒绝整组。
   static async performMany(context: Context, tasks: CoreTask[], action: InboxAction,
     target?: CoreRefileTarget, date?: CoreTaskPlanningEdit | null, operationId?: string): Promise<void> {
-    if (tasks.length === 0) return
+    const groups = await InboxService.operationGroups(context, tasks, action, target, date)
+    const group = mergeTaskOperationGroups(groups)
+    if (!group.operations.length) return
+    if (operationId) group.operationId = operationId
+    const config = await AppConfigService.load(context, false)
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    await workspace.executeTaskOperations(group)
+  }
+
+  static async operationGroups(context: Context, tasks: CoreTask[], action: InboxAction,
+    target?: CoreRefileTarget, date?: CoreTaskPlanningEdit | null): Promise<CoreTaskOperationGroup[]> {
+    if (tasks.length === 0) return []
     if (action === 'move' && !target) throw new Error('请选择任务目标')
     if ((action === 'schedule' || action === 'deadline') && date === undefined) throw new Error('请选择日期')
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repos = await workspace.repos()
     let parent: CoreTaskPath | undefined = action === 'move' ? target!.fullPath : undefined
-    const operations: CoreTaskOperation[] = []
+    let destinationVersion: CoreTaskFileVersion | undefined = undefined
+    const groups: CoreTaskOperationGroup[] = []
     let modifications: CoreTaskModification[] = []
     if (action === 'schedule' || action === 'deadline') {
       modifications = [{ field: action === 'deadline' ? 'DEADLINE' : 'SCHEDULE', value: date ?? null }]
@@ -100,9 +113,9 @@ export class InboxService {
       const repo = repos.find(item => item.rootDirectory === settings?.rootDirectory)
       if (!repo || !selected.path) throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
       const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId: repo.id, path: selected.path }] } }]))[0])
-      if (!files.some(file => file.path === selected.path && !file.isIgnore)) {
-        throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
-      }
+      const metadata = files.find(file => file.path === selected.path && !file.isIgnore)
+      if (!metadata) throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
+      destinationVersion = { repoId: repo.id, file: selected.path, version: metadata.fileVersion }
       parent = (await repo.file(selected.path)).fullPath
       modifications = [
         { field: 'TODO', value: null }, { field: 'PRIORITY', value: null },
@@ -110,16 +123,17 @@ export class InboxService {
       ]
     }
     for (const task of tasks) {
+      const operations: CoreTaskOperation[] = []
       if (modifications.length > 0) operations.push({ type: 'Modification', data: { path: task.fullPath, modifications } })
-      if (action === 'schedule' || action === 'deadline') continue
-      operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
-      { type: 'Deletion', data: { path: task.fullPath } })
+      if (action !== 'schedule' && action !== 'deadline') {
+        operations.push(parent ? { type: 'Movement', data: { path: task.fullPath, position: { parent } } } :
+          { type: 'Deletion', data: { path: task.fullPath } })
+      }
+      const fileVersions: CoreTaskFileVersion[] = [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
+      if (destinationVersion) fileVersions.push(destinationVersion)
+      if (target && (action === 'someday' || action === 'move')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
+      groups.push({ operations, fileVersions })
     }
-    const fileVersions: CoreTaskFileVersion[] = tasks.map((task: CoreTask): CoreTaskFileVersion =>
-      ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion }))
-    if (target && (action === 'someday' || action === 'move')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
-    const group: CoreTaskOperationGroup = { operations, fileVersions }
-    if (operationId) group.operationId = operationId
-    await workspace.executeTaskOperations(group)
+    return groups
   }
 }

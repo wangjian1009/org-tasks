@@ -1,4 +1,6 @@
 import { DataSet } from '../services/DataSet'
+import { CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { TaskSwipeOperations } from './TaskSwipeOperations'
 import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu } from '../ui/TaskActionPresentation'
 import { TaskStateCategory, taskStateToggleCategory } from '../ui/TaskStatePresentation'
 import { TaskEditorController } from '../ui/TaskEditorController'
@@ -33,7 +35,11 @@ export struct TaskSwipeItem {
   @Prop referenceTime: number = Date.now()
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
-  private controller: TaskEditorController = new TaskEditorController()
+  operationChanged: ((group: CoreTaskOperationGroup) => void) | undefined = undefined
+  private controller: TaskEditorController = new TaskEditorController((group: CoreTaskOperationGroup): void => {
+    this.receiveOperation(group).catch((error: Error): void => { this.reportOperationError(error) })
+  })
+  @State submitting: boolean = false
   @Prop @Watch('operationsChanged') singleOperations: TaskSingleOperation[] = []
   @State toggleStateCategory: TaskStateCategory | null = null
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
@@ -62,10 +68,12 @@ export struct TaskSwipeItem {
     })
   }
 
-  gesturesBlocked(): boolean {
+  hostBlocked(): boolean {
     return !this.active || !this.interactionEnabled || this.readOnly || this.busy ||
       this.inlineTyping || this.checklistDragging
   }
+
+  gesturesBlocked(): boolean { return this.hostBlocked() || this.submitting }
 
   blocked(): boolean {
     return this.gesturesBlocked() || !!this.controller?.isBound() && !this.controller.canActivate()
@@ -93,20 +101,45 @@ export struct TaskSwipeItem {
   }
 
   async activateOperation(action: TaskOperation, fromRight: boolean = false): Promise<void> {
-    const allowed = (): boolean => !this.gesturesBlocked() && this.operationEnabled(action, fromRight)
-    if (!allowed()) return
-    switch (action) {
-      case TaskOperation.ToggleState:
-        if (this.toggleStateCategory === TaskStateCategory.Doing) await this.controller.start(allowed)
-        else if (this.toggleStateCategory === TaskStateCategory.Todo) await this.controller.stop(allowed)
-        break
-      case TaskOperation.Delete: await this.controller.startDelete(allowed); break
-      case TaskOperation.Move: await this.controller.startMove(allowed); break
-      case TaskOperation.Schedule: await this.controller.startSchedule(allowed); break
-      case TaskOperation.Deadline: await this.controller.startDeadline(allowed); break
-      case TaskOperation.Someday: await this.controller.moveToSomeday(allowed); break
-      case TaskOperation.Memo: await this.controller.convertToMemo(allowed); break
-    }
+    const allowed = (): boolean => !this.hostBlocked() && this.operationEnabled(action, fromRight)
+    if (this.submitting || !allowed()) return
+    let group: CoreTaskOperationGroup | undefined = undefined
+    try {
+      switch (action) {
+        case TaskOperation.ToggleState:
+          if (this.toggleStateCategory === TaskStateCategory.Doing) group = await this.controller.start(allowed)
+          else if (this.toggleStateCategory === TaskStateCategory.Todo) group = await this.controller.stop(allowed)
+          break
+        case TaskOperation.Delete: group = await this.controller.startDelete(allowed); break
+        case TaskOperation.Move: group = await this.controller.startMove(allowed); break
+        case TaskOperation.Schedule: group = await this.controller.startSchedule(allowed); break
+        case TaskOperation.Deadline: group = await this.controller.startDeadline(allowed); break
+        case TaskOperation.Someday: group = await this.controller.moveToSomeday(allowed); break
+        case TaskOperation.Memo: group = await this.controller.convertToMemo(allowed); break
+      }
+      if (group) await this.receiveOperation(group, allowed)
+    } catch (error) { this.reportOperationError(error as Error) }
+  }
+
+  private reportOperationError(error: Error): void {
+    if (!this.active) return
+    try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(error as CoreBridgeError), duration: 3000 }) }
+    catch (_) { /* 页面退出后提示可能不可用。 */ }
+  }
+
+  async receiveOperation(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
+    if (this.hostBlocked() || !allowed()) return
+    if (this.operationChanged) { this.operationChanged(group); return }
+    await this.submitOperationGroups([group], allowed)
+  }
+
+  async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true): Promise<void> {
+    if (this.submitting) throw new Error('任务操作正在提交，请稍后重试')
+    const canSubmit = (): boolean => !this.hostBlocked() && allowed()
+    if (!canSubmit()) throw new Error('操作已取消')
+    this.submitting = true
+    try { await TaskSwipeOperations.submit(this.taskDataSet(), groups, canSubmit) }
+    finally { this.submitting = false }
   }
 
   swipeMenuItems(): TaskActionItem[] {

@@ -186,6 +186,15 @@ export class DataSet {
     }
   }
   async operate(execute: (operationId: string) => Promise<void>): Promise<void> { await this.runOperation(this.name, execute) }
+  async submitOperationGroup(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
+    if (!group.operations.length) return
+    const files = group.fileVersions?.map(version => JSON.stringify([version.repoId, version.file])) ?? this.scopeFiles()
+    await this.runOperation(this.name, async (operationId: string): Promise<void> => {
+      if (!allowed()) throw new Error('操作已取消')
+      if (!this.workspace) throw new Error('底层连接不可用')
+      await this.workspace.executeTaskOperations({ operations: group.operations, fileVersions: group.fileVersions, operationId })
+    }, files, true)
+  }
   restore(data: CoreQueryResult): void { this.confirmed.set(this.name, data); this.versions.set(this.name, 0); this.rebuild(this.name, this.operationId(0, 'cache'), false) }
   async settle(): Promise<void> {
     if (this.queryWork) await this.queryWork
@@ -379,7 +388,7 @@ export class DataSet {
     this.track(work)
     return work
   }
-  async runOperation(name: string, execute: (operationId: string) => Promise<void>): Promise<void> {
+  async runOperation(name: string, execute: (operationId: string) => Promise<void>, files?: string[], operationOnly: boolean = false): Promise<void> {
     await this.start()
     if (!this.isReady() || this.closing) throw new Error('页面数据集当前不可编辑')
     const version = this.clock ? this.clock.next() : this.sequence + 1
@@ -395,10 +404,10 @@ export class DataSet {
         this.loadError = ''
         this.versions.set(this.name, Math.max(this.versions.get(this.name) ?? 0, version))
         this.rebuild(this.name, operationId, this.pending.length > 0)
-            this.publish({ name, type: 'complete', version, operationId, optimistic: false, added: [], removed: [], updated: [],
+        this.publish({ name, type: 'complete', version, operationId, optimistic: false, added: [], removed: [], updated: [],
           succeeded: true, result: this.getConfirmed(name) })
-      } catch (error) { this.emitError(name, operationId, error as Error); throw error as Error }
-    }, this.scopeFiles())
+      } catch (error) { this.emitError(name, operationId, error as Error, operationOnly ? operationId : undefined); throw error as Error }
+    }, files ?? this.scopeFiles())
     this.track(work)
     await work
   }

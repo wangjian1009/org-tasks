@@ -1,5 +1,5 @@
 import { UiColor } from '../../ui/Theme'
-import { CoreSupportTags } from '../../services/NativeCoreService'
+import { CoreSupportTags, CoreTaskModification } from '../../services/NativeCoreService'
 import { editableTagNames, editableTagGroups, selectedTagNames, inheritedTagConflict, toggleEditableTag } from '../../ui/TaskTagsPresentation'
 
 @CustomDialog
@@ -10,7 +10,9 @@ export struct TaskTagsDialog {
   visibleTags: string[] = []
   inheritedTags: string[] = []
   hiddenTags: string[] = []
-  change: (tags: string[]) => Promise<boolean> = async () => false
+  closeOnConfirm: boolean = true
+  changed: (modification: CoreTaskModification) => void = () => {}
+  confirmed: (modification: CoreTaskModification) => void = () => {}
   @State names: string[] = []
   @State selected: string[] = []
   @State creating: boolean = false
@@ -25,29 +27,31 @@ export struct TaskTagsDialog {
   selectedNames(): string[] {
     return selectedTagNames(this.selected, this.inheritedTags, this.names).filter(tag => !this.hiddenTags.includes(tag))
   }
-  async toggle(tag: string) {
+  toggle(tag: string) {
     if (this.busy || this.inheritedTags.includes(tag)) return
     const inherited = inheritedTagConflict(tag, this.inheritedTags, this.supportTags)
     if (!this.selected.includes(tag) && inherited) { this.message = `该组已继承“${inherited}”，请在父标题修改`; return }
-    await this.apply(toggleEditableTag(this.selected, tag, this.supportTags))
+    this.apply(toggleEditableTag(this.selected, tag, this.supportTags))
   }
-  async apply(tags: string[]): Promise<boolean> {
-    this.busy = true; this.message = ''
+  apply(tags: string[]): boolean {
+    this.message = ''
     const next = Array.from(new Set<string>([...tags, ...this.ownTags.filter(tag => this.hiddenTags.includes(tag))]))
-    try {
-      if (!await this.change(next)) { this.message = '未能修改，请检查任务卡片上的错误提示'; return false }
-      this.selected = next
-      return true
-    } finally { this.busy = false }
+    this.selected = next
+    this.changed({ field: 'TAGS', value: [...next] })
+    return true
   }
-  async create() {
+  accept(): void {
+    this.confirmed({ field: 'TAGS', value: [...this.selected] })
+    if (this.closeOnConfirm) this.controller.close()
+  }
+  create() {
     const name = this.name.trim()
     if (!name || this.busy) return
     if (this.hiddenTags.includes(name)) { this.message = '该标签由系统管理'; return }
     if (this.inheritedTags.includes(name)) { this.message = '该标签已从父标题继承'; return }
     const inherited = inheritedTagConflict(name, this.inheritedTags, this.supportTags)
     if (inherited) { this.message = `该组已继承“${inherited}”，请在父标题修改`; return }
-    if (await this.apply(this.selected.includes(name) ? this.selected : toggleEditableTag(this.selected, name, this.supportTags))) {
+    if (this.apply(this.selected.includes(name) ? this.selected : toggleEditableTag(this.selected, name, this.supportTags))) {
       if (!this.names.includes(name)) this.names = [...this.names, name]
       this.name = ''; this.creating = false
     }
@@ -81,7 +85,7 @@ export struct TaskTagsDialog {
         }.id('inline_tags_done').width(44).height(44).backgroundColor(Color.Transparent)
           .enabled(!this.busy && (!this.creating || this.name.trim().length > 0))
           .accessibilityText(this.creating ? '创建并添加标签' : '关闭标签窗口')
-          .onClick(() => { if (this.creating) this.create(); else this.controller.close() })
+          .onClick(() => { if (this.creating) this.create(); else this.accept() })
       }.width('100%')
       if (this.creating) {
         TextInput({ text: this.name, placeholder: '标签名称' }).id('inline_new_tag').defaultFocus(true)

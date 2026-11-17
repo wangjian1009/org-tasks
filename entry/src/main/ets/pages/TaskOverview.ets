@@ -11,6 +11,7 @@ import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskSwipeItem } from '../components/TaskSwipeItem'
+import { TaskSwipeOperations } from '../components/TaskSwipeOperations'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
@@ -357,10 +358,9 @@ struct TaskOverview {
         } else if (this.view === 'planned') {
           PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, singleOperations: taskPageActionPolicy(this.view).singleOperations, groups: this.planGroups, referenceTime: this.referenceTime })
         } else if (this.view === 'logbook') {
-          LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => { await this.taskDataSet().operate( async (operationId: string): Promise<void> => {
-            if (action === 'restore') await LogbookService.restore(this.getUIContext().getHostContext()!, tasks, operationId)
-            else await LogbookService.remove(this.getUIContext().getHostContext()!, tasks, operationId)
-          }) }, groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
+          LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => {
+            await TaskSwipeOperations.submit(this.taskDataSet(), LogbookService.operationGroups(tasks, action), (): boolean => this.pageReady)
+          }, groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {

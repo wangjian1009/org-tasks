@@ -133,7 +133,7 @@ function fixture() {
   const settings = { id: 'host-id', rootDirectory: '/repo', webdavEnabled: true };
   const repo = { id: 'core-id', rootDirectory: '/repo', async load() {}, async file() { return { fileVersion: 'memo-version', fullPath: { repoId: 'core-id', file: 'memo.org', titles: [] } }; } };
   const task = { repoId: 'core-id', filePath: 'inbox.org', fileVersion: 'source-version', fullPath: { repoId: 'core-id', file: 'inbox.org', titles: ['Item'], occurrence: 1 } };
-  const workspace = { async query(batch) {return batch.map(()=>({type:'file',result:ignored?[]:[{path:'memo.org',isIgnore:false}]}));}, async refileTargets() { return [target('core-id', 'Work')]; },
+  const workspace = { async query(batch) {return batch.map(()=>({type:'file',result:ignored?[]:[{path:'memo.org',isIgnore:false,fileVersion:'memo-version'}]}));}, async refileTargets() { return [target('core-id', 'Work')]; },
     async repos() { return [repo]; }, async executeTaskOperations(group) { requests.push(group); } };
   const { InboxService } = load('services/InboxService', {
     './AppConfigService': { AppConfigService: { async load() { return { repos: [settings], memoRepoId: 'host-id', memoFile: 'memo.org' }; } } },
@@ -507,7 +507,7 @@ test('批量分配与截止只提交一次，携带全部源版本并使用结�
     assert.deepEqual(f.requests[0].operations, tasks.map(task => ({ type: 'Modification', data: {
       path: task.fullPath, modifications: [{ field, value: { date: '2026-11-20' } }]
     } })));
-    assert.deepEqual(f.requests[0].fileVersions, tasks.map(task => ({ repoId: task.repoId, file: task.filePath, version: task.fileVersion })));
+    assert.deepEqual(f.requests[0].fileVersions, Array.from(new Map(tasks.map(task => [JSON.stringify([task.repoId, task.filePath]), { repoId: task.repoId, file: task.filePath, version: task.fileVersion }])).values()));
     await assert.rejects(f.InboxService.performMany({}, tasks, action), /请选择日期/);
     assert.equal(f.requests.length, 1);
   }
@@ -543,11 +543,12 @@ function batchFixture() {
   const code = ts.transpileModule('export class Batch {' + method + '}', { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} }, calls = [];
   let write = async () => {};
-  vm.runInThisContext('(function(module,exports,InboxService,coreErrorMessage,taskBatchMenu,taskSwipeMenu){' + code + '\n})', { filename })(module, module.exports,
-    { performMany: async (...args) => { calls.push(args); await write(); } }, error => error.message,
-    load('ui/TaskActionPresentation', {}).taskBatchMenu, load('ui/TaskActionPresentation', {}).taskSwipeMenu);
+  vm.runInThisContext('(function(module,exports,InboxService,coreErrorMessage,taskBatchMenu,taskSwipeMenu,TaskSwipeOperations){' + code + '\n})', { filename })(module, module.exports,
+    { operationGroups: async (...args) => [{ args }] }, error => error.message,
+    load('ui/TaskActionPresentation', {}).taskBatchMenu, load('ui/TaskActionPresentation', {}).taskSwipeMenu,
+    { async submit(_dataSet, groups, allowed) { if (!allowed()) throw new Error('操作已取消'); calls.push(groups[0].args); await write(); } });
   const records = ['first', 'second', 'third'].map(id => ({ id, fileVersion: 'snapshot' }));
-  const state = Object.assign(new module.exports.Batch(), { records, mergeBusy: false, actionBusy: false, mergeInvalid: false,
+  const state = Object.assign(new module.exports.Batch(), { visible: true, records, mergeBusy: false, actionBusy: false, mergeInvalid: false,
     selectingRecords: true, selectedRecordIds: ['third', 'first'], refreshes: 0,
     tasksDataSet:{async operate(work){await work('test/batch');}},
     actionPolicy: { singleOperations: [], bulkOperations: ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete'] },
@@ -596,4 +597,13 @@ test('批量动作提交时再次检查操作列表，移除后不写入；单�
   single.state.actionPolicy = { singleOperations: ['schedule'], bulkOperations: [] };
   assert.equal(await single.state.performSelected('schedule', undefined, '2026-11-20', [single.state.records[0]]), true);
   assert.equal(single.calls.length, 1);
+});
+
+test('规划批量备忘只返回逐条修改组并固定源与目标版本，不执行请求', async () => {
+  const f = fixture(); const tasks = [f.task, { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } }];
+  const groups = await f.InboxService.operationGroups({}, tasks, 'memo');
+  assert.equal(f.requests.length, 0); assert.equal(groups.length, 2);
+  assert.deepEqual(groups[0].operations.map(op => op.type), ['Modification', 'Movement']);
+  assert.deepEqual(groups[0].fileVersions, [{ repoId: 'core-id', file: 'inbox.org', version: 'source-version' }, { repoId: 'core-id', file: 'memo.org', version: 'memo-version' }]);
+  assert.equal(groups[0].operationId, undefined);
 });

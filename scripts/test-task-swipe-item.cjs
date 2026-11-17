@@ -16,25 +16,32 @@ function compile(source, bindings = {}) {
 }
 const actions = compile(fs.readFileSync('entry/src/main/ets/ui/TaskActionPresentation.ets', 'utf8'));
 const states = compile(fs.readFileSync('entry/src/main/ets/ui/TaskStatePresentation.ets', 'utf8'));
+const groupBuilders = compile(fs.readFileSync('entry/src/main/ets/services/TaskOperationGroups.ets', 'utf8'));
+const { TaskSwipeOperations } = compile(fs.readFileSync('entry/src/main/ets/components/TaskSwipeOperations.ets', 'utf8').replace(/^import .*$/gm, ''), groupBuilders);
 const { TaskEditorController } = compile(fs.readFileSync('entry/src/main/ets/ui/TaskEditorController.ets', 'utf8'));
 const file = 'entry/src/main/ets/components/TaskSwipeItem.ets';
 const source = fs.readFileSync(file, 'utf8');
 const methods = source.slice(source.indexOf('  private taskDataSet()'), source.indexOf('  @Builder\n  swipeMenu'));
-const { Item } = compile('export class Item {' + methods + '}', { ...actions, ...states });
+const { Item } = compile('export class Item {' + methods + '}', { ...actions, ...states, TaskSwipeOperations, coreErrorMessage: error => error.message });
 function task(category = 'Todo', available = true) {
   return { state: category ? { category } : null, taskStateOf: category => available ? { name: category, category } : null };
 }
 function fixture() {
-  const calls = [], guards = []; let editable = true, deletable = true;
-  const controller = new TaskEditorController();
+  const calls = [], guards = [], submitted = [], messages = []; let editable = true, deletable = true, state, write = async () => {};
+  const controller = new TaskEditorController(group => { state.receiveOperation(group).catch(error => messages.push(error.message)); });
   const editor = { actionsAvailable: () => editable, deletionAvailable: () => deletable };
   for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'moveToSomeday', 'convertToMemo']) {
-    editor[method] = async allowed => { guards.push(allowed); if (allowed()) calls.push(method); };
+    editor[method] = async allowed => {
+      guards.push(allowed); if (allowed()) calls.push(method);
+      if (allowed()) return groupBuilders.taskModificationGroup({ repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1', fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['任务'] } }, [{ field: 'TODO', value: method }]);
+    };
   }
   controller.bind(editor);
-  const state = Object.assign(new Item(), { active: true, interactionEnabled: true, readOnly: false, busy: false,
-    inlineTyping: false, checklistDragging: false, controller, singleOperations: [], toggleStateCategory: null, rightSwipeAction: 'none' });
-  return { state, calls, guards, controller, editable: value => editable = value, deletable: value => deletable = value };
+  state = Object.assign(new Item(), { active: true, interactionEnabled: true, readOnly: false, busy: false,
+    inlineTyping: false, checklistDragging: false, submitting: false, controller,
+    getUIContext: () => ({ getPromptAction: () => ({ showToast: options => messages.push(options.message) }) }),
+    dataSet: { async submitOperationGroup(group, allowed) { assert.equal(allowed(), true); submitted.push(group); await write(); } }, singleOperations: [], toggleStateCategory: null, rightSwipeAction: 'none' });
+  return { state, calls, guards, submitted, messages, controller, writeWith: fn => write = fn, editable: value => editable = value, deletable: value => deletable = value };
 }
 test('七种单条操作全部调用编辑器接口，开始／暂停使用同一枚举的不同形态', async () => {
   for (const [action, target, method] of [['move', null, 'startMove'], ['schedule', null, 'startSchedule'],
@@ -42,6 +49,7 @@ test('七种单条操作全部调用编辑器接口，开始／暂停使用同�
     ['memo', null, 'convertToMemo'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
     const f = fixture(); f.state.singleOperations = [action]; f.state.toggleStateCategory = target;
     await f.state.activateOperation(action); assert.deepEqual(f.calls, [method]);
+    assert.equal(f.submitted.length, 1);
   }
 });
 test('启用数组决定菜单顺序，移除操作后旧回调和编辑器保存的执行条件均失效', async () => {
@@ -94,4 +102,29 @@ test('原生左滑仅与共享右滑并行，保留其他手势识别方式', ()
   const { choose } = compile('export const choose = ' + callback + ';');
   const current = {}, scroll = { getTag: () => 'scroll' }, right = { getTag: () => 'shared_right_swipe' };
   assert.equal(choose(current, [scroll, right]), right); assert.equal(choose(current, [scroll]), current);
+});
+
+test('修改组由滑动组件统一提交，批量组只提交一次，提交中拒绝重复动作', async () => {
+  const f = fixture(); f.state.singleOperations = ['toggleState']; f.state.toggleStateCategory = 'Doing'; let finish;
+  f.writeWith(() => new Promise(resolve => { finish = resolve; }));
+  const pending = f.state.activateOperation('toggleState'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.state.submitting, true); await f.state.activateOperation('toggleState'); assert.equal(f.submitted.length, 1);
+  finish(); await pending; assert.equal(f.state.submitting, false);
+  const group = f.submitted[0]; f.writeWith(async () => {}); f.submitted.length = 0;
+  await f.state.submitOperationGroups([group, group]); assert.equal(f.submitted.length, 1); assert.equal(f.submitted[0].operations.length, 2);
+});
+test('提交失败由滑动宿主反馈错误并恢复可用状态', async () => {
+  const f = fixture(); f.state.singleOperations = ['toggleState']; f.state.toggleStateCategory = 'Doing';
+  f.writeWith(async () => { throw new Error('整组失败'); }); await f.state.activateOperation('toggleState');
+  assert.deepEqual(f.messages, ['整组失败']); assert.equal(f.state.submitting, false);
+});
+
+test('调用点可收集多次弹窗结果后单次提交，也可对每次结果独立提交', async () => {
+  const f = fixture(), collected = []; f.state.singleOperations = ['schedule', 'deadline'];
+  f.state.operationChanged = group => collected.push(group);
+  await f.state.activateOperation('schedule'); await f.state.activateOperation('deadline');
+  assert.equal(collected.length, 2); assert.equal(f.submitted.length, 0); assert.equal(f.controller.submit, undefined);
+  await f.state.submitOperationGroups(collected); assert.equal(f.submitted.length, 1); assert.equal(f.submitted[0].operations.length, 2);
+  f.state.operationChanged = undefined; await f.state.activateOperation('schedule'); await f.state.activateOperation('deadline');
+  assert.equal(f.submitted.length, 3);
 });

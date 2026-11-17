@@ -166,16 +166,12 @@ test('状态切换复用单条操作数组和菜单，状态只控制形态，�
 
 const cardFile = 'entry/src/main/ets/components/editors/TaskEditor.ets';
 const cardSource = fs.readFileSync(cardFile, 'utf8');
-function cardMethod(name, async = false) {
-  return cardSource.match(new RegExp('  (?:private )?' + (async ? 'async ' : '') + name + '\\([^\\n]*\\)[^\\n]* \\{[\\s\\S]*?\\n  \\}\\n'))[0];
-}
-
 const controllerFile = 'entry/src/main/ets/ui/TaskEditorController.ets';
 const { TaskEditorController } = compile(fs.readFileSync(controllerFile, 'utf8'), controllerFile);
 function swipeCard(page) {
   const adapterFile = 'entry/src/main/ets/components/TaskSwipeItem.ets';
   const source = fs.readFileSync(adapterFile, 'utf8');
-  const method = ['gesturesBlocked', 'blocked', 'rightSwipeAvailable', 'activateRightSwipe', 'operationEnabled', 'activateOperation'].map(name => source.match(new RegExp('  ' + '(?:async )?' + name + '\\([^\\n]*\\): [^\\n]+\\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
+  const method = ['hostBlocked', 'gesturesBlocked', 'blocked', 'rightSwipeAvailable', 'activateRightSwipe', 'operationEnabled', 'activateOperation'].map(name => source.match(new RegExp('  ' + '(?:async )?' + name + '\\([^\\n]*\\): [^\\n]+\\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
   const { Card } = compile('import { TaskOperation } from \"actions\"; export class Card {' + method + '}', adapterFile, { actions });
   const { Availability } = compile('export class Availability {' + cardSource.match(/  actionsAvailable\(\): boolean \{[\s\S]*?\n  \}/)[0] + '}', cardFile);
   const editor = Object.assign(new Availability(), { appeared: true });
@@ -207,11 +203,11 @@ test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同�
   const source = fs.readFileSync('entry/src/main/ets/pages/Inbox.ets', 'utf8');
   const method = source.match(/  async performSelected\([^\n]+\n[\s\S]*?\n  \}/)[0];
   const writes = [];
-  const { Inbox } = compile("import { taskBatchMenu, taskSwipeMenu } from 'actions'; import { InboxService } from 'service'; export class Inbox {" + method + '}', 'Inbox.ets', {
-    actions, service: { InboxService: { async performMany(...args) { writes.push(args); } } }
+  const { Inbox } = compile("import { taskBatchMenu, taskSwipeMenu } from 'actions'; import { InboxService } from 'service'; import { TaskSwipeOperations } from 'submit'; export class Inbox {" + method + '}', 'Inbox.ets', {
+    actions, service: { InboxService: { async operationGroups(...args) { return [{ args }]; } } }, submit: { TaskSwipeOperations: { async submit(_dataSet, groups, allowed) { assert.equal(!!allowed(), true); writes.push(groups[0].args); } } }
   });
   const record = { id: 'source' }, date = { date: '2026-11-17' };
-  const page = Object.assign(new Inbox(), { actionPolicy: pagePolicy('inbox'), records: [record],
+  const page = Object.assign(new Inbox(), { visible: true, actionPolicy: pagePolicy('inbox'), records: [record],
     tasksDataSet: { async operate(work) { await work('operation'); } },
     getUIContext: () => ({ getHostContext: () => ({}) }), selectedRecords: () => [record],
     resetSelection() {}, async loadRecords() {} });
@@ -232,65 +228,6 @@ test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {
     const f = swipeCard('today'); f.editor[flag] = true;
     f.state.activateRightSwipe(); assert.deepEqual(f.calls, [], flag);
   }
-});
-
-function moveCard() {
-  const saved = { id: 'task', fileVersion: 'saved', fullPath: { titles: ['改后的标题'] } };
-  const target = { fileVersion: 'target-version', fullPath: { titles: ['目标'] }, category: '工作' };
-  const calls = [], released = [];
-  let save = async () => true, write = async () => {}, read = async () => saved, targets = async () => [target];
-  // 方法按产品依赖运行，保留源与目标快照以检验保存、取消和版本冲突。
-  const code = 'export class MoveCard {' + ['actionSource', 'startMove', 'loadMoveTargets', 'moveTo'].map(name => cardMethod(name, true)).join('') + cardMethod('closeMove') + '}';
-  const output = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
-  const module = { exports: {} };
-  class Missing extends Error {}
-  vm.runInThisContext('(function(module,exports,TaskInlineService,TaskInlineSession,MoveToTargetService,refileSections,TaskInlineMissingError,coreErrorMessage){' + output + '\n})', { filename: cardFile })(
-    module, module.exports, { reload: () => read() }, { release: key => released.push(key) },
-    { targets: () => targets(), move: async (_context, source, selected) => { calls.push({ source: state.moveSource, action: 'move', target: selected }); await write(); } },
-    values => [{ category: '工作', targets: values }], Missing, error => error.message);
-  const state = Object.assign(new module.exports.MoveCard(), {
-    appeared: true, moveRequest: 0, moveOpen: false, moveBusy: false, ownerKey: 'task',
-    localDataSet:()=>({}),localDataSet: () => ({ async settle() {}, moveTargets: () => targets(), moveTask: async (_id, selected) => { calls.push({ source: state.moveSource, action: 'move', target: selected }); await write(); } }),
-    actionsAvailable: () => true, currentTask: () => read(), value: () => ({ fileVersion: 'old' }), prepare: async () => true, finish: () => save(),
-    applySnapshot: task => { state.current = task; }, getUIContext: () => ({ getHostContext: () => ({}) }),
-    removeDeletedTask: () => { state.removed = true; }
-  });
-  return { state, saved, target, calls, released, saveWith: fn => save = fn, writeWith: fn => write = fn, readWith: fn => read = fn, targetsWith: fn => targets = fn };
-}
-
-test('某天右滑先保存并读取最新源快照，确认移动携带原目标版本且防止重复提交', async () => {
-  const f = moveCard(); let finishWrite;
-  await f.state.startMove();
-  assert.equal(f.state.moveOpen, true); assert.equal(f.state.moveSource, f.saved);
-  f.writeWith(() => new Promise(resolve => { finishWrite = resolve; }));
-  const pending = f.state.moveTo(f.target);
-  await f.state.moveTo(f.target);
-  assert.deepEqual(f.calls, [{ source: f.saved, action: 'move', target: f.target }]);
-  finishWrite(); await pending;
-  assert.equal(f.state.moveOpen, false); assert.equal(f.state.removed, true); assert.equal(f.state.moveBusy, false);
-});
-
-test('移动草稿保存失败不打开浮层，版本冲突保留源与目标会话供显式刷新', async () => {
-  const failed = moveCard(); failed.saveWith(async () => false);
-  await failed.state.startMove(); assert.equal(failed.state.moveOpen, false); assert.deepEqual(failed.calls, []);
-  const f = moveCard(); await f.state.startMove();
-  f.writeWith(async () => { throw new Error('文件版本冲突'); });
-  await f.state.moveTo(f.target);
-  assert.equal(f.state.moveOpen, true); assert.equal(f.state.moveMessage, '文件版本冲突');
-  assert.equal(f.state.moveSource, f.saved); assert.equal(f.state.removed, undefined); assert.equal(f.calls.length, 1);
-});
-
-test('移动浮层取消后丢弃在途目标结果，卡片离开后不打开浮层', async () => {
-  const f = moveCard(); let finishTargets;
-  f.targetsWith(() => new Promise(resolve => { finishTargets = resolve; }));
-  const pending = f.state.startMove();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.state.moveOpen, true); f.state.closeMove();
-  assert.equal(f.state.completing, false);
-  finishTargets([f.target]); await pending;
-  assert.equal(f.state.moveOpen, false); assert.deepEqual(f.state.moveSections, []); assert.deepEqual(f.calls, []);
-  const left = moveCard(); left.readWith(async () => { left.state.appeared = false; return left.saved; });
-  await left.state.startMove(); assert.equal(left.state.moveOpen, false);
 });
 
 test('单条与批量操作列表独立控制能力、顺序与回调，多选固定在最后', () => {

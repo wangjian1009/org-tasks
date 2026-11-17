@@ -11,7 +11,8 @@ export struct TaskRepeatDialog {
   @Prop task: CoreTask
   initialDeadline: boolean = false
   closed: () => void = () => {}
-  save: (changes: CoreTaskModification[]) => Promise<boolean> = async () => false
+  closeOnConfirm: boolean = true
+  confirmed: (changes: CoreTaskModification[]) => void = () => {}
   @State deadline: boolean = false
   @State mode: CoreTaskRepeatMode = 'cumulative'
   @State interval: string = '1'
@@ -36,11 +37,11 @@ export struct TaskRepeatDialog {
   close() { if (!this.busy) { this.controller.close(); this.closed() } }
   chooseDate() {
     this.dateDialog = new CustomDialogController({ builder: TaskDateDialog({ selected: this.date, deadline: this.deadline, allowClear: false, allowTime: false,
-      choose: async (value: CoreTaskPlanningEdit | null): Promise<boolean> => { if (value) this.date = value.date; return true } }),
+      confirmed: (modification: CoreTaskModification): void => { const value = modification.value as CoreTaskPlanningEdit | null; if (value) this.date = value.date } }),
       customStyle: true, alignment: DialogAlignment.Center, autoCancel: true })
     this.dateDialog.open()
   }
-  async commit(stop: boolean = false) {
+  accept(stop: boolean = false) {
     if (this.busy) return
     const interval = Number(this.interval)
     if (!stop && (!/^\d+$/.test(this.interval) || !Number.isSafeInteger(interval) || interval < 1 || interval > 4294967295)) {
@@ -51,8 +52,8 @@ export struct TaskRepeatDialog {
     try {
       const changes = repeatModifications(this.deadline, this.info()?.date || '', this.date,
         stop ? null : { mode: this.mode, interval, unit: this.unit })
-      if (await this.save(changes)) { this.controller.close(); this.closed() }
-      else this.message = '未能保存，请检查任务上的错误提示'
+      this.confirmed(changes)
+      if (this.closeOnConfirm) { this.controller.close(); this.closed() }
     } finally { this.busy = false }
   }
   build() {
@@ -62,7 +63,7 @@ export struct TaskRepeatDialog {
           .enabled(!this.busy).onClick(() => { this.close() })
         Text('重复').fontSize(17).fontWeight(FontWeight.Medium).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
         Button('保存').id('repeat_save').fontSize(15).fontColor(UiColor.primary).backgroundColor(Color.Transparent).padding(0).height(44)
-          .enabled(!this.busy).onClick(() => { this.commit() })
+          .enabled(!this.busy).onClick(() => { this.accept() })
       }.width('100%')
       Scroll() {
         Column({ space: 16 }) {
@@ -112,7 +113,7 @@ export struct TaskRepeatDialog {
           if (this.info()?.rule) {
             Text(`当前：${repeatSummary(this.info()?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
             Button('停止重复').id('repeat_stop').width('100%').height(44).fontColor(UiColor.error).backgroundColor('#443337')
-              .enabled(!this.busy).onClick(() => { this.commit(true) })
+              .enabled(!this.busy).onClick(() => { this.accept(true) })
           }
           if (this.message) { Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%') }
         }.width('100%')

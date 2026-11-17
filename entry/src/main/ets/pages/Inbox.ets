@@ -19,6 +19,7 @@ import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskEditor } from '../components/editors/TaskEditor'
 import { TaskSwipeItem } from '../components/TaskSwipeItem'
+import { TaskSwipeOperations } from '../components/TaskSwipeOperations'
 import { TaskEditorController } from '../ui/TaskEditorController'
 import { TaskRegion } from '../components/TaskRegion'
 import { RegionAreaPolicy } from '../ui/TaskListPresentation'
@@ -31,7 +32,7 @@ import { OrgContentView } from '../components/OrgContentView'
 import { InboxService, InboxAction } from '../services/InboxService'
 import { RecentDay, RecentTaskGroup, recentDays, unplannedSpacer } from '../ui/InboxPresentation'
 import { RefileSection, refileSections } from '../ui/MoveToTargetPresentation'
-import { CoreBridgeError, CoreTaskPlanningEdit, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreTaskPlanningEdit, CoreTaskModification, CoreTask, CoreTaskPath, CoreRefileTarget, coreErrorMessage } from '../services/NativeCoreService'
 
 class InboxLayoutFrame extends FrameCallback {
   private callback: () => void
@@ -393,10 +394,10 @@ struct Inbox {
     if (!this.selectingRecords) { this.mergeMessage = ''; this.mergeInvalid = false }
     this.dateDialog = new CustomDialogController({
       builder: TaskDateDialog({ deadline: action === 'deadline', batch: records.length > 1,
-        planning: records.length === 1 ? (action === 'deadline' ? records[0].editContent.deadlinePlanning : records[0].editContent.scheduledPlanning) : null, failureMessage: (): string => this.mergeMessage,
+        planning: records.length === 1 ? (action === 'deadline' ? records[0].editContent.deadlinePlanning : records[0].editContent.scheduledPlanning) : null,
         selected: records.length === 1 ? (action === 'deadline' ? records[0].deadline : records[0].scheduled) : '',
-        choose: async (date: CoreTaskPlanningEdit | null): Promise<boolean> => {
-          return await this.performSelected(action, undefined, date, records)
+        confirmed: (modification: CoreTaskModification): void => {
+          this.performSelected(action, undefined, modification.value as CoreTaskPlanningEdit | null, records)
         } }), customStyle: true, autoCancel: false, alignment: DialogAlignment.Center
     })
     this.dateDialog.open()
@@ -438,7 +439,10 @@ struct Inbox {
       // 沿当前源快照逆序删除或移出，避免同名记录的后续 occurrence 前移。
       const ordered = [...records].sort((a: CoreTask, b: CoreTask): number =>
         this.records.findIndex(item => item.id === b.id) - this.records.findIndex(item => item.id === a.id))
-      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => { await InboxService.performMany(this.getUIContext().getHostContext()!, ordered, action, target, date, operationId) })
+      const groups = await InboxService.operationGroups(this.getUIContext().getHostContext()!, ordered, action, target, date)
+      await TaskSwipeOperations.submit(this.tasksDataSet!, groups, (): boolean => this.visible && !this.mergeInvalid &&
+        (this.selectingRecords ? this.actionPolicy.bulkOperations.some(operation => operation === action) :
+          this.actionPolicy.singleOperations.some(operation => operation === action) || sources?.length === 1 && action === this.actionPolicy.rightSwipeAction))
       this.mergeBusy = false
       this.resetSelection()
       await this.loadRecords()

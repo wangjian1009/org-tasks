@@ -12,7 +12,7 @@ const ts = require(path.join('/Applications/DevEco-Studio.app/Contents', 'sdk/de
 function compile(source, mocks = {}) {
   const module = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
-  vm.runInThisContext('(function(require,module,exports,TaskInlineSession,LogShowPolicy){' + code + '\n})')(name => mocks[name], module, module.exports, mocks.session, { LogShowBySwitch: 'LogShowBySwitch', LogShowAlways: 'LogShowAlways' });
+  vm.runInThisContext('(function(require,module,exports,TaskInlineSession,LogShowPolicy){' + code + '\n})')(name => name === './TaskOperationGroups' ? compile(fs.readFileSync('entry/src/main/ets/services/TaskOperationGroups.ets', 'utf8')) : mocks[name], module, module.exports, mocks.session, { LogShowBySwitch: 'LogShowBySwitch', LogShowAlways: 'LogShowAlways' });
   return module.exports;
 }
 const regions = compile(fs.readFileSync('entry/src/main/ets/ui/TaskRegionPresentation.ets', 'utf8'));
