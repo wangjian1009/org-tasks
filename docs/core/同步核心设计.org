@@ -243,9 +243,9 @@
 
 统一批次中的 NotificationQuery 复用同次文件加载生成通知，每个含冲突标记的文件产生一条 ~SyncConflictNotification { repo_id, path }~ 。不绑定同步 ID、不按最近成功历史聚合，不维护“已解决”状态。手机以辅助色单行弱提示展示，点击按仓库身份和原文件路径直接打开“解决冲突”页。
 
-统一批次中的 NotificationQuery 仅读取 ~remote_base/current.json~ 的已确认 hash，与本批已加载文件的字节 hash 比较，不运行三方合并、不解析基线正文或访问网络。比较范围为仓库 Org 文件和索引已跟踪路径，覆盖新增、修改、删除、空文件及已确认删除基线；索引缺失时已有本地文件视为待同步，索引损坏返回错误而不是无变化。
+统一批次中的 NotificationQuery 仅读取 ~remote_base/current.json~ 的已确认 hash，与本批已加载文件的字节 hash 比较，不运行三方合并、不解析基线正文或访问网络。比较范围为仓库 Org 文件和索引已跟踪路径，覆盖新增、修改、删除、空文件及已确认删除基线；索引缺失时跳过本地差异判断，索引损坏返回错误而不是无变化。Notification 分支的可选外层 ~repoIds~ 按本项限定仓库，省略表示全部，显式空数组表示没有范围；同批任务或其他通知查询不能扩大本项范围。手机只传入启用 WebDAV 且远端地址非空的仓库，关闭远程配置后旧基线不再使该仓库产生同步提示。
 
-NotificationQuery 通过 ~OrgWorkspace.query(&[CoreQuery])~ 汇总文件冲突通知，只要任一仓库与基线不同，额外返回唯一的 ~{ "type": "syncRequired" }~ 。该通知由当前数据派生，不依赖进程标志或 outbox；重启后仍可重新发现，文件恢复为基线内容或成功同步推进基线后自然消失。点击复用普通全仓库同步。查询不写文件、索引或通知记录；宿主将通知与页面任务、文件元信息合批，失败保留已有通知快照。
+NotificationQuery 通过 ~OrgWorkspace.query(&[CoreQuery])~ 汇总文件冲突通知，只要范围内已有远端基线的任一仓库与基线不同，额外返回唯一的 ~{ "type": "syncRequired" }~ 。该通知由当前数据派生，不依赖进程标志或 outbox；重启后仍可重新发现，文件恢复为基线内容或成功同步推进基线后自然消失。点击复用普通全仓库同步。查询不写文件、索引或通知记录；宿主将通知与页面任务、文件元信息合批，失败保留已有通知快照。
 
 数据提交通过显式传入的 Workspace NotificationCenter 向自己的 process 发送事件；修改、同步和重置均沿此链路。不同 Workspace 的事件完全隔离，即使仓库目录或 ID 相同也不互相通知。普通查询不发送数据更新，Workspace 不提供 reload 接口。同步和重置的独立 OrgRepo 调用传入 None 时不产生 Workspace 通知，不使用全局广播或隐式寻找所属 Workspace。
 

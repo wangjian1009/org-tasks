@@ -856,7 +856,7 @@ trigger\_reason: SyncTriggerReason}{}
 
 ~CoreQuery~ 是唯一通用读取请求的枚举，分为 Task、File 和 Notification； ~OrgWorkspace.query~ 返回 ~Result<Vec<CoreQueryResult>, CoreError>~ ，成功数组与输入的位置、种类一一对应。结果不含逐项错误，任一错误使整批失败。请求与结果都是运行时值，不写入同步记录、outbox 或仓库缓存。
 
-~TaskQuery~ 的状态范围统一由 ~expression~ 表达， ~TaskQueryResult~ 增加一次性完整文件结果。Task 分支的外层 ~repo_ids~ 指定 Core 仓库范围，空数组表示全部仓库，不把页面或控件语义放进领域请求。File 只返回元信息，Notification 只返回当前通知，三者复用同次加载的文件和配置。
+~TaskQuery~ 的状态范围统一由 ~expression~ 表达， ~TaskQueryResult~ 增加一次性完整文件结果。Task 分支的外层 ~repo_ids~ 指定 Core 仓库范围，空数组表示全部仓库，不把页面或控件语义放进领域请求。File 只返回元信息，Notification 只返回当前通知，三者复用同次加载的文件和配置。Notification 的外层 ~repo_ids: Option<Vec<OrgRepoId>>~ 省略时覆盖全部仓库，显式空数组表示没有通知范围；手机按启用远程同步的配置传入仓库，Core 仅对已有远端基线索引的仓库比较本地变化。
 
 #+begin_src rust
 pub struct TaskQuery {
@@ -885,7 +885,7 @@ pub struct NotificationQuery {}
 pub enum CoreQuery {
     Task { query: TaskQuery, repo_ids: Vec<OrgRepoId> },
     File { query: FileQuery },
-    Notification { query: NotificationQuery },
+    Notification { query: NotificationQuery, repo_ids: Option<Vec<OrgRepoId>> },
 }
 pub enum CoreQueryResult {
     Task(TaskQueryResult),
@@ -902,7 +902,7 @@ pub enum CoreQueryResult {
 \umlclass[x=0,y=0]{OrgWorkspace}{}{query(\&[CoreQuery]): Result\textless Vec\textless CoreQueryResult\textgreater, CoreError\textgreater}
 \umlclass[x=-3,y=-3]{CoreQuery}{Task(TaskQuery, repo\_ids) \\
 File(FileQuery) \\
-Notification(NotificationQuery)}{}
+Notification(NotificationQuery, repo\_ids)}{}
 \umlclass[x=6,y=-3]{CoreQueryResult}{Task(TaskQueryResult) \\
 File(Vec\textless OrgFileMetadata\textgreater) \\
 Notification(Vec\textless CoreNotification\textgreater)}{}

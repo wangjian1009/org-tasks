@@ -28,10 +28,10 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function fixture() {
-  const writes=[],context={},config={repos:[{id:'config-a',name:'个人仓库',rootDirectory:'/a'},{id:'config-b',name:'工作资料',rootDirectory:'/b'}]};
+  const writes=[],context={},config={repos:[{id:'config-a',name:'个人仓库',rootDirectory:'/a',webdavEnabled:true,webdavUrl:'https://example.test/dav/'},{id:'config-b',name:'工作资料',rootDirectory:'/b'}]};
   let observer,configChanged,coreId='core-a',loads=0,stops=0,values=[],failure,hold,nextTimer=0;const queries=[],timers=new Map();
   const repo={get id(){return coreId;},async load(){loads++;}};
-  const workspace={async watchNotifications(callback){observer=callback;},stopWatchingNotifications(){stops++;},async query(batch){queries.push(batch);const copy=structuredClone(values);if(hold){const pending=hold;hold=undefined;await pending.promise;}if(failure){const error=failure;failure=undefined;throw error;}return[{type:'notification',result:copy}];}};
+  const workspace={async repos(){return [{id:'core-a',rootDirectory:'/a'},{id:'core-b',rootDirectory:'/b'}];},async watchNotifications(callback){observer=callback;},stopWatchingNotifications(){stops++;},async query(batch){queries.push(batch);const copy=structuredClone(values);if(hold){const pending=hold;hold=undefined;await pending.promise;}if(failure){const error=failure;failure=undefined;throw error;}return[{type:'notification',result:copy}];}};
   let current=workspace;
   const service=load('services/NotificationManager',{
     './AppConfigService':{AppConfigService:{async load(){return config;},watchChanges(fn){configChanged=fn;},stopWatchingChanges(fn){if(configChanged===fn)configChanged=undefined;}}},
@@ -44,6 +44,20 @@ function fixture() {
     publish(events){service.NotificationManager.publish(config,events,service.NotificationManager.begin());}};
 }
 const conflict=(repoId='core-a',paths=['same.org'])=>({type:'syncConflict',repoId,rootDirectory:repoId==='core-a'?'/a':'/b',path:paths[0]});
+
+test('通知只检查启用远程且地址非空的仓库，没有远程时显式传空范围',async()=>{
+  const f=fixture();
+  await f.NotificationManager.start(f.context);
+  assert.deepEqual(f.queries.at(-1)[0].repoIds,['core-a']);
+  f.config.repos[0].webdavEnabled=false;
+  await f.NotificationManager.refresh();
+  assert.deepEqual(f.queries.at(-1)[0].repoIds,[]);
+  f.config.repos[0].webdavEnabled=true;
+  f.config.repos[0].webdavUrl='   ';
+  await f.NotificationManager.refresh();
+  assert.deepEqual(f.queries.at(-1)[0].repoIds,[]);
+  f.NotificationManager.stop();
+});
 
 test('从混合查询结果发布通知，多仓库同名文件与宿主身份保持隔离',()=>{
   const f=fixture(),events=[conflict(),conflict('core-b')];f.publish(events);
@@ -91,7 +105,7 @@ test('查询期间新变化使旧结果失效，只发布最后一轮结果，�
 });
 test('配置变化重新绑定 Workspace，旧订阅事件不触发读取',async()=>{
  const f=fixture();await f.NotificationManager.start(f.context);const previous=f.emit;let callback;
- const other={async watchNotifications(fn){callback=fn;},stopWatchingNotifications(){},async query(batch){return[{type:'notification',result:[]}];}};
+ const other={repos:f.workspace.repos,async watchNotifications(fn){callback=fn;},stopWatchingNotifications(){},async query(batch){return[{type:'notification',result:[]}];}};
  f.setWorkspace(other);f.configChanged();f.runTimers();await f.settle();assert.equal(f.stops(),1);
  const count=f.queries.length;previous();f.runTimers();await f.settle();assert.equal(f.queries.length,count);assert.equal(typeof callback,'function');f.NotificationManager.stop();
 });
@@ -106,7 +120,7 @@ test('页面批次抢先读取后失败时，独立通知读取不会永久丢�
 
 test('停止时尚未注册完成的监控先清理，重启后只保留新生命周期',async()=>{
  const f=fixture(),gate=deferred(),callbacks=[];let registrations=0,stops=0;
- const workspace={async watchNotifications(callback){callbacks.push(callback);if(++registrations===1)await gate.promise;},stopWatchingNotifications(){stops++;},async query(){return[{type:'notification',result:[{type:'syncRequired'}]}];}};
+ const workspace={async repos(){return [{id:'core-a',rootDirectory:'/a'},{id:'core-b',rootDirectory:'/b'}];},async watchNotifications(callback){callbacks.push(callback);if(++registrations===1)await gate.promise;},stopWatchingNotifications(){stops++;},async query(){return[{type:'notification',result:[{type:'syncRequired'}]}];}};
  f.setWorkspace(workspace);const first=f.NotificationManager.start(f.context);await f.settle();
  f.NotificationManager.stop();const restarted=f.NotificationManager.start(f.context);await f.settle();assert.equal(registrations,1);
  gate.resolve();await Promise.all([first,restarted]);assert.equal(registrations,2);assert.equal(stops,2);assert.equal(f.writes.length,1);

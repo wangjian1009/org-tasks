@@ -424,7 +424,8 @@ async fn unsupported_and_invalid_queries_fail_without_affecting_other_subscripti
         f.workspace
             .subscribe_query(vec![QuerySubscriptionRequest::new(
                 CoreQuery::Notification {
-                    query: Default::default()
+                    query: Default::default(),
+                    repo_ids: None,
                 },
                 |_| panic!("不应发布事件")
             )])

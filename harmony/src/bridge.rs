@@ -619,7 +619,9 @@ fn resolve_query_repositories(
             org_tasks_core::CoreQuery::File { query } => {
                 for file in query.include_files.iter_mut().chain(&mut query.exclude_files) { resolve(&mut file.repo_id); }
             }
-            org_tasks_core::CoreQuery::Notification { .. } => {}
+            org_tasks_core::CoreQuery::Notification { repo_ids, .. } => {
+                for id in repo_ids.iter_mut().flatten() { resolve(id); }
+            }
         }
     }
     Ok(())
@@ -3233,7 +3235,8 @@ mod query_repository_binding_tests {
         let bindings = serde_json::json!([{"id":"host-second","rootDirectory":second}]);
         let task = serde_json::json!({"type":"task","repoIds":["host-second"],"query":{"includeFiles":[reference],"fullFiles":[reference],"expression":"it.todo"}});
         let file = serde_json::json!({"type":"file","query":{"includeFiles":[reference]}});
-        let response = workspace_query_json(handle, serde_json::json!({"queries":[task,file],"repositoryBindings":bindings}).to_string()).unwrap();
+        let notification = serde_json::json!({"type":"notification","query":{},"repoIds":["host-second"]});
+        let response = workspace_query_json(handle, serde_json::json!({"queries":[task,file,notification],"repositoryBindings":bindings}).to_string()).unwrap();
         let values: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(values[0]["result"]["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(values[0]["result"]["tasks"][0]["repoId"], core_id);
@@ -3241,6 +3244,7 @@ mod query_repository_binding_tests {
         assert_eq!(values[0]["result"]["fullFiles"][0]["source"], "* TODO Visible\n");
         assert_eq!(values[0]["result"]["fullFiles"][0]["nodes"].as_array().unwrap().len(), 1);
         assert_eq!(values[1]["result"][0]["repoId"], core_id);
+        assert!(values[2]["result"].as_array().unwrap().is_empty());
         let (ids, response) = workspace_subscribe_query_json(handle,
             serde_json::json!([{"query":task,"repositoryBindings":bindings,"operationId":"dataset/test/1/query"}]).to_string(), vec![0]).unwrap();
         let id = ids[0];

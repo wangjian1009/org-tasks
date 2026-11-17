@@ -15,7 +15,7 @@ const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-St
 function fixture() {
   const batches = [], writes = [], notificationCallbacks = [], dataCallbacks = [], configCallbacks = new Set(), disk = new Map();
   const repos = [{ id:'core-a',rootDirectory:'/a' },{ id:'core-b',rootDirectory:'/b' }];
-  const config = { repos:[{id:'host-a',rootDirectory:'/a',name:'仓库甲'},{id:'host-b',rootDirectory:'/b',name:'仓库乙'}],todoDefaults:'',
+  const config = { repos:[{id:'host-a',rootDirectory:'/a',name:'仓库甲',webdavEnabled:true,webdavUrl:'https://example.test/dav/'},{id:'host-b',rootDirectory:'/b',name:'仓库乙'}],todoDefaults:'',
     inboxRepoId:'host-a',inboxFile:'same.org',somedayRepoId:'host-b',somedayFile:'same.org',memoRepoId:'host-a',memoFile:'memo.org' };
   let missing = false, fail = false, customQuery, inlineActive = false;
   const metadata = [{repoId:'core-a',path:'same.org',tagOptions:[],tagGroups:[],isIgnore:false},
@@ -403,6 +403,7 @@ test('显式通知请求保留原位置，任务和文件结果按输入下标�
   const f=fixture(),PageQueryService=f.load('services/PageQueryService').PageQueryService;
   const values=await PageQueryService.query(f.config,[{type:'notification',query:{}},{type:'file',query:{includeFiles:[{repoId:'core-b',path:'same.org'}]}},{type:'task',query:{}}]);
   assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,3);
+  assert.deepEqual(f.batches[0][0].repoIds,['core-a']);
   assert.deepEqual(values.map(item=>item.type),['notification','file','task']);
   assert.equal(values[1].result[0].repoId,'core-b');
 });

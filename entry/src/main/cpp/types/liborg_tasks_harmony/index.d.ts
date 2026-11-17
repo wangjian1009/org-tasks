@@ -294,7 +294,7 @@ export interface FileQuery {
 export interface NotificationQuery {}
 export interface TaskCoreQuery { type: 'task'; query: TaskQuery; repoIds?: string[]; }
 export interface FileCoreQuery { type: 'file'; query: FileQuery; }
-export interface NotificationCoreQuery { type: 'notification'; query: NotificationQuery; }
+export interface NotificationCoreQuery { type: 'notification'; query: NotificationQuery; repoIds?: string[] | null; }
 export type CoreQuery = TaskCoreQuery | FileCoreQuery | NotificationCoreQuery;
 export interface TaskCoreQueryResult { type: 'task'; result: TaskQueryResult; }
 export interface FileCoreQueryResult { type: 'file'; result: OrgFileMetadata[]; }

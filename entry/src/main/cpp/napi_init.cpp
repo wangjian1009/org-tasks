@@ -1548,9 +1548,10 @@ napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
         napi_set_named_property(env, request, "repositoryBindings", args[1]) != napi_ok)) {
         delete work; return nullptr;
     }
+    // 保留 Notification.repoIds 的省略与空数组区别，仓库范围由 Rust 校验。
     if (!EncodeJson(env, request, &work->expression)) {
         delete work;
-        napi_throw_error(env, nullptr, "任务查询参数无效");
+        napi_throw_error(env, nullptr, "批量查询参数无效");
         return nullptr;
     }
     work->handle = workspace->handle;

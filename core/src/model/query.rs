@@ -51,6 +51,8 @@ pub enum CoreQuery {
     },
     Notification {
         query: NotificationQuery,
+        #[serde(default, rename = "repoIds", skip_serializing_if = "Option::is_none")]
+        repo_ids: Option<Vec<super::OrgRepoId>>,
     },
 }
 

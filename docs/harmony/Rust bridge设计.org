@@ -736,7 +736,7 @@ class Workspace {
 }
 #+end_src
 
-绑定只解析 ~repoIds~ 、 ~includeFiles~ 和 ~excludeFiles~ 的身份，不求值任务条件。空别名、重复别名、不属于当前 Workspace 的目录以及与其他真实 Core ID 冲突的别名均拒绝；未命中绑定的真实 ID 继续交给 Core 校验。省略绑定保留原调用方式。C++ 只编组结构化请求，Rust bridge 在同一个 worker 请求内完成映射，避免同步读取 Repo 属性或先查询仓库清单。
+绑定同时解析 Task 与 Notification 分支的 ~repoIds~ ，以及 ~includeFiles~ 和 ~excludeFiles~ 的身份，不求值任务条件。空别名、重复别名、不属于当前 Workspace 的目录以及与其他真实 Core ID 冲突的别名均拒绝；未命中绑定的真实 ID 继续交给 Core 校验。省略绑定保留原调用方式。Notification 的 ~repoIds~ 省略时覆盖全部仓库，显式空数组保持为空，不丢弃或转为全仓库。C++ 只编组结构化请求，Rust bridge 在同一个 worker 请求内完成映射，避免同步读取 Repo 属性或先查询仓库清单。
 
 批量查询的 ABI 内部载荷可为 ~{ queries, repositoryBindings }~ ，原查询数组仍接受；订阅载荷为 ~{ query, operationId, repositoryBindings }[]~ ，每项绑定独立解析，同一别名可以在不同项中绑定不同目录。Core 的 ~TaskQuery~ 、 ~CoreQuery~ 及 APP HTTP 查询请求仍只接受真实 Core 仓库 ID，不接受宿主别名。
 

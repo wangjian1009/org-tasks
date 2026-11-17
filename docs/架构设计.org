@@ -133,7 +133,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 应用共享通知管理
 
-~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化更新同一 Workspace 的仓库与设置，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。
+~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化更新同一 Workspace 的仓库与设置，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。通知仓库范围由同一管理类组装，只包含启用 WebDAV 且远端地址非空的仓库；独立读取与页面合批读取使用同一范围，纯本地仓库和系统仓库不产生同步提示。Core 在该范围内仅对已有远端基线索引的仓库比较文件 hash，显式空范围不退回全仓库。
 
 页面通过 AppStorage 的 ~coreNotifications~ 共享只读快照，不持有管理对象。通知及仓库展示上下文按内容比较，结果相同不发布；过期请求不能覆盖新结果，失败保留最近成功快照。任务仍由页面 DataSetManager 处理增量确认，通知刷新不驱动今天页任务重查。详细生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 

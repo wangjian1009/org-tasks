@@ -912,7 +912,7 @@ pub struct TaskRestore { pub path: TaskPath }
 
 * 待关注事件
 
-~CoreQuery::Notification { query: NotificationQuery {} }~ 通过唯一批量入口返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ 。每个当前含 CONFLICT 容器的文件生成一条 SyncConflict；任一仓库字节 hash 与基线索引不同则追加一条 SyncRequired。两类事件都从当前快照派生，不消费、不持久化，不依赖历史或进程内去重标记。
+~CoreQuery::Notification { query: NotificationQuery {}, repo_ids: Option<Vec<OrgRepoId>> }~ 通过唯一批量入口返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ 。每个当前含 CONFLICT 容器的文件生成一条 SyncConflict；范围内已有远端基线索引的任一仓库字节 hash 与索引不同则追加一条 SyncRequired；索引缺失时跳过本地差异判断，已有索引损坏仍报错。外层 ~repo_ids~ 省略时覆盖全部仓库，显式空数组表示不检查仓库，非法或未知 ID 使整批失败。宿主按远程配置传入范围，Core 不持有页面或系统仓库语义。两类事件都从当前快照派生，不消费、不持久化，不依赖历史或进程内去重标记。
 
 通知使用整批加载的完整文件范围，包括被任务忽略规则隐藏或被某项 Task 排除的文件。基线索引在同次仓库锁内读取，本地 hash 从同批字节计算，不二次加载正文。错误导致整个批次失败。订阅继续只发出失效事件，宿主将通知和页面正文一起放入下一批读取。
 
@@ -923,7 +923,7 @@ pub struct TaskRestore { pub path: TaskPath }
 
 * 最近有效同步与通知更新监控
 
-~OrgRepo.last_effect_sync()~ 仍按时间取得最近成功完成的记录，返回内容不因后续任务编辑而变化。当前冲突通知改从文件标记生成，每文件一条 ~{ type: 'syncConflict', repoId, path }~ 。 NotificationQuery 复用已加载的文件字节比较本地与基线 hash，在任一仓库有变化时附加唯一 ~syncRequired~ 通知。
+~OrgRepo.last_effect_sync()~ 仍按时间取得最近成功完成的记录，返回内容不因后续任务编辑而变化。当前冲突通知改从文件标记生成，每文件一条 ~{ type: 'syncConflict', repoId, path }~ 。 NotificationQuery 复用已加载的文件字节比较本地与基线 hash，在本项范围内已有远端基线的仓库有变化时附加唯一 ~syncRequired~ 通知。
 
 冲突与同步提示只由 Rust 的统一批量查询从当前文件及基线索引计算，不回放历史，也不依赖进程内标记。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 

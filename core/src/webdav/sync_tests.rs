@@ -344,7 +344,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
             repo_id, file: "a.org".into(), version: LocalFileVersion::from_bytes(base).content_hash,
         }],
     }).await.unwrap();
-    assert_eq!(workspace.query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap(), vec![crate::CoreNotification::SyncRequired]);
+    assert_eq!(workspace.query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap(), vec![crate::CoreNotification::SyncRequired]);
     repo = workspace.repos().remove(0);
     let remote = String::from_utf8(base.to_vec()).unwrap().replace("Project [/]", "Project [1/2]").replace("Child [%]", "Child [50%]").replace("Notes", "Remote notes");
     state.lock().unwrap().files.insert("a.org".into(), Remote { data: remote.into_bytes(), etag: "\"remote\"".into() });
@@ -359,13 +359,13 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
         assert_eq!(state.lock().unwrap().files["a.org"].data, expected.as_bytes());
         assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
         assert!(repo.pending_writes().await.unwrap().is_empty());
-        assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+        assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
         let tasks = crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].full_path().titles, ["Project"]);
         assert_eq!(tasks[1].full_path().titles, ["Project", "Child"]);
     }
-    assert!(crate::OrgWorkspace::start(vec![repo]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().is_empty());
+    assert!(crate::OrgWorkspace::start(vec![repo]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().is_empty());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -521,7 +521,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
             let points = crate::model::conflict::points(&current).unwrap().into_iter()
                 .map(|point| (point.id, point.source)).collect::<Vec<_>>();
             assert_eq!(points, old_points, "旧候选保持原样，不能新增伪冲突");
-            assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+            assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
             assert!(repo.pending_writes().await.unwrap().is_empty());
         }
         let put_count = state.lock().unwrap().requests.iter().filter(|request| request.starts_with("PUT ")).count();
@@ -529,7 +529,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
         let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
         let tasks = workspace.query(&[(crate::TaskQuery::default()).into()]).await.unwrap().remove(0).into_task().unwrap().tasks;
         assert_eq!(tasks.len(), if insert_node { 3 } else { 2 });
-        assert!(!workspace.query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+        assert!(!workspace.query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
         worker.abort();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
@@ -641,7 +641,7 @@ async fn existing_conflicts_merge_concurrent_local_and_remote_changes_and_conver
                 .unwrap(),
             expected
         );
-        assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+        assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
         assert!(repo.pending_writes().await.unwrap().is_empty());
         worker.abort();
         tokio::fs::remove_dir_all(root).await.unwrap();
@@ -1338,14 +1338,14 @@ async fn task_conflict_uploads_both_versions_remains_readable_and_does_not_block
             .iter()
             .all(|r| !r.starts_with("PUT"))
     );
-    assert_eq!(crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().into_iter().filter(|notice| matches!(notice, crate::CoreNotification::SyncConflict(_))).collect::<Vec<_>>().len(), 1);
+    assert_eq!(crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().into_iter().filter(|notice| matches!(notice, crate::CoreNotification::SyncConflict(_))).collect::<Vec<_>>().len(), 1);
     // 外部编辑移除完整冲突容器，下一次同步照常上传本地修改。
     let clean = crate::model::conflict::main_source(&repo.file("a.org").await.unwrap());
     tokio::fs::write(root.join("a.org"), clean)
         .await
         .unwrap();
     repo.load::<WebDavSyncPolicy>().await.unwrap();
-    assert!(crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().into_iter().filter(|notice| matches!(notice, crate::CoreNotification::SyncConflict(_))).collect::<Vec<_>>().is_empty());
+    assert!(crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().into_iter().filter(|notice| matches!(notice, crate::CoreNotification::SyncConflict(_))).collect::<Vec<_>>().is_empty());
     sync(&mut repo, &policy, 4).await;
     assert!(repo.pending_sync_conflicts().await.unwrap().is_empty());
     assert_eq!(tokio::fs::read(archived).await.unwrap(), merged);
@@ -1984,7 +1984,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     let conflict = sync(&mut repo, &policy, 2).await;
     let original_history = tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap();
     let original_base = tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap();
-    assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+    assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
     let file = repo.file("a.org").await.unwrap();
     let group = crate::TaskOperationGroup {
         operation_id: None,
@@ -1998,7 +1998,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(),remote.as_bytes());
     assert_eq!(tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap(),original_history);
     assert_eq!(tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap(),original_base);
-    let notices=workspace.query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap();
+    let notices=workspace.query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap();
     assert_eq!(notices,vec![crate::CoreNotification::SyncRequired]);
     repo=workspace.repos().remove(0);
     let detail=repo.history_detail(&conflict.id).await.unwrap();
@@ -2006,8 +2006,8 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     assert!(detail.files[0].backup.is_none());
     assert!(!root.join(".sync/history/2/conflicts/a.org/a.resolved.org").exists());
     sync(&mut repo,&policy,3).await;
-    assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
-    assert!(crate::OrgWorkspace::start(vec![repo]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default() }]).await.unwrap().remove(0).into_notifications().unwrap().is_empty());
+    assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
+    assert!(crate::OrgWorkspace::start(vec![repo]).await.unwrap().query(&[crate::CoreQuery::Notification { query: Default::default(), repo_ids: None }]).await.unwrap().remove(0).into_notifications().unwrap().is_empty());
     assert_eq!(tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap(),original_history);
     worker.abort();tokio::fs::remove_dir_all(root).await.unwrap();
 }

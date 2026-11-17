@@ -451,7 +451,11 @@ pub(crate) async fn local_changes_from_files(
     root: &Path,
     files: &[crate::OrgFile],
 ) -> Result<bool, CoreError> {
-    let (_, index) = read_index(root).await?;
+    let (original, index) = read_index(root).await?;
+    // 尚未建立远端基线的仓库不参与本地差异判断。
+    if original.is_none() {
+        return Ok(false);
+    }
     let current = files
         .iter()
         .map(|f| {

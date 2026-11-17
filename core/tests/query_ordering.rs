@@ -113,7 +113,8 @@ async fn scalar_order_keys_match_all_core_sort_fields_and_preserve_workspace_tie
     assert!(
         workspace
             .query_ordering(&CoreQuery::Notification {
-                query: NotificationQuery::default()
+                query: NotificationQuery::default(),
+                repo_ids: None,
             })
             .is_err()
     );

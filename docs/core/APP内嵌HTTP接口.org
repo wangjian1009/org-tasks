@@ -103,6 +103,8 @@ curl --fail-with-body -X PUT http://127.0.0.1:18787/api/v1/ui/navigation \
 
 请求正文是 ~CoreQuery[]~ ，结果与输入顺序一一对应，查询语义完整复用 [[file:查询语言设计.org][查询语言设计]]。支持 Task、File、Notification，不额外加入页面专用过滤规则。
 
+Notification 分支支持外层 ~repoIds~ ：省略或 ~null~ 表示全部仓库，显式空数组表示不检查任何仓库。只接受当前 Workspace 的真实 Core 仓库 ID；本地差异比较只读取已有远端基线索引，缺失时跳过。HTTP 调用方自行传入需要检查的仓库范围，完整语义见 [[file:统一批量查询接口设计.org][统一批量查询接口设计]]。
+
 #+begin_src json
 [
   {"type":"file","query":{}},

@@ -26,7 +26,11 @@ impl CoreQuery {
                     || query.include_files.iter().any(|file| file.repo_id == id
                         && !query.exclude_files.contains(file))
             }
-            Self::Notification { .. } => true,
+            Self::Notification { repo_ids, .. } => {
+                repo_ids
+                    .as_ref()
+                    .is_none_or(|ids| ids.iter().any(|item| item == id))
+            }
         }
     }
     pub(crate) fn needs_file(&self, id: &str, path: &str) -> bool {
@@ -115,7 +119,13 @@ impl WorkspaceState {
                         }
                     }
                 }
-                CoreQuery::Notification { .. } => {}
+                CoreQuery::Notification { repo_ids, .. } => {
+                    for id in repo_ids.iter().flatten() {
+                        if id.is_empty() || !self.repos().iter().any(|repo| &repo.id == id) {
+                            return Err(CoreError::InvalidInput("查询仓库不属于 workspace"));
+                        }
+                    }
+                }
             }
         }
         let today = chrono::Local::now().date_naive();
@@ -253,7 +263,6 @@ impl WorkspaceState {
         let merge_job = tokio::spawn(async move {
             let _activity = merge_activity;
             let mut loaded = BTreeMap::new();
-            let changed = false;
             let mut file_categories = BTreeMap::new();
             let mut all = Vec::new();
             let mut metadata = Vec::new();
@@ -305,21 +314,24 @@ impl WorkspaceState {
                 job.await
                     .map_err(|error| CoreError::Store(format!("查询任务失败: {error}")))?;
             }
-            Ok::<_, CoreError>((loaded, changed, file_categories, all, metadata, notifications))
+            Ok::<_, CoreError>((loaded, file_categories, all, metadata, notifications))
         });
-        let (loaded, mut changed, file_categories, mut all, mut metadata, mut notifications) =
+        let (loaded, file_categories, mut all, mut metadata, mut notifications) =
             merge_job
                 .await
                 .map_err(|error| CoreError::Store(format!("查询合并任务失败: {error}")))??;
+        let mut changed_repos = BTreeSet::new();
         if need_notifications {
-            for (repo_id, files) in &loaded {
-                let root = roots
-                    .iter()
-                    .find(|(_, repo)| repo.id == *repo_id)
-                    .map(|(root, _)| root)
-                    .expect("已加载仓库必须存在根目录");
-                changed |=
-                    crate::webdav::remote_base::local_changes_from_files(root, files).await?;
+            for (root, repo) in &roots {
+                if !queries.iter().any(|query| {
+                    matches!(query, CoreQuery::Notification { .. }) && query.includes_repo(&repo.id)
+                }) {
+                    continue;
+                }
+                let files = loaded.get(&repo.id).map(Vec::as_slice).unwrap_or_default();
+                if crate::webdav::remote_base::local_changes_from_files(root, files).await? {
+                    changed_repos.insert(repo.id.clone());
+                }
             }
         }
         let repository_order = self
@@ -359,9 +371,6 @@ impl WorkspaceState {
             }
         });
         drop(guards);
-        if changed {
-            notifications.push(crate::CoreNotification::SyncRequired);
-        }
         let mut file_tags = BTreeMap::<(&str, &str), BTreeSet<&str>>::new();
         if queries
             .iter()
@@ -421,7 +430,20 @@ impl WorkspaceState {
                     CoreQueryResult::File(files)
                 }
                 CoreQuery::Notification { .. } => {
-                    CoreQueryResult::Notification(notifications.clone())
+                    let mut selected = notifications
+                        .iter()
+                        .filter(|notice| match notice {
+                            crate::CoreNotification::SyncConflict(conflict) => {
+                                query.includes_repo(&conflict.repo_id)
+                            }
+                            crate::CoreNotification::SyncRequired => false,
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    if changed_repos.iter().any(|id| query.includes_repo(id)) {
+                        selected.push(crate::CoreNotification::SyncRequired);
+                    }
+                    CoreQueryResult::Notification(selected)
                 }
             })
             .collect();
@@ -928,9 +950,11 @@ mod tests {
             },
             CoreQuery::Notification {
                 query: NotificationQuery {},
+                repo_ids: None,
             },
             CoreQuery::Notification {
                 query: NotificationQuery {},
+                repo_ids: None,
             },
         ];
         let results = workspace.query(&queries).await.unwrap();
@@ -954,13 +978,59 @@ mod tests {
                 .iter()
                 .filter(|notice| matches!(notice, crate::CoreNotification::SyncRequired))
                 .count(),
-            1
+            0
         );
         assert_eq!(results[2], results[3]);
         for (repo, before) in workspace.repos().iter().zip(before) {
             let after = crate::model::test_support::repository_accesses(&repo.root_directory);
             assert_eq!([after[0] - before[0], after[1] - before[1]], [1, 1]);
         }
+    }
+
+    #[tokio::test]
+    async fn notification_scopes_require_a_baseline_and_remain_independent_in_mixed_batches() {
+        use crate::webdav::remote_base::{Store, Update};
+        let workspace = workspace().await;
+        let repos = workspace.repos();
+        let root = std::path::Path::new(&repos[0].root_directory);
+        let files = repos[0].load_files_unlocked(&[]).await.unwrap();
+        let mut store = Store::load(root, "notification-test").await.unwrap();
+        let remote = store.prepare_remote(root, files.iter().map(|file| Update {
+            path: file.path.clone(),
+            bytes: Some(file.source_bytes().to_vec()),
+            version: crate::RemoteFileVersion { etag: None, modified_at: None, size: None },
+            sync_id: "notification-test".into(),
+        }).collect()).await.unwrap();
+        store.publish(root, remote).await.unwrap();
+        let query = |repo_ids| CoreQuery::Notification { query: Default::default(), repo_ids };
+        assert!(workspace.query(&[query(None)]).await.unwrap().remove(0).into_notifications().unwrap().is_empty());
+        std::fs::write(root.join("capture.org"), "* TODO Changed\n").unwrap();
+        std::fs::write(std::path::Path::new(&repos[1].root_directory).join("conflict.org"), "* Conflict :CONFLICT:\n** Variant\n").unwrap();
+        let results = workspace.query(&[
+            TaskQuery::default().into(),
+            query(Some(vec![repos[0].id.clone()])),
+            query(Some(vec![repos[1].id.clone()])),
+            query(Some(vec![])),
+            query(None),
+        ]).await.unwrap();
+        assert_eq!(results[1].clone().into_notifications().unwrap(), vec![crate::CoreNotification::SyncRequired]);
+        assert!(matches!(results[2].clone().into_notifications().unwrap().as_slice(), [crate::CoreNotification::SyncConflict(_)]));
+        assert!(results[3].clone().into_notifications().unwrap().is_empty());
+        assert_eq!(results[4].clone().into_notifications().unwrap().len(), 2);
+        // 即使同批任务读取了其他仓库，也不读取范围外的损坏基线。
+        let other_base = std::path::Path::new(&repos[1].root_directory).join(".sync/remote_base");
+        std::fs::create_dir_all(&other_base).unwrap();
+        std::fs::write(other_base.join("current.json"), "broken").unwrap();
+        assert!(workspace.query(&[TaskQuery::default().into(), query(Some(vec![repos[0].id.clone()]))]).await.is_ok());
+        assert!(workspace.query(&[query(None)]).await.is_err());
+        // 删除最后一份工作文件后仍需与基线比较。
+        for file in files { std::fs::remove_file(root.join(file.path)).unwrap(); }
+        assert_eq!(workspace.query(&[query(Some(vec![repos[0].id.clone()]))]).await.unwrap().remove(0).into_notifications().unwrap(), vec![crate::CoreNotification::SyncRequired]);
+        for invalid in ["", "unknown"] {
+            assert!(matches!(workspace.query(&[query(Some(vec![invalid.into()]))]).await, Err(CoreError::InvalidInput(_))));
+        }
+        let empty: CoreQuery = serde_json::from_value(serde_json::json!({"type":"notification","query":{},"repoIds":[]})).unwrap();
+        assert!(workspace.query(&[empty]).await.unwrap().remove(0).into_notifications().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1053,7 +1123,8 @@ mod tests {
                 .query(&[
                     TaskQuery::default().into(),
                     CoreQuery::Notification {
-                        query: NotificationQuery {}
+                        query: NotificationQuery {},
+                        repo_ids: None,
                     }
                 ])
                 .await

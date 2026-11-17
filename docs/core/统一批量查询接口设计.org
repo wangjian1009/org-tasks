@@ -25,6 +25,8 @@ pub enum CoreQuery {
     },
     Notification {
         query: NotificationQuery,
+        #[serde(default, rename = "repoIds", skip_serializing_if = "Option::is_none")]
+        repo_ids: Option<Vec<OrgRepoId>>,
     },
 }
 
@@ -122,9 +124,11 @@ Harmony 的文件元信息与 Task 同时暴露 ~project(): string | null~ 方�
 pub struct NotificationQuery {}
 #+end_src
 
-本轮为无参数查询，返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ ，覆盖整个 workspace，沿用现有通知内容：每个当前冲突文件一条 ~SyncConflict~ ，任一仓库相对远端基线存在本地变化时追加一条 ~SyncRequired~ 。不增加通知筛选、分页、消费、确认或持久化语义。
+~NotificationQuery~ 保持为空对象，外层 ~CoreQuery::Notification.repo_ids~ 指定通知仓库范围，JSON / Harmony 字段为 ~repoIds~ 。省略或 ~null~ 表示整个 workspace；显式空数组表示不查询任何仓库，非空数组表示指定仓库的并集，空 ID 或未知 ID 使整批失败。返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ ，每个范围内的当前冲突文件一条 ~SyncConflict~ ，范围内任一已建立远端基线的仓库存在本地变化时追加唯一 ~SyncRequired~ 。没有远端基线索引时跳过本地差异判断，已有索引损坏仍报错。不增加分页、消费、确认或持久化语义。
 
-通知不受同批任务的排除条件、状态表达式、分类或 FileQuery 的隐藏文件开关限制。被任务规则隐藏的文件仍可能产生冲突和本地变化通知；无本地变化时不返回 ~SyncRequired~ 。多项 NotificationQuery 各自占据输入位置，但共享本次计算，不因重复请求增加结果内部的通知条数。
+远程配置由宿主管理。手机通知管理器只传入启用 WebDAV 且远端地址非空的仓库；关闭远程同步后，即使保留旧基线也不再产生本地修改提示。系统仓库和其他纯本地仓库不参与通知检查。Core 不识别页面、系统仓库或废纸篓语义。
+
+通知不受同批任务的排除条件、状态表达式、分类或 FileQuery 的隐藏文件开关限制。被任务规则隐藏的文件仍可能产生冲突和本地变化通知；无本地变化时不返回 ~SyncRequired~ 。多项 NotificationQuery 各自占据输入位置，但共享本次计算，并分别应用自身仓库范围，不因重复请求增加结果内部的通知条数。
 
 现有独立通知读取入口迁移到统一批量接口； ~watch_notifications~ 、 ~watchNotifications~ 和停止订阅接口保留，只通知宿主重新发起批量查询。Harmony 继续为冲突通知附带宿主定位所需的 ~rootDirectory~ ，不改变 Core 事件字段或写入任何持久化记录。
 
@@ -152,7 +156,7 @@ class Task {
 type CoreQuery =
   | { type: 'task'; query: TaskQuery; repoIds?: string[] }
   | { type: 'file'; query: FileQuery }
-  | { type: 'notification'; query: NotificationQuery }
+  | { type: 'notification'; query: NotificationQuery; repoIds?: string[] | null }
 
 type CoreQueryResult =
   | { type: 'task'; result: TaskQueryResult }

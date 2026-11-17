@@ -11,7 +11,9 @@ export class PageQueryService {
     await CoreDataChangeService.connect(workspace)
     const notificationIndex = queries.findIndex(item => item.type === 'notification')
     const batch: CoreQuery[] = queries.slice()
-    if (notificationIndex < 0) batch.push({ type: 'notification', query: {} })
+    const notificationQuery = await NotificationManager.queryFor(config, workspace)
+    if (notificationIndex < 0) batch.push(notificationQuery)
+    else batch[notificationIndex] = notificationQuery
     const results = await workspace.query(batch)
     const index = notificationIndex < 0 ? queries.length : notificationIndex
     NotificationManager.publish(config, notificationResult(results[index]), request)

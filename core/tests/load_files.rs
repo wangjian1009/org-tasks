@@ -209,7 +209,7 @@ async fn mixed_query_ranges_load_the_union_and_do_not_hide_files_needed_by_other
     for other in [
         TaskQuery { include_files: vec![reference("broken.org")], ..Default::default() }.into(),
         CoreQuery::File { query: FileQuery { include_files: vec![reference("broken.org")], ..Default::default() } },
-        CoreQuery::Notification { query: NotificationQuery {} },
+        CoreQuery::Notification { query: NotificationQuery {}, repo_ids: None },
     ] {
         assert!(workspace.query(&[a.clone(), other]).await.is_err());
     }

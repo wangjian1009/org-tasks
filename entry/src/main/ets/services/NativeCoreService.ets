@@ -327,6 +327,7 @@ export class CoreWorkspace {
   }
 
   async query(queries: CoreQuery[], repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<CoreQueryResult[]> {
+    // 透传各项仓库范围，Notification 的空 repoIds 不转换为省略。
     return await this.native.query(queries, repositoryBindings)
   }
 

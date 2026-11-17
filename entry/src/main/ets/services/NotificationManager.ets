@@ -1,7 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreNotification, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService, notificationResult } from './NativeCoreService'
+import { CoreNotification, CoreQuery, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService, notificationResult } from './NativeCoreService'
 import { repositoryLabel } from '../ui/Theme'
 
 // 宿主展示上下文单独保存，不作为通知的公共数据或持久化字段。
@@ -131,11 +131,22 @@ export class NotificationManager {
       await NotificationManager.connect(workspace, session)
       if (!NotificationManager.active(session)) return
       const request = NotificationManager.begin()
-      const results = await workspace.query([{ type: 'notification', query: {} }])
+      const query = await NotificationManager.queryFor(config, workspace)
+      const results = await workspace.query([query])
       if (!NotificationManager.active(session)) return
       if (revision !== NotificationManager.changeRevision) { NotificationManager.pending = true; continue }
       if (!NotificationManager.publish(config, notificationResult(results[0]), request)) NotificationManager.pending = true
     }
+  }
+
+  // 远程配置属于宿主，Core 只接收本次需要检查的仓库范围。
+  static async queryFor(config: AppConfig, workspace: CoreWorkspace): Promise<CoreQuery> {
+    const remoteRoots = config.repos.filter(repo => repo.webdavEnabled && repo.webdavUrl.trim().length > 0)
+      .map(repo => repo.rootDirectory)
+    if (remoteRoots.length === 0) return { type: 'notification', query: {}, repoIds: [] }
+    const repositories = await workspace.repos()
+    return { type: 'notification', query: {}, repoIds: repositories.filter(repo => remoteRoots.includes(repo.rootDirectory))
+      .map(repo => repo.id) }
   }
 
   static begin(): number { return ++NotificationManager.requestId }
