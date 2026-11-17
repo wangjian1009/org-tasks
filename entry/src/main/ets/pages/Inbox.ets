@@ -102,7 +102,7 @@ struct Inbox {
   private actionPolicy: TaskPageActionPolicy = taskActionPolicy({
     singleOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete],
     bulkOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Delete, TaskOperation.Merge]
-  }, 'schedule')
+  }, TaskOperation.Schedule)
   private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()
   private rowHeights: Map<string, number> = new Map()

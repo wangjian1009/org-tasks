@@ -13,7 +13,7 @@ import { CategoryRegion } from './CategoryRegion'
 import { ScheduleRegion } from './ScheduleRegion'
 import { taskRegion, TaskRegionData } from '../ui/TaskRegionPresentation'
 import { TaskSwipeItem } from './TaskSwipeItem'
-import { TaskSingleOperation } from '../ui/TaskActionPresentation'
+import { TaskOperation, TaskSingleOperation } from '../ui/TaskActionPresentation'
 
 interface NotificationListAnchor { key: string; y: number }
 class NotificationLayoutFrame extends FrameCallback {
@@ -129,14 +129,14 @@ export struct TodayTaskList {
   @Builder
   taskItem(item: TodayTaskItem) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
-      singleOperations: this.singleOperations, rightSwipeAction: 'schedule', referenceTime: this.referenceTime,
+      singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, referenceTime: this.referenceTime,
       expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
   @Builder
   timedTaskItem(item: TodayTimedTaskItem) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
-      singleOperations: this.singleOperations, rightSwipeAction: 'schedule', timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
+      singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
       referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 

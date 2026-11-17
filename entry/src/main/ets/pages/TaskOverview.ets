@@ -116,8 +116,8 @@ struct TaskOverview {
     return this.view === 'today' || this.view === 'anytime' || this.view === 'waiting' || this.view === 'someday' || this.view === 'memo'
   }
 
-  rightSwipeAction(): TaskRightSwipeAction {
-    return this.view === 'memo' ? 'none' : taskPageActionPolicy(this.view).rightSwipeAction
+  rightSwipeAction(): TaskRightSwipeAction | undefined {
+    return this.view === 'memo' ? undefined : taskPageActionPolicy(this.view).rightSwipeAction
   }
 
   confirmDeleteMemo(task: CoreTask) {

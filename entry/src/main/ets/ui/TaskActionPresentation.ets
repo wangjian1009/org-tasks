@@ -24,7 +24,7 @@ export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
 type TaskMenuOperation = TaskSingleOperation | TaskBatchAction
 type TaskToggleStateCategory = TaskStateCategory | null
-export type TaskRightSwipeAction = 'schedule' | 'move' | 'none'
+export type TaskRightSwipeAction = TaskOperation.Schedule | TaskOperation.Move
 
 export interface TaskActionOperations {
   singleOperations?: TaskSingleOperation[]
@@ -34,7 +34,7 @@ export interface TaskActionOperations {
 export interface TaskPageActionPolicy {
   singleOperations: TaskSingleOperation[]
   bulkOperations: TaskBatchAction[]
-  rightSwipeAction: TaskRightSwipeAction
+  rightSwipeAction: TaskRightSwipeAction | undefined
 }
 
 export interface TaskActionItem {
@@ -49,7 +49,7 @@ export interface TaskActionItem {
 }
 
 // 两组操作列表独立控制功能与顺序；多选由左滑菜单固定追加。
-export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwipeAction: TaskRightSwipeAction = 'none'): TaskPageActionPolicy {
+export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwipeAction: TaskRightSwipeAction | undefined = undefined): TaskPageActionPolicy {
   return { rightSwipeAction, singleOperations: [...(operations.singleOperations ?? [])],
     bulkOperations: [...(operations.bulkOperations ?? [])] }
 }
@@ -57,9 +57,9 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, 'schedule')
-    case 'planned': case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, 'schedule')
-    case 'inbox': return taskActionPolicy({}, 'schedule')
+    case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'planned': case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
   }
 }

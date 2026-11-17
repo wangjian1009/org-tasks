@@ -7,7 +7,7 @@ import { CoreTask } from '../services/NativeCoreService'
 import { TaskRegion } from './TaskRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { TaskSwipeItem } from './TaskSwipeItem'
-import { TaskSingleOperation } from '../ui/TaskActionPresentation'
+import { TaskOperation, TaskSingleOperation } from '../ui/TaskActionPresentation'
 
 @Component
 export struct PlannedTaskList {
@@ -63,7 +63,7 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(taskKey: string, groupKey: string) {
-    TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: 'schedule', dataSet: this.taskDataSet(), taskId: taskKey,
+    TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, dataSet: this.taskDataSet(), taskId: taskKey,
       dateDisplay: this.dateDisplay(groupKey, taskKey), regionAreaPolicy: this.regionPolicy(groupKey, taskKey),
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       referenceTime: this.referenceTime })
@@ -71,7 +71,7 @@ export struct PlannedTaskList {
 
   @Builder
   scheduleTaskItem(taskKey: string, groupKey: string) {
-    TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: 'schedule', dataSet: this.taskDataSet(), taskId: taskKey,
+    TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, dataSet: this.taskDataSet(), taskId: taskKey,
       dateDisplay: TaskDateDisplay.None, timeDisplay: this.scheduleItem(groupKey, taskKey).timeDisplay,
       regionAreaPolicy: RegionAreaPolicy.None,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })

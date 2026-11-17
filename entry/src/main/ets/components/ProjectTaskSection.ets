@@ -4,6 +4,7 @@ import { samePageValue } from '../services/PageDataEquality'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
+import { TaskOperation } from '../ui/TaskActionPresentation'
 import { UiColor } from '../ui/Theme'
 import { TaskSwipeItem } from './TaskSwipeItem'
 import { OrgHeadingView } from './OrgHeadingView'
@@ -60,7 +61,7 @@ export struct ProjectTaskSection {
     Column() {
       if (this.node) {
         if (this.node.state) {
-          TaskSwipeItem({ listItem: false, rightSwipeAction: 'schedule', dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
+          TaskSwipeItem({ listItem: false, rightSwipeAction: TaskOperation.Schedule, dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
             contentHidden: this.hasChildren || this.contextOnly, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,
             dateDisplay: TaskDateDisplay.Schedule, regionAreaPolicy: RegionAreaPolicy.None,
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll' }).width('100%')

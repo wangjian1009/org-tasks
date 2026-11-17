@@ -21,7 +21,7 @@ export struct TaskSwipeItem {
   @Prop listItem: boolean = true
   @Prop listOutset: number = 0
   @Prop itemId: string = ''
-  @Prop rightSwipeAction: TaskRightSwipeAction = 'none'
+  @Prop rightSwipeAction: TaskRightSwipeAction | undefined = undefined
   menuAvailable: (() => boolean) | undefined = undefined
   @BuilderParam menuContent: (activate: (action: TaskOperation) => void) => void = this.swipeMenu
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
@@ -80,13 +80,12 @@ export struct TaskSwipeItem {
   }
 
   rightSwipeAvailable(): boolean {
-    return !this.blocked() && this.rightSwipeAction !== 'none' && this.controller.canActivate()
+    return !this.blocked() && this.rightSwipeAction !== undefined && this.controller.canActivate()
   }
 
   activateRightSwipe(): void {
     if (!this.rightSwipeAvailable()) return
-    if (this.rightSwipeAction === 'schedule') this.activateOperation(TaskOperation.Schedule, true)
-    else if (this.rightSwipeAction === 'move') this.activateOperation(TaskOperation.Move, true)
+    if (this.rightSwipeAction !== undefined) this.activateOperation(this.rightSwipeAction, true)
   }
 
   leftSwipeAvailable(): boolean {
@@ -95,8 +94,7 @@ export struct TaskSwipeItem {
   }
 
   operationEnabled(action: TaskOperation, fromRight: boolean = false): boolean {
-    if (fromRight) return action === TaskOperation.Schedule && this.rightSwipeAction === 'schedule' ||
-      action === TaskOperation.Move && this.rightSwipeAction === 'move'
+    if (fromRight) return this.rightSwipeAction !== undefined && action === this.rightSwipeAction
     return this.singleOperations.some(operation => operation === action)
   }
 
@@ -166,7 +164,7 @@ export struct TaskSwipeItem {
 
   @Builder
   swipeContent() {
-    RightSwipe({ disabled: !this.interactionEnabled || this.readOnly || this.busy || this.rightSwipeAction === 'none',
+    RightSwipe({ disabled: !this.interactionEnabled || this.readOnly || this.busy || this.rightSwipeAction === undefined,
       canActivate: (): boolean => this.rightSwipeAvailable(), action: (): void => { this.activateRightSwipe() } }) {
       this.content(this.controller)
     }
