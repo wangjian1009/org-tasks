@@ -181,7 +181,11 @@ export struct LinkView {
 
   async installDocument() {
     if (!this.active || !this.webController) return
-    try { await this.webController.runJavaScript(linkDocumentScript()) }
+    const generation = this.generation
+    try {
+      await this.webController.runJavaScript(linkDocumentScript())
+      if (this.active && generation === this.generation) this.remeasure()
+    }
     catch (_) { this.notify('链接控件加载失败，请重新载入正文。') }
   }
 

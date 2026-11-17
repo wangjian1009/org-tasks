@@ -1,6 +1,5 @@
 import { CoreTaskLog } from '../../services/NativeCoreService'
-import { taskLogHtml, taskNoteHtml, taskNoteTime } from '../../ui/TaskLogPresentation'
-import { UiColor } from '../../ui/Theme'
+import { taskLogHtml, taskNoteHtml } from '../../ui/TaskLogPresentation'
 import { OrgContentView } from '../OrgContentView'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 
@@ -14,12 +13,8 @@ export struct TaskLogItem {
 
   build() {
     if (this.notesOnly) {
-      Row({ space: 10 }) {
-        Text(taskNoteTime(this.log)).fontSize(11).fontColor(UiColor.disabled).width(86).flexShrink(0)
-          .padding({ top: 2 })
-        OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: taskNoteHtml(this.log), embedded: true, embeddedPadding: 0,
-          compactLogs: true, contentBackground: this.contentBackground }).layoutWeight(1).constraintSize({ minWidth: 0 })
-      }.width('100%').alignItems(VerticalAlign.Top)
+      OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: taskNoteHtml(this.log), embedded: true, embeddedPadding: 0,
+        compactLogs: true, contentBackground: this.contentBackground }).width('100%')
     } else {
       OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: taskLogHtml(this.log), embedded: true, embeddedPadding: 0,
         compactLogs: true, contentBackground: this.contentBackground }).width('100%')

@@ -14,7 +14,7 @@ export struct TaskLogView {
   build() {
     if (this.logs.length > 0) {
       // 收起时仅裁切布局，保留阅读器及其测量高度，避免重新展开时加载空白页。
-      Column({ space: this.notesOnly ? 10 : 6 }) {
+      Column({ space: this.notesOnly ? 4 : 6 }) {
         Row({ space: 8 }) {
           Text(this.notesOnly ? '备注' : '日志').fontSize(12).fontColor(UiColor.secondary).flexShrink(0)
           Divider().color(UiColor.outline).strokeWidth(1).layoutWeight(1)

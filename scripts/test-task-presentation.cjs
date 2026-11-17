@@ -656,7 +656,7 @@ test('来源文字追加项目名，分类缺失时单独显示项目，非项�
   assert.notEqual(taskRenderKey(task('same', { projectName: '旧项目' })), taskRenderKey(task('same', { projectName: '新项目' })));
 });
 
-test('备注与事件分区保留原条目和顺序，日志不再重复 note', () => {
+test('备注与事件分区按时间倒序保留原条目，日志不再重复 note', () => {
   const { taskLogHtml, taskNoteHtml, taskNoteEntries, taskEventLogs, taskNoteTime } = loadGrouping('TaskLogPresentation', {});
   const entries = Object.freeze([
     { type: 'taskStateChange', from: '', to: '<img src=x onerror=alert(1)>', timestamp: '2026-11-17 10:30', noteHtml: '<p>等待<b>确认</b></p>' },
@@ -670,8 +670,8 @@ test('备注与事件分区保留原条目和顺序，日志不再重复 note', 
   ].map(Object.freeze));
   const original = JSON.stringify(entries);
   const notes = taskNoteEntries(entries), events = taskEventLogs(entries);
-  assert.deepEqual(notes, entries.slice(0, 4));
-  assert.deepEqual(events, [entries[0], ...entries.slice(3)]);
+  assert.deepEqual(notes, [entries[0], entries[1], entries[3], entries[2]]);
+  assert.deepEqual(events, [entries[0], entries[3], entries[6], entries[4], entries[5], entries[7]]);
   assert.ok(notes.every(log => entries.includes(log)));
   const html = events.map(taskLogHtml).join('');
   assert.ok(html.includes('无状态 → &lt;img'));
@@ -692,6 +692,31 @@ test('备注与事件分区保留原条目和顺序，日志不再重复 note', 
   assert.equal(JSON.stringify(entries), original);
   assert.deepEqual(taskNoteEntries([]), []);
   assert.deepEqual(taskEventLogs([entries[1], entries[2]]), []);
+});
+
+test('乱序备注跨年和同日按时间倒序，仅日期按零点比较，同时间稳定且输入不变', () => {
+  const { taskNoteEntries, taskEventLogs } = loadGrouping('TaskLogPresentation', {});
+  const note = (timestamp, label) => Object.freeze({ type: 'taskNote', timestamp, noteHtml: `<p>${label}</p>` });
+  const entries = Object.freeze([
+    note('2025-12-31 23:59', '跨年'),
+    note('2026-11-17', '仅日期'),
+    note('2026-11-17 13:49', '较晚甲'),
+    note('2026-11-17 09:20', '较早'),
+    note('2026-11-17 13:49', '较晚乙'),
+    note('2026-11-17 00:00', '零点')
+  ]);
+  const original = JSON.stringify(entries);
+  assert.deepEqual(taskNoteEntries(entries), [entries[2], entries[4], entries[3], entries[1], entries[5], entries[0]]);
+  assert.equal(JSON.stringify(entries), original);
+  const events = Object.freeze([
+    Object.freeze({ type: 'other', html: '未知甲' }),
+    Object.freeze({ type: 'taskClock', start: '2026-11-16 23:00', end: '2026-11-18 01:00', duration: '26:00' }),
+    Object.freeze({ type: 'taskStateChange', timestamp: '2026-11-17 09:00', from: 'TODO', to: 'DONE', noteHtml: '' }),
+    Object.freeze({ type: 'taskClock', start: '2026-11-17 10:00', end: null, duration: null }),
+    Object.freeze({ type: 'other', html: '未知乙' })
+  ]);
+  assert.deepEqual(taskEventLogs(events), [events[3], events[2], events[1], events[0], events[4]]);
+  assert.equal(events[0].html, '未知甲');
 });
 
 test('空 HTML 容器不产生备注，图片等无文字内容仍保留', () => {

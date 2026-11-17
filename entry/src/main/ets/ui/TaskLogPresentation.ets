@@ -5,15 +5,29 @@ function escapeLogText(value: string): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-// 分区仅选择既有条目，不复制或修改 Core 日志对象。
+function logTime(log: CoreTaskLog): string {
+  if (log.type === 'other') return ''
+  const time = log.type === 'taskClock' ? log.start : log.timestamp
+  return time.length === 10 ? `${time} 00:00` : time
+}
+
+// 使用 Core 已解析的本地日历时间稳定倒序；只调整展示数组，不改写日志对象或原文。
+function newestLogs(logs: CoreTaskLog[]): CoreTaskLog[] {
+  return logs.sort((left: CoreTaskLog, right: CoreTaskLog): number => {
+    const a = logTime(left)
+    const b = logTime(right)
+    return a === b ? 0 : a > b ? -1 : 1
+  })
+}
+
 export function taskNoteEntries(logs: CoreTaskLog[]): CoreTaskLog[] {
-  return logs.filter((log: CoreTaskLog): boolean =>
+  return newestLogs(logs.filter((log: CoreTaskLog): boolean =>
     log.type !== 'other' && log.type !== 'taskClock' &&
-      log.noteHtml.replace(/<\/?(?:main|section|p)\b[^>]*>|<br\s*\/?>/gi, '').trim().length > 0)
+      log.noteHtml.replace(/<\/?(?:main|section|p)\b[^>]*>|<br\s*\/?>/gi, '').trim().length > 0))
 }
 
 export function taskEventLogs(logs: CoreTaskLog[]): CoreTaskLog[] {
-  return logs.filter((log: CoreTaskLog): boolean => log.type !== 'taskNote' && log.type !== 'taskClosingNote')
+  return newestLogs(logs.filter((log: CoreTaskLog): boolean => log.type !== 'taskNote' && log.type !== 'taskClosingNote'))
 }
 
 export function taskNoteTime(log: CoreTaskLog, year: number = new Date().getFullYear()): string {
@@ -23,7 +37,7 @@ export function taskNoteTime(log: CoreTaskLog, year: number = new Date().getFull
 
 export function taskNoteHtml(log: CoreTaskLog): string {
   if (log.type === 'other' || log.type === 'taskClock') return ''
-  return `<article class="task-log task-note">${log.noteHtml}</article>`
+  return `<article class="task-log task-note"><time class="task-note-time">${escapeLogText(taskNoteTime(log))}</time><div class="task-note-body">${log.noteHtml}</div></article>`
 }
 
 // 只按 Core 类型组织排版；时间与 Org 富文本均已在 Core 解析。

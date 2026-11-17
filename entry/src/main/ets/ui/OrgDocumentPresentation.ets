@@ -138,10 +138,12 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-log .timestamp { text-decoration: none; }
 .task-log .source { padding: 4px 8px; background: transparent; }
 .task-log blockquote { padding-left: 8px; border-left: 1px solid ${UiColor.outline}; }
-.task-note { color: ${UiColor.text}; font-size: 14px; }
-.task-note :is(p, li, pre, code, table, .source-code, .heading-title) { font-size: 14px; }
-.task-note > :first-child { margin-top: 0; }
-.task-note > :last-child { margin-bottom: 0; }
+.task-note { display: grid; grid-template-columns: 86px minmax(0, 1fr); column-gap: 10px; align-items: baseline; color: ${UiColor.secondary}; font-size: 13px; line-height: 1.25; }
+.task-note-time { color: ${UiColor.disabled}; font-size: 11px; }
+.task-note-body { min-width: 0; }
+.task-note :is(p, li, pre, code, table, .source-code, .heading-title) { font-size: 13px; line-height: 1.25; }
+.task-note-body > :first-child { margin-top: 0; }
+.task-note-body > :last-child { margin-bottom: 0; }
 .project-reading { line-height: 1.75; padding: 16px 24px 60px; }
 .embedded.project-reading, .file-reading.project-reading.embedded-section { padding: 0; max-width: none; }
 /* 将片段首尾留白计入 WebView 测量，章节舒展、清单连续排列。 */

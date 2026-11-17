@@ -72,6 +72,22 @@ function fixture() {
     open: value => { open = value; }, start: value => { start = value; }, search: value => { search = value; } };
 }
 
+test('文档链接排版完成后重新测量高度，失败或离开后的迟到结果不更新布局', async () => {
+  const f = fixture();
+  let finish, measured = 0;
+  f.view.remeasure = () => { measured++; };
+  f.view.webController = { runJavaScript: () => new Promise(resolve => { finish = resolve; }) };
+  const pending = f.view.installDocument();
+  assert.equal(measured, 0);
+  finish(); await pending; assert.equal(measured, 1);
+  const leaving = f.view.installDocument();
+  f.view.aboutToDisappear(); finish(); await leaving;
+  assert.equal(measured, 1);
+  f.view.aboutToAppear();
+  f.view.webController = { runJavaScript: async () => { throw new Error('加载失败'); } };
+  await f.view.installDocument(); assert.equal(measured, 1);
+});
+
 test('标题链接等待输入挂载后的布局帧聚焦，150003 异常保留草稿且可重试', async () => {
   const f = fixture(); f.view.editable = true;
   await f.view.select({ ...linkHit(), menu: true }); await f.view.beginEdit();
