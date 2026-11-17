@@ -126,6 +126,7 @@ export struct PlannedTaskList {
         this.groupContent(group.key)
       }, (group: PlannedGroup) => group.key)
     }.id('planned_task_list').width('100%').layoutWeight(1).padding({ left: 20, right: 20, bottom: 16 })
+      .scrollBar(BarState.Off)
       .enableScrollInteraction(!this.checklistDragging)
       .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .edgeEffect(EdgeEffect.None)

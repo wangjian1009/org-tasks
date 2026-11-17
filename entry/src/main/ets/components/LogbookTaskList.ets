@@ -227,6 +227,7 @@ export struct LogbookTaskList {
           this.groupItems(this.currentGroup(group))
         }, (group: LogbookGroup) => group.key)
       }.id('logbook_task_list').width('100%').height('100%').padding({ left: 20, right: 20, bottom: this.selectingTasks ? 196 : 16 })
+        .scrollBar(BarState.Off)
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
         .edgeEffect(EdgeEffect.None)
       this.batchToolbar()

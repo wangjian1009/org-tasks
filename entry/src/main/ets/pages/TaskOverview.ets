@@ -396,6 +396,7 @@ struct TaskOverview {
               ListItem() { Column().height(104) }
             }
           }.id('overview_task_list').width('100%').layoutWeight(1).padding({ bottom: this.view === 'memo' ? 0 : 16 })
+            .scrollBar(BarState.Off)
             .enableScrollInteraction(!this.checklistDragging)
             .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
             .edgeEffect(EdgeEffect.None)

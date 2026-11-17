@@ -240,6 +240,7 @@ export struct TodayTaskList {
         }
       }, (key: string) => key)
     }.id('today_task_list').width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+      .scrollBar(BarState.Off)
       .onScrollIndex((start: number): void => { this.firstIndex = start })
       .onDidScroll((_offset: number, state: ScrollState): void => { if (state !== ScrollState.Idle) this.savePosition() })
       .onAreaChange((_old: Area, area: Area): void => {
