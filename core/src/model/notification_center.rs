@@ -1,5 +1,10 @@
 //! Workspace 私有的通知请求通道；订阅表和 ID 只存在于 process 的局部状态。
+use super::notification::{
+    NotificationCallback, NotificationLoads, NotificationRequest, NotificationState,
+    RepositoryNotifications,
+};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -11,6 +16,7 @@ type Callback = Box<dyn Fn(&SyncCommitted) + Send + Sync>;
 #[derive(Clone)]
 pub struct NotificationCenter {
     sender: mpsc::UnboundedSender<Request>,
+    sequence: Arc<AtomicU64>,
 }
 
 pub(crate) struct Subscription {
@@ -19,9 +25,14 @@ pub(crate) struct Subscription {
     active: watch::Receiver<bool>,
 }
 
-pub(crate) struct Requests(mpsc::UnboundedReceiver<Request>);
+pub(crate) struct Requests(
+    mpsc::UnboundedReceiver<Request>,
+    mpsc::WeakUnboundedSender<Request>,
+    Arc<AtomicU64>,
+);
 
 enum Request {
+    Notifications(NotificationRequest),
     Subscribe {
         token: Weak<()>,
         callback: Callback,
@@ -47,7 +58,9 @@ impl Eq for NotificationCenter {}
 impl NotificationCenter {
     pub(crate) fn new() -> (Self, Requests) {
         let (sender, receiver) = mpsc::unbounded_channel();
-        (Self { sender }, Requests(receiver))
+        let sequence = Arc::new(AtomicU64::new(0));
+        let requests = Requests(receiver, sender.downgrade(), sequence.clone());
+        (Self { sender, sequence }, requests)
     }
 
     pub(crate) fn subscribe<F>(&self, callback: F) -> Subscription
@@ -68,7 +81,71 @@ impl NotificationCenter {
         }
     }
 
+    pub(crate) fn next_revision(&self) -> u64 {
+        self.sequence.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub(crate) fn configure(&self, repos: Vec<super::OrgRepo>) {
+        let _ = self
+            .sender
+            .send(Request::Notifications(NotificationRequest::Configure(
+                repos,
+            )));
+    }
+
+    pub(crate) fn watch_notifications(
+        &self,
+        repo_ids: Option<Vec<super::OrgRepoId>>,
+        callback: NotificationCallback,
+    ) -> Subscription {
+        let token = Arc::new(());
+        let (active, status) = watch::channel(true);
+        let _ = self
+            .sender
+            .send(Request::Notifications(NotificationRequest::Subscribe {
+                repo_ids,
+                token: Arc::downgrade(&token),
+                callback,
+                active,
+            }));
+        Subscription {
+            center: self.clone(),
+            token,
+            active: status,
+        }
+    }
+
+    pub(crate) fn update_files(
+        &self,
+        repo_id: &str,
+        files: Vec<super::FileDataChange>,
+        conflicts: bool,
+    ) {
+        let _ = self
+            .sender
+            .send(Request::Notifications(NotificationRequest::Files {
+                repo_id: repo_id.into(),
+                revision: self.next_revision(),
+                files,
+                conflicts,
+            }));
+    }
+
+    pub(crate) fn update_snapshot(&self, repo_id: String, data: RepositoryNotifications) {
+        let _ = self
+            .sender
+            .send(Request::Notifications(NotificationRequest::Snapshot {
+                repo_id,
+                data,
+            }));
+    }
+
     fn unsubscribe(&self, token: Weak<()>) {
+        let _ = self
+            .sender
+            .send(Request::Notifications(NotificationRequest::Unsubscribe(
+                token.clone(),
+            )));
         let _ = self.sender.send(Request::Unsubscribe(token));
     }
 
@@ -107,6 +184,7 @@ impl NotificationCenter {
             next_id: &mut u64,
         ) -> Result<(), CoreError> {
             match request {
+                Request::Notifications(_) => unreachable!("通知状态由外层任务处理"),
                 Request::Subscribe {
                     token,
                     callback,
@@ -144,6 +222,8 @@ impl NotificationCenter {
             Ok(())
         }
 
+        let mut notices = NotificationState::default();
+        let mut loads = NotificationLoads::new();
         let mut monitors = BTreeMap::new();
         let mut next_id = 0;
         loop {
@@ -151,17 +231,49 @@ impl NotificationCenter {
                 biased;
                 _ = &mut stopping => break,
                 next = requests.0.recv() => next,
+                loaded = loads.join_next(), if !loads.is_empty() => {
+                    if let Some(Ok((generation, repo_id, data))) = loaded { notices.loaded(generation, repo_id, data); }
+                    continue;
+                },
             };
             let Some(next) = next else {
                 break;
             };
-            handle(next, &mut monitors, &mut next_id)?;
+            if let Request::Notifications(request) = next {
+                if let Some(sender) = requests.1.upgrade() {
+                    notices.handle(
+                        request,
+                        &mut loads,
+                        &Self {
+                            sender,
+                            sequence: requests.2.clone(),
+                        },
+                    );
+                }
+            } else {
+                handle(next, &mut monitors, &mut next_id)?;
+            }
         }
         // 关闭入口后排空已受理请求；当前回调由本任务执行，返回时已全部完成。
         requests.0.close();
         while let Some(request) = requests.0.recv().await {
-            handle(request, &mut monitors, &mut next_id)?;
+            if let Request::Notifications(request) = request {
+                if let Some(sender) = requests.1.upgrade() {
+                    notices.handle(
+                        request,
+                        &mut loads,
+                        &Self {
+                            sender,
+                            sequence: requests.2.clone(),
+                        },
+                    );
+                }
+            } else {
+                handle(request, &mut monitors, &mut next_id)?;
+            }
         }
+        loads.abort_all();
+        while loads.join_next().await.is_some() {}
         Ok(())
     }
 }

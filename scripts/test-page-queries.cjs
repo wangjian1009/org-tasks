@@ -306,11 +306,11 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
   assert.equal(page.needsConfiguration,false);
 });
 
-test('侧边栏任务、项目、入口文件和通知合为一个批次，跨仓库同名文件保持隔离',async()=>{
+test('侧边栏任务、项目与入口文件合为一个批次，跨仓库同名文件保持隔离',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   await page.loadNavigation();
-  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,14);
-  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','task','file','task','file','task','file','notification']);
+  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,13);
+  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','task','file','task','file','task','file']);
   assert.deepEqual(f.batches[0][5].query,{isProject:true});
   assert.deepEqual(f.batches[0][4].query,{expression:'it.done'});
   assert.deepEqual(f.batches[0][1].query,{expression:'it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'});
@@ -331,9 +331,8 @@ test('废纸篓计数与其他导航共用批次，缓存、外部变更和失�
   });
   const page=f.page('components/AppShell',['loadNavigation']);
   await page.loadNavigation();
-  assert.equal(page.trashCount,3);assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,15);
+  assert.equal(page.trashCount,3);assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,14);
   assert.deepEqual(f.batches[0][13],{type:'task',query:{expression:'.o.deleted',includeFiles:[{repoId:'core-system',path:'trash.org'}]},repoIds:['core-system']});
-  assert.equal(f.batches[0][14].type,'notification');
   page.sidebarManager.close();
   const restored=f.page('components/AppShell',['loadNavigation']),seen=[];
   restored.sidebarManager.subscribe(value=>seen.push([value.version,value.trashCount]));
@@ -427,32 +426,13 @@ test('批次失败保留通知，页面查询不重复注册应用级通知订�
   assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,snapshots);
 });
 
-test('任务快照查询时同批发布同步提示，恢复基线后清除，失败保留通知',async()=>{
+test('页面批次只读取任务与文件，不能写共享通知快照',async()=>{
   const f=fixture(),service=f.load('services/PageQueryService').PageQueryService;
-  const task={id:'editing',repoId:'core-a',filePath:'same.org',fileVersion:'new',tags:['新增标签']};
-  let changed=true;
-  f.query(batch=>batch.map(request=>request.type==='notification' ?
-    {type:'notification',result:changed?[{type:'syncRequired'}]:[]} : {type:'task',result:{tasks:[task]}}));
-  const reload=()=>service.query(f.config,[{type:'task',query:{includeFiles:[{repoId:task.repoId,path:task.filePath}]}}]);
-  assert.equal((await reload())[0].result.tasks[0],task);
-  assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['task','notification']);
-  assert.deepEqual(f.writes.filter(write=>write.key==='coreNotifications').at(-1).value.notifications,[{type:'syncRequired'}]);
-  changed=false;await reload();
-  assert.deepEqual(f.writes.filter(write=>write.key==='coreNotifications').at(-1).value.notifications,[]);
-  const before=f.writes.filter(write=>write.key==='coreNotifications').length;
-  f.fail();await assert.rejects(reload(),/整批读取失败/);
-  assert.equal(f.writes.filter(write=>write.key==='coreNotifications').length,before);
+  const values=await service.query(f.config,[{type:'file',query:{includeFiles:[{repoId:'core-b',path:'same.org'}]}},{type:'task',query:{}}]);
+  assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['file','task']);
+  assert.deepEqual(values.map(item=>item.type),['file','task']);assert.equal(values[0].result[0].repoId,'core-b');
+  assert.equal(f.writes.some(write=>write.key==='coreNotifications'),false);
 });
-
-test('显式通知请求保留原位置，任务和文件结果按输入下标对应',async()=>{
-  const f=fixture(),PageQueryService=f.load('services/PageQueryService').PageQueryService;
-  const values=await PageQueryService.query(f.config,[{type:'notification',query:{}},{type:'file',query:{includeFiles:[{repoId:'core-b',path:'same.org'}]}},{type:'task',query:{}}]);
-  assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,3);
-  assert.deepEqual(f.batches[0][0].repoIds,['core-a']);
-  assert.deepEqual(values.map(item=>item.type),['notification','file','task']);
-  assert.equal(values[1].result[0].repoId,'core-b');
-});
-
 
 test('收件箱移动浮层已打开时，列表刷新仍只有一个混合查询',async()=>{
   const f=fixture(),page=f.page('pages/Inbox',['loadRecords']),current={id:'selected'};
@@ -476,10 +456,10 @@ test('页面重复出现只复用管理对象，AppShell 不再持有底层刷�
   await manager.close();
 });
 
-test('存储库清单的全部仓库文件元信息与通知也使用同一批次',async()=>{
+test('存储库清单只批量读取全部仓库文件元信息',async()=>{
   const f=fixture(),service=f.load('services/NotebookService').NotebookService;
   const groups=await service.list(f.config);
-  assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['file','notification']);
+  assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0].map(item=>item.type),['file']);
   assert.deepEqual(groups.map(group=>[group.repoId,group.files.length]),[['core-a',2],['core-b',1]]);
 });
 
@@ -633,7 +613,7 @@ test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配�
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
   assert.equal(page.inboxCount,0);
   f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
-  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,12);
+  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,11);
   assert.equal(f.disk.size,2);assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
 });
 

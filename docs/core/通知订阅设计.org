@@ -1,0 +1,66 @@
+#+TITLE: 通知订阅设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+
+* 订阅契约
+
+通知只提供订阅，不属于 ~CoreQuery~ 或 ~CoreQueryResult~ ，没有主动查询、消费或确认接口。 ~OrgWorkspace.watch_notifications(repo_ids, callback)~ 返回 ~Result<NotificationSubscription, CoreError>~ ，callback 接收 ~Vec<CoreNotification>~ 完整列表。 ~repo_ids=None~ 表示全部仓库， ~Some(vec![])~ 表示空范围；未知仓库在注册时拒绝。Harmony 对应 ~watchNotifications(monitor, repoIds?)~ ，monitor 接收 ~CoreNotification[]~ 。省略范围表示全部仓库，显式空数组保持为空。
+
+订阅成功后默认回调一次，包括当前没有通知时的空列表；内存数据尚未加载时等待加载成功后发送首次列表。之后只在该订阅范围内的完整列表发生变化时回调。列表先按 Workspace 仓库次序、文件路径排列冲突通知，末尾最多一条 ~SyncRequired~ 。新增订阅各自收到当前列表，既有订阅不因其他订阅注册而重复回调。句柄析构或显式停止取消订阅；回调不能同步等待同一 Workspace 的后续业务命令。
+
+* 通知处理任务与异步加载
+
+~NotificationCenter::process~ 独占订阅、通知缓存和每个 monitor 最近发送的列表。注册、取消、数据变化、业务快照和处理确认经同一个 channel 串行处理；不同 Workspace 之间不共享缓存或广播。通知处理任务比较缓存与新数据，再生成列表并判断是否回调，宿主不重查通知。
+
+订阅涉及尚无内存快照的仓库时，process 启动独立 Tokio task 搜索当前 Org 文件及基线索引；同一仓库的并发订阅共享加载。process 不等待磁盘或仓库锁，仍可处理数据事件、取消与 flush。加载完成后回到 process 安装缓存、归并变化并通知 monitor。加载失败不伪造空列表、不清除已发送快照；后续注册或数据变化可以重新触发加载。
+
+仓库集合变化会取消旧加载，保留身份和根目录均未变化的仓库缓存，并按新集合形成订阅结果。停止时先处理已入队请求，再取消并等待尚未完成的加载，释放全部 monitor。 ~flush~ 只确认此前入队消息已处理，不等待冷加载，不把数据提交与通知初始化互相阻塞。
+
+* 分类型基线
+
+| 通知类型 | 初始基线 | 后续变化来源 | 清除条件 |
+|-
+| ~SyncConflict~ | 首次搜索到的当前文件冲突集合，不借用历史同步结果 | 同步提交当前仓库快照；解决冲突提交后的文件元信息 | 解决最后一个冲突点，或同步、重置后的快照不再包含该文件冲突 |
+| ~SyncRequired~ | ~remote_base/current.json~ 中最近确认远端内容的 checksum | 本地修改提交的文件 checksum；同步重新提交基线与当前文件状态 | 订阅范围内所有参与比较的文件均与远端基线一致，或重置清除基线 |
+
+冲突通知不使用远端 checksum 判断是否已解决，也不由普通任务修改推断。只有同步与解决冲突业务更新冲突集合；初始化与仓库重置负责建立或清空缓存。同步失败但已经发布远端基线时，也要提交实际保留的基线与工作文件状态，不把失败等同于完全无变化。
+
+本地变化首次加载必须同时取得基线 checksum 与当前文件 checksum。比较范围包括全部 Org 文件及基线已跟踪的非 Org 路径，覆盖新增、修改、删除与空文件。基线索引不存在时不生成本地变化通知；基线损坏视为加载失败。已确认删除使用空值，真实空文件仍有内容哈希，两者不同。基线取最新远端索引，不能替换为三方合并使用的本地共同祖先；比较不读取基线正文、不运行合并、不访问网络，也不依赖 outbox 或历史。
+
+~LocalFileVersion.content_hash~ 、 ~OrgFileMetadata.file_version~ 与 ~FileDataChange.after_version~ 都使用同一份原始字节的内容哈希。通知复用这些值，checksum 就是当前文件内容版本，不另设文件时间戳或通知版本。普通修改完成统一提交后，在释放仓库锁前把 ~after_version~ 投递给通知任务；已有缓存直接更新对应文件并与基线比较，不搜索、不读盘。恢复原始内容时重新比较，可以清除提示，不能使用只置为真的 dirty 标志。失败或无实际变化不更新通知。
+
+* 加载与提交的顺序
+
+同步、解决冲突与普通修改都在自己的提交边界内定义事件顺序：持有仓库锁时从所属 NotificationCenter 分配单调递增 revision。冷加载在同一把锁内取得完整数据并分配 revision；该值只用于 Workspace 内运行时排序，不持久化、不暴露给宿主，也不是用户可见时间。
+
+冷加载期间先收到的文件变化暂存在通知任务。加载完成后，仅重放 revision 更新的变化；若加载已经包含某次提交，则不再倒退到其旧事件。较旧的加载或业务快照不能覆盖新缓存，仓库集合的 generation 则排除配置变化前的迟到结果。checksum 表示内容相等，revision 表示事件先后，两者职责独立。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\small}
+\umlclass[x=0,y=0]{OrgWorkspace}{}{watch\_notifications(repo\_ids, callback)}
+\umlclass[x=8,y=0]{NotificationSubscription}{取消令牌}{}
+\umlclass[x=0,y=-4]{NotificationCenter}{sender \\ sequence}{process() \\ flush()}
+\umlclass[x=8,y=-4]{NotificationState}{repos \\ cache \\ monitors \\ pending \\ generation}{handle() \\ loaded() \\ notify()}
+\umlclass[x=0,y=-9]{RepositoryNotifications}{revision \\ baseline: optional checksums \\ current: checksums \\ conflicts: paths}{apply() \\ dirty()}
+\umlclass[x=8,y=-9]{NotificationLoads}{独立 Tokio tasks}{搜索文件与基线}
+\umluniassoc{OrgWorkspace}{NotificationCenter}
+\umldep{NotificationSubscription}{NotificationCenter}
+\umldep{NotificationCenter}{NotificationState}
+\umlcompo{NotificationState}{RepositoryNotifications}
+\umldep{NotificationState}{NotificationLoads}
+\end{tikzpicture}
+
+* Harmony 接入
+
+NotificationManager 维持应用级订阅，页面切换不启停；启动、恢复前台和配置变化均只注册或重绑订阅，回调直接发布 AppStorage 共享快照。远程配置属于宿主，注册范围只包含启用 WebDAV 且远端地址非空的仓库；空范围不回退到全部仓库。注册 generation 与生命周期共同排除旧回调，失败保留最近成功展示。 ~PageQueryService~ 、侧边栏与设备角标批次只查询任务、文件；设备角标监听共享通知变化并复用冲突数量。退后台等待首次列表及已提交数据归并后，只检查共享 ~SyncRequired~ ，不额外查询通知。
+
+Core 决定通知内容与列表变化，宿主仅维护仓库展示映射及 AppStorage revision，不比较文件或基线，不生成领域通知。Rust bridge 为冲突项附加 ~rootDirectory~ ，C ABI 与 TSFN 传递整个 JSON 数组，不将数据事件、同步进度混作通知列表。
+
+* 验收记录
+
+2026-11-18 在专用 HarmonyOS 模拟器的独立仓库完成验收：首次同步后初始列表为空；界面完成任务立即产生唯一同步提示；APP 内嵌 HTTP 修改标题后当前页面直接刷新，未提交字段保持原值；失败修改保持原文件版本；同步后提示消失。主动通知查询返回输入错误。
+
+通过真实 WebDAV 制造同一正文的两侧修改后，同步推送文件冲突提示；界面丢弃冲突后，文件元信息不再包含冲突，提示切换为本地待同步；再次同步后全部提示清除。测试结束关闭 APP 临时 HTTP 监听并确认端口释放。
+
+全部 607 项 Rust 测试、125 项宿主相关回归通过，正式包与数据准备包构建无编译告警。文档通过 Org 行内边界检查与 emacsclient 的 Org AST 验证。

@@ -549,10 +549,17 @@ fn query_files_json(handle: u64, root: String) -> Result<String, CoreError> {
 }
 
 #[cfg(test)]
-fn query_notifications_json(handle: u64) -> Result<String, CoreError> {
-    let response = workspace_query_json(handle, r#"[{"type":"notification","query":{}}]"#.into())?;
-    let results: serde_json::Value = serde_json::from_str(&response).unwrap();
-    encode(&results[0]["result"])
+fn subscribed_notifications_json(handle: u64) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(handle)?;
+    let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect();
+    let notifications = runtime(handle)?.block_on(async {
+        let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let _subscription = workspace.watch_notifications(None, move |list| { let _ = send.send(list); });
+        tokio::time::timeout(std::time::Duration::from_secs(5), received.recv()).await
+            .map_err(|_| CoreError::InvalidState("通知初始化超时"))?
+            .ok_or(CoreError::InvalidState("通知初始化失败"))
+    })?;
+    encode(&notification_values(notifications, &roots))
 }
 
 #[cfg(test)]
@@ -619,9 +626,7 @@ fn resolve_query_repositories(
             org_tasks_core::CoreQuery::File { query } => {
                 for file in query.include_files.iter_mut().chain(&mut query.exclude_files) { resolve(&mut file.repo_id); }
             }
-            org_tasks_core::CoreQuery::Notification { repo_ids, .. } => {
-                for id in repo_ids.iter_mut().flatten() { resolve(id); }
-            }
+
         }
     }
     Ok(())
@@ -650,7 +655,7 @@ pub fn workspace_query_json(handle: u64, query_json: String) -> Result<String, C
     encode(&values)
 }
 
-fn query_result_value(result: org_tasks_core::CoreQueryResult, roots: &BTreeMap<String, String>, ordering: Option<&org_tasks_core::QueryOrdering>) -> Result<serde_json::Value, CoreError> {
+fn query_result_value(result: org_tasks_core::CoreQueryResult, _roots: &BTreeMap<String, String>, ordering: Option<&org_tasks_core::QueryOrdering>) -> Result<serde_json::Value, CoreError> {
     Ok(match result {
         org_tasks_core::CoreQueryResult::Task(result) => serde_json::json!({
             "type": "task", "result": {
@@ -668,25 +673,7 @@ fn query_result_value(result: org_tasks_core::CoreQueryResult, roots: &BTreeMap<
                 let mut view = file_metadata_snapshot(file); view.order_key = key; view
             }).collect::<Vec<_>>() })
         }
-        org_tasks_core::CoreQueryResult::Notification(notifications) => {
-            let values = notifications
-                .into_iter()
-                .map(|notification| {
-                    let mut value = serde_json::to_value(&notification)
-                        .map_err(|_| CoreError::InvalidState("无法编码通知"))?;
-                    if let org_tasks_core::CoreNotification::SyncConflict(ref conflict) =
-                        notification
-                    {
-                        value["rootDirectory"] = roots
-                            .get(&conflict.repo_id)
-                            .ok_or(CoreError::InvalidState("通知所属仓库不存在"))?
-                            .clone()
-                            .into();
-                    }
-                    Ok(value)
-                }).collect::<Result<Vec<_>, CoreError>>()?;
-                serde_json::json!({ "type": "notification", "result": values })
-            }
+
     })
 }
 
@@ -990,13 +977,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("a.org"), "#+TITLE: File\n* TODO Task\n").unwrap();
         workspace_add_repo(handle, root.to_string_lossy().into()).unwrap();
-        let response=workspace_query_json(handle,r#"[{"type":"file","query":{}},{"type":"task","query":{}},{"type":"notification","query":{}}]"#.into()).unwrap();
+        let response=workspace_query_json(handle,r#"[{"type":"file","query":{}},{"type":"task","query":{}}]"#.into()).unwrap();
         let values: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(values[0]["type"], "file");
         assert_eq!(values[0]["result"][0]["title"], "File");
         assert_eq!(values[1]["type"], "task");
         assert_eq!(values[1]["result"]["tasks"][0]["heading"], "Task");
-        assert_eq!(values[2]["type"], "notification");
+        assert!(workspace_query_json(handle, r#"[{"type":"notification","query":{}}]"#.into()).is_err());
         assert!(workspace_query_json(handle, "[{}]".into()).is_err());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
@@ -1300,7 +1287,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_notifications_reload_files_and_project_one_event_per_conflict_file() {
+    fn workspace_notifications_push_one_event_per_conflict_file_and_reuse_cache() {
         let root =
             std::env::temp_dir().join(format!("org-notification-bridge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1312,19 +1299,18 @@ mod tests {
             std::fs::write(root.join(path), "* 同步冲突 :CONFLICT:\n** Point\n").unwrap();
         }
         let notices: serde_json::Value =
-            serde_json::from_str(&query_notifications_json(handle).unwrap()).unwrap();
+            serde_json::from_str(&subscribed_notifications_json(handle).unwrap()).unwrap();
         let values = notices.as_array().unwrap();
-        assert_eq!(values.len(), 3);
+        assert_eq!(values.len(), 2);
         assert_eq!(values[0]["path"], "a.org");
         assert_eq!(values[1]["path"], "b.org");
-        assert_eq!(values[2]["type"], "syncRequired");
         assert!(values[0].get("syncId").is_none());
         assert_eq!(values[0]["rootDirectory"], directory);
         std::fs::write(root.join("a.org"), "* Normal\n").unwrap();
         let current: serde_json::Value =
-            serde_json::from_str(&query_notifications_json(handle).unwrap()).unwrap();
+            serde_json::from_str(&subscribed_notifications_json(handle).unwrap()).unwrap();
         assert_eq!(current.as_array().unwrap().len(), 2);
-        assert_eq!(current[0]["path"], "b.org");
+        assert_eq!(current, notices);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2347,11 +2333,24 @@ impl Drop for NotificationMonitor {
         }
     }
 }
-pub fn workspace_watch_notifications(handle: u64, monitor: u64) -> Result<u64, CoreError> {
+fn notification_values(notifications: Vec<org_tasks_core::CoreNotification>, roots: &BTreeMap<String, String>) -> Vec<serde_json::Value> {
+    notifications.into_iter().map(|notification| {
+        let mut value = serde_json::to_value(&notification).expect("通知可序列化");
+        if let org_tasks_core::CoreNotification::SyncConflict(conflict) = notification {
+            value["rootDirectory"] = roots.get(&conflict.repo_id).cloned().unwrap_or_default().into();
+        }
+        value
+    }).collect()
+}
+
+pub fn workspace_watch_notifications(handle: u64, monitor: u64, scope_json: &str) -> Result<u64, CoreError> {
     let monitor = NotificationMonitor(monitor);
     let session = workspace_for_handle(handle)?;
     let workspace = session;
-    let subscription = workspace.watch_notifications(move |event| {
+    let scope = serde_json::from_str::<Option<Vec<String>>>(scope_json).map_err(|_| CoreError::InvalidInput("通知订阅范围无效"))?;
+    let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect::<BTreeMap<_, _>>();
+    let subscription = workspace.watch_notifications(scope, move |notifications| {
+        let event = notification_values(notifications, &roots);
         let _keep_alive = &monitor;
         if let Ok(json) = serde_json::to_string(&event)
             .and_then(|s| CString::new(s).map_err(serde::ser::Error::custom))
@@ -2363,7 +2362,7 @@ pub fn workspace_watch_notifications(handle: u64, monitor: u64) -> Result<u64, C
             #[cfg(test)]
             let _ = json;
         }
-    });
+    })?;
     let id = NEXT_NOTIFICATION_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     NOTIFICATION_SUBSCRIPTIONS
         .get_or_init(Default::default)
@@ -3235,8 +3234,7 @@ mod query_repository_binding_tests {
         let bindings = serde_json::json!([{"id":"host-second","rootDirectory":second}]);
         let task = serde_json::json!({"type":"task","repoIds":["host-second"],"query":{"includeFiles":[reference],"fullFiles":[reference],"expression":"it.todo"}});
         let file = serde_json::json!({"type":"file","query":{"includeFiles":[reference]}});
-        let notification = serde_json::json!({"type":"notification","query":{},"repoIds":["host-second"]});
-        let response = workspace_query_json(handle, serde_json::json!({"queries":[task,file,notification],"repositoryBindings":bindings}).to_string()).unwrap();
+        let response = workspace_query_json(handle, serde_json::json!({"queries":[task,file],"repositoryBindings":bindings}).to_string()).unwrap();
         let values: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(values[0]["result"]["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(values[0]["result"]["tasks"][0]["repoId"], core_id);
@@ -3244,7 +3242,6 @@ mod query_repository_binding_tests {
         assert_eq!(values[0]["result"]["fullFiles"][0]["source"], "* TODO Visible\n");
         assert_eq!(values[0]["result"]["fullFiles"][0]["nodes"].as_array().unwrap().len(), 1);
         assert_eq!(values[1]["result"][0]["repoId"], core_id);
-        assert!(values[2]["result"].as_array().unwrap().is_empty());
         let (ids, response) = workspace_subscribe_query_json(handle,
             serde_json::json!([{"query":task,"repositoryBindings":bindings,"operationId":"dataset/test/1/query"}]).to_string(), vec![0]).unwrap();
         let id = ids[0];

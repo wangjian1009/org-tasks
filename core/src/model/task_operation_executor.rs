@@ -258,16 +258,17 @@ impl WorkspaceState {
             .iter()
             .map(|file| &file.repo_id)
             .collect::<BTreeSet<_>>();
-        drop(guards);
         for repo_id in updated_repositories {
-            let changed_files = committed.file_changes.iter().filter(|((id, _), _)| id == repo_id)
+            let changed_files: Vec<_> = committed.file_changes.iter().filter(|((id, _), _)| id == repo_id)
                 .map(|(_, change)| change.clone()).collect();
             let changes = changes.iter().filter(|change|
                 [&change.before, &change.after].into_iter().flatten()
                     .any(|snapshot| snapshot.task.repo_id() == repo_id)).cloned().collect();
+            self.notifications.update_files(repo_id, changed_files.clone(), group.operations.iter().any(|operation| matches!(operation, super::TaskOperation::ConfilictSelection(_))));
             super::sync_events::publish_changes(&self.notifications, self.repo(repo_id).expect("已验证仓库"),
                 group.operation_id.as_deref(), Some(changed_files), changes);
         }
+        drop(guards);
         self.notifications.flush().await
     }
 }

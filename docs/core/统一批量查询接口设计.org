@@ -5,7 +5,7 @@
 
 * 状态与本次新增
 
-本文定义已实施的唯一通用批量查询入口，任务、文件元信息和通知共用同次仓库访问。现行接口仍见 [[file:批量查询接口设计.org][批量查询接口设计]]。本轮新增 ~CoreQuery~ 、 ~CoreQueryResult~ 、 ~FileQuery~ 与 ~NotificationQuery~ ，使任务、文件元信息和当前通知可以在同一个查询数组中表达；文件元信息与任务另增加 ~project()~ 访问方法。
+本文定义已实施的唯一通用批量查询入口，任务与文件元信息共用同次仓库访问，通知独立订阅。现行接口仍见 [[file:批量查询接口设计.org][批量查询接口设计]]。~CoreQuery~ 、 ~CoreQueryResult~ 与 ~FileQuery~ 使任务和文件元信息可以在同一个查询数组中表达；文件元信息与任务另增加 ~project()~ 访问方法。
 
 ~TaskQuery~ 通过 ~include_files~ 与 ~exclude_files~ 表达文件范围，替代旧 ~excluded_files~ 和表达式的文件条件；状态与排序继续使用表达式。 ~TaskQueryResult~ 增加可选请求所需的完整文件结果，仓库范围由外层 CoreQuery 承载。
 
@@ -23,17 +23,11 @@ pub enum CoreQuery {
     File {
         query: FileQuery,
     },
-    Notification {
-        query: NotificationQuery,
-        #[serde(default, rename = "repoIds", skip_serializing_if = "Option::is_none")]
-        repo_ids: Option<Vec<OrgRepoId>>,
-    },
 }
 
 pub enum CoreQueryResult {
     Task(TaskQueryResult),
     File(Vec<OrgFileMetadata>),
-    Notification(Vec<CoreNotification>),
 }
 
 impl OrgWorkspace {
@@ -116,21 +110,9 @@ impl FilterTask {
 
 Harmony 的文件元信息与 Task 同时暴露 ~project(): string | null~ 方法。Rust 计算项目名称，C++ 仅包装该快照值为方法，ArkTS 不重新判断标签或属性。 项目访问方法不增加查询请求字段；文件范围继续使用 ~TaskQuery.include_files~ 与 ~exclude_files~ ， ~TaskQueryResult~ 增加可选请求所需的完整文件结果。
 
-* NotificationQuery 定义
+* 通知边界
 
-#+begin_src rust
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NotificationQuery {}
-#+end_src
-
-~NotificationQuery~ 保持为空对象，外层 ~CoreQuery::Notification.repo_ids~ 指定通知仓库范围，JSON / Harmony 字段为 ~repoIds~ 。省略或 ~null~ 表示整个 workspace；显式空数组表示不查询任何仓库，非空数组表示指定仓库的并集，空 ID 或未知 ID 使整批失败。返回 ~CoreQueryResult::Notification(Vec<CoreNotification>)~ ，每个范围内的当前冲突文件一条 ~SyncConflict~ ，范围内任一已建立远端基线的仓库存在本地变化时追加唯一 ~SyncRequired~ 。没有远端基线索引时跳过本地差异判断，已有索引损坏仍报错。不增加分页、消费、确认或持久化语义。
-
-远程配置由宿主管理。手机通知管理器只传入启用 WebDAV 且远端地址非空的仓库；关闭远程同步后，即使保留旧基线也不再产生本地修改提示。系统仓库和其他纯本地仓库不参与通知检查。Core 不识别页面、系统仓库或废纸篓语义。
-
-通知不受同批任务的排除条件、状态表达式、分类或 FileQuery 的隐藏文件开关限制。被任务规则隐藏的文件仍可能产生冲突和本地变化通知；无本地变化时不返回 ~SyncRequired~ 。多项 NotificationQuery 各自占据输入位置，但共享本次计算，并分别应用自身仓库范围，不因重复请求增加结果内部的通知条数。
-
-现有独立通知读取入口迁移到统一批量接口； ~watch_notifications~ 、 ~watchNotifications~ 和停止订阅接口保留，只通知宿主重新发起批量查询。Harmony 继续为冲突通知附带宿主定位所需的 ~rootDirectory~ ，不改变 Core 事件字段或写入任何持久化记录。
+通知仅通过 ~watch_notifications(repo_ids, callback)~ 订阅，callback 接收完整 ~Vec<CoreNotification>~ 。首次订阅在缓存就绪后默认回调一次，包括空列表；以后仅列表变化时回调。冷缓存由独立任务加载，通知处理 task 维护缓存并比较差异，宿主不主动查询。类型基线、checksum 与迟到结果规则统一见 [[file:通知订阅设计.org][通知订阅设计]]。
 
 * Harmony 定义与请求示例
 
@@ -143,8 +125,6 @@ interface FileQuery {
   includeIgnored?: boolean
 }
 
-interface NotificationQuery {}
-
 // 现有文件元信息与 Task 类型新增以下方法。
 interface OrgFileMetadata {
   project(): string | null
@@ -156,19 +136,17 @@ class Task {
 type CoreQuery =
   | { type: 'task'; query: TaskQuery; repoIds?: string[] }
   | { type: 'file'; query: FileQuery }
-  | { type: 'notification'; query: NotificationQuery; repoIds?: string[] | null }
 
 type CoreQueryResult =
   | { type: 'task'; result: TaskQueryResult }
   | { type: 'file'; result: OrgFileMetadata[] }
-  | { type: 'notification'; result: CoreNotification[] }
 
 class Workspace {
   query(queries: CoreQuery[]): Promise<CoreQueryResult[]>
 }
 #+end_src
 
-JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响应由 bridge 投影成 ~type~ 与 ~result~ ，其中任务结果继续包装为原生 Task。以下为某天文件、文件元信息和当前通知的同批请求：
+JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响应由 bridge 投影成 ~type~ 与 ~result~ ，其中任务结果继续包装为原生 Task。以下为某天文件与文件元信息的同批请求：
 
 #+begin_src json
 [
@@ -185,46 +163,41 @@ JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响�
     "query": {
       "includeFiles": [{ "repoId": "core-repo-id", "path": "someday.org" }]
     }
-  },
-  { "type": "notification", "query": {} }
+  }
 ]
 #+end_src
 
-示例依次返回任务及分类摘要、文件元信息数组、通知数组。元信息和任务必须属于同批快照，宿主不从另一次读取补齐标签配置，也不按文件条件重新过滤任务。
+示例依次返回任务及分类摘要、文件元信息数组。元信息和任务必须属于同批快照，宿主不从另一次读取补齐标签配置，也不按文件条件重新过滤任务。
 
 * 一次加锁与加载
 
-整批预先校验全部请求并收集数据需求。每个涉及的仓库仅取得一次业务锁、执行一次恢复检查和一次 Org 文件加载；Harmony 仅取得一次 workspace 业务 Mutex。任务、文件元信息、冲突判断与本地文件 hash 均复用这次读取。
+整批预先校验全部请求并收集数据需求。每个涉及的仓库仅取得一次业务锁、执行一次恢复检查和一次 Org 文件加载；Harmony 在一次 worker 请求中提交整个批次，由 Core process 调度。任务和文件元信息均复用这次读取。
 
-任务文件范围与 FileQuery 一样在扫描阶段参与候选集合计算，有限包含集合的祖先目录之外不再遍历。只有所有查询种类都不需要的文件，才允许在底层正文读取前排除。例如所有 TaskQuery 都排除某文件，但 FileQuery 需要其元信息或 NotificationQuery 需要检查它，该文件仍加载一次；TaskQuery 的排除在其自身求值前执行。NotificationQuery 覆盖整个 workspace，因此包含它的批次必须取得完整文件范围，不能用任务排除集合缩小通知范围。
-
-NotificationQuery 还需在同次锁内按需读取远端基线索引，使用已加载的本地字节计算 hash 并比较，覆盖修改、新增和删除；不得调用现有会再次加锁、再次加载和重读本地正文的公开 ~notifications()~ 或 ~has_local_changes()~ 流程。基线索引等同步元信息不属于 Org 文件正文，不读取完整同步历史或基线正文。
+任务文件范围与 FileQuery 一样在扫描阶段参与候选集合计算，有限包含集合的祖先目录之外不再遍历。只有所有查询种类都不需要的文件，才允许在底层正文读取前排除。例如所有 TaskQuery 都排除某文件，但 FileQuery 需要其元信息，该文件仍加载一次；TaskQuery 的排除在其自身求值前执行。
 
 * 页面迁移目标
 
 | 页面 | 一次批次中的请求 |
 |-
-| 收件箱 | 所选仓库的收件箱 Task、整个 workspace 的最近新增 Task、收件箱 File、Notification。 |
-| 计划、随时、日志簿 | 当前视图 Task、Notification。 |
-| 今天 | 页面 DataSetManager 的任务与文件订阅初始查询；通知由应用级 NotificationManager 独立读取。 |
-| 某天、备忘 | 所选仓库的文件 Task、目标 File、Notification。 |
-| 侧边栏 | 收件箱、今天、过期、计划、随时、某天、备忘、日志簿的 Task，三个目标 File，以及 Notification。 |
+| 收件箱 | 所选仓库的收件箱 Task、整个 workspace 的最近新增 Task、收件箱 File。 |
+| 计划、随时、日志簿 | 当前视图 Task。 |
+| 今天 | 页面 DataSetManager 的任务与文件订阅初始查询；通知由应用级 NotificationManager 独立订阅。 |
+| 某天、备忘 | 所选仓库的文件 Task、目标 File。 |
+| 侧边栏 | 收件箱、今天、过期、计划、随时、某天、备忘、日志簿的 Task，三个目标 File。 |
 
-未配置的文件入口不组装无范围任务查询，仍加载其他有效项目。普通业务批次只发起一轮批量读取；任务页则由 DataSetManager 维护查询订阅，AppShell 不发起任务或通知读取。应用级 NotificationManager 在启动及 Core 通知事件后另行合并读取 NotificationQuery，不依赖页面重查；既有批次中的通知也交给同一管理类发布。全部已迁移任务页按查询订阅增量更新，通知读取不重新查询任务。缺失文件判断与标签候选统一消费 File 结果。
+未配置的文件入口不组装无范围任务查询，仍加载其他有效项目。任务页由 DataSetManager 维护查询订阅；通知由应用级 NotificationManager 消费列表订阅，缺失文件判断与标签候选统一消费 File 结果。
 
-旧的独立文件元信息和通知查询入口已删除，所有调用方通过此统一入口读取；项目访问方法与布局的现行定义见 [[file:接口文档.org::*文件与任务的项目名称][文件与任务的项目名称]] 和 [[file:../harmony/项目分类布局设计.org][项目分类布局设计]]。
+旧的独立文件元信息和通知查询入口已删除，任务与文件调用方通过此统一入口读取，通知改为列表订阅；项目访问方法与布局的现行定义见 [[file:接口文档.org::*文件与任务的项目名称][文件与任务的项目名称]] 和 [[file:../harmony/项目分类布局设计.org][项目分类布局设计]]。
 
 * 页面读取与旧入口移除
 
 ~OrgRepo.file_metadata~ 、 ~OrgRepo.notifications~ 、 ~OrgWorkspace.notifications~ 及其 FFI、N-API、类型声明和 ArkTS 查询封装已删除。旧的 TaskQuery 数组也不作为兼容协议继续接受，所有请求统一使用带 ~type~ 的 CoreQuery 数组。 ~FilterTask.file_metadata()~ 是已取得快照的同步借用，不读取文件，继续保留；完整文件读取、编辑与同步操作保持各自资源接口。
 
-~PageQueryService.query~ 组装页面批次并确保其中包含一次 Notification 查询；查询成功后向通知展示模块发布结果，失败保留最近通知快照。NotificationManager 统一注册通知订阅、读取通知、发布快照及映射宿主仓库身份，页面切换不启停。成功提交与同步等事件合并触发仅包含 NotificationQuery 的查询；较早批次不得覆盖较新通知快照，内容相同不重复发布。实现与验收边界见 [[file:../harmony/页面数据集设计.org::*跨页面共享通知][跨页面共享通知]]。
-
-正常配置下，每次收件箱加载包含两项 Task、一项 File 和一项 Notification；计划、随时、日志簿包含一项 Task 与一项 Notification；某天和备忘包含一项 Task、一项 File 和一项 Notification；侧边栏包含八项 Task、三项 File 和一项 Notification。每种场景都只调用一次 native query，空文件由 File 结果识别，不把零任务误判为失效文件。文件入口未配置时不提交无范围 Task，仍可同批读取通知。
+~PageQueryService.query~ 只提交页面的任务与文件查询；应用级通知由 NotificationManager 直接消费列表回调，既不附带通知查询，也不从页面结果发布通知。
 
 页面迁移为 DataSetManager 后，通过固定查询订阅取得初始数据并接收增量，通知由共享 NotificationManager 维护；本文普通批次契约继续适用于侧边栏与业务服务的混合读取。侧边栏和页面数据各自由管理对象处理失效，抽屉开合不再驱动或延迟正文读取。标签筛选继续只处理已加载的页面快照，不新增查询。
 
-默认 File 元信息读取与 Notification 读取不构造任务投影；只有 Task 请求或 File 的 file_tags 条件需要时才生成本批共享任务投影。任务标签按文件索引一次，多个 File 条件复用索引，避免逐文件反复扫描全部任务。
+默认 File 元信息读取不构造任务投影；只有 Task 请求或 File 的 file_tags 条件需要时才生成本批共享任务投影。任务标签按文件索引一次，多个 File 条件复用索引，避免逐文件反复扫描全部任务。
 
 * 数据集订阅的批量启动
 

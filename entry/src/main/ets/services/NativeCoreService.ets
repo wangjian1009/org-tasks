@@ -299,7 +299,10 @@ export class CoreWorkspace {
   // 命令由 Core 统一调度；不同文件可并发，同文件在事件确认后衔接。
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async taskMergeOperations(request: CoreTaskMergeRequest): Promise<CoreTaskMergePlan> { return await this.native.taskMergeOperations(request) }
-  async watchNotifications(monitor: CoreNotificationUpdateMonitor): Promise<void> { await this.native.watchNotifications(monitor) }
+  async watchNotifications(monitor: CoreNotificationUpdateMonitor, repoIds?: string[]): Promise<void> {
+    if (repoIds === undefined) await this.native.watchNotifications(monitor)
+    else await this.native.watchNotifications(monitor, repoIds)
+  }
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
   async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
   stopWatchingDataChanges(subscriptionId: number): void { this.native.stopWatchingDataChanges(subscriptionId) }
@@ -327,7 +330,7 @@ export class CoreWorkspace {
   }
 
   async query(queries: CoreQuery[], repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<CoreQueryResult[]> {
-    // 透传各项仓库范围，Notification 的空 repoIds 不转换为省略。
+    // 透传任务与文件查询的仓库范围。
     return await this.native.query(queries, repositoryBindings)
   }
 
@@ -453,9 +456,5 @@ export function taskResult(result: CoreQueryResult): CoreTaskQueryResult {
 }
 export function fileResult(result: CoreQueryResult): CoreOrgFileMetadata[] {
   if (result.type !== 'file') throw new Error('查询结果不是文件结果')
-  return result.result
-}
-export function notificationResult(result: CoreQueryResult): CoreNotification[] {
-  if (result.type !== 'notification') throw new Error('查询结果不是通知结果')
   return result.result
 }

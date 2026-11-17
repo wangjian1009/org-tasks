@@ -1,7 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreNotification, CoreQuery, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService, notificationResult } from './NativeCoreService'
+import { CoreNotification, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { repositoryLabel } from '../ui/Theme'
 
 // 宿主展示上下文单独保存，不作为通知的公共数据或持久化字段。
@@ -28,23 +28,20 @@ export function emptyCoreNotificationsState(): CoreNotificationsState {
 
 export class NotificationManager {
   private static state: CoreNotificationsState = emptyCoreNotificationsState()
-  private static requestId: number = 0
   private static workspace: CoreWorkspace | undefined = undefined
-  private static monitoring: Promise<void> = Promise.resolve()
   private static context: Context | undefined = undefined
-  private static session: number = 0
-  private static workspaceSession: number = -1
-  private static changeRevision: number = 0
-  private static pending: boolean = false
-  private static running: Promise<void> | undefined = undefined
-  private static timer: number = -1
-  private static configChanged: () => void = (): void => { NotificationManager.invalidate() }
+  private static listeners: Set<() => void> = new Set()
+  private static generation: number = 0
+  private static monitoring: Promise<void> = Promise.resolve()
+  private static ready: Promise<void> = Promise.resolve()
+  private static finishReady: (() => void) | undefined = undefined
+  private static configChanged: () => void = (): void => {
+    NotificationManager.refresh().catch((error: Error): void => { console.error(`更新通知订阅失败：${error.message}`) })
+  }
 
-  // 应用进程共享，页面切换不启停；配置变化由管理对象重新取得当前 Workspace。
   static start(context: Context): Promise<void> {
-    if (NotificationManager.context) return NotificationManager.running ?? (NotificationManager.workspace ? Promise.resolve() : NotificationManager.refresh())
+    if (NotificationManager.context) return NotificationManager.ready
     NotificationManager.context = context
-    NotificationManager.session++
     AppConfigService.watchChanges(NotificationManager.configChanged)
     return NotificationManager.refresh()
   }
@@ -52,107 +49,59 @@ export class NotificationManager {
   static stop(): void {
     AppConfigService.stopWatchingChanges(NotificationManager.configChanged)
     NotificationManager.context = undefined
-    NotificationManager.session++; NotificationManager.requestId++
-    NotificationManager.pending = false
-    clearTimeout(NotificationManager.timer); NotificationManager.timer = -1
+    NotificationManager.generation++
+    NotificationManager.finishReady?.(); NotificationManager.finishReady = undefined
     NotificationManager.workspace?.stopWatchingNotifications()
     NotificationManager.workspace = undefined
-    NotificationManager.running = undefined
   }
 
+  // 恢复前台及配置变化只重新绑定订阅；Core 缓存直接提供首次列表。
   static refresh(): Promise<void> {
     if (!NotificationManager.context) return Promise.resolve()
-    NotificationManager.pending = true
-    clearTimeout(NotificationManager.timer); NotificationManager.timer = -1
-    if (NotificationManager.running) return NotificationManager.running
-    const session = NotificationManager.session
-    const running = NotificationManager.drain(session).finally((): void => {
-      if (NotificationManager.running !== running) return
-      NotificationManager.running = undefined
-      if (NotificationManager.pending) NotificationManager.schedule()
+    const context = NotificationManager.context
+    const generation = ++NotificationManager.generation
+    NotificationManager.finishReady?.()
+    let finish: () => void = (): void => {}
+    const initial = new Promise<void>((resolve): void => { finish = resolve })
+    NotificationManager.finishReady = finish
+    const connecting = NotificationManager.monitoring.then(async (): Promise<void> => {
+      const config = await AppConfigService.load(context, false)
+      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+      if (!NotificationManager.active(generation)) return
+      NotificationManager.workspace?.stopWatchingNotifications()
+      NotificationManager.workspace = workspace
+      const roots = config.repos.filter(repo => repo.webdavEnabled && repo.webdavUrl.trim().length > 0).map(repo => repo.rootDirectory)
+      const repositories = await workspace.repos()
+      const repoIds = repositories.filter(repo => roots.includes(repo.rootDirectory)).map(repo => repo.id)
+      await workspace.watchNotifications((notifications: CoreNotification[]): void => {
+        if (!NotificationManager.active(generation) || NotificationManager.workspace !== workspace) return
+        NotificationManager.publish(config, notifications)
+        finish()
+      }, repoIds)
     })
-    NotificationManager.running = running
-    return running
+    NotificationManager.monitoring = connecting.catch((): void => {})
+    NotificationManager.ready = connecting.then((): Promise<void> => initial)
+    return NotificationManager.ready
   }
 
-  // 等待已失效的通知快照归并，不为退后台额外发起查询。
   static async hasSyncRequired(): Promise<boolean> {
-    while (NotificationManager.context && (NotificationManager.pending || NotificationManager.running)) {
-      await (NotificationManager.running ?? NotificationManager.refresh())
-    }
+    let ready: Promise<void>
+    do { ready = NotificationManager.ready; await ready } while (ready !== NotificationManager.ready)
     return NotificationManager.context !== undefined && NotificationManager.state.notifications.some(item => item.type === 'syncRequired')
   }
 
-  private static invalidate(): void {
-    if (!NotificationManager.context) return
-    NotificationManager.changeRevision++; NotificationManager.requestId++
-    NotificationManager.pending = true
-    NotificationManager.schedule()
-  }
-  private static schedule(): void {
-    if (!NotificationManager.context || NotificationManager.running || NotificationManager.timer >= 0) return
-    NotificationManager.timer = setTimeout((): void => {
-      NotificationManager.timer = -1
-      NotificationManager.refresh().catch((error: Error): void => { console.error(`更新通知失败：${error.message}`) })
-    }, 50)
-  }
-  private static active(session: number): boolean { return NotificationManager.context !== undefined && NotificationManager.session === session }
-
-  private static async connect(workspace: CoreWorkspace, session: number): Promise<void> {
-    const connecting = NotificationManager.monitoring.then(async (): Promise<void> => {
-      if (!NotificationManager.active(session)) return
-      if (NotificationManager.workspace === workspace && NotificationManager.workspaceSession === session) return
-      NotificationManager.workspace?.stopWatchingNotifications()
-      NotificationManager.workspace = workspace; NotificationManager.workspaceSession = session
-      try {
-        await workspace.watchNotifications((): void => {
-          if (NotificationManager.active(session) && NotificationManager.workspace === workspace) NotificationManager.invalidate()
-        })
-      } catch (error) {
-        if (NotificationManager.workspace === workspace && NotificationManager.workspaceSession === session) NotificationManager.workspace = undefined
-        throw error as Error
-      }
-      if (!NotificationManager.active(session)) {
-        workspace.stopWatchingNotifications()
-        if (NotificationManager.workspace === workspace && NotificationManager.workspaceSession === session) NotificationManager.workspace = undefined
-      }
-    })
-    NotificationManager.monitoring = connecting.catch((): void => {})
-    await connecting
+  static watchChanges(callback: () => void): void { NotificationManager.listeners.add(callback) }
+  static stopWatchingChanges(callback: () => void): void { NotificationManager.listeners.delete(callback) }
+  static async conflictCount(): Promise<number> {
+    await NotificationManager.ready
+    return NotificationManager.state.notifications.filter(item => item.type === 'syncConflict').length
   }
 
-  private static async drain(session: number): Promise<void> {
-    while (NotificationManager.pending && NotificationManager.active(session)) {
-      NotificationManager.pending = false
-      const revision = NotificationManager.changeRevision
-      const config = await AppConfigService.load(NotificationManager.context!, false)
-      if (!NotificationManager.active(session)) return
-      const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-      await NotificationManager.connect(workspace, session)
-      if (!NotificationManager.active(session)) return
-      const request = NotificationManager.begin()
-      const query = await NotificationManager.queryFor(config, workspace)
-      const results = await workspace.query([query])
-      if (!NotificationManager.active(session)) return
-      if (revision !== NotificationManager.changeRevision) { NotificationManager.pending = true; continue }
-      if (!NotificationManager.publish(config, notificationResult(results[0]), request)) NotificationManager.pending = true
-    }
+  private static active(generation: number): boolean {
+    return NotificationManager.context !== undefined && NotificationManager.generation === generation
   }
 
-  // 远程配置属于宿主，Core 只接收本次需要检查的仓库范围。
-  static async queryFor(config: AppConfig, workspace: CoreWorkspace): Promise<CoreQuery> {
-    const remoteRoots = config.repos.filter(repo => repo.webdavEnabled && repo.webdavUrl.trim().length > 0)
-      .map(repo => repo.rootDirectory)
-    if (remoteRoots.length === 0) return { type: 'notification', query: {}, repoIds: [] }
-    const repositories = await workspace.repos()
-    return { type: 'notification', query: {}, repoIds: repositories.filter(repo => remoteRoots.includes(repo.rootDirectory))
-      .map(repo => repo.id) }
-  }
-
-  static begin(): number { return ++NotificationManager.requestId }
-
-  static publish(config: AppConfig, notifications: CoreNotification[], request: number): boolean {
-    if (request !== NotificationManager.requestId) return false
+  private static publish(config: AppConfig, notifications: CoreNotification[]): void {
     const repositories: NotificationRepository[] = []
     for (const notification of notifications) {
       if (notification.type !== 'syncConflict') continue
@@ -171,12 +120,12 @@ export class NotificationManager {
       const previous = current.repositories[index]
       return item.coreRepoId === previous.coreRepoId && item.configRepoId === previous.configRepoId && item.name === previous.name
     })
-    if (sameNotifications && sameRepositories) return true
+    if (sameNotifications && sameRepositories) return
     const snapshot: CoreNotificationsState = { notifications: notifications.slice(), repositories,
       revision: NotificationManager.state.revision + 1 }
     NotificationManager.state = snapshot
     AppStorage.setOrCreate<CoreNotificationsState>('coreNotifications', snapshot)
-    return true
+    for (const listener of NotificationManager.listeners) listener()
   }
 
   static async syncConflictTarget(context: Context, notification: CoreSyncConflictNotification): Promise<SyncConflictTarget> {

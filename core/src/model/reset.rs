@@ -195,6 +195,7 @@ impl OrgRepo {
             self.id = id;
             drop(guard);
             if let Some(notifications) = notifications {
+                super::notification::RepositoryNotifications::publish(self, notifications).await?;
                 super::sync_events::publish(notifications, self);
                 notifications.flush().await?;
             }

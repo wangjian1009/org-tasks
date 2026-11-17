@@ -321,7 +321,7 @@ export interface CachedDataSet {
   files: MetadataRecord[]
 }
 export function cacheDataSet(name: string, data: CoreQueryResult): CachedDataSet {
-  if (data.type === 'notification') throw new Error('页面数据集不缓存通知查询')
+  if (data.type !== 'task' && data.type !== 'file') throw new Error('页面数据集类型无效')
   return { version: 0, name, type: data.type, tasks: data.type === 'task' ? data.result.tasks.map(taskRecord) : [],
     categories: data.type === 'task' ? data.result.categories : [], files: data.type === 'file' ? data.result.map(metadataRecord) : [] }
 }

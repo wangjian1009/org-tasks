@@ -99,11 +99,6 @@ pub(crate) fn prepare<F>(query: CoreQuery, on_change: F) -> Result<QuerySubscrip
 where
     F: Fn(DataChangeEvent) + Send + Sync + 'static,
 {
-    if matches!(query, CoreQuery::Notification { .. }) {
-        return Err(CoreError::InvalidInput(
-            "查询订阅只支持任务和文件数据，不支持通知查询",
-        ));
-    }
     Ok(QuerySubscription {
         hub: Arc::new(Hub {
             state: Mutex::new(State::new(query)),
@@ -178,7 +173,6 @@ impl QuerySubscription {
                         file.path.clone(),
                     )
                 }),
-                CoreQueryResult::Notification(_) => unreachable!(),
             }
             state.ready = true;
         }
@@ -452,7 +446,6 @@ impl State {
                         });
                     }
                 }
-                CoreQuery::Notification { .. } => unreachable!(),
             }
             self.versions.insert(key, file.after_version);
         }
@@ -563,7 +556,6 @@ fn members_from_result(data: &CoreQueryResult) -> Members {
                 members.insert(file_key(file), BTreeSet::from([String::new()]));
             }
         }
-        CoreQueryResult::Notification(_) => unreachable!(),
     }
     members
 }
@@ -609,7 +601,6 @@ fn apply_initial(data: &mut CoreQueryResult, event: &DataChangeEvent) {
             result.retain(|file| !changed.contains(&file_key(file)));
             result.extend(files.iter().flatten().map(|file| file.after.clone()));
         }
-        CoreQueryResult::Notification(_) => unreachable!(),
     }
 }
 

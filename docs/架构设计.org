@@ -61,7 +61,7 @@ Workspace 是可克隆的命令句柄，不暴露可变字段或 ~&mut self~ 接
 
 任务操作的请求内部由主任务检查仓库锁并遍历操作，按需建立本请求的文件到 task 映射：文件任务启动即加载文件、生成 FileMetadata 并按需制作完整文件副本，主任务可立即向其 channel 发送修改，不在主调度器预读或等待 Metadata。普通操作按文件 FIFO 发送，跨文件 Movement、Trash、Restore 由主任务拆解并推进依赖。各文件独占内存语法树和变更日志，仅通过 channel 传递独立数据；执行期间不存盘、不向 UI 通知。全部操作和依赖完成后由文件 task 交出纯字节 Save 候选，复用原有统一提交、外部版本校验与回退；提交确认通过 channel 返回，最终 Metadata 与任务投影仍在文件 task 中生成，主任务收齐后统一通知。Restore 插入失败保留来源，其他错误放弃本次未提交修改。Restore 原仓库需由来源上下文确定，当前采用独占调度以保护动态文件依赖；公开修改入口及请求级返回值保持不变。详见 [[file:core/废纸篓接口设计.org][内部消息与执行过程]]。
 
-每个 Workspace 只处理自己发起的通知。修改、同步与重置业务显式传递其 ~NotificationCenter~ ，不使用全局监控表或广播。NotificationCenter 只持有请求 sender，订阅、取消和事件由 channel 交给 process；监控器和 ID 只在 process 内管理。Workspace 在业务收尾后通过 oneshot 停止 process，并等待队列排空。普通查询不产生通知，不保留 Workspace reload 接口。
+每个 Workspace 只处理自己发起的通知。修改、同步与重置业务显式传递其 ~NotificationCenter~ ，不使用全局监控表或广播。NotificationCenter 持有请求 sender 与内部顺序计数器，订阅、取消和事件由 channel 交给 process；监控器和 ID 只在 process 内管理。Workspace 在业务收尾后通过 oneshot 停止 process，并等待队列排空。普通查询不产生通知，不保留 Workspace reload 接口。
 
 ArkUI 线程不得执行 Core 请求。C++ N-API bridge 必须通过 ~napi_create_async_work~ 在工作线程调用 Rust；ArkTS 通过 ~NativeCoreService~ 打开并持有 native ~Workspace~ 、 ~Repo~ 与 ~WebDavSyncPolicy~ 对象。涉及仓库锁、文件或网络的操作返回 Promise，资源生命周期与释放规则遵循 [[file:harmony/Rust bridge设计.org][Rust bridge 设计]]。
 
@@ -71,7 +71,7 @@ TS 领域接口按 ~Workspace -> Repo -> OrgFile~ 访问对象。Rust 字段映�
 
 UI 负责组装请求、维护分类多选等交互状态、展示任务及汇总计数。UI 不得对 Core 返回的任务列表再次按完成状态、分类、文件、日期或父子关系筛选。今天、等待、随时、某天和备忘的标签筛选条是明确的展示层例外：仅在已加载的本页任务快照上按 Core 提供的有效标签控制可见记录，不重发查询、不改变页面基础范围、侧边栏计数或同步数据。该例外不扩展到完成状态、日期、分类或其他查询条件。
 
-Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 、 ~include_files~ 与 ~exclude_files~ ，由 Core 批量求值；系统仅提供接收 ~CoreQuery~ 数组并返回对应 ~CoreQueryResult~ 数组的异步查询接口，其中 Task、File、Notification 共用加载，TaskQuery 的状态范围统一使用表达式，每批每仓库只加锁与加载一次，所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
+Core 不持有收件箱页面或控件专属语义。页面需求统一转换为 ~TaskQuery~ 的 ~expression~ 、 ~categories~ 、 ~include_files~ 与 ~exclude_files~ ，由 Core 批量求值；系统仅提供接收 ~CoreQuery~ 数组并返回对应 ~CoreQueryResult~ 数组的异步查询接口，其中 Task、File 共用加载，通知独立订阅，TaskQuery 的状态范围统一使用表达式，每批每仓库只加锁与加载一次，所有宿主复用相同规则。参数与表达式的完整契约见 [[file:core/查询语言设计.org][查询语言设计]]。
 
 * 仓库身份、同步元数据与备份
 
@@ -103,7 +103,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 主界面首次加载成功且进入前台后，通过 ~RepositorySyncService.start~ 请求一次 ~appStartup~ 同步，使用 ~SyncStartPolicy.Reuse~ ；恢复前台、重复窗口回调与路由切换不重复触发。启动入口不等待同步完成、不申请后台任务、不发布同步通知。
 
-主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主先等待页面已提交的修改与缓存处理完成，再等待 NotificationManager 的在途或已失效通知读取归并，只有共享快照包含 ~syncRequired~ 且配置启用 WebDAV 时才新建同步。没有通知时不读取同步配置，不另建 Workspace 或额外查询；比较文件与远端基线的规则仍由 Core 实现。短时任务保护排队修改、通知归并与配置读取，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
+主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主先等待页面已提交的修改与缓存处理完成，再等待 NotificationManager 的首次通知列表及当前订阅绑定完成，只有共享快照包含 ~syncRequired~ 且配置启用 WebDAV 时才新建同步。没有通知时不读取同步配置，不另建 Workspace 或额外查询；比较文件与远端基线的规则仍由 Core 实现。短时任务保护排队修改、通知归并与配置读取，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
 
 ~BackgroundSyncPresentation~ 使用后台任务返回的通知 ID 更新系统代理创建的实况窗，保留系统类型码与通知槽，胶囊和展开内容复用共享进度。连续事件只保留最新快照，每秒最多更新一次，最终状态写入完成后再释放长时任务，避免迟到更新重建提示；无变化、失败和短时任务到期路径均清理宿主资源。退后台触发不写入日历同步状态、不新增配置、不在后台请求授权；同步失败后仍以共享通知中的 ~syncRequired~ 决定下次是否重试。
 
@@ -121,7 +121,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 页面统一读取
 
-普通读取通过 CoreQuery 批次取得任务、文件元信息和通知，按输入位置消费对应结果；已迁移任务页由各个 DataSet 维护自己的固定查询订阅，文件入口有效性和标签候选随对应元信息更新。NotificationManager 独立维护应用共享通知生命周期，普通批次的通知结果也通过该管理类发布。侧边栏全部计数、文件入口、项目和通知仍共用一个完整批次，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+普通读取通过 CoreQuery 批次取得任务和文件元信息，按输入位置消费对应结果；已迁移任务页由各个 DataSet 维护自己的固定查询订阅，文件入口有效性和标签候选随对应元信息更新。NotificationManager 独立维护应用共享通知生命周期，列表订阅回调通过该管理类发布。侧边栏全部计数、文件入口和项目共用一个完整批次，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
 
 * 页面数据管理与缓存边界
 
@@ -133,7 +133,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 应用共享通知管理
 
-~NotificationManager~ 位于 ~entry/src/main/ets/services/~ ，每个 APP 进程共享一个管理对象，由 EntryAbility 启动和销毁，页面切换不启停。启动读取通知，配置变化更新同一 Workspace 的仓库与设置，恢复前台补读；Core 成功提交、同步和全局通知事件合并触发仅含 NotificationQuery 的批次。管理类不推断 dirty 状态，不把失败提交当作成功。通知仓库范围由同一管理类组装，只包含启用 WebDAV 且远端地址非空的仓库；独立读取与页面合批读取使用同一范围，纯本地仓库和系统仓库不产生同步提示。Core 在该范围内仅对已有远端基线索引的仓库比较文件 hash，显式空范围不退回全仓库。
+~NotificationManager~ 为应用级列表订阅管理器，由 EntryAbility 启停；启动、恢复前台和配置变化只注册或重绑订阅。范围只包含启用 WebDAV 且远端地址非空的仓库。Core 的通知处理 task 负责缓存、按类型的基线比较与列表差异；冷加载启动独立任务，不阻塞通知 channel。页面批次及角标不查询通知，角标复用共享冲突数量。完整边界见 [[file:core/通知订阅设计.org][通知订阅设计]]。
 
 页面通过 AppStorage 的 ~coreNotifications~ 共享只读快照，不持有管理对象。通知及仓库展示上下文按内容比较，结果相同不发布；过期请求不能覆盖新结果，失败保留最近成功快照。任务仍由页面 DataSetManager 处理增量确认，通知刷新不驱动今天页任务重查。详细生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 

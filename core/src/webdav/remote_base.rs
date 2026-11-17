@@ -446,44 +446,13 @@ impl Store {
     }
 }
 
-/// 在仓库锁内复用本批 Org 字节；通知只读取索引，不扫描基线正文。
-pub(crate) async fn local_changes_from_files(
+/// 通知基线只读取远端索引中的内容哈希，不扫描不可变正文。
+pub(crate) async fn notification_baseline(
     root: &Path,
-    files: &[crate::OrgFile],
-) -> Result<bool, CoreError> {
+) -> Result<Option<BTreeMap<String, Option<String>>>, CoreError> {
     let (original, index) = read_index(root).await?;
-    // 尚未建立远端基线的仓库不参与本地差异判断。
-    if original.is_none() {
-        return Ok(false);
-    }
-    let current = files
-        .iter()
-        .map(|f| {
-            (
-                f.path.as_str(),
-                LocalFileVersion::from_bytes(f.source_bytes()).content_hash,
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    let mut paths = current
-        .keys()
-        .map(|p| (*p).to_owned())
-        .collect::<BTreeSet<_>>();
-    paths.extend(index.entries.keys().cloned());
-    let mut changed = false;
-    for path in paths {
-        super::validate_path(&path)?;
-        let hash = if path.ends_with(".org") {
-            current.get(path.as_str()).cloned()
-        } else {
-            transaction::read(root, &path)
-                .await?
-                .as_deref()
-                .map(|b| LocalFileVersion::from_bytes(b).content_hash)
-        };
-        changed |= hash.as_ref() != index.entries.get(&path).and_then(|e| e.hash.as_ref());
-    }
-    Ok(changed)
+    for path in index.entries.keys() { super::validate_path(path)?; }
+    Ok(original.map(|_| index.entries.into_iter().map(|(path, entry)| (path, entry.hash)).collect()))
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@ extern "C" char* org_tasks_harmony_repo_file(uint64_t handle, const char* root, 
 extern "C" bool org_tasks_harmony_workspace_retain(uint64_t handle);
 extern "C" void org_tasks_harmony_workspace_release(uint64_t handle);
 extern "C" char* org_tasks_harmony_workspace_repo_roots(uint64_t handle);
-extern "C" uint64_t org_tasks_harmony_workspace_watch_notifications(uint64_t handle, uint64_t monitor);
+extern "C" uint64_t org_tasks_harmony_workspace_watch_notifications(uint64_t handle, uint64_t monitor, const char* scope_json);
 extern "C" void org_tasks_harmony_workspace_unwatch_notifications(uint64_t subscription);
 extern "C" void org_tasks_harmony_notification_monitor_release(uint64_t monitor);
 extern "C" uint64_t org_tasks_harmony_workspace_watch_data_changes(uint64_t handle, uint64_t monitor);
@@ -645,7 +645,7 @@ bool ProjectQueryResults(napi_env env, napi_value results)
             }
         }
         else if (kind == "file") { if (!ProjectFileResult(env, result)) return false; }
-        else if (kind != "notification") return false;
+        else return false;
     }
     return true;
 }
@@ -981,7 +981,7 @@ void ExecuteWorkspaceString(napi_env, void* data)
     } else if (work->watch_notifications) {
         uint64_t monitor = work->monitor_handle;
         work->monitor_handle = 0; // Rust 接管，即使注册失败也负责释放。
-        work->subscription_id = org_tasks_harmony_workspace_watch_notifications(work->handle, monitor);
+        work->subscription_id = org_tasks_harmony_workspace_watch_notifications(work->handle, monitor, work->expression.c_str());
         if (work->subscription_id != 0) work->response = "{}";
     } else if (work->watch_data_changes) {
         uint64_t monitor = work->monitor_handle;
@@ -1548,7 +1548,7 @@ napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
         napi_set_named_property(env, request, "repositoryBindings", args[1]) != napi_ok)) {
         delete work; return nullptr;
     }
-    // 保留 Notification.repoIds 的省略与空数组区别，仓库范围由 Rust 校验。
+    // 查询仓库范围由 Rust 校验。
     if (!EncodeJson(env, request, &work->expression)) {
         delete work;
         napi_throw_error(env, nullptr, "批量查询参数无效");
@@ -1626,14 +1626,18 @@ napi_value NormalizeSyncOptions(napi_env env, napi_callback_info info)
 
 napi_value WorkspaceWatchNotifications(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1], self, name;
+    size_t argc = 2;
+    napi_value args[2], self, name;
     WorkspaceWrap* workspace = nullptr;
     napi_valuetype type;
-    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 1 ||
         napi_typeof(env, args[0], &type) != napi_ok || type != napi_function ||
         napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
         napi_throw_error(env, nullptr, "通知监控需要回调函数"); return nullptr;
+    }
+    std::string scope = "null";
+    if (argc > 1 && !EncodeJson(env, args[1], &scope)) {
+        napi_throw_error(env, nullptr, "通知订阅范围无效"); return nullptr;
     }
     auto* watch = new NotificationWatch();
     if (napi_create_string_utf8(env, "OrgTasksNotificationMonitor", NAPI_AUTO_LENGTH, &name) != napi_ok ||
@@ -1645,6 +1649,7 @@ napi_value WorkspaceWatchNotifications(napi_env env, napi_callback_info info)
     auto* work = new WorkspaceStringWork();
     work->handle = workspace->handle;
     work->watch_notifications = true;
+    work->expression = scope;
     work->monitor_handle = reinterpret_cast<uintptr_t>(watch);
     work->subscription_generation = ++workspace->notification_generation;
     return QueueWorkspaceString(env, work, "OrgTasksWatchNotifications", self);

@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn ffi_mixed_query_uses_existing_string_lifetime_and_error_contract() {
         let handle = org_tasks_harmony_workspace_create();
-        let request = CString::new(r#"[{"type":"notification","query":{}}]"#).unwrap();
+        let request = CString::new(r#"[{"type":"file","query":{}}]"#).unwrap();
         let value = org_tasks_harmony_workspace_query(handle, request.as_ptr());
         assert!(!value.is_null());
         let result: serde_json::Value =
@@ -532,9 +532,10 @@ pub extern "C" fn org_tasks_harmony_repo_history_operation(
 pub extern "C" fn org_tasks_harmony_workspace_watch_notifications(
     handle: u64,
     monitor: u64,
+    scope_json: *const c_char,
 ) -> u64 {
     clear_last_error();
-    match bridge::workspace_watch_notifications(handle, monitor) {
+    match read_c_string(scope_json).and_then(|scope| bridge::workspace_watch_notifications(handle, monitor, &scope)) {
         Ok(id) => id,
         Err(e) => {
             remember_error(&e);

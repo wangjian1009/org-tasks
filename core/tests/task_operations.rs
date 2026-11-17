@@ -475,8 +475,9 @@ async fn task_operations_notify_only_after_changed_files_are_committed() {
     let events = observed.clone();
     let file = f.root.join("tasks.org");
     let repo_id = f.workspace.repos()[0].id.clone();
-    let _subscription = f.workspace.watch_notifications(move |update| {
-        if let org_tasks_core::NotificationUpdate::RepositoryChanged { repo_id } = update {
+    let _subscription = f.workspace.watch_data_changes(move |update| {
+        let org_tasks_core::DataChangeEvent::RepositoryChanged { repo_id, .. } = update;
+        {
             events
                 .lock()
                 .unwrap()

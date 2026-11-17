@@ -116,7 +116,6 @@ impl Receiver {
                     });
                     result.extend(files.iter().flatten().map(|file| file.after.clone()));
                 }
-                CoreQueryResult::Notification(_) => unreachable!(),
             }
         }
         events
@@ -420,18 +419,6 @@ async fn trigger_cascade_and_system_tag_expressions_use_raw_events_but_return_di
 #[tokio::test]
 async fn unsupported_and_invalid_queries_fail_without_affecting_other_subscriptions() {
     let f = Fixture::new(&[("a.org", "* TODO A\n")]).await;
-    assert!(
-        f.workspace
-            .subscribe_query(vec![QuerySubscriptionRequest::new(
-                CoreQuery::Notification {
-                    query: Default::default(),
-                    repo_ids: None,
-                },
-                |_| panic!("不应发布事件")
-            )])
-            .await
-            .is_err()
-    );
     assert!(
         f.workspace
             .subscribe_query(vec![QuerySubscriptionRequest::new(

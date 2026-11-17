@@ -60,6 +60,7 @@ impl OrgWorkspace {
             notifications: notifications.clone(),
             tasks: tasks.clone(),
         };
+        notifications.configure(state.repos.clone());
         let (snapshots, snapshot) = watch::channel(Snapshot::from_state(&state));
         let (completion, completed) = watch::channel(None);
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -568,7 +569,10 @@ async fn process(
                             Access::Files(_) => state.task_operation_history.entries.extend(finished.task_operation_history.entries),
                             Access::Exclusive | Access::Stop => state = finished,
                         }
-                        if access != Access::Query { snapshots.send_replace(Snapshot::from_state(&state)); }
+                        if access != Access::Query {
+                            state.notifications.configure(state.repos.clone());
+                            snapshots.send_replace(Snapshot::from_state(&state));
+                        }
                         reply();
                         if access == Access::Stop {
                             // 停止后的请求不执行，丢弃 reply 使等待方收到明确失败。

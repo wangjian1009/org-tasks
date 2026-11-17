@@ -294,17 +294,17 @@ DataSet 不提供 document、getFile 或完整文件事件，不再有文件确�
 
 * 跨页面共享通知
 
-通知不属于单个页面数据集。NotificationManager 作为应用级共享类，位于 ~entry/src/main/ets/services/NotificationManager.ets~ ，由 EntryAbility 在启动时调用 start、销毁时调用 stop，退后台不停止，恢复前台补读。管理类只读取通知，DataSetManager 继续负责页面任务与文件快照；编辑器不访问通知管理类或 Core。
+通知不属于单个页面数据集。NotificationManager 作为应用级共享类，位于 ~entry/src/main/ets/services/NotificationManager.ets~ ，由 EntryAbility 在启动时调用 start、销毁时调用 stop，退后台不停止，恢复前台重绑订阅。管理类只消费通知列表，DataSetManager 继续负责页面任务与文件快照；编辑器不访问通知管理类或 Core。
 
-启动先注册当前 Workspace 的通知监控，再通过统一查询读取 NotificationQuery。成功提交、同步和其他通知事件在管理类内部合并为通知读取；配置变化重取 Workspace 并解除旧监控。注册、读取和回调均检查生命周期，已停止的实例不能发布迟到结果；读取期间再次失效则丢弃旧结果并读取最新状态。
+启动注册当前 Workspace 的通知列表订阅，Core 默认推送首次完整列表，后续列表变化才回调。配置变化重新绑定订阅范围，旧生命周期回调被忽略。冷加载、文件 checksum 与分类型基线全部由 Core 通知处理任务维护，见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
 
-既有 PageQueryService 批次仍可携带 NotificationQuery，但结果统一交给 NotificationManager 发布；页面批次不再负责注册通知监控。所有读取共用请求序号，旧请求不能覆盖新状态。管理类按通知字段与仓库展示上下文比较，仅内容变化时递增 revision 并写入 AppStorage 的 ~coreNotifications~ ，失败保留最近成功快照。提示由 Core 查询决定，不因本地乐观修改或提交失败预先生成。
+PageQueryService 批次只包含任务和文件。NotificationManager 按列表回调发布共享快照，宿主仓库展示映射或内容变化才推进 AppStorage revision；订阅失败保留最近成功快照，页面查询失败不影响通知。设备角标也监听共享列表并复用冲突数量。
 
 今天页直接消费共享通知快照，列表始终保留通知项，无通知时高度为零，避免插入或删除列表槽位影响后续输入焦点。通知插入、移除或高度变化时，已滚动的列表按当前可见稳定记录补偿位置；停在顶部时直接展示新提示，不将其滚出屏幕。页面离开后取消迟到补偿。通知刷新不重建任务数据集、不结束编辑会话，也不覆盖输入草稿。其他页面复用同一快照，无需通过打开抽屉或切换页面才能看到待同步提示。
 
 专用模拟器已验证：今天页原位编辑成功后直接显示同步提示，真实 WebDAV 同步后消失；失败操作回滚且不误报，外部 HTTP 修改更新任务与通知。50 条任务的滚动列表中，提示插入时保留输入框身份与未提交草稿，只有用户确认才写入；后台同步移除提示并恢复前台后，同一可见记录的纵坐标均为 494 像素。宿主回归测试 530 项通过，正式包与数据准备包构建无编译告警。
 
-退后台通过 ~NotificationManager.hasSyncRequired()~ 判断是否需要新建同步会话。后台服务在短时任务保护内调用 DataSetManager.flushAll，等待已提交的修改、事件归并和缓存保存；缓存失败记录错误，仍继续判断通知。hasSyncRequired 等待已失效或在途的通知读取，仅消费共享快照，不因退出额外查询。仅冲突通知不触发新同步；没有通知时不读同步配置，有通知但未启用 WebDAV 时也跳过。已有同步会话继续受到后台保护，不再补开一轮。
+退后台通过 ~NotificationManager.hasSyncRequired()~ 判断是否需要新建同步会话。后台服务在短时任务保护内调用 DataSetManager.flushAll，等待已提交的修改、事件归并和缓存保存；缓存失败记录错误，仍继续判断通知。hasSyncRequired 等待首次列表及当前订阅绑定完成，仅消费共享快照，不因退出额外查询。仅冲突通知不触发新同步；没有通知时不读同步配置，有通知但未启用 WebDAV 时也跳过。已有同步会话继续受到后台保护，不再补开一轮。
 
 退后台通知触发已在专用模拟器通过真实 WebDAV 验证：无通知、修改失败、同步完成后再次退出均没有网络请求；UI 编辑后立即退后台和外部 API 更新后退后台均完成同步并清除共享提示。532 项宿主回归测试通过，正式包与数据准备包构建无编译告警。
 
@@ -312,7 +312,7 @@ DataSet 不提供 document、getFile 或完整文件事件，不再有文件确�
 
 侧边栏全部数据由 SidebarDataManager 管理。AppShell 只订阅只读快照并展示计数、今天关注徽标、入口状态与项目分组；打开抽屉只启动管理对象，不执行 Core 查询，不通过底层版本变化刷新导航。页面正文与侧边栏分别由各自管理对象维护，AppShell 不参与任何正文刷新。文件入口导航前的配置有效性检查也经管理对象完成。
 
-管理对象以一个 CoreQuery 批次读取任务入口及废纸篓计数、完整项目文件列表、三个入口文件状态与共享通知。废纸篓查询精确包含系统仓库的 trash.org，使用与列表相同的 .o.deleted 表达式，计数纳入缓存版本、失效重读和失败保留，不另发查询。项目查询始终为全范围的 ~FileQuery { isProject: true }~ ，不按缓存项目或已显示文件收窄；项目身份、忽略规则和成员资格仍由 Core 判定。通知由 PageQueryService 交给应用共享 NotificationManager，不在侧边栏建立第二份通知状态。AppShell 从 RegionOrderService 读取共享 regionOrder，保存通知只对已有项目快照重新分组排序，不重建侧边栏数据查询；退出时解除偏好监听，迟到读取不得覆盖新保存顺序。
+管理对象以一个 CoreQuery 批次读取任务入口及废纸篓计数、完整项目文件列表、三个入口文件状态。废纸篓查询精确包含系统仓库的 trash.org，使用与列表相同的 .o.deleted 表达式，计数纳入缓存版本、失效重读和失败保留，不另发查询。项目查询始终为全范围的 ~FileQuery { isProject: true }~ ，不按缓存项目或已显示文件收窄；项目身份、忽略规则和成员资格仍由 Core 判定。通知由 Core 列表回调交给应用共享 NotificationManager，不在侧边栏建立第二份通知状态。AppShell 从 RegionOrderService 读取共享 regionOrder，保存通知只对已有项目快照重新分组排序，不重建侧边栏数据查询；退出时解除偏好监听，迟到读取不得覆盖新保存顺序。
 
 确认后的全部查询结果通过 PageDataCache 存在 ~filesDir/page-data/v1/sidebar.json~ 。缓存范围包含仓库身份、目录、排除目录、TODO 默认配置、Core 设置与完整查询定义，不含凭据。恢复时发布版本 0，首次读取发布版本 1，后续成功刷新递增；缓存读取失败继续完整查询。配置范围改变时清除旧范围展示，重新匹配缓存和查询。
 
@@ -355,7 +355,7 @@ SnapshotDataManager 为非任务查询结果提供统一的 start、refresh、su
 
 NotebookDataManager 发布仓库分组与当前配置；FileDataManager 发布普通文件或指定同步历史备份和读取上下文；SyncLogDataManager 发布排序后的同步记录、仓库身份与展示名，展开详情由 SyncLogDetailDataManager 按固定同步 ID 发布完整记录。完整文件、历史与同步规则仍调用既有 Core 接口，管理类不解析 Org。页面的渲染、原文切换、目录定位与展开状态只使用管理对象快照；普通文件变为项目时沿用既有导航。
 
-项目页首次获取文件，随后通过 Task 更新标题与正文，属性修改不重建整个文档；外部更新由管理器合并刷新任务，不重新获取完整文件。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的补读也统一调用 NotificationManager，不由通知控件拼装底层查询。
+项目页首次获取文件，随后通过 Task 更新标题与正文，属性修改不重建整个文档；外部更新由管理器合并刷新任务，不重新获取完整文件。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的重新订阅也统一调用 NotificationManager，不由通知控件拼装底层查询。
 
 \begin{center}
 \begin{tikzpicture}

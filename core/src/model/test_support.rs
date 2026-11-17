@@ -74,3 +74,13 @@ pub(crate) fn file_accesses(path: &std::path::Path) -> [usize; 2] {
     let path = std::fs::canonicalize(path.parent().unwrap()).unwrap_or_else(|_| path.parent().unwrap().to_owned()).join(path.file_name().unwrap());
     file_counts().lock().unwrap().get(&path).copied().unwrap_or_default()
 }
+
+impl crate::OrgWorkspace {
+    pub(crate) async fn notification_snapshot(&self) -> Vec<crate::CoreNotification> { first_notifications(self).await }
+}
+
+async fn first_notifications(workspace: &crate::OrgWorkspace) -> Vec<crate::CoreNotification> {
+    let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = workspace.watch_notifications(None, move |notifications| { let _ = send.send(notifications); });
+    tokio::time::timeout(std::time::Duration::from_secs(5), received.recv()).await.unwrap().unwrap()
+}

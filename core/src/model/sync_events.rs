@@ -10,7 +10,8 @@ pub(crate) enum SyncCommitted {
     },
 }
 
-// 基线可能先于工作文件发布；错误返回同样需要使调用方的通知快照失效。
+// 基线可能先于工作文件发布；错误返回同样需要触发仓库数据订阅更新。
+// 注意事项列表由业务另行投递带 checksum 的状态，不消费本失效事件。
 pub(crate) struct CompletionNotice {
     repo_id: String,
     notifications: Option<super::notification_center::NotificationCenter>,

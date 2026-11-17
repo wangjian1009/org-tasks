@@ -653,7 +653,12 @@ impl OrgRepo {
         P: SyncPolicy,
     {
         let result = self.sync_with_options_inner(policy, started_at, cancellation, progress, options, notifications).await;
-        if let Some(notifications) = notifications { notifications.flush().await?; }
+        if let Some(notifications) = notifications {
+            if let Err(error) = super::notification::RepositoryNotifications::publish(self, notifications).await {
+                eprintln!("同步后加载通知失败: {error}");
+            }
+            notifications.flush().await?;
+        }
         result
     }
 

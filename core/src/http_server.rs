@@ -159,7 +159,6 @@ async fn queries(
     let results = results.into_iter().map(|result| match result {
         CoreQueryResult::Task(result) => json!({"type":"task","result":{"tasks":result.tasks,"categories":result.categories,"fullFiles":result.full_files.iter().map(full_file_value).collect::<Vec<_>>()}}),
         CoreQueryResult::File(files) => json!({"type":"file","result":files}),
-        CoreQueryResult::Notification(notifications) => json!({"type":"notification","result":notifications}),
     }).collect::<Vec<_>>();
     Ok(Json(json!(results)))
 }

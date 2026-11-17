@@ -63,11 +63,11 @@ async fn mutations_and_reset_notify_only_the_workspace_that_started_them() {
     let first_count = Arc::new(AtomicUsize::new(0));
     let second_count = Arc::new(AtomicUsize::new(0));
     let count = first_count.clone();
-    let _first = first.watch_notifications(move |_| {
+    let _first = first.watch_data_changes(move |_| {
         count.fetch_add(1, Ordering::SeqCst);
     });
     let count = second_count.clone();
-    let _second = second.watch_notifications(move |_| {
+    let _second = second.watch_data_changes(move |_| {
         count.fetch_add(1, Ordering::SeqCst);
     });
     let file = repo.file("tasks.org").await.unwrap();

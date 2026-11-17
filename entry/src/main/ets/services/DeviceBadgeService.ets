@@ -2,8 +2,9 @@ import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { Context } from '@kit.AbilityKit'
 import { notificationManager } from '@kit.NotificationKit'
 import { AppConfigService } from './AppConfigService'
+import { NotificationManager } from './NotificationManager'
 import { FileTargetService } from './FileTargetService'
-import { CoreQuery, CoreWorkspace, NativeCoreService, notificationResult, taskResult } from './NativeCoreService'
+import { CoreQuery, CoreWorkspace, NativeCoreService, taskResult } from './NativeCoreService'
 
 // 前台订阅与后台单次刷新共用；不持久化计数，不依赖页面快照。
 export class DeviceBadgeService {
@@ -21,12 +22,14 @@ export class DeviceBadgeService {
 
   static start(context: Context): void {
     if (!DeviceBadgeService.foreground) AppConfigService.watchChanges(DeviceBadgeService.configurationChanged)
+    NotificationManager.watchChanges(DeviceBadgeService.configurationChanged)
     DeviceBadgeService.foreground = context
     DeviceBadgeService.scheduleMidnight()
     DeviceBadgeService.refresh(context)
   }
 
   static stop(): void {
+    NotificationManager.stopWatchingChanges(DeviceBadgeService.configurationChanged)
     DeviceBadgeService.foreground = undefined
     AppConfigService.stopWatchingChanges(DeviceBadgeService.configurationChanged)
     DeviceBadgeService.disconnect()
@@ -61,14 +64,13 @@ export class DeviceBadgeService {
         const inbox = FileTargetService.prepare(config, repos, 'inbox')
         const queries: CoreQuery[] = [
           { type: 'task', query: { expression: 'it.todo d.lt.tomorrow',
-            excludeFiles: (inbox ? [inbox.reference] : []).concat(trashRepo ? [{ repoId: trashRepo.id, path: TRASH_FILE }] : []) } },
-          { type: 'notification', query: {} }
+            excludeFiles: (inbox ? [inbox.reference] : []).concat(trashRepo ? [{ repoId: trashRepo.id, path: TRASH_FILE }] : []) } }
         ]
         if (inbox) { queries.push(inbox.task); queries.push(inbox.file) }
         const results = await workspace.query(queries)
-        const inboxCount = inbox ? FileTargetService.result(results[2], results[3])?.tasks.length ?? 0 : 0
+        const inboxCount = inbox ? FileTargetService.result(results[1], results[2])?.tasks.length ?? 0 : 0
         const deadlineCount = taskResult(results[0]).tasks.length
-        const conflictCount = notificationResult(results[1]).filter(item => item.type === 'syncConflict').length
+        const conflictCount = await NotificationManager.conflictCount()
         if (revision !== DeviceBadgeService.revision) continue
         await notificationManager.setBadgeNumber(inboxCount + deadlineCount + conflictCount)
       } catch (_) {

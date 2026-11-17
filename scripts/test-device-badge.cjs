@@ -62,6 +62,7 @@ function fixture() {
       if (dependency === '@kit.NotificationKit') return { notificationManager: { async setBadgeNumber(value) {
         if (writeFailure) throw new Error('系统服务不可用'); writes.push(value);
       } } };
+      if (dependency === './NotificationManager') return {NotificationManager:{watchChanges(){},stopWatchingChanges(){},async conflictCount(){return conflicts;}}};
       if (dependency === './NativeCoreService') return native;
       if (dependency === './AppConfigService') return { AppConfigService: configService };
       if (dependency === './PageQueryService') return { PageQueryService: {} };
@@ -84,20 +85,20 @@ test('后台单次刷新只发一个混合批次，按 Core 仓库隔离收件�
   const f = fixture(); await f.service.refresh({});
   assert.deepEqual(f.writes, [6]); assert.equal(f.batches.length, 1);
   const batch = f.batches[0];
-  assert.deepEqual(batch.map(query => query.type), ['task', 'notification', 'task', 'file']);
+  assert.deepEqual(batch.map(query => query.type), ['task', 'task', 'file']);
   assert.equal(batch[0].query.expression, 'it.todo d.lt.tomorrow');
   assert.deepEqual(Object.keys(batch[0].query).sort(), ['excludeFiles', 'expression']);
   assert.deepEqual(batch[0].query.excludeFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
-  assert.deepEqual(batch[2].repoIds, ['core-a']);
-  assert.deepEqual(batch[2].query, { expression: '', includeFiles:[{repoId:'core-a',path:'inbox.org'}] });
-  assert.deepEqual(batch[3].query.includeFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
+  assert.deepEqual(batch[1].repoIds, ['core-a']);
+  assert.deepEqual(batch[1].query, { expression: '', includeFiles:[{repoId:'core-a',path:'inbox.org'}] });
+  assert.deepEqual(batch[2].query.includeFiles, [{ repoId: 'core-a', path: 'inbox.org' }]);
   assert.equal(f.callbacks.size, 0); assert.equal(f.timers.size, 0);
 });
 
 test('未配置或失效收件箱贡献零，不回退到其他文件；总数为零清除角标', async () => {
   const f = fixture(); f.missing(); await f.service.refresh({}); assert.deepEqual(f.writes, [4]);
   f.config.inboxRepoId = ''; f.counts(10, 0, 0); await f.service.refresh({});
-  assert.deepEqual(f.writes, [4, 0]); assert.equal(f.batches[1].length, 2);
+  assert.deepEqual(f.writes, [4, 0]); assert.equal(f.batches[1].length, 1);
   assert.deepEqual(f.batches[1][0].query.excludeFiles, []);
 });
 

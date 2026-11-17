@@ -291,15 +291,12 @@ export interface FileQuery {
   isProject?: boolean | null;
   includeIgnored?: boolean;
 }
-export interface NotificationQuery {}
 export interface TaskCoreQuery { type: 'task'; query: TaskQuery; repoIds?: string[]; }
 export interface FileCoreQuery { type: 'file'; query: FileQuery; }
-export interface NotificationCoreQuery { type: 'notification'; query: NotificationQuery; repoIds?: string[] | null; }
-export type CoreQuery = TaskCoreQuery | FileCoreQuery | NotificationCoreQuery;
+export type CoreQuery = TaskCoreQuery | FileCoreQuery;
 export interface TaskCoreQueryResult { type: 'task'; result: TaskQueryResult; }
 export interface FileCoreQueryResult { type: 'file'; result: OrgFileMetadata[]; }
-export interface NotificationCoreQueryResult { type: 'notification'; result: CoreNotification[]; }
-export type CoreQueryResult = TaskCoreQueryResult | FileCoreQueryResult | NotificationCoreQueryResult;
+export type CoreQueryResult = TaskCoreQueryResult | FileCoreQueryResult;
 
 export class WebDavSyncPolicy {
   constructor(webdavUrl: string, username: string, password: string);
@@ -316,10 +313,7 @@ export interface SyncConflictNotification {
 export interface SyncRequiredNotification { type: 'syncRequired'; }
 export type CoreNotification = SyncConflictNotification | SyncRequiredNotification;
 
-export type NotificationUpdate =
-  | { type: 'repositoryChanged'; repoId: string }
-  | { type: 'globalNotificationsChanged' };
-export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
+export type NotificationUpdateMonitor = (notifications: CoreNotification[]) => void;
 
 export interface HttpServerInfo { readonly address: string; }
 export interface HttpUiRequest { method: string; body: string; }
@@ -348,7 +342,7 @@ export class Workspace {
   // Core 按文件调度修改，等待前序查询；Promise 在提交事件处理后完成。
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
-  watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>;
+  watchNotifications(monitor: NotificationUpdateMonitor, repoIds?: string[]): Promise<void>;
   stopWatchingNotifications(): void;
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>;
   stopWatchingDataChanges(subscriptionId: number): void;

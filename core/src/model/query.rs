@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::filter::FilterTask;
 use crate::CoreError;
+use crate::filter::FilterTask;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
@@ -49,11 +49,6 @@ pub enum CoreQuery {
     File {
         query: FileQuery,
     },
-    Notification {
-        query: NotificationQuery,
-        #[serde(default, rename = "repoIds", skip_serializing_if = "Option::is_none")]
-        repo_ids: Option<Vec<super::OrgRepoId>>,
-    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,15 +61,10 @@ pub struct FileQuery {
     pub include_ignored: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NotificationQuery {}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoreQueryResult {
     Task(TaskQueryResult),
     File(Vec<super::OrgFileMetadata>),
-    Notification(Vec<super::CoreNotification>),
 }
 
 impl From<TaskQuery> for CoreQuery {
@@ -103,12 +93,6 @@ impl CoreQueryResult {
         match self {
             Self::File(result) => Ok(result),
             _ => Err(CoreError::InvalidState("查询结果不是文件结果")),
-        }
-    }
-    pub fn into_notifications(self) -> Result<Vec<super::CoreNotification>, CoreError> {
-        match self {
-            Self::Notification(result) => Ok(result),
-            _ => Err(CoreError::InvalidState("查询结果不是通知结果")),
         }
     }
 }

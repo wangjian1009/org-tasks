@@ -110,13 +110,5 @@ async fn scalar_order_keys_match_all_core_sort_fields_and_preserve_workspace_tie
     actual.reverse();
     actual.sort_by(|a, b| compare(&ordering.file_key(a), &ordering.file_key(b)));
     assert_eq!(actual, expected);
-    assert!(
-        workspace
-            .query_ordering(&CoreQuery::Notification {
-                query: NotificationQuery::default(),
-                repo_ids: None,
-            })
-            .is_err()
-    );
     std::fs::remove_dir_all(directory).unwrap();
 }

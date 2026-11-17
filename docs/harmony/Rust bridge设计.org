@@ -72,7 +72,7 @@ class Workspace {
   subscribeQuery(requests: QuerySubscriptionRequest[]): Promise<QuerySubscriptionStart[]>
   querySubscriptionStatus(subscriptionId: number): Promise<QuerySubscriptionStatus>
   unsubscribeQuery(subscriptionId: number): void
-  watchNotifications(monitor: NotificationUpdateMonitor): Promise<void>
+  watchNotifications(monitor: NotificationUpdateMonitor, repoIds?: string[]): Promise<void>
   stopWatchingNotifications(): void
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>
   stopWatchingDataChanges(subscriptionId: number): void
@@ -145,12 +145,11 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 |-
 | ~OrgWorkspace~ | ~Workspace~ | workspace 管理仓库集合；仓库通过 workspace 取得。 |
 | ~OrgWorkspace.repos()~ | ~await workspace.repos()~ | 返回仓库对象，不返回仓库 DTO。 |
-| ~CoreQuery::Notification~ | ~workspace.query([{ type: 'notification', query: {} }])~ | 返回 Core 判定的通知结果分支，复用同次文件与基线读取。 |
 | ~OrgRepo.id~ 、 ~root_directory~ | ~repo.id~ 、 ~repo.rootDirectory~ | 只读属性；core 的 ID 来自本地 ~.sync/id~ 。 |
 | ~OrgRepo.load_files(ignore_files)~ | ~await repo.loadFiles(ignoreFiles)~ | 相对排除路径原样透传；按次读盘返回独立对象数组，仓库不持有文件集合。 |
 | ~OrgRepo.file(path)~ | ~await repo.file(path)~ | 返回已有文件的副本；路径尚不存在时返回未落盘空文件。 |
 | ~OrgFile.repo_id~ 、 ~path~ 、 ~todo~ | ~file.repoId~ 、 ~file.path~ 、 ~file.todo~ | 属性承载数据，TODO 完成类型由 Rust 计算。 |
-| ~CoreQuery::File~ | ~workspace.query([{ type: 'file', query: {} }])~ | 返回文件结果分支，可与任务、通知混合；不复制正文或生成文件对象。 |
+| ~CoreQuery::File~ | ~workspace.query([{ type: 'file', query: {} }])~ | 返回文件结果分支，可与任务混合；不复制正文或生成文件对象。 |
 | ~OrgFile.title()~ | ~file.title()~ | 文件头 TITLE，多行按空格合并；未配置为 ~null~ ，显式空声明为空字符串。 |
 | ~OrgFile.title_parts()~ | ~file.titleParts()~ | Core 解析文件标题中的文字与外部链接，返回有序 ~TitlePart[]~ 。 |
 | ~FilterTask.title_parts()~ | ~task.headingParts~ | bridge 在构造任务对象时投影，C++ 保留可枚举只读属性，路由传递不丢失链接。 |
@@ -462,7 +461,7 @@ interface TitleCount {
 
 * 待关注事件
 
-NotificationQuery 通过统一批量接口返回当前文件与基线派生的事件。文件冲突形状为 ~{ type: 'syncConflict', repoId, path }~ ，每个文件独立一条；Rust bridge 附带 ~rootDirectory~ 供宿主映射配置仓库，Core 事件本身不保存绝对路径。通知复用本批读取的文件与基线索引，保证外部文件变化在下次批次可见；点击校验仓库身份后按文件路径进入 ~ConflictFile~ 。
+通知通过列表订阅推送当前待关注事件。文件冲突形状为 ~{ type: 'syncConflict', repoId, path }~ ，每个文件独立一条；Rust bridge 附带 ~rootDirectory~ 供宿主映射配置仓库，Core 事件本身不保存绝对路径。通知处理任务通过冷加载及业务提交的 checksum 维护缓存；点击校验仓库身份后按文件路径进入 ~ConflictFile~ 。
 
 ~{ type: 'syncRequired' }~ 为 workspace 级无载荷事件；只要任一仓库本地字节 hash 与基线索引不同就生成一条，点击执行普通同步。它不依赖进程内去重标记，重启后可重新发现。Core 负责当前状态判断，ArkTS 只展示快照，读取失败保留既有快照。
 
@@ -476,13 +475,13 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 * 通知更新监控与生命周期
 
-~Workspace.watchNotifications(monitor): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications~ 。回调通过独立 TSFN 转发 ~NotificationUpdate~ 联合类型 ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
+~Workspace.watchNotifications(monitor, repoIds?): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications(repo_ids, callback)~ 。回调通过独立 TSFN 转发 ~CoreNotification[]~ 完整列表 ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
 
-~NotificationManager~ 由 EntryAbility 管理应用级生命周期，独立持有活动 Workspace 的通知监控，启动及恢复前台读取通知，配置变化重新绑定。Core 成功提交、同步与全局通知事件合并触发仅包含 NotificationQuery 的统一查询批次，既有页面批次的通知结果也交给它发布。内容相同不发布，失败保留快照，过期读取或旧生命周期回调不能覆盖新状态。页面只消费 AppStorage 的共享通知快照，今天页的 DataSetManager 不因通知读取重查任务。实现边界见 [[file:页面数据集设计.org::*跨页面共享通知][跨页面共享通知]]。
+~NotificationManager~ 由 EntryAbility 管理应用级生命周期，启动、恢复前台及配置变化只注册或重新绑定当前 Workspace 的通知订阅。monitor 默认收到一次完整列表，之后只在列表变化时回调；独立 TSFN 转发数组，C++ 不解释通知内容。管理类排除旧生命周期回调并发布 AppStorage 共享快照，页面与角标复用该快照，不主动查询。详细范围与基线见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
 
 页面由各自的数据管理对象处理增量与快照。修改、同步和重置向所属 Workspace 的 NotificationCenter 提交事件，process 串行调用监控器，再通过独立 TSFN 转交 ArkTS。普通本地读取直接 query，不提供 Workspace.reload，也不补造数据变更通知。任务操作组等待事件处理确认后才完成 Promise，C++ 继续在完成请求前归并已排队的查询订阅事件；TRIGGER 来源与关联目标沿用同一条链路。TaskEditor 只订阅注入的管理对象，关联任务和通知分别由相应管理类维护。
 
-~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源是统一查询的 Notification 结果分支 。
+~lastEffectSync~ 返回最近成功同步的摘要或空，已解决、无冲突和缺备份的成功记录都可以返回。通知区域不调用此方法，唯一注意事项数据源是 Core 列表订阅 。
 
 * 备忘标签候选
 
@@ -510,11 +509,11 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 同步目录、历史与新增通知的全部领域规则统一见 [[file:../core/同步核心设计.org][同步核心设计]]，bridge 不扫描目录比较 resolved 与远端文件，也不在 ArkTS 去重或持久化提示。
 
-TS 的 ~CoreNotification~ 联合类型新增 ~{ type: 'syncRequired' }~ ，复用统一查询的 Notification 分支读取。一个应用进程最多一条，后来同类通知由 Rust 丢弃；不因多仓库或重复读取增加实例，应用重启不恢复。
+TS 的 ~CoreNotification~ 联合类型包含 ~{ type: 'syncRequired' }~ ，由 Core 列表订阅直接推送。范围内任一已建立远端基线的仓库存在 checksum 差异时只有一条，恢复基线内容或同步确认后消失；重启通过冷加载重新发现，不持久化通知对象。
 
 通知组件点击后复用 ~RepositorySyncService~ 发起当前配置全部仓库的普通同步；已有会话不并发重启，错误走现有反馈。Core 在成功确认待上传结果后清除提示，失败或取消时保留。C++ 和 ArkTS 不提前删除本地展示来模拟消费。
 
-通知更新联合类型增加全局变体，匹配 Core 的 ~RepositoryChanged { repo_id }~ 与 ~GlobalNotificationsChanged~ ：前者沿仓库身份过滤，后者让所有订阅重新查询，不虚构 Core 仓库 ID。Rust、C ABI 编组、C++ TSFN、TS 类型、wrapper 与展示调用方保持同一联合类型。
+通知不再传递 ~RepositoryChanged~ 或 ~GlobalNotificationsChanged~ 失效事件。数据变更订阅与通知列表使用独立 monitor；Rust、C ABI、C++ TSFN、TS 声明、wrapper 和调用方统一使用通知数组。
 
 * 内容合并的 Core 边界
 
@@ -619,7 +618,7 @@ Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的�
 
 Harmony 每批提交一个 Workspace 查询命令，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不读取业务文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/批量查询接口设计.org][批量查询接口设计]]。
 
-侧边栏将八项任务查询、三个目标文件元信息与通知合为一个批次，并按输入位置显示计数。收件箱、某天和备忘以 Core 仓库 ID 与相对路径隔离同名文件，空文件与失效文件通过同批 File 结果区分。
+侧边栏将任务查询与目标文件元信息合为一个批次，并按输入位置显示计数。收件箱、某天和备忘以 Core 仓库 ID 与相对路径隔离同名文件，空文件与失效文件通过同批 File 结果区分。
 
 * 规划重复规则编辑接入
 
@@ -639,9 +638,9 @@ Harmony 每批提交一个 Workspace 查询命令，Core 每仓库加锁一次�
 
 系统已移除 ~org_tasks_harmony_workspace_notifications~ 与 ~org_tasks_harmony_repo_file_metadata~ 两个 FFI 符号、对应 N-API 方法、类型声明和 ArkTS 读取封装。通用读取只有 ~Workspace.query(queries: CoreQuery[]): Promise<CoreQueryResult[]>~ ，旧 TaskQuery 数组协议拒绝；TaskQuery 作为 Task 分支的 query 参数，文件范围为 ~includeFiles~ 与 ~excludeFiles~ ，先包含再排除；旧 ~excludedFiles~ 与 ~b.~ 文件表达式由 Core 拒绝。
 
-JSON 请求按 ~type~ 区分 task、file、notification，结果使用对应 type 与 result。C++ 只在 Task 结果中包装原生 Task，在 File 结果中为元信息注册项目访问方法，Notification 结果直接透传。一次 async work 调用整个批次，整个结果组装成功后才 resolve，任一包装失败 reject 整个 Promise。
+JSON 查询请求按 ~type~ 区分 task、file，结果使用对应 type 与 result。C++ 只在 Task 结果中包装原生 Task，在 File 结果中为元信息注册项目访问方法。一次 async work 调用整个批次，整个结果组装成功后才 resolve，任一包装失败 reject 整个 Promise。
 
-页面统一通过 PageQueryService 组装请求并从同批发布通知；AppShell 生命周期只注册数据订阅，不再自行查询通知。收件箱本页与最近新增、目标元信息和通知一次返回；今天等通用视图和某天、备忘各自使用一个批次，侧边栏同样只调用一次 query。请求类型、过滤与锁边界见 [[file:../core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+页面统一通过 PageQueryService 组装任务与文件请求；AppShell 生命周期只注册数据订阅，不再自行查询通知。收件箱本页与最近新增、目标元信息一次返回；今天等通用视图和某天、备忘各自使用一个批次，侧边栏同样只调用一次 query。请求类型、过滤与锁边界见 [[file:../core/统一批量查询接口设计.org][统一批量查询接口设计]]。
 
 * 文档内冲突卡片投影
 
@@ -736,7 +735,7 @@ class Workspace {
 }
 #+end_src
 
-绑定同时解析 Task 与 Notification 分支的 ~repoIds~ ，以及 ~includeFiles~ 和 ~excludeFiles~ 的身份，不求值任务条件。空别名、重复别名、不属于当前 Workspace 的目录以及与其他真实 Core ID 冲突的别名均拒绝；未命中绑定的真实 ID 继续交给 Core 校验。省略绑定保留原调用方式。Notification 的 ~repoIds~ 省略时覆盖全部仓库，显式空数组保持为空，不丢弃或转为全仓库。C++ 只编组结构化请求，Rust bridge 在同一个 worker 请求内完成映射，避免同步读取 Repo 属性或先查询仓库清单。
+绑定解析 Task 分支的 ~repoIds~ ，以及 ~includeFiles~ 和 ~excludeFiles~ 的身份，不求值任务条件。空别名、重复别名、不属于当前 Workspace 的目录以及与其他真实 Core ID 冲突的别名均拒绝；未命中绑定的真实 ID 继续交给 Core 校验。省略绑定保留原调用方式。通知订阅独立传递范围，显式空数组不转为全仓库。C++ 只编组结构化请求，Rust bridge 在同一个 worker 请求内完成映射，避免同步读取 Repo 属性或先查询仓库清单。
 
 批量查询的 ABI 内部载荷可为 ~{ queries, repositoryBindings }~ ，原查询数组仍接受；订阅载荷为 ~{ query, operationId, repositoryBindings }[]~ ，每项绑定独立解析，同一别名可以在不同项中绑定不同目录。Core 的 ~TaskQuery~ 、 ~CoreQuery~ 及 APP HTTP 查询请求仍只接受真实 Core 仓库 ID，不接受宿主别名。
 
