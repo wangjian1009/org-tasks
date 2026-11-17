@@ -60,7 +60,6 @@ struct Inbox {
   private recentLayoutPending: boolean = false
   @State recentMessage: string = ''
   @State rowTotalHeight: number = 0
-  @State emptyHeight: number = 80
   @State loading: boolean = true
   @State message: string = ''
   @State @Watch('drawerChanged') drawerOpen: boolean = false
@@ -663,7 +662,8 @@ struct Inbox {
                 ListItem() {
                   Column({ space: 8 }) {
                     Text(this.needsConfiguration ? '收件箱文件未选择或已失效' : (this.message || '收件箱没有记录'))
-                      .fontSize(14).fontColor(this.message ? UiColor.error : UiColor.secondary).width('100%')
+                      .fontSize(18).fontColor(this.message ? UiColor.error : UiColor.secondary)
+                      .width('100%').textAlign(TextAlign.Center)
                     if (this.needsConfiguration) {
                       Button('前往设置').height(40).onClick((): void => {
                         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
@@ -671,8 +671,9 @@ struct Inbox {
                     } else if (this.message) {
                       Button('重试').height(40).onClick((): void => { this.loadRecords(true) })
                     }
-                  }.padding(16).width('100%').constraintSize({ minHeight: 80 })
-                    .onAreaChange((oldArea: Area, newArea: Area): void => { this.emptyHeight = parseFloat(newArea.height.toString()) })
+                  }.padding(16).width('100%')
+                    .constraintSize({ minHeight: Math.max(80, this.listHeight * (this.recentGroups.length > 0 ? 0.75 : 1)) })
+                    .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 }.fullWidthItem()
               }
               ForEach(this.records, (record: CoreTask) => {
@@ -684,10 +685,11 @@ struct Inbox {
                   menuContent: (activate: (action: TaskOperation) => void): void => { this.swipeMenu(record, activate) }, content: (controller: TaskEditorController): void => { this.recordContent(record, controller) } })
               }, (record: CoreTask) => this.taskDataSet().taskKey(record.id))
               if (this.recentLayoutReady && this.recentGroups.length > 0) {
-                ListItem() {
-                  Column().width('100%').height(unplannedSpacer(this.listHeight,
-                    this.records.length > 0 ? this.rowTotalHeight : this.emptyHeight))
-                }.fullWidthItem()
+                if (this.records.length > 0) {
+                  ListItem() {
+                    Column().width('100%').height(unplannedSpacer(this.listHeight, this.rowTotalHeight))
+                  }.fullWidthItem()
+                }
                 ListItem() { this.plannedDivider() }.fullWidthItem()
                 ListItem() { Column().height(16).width('100%') }.fullWidthItem()
                 ForEach(this.recentGroups, (day: RecentDay) => {
