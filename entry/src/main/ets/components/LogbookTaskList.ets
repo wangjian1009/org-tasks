@@ -9,6 +9,8 @@ import { RegionAreaPolicy, TaskDateDisplay } from '../ui/TaskListPresentation'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskSwipeActions } from './TaskSwipeActions'
+import { TaskSwipeItem } from './TaskSwipeItem'
+import { TaskEditorController } from '../ui/TaskEditorController'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { taskBatchMenu, taskActionPolicy, taskSwipeMenu, TaskBatchAction, TaskSwipeAction, TaskOperation } from '../ui/TaskActionPresentation'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
@@ -125,32 +127,30 @@ export struct LogbookTaskList {
     } finally { this.actionBusy = false; this.busyAction = '' }
   }
 
-  activateSwipe(item: LogbookTaskItem, action: TaskSwipeAction) {
-    if (action === 'select') this.startSelection(item)
-    else if (action === 'delete') this.confirmDelete([item])
-  }
-
   @Builder
-  swipeMenu(item: LogbookTaskItem) {
+  swipeMenu(item: LogbookTaskItem, activate: (action: TaskOperation) => void) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting, idPrefix: 'logbook_swipe',
-      items: taskSwipeMenu(this.policy(), (action: TaskSwipeAction): void => { this.activateSwipe(item, action) }) })
+      items: taskSwipeMenu(this.policy(), (action: TaskSwipeAction): void => { if (action === TaskOperation.Select) this.startSelection(item); else activate(action) }) })
   }
 
   @Builder
   itemRow(item: LogbookTaskItem, group: LogbookGroup) {
-    ListItem() {
-      TaskSelectionRow({ selecting: this.selectingTasks,
-        busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
-        heading: item.task.heading, horizontalInset: 0,
-        begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
-          TaskEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
-            dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
-            regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
-            referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
-        }
-    }.id(`logbook_item_${item.key}`).swipeAction(this.selectingTasks || this.actionBusy || this.selectionStarting ? {} : {
-      end: { builder: (): void => { this.swipeMenu(item) } }, edgeEffect: SwipeEdgeEffect.None
-    })
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id),
+      readOnly: !this.ready, singleOperations: this.policy().singleOperations, itemId: `logbook_item_${item.key}`, busy: this.selectingTasks || this.actionBusy || this.selectionStarting,
+      menuAvailable: (): boolean => true, menuContent: (activate: (action: TaskOperation) => void): void => { this.swipeMenu(item, activate) }, content: (controller: TaskEditorController): void => { this.taskContent(item, group, controller) } })
+  }
+
+  @Builder
+  taskContent(item: LogbookTaskItem, group: LogbookGroup, controller: TaskEditorController) {
+    TaskSelectionRow({ selecting: this.selectingTasks,
+      busy: this.actionBusy || this.selectionStarting, selectedIndex: this.selectedTaskKeys.indexOf(item.key),
+      heading: item.task.heading, horizontalInset: 0,
+      begin: (): void => { this.startSelection(item) }, toggle: (): void => { this.toggleSelection(item) } }) {
+        TaskEditor({ controller, allowDeletion: this.ready, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready, instanceKey: item.key,
+          dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : TaskDateDisplay.Closed,
+          regionAreaPolicy: group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
+          referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
+      }
   }
 
   currentGroup(group: LogbookGroup): LogbookGroup { return this.groups.find(item => item.key === group.key) ?? group }

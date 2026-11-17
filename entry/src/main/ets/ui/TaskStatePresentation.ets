@@ -1,4 +1,5 @@
 import { TaskStateCategory as NativeTaskStateCategory } from 'liborg_tasks_harmony.so'
+import { CoreTask } from '../services/NativeCoreService'
 
 export enum TaskStateCategory {
   Todo = 'Todo',
@@ -6,6 +7,13 @@ export enum TaskStateCategory {
   Wait = 'Wait',
   Done = 'Done',
   Cancel = 'Cancel'
+}
+
+export function taskStateToggleCategory(task: CoreTask | undefined): TaskStateCategory | null {
+  const category = task?.state?.category
+  const target = category === TaskStateCategory.Todo ? TaskStateCategory.Doing :
+    category === TaskStateCategory.Doing ? TaskStateCategory.Todo : null
+  return target && task?.taskStateOf(target) ? target : null
 }
 
 export function taskStateCategoryLabel(category: NativeTaskStateCategory | null | undefined): string {

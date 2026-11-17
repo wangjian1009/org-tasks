@@ -10,7 +10,6 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
-import { TaskSwipeEditor } from '../components/TaskSwipeEditor'
 import { TaskSwipeItem } from '../components/TaskSwipeItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
@@ -312,10 +311,9 @@ struct TaskOverview {
 
   @Builder
   taskRow(task: CoreTask) {
-    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady }) {
-      TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady,
-        referenceTime: this.referenceTime, rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
-    }
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady,
+      singleOperations: taskPageActionPolicy(this.view).singleOperations, referenceTime: this.referenceTime,
+      rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
   }
 
   @Builder
@@ -351,13 +349,13 @@ struct TaskOverview {
           NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime') {
-          TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime,
+          TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, singleOperations: taskPageActionPolicy(this.view).singleOperations,
             regionKeys: this.view === 'today' ? this.todayRegionKeys : [],
             regionPreviewLimit: this.view === 'anytime' ? 3 : 0,
             expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {
-          PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, groups: this.planGroups, referenceTime: this.referenceTime })
+          PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, singleOperations: taskPageActionPolicy(this.view).singleOperations, groups: this.planGroups, referenceTime: this.referenceTime })
         } else if (this.view === 'logbook') {
           LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => { await this.taskDataSet().operate( async (operationId: string): Promise<void> => {
             if (action === 'restore') await LogbookService.restore(this.getUIContext().getHostContext()!, tasks, operationId)

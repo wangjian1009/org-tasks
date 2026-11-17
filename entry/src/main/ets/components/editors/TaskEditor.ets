@@ -7,6 +7,7 @@ import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePre
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineSession } from '../../services/TaskInlineService'
 import { DataSet, TaskDataChange } from '../../services/DataSet'
+import { InboxService } from '../../services/InboxService'
 import { TaskInlineMissingError } from '../../services/TaskInlineService'
 import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
@@ -61,6 +62,9 @@ export struct TaskEditor {
   @Prop expandOnRowClick: boolean = false
   @Prop hiddenTags: string[] = []
   @Prop allowCompletion: boolean = false
+  @Prop allowDeletion: boolean = false
+  @State deleteConfirming: boolean = false
+  private moveAllowed: () => boolean = () => true
   @Prop instanceKey: string = ''
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
@@ -155,7 +159,7 @@ export struct TaskEditor {
 
   actionsAvailable(): boolean {
     return this.appeared && !this.readOnly && !this.completing && !this.working && !this.moveBusy && !this.moveOpen &&
-      !this.snapshotBlocked && !this.removed && !this.typing && !this.checklistTouch && !this.draggingCheck
+      !this.snapshotBlocked && !this.removed && !this.typing && !this.checklistTouch && !this.draggingCheck && !this.deleteConfirming
   }
   value(): CoreTask { return this.editTask ?? this.localDataSet().getTask(this.taskId)! }
   private localDataSet(): DataSet {
@@ -171,15 +175,113 @@ export struct TaskEditor {
     await this.localDataSet().updateTaskFields(this.taskId, changes, task.fileVersion)
   }
 
-  async openMove() {
+  deletionAvailable(): boolean {
+    return this.appeared && (!this.readOnly || this.allowDeletion) && !this.completing && !this.working && !this.moveBusy && !this.moveOpen &&
+      !this.snapshotBlocked && !this.removed && !this.typing && !this.checklistTouch && !this.draggingCheck && !this.deleteConfirming
+  }
+
+  private actionError(error: Error): void {
+    if (!this.appeared) return
+    if (error instanceof TaskInlineMissingError) { this.removeDeletedTask(); return }
+    this.message = coreErrorMessage(error as CoreBridgeError)
+    try { this.getUIContext().getPromptAction().showToast({ message: this.message, duration: 3000 }) }
+    catch (_) { /* 页面退出后提示可能不可用。 */ }
+  }
+
+  private async actionSource(allowed: () => boolean): Promise<CoreTask | undefined> {
+    if (!allowed() || !await this.prepare() || !await this.finish(false)) return undefined
+    await this.localDataSet().settle()
+    if (!this.appeared || this.removed || !allowed()) return undefined
+    if (this.localDataSet().error) throw new Error(this.localDataSet().error)
+    const source = await this.currentTask()
+    return this.appeared && !this.removed && allowed() ? source : undefined
+  }
+
+  async start(allowed: () => boolean = () => true): Promise<void> {
+    await this.changeState(TaskStateCategory.Todo, TaskStateCategory.Doing, allowed)
+  }
+  async stop(allowed: () => boolean = () => true): Promise<void> {
+    await this.changeState(TaskStateCategory.Doing, TaskStateCategory.Todo, allowed)
+  }
+  private async changeState(from: TaskStateCategory, to: TaskStateCategory, allowed: () => boolean): Promise<void> {
+    if (!this.actionsAvailable() || !allowed()) return
+    this.completing = true
+    try {
+      const source = await this.actionSource(allowed)
+      if (!source || source.state?.category !== from || !allowed()) return
+      const state = source.taskStateOf(to)
+      if (!state) return
+      await this.localDataSet().update(this.localDataSet().name, this.taskId, [{ field: 'TODO', value: state.name }], source.fileVersion)
+    } catch (error) { this.actionError(error as Error) }
+    finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
+  }
+
+  async startDelete(allowed: () => boolean = () => true): Promise<void> {
+    if (!this.deletionAvailable() || !allowed()) return
+    this.completing = true
+    try {
+      const source = await this.actionSource(allowed)
+      if (!source || !allowed()) return
+      this.deleteConfirming = true
+      this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${source.heading}”及其子记录将从文件中删除。`,
+        cancel: (): void => { this.cancelDelete() },
+        primaryButton: { value: '取消', action: (): void => { this.cancelDelete() } },
+        secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => {
+          if (!this.appeared) return
+          this.deleteConfirming = false; this.remove(source, allowed)
+        } } })
+    } catch (error) { this.deleteConfirming = false; this.actionError(error as Error) }
+    finally {
+      this.completing = false
+      if (this.appeared && !this.deleteConfirming && !this.expanded) TaskInlineSession.release(this.ownerKey)
+    }
+  }
+  private cancelDelete(): void {
+    if (!this.appeared) return
+    this.deleteConfirming = false
+    if (!this.expanded) TaskInlineSession.release(this.ownerKey)
+  }
+  private async remove(source: CoreTask, allowed: () => boolean): Promise<void> {
+    if (!this.deletionAvailable() || !allowed()) {
+      if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey)
+      return
+    }
+    this.completing = true
+    try {
+      const current = await this.currentTask()
+      if (current.fileVersion !== source.fileVersion) throw new Error('文件已变化，请重新确认删除')
+      if (!this.appeared || !allowed()) return
+      await this.localDataSet().removeTask(this.taskId)
+    } catch (error) { this.actionError(error as Error) }
+    finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
+  }
+
+  async moveToSomeday(allowed: () => boolean = () => true): Promise<void> { await this.organize('someday', allowed) }
+  async convertToMemo(allowed: () => boolean = () => true): Promise<void> { await this.organize('memo', allowed) }
+  private async organize(destination: 'someday' | 'memo', allowed: () => boolean): Promise<void> {
+    if (!this.actionsAvailable() || !allowed()) return
+    this.completing = true
+    try {
+      const source = await this.actionSource(allowed)
+      if (!source || !allowed()) return
+      await this.localDataSet().operate(async (operationId: string): Promise<void> => {
+        if (!this.appeared || !allowed()) throw new Error('操作已取消')
+        await InboxService.performMany(this.getUIContext().getHostContext()!, [source], destination, undefined, undefined, operationId)
+      })
+    } catch (error) { this.actionError(error as Error) }
+    finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
+  }
+
+  async startMove(allowed: () => boolean = () => true): Promise<void> {
+    if (!this.appeared || this.removed || this.deleteConfirming || !allowed()) return
     if (this.readOnly) return
     if (this.completing || this.working || this.moveBusy || this.snapshotBlocked || this.draggingCheck || this.typing) return
     this.completing = true
     try {
-      if (!await this.prepare() || !await this.finish(false)) return
-      const current = await this.currentTask()
-      if (!this.appeared || this.removed) return
+      const current = await this.actionSource(allowed)
+      if (!current) return
       this.applySnapshot(current)
+      this.moveAllowed = allowed
       this.moveSource = current
       this.moveOpen = true
     } catch (error) {
@@ -189,7 +291,7 @@ export struct TaskEditor {
       else this.message = coreErrorMessage(error as CoreBridgeError)
     } finally {
       this.completing = false
-      if (!this.moveOpen && !this.expanded) TaskInlineSession.release(this.ownerKey)
+      if (this.appeared && !this.moveOpen && !this.expanded) TaskInlineSession.release(this.ownerKey)
     }
     if (this.moveOpen) await this.loadMoveTargets()
   }
@@ -222,10 +324,13 @@ export struct TaskEditor {
 
   async moveTo(target: CoreRefileTarget) {
     const source = this.moveSource
-    if (!source || !this.moveOpen || this.moveLoading || this.moveBusy || this.completing || this.snapshotBlocked) return
+    if (!source || !this.moveOpen || this.moveLoading || this.moveBusy || this.completing || this.snapshotBlocked || !this.moveAllowed()) return
     this.moveBusy = true
     this.moveMessage = ''
     try {
+      const current = await this.currentTask()
+      if (current.fileVersion !== source.fileVersion) throw new Error('文件已变化，请刷新移动位置后重试')
+      if (!this.appeared || !this.moveAllowed()) return
       await this.localDataSet().moveTask(this.taskId, target)
       this.moveBusy = false
       this.closeMove()
@@ -239,7 +344,7 @@ export struct TaskEditor {
   movePanel() {
     MoveToTarget({ sections: this.moveSections, selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
       loading: this.moveLoading, busy: this.moveBusy, message: this.moveMessage,
-      choose: (target: CoreRefileTarget): void => { this.moveTo(target) }, retry: (): void => { this.openMove() } })
+      choose: (target: CoreRefileTarget): void => { this.moveTo(target) }, retry: (): void => { this.startMove(this.moveAllowed) } })
   }
 
   async complete() {
@@ -300,8 +405,7 @@ export struct TaskEditor {
   aboutToAppear() {
     this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
     this.appeared = true
-    this.controller?.bind((): boolean => this.actionsAvailable(),
-      (): void => { this.dates(false) }, (): void => { this.openMove() })
+    this.controller?.bind(this)
     this.stopDataSet = this.localDataSet().watchTask(this.taskId, (change: TaskDataChange): void => {
       if (!this.appeared) return
       ++this.refreshRequest
@@ -322,6 +426,7 @@ export struct TaskEditor {
   aboutToDisappear() {
     this.stopDataSet?.(); this.stopDataSet = undefined
     this.priorityOpen = false
+    this.deleteConfirming = false
     this.appeared = false
     this.controller?.release()
     ++this.moveRequest
@@ -567,21 +672,34 @@ export struct TaskEditor {
     this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
   }
-  async dates(deadline: boolean) {
-    if (this.readOnly) return
-    if (!await this.prepare() || !await this.finish(false)) return
-    const wasExpanded = this.expanded
-    this.dateDialog = new CustomDialogController({
-      builder: TaskDateDialog({ closed: () => { if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }, selected: deadline ? this.value().deadline : this.value().scheduled,
-        planning: deadline ? this.value().editContent.deadlinePlanning : this.value().editContent.scheduledPlanning, deadline,
-        failureMessage: (): string => this.message || '未能保存，请重试',
-        choose: async (value: CoreTaskPlanningEdit | null): Promise<boolean> => {
-          return await this.persist([{ field: deadline ? 'DEADLINE' : 'SCHEDULE', value }])
-        } }),
-      customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
-      onWillDismiss: (action: DismissDialogAction) => { if (this.working) return; action.dismiss(); if (!wasExpanded) TaskInlineSession.release(this.ownerKey) }
-    })
-    this.dateDialog.open()
+  async startSchedule(allowed: () => boolean = () => true): Promise<void> { await this.startDate(false, allowed) }
+  async startDeadline(allowed: () => boolean = () => true): Promise<void> { await this.startDate(true, allowed) }
+  private async startDate(deadline: boolean, allowed: () => boolean): Promise<void> {
+    if (!this.actionsAvailable() || !allowed()) return
+    this.completing = true
+    let opened = false
+    try {
+      const source = await this.actionSource(allowed)
+      if (!source) return
+      const wasExpanded = this.expanded
+      this.dateDialog = new CustomDialogController({
+        builder: TaskDateDialog({ closed: () => { if (this.appeared && !wasExpanded) TaskInlineSession.release(this.ownerKey) }, selected: deadline ? source.deadline : source.scheduled,
+          planning: deadline ? source.editContent.deadlinePlanning : source.editContent.scheduledPlanning, deadline,
+          failureMessage: (): string => this.message || '未能保存，请重试',
+          choose: async (value: CoreTaskPlanningEdit | null): Promise<boolean> => {
+            if (!this.appeared || this.readOnly || this.removed || !allowed()) return false
+            return await this.persist([{ field: deadline ? 'DEADLINE' : 'SCHEDULE', value }])
+          } }),
+        customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+        onWillDismiss: (action: DismissDialogAction) => { if (this.working) return; action.dismiss(); if (this.appeared && !wasExpanded) TaskInlineSession.release(this.ownerKey) }
+      })
+      this.dateDialog.open()
+      opened = true
+    } catch (error) { this.actionError(error as Error) }
+    finally {
+      this.completing = false
+      if (!opened && this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey)
+    }
   }
   async priorities() {
     if (this.readOnly) return
@@ -1353,7 +1471,7 @@ export struct TaskEditor {
             if (this.value().scheduled) { Text(inlinePlanningLabel(this.value().scheduled, this.value().editContent.scheduledPlanning)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
           }
         }.id('inline_schedule_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
-          .accessibilityText('设置或修改计划日期').onClick(() => { this.dates(false) })
+          .accessibilityText('设置或修改计划日期').onClick(() => { this.startSchedule() })
         Blank().layoutWeight(1)
         this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
         if (!this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
@@ -1363,7 +1481,7 @@ export struct TaskEditor {
             if (this.value().deadline) { Text(inlinePlanningLabel(this.value().deadline, this.value().editContent.deadlinePlanning)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
           }
         }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
-          .accessibilityText('设置或修改截止日期').onClick(() => { this.dates(true) })
+          .accessibilityText('设置或修改截止日期').onClick(() => { this.startDeadline() })
         this.moreButton()
       }.width('100%')
     }.width('100%').padding({ left: 27 })

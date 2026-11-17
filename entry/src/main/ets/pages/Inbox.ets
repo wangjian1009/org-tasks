@@ -18,8 +18,8 @@ import { FrameCallback } from '@ohos.arkui.UIContext'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskEditor } from '../components/editors/TaskEditor'
-import { TaskSwipeEditor } from '../components/TaskSwipeEditor'
 import { TaskSwipeItem } from '../components/TaskSwipeItem'
+import { TaskEditorController } from '../ui/TaskEditorController'
 import { TaskRegion } from '../components/TaskRegion'
 import { RegionAreaPolicy } from '../ui/TaskListPresentation'
 import { MoveToTarget } from '../components/editors/MoveToTarget'
@@ -246,34 +246,7 @@ struct Inbox {
     }
   }
 
-  selectRecord(record: CoreTask) {
-    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords) return
-    this.selected = record
-    this.movePanelOpen = true
-    this.popupMessage = ''
-    this.loadTargets()
-  }
 
-  async prepareAction(record: CoreTask, action: InboxAction) {
-    if (!this.pageReady || this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting) return
-    this.actionBusy = true
-    try {
-      if (!await TaskInlineSession.end(false) || !this.visible) return
-      const current = await this.tasksDataSet?.getTask(record.id)
-      if (!current || !this.visible) return
-      this.actionBusy = false
-      if (action === 'move') this.selectRecord(current)
-      else if (action === 'schedule' || action === 'deadline') this.chooseDate(action, [current])
-      else if (action === 'delete') this.confirmDelete(current)
-      else await this.perform(action, undefined, current)
-    } catch (e) {
-      try {
-        this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(e as CoreBridgeError), duration: 3000 })
-      } catch (_) {
-        // 页面退出时提示可能不可用。
-      }
-    } finally { this.actionBusy = false }
-  }
 
   closeTargetPopup() {
     if (this.actionBusy || this.mergeBusy) return
@@ -286,27 +259,6 @@ struct Inbox {
     this.targetsLoading = false
   }
 
-  swipeAction(record: CoreTask, action: InboxAction) {
-    if (this.actionBusy || this.drawerOpen || this.captureOpen || this.selectingRecords || this.selectionStarting ||
-      this.mergeBusy || this.checklistDragging || this.inlineTyping || this.selected) return
-    const node = this.getUIContext().getFrameNodeById(`inbox_record_${record.id}`)
-    try {
-      if (node) ListItemSwipeActionManager.collapse(node)
-    } catch (_) {
-      // 节点已销毁时忽略归位操作。
-    }
-    try {
-      this.listScroller.closeAllSwipeActions()
-    } catch (_) {
-      // 尚未完成布局时没有需要关闭的侧滑操作。
-    }
-    clearTimeout(this.actionTimer)
-    // 正文触发的程序化侧滑不会触发 ListScroller 的完成回调，待归位后再锚定浮层。
-    this.actionTimer = setTimeout((): void => {
-      if (!this.visible) return
-      this.prepareAction(record, action)
-    }, 260)
-  }
 
   swipeProject(record: CoreTask): void {
     if (!this.enableConvertToProject || this.actionBusy || this.selectionStarting || this.mergeBusy || this.selectingRecords ||
@@ -317,20 +269,14 @@ struct Inbox {
   }
 
   @Builder
-  swipeMenu(record: CoreTask) {
+  swipeMenu(record: CoreTask, activate: (action: TaskOperation) => void) {
     TaskSwipeActions({ busy: this.actionBusy || this.selectionStarting || this.mergeBusy, idPrefix: 'inbox_swipe',
       enableConvertToProject: this.enableConvertToProject,
       convertToProject: (): void => { this.swipeProject(record) },
       items: taskSwipeMenu(this.actionPolicy, (action: TaskSwipeAction): void => {
         if (action === 'select') this.startSelection(record)
-        else this.swipeAction(record, action)
+        else activate(action)
       }) })
-  }
-
-  @Builder
-  swipeScheduleIndicator() {
-    // 收件箱保留原生列表右滑，避免与整卡共享手势同时识别。
-    Row().width(1).height(1).opacity(0)
   }
 
   @Builder
@@ -340,7 +286,6 @@ struct Inbox {
       loading: this.targetsLoading, busy: this.actionBusy || this.mergeBusy, message: this.popupMessage,
       choose: (target: CoreRefileTarget): void => {
         if (this.batchTargetOpen) this.performSelected('move', target)
-        else this.perform('move', target)
       },
       retry: (): void => { this.refreshMoveTargets() } })
   }
@@ -441,37 +386,7 @@ struct Inbox {
     } finally { this.actionBusy = false }
   }
 
-  confirmDelete(record: CoreTask) {
-    if (this.actionBusy) return
-    this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${record.heading}”及其子记录将从文件中删除。`,
-      primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.perform('delete', undefined, record) } } })
-  }
 
-  async perform(action: InboxAction, target?: CoreRefileTarget, record?: CoreTask) {
-    const selected = record || this.selected
-    if (!selected || this.actionBusy || this.selectingRecords || this.selectionStarting) return
-    this.actionBusy = true
-    this.popupMessage = ''
-    ++this.targetRequest
-    this.targetsLoading = false
-    try {
-      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => { await InboxService.performMany(this.getUIContext().getHostContext()!, [selected], action, target, undefined, operationId) })
-      this.actionBusy = false
-      this.closeTargetPopup()
-      await this.loadRecords()
-    } catch (e) {
-      const message = coreErrorMessage(e as CoreBridgeError)
-      if (this.selected) this.popupMessage = message
-      else {
-        try {
-          this.getUIContext().getPromptAction().showToast({ message, duration: 3000 })
-        } catch (_) {
-          // 页面退出时提示可能不可用。
-        }
-      }
-    } finally { this.actionBusy = false }
-  }
 
   chooseDate(action: InboxAction, records: CoreTask[]) {
     if (records.length === 0 || this.mergeBusy) return
@@ -625,8 +540,24 @@ struct Inbox {
   }
 
   @Builder
-  recentTask(task: CoreTask) {
-    TaskSwipeEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id), regionAreaPolicy: RegionAreaPolicy.None, rightSwipeAction: this.recentActionPolicy.rightSwipeAction, scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' }).enabled(!this.selectingRecords && !this.mergeBusy)
+  recordContent(record: CoreTask, controller: TaskEditorController) {
+    Row() {
+      TaskSelectionRow({ selecting: this.selectingRecords,
+        busy: this.mergeBusy || this.actionBusy || this.selectionStarting,
+        selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
+        highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
+        begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
+        TaskEditor({ controller, readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' })
+        if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
+          OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
+            .width('100%').padding({ left: 27 })
+        }
+      }
+    }.width('100%').padding({ left: 12, right: 12 })
+      .onAreaChange((oldArea: Area, newArea: Area): void => {
+        this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
+        this.measureRows()
+      })
   }
 
   @Builder
@@ -634,10 +565,10 @@ struct Inbox {
     TaskRegion({ category: group.category || '未分类',
       project: group.kind === 'project' ? group : null }) {
       ForEach(group.items, (task: CoreTask) => {
-        TaskSwipeItem({ dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id),
-          readOnly: !this.pageReady, busy: this.selectingRecords || this.selectionStarting || this.mergeBusy || this.actionBusy }) {
-          this.recentTask(task)
-        }
+        TaskSwipeItem({ singleOperations: taskPageActionPolicy('recent').singleOperations, dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id),
+          rightSwipeAction: this.recentActionPolicy.rightSwipeAction, regionAreaPolicy: RegionAreaPolicy.None,
+          scrollHost: this.listScroller, scrollHostId: 'inbox_task_list',
+          readOnly: !this.pageReady, busy: this.selectingRecords || this.selectionStarting || this.mergeBusy || this.actionBusy })
       }, (task: CoreTask) => taskRenderKey(task))
     }
   }
@@ -740,31 +671,12 @@ struct Inbox {
                 }.fullWidthItem()
               }
               ForEach(this.records, (record: CoreTask) => {
-                ListItem() {
-                  Row() {
-                    TaskSelectionRow({ selecting: this.selectingRecords,
-                      busy: this.mergeBusy || this.actionBusy || this.selectionStarting,
-                      selectedIndex: this.selectedRecordIds.indexOf(record.id), heading: record.heading,
-                      highlighted: this.selected?.id === record.id || this.mergedPath === JSON.stringify(record.fullPath),
-                      begin: (): void => { this.startSelection(record) }, toggle: (): void => { this.toggleRecord(record) } }) {
-                      TaskEditor({ readOnly: !this.pageReady, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id), scrollHost: this.listScroller, scrollHostId: 'inbox_task_list' })
-                      if (this.mergedPath === JSON.stringify(record.fullPath) && !this.inlineActive) {
-                        OrgContentView({ fragment: record.bodyHtml, empty: false, embedded: true, embeddedPadding: 8 })
-                          .width('100%').padding({ left: 27 })
-                      }
-                    }
-                  }.width('100%').padding({ left: 12, right: 12 })
-                    .onAreaChange((oldArea: Area, newArea: Area): void => {
-                      this.rowHeights.set(record.id, parseFloat(newArea.height.toString()))
-                      this.measureRows()
-                    })
-                }.fullWidthItem().id(`inbox_record_${record.id}`).swipeAction(this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || this.checklistDragging || !!this.selected || this.inlineTyping ? {} : {
-                  start: this.actionPolicy.rightSwipeAction === 'schedule' ? {
-                    builder: (): void => { this.swipeScheduleIndicator() }, actionAreaDistance: 48,
-                    onAction: (): void => { this.swipeAction(record, 'schedule') }
-                  } : undefined,
-                  end: { builder: (): void => { this.swipeMenu(record) } },
-                  edgeEffect: SwipeEdgeEffect.None }).enabled(!this.selectionStarting)
+                TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(record.id),
+                  readOnly: !this.pageReady, interactionEnabled: !this.selectionStarting, itemId: `inbox_record_${record.id}`, listOutset: 12,
+                  busy: this.selectingRecords || this.actionBusy || this.selectionStarting || this.mergeBusy || !!this.selected,
+                  rightSwipeAction: this.actionPolicy.rightSwipeAction, singleOperations: this.actionPolicy.singleOperations,
+                  menuAvailable: (): boolean => true,
+                  menuContent: (activate: (action: TaskOperation) => void): void => { this.swipeMenu(record, activate) }, content: (controller: TaskEditorController): void => { this.recordContent(record, controller) } })
               }, (record: CoreTask) => this.taskDataSet().taskKey(record.id))
               if (this.recentLayoutReady && this.recentGroups.length > 0) {
                 ListItem() {

@@ -6,8 +6,8 @@ import { PlannedGroup, PlannedScheduleItem, PlannedTaskGroup, PlannedTaskItem, p
 import { CoreTask } from '../services/NativeCoreService'
 import { TaskRegion } from './TaskRegion'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
-import { TaskSwipeEditor } from './TaskSwipeEditor'
 import { TaskSwipeItem } from './TaskSwipeItem'
+import { TaskSingleOperation } from '../ui/TaskActionPresentation'
 
 @Component
 export struct PlannedTaskList {
@@ -21,6 +21,7 @@ export struct PlannedTaskList {
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @Prop readOnly: boolean = false
+  @Prop singleOperations: TaskSingleOperation[] = []
   @Prop groups: PlannedGroup[] = []
   @Prop referenceTime: number = Date.now()
 
@@ -62,7 +63,7 @@ export struct PlannedTaskList {
 
   @Builder
   taskItem(taskKey: string, groupKey: string) {
-    TaskSwipeEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: taskKey,
+    TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: 'schedule', dataSet: this.taskDataSet(), taskId: taskKey,
       dateDisplay: this.dateDisplay(groupKey, taskKey), regionAreaPolicy: this.regionPolicy(groupKey, taskKey),
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       referenceTime: this.referenceTime })
@@ -70,7 +71,7 @@ export struct PlannedTaskList {
 
   @Builder
   scheduleTaskItem(taskKey: string, groupKey: string) {
-    TaskSwipeEditor({ readOnly: this.readOnly, dataSet: this.taskDataSet(), taskId: taskKey,
+    TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: 'schedule', dataSet: this.taskDataSet(), taskId: taskKey,
       dateDisplay: TaskDateDisplay.None, timeDisplay: this.scheduleItem(groupKey, taskKey).timeDisplay,
       regionAreaPolicy: RegionAreaPolicy.None,
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list', referenceTime: this.referenceTime })
@@ -81,9 +82,7 @@ export struct PlannedTaskList {
     TaskRegion({ category: this.region(groupKey, regionKey).kind === 'project' ? null : this.region(groupKey, regionKey).category || '未分类',
       project: this.region(groupKey, regionKey).kind === 'project' ? this.region(groupKey, regionKey) : null }) {
       ForEach(this.region(groupKey, regionKey).items, (item: PlannedTaskItem) => {
-        TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskKey(item.task), readOnly: this.readOnly }) {
-          this.taskItem(this.taskKey(item.task), groupKey)
-        }
+        this.taskItem(this.taskKey(item.task), groupKey)
       }, (item: PlannedTaskItem) => this.taskKey(item.task))
     }
   }
@@ -101,9 +100,7 @@ export struct PlannedTaskList {
       if (this.group(groupKey).scheduleItems.length > 0) {
         TaskRegion({ category: '日程' }) {
           ForEach(this.group(groupKey).scheduleItems, (item: PlannedScheduleItem) => {
-            TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskKey(item.task), readOnly: this.readOnly }) {
-              this.scheduleTaskItem(this.taskKey(item.task), groupKey)
-            }
+            this.scheduleTaskItem(this.taskKey(item.task), groupKey)
           }, (item: PlannedScheduleItem) => this.taskKey(item.task))
         }
       }
@@ -112,9 +109,7 @@ export struct PlannedTaskList {
       }, (region: PlannedTaskGroup) => region.key)
     } else {
       ForEach(this.group(groupKey).items, (item: PlannedTaskItem) => {
-        TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskKey(item.task), readOnly: this.readOnly }) {
-          this.taskItem(this.taskKey(item.task), groupKey)
-        }
+        this.taskItem(this.taskKey(item.task), groupKey)
       }, (item: PlannedTaskItem) => this.taskKey(item.task))
     }
     if (this.group(groupKey).kind === 'day' && this.group(groupKey).items.length === 0) {

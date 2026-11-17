@@ -1,94 +1,97 @@
-// 验证共享列表项的删除确认、草稿提交、版本保护与失败恢复。
+// 验证滑动组件只分发 Action，编辑器接口负责交互和提交。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
-  console.log('用法: node scripts/test-task-swipe-item.cjs\n验证左滑删除的草稿保存、确认与取消、版本变化、重复点击、错误反馈和页面离开边界。');
+  console.log('用法: node scripts/test-task-swipe-item.cjs\n验证操作枚举到 TaskEditor 接口的完整映射、启用数组、状态按钮形态、回调失效与左右滑禁用边界。');
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
+function compile(source, bindings = {}) {
+  const module = { exports: {} };
+  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  vm.runInNewContext(code, { module, exports: module.exports, $r: name => ({ name }), ...bindings });
+  return module.exports;
+}
+const actions = compile(fs.readFileSync('entry/src/main/ets/ui/TaskActionPresentation.ets', 'utf8'));
+const states = compile(fs.readFileSync('entry/src/main/ets/ui/TaskStatePresentation.ets', 'utf8'));
+const { TaskEditorController } = compile(fs.readFileSync('entry/src/main/ets/ui/TaskEditorController.ets', 'utf8'));
 const file = 'entry/src/main/ets/components/TaskSwipeItem.ets';
 const source = fs.readFileSync(file, 'utf8');
-function fixture() {
-  let save = async () => true, settle = async () => {}, remove = async () => {};
-  const events = [], dialogs = [], messages = [];
-  const methods = source.slice(source.indexOf('  private taskDataSet()'), source.indexOf('  @Builder\n  deleteMenu'));
-  const code = ts.transpileModule('export class Item {' + methods + '}', {
-    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
-  }).outputText;
-  const module = { exports: {} };
-  vm.runInThisContext('(function(module,exports,TaskInlineSession,UiColor,coreErrorMessage){' + code + '\n})', { filename: file })(
-    module, module.exports, { async end(collapse) { events.push(['save', collapse]); return await save(); } },
-    { error: 'red' }, error => error.message);
-  const original = { id: 'task', heading: '待删除记录', fileVersion: 'v1' };
-  const state = Object.assign(new module.exports.Item(), { active: true, taskId: 'stable-key', task: original,
-    getUIContext: () => ({ showAlertDialog(value) { dialogs.push(value); }, getPromptAction: () => ({ showToast(value) { messages.push(value.message); } }) }) });
-  state.dataSet = { getTask(key) { assert.equal(key, 'stable-key'); return state.task; },
-    async settle() { events.push('settle'); await settle(); },
-    async removeTask(key) { events.push(['remove', key]); await remove(); } };
-  return { state, original, events, dialogs, messages,
-    saveWith(fn) { save = fn; }, settleWith(fn) { settle = fn; }, removeWith(fn) { remove = fn; } };
+const methods = source.slice(source.indexOf('  private taskDataSet()'), source.indexOf('  @Builder\n  swipeMenu'));
+const { Item } = compile('export class Item {' + methods + '}', { ...actions, ...states });
+function task(category = 'Todo', available = true) {
+  return { state: category ? { category } : null, taskStateOf: category => available ? { name: category, category } : null };
 }
-test('先保存草稿并等待确认快照，删除确认采用保存后的标题与版本', async () => {
-  const f = fixture();
-  f.settleWith(async () => { f.state.task = { ...f.original, heading: '已保存标题', fileVersion: 'v2' }; });
-  await f.state.confirmDelete();
-  assert.deepEqual(f.events, [['save', false], 'settle']);
-  assert.match(f.dialogs[0].message, /已保存标题/);
-  f.dialogs[0].secondaryButton.action(); await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(f.events.at(-1), ['remove', 'stable-key']);
-});
-test('取消按钮与系统取消均不删除，随后可重新确认', async () => {
-  for (const cancel of ['primaryButton', 'cancel']) {
-    const f = fixture(); await f.state.confirmDelete();
-    if (cancel === 'cancel') f.dialogs[0].cancel(); else f.dialogs[0].primaryButton.action();
-    assert.equal(f.state.confirming, false); assert.equal(f.events.length, 2);
-    await f.state.confirmDelete(); assert.equal(f.dialogs.length, 2);
+function fixture() {
+  const calls = [], guards = []; let editable = true, deletable = true;
+  const controller = new TaskEditorController();
+  const editor = { actionsAvailable: () => editable, deletionAvailable: () => deletable };
+  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'moveToSomeday', 'convertToMemo']) {
+    editor[method] = async allowed => { guards.push(allowed); if (allowed()) calls.push(method); };
+  }
+  controller.bind(editor);
+  const state = Object.assign(new Item(), { active: true, interactionEnabled: true, readOnly: false, busy: false,
+    inlineTyping: false, checklistDragging: false, controller, singleOperations: [], toggleStateCategory: null, rightSwipeAction: 'none' });
+  return { state, calls, guards, controller, editable: value => editable = value, deletable: value => deletable = value };
+}
+test('七种单条操作全部调用编辑器接口，开始／暂停使用同一枚举的不同形态', async () => {
+  for (const [action, target, method] of [['move', null, 'startMove'], ['schedule', null, 'startSchedule'],
+    ['deadline', null, 'startDeadline'], ['delete', null, 'startDelete'], ['someday', null, 'moveToSomeday'],
+    ['memo', null, 'convertToMemo'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
+    const f = fixture(); f.state.singleOperations = [action]; f.state.toggleStateCategory = target;
+    await f.state.activateOperation(action); assert.deepEqual(f.calls, [method]);
   }
 });
-test('草稿保存失败或底层写入回滚不打开删除确认', async () => {
-  const failed = fixture(); failed.saveWith(async () => false); await failed.state.confirmDelete();
-  assert.equal(failed.dialogs.length, 0); assert.deepEqual(failed.events, [['save', false]]);
-  const rejected = fixture(); rejected.settleWith(async () => { rejected.state.dataSet.error = '草稿保存失败'; });
-  await rejected.state.confirmDelete(); assert.equal(rejected.dialogs.length, 0); assert.deepEqual(rejected.messages, ['草稿保存失败']);
+test('启用数组决定菜单顺序，移除操作后旧回调和编辑器保存的执行条件均失效', async () => {
+  const f = fixture(); f.state.singleOperations = ['delete', 'toggleState']; f.state.toggleStateCategory = 'Doing';
+  const menu = f.state.swipeMenuItems(); assert.deepEqual(Array.from(menu, item => item.id), ['delete', 'toggleState']);
+  assert.equal(menu[1].title, '开始'); menu[0].action(); assert.deepEqual(f.calls, ['startDelete']);
+  f.state.singleOperations = []; assert.equal(f.guards[0](), false);
+  menu[1].action(); await f.state.activateOperation('delete'); assert.deepEqual(f.calls, ['startDelete']);
+  assert.equal(f.state.leftSwipeAvailable(), false);
 });
-test('确认期间源版本变化或任务消失，不提交旧记录', async () => {
-  const changed = fixture(); await changed.state.confirmDelete();
-  changed.state.task = { ...changed.original, fileVersion: 'v2' };
-  changed.dialogs[0].secondaryButton.action(); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(changed.events.length, 2); assert.match(changed.messages[0], /重新确认/);
-  const gone = fixture(); await gone.state.confirmDelete(); gone.state.task = undefined;
-  gone.dialogs[0].secondaryButton.action(); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(gone.events.length, 2);
-});
-test('连续点击确认只提交一次，失败显示错误并允许重试', async () => {
-  const f = fixture(); let reject;
-  f.removeWith(() => new Promise((_, fail) => { reject = fail; }));
-  const work = f.state.deleteTask(f.original); await f.state.deleteTask(f.original);
-  assert.equal(f.events.length, 1); reject(new Error('磁盘写入失败')); await work;
-  assert.equal(f.state.deleting, false); assert.deepEqual(f.messages, ['磁盘写入失败']);
-  f.removeWith(async () => {}); await f.state.deleteTask(f.original); assert.equal(f.events.length, 2);
-});
-test('只读、忙碌、输入与清单拖动期间不打开确认，失效按钮不提交', async () => {
-  for (const flag of ['readOnly', 'busy', 'preparing', 'deleting', 'confirming', 'inlineTyping', 'checklistDragging']) {
-    const f = fixture(); f.state[flag] = true;
-    await f.state.confirmDelete(); await f.state.deleteTask(f.original);
-    assert.deepEqual(f.events, [], flag); assert.equal(f.dialogs.length, 0, flag);
+test('目标状态存在时才显示切换，等待、完成、取消、备忘只保留其他操作', () => {
+  for (const [category, expected] of [['Todo', 'Doing'], ['Doing', 'Todo'], ['Wait', null], ['Done', null], ['Cancel', null], [null, null]]) {
+    assert.equal(states.taskStateToggleCategory(task(category)), expected);
   }
+  assert.equal(states.taskStateToggleCategory(task('Todo', false)), null);
+  assert.equal(states.taskStateToggleCategory(undefined), null);
 });
-test('保存或等待底层确认期间离开页面、进入多选、源消失均不打开弹窗', async () => {
-  for (const change of [f => { f.state.active = false; }, f => { f.state.busy = true; }, f => { f.state.task = undefined; }]) {
-    const f = fixture(); f.settleWith(async () => { change(f); }); await f.state.confirmDelete();
-    assert.equal(f.dialogs.length, 0); assert.equal(f.events.length, 2);
+test('左右滑共用宿主禁用状态，右滑完成时重新检查编辑器和配置', async () => {
+  const f = fixture(); f.state.singleOperations = ['schedule']; f.state.rightSwipeAction = 'schedule';
+  f.state.activateRightSwipe(); assert.deepEqual(f.calls, ['startSchedule']);
+  for (const flag of ['readOnly', 'busy', 'inlineTyping', 'checklistDragging']) {
+    f.state[flag] = true; assert.equal(f.state.leftSwipeAvailable(), false); assert.equal(f.state.rightSwipeAvailable(), false);
+    await f.state.activateOperation('schedule'); f.state.activateRightSwipe(); assert.equal(f.calls.length, 1); f.state[flag] = false;
   }
+  f.editable(false); assert.equal(f.state.rightSwipeAvailable(), false); await f.state.activateOperation('schedule'); assert.equal(f.calls.length, 1);
+  f.editable(true); f.state.rightSwipeAction = 'none'; f.state.activateRightSwipe(); assert.equal(f.calls.length, 1);
+  f.state.active = false; await f.state.activateOperation('schedule'); assert.equal(f.calls.length, 1);
 });
-
-test('原生左滑仅与共享右滑并行，保留其他手势的原识别方式', () => {
+test('只读编辑器可独立注册删除权限，滑动组件不把删除错误归入普通编辑权限', async () => {
+  const f = fixture(); f.state.singleOperations = ['delete', 'schedule']; f.editable(false);
+  await f.state.activateOperation('delete'); await f.state.activateOperation('schedule'); assert.deepEqual(f.calls, ['startDelete']);
+  f.deletable(false); await f.state.activateOperation('delete'); assert.deepEqual(f.calls, ['startDelete']);
+});
+test('取消编辑器绑定后所有旧动作失效，页面仍可提供专属菜单', async () => {
+  const f = fixture(); f.state.singleOperations = ['delete']; f.state.rightSwipeAction = 'schedule'; f.controller.release();
+  await f.state.activateOperation('delete'); f.state.activateRightSwipe(); assert.deepEqual(f.calls, []);
+  f.state.menuAvailable = () => true; f.state.singleOperations = []; assert.equal(f.state.leftSwipeAvailable(), true);
+  f.state.activateRightSwipe(); assert.deepEqual(f.calls, []);
+});
+test('启用数组启停状态订阅，禁用后忽略迟到状态回调', () => {
+  const f = fixture(); let listener, stopped = 0;
+  f.state.dataSet = { watchTask(_id, notify) { listener = notify; notify({ task: task() }); return () => stopped++; } };
+  f.state.singleOperations = ['toggleState']; f.state.operationsChanged(); assert.equal(f.state.toggleStateCategory, 'Doing');
+  listener({ task: task('Doing') }); assert.equal(f.state.toggleStateCategory, 'Todo');
+  f.state.singleOperations = []; f.state.operationsChanged(); listener({ task: task() });
+  assert.equal(stopped, 1); assert.equal(f.state.toggleStateCategory, null);
+});
+test('原生左滑仅与共享右滑并行，保留其他手势识别方式', () => {
   const callback = source.match(/\.shouldBuiltInRecognizerParallelWith\(([\s\S]*?)\n      \}\)/)[1] + '\n}';
-  const code = ts.transpileModule('exports.choose = ' + callback + ';', { compilerOptions: { target: ts.ScriptTarget.ES2021 } }).outputText;
-  const exports = {}; vm.runInNewContext(code, { exports });
+  const { choose } = compile('export const choose = ' + callback + ';');
   const current = {}, scroll = { getTag: () => 'scroll' }, right = { getTag: () => 'shared_right_swipe' };
-  assert.equal(exports.choose(current, [scroll, right]), right);
-  assert.equal(exports.choose(current, [scroll]), current);
+  assert.equal(choose(current, [scroll, right]), right); assert.equal(choose(current, [scroll]), current);
 });

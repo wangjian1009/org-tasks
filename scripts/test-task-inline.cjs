@@ -416,9 +416,9 @@ test('计划请求在整个未来日期范围排除习惯任务，由 Core 求�
     expression:'.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'
   });
 });
-test('随时请求只匹配无计划和无截止的待办任务，由 Core 求值', () => {
+test('随时请求由 Core 筛选无计划和无截止的待办任务并按优先级与创建时间排序', () => {
   assert.deepEqual(overviewTaskQuery('anytime'), {
-    expression:'it.todo s.none d.none'
+    expression:'it.todo s.none d.none o.priority .o.created'
   });
 });
 

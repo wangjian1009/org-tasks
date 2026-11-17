@@ -85,7 +85,7 @@ const { taskEventLogs } = compile(fs.readFileSync('entry/src/main/ets/ui/TaskLog
 const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
 function readOnlyCard(instanceKey = 'event-A') {
   const methods = ['aboutToAppear', 'value', 'moreItems', 'prepare', 'toggle', 'toggleFromCompact', 'collapseAnimated', 'finish', 'persist', 'saveText', 'saveCheck',
-    'openMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
+    'actionsAvailable', 'startMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'startSchedule', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus'];
   const chunks = methods.map(name => {
     const result = source.match(new RegExp('  (?:private )?(?:async )?' + name + '\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));
     assert.ok(result, name); return result[0];
@@ -160,7 +160,7 @@ test('日志簿收起标题的实际点击回调可展开只读卡片，再点�
 });
 test('只读模式阻止所有编辑、完成与清单修改，保存不产生请求', async () => {
   const { card } = readOnlyCard();
-  for (const name of ['openMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'dates', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus']) {
+  for (const name of ['startMove', 'complete', 'changeCheck', 'editCheck', 'addCheck', 'startSchedule', 'repeats', 'tags', 'priorities', 'choosePriority', 'startCheckDrag', 'inputFocus']) {
     await card[name]();
   }
   assert.equal(await card.persist([{ field: 'TITLE', value: '不允许的修改' }]), false);

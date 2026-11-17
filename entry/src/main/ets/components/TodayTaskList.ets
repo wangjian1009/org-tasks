@@ -12,8 +12,8 @@ import { TaskRegion } from './TaskRegion'
 import { CategoryRegion } from './CategoryRegion'
 import { ScheduleRegion } from './ScheduleRegion'
 import { taskRegion, TaskRegionData } from '../ui/TaskRegionPresentation'
-import { TaskSwipeEditor } from './TaskSwipeEditor'
 import { TaskSwipeItem } from './TaskSwipeItem'
+import { TaskSingleOperation } from '../ui/TaskActionPresentation'
 
 interface NotificationListAnchor { key: string; y: number }
 class NotificationLayoutFrame extends FrameCallback {
@@ -32,6 +32,7 @@ export struct TodayTaskList {
   private pendingOffset: number | undefined = undefined
   private pendingAnchor: number | undefined = undefined
   @Prop readOnly: boolean = false
+  @Prop singleOperations: TaskSingleOperation[] = []
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') @Watch('notificationsChanged') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
@@ -127,18 +128,16 @@ export struct TodayTaskList {
 
   @Builder
   taskItem(item: TodayTaskItem) {
-    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly }) {
-      TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, referenceTime: this.referenceTime,
-        expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
-    }
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
+      singleOperations: this.singleOperations, rightSwipeAction: 'schedule', referenceTime: this.referenceTime,
+      expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
   @Builder
   timedTaskItem(item: TodayTimedTaskItem) {
-    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly }) {
-      TaskSwipeEditor({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
-        referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
-    }
+    TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
+      singleOperations: this.singleOperations, rightSwipeAction: 'schedule', timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
+      referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
   private sectionGroups(sectionKey: string): TodayTaskGroup[] {

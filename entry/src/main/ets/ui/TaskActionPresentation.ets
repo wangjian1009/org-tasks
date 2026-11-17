@@ -1,6 +1,9 @@
-export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someday' | 'logbook' | 'recent'
+import { TaskStateCategory } from 'liborg_tasks_harmony.so'
+
+export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook' | 'recent'
 
 export enum TaskOperation {
+  ToggleState = 'toggleState',
   Move = 'move',
   Project = 'project',
   Schedule = 'schedule',
@@ -13,10 +16,13 @@ export enum TaskOperation {
   Select = 'select'
 }
 
-export type TaskSingleOperation = TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
+type TaskCommonOperation = TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
   TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete
+export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
-export type TaskBatchAction = TaskSingleOperation | TaskOperation.Restore | TaskOperation.Merge
+export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
+type TaskMenuOperation = TaskSingleOperation | TaskBatchAction
+type TaskToggleStateCategory = TaskStateCategory | null
 export type TaskRightSwipeAction = 'schedule' | 'move' | 'none'
 
 export interface TaskActionOperations {
@@ -50,15 +56,25 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'today': case 'inbox': case 'planned': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({}, 'schedule')
+    case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, 'schedule')
+    case 'planned': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, 'schedule')
+    case 'inbox': return taskActionPolicy({}, 'schedule')
     default: return taskActionPolicy()
   }
 }
 
-function taskOperationMenu(operations: TaskBatchAction[], activate: (action: TaskBatchAction) => void): TaskActionItem[] {
+function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: TaskMenuOperation) => void,
+  toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
   const items: TaskActionItem[] = []
   for (const operation of operations) {
     switch (operation) {
+      case TaskOperation.ToggleState:
+        if (toggleStateCategory === 'Doing' || toggleStateCategory === 'Todo') {
+          const start = toggleStateCategory === 'Doing'
+          items.push({ id: operation, title: start ? '开始' : '暂停', label: start ? '开始任务' : '暂停任务',
+            icon: start ? $r('app.media.ui_task_start') : $r('app.media.ui_task_pause'), action: () => activate(operation) })
+        }
+        break
       case TaskOperation.Move:
         items.push({ id: operation, title: '移动', label: '移动到目标', icon: $r('app.media.ui_move_to'), busyTitle: '移动中…', action: () => activate(operation) })
         break
@@ -89,20 +105,24 @@ function taskOperationMenu(operations: TaskBatchAction[], activate: (action: Tas
   return items
 }
 
-export function taskSingleMenu(operations: TaskSingleOperation[], activate: (action: TaskSingleOperation) => void): TaskActionItem[] {
-  return taskOperationMenu(operations, (action: TaskBatchAction): void => {
+export function taskSingleMenu(operations: TaskSingleOperation[], activate: (action: TaskSingleOperation) => void,
+  toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
+  return taskOperationMenu(operations, (action: TaskMenuOperation): void => {
     if (action !== TaskOperation.Merge && action !== TaskOperation.Restore) activate(action)
-  })
+  }, toggleStateCategory)
 }
 
-export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: TaskSwipeAction) => void): TaskActionItem[] {
-  const items = taskSingleMenu(policy.singleOperations, activate)
+export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: TaskSwipeAction) => void,
+  toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
+  const items = taskSingleMenu(policy.singleOperations, activate, toggleStateCategory)
   items.push({ id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action: () => activate(TaskOperation.Select) })
   return items
 }
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {
-  return taskOperationMenu(policy.bulkOperations, activate)
+  return taskOperationMenu(policy.bulkOperations, (action: TaskMenuOperation): void => {
+    if (action !== TaskOperation.ToggleState) activate(action)
+  })
 }
 
 export function taskBatchActionEnabled(item: TaskActionItem, count: number, busy: boolean, invalid: boolean): boolean {
