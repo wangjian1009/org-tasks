@@ -16,7 +16,7 @@ class NavigationError extends Error {
 }
 const PAGE_NAMES: string[] = ['pages/Inbox', 'pages/TaskOverview', 'pages/Files', 'pages/Settings', 'pages/ProjectDetail',
   'pages/FileDetail', 'pages/RepositorySettings', 'pages/SyncLog', 'pages/ConflictFile', 'pages/MemoEdit']
-const OVERVIEWS: string[] = ['today', 'planned', 'anytime', 'someday', 'memo', 'logbook']
+const OVERVIEWS: string[] = ['today', 'planned', 'waiting', 'anytime', 'someday', 'memo', 'logbook']
 const SECTIONS: string[] = ['', '存储库', '文件入口', '任务状态分类', '应用程序', '关于小清单']
 
 // 只处理导航协议与页面身份；数据读取沿用当前 Workspace，页面语义留在 Harmony。

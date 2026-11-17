@@ -172,7 +172,7 @@ Harmony 注册 ~GET /api/v1/ui/navigation~ 与 ~PUT /api/v1/ui/navigation~ 。GE
 }
 #+end_src
 
-单节点路径可直接指定界面，例如 ~pages/TaskOverview~ 的 ~params.view~ 为 ~today~ 、 ~planned~ 、 ~anytime~ 、 ~someday~ 、 ~memo~ 或 ~logbook~ ，省略时规范化为 ~today~ 。其余支持 ~pages/Inbox~ 、 ~pages/Files~ 、 ~pages/Settings~ 、 ~pages/ProjectDetail~ 、 ~pages/FileDetail~ 、 ~pages/RepositorySettings~ 、 ~pages/SyncLog~ 、 ~pages/ConflictFile~ 与 ~pages/MemoEdit~ 。独立捕捉与卡片配置窗口不属于主窗口路径。
+单节点路径可直接指定界面，例如 ~pages/TaskOverview~ 的 ~params.view~ 为 ~today~ 、 ~planned~ 、 ~waiting~ 、 ~anytime~ 、 ~someday~ 、 ~memo~ 或 ~logbook~ ，省略时规范化为 ~today~ 。其余支持 ~pages/Inbox~ 、 ~pages/Files~ 、 ~pages/Settings~ 、 ~pages/ProjectDetail~ 、 ~pages/FileDetail~ 、 ~pages/RepositorySettings~ 、 ~pages/SyncLog~ 、 ~pages/ConflictFile~ 与 ~pages/MemoEdit~ 。独立捕捉与卡片配置窗口不属于主窗口路径。
 
 ~pages~ 必须包含 1 至 32 项，各页面仅接受自身已定义参数；未知字段、页面或参数类型返回 400。文件与项目使用 Core 仓库 ID 和相对路径；仓库设置、同步日志、冲突处理使用配置仓库 ID。设置页可传 ~section~ ；备忘新建使用 ~create=true~ ，编辑可使用 ~memoId~ 指定当前配置备忘文件中的记录，或使用 ~task~ 中的 ~repoId~ 、 ~filePath~ 和 ~id~ ，三个目标指定方式互斥；宿主从当前 Workspace 恢复真实 Task，不采信请求中的其他任务快照字段。
 

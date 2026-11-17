@@ -1,6 +1,6 @@
 import { TaskStateCategory } from 'liborg_tasks_harmony.so'
 
-export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook' | 'recent'
+export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'waiting' | 'anytime' | 'someday' | 'memo' | 'logbook' | 'recent'
 
 export enum TaskOperation {
   ToggleState = 'toggleState',
@@ -57,7 +57,7 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
     case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, 'schedule')
-    case 'planned': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, 'schedule')
+    case 'planned': case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, 'schedule')
     case 'inbox': return taskActionPolicy({}, 'schedule')
     default: return taskActionPolicy()
   }

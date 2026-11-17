@@ -25,7 +25,7 @@ struct TaskTagChip {
   }
 }
 
-// 今天、随时、某天和备忘共用的标签筛选条。
+// 今天、等待、随时、某天和备忘共用的标签筛选条。
 @Component
 export struct TaskTagFilter {
   @Prop tags: string[] = []

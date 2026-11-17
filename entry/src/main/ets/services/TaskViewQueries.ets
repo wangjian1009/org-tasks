@@ -19,12 +19,13 @@ export function shareLocationTaskQueries(memoFile?: CoreOrgFileRef): CoreTaskQue
   return queries
 }
 
-export type TaskOverview = 'today' | 'planned' | 'anytime' | 'someday' | 'memo' | 'logbook'
+export type TaskOverview = 'today' | 'planned' | 'waiting' | 'anytime' | 'someday' | 'memo' | 'logbook'
 
 export function overviewTitle(view: TaskOverview): string {
   switch (view) {
     case 'today': return '今天'
     case 'planned': return '计划'
+    case 'waiting': return '等待'
     case 'anytime': return '随时'
     case 'someday': return '某天'
     case 'memo': return '备忘'
@@ -37,6 +38,7 @@ export function overviewTaskQuery(view: TaskOverview, file?: CoreOrgFileRef): Co
   switch (view) {
     case 'today': expression = '.it.done (s.le.today or d.le.today)'; break
     case 'planned': expression = '.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'; break
+    case 'waiting': expression = 'i.wait o.priority .o.created'; break
     case 'anytime': expression = 'it.todo s.none d.none o.priority .o.created'; break
     case 'someday': return { expression: 'it.todo', includeFiles: file ? [file] : [] }
     case 'memo': return file ? memoRecordQuery(file) : { expression: '.o.modified' }

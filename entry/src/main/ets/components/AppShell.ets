@@ -44,6 +44,7 @@ export struct AppShell {
   @State todayCount: number = -1
   @State todayAttentionCount: number = 0
   @State plannedCount: number = -1
+  @State waitingCount: number = -1
   @State anytimeCount: number = -1
   @State somedayCount: number = -1
   @State memoCount: number = -1
@@ -85,6 +86,7 @@ export struct AppShell {
         this.todayCount = snapshot.todayCount
         this.todayAttentionCount = snapshot.todayAttentionCount
         this.plannedCount = snapshot.plannedCount
+        this.waitingCount = snapshot.waitingCount
         this.anytimeCount = snapshot.anytimeCount
         this.somedayCount = snapshot.somedayCount
         this.memoCount = snapshot.memoCount
@@ -137,6 +139,7 @@ export struct AppShell {
       case 'inbox': return this.inboxCount
       case 'today': return this.todayCount
       case 'planned': return this.plannedCount
+      case 'waiting': return this.waitingCount
       case 'anytime': return this.anytimeCount
       case 'someday': return this.somedayCount
       case 'memo': return this.memoCount
@@ -214,6 +217,7 @@ export struct AppShell {
           Row().height(6)
           this.primaryItem('今天', $r('app.media.nav_today'), 'today')
           this.primaryItem('计划', $r('app.media.nav_planned'), 'planned')
+          this.primaryItem('等待', $r('app.media.nav_waiting'), 'waiting')
           this.primaryItem('随时', $r('app.media.nav_anytime'), 'anytime')
           this.primaryItem('某天', $r('app.media.nav_someday'), 'someday')
           this.primaryItem('备忘', $r('app.media.nav_memo'), 'memo')

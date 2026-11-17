@@ -40,7 +40,7 @@ export function reconcileTaskTags(selection: TaskTagSelection, options: string[]
     { tags: [], includeUntagged: selection.includeUntagged })
 }
 
-// 今天、随时、某天和备忘的标签筛选是展示层例外，只处理当前页面已加载的任务快照。
+// 今天、等待、随时、某天和备忘的标签筛选是展示层例外，只处理当前页面已加载的任务快照。
 export function filterTasksByTags(tasks: CoreTask[], selection: TaskTagSelection, exclusiveGroups: string[][] = []): CoreTask[] {
   if (allTaskTagsSelected(selection)) return tasks
   const selectedGroups = exclusiveGroups.map((group: string[]) =>

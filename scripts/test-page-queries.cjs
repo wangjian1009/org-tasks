@@ -307,13 +307,13 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
 test('侧边栏任务、项目、入口文件和通知合为一个批次，跨仓库同名文件保持隔离',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   await page.loadNavigation();
-  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,13);
-  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','file','task','file','task','file','notification']);
+  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,14);
+  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','task','file','task','file','task','file','notification']);
   assert.deepEqual(f.batches[0][5].query,{isProject:true});
   assert.deepEqual(f.batches[0][4].query,{expression:'it.done'});
   assert.deepEqual(f.batches[0][1].query,{expression:'it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'});
-  assert.deepEqual(f.batches[0][6].repoIds,['core-a']);assert.deepEqual(f.batches[0][8].repoIds,['core-b']);
-  assert.deepEqual(f.batches[0][8].query,{expression:'it.todo',includeFiles:[{repoId:'core-b',path:'same.org'}]});
+  assert.deepEqual(f.batches[0][7].repoIds,['core-a']);assert.deepEqual(f.batches[0][9].repoIds,['core-b']);
+  assert.deepEqual(f.batches[0][9].query,{expression:'it.todo',includeFiles:[{repoId:'core-b',path:'same.org'}]});
   assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
 });
 
@@ -457,16 +457,17 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
     [['high','project-low'],['low']]);
 });
 
-test('随时通过 Core 按优先级和创建时间倒序查询，项目分组与标签筛选保持原顺序', async () => {
+for (const view of ['anytime', 'waiting']) {
+test(`${view} 通过 Core 按优先级和创建时间倒序查询，项目分组与标签筛选保持原顺序`, async () => {
   const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
   const values=[plannedTask('high-new','core-a','plain.org','工作'), plannedTask('project-high','core-a','project.org','工作','项目'),
     plannedTask('high-old','core-a','plain.org','工作'), plannedTask('project-low','core-a','project.org','工作','项目')];
   values.forEach(task=>{task.tags=task.id==='high-new'?['隐藏']:['显示'];});
   f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:
     {type:'task',result:{tasks:values,categories:[]}}));
-  page.view='anytime'; await page.loadTasks();
+  page.view=view; await page.loadTasks();
   assert.equal(page.message,'');
-  assert.equal(f.batches[0][0].query.expression,'it.todo s.none d.none o.priority .o.created');
+  assert.equal(f.batches[0][0].query.expression,view === 'waiting' ? 'i.wait o.priority .o.created' : 'it.todo s.none d.none o.priority .o.created');
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
     [['high-new'],['high-old'],['project-high','project-low']]);
   page.applyTagFilter({tags:['显示'],includeUntagged:false});
@@ -475,6 +476,8 @@ test('随时通过 Core 按优先级和创建时间倒序查询，项目分组�
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
     [['high-old'],['project-high','project-low']]);
 });
+}
+
 
 test('今天页面将当日时刻接入顶部，筛选后清空时间区但仍保留基础快照', async () => {
   const f=fixture(),page=f.page('pages/TaskOverview',['loadTasks','supportsTagFilter','applyTagFilter']);
@@ -584,7 +587,7 @@ test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配�
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
   assert.equal(page.inboxCount,0);
   f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
-  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,11);
+  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,12);
   assert.equal(f.disk.size,2);assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
 });
 
@@ -596,7 +599,7 @@ test('侧边栏所有非零计数按原批次位置读取，重复打开不再�
     :{type:request.type,result:request.type==='file'?[{}]:[]}));
   await page.loadNavigation();await page.loadNavigation();
   assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,2,3,4,5]);
-  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[7,9,11]);assert.equal(f.batches.length,1);
+  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[8,10,12]);assert.equal(page.waitingCount,7);assert.equal(f.batches.length,1);
 });
 
 test('侧边栏关闭后在途查询不能覆盖展示或写入缓存',async()=>{

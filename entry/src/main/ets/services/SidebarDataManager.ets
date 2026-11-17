@@ -16,6 +16,7 @@ export interface SidebarSnapshot {
   todayCount: number
   todayAttentionCount: number
   plannedCount: number
+  waitingCount: number
   anytimeCount: number
   somedayCount: number
   memoCount: number
@@ -29,7 +30,7 @@ interface SidebarQueryPlan { queries: CoreQuery[]; positions: number[] }
 
 export function emptySidebarSnapshot(): SidebarSnapshot {
   return { version: 0, inboxCount: -1, todayCount: -1, todayAttentionCount: 0, plannedCount: -1,
-    anytimeCount: -1, somedayCount: -1, memoCount: -1, logbookCount: -1, projects: [], message: '' }
+    waitingCount: -1, anytimeCount: -1, somedayCount: -1, memoCount: -1, logbookCount: -1, projects: [], message: '' }
 }
 
 // 只读侧边栏数据入口：缓存不限定订阅范围，任何仓库变化均可引入新项目。
@@ -95,7 +96,8 @@ export class SidebarDataManager {
     const queries: CoreQuery[] = [
       { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: todayAttentionQuery() },
       { type: 'task', query: overviewTaskQuery('planned') }, { type: 'task', query: overviewTaskQuery('anytime') },
-      { type: 'task', query: overviewTaskQuery('logbook') }, { type: 'file', query: { isProject: true } }
+      { type: 'task', query: overviewTaskQuery('logbook') }, { type: 'file', query: { isProject: true } },
+      { type: 'task', query: overviewTaskQuery('waiting') }
     ]
     const positions: number[] = []
     const kinds: FileTargetKind[] = ['inbox', 'someday', 'memo']
@@ -143,7 +145,7 @@ export class SidebarDataManager {
         if (!this.closed && revision === this.revision) {
           const current = this.snapshot
           const next: SidebarSnapshot = { version: current.version, inboxCount: current.inboxCount, todayCount: current.todayCount,
-            todayAttentionCount: current.todayAttentionCount, plannedCount: current.plannedCount, anytimeCount: current.anytimeCount,
+            todayAttentionCount: current.todayAttentionCount, plannedCount: current.plannedCount, waitingCount: current.waitingCount, anytimeCount: current.anytimeCount,
             somedayCount: current.somedayCount, memoCount: current.memoCount, logbookCount: current.logbookCount, projects: current.projects,
             message: `读取导航失败：${coreErrorMessage(error as CoreBridgeError)}` }
           this.publish(next)
@@ -157,7 +159,7 @@ export class SidebarDataManager {
       FileTargetService.result(results[position], results[position + 1])?.tasks.length ?? -1)
     this.publish({ version, todayCount: taskResult(results[0]).tasks.length, todayAttentionCount: taskResult(results[1]).tasks.length,
       plannedCount: taskResult(results[2]).tasks.length, anytimeCount: taskResult(results[3]).tasks.length,
-      logbookCount: taskResult(results[4]).tasks.length, projects: fileResult(results[5]),
+      logbookCount: taskResult(results[4]).tasks.length, projects: fileResult(results[5]), waitingCount: taskResult(results[6]).tasks.length,
       inboxCount: counts[0], somedayCount: counts[1], memoCount: counts[2], message: '' })
   }
 
@@ -166,7 +168,7 @@ export class SidebarDataManager {
     const unchanged = previous.version === next.version && previous.message === next.message &&
       previous.inboxCount === next.inboxCount && previous.todayCount === next.todayCount &&
       previous.todayAttentionCount === next.todayAttentionCount && previous.plannedCount === next.plannedCount &&
-      previous.anytimeCount === next.anytimeCount && previous.somedayCount === next.somedayCount &&
+      previous.waitingCount === next.waitingCount && previous.anytimeCount === next.anytimeCount && previous.somedayCount === next.somedayCount &&
       previous.memoCount === next.memoCount && previous.logbookCount === next.logbookCount &&
       previous.projects.length === next.projects.length && previous.projects.every((file, index) => samePageMetadata(file, next.projects[index]))
     this.snapshot = next

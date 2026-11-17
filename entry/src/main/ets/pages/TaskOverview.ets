@@ -112,7 +112,7 @@ struct TaskOverview {
   }
 
   supportsTagFilter(): boolean {
-    return this.view === 'today' || this.view === 'anytime' || this.view === 'someday' || this.view === 'memo'
+    return this.view === 'today' || this.view === 'anytime' || this.view === 'waiting' || this.view === 'someday' || this.view === 'memo'
   }
 
   rightSwipeAction(): TaskRightSwipeAction {
@@ -155,7 +155,7 @@ struct TaskOverview {
     const layout = this.view === 'today' ? todayLayout(this.visibleTasks, this.priorityOrder, new Date(this.referenceTime)) : null
     const keyOf = (task: CoreTask): string => this.taskDataSet().taskKey(task.id) ?? task.id
     if (!layout || !this.dataManager || !sameTodayTimedItems(this.timedItems, layout.timedItems, keyOf)) this.timedItems = layout?.timedItems ?? []
-    const sections = layout ? orderTodaySections(layout.sections, this.todayOrder) : (this.view === 'anytime' ? anytimeSections(this.visibleTasks) : [])
+    const sections = layout ? orderTodaySections(layout.sections, this.todayOrder) : ((this.view === 'anytime' || this.view === 'waiting') ? anytimeSections(this.visibleTasks) : [])
     if (!this.dataManager || !sameTodaySections(this.sections, sections, keyOf)) this.sections = sections
     if (layout) this.todayRegionKeys = todayVisibleRegionKeys(sections, layout.timedItems.length > 0, this.todayOrder)
   }
@@ -302,6 +302,7 @@ struct TaskOverview {
     switch (this.view) {
       case 'today': return $r('app.media.nav_today')
       case 'planned': return $r('app.media.nav_planned')
+      case 'waiting': return $r('app.media.nav_waiting')
       case 'anytime': return $r('app.media.nav_anytime')
       case 'someday': return $r('app.media.nav_someday')
       case 'memo': return $r('app.media.nav_memo')
@@ -349,10 +350,10 @@ struct TaskOverview {
         } else if (this.visibleTasks.length === 0) {
           NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
-        } else if (this.view === 'today' || this.view === 'anytime') {
+        } else if (this.view === 'today' || this.view === 'anytime' || this.view === 'waiting') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, singleOperations: taskPageActionPolicy(this.view).singleOperations,
             regionKeys: this.view === 'today' ? this.todayRegionKeys : [],
-            regionPreviewLimit: this.view === 'anytime' ? 3 : 0,
+            regionPreviewLimit: (this.view === 'anytime' || this.view === 'waiting') ? 3 : 0,
             expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {

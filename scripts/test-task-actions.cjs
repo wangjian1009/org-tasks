@@ -142,7 +142,7 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
   assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
   assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'delete']);
-  for (const page of ['planned', 'anytime', 'someday', 'recent']) {
+  for (const page of ['planned', 'waiting', 'anytime', 'someday', 'recent']) {
     assert.deepEqual(pagePolicy(page).singleOperations, ['delete']);
   }
 });
