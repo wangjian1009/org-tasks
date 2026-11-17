@@ -74,9 +74,35 @@ export struct ProjectDocumentView {
   private offsets: Map<string, number> = new Map()
   private active: boolean = false
   private pendingOffset: number | undefined = undefined
+  private headerHeight: number = 0
+  private contentHeight: number = 0
+  private viewportHeight: number = 0
+  private initialOffsetApplied: boolean = false
+
+  private readOffset(): number | undefined {
+    try {
+      const value = (JSON.parse(this.readingState) as Record<string, number>).scroll
+      return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : undefined
+    } catch (_) { return undefined }
+  }
+
+  private scheduleInitialOffset(): void {
+    if (this.initialOffsetApplied || (this.pendingOffset !== undefined && this.pendingOffset !== 0) || this.headerHeight <= 0 || this.viewportHeight <= 0 || this.contentHeight <= 0) return
+    const offset = Math.min(this.headerHeight, Math.max(0, this.contentHeight - this.viewportHeight))
+    this.pendingOffset = offset
+    if (this.showing && offset > 0) {
+      this.scroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+      this.pendingOffset = undefined
+      this.initialOffsetApplied = true
+    } else if (offset === 0) {
+      this.pendingOffset = undefined
+      this.initialOffsetApplied = true
+    }
+  }
 
   aboutToAppear() {
     this.active = true
+    this.initialOffsetApplied = this.readOffset() !== undefined
     this.stopTasks = this.dataSet?.subscribe((): void => { this.updateDocument() })
     this.updateDocument()
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
@@ -86,7 +112,7 @@ export struct ProjectDocumentView {
       if (!section || !this.active || !this.showing) throw new Error('内部链接目标不存在或项目文档已隐藏')
       if (!await this.openChapter(section)) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
     }
-    try { this.pendingOffset = (JSON.parse(this.readingState) as Record<string, number>).scroll } catch (_) {}
+    this.pendingOffset = this.readOffset()
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
     this.navigation.openOutline = (): void => { this.updateOutline(); this.outlineVisible = true }
     this.navigation.closePanel = (): boolean => {
@@ -101,16 +127,18 @@ export struct ProjectDocumentView {
 
   visibilityChanged() {
     if (!this.showing) return
-    try { this.pendingOffset = (JSON.parse(this.readingState) as Record<string, number>).scroll } catch (_) {}
+    this.pendingOffset = this.readOffset()
+    this.initialOffsetApplied = this.pendingOffset !== undefined
   }
 
   snapshotChanged() {
     this.offsets.clear()
     this.outlineVisible = false
-    let offset: number = 0
-    try { offset = (JSON.parse(this.readingState) as Record<string, number>).scroll ?? 0 } catch (_) {}
-    this.pendingOffset = offset
-    this.scroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+    const offset = this.readOffset()
+    this.initialOffsetApplied = offset !== undefined
+    this.pendingOffset = offset ?? 0
+    this.scroller.scrollTo({ xOffset: 0, yOffset: offset ?? 0, animation: false })
+    if (offset === undefined) this.scheduleInitialOffset()
     this.ready()
   }
 
@@ -198,6 +226,10 @@ export struct ProjectDocumentView {
             tags: this.tagOptions, selectedTags: this.selectedTags,
             category: this.category, selectedCategory: this.selectedCategory,
             toggle: this.toggleTag, toggleCategory: this.toggleCategory }).width('100%')
+            .onAreaChange((_old: Area, area: Area): void => {
+              this.headerHeight = Number(area.height)
+              this.scheduleInitialOffset()
+            })
         }
         ForEach(this.sections, (section: ProjectReadingSection) => {
           Column({ space: section.node ? 0 : 12 }) {
@@ -226,14 +258,22 @@ export struct ProjectDocumentView {
           Text('项目还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
         }
       }.width('100%').padding({ left: 12, right: 12, top: 4, bottom: 48 })
+        .onAreaChange((_old: Area, area: Area): void => {
+          this.contentHeight = Number(area.height)
+          this.scheduleInitialOffset()
+        })
     }.id('project_document_scroll').width('100%').height('100%').align(Alignment.Top)
       .scrollBar(BarState.Auto)
       .onAppear((): void => { this.ready() })
       .onDidScroll((): void => { if (this.showing) this.scrolled(this.scroller.currentOffset().yOffset) })
       .onAreaChange((_old: Area, area: Area): void => {
-        if (this.showing && Number(area.height) > 0 && this.pendingOffset !== undefined) {
+        this.viewportHeight = Number(area.height)
+        this.scheduleInitialOffset()
+        if (this.showing && Number(area.height) > 0 && this.pendingOffset !== undefined &&
+          (this.initialOffsetApplied || this.pendingOffset !== 0)) {
           this.scroller.scrollTo({ xOffset: 0, yOffset: this.pendingOffset, animation: false })
           this.pendingOffset = undefined
+          this.initialOffsetApplied = true
         }
       })
       .bindSheet($$this.outlineVisible, this.outlineSheet(), {
