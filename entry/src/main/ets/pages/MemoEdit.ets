@@ -136,7 +136,7 @@ struct MemoEdit {
         }.width(56).height(48).padding(0).backgroundColor(Color.Transparent).borderRadius(0)
           .accessibilityText('返回').enabled(!this.working).onClick((): void => { this.saveAndBack(true) })
         TextInput({ text: this.heading, placeholder: '标题' }).height(48).layoutWeight(1)
-          .margin({ left: 12 }).padding({ left: 0, right: 0 }).fontSize(22).fontColor(UiColor.text)
+          .margin({ left: 12 }).padding({ left: 0, right: 0 }).fontSize(16).fontColor(UiColor.text)
           .placeholderColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.loadingMemo && !this.working && !this.committed).onChange((value: string): void => { this.heading = value })
         if (this.creating) {
