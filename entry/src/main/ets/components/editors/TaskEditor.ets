@@ -220,7 +220,13 @@ export struct TaskEditor {
         if (to === TaskStateCategory.Wait) throw new Error('文件没有可用的等待状态，请检查 TODO 流程')
         return
       }
-      return taskModificationGroup(source, [{ field: 'TODO', value: state.name }])
+      const modifications: CoreTaskModification[] = [{ field: 'TODO', value: state.name }]
+      if (to === TaskStateCategory.Doing) {
+        const now = new Date()
+        const today = `${now.getFullYear().toString().padStart(4, '0')}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
+        if (!source.scheduled || source.scheduled > today) modifications.push({ field: 'SCHEDULE', value: { date: today } })
+      }
+      return taskModificationGroup(source, modifications)
     }
     finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
   }

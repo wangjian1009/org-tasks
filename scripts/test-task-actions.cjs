@@ -145,9 +145,8 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
   assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
   assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'wait', 'someday', 'delete']);
-  for (const page of ['waiting', 'anytime', 'someday', 'recent']) {
-    assert.deepEqual(pagePolicy(page).singleOperations, ['delete']);
-  }
+  assert.deepEqual(pagePolicy('waiting').singleOperations, ['toggleState', 'delete']);
+  for (const page of ['anytime', 'someday', 'recent']) assert.deepEqual(pagePolicy(page).singleOperations, ['delete']);
 });
 
 test('状态切换复用单条操作数组和菜单，状态只控制形态，数组控制启用及顺序', () => {
@@ -183,6 +182,12 @@ function swipeCard(page) {
   const state = Object.assign(new Card(), { active: true, interactionEnabled: true, singleOperations: [], rightSwipeAction: pagePolicy(page).rightSwipeAction, controller });
   return { state, editor, controller, calls };
 }
+
+test('等待页左滑复用开始 Action，并保留等待页删除入口', () => {
+  const menu = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, 'Doing')
+  assert.deepEqual(menu.map(item => item.id), ['toggleState', 'delete', 'select'])
+  assert.equal(menu[0].title, '开始')
+})
 
 test('今天、计划、随时、某天与最近新增均由外层右滑设置计划，日志簿关闭右滑', () => {
   for (const [page, action] of Object.entries({ someday: 'schedule', anytime: 'schedule', planned: 'schedule', today: 'schedule', inbox: 'schedule', recent: 'schedule' })) {

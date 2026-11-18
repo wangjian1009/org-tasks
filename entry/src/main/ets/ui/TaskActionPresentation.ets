@@ -62,7 +62,8 @@ export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy
     case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
     case 'planned': return taskActionPolicy({ singleOperations: [TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
   }

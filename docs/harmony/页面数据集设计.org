@@ -113,6 +113,10 @@ DataSetEvent 包含 insert、remove、update、refresh、ready、complete与 err
 
 任务动作的规划与提交分开：编辑器返回完整 ~CoreTaskOperationGroup~ ，滑动组件通过 ~TaskSwipeOperations.submit~ 合并一个或多个组，再调用 ~DataSet.submitOperationGroup~ 。数据集不重写组内的文件版本或操作顺序，提交时分配唯一 ~operationId~ ，按组携带的全部源／目标文件版本排队，并在实际执行前检查订阅范围与启用条件。整个组只产生一次用户提交及完成阶段；空组不推进版本。任务动作组不追加逐条乐观修改，Core 成功事件统一归并快照，失败保留确认数据；组提交错误以操作 ID 为目标上报，不覆盖查询加载状态或使整个列表进入读取失败，批量选择保留供重新选择后重试；缓存仍等待全部在途提交和事件处理结束。
 
+* 等待任务启动动作
+
+等待页左滑菜单复用通用 ~TaskOperation.ToggleState~ ，显示“开始”并由 ~TaskEditor.start~ 生成同一操作组。状态从等待转为进行中时，通用规则检查源任务的 ~SCHEDULE~ ：缺失或晚于设备本地日期时追加当天计划日期；已有今天或过去日期保持不变。TODO 与 SCHEDULE 修改在同一文件版本和同一提交组中完成，失败整体回滚，其他字段由 Core 保留。
+
 * Core 相关接口
 
 ** 操作来源关联

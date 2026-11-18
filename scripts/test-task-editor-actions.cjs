@@ -68,11 +68,24 @@ test('start／stop 返回保存后版本的 TODO 修改组，生成阶段不执�
   for (const [category, action, expected] of [['Todo', 'start', 'INPROGRESS'], ['Wait', 'start', 'INPROGRESS'], ['Doing', 'stop', 'TODO']]) {
     const f = fixture(category); f.settleWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
     const group = await f.state[action]();
-    assert.deepEqual(group.operations[0].data.modifications, [{ field: 'TODO', value: expected }]);
+    const expectedChanges = category === 'Doing' ? [{ field: 'TODO', value: expected }] :
+      [{ field: 'TODO', value: expected }, { field: 'SCHEDULE', value: { date: '2026-11-18' } }];
+    assert.deepEqual(group.operations[0].data.modifications, expectedChanges);
     assert.equal(group.fileVersions[0].version, 'saved'); assert.equal(group.operationId, undefined);
     assert.deepEqual(f.events, [['save', false], 'settle']); assert.equal(f.emitted.length, 0); assert.equal(f.state.completing, false);
   }
 });
+test('启动时仅为缺少计划或未来计划的任务设置今天，过去和今天保持原计划', async () => {
+  for (const scheduled of ['', '2099-12-31', '2026-11-17', '2026-11-18']) {
+    const f = fixture('Wait'); f.state.task = { ...f.state.task, scheduled }
+    const group = await f.state.start()
+    const modifications = group.operations[0].data.modifications
+    assert.deepEqual(modifications, scheduled === '' || scheduled > '2026-11-18'
+      ? [{ field: 'TODO', value: 'INPROGRESS' }, { field: 'SCHEDULE', value: { date: '2026-11-18' } }]
+      : [{ field: 'TODO', value: 'INPROGRESS' }], scheduled)
+  }
+})
+
 test('保存失败、状态已变化、目标缺失和失效回调不产生修改组，读取错误向宿主抛出', async () => {
   const failed = fixture(); failed.saveWith(async () => false); assert.equal(await failed.state.start(), undefined);
   for (const change of [f => { f.state.task = task('Doing'); }, f => { f.state.task = task('Todo', null); }, f => { f.state.appeared = false; }]) {
