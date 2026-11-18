@@ -316,7 +316,7 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
 test('侧边栏复用全局批次与今天 DataSet，跨仓库同名入口保持隔离',async()=>{
  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
  const batch=f.batches[0];assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);
- assert.equal(batch.filter(request=>request.query.expression==='.it.done (s.le.today or d.le.today)').length,1);
+ assert.equal(batch.filter(request=>request.query.expression==='.it.done .i.wait (s.le.today or d.le.today)').length,1);
  assert.deepEqual(batch.find(request=>request.query.isProject).query,{isProject:true,excludeFiles:[]});
  assert.ok(batch.some(request=>request.query.expression==='it.done'));
  assert.ok(batch.some(request=>request.repoIds?.[0]==='core-a'&&request.query.expression===''));
@@ -360,7 +360,7 @@ test('侧边栏采用共享分区与项目顺序，保存和恢复默认不增�
 test('今天红色徽标独立消费关注任务的 Core 结果，不按今天列表重筛或改动总数',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   f.query(batch=>batch.map((request,index)=>request.type==='task'
-    ? {type:'task',result:{tasks:Array(request.query.expression==='.it.done (s.le.today or d.le.today)'?8:request.query.expression==='it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'?3:0).fill({}),categories:[]}}
+    ? {type:'task',result:{tasks:Array(request.query.expression==='.it.done .i.wait (s.le.today or d.le.today)'?8:request.query.expression==='it.todo .i.wait ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'?3:0).fill({}),categories:[]}}
     : {type:request.type,result:[]}));
   await page.loadNavigation();
   assert.equal(page.todayCount,8);assert.equal(page.todayAttentionCount,3);
@@ -471,7 +471,7 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
   page.view='today'; await page.loadTasks();
   assert.equal(page.message,'');
   assert.equal(f.batches.length,1);
-  assert.equal(f.batches[0][1].query.expression,'.it.done (s.le.today or d.le.today) o.priority');
+  assert.equal(f.batches[0][1].query.expression,'.it.done .i.wait (s.le.today or d.le.today) o.priority');
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
     [['high','project-low'],['default'],['low']]);
   page.applyTagFilter({tags:['显示'],includeUntagged:false});

@@ -506,7 +506,7 @@ test('今天、侧边栏与角标共享唯一管理器，首次读取与反复�
   await Promise.all([app.start(),sidebar.start(),c.DeviceBadgeService.refresh(f.context)]);
   assert.equal(f.batches.length,1);assert.equal(f.externalCallbacks.size,1);
   assert.equal(snapshot.todayCount,today.data.result.tasks.length);assert.equal(snapshot.inboxCount,1);assert.equal(c.writes.at(-1),2);
-  assert.equal(f.batches[0].filter(request=>request.query.type==='task'&&request.query.query.expression==='.it.done (s.le.today or d.le.today)').length,1);
+  assert.equal(f.batches[0].filter(request=>request.query.type==='task'&&request.query.query.expression==='.it.done .i.wait (s.le.today or d.le.today)').length,1);
   sidebar.close();const reopened=new c.SidebarDataManager(f.context);await reopened.start();reopened.close();
   await c.DeviceBadgeService.refresh(f.context);assert.equal(f.batches.length,1);
   assert.equal(c.AppDataManager.shared(f.context).dataSet('todayTasks'),today);
@@ -522,7 +522,7 @@ test('共享快照的界面编辑同时更新侧边栏，通知变化只重写�
   assert.equal(f.batches.length,1);assert.equal(app.dataSet('inboxTasks').data.result.tasks.length,0);
   c.conflicts(2);await c.DeviceBadgeService.refresh(f.context);assert.equal(c.writes.at(-1),2);assert.equal(f.batches.length,1);
   f.addRow();f.external();f.external();await until(()=>f.batches.length===2&&app.manager.isReady()&&snapshot.todayCount===1);
-  assert.equal(f.externalCallbacks.size,1);assert.equal(f.batches[1].filter(request=>request.query.type==='task'&&request.query.query.expression==='.it.done (s.le.today or d.le.today)').length,1);
+  assert.equal(f.externalCallbacks.size,1);assert.equal(f.batches[1].filter(request=>request.query.type==='task'&&request.query.query.expression==='.it.done .i.wait (s.le.today or d.le.today)').length,1);
   sidebar.close();
  }finally{c?.DeviceBadgeService.stop();await c?.AppDataManager.close();await f.cleanup()}
 });

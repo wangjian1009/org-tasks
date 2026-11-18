@@ -36,7 +36,7 @@ export function overviewTitle(view: TaskView): string {
 export function overviewTaskQuery(view: TaskView, file?: CoreOrgFileRef): CoreTaskQuery {
   let expression = ''
   switch (view) {
-    case 'today': expression = '.it.done (s.le.today or d.le.today)'; break
+    case 'today': expression = '.it.done .i.wait (s.le.today or d.le.today)'; break
     case 'planned': expression = '.it.done .is.habit ((s.ge.tomorrow d.ge.tomorrow) or (s.ge.tomorrow d.none) or (s.none d.ge.tomorrow))'; break
     case 'waiting': expression = 'i.wait o.priority .o.created'; break
     case 'anytime': expression = 'it.todo s.none d.none o.priority .o.created'; break
@@ -54,8 +54,8 @@ export function todayPriorityQuery(): CoreTaskQuery {
 }
 
 export function todayAttentionQuery(): CoreTaskQuery {
-  // 明天边界按实际规划日期匹配，习惯仅在计划日期已到时计入，排除提前预警。
-  return { expression: 'it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)' }
+  // 与今天列表一致排除等待；明天边界按实际规划日期匹配，排除提前预警。
+  return { expression: 'it.todo .i.wait ((is.habit s.lt.tomorrow) or d.lt.tomorrow)' }
 }
 
 // 分类与项目共用一个选择；项目由仓库和文件定位，避免跨仓库同名文件混入。
