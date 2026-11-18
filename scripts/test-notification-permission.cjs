@@ -25,6 +25,7 @@ function load(name, mocks, globals = {}) {
   vm.runInThisContext('(function(require,module,exports,LocalStorage,setTimeout,clearTimeout){' + output + '\n})', { filename })(name => {
     if (name.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
+    if (name.endsWith('/SettingsAutoSave')) return {SettingsAutoSave:class{hasPending(){return false;}async flush(){}schedule(){}}};
     if (name.endsWith('/TaskReminderSettings')) return {TaskReminderSettings:{load:async()=>({enabled:false,ringDuration:30}),save:async()=>{}}};
     if (name.endsWith('/TaskReminderService')) return {TaskReminderService:{start(){},stop(){},refresh:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
     if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};

@@ -873,10 +873,15 @@ export struct TaskEditor {
       if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey)
     }
   }
+  hasReminder(): boolean { return this.value().reminderAt !== null && this.value().reminderAt !== undefined }
   reminderStatus(): string {
-    // 读取状态版本使系统安排结果独立刷新，任务快照保持由 DataSet 管理。
+    // 系统安排结果独立刷新；卡片保留简短说明，详细状态见设置。
     if (this.reminderRevision < 0) return ''
-    return TaskReminderService.status(this.value())
+    const status = TaskReminderService.status(this.value())
+    if (status === '本机任务提醒已关闭') return '提醒已关闭'
+    if (status === '提醒已安排') return '已设置提醒'
+    if (status.includes('不可用') || status.includes('失败') || status.includes('未开通')) return '提醒不可用'
+    return status
   }
   async priorities() {
     if (this.readOnly) return
@@ -1144,6 +1149,7 @@ export struct TaskEditor {
   leadingWidth(): number {
     return (this.leadingTime() ? 54 : 0)
       + (this.showTodayFlag() ? 26 : 0)
+      + (this.hasReminder() ? 26 : 0)
       + (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 26 : 0)
   }
@@ -1337,6 +1343,10 @@ export struct TaskEditor {
   compactLeadingInfo() {
     if (this.showTodayFlag()) {
       Image($r('app.media.nav_today')).width(20).height(20).flexShrink(0).accessibilityText('计划于今天')
+    }
+    if (this.hasReminder()) {
+      Image($r('app.media.ui_reminder')).id('task_reminder_compact_icon').width(20).height(20).flexShrink(0)
+        .fillColor(UiColor.secondary).accessibilityText('已设置提醒')
     }
     if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
@@ -1629,9 +1639,9 @@ export struct TaskEditor {
   moreItems(): PopupMenuItem[] {
     const items: PopupMenuItem[] = []
     if (!this.readOnly) {
-      items.push({ title: '备注…', icon: $r('app.media.ui_note'), action: () => { this.emitAction(this.startNote()) } },
-        { title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } })
-      if (this.value().state !== null) items.push({ title: '提醒…', icon: $r('app.media.ui_task_calendar'), action: () => { this.emitAction(this.startReminder()) } })
+      items.push({ title: '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
+        { title: '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
+      if (this.value().state !== null) items.push({ title: '提醒…', icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
       items.push({ title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
     if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {
@@ -1642,12 +1652,19 @@ export struct TaskEditor {
     return items
   }
   @Builder
+  reminderLine() {
+    if (this.hasReminder()) {
+      Row({ space: 6 }) {
+        Image($r('app.media.ui_reminder')).id('task_reminder_expanded_icon').width(18).height(18).fillColor(UiColor.secondary)
+        Text(this.reminderStatus()).id('task_reminder_status').fontSize(12).fontColor(UiColor.secondary)
+      }.width('100%').padding({ top: 4, bottom: 4 })
+        .onClick(() => { if (!this.readOnly) this.emitAction(this.startReminder()) })
+    }
+  }
+  @Builder
   attributes() {
     Column({ space: 4 }) {
-      if (this.value().reminderAt !== null && this.value().reminderAt !== undefined) {
-        Text(this.reminderStatus()).id('task_reminder_status').fontSize(12).fontColor(UiColor.secondary).width('100%')
-          .padding({ top: 4, bottom: 4 }).onClick(() => { if (!this.readOnly) this.emitAction(this.startReminder()) })
-      }
+      this.reminderLine()
       if (this.value().editContent.scheduledRepeat?.rule) {
         this.repeatRule(false)
       }
@@ -1701,6 +1718,7 @@ export struct TaskEditor {
         }.width('100%')
       }
       this.logbookNotes()
+      this.reminderLine()
       if (this.expandedPlanningText()) {
         Text(this.expandedPlanningText())
           .fontSize(12).fontColor(UiColor.secondary).width('100%')

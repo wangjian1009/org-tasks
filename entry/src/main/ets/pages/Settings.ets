@@ -1,4 +1,5 @@
-import { TaskReminderSettings } from '../services/TaskReminderSettings'
+import { SettingsAutoSave } from '../services/SettingsAutoSave'
+import { TaskReminderSettings, TaskReminderConfiguration } from '../services/TaskReminderSettings'
 import { TaskReminderService } from '../services/TaskReminderService'
 import { TaskReminderList } from '../components/TaskReminderList'
 import { TrashSettingsService } from '../services/TrashSettingsService'
@@ -35,6 +36,12 @@ struct Settings {
   @State ringDurationDraft: string = '30'
   @State reminderSummary: string = ''
   private stopReminder: (() => void) | undefined = undefined
+  private reminderSaved: TaskReminderConfiguration = { enabled: false, ringDuration: 30 }
+  private savedRetentionDays: number = 30
+  private reminderEditVersion: number = 0
+  private preferenceSave: SettingsAutoSave = new SettingsAutoSave((error: Error): void => {
+    if (this.notificationVisible) this.message = coreErrorMessage(error as CoreBridgeError)
+  })
   @State retentionDraft: string = '30'
   @State coreSettings: CoreSettingsObject = { additionStates: [] }
   @State defaultStates: CoreTaskState[] = []
@@ -62,7 +69,7 @@ struct Settings {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
-      !this.notificationBusy && this.editingCategory < 0)
+      !this.notificationBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
     this.stopReminder?.()
     this.stopReminder = TaskReminderService.subscribe((): void => { this.reminderSummary = TaskReminderService.summary() })
     this.reminderSummary = TaskReminderService.summary()
@@ -71,8 +78,8 @@ struct Settings {
     this.loadNotificationState()
     this.scheduleNotificationCheck()
   }
-  onPageHide() { this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.stopNotificationCheck() }
-  aboutToDisappear() { this.stopExternalGuard?.(); this.stopNotificationCheck() }
+  onPageHide() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.stopNotificationCheck() }
+  aboutToDisappear() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopNotificationCheck() }
 
   private scheduleNotificationCheck(): void {
     if (!this.notificationVisible || this.notificationTimer !== -1) return
@@ -138,6 +145,7 @@ struct Settings {
     if (this.saving || this.categoryBusy || this.notificationBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
+    if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
     if (this.section) { this.section = ''; this.message = ''; return true }
     PageNavigator.shared.back(this.getUIContext())
     return true
@@ -145,14 +153,17 @@ struct Settings {
 
   async load() {
     try {
+      await this.preferenceSave.flush()
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if (!this.loaded) {
         const params = this.getUIContext().getRouter().getParams() as SettingsParams | undefined
         this.section = params?.section === '笔记与笔记本' ? '文件入口' : params?.section || ''
       }
       const reminder = await TaskReminderSettings.load(this.getUIContext().getHostContext()!)
+      this.reminderSaved = reminder
       this.reminderEnabled = reminder.enabled; this.ringDurationDraft = `${reminder.ringDuration}`
       this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
+      this.savedRetentionDays = Number(this.retentionDraft)
       this.config = config
       this.coreSettings = config.coreSettings
       this.fileDisplayMode = config.fileDisplayMode
@@ -168,6 +179,7 @@ struct Settings {
   }
 
   openSection(section: string) {
+    if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.openSection(section) }); return }
     this.section = section
     this.message = ''
     if (section === '文件入口') this.loadNotebookNames()
@@ -253,7 +265,7 @@ struct Settings {
     }
     SettingsGroup({ title: '任务与笔记' }) {
       SettingsRow({ title: '文件入口', icon: $r('app.media.ui_folder'), action: (): void => { this.openSection('文件入口') } })
-      SettingsRow({ title: '废纸篓', value: `${this.retentionDraft} 天`, icon: $r('app.media.ui_delete'), action: (): void => { this.openSection('废纸篓') } })
+      SettingsRow({ title: '废纸篓', value: `${this.savedRetentionDays} 天`, icon: $r('app.media.ui_trash'), action: (): void => { this.openSection('废纸篓') } })
       SettingsRow({ title: '任务状态分类', value: '5 类', icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
       SettingsChoiceRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染',
         icon: $r('app.media.ui_body'), divider: false, disabled: this.saving, items: this.displayModeChoices() })
@@ -262,24 +274,38 @@ struct Settings {
       SettingsRow({ title: '通知与角标', value: this.notificationState === 'enabled' ? '已开启' : this.notificationState === 'loading' ? '读取中' : '未开启',
         detail: this.notificationState === 'error' ? '读取失败，点击重试' : '', icon: $r('app.media.ui_info'),
         action: (): void => { this.manageNotifications() } })
-      SettingsRow({ title: '任务提醒', value: this.reminderEnabled ? '已开启' : '已关闭', icon: $r('app.media.ui_task_calendar'),
+      SettingsRow({ title: '任务提醒', value: this.reminderEnabled ? '已开启' : '已关闭', icon: $r('app.media.ui_reminder'),
         action: (): void => { this.openSection('任务提醒') } })
       SettingsRow({ title: '关于小清单', icon: $r('app.media.ui_info'), divider: false, action: (): void => { this.openSection('关于小清单') } })
     }
   }
 
-  async saveReminders() {
-    if (this.saving) return
-    this.saving = true; this.message = ''
+  private changeReminder(enabled: boolean, duration: string, immediate: boolean = false): void {
+    this.reminderEnabled = enabled; this.ringDurationDraft = duration; this.message = ''
+    const version = ++this.reminderEditVersion
+    this.preferenceSave.schedule('reminder', (): Promise<void> => this.saveReminders(enabled, duration, version), immediate ? 0 : 300)
+  }
+  private changeRetention(value: string): void {
+    this.retentionDraft = value; this.message = ''
+    this.preferenceSave.schedule('trash', (): Promise<void> => this.saveRetention(value))
+  }
+  private async saveReminders(enabled: boolean, duration: string, version: number): Promise<void> {
     try {
-      if (!/^\d+$/.test(this.ringDurationDraft)) throw new Error('响铃时长须为整数秒')
+      if (!/^\d+$/.test(duration)) throw new Error('响铃时长须为整数秒')
       const context = this.getUIContext().getHostContext()!
-      await TaskReminderSettings.save(context, { enabled: this.reminderEnabled, ringDuration: Number(this.ringDurationDraft) })
-      await TaskReminderService.refresh(context)
-      this.reminderSummary = TaskReminderService.summary()
-      this.message = '设置已保存'
-    } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
-    finally { this.saving = false }
+      const config: TaskReminderConfiguration = { enabled, ringDuration: Number(duration) }
+      await TaskReminderSettings.save(context, config)
+      this.reminderSaved = config
+      TaskReminderService.refresh(context)
+    } catch (error) {
+      if (version === this.reminderEditVersion) this.reminderEnabled = this.reminderSaved.enabled
+      throw error as Error
+    }
+  }
+  private async saveRetention(value: string): Promise<void> {
+    if (!/^\d+$/.test(value)) throw new Error('请输入整数天数')
+    await TrashSettingsService.saveRetentionDays(this.getUIContext().getHostContext()!, Number(value))
+    this.savedRetentionDays = Number(value)
   }
   @Builder
   taskReminderSettings() {
@@ -287,16 +313,15 @@ struct Settings {
       Row() {
         Text('启用任务提醒').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.reminderEnabled }).id('reminder_global_enabled')
-          .onChange((value: boolean): void => { this.reminderEnabled = value })
+          .onChange((value: boolean): void => { if (value !== this.reminderEnabled) this.changeReminder(value, this.ringDurationDraft, true) })
       }.width('100%').padding(16)
       Row({ space: 12 }) {
         Text('响铃时长（秒）').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
         TextInput({ text: this.ringDurationDraft }).id('reminder_ring_duration').width(100).type(InputType.Number)
-          .onChange((value: string): void => { this.ringDurationDraft = value })
+          .onChange((value: string): void => { if (value !== this.ringDurationDraft) this.changeReminder(this.reminderEnabled, value) })
+          .onBlur((): void => { this.preferenceSave.flush() })
       }.width('100%').padding(16)
-      Text('默认 30 秒，可设置 1 至 1800 秒；保存后统一更新后续提醒。').fontSize(13).fontColor(UiColor.secondary).padding(16)
-      Button(this.saving ? '保存中…' : '保存').id('reminder_settings_save').enabled(!this.saving)
-        .onClick(() => { this.saveReminders() }).margin(16)
+      Text('默认 30 秒，可设置 1 至 1800 秒；修改后自动保存并更新提醒。').fontSize(13).fontColor(UiColor.secondary).padding(16)
       Text(this.reminderSummary).id('reminder_service_status').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
       SettingsRow({ title: '系统通知授权', value: this.notificationDetail(), action: (): void => { this.manageNotifications() } })
     }
@@ -304,24 +329,12 @@ struct Settings {
       TaskReminderList()
     }
   }
-  async saveRetention() {
-    if (this.saving) return
-    this.saving = true
-    try {
-      if (!/^\d+$/.test(this.retentionDraft)) throw new Error('请输入整数天数')
-      await TrashSettingsService.saveRetentionDays(this.getUIContext().getHostContext()!, Number(this.retentionDraft))
-      this.message = '保留天数已保存'
-    } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
-    finally { this.saving = false }
-  }
-
   @Builder
   trashSettings() {
     SettingsGroup({ title: '保留天数', detail: '默认保留 30 天，可设置 1 至 3650 天。打开废纸篓或笔记本时，按删除时间自动永久清除过期记录。删除时间缺失的记录会保留。' }) {
       TextInput({ text: this.retentionDraft, placeholder: '保留天数' }).type(InputType.Number)
-        .id('trash_retention_days').onChange((value: string): void => { this.retentionDraft = value; this.message = '' })
-      Button(this.saving ? '保存中…' : '保存').id('trash_retention_save').enabled(!this.saving)
-        .onClick((): void => { this.saveRetention() }).margin(16)
+        .id('trash_retention_days').onChange((value: string): void => { if (value !== this.retentionDraft) this.changeRetention(value) })
+        .onBlur((): void => { this.preferenceSave.flush() })
     }
   }
 

@@ -9,10 +9,20 @@ export class TrashSettingsService {
     return days
   }
 
-  static async saveRetentionDays(context: Context, days: number): Promise<void> {
-    if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error('请输入 1 至 3650 之间的保留天数')
-    const store = await PreferencesStore.open(context, 'org_tasks_config')
-    await store.put('trashRetentionDays', days)
-    await store.flush()
+  private static queue: Promise<void> = Promise.resolve()
+  static saveRetentionDays(context: Context, days: number): Promise<void> {
+    const work = TrashSettingsService.queue.then(async (): Promise<void> => {
+      if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error('请输入 1 至 3650 之间的保留天数')
+      const store = await PreferencesStore.open(context, 'org_tasks_config')
+      const previous = await store.get('trashRetentionDays', 30)
+      try { await store.put('trashRetentionDays', days); await store.flush() }
+      catch (error) {
+        try { await store.put('trashRetentionDays', previous); await store.flush() }
+        catch (_) { console.error('恢复废纸篓保留天数失败') }
+        throw error as Error
+      }
+    })
+    TrashSettingsService.queue = work.catch((): void => {})
+    return work
   }
 }

@@ -3,6 +3,7 @@ import { fileIo as fs } from '@kit.CoreFileKit'
 import { RepositorySyncService, SyncStartPolicy } from '../../../main/ets/services/RepositorySyncService'
 import { AppConfigService } from '../../../main/ets/services/AppConfigService'
 import { localDate } from '../../../main/ets/ui/Theme'
+import { probeReminders } from './ReminderProbe'
 
 interface EntryMonitor { abilityName: string }
 
@@ -57,6 +58,10 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility' })
     const ability = await delegator.waitAbilityMonitor(monitor, 10000)
     const context = ability.context
+    if (abilityDelegatorRegistry.getArguments().parameters['-s reminderProbe'] === 'true') {
+      await probeReminders(context)
+      return
+    }
     const projectData = abilityDelegatorRegistry.getArguments().parameters['-s projectData'] === 'true'
     const pageData = abilityDelegatorRegistry.getArguments().parameters['-s pageData'] === 'true'
     const notificationWebDav = abilityDelegatorRegistry.getArguments().parameters['-s notificationWebDav'] === 'true'
