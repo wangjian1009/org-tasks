@@ -1,0 +1,44 @@
+#+TITLE: 共享页面读取状态冷启动验收
+#+DATE: 2026-11-18
+#+LANGUAGE: zh-CN
+#+OPTIONS: author:nil toc:nil
+
+* 范围与环境
+
+使用独立 OrgAppDataQA 模拟器、HarmonyOS API 24 和隔离的本地仓库，覆盖应用级共享数据的十个页面。每个场景先停止应用进程、删除页面缓存目录并检查目录不存在，再把目标页面指定为首屏启动。全过程不通过切换页面来代替首次加载。
+
+本次包含十组自然冷启动和十组受控读取等待。自然冷启动的首次布局采样均已完成加载；受控场景由模拟器测试包暂时持有真实仓库事务文件锁，使 Core 处于实际等待状态，再释放锁观察完成。正式页面和 Core 未加入验收延时。
+
+* 实际结果
+
+| 首屏页面 | 缓存清空已确认 | 自然冷启动完成 | 受控读取提示已捕获 | 释放等待后完成状态 |
+|-
+| 收件箱 | 是 | 通过 | 正在读取收件箱 | 展示收件箱记录 |
+| 今天 | 是 | 通过 | 正在读取任务 | 展示今天任务 |
+| 计划 | 是 | 通过 | 正在读取任务 | 展示计划日期及任务 |
+| 等待 | 是 | 通过 | 正在读取任务 | 展示没有符合条件的任务 |
+| 随时 | 是 | 通过 | 正在读取任务 | 展示随时任务 |
+| 某天 | 是 | 通过 | 正在读取任务 | 展示配置文件中的任务 |
+| 备忘 | 是 | 通过 | 正在读取任务 | 展示备忘记录 |
+| 日志簿 | 是 | 通过 | 正在读取任务 | 展示完成记录 |
+| 废纸篓 | 是 | 通过 | 正在读取废纸篓 | 展示废纸篓为空 |
+| 笔记本 | 是 | 通过 | 正在读取笔记本 | 展示仓库及文件清单 |
+
+二十组场景均通过。每组加载完成后，HTTP 返回的当前路径与指定首屏一致，读取提示消失，页面出现预期数据或空态；随后生成的唯一任务缓存为 ~app.json~ ，其中 22 个命名数据集的首次确认版本均为 1。
+
+自然冷启动采样时未观察到中间读取提示；十组受控场景均实际捕获读取提示和完成后的布局、截图，未出现一直停留在读取状态的情况。受控场景包含主动持锁等待，不用于评价加载性能。
+
+* 冷启动入口修复
+
+验收发现，原 EntryAbility 在解析 Want 的目标路径前先异步初始化系统仓库；窗口生命周期可能先到达，从而先加载默认今天页。现已在任何异步等待之前解析启动路径，仓库初始化未完成时也直接加载指定页面；初始化结束不再额外加载默认页或重建目标页。宿主回归使用尚未完成的初始化 Promise 验证此边界。
+
+测试启动的页面范围与普通启动隔离，契约见 [[file:../core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。项目详情、完整文件阅读及其他独立入口不属于本次共享页面矩阵。
+
+* 证据
+
+完整结果与每组缓存、首屏布局、读取中及完成后的截图保存在 [[file:../../output/qa/loading-states-confirmed/results.json][二十组实际结果]] 所在目录。各组目录包含启动日志、缓存清空检查、布局 JSON 和截图。
+
+- 收件箱：[[file:../../output/qa/loading-states-confirmed/controlled-Inbox/loading.png][读取中]]、[[file:../../output/qa/loading-states-confirmed/controlled-Inbox/ready.png][加载完成]]。
+- 等待：[[file:../../output/qa/loading-states-confirmed/controlled-Waiting/loading.png][读取中]]、[[file:../../output/qa/loading-states-confirmed/controlled-Waiting/ready.png][加载完成空态]]。
+- 废纸篓：[[file:../../output/qa/loading-states-confirmed/controlled-Trash/loading.png][读取中]]、[[file:../../output/qa/loading-states-confirmed/controlled-Trash/ready.png][加载完成空态]]。
+- 笔记本：[[file:../../output/qa/loading-states-confirmed/controlled-Files/loading.png][读取中]]、[[file:../../output/qa/loading-states-confirmed/controlled-Files/ready.png][加载完成]]。

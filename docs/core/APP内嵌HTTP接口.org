@@ -11,6 +11,8 @@
 
 Core 不读取宿主启动参数、不决定自动启动。Harmony APP 只在 ~Want.parameters.httpApiEnabled === true~ 时调用当前 Workspace 启动接口，固定监听 ~127.0.0.1:8787~ 。普通点击图标启动不提供服务；不增加设置入口或持久化开关。进程退出后服务自然结束，下次普通启动不会恢复。
 
+显式测试启动可同时提供 ~Want.parameters.httpApiPage~ ，直接将指定页面作为首屏加载；该字段仅在 ~httpApiEnabled === true~ 时生效，不持久化。允许的值为 ~pages/Inbox~ 、 ~pages/Today~ 、 ~pages/Planned~ 、 ~pages/Waiting~ 、 ~pages/Anytime~ 、 ~pages/Someday~ 、 ~pages/Memo~ 、 ~pages/Logbook~ 、 ~pages/Trash~ 与 ~pages/Files~ 。普通启动忽略该字段，未知页面不改变默认入口；备忘卡片与分享的既有路径契约保持。启动路径在任何异步初始化之前解析，窗口直接加载末级页面，不依赖仓库初始化是否完成。
+
 运行中的 APP 收到显式 true 参数可临时开启，收到 false 参数可停止；没有该参数时保留当前会话状态。仓库配置变化时由应用层重新绑定当前活动 Workspace，主 Ability 销毁时停止。服务没有健康检查、仓库管理或启动停止等 REST 入口。导航接口随同一临时服务启停，主窗口未就绪时返回 503。
 
 * 通用约定

@@ -10,11 +10,44 @@ interface EntryMonitor { abilityName: string }
 export default class OpenHarmonyTestRunner implements TestRunner {
   onPrepare(): void {}
   onRun(): void {
-    this.seed().then(async (): Promise<void> => {
+    const page = abilityDelegatorRegistry.getArguments().parameters['-s loadingPage']
+    const operation = typeof page === 'string' ? this.launchLoadingPage(page) : this.seed()
+    operation.then(async (): Promise<void> => {
       await abilityDelegatorRegistry.getAbilityDelegator().finishTest('专用模拟器数据准备完成', 0)
     }).catch(async (error: Error): Promise<void> => {
       await abilityDelegatorRegistry.getAbilityDelegator().finishTest(`数据准备失败：${error.message}`, 1)
     })
+  }
+  private async launchLoadingPage(page: string): Promise<void> {
+    try {
+    const pages = ['Inbox', 'Today', 'Planned', 'Waiting', 'Anytime', 'Someday', 'Memo', 'Logbook', 'Trash', 'Files']
+    if (!pages.includes(page)) throw new Error('不支持此读取状态页面')
+    const delegator = abilityDelegatorRegistry.getAbilityDelegator()
+    const filesDir = '/data/storage/el2/base/haps/entry/files'
+    const repositories = (await fs.listFile(filesDir)).filter(name => /^notification-data-qa-[0-9]+$/.test(name))
+    if (repositories.length !== 1) throw new Error('读取状态验收要求唯一的隔离模拟器仓库')
+    const cache = `${filesDir}/page-data/v1`
+    if (await fs.access(cache)) {
+      for (const name of await fs.listFile(cache)) await fs.unlink(`${cache}/${name}`)
+      await fs.rmdir(cache)
+    }
+    if (await fs.access(cache)) throw new Error('页面缓存未清空')
+    const lock = await fs.open(`${filesDir}/${repositories[0]}/.sync/.transaction.lock`, fs.OpenMode.READ_ONLY)
+    let locked = false
+    try {
+      lock.tryLock(true)
+      locked = true
+      await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility',
+        parameters: { httpApiEnabled: true, httpApiPage: `pages/${page}` } })
+      // 只延长真实仓库锁等待，页面与 Core 不加入验收专用延时。
+      await new Promise<void>((resolve): void => { setTimeout(resolve, 3500) })
+    } finally {
+      if (locked) lock.unlock()
+      await fs.close(lock)
+    }
+    // 保留界面供宿主采集加载完成后的布局和接口结果。
+    await new Promise<void>((resolve): void => { setTimeout(resolve, 4500) })
+    } catch (error) { throw error as Error }
   }
   private async seed(): Promise<void> {
     try {

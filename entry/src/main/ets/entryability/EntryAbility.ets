@@ -28,10 +28,10 @@ export default class EntryAbility extends UIAbility {
   private notificationBackgrounded: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    this.readDestination(want)
     NativeCoreService.start()
     await SystemRepositoryService.ensure(this.context)
     AppDataManager.shared(this.context).start().catch((error: Error): void => { console.error(`初始化共享数据失败：${error.message}`) })
-    this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }
     if (!AppStorage.has('repositorySync')) AppStorage.setOrCreate('repositorySync', emptyRepositorySyncState())

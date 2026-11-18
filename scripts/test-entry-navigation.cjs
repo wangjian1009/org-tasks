@@ -20,6 +20,20 @@ test('备忘入口只接受完整路径，旧卡片参数不再触发导航', ()
   }
   assert.equal(entryNavigation({parameters:{page:'inbox'}}).current.url,'pages/Inbox');
 });
+test('显式测试启动可直接指定共享页面，普通启动、字符串开关和未知页面拒绝', () => {
+  const pages = ['Inbox','Today','Planned','Waiting','Anytime','Someday','Memo','Logbook','Trash','Files'];
+  for (const name of pages) {
+    const url = 'pages/' + name;
+    const path = entryNavigation({ parameters: { httpApiEnabled: true, httpApiPage: url } });
+    assert.deepEqual(path.pages, [{ url, params: undefined }]);
+    for (const enabled of [undefined, false, 'true']) {
+      assert.equal(entryNavigation({ parameters: { httpApiEnabled: enabled, httpApiPage: url } }), undefined);
+    }
+  }
+  for (const httpApiPage of ['pages/ProjectDetail', 'pages/MemoEdit', '../pages/Today', '', 1]) {
+    assert.equal(entryNavigation({ parameters: { httpApiEnabled: true, httpApiPage } }), undefined);
+  }
+});
 test('无效外部路径不修改已有界面，未知字段和互斥目标拒绝', () => {
   for(const value of [null,{},[],{pages:[]},{pages:[root,{url:'pages/Capture'}]},
     {pages:[root,{url:'pages/MemoEdit',params:{create:true,memoId:'m'}}]},

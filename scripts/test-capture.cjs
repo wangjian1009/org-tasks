@@ -37,7 +37,7 @@ function etsLoader(mocks = {}, globals = {}) {
       if (dependency.startsWith('.')) return load(path.relative(sourceRoot, path.resolve(path.dirname(filename), dependency)));
       throw new Error('缺少平台替身: ' + dependency);
     };
-    vm.runInThisContext('(function(require,module,exports,LocalStorage,canIUse,setTimeout,clearTimeout){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage, globals.canIUse || (() => true), globals.setTimeout || setTimeout, globals.clearTimeout || clearTimeout);
+    vm.runInThisContext('(function(require,module,exports,LocalStorage,canIUse,setTimeout,clearTimeout,AppStorage){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage, globals.canIUse || (() => true), globals.setTimeout || setTimeout, globals.clearTimeout || clearTimeout, globals.AppStorage);
     return module.exports;
   };
 }
@@ -49,6 +49,7 @@ function repository(id) {
 
 test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只加载目标页面', async () => {
   const restoredPaths = [];
+  let initialization = Promise.resolve();
   const { pageNavigatorMock } = require('./helpers/page-navigator.cjs');
   const EntryAbility = etsLoader({
     '../services/PageNavigator': { ...pageNavigatorMock, PageNavigator: { shared: {
@@ -56,6 +57,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
       restore(path) { restoredPaths.push(JSON.parse(JSON.stringify({ pages: path.pages }))); }
     } } },
     '../services/NativeCoreService': { NativeCoreService: { start() {} } },
+    '../services/SystemRepositoryService': { SystemRepositoryService: { ensure: () => initialization } },
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
@@ -64,7 +66,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
     '../services/DataSetManager': { DataSetManager: { async flushAll() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
     '../ui/Theme': { UiColor: {} }
-  }, { LocalStorage: class { constructor(values) { this.values = values; } } })('entryability/EntryAbility').default;
+  }, { LocalStorage: class { constructor(values) { this.values = values; } }, AppStorage: { has: () => true } })('entryability/EntryAbility').default;
   const ability = new EntryAbility();
   const pages = [], destinations = [];
   const mainWindow = { async setWindowSystemBarProperties() {}, getUIContext() {
@@ -113,6 +115,17 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   assert.equal(pages.at(-1), 'pages/MemoEdit');
   assert.equal(destinations.at(-1).entryMemoId, 'cold-record');
   assert.deepEqual(restoredPaths.at(-1), { pages: [memoRoot, { url: 'pages/MemoEdit', params: { memoId: 'cold-record' } }] });
+  let release;
+  initialization = new Promise(resolve => { release = resolve; });
+  const pendingCold = new EntryAbility();
+  const creating = pendingCold.onCreate({ parameters: { httpApiEnabled: true, httpApiPage: 'pages/Planned' } }, {});
+  const beforeWindow = pages.length;
+  await pendingCold.onWindowStageCreate(stage);
+  assert.equal(pages.length, beforeWindow + 1);
+  assert.equal(pages.at(-1), 'pages/Planned', '仓库初始化未完成时窗口也应直接加载指定页面');
+  release();
+  await creating;
+  assert.equal(pages.length, beforeWindow + 1, '初始化完成不再重开默认页面或目标页面');
 });
 
 function fixture() {

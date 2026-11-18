@@ -3,9 +3,17 @@ import { PagePath, PageRoute } from './PagePath'
 
 interface EntryPath { pages: PageRoute[] }
 
+const TEST_ENTRY_PAGES: string[] = ['pages/Inbox', 'pages/Today', 'pages/Planned', 'pages/Waiting',
+  'pages/Anytime', 'pages/Someday', 'pages/Memo', 'pages/Logbook', 'pages/Trash', 'pages/Files']
+
 // 外部入口只描述目标路径，不依赖任何页面先出现或完成数据加载。
 export function entryNavigation(want: Want): PagePath | undefined {
   const parameters = want.parameters
+  // 与临时 HTTP 接口共用显式测试开关；普通启动不接受任意页面入口。
+  if (parameters?.httpApiEnabled === true && typeof parameters.httpApiPage === 'string') {
+    if (!TEST_ENTRY_PAGES.includes(parameters.httpApiPage)) return undefined
+    return new PagePath([{ url: parameters.httpApiPage }])
+  }
   if (typeof parameters?.navigation === 'string') {
     try {
       const value = JSON.parse(parameters.navigation) as EntryPath
