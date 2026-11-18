@@ -77,7 +77,7 @@ export struct LogbookTaskList {
       begin: (): void => { this.selection.start(item.task.id) }, toggle: (): void => { this.selection.toggle(item.task.id) } }) {
         Column() {
         TaskEditor({ controller, allowDeletion: this.ready && !this.trashMode, dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: true, logShowPolicy: LogShowPolicy.LogShowAlways, allowCompletion: this.ready && !this.trashMode, instanceKey: item.key,
-          dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : this.trashMode ? TaskDateDisplay.Deleted : TaskDateDisplay.Closed,
+          todayFlag: this.trashMode, dateDisplay: group.kind === 'day' ? TaskDateDisplay.None : this.trashMode ? TaskDateDisplay.Deleted : TaskDateDisplay.Closed,
           timeDisplay: this.trashMode && group.kind === 'day' ? TaskTimeDisplay.Deleted : TaskTimeDisplay.None,
           regionAreaPolicy: this.trashMode || group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
           referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })

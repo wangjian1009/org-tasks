@@ -1019,7 +1019,7 @@ export struct TaskEditor {
 
   leadingTime(): string { return taskTimeForDisplay(this.value(), this.timeDisplay) }
 
-  showTodayFlag(): boolean { return this.todayFlag && taskDateIsToday(this.value().scheduled, new Date(this.referenceTime)) }
+  showTodayFlag(): boolean { return !this.expanded && this.todayFlag && taskDateIsToday(this.value().scheduled, new Date(this.referenceTime)) }
 
   leadingWidth(): number {
     return (this.leadingTime() ? 54 : 0)
@@ -1408,14 +1408,6 @@ export struct TaskEditor {
     // 控件固定在首行槽位；标题留白由行高推导，后续文字只向下增长。
     Row({ space: 6 }) {
       Row() { this.stateIndicator() }.height(UiSize.taskRow)
-      if (this.showTodayFlag()) {
-        Row() { Image($r('app.media.nav_today')).width(20).height(20).accessibilityText('计划于今天') }.height(UiSize.taskRow)
-      }
-      if (this.value().isHabit) {
-        Row() { Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务') }.height(UiSize.taskRow)
-      } else if (this.value().isRepeating) {
-        Row() { Image($r('app.media.ui_task_repeat')).width(20).height(20).accessibilityText('循环任务') }.height(UiSize.taskRow)
-      }
       Row({ space: 4 }) {
         if (this.value().priority) {
           Row() { this.priorityBadge(!this.readOnly) }.height(UiSize.taskRow)
