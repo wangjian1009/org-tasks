@@ -1,8 +1,6 @@
 import { AppDataManager } from '../services/AppDataManager'
 import { PageNavigator } from '../services/PageNavigator'
-import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
-import { AppConfig } from '../models/OrgTask'
-import { FileTargetService, systemTrashExclusions } from '../services/FileTargetService'
+import { DataSetManager, DataSet } from '../services/DataSetManager'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -23,7 +21,7 @@ import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { RegionOrderService } from '../services/RegionOrderService'
 import { RegionOrder, OrderRegion, regionOrderCatalog, regionOrderFromDraft, orderTodaySections, todayVisibleRegionKeys } from '../ui/RegionOrderPresentation'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
-import { overviewTaskQuery, plannedRegionQuery, overviewTitle, TaskView } from '../services/TaskViewQueries'
+import { overviewTitle, TaskView } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, TodayTimedTaskItem, todayLayout, anytimeSections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
@@ -40,7 +38,6 @@ export struct TaskPageContent {
   private rangeDataSet: DataSet | undefined = undefined
   private targetDataSet: DataSet | undefined = undefined
   private orderFilesDataSet: DataSet | undefined = undefined
-  private trashConfig: AppConfig | undefined = undefined
   private stops: (() => void)[] = []
   @State pageReady: boolean = false
   private taskDataSet(): DataSet { return this.view === 'planned' && !this.selectedPlanRegion ? this.rangeDataSet! : this.tasksDataSet! }
@@ -104,7 +101,10 @@ export struct TaskPageContent {
     this.orderActive = false
     for (const stop of this.stops) stop()
     this.stops = []
-    if (this.view !== 'today') this.dataManager?.close().catch((): void => { console.error('保存页面数据失败') })
+    if (this.view === 'planned') {
+      this.selectedPlanRegion = null
+      AppDataManager.active?.selectPlannedRegion(null).catch((): void => { console.error('释放计划筛选失败') })
+    }
     this.dataManager = undefined
   }
 
@@ -217,47 +217,20 @@ export struct TaskPageContent {
       save: async (draft: OrderRegion[], reset: boolean): Promise<void> => { await this.saveRegionOrder(draft, reset) } })
   }
 
-  defineDataSets(config: AppConfig, view: TaskView, region: TaskRegionData | null): DataSetDefinition[] {
-    this.trashConfig = config
-    const definitions: DataSetDefinition[] = []
-    if (view === 'memo' || view === 'someday') {
-      const target = FileTargetService.prepareConfigured(config, view)
-      if (target) definitions.push({ name: 'tasks', query: target.task, repositoryBindings: target.repositoryBindings },
-        { name: 'target', query: target.file, repositoryBindings: target.repositoryBindings })
-    } else {
-      definitions.push({ name: view === 'planned' ? 'range' : 'tasks', query: { type: 'task', query: overviewTaskQuery(view) } })
-      if (view === 'planned') definitions.push({ name: 'tasks', query: region ? plannedRegionQuery(region) : { type: 'task', query: overviewTaskQuery('planned') } })
-    }
-    if (view !== 'someday') definitions.push({ name: 'files', query: { type: 'file', query: {} } })
-    const trash = systemTrashExclusions(config)
-    for (const definition of definitions) {
-      if (trash.files.length > 0 && definition.query.type === 'task' && view !== 'memo' && view !== 'someday') {
-        definition.query.query.excludeFiles = (definition.query.query.excludeFiles ?? []).concat(trash.files)
-        definition.repositoryBindings = (definition.repositoryBindings ?? []).concat(trash.repositoryBindings)
-      }
-    }
-    return definitions
-  }
-
   async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
     if (this.plannedSelection.selecting || this.plannedSelection.blocked()) return
     if (!await TaskInlineSession.end(true)) return
     this.selectedPlanRegion = region
-    if (region) {
-      const query = plannedRegionQuery(region)
-      if (query.type === 'task' && this.trashConfig) query.query.excludeFiles = systemTrashExclusions(this.trashConfig).files
-      await this.tasksDataSet?.setQuery(query)
-    }
+    await AppDataManager.shared(this.getUIContext().getHostContext()!).selectPlannedRegion(region)
     this.applyPageSnapshot()
   }
 
   async loadTasks() {
     if (!this.dataManager) {
       const view = this.view
-      this.dataManager = view === 'today' ? AppDataManager.shared(this.getUIContext().getHostContext()!).manager
-        : DataSetManager.create(this.getUIContext().getHostContext()!, overviewTitle(view),
-          (config: AppConfig): DataSetDefinition[] => this.defineDataSets(config, view, null))
-      this.tasksDataSet = this.dataManager.dataSet(view === 'today' ? 'todayTasks' : 'tasks')
+      const app = AppDataManager.shared(this.getUIContext().getHostContext()!)
+      this.dataManager = app.manager
+      this.tasksDataSet = view === 'planned' ? app.dataSet('plannedFiltered') : app.taskDataSet(view)
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       if (view === 'today') {
         this.orderFilesDataSet = this.dataManager.dataSet('orderFiles')
@@ -270,11 +243,11 @@ export struct TaskPageContent {
         }))
       }
       if (view === 'planned') {
-        this.rangeDataSet = this.dataManager.dataSet('range')
+        this.rangeDataSet = this.dataManager.dataSet('planned')
         this.stops.push(this.rangeDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       }
       if (view === 'memo' || view === 'someday') {
-        this.targetDataSet = this.dataManager.dataSet('target')
+        this.targetDataSet = this.dataManager.dataSet(`${view}File`)
         this.stops.push(this.targetDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       }
     }
@@ -305,7 +278,10 @@ export struct TaskPageContent {
     if (this.view === 'planned') {
       const range = this.rangeDataSet?.data
       this.planRegionOptions = plannedRegionOptions(range?.type === 'task' ? range.result.tasks : [])
-      if (this.rangeDataSet?.isReady() && this.selectedPlanRegion && !this.planRegionOptions.some(region => region.key === this.selectedPlanRegion?.key)) this.selectedPlanRegion = null
+      if (this.rangeDataSet?.isReady() && this.selectedPlanRegion && !this.planRegionOptions.some(region => region.key === this.selectedPlanRegion?.key)) {
+        this.selectedPlanRegion = null
+        AppDataManager.active?.selectPlannedRegion(null).catch((): void => { console.error('释放失效计划筛选失败') })
+      }
     }
     const dataSet = this.taskDataSet()
     if (!dataSet) return

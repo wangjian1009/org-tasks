@@ -27,12 +27,17 @@ test('同步完成由管理层刷新，即使没有业务文件变化也能更�
 test('失败保留最近快照，显式重试恢复，关闭后在途结果不再发布',async()=>{const f=fixture();await f.manager.start();f.fail(new Error('离线'));await f.manager.refresh();assert.equal(f.states.at(-1).value.value,1);assert.match(f.states.at(-1).message,/离线/);f.fail(undefined);f.value(2);await f.manager.refresh();assert.equal(f.states.at(-1).message,'');const hold=f.hold(),reading=f.manager.refresh();await until(()=>f.reads()===4);const before=f.states.length;f.manager.close();hold.resolve();await reading;assert.equal(f.states.length,before);assert.deepEqual(f.stops,[1]);});
 test('关闭时尚未完成的订阅注册会清理句柄，不读取文件',async()=>{const f=fixture(),hold=f.registerHold();const reading=f.manager.start();await until(()=>f.events.length===1);f.manager.close();hold.resolve();await reading;assert.deepEqual(f.stops,[1]);assert.equal(f.reads(),0);});
 
-test('笔记本发布可独立复制的元信息模型，界面项目判断不依赖原生方法绑定',async()=>{
- const native={repoId:'repo',path:'project.org',projectName:'项目',category:null,title:'标题',titleParts:[],tagOptions:[],tagGroups:[],isIgnore:false,hasConflict:false,taskStateCounts:[],priorityOptions:[],defaultPriority:{name:'B',category:'Middle'},byteLength:0,modifiedAt:null,
-  taskStateOf(){return null},taskPriorityOf(){return null},project(){throw new Error('不能从复制后的界面调用原生方法')}};
- function load(file,mocks){const module={exports:{}};const code=ts.transpileModule(fs.readFileSync('entry/src/main/ets/services/'+file+'.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;vm.runInNewContext(code,{module,exports:module.exports,require:name=>{assert.ok(name in mocks,name);return mocks[name]}});return module.exports;}
- const snapshots=load('PageDataSnapshot',{'./NativeCoreService':{}});
- const {NotebookDataManager}=load('ReadingDataManager',{'./NotebookService':{NotebookService:{async list(){return[{files:[native]}]}}},'./PageDataSnapshot':snapshots,'./SnapshotDataManager':{SnapshotDataManager:class{constructor(context,reader){this.reader=reader}}},'../ui/Theme':{},'./NativeCoreService':{}});
- const manager=new NotebookDataManager({}),value=await manager.reader({repos:[]});const file=value.groups[0].files[0];
- assert.equal(file.project(),'项目');assert.notEqual(file,native);assert.equal(file.taskStateOf('Todo'),null);
+test('笔记本复用 App 元信息、仓库上下文和订阅，关闭只释放展示监听', async()=>{
+ const file={repoId:'repo',path:'project.org',projectName:'项目',project:()=> '项目'},listeners=new Set();
+ let starts=0,refreshes=0;
+ const config={repos:[{id:'host',rootDirectory:'/repo',name:'仓库'}]};
+ const app={configuration:config,manager:{repositoryInfo:[{id:'repo',rootDirectory:'/repo'}]},
+   dataSet:name=>{assert.equal(name,'notebookFiles');return {data:{type:'file',result:[file]},error:'',subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)},refresh:async()=>{refreshes++;}}},start:async()=>{starts++;}};
+ const module={exports:{}};
+ const mocks={'./AppDataManager':{AppDataManager:{shared:()=>app}},'./NotebookService':{},'./SnapshotDataManager':{SnapshotDataManager:class{}},'../ui/Theme':{repositoryLabel:repo=>repo.name},'./NativeCoreService':{}};
+ const code=ts.transpileModule(fs.readFileSync('entry/src/main/ets/services/ReadingDataManager.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ vm.runInThisContext('(function(module,exports,require){'+code+'})')(module,module.exports,name=>{assert.ok(name in mocks,name);return mocks[name]});
+ const manager=new module.exports.NotebookDataManager({});let state;manager.subscribe(value=>state=value);await manager.start();
+ assert.equal(state.value.groups[0].files[0],file);assert.equal(state.value.groups[0].configId,'host');assert.equal(starts,1);
+ await manager.refresh();assert.equal(refreshes,1);manager.close();assert.equal(listeners.size,0);
 });

@@ -1,10 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { UIContext } from '@kit.ArkUI'
 import { PagePath, PageRoute } from './PagePath'
-import { AppConfigService } from './AppConfigService'
-import { DataSetManager } from './DataSetManager'
-import { FileTargetService } from './FileTargetService'
-import { NativeCoreService } from './NativeCoreService'
+import { AppDataManager } from './AppDataManager'
 import { TaskView } from './TaskViewQueries'
 
 export function primaryPage(view: TaskView | 'inbox'): PageRoute {
@@ -25,14 +22,9 @@ export class PageNavigator {
   static readonly shared: PageNavigator = new PageNavigator()
   private state: PagePath = new PagePath([primaryPage('today')])
   private context: Context | undefined = undefined
-  private dataSets: DataSetManager | undefined = undefined
-  private stopData: (() => void) | undefined = undefined
-  private inboxCount: number = 0
-  private dataRevision: number = 0
-  private dataLoading: Promise<void> | undefined = undefined
+  private app: AppDataManager | undefined = undefined
   private navigating: boolean = false
   private nativeDepth: number = 1
-  private configurationChanged = (): void => { this.refreshInbox() }
   private backHandlers: Map<string, () => boolean | Promise<boolean>> = new Map()
 
   get path(): PagePath { return this.state }
@@ -56,63 +48,13 @@ export class PageNavigator {
   start(context: Context): void {
     if (this.context) return
     this.context = context
-    AppConfigService.watchChanges(this.configurationChanged)
-    this.refreshInbox()
-  }
-
-  private refreshInbox(): void {
-    this.dataRevision++
-    this.inboxCount = 0
-    if (!this.dataLoading) {
-      this.dataLoading = this.loadInbox().finally((): void => { this.dataLoading = undefined })
-    }
-  }
-
-  private async loadInbox(): Promise<void> {
-    let revision = -1
-    while (this.context && revision !== this.dataRevision) {
-      revision = this.dataRevision
-      this.stopData?.(); this.stopData = undefined
-      const previous = this.dataSets
-      this.dataSets = undefined
-      try {
-        await previous?.close()
-        const context = this.context
-        if (!context) return
-        const config = await AppConfigService.load(context, false)
-        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-        const target = FileTargetService.prepare(config, await workspace.repos(), 'inbox')
-        if (!this.context || revision !== this.dataRevision) continue
-        if (!target) return
-        const manager = DataSetManager.create(context, 'page-navigation', [
-          { name: 'inbox', query: target.task }, { name: 'file', query: target.file }
-        ])
-        this.dataSets = manager
-        const inbox = manager.dataSet('inbox')
-        const file = manager.dataSet('file')
-        const update = (): void => {
-          if (revision !== this.dataRevision || !manager.hasValidScope()) return
-          this.inboxCount = FileTargetService.result(inbox.data, file.data)?.tasks.length ?? 0
-        }
-        const stopInbox = inbox.subscribe(update)
-        const stopFile = file.subscribe(update)
-        this.stopData = (): void => { stopInbox(); stopFile() }
-        await manager.start()
-        update()
-      } catch (_) {
-        if (revision === this.dataRevision) console.error('读取导航收件箱数量失败')
-      }
-    }
+    this.app = AppDataManager.shared(context)
+    this.app.start().catch((): void => { console.error('读取导航共享数据失败') })
   }
 
   async close(): Promise<void> {
     this.context = undefined
-    this.dataRevision++
-    AppConfigService.stopWatchingChanges(this.configurationChanged)
-    await this.dataLoading
-    this.stopData?.(); this.stopData = undefined
-    await this.dataSets?.close(); this.dataSets = undefined
-    this.inboxCount = 0
+    this.app = undefined
   }
 
   // 业务可直接设置完整路径；一级入口始终重建为单节点路径。
@@ -156,7 +98,7 @@ export class PageNavigator {
       // 不等待查询或网络：返回使用当前订阅快照，尚无结果时按空收件箱处理。
       const page = this.state.current
       const today = page.url === 'pages/Today'
-      const target = page.url === 'pages/Inbox' ? 'today' : today || this.inboxCount > 0 ? 'inbox' : 'today'
+      const target = page.url === 'pages/Inbox' ? 'today' : today || (this.app?.targetCount('inbox') ?? 0) > 0 ? 'inbox' : 'today'
       await this.replaceRoot(context, primaryPage(target))
     })
   }

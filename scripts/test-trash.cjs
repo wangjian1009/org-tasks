@@ -62,54 +62,48 @@ test('同文件混合版本或系统目标不可用时不提交部分操作', as
   assert.equal(f.groups.length, 0);
 });
 function managerFixture({ version = 1, expired = [task('expired')], fail = false } = {}) {
-  const backend = serviceFixture(), definitions = [], operated = [];
-  let starts = 0, closes = 0, failure = fail;
-  const sets = new Map();
-  function dataSet(name) {
-    if (!sets.has(name)) sets.set(name, { version, error: '', isReady: () => true,
-      data: { type: 'task', result: { tasks: name === 'expired' ? expired : [] } },
-      operate: async work => { operated.push(name); if (failure) throw new Error('提交失败'); await work('dataset/cleanup'); },
-      settle: async () => {} });
-    return sets.get(name);
-  }
-  const manager = { dataSet, start: async () => { starts++; }, isReady: () => true,
-    refresh: async () => { for (const set of sets.values()) set.version = 1; }, close: async () => { closes++; } };
-  const { TrashDataManager } = load('services/TrashDataManager', {
-    '../models/SystemRepository': system,
-    './DataSetManager': { DataSetManager: { create: (_, page, factory) => { assert.equal(page, '废纸篓'); definitions.push(factory); return manager; } } },
-    './TrashSettingsService': { TrashSettingsService: { retentionDays: async () => 7 } },
-    './TrashService': { TrashService: backend.service }
-  });
-  const value = new TrashDataManager({});
-  // 查询定义在保留天数异步读取之后由真正的 DataSetManager 调用。
-  manager.start = async () => { starts++; definitions[0](config).forEach(definition => dataSet(definition.name)); };
-  return { value, backend, definitions, sets, operated, starts: () => starts, closes: () => closes, fail: v => { failure = v; } };
+  const backend=serviceFixture(),operated=[],definitions=[];let closes=0,failure=fail,starts=0;
+  const sets=new Map();
+  function dataSet(name){if(!sets.has(name))sets.set(name,{version,error:'',isReady:()=>true,
+    data:{type:'task',result:{tasks:name==='trashExpired'?expired:[]}},
+    async refresh(){this.version=1;},
+    operate:async work=>{operated.push(name);if(failure)throw new Error('提交失败');await work('dataset/cleanup');},settle:async()=>{}});return sets.get(name);}
+  dataSet('trash').query={type:'task',query:{expression:'.o.deleted',includeFiles:[{repoId:'org-tasks-system',path:'trash.org'}]}};
+  dataSet('trash').repositoryBindings=[{id:'org-tasks-system',rootDirectory:'/sandbox/system'}];
+  const manager={dataSet,async start(){starts++;},async close(){closes++;},async setQuery(name,query,repositoryBindings){definitions.push({name,query,repositoryBindings});dataSet(name).query=query;}};
+  const {AppDataManager}=load('services/AppDataManager',{
+    './DataSetManager':{DataSetManager:{create:()=>manager}},'./AppConfigService':{},'./FileTargetService':{},'./TaskViewQueries':{},
+    './TrashSettingsService':{TrashSettingsService:{retentionDays:async()=>7}},'./TrashService':{TrashService:backend.service}});
+  const app=AppDataManager.shared({});
+  const {TrashDataManager}=load('services/TrashDataManager',{'./AppDataManager':{AppDataManager},'./DataSetManager':{},'./TrashService':{TrashService:backend.service}});
+  return{value:new TrashDataManager({}),app,backend,definitions,sets,operated,starts:()=>starts,closes:()=>closes,fail:v=>failure=v};
 }
-test('打开时先读设置，三项查询限定系统文件，Core 决定过期成员；并发启动只清理一次', async () => {
-  const f = managerFixture();
-  await Promise.all([f.value.start(), f.value.start()]);
-  const definitions = f.definitions[0](config);
-  assert.deepEqual(definitions.map(item => item.query.query.expression), ['.o.deleted', 'deleted.lt.-7d', undefined]);
-  for (const definition of definitions) {
-    assert.deepEqual(definition.query.query.includeFiles, [{ repoId: 'org-tasks-system', path: 'trash.org' }]);
-    assert.deepEqual(definition.repositoryBindings, [{ id: 'org-tasks-system', rootDirectory: '/sandbox/system' }]);
-  }
-  assert.deepEqual(f.operated, ['tasks']); assert.equal(f.backend.groups.length, 1);
-  assert.equal(f.backend.groups[0].operationId, 'dataset/cleanup');
-  await f.value.start(); assert.equal(f.backend.groups.length, 1);
-  await f.value.close(); assert.equal(f.closes(), 1);
+test('废纸篓复用 App 任务，只按需查询过期成员，并发打开只清理一次', async()=>{
+ const f=managerFixture();await Promise.all([f.value.start(),f.value.start()]);
+ assert.equal(f.definitions.length,1);assert.equal(f.definitions[0].query.query.expression,'deleted.lt.-7d');
+ assert.deepEqual(f.definitions[0].query.query.includeFiles,[{repoId:'org-tasks-system',path:'trash.org'}]);
+ assert.deepEqual(f.operated,['trash']);assert.equal(f.backend.groups.length,1);
+ await f.value.close();assert.equal(f.closes(),0,'页面关闭不关闭全局实例');
 });
-test('缓存版本0不能触发永久清理，刷新为真实版本后可以重试', async () => {
-  const f = managerFixture({ version: 0 });
-  await assert.rejects(f.value.start(), /尚未读取完成/);
-  assert.equal(f.backend.groups.length, 0);
-  await f.value.refresh(); assert.equal(f.backend.groups.length, 1);
+test('缓存版本0不能触发永久清理，刷新为真实版本后可以重试', async()=>{
+ const f=managerFixture({version:0});await assert.rejects(f.value.start(),/尚未读取完成/);assert.equal(f.backend.groups.length,0);
+ await f.value.refresh();assert.equal(f.backend.groups.length,1);
 });
-test('清理失败保留原快照且允许重试，空过期集合不提交', async () => {
-  const f = managerFixture({ fail: true });
-  await assert.rejects(f.value.start(), /提交失败/);
-  assert.equal(f.sets.get('expired').data.result.tasks.length, 1);
-  assert.equal(f.backend.groups.length, 0);
-  f.fail(false); await f.value.start(); assert.equal(f.backend.groups.length, 1);
-  const empty = managerFixture({ expired: [] }); await empty.value.start(); assert.equal(empty.backend.groups.length, 0);
+test('清理失败保留原快照且允许重试，空过期集合不提交', async()=>{
+ const f=managerFixture({fail:true});await assert.rejects(f.value.start(),/提交失败/);assert.equal(f.sets.get('trashExpired').data.result.tasks.length,1);
+ assert.equal(f.backend.groups.length,0);f.fail(false);await f.value.start();assert.equal(f.backend.groups.length,1);
+ const empty=managerFixture({expired:[]});await empty.value.start();assert.equal(empty.backend.groups.length,0);
+});
+
+
+test('废纸篓已有共享快照时立即展示，过期检查仍在进行也不显示初始读取状态',async()=>{
+ const source=fs.readFileSync('entry/src/main/ets/pages/Trash.ets','utf8');
+ const methods=['load','applySnapshot'].map(name=>source.match(new RegExp('  (?:async )?'+name+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'))[0]);
+ let release;const pending=new Promise(resolve=>release=resolve);
+ const tasks={data:{type:'task',result:{tasks:[task('cached')]}},error:'',isReady:()=>true,subscribe:()=>()=>{}};
+ const module={exports:{}};
+ const code=ts.transpileModule('export class Page {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ vm.runInThisContext('(function(module,exports,TrashDataManager,logbookGroups,coreErrorMessage){'+code+'})')(module,module.exports,class{constructor(){this.tasks=tasks;}start(){return pending;}},rows=>rows,error=>error.message);
+ const page=Object.assign(new module.exports.Page(),{active:true,loading:true,groups:[],getUIContext:()=>({getHostContext:()=>({})})});
+ const loading=page.load();assert.equal(page.loading,false);assert.equal(page.ready,true);assert.equal(page.groups[0].id,'cached');release();await loading;
 });

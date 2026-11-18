@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreExternalFileChanged, CoreOrgFileRef, CoreRepo, CoreOrgFile, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
+import { CoreExternalFileChanged, CoreQueryRepositoryBinding, CoreOrgFileRef, CoreRepo, CoreOrgFile, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { PageDataCache } from './PageDataCache'
 import { cacheDataSet, restoreDataSet } from './PageDataSnapshot'
 import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueue, DataSetClock, DataSetQuery } from './DataSet'
@@ -33,7 +33,7 @@ export class DataSetManager {
   private readonly source: DataSetDefinition[] | DataSetDefinitionFactory
   private readonly sets: Map<string, DataSet> = new Map()
   private readonly queryRequests: Map<string, number> = new Map()
-  private readonly overrides: Map<string, DataSetQuery> = new Map()
+  private readonly overrides: Map<string, DataSetDefinition | undefined> = new Map()
   private readonly stops: Map<string, () => void> = new Map()
   private readonly subscriptions: Map<string, number> = new Map()
   private readonly subscriptionRequests: Map<string, CoreQuerySubscriptionRequest> = new Map()
@@ -108,26 +108,7 @@ export class DataSetManager {
     if (!dataSet) {
       if (this.initialized) throw new Error(`未定义数据集：${name}`)
       dataSet = new DataSet(this.context, name, this.clock)
-      dataSet.bindQueryChange(async (query: DataSetQuery): Promise<void> => {
-        await this.start()
-        if (this.closed || this.closing) return
-        const request = (this.queryRequests.get(name) ?? 0) + 1
-        this.queryRequests.set(name, request)
-        this.overrides.set(name, query)
-        const definition: DataSetDefinition = { name, query, repositoryBindings: dataSet!.repositoryBindings }
-        this.definitions = this.definitions.filter(item => item.name !== name).concat(definition)
-        this.resetCache()
-        await dataSet!.configure(this.config!, this.workspace!, definition)
-        if (request !== this.queryRequests.get(name) || this.closed || this.closing) return
-        const cache = this.cache
-        const cached = await cache?.read().catch((): undefined => undefined)
-        if (request !== this.queryRequests.get(name) || this.closed || this.closing) return
-        const restored = cached?.find(item => item.name === name)
-        if (restored?.queryKey === this.queryKey(dataSet!)) dataSet!.restore(restoreDataSet(restored))
-        try { await dataSet!.start() }
-        catch (error) { if (request === this.queryRequests.get(name) && !this.closed && !this.closing) throw error as Error }
-        this.scheduleSave()
-      })
+      dataSet.bindQueryChange((query: DataSetQuery): Promise<void> => this.setQuery(name, query, dataSet!.repositoryBindings))
       this.sets.set(name, dataSet)
       this.stops.set(name, dataSet.subscribe((): void => {
         if (this.workspace && !this.closed && Array.from(this.sets.values()).every(item => item.isReady())) this.initialized = true
@@ -135,6 +116,29 @@ export class DataSetManager {
       }))
     }
     return dataSet
+  }
+  // 应用级管理器可按需启用或释放筛选查询；未启用的数据集不注册底层订阅。
+  async setQuery(name: string, query: DataSetQuery | undefined, repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<void> {
+    await this.start()
+    if (this.closed || this.closing) return
+    const dataSet = this.dataSet(name)
+    const request = (this.queryRequests.get(name) ?? 0) + 1
+    this.queryRequests.set(name, request)
+    const definition: DataSetDefinition | undefined = query ? { name, query, repositoryBindings } : undefined
+    this.overrides.set(name, definition)
+    this.definitions = this.definitions.filter(item => item.name !== name)
+    if (definition) this.definitions.push(definition)
+    this.resetCache()
+    await dataSet.configure(this.config!, this.workspace!, definition)
+    if (request !== this.queryRequests.get(name) || this.closed || this.closing) return
+    const cache = this.cache
+    const cached = await cache?.read().catch((): undefined => undefined)
+    if (request !== this.queryRequests.get(name) || this.closed || this.closing) return
+    const restored = cached?.find(item => item.name === name)
+    if (restored?.queryKey === this.queryKey(dataSet)) dataSet.restore(restoreDataSet(restored))
+    try { await dataSet.start() }
+    catch (error) { if (request === this.queryRequests.get(name) && !this.closed && !this.closing) throw error as Error }
+    this.scheduleSave()
   }
   start(): Promise<DataLoadResult[]> {
     if (this.closed || this.closing) return Promise.reject(new Error('数据集管理器已关闭'))
@@ -151,8 +155,17 @@ export class DataSetManager {
     const definitions = typeof this.source === 'function' ? this.source(config) : this.source
     this.validate(definitions)
     if (this.closed || this.closing || generation !== this.generation) return []
-    const resolved = definitions.map((definition): DataSetDefinition => this.overrides.has(definition.name)
-      ? { name: definition.name, query: this.overrides.get(definition.name)!, repositoryBindings: definition.repositoryBindings } : definition)
+    const resolved: DataSetDefinition[] = []
+    for (const definition of definitions) {
+      if (!this.overrides.has(definition.name)) resolved.push(definition)
+      else {
+        const override = this.overrides.get(definition.name)
+        if (override) resolved.push({ name: definition.name, query: override.query, repositoryBindings: definition.repositoryBindings })
+      }
+    }
+    for (const definition of this.overrides.values()) {
+      if (definition && !definitions.some(item => item.name === definition.name)) resolved.push(definition)
+    }
     for (const definition of resolved) this.dataSet(definition.name)
     this.config = config; this.workspace = workspace; this.definitions = resolved
     this.resetCache()
@@ -328,6 +341,7 @@ export class DataSetManager {
       ? JSON.stringify({ query: dataSet.query, repositoryBindings: dataSet.repositoryBindings })
       : JSON.stringify(dataSet.query) ?? ''
   }
+  get repositoryInfo(): CoreRepo[] { return this.repositories.slice() }
   hasValidScope(): boolean { return !this.closed && !this.closing }
   isReady(): boolean { return this.initialized && Array.from(this.sets.values()).every(dataSet => dataSet.isReady()) }
   async refresh(): Promise<void> { await this.start(); await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.refresh())) }

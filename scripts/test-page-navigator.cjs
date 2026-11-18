@@ -27,30 +27,10 @@ async function until(check) { for (let n = 0; n < 200; n++) { if (check()) retur
 function fixture() {
   const configCallbacks = new Set(), managers = [], stack = [], messages = [], loads = [];
   let count = 0, configured = true, existing = true, fail = false, delay;
-  const workspace = { async repos() { return []; } };
+  const app={start:async()=>{},targetCount:()=>configured&&existing?count:-1};
   const { PageNavigator, primaryPage } = load('PageNavigator', {
     './PagePath': paths,
-    './AppConfigService': { AppConfigService: { async load() { if (delay) await delay; return {}; },
-      watchChanges: fn => configCallbacks.add(fn), stopWatchingChanges: fn => configCallbacks.delete(fn) } },
-    './NativeCoreService': { NativeCoreService: { async workspaceFor() { return workspace; } } },
-    './FileTargetService': { FileTargetService: {
-      prepare: () => configured ? { task: { type: 'task', query: {} }, file: { type: 'file', query: {} } } : undefined,
-      result: (tasks, file) => tasks && file?.result.length ? tasks.result : undefined
-    } },
-    './DataSetManager': { DataSetManager: { create(context, name, definitions) {
-      assert.equal(name, 'page-navigation'); assert.deepEqual(definitions.map(item => item.name), ['inbox', 'file']);
-      const listeners = new Set(), values = new Map();
-      const manager = { closed: false, hasValidScope: () => !manager.closed,
-        dataSet(name) { return { get data() { return values.get(name)?.data; },
-          subscribe(fn) { const callback = event => { if(event.name === name) fn(event); }; listeners.add(callback); return () => listeners.delete(callback); } }; },
-        update() {
-          values.set('inbox', { data: { type: 'task', result: { tasks: Array(count).fill({}), categories: [] } } });
-          values.set('file', { data: { type: 'file', result: existing ? [{}] : [] } });
-          for (const name of ['inbox','file']) for (const fn of listeners) fn({ name, type: 'refresh' });
-        },
-        async start() { manager.update(); }, async close() { manager.closed = true; listeners.clear(); }
-      }; managers.push(manager); return manager;
-    } } }
+    './AppDataManager':{AppDataManager:{shared:()=>app}}
   });
   const navigator = new PageNavigator();
   stack.push(primaryPage('today'));
@@ -63,9 +43,9 @@ function fixture() {
     getPromptAction: () => ({ showToast: value => messages.push(value) }) };
   const verify = () => assert.deepEqual(navigator.path.pages.slice(-stack.length), stack.map(page => ({ url: page.url, params: page.params })));
   return { navigator, primaryPage, context, stack, managers, messages, configCallbacks, verify, loads,
-    start: async () => { navigator.start({}); await until(() => managers.length && navigator.dataLoading === undefined); },
-    count(value) { count = value; managers.at(-1)?.update(); },
-    missing() { existing = false; managers.at(-1)?.update(); },
+    start: async () => { navigator.start({}); await tick(); },
+    count(value) { count = value;  },
+    missing() { existing = false;  },
     configuration(value) { configured = value; for (const fn of configCallbacks) fn(); },
     fail(value) { fail = value; }, delay(value) { delay = value; } };
 }
@@ -137,16 +117,15 @@ test('平台跳转失败恢复原路径，重复点击不会重入跳转', async
   resolve(); await pending; assert.equal(f.navigator.path.depth, 2); f.verify();
 });
 
-test('配置变化关闭旧订阅并重建数据集；关闭清理监听和数据集', async () => {
+test('导航始终读取 App 当前收件箱计数，配置失效按空处理，关闭不释放共享管理器', async () => {
   const f = fixture(); await f.start(); f.count(4);
-  f.configuration(false); await until(() => f.navigator.dataLoading === undefined);
-  assert.equal(f.managers[0].closed, true);
+  f.configuration(false);
   await f.navigator.openPrimary(f.context, { url: 'pages/Files' }); await f.navigator.back(f.context);
   assert.equal(f.navigator.path.current.url, 'pages/Today');
-  f.configuration(true); await until(() => f.managers.length === 2 && f.navigator.dataLoading === undefined);
-  f.count(1); await f.navigator.openPrimary(f.context, { url: 'pages/Settings' }); await f.navigator.back(f.context);
+  f.configuration(true);f.count(1);
+  await f.navigator.openPrimary(f.context, { url: 'pages/Settings' }); await f.navigator.back(f.context);
   assert.equal(f.navigator.path.current.url, 'pages/Inbox');
-  await f.navigator.close(); assert.equal(f.configCallbacks.size, 0); assert.equal(f.managers[1].closed, true);
+  await f.navigator.close();assert.equal(f.managers.length,0);
 });
 
 

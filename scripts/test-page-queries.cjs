@@ -1,4 +1,4 @@
-// 验证页面独立数据集与今天、侧边栏的共享数据集消费。
+// 验证各任务页面、最近新增、侧边栏与角标消费同一应用级数据集。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -52,7 +52,9 @@ function fixture() {
     const emit=name=>{for(const fn of sets.get(name)?.listeners??[])fn({name,type:'refresh'})};
     const query=async(requestSet,requestToken)=>{
       let nextDefinitions=typeof source==='function'?source(config):source;
-      nextDefinitions=nextDefinitions.map(item=>overrides.has(item.name)?{...item,query:overrides.get(item.name)}:item);
+      nextDefinitions=nextDefinitions.filter(item=>!overrides.has(item.name));
+      for(const definition of overrides.values())if(definition)nextDefinitions.push(definition);
+      if(requestSet)nextDefinitions=nextDefinitions.filter(item=>item.name===requestSet);
       for(const item of nextDefinitions)manager.dataSet(item.name);
       // 模拟工作线程的请求别名解析，页面本身没有仓库列表读取。
       const requests=nextDefinitions.map(item=>{
@@ -62,22 +64,23 @@ function fixture() {
         for(const key of ['includeFiles','excludeFiles'])for(const file of request.query[key]??[])file.repoId=resolve(file.repoId);
         return request;
       });
-      const results=await workspace.query(requests);
+      const results=requests.length?await workspace.query(requests):[];
       for(const result of results)if(result.type==='file')native.fileResult(result);
       if(requestSet&&sets.get(requestSet)?.request!==requestToken)return;
       definitions=nextDefinitions;
       for(let i=0;i<definitions.length;i++)data.set(definitions[i].name,{data:results[i],version:1});
-      for(const name of sets.keys())if(!definitions.some(item=>item.name===name))data.set(name,{data:{type:'task',result:{tasks:[],categories:[]}},version:1});
+      for(const name of sets.keys())if((!requestSet||requestSet===name)&&!definitions.some(item=>item.name===name))data.set(name,{data:{type:'task',result:{tasks:[],categories:[]}},version:1});
       ready=true;for(const set of sets.values())set.error='';for(const name of sets.keys())emit(name);
     };
     const configChanged=()=>{started=undefined;manager.start()};configCallbacks.add(configChanged);
     const manager={hasValidScope:()=>true,isReady:()=>ready,get:name=>data.get(name),
-      dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,listeners:new Set(),error:'',isReady:()=>ready,
+      dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,listeners:new Set(),error:'',hasValidScope:()=>true,isReady:()=>ready,
         get data(){return data.get(name)?.data},get version(){return data.get(name)?.version??0},get(name){return data.get(name)},getConfirmed(){return data.get(name)},taskKey:id=>id,
         subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)},
         async refresh(){try{await query()}catch(error){this.error=error.message;emit(name)}},
-        async setQuery(value){const request=Symbol();this.request=request;overrides.set(name,value);try{await query(name,request);if(this.request===request)emit(name)}catch(error){if(this.request===request){this.error=error.message;emit(name)}}}
+        async setQuery(value){return manager.setQuery(name,value)}
       });return sets.get(name)},
+      async setQuery(name,value,repositoryBindings=[]){const set=manager.dataSet(name),request=Symbol();set.request=request;overrides.set(name,value?{name,query:value,repositoryBindings}:undefined);try{await query(name,request);if(set.request===request)emit(name)}catch(error){if(set.request===request){set.error=error.message;emit(name)}}},
       async start(){if(!started)started=query();try{return await started}catch(error){started=undefined;throw error}},
       async refresh(){started=query();try{return await started}catch(error){for(const set of sets.values())set.error=error.message;for(const name of sets.keys())emit(name);throw error}},async close(){for(const set of sets.values())set.listeners.clear();configCallbacks.delete(configChanged)}};
     managers.push({manager,pageName,definitions});return manager;
@@ -102,6 +105,8 @@ function fixture() {
       if (dependency.endsWith('/PageDataSnapshot')) return {
         cacheDataSet: (name, result) => ({name, ...result}), restoreDataSet: ({name, ...result}) => result
       };
+      if (dependency.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
+      if (dependency.endsWith('/TrashService')) return {TrashService:{perform:async()=>{}}};
       if (dependency.endsWith('/CaptureService') || dependency.endsWith('/InboxService')) return {};
       if (dependency.endsWith('/DataSetManager')) return managerFactory;
       if (dependency.endsWith('/NativeCoreService')||dependency==='./NativeCoreService') return native;
@@ -118,8 +123,8 @@ function fixture() {
     const filename=path.join(root,name+'.ets'),text=fs.readFileSync(filename,'utf8');
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
     if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
-    if(name==='components/TaskPageContent'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','defineDataSets','taskDataSet'])];
-    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','defineDataSets','prepareRecentLayout'];
+    if(name==='components/TaskPageContent'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','taskDataSet'])];
+    if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','prepareRecentLayout'];
     const chunks=methods.map(method=>{
       const oneLine=text.split('\n').find(line=>new RegExp('^  (?:private )?'+method+'\\(').test(line)&&line.trim().endsWith('}'));
       if(oneLine)return oneLine;
@@ -135,24 +140,23 @@ function fixture() {
   }
   let pendingExternal;
   const external=()=>{if(!pendingExternal)pendingExternal=new Promise(resolve=>setTimeout(async()=>{pendingExternal=undefined;await Promise.all(managers.filter(item=>item.pageName==='app').map(item=>item.manager.refresh().catch(()=>{})));resolve();},0));return pendingExternal;};
-  return {disk,order(value){regionOrder=value;for(const fn of orderCallbacks)fn(value);},configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});return external();},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
+  return {managers,disk,order(value){regionOrder=value;for(const fn of orderCallbacks)fn(value);},configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});return external();},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
     missing(){missing=true;}, fail(){fail=true;}, query(fn){customQuery=fn;}};
 }
 
 for (const view of ['today','planned','anytime','logbook','someday','memo']) {
-  test(view+(view==='today'?' 通过管理类启动固定数据集':' 首次加载定义独立任务与文件数据集'),async()=>{
+  test(view+(view==='today'?' 通过管理类启动固定数据集':' 首次加载复用 App 任务与文件数据集'),async()=>{
     const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    if(view==='today')assert.equal(page.dataManager,f.load('services/AppDataManager').AppDataManager.shared({}).manager);
-    else assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'?['task','file']:view==='memo'?['task','file','file']:view==='today'?['task','task','file','file']:view==='planned'?['task','task','file']:['task','file']);
+    assert.equal(page.dataManager,f.load('services/AppDataManager').AppDataManager.shared({}).manager);
+
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
     if(view==='someday') {
-      assert.deepEqual(f.batches[0][0].repoIds,['core-b']);
-      assert.deepEqual(f.batches[0][0].query,{expression:'it.todo',includeFiles:[{repoId:'core-b',path:'same.org'}]});
+      assert.ok(f.batches[0].some(item=>item.repoIds?.[0]==='core-b'&&item.query.expression==='it.todo'&&item.query.includeFiles[0].path==='same.org'));
     }
     if(view==='memo')assert.deepEqual(page.tagOptions,['未使用标签']);
   });
@@ -182,8 +186,7 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   // 故意返回不符合分类的任务，确认页面不会重新执行分类过滤。
   const categoryTasks = [tasks[2]], projectTasks = [tasks[0]];
   f.query(batch => batch.map((request, index) => request.type === 'file' ?
-    {type:'file',result:[]} : {type:'task',result:{tasks:index === 0 ? tasks :
-      request.repoIds ? projectTasks : categoryTasks,categories:[]}}));
+    {type:'file',result:[]} : {type:'task',result:{tasks:request.query.categories ? categoryTasks : request.repoIds ? projectTasks : tasks,categories:[]}}));
   page.view = 'planned';
   await page.loadTasks();
   const keys = page.planRegionOptions.map(region => region.key);
@@ -191,17 +194,17 @@ test('计划分类与项目单选互斥，候选保持完整，结果直接使�
   const project = page.planRegionOptions.find(region => region.kind === 'project' && region.repoId === 'core-a');
   await page.selectPlanRegion(category);
   assert.equal(page.tasks, categoryTasks);
-  assert.deepEqual(f.batches[1].map(item => item.type), ['task','task','file']);
-  assert.deepEqual(f.batches[1][1].query.categories, ['工作']);
-  assert.equal(f.batches[1][1].repoIds, undefined);
+  assert.deepEqual(f.batches[1].map(item => item.type), ['task']);
+  assert.deepEqual(f.batches[1][0].query.categories, ['工作']);
+  assert.equal(f.batches[1][0].repoIds, undefined);
   assert.deepEqual(page.planRegionOptions.map(region => region.key), keys);
   await page.selectPlanRegion(project);
   assert.equal(page.selectedPlanRegion.key, project.key);
   assert.equal(page.tasks, projectTasks);
-  assert.equal(f.batches[2][1].query.categories, undefined, '项目选择替换分类条件');
-  assert.deepEqual(f.batches[2][1].repoIds, ['core-a']);
-  assert.deepEqual(f.batches[2][1].query.includeFiles,[{repoId:'core-a',path:'project.org'}]);
-  assert.ok(f.batches[2][1].query.expression.includes('.is.habit'));
+  assert.equal(f.batches[2][0].query.categories, undefined, '项目选择替换分类条件');
+  assert.deepEqual(f.batches[2][0].repoIds, ['core-a']);
+  assert.deepEqual(f.batches[2][0].query.includeFiles,[{repoId:'core-a',path:'project.org'}]);
+  assert.ok(f.batches[2][0].query.expression.includes('.is.habit'));
   await page.selectPlanRegion(null);
   assert.equal(page.tasks, tasks);
   assert.equal(page.selectedPlanRegion, null);
@@ -260,10 +263,10 @@ test('计划快速切换时迟到结果不覆盖最后一次选择与任务', as
     plannedTask('b','core-b','b.org','生活','项目乙')];
   let release;
   f.query(async batch => {
-    const selected = batch[1]?.type === 'task' ? batch[1] : null;
+    const selected = batch.find(request=>request.type==='task'&&(request.query.categories||request.repoIds));
     if (selected?.query.categories) await new Promise(resolve => { release = resolve; });
     return batch.map((request,index) => request.type === 'file' ? {type:'file',result:[]} :
-      {type:'task',result:{tasks:index === 0 ? tasks : [selected?.repoIds ? tasks[1] : tasks[0]],categories:[]}});
+      {type:'task',result:{tasks:request.query.categories||request.repoIds ? [selected?.repoIds ? tasks[1] : tasks[0]] : tasks,categories:[]}});
   });
   page.view = 'planned';
   await page.loadTasks();
@@ -288,12 +291,12 @@ test('日志簿向 Core 请求 Done 与 Cancel 分类，每个返回任务只展
     { id:'older', project:()=>null, state:{name:'OTHER_CANCEL',category:'Cancel'}, createdAt:1_600_000_000_000, closedAt:null }
   ];
   f.query(batch => batch.map(request => request.type === 'task' ?
-    {type:'task',result:{tasks,categories:[]}} : {type:'notification',result:[]}));
+    {type:'task',result:{tasks,categories:[]}} : {type:'file',result:[]}));
   page.view = 'logbook';
   await page.loadTasks();
   assert.equal(page.message, '');
   assert.equal(f.batches.length, 1);
-  assert.deepEqual(f.batches[0][0].query, {expression:'it.done'});
+  assert.ok(f.batches[0].some(request=>request.query.expression==='it.done'));
   assert.equal(page.tasks, tasks);
   const items = page.logbookTaskGroups.flatMap(group => group.items);
   assert.equal(items.length, tasks.length);
@@ -305,9 +308,8 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
   const f=fixture(),page=f.page('pages/Inbox',['loadRecords']);
   await page.loadRecords();
   assert.equal(page.message,'');assert.equal(f.batches.length,1);
-  assert.deepEqual(f.batches[0].map(item=>item.type),['task','file','task','file']);
-  assert.deepEqual(f.batches[0][0].repoIds,['core-a']);
-  assert.deepEqual(f.batches[0][2].query.excludeFiles,[{repoId:'core-a',path:'same.org'}]);
+  assert.equal(page.dataManager,f.load('services/AppDataManager').AppDataManager.shared({}).manager);
+  assert.deepEqual(f.batches[0].find(item=>item.query.expression==='cr.ge.-2d cr.le.today .o.created').query.excludeFiles,[{repoId:'core-a',path:'same.org'}]);
   assert.equal(page.needsConfiguration,false);
 });
 
@@ -372,7 +374,7 @@ test('项目按 Core 文件结果保留顺序、空名称和同名身份，新�
     {repoId:'core-a',path:'two.org',projectName:''}];
   let current=projects;
   f.query(batch=>batch.map(request=>request.type==='task'?{type:'task',result:{tasks:[],categories:[]}}:
-    request.type==='notification'?{type:'notification',result:[]}:
+    request.type==='notification'?{type:'file',result:[]}:
     {type:'file',result:request.query.isProject?current:[]}));
   await page.loadNavigation();
   assert.equal(page.projects,current);
@@ -406,7 +408,7 @@ test('失效文件和未配置文件不退回全仓库任务，通知仍在同�
   const f=fixture();f.missing();const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='memo';await page.loadTasks();assert.equal(page.needsConfiguration,true);assert.equal(f.batches.length,1);
   f.config.memoRepoId='';f.configChanged();await page.loadTasks();assert.equal(f.batches.length,2);
-  assert.ok(f.batches[1].every(item=>item.type==='file'));
+  assert.ok(!f.batches[1].some(item=>item.repoIds?.includes('core-a')&&item.query.includeFiles?.some(file=>file.path==='memo.org')));
 });
 
 test('批次失败保留通知，页面查询不重复注册应用级通知订阅',async()=>{
@@ -433,7 +435,7 @@ test('收件箱列表通过同一混合查询接收当前快照，不再维护�
   const f=fixture(),page=f.page('pages/Inbox',['loadRecords']),current={id:'selected'};
   page.selected={id:'selected',fileVersion:'previous'};
   f.query(batch=>batch.map(request=>{
-    if(request.type==='notification')return {type:'notification',result:[]};
+    if(request.type==='notification')return {type:'file',result:[]};
     if(request.type==='file')return {type:'file',result:[{repoId:'core-a',path:'same.org',tagOptions:[],tagGroups:[]}]};
     return {type:'task',result:{tasks:request.query.expression.startsWith('cr.')?[]:[current],categories:[]}};
   }));
@@ -464,7 +466,7 @@ test('今天同批读取来源顺序与优先级顺序，标签切换只重组�
   const values=[plannedTask('low','core-a','plain.org','工作'), plannedTask('high','core-a','project.org','工作','项目'),
     plannedTask('default','core-a','plain.org','工作'), plannedTask('project-low','core-a','project.org','工作','项目')];
   values.forEach(task=>{task.tags=task.id==='default'?['隐藏']:['显示'];});
-  f.query(batch=>batch.map(request=>request.type==='notification'?{type:'notification',result:[]}:
+  f.query(batch=>batch.map(request=>request.type==='notification'?{type:'file',result:[]}:
     {type:'task',result:{tasks:request.query.expression?.endsWith('o.priority')?[values[1],values[2],values[3],values[0]]:values,categories:[]}}));
   page.view='today'; await page.loadTasks();
   assert.equal(page.message,'');
@@ -488,7 +490,7 @@ test(`${view} 通过 Core 按优先级和创建时间倒序查询，项目分组
     {type:'task',result:{tasks:values,categories:[]}}));
   page.view=view; await page.loadTasks();
   assert.equal(page.message,'');
-  assert.equal(f.batches[0][0].query.expression,view === 'waiting' ? 'i.wait o.priority .o.created' : 'it.todo s.none d.none o.priority .o.created');
+  assert.ok(f.batches[0].some(item=>item.query.expression===(view === 'waiting' ? 'i.wait o.priority .o.created' : 'it.todo s.none d.none o.priority .o.created')));
   assert.deepEqual(page.sections[0].groups.map(group=>group.items.map(item=>item.task.id)),
     [['high-new'],['high-old'],['project-high','project-low']]);
   page.applyTagFilter({tags:['显示'],includeUntagged:false});
@@ -507,7 +509,7 @@ test('今天页面将当日时刻接入顶部，筛选后清空时间区但仍�
   values[0].scheduled=today;values[0].tags=['工作'];
   values[0].editContent={scheduledPlanning:{date:today,time:{start:'09:30',end:'10:00'}},deadlinePlanning:null};
   values[1].tags=['个人'];
-  f.query(batch=>batch.map(request=>request.type==='notification'?{type:'notification',result:[]}:
+  f.query(batch=>batch.map(request=>request.type==='notification'?{type:'file',result:[]}:
     {type:'task',result:{tasks:values,categories:[]}}));
   page.view='today';page.referenceTime=new Date(2000,0,1).getTime();await page.loadTasks();
   assert.equal(page.message,'');
@@ -594,7 +596,7 @@ test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配�
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
   assert.equal(page.inboxCount,0);
   f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
-  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,15);
+  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,17);
   assert.equal(f.disk.size,0,'侧边栏不再持有独立缓存');assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
 });
 
@@ -605,8 +607,8 @@ test('侧边栏所有非零计数按原批次位置读取，重复打开不再�
     ?{type:'task',result:{tasks:Array(index+1).fill({}),categories:[]}}
     :{type:request.type,result:request.type==='file'?[{}]:[]}));
   await page.loadNavigation();await page.loadNavigation();
-  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,4,5,6,8]);
-  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[12,14,16]);assert.equal(page.waitingCount,7);assert.equal(f.batches.length,1);
+  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,5,6,7,9]);
+  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[14,16,18]);assert.equal(page.waitingCount,8);assert.equal(f.batches.length,1);
 });
 
 test('侧边栏关闭后在途查询不能覆盖展示或写入缓存',async()=>{
@@ -638,4 +640,20 @@ test('计划多选期间固定已加载布局并阻止范围切换，结束后�
  const calls=f.batches.length;await page.selectPlanRegion({key:'other',kind:'category',category:'其他'});
  assert.equal(page.selectedPlanRegion,selected);assert.equal(f.batches.length,calls);
  page.plannedSelection.selecting=false;page.applyPageSnapshot();assert.deepEqual(page.tasks,[]);assert.ok(page.planGroups.every(group=>group.items.length===0));
+});
+
+test('所有任务入口和最近新增复用唯一 App 实例，依次进入与离开不新增基础查询',async()=>{
+ const f=fixture(),app=f.load('services/AppDataManager').AppDataManager.shared({});await app.start();
+ const manager=app.manager;
+ for(const view of ['today','planned','waiting','anytime','someday','memo','logbook']){
+  const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter','aboutToDisappear']);
+  page.view=view;page.plannedSelection.close=()=>{};await page.loadTasks();assert.equal(page.dataManager,manager,view);
+  assert.equal(page.taskDataSet(),app.taskDataSet(view),view);page.aboutToDisappear();
+ }
+ const inbox=f.page('pages/Inbox',['loadRecords']);await inbox.loadRecords();
+ assert.equal(inbox.tasksDataSet,app.dataSet('inboxTasks'));assert.equal(inbox.recentDataSet,app.dataSet('inboxRecent'));
+ assert.equal(inbox.targetDataSet,app.dataSet('inboxFile'));assert.equal(inbox.loading,false,'共享数据已就绪时首次进入收件箱应立即显示');assert.equal(f.batches.length,1);
+ assert.deepEqual(f.managers.map(item=>item.pageName),['app']);
+ assert.ok(!f.batches[0].some(item=>item.query.categories),'启动不预取计划筛选');
+ assert.ok(!f.batches[0].some(item=>item.query.expression?.startsWith('deleted.lt.')),'启动不触发过期清理查询');
 });

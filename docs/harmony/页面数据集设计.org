@@ -7,13 +7,15 @@
 
 * 范围与职责
 
-今天、收件箱、计划、等待、随时、某天、备忘、日志簿、废纸篓和项目详情均直接使用 DataSet。今天页、侧边栏和角标的命名查询由应用级 AppDataManager 统一声明、持有一个 DataSetManager；其他页面声明自己的命名数据集，由 DataSetManager 管理集合、共享连接上下文和页面缓存；每个 DataSet 只持有一个查询，独立消费该查询的订阅结果，并维护任务索引、编辑能力与变化事件。编辑器和项目文档不再创建专用管理器。侧边栏只读管理对象投影共享 DataSet，非任务阅读结果沿用各自的只读管理对象。
+今天、收件箱、计划、等待、随时、某天、备忘、日志簿和废纸篓统一消费 AppDataManager 持有的唯一 DataSetManager。收件箱最近新增、笔记本文件列表、侧边栏计数、导航返回判断和角标使用同一应用级数据入口。页面只持有展示状态和自己的监听，不创建基础查询、不读取独立任务页缓存，离开页面不关闭共享实例。项目详情继续按原有独立 DataSetManager 加载完整文档，禁用缓存；完整文件阅读与同步历史仍按需读取。
 
-DataManager 与原导出名 DataSetManager 共用实现，不提供总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅共享的 todayTasks 和 todayPriority，收件箱分别订阅 tasks、recent 和 target。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
+每个 DataSet 只持有一个查询，独立消费订阅结果并维护任务索引、编辑能力与变化事件；相同基础查询只有一个 DataSet。计划分类／项目筛选和废纸篓过期成员查询也由 App 按需管理，未启用时保留稳定空对象而不注册底层查询。
+
+DataManager 与原导出名 DataSetManager 共用实现，不提供总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅共享的 todayTasks 和 todayPriority，收件箱分别订阅 inboxTasks、inboxRecent 和 inboxFile。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
 DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再提供宿主 document 查询。管理器将完整文件作为首次加载的一次性返回值交给页面，DataSet 只维护记录与属性。需要配置文件入口时，页面提供纯定义函数；仓库别名通过 ~repositoryBindings~ 在工作线程映射。
 
-收件箱初始化将 tasks、recent、target、files 一次批量订阅；出现与显示生命周期复用同一个初始化 Promise，不各自查询或额外刷新。独立回调只消费该批已取得的结果，首屏等 tasks、recent、target 都取得快照或明确失败后才统一发布界面；回调不会触发第二次读取。最近新增等待主列表首次测量完成后整段显示，读取中或空结果不渲染前置留白及加载占位。已有缓存恢复为版本 0 后按相同边界展示，首次查询完成后再开放编辑。
+收件箱的 inboxTasks、inboxRecent、inboxFile 与文件元信息随 App 的启动批次加载，组件出现和页面显示只复用初始化 Promise。首屏等三项数据集都取得快照或明确失败后统一发布界面；最近新增等待主列表首次测量完成后整段显示。缓存恢复为版本 0 后按相同边界只读展示，首次查询完成后开放编辑。
 
 配置变化由管理器在内部重新配置已有 DataSet，保持对象和页面订阅稳定。用户改变筛选时调用对应 DataSet.setQuery，只重新加载该数据集；旧查询的订阅与迟到结果不能覆盖新查询。页面不重建查询实例或通过总事件回调重新读取数据。
 
@@ -61,6 +63,7 @@ class DataSetManager {
   dataSet(name: string): DataSet
   start(): Promise<DataLoadResult[]>
   refresh(): Promise<void>
+  setQuery(name: string, query: DataSetQuery | undefined, repositoryBindings?: CoreQueryRepositoryBinding[]): Promise<void>
   flush(): Promise<void>
   close(): Promise<void>
   static flushAll(): Promise<void>
@@ -193,7 +196,7 @@ pub struct QuerySubscriptionStart {
 
 * 缓存与失败恢复
 
-一个页面一个缓存文件，路径为 ~context.filesDir/page-data/v1/<页面名>.json~ ，页面名由业务固定提供。页面内全部命名数据集在同一个 JSON 对象中保存，不按数据集或查询另建文件。仓库范围、默认配置和固定查询保存在文件内部用于匹配校验，不出现在文件名中；不保存凭据，不写入仓库或同步控制目录。
+每个独立管理器一个缓存文件，路径为 ~context.filesDir/page-data/v1/<页面名>.json~ ，名称由业务固定提供；普通任务页统一使用 app，旧的各页缓存不再读取。管理器内全部命名数据集在同一个 JSON 对象中保存，不按数据集或查询另建文件。仓库范围、默认配置和固定查询保存在文件内部用于匹配校验，不出现在文件名中；不保存凭据，不写入仓库或同步控制目录。
 
 采用 UTF-8 JSON，数据载荷是对象和数组，不嵌套成 JSON 字符串；读文件一次、 ~JSON.parse~ 一次后构造只读模型。 ~formatVersion~ 是缓存结构版本，与数据集阶段版本分离。文件保留各数据集最后确认版本作为元信息，恢复到新实例时仍统一归零。缓存包含界面所需字段和 Core 给出的状态／优先级答案，不保存 AST，也不把普通 JSON 强制转换为依赖 N-API 绑定的对象。
 
@@ -207,7 +210,11 @@ pub struct QuerySubscriptionStart {
 
 ~TaskEditor~ 直接接收 ~dataSet: DataSet~ 和 ~taskId~ 。数据集已经固定查询范围，组合层只传入对象和稳定行 ID；编辑器不再接收任务副本、查询名称、绑定包装对象或专用管理器。读取、字段修改和记录订阅均调用这个 DataSet。编辑器不注册 Core 全局监听，也不提供回退至逐任务查询的兼容路径。页面列表的稳定行键使用 ~taskKey()~ ，改名、移动和重名序号调整按事件身份映射保留原行；新建临时行确认后继续沿用同一行键，避免控件状态串到另一个同名节点。编辑器未显式传入 ~instanceKey~ 时也使用 DataSet 的稳定行键，保持编辑会话和焦点身份一致。控件分别记录标题和备注的实际修改标记，焦点或关联更新不会把未改的旧字段写回。每次保存只提交变更字段；确认事件中的关联字段由管理类更新。
 
-各任务页面的组合层直接提供当前 DataSet。今天页复用 AppDataManager 的 todayTasks、todayPriority、files、orderFiles 四个数据集，应用级 DataSetManager 以 app 为缓存名管理全部共享集合；其他任务视图同样独立声明查询。缓存版本 0 阶段只读，首次查询完成后开放编辑。今天页离开只解除本页订阅，全局实例保持；其他页面离开时关闭私有实例；配置范围变化时管理器重新配置已有 DataSet。DataSetManager 在缓存已发布后完成共享 Workspace 的配置准备，每页注册一次文件监控，合并外部文件变化并排队刷新，并统一每分钟检查跨天变化。分类与项目分组使用当前快照引用更新成员，行身份使用稳定键，避免界面保留旧成员数组。已有有效快照在刷新期间保持可编辑，不短暂切换只读；编辑会话中控件独立接收字段与关联变化，列表成员和顺序延后至会话结束再应用，防止移动输入框导致失焦并隐式提交草稿。
+各任务页面直接提供 AppDataManager 的共享 DataSet 给编辑控件。缓存版本 0 阶段只读，首次查询完成后开放编辑；离开页面只解除展示监听，全局实例与稳定记录身份保持。所有普通任务页共用一个文件监控与跨日检查器，由 Manager 合并外部变化并刷新受影响查询。分类、项目分组和编辑会话中的重排延后规则保持原有行为。
+
+计划页面的全部范围使用 planned；选中分类或项目后才启用 plannedFiltered，基础范围和侧边栏数量不变。清除选择、候选消失或离开页面后释放筛选订阅，直接使用已有 planned，不重复查询全部范围。切换筛选以请求序号隔离迟到结果，不影响其他命名数据集。
+
+废纸篓列表直接使用 trash；打开废纸篓或笔记本才读取保留天数并按需启用 trashExpired。只有真实查询完成、版本大于 0 后才允许显式清理；并发打开共用一次清理，失败保留记录供重试。关闭页面只等待操作收尾，不关闭 App 管理器。
 
 * 当前进度与未完成项
 
@@ -461,18 +468,23 @@ Core 回归同时验证 reset 先更新通知列表再分发文件事件，文�
 | 共享数据集 | 消费方 |
 |-
 | ~todayTasks~ | 今天页任务及编辑、侧边栏今天数量 |
-| ~todayPriority~ 、 ~files~ 、 ~orderFiles~ | 今天页排序与文件上下文 |
-| ~todayAttention~ 、 ~planned~ 、 ~anytime~ 、 ~waiting~ 、 ~logbook~ 、 ~trash~ | 侧边栏计数 |
+| ~todayPriority~ 、 ~files~ 、 ~orderFiles~ | 今天页排序与所有任务页的文件上下文 |
+| ~todayAttention~ | 侧边栏今天提醒 |
+| ~planned~ 、 ~anytime~ 、 ~waiting~ 、 ~logbook~ 、 ~trash~ | 对应任务页与侧边栏计数 |
+| ~plannedFiltered~ | 按需启用的计划分类／项目筛选 |
+| ~trashExpired~ | 打开废纸篓或笔记本时的过期清理 |
+| ~inboxRecent~ | 收件箱最近新增 |
+| ~notebookFiles~ | 笔记本完整文件元信息，包含被忽略文件 |
 | ~projects~ | 侧边栏完整项目入口 |
-| ~inboxTasks~ 、 ~inboxFile~ | 侧边栏收件箱计数、系统角标 |
-| ~somedayTasks~ 、 ~somedayFile~ 、 ~memoTasks~ 、 ~memoFile~ | 侧边栏文件入口与数量 |
+| ~inboxTasks~ 、 ~inboxFile~ | 收件箱页面、侧边栏计数、导航返回判断与系统角标 |
+| ~somedayTasks~ 、 ~somedayFile~ 、 ~memoTasks~ 、 ~memoFile~ | 某天、备忘页面及侧边栏文件入口与数量，备忘外部入口定位 |
 | ~badgeDeadline~ | 系统角标截止任务数量 |
 
 相同查询仅保留一个 DataSet。todayAttention 与 badgeDeadline 条件不同，后者保持排除收件箱和废纸篓的截止任务条件，不从今天任务再次过滤取得。尚未配置的文件入口保留稳定 DataSet 对象，返回只读空结果而不发送无范围查询；配置恢复后由同一 Manager 重新配置对象。所有有效查询一次批量订阅，每仓库共享一次扫描；外部文件变化和跨日变化只由该 Manager 合并刷新。
 
-今天页的标签筛选、展开和分区顺序仍是组件状态，不修改共享查询。今天页离开只解除本页订阅，重新打开直接复用相同 DataSet 和稳定记录身份。SidebarDataManager 只读取共享快照；DeviceBadgeService 只监听收件箱、截止任务与 NotificationManager，读取确认数据并写系统角标，权限检查和反复前台恢复只复用数据；同步完成的单次角标写入等待共享 Manager 处理已有文件事件，不另查任务。
+今天页的标签筛选、展开和分区顺序仍是组件状态，不修改共享查询。所有普通任务页离开只解除本页订阅，重新打开直接复用相同 DataSet 和稳定记录身份。SidebarDataManager 只读取共享快照；DeviceBadgeService 只监听收件箱、截止任务与 NotificationManager，读取确认数据并写系统角标，权限检查和反复前台恢复只复用数据；同步完成的单次角标写入等待共享 Manager 处理已有文件事件，不另查任务。
 
-共享缓存为 ~filesDir/page-data/v1/app.json~ ，使用与现有页面相同的 scope、queryKey、版本 0／1 与确认后落盘规则；旧的今天和侧边栏独立缓存不再读取。背景保存仍通过 ~DataSetManager.flushAll~ 等待写操作、增量归并和外部刷新收尾。Core Workspace 生命周期与查询语义保持不变。
+共享缓存为 ~filesDir/page-data/v1/app.json~ ，使用与现有页面相同的 scope、queryKey、版本 0／1 与确认后落盘规则；旧的今天、收件箱、计划、等待、随时、某天、备忘、日志簿、废纸篓和导航计数独立缓存不再读取。背景保存仍通过 ~DataSetManager.flushAll~ 等待写操作、增量归并和外部刷新收尾。Core Workspace 生命周期与查询语义保持不变。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
@@ -480,18 +492,18 @@ Core 回归同时验证 reset 先更新通知列表再分发文件事件，文�
 \umlclass[x=7,y=0]{AppDataManager}{共享实例 \\ 查询定义}{shared / start / close}
 \umlclass[x=7,y=-4]{DataSetManager}{app cache \\ 单个文件监控}{批量订阅与刷新}
 \umlclass[x=0,y=-4]{DataSet}{固定查询 \\ 快照与变化事件}{subscribe / updateTask}
-\umlclass[x=0,y=-8]{TodayPage}{展示状态}{订阅 todayTasks / todayPriority}
-\umlclass[x=7,y=-8]{Consumers}{SidebarDataManager \\ DeviceBadgeService}{只读投影 / 写系统角标}
+\umlclass[x=0,y=-8]{TaskPages}{展示状态}{订阅共享任务与文件 DataSet}
+\umlclass[x=7,y=-8]{Consumers}{SidebarDataManager \\ DeviceBadgeService \\ PageNavigator / Notebook}{只读投影 / 写系统角标}
 \umluniassoc{EntryAbility}{AppDataManager}
 \umlcompo{AppDataManager}{DataSetManager}
 \umlcompo{DataSetManager}{DataSet}
-\umldep{TodayPage}{DataSet}
+\umldep{TaskPages}{DataSet}
 \umldep{Consumers}{DataSet}
 \end{tikzpicture}
 
 * 启动读取边界
 
-纯本地冷启动时，今天页、侧边栏、角标的全部查询共享一次初始批次；启动同步只接入已有 Workspace，角标刷新只读取共享确认快照，因此这三类业务每仓库只扫描一次。WebDAV 的网络同步和 Core 通知缓存仍有各自的文件读取，未合并到 UI 数据管理层；实际文件变化触发共享 Manager 的后续批量刷新。首次注册同步通知与恢复前台的通知重绑保持原有契约，不属于共享 Task／File 批次。
+纯本地冷启动时，全部普通任务页、最近新增、笔记本、侧边栏、导航计数和角标的基础查询共享一次初始批次；启动同步只接入已有 Workspace，角标刷新只读取共享确认快照，因此这些业务每仓库只扫描一次。WebDAV 的网络同步和 Core 通知缓存仍有各自的文件读取，未合并到 UI 数据管理层；实际文件变化触发共享 Manager 的后续批量刷新。首次注册同步通知与恢复前台的通知重绑保持原有契约，不属于共享 Task／File 批次。
 
 * 应用级共享数据验收
 
@@ -500,3 +512,13 @@ Core 回归同时验证 reset 先更新通知列表再分发文件事件，文�
 通过隔离 WebDAV 同步新增项目文件、修改任务和删除文件，今天页与侧边栏从同一组共享数据发现新任务与项目。另一个独立模拟器验证了离开今天页期间 API 修改仍由全局订阅接收，返回今天页直接显示最新任务；关闭重开后 API、页面与 app.json 的任务和备注一致，缓存包含 18 个命名 DataSet。
 
 相关回归覆盖共享启动只有一个批次、反复打开抽屉不查询、首次只读缓存先于查询展示、配置别名与文件范围、错误通知不形成角标重试循环、后台角标等待共享刷新收尾以及全局关闭后不重建实例。入口配置检查不等待任务读取，失败数据集合并重试，健康数据集正常复用。
+
+* 普通任务页共享接入验收
+
+2026-11-18 在独立 OrgAppDataQA 模拟器与隔离仓库验证：收件箱及最近新增、今天、计划、等待、随时、某天、备忘、日志簿、废纸篓和笔记本均正常显示。共享数据已就绪时，收件箱与废纸篓直接发布已有快照，不等待新的数据事件或过期检查；无快照的首次加载仍显示原有读取状态。
+
+通过界面完成今天任务，再由同一 Workspace 的 HTTP 接口恢复状态并修改备注，当前页面即时归并；改到明天后移出今天并出现在计划，改回后反向更新。界面完成带 TRIGGER 的任务使关联任务一起移出；非法 TRIGGER 失败保留原状态与文件版本。旧版本修改返回 409，已确认的新内容保持。计划项目筛选只展示 Core 返回的成员，取消后直接恢复已有完整范围。
+
+接口创建的记录出现在收件箱最近新增，改名与备注自动更新；移入废纸篓后从最近新增移除，恢复后回到来源文件。笔记本文件清单与侧边栏共享更新，项目详情仍按原有独立方式打开正文。普通冷启动后，界面与接口的已确认备注一致；普通启动不恢复测试监听。
+
+全新模拟器的缓存目录最终只有 app.json，包含 22 个共享命名数据集，未生成各任务页、侧边栏或导航计数的独立缓存。两套 Node 环境的 710 项宿主回归均通过，正式包及数据准备包构建无告警；缓存版本 0／1、按需订阅释放、页面离开不关闭全局实例和过期清理失败重试由宿主回归覆盖。临时新增记录已清理，测试接口已停止并确认不可连接。

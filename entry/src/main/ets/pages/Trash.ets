@@ -45,6 +45,7 @@ struct Trash {
       this.dataManager = new TrashDataManager(this.getUIContext().getHostContext()!)
       this.stop = this.dataManager.tasks.subscribe((): void => { this.applySnapshot() })
     }
+    this.applySnapshot()
     try { this.message = ''; this.maintenanceError = ''; if (reload) await this.dataManager.refresh(); else await this.dataManager.start() }
     catch (error) { if (this.active) this.maintenanceError = coreErrorMessage(error as CoreBridgeError) }
     finally { if (this.active) { this.applySnapshot(); this.loading = false } }

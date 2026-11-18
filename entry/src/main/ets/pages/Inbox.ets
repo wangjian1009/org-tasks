@@ -1,8 +1,7 @@
+import { AppDataManager } from '../services/AppDataManager'
 import { PageNavigator } from '../services/PageNavigator'
-import { AppConfig } from '../models/OrgTask'
-import { FileTargetService, systemTrashExclusions } from '../services/FileTargetService'
 import { CaptureService } from '../services/CaptureService'
-import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
+import { DataSetManager, DataSet } from '../services/DataSetManager'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -99,7 +98,6 @@ struct Inbox {
     this.selection.close()
     for (const stop of this.stops) stop()
     this.stops = []
-    this.dataManager?.close().catch((): void => { console.error('保存收件箱数据失败') })
     this.dataManager = undefined
     clearTimeout(this.captureFocusTimer)
     clearTimeout(this.mergeFocusTimer)
@@ -262,31 +260,21 @@ struct Inbox {
     .width('calc(100% + 24vp)').margin({ left: -12, right: -12 })
   }
 
-  defineDataSets(config: AppConfig): DataSetDefinition[] {
-    const target = FileTargetService.prepareConfigured(config, 'inbox')
-    const definitions: DataSetDefinition[] = []
-    if (target) definitions.push({ name: 'tasks', query: target.task, repositoryBindings: target.repositoryBindings },
-      { name: 'target', query: target.file, repositoryBindings: target.repositoryBindings })
-    const trash = systemTrashExclusions(config)
-    definitions.push({ name: 'recent', query: { type: 'task', query: { expression: 'cr.ge.-2d cr.le.today .o.created',
-      excludeFiles: (target ? [target.reference] : []).concat(trash.files) } }, repositoryBindings: (target?.repositoryBindings ?? []).concat(trash.repositoryBindings) }, { name: 'files', query: { type: 'file', query: {} } })
-    return definitions
-  }
-
   async loadRecords(reload: boolean = false) {
     if (!this.dataManager) {
-      this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, '收件箱',
-        (config: AppConfig): DataSetDefinition[] => this.defineDataSets(config))
-      this.tasksDataSet = this.dataManager.dataSet('tasks')
-      this.recentDataSet = this.dataManager.dataSet('recent')
-      this.targetDataSet = this.dataManager.dataSet('target')
+      this.dataManager = AppDataManager.shared(this.getUIContext().getHostContext()!).manager
+      this.tasksDataSet = this.dataManager.dataSet('inboxTasks')
+      this.recentDataSet = this.dataManager.dataSet('inboxRecent')
+      this.targetDataSet = this.dataManager.dataSet('inboxFile')
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       this.stops.push(this.recentDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       this.stops.push(this.targetDataSet.subscribe((): void => { this.applyPageSnapshot() }))
     }
     this.connectSelection()
+    if (this.tasksDataSet?.data) this.applyPageSnapshot()
     try {
       await this.dataManager.start()
+      this.applyPageSnapshot()
       if (reload) await (this.recentDataSet?.error ? this.recentDataSet : this.targetDataSet?.error ? this.targetDataSet : this.tasksDataSet)!.refresh()
     } catch (error) { this.loading = false; this.message = (error as Error).message }
   }

@@ -368,33 +368,22 @@ test('Manager 首次加载与整页刷新各调用一次批量订阅，独立 ca
  } finally {await f.cleanup()}
 });
 
-test('收件箱两个启动生命周期复用一次四项批量读取，初始化完成后再进入也不刷新', async()=>{
- const f=await fixture();try {
+test('收件箱两个启动生命周期复用 App 的同一批次，最近新增只读取一次', async()=>{
+ const f=await fixture();let c;try {
+  f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);
   const source=fs.readFileSync('entry/src/main/ets/pages/Inbox.ets','utf8');
-  const define=source.match(/  defineDataSets\(config: AppConfig\): DataSetDefinition\[\] \{[\s\S]*?\n  \}/)[0];
-  const loadRecords=source.match(/  async loadRecords\(reload: boolean = false\) \{[\s\S]*?\n  \}/)[0];
-  const appear=source.match(/  aboutToAppear\(\) \{[^\n]*\}/)[0];
-  const show=source.match(/  onPageShow\(\) \{[\s\S]*?\n  \}/)[0];
-  const module={exports:{}},reference={repoId:'repo',path:'a.org'};
-  const code=ts.transpileModule('export class Inbox {'+define+loadRecords+appear+show+'}',{
-   compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}
-  }).outputText;
-  vm.runInThisContext('(function(module,exports,DataSetManager,FileTargetService,PageNavigator,systemTrashExclusions){'+code+'})')(
-   module,module.exports,{create:(_context,page,definitions)=>f.manager(page,definitions)},
-   {prepareConfigured:()=>({task:{type:'task',query:{includeFiles:[reference]}},file:{type:'file',query:{includeFiles:[reference]}},reference})},
-   {shared:{watchExternalLeaveGuard:()=>()=>{}}},()=>({files:[],repositoryBindings:[]}));
+  const methods=['loadRecords','aboutToAppear','onPageShow'].map(name=>source.match(new RegExp('  (?:async )?'+name+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{(?:[^\\n]*\\}|[\\s\\S]*?\\n  \\})'))[0]);
+  const module={exports:{}};
+  const code=ts.transpileModule('export class Inbox {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  vm.runInThisContext('(function(module,exports,AppDataManager,PageNavigator){'+code+'})')(module,module.exports,c.AppDataManager,{shared:{watchExternalLeaveGuard:()=>()=>{}}});
   const page=Object.assign(new module.exports.Inbox(),{stops:[],selection:{},connectSelection(){},applyPageSnapshot(){},prepareRecentLayout(){},getUIContext:()=>({getHostContext:()=>f.context})});
-  const hold=f.holdWorkspace();
-  page.aboutToAppear();page.onPageShow();
-  hold.resolve();await page.dataManager.start();
-  assert.deepEqual(f.batches.map(batch=>batch.length),[4]);
-  assert.deepEqual(f.batches[0].map(item=>item.query.type),['task','task','file','file']);
+  const hold=f.holdWorkspace();page.aboutToAppear();page.onPageShow();hold.resolve();await page.dataManager.start();
+  assert.equal(page.dataManager,c.AppDataManager.shared(f.context).manager);
+  assert.equal(f.batches.length,1);
   assert.equal(f.batches[0].filter(item=>item.query.query.expression==='cr.ge.-2d cr.le.today .o.created').length,1);
-  page.onPageShow();await page.dataManager.start();
-  assert.deepEqual(f.batches.map(batch=>batch.length),[4]);
-  assert.equal(f.repositoryReads(),1);assert.equal(f.fileReads(),0);
-  for(const stop of page.stops)stop();
- }finally{await f.cleanup()}
+  page.onPageShow();await page.dataManager.start();assert.equal(f.batches.length,1);
+  assert.equal(f.repositoryReads(),1);for(const stop of page.stops)stop();
+ }finally{await c?.AppDataManager.close();await f.cleanup()}
 });
 
 test('在途批次期间关闭页面会清理整批 ID，不留下事件订阅',async()=>{
@@ -496,7 +485,7 @@ function sharedConsumers(f) {
  const queries=load('entry/src/main/ets/services/TaskViewQueries.ets',{'./NativeCoreService':native});
  const targets=load('entry/src/main/ets/services/FileTargetService.ets',{'../models/SystemRepository':system,
   './AppConfigService':{},'./NativeCoreService':native,'./PageQueryService':{},'./TaskViewQueries':queries});
- const shared=load('entry/src/main/ets/services/AppDataManager.ets',{'./AppConfigService':{AppConfigService:{load:async()=>f.config}},'./DataSetManager':{DataSetManager:f.DataSetManager},
+ const shared=load('entry/src/main/ets/services/AppDataManager.ets',{'./TrashSettingsService':{TrashSettingsService:{retentionDays:async()=>30}},'./TrashService':{TrashService:{perform:async()=>{}}},'./AppConfigService':{AppConfigService:{load:async()=>f.config}},'./DataSetManager':{DataSetManager:f.DataSetManager},
   './NativeCoreService':native,'./FileTargetService':targets,'./TaskViewQueries':queries});
  const equality=load('entry/src/main/ets/services/PageDataEquality.ets',{'./PageDataSnapshot':f.snapshots});
  const sidebar=load('entry/src/main/ets/services/SidebarDataManager.ets',{'./AppDataManager':shared,'./FileTargetService':targets,
@@ -587,4 +576,19 @@ test('共享文件刷新失败保留侧边栏快照，重开只合批重试失�
   failed=false;await sidebar.start();assert.equal(snapshot.message,'');assert.equal(snapshot.todayCount,1);assert.equal(f.batches.length,3);
   await sidebar.start();assert.equal(f.batches.length,3);sidebar.close();
  }finally{await c?.AppDataManager.close();await f.cleanup()}
+});
+
+test('App 按需筛选仅新增一项订阅，取消释放该项并保留基础范围与文件上下文',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager('app',[{name:'planned',query:{type:'task',query:{expression:'it.todo'}}},{name:'files',query:{type:'file',query:{}}}]);
+  const filtered=manager.dataSet('filtered');await manager.start();
+  assert.equal(f.calls.length,2);const planned=manager.dataSet('planned'),key=planned.taskKey('A');
+  await manager.setQuery('filtered',{type:'task',query:{includeFiles:[{repoId:'config',path:'a.org'}],categories:['Work']}},[{id:'config',rootDirectory:'/repo'}]);
+  assert.equal(f.batches.length,2);assert.equal(f.batches[1].length,1);assert.deepEqual(f.calls.at(-1).query.includeFiles,[{repoId:'config',path:'a.org'}]);assert.deepEqual(f.batches[1][0].repositoryBindings,[{id:'config',rootDirectory:'/repo'}]);
+  assert.equal(planned.taskKey('A'),key);assert.equal(filtered.isReady(),true);
+  const reads=f.calls.length;await manager.setQuery('filtered',undefined);
+  assert.equal(f.calls.length,reads);assert.equal(filtered.query,undefined);assert.equal(filtered.data.result.tasks.length,0);
+  assert.equal(f.subscriptions.size,2);assert.equal(planned.taskKey('A'),key);
+  await manager.flush();const envelope=JSON.parse(await fsp.readFile(f.file('app'),'utf8'));assert.deepEqual(envelope.dataSets.map(item=>item.name),['planned','files','filtered']);
+ }finally{await f.cleanup()}
 });
