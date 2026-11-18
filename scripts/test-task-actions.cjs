@@ -145,8 +145,8 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
   assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
   assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
-  assert.deepEqual(pagePolicy('waiting').singleOperations, ['toggleWait', 'someday', 'delete']);
-  assert.deepEqual(pagePolicy('anytime').singleOperations, ['toggleWait', 'someday', 'delete']);
+  assert.deepEqual(pagePolicy('waiting').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
+  assert.deepEqual(pagePolicy('anytime').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
   assert.deepEqual(pagePolicy('someday').singleOperations, ['restore', 'delete']);
   assert.deepEqual(pagePolicy('recent').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
 });
@@ -186,12 +186,11 @@ function swipeCard(page) {
 }
 
 test('等待页状态切换、某天与删除按规划排序', () => {
-  const menu = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, 'Doing')
-  assert.deepEqual(menu.map(item => item.id), ['someday', 'delete', 'select'])
-  const waiting = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, null, 'Todo')
-  assert.deepEqual(waiting.map(item => item.id), ['toggleWait', 'someday', 'delete', 'select'])
-  assert.equal(waiting[0].title, '待办')
-  assert.equal(waiting[0].label, '恢复为待办')
+  const menu = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, 'Doing', 'Todo')
+  assert.deepEqual(menu.map(item => item.id), ['toggleState', 'toggleWait', 'someday', 'delete', 'select'])
+  assert.equal(menu[0].title, '开始')
+  assert.equal(menu[1].title, '待办')
+  assert.equal(menu[1].label, '恢复为待办')
 })
 
 test('今天、计划、随时、某天与最近新增均由外层右滑设置计划，日志簿关闭右滑', () => {
@@ -331,9 +330,9 @@ test('八个页面区域的单条与批量菜单严格遵循交付规划', () =>
     inbox: [['move','someday','memo','project','delete'],['move','someday','memo','merge','delete']],
     recent: [['toggleState','toggleWait','someday','delete'],[]],
     today: [['toggleState','toggleWait','someday','delete'],[]],
-    waiting: [['toggleWait','someday','delete'],[]],
-    planned: [['toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
-    anytime: [['toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
+    waiting: [['toggleState','toggleWait','someday','delete'],[]],
+    planned: [['toggleState','toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
+    anytime: [['toggleState','toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
     someday: [['restore','delete'],['restore','delete']],
     logbook: [['delete'],['delete']]
   };

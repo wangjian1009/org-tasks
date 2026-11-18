@@ -61,9 +61,9 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
     case 'today': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
-    case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete],
+    case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Restore, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
