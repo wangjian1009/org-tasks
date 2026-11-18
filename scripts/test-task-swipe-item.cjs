@@ -177,7 +177,7 @@ test('草稿保存失败或准备期间控件离开时不打开项目面板，�
 });
 
 test('只读任务内容可执行配置的 Reopen、Restore、Clear，统一交给记录操作执行器', async () => {
-  for (const action of ['setTodo','restoreLocation','clear']) {
+  for (const action of ['reopen','restore','clear']) {
     const f=fixture(), performed=[];f.editable(false);f.state.singleOperations=[action];
     const source={id:'task',fileVersion:'v2'};
     Object.assign(f.state.dataSet,{identity:'scope',settle:async()=>{},getTask:()=>source});
@@ -189,12 +189,12 @@ test('只读任务内容可执行配置的 Reopen、Restore、Clear，统一交�
 });
 test('记录操作准备期间阻止重入，菜单撤销或数据集重绑会使执行条件失效', async () => {
   Object.assign(session,{owner:'',finish:undefined,saveAllowed:true});
-  const f=fixture();f.state.singleOperations=['restoreLocation'];let finish,allowed;
+  const f=fixture();f.state.singleOperations=['restore'];let finish,allowed;
   Object.assign(f.state.dataSet,{identity:'scope',settle:async()=>{},getTask:()=>({id:'task'})});
   f.state.recordActions={execute:async(_context,_dataSet,_tasks,_action,guard)=>{
     allowed=guard;return await new Promise(resolve=>finish=resolve);}};
-  const pending=f.state.activateOperation('restoreLocation');await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(f.state.recordActionPending,true);await f.state.activateOperation('restoreLocation');assert.equal(allowed(),true);
+  const pending=f.state.activateOperation('restore');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.state.recordActionPending,true);await f.state.activateOperation('restore');assert.equal(allowed(),true);
   f.state.dataSet.identity='new-scope';assert.equal(allowed(),false);
   finish({committed:false,retainedKeys:[]});await pending;assert.equal(f.state.recordActionPending,false);
 });

@@ -140,14 +140,14 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete']);
   inbox.singleOperations.length = 0;
   assert.equal(pagePolicy('inbox').singleOperations.length, 5);
-  const input = { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.RestoreLocation] };
+  const input = { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] };
   const policy = taskActionPolicy(input);
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
-  assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.RestoreLocation] });
+  assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
   assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
   assert.deepEqual(pagePolicy('waiting').singleOperations, ['toggleWait', 'someday', 'delete']);
   assert.deepEqual(pagePolicy('anytime').singleOperations, ['toggleWait', 'someday', 'delete']);
-  assert.deepEqual(pagePolicy('someday').singleOperations, ['restoreLocation', 'delete']);
+  assert.deepEqual(pagePolicy('someday').singleOperations, ['restore', 'delete']);
   assert.deepEqual(pagePolicy('recent').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
 });
 
@@ -334,7 +334,7 @@ test('八个页面区域的单条与批量菜单严格遵循交付规划', () =>
     waiting: [['toggleWait','someday','delete'],[]],
     planned: [['toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
     anytime: [['toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
-    someday: [['restoreLocation','delete'],['restoreLocation','delete']],
+    someday: [['restore','delete'],['restore','delete']],
     logbook: [['delete'],['delete']]
   };
   for (const [page,[single,bulk]] of Object.entries(expected)) {

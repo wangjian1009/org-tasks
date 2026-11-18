@@ -50,6 +50,6 @@ Rust workspace 586 项与宿主回归 642 项通过，Debug 构建无告警。�
 
 * 滑动与批量操作共享
 
-废纸篓的单条操作通过 ~TaskSwipeItem~ 配置 ~TaskOperation.RestoreLocation~ 与 ~TaskOperation.Clear~ ，日志簿待办单独使用 ~TaskOperation.SetTodo~ ，不再用页面模式解释同一个 Action。 ~TaskRecordOperations~ 复用已有 Core 操作组语义， ~TaskRecordActionController~ 统一管理确认、提交及归位后保留项核对。 ~TaskSelectionController~ 管理冻结选择快照与批量状态， ~TaskSelectionToolbar~ 复用既有批量操作栏；页面只提供数据集和展示分组，不传入执行回调。过期自动清理仍由 TrashDataManager 负责。
+废纸篓的单条操作通过 ~TaskSwipeItem~ 配置 ~TaskOperation.Restore~ 与 ~TaskOperation.Clear~ ，日志簿待办单独使用 ~TaskOperation.Reopen~ ，不再用页面模式解释同一个 Action。 ~TaskRecordOperations~ 复用已有 Core 操作组语义， ~TaskRecordActionController~ 统一管理确认、提交及归位后保留项核对。 ~TaskSelectionController~ 管理冻结选择快照与批量状态， ~TaskSelectionToolbar~ 复用既有批量操作栏；页面只提供数据集和展示分组，不传入执行回调。过期自动清理仍由 TrashDataManager 负责。
 
 2026-11-18 单条与批量恢复、清除已接入共享操作执行器。专用模拟器核对原状态保留、位置失效保留、多选部分成功后仅失败项继续选中、清除取消零写入及确认后永久删除；日志簿 Reopen 与废纸篓 Restore 的语义独立。

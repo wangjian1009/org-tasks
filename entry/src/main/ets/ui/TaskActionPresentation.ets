@@ -14,14 +14,14 @@ export enum TaskOperation {
   Memo = 'memo',
   Delete = 'delete',
   Clear = 'clear',
-  RestoreLocation = 'restoreLocation',
-  SetTodo = 'setTodo',
+  Restore = 'restore',
+  Reopen = 'reopen',
   Merge = 'merge',
   Select = 'select'
 }
 
 type TaskCommonOperation = TaskOperation.Wait | TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
-  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.RestoreLocation | TaskOperation.SetTodo
+  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
 export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.ToggleWait | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Merge
@@ -64,8 +64,8 @@ export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy
     case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.RestoreLocation, TaskOperation.Delete],
-      bulkOperations: [TaskOperation.RestoreLocation, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Delete],
+      bulkOperations: [TaskOperation.Restore, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
   }
@@ -119,10 +119,10 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
       case TaskOperation.Clear:
         items.push({ id: operation, title: '清除', label: '永久清除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '清除中…', action: () => activate(operation) })
         break
-      case TaskOperation.SetTodo:
+      case TaskOperation.Reopen:
         items.push({ id: operation, title: '待办', label: '恢复为待办', icon: $r('app.media.ui_action_restore'), busyTitle: '处理中…', action: () => activate(operation) })
         break
-      case TaskOperation.RestoreLocation:
+      case TaskOperation.Restore:
         items.push({ id: operation, title: '归位', label: '恢复到原位置', icon: $r('app.media.ui_action_restore'), busyTitle: '归位中…', action: () => activate(operation) })
         break
       case TaskOperation.Merge:
