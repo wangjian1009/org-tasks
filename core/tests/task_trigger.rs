@@ -255,7 +255,7 @@ async fn loki_spawn_commits_one_created_event_and_keeps_original_subtree_bytes()
     assert_eq!(after.matches("DEADLINE:").count(), 1);
     assert_eq!(after.matches(":CREATED:").count(), 1);
     assert!(!after.contains(":LOKI_NEXT_ID:"));
-    assert_eq!(after.matches(":ID: ").count(), 1);
+    assert!(!after.contains(":ID:"));
     let changes = changes.lock().unwrap();
     let created = changes.iter().filter(|change| change.kind == TaskDataChangeKind::Created).collect::<Vec<_>>();
     assert_eq!(created.len(), 1);

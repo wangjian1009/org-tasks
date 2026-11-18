@@ -136,26 +136,7 @@ fn check_reference(json: &str) {
                         .unwrap_or(&case["expected"])
                         .as_str()
                         .unwrap();
-                    let normalize = |source: &str| {
-                        let lines = normalized(source);
-                        if data["loki"] != true {
-                            return lines.join("\n");
-                        }
-                        // UUID 不确定，但同一 ID 的所有引用必须保持一致。
-                        let pattern =
-                            regex::Regex::new(r"(?i)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
-                                .unwrap();
-                        let mut ids = std::collections::BTreeMap::new();
-                        pattern
-                            .replace_all(&lines.join("\n"), |captures: &regex::Captures<'_>| {
-                                let next = ids.len();
-                                let id =
-                                    *ids.entry(captures[0].to_ascii_lowercase()).or_insert(next);
-                                format!("<UUID:{id}>")
-                            })
-                            .into_owned()
-                    };
-                    if normalize(actual) != normalize(expected) {
+                    if normalized(actual) != normalized(expected) {
                         failures.push(format!(
                             "{} 第 {} 步:\n实际:\n{actual}\n预期:\n{expected}",
                             case["name"],

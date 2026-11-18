@@ -204,7 +204,6 @@ impl Context<'_> {
         creation.tags = self.own_tags(target)?;
         creation.scheduled = Some(stamp(date));
         let trigger = self.prop(target, "TRIGGER")?;
-        let id = crate::model::service::generate_uuid()?;
         let inserted =
             crate::model::task_operation_executor::create(self.file, &creation, self.now)?;
         let ordinal = self
@@ -220,7 +219,6 @@ impl Context<'_> {
         }
         let next = self.ordinals.len();
         self.ordinals.push(ordinal);
-        self.set_property(next, "ID", &id)?;
         if let Some(trigger) = trigger {
             self.set_property(next, "TRIGGER", &trigger)?;
         }
