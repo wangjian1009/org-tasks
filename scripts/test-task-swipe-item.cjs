@@ -50,7 +50,7 @@ function fixture() {
     dataSet: { async submitOperationGroup(group, allowed) { assert.equal(allowed(), true); submitted.push(group); await write(); } }, singleOperations: [], recordActionPending: false, toggleStateCategory: null, rightSwipeAction: undefined });
   return { state, calls, guards, submitted, messages, controller, writeWith: fn => write = fn, editable: value => editable = value, deletable: value => deletable = value };
 }
-test('状态、规划和整理操作全部调用编辑器接口，开始／暂停与等待／恢复使用同一枚举的不同形态', async () => {
+test('状态、规划和整理操作全部调用编辑器接口，开始／暂停与等待／待办使用同一枚举的不同形态', async () => {
   for (const [action, target, method] of [['move', null, 'startMove'], ['schedule', null, 'startSchedule'],
     ['deadline', null, 'startDeadline'], ['delete', null, 'startDelete'], ['someday', null, 'moveToSomeday'],
     ['memo', null, 'convertToMemo'], ['toggleWait', 'Wait', 'toggleWait'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
@@ -177,7 +177,7 @@ test('草稿保存失败或准备期间控件离开时不打开项目面板，�
 });
 
 test('只读任务内容可执行配置的 Reopen、Restore、Clear，统一交给记录操作执行器', async () => {
-  for (const action of ['reopen','restore','clear']) {
+  for (const action of ['setTodo','restoreLocation','clear']) {
     const f=fixture(), performed=[];f.editable(false);f.state.singleOperations=[action];
     const source={id:'task',fileVersion:'v2'};
     Object.assign(f.state.dataSet,{identity:'scope',settle:async()=>{},getTask:()=>source});
@@ -189,17 +189,17 @@ test('只读任务内容可执行配置的 Reopen、Restore、Clear，统一交�
 });
 test('记录操作准备期间阻止重入，菜单撤销或数据集重绑会使执行条件失效', async () => {
   Object.assign(session,{owner:'',finish:undefined,saveAllowed:true});
-  const f=fixture();f.state.singleOperations=['restore'];let finish,allowed;
+  const f=fixture();f.state.singleOperations=['restoreLocation'];let finish,allowed;
   Object.assign(f.state.dataSet,{identity:'scope',settle:async()=>{},getTask:()=>({id:'task'})});
   f.state.recordActions={execute:async(_context,_dataSet,_tasks,_action,guard)=>{
     allowed=guard;return await new Promise(resolve=>finish=resolve);}};
-  const pending=f.state.activateOperation('restore');await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(f.state.recordActionPending,true);await f.state.activateOperation('restore');assert.equal(allowed(),true);
+  const pending=f.state.activateOperation('restoreLocation');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.state.recordActionPending,true);await f.state.activateOperation('restoreLocation');assert.equal(allowed(),true);
   f.state.dataSet.identity='new-scope';assert.equal(allowed(),false);
   finish({committed:false,retainedKeys:[]});await pending;assert.equal(f.state.recordActionPending,false);
 });
 
-test('等待／恢复 Action 复用启用数组和提交入口，撤销配置或编辑器失效后不执行',async()=>{
+test('等待／待办 Action 复用启用数组和提交入口，撤销配置或编辑器失效后不执行',async()=>{
   const f=fixture();f.state.singleOperations=['toggleWait'];f.state.toggleWaitCategory='Wait';await f.state.activateOperation('toggleWait');
   assert.deepEqual(f.calls,['toggleWait']);assert.equal(f.submitted.length,1);
   f.state.singleOperations=[];assert.equal(f.guards[0](),false);await f.state.activateOperation('toggleWait');

@@ -130,7 +130,7 @@ export struct TaskSwipeItem {
     try {
       switch (action) {
         case TaskOperation.Select: await this.selection?.start(this.taskId); return
-        case TaskOperation.Reopen: case TaskOperation.Restore: case TaskOperation.Clear:
+        case TaskOperation.SetTodo: case TaskOperation.RestoreLocation: case TaskOperation.Clear:
           await this.executeRecordAction(action, allowed); return
         case TaskOperation.Project: await this.openProject(allowed); return
         case TaskOperation.ToggleState:

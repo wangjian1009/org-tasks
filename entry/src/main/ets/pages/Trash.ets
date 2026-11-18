@@ -59,12 +59,12 @@ struct Trash {
             .onClick((): void => { this.load(true) })
         }
         if (this.groups.length > 0 && this.dataManager) {
-          LogbookTaskList({ trashMode: true, singleOperations: [TaskOperation.Restore, TaskOperation.Clear],
-            bulkOperations: [TaskOperation.Restore, TaskOperation.Clear], ready: this.ready, dataSet: this.dataManager.tasks,
+          LogbookTaskList({ trashMode: true, singleOperations: [TaskOperation.RestoreLocation, TaskOperation.Clear],
+            bulkOperations: [TaskOperation.RestoreLocation, TaskOperation.Clear], ready: this.ready, dataSet: this.dataManager.tasks,
             groups: this.groups, referenceTime: this.referenceTime })
         } else {
           NotificationEmptyState({ title: this.loading ? '正在读取废纸篓' : '废纸篓为空',
-            detail: '删除的记录会暂存于此。左滑可恢复、永久清除或多选。', busy: this.loading })
+            detail: '删除的记录会暂存于此。左滑可归位、永久清除或多选。', busy: this.loading })
         }
       }.width('100%').height('100%')
     }

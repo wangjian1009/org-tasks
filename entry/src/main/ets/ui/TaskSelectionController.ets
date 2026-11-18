@@ -119,7 +119,7 @@ export class TaskSelectionController {
       if (!await TaskInlineSession.end(true) || !allowed()) return
       let retainedKeys: string[] = [], mainPath: CoreTaskPath | undefined = undefined
       switch (action) {
-        case TaskOperation.Wait: case TaskOperation.Delete: case TaskOperation.Reopen: case TaskOperation.Restore: case TaskOperation.Clear: {
+        case TaskOperation.Wait: case TaskOperation.Delete: case TaskOperation.SetTodo: case TaskOperation.RestoreLocation: case TaskOperation.Clear: {
           const result = await this.actions.execute(context, dataSet, tasks, action, allowed)
           if (!result.committed) return
           retainedKeys = result.retainedKeys

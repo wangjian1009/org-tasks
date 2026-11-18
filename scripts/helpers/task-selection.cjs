@@ -55,7 +55,7 @@ function fixture() {
   const dataSet={identity:'scope',isReady:()=>true,error:'',taskKey:id=>id,getTask:id=>rows.get(id),settle:async()=>{},
     submitOperationGroup:async(group,allowed)=>{assert.equal(allowed(),true);writes.push(group);if(wait)await wait;if(fail)throw fail;}};
   const context={getHostContext:()=>({}),showAlertDialog:dialog=>dialogs.push(dialog)};
-  const selection=new Selection();let enabled=['delete','reopen','restore','clear'],ready=true;
+  const selection=new Selection();let enabled=['delete','setTodo','restoreLocation','clear'],ready=true;
   selection.connect(dataSet,()=>Array.from(rows.values()),()=>enabled,()=>ready,{closeAllSwipeActions(){}});
   return {service,Runner,selection,dataSet,context,writes,dialogs,rows,operations,planned,planWait:value=>planWait=value,
     fail:error=>fail=error,wait:value=>wait=value,save:value=>saveAllowed=value,saveWait:value=>saveWait=value,

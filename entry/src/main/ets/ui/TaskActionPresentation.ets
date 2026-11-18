@@ -14,14 +14,14 @@ export enum TaskOperation {
   Memo = 'memo',
   Delete = 'delete',
   Clear = 'clear',
-  Restore = 'restore',
-  Reopen = 'reopen',
+  RestoreLocation = 'restoreLocation',
+  SetTodo = 'setTodo',
   Merge = 'merge',
   Select = 'select'
 }
 
 type TaskCommonOperation = TaskOperation.Wait | TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
-  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
+  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.RestoreLocation | TaskOperation.SetTodo
 export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.ToggleWait | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Merge
@@ -64,8 +64,8 @@ export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy
     case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Delete],
-      bulkOperations: [TaskOperation.Restore, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.RestoreLocation, TaskOperation.Delete],
+      bulkOperations: [TaskOperation.RestoreLocation, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
   }
@@ -87,9 +87,9 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
       case TaskOperation.ToggleWait:
         if (toggleWaitCategory === 'Wait' || toggleWaitCategory === 'Todo') {
           const waiting = toggleWaitCategory === 'Wait'
-          items.push({ id: operation, title: waiting ? '等待' : '恢复', label: waiting ? '设为等待' : '恢复为待办',
+          items.push({ id: operation, title: waiting ? '等待' : '待办', label: waiting ? '设为等待' : '恢复为待办',
             icon: waiting ? $r('app.media.ui_task_waiting') : $r('app.media.ui_action_restore'),
-            busyTitle: waiting ? '设置中…' : '恢复中…', action: () => activate(operation) })
+            busyTitle: waiting ? '设置中…' : '处理中…', action: () => activate(operation) })
         }
         break
       case TaskOperation.Wait:
@@ -119,11 +119,11 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
       case TaskOperation.Clear:
         items.push({ id: operation, title: '清除', label: '永久清除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '清除中…', action: () => activate(operation) })
         break
-      case TaskOperation.Reopen:
-        items.push({ id: operation, title: '恢复', label: '恢复为待办', icon: $r('app.media.ui_action_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
+      case TaskOperation.SetTodo:
+        items.push({ id: operation, title: '待办', label: '恢复为待办', icon: $r('app.media.ui_action_restore'), busyTitle: '处理中…', action: () => activate(operation) })
         break
-      case TaskOperation.Restore:
-        items.push({ id: operation, title: '恢复', label: '恢复', icon: $r('app.media.ui_action_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
+      case TaskOperation.RestoreLocation:
+        items.push({ id: operation, title: '归位', label: '恢复到原位置', icon: $r('app.media.ui_action_restore'), busyTitle: '归位中…', action: () => activate(operation) })
         break
       case TaskOperation.Merge:
         items.push({ id: operation, title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),

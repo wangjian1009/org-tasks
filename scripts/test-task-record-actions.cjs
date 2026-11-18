@@ -8,16 +8,16 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 }
 const {compile,fixture,task,groups,actions}=require('./helpers/task-selection.cjs');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-test('Reopen 按每个文件有效 Todo 状态规划单组，不清空其他字段；混合版本与缺失状态拒绝整组',async()=>{
+test('SetTodo 按每个文件有效 Todo 状态规划单组，不清空其他字段；混合版本与缺失状态拒绝整组',async()=>{
   const f=fixture(), a=task('A','NEXT'), b=task('B','OPEN');
-  const group=await f.service.group({},[a,b],'reopen');
+  const group=await f.service.group({},[a,b],'setTodo');
   assert.deepEqual(group.operations.map(op=>op.data.modifications),[[{field:'TODO',value:'NEXT'}],[{field:'TODO',value:'OPEN'}]]);
   assert.equal(group.fileVersions.length,1);assert.equal(f.writes.length,0);
-  await assert.rejects(f.service.group({},[a,task('B',null)],'reopen'),/没有可用/);
-  await assert.rejects(f.service.group({},[a,task('B','NEXT','v2')],'reopen'),/版本不一致/);
+  await assert.rejects(f.service.group({},[a,task('B',null)],'setTodo'),/没有可用/);
+  await assert.rejects(f.service.group({},[a,task('B','NEXT','v2')],'setTodo'),/版本不一致/);
 });
-test('Restore、Clear、Delete 语义固定且规划阶段零写入',async()=>{
-  const f=fixture();for(const action of ['restore','clear','delete'])await f.service.group({},[task('A')],action);
+test('RestoreLocation、Clear、Delete 语义固定且规划阶段零写入',async()=>{
+  const f=fixture();for(const action of ['restoreLocation','clear','delete'])await f.service.group({},[task('A')],action);
   assert.deepEqual(f.operations,['restore','clear','trash']);assert.equal(f.writes.length,0);
 });
 test('清除确认取消、点击遮罩或控件离开都不写入，迟到确认也无效',async()=>{
@@ -50,16 +50,16 @@ test('外部刷新不覆盖选择顺序或源版本，取消首条后保持其�
   const f=fixture();await f.selection.start('A');f.selection.toggle('B');
   f.rows.set('A',task('A','NEXT','v2'));f.rows.set('B',task('B','NEXT','v2'));
   await f.selection.start('B');assert.deepEqual(f.selection.selectedKeys,['A','B']);
-  f.enable(['delete']);await f.selection.execute(f.context,'reopen');assert.equal(f.writes.length,0);
-  f.enable(['reopen']);f.selection.toggle('A');await f.selection.execute(f.context,'reopen');
+  f.enable(['delete']);await f.selection.execute(f.context,'setTodo');assert.equal(f.writes.length,0);
+  f.enable(['setTodo']);f.selection.toggle('A');await f.selection.execute(f.context,'setTodo');
   assert.equal(f.writes.length,1);assert.equal(f.writes[0].operations[0].data.path.titles[0],'B');
   assert.equal(f.writes[0].fileVersions[0].version,'v1');assert.equal(f.selection.selecting,false);
 });
 test('批量提交失败保留选择和快照，提交期间重复动作与退出均被阻止',async()=>{
   const f=fixture();await f.selection.start('A');f.selection.toggle('B');let finish;
   f.wait(new Promise(resolve=>finish=resolve));f.fail(new Error('旧文件版本'));
-  const pending=f.selection.execute(f.context,'reopen');await tick();assert.equal(f.selection.busy,true);
-  await f.selection.execute(f.context,'reopen');f.selection.reset();f.selection.toggle('A');
+  const pending=f.selection.execute(f.context,'setTodo');await tick();assert.equal(f.selection.busy,true);
+  await f.selection.execute(f.context,'setTodo');f.selection.reset();f.selection.toggle('A');
   assert.deepEqual(f.selection.selectedKeys,['A','B']);assert.equal(f.writes.length,1);
   finish();await pending;assert.equal(f.selection.busy,false);assert.equal(f.selection.message,'旧文件版本');
   assert.equal(f.selection.selecting,true);assert.deepEqual(f.selection.selectedKeys,['A','B']);
@@ -67,10 +67,10 @@ test('批量提交失败保留选择和快照，提交期间重复动作与退�
 test('混合批量恢复只保留失败项，成功后的新废纸篓版本用于再次恢复',async()=>{
   const f=fixture();await f.selection.start('A');f.selection.toggle('B');
   f.dataSet.submitOperationGroup=async(group,allowed)=>{assert.equal(allowed(),true);f.writes.push(group);f.rows.delete('A');f.rows.set('B',task('B','NEXT','v2'));};
-  await f.selection.execute(f.context,'restore');assert.deepEqual(f.selection.selectedKeys,['B']);
+  await f.selection.execute(f.context,'restoreLocation');assert.deepEqual(f.selection.selectedKeys,['B']);
   assert.match(f.selection.message,/1 条记录原位置不可用/);assert.equal(f.selection.selecting,true);
   f.dataSet.submitOperationGroup=async(group,allowed)=>{assert.equal(allowed(),true);f.writes.push(group);f.rows.delete('B');};
-  await f.selection.execute(f.context,'restore');assert.equal(f.writes[1].fileVersions[0].version,'v2');assert.equal(f.selection.selecting,false);
+  await f.selection.execute(f.context,'restoreLocation');assert.equal(f.writes[1].fileVersions[0].version,'v2');assert.equal(f.selection.selecting,false);
 });
 test('选择后数据集重绑或删除菜单被撤销时，旧确认不能继续提交',async()=>{
   for(const mode of ['scope','policy']){
@@ -83,9 +83,9 @@ test('选择后数据集重绑或删除菜单被撤销时，旧确认不能继�
 test('部分恢复后未选中的存活行仍可加入选择，使用本次成功提交后的确认版本',async()=>{
   const f=fixture();f.rows.set('C',task('C'));await f.selection.start('A');f.selection.toggle('B');
   f.dataSet.submitOperationGroup=async()=>{f.rows.delete('A');f.rows.set('B',task('B','NEXT','v2'));f.rows.set('C',task('C','NEXT','v2'));};
-  await f.selection.execute(f.context,'restore');f.selection.toggle('C');assert.deepEqual(f.selection.selectedKeys,['B','C']);
+  await f.selection.execute(f.context,'restoreLocation');f.selection.toggle('C');assert.deepEqual(f.selection.selectedKeys,['B','C']);
   f.dataSet.submitOperationGroup=async(group)=>{f.writes.push(group);f.rows.clear();};
-  await f.selection.execute(f.context,'restore');assert.equal(f.writes[0].fileVersions[0].version,'v2');assert.equal(f.writes[0].operations.length,2);
+  await f.selection.execute(f.context,'restoreLocation');assert.equal(f.writes[0].fileVersions[0].version,'v2');assert.equal(f.writes[0].operations.length,2);
 });
 
 test('批量等待使用各文件有效 Wait 状态，仅生成 TODO 修改并一次经 DataSet 提交',async()=>{
