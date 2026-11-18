@@ -330,6 +330,15 @@ impl NotificationState {
         self.cache.insert(repo_id, data);
     }
 
+    pub(crate) fn notifications_for_repo(&self, repo_id: &str) -> Vec<CoreNotification> {
+        let Some(cache) = self.cache.get(repo_id) else { return Vec::new(); };
+        let mut notifications = cache.conflicts.iter().map(|path| CoreNotification::SyncConflict(SyncConflictNotification {
+            repo_id: repo_id.into(), path: path.clone(),
+        })).collect::<Vec<_>>();
+        if cache.dirty() { notifications.push(CoreNotification::SyncRequired); }
+        notifications
+    }
+
     fn notify(&mut self) {
         for monitor in &mut self.monitors {
             if monitor.token.strong_count() == 0 {
@@ -422,6 +431,24 @@ mod tests {
             last: None,
         });
         (token, received)
+    }
+
+    #[tokio::test]
+    async fn data_event_uses_notification_event_name_and_includes_core_notification_list() {
+        let repo = state().repos.remove(0);
+        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
+        workspace.notifications.update_snapshot(repo.id.clone(), snapshot(1, "changed"));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let _watch = workspace.watch_data_changes(move |event| captured.lock().unwrap().push(event));
+        super::super::sync_events::publish_changes(
+            &workspace.notifications, &repo, None, Some(vec![changed("changed", false)]), Vec::new(),
+        );
+        workspace.notifications.flush().await.unwrap();
+        let event = serde_json::to_value(&events.lock().unwrap()[0]).unwrap();
+        assert_eq!(event["type"], "notificationEvent");
+        assert_eq!(event["notifications"], serde_json::json!([{"type":"syncRequired"}]));
+        workspace.stop().await.unwrap();
     }
 
     #[test]

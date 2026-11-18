@@ -1430,11 +1430,9 @@ async fn failed_merge_preserves_working_files_and_publishes_confirmed_remote_sna
     let workspace = crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
     let other = crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
     let (other_send, mut other_events) = tokio::sync::mpsc::unbounded_channel();
-    let _other_subscription = other.watch_data_changes(move |event| { let _ = other_send.send(event); });
-    let subscription = workspace.watch_data_changes(move |event| {
-        if matches!(event, crate::DataChangeEvent::RepositoryChanged { .. }) {
-            captured.lock().unwrap().push(event);
-        }
+    let _other_subscription = other.watch_external_file_changes(move |event| { let _ = other_send.send(event); });
+    let subscription = workspace.watch_external_file_changes(move |event| {
+        captured.lock().unwrap().push(event);
     });
     let failed = repo.sync_with_options(
         &policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default(),
@@ -1442,8 +1440,8 @@ async fn failed_merge_preserves_working_files_and_publishes_confirmed_remote_sna
     ).await.unwrap();
     assert_eq!(
         events.lock().unwrap().len(),
-        1,
-        "失败日志提交也应广播通知更新"
+        0,
+        "没有提交本地文件时不伪造外部文件变化，通知缓存由 Core 独立更新"
     );
     other.query(&[]).await.unwrap();
     assert!(other_events.try_recv().is_err());

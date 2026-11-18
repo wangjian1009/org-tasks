@@ -6,8 +6,8 @@ const ts=require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmo
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function until(check){const end=Date.now()+2000;while(!check()){if(Date.now()>end)throw new Error('管理对象未完成更新');await new Promise(resolve=>setTimeout(resolve,1));}}
 function gate(){let resolve;const promise=new Promise(done=>resolve=done);return{promise,resolve};}
-function fixture(){let configChanged,syncChanged,current=1,reads=0,failure,hold,registration;const events=[],stops=[],states=[];
- const makeWorkspace=id=>({id,async watchDataChanges(fn){events.push({id,fn});if(registration){const pending=registration;registration=undefined;await pending.promise;}return id;},stopWatchingDataChanges(id){stops.push(id);}});
+function fixture(){let configChanged,syncChanged,current=1,reads=0,failure,hold,registration;const events=[],stops=[],states=[],externalEvents=new Map();
+ const makeWorkspace=id=>({id,async watchDataChanges(fn){events.push({id,fn});if(registration){const pending=registration;registration=undefined;await pending.promise;}return id;},stopWatchingDataChanges(id){stops.push(id);},async watchExternalFileChanges(fn){externalEvents.set(id,fn);return id;},stopWatchingExternalFileChanges(id){externalEvents.delete(id);}});
  let workspace=makeWorkspace(1);
  const module={exports:{}},mocks={
   './AppConfigService':{AppConfigService:{async load(){return{repos:[]}},watchChanges(fn){configChanged=fn},stopWatchingChanges(fn){if(configChanged===fn)configChanged=undefined}}},

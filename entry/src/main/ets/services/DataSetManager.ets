@@ -2,7 +2,7 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreOrgFile, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
+import { CoreExternalFileChanged, CoreOrgFileRef, CoreRepo, CoreOrgFile, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreOrgFileMetadata, CoreSettingsObject, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { PageDataCache } from './PageDataCache'
 import { cacheDataSet, restoreDataSet } from './PageDataSnapshot'
 import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueue, DataSetClock, DataSetQuery } from './DataSet'
@@ -54,6 +54,13 @@ export class DataSetManager {
   private config: AppConfig | undefined = undefined
   private workspace: CoreWorkspace | undefined = undefined
   private definitions: DataSetDefinition[] = []
+  private externalWatch: number = 0
+  private externalTimer: number = -1
+  private externalRunning: Promise<void> | undefined = undefined
+  private readonly externalPending: Set<string> = new Set()
+  private repositories: CoreRepo[] = []
+  private dayTimer: number = -1
+  private day: string = new Date().toDateString()
   private phase: number = 1
   private clock: DataSetClock = {
     subscribe: (name: string, request: CoreQuerySubscriptionRequest, activate: () => void): Promise<CoreQuerySubscriptionStart> => this.queueSubscription(name, request, activate),
@@ -62,6 +69,7 @@ export class DataSetManager {
       const id = this.subscriptions.get(name)
       return id === undefined ? 'closed' : await this.workspace!.querySubscriptionStatus(id)
     },
+    refresh: (name: string): void => this.requestRefresh([name]),
     owner: util.generateRandomUUID(), next: (): number => ++this.phase, metadata: (repoId: string, path: string): CoreOrgFileMetadata | undefined => {
     for (const dataSet of this.sets.values()) if (dataSet.data?.type === 'file') {
       const metadata = dataSet.data.result.find(file => file.repoId === repoId && file.path === path)
@@ -167,6 +175,8 @@ export class DataSetManager {
     } catch (_) { /* 缓存不可用时仍由每个数据集执行首次查询。 */ }
     if (this.closed || generation !== this.generation) return []
     await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    this.repositories = await workspace.repos()
+    await this.connectExternalFiles(workspace)
     if (this.closed || generation !== this.generation) return []
     const loaded: DataLoadResult[] = []
     const capture = !this.initialFilesDelivered ? (result: DataLoadResult): void => { loaded.push(result) } : undefined
@@ -175,11 +185,67 @@ export class DataSetManager {
       await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.start()))
       if (this.closed || generation !== this.generation || scope !== this.scope) return []
       this.initialFilesDelivered = true
-      this.initialized = true; this.savedRevision = ''; this.scheduleSave()
+      this.initialized = true; this.savedRevision = ''; this.scheduleSave(); this.scheduleExternalRefresh()
       return loaded
     } finally {
       if (this.captureFiles === capture) this.captureFiles = undefined
     }
+  }
+  private async connectExternalFiles(workspace: CoreWorkspace): Promise<void> {
+    if (this.externalWatch) return
+    const id = await workspace.watchExternalFileChanges((event: CoreExternalFileChanged): void => {
+      if (this.closed || this.closing || workspace !== this.workspace) return
+      const affected = Array.from(this.sets.values()).filter(dataSet => event.changeFiles.some(change => this.needsFile(dataSet, change.file)))
+      this.requestRefresh(affected.map(dataSet => dataSet.name))
+    })
+    if (this.closed || this.closing || workspace !== this.workspace) { workspace.stopWatchingExternalFileChanges(id); return }
+    this.externalWatch = id
+    this.dayTimer = setInterval((): void => {
+      const day = new Date().toDateString()
+      if (day !== this.day) { this.day = day; this.requestRefresh(Array.from(this.sets.keys())) }
+    }, 60000)
+  }
+  private needsFile(dataSet: DataSet, file: CoreOrgFileRef): boolean {
+    const request = dataSet.query
+    if (!request) return false
+    const resolve = (id: string): string => {
+      const binding = dataSet.repositoryBindings.find(value => value.id === id)
+      return binding ? this.repositories.find(repo => repo.rootDirectory === binding.rootDirectory)?.id ?? id : id
+    }
+    if (request.type === 'task' && request.repoIds?.length && !request.repoIds.some(id => resolve(id) === file.repoId)) return false
+    const matches = (candidate: CoreOrgFileRef): boolean => resolve(candidate.repoId) === file.repoId && candidate.path === file.path
+    if (request.query.excludeFiles?.some(matches)) return false
+    return !request.query.includeFiles?.length || request.query.includeFiles.some(matches)
+  }
+  private requestRefresh(names: string[]): void {
+    if (this.closed || this.closing) return
+    for (const name of names) this.externalPending.add(name)
+    this.scheduleExternalRefresh()
+  }
+  private scheduleExternalRefresh(): void {
+    if (!this.initialized || this.closed || this.closing || !this.externalPending.size || this.externalRunning || this.externalTimer >= 0) return
+    this.externalTimer = setTimeout((): void => { this.externalTimer = -1; this.drainExternalRefresh() }, 50)
+  }
+  private drainExternalRefresh(): Promise<void> {
+    if (this.externalRunning) return this.externalRunning
+    const work = (async (): Promise<void> => {
+      while (this.externalPending.size && !this.closed && !this.closing) {
+        const names = Array.from(this.externalPending)
+        this.externalPending.clear()
+        await Promise.all(names.map(async (name: string): Promise<void> => {
+          const dataSet = this.sets.get(name)
+          if (!dataSet?.hasValidScope()) return
+          try { await dataSet.refresh() } catch (error) { dataSet.reportError(error as Error) }
+        }))
+      }
+    })().finally((): void => { if (this.externalRunning === work) this.externalRunning = undefined; this.scheduleExternalRefresh() })
+    this.externalRunning = work
+    return work
+  }
+  private async settleExternalRefresh(): Promise<void> {
+    clearTimeout(this.externalTimer); this.externalTimer = -1
+    if (this.externalRunning) await this.externalRunning
+    if (this.externalPending.size && !this.closing) await this.drainExternalRefresh()
   }
   private stopSubscription(name: string): void {
     const id = this.subscriptions.get(name)
@@ -273,6 +339,7 @@ export class DataSetManager {
   async flush(): Promise<void> {
     clearTimeout(this.saveTimer); this.saveTimer = -1
     const generation = this.generation, cache = this.cache
+    await this.settleExternalRefresh()
     await UserOperationQueue.whenIdle()
     await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.settle()))
     if (!cache || !this.initialized || generation !== this.generation || cache !== this.cache || Array.from(this.sets.values()).some(dataSet => !dataSet.getConfirmed(dataSet.name))) return
@@ -288,6 +355,7 @@ export class DataSetManager {
   static async flushAll(): Promise<void> { await Promise.all(Array.from(DataSetManager.active).map(manager => manager.flush())) }
   async close(): Promise<void> {
     if (this.closed) return
+    await this.settleExternalRefresh()
     this.closing = true
     try {
       if (this.running) await this.running.catch((): void => {})
@@ -295,6 +363,8 @@ export class DataSetManager {
       await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.close()))
       await this.flush()
     } finally {
+      if (this.externalWatch) this.workspace?.stopWatchingExternalFileChanges(this.externalWatch)
+      this.externalWatch = 0; clearTimeout(this.externalTimer); clearInterval(this.dayTimer); this.externalPending.clear()
       this.closed = true; this.captureFiles = undefined; clearTimeout(this.saveTimer)
       for (const name of Array.from(this.subscriptions.keys())) this.stopSubscription(name)
       for (const stop of this.stops.values()) stop()

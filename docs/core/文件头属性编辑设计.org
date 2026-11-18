@@ -313,7 +313,7 @@ pub struct TaskCategory {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DataChangeEvent {
-    RepositoryChanged {
+    NotificationEvent {
         #[serde(rename = "repoId")]
         repo_id: OrgRepoId,
         #[serde(rename = "operationId")]
@@ -334,7 +334,7 @@ pub enum DataChangeEvent {
 
 | 场景 | 执行返回 | 通知与处理 |
 |-
-| 实际修改且整组提交成功 | Rust 返回 Ok(()) | 按每个实际变化仓库发布带同一 operationId 的 RepositoryChanged；不保证不同查询订阅回调与执行 Promise 的到达顺序。 |
+| 实际修改且整组提交成功 | Rust 返回 Ok(()) | 按每个实际变化仓库发布带同一 operationId 的 NotificationEvent；不保证不同查询订阅回调与执行 Promise 的到达顺序。 |
 | 参数、只读范围或保护标签校验失败 | CoreError::InvalidInput | 整组不写入，不发布成功变更通知，保留编辑草稿。 |
 | 文件版本过期、条目失效或提交期间发生外部竞争 | CoreError::InvalidState | 整组失败，不自动改用新版本重试，保留草稿并提示重新载入。 |
 | I/O 或事务提交失败 | CoreError::Store | 既有事务回滚，不发布成功通知。 |

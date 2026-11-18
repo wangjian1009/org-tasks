@@ -24,6 +24,7 @@ export interface DataSetClock {
   subscribe: (name: string, request: CoreQuerySubscriptionRequest, activate: () => void) => Promise<CoreQuerySubscriptionStart>
   unsubscribe: (name: string) => void
   status: (name: string) => Promise<CoreQuerySubscriptionStatus>
+  refresh: (name: string) => void
 }
 export type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
 interface DataSetSubmission { readonly operationId: string; readonly completion: Promise<void> }
@@ -107,12 +108,6 @@ export class DataSet {
   private closing: boolean = false
   private closed: boolean = false
   private shutdown: Promise<void> | undefined = undefined
-  private externalWatch: number = 0
-  private externalTimer: number = -1
-  private dayTimer: number = -1
-  private day: string = new Date().toDateString()
-  private externalPending: boolean = false
-  private externalRefreshing: boolean = false
   readonly name: string
   get identity(): string { return this.epoch }
   private config: AppConfig | undefined = undefined
@@ -130,14 +125,12 @@ export class DataSet {
   invalidate(): void {
     this.scopeChanged = true; this.ready = false; this.generation = ''
     this.clock?.unsubscribe(this.name)
-    this.stopExternalUpdates()
     this.publish({ name: this.name, type: 'refresh', version: this.version, operationId: this.operationId(this.sequence, 'context'), optimistic: false, added: [], removed: [], updated: [] })
   }
   async configure(config: AppConfig, workspace: CoreWorkspace, definition?: DataSetDefinition): Promise<void> {
     const request = ++this.configureRequest
     this.scopeChanged = true; this.generation = ''; this.ready = false
     this.clock?.unsubscribe(this.name)
-    this.stopExternalUpdates()
     await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
     if (this.connection) await UserOperationQueue.whenIdle()
     if (request !== this.configureRequest || this.closed) return
@@ -200,15 +193,11 @@ export class DataSet {
   async settle(): Promise<void> {
     if (this.queryWork) await this.queryWork
     if (this.initialization) await this.initialization.catch((): void => {})
-    while (!this.closed && (this.externalPending || this.externalRefreshing || this.writes.size)) {
-      if (this.externalPending && !this.externalRefreshing && this.ready) {
-        clearTimeout(this.externalTimer); this.externalTimer = -1; this.externalPending = false
-        await this.refresh()
-      }
+    while (!this.closed && this.writes.size) {
       await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
-      if (this.externalRefreshing) await new Promise<void>(resolve => setTimeout(resolve, 0))
     }
   }
+
   hasValidScope(): boolean { return !this.scopeChanged && !this.closed && !this.closing }
   isReady(): boolean { return this.ready && !this.scopeChanged && !this.closed }
   snapshot(): ManagedDataSet | undefined { return this.get(this.name) }
@@ -291,48 +280,10 @@ export class DataSet {
       return
     }
     // 缓存已由管理器发布；配置接入属于后台查询准备，不阻塞缓存恢复。
-    // 立即把查询交给管理器收集；各监控注册的完成顺序不拆散页面首次批次。
-    await Promise.all([this.connectExternalUpdates(), this.load(++this.sequence)])
+    // 初始化查询统一交给管理器收集，页面全部数据集共享首次批次。
+    await this.load(++this.sequence)
   }
-  private async connectExternalUpdates(): Promise<void> {
-    const workspace = this.workspace
-    if (!workspace || this.externalWatch) return
-    const owner = this.epoch
-    const id = await workspace.watchDataChanges((event: CoreDataChangeEvent): void => {
-      if (owner !== this.epoch || workspace !== this.workspace || this.closed) return
-      if (this.eventVersion(event.operationId) === undefined) this.requestExternalRefresh()
-    })
-    if (!this.hasValidScope() || owner !== this.epoch || workspace !== this.workspace) { workspace.stopWatchingDataChanges(id); return }
-    this.externalWatch = id
-    this.dayTimer = setInterval((): void => {
-      const day = new Date().toDateString()
-      if (day !== this.day) { this.day = day; this.requestExternalRefresh() }
-    }, 60000)
-  }
-  private stopExternalUpdates(): void {
-    if (this.externalWatch) this.workspace?.stopWatchingDataChanges(this.externalWatch)
-    this.externalWatch = 0
-    clearTimeout(this.externalTimer); this.externalTimer = -1
-    clearInterval(this.dayTimer); this.dayTimer = -1
-    this.externalPending = false; this.externalRefreshing = false
-  }
-  private requestExternalRefresh(): void {
-    if (!this.hasValidScope()) return
-    this.externalPending = true
-    this.scheduleExternalRefresh()
-  }
-  private scheduleExternalRefresh(): void {
-    if (!this.externalPending || !this.ready || this.externalRefreshing || this.externalTimer >= 0 || !this.hasValidScope()) return
-    const epoch = this.epoch
-    this.externalTimer = setTimeout((): void => {
-      this.externalTimer = -1
-      if (!this.hasValidScope() || epoch !== this.epoch) return
-      this.externalPending = false; this.externalRefreshing = true
-      this.refresh().catch((error: Error): void => {
-        if (this.hasValidScope()) this.emitError(this.name, this.operationId(this.sequence, 'refresh'), error)
-      }).finally((): void => { if (epoch === this.epoch) { this.externalRefreshing = false; this.scheduleExternalRefresh() } })
-    }, 50)
-  }
+  private requestExternalRefresh(): void { this.clock?.refresh(this.name) }
   private async load(version: number): Promise<void> {
     const workspace = this.workspace
     if (!workspace) throw new Error('底层连接尚未建立')
@@ -363,7 +314,6 @@ export class DataSet {
       this.ready = true
       this.publish({ name: this.name, type: 'ready', version, dataVersion: this.views.get(this.name)?.version,
         operationId, optimistic: false, added: [], removed: [], updated: [] })
-      this.scheduleExternalRefresh()
     } catch (error) {
       if (this.generation !== operationId) throw error as Error
       this.clock?.unsubscribe(this.name)
@@ -695,10 +645,8 @@ export class DataSet {
       // 固定关闭边界：先解除事件，再持久化最后一个已确认阶段。
       this.clock?.unsubscribe(this.name)
       this.closed = true
-      this.stopExternalUpdates()
     } finally {
       this.closed = true
-      this.stopExternalUpdates()
       this.clock?.unsubscribe(this.name); this.listeners.clear(); this.taskListeners.clear();
     }
   }

@@ -70,6 +70,10 @@ async fn mutations_and_reset_notify_only_the_workspace_that_started_them() {
     let _second = second.watch_data_changes(move |_| {
         count.fetch_add(1, Ordering::SeqCst);
     });
+    let count = first_count.clone();
+    let _first_files = first.watch_external_file_changes(move |_| { count.fetch_add(1, Ordering::SeqCst); });
+    let count = second_count.clone();
+    let _second_files = second.watch_external_file_changes(move |_| { count.fetch_add(1, Ordering::SeqCst); });
     let file = repo.file("tasks.org").await.unwrap();
     let creation = TaskCreation::new(
         TaskPosition {

@@ -1,0 +1,70 @@
+#+TITLE: 外部文件变化监控设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 事件与职责
+
+普通操作组已携带文件与任务的精确增量，继续通过查询订阅直接更新数据集。原 ~DataChangeEvent::RepositoryChanged~ 改名为 ~DataChangeEvent::NotificationEvent~ ，JSON 为 ~notificationEvent~ ，保留原字段并增加 ~notifications: Vec<CoreNotification>~ 。通知处理 task 在分发前附加当前缓存中的该仓库消息列表；应用级通知订阅仍按自己的范围提供完整列表，不由页面重查。
+
+同步和 reset 属于外部文件变化，使用独立文件监控接口；事件不包含任务内容，不尝试从文件增删改推断任务移动或任务身份。
+
+#+begin_src rust
+pub enum ExternalFileChangeKind { Created, Deleted, Updated }
+pub struct ExternalFileChange {
+    pub file: OrgFileRef,
+    pub kind: ExternalFileChangeKind,
+}
+pub struct ExternalFileChanged {
+    pub change_files: Vec<ExternalFileChange>,
+}
+impl OrgWorkspace {
+    pub fn watch_external_file_changes<F>(&self, callback: F) -> ExternalFileSubscription
+    where F: Fn(ExternalFileChanged) + Send + Sync + 'static;
+}
+#+end_src
+
+~OrgFileRef~ 包含 Core 仓库 ID 和仓库相对路径。JSON 使用 ~type: "externalFileChanged"~ 、 ~changeFiles~ 和 ~created | deleted | updated~ 。订阅句柄只保留取消令牌；析构解除监控。回调在所属 Workspace 的通知处理 task 内执行，不能同步等待该 Workspace 的后续业务命令，不向其他 Workspace 广播。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{OrgWorkspace}{}{watch\_external\_file\_changes()}
+\umlclass[x=7,y=0]{ExternalFileSubscription}{取消令牌}{}
+\umlclass[x=0,y=-4]{ExternalFileChanged}{change\_files}{}
+\umlclass[x=7,y=-4]{ExternalFileChange}{file: OrgFileRef \\ kind: Created / Deleted / Updated}{}
+\umlclass[x=0,y=-8]{NotificationEvent}{repo\_id \\ operation\_id \\ files / changes \\ notifications}{}
+\umlclass[x=7,y=-8]{NotificationCenter}{Workspace 私有 channel}{更新通知列表 \\ 分发文件事件}
+\umldep{OrgWorkspace}{ExternalFileSubscription}
+\umlcompo{ExternalFileChanged}{ExternalFileChange}
+\umldep{ExternalFileSubscription}{NotificationCenter}
+\umldep{NotificationCenter}{NotificationEvent}
+\umldep{NotificationCenter}{ExternalFileChanged}
+\end{tikzpicture}
+
+* 生成与提交边界
+
+同步使用事务已有的 before／after 字节生成文件清单，不为生成事件增加目录扫描、文件读取或解析。仅在事务实际提交后发送；相同字节、 ~.sync/~ 元数据和只上传但本地未改变的文件均不进入清单。删除与空文件不同，新建空文件仍为 ~Created~ 。一次事务清单同时包含全部已提交的新增、删除和更新路径。
+
+reset 在持有仓库锁、确认没有活动同步后收集将删除的相对路径，不读取正文、不解析任务。清空完成后按实际删除路径发送 ~Deleted~ ，保留的身份与锁文件不进入事件；空仓库不发送空文件事件。
+
+业务收尾先由 Core 更新通知快照，按 ~SyncConflict~ 与 ~SyncRequired~ 各自的条件比较并广播列表变化，然后发布文件事件并等待分发确认。失败同步可能已经发布远端基线，因此没有工作文件变化时仍需更新通知，但不伪造文件变化。通知快照加载失败保留最近成功结果，文件变化仍送达数据管理层，以免界面永久保留旧数据。
+
+该接口监听 Core 已知的外部业务变化，不新增操作系统目录轮询或跨进程文件监听。
+
+* 数据集刷新
+
+每个 ~DataSetManager~ 注册一个文件监控，并统一持有跨自然日检查。收到事件后根据每项查询的仓库范围、 ~includeFiles~ 与 ~excludeFiles~ 判断是否相关；宿主仓库别名先通过仓库根目录映射为 Core ID。有限文件包含集合无交集时不刷新，没有包含限制时必须刷新，不根据当前命中记录反推文件范围。
+
+Manager 将连续事件影响的数据集名去重，并发请求这些数据集刷新，由同一个订阅收集器组合为一次 ~subscribeQuery~ 。该批每仓库共享一次扫描和加载。Core 查询订阅仅把相关文件范围标记失效，不隐式重查；无关的有限范围订阅保持有效。
+
+完整结果按输入位置交给各 ~DataSet~ ，由其比较新旧快照、维护稳定行身份并向已注册 Monitor 发布 ~insert~ 、 ~remove~ 、 ~update~ 或混合 ~refresh~ 。相同内容不重复发布数据变化， ~ready~ 只表示读取完成。刷新期间的新文件事件保留到下一批；配置换代、过期回调和关闭按 generation／identity 边界清理。缓存保存等待刷新、提交与事件归并完成。
+
+通知模块不注册文件监控，也不根据文件变化触发通知查询。它只接收 Core 已维护的通知列表。侧边栏、角标及完整阅读数据管理对象按自己的职责监听数据增量或文件事件，复用原有刷新合并与失败保留行为。
+
+* 验收记录
+
+2026-11-18 在专用 HarmonyOS 模拟器与独立本地 WebDAV 仓库完成验证：界面完成任务后 API 读到 DONE；API 改名后当前今天页直接更新，旧版本重复提交返回 409，未提交状态和日期保持原值。今天页保持打开时，同步下载文件新增、修改和删除，API 与页面共同确认任务移入、改名与移出。API 修改备注后 Core 推送本地待同步消息，点击同步后消息清除；界面重置独立仓库后 API 确认文件清空，今天页显示空态；关闭重开后同步恢复远端文件，备注与删除结果一致。
+
+Core 回归同时验证 reset 先更新通知列表再分发文件事件，文件清单保留空文件删除并排除控制目录，只有相关文件范围的查询订阅失效。宿主回归验证每页只注册一个监控、包含／排除文件与仓库别名筛选、连续事件共用一个查询批次，以及快照比较后向 Monitor 发布移除。

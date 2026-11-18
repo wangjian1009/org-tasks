@@ -244,7 +244,7 @@ test('查询事件使用真实任务和文件方法，队列只交付一次且�
   view.taskPriorityOptions = { Hight: { name: 'A', category: 'Hight' }, Middle: null, Low: null };
   const file = { repoId: 'repo', path: 'a.org', projectName: null, category: 'Work', taskStateCounts: [], taskStateOptions: view.taskStateOptions, taskPriorityOptions: view.taskPriorityOptions };
   const order = [];
-  const event = { type: 'repositoryChanged', repoId: 'repo', operationId: 'dataset/page/2/update',
+  const event = { type: 'notificationEvent', repoId: 'repo', operationId: 'dataset/page/2/update',
     changes: [{ kind: 'created', before: null, after: { task: { id: 'task' }, position: { parent: { repoId: 'repo', file: 'a.org', titles: [] } }, view } }],
     files: [{ before: null, after: { repoId: 'repo', path: 'a.org' }, afterView: file }] };
   let received;

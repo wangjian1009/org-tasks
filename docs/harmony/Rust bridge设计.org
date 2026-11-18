@@ -85,7 +85,7 @@ interface QuerySubscriptionRequest {
   repositoryBindings?: QueryRepositoryBinding[]
 }
 type DataChangeMonitor = (event: DataChangeEvent) => void
-type DataChangeEvent = { type: 'repositoryChanged', repoId: string, operationId: string | null, files: FileDataChange[] | null, changes: TaskDataChange[], removedFiles?: OrgFileRef[], categories?: TaskCategory[] }
+type DataChangeEvent = { type: 'notificationEvent', repoId: string, operationId: string | null, files: FileDataChange[] | null, changes: TaskDataChange[], removedFiles?: OrgFileRef[], categories?: TaskCategory[] }
 
 class Repo {
   private constructor()
@@ -513,7 +513,7 @@ TS 的 ~CoreNotification~ 联合类型包含 ~{ type: 'syncRequired' }~ ，由 C
 
 通知组件点击后复用 ~RepositorySyncService~ 发起当前配置全部仓库的普通同步；已有会话不并发重启，错误走现有反馈。Core 在成功确认待上传结果后清除提示，失败或取消时保留。C++ 和 ArkTS 不提前删除本地展示来模拟消费。
 
-通知不再传递 ~RepositoryChanged~ 或 ~GlobalNotificationsChanged~ 失效事件。数据变更订阅与通知列表使用独立 monitor；Rust、C ABI、C++ TSFN、TS 声明、wrapper 和调用方统一使用通知数组。
+通知不再传递 ~NotificationEvent~ 或 ~GlobalNotificationsChanged~ 失效事件。数据变更订阅与通知列表使用独立 monitor；Rust、C ABI、C++ TSFN、TS 声明、wrapper 和调用方统一使用通知数组。
 
 * 内容合并的 Core 边界
 
@@ -809,3 +809,9 @@ TaskOperationType 增加 ~Trash~ 与 ~Restore~ ，数据分别为 ~TaskTrash { p
 ~FilterTask.deleted_at()~ 由 Rust 映射到 bridge 的可空 ~deletedAt~ 毫秒字段，C++ 创建只读可枚举属性，TypeScript、PageTask、缓存与路由保持一致；旧缓存字段缺失时恢复为 ~null~ 。~TaskDateDisplay.Deleted~ 和 ~TaskTimeDisplay.Deleted~ 只格式化该字段，不解析 Org 或以其他时间补齐。
 
 宿主 ~TrashService~ 继续通过 ~executeTaskOperations~ 提交一个操作组，删除组装 ~Trash~ 、恢复组装 ~Restore~ ，永久清除与自动清理组装 ~Deletion~ 。设置与查询由宿主组装，来源属性写入、保真复制、叶节点限制、跨文件原子提交与恢复失败保留由 Core 执行。批量 UI 等待 DataSet 通知归并后核对稳定行身份；~Promise<void>~ 的成功不代表所有 Restore 都完成插入。
+
+* 外部文件监控
+
+Workspace 新增 ~watchExternalFileChanges(monitor): Promise<number>~ 与 ~stopWatchingExternalFileChanges(id): void~ ，映射 Core 的 ~watch_external_file_changes~ 和句柄释放。C ABI 使用独立订阅表，C++ 在工作线程注册，复用数据回调的 TSFN 编组；Workspace 析构、注册后页面已关闭及失败路径均释放订阅和回调资源。
+
+回调对象为 ~{ type: 'externalFileChanged', changeFiles: [{ file: { repoId, path }, kind }] }~ ， ~kind~ 为 ~created~ 、 ~deleted~ 或 ~updated~ 。原 ~repositoryChanged~ wire 名称改为 ~notificationEvent~ ，保留现有精确增量字段并新增 ~notifications~ 。Bridge 不决定文件范围与通知条件，不扫描或解析文件；前者由 DataSetManager 根据查询选择刷新项，后者由 Core 在广播前完成。通知模块继续只接收通知列表订阅。完整模型见 [[file:../core/外部文件变化监控设计.org][外部文件变化监控设计]] 。

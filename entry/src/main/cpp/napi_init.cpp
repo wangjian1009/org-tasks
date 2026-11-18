@@ -35,6 +35,8 @@ extern "C" char* org_tasks_harmony_workspace_subscribe_query(uint64_t handle, co
 extern "C" char* org_tasks_harmony_workspace_query_subscription_status(uint64_t handle, uint64_t subscription);
 extern "C" void org_tasks_harmony_workspace_unsubscribe_query(uint64_t handle, uint64_t subscription);
 extern "C" void org_tasks_harmony_workspace_unwatch_data_changes(uint64_t subscription);
+extern "C" uint64_t org_tasks_harmony_workspace_watch_external_file_changes(uint64_t handle, uint64_t monitor);
+extern "C" void org_tasks_harmony_workspace_unwatch_external_file_changes(uint64_t subscription);
 extern "C" void org_tasks_harmony_data_change_monitor_release(uint64_t monitor);
 extern "C" int32_t org_tasks_harmony_workspace_remove_repo(uint64_t handle, const char* root_directory);
 extern "C" int32_t org_tasks_harmony_workspace_add_repo(uint64_t handle, const char* root_directory);
@@ -73,6 +75,7 @@ struct WorkspaceWrap {
     uint64_t notification_subscription = 0;
     uint64_t notification_generation = 0;
     std::vector<uint64_t> data_change_subscriptions;
+    std::vector<uint64_t> external_file_subscriptions;
     std::vector<uint64_t> query_subscriptions;
     std::map<uint64_t, struct DataChangeWatch*> query_watches;
 };
@@ -118,6 +121,7 @@ struct WorkspaceStringWork {
     std::string preview_action;
     bool watch_notifications = false;
     bool watch_data_changes = false;
+    bool watch_external_files = false;
     bool subscribe_query = false;
     bool query_status = false;
     uint32_t http_action = 0;
@@ -134,7 +138,7 @@ struct WorkspaceStringWork {
         if (http_monitor != 0) org_tasks_harmony_http_monitor_release(http_monitor);
         for (uint64_t monitor : query_monitors) org_tasks_harmony_data_change_monitor_release(monitor);
         if (monitor_handle != 0) {
-            if (watch_data_changes || subscribe_query) org_tasks_harmony_data_change_monitor_release(monitor_handle);
+            if (watch_data_changes || watch_external_files || subscribe_query) org_tasks_harmony_data_change_monitor_release(monitor_handle);
             else org_tasks_harmony_notification_monitor_release(monitor_handle);
         }
     }
@@ -237,6 +241,7 @@ void FinalizeWorkspace(napi_env, void* data, void*)
     for (uint64_t subscription : workspace->data_change_subscriptions) {
         org_tasks_harmony_workspace_unwatch_data_changes(subscription);
     }
+    for (uint64_t subscription : workspace->external_file_subscriptions) org_tasks_harmony_workspace_unwatch_external_file_changes(subscription);
     for (uint64_t id : workspace->query_subscriptions) org_tasks_harmony_workspace_unsubscribe_query(workspace->handle, id);
     if (workspace->handle != 0) {
         org_tasks_harmony_workspace_release(workspace->handle);
@@ -983,6 +988,11 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->monitor_handle = 0; // Rust 接管，即使注册失败也负责释放。
         work->subscription_id = org_tasks_harmony_workspace_watch_notifications(work->handle, monitor, work->expression.c_str());
         if (work->subscription_id != 0) work->response = "{}";
+    } else if (work->watch_external_files) {
+        uint64_t monitor = work->monitor_handle;
+        work->monitor_handle = 0;
+        work->subscription_id = org_tasks_harmony_workspace_watch_external_file_changes(work->handle, monitor);
+        if (work->subscription_id != 0) work->response = std::to_string(work->subscription_id);
     } else if (work->watch_data_changes) {
         uint64_t monitor = work->monitor_handle;
         work->monitor_handle = 0;
@@ -1047,14 +1057,15 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             }
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
-        } else if (work->watch_data_changes) {
+        } else if (work->watch_data_changes || work->watch_external_files) {
             napi_create_uint32(env, static_cast<uint32_t>(work->subscription_id), &result);
             WorkspaceWrap* workspace = nullptr;
             napi_value owner;
             if (napi_get_reference_value(env, work->owner, &owner) == napi_ok &&
                 napi_unwrap(env, owner, reinterpret_cast<void**>(&workspace)) == napi_ok &&
                 workspace != nullptr) {
-                workspace->data_change_subscriptions.push_back(work->subscription_id);
+                if (work->watch_external_files) workspace->external_file_subscriptions.push_back(work->subscription_id);
+                else workspace->data_change_subscriptions.push_back(work->subscription_id);
                 work->subscription_id = 0;
             }
             napi_resolve_deferred(env, work->deferred, result);
@@ -1116,6 +1127,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
     for (uint64_t id : work->query_ids) if (id != 0) org_tasks_harmony_workspace_unsubscribe_query(work->handle, id);
     if (work->subscription_id != 0) {
         if (work->subscribe_query) org_tasks_harmony_workspace_unsubscribe_query(work->handle, work->subscription_id);
+        else if (work->watch_external_files) org_tasks_harmony_workspace_unwatch_external_file_changes(work->subscription_id);
         else if (work->watch_data_changes) org_tasks_harmony_workspace_unwatch_data_changes(work->subscription_id);
         else org_tasks_harmony_workspace_unwatch_notifications(work->subscription_id);
     }
@@ -1688,6 +1700,30 @@ napi_value WorkspaceWatchDataChanges(napi_env env, napi_callback_info info)
     work->monitor_handle = reinterpret_cast<uintptr_t>(watch);
     return QueueWorkspaceString(env, work, "OrgTasksWatchDataChanges", self);
 }
+napi_value WorkspaceWatchExternalFileChanges(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1], self, name;
+    WorkspaceWrap* workspace = nullptr;
+    napi_valuetype type;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_typeof(env, args[0], &type) != napi_ok || type != napi_function ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "外部文件监控需要回调函数"); return nullptr;
+    }
+    auto* watch = new DataChangeWatch();
+    if (napi_create_string_utf8(env, "OrgTasksExternalFileMonitor", NAPI_AUTO_LENGTH, &name) != napi_ok ||
+        napi_create_threadsafe_function(env, args[0], nullptr, name, 0, 1, watch, FinalizeDataChangeWatch,
+            nullptr, CallWebDavSyncMonitor, &watch->function) != napi_ok) {
+        delete watch; napi_throw_error(env, nullptr, "无法创建外部文件监控"); return nullptr;
+    }
+    napi_unref_threadsafe_function(env, watch->function);
+    auto* work = new WorkspaceStringWork();
+    work->handle = workspace->handle;
+    work->watch_external_files = true;
+    work->monitor_handle = reinterpret_cast<uintptr_t>(watch);
+    return QueueWorkspaceString(env, work, "OrgTasksWatchExternalFileChanges", self);
+}
 napi_value WorkspaceSubscribeQuery(napi_env env, napi_callback_info info)
 {
     size_t argc = 1; napi_value args[1], self, requests; WorkspaceWrap* workspace = nullptr; uint32_t count = 0;
@@ -1768,6 +1804,23 @@ napi_value WorkspaceStopWatchingDataChanges(napi_env env, napi_callback_info inf
     org_tasks_harmony_workspace_unwatch_data_changes(subscription);
     auto it = std::find(workspace->data_change_subscriptions.begin(), workspace->data_change_subscriptions.end(), subscription);
     if (it != workspace->data_change_subscriptions.end()) workspace->data_change_subscriptions.erase(it);
+    napi_get_undefined(env, &result); return result;
+}
+napi_value WorkspaceStopWatchingExternalFileChanges(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1], result;
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self;
+    uint64_t subscription = 0;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        !ReadHandle(env, args[0], &subscription) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "外部文件订阅 ID 无效"); return nullptr;
+    }
+    org_tasks_harmony_workspace_unwatch_external_file_changes(subscription);
+    auto it = std::find(workspace->external_file_subscriptions.begin(), workspace->external_file_subscriptions.end(), subscription);
+    if (it != workspace->external_file_subscriptions.end()) workspace->external_file_subscriptions.erase(it);
     napi_get_undefined(env, &result); return result;
 }
 napi_value ValidateConfiguration(napi_env env, napi_callback_info info)
@@ -2414,6 +2467,8 @@ static napi_value Init(napi_env env, napi_value exports)
         {"unsubscribeQuery", nullptr, WorkspaceUnsubscribeQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"watchNotifications", nullptr, WorkspaceWatchNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stopWatchingNotifications", nullptr, WorkspaceStopWatchingNotifications, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"watchExternalFileChanges", nullptr, WorkspaceWatchExternalFileChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"stopWatchingExternalFileChanges", nullptr, WorkspaceStopWatchingExternalFileChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"watchDataChanges", nullptr, WorkspaceWatchDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stopWatchingDataChanges", nullptr, WorkspaceStopWatchingDataChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

@@ -77,7 +77,7 @@ impl Receiver {
     fn consume(&mut self) -> Vec<DataChangeEvent> {
         let events = std::mem::take(&mut *self.events.lock().unwrap());
         for event in &events {
-            let DataChangeEvent::RepositoryChanged {
+            let DataChangeEvent::NotificationEvent {
                 files,
                 changes,
                 removed_files,
@@ -189,7 +189,7 @@ async fn create_update_query_exit_and_entity_delete_are_filtered_without_operati
         f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":[title]},"modifications":modifications}}])).await;
         let events = receiver.consume();
         assert_eq!(events.len(), 1);
-        let DataChangeEvent::RepositoryChanged {
+        let DataChangeEvent::NotificationEvent {
             changes,
             operation_id,
             ..
@@ -214,7 +214,7 @@ async fn create_update_query_exit_and_entity_delete_are_filtered_without_operati
     }
     f.apply(serde_json::json!([{"type":"Deletion","data":{"path":{"repoId":"$repo","file":"a.org","titles":["Hidden"]}}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged { changes, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { changes, .. } = &events[0];
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].kind, TaskDataChangeKind::Deleted);
     assert!(changes[0].after.is_none());
@@ -247,7 +247,7 @@ async fn parent_membership_is_retained_when_children_are_created_and_removed() {
     let (_subscription, mut receiver) = f.subscribe(query.clone()).await;
     f.apply(serde_json::json!([{"type":"Creation","data":{"position":{"parent":{"repoId":"$repo","file":"a.org","titles":["Parent"]}},"title":"Child","state":"TODO"}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged { changes, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { changes, .. } = &events[0];
     assert!(
         !changes
             .iter()
@@ -276,7 +276,7 @@ async fn duplicate_path_reindexing_and_same_file_movement_keep_all_members() {
     let (_subscription, mut receiver) = f.subscribe(query.clone()).await;
     f.apply(serde_json::json!([{"type":"Movement","data":{"path":{"repoId":"$repo","file":"a.org","titles":["Item"],"occurrence":1},"position":{"parent":{"repoId":"$repo","file":"a.org","titles":["Group"]}}}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged { changes, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { changes, .. } = &events[0];
     assert_eq!(
         changes
             .iter()
@@ -305,7 +305,7 @@ async fn category_summary_tracks_unselected_categories_without_caching_their_rec
     let (_subscription, mut receiver) = f.subscribe(query.clone()).await;
     f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"b.org","titles":["B"]},"modifications":[{"field":"TODO","value":"DONE"}]}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged {
+    let DataChangeEvent::NotificationEvent {
         changes,
         categories,
         ..
@@ -341,14 +341,14 @@ async fn file_query_tag_membership_emits_file_insertions_and_removals() {
     assert!(matches!(&receiver.data, CoreQueryResult::File(files) if files.is_empty()));
     f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["A"]},"modifications":[{"field":"TAGS","value":["work"]}]}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged { files, changes, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { files, changes, .. } = &events[0];
     assert!(changes.is_empty());
     assert_eq!(files.as_ref().unwrap().len(), 1);
     assert!(files.as_ref().unwrap()[0].before.is_none());
     receiver.assert_matches(&f.workspace, &query).await;
     f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["A"]},"modifications":[{"field":"TAGS","value":[]}]}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged {
+    let DataChangeEvent::NotificationEvent {
         files,
         removed_files,
         ..
@@ -386,7 +386,7 @@ async fn cross_repository_movement_updates_each_scope_and_keeps_the_operation_id
     ]})).unwrap()).await.unwrap();
     assert_eq!(a.events.lock().unwrap().len(), 2);
     for event in a.events.lock().unwrap().iter() {
-        let DataChangeEvent::RepositoryChanged { operation_id, .. } = event;
+        let DataChangeEvent::NotificationEvent { operation_id, .. } = event;
         assert_eq!(operation_id.as_deref(), Some("cross-repo"));
     }
     a.assert_matches(&source.workspace, &all).await;
@@ -405,7 +405,7 @@ async fn trigger_cascade_and_system_tag_expressions_use_raw_events_but_return_di
     let (_subscription, mut receiver) = f.subscribe(query.clone()).await;
     f.apply(serde_json::json!([{"type":"Modification","data":{"path":{"repoId":"$repo","file":"a.org","titles":["Source"]},"modifications":[{"field":"TODO","value":"DONE"}]}}])).await;
     let events = receiver.consume();
-    let DataChangeEvent::RepositoryChanged { changes, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { changes, .. } = &events[0];
     assert_eq!(changes.len(), 2);
     assert!(
         changes
@@ -482,7 +482,7 @@ async fn new_files_enter_empty_task_and_file_subscriptions_from_the_same_creatio
     let (_file_sub, mut file_data) = f.subscribe(files.clone()).await;
     f.apply(serde_json::json!([{"type":"Creation","data":{"position":{"parent":{"repoId":"$repo","file":"a.org","titles":[]}},"title":"First","state":"TODO"}}])).await;
     let task_events = task_data.consume();
-    let DataChangeEvent::RepositoryChanged { changes, .. } = &task_events[0];
+    let DataChangeEvent::NotificationEvent { changes, .. } = &task_events[0];
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].kind, TaskDataChangeKind::Created);
     task_data.assert_matches(&f.workspace, &tasks).await;

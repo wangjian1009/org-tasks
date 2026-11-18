@@ -1331,7 +1331,7 @@ pub struct TaskFileInitialTask {
 2. 普通单文件操作按输入顺序发送 Execute，不逐项等待回复；每个文件的 channel 保证 FIFO，不同文件并行执行。跨文件 Movement、Trash、Restore 在主任务展开，通过结果和请求内节点令牌推进依赖；不得让后续操作越过尚未完成的跨文件步骤。原有单文件改名等操作继续按当时有效路径定位；Trash、Restore 批量同名来源使用本请求初始令牌绑定，避免前一项删除改变出现序号后误删其他记录。
 3. 所有修改仅发生于内存。普通执行错误、Trash 失败与文件 task 异常使整组放弃，不存盘、不发布暂存通知；Restore 插入失败仅丢弃该次独立插入探针，保留来源并继续其他操作，插入成功后才发送来源 Deletion。
 4. 输入、在途 Execute 与待派发依赖全部结束后，主任务才发送 Save。文件 task 只交出最终字节保存候选并等待提交确认，继续独占 OrgFile 与 MutationJournal；统一提交器校验全部文件和读取依赖、准备临时及回退文件、统一替换正式文件。不存在且未成功创建的恢复目标不生成空文件。普通提交失败继续按已加载原字节回退，未修改文件不重复写入，不创建上传意图。
-5. 全部文件提交成功后才归并并发布最终通知，按仓库发送一次 RepositoryChanged，并将原操作组及准确前后字节追加到 TaskOperationHistory。请求级 Result<(), CoreError> 保持不变，Ok 允许包含未成功插入而保留来源的 Restore，不提供新的逐项公开返回协议。
+5. 全部文件提交成功后才归并并发布最终通知，按仓库发送一次 NotificationEvent，并将原操作组及准确前后字节追加到 TaskOperationHistory。请求级 Result<(), CoreError> 保持不变，Ok 允许包含未成功插入而保留来源的 Restore，不提供新的逐项公开返回协议。
 
 单文件替换采用同目录原子重命名。暂存与回退文件是提交保护材料，不属于额外业务保存。元信息校验能够检测通常的文件替换与写入，但无法保证识别绕过仓库锁并刻意恢复文件元信息的外部写入。普通文件系统不提供跨文件、跨仓库的整体原子替换；进程崩溃、介质不可写或回滚期间的外部并发写入不能仅靠内存保证恢复。检测到回滚目标已被外部写入时保留回退文件并明确返回存储错误，不覆盖外部数据，也不将部分提交登记为成功。当前契约覆盖可正常完成回滚的执行错误，崩溃恢复与持久化事务日志另行设计。
 
@@ -1346,7 +1346,7 @@ pub struct TaskFileInitialTask {
 
 ~TRIGGER~ 的状态、属性、规划、标签、优先级、日志、重复调度、祖先恢复和统计更新沿用同一写入原语，在实际修改时登记同一日志。它们与用户直接修改共用 ~operation_id~ ，不产生第二个修改请求。事件不通过查询、扫描或文件前后差分生成；组结束时只对已登记变更补齐最终投影。同一令牌多次修改合并为原始到最终快照；已存在节点一旦移动保留 ~Moved~ 语义，新建后移动仍为 ~Created~ ，新建后删除不产生幽灵记录。
 
-~DataChangeEvent::RepositoryChanged~ 保留仓库身份和可空 ~operation_id~ ，新增 ~files: Option<Vec<FileDataChange>>~ 与 ~changes: Vec<TaskDataChange>~ 。普通修改成功后， ~files=Some(...)~ 是已提交文件的准确集合；同步、重载等旧入口保留 ~files=None~ 的失效语义，不能当作空增量。查询订阅遇到这些旧入口时仅标记失效，不自动查询。
+~DataChangeEvent::NotificationEvent~ 保留仓库身份、可空 ~operation_id~ 、 ~files: Option<Vec<FileDataChange>>~ 与 ~changes: Vec<TaskDataChange>~ ，并包含 ~notifications: Vec<CoreNotification>~ 。普通修改发送 ~files=Some(...)~ 的准确增量；通知处理 task 在分发前附加当前缓存中的该仓库通知列表。同步与 reset 不再借用 ~files=None~ 表示外部变化，而是生成独立的 ~ExternalFileChanged~ 。后者只携带 ~change_files~ ，每项由 ~OrgFileRef~ 和 ~ExternalFileChangeKind~ 组成，不携带任务快照、不把文件移除伪装成任务删除。完整接口见 [[file:外部文件变化监控设计.org][外部文件变化监控设计]] 。
 
 ~TaskDataChange.kind~ 为 ~Created~ 、 ~Updated~ 、 ~Deleted~ 或 ~Moved~ 。 ~before~ 、 ~after~ 使用 ~Option<TaskDataSnapshot>~ ；每个快照由原有 ~FilterTask~ 数据与 ~TaskPosition~ 构成，包含身份、完整路径、父节点、前一兄弟节点和排序所需位置。 ~FileDataChange~ 保存前后 ~OrgFileMetadata~ 及文件版本；新文件的前值为空。跨仓库移动把同一旧新映射发送给源、目标仓库的通知，接收方按记录身份应用增量，不能因为见过 ~operation_id~ 就丢弃后续通知。
 
@@ -1359,7 +1359,7 @@ pub struct TaskFileInitialTask {
 \umlclass[x=0,y=0]{MutationJournal}{事务内节点令牌 \\ 已登记变更类型}{}
 \umlclass[x=7,y=0]{TaskDataChange}{kind: TaskDataChangeKind \\ before: Option of TaskDataSnapshot \\ after: Option of TaskDataSnapshot}{}
 \umlclass[x=7,y=-4]{TaskDataSnapshot}{task: FilterTask \\ position: TaskPosition}{}
-\umlclass[x=0,y=-4]{DataChangeEvent}{repo\_id \\ operation\_id \\ files \\ changes}{}
+\umlclass[x=0,y=-4]{DataChangeEvent}{repo\_id \\ operation\_id \\ files \\ changes \\ notifications}{}
 \umlclass[x=0,y=-8]{FileDataChange}{before / after: OrgFileMetadata \\ before\_version / after\_version}{}
 \umluniassoc{MutationJournal}{TaskDataChange}
 \umluniassoc{TaskDataChange}{TaskDataSnapshot}
@@ -1648,7 +1648,7 @@ pub enum TaskChecklistChange {
 
 条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态修改 checkbox token，并由 Core 重算所属标题中已有的统计节点；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
 
-新增、删除与切换完成状态后，Core 重算所属标题中的 checkbox 统计；统计来源受 ~COOKIE_DATA~ 约束，完整规则见 [[*标题统计更新][标题统计更新]]。统计修改与条目修改复用同一操作事务、版本校验、回退历史和 ~DataChangeEvent::RepositoryChanged~ ，提交后统一广播仓库失效事件，由宿主异步重查修改后的节点；不逐个广播节点快照，不改变任务 TODO 状态。
+新增、删除与切换完成状态后，Core 重算所属标题中的 checkbox 统计；统计来源受 ~COOKIE_DATA~ 约束，完整规则见 [[*标题统计更新][标题统计更新]]。统计修改与条目修改复用同一操作事务、版本校验、回退历史和 ~DataChangeEvent::NotificationEvent~ ，提交后按仓库发送精确文件与任务增量，由查询订阅维护命中成员并更新数据集，不重复查询，不改变任务 TODO 状态。
 
 ~sibling_group~ 是当前快照中直接父列表的位置身份，序列化为 ~siblingGroup~ ，用于展示层判断可排序的同级组，不是持久化顺序。 ~Move~ 将条目及其嵌套内容移到 ~before_id~ 之前，空值表示本同级列表末尾；跨列表、跨父项和过期 ID 拒绝，原位移动不改字节。移动保留项目符号、编号、文字、完成状态和缩进；条目之间的分隔空行保留在原槽位，防止堆叠空行拆散列表。末项没有终止换行时仅在新连接处补足原换行样式。
 
@@ -1957,7 +1957,7 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 
 ~QuerySubscriptionRequest~ 由一项固定查询与独立 callback 组成，Workspace 接收其数组并共享一次初始文件加载，按输入位置返回独立结果数组。请求只在启动期间存在，不合并各订阅的成员状态或回调。 ~QuerySubscriptionStart~ 保存一次启动得到的 ~CoreQueryResult~ 与 ~QuerySubscription~ 。初始数据直接转交调用方，句柄不持有其副本。句柄的固定查询、成员 ID、文件版本和分类数值摘要是运行时状态，不写入仓库、同步历史或 outbox；取消或析构时释放。完整数据流与内嵌 UML 见 [[file:查询订阅设计.org][查询订阅设计]]。
 
-~DataChangeEvent::RepositoryChanged~ 增加默认省略的 ~removed_files~ 和 ~categories~ 。前者是订阅结果中的文件移除身份，不表示删除底层文件；后者是任务查询的完整分类摘要。普通仓库事件保持空列表和空值，原有修改生成流程不依赖查询订阅。
+~DataChangeEvent::NotificationEvent~ 增加默认省略的 ~removed_files~ 和 ~categories~ 。前者是订阅结果中的文件移除身份，不表示删除底层文件；后者是任务查询的完整分类摘要。普通仓库事件保持空列表和空值，原有修改生成流程不依赖查询订阅。
 
 * 查询排序投影
 

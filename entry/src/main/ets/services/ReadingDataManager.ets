@@ -33,7 +33,8 @@ export class FileDataManager extends SnapshotDataManager<FileReadingSnapshot> {
       }
       return { config, file, repositoryName: repositoryLabel(repository) }
     }, event => event.repoId === target.repoId && (event.files === null || !!event.files?.some(file => file.after.path === target.path) ||
-      event.changes.some(change => change.before?.task.fullPath.file === target.path || change.after?.task.fullPath.file === target.path)))
+      event.changes.some(change => change.before?.task.fullPath.file === target.path || change.after?.task.fullPath.file === target.path)),
+      event => event.changeFiles.some(change => change.file.repoId === target.repoId && change.file.path === target.path))
   }
 }
 export interface SyncLogSnapshot { items: CoreSyncRecord[]; repositoryName: string; repoId: string }

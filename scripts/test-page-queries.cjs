@@ -37,7 +37,7 @@ function fixture() {
       });
     },
     async watchNotifications(callback) { notificationCallbacks.push(callback); }, stopWatchingNotifications() {},
-    async watchDataChanges(callback) { dataCallbacks.push(callback); return dataCallbacks.length; }, stopWatchingDataChanges() {}
+    async watchDataChanges(callback) { dataCallbacks.push(callback); return dataCallbacks.length; }, stopWatchingDataChanges() {}, async watchExternalFileChanges() { return 1; }, stopWatchingExternalFileChanges() {}
   };
   const native = { taskResult:value=>{assert.equal(value.type,'task');return value.result;},
     fileResult:value=>{assert.equal(value.type,'file');for(const file of value.result)if(!file.project)Object.defineProperty(file,'project',{value(){return this.projectName??null;},enumerable:false});return value.result;},

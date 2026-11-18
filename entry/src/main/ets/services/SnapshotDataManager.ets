@@ -1,7 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreWorkspace, CoreDataChangeEvent, NativeCoreService } from './NativeCoreService'
+import { CoreWorkspace, CoreExternalFileChanged, CoreDataChangeEvent, NativeCoreService } from './NativeCoreService'
 import { RepositorySyncService, RepositorySyncState } from './RepositorySyncService'
 
 export interface SnapshotState<T> { value?: T; message: string; revision: number }
@@ -11,10 +11,12 @@ export class SnapshotDataManager<T> {
   private readonly context: Context
   private readonly read: (config: AppConfig, workspace: CoreWorkspace) => Promise<T>
   private readonly accepts: (event: CoreDataChangeEvent) => boolean
+  private readonly acceptsExternal: (event: CoreExternalFileChanged) => boolean
   private readonly listeners: Set<(state: SnapshotState<T>) => void> = new Set()
   private state: SnapshotState<T> = { message: '', revision: 0 }
   private workspace: CoreWorkspace | undefined = undefined
   private subscription: number = 0
+  private externalSubscription: number = 0
   private generation: number = 0
   private pending: boolean = true
   private closed: boolean = false
@@ -29,8 +31,9 @@ export class SnapshotDataManager<T> {
   }
   private configChanged = (): void => { this.invalidate() }
   constructor(context: Context, read: (config: AppConfig, workspace: CoreWorkspace) => Promise<T>,
-    accepts: (event: CoreDataChangeEvent) => boolean = (): boolean => true) {
-    this.context = context; this.read = read; this.accepts = accepts
+    accepts: (event: CoreDataChangeEvent) => boolean = (): boolean => true,
+    acceptsExternal: (event: CoreExternalFileChanged) => boolean = (): boolean => true) {
+    this.context = context; this.read = read; this.accepts = accepts; this.acceptsExternal = acceptsExternal
   }
   subscribe(listener: (state: SnapshotState<T>) => void): () => void {
     this.listeners.add(listener)
@@ -65,12 +68,23 @@ export class SnapshotDataManager<T> {
         if (this.closed || generation !== this.generation) continue
         if (workspace !== this.workspace || !this.subscription) {
           if (this.subscription) this.workspace?.stopWatchingDataChanges(this.subscription)
-          this.subscription = 0; this.workspace = workspace
+          if (this.externalSubscription) this.workspace?.stopWatchingExternalFileChanges(this.externalSubscription)
+          this.externalSubscription = 0; this.subscription = 0; this.workspace = workspace
           const subscription = await workspace.watchDataChanges((event: CoreDataChangeEvent): void => {
             if (workspace === this.workspace && this.accepts(event)) this.invalidate()
           })
           if (this.closed || workspace !== this.workspace) { workspace.stopWatchingDataChanges(subscription); return }
           this.subscription = subscription
+          try {
+            const external = await workspace.watchExternalFileChanges((event: CoreExternalFileChanged): void => {
+              if (workspace === this.workspace && this.acceptsExternal(event)) this.invalidate()
+            })
+            if (this.closed || workspace !== this.workspace) { workspace.stopWatchingExternalFileChanges(external); return }
+            this.externalSubscription = external
+          } catch (error) {
+            workspace.stopWatchingDataChanges(subscription); this.subscription = 0
+            throw error as Error
+          }
         }
         const value = await this.read(config, workspace)
         if (this.closed || generation !== this.generation) continue
@@ -88,6 +102,7 @@ export class SnapshotDataManager<T> {
     AppConfigService.stopWatchingChanges(this.configChanged)
     RepositorySyncService.stopWatching(this.syncChanged)
     if (this.subscription) this.workspace?.stopWatchingDataChanges(this.subscription)
-    this.subscription = 0; this.listeners.clear()
+    if (this.externalSubscription) this.workspace?.stopWatchingExternalFileChanges(this.externalSubscription)
+    this.externalSubscription = 0; this.subscription = 0; this.listeners.clear()
   }
 }

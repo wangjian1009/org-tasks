@@ -564,6 +564,22 @@ pub extern "C" fn org_tasks_harmony_workspace_unwatch_data_changes(id: u64) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_watch_external_file_changes(handle: u64, monitor: u64) -> u64 {
+    clear_last_error();
+    match bridge::workspace_watch_external_file_changes(handle, monitor) {
+        Ok(id) => id,
+        Err(e) => {
+            remember_error(&e);
+            0
+        }
+    }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_unwatch_external_file_changes(id: u64) {
+    bridge::workspace_unwatch_external_file_changes(id);
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_preview_operation(
     handle: u64,
     request: *const c_char,

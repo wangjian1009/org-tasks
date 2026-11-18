@@ -191,13 +191,12 @@ impl OrgRepo {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 continue;
             }
+            let change_files = if notifications.is_some() { super::external_files::deleted_files(self).await? } else { Vec::new() };
             recover(root).await?;
             self.id = id;
             drop(guard);
             if let Some(notifications) = notifications {
-                super::notification::RepositoryNotifications::publish(self, notifications).await?;
-                super::sync_events::publish(notifications, self);
-                notifications.flush().await?;
+                super::external_files::publish(self, notifications, change_files).await?;
             }
             return Ok(());
         }

@@ -125,7 +125,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 页面数据管理与缓存边界
 
-每个页面通过 ~DataSetManager~ 管理命名数据集集合、共享上下文与私有缓存。管理器同步取得全局 Workspace，仅根据本地配置定义查询，先恢复只读缓存，再由管理器后台接入配置并一次提交全部查询订阅；不在缓存恢复前等待 Workspace 或单独查询仓库列表。每个 ~DataSet~ 只持有一个查询，负责自己的查询定义、私有 callback、任务索引、编辑和变化事件；订阅 ID 由 Manager 按数据集名管理和清理；页面分别订阅需要的数据集，编辑器直接按 ID 读写目标 DataSet。原始 Core 事件不进入界面。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
+每个页面通过 ~DataSetManager~ 管理命名数据集集合、共享上下文与私有缓存。管理器同步取得全局 Workspace，仅根据本地配置定义查询，先恢复只读缓存，再由管理器后台接入配置并一次提交全部查询订阅；不在缓存恢复前等待 Workspace 或单独查询仓库列表。Manager 每页持有一个外部文件监控与跨日定时器，按各查询的仓库和文件范围合并刷新。每个 ~DataSet~ 只持有一个查询，负责自己的查询定义、私有 callback、任务索引、编辑和快照比较后的变化事件；订阅 ID 由 Manager 按数据集名管理和清理；页面分别订阅需要的数据集，编辑器直接按 ID 读写目标 DataSet。原始 Core 事件不进入界面。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 
 侧边栏通过只读 SidebarDataManager 统一管理计数、文件入口与项目列表，复用完整批量查询和 PageDataCache；组件只接收管理对象快照。整个 Workspace 的变化在管理层合并刷新，缓存项目较少或为空也不会限制新项目发现；完整生命周期见 [[file:harmony/页面数据集设计.org::*侧边栏：完整批次与只读缓存][侧边栏数据管理]]。
 
@@ -140,3 +140,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 * APP 临时 HTTP 接口
 
 APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共享活动 Workspace。普通点击图标不启动服务，也不保存开关；Core 不读取宿主启动参数。Core 提供查询、批量修改和通用宿主路径注册；Harmony 在同一测试监听注册导航 GET／PUT，通过 N-API 通道调用 PageNavigator。Core 不依赖 ArkTS，不保存页面语义；宿主处理器在 UI 线程执行，等待 HTTP 响应时只保留 Workspace 命令句柄。生命周期和 REST 定义见 [[file:core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
+
+* 外部文件变化与通知刷新
+
+普通操作组提交后的事件为 ~DataChangeEvent::NotificationEvent~ ，携带任务／文件增量和当前仓库通知列表。同步与 reset 的文件增删改通过独立 ~ExternalFileChanged~ 广播。Core 先按各类通知条件更新通知缓存并广播列表变化，UI 通知模块只消费列表，不监听文件变化。数据管理层按查询范围合并刷新，Core 查询订阅只标记相关订阅失效，不隐式查询。完整契约见 [[file:core/外部文件变化监控设计.org][外部文件变化监控设计]] 。

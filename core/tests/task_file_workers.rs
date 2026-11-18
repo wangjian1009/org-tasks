@@ -432,7 +432,7 @@ async fn cross_file_move_then_delete_emits_one_final_deletion_without_a_stale_mo
     let changes = events
         .iter()
         .flat_map(|event| {
-            let DataChangeEvent::RepositoryChanged { changes, .. } = event;
+            let DataChangeEvent::NotificationEvent { changes, .. } = event;
             changes
         })
         .filter(|change| {

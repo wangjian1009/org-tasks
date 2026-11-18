@@ -354,7 +354,7 @@ pub struct OrgRepoWriteIntent {
 }
 #+end_src
 
-所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果表示有效修改全部提交，返回 ~Ok(())~ ；其中 Restore 插入失败可保留来源而不使整组失败，其余执行错误或 task 异常通过 ~CoreError~ 返回。实际变更由 ~OrgWorkspace.watch_data_changes~ 发布原有 ~DataChangeEvent::RepositoryChanged~ 事件；任务操作新增 ~files~ 和 ~changes~ 增量，携带文件元信息、前后版本、任务旧新快照与位置，接收方无需再次查询。变更类型在执行修改时直接登记，触发器联动也登记到同一操作组；同文件移动显式保留旧新映射。同步和重载等旧入口的 ~files=None~ 仍表示仓库失效，相关增量能力尚未接入。回退正文只保存在 Core 的 ~TaskOperationHistory~ 。
+所有组内操作按顺序基于最新内存快照定位，字段列表中的改名不会影响同一次 Modification 后续字段定位。成功结果表示有效修改全部提交，返回 ~Ok(())~ ；其中 Restore 插入失败可保留来源而不使整组失败，其余执行错误或 task 异常通过 ~CoreError~ 返回。实际变更由 ~OrgWorkspace.watch_data_changes~ 发布原有 ~DataChangeEvent::NotificationEvent~ 事件；任务操作新增 ~files~ 和 ~changes~ 增量，携带文件元信息、前后版本、任务旧新快照与位置，接收方无需再次查询。变更类型在执行修改时直接登记，触发器联动也登记到同一操作组；同文件移动显式保留旧新映射。同步和 reset 改由独立的 ~ExternalFileChanged~ 发送路径与增删改类型，数据管理层按文件范围合并刷新。回退正文只保存在 Core 的 ~TaskOperationHistory~ 。
 
 *** SourcePosition 与 SourceRange
 
@@ -928,8 +928,11 @@ pub struct TaskRestore { pub path: TaskPath }
 冲突与同步提示只由 Rust 的统一批量查询从当前文件及基线索引计算，不回放历史，也不依赖进程内标记。查询接口和展示接口分离，手机通知界面不调用 ~lastEffectSync~ 、历史或仓库清单接口决定是否展示；缺少备份的历史仍可在详情显示冲突与“未备份”标签。
 
 
-~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 是独立的数据失效订阅。每次调用创建一个可单独销毁的订阅，同一 workspace 可同时存在多个订阅；回调携带 Core 仓库 ID 和可空的 ~operationId~ ，普通任务提交另有 ~files~ 和 ~changes~ 增量；普通操作组提供来源标识时透传，同步、重置或旧调用没有标识时为空。任务操作、同步提交、冲突解决和重置成功后按仓库发送 ~DataChangeEvent::RepositoryChanged~ ；失败、无实际变化与只读查询不发送。宿主通过数据集应用增量；旧入口的 ~files=None~ 保留失效语义。回调不能同步等待当前 Workspace 的后续业务命令。
-新增页面数据集采用启动查询一次、随后由通用查询订阅维护的设计，见 [[file:../harmony/页面数据集设计.org][页面数据集设计]] 。Core 查询订阅已实现，由 Workspace 对外组合，启动时一次返回查询结果和句柄；具体接口见 [[file:查询订阅设计.org][查询订阅设计]] 。旧入口的仓库失效事件仍不能当作数据增量；原有订阅接口与调用行为保持兼容。
+~OrgWorkspace.watch_data_changes(callback) -> DataChangeSubscription~ 订阅普通操作组提交后的 ~DataChangeEvent::NotificationEvent~ ，保留仓库 ID、可空 ~operationId~ 、文件元信息与版本、任务前后快照，并附带 Core 当前缓存中的该仓库 ~notifications~ 列表。修改成功且实际内容变化后按仓库发送；只读查询不发送。各查询订阅继续按自己的条件投影增量，不发起新的读取。
+
+~OrgWorkspace.watch_external_file_changes(callback) -> ExternalFileSubscription~ 独立接收 ~ExternalFileChanged~ 。~change_files~ 的每项包含 ~file: OrgFileRef~ 和 ~kind: Created | Deleted | Updated~ ，JSON 为 ~changeFiles~ 与 ~created | deleted | updated~ 。同步从已提交事务提取准确文件变化，reset 在清空前收集删除路径；没有实际文件变化不发送空事件。Core 先更新冲突与待同步通知缓存、广播通知列表变化，再发送外部文件事件。通知列表更新失败时保留最近成功缓存，文件事件仍发送，以便数据管理层重试读取。该接口不创建操作系统文件轮询，也不跨 Workspace 广播。
+
+Harmony 通过 ~watchExternalFileChanges(monitor) -> Promise<number>~ 注册，通过 ~stopWatchingExternalFileChanges(id)~ 清理。DataSetManager 每页注册一次，按仓库、包含／排除文件范围筛选受影响数据集，合并为一次批量订阅查询；DataSet 比较新旧结果并向自己的 Monitor 发出增删改事件。完整规则见 [[file:外部文件变化监控设计.org][外部文件变化监控设计]] 。回调不能同步等待当前 Workspace 的后续业务命令。
 
 通知订阅返回 ~Result<NotificationSubscription, CoreError>~ ，句柄析构解除订阅； ~repo_ids~ 省略表示全部仓库，显式空数组表示空范围，未知仓库在注册时拒绝。
 
@@ -949,7 +952,7 @@ pub struct TaskRestore { pub path: TaskPath }
 
 设置移动根任务状态与清理规划使用统一操作组：先提交包含 ~TODO~ 、 ~SCHEDULE~ 、 ~DEADLINE~ 的 ~TaskModificationOperation~ ，再提交 ~TaskMovement~ 。状态在含 ~SETUPFILE~ 的源文件有效配置中验证， ~CLOSED~ 随状态自动维护，移动同时验证目标文件保持子树的标题和 TODO 语义；整组失败不修改文件或 outbox。规划清理只影响根条目，保留正文、子条目规划、标签、优先级和 ~CREATED~ 。
 
-统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~DataChangeEvent::RepositoryChanged~；失败或无实际文件变化不发布。数据回调应用提交增量，不能重入当前 workspace 锁，也不能生成新的修改操作。~watch_notifications~ 继续只服务通知区域。
+统一任务操作组在完整提交文件、更新内存与回退历史后，按实际变更的仓库发布一次 ~DataChangeEvent::NotificationEvent~；失败或无实际文件变化不发布。数据回调应用提交增量，不能重入当前 workspace 锁，也不能生成新的修改操作。~watch_notifications~ 继续只服务通知区域。
 
 * 任务冲突与普通同步
 
@@ -1166,11 +1169,12 @@ pub struct FileDataChange {
     pub after_version: String,
 }
 pub enum DataChangeEvent {
-    RepositoryChanged {
+    NotificationEvent {
         repo_id: OrgRepoId,
         operation_id: Option<String>,
         files: Option<Vec<FileDataChange>>,
         changes: Vec<TaskDataChange>,
+        notifications: Vec<CoreNotification>,
         removed_files: Vec<OrgFileRef>,
         categories: Option<Vec<TaskCategory>>,
     },
@@ -1249,7 +1253,7 @@ FilterTask.property(name) 返回当前标题自身属性的可空借用值，Fil
 
 ~TaskOperation~ 新增 ~FileHaderModification(FileHaderModification)~ ，数据包含 ~file: OrgFileRef~ 与 ~changes: Vec<FileHeaderValueChange>~ ，每项包含当前版本的 ~entry_id~ 和结构化 ~FileHeaderValue~ （Text 或 Tags）。同一目标必须在 ~file_versions~ 中提供唯一版本，条目 ID 仅属于该文件该版本；编辑前按 Core 描述确认能力，未知字段只读，原有 project／todo 不可移除。执行仍使用 ~OrgWorkspace.execute_task_operations~ 并返回 ~Result<(), CoreError>~ ，不增加读取开关或新的写入入口。
 
-~OrgFileMetadata~ 始终包含 ~file_version: String~ 和 ~header_entries: Vec<FileHeaderEntry>~ 。条目新增 ~id~ 与 ~edit: Option<FileHeaderEditSpec>~ ，edit 包含值类型和保护标签；None 表示只读。FileQuery 保持不变。提交通过原有 ~DataChangeEvent::RepositoryChanged~ 上报，FileDataChange.before／after 中的完整元信息与 before_version／after_version 同版，关联任务按原订阅投影更新。
+~OrgFileMetadata~ 始终包含 ~file_version: String~ 和 ~header_entries: Vec<FileHeaderEntry>~ 。条目新增 ~id~ 与 ~edit: Option<FileHeaderEditSpec>~ ，edit 包含值类型和保护标签；None 表示只读。FileQuery 保持不变。提交通过原有 ~DataChangeEvent::NotificationEvent~ 上报，FileDataChange.before／after 中的完整元信息与 before_version／after_version 同版，关联任务按原订阅投影更新。
 
 原文、重复声明定位、值校验、同组操作、冲突与界面契约见 [[file:文件头属性编辑设计.org][文件头属性编辑设计]]。修改只覆盖声明值区间，保留字段名、未涉及空白、换行、其他声明与任务字节；TAGS 分组可跨声明校验，FILETAGS 保留原有标签顺序及内部空白。
 

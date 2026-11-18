@@ -101,10 +101,13 @@ export interface FileDataChange {
   beforeView?: OrgFileMetadata; afterView?: OrgFileMetadata;
 }
 export type DataChangeEvent = {
-  type: 'repositoryChanged'; repoId: string; operationId: string | null;
+  type: 'notificationEvent'; repoId: string; operationId: string | null;
   files: FileDataChange[] | null; changes: TaskDataChange[];
-  removedFiles?: OrgFileRef[]; categories?: TaskCategory[];
+  removedFiles?: OrgFileRef[]; categories?: TaskCategory[]; notifications: CoreNotification[];
 };
+export interface ExternalFileChange { file: OrgFileRef; kind: 'created' | 'deleted' | 'updated'; }
+export interface ExternalFileChanged { type: 'externalFileChanged'; changeFiles: ExternalFileChange[]; }
+export type ExternalFileMonitor = (event: ExternalFileChanged) => void;
 export type QuerySubscriptionStatus = 'current' | 'awaitingEvents' | 'invalidated' | 'closed';
 export interface QuerySubscriptionRequest { query: CoreQuery; callback: DataChangeMonitor; operationId?: string | null; repositoryBindings?: QueryRepositoryBinding[]; }
 export interface QuerySubscriptionStart { subscriptionId: number; data: CoreQueryResult; operationId: string | null; }
@@ -344,6 +347,8 @@ export class Workspace {
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
   watchNotifications(monitor: NotificationUpdateMonitor, repoIds?: string[]): Promise<void>;
   stopWatchingNotifications(): void;
+  watchExternalFileChanges(monitor: ExternalFileMonitor): Promise<number>;
+  stopWatchingExternalFileChanges(subscriptionId: number): void;
   watchDataChanges(monitor: DataChangeMonitor): Promise<number>;
   stopWatchingDataChanges(subscriptionId: number): void;
 }

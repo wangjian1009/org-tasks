@@ -22,6 +22,7 @@ function fixture() {
   const writes = [], batches = [], stopped = [], timers = new Map(), callbacks = new Map(), configCallbacks = new Set();
   let inbox = 2, deadline = 3, conflicts = 1, missing = false, queryFailure = false, writeFailure = false;
   let queryGate, registrationGate, nextId = 1;
+  const externalCallbacks = new Map();
   const workspace = {
     async repos() { return [{ id: 'core-a', rootDirectory: '/a' }, { id: 'core-b', rootDirectory: '/b' }]; },
     async query(batch) {
@@ -42,7 +43,9 @@ function fixture() {
       if (gate) await gate.promise;
       return id;
     },
-    stopWatchingDataChanges(id) { stopped.push(id); callbacks.delete(id); }
+    stopWatchingDataChanges(id) { stopped.push(id); callbacks.delete(id); },
+    async watchExternalFileChanges(callback) { const id=nextId++; externalCallbacks.set(id,callback); return id; },
+    stopWatchingExternalFileChanges(id) { externalCallbacks.delete(id); }
   };
   const configService = { async load(_, credentials) { assert.equal(credentials, false); return config; },
     watchChanges(callback) { configCallbacks.add(callback); }, stopWatchingChanges(callback) { configCallbacks.delete(callback); } };

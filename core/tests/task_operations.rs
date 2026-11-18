@@ -476,7 +476,7 @@ async fn task_operations_notify_only_after_changed_files_are_committed() {
     let file = f.root.join("tasks.org");
     let repo_id = f.workspace.repos()[0].id.clone();
     let _subscription = f.workspace.watch_data_changes(move |update| {
-        let org_tasks_core::DataChangeEvent::RepositoryChanged { repo_id, .. } = update;
+        let org_tasks_core::DataChangeEvent::NotificationEvent { repo_id, .. } = update;
         {
             events
                 .lock()
@@ -574,7 +574,7 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
         let events = observed.lock().unwrap();
         assert_eq!(events.len(), event_count);
         assert!(matches!(&events.last().unwrap().0,
-            DataChangeEvent::RepositoryChanged { operation_id: None, repo_id: id, .. } if id == &repo_id));
+            DataChangeEvent::NotificationEvent { operation_id: None, repo_id: id, .. } if id == &repo_id));
         assert_eq!(
             events.last().unwrap().1.as_bytes(),
             f.workspace.repos()[0].load_files(&[]).await.unwrap()[0].source_bytes()
@@ -681,7 +681,7 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
                 expected_events += 1;
                 let events = observed.lock().unwrap();
                 assert!(matches!(&events.last().unwrap().0,
-                    DataChangeEvent::RepositoryChanged { operation_id: None, repo_id: id, .. } if id == &repo_id), "{name}");
+                    DataChangeEvent::NotificationEvent { operation_id: None, repo_id: id, .. } if id == &repo_id), "{name}");
                 assert_eq!(events.last().unwrap().1, expected, "{name}");
                 let operation_history = f.workspace.task_operation_history();
                 let history = &operation_history.entries

@@ -83,7 +83,7 @@ async fn same_file_move_keeps_explicit_mapping_for_duplicate_paths_subtree_and_s
     let after = f.nodes("a.org").await;
     let events = f.events.lock().unwrap();
     assert_eq!(events.len(), 1);
-    let DataChangeEvent::RepositoryChanged {
+    let DataChangeEvent::NotificationEvent {
         operation_id,
         files,
         changes,
@@ -166,7 +166,7 @@ async fn reordering_with_unchanged_path_and_id_is_still_an_explicit_move() {
             expected
         );
         let events = f.events.lock().unwrap();
-        let DataChangeEvent::RepositoryChanged { changes, .. } = &events[0];
+        let DataChangeEvent::NotificationEvent { changes, .. } = &events[0];
         let moved = changes
             .iter()
             .filter(|change| change.kind == TaskDataChangeKind::Moved)
@@ -222,7 +222,7 @@ async fn cross_repository_move_routes_the_same_mapping_to_both_repositories_afte
     let events = source.events.lock().unwrap();
     assert_eq!(events.len(), 2);
     for event in events.iter() {
-        let DataChangeEvent::RepositoryChanged {
+        let DataChangeEvent::NotificationEvent {
             repo_id,
             operation_id,
             files,
@@ -260,7 +260,7 @@ async fn repeated_moves_and_renames_in_one_group_keep_original_identity_and_fina
     ]));
     f.workspace.execute_task_operations(&group).await.unwrap();
     let events = f.events.lock().unwrap();
-    let DataChangeEvent::RepositoryChanged { changes, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { changes, .. } = &events[0];
     let moved = changes
         .iter()
         .find(|change| change.kind == TaskDataChangeKind::Moved)
@@ -306,7 +306,7 @@ async fn trigger_cascade_properties_and_ancestor_statistics_publish_final_data_w
     f.workspace.execute_task_operations(&group).await.unwrap();
     let events = f.events.lock().unwrap();
     assert_eq!(events.len(), 1);
-    let DataChangeEvent::RepositoryChanged {
+    let DataChangeEvent::NotificationEvent {
         changes,
         operation_id,
         ..
@@ -397,7 +397,7 @@ async fn create_move_delete_coalesces_by_execution_identity_without_ghost_nodes(
     ]));
     f.workspace.execute_task_operations(&group).await.unwrap();
     let events = f.events.lock().unwrap();
-    let DataChangeEvent::RepositoryChanged { changes, files, .. } = &events[0];
+    let DataChangeEvent::NotificationEvent { changes, files, .. } = &events[0];
     assert_eq!(files.as_ref().unwrap().len(), 2);
     let created = changes
         .iter()

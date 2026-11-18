@@ -48,6 +48,7 @@ impl WorkspaceState {
             let mut subscription = crate::query_subscription::prepare(request.query, request.callback)?;
             let monitor = subscription.monitor();
             subscription.attach(crate::model::data_changes::watch(&self.notifications, monitor));
+            subscription.watch_external_files(&self.notifications);
             subscriptions.push(subscription);
         }
         let mut snapshot = self.query_snapshot(&queries, true).await?;

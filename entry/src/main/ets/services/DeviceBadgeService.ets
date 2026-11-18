@@ -11,6 +11,7 @@ export class DeviceBadgeService {
   private static foreground: Context | undefined = undefined
   private static workspace: CoreWorkspace | undefined = undefined
   private static subscriptionId: number = 0
+  private static externalSubscriptionId: number = 0
   private static session: number = 0
   private static midnightTimer: number = -1
   private static pending: Context | undefined = undefined
@@ -85,6 +86,8 @@ export class DeviceBadgeService {
     if (DeviceBadgeService.workspace && DeviceBadgeService.subscriptionId !== 0) {
       DeviceBadgeService.workspace.stopWatchingDataChanges(DeviceBadgeService.subscriptionId)
     }
+    if (DeviceBadgeService.externalSubscriptionId) DeviceBadgeService.workspace?.stopWatchingExternalFileChanges(DeviceBadgeService.externalSubscriptionId)
+    DeviceBadgeService.externalSubscriptionId = 0
     DeviceBadgeService.workspace = undefined
     DeviceBadgeService.subscriptionId = 0
   }
@@ -95,13 +98,15 @@ export class DeviceBadgeService {
     DeviceBadgeService.workspace = workspace
     const session = DeviceBadgeService.session
     try {
-      const id = await workspace.watchDataChanges((): void => {
-        if (session === DeviceBadgeService.session && DeviceBadgeService.foreground) {
-          DeviceBadgeService.refresh(DeviceBadgeService.foreground)
-        }
-      })
-      if (session !== DeviceBadgeService.session) workspace.stopWatchingDataChanges(id)
-      else DeviceBadgeService.subscriptionId = id
+      const changed = (): void => {
+        if (session === DeviceBadgeService.session && DeviceBadgeService.foreground) DeviceBadgeService.refresh(DeviceBadgeService.foreground)
+      }
+      const id = await workspace.watchDataChanges(changed)
+      if (session !== DeviceBadgeService.session) { workspace.stopWatchingDataChanges(id); return }
+      DeviceBadgeService.subscriptionId = id
+      const externalId = await workspace.watchExternalFileChanges(changed)
+      if (session !== DeviceBadgeService.session) workspace.stopWatchingExternalFileChanges(externalId)
+      else DeviceBadgeService.externalSubscriptionId = externalId
     } catch (error) {
       if (session === DeviceBadgeService.session) DeviceBadgeService.disconnect()
       throw error as Error

@@ -2381,6 +2381,9 @@ pub fn workspace_unwatch_notifications(id: u64) {
     drop(removed);
 }
 
+static EXTERNAL_FILE_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<u64, org_tasks_core::ExternalFileSubscription>>> = OnceLock::new();
+static NEXT_EXTERNAL_FILE_SUBSCRIPTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 struct DataChangeMonitor(u64);
 impl Drop for DataChangeMonitor {
     fn drop(&mut self) {
@@ -2396,10 +2399,11 @@ pub fn workspace_watch_data_changes(handle: u64, monitor: u64) -> Result<u64, Co
     let monitor = DataChangeMonitor(monitor);
     let session = workspace_for_handle(handle)?;
     let workspace = session;
+    let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect::<BTreeMap<_, _>>();
     let subscription = workspace.watch_data_changes(move |event| {
         let _keep_alive = &monitor;
-        if let Ok(json) = serde_json::to_string(&event)
-            .and_then(|s| CString::new(s).map_err(serde::ser::Error::custom))
+        if let Ok(json) = notification_event_value(&event, &roots).and_then(|value| encode(&value))
+            .and_then(|s| CString::new(s).map_err(|_| CoreError::InvalidState("无法编码通知事件")))
         {
             #[cfg(not(test))]
             unsafe {
@@ -2419,6 +2423,40 @@ pub fn workspace_watch_data_changes(handle: u64, monitor: u64) -> Result<u64, Co
 }
 pub fn workspace_unwatch_data_changes(id: u64) {
     let removed = DATA_CHANGE_SUBSCRIPTIONS
+        .get_or_init(Default::default)
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(&id));
+    drop(removed);
+}
+
+pub fn workspace_watch_external_file_changes(handle: u64, monitor: u64) -> Result<u64, CoreError> {
+    let monitor = DataChangeMonitor(monitor);
+    let session = workspace_for_handle(handle)?;
+    let workspace = session;
+    let subscription = workspace.watch_external_file_changes(move |event| {
+        let _keep_alive = &monitor;
+        if let Ok(json) = serde_json::to_string(&event)
+            .and_then(|s| CString::new(s).map_err(serde::ser::Error::custom))
+        {
+            #[cfg(not(test))]
+            unsafe {
+                org_tasks_harmony_data_change_update(monitor.0, json.as_ptr());
+            }
+            #[cfg(test)]
+            let _ = json;
+        }
+    });
+    let id = NEXT_EXTERNAL_FILE_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    EXTERNAL_FILE_SUBSCRIPTIONS
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| CoreError::Store("文件监控订阅锁不可用".into()))?
+        .insert(id, subscription);
+    Ok(id)
+}
+pub fn workspace_unwatch_external_file_changes(id: u64) {
+    let removed = EXTERNAL_FILE_SUBSCRIPTIONS
         .get_or_init(Default::default)
         .lock()
         .ok()
@@ -2943,9 +2981,16 @@ mod settings_object_tests {
 static QUERY_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<u64, (u64, org_tasks_core::QuerySubscription)>>> = OnceLock::new();
 static NEXT_QUERY_SUBSCRIPTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-fn query_event_value(event: &org_tasks_core::DataChangeEvent, ordering: &org_tasks_core::QueryOrdering) -> Result<serde_json::Value, CoreError> {
-    let mut value = serde_json::to_value(event).map_err(|_| CoreError::InvalidState("无法编码数据事件"))?;
-    let org_tasks_core::DataChangeEvent::RepositoryChanged { changes, files, .. } = event;
+fn notification_event_value(event: &org_tasks_core::DataChangeEvent, roots: &BTreeMap<String, String>) -> Result<serde_json::Value, CoreError> {
+    let mut value = serde_json::to_value(event).map_err(|_| CoreError::InvalidState("无法编码通知事件"))?;
+    let org_tasks_core::DataChangeEvent::NotificationEvent { notifications, .. } = event;
+    value["notifications"] = serde_json::Value::Array(notification_values(notifications.clone(), roots));
+    Ok(value)
+}
+
+fn query_event_value(event: &org_tasks_core::DataChangeEvent, ordering: &org_tasks_core::QueryOrdering, roots: &BTreeMap<String, String>) -> Result<serde_json::Value, CoreError> {
+    let mut value = notification_event_value(event, roots)?;
+    let org_tasks_core::DataChangeEvent::NotificationEvent { changes, files, .. } = event;
     for (index, change) in changes.iter().enumerate() {
         for (name, snapshot) in [("before", &change.before), ("after", &change.after)] {
             if let Some(snapshot) = snapshot {
@@ -2992,11 +3037,12 @@ pub fn workspace_subscribe_query_json(handle: u64, source: String, monitors: Vec
         resolve_query_repositories(&workspace, std::slice::from_mut(&mut request.query), &request.repository_bindings)?;
         let ordering = workspace.query_ordering(&request.query)?;
         let event_ordering = ordering.clone();
+        let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect::<BTreeMap<_, _>>();
         subscriptions.push(org_tasks_core::QuerySubscriptionRequest::new(
             request.query.clone(),
             move |event| {
                 let _keep_alive = &monitor;
-                if let Ok(json) = query_event_value(&event, &event_ordering)
+                if let Ok(json) = query_event_value(&event, &event_ordering, &roots)
                     .and_then(|value| encode(&value))
                     .and_then(|value| {
                         CString::new(value).map_err(|_| CoreError::InvalidState("无法编码数据事件"))
@@ -3094,15 +3140,18 @@ mod page_data_bridge_tests {
             let repo = &workspace.repos()[0];
         let file = runtime(handle).unwrap().block_on(repo.file("a.org")).unwrap();
         let task = runtime(handle).unwrap().block_on(repo.nodes()).unwrap().remove(0);
-        let event = org_tasks_core::DataChangeEvent::RepositoryChanged {
+        let event = org_tasks_core::DataChangeEvent::NotificationEvent {
             repo_id: repo.id.clone(), operation_id: Some("dataset/page/2/update".into()),
             files: Some(vec![org_tasks_core::FileDataChange { before: None, after: task.file_metadata().clone(), before_version: None, after_version: task.file_version().into() }]),
             changes: vec![org_tasks_core::TaskDataChange { kind: org_tasks_core::TaskDataChangeKind::Created, before: None,
                 after: Some(org_tasks_core::TaskDataSnapshot { position: org_tasks_core::TaskPosition { parent: file.full_path(), after: None }, task }) }],
+            notifications: vec![org_tasks_core::CoreNotification::SyncConflict(org_tasks_core::SyncConflictNotification { repo_id: repo.id.clone(), path: "a.org".into() })],
             removed_files: Vec::new(), categories: None,
         };
         let ordering = workspace.query_ordering(&org_tasks_core::TaskQuery::default().into()).unwrap();
-        let value = query_event_value(&event, &ordering).unwrap();
+        let value = query_event_value(&event, &ordering, &BTreeMap::from([(repo.id.clone(), repo.root_directory.clone())])).unwrap();
+        assert_eq!(value["type"], "notificationEvent");
+        assert_eq!(value["notifications"][0]["rootDirectory"], repo.root_directory);
         assert_eq!(value["changes"][0]["after"]["view"]["heading"], "Task");
         assert_eq!(value["changes"][0]["after"]["view"]["isDone"], false);
         assert!(value["files"][0]["afterView"]["taskPriorityOptions"].is_object());

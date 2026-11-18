@@ -493,7 +493,7 @@ async fn linked_change_event_observes_all_committed_nodes_and_is_not_emitted_for
     {
         let observations = observations.lock().unwrap();
         assert_eq!(observations.len(), 1);
-        assert!(matches!(&observations[0].0, DataChangeEvent::RepositoryChanged { operation_id: None, repo_id, .. }
+        assert!(matches!(&observations[0].0, DataChangeEvent::NotificationEvent { operation_id: None, repo_id, .. }
             if repo_id == &f.workspace.repos()[0].id));
         assert_eq!(observations[0].1, committed);
     }

@@ -110,7 +110,7 @@ async fn header_edit_preserves_bytes_and_projects_metadata_and_tasks_in_the_same
             .is_none()
     );
     let all = events.lock().unwrap();
-    let DataChangeEvent::RepositoryChanged {
+    let DataChangeEvent::NotificationEvent {
         files,
         changes,
         operation_id,

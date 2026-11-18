@@ -1,4 +1,4 @@
-//! 提交后的数据变化通知；任务操作携带内存中生成的增量，同步等入口保留仓库失效通知。
+//! 普通操作组提交后的精确增量及通知列表；外部文件变化使用独立监控。
 use crate::OrgWorkspace;
 use serde::Serialize;
 
@@ -40,14 +40,15 @@ pub struct FileDataChange {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DataChangeEvent {
-    RepositoryChanged {
+    NotificationEvent {
         #[serde(rename = "repoId")]
         repo_id: OrgRepoId,
         #[serde(rename = "operationId")]
         operation_id: Option<String>,
-        /// None 表示同步、重置等入口的失效通知；Some 表示本次提交的精确文件集合。
+        /// None 表示载荷不可用，不能视为空变化；普通操作组提供 Some 的精确文件集合。
         files: Option<Vec<FileDataChange>>,
         changes: Vec<TaskDataChange>,
+        notifications: Vec<super::CoreNotification>,
         /// 文件数据离开接收范围；不代表删除底层文件。
         #[serde(rename = "removedFiles", skip_serializing_if = "Vec::is_empty")]
         removed_files: Vec<OrgFileRef>,
@@ -79,12 +80,14 @@ where F: Fn(DataChangeEvent) + Send + Sync + 'static {
                 operation_id,
                 files,
                 changes,
-            } = event;
-                callback(DataChangeEvent::RepositoryChanged {
+                notifications,
+            } = event else { return; };
+                callback(DataChangeEvent::NotificationEvent {
                     repo_id: repo_id.clone(),
                     operation_id: operation_id.clone(),
                     files: files.clone(),
                     changes: changes.clone(),
+                    notifications: notifications.clone(),
                     removed_files: Vec::new(),
                     categories: None,
                 });
@@ -100,7 +103,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]
-    async fn multiple_subscriptions_receive_and_can_cancel_repository_changes() {
+    async fn multiple_subscriptions_receive_and_can_cancel_notification_events() {
         let repo = crate::model::test_support::with_files(
             crate::OrgRepo {
                 id: "repo".into(),
@@ -121,12 +124,24 @@ mod tests {
         let _second_subscription = workspace.watch_data_changes(move |event| {
             second_capture.lock().unwrap().push(event);
         });
-        super::super::sync_events::publish(&workspace.notifications, &repo);
+        let after = crate::OrgFile::new(repo.id.clone(), "a.org".into(), b"* TODO A\n".to_vec())
+            .unwrap().metadata(false);
+        let change = FileDataChange {
+            before: None,
+            before_version: None,
+            after_version: after.file_version.clone(),
+            after,
+        };
+        super::super::sync_events::publish_changes(
+            &workspace.notifications, &repo, None, Some(vec![change.clone()]), Vec::new(),
+        );
         workspace.notifications.flush().await.unwrap();
         assert_eq!(first.lock().unwrap().len(), 1);
         assert_eq!(second.lock().unwrap().len(), 1);
         drop(first_subscription);
-        super::super::sync_events::publish(&workspace.notifications, &repo);
+        super::super::sync_events::publish_changes(
+            &workspace.notifications, &repo, None, Some(vec![change]), Vec::new(),
+        );
         workspace.notifications.flush().await.unwrap();
         assert_eq!(first.lock().unwrap().len(), 1);
         assert_eq!(second.lock().unwrap().len(), 2);

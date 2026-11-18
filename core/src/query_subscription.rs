@@ -48,6 +48,7 @@ pub enum QuerySubscriptionStatus {
 pub struct QuerySubscription {
     hub: Arc<Hub>,
     watch: Option<DataChangeSubscription>,
+    external_watch: Option<crate::ExternalFileSubscription>,
 }
 
 impl QuerySubscription {
@@ -68,6 +69,7 @@ impl QuerySubscription {
             state.counts.clear();
         }
         self.watch.take();
+        self.external_watch.take();
     }
 }
 impl Drop for QuerySubscription {
@@ -105,10 +107,20 @@ where
             callback: Box::new(on_change),
         }),
         watch: None,
+        external_watch: None,
     })
 }
 
 impl QuerySubscription {
+    pub(crate) fn watch_external_files(&mut self, center: &crate::NotificationCenter) {
+        let hub = self.hub.clone();
+        self.external_watch = Some(crate::model::external_files::watch(center, move |event| {
+            let mut state = hub.state.lock().unwrap();
+            if event.change_files.iter().any(|change| state.query.needs_file(&change.file.repo_id, &change.file.path)) {
+                state.invalidated = true;
+            }
+        }));
+    }
     pub(crate) fn monitor(&self) -> Box<dyn Fn(DataChangeEvent) + Send + Sync> {
         let hub = self.hub.clone();
         Box::new(move |event| hub.receive(event))
@@ -187,12 +199,12 @@ impl Hub {
             if state.closed || state.invalidated {
                 return;
             }
-            let DataChangeEvent::RepositoryChanged { repo_id, files, .. } = &event;
+            let DataChangeEvent::NotificationEvent { repo_id, files, .. } = &event;
             if !state.query.includes_repo(repo_id) {
                 return;
             }
             if files.is_none() {
-                // 旧同步、重载等入口没有数据载荷；不伪造增量，也不在这里发起查询。
+                // 缺少数据载荷时不能保证完整性；不伪造增量，也不在这里发起查询。
                 state.invalidated = true;
                 return;
             }
@@ -306,7 +318,7 @@ impl State {
             loop {
                 let mut expanded = false;
                 for event in &self.pending {
-                    let DataChangeEvent::RepositoryChanged {
+                    let DataChangeEvent::NotificationEvent {
                         files: Some(files), ..
                     } = event
                     else {
@@ -327,11 +339,12 @@ impl State {
             }
             let pending = std::mem::take(&mut self.pending);
             for event in pending {
-                let DataChangeEvent::RepositoryChanged {
+                let DataChangeEvent::NotificationEvent {
                     repo_id,
                     operation_id,
                     files,
                     changes,
+                    notifications,
                     ..
                 } = event;
                 let mut ready = Vec::new();
@@ -362,17 +375,18 @@ impl State {
                             .or_default()
                             .insert(file.after_version.clone());
                     }
-                    if let Some(event) = self.apply(&repo_id, operation_id.clone(), ready, &changes)
+                    if let Some(event) = self.apply(&repo_id, operation_id.clone(), ready, &changes, &notifications)
                     {
                         output.push(event);
                     }
                 }
                 if !waiting.is_empty() {
-                    self.pending.push(DataChangeEvent::RepositoryChanged {
+                    self.pending.push(DataChangeEvent::NotificationEvent {
                         repo_id,
                         operation_id,
                         files: Some(waiting),
                         changes,
+                        notifications,
                         removed_files: Vec::new(),
                         categories: None,
                     });
@@ -391,6 +405,7 @@ impl State {
         operation_id: Option<String>,
         files: Vec<FileDataChange>,
         raw: &[TaskDataChange],
+        notifications: &[crate::CoreNotification],
     ) -> Option<DataChangeEvent> {
         let keys = files
             .iter()
@@ -500,11 +515,12 @@ impl State {
         {
             return None;
         }
-        Some(DataChangeEvent::RepositoryChanged {
+        Some(DataChangeEvent::NotificationEvent {
             repo_id: repo_id.into(),
             operation_id,
             files: Some(selected_files),
             changes,
+            notifications: notifications.to_vec(),
             removed_files,
             categories,
         })
@@ -560,7 +576,7 @@ fn members_from_result(data: &CoreQueryResult) -> Members {
     members
 }
 fn apply_initial(data: &mut CoreQueryResult, event: &DataChangeEvent) {
-    let DataChangeEvent::RepositoryChanged {
+    let DataChangeEvent::NotificationEvent {
         files,
         changes,
         removed_files,
@@ -773,7 +789,7 @@ mod tests {
         assert_eq!(first.lock().unwrap().len(), 1);
         assert!(second.lock().unwrap().is_empty());
         let event = files.lock().unwrap()[0].clone();
-        let DataChangeEvent::RepositoryChanged { changes, files: changed_files, .. } = event;
+        let DataChangeEvent::NotificationEvent { changes, files: changed_files, .. } = event;
         assert!(changes.is_empty());
         assert_eq!(changed_files.unwrap().len(), 1);
         f.workspace.unsubscribe_query(&mut started[0].subscription);
@@ -920,7 +936,12 @@ mod tests {
             .await
             .unwrap().remove(0);
         let accesses = crate::model::test_support::repository_accesses(f.root.to_str().unwrap());
-        crate::model::sync_events::publish(&f.workspace.notifications, &f.workspace.repos()[0]);
+        f.workspace.notifications.publish(crate::model::sync_events::SyncCommitted::ExternalFiles(
+            crate::ExternalFileChanged { change_files: vec![crate::ExternalFileChange {
+                file: OrgFileRef { repo_id: f.workspace.repos()[0].id.clone(), path: "a.org".into() },
+                kind: crate::ExternalFileChangeKind::Updated,
+            }] },
+        ));
         f.workspace.notifications.flush().await.unwrap();
         assert_eq!(
             started.subscription.status(),
@@ -961,7 +982,7 @@ mod tests {
         f.finish(&subscription, f.snapshot().await);
         f.change("B").await;
         let mut event = f.raw.lock().unwrap()[0].clone();
-        let DataChangeEvent::RepositoryChanged {
+        let DataChangeEvent::NotificationEvent {
             files: Some(files), ..
         } = &mut event
         else {

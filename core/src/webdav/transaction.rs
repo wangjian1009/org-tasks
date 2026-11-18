@@ -230,6 +230,25 @@ async fn put(root: &Path, path: &str, bytes: Option<&[u8]>) -> Result<(), CoreEr
     }
 }
 impl Plan {
+    /// 从事务已有的前后字节取得准确变化，不再次扫描目录或读取文件。
+    pub(crate) fn external_file_changes(&self, repo_id: &str) -> Vec<crate::ExternalFileChange> {
+        self.changes.iter().filter_map(|change| {
+            if change.path.starts_with(".sync/") || change.before == change.after {
+                return None;
+            }
+            let kind = match (&change.before, &change.after) {
+                (None, Some(_)) => crate::ExternalFileChangeKind::Created,
+                (Some(_), None) => crate::ExternalFileChangeKind::Deleted,
+                (Some(_), Some(_)) => crate::ExternalFileChangeKind::Updated,
+                (None, None) => return None,
+            };
+            Some(crate::ExternalFileChange {
+                file: crate::OrgFileRef { repo_id: repo_id.into(), path: change.path.clone() },
+                kind,
+            })
+        }).collect()
+    }
+
     pub async fn set(
         &mut self,
         root: &Path,
@@ -618,5 +637,23 @@ mod tests {
         drop(waiting.await.unwrap().unwrap());
         drop(lock(&root).await.unwrap());
         fs::remove_dir_all(root).await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod external_change_tests {
+    use super::*;
+    #[test]
+    fn committed_file_changes_exclude_metadata_and_unchanged_bytes() {
+        let plan = Plan { changes: vec![
+            Change { path:"new.org".into(), before:None, after:Some(Vec::new()) },
+            Change { path:"gone.org".into(), before:Some(Vec::new()), after:None },
+            Change { path:"edit.org".into(), before:Some(b"old".to_vec()), after:Some(b"new".to_vec()) },
+            Change { path:"same.org".into(), before:Some(b"same".to_vec()), after:Some(b"same".to_vec()) },
+            Change { path:".sync/history/1.json".into(), before:None, after:Some(b"{}".to_vec()) },
+        ], ..Default::default() };
+        let changes = plan.external_file_changes("repo");
+        assert_eq!(changes.iter().map(|change| change.kind).collect::<Vec<_>>(), [crate::ExternalFileChangeKind::Created, crate::ExternalFileChangeKind::Deleted, crate::ExternalFileChangeKind::Updated]);
+        assert!(changes.iter().all(|change| change.file.repo_id == "repo"));
     }
 }

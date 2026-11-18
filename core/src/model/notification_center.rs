@@ -182,6 +182,7 @@ impl NotificationCenter {
             request: Request,
             monitors: &mut BTreeMap<u64, Monitor>,
             next_id: &mut u64,
+            notices: &NotificationState,
         ) -> Result<(), CoreError> {
             match request {
                 Request::Notifications(_) => unreachable!("通知状态由外层任务处理"),
@@ -210,7 +211,10 @@ impl NotificationCenter {
                         monitors.remove(&id);
                     }
                 }
-                Request::Publish(event) => {
+                Request::Publish(mut event) => {
+                    if let SyncCommitted::Repository { repo_id, notifications, .. } = &mut event {
+                        *notifications = notices.notifications_for_repo(repo_id);
+                    }
                     for monitor in monitors.values() {
                         (monitor.callback)(&event);
                     }
@@ -251,7 +255,7 @@ impl NotificationCenter {
                     );
                 }
             } else {
-                handle(next, &mut monitors, &mut next_id)?;
+                handle(next, &mut monitors, &mut next_id, &notices)?;
             }
         }
         // 关闭入口后排空已受理请求；当前回调由本任务执行，返回时已全部完成。
@@ -269,7 +273,7 @@ impl NotificationCenter {
                     );
                 }
             } else {
-                handle(request, &mut monitors, &mut next_id)?;
+                handle(request, &mut monitors, &mut next_id, &notices)?;
             }
         }
         loads.abort_all();
@@ -297,15 +301,16 @@ mod tests {
         SyncCommitted::Repository {
             repo_id: "repo".into(),
             operation_id: Some(index.to_string()),
-            files: None,
+            files: Some(Vec::new()),
             changes: vec![],
+            notifications: Vec::new(),
         }
     }
 
     fn observe(center: &NotificationCenter) -> (Subscription, mpsc::UnboundedReceiver<u64>) {
         let (sender, received) = mpsc::unbounded_channel();
         let subscription = center.subscribe(move |event| {
-            let SyncCommitted::Repository { operation_id, .. } = event;
+            let SyncCommitted::Repository { operation_id, .. } = event else { return; };
             sender
                 .send(operation_id.as_ref().unwrap().parse().unwrap())
                 .unwrap();
@@ -390,7 +395,7 @@ mod tests {
         let releasing = release.clone();
         let (sender, mut received) = mpsc::unbounded_channel();
         let subscription = center.subscribe(move |event| {
-            let SyncCommitted::Repository { operation_id, .. } = event;
+            let SyncCommitted::Repository { operation_id, .. } = event else { return; };
             let index: u64 = operation_id.as_ref().unwrap().parse().unwrap();
             if index == 1 {
                 signal.notify_one();

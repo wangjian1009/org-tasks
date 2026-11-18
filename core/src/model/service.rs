@@ -652,9 +652,10 @@ impl OrgRepo {
     where
         P: SyncPolicy,
     {
-        let result = self.sync_with_options_inner(policy, started_at, cancellation, progress, options, notifications).await;
+        let mut change_files = Vec::new();
+        let result = self.sync_with_options_inner(policy, started_at, cancellation, progress, options, &mut change_files).await;
         if let Some(notifications) = notifications {
-            if let Err(error) = super::notification::RepositoryNotifications::publish(self, notifications).await {
+            if let Err(error) = super::external_files::publish(self, notifications, change_files).await {
                 eprintln!("同步后加载通知失败: {error}");
             }
             notifications.flush().await?;
@@ -669,7 +670,7 @@ impl OrgRepo {
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
         options: SyncOptions,
-        notifications: Option<&super::notification_center::NotificationCenter>,
+        change_files: &mut Vec<super::ExternalFileChange>,
     ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where P: SyncPolicy,
     {
@@ -693,7 +694,6 @@ impl OrgRepo {
         )
         .await?;
         drop(guard);
-        let completion_notice = super::sync_events::CompletionNotice::new(self, notifications);
         let slot = crate::webdav::transaction::CommitSlot::new(
             Path::new(&self.root_directory),
             started_at,
@@ -750,7 +750,9 @@ impl OrgRepo {
                 ),
             )
             .await?;
+            let committed_changes = plan.external_file_changes(&self.id);
             plan.commit(root).await?;
+            change_files.extend(committed_changes);
         } else {
             persist_sync_record(root, &record).await?;
         }
@@ -777,7 +779,6 @@ impl OrgRepo {
         drop(guard);
         // 正式结果已持久化；收尾失败留下标记由下一次访问恢复，不推翻提交结果。
         let _ = session.finish().await;
-        drop(completion_notice);
         progress.report("Finished", record.files.len(), record.files.len(), None);
         policy.on_record_persisted(&record);
 

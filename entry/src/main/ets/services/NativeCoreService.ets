@@ -46,6 +46,7 @@ import {
   CoreError as NativeCoreError,
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
   DataChangeEvent as NativeDataChangeEvent,
+  ExternalFileChanged as NativeExternalFileChanged,
   TaskDataChange as NativeTaskDataChange,
   DataChangeMonitor as NativeDataChangeMonitor,
   QuerySubscriptionStart as NativeQuerySubscriptionStart,
@@ -185,6 +186,7 @@ export type CoreTaskMergeRequest = NativeTaskMergeRequest
 export type CoreTaskMergePlan = NativeTaskMergePlan
 export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
 export type CoreTaskDataChange = NativeTaskDataChange
+export type CoreExternalFileChanged = NativeExternalFileChanged
 export type CoreDataChangeEvent = NativeDataChangeEvent
 export type CoreDataChangeMonitor = NativeDataChangeMonitor
 export type CoreQuerySubscriptionRequest = NativeQuerySubscriptionRequest
@@ -304,6 +306,8 @@ export class CoreWorkspace {
     else await this.native.watchNotifications(monitor, repoIds)
   }
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
+  async watchExternalFileChanges(monitor: (event: CoreExternalFileChanged) => void): Promise<number> { return await this.native.watchExternalFileChanges(monitor) }
+  stopWatchingExternalFileChanges(subscriptionId: number): void { this.native.stopWatchingExternalFileChanges(subscriptionId) }
   async watchDataChanges(monitor: CoreDataChangeMonitor): Promise<number> { return await this.native.watchDataChanges(monitor) }
   stopWatchingDataChanges(subscriptionId: number): void { this.native.stopWatchingDataChanges(subscriptionId) }
   async subscribeQuery(requests: CoreQuerySubscriptionRequest[]): Promise<CoreQuerySubscriptionStart[]> {
