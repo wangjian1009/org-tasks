@@ -1,0 +1,330 @@
+{
+  "loki": true,
+  "utcOffset": 28800,
+  "ednaVersion": "1.1.2",
+  "orgVersion": "9.8.10",
+  "now": "2026-11-11 12:34",
+  "cases": [
+    {
+      "name": "scheduled-source",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nSCHEDULED: <2026-11-20 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-23 Mon 09:00-10:30 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "scheduled-target",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(target mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nSCHEDULED: <2026-11-20 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(target mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-11 Wed 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "scheduled-today",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nSCHEDULED: <2026-11-20 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-13 Fri 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "scheduled-today-missing",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-13 Fri>\n"
+    },
+    {
+      "name": "scheduled-source-short",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-16 Mon +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "deadline-source",
+      "source": "* TODO Task\nDEADLINE: <2026-11-13 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nDEADLINE: <2026-11-20 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-23 Mon 09:00-10:30 -1d>\n"
+    },
+    {
+      "name": "deadline-target",
+      "source": "* TODO Task\nDEADLINE: <2026-11-13 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(target mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nDEADLINE: <2026-11-20 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(target mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-13 Fri 16:00 -1d>\n"
+    },
+    {
+      "name": "deadline-today",
+      "source": "* TODO Task\nDEADLINE: <2026-11-13 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* TODO Task\nDEADLINE: <2026-11-20 Fri 09:00-10:30 +1w -2d>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-13 Fri 16:00 -1d>\n"
+    },
+    {
+      "name": "deadline-today-missing",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(today mon wed fri)\n:END:\n备注  \n* TODO Target\nDEADLINE: <2026-11-13 Fri>\n"
+    },
+    {
+      "name": "deadline-source-short",
+      "source": "* TODO Task\nDEADLINE: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-16 Mon -1d>\n"
+    },
+    {
+      "name": "weekday-mon",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon mon)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon mon)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-16 Mon 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "weekday-tue",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source tue tue)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source tue tue)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-17 Tue 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "weekday-wed",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source wed wed)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source wed wed)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-18 Wed 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "weekday-thu",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source thu thu)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source thu thu)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-19 Thu 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "weekday-fri",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source fri fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source fri fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-20 Fri 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "weekday-sat",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source sat sat)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source sat sat)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-14 Sat 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "weekday-sun",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source sun sun)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source sun sun)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-15 Sun 09:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+    },
+    {
+      "name": "spawn-source",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 81634AD3-808F-4FAC-9891-D7252DD55EBB\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 81634AD3-808F-4FAC-9891-D7252DD55EBB\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "spawn-target",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(target mon wed fri)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(target mon wed fri)\n:LOKI_NEXT_ID: 7C1F3E8A-9F44-4074-8181-C7B04B7EC851\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 7C1F3E8A-9F44-4074-8181-C7B04B7EC851\n:TRIGGER: self loki-spawn-next!(target mon wed fri)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "spawn-today",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(today mon wed fri)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(today mon wed fri)\n:LOKI_NEXT_ID: 80B69423-6BD3-47D5-8C49-6977AA14E8EE\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 80B69423-6BD3-47D5-8C49-6977AA14E8EE\n:TRIGGER: self loki-spawn-next!(today mon wed fri)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "spawn-reopen-idempotent",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "actions": [
+        "DONE",
+        "TODO",
+        "DONE"
+      ],
+      "steps": [
+        "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+        "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+        "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: DD54A70A-740D-46E3-8C12-DD1020467E10\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+      ]
+    },
+    {
+      "name": "spawn-successor-continues",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 13A529E9-C30E-4BD6-9914-20C464346FE1\n:END:\n备注  \n* DONE Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 13A529E9-C30E-4BD6-9914-20C464346FE1\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 8A590822-2597-45CA-A906-B1718A3F013B\n:END:\n* TODO Task\nSCHEDULED: <2026-11-18 Wed 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 8A590822-2597-45CA-A906-B1718A3F013B\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+      "actions": [
+        "DONE",
+        {
+          "state": "DONE",
+          "occurrence": 2
+        }
+      ],
+      "steps": [
+        "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 13A529E9-C30E-4BD6-9914-20C464346FE1\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 13A529E9-C30E-4BD6-9914-20C464346FE1\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n",
+        "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 13A529E9-C30E-4BD6-9914-20C464346FE1\n:END:\n备注  \n* DONE Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 13A529E9-C30E-4BD6-9914-20C464346FE1\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 8A590822-2597-45CA-A906-B1718A3F013B\n:END:\n* TODO Task\nSCHEDULED: <2026-11-18 Wed 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 8A590822-2597-45CA-A906-B1718A3F013B\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d> DEADLINE: <2026-11-12 Thu 16:00 -1d>\n"
+      ]
+    },
+    {
+      "name": "spawn-copy-fields",
+      "source": "#+TODO: NEXT WAIT | FINISHED\n* WAIT [#A] Task :work:\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n:LOGBOOK:\n历史\n:END:\n正文\n** FINISHED Child\n子任务\n* Tail\n",
+      "state": "FINISHED",
+      "expected": "#+TODO: NEXT WAIT | FINISHED\n* FINISHED [#A] Task :work:\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 8129D074-D219-410C-AF92-79D21B4E9BEE\n:END:\n:LOGBOOK:\n历史\n:END:\n正文\n** FINISHED Child\n子任务\n* NEXT [#A] Task :work:\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 8129D074-D219-410C-AF92-79D21B4E9BEE\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-before-source-keeps-targets",
+      "source": "* TODO Earlier\nSCHEDULED: <2026-11-12 Thu>\n* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: previous-sibling loki-spawn-next!(target mon wed fri) self tag!(\":source:\")\n:END:\n备注  \n* Tail\n",
+      "state": "DONE",
+      "expected": "* TODO Earlier\nSCHEDULED: <2026-11-12 Thu>\n:PROPERTIES:\n:LOKI_NEXT_ID: 364EED83-E05D-4AFB-A694-F22C65C6CF7D\n:END:\n* TODO Earlier\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 364EED83-E05D-4AFB-A694-F22C65C6CF7D\n:END:\n* DONE Task :source:\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: previous-sibling loki-spawn-next!(target mon wed fri) self tag!(\":source:\")\n:END:\n备注  \n* Tail\n"
+    },
+    {
+      "name": "spawn-many-captured-targets",
+      "source": "* Group\n** TODO Earlier\nSCHEDULED: <2026-11-12 Thu>\n** TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: siblings loki-spawn-next!(target mon wed fri) tag!(\":original:\")\n:END:\n备注  \n** TODO Later\nSCHEDULED: <2026-11-14 Sat>\n",
+      "state": "DONE",
+      "expected": "* Group\n** TODO Earlier :original:\nSCHEDULED: <2026-11-12 Thu>\n:PROPERTIES:\n:LOKI_NEXT_ID: 4B2D7C0A-9236-44B8-AF2E-A4370C81E936\n:END:\n** TODO Earlier\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 4B2D7C0A-9236-44B8-AF2E-A4370C81E936\n:END:\n** DONE Task :original:\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: siblings loki-spawn-next!(target mon wed fri) tag!(\":original:\")\n:LOKI_NEXT_ID: 9CCFE796-136D-46C0-8905-3ED474785DED\n:END:\n备注  \n** TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 9CCFE796-136D-46C0-8905-3ED474785DED\n:TRIGGER: siblings loki-spawn-next!(target mon wed fri) tag!(\":original:\")\n:END:\n** TODO Later :original:\nSCHEDULED: <2026-11-14 Sat>\n:PROPERTIES:\n:LOKI_NEXT_ID: 8008DA21-DE49-4A74-B956-F149999EA577\n:END:\n** TODO Later\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 8008DA21-DE49-4A74-B956-F149999EA577\n:END:\n"
+    },
+    {
+      "name": "spawn-in-nested-tree",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n** DONE Child\n子任务\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 0573A429-D85B-4176-96D9-44D49E925065\n:END:\n** DONE Child\n子任务\n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 0573A429-D85B-4176-96D9-44D49E925065\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-parent-counts",
+      "source": "* Group [0/1]\n** TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n*** DONE Child\n子任务\n* Tail\n",
+      "state": "DONE",
+      "expected": "* Group [1/2]\n** DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 23419873-03DF-4D4C-AEEC-9D97EB3CD198\n:END:\n*** DONE Child\n子任务\n** TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 23419873-03DF-4D4C-AEEC-9D97EB3CD198\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-target-has-no-trigger",
+      "source": "#+TODO: TODO WAIT | DONE\n* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* WAIT Target\n:PROPERTIES:\n:ID: original-target\n:CUSTOM_ID: keep\n:END:\n正文\n** DONE Child\n* Tail\n",
+      "state": "DONE",
+      "expected": "#+TODO: TODO WAIT | DONE\n* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* WAIT Target\n:PROPERTIES:\n:ID: original-target\n:CUSTOM_ID: keep\n:LOKI_NEXT_ID: 905FF7DA-C05E-48A4-89A7-C13D294416BF\n:END:\n正文\n** DONE Child\n* TODO Target\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 905FF7DA-C05E-48A4-89A7-C13D294416BF\n:END:\n* Tail\n"
+    },
+    {
+      "name": "year-boundary",
+      "source": "* TODO Task\nSCHEDULED: <2026-12-31 Thu>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-12-31 Thu>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 5EFB4411-5ADC-4350-BC15-B45B870F9056\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2027-01-01 Fri>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 5EFB4411-5ADC-4350-BC15-B45B870F9056\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "leap-boundary",
+      "source": "* TODO Task\nSCHEDULED: <2028-02-28 Mon>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2028-02-28 Mon>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: CFC393C2-4CA4-4DB4-A446-085188D3CAB5\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2028-03-01 Wed>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: CFC393C2-4CA4-4DB4-A446-085188D3CAB5\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "spawn-under-completed-parent",
+      "source": "* DONE Parent [0/1]\n** TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* TODO Parent [1/2]\n** DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 27FF27F5-717F-459F-8CEB-E39814882C67\n:END:\n备注  \n** TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 27FF27F5-717F-459F-8CEB-E39814882C67\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "spawn-twice-one-rule",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri) loki-spawn-next!(source fri mon wed)\n:END:\n备注  \n* Tail\n尾部保留\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri) loki-spawn-next!(source fri mon wed)\n:LOKI_NEXT_ID: 41280358-CB00-455B-9028-2B0FFFD1CA99\n:END:\n备注  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 41280358-CB00-455B-9028-2B0FFFD1CA99\n:TRIGGER: self loki-spawn-next!(source mon wed fri) loki-spawn-next!(source fri mon wed)\n:END:\n* Tail\n尾部保留\n"
+    },
+    {
+      "name": "scheduled-range-keeps-target-tail",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00 +1w -2d>--<2026-11-11 Wed 17:00>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri 09:00>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-16 Mon 09:00 +1w -2d>--<2026-11-11 Wed 17:00>\n"
+    },
+    {
+      "name": "deadline-range-keeps-target-tail",
+      "source": "* TODO Task\nDEADLINE: <2026-11-13 Fri 09:00>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(source mon wed fri)\n:END:\n* TODO Target\nDEADLINE: <2026-11-10 Tue 15:00 +1w -2d>--<2026-11-11 Wed 17:00>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nDEADLINE: <2026-11-13 Fri 09:00>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-deadline-next!(source mon wed fri)\n:END:\n* TODO Target\nDEADLINE: <2026-11-16 Mon 09:00 +1w -2d>--<2026-11-11 Wed 17:00>\n"
+    },
+    {
+      "name": "scheduled-range-source-start-has-no-clock",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 15:00>--<2026-11-11 Wed 17:00>\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri)\n:END:\n* TODO Target\nSCHEDULED: <2026-11-16 Mon>--<2026-11-11 Wed 17:00>\n"
+    },
+    {
+      "name": "spawn-range-source-start-has-no-clock",
+      "source": "* TODO Task\nSCHEDULED: <2026-11-13 Fri>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE Task\nSCHEDULED: <2026-11-13 Fri>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 7C968CFC-64F1-481E-96E0-9E87B25E14AA\n:END:\n* TODO Task\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 7C968CFC-64F1-481E-96E0-9E87B25E14AA\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-0",
+      "title": "练习0",
+      "source": "* TODO 练习0\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 练习0\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 132F6946-3CE5-4833-8D34-3DB05CE933AA\n:END:\n* TODO 练习1\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 132F6946-3CE5-4833-8D34-3DB05CE933AA\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-1",
+      "title": "练习009",
+      "source": "* TODO 练习009\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 练习009\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 8DA2D95E-93CA-4EB1-8428-E23750C0CB36\n:END:\n* TODO 练习010\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 8DA2D95E-93CA-4EB1-8428-E23750C0CB36\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-2",
+      "title": "练习99",
+      "source": "* TODO 练习99\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 练习99\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 3097CEEF-1938-4D5D-8158-D24C78E44A0D\n:END:\n* TODO 练习100\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 3097CEEF-1938-4D5D-8158-D24C78E44A0D\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-3",
+      "title": "练习999999999999999999999999999999",
+      "source": "* TODO 练习999999999999999999999999999999\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 练习999999999999999999999999999999\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 3FE9CEEC-7093-41F4-B682-77CF59455201\n:END:\n* TODO 练习1000000000000000000000000000000\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 3FE9CEEC-7093-41F4-B682-77CF59455201\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-4",
+      "title": "练习12课",
+      "source": "* TODO 练习12课\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 练习12课\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: DF4C3932-F2B4-477D-8ADD-F827538AE60B\n:END:\n* TODO 练习12课\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: DF4C3932-F2B4-477D-8ADD-F827538AE60B\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-5",
+      "title": "练习１２",
+      "source": "* TODO 练习１２\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 练习１２\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: AEBFED5C-D589-4F9E-A22B-1EC8D712FFAC\n:END:\n* TODO 练习１２\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: AEBFED5C-D589-4F9E-A22B-1EC8D712FFAC\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-title-6",
+      "title": "123",
+      "source": "* TODO 123\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "expected": "* DONE 123\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 5A219A1A-3152-4B1F-82AD-B433D7FDB026\n:END:\n* TODO 124\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 5A219A1A-3152-4B1F-82AD-B433D7FDB026\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-chain",
+      "title": "练习009",
+      "source": "* TODO [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "actions": [
+        "DONE",
+        {
+          "title": "练习010",
+          "state": "DONE"
+        }
+      ],
+      "steps": [
+        "* DONE [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: D6509798-A16E-43CB-8B95-38580D9BB8C1\n:END:\n* TODO [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: D6509798-A16E-43CB-8B95-38580D9BB8C1\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+        "* DONE [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: D6509798-A16E-43CB-8B95-38580D9BB8C1\n:END:\n* DONE [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: D6509798-A16E-43CB-8B95-38580D9BB8C1\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 31D57978-9608-4A61-8950-33302301FCAC\n:END:\n* TODO [#A] 练习011 :work2:\nSCHEDULED: <2026-11-18 Wed>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 31D57978-9608-4A61-8950-33302301FCAC\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+      ],
+      "expected": "* DONE [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: D6509798-A16E-43CB-8B95-38580D9BB8C1\n:END:\n* DONE [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: D6509798-A16E-43CB-8B95-38580D9BB8C1\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 31D57978-9608-4A61-8950-33302301FCAC\n:END:\n* TODO [#A] 练习011 :work2:\nSCHEDULED: <2026-11-18 Wed>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 31D57978-9608-4A61-8950-33302301FCAC\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    },
+    {
+      "name": "spawn-numbered-reopen",
+      "title": "练习009",
+      "source": "* TODO [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+      "state": "DONE",
+      "actions": [
+        "DONE",
+        "TODO",
+        "DONE"
+      ],
+      "steps": [
+        "* DONE [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:END:\n* TODO [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+        "* TODO [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:END:\n* TODO [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n",
+        "* DONE [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:END:\n* TODO [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+      ],
+      "expected": "* DONE [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:LOKI_NEXT_ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:END:\n* TODO [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n:PROPERTIES:\n:CREATED: [2026-11-11 Wed 12:34]\n:ID: 33DBD34C-938D-4C6D-ADD7-47C7101153E5\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n* Tail\n"
+    }
+  ]
+}

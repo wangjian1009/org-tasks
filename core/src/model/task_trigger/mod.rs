@@ -1,6 +1,7 @@
 //! Org Edna 1.1.2 的文件内 TRIGGER 解释器；与重复调度共用 Core 写入事务。
 //! 不执行 Lisp，不读取其他文件；宿主相关及未知动作按约定静默跳过。
 mod matching;
+mod loki;
 mod syntax;
 mod time;
 use super::task_operation_executor::{end, replace, start};
@@ -28,13 +29,7 @@ pub(super) fn modify_at(
         .iter()
         .position(|(_, node)| start(node) == start(headline))
         .ok_or(error("TRIGGER 来源标题不存在"))?;
-    Context {
-        file,
-        now,
-        utc_offset: chrono::Local::now().offset().local_minus_utc(),
-        steps: 0,
-        stack: Vec::new(),
-    }
+    Context::new(file, now, chrono::Local::now().offset().local_minus_utc())
     .todo(ordinal, value)
 }
 struct Context<'a> {
@@ -43,14 +38,23 @@ struct Context<'a> {
     utc_offset: i32,
     steps: usize,
     stack: Vec<usize>,
+    // 规则保存稳定的局部节点编号；插入后仅更新编号对应的当前遍历位置。
+    ordinals: Vec<usize>,
 }
 impl Context<'_> {
+    fn new(file: &mut OrgFile, now: NaiveDateTime, utc_offset: i32) -> Context<'_> {
+        let ordinals = (0..file.path_headlines().len()).collect();
+        Context { file, now, utc_offset, steps: 0, stack: Vec::new(), ordinals }
+    }
+    fn id(&self, ordinal: usize) -> usize {
+        self.ordinals.iter().position(|value| *value == ordinal).expect("标题已分配局部编号")
+    }
     fn node(&self, index: usize) -> Result<Headline> {
         let node = self
             .file
             .path_headlines()
             .into_iter()
-            .nth(index)
+            .nth(self.ordinals[index])
             .ok_or(error("TRIGGER 目标标题不存在"))?
             .1;
         if OrgFile::is_conflict_headline(&node) {
@@ -165,6 +169,7 @@ impl Context<'_> {
                 nodes
                     .iter()
                     .position(|(_, node)| start(node) == start(&ancestor))
+                    .map(|ordinal| self.id(ordinal))
             })
             .collect::<Vec<_>>();
         for ancestor in ancestors {
@@ -322,7 +327,7 @@ impl Context<'_> {
                         .iter()
                         .enumerate()
                         .filter_map(|(i, _)| {
-                            (self.prop(i, "ID").ok().flatten().as_deref() == Some(id)).then_some(i)
+                            (self.prop(self.id(i), "ID").ok().flatten().as_deref() == Some(id)).then_some(self.id(i))
                         })
                         .collect::<Vec<_>>();
                     if matches.len() > 1 {
@@ -345,7 +350,7 @@ impl Context<'_> {
                     .enumerate()
                     .filter_map(|(i, (p, _))| {
                         (p.titles.iter().map(String::as_str).collect::<Vec<_>>() == path)
-                            .then_some(i)
+                            .then_some(self.id(i))
                     })
                     .collect())
             }
@@ -371,8 +376,8 @@ impl Context<'_> {
                     {
                         continue;
                     }
-                    if self.matches(i, spec)? {
-                        targets.push(i);
+                    if self.matches(self.id(i), spec)? {
+                        targets.push(self.id(i));
                     }
                 }
                 Ok(targets)
@@ -434,6 +439,7 @@ impl Context<'_> {
             }
         }
         let nodes = self.file.path_headlines();
+        let source = self.ordinals[source];
         let parent = |index: usize| {
             nodes[..index]
                 .iter()
@@ -447,7 +453,7 @@ impl Context<'_> {
                 (node.level() == source_node.level() && parent(i) == parent(source)).then_some(i)
             })
             .collect::<Vec<_>>();
-        let mut targets = match select {
+        let targets = match select {
             "from-top" => siblings.clone(),
             "from-bottom" => siblings.iter().rev().copied().collect(),
             "from-current" | "forward-wrap" | "no-wrap" | "forward-no-wrap" | "backward-wrap"
@@ -498,6 +504,7 @@ impl Context<'_> {
                 .collect(),
             _ => Vec::new(),
         };
+        let mut targets = targets.into_iter().map(|ordinal| self.id(ordinal)).collect::<Vec<_>>();
         if sort == "random-sort" {
             // 不依赖全局随机状态，使用系统随机字节进行 Fisher-Yates 置换。
             for i in (1..targets.len()).rev() {
@@ -559,7 +566,7 @@ impl Context<'_> {
                                 !self.own_tags(i)?.iter().any(|tag| tag == &s[1..])
                             }
                             Value::String(s) => {
-                                matching::regex(s)?.is_match(nodes[i].1.title_raw().trim())
+                                matching::regex(s)?.is_match(nodes[self.ordinals[i]].1.title_raw().trim())
                             }
                             Value::Symbol(s) if s == "todo-only" => {
                                 self.prop(i, "TODO")?.is_some_and(|s| {
@@ -573,7 +580,7 @@ impl Context<'_> {
                                 self.prop(i, "TODO")?.is_some()
                             }
                             Value::Symbol(s) if s == "no-comment" || s == "no-comments" => !nodes
-                                [i]
+                                [self.ordinals[i]]
                                 .1
                                 .syntax()
                                 .ancestors()
@@ -644,6 +651,9 @@ impl Context<'_> {
     fn action(&mut self, call: &Call, source: usize, target: usize) -> Result<()> {
         let args = &call.args;
         match call.name.trim_start_matches('!') {
+            "loki-scheduled-next!" | "loki-deadline-next!" | "loki-spawn-next!" => {
+                self.loki_action(call, source, target)?;
+            }
             "todo!" => {
                 let state = arg(args, 0)?;
                 self.todo(target, (!state.is_empty()).then_some(state))?;

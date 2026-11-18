@@ -207,6 +207,122 @@ async fn invalid_supported_actions_and_syntax_preserve_every_file_and_publish_no
 }
 
 #[tokio::test]
+async fn loki_planning_actions_run_through_workspace_and_preserve_date_range_tails() {
+    for (action, field) in [("scheduled", "SCHEDULED"), ("deadline", "DEADLINE")] {
+        let source = format!(
+            "* TODO Task\n{field}: <2026-11-13 Fri>--<2026-11-14 Sat 16:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-{action}-next!(source mon wed fri)\n:END:\n来源备注  \n* TODO Target\n{field}: <2026-11-10 Tue 15:00 +1w -2d>--<2026-11-25 Wed 17:00>\n目标备注  \n"
+        );
+        let f = Fixture::new(&[("tasks.org", &source)]).await;
+        let group = f.group().await;
+        f.workspace.execute_task_operations(&group).await.unwrap();
+        let expected = source
+            .replacen("* TODO Task", "* DONE Task", 1)
+            .replace("<2026-11-10 Tue 15:00 +1w -2d>", "<2026-11-16 Mon +1w -2d>");
+        assert_eq!(f.source(), expected);
+        f.assert_one_commit(&source).await;
+    }
+}
+
+#[tokio::test]
+async fn loki_spawn_increments_the_target_title_suffix_and_preserves_tags() {
+    let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: next-sibling loki-spawn-next!(target mon wed fri)\n:END:\n* TODO [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n原文  \n* Tail\n";
+    let f = Fixture::new(&[("tasks.org", source)]).await;
+    f.workspace.execute_task_operations(&f.group().await).await.unwrap();
+    let after = f.source();
+    assert!(after.contains("* TODO [#A] 练习009 :work2:\nSCHEDULED: <2026-11-13 Fri>\n"));
+    assert!(after.contains("原文  \n* TODO [#A] 练习010 :work2:\nSCHEDULED: <2026-11-16 Mon>\n"));
+    assert!(after.ends_with("* Tail\n"));
+    f.assert_one_commit(source).await;
+}
+
+#[tokio::test]
+async fn loki_spawn_commits_one_created_event_and_keeps_original_subtree_bytes() {
+    let source = "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00> DEADLINE: <2026-12-01 Tue>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:CUSTOM: retained\n:END:\n正文  \n** DONE Child\n子任务  \n* Tail\n末尾保留  \n";
+    let f = Fixture::new(&[("tasks.org", source)]).await;
+    let changes = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = changes.clone();
+    let _subscription = f.workspace.watch_data_changes(move |event| {
+        let DataChangeEvent::NotificationEvent { changes, .. } = event;
+        observed.lock().unwrap().extend(changes);
+    });
+    let group = f.group().await;
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let after = f.source();
+    assert!(after.contains("正文  \n** DONE Child\n子任务  \n* TODO Task\nSCHEDULED: <2026-11-16 Mon 09:00>\n"));
+    assert!(after.ends_with("* Tail\n末尾保留  \n"));
+    assert_eq!(after.matches(":CUSTOM: retained").count(), 1);
+    assert_eq!(after.matches("DEADLINE:").count(), 1);
+    assert_eq!(after.matches(":CREATED:").count(), 1);
+    let id = after.lines().find_map(|line| line.strip_prefix(":LOKI_NEXT_ID: ")).unwrap();
+    assert!(after.contains(&format!(":ID: {id}\n")));
+    let changes = changes.lock().unwrap();
+    let created = changes.iter().filter(|change| change.kind == TaskDataChangeKind::Created).collect::<Vec<_>>();
+    assert_eq!(created.len(), 1);
+    assert!(created[0].before.is_none());
+    assert_eq!(created[0].after.as_ref().unwrap().task.title(), "Task");
+    drop(changes);
+    f.assert_one_commit(source).await;
+    let snapshot = f.snapshot();
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(f.snapshot(), snapshot);
+    f.assert_one_commit(source).await;
+
+    let mut reopen = f.group().await;
+    let TaskOperation::Modification(change) = &mut reopen.operations[0] else { unreachable!() };
+    change.modifications = vec![TaskModification::Todo(Some("TODO".into()))];
+    f.workspace.execute_task_operations(&reopen).await.unwrap();
+    f.workspace.execute_task_operations(&f.group().await).await.unwrap();
+    assert_eq!(f.source(), after, "重新加载文件再完成时复用已持久化的后继关联");
+    assert_eq!(f.events.load(Ordering::Relaxed), 3);
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 3);
+}
+
+#[tokio::test]
+async fn loki_insert_before_source_preserves_later_fields_in_the_same_modification() {
+    let source = "* TODO Earlier\nSCHEDULED: <2026-11-12 Thu>\n* TODO Task\n:PROPERTIES:\n:TRIGGER: previous-sibling loki-spawn-next!(target mon wed fri) self set-property!(\"TARGET\" \"source\")\n:END:\n原文  \n* Tail\n";
+    let f = Fixture::new(&[("tasks.org", source)]).await;
+    let mut group = f.group().await;
+    let TaskOperation::Modification(change) = &mut group.operations[0] else { unreachable!() };
+    change.modifications.push(TaskModification::Title(Some("Renamed".into())));
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let after = f.source();
+    assert!(after.contains("* TODO Earlier\nSCHEDULED: <2026-11-13 Fri>\n"));
+    assert!(after.contains("* DONE Renamed\n"));
+    assert_eq!(after.matches(":TARGET: source").count(), 1);
+    assert!(after.ends_with("原文  \n* Tail\n"));
+    f.assert_one_commit(source).await;
+}
+
+#[tokio::test]
+async fn loki_failures_rollback_state_dates_creation_and_links() {
+    for (trigger, planning, targets, expected) in [
+        ("self loki-spawn-next!()", "", "", "日期基准"),
+        ("self loki-spawn-next!(source)", "", "", "星期集合"),
+        ("self loki-spawn-next!(source monday)", "", "", "星期必须"),
+        ("self loki-scheduled-next!(\"today\" mon)", "", "", "日期基准"),
+        ("self loki-deadline-next!(source mon)", "", "", "没有对应规划"),
+        ("self loki-spawn-next!(source mon)", "SCHEDULED: <9999-12-31 Fri>\n", "", "日期超出"),
+        ("self loki-spawn-next!(source mon wed fri) loki-scheduled-next!(source invalid)", "SCHEDULED: <2026-11-13 Fri>\n", "", "星期必须"),
+        ("next-sibling loki-scheduled-next!(source mon)", "SCHEDULED: <2026-11-13 Fri>\n", "* TODO Target\nSCHEDULED: <2026-11-12 Thu 09:00 +1h>\n", "必须保留时刻"),
+    ] {
+        let source = format!("#+TODO: TODO | DONE(!)\n#+STARTUP: logdone\n* TODO Task\n{planning}:PROPERTIES:\n:TRIGGER: {trigger}\n:END:\n备注  \n{targets}");
+        let mut f = Fixture::new(&[("tasks.org", &source)]).await;
+        let group = f.group().await;
+        f.assert_rollback(&group, expected).await;
+    }
+    for (link, target, expected) in [
+        ("missing", "", "关联失效"),
+        ("self", "", "关联失效"),
+        ("duplicate", "* Other\n:PROPERTIES:\n:ID: duplicate\n:END:\n* Another\n:PROPERTIES:\n:ID: duplicate\n:END:\n", "不唯一"),
+    ] {
+        let source = format!("* TODO Task\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:ID: self\n:LOKI_NEXT_ID: {link}\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n{target}");
+        let mut f = Fixture::new(&[("tasks.org", &source)]).await;
+        let group = f.group().await;
+        f.assert_rollback(&group, expected).await;
+    }
+}
+
+#[tokio::test]
 async fn duplicate_ids_and_task_dependencies_are_validated_for_trigger_targets() {
     for (trigger, targets, expected) in [
         (

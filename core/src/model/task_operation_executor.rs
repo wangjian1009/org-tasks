@@ -592,92 +592,7 @@ fn execute_inner(
             let item = files
                 .get_mut(&key(&data.position.parent)?)
                 .expect("已加载文件");
-            let (offset, level) = position_hint(&item.file, &data.position)?;
-            validate_title(&data.title)?;
-            validate_state(&item.file, data.state.as_deref())?;
-            item.file.validate_priority(data.priority.as_deref())?;
-            validate_tags(&data.tags)?;
-            let mut content = format!(
-                "{} {}{}{}{}{}",
-                "*".repeat(level),
-                data.state
-                    .as_ref()
-                    .map(|s| format!("{s} "))
-                    .unwrap_or_default(),
-                data.priority
-                    .as_ref()
-                    .map(|s| format!("[#{s}] "))
-                    .unwrap_or_default(),
-                data.title,
-                if data.tags.is_empty() {
-                    String::new()
-                } else {
-                    format!(" :{}:", data.tags.join(":"))
-                },
-                newline(&item.file)
-            );
-            let mut planning_fields = Vec::new();
-            for (field, value) in [
-                ("SCHEDULED", &data.scheduled),
-                ("DEADLINE", &data.deadline),
-            ] {
-                if let Some(value) = value {
-                    validate_timestamp(value)?;
-                    planning_fields.push(format!("{field}: {value}"));
-                }
-            }
-            if !planning_fields.is_empty() {
-                content.push_str(&planning_fields.join(" "));
-                content.push_str(newline(&item.file));
-            }
-            validate_body(&data.body)?;
-            let now = chrono::Local::now().naive_local();
-            let timestamp = now
-                .format("[%Y-%m-%d %a %H:%M]")
-                .to_string();
-            content.push_str(&format!(
-                ":PROPERTIES:{}:CREATED: {timestamp}{}:END:{}",
-                newline(&item.file),
-                newline(&item.file),
-                newline(&item.file)
-            ));
-            content.push_str(&normalize_newlines(&data.body, newline(&item.file)));
-            let probe = item.file_source(&content)?;
-            if probe.syntax().document().headlines().count() != 1
-                || probe.path_headlines().len() != 1
-            {
-                return Err(CoreError::InvalidInput("创建正文不能引入额外标题"));
-            }
-            let inserted = offset
-                + if offset > 0 && item.file.source_bytes()[offset - 1] != b'\n' {
-                    newline(&item.file).len()
-                } else {
-                    0
-                };
-            let ordinal = super::mutation_journal::ordinal_at(&item.file, inserted);
-            insert(&mut item.file, offset, &content)?;
-            if let Some(journal) = &mut item.file.mutation_journal { journal.create(ordinal, 1); }
-            let node = item
-                .file
-                .path_headlines()
-                .into_iter()
-                .map(|(_, node)| node)
-                .find(|node| start(node) == inserted)
-                .ok_or(CoreError::InvalidInput("创建后标题无法定位"))?;
-            if node.title_raw().trim_end() != data.title.trim_end()
-                || node.todo_keyword().map(|token| token.to_string()) != data.state
-                || node.priority().map(|token| token.to_string()) != data.priority
-                || node
-                    .tags()
-                    .map(|token| token.to_string())
-                    .collect::<Vec<_>>()
-                    != data.tags
-            {
-                return Err(CoreError::InvalidInput(
-                    "标题或状态不能被 Org 重新解释为其他字段",
-                ));
-            }
-            super::task_state::log_created_completion(&mut item.file, &node, now)?;
+            let inserted = create(&mut item.file, data, chrono::Local::now().naive_local())?;
             item.exists = true;
             Ok(Some(path_at(&item.file, inserted)?))
         }
@@ -698,11 +613,20 @@ fn execute_inner(
                     .map(|(_, node)| node)
                     .find(|node| start(node) == offset)
                     .ok_or(CoreError::InvalidState("修改后标题无法定位"))?;
+                let token = item.file.mutation_journal.as_ref().and_then(|journal| {
+                    let ordinal = super::mutation_journal::ordinal_at(&item.file, offset);
+                    journal.token_at(ordinal)
+                });
                 modify(&mut item.file, &headline, modification)?;
-                // 各字段在写入处校验边界；重复调度允许更新标题内的真实时间戳。
-                let updated = item.file.path_headlines().into_iter().nth(ordinal)
-                    .ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?.1;
-                // 字段修改期间保留本标题起点，父级统计在全部字段完成后更新。
+                // TRIGGER 可以在来源之前插入后继，用事务令牌继续定位本次修改的节点。
+                let updated = if let Some(token) = token {
+                    let ordinal = item.file.mutation_journal.as_ref()
+                        .and_then(|journal| journal.ordinal_for_token(token))
+                        .ok_or(CoreError::InvalidState("修改后节点令牌丢失"))?;
+                    super::mutation_journal::headlines(&item.file).into_iter().nth(ordinal)
+                } else {
+                    item.file.path_headlines().into_iter().nth(ordinal).map(|(_, node)| node)
+                }.ok_or(CoreError::InvalidInput("字段修改破坏了标题结构"))?;
                 offset = start(&updated);
             }
             if data
@@ -849,13 +773,99 @@ pub(super) fn path_at(file: &OrgFile, offset: usize) -> Result<TaskPath, CoreErr
         .ok_or(CoreError::InvalidState("操作后标题无法重新定位"))
 }
 
-impl WorkingFile {
-    fn file_source(&self, source: &str) -> Result<OrgFile, CoreError> {
-        let mut probe = self.file.clone();
-        probe.source_bytes = source.as_bytes().to_vec();
-        probe.reparse()?;
-        Ok(probe)
+/// 普通创建与 TRIGGER 后继创建共用校验、创建时间和语义日志。
+pub(super) fn create(
+    file: &mut OrgFile,
+    data: &TaskCreation,
+    now: chrono::NaiveDateTime,
+) -> Result<usize, CoreError> {
+    let (offset, level) = position_hint(file, &data.position)?;
+    validate_title(&data.title)?;
+    validate_state(file, data.state.as_deref())?;
+    file.validate_priority(data.priority.as_deref())?;
+    validate_tags(&data.tags)?;
+    let mut content = format!(
+        "{} {}{}{}{}{}",
+        "*".repeat(level),
+        data.state
+            .as_ref()
+            .map(|s| format!("{s} "))
+            .unwrap_or_default(),
+        data.priority
+            .as_ref()
+            .map(|s| format!("[#{s}] "))
+            .unwrap_or_default(),
+        data.title,
+        if data.tags.is_empty() {
+            String::new()
+        } else {
+            format!(" :{}:", data.tags.join(":"))
+        },
+        newline(file)
+    );
+    let mut planning_fields = Vec::new();
+    for (field, value) in [
+        ("SCHEDULED", &data.scheduled),
+        ("DEADLINE", &data.deadline),
+    ] {
+        if let Some(value) = value {
+            validate_timestamp(value)?;
+            planning_fields.push(format!("{field}: {value}"));
+        }
     }
+    if !planning_fields.is_empty() {
+        content.push_str(&planning_fields.join(" "));
+        content.push_str(newline(file));
+    }
+    validate_body(&data.body)?;
+    let timestamp = now
+        .format("[%Y-%m-%d %a %H:%M]")
+        .to_string();
+    content.push_str(&format!(
+        ":PROPERTIES:{}:CREATED: {timestamp}{}:END:{}",
+        newline(file),
+        newline(file),
+        newline(file)
+    ));
+    content.push_str(&normalize_newlines(&data.body, newline(file)));
+    let mut probe = file.clone();
+    probe.source_bytes = content.as_bytes().to_vec();
+    probe.reparse()?;
+    if probe.syntax().document().headlines().count() != 1
+        || probe.path_headlines().len() != 1
+    {
+        return Err(CoreError::InvalidInput("创建正文不能引入额外标题"));
+    }
+    let inserted = offset
+        + if offset > 0 && file.source_bytes()[offset - 1] != b'\n' {
+            newline(file).len()
+        } else {
+            0
+        };
+    let ordinal = super::mutation_journal::ordinal_at(file, inserted);
+    insert(file, offset, &content)?;
+    if let Some(journal) = &mut file.mutation_journal { journal.create(ordinal, 1); }
+    let node = file
+        .path_headlines()
+        .into_iter()
+        .map(|(_, node)| node)
+        .find(|node| start(node) == inserted)
+        .ok_or(CoreError::InvalidInput("创建后标题无法定位"))?;
+    if node.title_raw().trim_end() != data.title.trim_end()
+        || node.todo_keyword().map(|token| token.to_string()) != data.state
+        || node.priority().map(|token| token.to_string()) != data.priority
+        || node
+            .tags()
+            .map(|token| token.to_string())
+            .collect::<Vec<_>>()
+            != data.tags
+    {
+        return Err(CoreError::InvalidInput(
+            "标题或状态不能被 Org 重新解释为其他字段",
+        ));
+    }
+    super::task_state::log_created_completion(file, &node, now)?;
+    Ok(inserted)
 }
 
 fn validate_title(value: &str) -> Result<(), CoreError> {

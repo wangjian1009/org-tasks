@@ -102,6 +102,10 @@ impl MutationJournal {
 impl FileJournal {
     pub fn token_at(&self, ordinal: usize) -> Option<u64> { self.nodes.get(ordinal).copied() }
 
+    pub fn ordinal_for_token(&self, token: u64) -> Option<usize> {
+        self.nodes.iter().position(|value| *value == token)
+    }
+
     /// 任意真实写入同时改变文件版本。保留同文件全部节点的新投影，覆盖位置、重名序号和继承变化。
     pub fn touch(&self) {
         let mut state = self.journal.0.lock().unwrap();

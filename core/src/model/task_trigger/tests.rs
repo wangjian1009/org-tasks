@@ -50,8 +50,16 @@ fn normalized(source: &str) -> Vec<String> {
 }
 #[test]
 fn local_triggers_match_org_edna_reference() {
-    let data: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/data/task_trigger_emacs.json")).unwrap();
+    check_reference(include_str!("../../../tests/data/task_trigger_emacs.json"));
+}
+
+#[test]
+fn loki_triggers_match_emacs_extension() {
+    check_reference(include_str!("../../../tests/data/loki_trigger_emacs.json"));
+}
+
+fn check_reference(json: &str) {
+    let data: serde_json::Value = serde_json::from_str(json).unwrap();
     let now =
         NaiveDateTime::parse_from_str(data["now"].as_str().unwrap(), "%Y-%m-%d %H:%M").unwrap();
     let mut failures = Vec::new();
@@ -77,13 +85,8 @@ fn local_triggers_match_org_edna_reference() {
         .unwrap();
         let actions = case["actions"]
             .as_array()
-            .map(|values| {
-                values
-                    .iter()
-                    .map(serde_json::Value::as_str)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_else(|| vec![case["state"].as_str()]);
+            .cloned()
+            .unwrap_or_else(|| vec![case["state"].clone()]);
         if case.get("steps").is_some() {
             assert_eq!(
                 case["steps"].as_array().unwrap().len(),
@@ -92,11 +95,26 @@ fn local_triggers_match_org_edna_reference() {
                 case["name"]
             );
         }
-        for (step, state) in actions.iter().enumerate() {
+        for (step, action) in actions.iter().enumerate() {
+            let title = action
+                .get("title")
+                .or_else(|| case.get("title"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Task");
+            let state = if action.is_object() {
+                action["state"].as_str()
+            } else {
+                action.as_str()
+            };
+            let occurrence = action
+                .get("occurrence")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(1) as usize;
             let node = file
                 .path_headlines()
                 .into_iter()
-                .find(|(_, node)| node.title_raw().trim() == "Task")
+                .filter(|(_, node)| node.title_raw().trim() == title)
+                .nth(occurrence - 1)
                 .unwrap()
                 .1;
             let index = file
@@ -105,15 +123,7 @@ fn local_triggers_match_org_edna_reference() {
                 .position(|(_, n)| start(n) == start(&node))
                 .unwrap();
             let offset = data["utcOffset"].as_i64().unwrap() as i32;
-            match (Context {
-                file: &mut file,
-                now,
-                utc_offset: offset,
-                steps: 0,
-                stack: Vec::new(),
-            })
-            .todo(index, *state)
-            {
+            match Context::new(&mut file, now, offset).todo(index, state) {
                 Err(error) => {
                     failures.push(format!("{} 第 {} 步: {error}", case["name"], step + 1));
                     break;
@@ -126,7 +136,26 @@ fn local_triggers_match_org_edna_reference() {
                         .unwrap_or(&case["expected"])
                         .as_str()
                         .unwrap();
-                    if normalized(actual) != normalized(expected) {
+                    let normalize = |source: &str| {
+                        let lines = normalized(source);
+                        if data["loki"] != true {
+                            return lines.join("\n");
+                        }
+                        // UUID 不确定，但同一 ID 的所有引用必须保持一致。
+                        let pattern =
+                            regex::Regex::new(r"(?i)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+                                .unwrap();
+                        let mut ids = std::collections::BTreeMap::new();
+                        pattern
+                            .replace_all(&lines.join("\n"), |captures: &regex::Captures<'_>| {
+                                let next = ids.len();
+                                let id =
+                                    *ids.entry(captures[0].to_ascii_lowercase()).or_insert(next);
+                                format!("<UUID:{id}>")
+                            })
+                            .into_owned()
+                    };
+                    if normalize(actual) != normalize(expected) {
                         failures.push(format!(
                             "{} 第 {} 步:\n实际:\n{actual}\n预期:\n{expected}",
                             case["name"],
