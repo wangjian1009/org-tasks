@@ -26,10 +26,10 @@ function etsLoader(mocks = {}, globals = {}) {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     });
     const localRequire = dependency => {
+      if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
       if (dependency.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
       if (dependency.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
       if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
-      if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
       if (dependency.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{isSystem:repo=>repo.id==='org-tasks-system',ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository',webdavEnabled:false,excludedDirectories:[]})}};
       if (dependency.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
       if (dependency.endsWith('/DeviceBadgeService')) return { DeviceBadgeService: { async refresh() {}, start() {}, stop() {} } };
@@ -37,7 +37,7 @@ function etsLoader(mocks = {}, globals = {}) {
       if (dependency.startsWith('.')) return load(path.relative(sourceRoot, path.resolve(path.dirname(filename), dependency)));
       throw new Error('缺少平台替身: ' + dependency);
     };
-    vm.runInThisContext('(function(require,module,exports,LocalStorage,canIUse){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage, globals.canIUse || (() => true));
+    vm.runInThisContext('(function(require,module,exports,LocalStorage,canIUse,setTimeout,clearTimeout){' + result.outputText + '\n})', { filename })(localRequire, module, module.exports, globals.LocalStorage, globals.canIUse || (() => true), globals.setTimeout || setTimeout, globals.clearTimeout || clearTimeout);
     return module.exports;
   };
 }
@@ -48,7 +48,13 @@ function repository(id) {
 }
 
 test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只加载目标页面', async () => {
+  const restoredPaths = [];
+  const { pageNavigatorMock } = require('./helpers/page-navigator.cjs');
   const EntryAbility = etsLoader({
+    '../services/PageNavigator': { ...pageNavigatorMock, PageNavigator: { shared: {
+      ...pageNavigatorMock.PageNavigator.shared,
+      restore(path) { restoredPaths.push(JSON.parse(JSON.stringify({ pages: path.pages }))); }
+    } } },
     '../services/NativeCoreService': { NativeCoreService: { start() {} } },
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
@@ -71,6 +77,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   ability.onNewWant({ parameters: { page: 'inbox' } }, {});
   await ability.onWindowStageCreate(stage);
   assert.deepEqual(pages, ['pages/Inbox']);
+  assert.deepEqual(restoredPaths.at(-1), { pages: [{ url: 'pages/Inbox' }] });
   assert.deepEqual(destinations[0], { entryView: undefined, entryMemoCreate: undefined, entryMemoId: undefined });
   ability.onNewWant({ parameters: { page: 'inbox' } }, {});
   assert.deepEqual(pages, ['pages/Inbox', 'pages/Inbox']);
@@ -82,13 +89,16 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   assert.equal(pages.at(-1), 'pages/MemoEdit');
   assert.equal(destinations.at(-1).entryView, undefined);
   assert.equal(destinations.at(-1).entryMemoCreate, true);
+  assert.deepEqual(restoredPaths.at(-1), { pages: [memoRoot, { url: 'pages/MemoEdit', params: { create: true } }] });
   ability.onNewWant(wantPath([memoRoot, { url: 'pages/MemoEdit', params: { memoId: 'core-record' } }]), {});
   assert.equal(destinations.at(-1).entryMemoCreate, undefined);
   assert.equal(pages.at(-1), 'pages/MemoEdit');
   assert.equal(destinations.at(-1).entryMemoId, 'core-record');
+  assert.deepEqual(restoredPaths.at(-1), { pages: [memoRoot, { url: 'pages/MemoEdit', params: { memoId: 'core-record' } }] });
   ability.onNewWant(wantPath([memoRoot]), {});
-  assert.equal(destinations.at(-1).entryView, 'memo');
-  assert.equal(destinations.at(-1).entryMemoId, undefined);
+  assert.equal(pages.at(-1), 'pages/Memo');
+  assert.deepEqual(destinations.at(-1), { entryView: undefined, entryMemoCreate: undefined, entryMemoId: undefined });
+  assert.deepEqual(restoredPaths.at(-1), { pages: [memoRoot] });
   const directPath = { pages: [{ url: 'pages/Memo' },
     { url: 'pages/MemoEdit', params: { memoId: 'direct-record' } }] };
   const loadsBefore = pages.length;
@@ -102,6 +112,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   assert.equal(destinations.at(-1).entryMemoCreate, undefined);
   assert.equal(pages.at(-1), 'pages/MemoEdit');
   assert.equal(destinations.at(-1).entryMemoId, 'cold-record');
+  assert.deepEqual(restoredPaths.at(-1), { pages: [memoRoot, { url: 'pages/MemoEdit', params: { memoId: 'cold-record' } }] });
 });
 
 function fixture() {
@@ -589,7 +600,7 @@ test('仅捕捉本地标题时不读取安全存储，常规配置读取仍保�
   assert.equal(completeConfig.repos[0].webdavPassword, 'test-password');
 });
 
-function speechFixture(granted = true, offlineAvailable = true, onlineAvailable = true, startImmediately = true) {
+function speechFixture(granted = true, offlineAvailable = true, onlineAvailable = true, startImmediately = true, globals = {}) {
   let listener;
   let read;
   let session;
@@ -624,7 +635,7 @@ function speechFixture(granted = true, offlineAvailable = true, onlineAvailable 
       AudioSampleFormat: { SAMPLE_FORMAT_S16LE: 1 }, AudioEncodingType: { ENCODING_TYPE_RAW: 0 }, SourceType: { SOURCE_TYPE_MIC: 0 }
     } },
     '@kit.ArkTS': { util: { generateRandomUUID: randomUUID } }
-  });
+  }, globals);
   const { CaptureSpeechService } = load('services/CaptureSpeechService');
   return { service: new CaptureSpeechService(), frames, counters: () => ({ engines, releases, shutdowns }),
     feed(bytes) { read(bytes.buffer); }, result(value) { listener.onResult(session, value); }, begin() { listener.onStart(session, ''); } };
@@ -663,18 +674,24 @@ test('两种引擎均不可用时返回明确的文字回退提示', async () =>
 });
 
 test('语音按 640 字节分帧，完成时处理尾帧并释放引擎和麦克风', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = speechFixture();
+  // 将计时器限制在当前语音实例内，兼容 DevEco 自带 Node，并检查完成后的超时清理。
+  const timers = new Map();
+  let nextTimer = 0;
+  const f = speechFixture(true, true, true, true, {
+    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
+    clearTimeout(id) { timers.delete(id); }
+  });
+  t.after(() => f.service.cancel());
   let completed = 0;
   const events = { started() {}, result() {}, completed() { completed++; }, failed(message) { assert.fail(message); } };
   await f.service.start({}, events);
+  assert.deepEqual([...timers.values()].map(timer => timer.delay), [60000]);
   f.feed(new Uint8Array(1000).fill(1));
   f.feed(new Uint8Array(400).fill(2));
   assert.equal(f.frames.length, 2);
   assert.equal(await f.service.finish(events), true);
   await new Promise(resolve => setImmediate(resolve));
-  t.mock.timers.tick(60001);
-  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timers.size, 0, '完成后应清理全部超时，不能再次结束同一会话');
   assert.deepEqual(f.frames.map(frame => frame.length), [640, 640, 640]);
   assert.equal(f.frames[2][119], 2);
   assert.equal(f.frames[2][120], 0);
