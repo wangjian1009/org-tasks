@@ -12,6 +12,7 @@ import { TaskSwipeItem } from '../components/TaskSwipeItem'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
+import { TaskSelectionToolbar } from './TaskSelectionToolbar'
 import { TaskSelectionController } from '../ui/TaskSelectionController'
 import { RegionProjectFilter } from '../components/RegionProjectFilter'
 import { LogbookTaskList } from '../components/LogbookTaskList'
@@ -65,7 +66,7 @@ export struct TaskPageContent {
   private orderLoaded: boolean = false
   private orderActive: boolean = false
   private orderController: RegionOrderSheetController = new RegionOrderSheetController()
-  @State plannedSelection: TaskSelectionController = new TaskSelectionController()
+  @State selection: TaskSelectionController = new TaskSelectionController()
   private stopExternalGuard: (() => void) | undefined = undefined
   private stopBackHandler: (() => void) | undefined = undefined
   @State planGroups: PlannedGroup[] = []
@@ -83,8 +84,8 @@ export struct TaskPageContent {
 
   aboutToAppear() {
     this.stopBackHandler = PageNavigator.shared.watchBackHandler(this.pageRoute, (): boolean => this.consumeBack())
-    if (this.view === 'planned') this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
-      !this.plannedSelection.busy && !this.plannedSelection.starting)
+    if (this.supportsBatchActions()) this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
+      !this.selection.busy && !this.selection.starting)
     this.orderActive = true
     if (this.view === 'today') this.loadRegionOrder()
     this.loadTasks()
@@ -97,7 +98,7 @@ export struct TaskPageContent {
   aboutToDisappear() {
     this.stopBackHandler?.(); this.stopBackHandler = undefined
     this.stopExternalGuard?.(); this.stopExternalGuard = undefined
-    this.plannedSelection.close()
+    this.selection.close()
     this.orderActive = false
     for (const stop of this.stops) stop()
     this.stops = []
@@ -109,20 +110,22 @@ export struct TaskPageContent {
   }
 
   drawerChanged(): void {
-    if (this.view === 'planned' && this.drawerOpen && !this.plannedSelection.busy) this.plannedSelection.reset()
+    if (this.supportsBatchActions() && this.drawerOpen && !this.selection.busy) this.selection.reset()
   }
 
   private consumeBack(): boolean {
-    if (this.view === 'planned') {
-      if (this.plannedSelection.busy || this.plannedSelection.starting) return true
-      if (this.plannedSelection.pendingAction) { this.plannedSelection.cancelPopup(); return true }
-      if (this.plannedSelection.selecting) { this.plannedSelection.reset(); return true }
+    if (this.supportsBatchActions()) {
+      if (this.selection.busy || this.selection.starting) return true
+      if (this.selection.pendingAction) { this.selection.cancelPopup(); return true }
+      if (this.selection.selecting) { this.selection.reset(); return true }
     }
     if (this.orderSheetOpen) { this.orderController.requestClose(); return true }
     if (TaskInlineSession.active()) { TaskInlineSession.end(!AppStorage.get<boolean>('taskInlineTyping')); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     return false
   }
+
+  supportsBatchActions(): boolean { return taskPageActionPolicy(this.view).bulkOperations.length > 0 }
 
   supportsTagFilter(): boolean {
     return this.view === 'today' || this.view === 'anytime' || this.view === 'waiting' || this.view === 'someday' || this.view === 'memo'
@@ -218,7 +221,7 @@ export struct TaskPageContent {
   }
 
   async selectPlanRegion(region: TaskRegionData | null): Promise<void> {
-    if (this.plannedSelection.selecting || this.plannedSelection.blocked()) return
+    if (this.selection.selecting || this.selection.blocked()) return
     if (!await TaskInlineSession.end(true)) return
     this.selectedPlanRegion = region
     await AppDataManager.shared(this.getUIContext().getHostContext()!).selectPlannedRegion(region)
@@ -232,6 +235,11 @@ export struct TaskPageContent {
       this.dataManager = app.manager
       this.tasksDataSet = view === 'planned' ? app.dataSet('plannedFiltered') : app.taskDataSet(view)
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
+      if (view === 'someday') {
+        this.selection.connect(this.taskDataSet(), (): CoreTask[] => this.visibleTasks,
+          () => taskPageActionPolicy(this.view).bulkOperations, (): boolean => this.pageReady,
+          this.listScroller, (): void => { this.applyPageSnapshot() })
+      }
       if (view === 'today') {
         this.orderFilesDataSet = this.dataManager.dataSet('orderFiles')
         this.stops.push(this.orderFilesDataSet.subscribe((): void => { this.applyPageSnapshot() }))
@@ -273,7 +281,7 @@ export struct TaskPageContent {
   }
 
   applyPageSnapshot(): void {
-    if (this.view === 'planned' && (this.plannedSelection.selecting || this.plannedSelection.busy)) return
+    if (this.supportsBatchActions() && (this.selection.selecting || this.selection.busy)) return
     if (TaskInlineSession.active()) { this.pageLayoutDeferred = true; return }
     if (this.view === 'planned') {
       const range = this.rangeDataSet?.data
@@ -323,6 +331,10 @@ export struct TaskPageContent {
   @Builder
   taskRow(task: CoreTask) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(task.id), readOnly: !this.pageReady,
+      selection: this.supportsBatchActions() ? this.selection : undefined,
+      selecting: this.selection.selecting, selectionBusy: this.selection.blocked(),
+      selectedIndex: this.selection.selectedKeys.indexOf(this.taskDataSet().taskKey(task.id)),
+      busy: this.selection.selecting || this.selection.blocked(), menuIdPrefix: `${this.view}_swipe`,
       singleOperations: taskPageActionPolicy(this.view).singleOperations, referenceTime: this.referenceTime,
       rightSwipeAction: this.rightSwipeAction(), scrollHost: this.listScroller, scrollHostId: 'overview_task_list' })
   }
@@ -333,7 +345,7 @@ export struct TaskPageContent {
       if (this.view === 'planned') {
         RegionProjectFilter({ options: this.planRegionOptions, selectedKey: this.selectedPlanRegion?.key ?? '',
           changed: (region: TaskRegionData | null): void => { this.selectPlanRegion(region) } })
-          .enabled(!this.plannedSelection.selecting && !this.plannedSelection.blocked())
+          .enabled(!this.selection.selecting && !this.selection.blocked())
       }
       if (this.loading) {
         NotificationEmptyState({ title: '正在读取任务', busy: true })
@@ -352,7 +364,7 @@ export struct TaskPageContent {
           TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags, exclusiveGroups: this.tagGroups,
             includeUntagged: this.includeUntagged, changed: (selection: TaskTagSelection): void => {
               this.applyTagFilter(selection)
-            } })
+            } }).enabled(!this.selection.selecting && !this.selection.blocked())
         }
         if (this.tasks.length === 0) {
           NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
@@ -362,6 +374,8 @@ export struct TaskPageContent {
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime' || this.view === 'waiting') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, singleOperations: taskPageActionPolicy(this.view).singleOperations,
+            bulkOperations: taskPageActionPolicy(this.view).bulkOperations, selection: this.selection,
+            changed: (): void => { this.applyPageSnapshot() },
             regionKeys: this.view === 'today' ? this.todayRegionKeys : [],
             todayFlag: this.view !== 'today',
             regionPreviewLimit: (this.view === 'anytime' || this.view === 'waiting') ? 3 : 0,
@@ -369,7 +383,7 @@ export struct TaskPageContent {
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {
           PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, singleOperations: taskPageActionPolicy(this.view).singleOperations,
-            bulkOperations: taskPageActionPolicy(this.view).bulkOperations, selection: this.plannedSelection,
+            bulkOperations: taskPageActionPolicy(this.view).bulkOperations, selection: this.selection,
             changed: (): void => { this.applyPageSnapshot() }, groups: this.planGroups, referenceTime: this.referenceTime })
         } else if (this.view === 'logbook') {
           LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
@@ -393,7 +407,7 @@ export struct TaskPageContent {
             if (this.view === 'memo') {
               ListItem() { Column().height(104) }
             }
-          }.id('overview_task_list').width('100%').layoutWeight(1).padding({ bottom: this.view === 'memo' ? 0 : 16 })
+          }.id('overview_task_list').width('100%').layoutWeight(1).padding({ bottom: this.view === 'memo' ? 0 : this.selection.selecting ? 196 : 16 })
             .scrollBar(BarState.Off)
             .enableScrollInteraction(!this.checklistDragging)
             .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
@@ -408,9 +422,12 @@ export struct TaskPageContent {
       AppShell({ title: overviewTitle(this.view), activeRoute: this.pageRoute, activeOverview: this.view,
         titleIcon: this.overviewIcon(),
         actionLabel: this.view === 'today' ? '今天更多操作' : '', actionMenuItems: this.todayActions(),
-        drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo || this.orderSaving || this.view === 'planned' && this.plannedSelection.blocked(),
-        pullDisabled: this.orderSheetOpen || this.view === 'planned' && this.plannedSelection.selecting }) {
+        drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo || this.orderSaving || this.supportsBatchActions() && this.selection.blocked(),
+        pullDisabled: this.orderSheetOpen || this.supportsBatchActions() && this.selection.selecting }) {
         ForEach([this.taskDataSet()], (_dataSet: DataSet) => { this.overviewContent() }, (dataSet: DataSet) => dataSet.identity)
+      }
+      if (this.view === 'someday' && !this.drawerOpen) {
+        TaskSelectionToolbar({ selection: this.selection, operations: taskPageActionPolicy(this.view).bulkOperations, idPrefix: this.view })
       }
       if (this.view === 'memo' && !this.drawerOpen) {
         Button({ type: ButtonType.Circle }) {

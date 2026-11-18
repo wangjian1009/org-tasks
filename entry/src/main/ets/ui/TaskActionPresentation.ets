@@ -59,11 +59,12 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
-    case 'planned': return taskActionPolicy({ singleOperations: [TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete],
-      bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'today': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
+    case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete],
+      bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.Reopen, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Delete],
+      bulkOperations: [TaskOperation.Restore, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
   }
@@ -82,25 +83,25 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
         }
         break
       case TaskOperation.Wait:
-        items.push({ id: operation, title: '等待', label: '设为等待', icon: $r('app.media.nav_waiting'), busyTitle: '设置中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '等待', label: '设为等待', icon: $r('app.media.ui_task_waiting'), busyTitle: '设置中…', action: () => activate(operation) })
         break
       case TaskOperation.Project:
-        items.push({ id: operation, title: '项目', label: '转换为项目', icon: $r('app.media.ui_folder'), busyTitle: '创建中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '项目', label: '转换为项目', icon: $r('app.media.ui_action_project'), busyTitle: '创建中…', action: () => activate(operation) })
         break
       case TaskOperation.Move:
         items.push({ id: operation, title: '移动', label: '移动到目标', icon: $r('app.media.ui_move_to'), busyTitle: '移动中…', action: () => activate(operation) })
         break
       case TaskOperation.Schedule:
-        items.push({ id: operation, title: '分配', label: '分配计划日期', icon: $r('app.media.ui_task_calendar'), busyTitle: '分配中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '分配', label: '分配计划日期', icon: $r('app.media.ui_action_schedule'), busyTitle: '分配中…', action: () => activate(operation) })
         break
       case TaskOperation.Deadline:
-        items.push({ id: operation, title: '截止', label: '设置截止日期', icon: $r('app.media.ui_task_deadline'), busyTitle: '设置中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '截止', label: '设置截止日期', icon: $r('app.media.ui_action_deadline'), busyTitle: '设置中…', action: () => activate(operation) })
         break
       case TaskOperation.Someday:
-        items.push({ id: operation, title: '某天', label: '移入某天', icon: $r('app.media.nav_someday'), busyTitle: '整理中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '某天', label: '移入某天', icon: $r('app.media.ui_action_someday'), busyTitle: '整理中…', action: () => activate(operation) })
         break
       case TaskOperation.Memo:
-        items.push({ id: operation, title: '备忘', label: '转换为备忘', icon: $r('app.media.nav_memo'), busyTitle: '转换中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '备忘', label: '转换为备忘', icon: $r('app.media.ui_action_memo'), busyTitle: '转换中…', action: () => activate(operation) })
         break
       case TaskOperation.Delete:
         items.push({ id: operation, title: '删除', label: '删除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '删除中…', action: () => activate(operation) })
@@ -109,10 +110,10 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
         items.push({ id: operation, title: '清除', label: '永久清除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '清除中…', action: () => activate(operation) })
         break
       case TaskOperation.Reopen:
-        items.push({ id: operation, title: '恢复', label: '恢复为待办', icon: $r('app.media.ui_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '恢复', label: '恢复为待办', icon: $r('app.media.ui_action_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
         break
       case TaskOperation.Restore:
-        items.push({ id: operation, title: '恢复', label: '恢复', icon: $r('app.media.ui_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '恢复', label: '恢复', icon: $r('app.media.ui_action_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
         break
       case TaskOperation.Merge:
         items.push({ id: operation, title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),

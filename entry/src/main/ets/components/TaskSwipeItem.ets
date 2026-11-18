@@ -15,6 +15,7 @@ import { TaskEditorController } from '../ui/TaskEditorController'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { RegionAreaPolicy, TaskDateDisplay, TaskTimeDisplay } from '../ui/TaskListPresentation'
 import { TaskSwipeActions } from './TaskSwipeActions'
+import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskEditor } from './editors/TaskEditor'
 import { RightSwipe } from './controls/RightSwipe'
 
@@ -38,6 +39,9 @@ export struct TaskSwipeItem {
   @Prop contentHidden: boolean = false
   @Prop hiddenTags: string[] = []
   @Prop instanceKey: string = ''
+  @Prop selecting: boolean = false
+  @Prop selectionBusy: boolean = false
+  @Prop selectedIndex: number = -1
   @Prop expandOnRowClick: boolean = false
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop todayFlag: boolean = true
@@ -273,13 +277,28 @@ export struct TaskSwipeItem {
   }
 
   @Builder
-  taskEditor(controller: TaskEditorController) {
+  editorContent(controller: TaskEditorController) {
     TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, controller,
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
       readOnly: this.readOnly, expandOnRowClick: this.expandOnRowClick,
       dateDisplay: this.dateDisplay, todayFlag: this.todayFlag, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
       referenceTime: this.referenceTime, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId })
+  }
+
+  @Builder
+  taskEditor(controller: TaskEditorController) {
+    if (this.selection) {
+      TaskSelectionRow({ selecting: this.selecting, busy: this.selectionBusy,
+        selectedIndex: this.selectedIndex,
+        heading: this.dataSet?.getTask(this.taskId)?.heading ?? '',
+        begin: (): void => { this.selection?.start(this.taskId) },
+        toggle: (): void => { this.selection?.toggle(this.taskId) } }) {
+        this.editorContent(controller)
+      }
+    } else {
+      this.editorContent(controller)
+    }
   }
 
   @Builder

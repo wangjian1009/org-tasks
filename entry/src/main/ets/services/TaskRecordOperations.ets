@@ -37,5 +37,5 @@ export class TaskRecordOperations {
     return { committed: true, retainedKeys: action === TaskOperation.Restore ? keys.filter(key => dataSet.getTask(key) !== undefined) : [] }
   }
 
-  static retainedMessage(count: number): string { return `${count} 条记录原位置不可用，已保留在废纸篓` }
+  static retainedMessage(count: number): string { return `${count} 条记录原位置不可用，已保留在当前位置` }
 }

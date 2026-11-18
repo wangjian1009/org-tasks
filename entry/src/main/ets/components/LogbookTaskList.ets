@@ -28,7 +28,7 @@ export struct LogbookTaskList {
   @Prop ready: boolean = false
   @Prop trashMode: boolean = false
   @Prop singleOperations: TaskSingleOperation[] = [TaskOperation.Delete]
-  @Prop bulkOperations: TaskBatchAction[] = [TaskOperation.Delete, TaskOperation.Reopen]
+  @Prop bulkOperations: TaskBatchAction[] = [TaskOperation.Delete]
   @Prop groups: LogbookGroup[] = []
   @Prop referenceTime: number = Date.now()
   @State selection: TaskSelectionController = new TaskSelectionController()

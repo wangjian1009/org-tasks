@@ -1,4 +1,7 @@
 import { FrameCallback } from '@ohos.arkui.UIContext'
+import { CoreTask } from '../services/NativeCoreService'
+import { TaskSelectionController } from '../ui/TaskSelectionController'
+import { TaskSelectionToolbar } from './TaskSelectionToolbar'
 import { DataSet } from '../services/DataSet'
 import { PageListPosition } from '../services/PageListPosition'
 import { TaskInlineSession } from '../services/TaskInlineService'
@@ -13,7 +16,7 @@ import { CategoryRegion } from './CategoryRegion'
 import { ScheduleRegion } from './ScheduleRegion'
 import { taskRegion, TaskRegionData } from '../ui/TaskRegionPresentation'
 import { TaskSwipeItem } from './TaskSwipeItem'
-import { TaskOperation, TaskSingleOperation } from '../ui/TaskActionPresentation'
+import { TaskOperation, TaskSingleOperation, TaskBatchAction } from '../ui/TaskActionPresentation'
 
 interface NotificationListAnchor { key: string; y: number }
 class NotificationLayoutFrame extends FrameCallback {
@@ -33,6 +36,9 @@ export struct TodayTaskList {
   private pendingAnchor: number | undefined = undefined
   @Prop readOnly: boolean = false
   @Prop singleOperations: TaskSingleOperation[] = []
+  @Prop bulkOperations: TaskBatchAction[] = []
+  @ObjectLink selection: TaskSelectionController
+  changed: () => void = () => {}
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
   @StorageLink('coreNotifications') @Watch('notificationsChanged') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
@@ -49,6 +55,10 @@ export struct TodayTaskList {
   @State expandedRegionKeys: string[] = []
 
   aboutToAppear(): void {
+    if (this.bulkOperations.length > 0) {
+      this.selection.connect(this.taskDataSet(), (): CoreTask[] => this.sections.flatMap(section => section.items.map(item => item.task)),
+        () => this.bulkOperations, (): boolean => !this.readOnly, this.listScroller, this.changed)
+    }
     this.active = true
     this.showNotifications = this.notificationState.notifications.length > 0
     const position = PageListPosition.read(this.positionKey)
@@ -62,7 +72,7 @@ export struct TodayTaskList {
     this.pendingOffset = position.offset; this.pendingAnchor = position.anchor
   }
 
-  aboutToDisappear(): void { this.active = false; this.notificationLayout++ }
+  aboutToDisappear(): void { this.active = false; this.notificationLayout++; this.selection.close() }
 
   notificationsChanged(): void {
     const next = this.notificationState.notifications.length > 0
@@ -130,6 +140,10 @@ export struct TodayTaskList {
   @Builder
   taskItem(item: TodayTaskItem) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
+      selection: this.bulkOperations.length > 0 ? this.selection : undefined,
+      selecting: this.selection.selecting, selectionBusy: this.selection.blocked(),
+      selectedIndex: this.selection.selectedKeys.indexOf(this.taskDataSet().taskKey(item.task.id)),
+      busy: this.selection.selecting || this.selection.blocked(), menuIdPrefix: `${this.positionKey}_swipe`,
       singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, referenceTime: this.referenceTime, todayFlag: this.todayFlag,
       expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
@@ -137,6 +151,10 @@ export struct TodayTaskList {
   @Builder
   timedTaskItem(item: TodayTimedTaskItem) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
+      selection: this.bulkOperations.length > 0 ? this.selection : undefined,
+      selecting: this.selection.selecting, selectionBusy: this.selection.blocked(),
+      selectedIndex: this.selection.selectedKeys.indexOf(this.taskDataSet().taskKey(item.task.id)),
+      busy: this.selection.selecting || this.selection.blocked(), menuIdPrefix: `${this.positionKey}_swipe`,
       singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
       referenceTime: this.referenceTime, todayFlag: this.todayFlag, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
@@ -222,38 +240,43 @@ export struct TodayTaskList {
   }
 
   build() {
-    List({ scroller: this.listScroller, initialIndex: this.initialIndex }) {
-      // 保留零高度列表项，通知变化不改变后续编辑器的列表槽位。
-      ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
-        .height(this.showNotifications ? 'auto' : 0)
-      ForEach(this.displayRegionKeys(), (key: string) => {
-        if (key === 'schedule') {
-          ListItem() { ScheduleRegion() }
-          ListItemGroup() {
-            ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
-              this.timedTaskItem(item)
-            }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
-          }.width('100%')
-        } else {
-          ForEach(this.sections.filter(section => section.key === key), (section: TodaySection) => {
-            this.categoryBlock(section)
-          }, (section: TodaySection) => section.key)
-        }
-      }, (key: string) => key)
-    }.id('today_task_list').width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
-      .scrollBar(BarState.Off)
-      .onScrollIndex((start: number): void => { this.firstIndex = start })
-      .onDidScroll((_offset: number, state: ScrollState): void => { if (state !== ScrollState.Idle) this.savePosition() })
-      .onAreaChange((_old: Area, area: Area): void => {
-        if (Number(area.height) > 0 && this.pendingOffset !== undefined) {
-          const offset = this.pendingOffset; this.pendingOffset = undefined
-          if (this.pendingAnchor !== undefined) {
-            this.listScroller.scrollBy(0, this.listScroller.getItemRect(this.initialIndex).y - this.pendingAnchor)
-          } else this.listScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
-        }
-      })
-      .enableScrollInteraction(!this.checklistDragging)
-      .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
-      .edgeEffect(EdgeEffect.None)
+    Stack({ alignContent: Alignment.Bottom }) {
+      List({ scroller: this.listScroller, initialIndex: this.initialIndex }) {
+        // 保留零高度列表项，通知变化不改变后续编辑器的列表槽位。
+        ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
+          .height(this.showNotifications ? 'auto' : 0)
+        ForEach(this.displayRegionKeys(), (key: string) => {
+          if (key === 'schedule') {
+            ListItem() { ScheduleRegion() }
+            ListItemGroup() {
+              ForEach(this.timedItems, (item: TodayTimedTaskItem) => {
+                this.timedTaskItem(item)
+              }, (item: TodayTimedTaskItem) => JSON.stringify([this.taskDataSet().taskKey(item.task.id), item.timeDisplay]))
+            }.width('100%')
+          } else {
+            ForEach(this.sections.filter(section => section.key === key), (section: TodaySection) => {
+              this.categoryBlock(section)
+            }, (section: TodaySection) => section.key)
+          }
+        }, (key: string) => key)
+      }.id('today_task_list').width('100%').height('100%').padding({ left: 12, right: 12, bottom: this.selection.selecting ? 196 : 16 })
+        .scrollBar(BarState.Off)
+        .onScrollIndex((start: number): void => { this.firstIndex = start })
+        .onDidScroll((_offset: number, state: ScrollState): void => { if (state !== ScrollState.Idle) this.savePosition() })
+        .onAreaChange((_old: Area, area: Area): void => {
+          if (Number(area.height) > 0 && this.pendingOffset !== undefined) {
+            const offset = this.pendingOffset; this.pendingOffset = undefined
+            if (this.pendingAnchor !== undefined) {
+              this.listScroller.scrollBy(0, this.listScroller.getItemRect(this.initialIndex).y - this.pendingAnchor)
+            } else this.listScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false })
+          }
+        })
+        .enableScrollInteraction(!this.checklistDragging)
+        .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+        .edgeEffect(EdgeEffect.None)
+      if (this.bulkOperations.length > 0) {
+        TaskSelectionToolbar({ selection: this.selection, operations: this.bulkOperations, idPrefix: this.positionKey })
+      }
+    }.width('100%').layoutWeight(1)
   }
 }

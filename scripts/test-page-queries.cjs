@@ -123,7 +123,7 @@ function fixture() {
     const filename=path.join(root,name+'.ets'),text=fs.readFileSync(filename,'utf8');
     const prelude=text.slice(0,text.search(/^@(?:Entry|Component)/m));
     if(name==='components/AppShell'&&methods.includes('loadNavigation'))methods=[...methods,'navigationDataManager'];
-    if(name==='components/TaskPageContent'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','taskDataSet'])];
+    if(name==='components/TaskPageContent'&&methods.includes('loadTasks'))methods=[...new Set([...methods.filter(name=>name!=='todayInlineChanged'),'applyPageSnapshot','pageInlineChanged','taskDataSet','supportsBatchActions'])];
     if(name==='pages/Inbox'&&methods.includes('loadRecords'))methods=[...methods,'applyPageSnapshot','prepareRecentLayout'];
     const chunks=methods.map(method=>{
       const oneLine=text.split('\n').find(line=>new RegExp('^  (?:private )?'+method+'\\(').test(line)&&line.trim().endsWith('}'));
@@ -132,9 +132,9 @@ function fixture() {
       assert.ok(match,'未找到方法 '+method); return match[0];
     });
     const View=load(name,prelude+'\nexport class QueryPage {\n'+chunks.join('\n')+'\n}').QueryPage;
-    const view=Object.assign(new View(),{stops:[],plannedSelection:{selecting:false,busy:false,blocked:()=>false},selectedPlanRegion:null,planGroups:[],planRegionOptions:[],logbookTaskGroups:[],listHeight:0,recentLayoutReady:false,recentLayoutPending:false,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
+    const view=Object.assign(new View(),{stops:[],selectedPlanRegion:null,planGroups:[],planRegionOptions:[],logbookTaskGroups:[],listHeight:0,recentLayoutReady:false,recentLayoutPending:false,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
       selectedTags:[],includeUntagged:false,tagOptions:[],tagGroups:[],sections:[],timedItems:[],priorityOrder:[],visible:false,
-      getUIContext:()=>({getHostContext:()=>({})}),selection:{selecting:false,busy:false},connectSelection(){},closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
+      getUIContext:()=>({getHostContext:()=>({})}),selection:{selecting:false,busy:false,blocked:()=>false,connect(){},close(){}},connectSelection(){},closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
     if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
     return view;
   }
@@ -635,11 +635,11 @@ test('计划多选期间固定已加载布局并阻止范围切换，结束后�
  let rows=[plannedTask('selected','core-a','plan.org','工作','选择项目')];
  f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
  page.view='planned';await page.loadTasks();const groups=page.planGroups;const selected=page.planRegionOptions.find(region=>region.kind==='project');page.selectedPlanRegion=selected;
- page.plannedSelection.selecting=true;rows=[];await page.rangeDataSet.refresh();
+ page.selection.selecting=true;rows=[];await page.rangeDataSet.refresh();
  assert.equal(page.tasks.length,1);assert.equal(page.planGroups,groups);assert.equal(page.selectedPlanRegion,selected);
  const calls=f.batches.length;await page.selectPlanRegion({key:'other',kind:'category',category:'其他'});
  assert.equal(page.selectedPlanRegion,selected);assert.equal(f.batches.length,calls);
- page.plannedSelection.selecting=false;page.applyPageSnapshot();assert.deepEqual(page.tasks,[]);assert.ok(page.planGroups.every(group=>group.items.length===0));
+ page.selection.selecting=false;page.applyPageSnapshot();assert.deepEqual(page.tasks,[]);assert.ok(page.planGroups.every(group=>group.items.length===0));
 });
 
 test('所有任务入口和最近新增复用唯一 App 实例，依次进入与离开不新增基础查询',async()=>{
@@ -647,7 +647,7 @@ test('所有任务入口和最近新增复用唯一 App 实例，依次进入与
  const manager=app.manager;
  for(const view of ['today','planned','waiting','anytime','someday','memo','logbook']){
   const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter','aboutToDisappear']);
-  page.view=view;page.plannedSelection.close=()=>{};await page.loadTasks();assert.equal(page.dataManager,manager,view);
+  page.view=view;page.selection.close=()=>{};await page.loadTasks();assert.equal(page.dataManager,manager,view);
   assert.equal(page.taskDataSet(),app.taskDataSet(view),view);page.aboutToDisappear();
  }
  const inbox=f.page('pages/Inbox',['loadRecords']);await inbox.loadRecords();
@@ -657,3 +657,16 @@ test('所有任务入口和最近新增复用唯一 App 实例，依次进入与
  assert.ok(!f.batches[0].some(item=>item.query.categories),'启动不预取计划筛选');
  assert.ok(!f.batches[0].some(item=>item.query.expression?.startsWith('deleted.lt.')),'启动不触发过期清理查询');
 });
+
+for (const view of ['anytime','someday']) {
+  test(view+' 多选期间冻结源布局，外部刷新在退出后应用', async () => {
+    const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
+    let rows=[plannedTask('selected','core-a','plan.org','工作','选择项目')];
+    f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
+    page.view=view;await page.loadTasks();const previous=page.tasks;
+    assert.equal(page.supportsBatchActions(),true);
+    page.selection.selecting=true;rows=[];await page.taskDataSet().refresh();
+    assert.equal(page.tasks,previous);assert.equal(page.tasks.length,1);
+    page.selection.selecting=false;page.applyPageSnapshot();assert.deepEqual(page.tasks,[]);
+  });
+}

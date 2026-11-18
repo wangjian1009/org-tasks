@@ -11,10 +11,10 @@ const disappear=source.match(/  aboutToDisappear\(\): void \{[^\n]*\}/)[0];
 const save=source.match(/  private savePosition\(\): void \{[\s\S]*?\n  \}/)[0];
 const index=source.match(/\.onScrollIndex\(([^\n]+)\)\n/)[1];
 const scroll=source.match(/\.onDidScroll\(([^\n]+)\)\n/)[1];
-const area=source.match(/\.onAreaChange\(([\s\S]*?\n      \})\)/)[1];
+const area=source.match(/\.onAreaChange\(([\s\S]*?\n\s+\})\)/)[1];
 const List=run('export class List {'+appear+save+notice+disappear+' handlers(){return {index:'+index+',scroll:'+scroll+',area:'+area+'}}}',{PageListPosition:position,ScrollState:{Idle:0,Scroll:1,Fling:2},NotificationLayoutFrame:class{constructor(callback){this.callback=callback;}}}).List;
 function view(key,keys=Array.from({length:50},(_,index)=>'item-'+index),limit=0){
- const list=new List(),calls=[],frames=[];let offset=0;list.regionPreviewLimit=limit;list.notificationState={notifications:[]};list.notificationLayout=0;list.getUIContext=()=>({postFrameCallback(frame){frames.push(frame);}});list.positionKey=key;list.positionKeys=()=>keys;
+ const list=new List(),calls=[],frames=[];list.bulkOperations=[];list.selection={close(){}};let offset=0;list.regionPreviewLimit=limit;list.notificationState={notifications:[]};list.notificationLayout=0;list.getUIContext=()=>({postFrameCallback(frame){frames.push(frame);}});list.positionKey=key;list.positionKeys=()=>keys;
  list.listScroller={currentOffset:()=>({yOffset:offset}),getVisibleListContentInfo:()=>({index:list.firstIndex}),getItemRect:index=>({y:index*100-offset}),
   scrollTo(options){calls.push(options);offset=options.yOffset;},scrollBy(_x,y){calls.push({relative:y});offset+=y;}};
  list.aboutToAppear();offset=list.initialIndex*100;

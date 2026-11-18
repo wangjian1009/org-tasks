@@ -25,14 +25,23 @@ export struct TaskActionMenu {
     if (this.actionEnabled(item)) item.action()
   }
 
+  @Builder
+  actionIcon(item: TaskActionItem) {
+    if (item.style === 'danger' || item.style === 'selection') {
+      Image(item.icon).width(20).height(20).accessibilityLevel('no')
+        .fillColor(item.style === 'danger' ? UiColor.error : Color.White)
+    } else {
+      Image(item.icon).width(20).height(20).accessibilityLevel('no')
+    }
+  }
+
   build() {
     Scroll() {
       Row() {
         ForEach(this.items, (item: TaskActionItem) => {
           Button({ type: ButtonType.Normal }) {
             Column({ space: 3 }) {
-              Image(item.icon).width(20).height(20).accessibilityLevel('no')
-                .fillColor(item.style === 'danger' ? UiColor.error : item.style === 'selection' ? Color.White : UiColor.text)
+              this.actionIcon(item)
               Text(this.busy && this.busyAction === item.id ? item.busyTitle || item.title : item.title).fontSize(11).maxLines(1)
                 .fontColor(item.style === 'danger' ? UiColor.error : item.style === 'selection' ? Color.White : UiColor.text)
             }.opacity(this.actionEnabled(item) || this.busy && this.busyAction === item.id ? 1 : 0.4)
