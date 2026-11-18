@@ -103,7 +103,7 @@ export struct TaskSwipeItem {
       this.inlineTyping || this.checklistDragging
   }
 
-  gesturesBlocked(): boolean { return this.hostBlocked() || this.submitting || this.recordActionPending || this.projectLoading || this.projectOpen }
+  gesturesBlocked(): boolean { return this.hostBlocked() || this.recordActionPending || this.projectLoading || this.projectOpen }
 
   blocked(): boolean {
     return this.gesturesBlocked() || !!this.controller?.isBound() && !this.controller.canActivate()
@@ -125,7 +125,7 @@ export struct TaskSwipeItem {
 
   async activateOperation(action: TaskOperation): Promise<void> {
     const allowed = (): boolean => !this.hostBlocked() && this.operationEnabled(action)
-    if (this.submitting || this.recordActionPending || this.projectOpen || this.projectLoading || !allowed()) return
+    if (this.recordActionPending || this.projectOpen || this.projectLoading || !allowed()) return
     let group: CoreTaskOperationGroup | undefined = undefined
     try {
       switch (action) {
@@ -158,7 +158,6 @@ export struct TaskSwipeItem {
     const valid = (): boolean => allowed() && scope === dataSet.identity
     try {
       if (!await TaskInlineSession.end(false)) return
-      await dataSet.settle()
       if (!valid()) return
       if (dataSet.error) throw new Error(dataSet.error)
       const source = dataSet.getTask(this.taskId)
@@ -181,7 +180,6 @@ export struct TaskSwipeItem {
       }
       await new Promise<void>(resolve => setTimeout(resolve, 260))
       if (!valid() || !await TaskInlineSession.end(true)) return
-      await this.taskDataSet().settle()
       if (!valid()) return
       if (this.taskDataSet().error) throw new Error(this.taskDataSet().error)
       const source = this.taskDataSet().getTask(this.taskId)
@@ -253,7 +251,6 @@ export struct TaskSwipeItem {
   }
 
   async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true): Promise<void> {
-    if (this.submitting) throw new Error('任务操作正在提交，请稍后重试')
     const canSubmit = (): boolean => !this.hostBlocked() && allowed()
     if (!canSubmit()) throw new Error('操作已取消')
     this.submitting = true

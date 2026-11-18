@@ -4,7 +4,7 @@ import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { TaskCreation, TaskModification, OrgFileRef, FileHeaderValueChange } from 'liborg_tasks_harmony.so'
 import { AppConfig } from '../models/OrgTask'
-import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreQueryRepositoryBinding, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
+import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreTaskPath, CoreTaskModificationOperation, CoreQueryRepositoryBinding, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
 import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
@@ -49,10 +49,11 @@ export interface DataSetEvent {
   result?: ManagedDataSet
 }
 interface PendingEdit {
-  id: string; version: number; name: string; kind: 'update' | 'remove' | 'create' | 'move'; key: string
+  id: string; version: number; name: string; kind: 'update' | 'remove' | 'create' | 'move' | 'group'; key: string
   files: string[]; changes: TaskModification[]; creation?: TaskCreation; draft?: CoreTask
-  target?: CoreRefileTarget; sourceVersion: string; observed: Set<string>; identityFrames: Set<string>; missingFrames: Set<string>
+  target?: CoreRefileTarget; group?: CoreTaskOperationGroup; sourceVersion: string; rebaseVersion?: boolean; observed: Set<string>; identityFrames: Set<string>; missingFrames: Set<string>
 }
+interface TaskPathOperation { path: CoreTaskPath }
 
 // 按文件衔接用户编辑意图；真实查询、修改与同步的执行顺序由 Core 调度。
 export class UserOperationQueue {
@@ -183,11 +184,20 @@ export class DataSet {
   async submitOperationGroup(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
     if (!group.operations.length) return
     const files = group.fileVersions?.map(version => JSON.stringify([version.repoId, version.file])) ?? this.scopeFiles()
-    await this.runOperation(this.name, async (operationId: string): Promise<void> => {
-      if (!allowed()) throw new Error('操作已取消')
-      if (!this.workspace) throw new Error('底层连接不可用')
-      await this.workspace.executeTaskOperations({ operations: group.operations, fileVersions: group.fileVersions, operationId })
-    }, files, true)
+    await this.start()
+    if (!this.isReady() || this.closing) throw new Error('页面数据集当前不可编辑')
+    if (!allowed()) throw new Error('操作已取消')
+    const version = this.clock ? this.clock.next() : this.sequence + 1
+    this.sequence = version
+    const edit: PendingEdit = {
+      id: this.operationId(version, 'group'), version, name: this.name, kind: 'group', key: '', files,
+      changes: [], group: JSON.parse(JSON.stringify(group)) as CoreTaskOperationGroup, sourceVersion: '',
+      observed: new Set(), identityFrames: new Set(), missingFrames: new Set()
+    }
+    // 先把修改合并进数据集视图，再异步交给 Core；调用方不等待网络和磁盘完成。
+    // 受理后与浮层生命周期解耦；页面关闭不会取消已经进入队列的修改。
+    const work = this.submit(edit)
+    work.catch((): void => {})
   }
   restore(data: CoreQueryResult): void { this.confirmed.set(this.name, data); this.versions.set(this.name, 0); this.rebuild(this.name, this.operationId(0, 'cache'), false) }
   async settle(): Promise<void> {
@@ -366,6 +376,7 @@ export class DataSet {
     const task = this.findTask(name, key)
     if (!task) throw new Error('任务不在当前数据集中')
     const edit = this.edit(name, 'update', task, changes, sourceVersion)
+    edit.rebaseVersion = this.pending.some(item => item.files.some(file => edit.files.includes(file)))
     return { operationId: edit.id, completion: this.submit(edit) }
   }
   updateFields(name: string, key: string, changes: TaskModification[], sourceVersion?: string): CoreTask {
@@ -376,13 +387,14 @@ export class DataSet {
   async update(name: string, key: string, changes: TaskModification[], sourceVersion?: string): Promise<void> {
     if (!this.ready) await this.start()
     if (!changes.length) return
-    await this.queueUpdate(name, key, changes, sourceVersion).completion
+    // updateFields 已经同步更新覆盖层；这里仅保证请求入队，不把 UI 操作绑定到提交时长。
+    this.queueUpdate(name, key, changes, sourceVersion).completion.catch((): void => {})
   }
   async remove(name: string, key: string): Promise<void> {
     if (!this.ready) await this.start()
     const task = this.findTask(name, key)
     if (!task) throw new Error('任务不在当前数据集中')
-    await this.submit(this.edit(name, 'remove', task, []))
+    this.submit(this.edit(name, 'remove', task, [])).catch((): void => {})
   }
   async create(name: string, value: TaskCreation, sourceVersion?: string): Promise<void> {
     if (!this.ready) await this.start()
@@ -398,7 +410,7 @@ export class DataSet {
     const draft = createPageTask(metadata, '', value)
     const edit = this.edit(name, 'create', draft, [])
     edit.creation = JSON.parse(JSON.stringify(value)) as TaskCreation; edit.draft = draft; edit.sourceVersion = version
-    await this.submit(edit)
+    this.submit(edit).catch((): void => {})
   }
   async moveTargets(): Promise<CoreRefileTarget[]> { return await MoveToTargetService.targets(this.context) }
   async move(name: string, key: string, target: CoreRefileTarget): Promise<void> {
@@ -408,7 +420,7 @@ export class DataSet {
     const edit = this.edit(name, 'move', task, [])
     edit.target = JSON.parse(JSON.stringify(target)) as CoreRefileTarget
     edit.files.push(JSON.stringify([target.repoId, target.path]))
-    await this.submit(edit)
+    this.submit(edit).catch((): void => {})
   }
   private edit(name: string, kind: 'update' | 'remove' | 'create' | 'move', task: CoreTask, changes: TaskModification[], sourceVersion?: string): PendingEdit {
     if (this.closing || this.closed || !this.ready) throw new Error('页面数据集当前不可编辑')
@@ -444,7 +456,9 @@ export class DataSet {
           throw new Error('数据订阅已失效，正在刷新页面')
         }
         let group: CoreTaskOperationGroup
-        if (edit.kind === 'create') {
+        if (edit.kind === 'group') {
+          group = this.rebasedGroup(edit.group!, edit.id)
+        } else if (edit.kind === 'create') {
           const creation = edit.creation!
           const current = Array.from(this.confirmed.values()).flatMap(item => item.type === 'task' ? item.result.tasks : [])
             .find(task => task.repoId === creation.position.parent.repoId && task.filePath === creation.position.parent.file)
@@ -459,10 +473,10 @@ export class DataSet {
             group = { operationId: edit.id, operations: [{ type: 'Movement', data: { path: task.fullPath, position: { parent: edit.target.fullPath } } }],
               fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }, { repoId: edit.target.repoId, file: edit.target.path, version: edit.target.fileVersion }] }
           } else {
-          const positional = edit.changes.some(change => change.field === 'CHECKLIST' || change.field === 'LINK' || change.field === 'CONTENT_BLOCK')
-          group = edit.kind === 'remove' && task.repoId !== '<preview>'
+            const positional = edit.changes.some(change => change.field === 'CHECKLIST' || change.field === 'LINK' || change.field === 'CONTENT_BLOCK')
+            group = edit.kind === 'remove' && task.repoId !== '<preview>'
             ? await TrashService.group(this.config!, workspace, [task], 'trash', edit.id)
-            : { operationId: edit.id, fileVersions: [{ repoId: task.repoId, file: task.filePath, version: positional ? edit.sourceVersion : task.fileVersion }],
+            : { operationId: edit.id, fileVersions: [{ repoId: task.repoId, file: task.filePath, version: positional && !edit.rebaseVersion ? edit.sourceVersion : task.fileVersion }],
               operations: [edit.kind === 'remove' ? { type: 'Deletion', data: { path: task.fullPath } } :
                 { type: 'Modification', data: { path: task.fullPath, modifications: edit.changes } }] }
           }
@@ -473,13 +487,40 @@ export class DataSet {
         this.finishEdit(edit, false)
       } catch (error) {
         this.finishEdit(edit, true)
-        this.emitError(edit.name, edit.id, error as Error, edit.key, edit.changes, committed)
+        // 操作组错误只针对该 operationId，不把整个数据集标成读取失败。
+        this.emitError(edit.name, edit.id, error as Error, edit.kind === 'group' ? edit.id : edit.key, edit.changes, committed)
         if (committed) throw new DataSetWriteError((error as Error).message, true)
         throw error as Error
       }
     }, edit.files)
     this.track(work)
     return work
+  }
+
+  // 后续修改使用确认快照中的最新文件版本。前一个操作的事件到达后，
+  // 这里自然取得新 hash，避免连续点击把旧版本带入下一次提交。
+  private rebasedGroup(source: CoreTaskOperationGroup, operationId: string): CoreTaskOperationGroup {
+    const group = JSON.parse(JSON.stringify(source)) as CoreTaskOperationGroup
+    group.operationId = operationId
+    if (!group.fileVersions?.length) return group
+    group.fileVersions = group.fileVersions.map(version => {
+      const current = this.currentFileVersion(version.repoId, version.file)
+      return current ? { repoId: version.repoId, file: version.file, version: current } : version
+    })
+    return group
+  }
+
+  private currentFileVersion(repoId: string, path: string): string | undefined {
+    for (const data of this.confirmed.values()) {
+      if (data.type === 'task') {
+        const task = data.result.tasks.find(item => item.repoId === repoId && item.filePath === path)
+        if (task) return task.fileVersion
+      } else {
+        const file = data.result.find(item => item.repoId === repoId && item.path === path)
+        if (file) return file.fileVersion
+      }
+    }
+    return undefined
   }
   private track(work: Promise<void>): void {
     this.writes.add(work)
@@ -500,6 +541,15 @@ export class DataSet {
     const operationId = event.operationId ?? refreshId
     const edit = this.pending.find(item => item.id === event.operationId)
     if (edit) edit.observed.add(name)
+    // 在前序提交改名或移动后，把尚未提交的操作组衔接到 Core 返回的新路径。
+    for (const pending of this.pending) if (pending.kind === 'group' && pending.group) {
+      for (const operation of pending.group.operations) {
+        if (operation.type !== 'Modification' && operation.type !== 'Deletion' && operation.type !== 'Trash' && operation.type !== 'Movement') continue
+        const value = operation.data as TaskPathOperation
+        const mapping = event.changes.find(change => change.before && sameTaskPath(change.before.task.fullPath, value.path))
+        if (mapping?.after) value.path = mapping.after.task.fullPath
+      }
+    }
     let createdIdentity: DataSetIdentity | undefined = undefined
     if (edit?.kind === 'create' && edit.draft && edit.creation) {
       const created = event.changes.find(change => !change.before && change.after?.view?.heading === edit.creation!.title &&
@@ -580,6 +630,17 @@ export class DataSet {
         if (edit.kind === 'create' && edit.name === name && edit.draft) tasks.unshift(edit.draft)
         if (edit.kind === 'remove') tasks = tasks.filter(task => taskKey(task) !== edit.key)
         if (edit.kind === 'update') tasks = tasks.map(task => taskKey(task) === edit.key ? projectTaskFields(task, edit.changes) : task)
+        if (edit.kind === 'group' && edit.name === name && edit.group) {
+          for (const operation of edit.group.operations) {
+            if (operation.type === 'Modification') {
+              const change = operation.data as CoreTaskModificationOperation
+              tasks = tasks.map(task => sameTaskPath(task.fullPath, change.path) ? projectTaskFields(task, change.modifications) : task)
+            } else if (operation.type === 'Deletion' || operation.type === 'Trash' || operation.type === 'Movement') {
+              const path = operation.data as TaskPathOperation
+              tasks = tasks.filter(task => !sameTaskPath(task.fullPath, path.path))
+            }
+          }
+        }
       }
       data = { type: 'task', result: { tasks, categories: confirmed.result.categories, fullFiles: [] } }
     }
@@ -663,4 +724,10 @@ function records(data: CoreQueryResult | undefined): Map<string, CoreTask | Core
 function identityFrame(event: CoreDataChangeEvent, repoId: string, file: string | null): string {
   const change = event.files?.find(item => item.after.repoId === repoId && item.after.path === file)
   return JSON.stringify([repoId, file, change?.afterVersion])
+}
+
+function sameTaskPath(left: CoreTaskPath, right: CoreTaskPath): boolean {
+  return left.repoId === right.repoId && left.file === right.file &&
+    left.occurrence === right.occurrence && left.titles.length === right.titles.length &&
+    left.titles.every((title, index) => title === right.titles[index])
 }

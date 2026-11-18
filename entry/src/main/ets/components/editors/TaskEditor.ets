@@ -205,7 +205,6 @@ export struct TaskEditor {
 
   private async actionSource(allowed: () => boolean): Promise<CoreTask | undefined> {
     if (!allowed() || !await this.prepare() || !await this.finish(false)) return undefined
-    await this.localDataSet().settle()
     if (!this.appeared || this.removed || !allowed()) return undefined
     if (this.localDataSet().error) throw new Error(this.localDataSet().error)
     const source = await this.currentTask()
@@ -403,7 +402,6 @@ export struct TaskEditor {
   private async refreshMove(): Promise<void> {
     if (!this.appeared || !this.moveOpen || this.moveBusy || !this.moveAllowed()) return
     try {
-      await this.localDataSet().settle()
       const source = await this.currentTask()
       if (!this.appeared || !this.moveOpen || !this.moveAllowed()) return
       this.moveSource = source
@@ -470,7 +468,6 @@ export struct TaskEditor {
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
-      await this.localDataSet().settle()
       const source = await this.currentTask()
       const state = source.taskStateOf(category)
       if (source.state === null || source.isDone() !== reopen || !state) return

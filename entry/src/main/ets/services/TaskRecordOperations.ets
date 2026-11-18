@@ -33,7 +33,7 @@ export class TaskRecordOperations {
     if (!allowed()) throw new Error('操作已取消')
     const keys = tasks.map(task => dataSet.taskKey(task.id))
     await dataSet.submitOperationGroup(group, allowed)
-    await dataSet.settle()
+    // DataSet 已在本地覆盖层立即合并；提交由后台队列串行完成。
     return { committed: true, retainedKeys: action === TaskOperation.Restore ? keys.filter(key => dataSet.getTask(key) !== undefined) : [] }
   }
 
