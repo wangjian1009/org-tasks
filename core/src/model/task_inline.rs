@@ -718,6 +718,35 @@ mod tests {
         }
     }
     #[test]
+    fn date_and_time_edits_preserve_all_planning_modifier_forms() {
+        for (field, name, other) in [
+            ("SCHEDULE", "SCHEDULED", "DEADLINE"),
+            ("DEADLINE", "DEADLINE", "SCHEDULED"),
+        ] {
+            for modifiers in [
+                "+1d", "++2w", ".+3m", "+1y -2d", "++1w --3d",
+                ".+1w/2w -1w", "+1d/3 --2d", "-3d +1w", "--2d", "-1m",
+            ] {
+                let source = format!(
+                    "* TODO Task\r\n  {name}: <2026-11-09 Mon 09:30-10:30 {modifiers}>  {other}: <2026-12-01 Tue +1y -1w>\r\n:PROPERTIES:\r\n:ID: task\r\n:END:\r\nNotes  \r\n** Child\r\n"
+                );
+                let mut f = file(&source);
+                for (value, replacement) in [
+                    (serde_json::json!({"date":"2026-11-10"}), "2026-11-10 Tue 09:30-10:30"),
+                    (serde_json::json!({"date":"2026-11-11","time":{"start":"11:15","end":"12:45"}}), "2026-11-11 Wed 11:15-12:45"),
+                    (serde_json::json!({"date":"2026-11-12","time":null}), "2026-11-12 Thu"),
+                ] {
+                    apply(&mut f, serde_json::from_value(serde_json::json!({"field":field,"value":value})).unwrap());
+                    assert_eq!(
+                        f.source_bytes(),
+                        source.replace("2026-11-09 Mon 09:30-10:30", replacement).as_bytes(),
+                        "{field}: {modifiers}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
     fn creates_times_and_keeps_original_full_timestamp_input_compatible() {
         let mut f = file("* Task\nNotes\n");
         apply(&mut f, planning_change(serde_json::json!({"date":"2026-11-10","time":{"start":"00:00","end":null}})));

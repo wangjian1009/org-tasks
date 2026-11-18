@@ -1053,7 +1053,7 @@ mod tests {
     fn structured_planning_edits_round_trip_time_and_reject_invalid_groups() {
         let root = std::env::temp_dir().join(format!("org-planning-bridge-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let source = "* TODO Task\r\nSCHEDULED: <2026-11-09 Mon 09:30-10:30 +1w -2d> DEADLINE: <2026-12-01 Tue 18:00>\r\nNotes  \r\n";
+        let source = "* TODO Task\r\nSCHEDULED: <2026-11-09 Mon 09:30-10:30 +1w -2d> DEADLINE: <2026-12-01 Tue 18:00 .+1m/2m --3d>\r\nNotes  \r\n";
         std::fs::write(root.join("tasks.org"), source).unwrap();
         let handle = create_workspace().unwrap();
         let directory = root.to_string_lossy().to_string();
@@ -1077,6 +1077,7 @@ mod tests {
         let updated: serde_json::Value = serde_json::from_str(&repo_file_json(handle, directory, "tasks.org".into()).unwrap()).unwrap();
         assert_eq!(updated["nodes"][0]["editContent"]["scheduledPlanning"]["time"]["end"], "12:00");
         assert!(updated["nodes"][0]["editContent"]["deadlinePlanning"]["time"].is_null());
+        assert_eq!(updated["nodes"][0]["editContent"]["deadlineRepeat"]["rule"], serde_json::json!({"mode":"afterCompletion","interval":1,"unit":"month"}));
         assert_eq!(std::fs::read(root.join("tasks.org")).unwrap(), source.replace("2026-11-09 Mon 09:30-10:30", "2026-11-10 Tue 11:00-12:00").replace("2026-12-01 Tue 18:00", "2026-12-02 Wed").as_bytes());
         assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
         release_workspace(handle);

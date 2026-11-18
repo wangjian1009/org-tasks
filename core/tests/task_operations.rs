@@ -83,6 +83,49 @@ fn operation_id_is_optional_and_preserves_legacy_operation_group_json() {
 }
 
 #[tokio::test]
+async fn batch_date_edits_keep_each_tasks_deadline_modifiers_after_reopening() {
+    let source = concat!(
+        "#+CATEGORY: Work\r\n",
+        "* TODO First\r\nSCHEDULED: <2026-11-09 Mon 08:00 .+1d -1d> DEADLINE: <2026-11-09 Mon 09:30-10:30 +1w -3d>\r\nNotes  \r\n",
+        "* TODO Second\r\nDEADLINE: <2026-11-09 Mon .+1w/2w --2d>\r\n",
+        "* TODO Third\r\nDEADLINE: <2026-11-09 Mon ++1m -1w>\r\n",
+    );
+    let fixture = Fixture::new(source).await;
+    let repo = fixture.workspace.repos()[0].clone();
+    let file = repo.file("tasks.org").await.unwrap();
+    let group: TaskOperationGroup = serde_json::from_value(serde_json::json!({
+        "operations": file.node_paths().into_iter().map(|path| serde_json::json!({
+            "type":"Modification", "data":{
+                "path":path, "modifications":[{"field":"DEADLINE","value":{"date":"2026-11-10"}}]
+            }
+        })).collect::<Vec<_>>(),
+        "fileVersions":[{"repoId":repo.id,"file":"tasks.org","version":LocalFileVersion::from_bytes(source.as_bytes()).content_hash}]
+    })).unwrap();
+    fixture.workspace.execute_task_operations(&group).await.unwrap();
+    let expected = source.replace("DEADLINE: <2026-11-09 Mon", "DEADLINE: <2026-11-10 Tue");
+    assert_eq!(fs::read(fixture.root.join("tasks.org")).await.unwrap(), expected.as_bytes());
+
+    // 重新加载磁盘快照，确认保留的规则不会仅存在于编辑会话中。
+    let mut reopened = OrgRepo::new(fixture.root.to_string_lossy().into()).unwrap();
+    reopened.load::<WebDavSyncPolicy>().await.unwrap();
+    let file = reopened.file("tasks.org").await.unwrap();
+    assert_eq!(file.source_bytes(), expected.as_bytes());
+    let expected_rules = [
+        (TaskRepeatMode::Cumulative, TaskRepeatUnit::Week),
+        (TaskRepeatMode::AfterCompletion, TaskRepeatUnit::Week),
+        (TaskRepeatMode::CatchUp, TaskRepeatUnit::Month),
+    ];
+    for (path, (mode, unit)) in file.node_paths().iter().zip(expected_rules) {
+        let content = file.task_edit_content(path).unwrap();
+        let info = content.deadline_repeat.unwrap();
+        assert_eq!(info.date, "2026-11-10");
+        let rule = info.rule.unwrap();
+        assert_eq!(rule.mode, mode);
+        assert_eq!(rule.unit, unit);
+    }
+}
+
+#[tokio::test]
 async fn repeat_rule_group_is_atomic_versioned_and_keeps_the_other_planning_field() {
     let source = "* TODO Task\r\nDEADLINE: <2026-12-01 Tue ++1m -2d>\r\nNotes  \r\n";
     let fixture = Fixture::new(source).await;
