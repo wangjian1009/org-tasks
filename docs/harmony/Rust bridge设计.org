@@ -820,4 +820,8 @@ Workspace 新增 ~watchExternalFileChanges(monitor): Promise<number>~ 与 ~stopW
 
 Rust 的 ~TaskNoteAddition { path, note }~ 以 ~{ type: 'Note', data: { path, note } }~ 通过原批量 worker 透传，不增加单次写入通道。~TaskEditContent.note_required_states~ 经原 ~editContent~ 对象映射为 ~noteRequiredStates~ ，C++ 和 ArkTS 均不解释 TODO 标记或继承属性。页面快照、缓存恢复与乐观字段投影保留该列表；最终状态规则仍由 Core 校验。
 
-TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet 提交；完成、重新打开、开始、暂停、等待以及整理中的状态操作均通过统一备注提示。输入非空备注后将 Note 放在同批次状态修改前，取消与遮罩关闭仅省略 Note；页面退出或任务删除结束等待并丢弃整个待提交动作。
+TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet 提交；完成、重新打开、开始、暂停、等待以及整理中的状态操作均通过统一备注提示。输入非空原因后通过原 Modification 的可选 note 与状态一起提交，取消与遮罩关闭仅省略 note；页面退出或任务删除结束等待并丢弃整个待提交动作。
+
+* 状态日志说明
+
+~TaskModificationOperation~ 在原 ~path~ 和 ~modifications~ 之外增加可选 ~note?: string~ ，TODO 值继续是原状态字符串。ArkTS 收集输入后将原因放入同一 Modification，C++ 和 Harmony Rust 按原对象序列化路径透传，不解析日志格式；Core 执行状态变化并写入 Emacs 格式说明。独立 Note 操作继续用于单独添加备注。

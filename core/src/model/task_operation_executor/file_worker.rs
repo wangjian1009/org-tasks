@@ -580,6 +580,7 @@ mod tests {
                 order_id: id,
                 modification: FileModification::Operation(TaskOperation::Modification(
                     TaskModificationOperation {
+                        note: None,
                         path: path(old),
                         modifications: vec![TaskModification::Title(Some(new.into()))],
                     },

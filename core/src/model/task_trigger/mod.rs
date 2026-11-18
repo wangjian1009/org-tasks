@@ -24,13 +24,23 @@ pub(super) fn modify_at(
     value: Option<&str>,
     now: NaiveDateTime,
 ) -> Result<()> {
+    modify_at_with_note(file, headline, value, now, None)
+}
+
+pub(super) fn modify_at_with_note(
+    file: &mut OrgFile,
+    headline: &Headline,
+    value: Option<&str>,
+    now: NaiveDateTime,
+    note: Option<&str>,
+) -> Result<()> {
     let ordinal = file
         .path_headlines()
         .iter()
         .position(|(_, node)| start(node) == start(headline))
         .ok_or(error("TRIGGER 来源标题不存在"))?;
     Context::new(file, now, chrono::Local::now().offset().local_minus_utc())
-    .todo(ordinal, value)
+    .todo_with_note(ordinal, value, note)
 }
 struct Context<'a> {
     file: &'a mut OrgFile,
@@ -112,6 +122,9 @@ impl Context<'_> {
         Ok(self.node(index)?.tags().map(|t| t.to_string()).collect())
     }
     fn todo(&mut self, index: usize, state: Option<&str>) -> Result<()> {
+        self.todo_with_note(index, state, None)
+    }
+    fn todo_with_note(&mut self, index: usize, state: Option<&str>, note: Option<&str>) -> Result<()> {
         let node = self.node(index)?;
         let previous = node.todo_keyword().map(|value| value.to_string());
         let pending = node.todo_keyword().is_some_and(|old| {
@@ -121,7 +134,7 @@ impl Context<'_> {
                 .is_some_and(|category| !category.is_done())
         });
         let completed = state.is_some_and(|s| self.file.todo.is_done(s));
-        super::task_state::modify_without_triggers(self.file, &node, state, self.now)?;
+        super::task_state::modify_without_triggers_with_note(self.file, &node, state, self.now, note)?;
         let updated = self.node(index)?;
         let current = updated.todo_keyword().map(|value| value.to_string());
         if (previous != current || completed)

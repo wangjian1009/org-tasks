@@ -53,6 +53,7 @@ let file = repo.file("inbox.org").await?;
 let path = file.node_paths().first().cloned().ok_or(CoreError::InvalidInput("文件没有标题"))?;
 let group = TaskOperationGroup {
     operations: vec![TaskOperation::Modification(TaskModificationOperation {
+        note: None,
         path,
         modifications: vec![TaskModification::Title(Some("更新后的标题".into()))],
     })],
@@ -1265,6 +1266,21 @@ TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对�
 
 * 独立日志备注与状态提示
 
-统一写入入口接受 ~TaskOperation::Note(TaskNoteAddition { path, note })~ ，为标题添加带当前本地时间的独立 LOGBOOK 备注。状态 Modification 仍只提交原 TODO 字段；用户填写备注时，宿主将 Note 与 Modification 放进同一批次，统一校验原文件版本并原子提交。取消备注输入只省略 Note，原状态操作继续执行。
+统一写入入口接受 ~TaskOperation::Note(TaskNoteAddition { path, note })~ ，为标题添加带当前本地时间的独立 LOGBOOK 备注。状态修改继续使用原 ~Modification~ 与 TODO 字符串值，新增可选 ~data.note~ 原因字段。携带原因时，该条 ~modifications~ 必须包含且仅包含一次非空 TODO 修改；未提供或为 ~null~ 时沿用原行为。原因按 Emacs 格式附在对应状态、关闭或重复日志下，不生成独立 Note；独立添加备注仍使用原 ~Note~ 操作。取消输入只省略 ~note~ ，原状态操作继续执行。版本校验、原因写入、状态、重复调度和 TRIGGER 共用一次事务。
 
 ~TaskEditContent.note_required_states~ 返回本快照中需要备注提示的目标状态名，继承配置和进入、离开、完成及重复日志规则由 Core 求值。状态自动日志继续遵循配置，独立 Note 始终写入 LOGBOOK。具体定义及 UML 见 [[file:数据模型.org::*独立日志备注][独立日志备注]]。
+
+** 状态原因请求示例
+
+#+begin_src json
+{
+  "type": "Modification",
+  "data": {
+    "path": { "repoId": "repo", "file": "tasks.org", "titles": ["Task"] },
+    "modifications": [{ "field": "TODO", "value": "CNCL" }],
+    "note": "需求已取消。\n相关资料已归档。"
+  }
+}
+#+end_src
+
+~note~ 的换行规范化为文件换行风格，内容不能为空白、NUL 或 drawer 标记。显式提交原因时，即使状态未配置自动日志，也记录一次带原因的状态日志；配置 ~lognotedone~ 且没有状态日志时使用 ~CLOSING NOTE~ 。日志遵守 ~LOG_INTO_DRAWER~ 及日志顺序设置；无效原因或后续联动失败时整组回滚。

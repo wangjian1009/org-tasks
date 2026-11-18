@@ -150,7 +150,7 @@ pub(super) fn note_required_states(file: &OrgFile, headline: &Headline) -> Resul
     }).map(|state| state.name.clone()).collect())
 }
 
-pub(super) fn add_note(file: &mut OrgFile, headline: &Headline, note: &str, now: NaiveDateTime) -> Result<(), CoreError> {
+fn note_text(note: &str) -> Result<String, CoreError> {
     let text = note.replace("\r\n", "\n").replace('\r', "\n");
     if text.trim().is_empty() || text.contains('\0') || text.lines().any(|line| {
         let text = line.trim();
@@ -158,13 +158,23 @@ pub(super) fn add_note(file: &mut OrgFile, headline: &Headline, note: &str, now:
     }) {
         return Err(CoreError::InvalidInput("备注不能为空或包含 drawer 标记及 NUL"));
     }
-    let nl = newline(file);
-    let mut log = format!("- Note taken on {} \\\\", now.format("[%Y-%m-%d %a %H:%M]"));
-    for line in text.trim_end().split('\n') {
+    Ok(text.trim_end().to_owned())
+}
+
+fn append_note(log: &mut String, note: &str, nl: &str) {
+    log.push_str(" \\\\");
+    for line in note.split('\n') {
         log.push_str(nl);
         log.push_str("  ");
         log.push_str(line);
     }
+}
+
+pub(super) fn add_note(file: &mut OrgFile, headline: &Headline, note: &str, now: NaiveDateTime) -> Result<(), CoreError> {
+    let text = note_text(note)?;
+    let nl = newline(file);
+    let mut log = format!("- Note taken on {}", now.format("[%Y-%m-%d %a %H:%M]"));
+    append_note(&mut log, &text, nl);
     // 显式备注始终进入 LOGBOOK；自动状态日志仍尊重原配置的存放位置。
     let mut settings = Logging::load(file, headline)?;
     settings.drawer = Some("LOGBOOK".into());
@@ -209,6 +219,15 @@ pub(super) fn modify(
     value: Option<&str>,
 ) -> Result<(), CoreError> {
     modify_at(file, headline, value, chrono::Local::now().naive_local())
+}
+
+pub(super) fn modify_with_note(
+    file: &mut OrgFile,
+    headline: &Headline,
+    value: Option<&str>,
+    note: Option<&str>,
+) -> Result<(), CoreError> {
+    super::task_trigger::modify_at_with_note(file, headline, value, chrono::Local::now().naive_local(), note)
 }
 
 /// 新建时不模拟状态切换；完成时间与关闭说明同样只由显式配置触发。
@@ -262,7 +281,21 @@ pub(super) fn modify_without_triggers(
     value: Option<&str>,
     now: NaiveDateTime,
 ) -> Result<(), CoreError> {
+    modify_without_triggers_with_note(file, headline, value, now, None)
+}
+
+pub(super) fn modify_without_triggers_with_note(
+    file: &mut OrgFile,
+    headline: &Headline,
+    value: Option<&str>,
+    now: NaiveDateTime,
+    note: Option<&str>,
+) -> Result<(), CoreError> {
     validate_state(file, value)?;
+    let note = note.map(note_text).transpose()?;
+    if note.is_some() && value.is_none() {
+        return Err(CoreError::InvalidInput("状态说明必须对应非空 TODO 状态"));
+    }
     let previous = headline.todo_keyword().map(|token| token.to_string());
     if previous.as_deref() != value
         && value.is_some_and(|state| file.todo.is_done(state))
@@ -359,20 +392,24 @@ pub(super) fn modify_without_triggers(
     }
     // 与 Org 一致，目标状态的进入日志优先于来源状态的离开日志；无状态目标不记状态日志。
     if let Some(state) =
-        value.filter(|_| log_action.is_some() || (repeating && settings.repeat.is_some()))
+        value.filter(|_| log_action.is_some() || (repeating && settings.repeat.is_some())
+            || (note.is_some() && !(entered_done && settings.done == Some(TodoLogAction::Note))))
     {
-        let log = format!(
+        let mut log = format!(
             "- State {:<12} from {:<12} {timestamp}",
             format!("\"{state}\""),
             format!("\"{}\"", previous.as_deref().unwrap_or(""))
         );
+        if let Some(note) = &note { append_note(&mut log, note, newline(file)); }
         add_log(file, &node_at(file, offset)?, &settings, &log)?;
     } else if entered_done && settings.done == Some(TodoLogAction::Note) {
+        let mut log = format!("- CLOSING NOTE {timestamp}");
+        if let Some(note) = &note { append_note(&mut log, note, newline(file)); }
         add_log(
             file,
             &node_at(file, offset)?,
             &settings,
-            &format!("- CLOSING NOTE {timestamp}"),
+            &log,
         )?;
     }
     Ok(())
@@ -968,7 +1005,9 @@ mod tests {
                     .map(|(_, node)| node)
                     .find(|node| node.title_raw().trim() == "Task")
                     .unwrap();
-                if let Err(error) = modify_at(&mut file, &headline, action["state"].as_str(), now) {
+                if let Err(error) = super::super::task_trigger::modify_at_with_note(
+                    &mut file, &headline, action["state"].as_str(), now, action["note"].as_str()
+                ) {
                     errors.push(format!("{name}: {error}"));
                     break;
                 }

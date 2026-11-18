@@ -152,6 +152,9 @@ impl TaskCreation {
 pub struct TaskModificationOperation {
     pub path: TaskPath,
     pub modifications: Vec<TaskModification>,
+    /// 本次唯一 TODO 修改的日志说明；省略时沿用文件日志配置。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// 向当前标题的 LOGBOOK 添加带本地时间的独立备注；不替换正文或状态日志。

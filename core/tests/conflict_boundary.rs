@@ -118,11 +118,13 @@ async fn node_operations_cannot_edit_conflicts_directly_or_through_ancestors() {
     ] {
         let path = f.path(titles);
         f.reject(TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: path.clone(),
             modifications: vec![TaskModification::Title(Some("Changed".into()))],
         }))
         .await;
         f.reject(TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: path.clone(),
             modifications: vec![TaskModification::Tags(None)],
         }))
@@ -159,6 +161,7 @@ async fn node_operations_cannot_edit_conflicts_directly_or_through_ancestors() {
     }))
     .await;
     f.reject(TaskOperation::Modification(TaskModificationOperation {
+        note: None,
         path: f.path(&["Parent"]),
         modifications: vec![TaskModification::AddressLink(Some(TaskAddressChange {
             old_uri: "geo:1,2".into(),
@@ -169,6 +172,7 @@ async fn node_operations_cannot_edit_conflicts_directly_or_through_ancestors() {
     f.workspace
         .execute_task_operations(&TaskOperationGroup {
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path: f.path(&["Normal"]),
                 modifications: vec![TaskModification::Body(Some("Updated".into()))],
             })],

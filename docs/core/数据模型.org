@@ -1135,6 +1135,7 @@ pub struct TaskNoteAddition {
 pub struct TaskModificationOperation {
     pub path: TaskPath,
     pub modifications: Vec<TaskModification>,
+    pub note: Option<String>,
 }
 
 /// 每项修改指定字段；TODO 统一维护时间、重复调度和日志，其余未涉及的字段及字节保持原样。
@@ -1267,12 +1268,14 @@ pub struct TaskFileInitialTask {
 
 ~TaskOperation::Note(TaskNoteAddition { path, note })~ 向当前标题真实 LOGBOOK 添加一条 ~Note taken on~ 记录。时间由 Core 使用当前本地时间生成，多行内容按列表续行写入，沿用文件换行风格与日志顺序；没有 LOGBOOK 时在规划、属性之后创建。空白、NUL 和 drawer 标记输入拒绝，未涉及正文、属性、清单与子标题保持原样。显式备注固定进入 LOGBOOK，不受自动日志的存放位置配置影响。
 
-状态切换需要备注时，Note 放在状态 Modification 之前，与状态操作共享文件版本、事务、事件和回退；该顺序保证重复任务修改标题时间戳后仍能准确定位原任务。备注保持独立记录，不填入状态日志说明。取消输入不添加 Note，原状态、重复调度与触发器继续执行。
+状态切换的原因通过 ~TaskModificationOperation.note~ 与唯一一次非空 TODO 修改一起提交，不再插入独立 Note。状态日志、重复调度、后继创建和原因在同一事务中写入；独立 ~Note~ 始终保持独立记录，不能根据相邻操作猜测其用途。取消输入时省略 ~note~ ，状态操作继续执行。
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec}{}
 \umlclass[x=6,y=0]{TaskNoteAddition}{path: TaskPath \\ note: String}{}
 \umldep{TaskOperationGroup}{TaskNoteAddition}
+\umlclass[x=6,y=-3]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec \\ note: Option<String>}{}
+\umldep{TaskOperationGroup}{TaskModificationOperation}
 \end{tikzpicture}
 
 ** 创建与字段修改
@@ -1319,11 +1322,11 @@ pub struct TaskFileInitialTask {
 
 *** 文件内 TRIGGER
 
-待办进入完成状态后，在状态日志与重复调度之后解释 ~TRIGGER~ ，支持文件内的目标查找、条件、状态、日期、标签、优先级和属性动作。联动目标共用本文件隔离快照、版本校验、回退、语义变更日志和单次通知；不支持跨文件联动。不支持动作静默跳过并继续后续规则，已支持动作的非法参数或循环联动使整组回滚。实现范围与 Edna 对照依据见 [[file:TRIGGER触发器设计.org][文件内 TRIGGER 触发器]] 。不新增公开模型或宿主专属操作类型。 Loki 扩展通过同一 TRIGGER 支持星期集合排程与后继兄弟创建； ~LOKI_NEXT_ID~ 关联新节点自身的 UUID ~ID~ ，新节点生成独立 ~CREATED~ 并携带规则，标题末尾 ASCII 数字串自动加一并保留前导零；不复制历史、正文或子任务。结构插入沿用事务节点令牌和 ~Created~ 事件，具体属性关系与内嵌 UML 见上述设计。
+待办进入完成状态后，在状态日志与重复调度之后解释 ~TRIGGER~ ，支持文件内的目标查找、条件、状态、日期、标签、优先级和属性动作。联动目标共用本文件隔离快照、版本校验、回退、语义变更日志和单次通知；不支持跨文件联动。不支持动作静默跳过并继续后续规则，已支持动作的非法参数或循环联动使整组回滚。实现范围与 Edna 对照依据见 [[file:TRIGGER触发器设计.org][文件内 TRIGGER 触发器]] 。不新增公开模型或宿主专属操作类型。 Loki 扩展通过同一 TRIGGER 支持星期集合排程与后继兄弟创建； 每次执行直接创建独立后继，不读写后继关联属性；新节点生成 UUID ~ID~ 、独立 ~CREATED~ 并携带规则，标题末尾 ASCII 数字串自动加一并保留前导零；不复制历史、正文或子任务。结构插入沿用事务节点令牌和 ~Created~ 事件，具体属性关系与内嵌 UML 见上述设计。
 
 *** 配置驱动的日志
 
-应用默认关闭完成、普通状态及重复日志：没有对应配置时不生成关闭时间或新的日志项，已有日志保持原样。重复任务的 ~LAST_REPEAT~ 仅在重复日志启用或已有真实 CLOCK 时按 Org 规则更新。关键词 ~!~ 记录进入状态时间， ~@~ 记录带时间的说明，斜线后的标记记录离开状态；目标状态有进入日志时优先使用目标配置，不重复记录来源日志。状态操作不接收说明文本；宿主按 ~TaskEditContent.note_required_states~ 提示输入，将独立 ~Note~ 与状态修改放入同一操作组。取消输入仅省略 Note， ~@~ 仍按空说明方式记录状态日志。清除为无状态不写状态日志；显式重复设置同一状态时，按 Org 的关键词配置记录。
+应用默认关闭完成、普通状态及重复日志：没有对应配置时不生成关闭时间或新的日志项，已有日志保持原样。重复任务的 ~LAST_REPEAT~ 仅在重复日志启用或已有真实 CLOCK 时按 Org 规则更新。关键词 ~!~ 记录进入状态时间， ~@~ 记录带时间的说明，斜线后的标记记录离开状态；目标状态有进入日志时优先使用目标配置，不重复记录来源日志。宿主按 ~TaskEditContent.note_required_states~ 提示输入，并通过状态 Modification 的可选 ~note~ 字段传入原因。Core 将 ~\\~ 加在对应日志首行末尾，原因逐行缩进两个空格，兼容 Emacs 的 State 与 CLOSING NOTE 格式；独立添加备注仍为 Note taken on。取消输入只省略 ~note~ ， ~@~ 仍按空说明方式记录状态日志。清除为无状态不写状态日志；显式重复设置同一状态时，按 Org 的关键词配置记录。
 
 重新打开完成或取消任务时，宿主仅提交有效待办状态；Core 清理自身 ~CLOSED~ ，保留已有状态日志、关闭说明和 CLOCK，不修改计划、截止、重复日期或 ~LAST_REPEAT~ 。是否新增重新打开日志仅由目标进入标记或来源离开标记决定，只有关闭日志配置时不自动新增状态日志。即使日志已禁用，本应用仍清理旧关闭时间；这是与 org-mode 在关闭日志禁用时保留旧 ~CLOSED~ 的明确差异。
 

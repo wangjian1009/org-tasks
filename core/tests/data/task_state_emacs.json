@@ -342,6 +342,83 @@
           "expected": "#+TODO: TODO(t@) | DONE(d!/!)\n#+STARTUP: logdone logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d> DEADLINE: <2026-11-20 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-01 Thu 08:00]\n:LAST_REPEAT: [2026-10-25 Sun 10:00]\n:END:\n:LOGBOOK:\n- State \"TODO\"       from \"DONE\"       [2026-11-11 Wed 12:34]\n- State \"DONE\"       from \"TODO\"       [2026-11-01 Sun 09:00]\n  历史说明保留  \n:END:\n正文  \n* Other\n不受影响  \n"
         }
       ]
+    },
+    {
+      "name": "state-note-cancel",
+      "source": "#+TODO: TODO | DONE CNCL(c@)\n#+STARTUP: logdrawer\n* TODO Task\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "CNCL",
+          "note": "需求已取消。\n相关资料已归档。",
+          "expected": "#+TODO: TODO | DONE CNCL(c@)\n#+STARTUP: logdrawer\n* CNCL Task\n:LOGBOOK:\n- State \"CNCL\"       from \"TODO\"       [2026-11-11 Wed 12:34] \\\\\n  需求已取消。\n  相关资料已归档。\n:END:\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
+    },
+    {
+      "name": "state-note-leave",
+      "source": "#+TODO: TODO WAIT(w/@) | DONE\n#+STARTUP: logdrawer\n* WAIT Task\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "TODO",
+          "note": "等待事项已解除",
+          "expected": "#+TODO: TODO WAIT(w/@) | DONE\n#+STARTUP: logdrawer\n* TODO Task\n:LOGBOOK:\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34] \\\\\n  等待事项已解除\n:END:\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
+    },
+    {
+      "name": "state-note-enter-wins",
+      "source": "#+TODO: TODO(t@) WAIT(w/@) | DONE\n#+STARTUP: logdrawer\n* WAIT Task\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "TODO",
+          "note": "恢复执行",
+          "expected": "#+TODO: TODO(t@) WAIT(w/@) | DONE\n#+STARTUP: logdrawer\n* TODO Task\n:LOGBOOK:\n- State \"TODO\"       from \"WAIT\"       [2026-11-11 Wed 12:34] \\\\\n  恢复执行\n:END:\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
+    },
+    {
+      "name": "state-note-closing",
+      "source": "#+STARTUP: lognotedone logdrawer\n* TODO Task\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "note": "完成说明",
+          "expected": "#+STARTUP: lognotedone logdrawer\n* DONE Task\nCLOSED: [2026-11-11 Wed 12:34]\n:LOGBOOK:\n- CLOSING NOTE [2026-11-11 Wed 12:34] \\\\\n  完成说明\n:END:\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
+    },
+    {
+      "name": "state-note-repeat",
+      "source": "#+STARTUP: lognoterepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-10 Tue +1d>\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "DONE",
+          "note": "完成本次练习",
+          "expected": "#+STARTUP: lognoterepeat logdrawer\n* TODO Task\nSCHEDULED: <2026-11-11 Wed +1d>\n:PROPERTIES:\n:LAST_REPEAT: [2026-11-11 Wed 12:34]\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2026-11-11 Wed 12:34] \\\\\n  完成本次练习\n:END:\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
+    },
+    {
+      "name": "state-note-custom-drawer",
+      "source": "#+TODO: TODO | DONE CNCL(c@)\n#+PROPERTY: LOG_INTO_DRAWER HISTORY\n* TODO Task\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "CNCL",
+          "note": "取消说明",
+          "expected": "#+TODO: TODO | DONE CNCL(c@)\n#+PROPERTY: LOG_INTO_DRAWER HISTORY\n* CNCL Task\n:HISTORY:\n- State \"CNCL\"       from \"TODO\"       [2026-11-11 Wed 12:34] \\\\\n  取消说明\n:END:\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
+    },
+    {
+      "name": "state-note-body",
+      "source": "#+TODO: TODO | DONE CNCL(c@)\n* TODO Task\n正文保留\n* Other\n末尾保留\n",
+      "actions": [
+        {
+          "state": "CNCL",
+          "note": "正文位置说明",
+          "expected": "#+TODO: TODO | DONE CNCL(c@)\n* CNCL Task\n- State \"CNCL\"       from \"TODO\"       [2026-11-11 Wed 12:34] \\\\\n  正文位置说明\n正文保留\n* Other\n末尾保留\n"
+        }
+      ]
     }
   ],
   "defaults": {

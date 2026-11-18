@@ -194,6 +194,7 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
             .execute_task_operations(&TaskOperationGroup {
                 operations: vec![
                     TaskOperation::Modification(TaskModificationOperation {
+                        note: None,
                         path: normal.clone(),
                         modifications: vec![TaskModification::Body(Some("Updated".into()))],
                     }),
@@ -223,6 +224,7 @@ async fn ordinary_edits_keep_the_footer_and_its_separator_independent_from_norma
             .execute_task_operations(&TaskOperationGroup {
                 operations: vec![
                     TaskOperation::Modification(TaskModificationOperation {
+                        note: None,
                         path: plain_path.clone(),
                         modifications: vec![TaskModification::Body(Some("Updated".into()))],
                     }),

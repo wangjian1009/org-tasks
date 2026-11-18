@@ -423,6 +423,7 @@ async fn ordinary_modifications_use_preview_full_paths_and_keep_other_candidates
         .execute_task_operations(&TaskOperationGroup {
             operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path,
                 modifications: vec![TaskModification::Title(Some("Adjusted".into()))],
             })],
@@ -488,6 +489,7 @@ async fn failed_temporary_group_is_not_recorded_and_original_other_candidates_re
         operation_id: None,
         operations: vec![
             TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path: copied.editable_node_paths()[0].clone(),
                 modifications: vec![TaskModification::Title(Some("ShouldRollback".into()))],
             }),

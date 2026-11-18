@@ -41,6 +41,7 @@ impl Fixture {
         TaskOperationGroup {
             operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path,
                 modifications,
             })],
@@ -59,6 +60,64 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[tokio::test]
+async fn state_note_is_part_of_the_state_log_and_independent_notes_stay_separate() {
+    let source = "#+TODO: TODO | CNCL(c@)\n#+STARTUP: logdrawer\n* TODO Task\n正文  \n* Other\n保留  \n";
+    let f = Fixture::new(source).await;
+    let mut group = f.group("Task", vec![TaskModification::Title(Some("Renamed".into())), TaskModification::Todo(Some("CNCL".into()))]).await;
+    let TaskOperation::Modification(change) = &mut group.operations[0] else { unreachable!() };
+    change.note = Some("需求已取消。\r\n相关资料已归档。".into());
+    let path = change.path.clone();
+    group.operations.insert(0, TaskOperation::Note(TaskNoteAddition { path, note: "独立补充备注".into() }));
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let after = f.source();
+    assert!(after.contains("* CNCL Renamed\n"));
+    assert!(after.contains(" \\\\\n  需求已取消。\n  相关资料已归档。\n"));
+    assert_eq!(after.matches("- Note taken on ").count(), 1);
+    assert_eq!(after.matches("- State \"CNCL\"").count(), 1);
+    assert!(after.ends_with("正文  \n* Other\n保留  \n"));
+    let file = f.workspace.repos()[0].file("tasks.org").await.unwrap();
+    let task = file.nodes().into_iter().find(|task| task.title() == "Renamed").unwrap();
+    let logs = serde_json::to_value(task.logs()).unwrap();
+    assert!(logs.as_array().unwrap().iter().any(|log| log["type"] == "taskStateChange"
+        && log["to"] == "CNCL" && log["noteHtml"].as_str().unwrap().contains("需求已取消")));
+    assert_eq!(f.workspace.task_operation_history().entries.len(), 1);
+}
+
+#[tokio::test]
+async fn invalid_state_notes_and_trigger_failures_roll_back_the_whole_change() {
+    for (changes, note, trigger) in [
+        (vec![TaskModification::Title(Some("Renamed".into()))], "说明", ""),
+        (vec![TaskModification::Todo(None)], "说明", ""),
+        (vec![TaskModification::Todo(Some("CNCL".into())), TaskModification::Todo(Some("TODO".into()))], "说明", ""),
+        (vec![TaskModification::Todo(Some("CNCL".into()))], "  ", ""),
+        (vec![TaskModification::Todo(Some("CNCL".into()))], ":END:", ""),
+        (vec![TaskModification::Todo(Some("CNCL".into()))], "原因", ":PROPERTIES:\n:TRIGGER: self todo!(INVALID)\n:END:\n"),
+    ] {
+        let source = format!("#+TODO: TODO | CNCL(c@)\n#+STARTUP: logdrawer\n* TODO Task\n{trigger}正文\n");
+        let f = Fixture::new(&source).await;
+        let mut group = f.group("Task", changes).await;
+        let TaskOperation::Modification(change) = &mut group.operations[0] else { unreachable!() };
+        change.note = Some(note.into());
+        assert!(f.workspace.execute_task_operations(&group).await.is_err());
+        assert_eq!(f.source(), source);
+        assert!(f.workspace.task_operation_history().entries.is_empty());
+    }
+}
+
+#[test]
+fn state_note_is_optional_and_keeps_the_todo_wire_value_a_string() {
+    let original = serde_json::json!({"path":{"repoId":"repo","file":"tasks.org","titles":["Task"]},
+        "modifications":[{"field":"TODO","value":"CNCL"}]});
+    let mut change: TaskModificationOperation = serde_json::from_value(original).unwrap();
+    assert!(change.note.is_none());
+    assert!(serde_json::to_value(&change).unwrap().get("note").is_none());
+    change.note = Some("取消原因".into());
+    let wire = serde_json::to_value(change).unwrap();
+    assert_eq!(wire["modifications"][0]["value"], "CNCL");
+    assert_eq!(wire["note"], "取消原因");
 }
 
 #[tokio::test]

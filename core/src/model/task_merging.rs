@@ -220,6 +220,7 @@ pub(super) fn operations(
     group
         .operations
         .push(TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: path_at(&after_deletions, new_start)?,
             modifications: vec![
                 TaskModification::Body(Some(body)),

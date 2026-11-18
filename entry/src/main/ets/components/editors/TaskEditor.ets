@@ -238,7 +238,13 @@ export struct TaskEditor {
     })
     if (needsNote) {
       const note = await this.requestNote(true)
-      if (note !== undefined && note.trim()) group.operations.unshift({ type: 'Note', data: { path: source.fullPath, note } })
+      if (note !== undefined && note.trim()) {
+        group.operations.forEach((operation): void => {
+          if (operation.type !== 'Modification') return
+          const data = operation.data as CoreTaskModificationOperation
+          if (data.modifications.some((change: CoreTaskModification): boolean => change.field === 'TODO')) data.note = note
+        })
+      }
     }
     return this.appeared && !this.removed && allowed() ? group : undefined
   }

@@ -171,6 +171,7 @@ async fn one_failure_discards_successful_changes_in_all_other_file_tasks_and_not
         .execute_task_operations(&TaskOperationGroup {
             operations: vec![
                 TaskOperation::Modification(TaskModificationOperation {
+                    note: None,
                     path: f.nodes(&f.source, "other.org").await[0].full_path().clone(),
                     modifications: vec![TaskModification::Title(Some("Changed".into()))],
                 }),
@@ -522,6 +523,7 @@ async fn restore_missing_or_unrelated_brother_falls_back_to_first_child() {
             f.workspace
                 .execute_task_operations(&TaskOperationGroup {
                     operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                        note: None,
                         path: archived.full_path().clone(),
                         modifications: vec![TaskModification::Property {
                             name: "SOURCE_BROTHER".into(),

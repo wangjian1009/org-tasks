@@ -672,6 +672,7 @@ mod tests {
                 .execute_task_operations(&TaskOperationGroup {
                     operation_id: Some("same-operation".into()),
                     operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                        note: None,
                         path: TaskPath {
                             repo_id: self.workspace.repos()[0].id.clone(),
                             file: Some("a.org".into()),

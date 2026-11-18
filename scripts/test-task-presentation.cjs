@@ -656,7 +656,7 @@ test('来源文字追加项目名，分类缺失时单独显示项目，非项�
   assert.notEqual(taskRenderKey(task('same', { projectName: '旧项目' })), taskRenderKey(task('same', { projectName: '新项目' })));
 });
 
-test('备注与事件分区按时间倒序保留原条目，日志不再重复 note', () => {
+test('备注与事件分区按时间倒序保留原条目，状态说明在日志内带标签显示', () => {
   const { taskLogHtml, taskNoteHtml, taskNoteEntries, taskEventLogs, taskNoteTime } = loadGrouping('TaskLogPresentation', {});
   const entries = Object.freeze([
     { type: 'taskStateChange', from: '', to: '<img src=x onerror=alert(1)>', timestamp: '2026-11-17 10:30', noteHtml: '<p>等待<b>确认</b></p>' },
@@ -670,11 +670,13 @@ test('备注与事件分区按时间倒序保留原条目，日志不再重复 n
   ].map(Object.freeze));
   const original = JSON.stringify(entries);
   const notes = taskNoteEntries(entries), events = taskEventLogs(entries);
-  assert.deepEqual(notes, [entries[0], entries[1], entries[3], entries[2]]);
+  assert.deepEqual(notes, [entries[1], entries[3], entries[2]]);
   assert.deepEqual(events, [entries[0], entries[3], entries[6], entries[4], entries[5], entries[7]]);
   assert.ok(notes.every(log => entries.includes(log)));
   const html = events.map(taskLogHtml).join('');
   assert.ok(html.includes('无状态 → &lt;img'));
+  assert.ok(html.includes('class="task-log-state"'));
+  assert.ok(html.includes(entries[0].noteHtml));
   assert.ok(!html.includes('<img'));
   for (const log of notes) {
     assert.ok(taskNoteHtml(log).includes(log.noteHtml));

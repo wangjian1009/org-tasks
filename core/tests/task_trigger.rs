@@ -65,6 +65,7 @@ impl Fixture {
         TaskOperationGroup {
             operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path,
                 modifications: vec![TaskModification::Todo(Some("DONE".into()))],
             })],
@@ -253,8 +254,8 @@ async fn loki_spawn_commits_one_created_event_and_keeps_original_subtree_bytes()
     assert_eq!(after.matches(":CUSTOM: retained").count(), 1);
     assert_eq!(after.matches("DEADLINE:").count(), 1);
     assert_eq!(after.matches(":CREATED:").count(), 1);
-    let id = after.lines().find_map(|line| line.strip_prefix(":LOKI_NEXT_ID: ")).unwrap();
-    assert!(after.contains(&format!(":ID: {id}\n")));
+    assert!(!after.contains(":LOKI_NEXT_ID:"));
+    assert_eq!(after.matches(":ID: ").count(), 1);
     let changes = changes.lock().unwrap();
     let created = changes.iter().filter(|change| change.kind == TaskDataChangeKind::Created).collect::<Vec<_>>();
     assert_eq!(created.len(), 1);
@@ -272,7 +273,8 @@ async fn loki_spawn_commits_one_created_event_and_keeps_original_subtree_bytes()
     change.modifications = vec![TaskModification::Todo(Some("TODO".into()))];
     f.workspace.execute_task_operations(&reopen).await.unwrap();
     f.workspace.execute_task_operations(&f.group().await).await.unwrap();
-    assert_eq!(f.source(), after, "重新加载文件再完成时复用已持久化的后继关联");
+    assert_eq!(f.source().matches("* TODO Task\n").count(), 2, "再次完成时重新创建后继");
+    assert!(!f.source().contains(":LOKI_NEXT_ID:"));
     assert_eq!(f.events.load(Ordering::Relaxed), 3);
     assert_eq!(f.workspace.task_operation_history().entries.len(), 3);
 }
@@ -310,16 +312,17 @@ async fn loki_failures_rollback_state_dates_creation_and_links() {
         let group = f.group().await;
         f.assert_rollback(&group, expected).await;
     }
-    for (link, target, expected) in [
-        ("missing", "", "关联失效"),
-        ("self", "", "关联失效"),
-        ("duplicate", "* Other\n:PROPERTIES:\n:ID: duplicate\n:END:\n* Another\n:PROPERTIES:\n:ID: duplicate\n:END:\n", "不唯一"),
-    ] {
-        let source = format!("* TODO Task\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:ID: self\n:LOKI_NEXT_ID: {link}\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n{target}");
-        let mut f = Fixture::new(&[("tasks.org", &source)]).await;
-        let group = f.group().await;
-        f.assert_rollback(&group, expected).await;
-    }
+
+}
+
+#[tokio::test]
+async fn legacy_loki_next_id_does_not_affect_spawning() {
+    let source = "* TODO Task\nSCHEDULED: <2026-11-13 Fri>\n:PROPERTIES:\n:LOKI_NEXT_ID: missing\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:END:\n";
+    let f = Fixture::new(&[("tasks.org", source)]).await;
+    f.workspace.execute_task_operations(&f.group().await).await.unwrap();
+    assert_eq!(f.source().matches(":LOKI_NEXT_ID: missing").count(), 1);
+    assert_eq!(f.source().matches("* TODO Task\n").count(), 1);
+    f.assert_one_commit(source).await;
 }
 
 #[tokio::test]

@@ -776,14 +776,14 @@ test('编辑器只向传入的 DataManager 注册一个 DataSet，变化回调�
 });
 
 
-test('状态备注取消仍提交状态；填写时 Note 与状态共用原文件版本，页面离开后不提交', async () => {
+test('状态备注取消仍提交状态；填写时状态说明与状态共用原文件版本，页面离开后不提交', async () => {
   for (const note of [undefined, '切换备注']) {
     const f=completionFixture();f.task.editContent.noteRequiredStates=['FINISHED'];
     f.state.requestNote=async()=>note;await f.state.complete();
     assert.equal(f.state.groups.length,1);const group=f.state.groups[0];
-    assert.equal(group.operations.length,note===undefined?1:2);
+    assert.equal(group.operations.length,1);
     assert.equal(group.fileVersions[0].version,'v1');
-    if(note!==undefined)assert.deepEqual(group.operations[0],{type:'Note',data:{path:f.task.fullPath,note}});
+    assert.equal(group.operations[0].data.note,note);
   }
   const f=completionFixture();f.task.editContent.noteRequiredStates=['FINISHED'];
   f.state.requestNote=async()=>{f.state.appeared=false;return '不应提交'};
@@ -816,7 +816,7 @@ test('开始、暂停和等待复用备注提示；取消保留原字段，填�
     for(const note of [undefined,'状态说明']){
       const task={state:{category:from},fullPath:{repoId:'repo',file:'a.org',titles:['Task']},editContent:{noteRequiredStates:[to]},taskStateOf:category=>({name:category}),scheduled:'2020-01-01'};
       const card=Object.assign(new module.exports.StateActions(),{appeared:true,removed:false,expanded:true,actionsAvailable:()=>true,actionSource:async()=>task,requestNote:async()=>note});
-      const result=await card[method]();assert.equal(result.operations.length,note===undefined?1:2);
+      const result=await card[method]();assert.equal(result.operations.length,1);
       assert.deepEqual(result.operations.at(-1).data.modifications,[{field:'TODO',value:to}]);
       if(note!==undefined)assert.equal(result.operations[0].data.note,note);
     }

@@ -310,6 +310,7 @@ async fn header_ids_resolve_against_group_start_and_tag_whitespace_is_preserved(
     g.operations.insert(
         0,
         TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: TaskPath {
                 repo_id: m.repo_id.clone(),
                 file: Some(m.path.clone()),

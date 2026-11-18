@@ -58,7 +58,9 @@
                   (post-command-hook nil))
               (org-todo (or (alist-get 'state action) 'none))
               (when org-log-setup
-                (with-temp-buffer (org-store-log-note)))
+                (with-temp-buffer
+                  (insert (or (alist-get 'note action) ""))
+                  (org-store-log-note)))
               (setf (alist-get 'expected action)
                     (buffer-substring-no-properties (point-min) (point-max)))))))))
   (setf (alist-get 'orgVersion data) (org-version))

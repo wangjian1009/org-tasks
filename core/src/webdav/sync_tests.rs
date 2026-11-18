@@ -334,6 +334,7 @@ async fn checklist_sort_sync_with_updated_progress_keeps_one_task_tree_and_is_id
     workspace.execute_task_operations(&crate::TaskOperationGroup {
         operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
+            note: None,
             path,
             modifications: vec![
                 crate::TaskModification::Checklist(crate::TaskChecklistChange::Move { id: item, before_id: None }),
@@ -452,6 +453,7 @@ async fn checklist_sort_only_sync_uploads_without_conflict() {
     workspace.execute_task_operations(&crate::TaskOperationGroup {
         operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
+            note: None,
             path,
             modifications: vec![crate::TaskModification::Checklist(crate::TaskChecklistChange::Move { id: item, before_id: None })],
         })],
@@ -486,6 +488,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
         if move_checklist {
             let id = file.task_edit_content(&path).unwrap().checklist[0].id.clone();
             operations.push(TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path: path.clone(), modifications: vec![TaskModification::Checklist(TaskChecklistChange::Move { id, before_id: None })],
             }));
         }
@@ -2080,6 +2083,7 @@ async fn downloads_release_repository_lock_and_merge_reads_edits_made_during_net
     let group = crate::TaskOperationGroup {
         operation_id: None,
         operations: vec![crate::TaskOperation::Modification(crate::TaskModificationOperation {
+            note: None,
             path: task.full_path().clone(),
             modifications: vec![crate::TaskModification::Todo(Some("DONE".into()))],
         })],

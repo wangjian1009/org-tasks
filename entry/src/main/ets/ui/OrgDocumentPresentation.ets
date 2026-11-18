@@ -131,6 +131,11 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-log-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
 .task-log-time { color: ${UiColor.disabled}; font-size: 11px; }
 .task-log-detail { color: ${UiColor.disabled}; font-size: 11px; }
+.task-state-note { display: flex; align-items: baseline; gap: 5px; font-size: 13px; }
+.task-log-state { flex-shrink: 0; padding: 1px 6px; border-radius: 4px; background: ${UiColor.field}; color: ${UiColor.onSelected}; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.task-state-note-body { min-width: 0; overflow-wrap: anywhere; }
+.task-state-note-body > main { display: contents; }
+.task-state-note-body > p:first-child, .task-state-note-body > main > p:first-child { margin-top: 0; }
 .task-log :is(p, ul, ol, pre, blockquote, .source, .drawer, .table-scroll) { margin-top: 2px; margin-bottom: 2px; }
 .task-log :is(p, li, pre, code, table, .source-code, .heading-title) { font-size: 13px; line-height: 1.5; color: inherit; }
 .task-log :is(ul, ol) { padding-left: 18px; }

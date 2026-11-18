@@ -156,20 +156,6 @@ impl Context<'_> {
     }
 
     fn loki_spawn(&mut self, rule: &Rule<'_>, source: usize, target: usize) -> Result<()> {
-        if let Some(id) = self.prop(target, "LOKI_NEXT_ID")? {
-            let matches = self.find(
-                &Call {
-                    name: "ids".into(),
-                    args: vec![Value::String(id)],
-                },
-                source,
-            )?;
-            if matches.len() != 1 || matches[0] == target {
-                return Err(error("Loki 后继关联失效，请检查本文件 LOKI_NEXT_ID"));
-            }
-            self.node(matches[0])?;
-            return Ok(());
-        }
         let date = self.loki_date(rule, source, target, "SCHEDULED")?;
         let node = self.node(target)?;
         let state = node.todo_keyword();
@@ -238,7 +224,6 @@ impl Context<'_> {
         if let Some(trigger) = trigger {
             self.set_property(next, "TRIGGER", &trigger)?;
         }
-        self.set_property(target, "LOKI_NEXT_ID", &id)?;
         // 新增待办后，完成的祖先必须恢复，统计与其他状态修改遵循同一规则。
         self.reopen_ancestors(next)
     }

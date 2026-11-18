@@ -56,7 +56,7 @@ export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'li
 export type ContentBlockChange = { type: 'replace'; id: string; source: string } | { type: 'link'; id: string; link: TextLink; value: LinkValue | null };
 export interface TaskPropertyChange { name: string; value: string | null; }
 export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskPropertyChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
-export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
+export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; note?: string; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskNoteAddition { path: TaskPath; note: string; }
 export interface TaskDeletion { path: TaskPath; }

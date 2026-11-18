@@ -37,6 +37,7 @@ impl Fixture {
             .clone();
         TaskOperationGroup {
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path,
                 modifications: vec![TaskModification::Title(Some(title.into()))],
             })],
@@ -229,6 +230,7 @@ async fn progress_changes_keep_nested_write_paths_but_do_not_bypass_file_version
     assert_eq!(path.titles, ["Parent", "Child"]);
     let mut group = TaskOperationGroup {
         operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: path.clone(),
             modifications: vec![TaskModification::Notes(Some("New notes\n".into()))],
         })],
@@ -500,6 +502,7 @@ async fn repeated_merging_keeps_archives_out_of_notes_and_notes_edits_preserve_m
     );
     let group = TaskOperationGroup {
         operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: second.main_path,
             modifications: vec![TaskModification::Notes(Some("edited\n".into()))],
         })],
@@ -585,6 +588,7 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
             .clone();
         let group = TaskOperationGroup {
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path,
                 modifications: vec![TaskModification::Checklist(
                     TaskChecklistChange::SetChecked { id, checked },
@@ -631,6 +635,7 @@ async fn checklist_counts_commit_with_checkbox_before_data_change_events() {
         .clone();
     let invalid = TaskOperationGroup {
         operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path,
             modifications: vec![
                 TaskModification::Checklist(TaskChecklistChange::SetChecked { id, checked: true }),
@@ -684,6 +689,7 @@ async fn title_statistics_match_emacs_for_title_checkbox_todo_and_recursive_upda
             };
             let group = TaskOperationGroup {
                 operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                    note: None,
                     path,
                     modifications: vec![modification],
                 })],
@@ -752,6 +758,7 @@ async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event(
     let child = f.workspace.repos()[0].load_files(&[]).await.unwrap()[0].node_paths()[2].clone();
     let group = TaskOperationGroup {
         operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: child,
             modifications: vec![
                 TaskModification::Todo(Some("DONE".into())),
@@ -785,6 +792,7 @@ async fn recursive_statistics_share_field_edits_versions_rollback_and_one_event(
     let mut invalid = TaskOperationGroup {
         operations: vec![
             TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path: child.clone(),
                 modifications: vec![TaskModification::Todo(Some("TODO".into()))],
             }),
@@ -1188,6 +1196,7 @@ async fn someday_group(workspace: &OrgWorkspace) -> TaskOperationGroup {
         operation_id: None,
         operations: vec![
             TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path: path.clone(),
                 modifications: vec![
                     TaskModification::Todo(Some("TODO".into())),

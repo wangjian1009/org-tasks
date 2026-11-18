@@ -691,6 +691,7 @@ mod tests {
 
     fn rename(file: &FileKey, old: &str, new: &str) -> FileModification {
         FileModification::Operation(TaskOperation::Modification(TaskModificationOperation {
+            note: None,
             path: TaskPath {
                 repo_id: file.0.clone(),
                 file: Some(file.1.clone()),

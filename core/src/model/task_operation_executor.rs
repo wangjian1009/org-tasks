@@ -602,6 +602,12 @@ fn execute_inner(
             if data.modifications.is_empty() {
                 return Err(CoreError::InvalidInput("字段修改列表不能为空"));
             }
+            if data.note.is_some() && (data.modifications.iter()
+                .filter(|change| matches!(change, TaskModification::Todo(_))).count() != 1
+                || data.modifications.iter().any(|change| matches!(change, TaskModification::Todo(None))))
+            {
+                return Err(CoreError::InvalidInput("状态说明必须对应唯一的非空 TODO 修改"));
+            }
             for modification in &data.modifications {
                 let ordinal = item.file.path_headlines().iter()
                     .position(|(_, node)| start(node) == offset)
@@ -617,7 +623,11 @@ fn execute_inner(
                     let ordinal = super::mutation_journal::ordinal_at(&item.file, offset);
                     journal.token_at(ordinal)
                 });
-                modify(&mut item.file, &headline, modification)?;
+                if let TaskModification::Todo(value) = modification && data.note.is_some() {
+                    super::task_state::modify_with_note(&mut item.file, &headline, value.as_deref(), data.note.as_deref())?;
+                } else {
+                    modify(&mut item.file, &headline, modification)?;
+                }
                 // TRIGGER 可以在来源之前插入后继，用事务令牌继续定位本次修改的节点。
                 let updated = if let Some(token) = token {
                     let ordinal = item.file.mutation_journal.as_ref()
@@ -1810,7 +1820,7 @@ mod tests {
         let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
         let path = TaskPath { repo_id: id, file: Some("a.org".into()), titles: vec!["Task".into()], occurrence: 1 };
         let note = TaskOperation::Note(TaskNoteAddition { path: path.clone(), note: "第一行 [[https://example.com][链接]]\n第二行\n* 文字标题".into() });
-        let state = TaskOperation::Modification(TaskModificationOperation { path: path.clone(), modifications: vec![TaskModification::Todo(Some("WAIT".into()))] });
+        let state = TaskOperation::Modification(TaskModificationOperation { note: None, path: path.clone(), modifications: vec![TaskModification::Todo(Some("WAIT".into()))] });
         let group = TaskOperationGroup { operations: vec![note.clone(), state], ..Default::default() };
         workspace.execute_task_operations(&group).await.unwrap();
         let saved = fs::read_to_string(root.join("a.org")).await.unwrap();
@@ -1820,7 +1830,7 @@ mod tests {
         assert!(saved.contains("  第二行\r\n  * 文字标题\r\n"));
         let logs = super::super::task_log::task_logs(&orgize::Org::parse(&saved));
         assert!(logs.iter().any(|log| matches!(log, TaskLog::TaskNote { note_html, .. } if note_html.contains("第二行"))));
-        let invalid = TaskOperation::Modification(TaskModificationOperation { path: path.clone(), modifications: vec![TaskModification::Todo(Some("INVALID".into()))] });
+        let invalid = TaskOperation::Modification(TaskModificationOperation { note: None, path: path.clone(), modifications: vec![TaskModification::Todo(Some("INVALID".into()))] });
         assert!(workspace.execute_task_operations(&TaskOperationGroup { operations: vec![note.clone(), invalid], ..Default::default() }).await.is_err());
         assert_eq!(fs::read_to_string(root.join("a.org")).await.unwrap(), saved);
         assert!(workspace.execute_task_operations(&TaskOperationGroup { operations: vec![note], file_versions: vec![TaskFileVersion { repo_id: path.repo_id.clone(), file: "a.org".into(), version: "stale".into() }], ..Default::default() }).await.is_err());

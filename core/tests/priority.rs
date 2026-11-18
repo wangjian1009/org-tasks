@@ -37,6 +37,7 @@ impl Fixture {
         TaskOperationGroup {
             operation_id: None,
             operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                note: None,
                 path,
                 modifications,
             })],
