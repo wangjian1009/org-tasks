@@ -11,7 +11,7 @@ function draftHtml(value: string): string {
 
 function content(value: TaskEditContent, notes: string | undefined = undefined, tags: string[] | undefined = undefined,
   scheduled: TaskPlanningEdit | null | undefined = undefined, deadline: TaskPlanningEdit | null | undefined = undefined): TaskEditContent {
-  return { ownTags: tags ?? value.ownTags, notes: notes ?? value.notes, notesHtml: notes === undefined ? value.notesHtml : draftHtml(notes),
+  return { noteRequiredStates: value.noteRequiredStates ?? [], ownTags: tags ?? value.ownTags, notes: notes ?? value.notes, notesHtml: notes === undefined ? value.notesHtml : draftHtml(notes),
     checklist: value.checklist, blocks: notes === undefined ? value.blocks :
       (notes.trim().length ? [{ id: value.blocks.find(block => block.kind !== 'checklist')?.id ?? '$local-notes',
         kind: 'text', paragraph: true, blankLinesBefore: 0, source: notes, html: draftHtml(notes), items: [] } as ContentBlock] : [])
@@ -56,7 +56,7 @@ function modify(record: PageTaskRecord, change: TaskModification): boolean {
     const blocks = old.blocks.filter(item => item.id !== block.id || block.source.trim().length > 0).map((item: ContentBlock): ContentBlock =>
       item.id === block.id ? { id: item.id, kind: item.kind, paragraph: item.paragraph, blankLinesBefore: item.blankLinesBefore,
         source: block.source, html: draftHtml(block.source), items: item.items } : item)
-    value.editContent = { ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml, checklist: old.checklist, blocks,
+    value.editContent = { noteRequiredStates: old.noteRequiredStates ?? [], ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml, checklist: old.checklist, blocks,
       scheduledRepeat: old.scheduledRepeat, deadlineRepeat: old.deadlineRepeat, scheduledPlanning: old.scheduledPlanning, deadlinePlanning: old.deadlinePlanning }
   } else if (change.field === 'CHECKLIST') {
     const checklist = change.value as TaskChecklistChange
@@ -69,7 +69,7 @@ function modify(record: PageTaskRecord, change: TaskModification): boolean {
         partial: checklist.type === 'setChecked' ? false : item.partial }
     }
     const old = value.editContent
-    value.editContent = { ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml,
+    value.editContent = { noteRequiredStates: old.noteRequiredStates ?? [], ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml,
       checklist: checklist.type === 'move' ? checklistMovePreview(old.checklist, checklist.id, checklist.beforeId) : old.checklist.map(update), blocks: old.blocks.map((block: ContentBlock): ContentBlock => ({
         id: block.id, kind: block.kind, paragraph: block.paragraph, blankLinesBefore: block.blankLinesBefore,
         source: block.source, html: block.html, items: checklist.type === 'move' ? checklistMovePreview(block.items, checklist.id, checklist.beforeId) : block.items.map(update) })),
@@ -114,7 +114,7 @@ export function createPageTask(metadata: CoreOrgFileMetadata, version: string, c
     state, createdAt: null, closedAt: null, modifiedAt: null, deletedAt: null, priority: metadata.priorityOptions.find(option => option.name === creation.priority) ?? null,
     priorityOptions: metadata.priorityOptions, defaultPriority: metadata.defaultPriority, scheduled: '', deadline: '', tags, ownTags: tags, inheritedTags: [],
     supportTags: { tags: metadata.tagOptions, groups: metadata.tagGroups },
-    editContent: { ownTags: tags, notes: creation.body ?? '', notesHtml: draftHtml(creation.body ?? ''), checklist: [], blocks: [],
+    editContent: { noteRequiredStates: [], ownTags: tags, notes: creation.body ?? '', notesHtml: draftHtml(creation.body ?? ''), checklist: [], blocks: [],
       scheduledRepeat: null, deadlineRepeat: null, scheduledPlanning: null, deadlinePlanning: null },
     filePath: metadata.path, fileName: metadata.path.split('/').pop() ?? metadata.path, level: creation.position.parent.titles.length + 1,
     body: creation.body ?? '', bodyFirstLine: creation.body?.split('\n')[0] ?? null, addressLinks: [], bodyHtml: draftHtml(creation.body ?? ''), logbookHtml: '', logs: [],

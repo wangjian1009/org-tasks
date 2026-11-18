@@ -28,6 +28,7 @@ pub enum TaskOperation {
     FileHaderModification(FileHaderModification),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
+    Note(TaskNoteAddition),
     Movement(TaskMovement),
     Deletion(TaskDeletion),
     Trash(TaskTrash),
@@ -151,6 +152,14 @@ impl TaskCreation {
 pub struct TaskModificationOperation {
     pub path: TaskPath,
     pub modifications: Vec<TaskModification>,
+}
+
+/// 向当前标题的 LOGBOOK 添加带本地时间的独立备注；不替换正文或状态日志。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskNoteAddition {
+    pub path: TaskPath,
+    pub note: String,
 }
 
 /// 完整时间戳输入兼容原接口；结构化编辑由 Core 保真更新原时间戳。

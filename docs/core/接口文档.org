@@ -1262,3 +1262,9 @@ TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对�
 * 删除时间只读投影
 
 ~FilterTask.deleted_at() -> Option<TimestampMs>~ 返回独立废纸篓叶记录自身的删除时刻，来源为非空 ~SOURCE_TRASH_ID~ 标记及有效 ~SOURCE_TIME~ 。普通记录、子树、缺失或非法时间返回 ~None~ ；不继承祖先、不回填时间。既有查询入口支持 ~deleted.*~ 日期条件与 ~o.deleted~ 排序，详见 [[file:查询语言设计.org][查询语言设计]]；不新增提交端点。
+
+* 独立日志备注与状态提示
+
+统一写入入口接受 ~TaskOperation::Note(TaskNoteAddition { path, note })~ ，为标题添加带当前本地时间的独立 LOGBOOK 备注。状态 Modification 仍只提交原 TODO 字段；用户填写备注时，宿主将 Note 与 Modification 放进同一批次，统一校验原文件版本并原子提交。取消备注输入只省略 Note，原状态操作继续执行。
+
+~TaskEditContent.note_required_states~ 返回本快照中需要备注提示的目标状态名，继承配置和进入、离开、完成及重复日志规则由 Core 求值。状态自动日志继续遵循配置，独立 Note 始终写入 LOGBOOK。具体定义及 UML 见 [[file:数据模型.org::*独立日志备注][独立日志备注]]。

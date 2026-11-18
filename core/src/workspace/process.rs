@@ -452,6 +452,7 @@ fn operation_access(group: &crate::TaskOperationGroup) -> Access {
             )),
             Creation(data) => insert(&data.position.parent),
             Modification(data) => insert(&data.path),
+            Note(data) => insert(&data.path),
             Deletion(data) => insert(&data.path),
             Trash(data) => insert(&data.path).and_then(|_| insert(&crate::TaskPath::file(data.target.repo_id.clone(), data.target.path.clone()))),
             Restore(_) => return Access::Exclusive,

@@ -643,6 +643,7 @@ pub(super) async fn run(
                     }
                     TaskOperation::Creation(data) => key(&data.position.parent)?,
                     TaskOperation::Modification(data) => key(&data.path)?,
+                    TaskOperation::Note(data) => key(&data.path)?,
                     TaskOperation::Deletion(data) => key(&data.path)?,
                     TaskOperation::Movement(data) => key(&data.path)?,
                     TaskOperation::ConfilictSelection(data) => key(data

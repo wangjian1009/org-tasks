@@ -49,7 +49,7 @@ export interface TaskPlanningEdit { date: string; time?: TaskPlanningTime | null
 export interface TaskPlanningInfo { readonly date: string; readonly time: TaskPlanningTime | null; }
 export interface TaskRepeatInfo { readonly date: string; readonly hasTime: boolean; readonly rule: TaskRepeatRule | null; }
 export interface TaskChecklistItem { readonly id: string; readonly siblingGroup: string; readonly text: string; readonly checked: boolean; readonly partial: boolean; readonly depth: number; }
-export interface TaskEditContent { readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly blocks: ContentBlock[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
+export interface TaskEditContent { readonly noteRequiredStates: string[]; readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly blocks: ContentBlock[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
 export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }
 export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'; id: string; text: string } | { type: 'setChecked'; id: string; checked: boolean } | { type: 'remove'; id: string } | { type: 'move'; id: string; beforeId: string | null };
 export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly paragraph: boolean; readonly blankLinesBefore: number; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
@@ -58,14 +58,15 @@ export interface TaskPropertyChange { name: string; value: string | null; }
 export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskPropertyChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
+export interface TaskNoteAddition { path: TaskPath; note: string; }
 export interface TaskDeletion { path: TaskPath; }
 export interface TaskTrash { path: TaskPath; target: OrgFileRef; }
 export interface TaskRestore { path: TaskPath; }
 export interface TaskMergeRequest { paths: TaskPath[]; fileVersion: string; }
 export interface TaskMergePlan { operationGroup: TaskOperationGroup; mainPath: TaskPath; }
 export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
-export type TaskOperationType = 'FileNew' | 'FileHaderModification' | 'Creation' | 'Modification' | 'Movement' | 'Deletion' | 'Trash' | 'Restore' | 'ConfilictSelection';
-export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | FileHaderModification | TaskCreation | TaskModificationOperation | TaskMovement | TaskDeletion | TaskTrash | TaskRestore | TaskConfilictSelection; }
+export type TaskOperationType = 'FileNew' | 'FileHaderModification' | 'Creation' | 'Modification' | 'Note' | 'Movement' | 'Deletion' | 'Trash' | 'Restore' | 'ConfilictSelection';
+export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | FileHaderModification | TaskCreation | TaskModificationOperation | TaskNoteAddition | TaskMovement | TaskDeletion | TaskTrash | TaskRestore | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operationId?: string | null; operations: TaskOperation[]; fileVersions?: TaskFileVersion[]; }
 // 事件中的记录是纯数据，不具有 native Task/OrgFileMetadata 对象的方法。

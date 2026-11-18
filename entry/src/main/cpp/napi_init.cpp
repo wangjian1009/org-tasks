@@ -557,6 +557,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
         napi_new_instance(env, constructor, 1, &data, &result) != napi_ok) return nullptr;
     // id 为 Core 的明文逻辑路径；区块及其 paragraph、blankLinesBefore 均随 editContent.blocks 与文档快照原样透传。
     // CONTENT_BLOCK、清单及链接操作沿用原文件版本，在 worker 中由 Core 校验源范围。
+    // editContent.noteRequiredStates 透传 Core 的继承日志判定；Note 与状态修改共用批次 worker。
     for (const char* name : {"orderKey", "id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "deletedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit", "properties", "hasAttach"}) {
         napi_value value;

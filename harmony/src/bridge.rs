@@ -2202,6 +2202,7 @@ mod todo_tests {
         assert_eq!(value["headingParts"][1]["count"]["completed"], 1);
         assert_eq!(value["headingParts"][1]["count"]["total"], 2);
         assert_eq!(value["state"]["category"], "Todo");
+        assert_eq!(value["editContent"]["noteRequiredStates"], serde_json::json!([]));
         assert_eq!(value["hasList"], true);
         assert_eq!(value["hasText"], false);
         assert_eq!(value["logs"][0]["type"], "taskNote");

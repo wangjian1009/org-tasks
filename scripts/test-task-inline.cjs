@@ -335,7 +335,7 @@ function finishFixture(textSaved = true, checkSaved = true) {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} }, released = [];
-  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) }, { Done: 'Done' });
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory,taskModificationGroup){' + code + '\n})', { filename })(module, module.exports, { release: key => released.push(key) }, { Done: 'Done' });
   let checkCalls = 0;
   global.Curve = { EaseInOut: 0 };
   const state = Object.assign(new module.exports.InlineFinish(), { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
@@ -513,19 +513,23 @@ function completionFixture(methodName = 'complete') {
   const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const method = source.match(new RegExp('  async ' + methodName + '\\(\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
-  const code = ts.transpileModule('export class Completion {' + method + '\n}', {
+  const helper = source.match(/  private async withStateNote\([\s\S]*?\n  \}\n/)[0];
+  const code = ts.transpileModule('export class Completion {' + method + helper + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
   const writes = [], released = [];
-  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory){' + code + '\n})', { filename })(
-    module, module.exports, { release: key => released.push(key) }, { Done: 'Done', Todo: 'Todo', Doing: 'Doing' });
-  const task = { state: { name: 'ACTIVE', category: 'Doing' }, targetState: { name: 'FINISHED', category: 'Done' },
+  vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskStateCategory,taskModificationGroup){' + code + '\n})', { filename })(
+    module, module.exports, { release: key => released.push(key) }, { Done: 'Done', Todo: 'Todo', Doing: 'Doing' }, (task, modifications) => ({ operations: [{ type:'Modification', data:{path:task.fullPath,modifications} }],fileVersions:[{repoId:'repo',file:'a.org',version:task.fileVersion}] }));
+  const task = { editContent:{noteRequiredStates:[]},fullPath:{repoId:'repo',file:'a.org',titles:['Task']},fileVersion:'v1', state: { name: 'ACTIVE', category: 'Doing' }, targetState: { name: 'FINISHED', category: 'Done' },
     reopenState: { name: 'READY', category: 'Todo' }, doingState: { name: 'ACTIVE', category: 'Doing' },
     taskStateOf(category) { return category === 'Todo' ? this.reopenState : category === 'Doing' ? this.doingState : this.targetState; },
     isDone() { return this.state?.category === 'Done' || this.state?.category === 'Cancel'; } };
   const state = Object.assign(new module.exports.Completion(), {
     completing: false, working: false, snapshotBlocked: false, expanded: false, ownerKey: 'task',
+    appeared:true,removed:false,applySnapshot:()=>{},actionError:error=>{state.message=error.message},
+    currentTask:async()=>task,localDataSet:()=>({settle:async()=>{},getTask:()=>task,submitOperationGroup:async group=>{state.groups.push(group);if(!await state.persist(group.operations.find(op=>op.type==='Modification').data.modifications))throw new Error('提交失败')}}),
+    groups:[],requestNote:async()=>undefined,
     value: () => task, prepare: async () => true, finish: async () => true,
     persist: async changes => { writes.push(changes); return true; }
   });
@@ -551,7 +555,7 @@ test('完成任务重复点击只提交一次，写入失败保留展开态', as
   f.state.expanded = true;
   f.state.persist = async changes => { f.writes.push(changes); return await new Promise(resolve => { finishWrite = resolve; }); };
   const pending = f.state.complete();
-  await Promise.resolve(); await Promise.resolve();
+  await new Promise(resolve=>setImmediate(resolve));
   await f.state.complete();
   assert.equal(f.writes.length, 1);
   finishWrite(false); await pending;
@@ -592,7 +596,7 @@ test('重新打开时草稿保存失败、提交失败和重复点击均沿用�
   f.state.finish = async () => true;
   f.state.persist = async changes => { f.writes.push(changes); return new Promise(resolve => { finishWrite = resolve; }); };
   const pending = f.state.complete();
-  await Promise.resolve(); await Promise.resolve();
+  await new Promise(resolve=>setImmediate(resolve));
   await f.state.complete();
   assert.deepEqual(f.writes, [[{ field: 'TODO', value: 'READY' }]]);
   finishWrite(false); await pending;
@@ -769,4 +773,52 @@ test('编辑器只向传入的 DataManager 注册一个 DataSet，变化回调�
  const card=Object.assign(new module.exports.Card(),{dataChanges:{revision:0},refreshRequest:0,pending:new Promise(()=>{}),localDataSet:()=>dataSet,
   localDataSet:()=>({taskKey:()=>dataSet.key,watchTask(_id,callback){notify=callback;return()=>{};}}),applySnapshot(task){assert.equal(task,current);applies++;}});
  card.aboutToAppear();notify({task:current});assert.equal(applies,1);
+});
+
+
+test('状态备注取消仍提交状态；填写时 Note 与状态共用原文件版本，页面离开后不提交', async () => {
+  for (const note of [undefined, '切换备注']) {
+    const f=completionFixture();f.task.editContent.noteRequiredStates=['FINISHED'];
+    f.state.requestNote=async()=>note;await f.state.complete();
+    assert.equal(f.state.groups.length,1);const group=f.state.groups[0];
+    assert.equal(group.operations.length,note===undefined?1:2);
+    assert.equal(group.fileVersions[0].version,'v1');
+    if(note!==undefined)assert.deepEqual(group.operations[0],{type:'Note',data:{path:f.task.fullPath,note}});
+  }
+  const f=completionFixture();f.task.editContent.noteRequiredStates=['FINISHED'];
+  f.state.requestNote=async()=>{f.state.appeared=false;return '不应提交'};
+  await f.state.complete();assert.equal(f.state.groups.length,0);
+});
+
+test('备注窗口键盘不锁住宿主操作，窗口消失后恢复卡片键盘监控', async () => {
+  const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
+  const method=source.match(/  private async requestNote\([\s\S]*?\n  \}\n/)[0];
+  const keyboard=source.match(/  private keyboardChanged = \(height: number\): void => \{[\s\S]*?\n  \}/)[0];
+  const module={exports:{}};let dialog;
+  class Controller {constructor(options){dialog=options}open(){}}
+  const code=ts.transpileModule('export class NoteInput {'+method+keyboard+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  vm.runInThisContext('(function(module,exports,CustomDialogController,TaskNoteDialog,DialogAlignment){'+code+'\n})')(module,module.exports,Controller,options=>options,{Center:0});
+  const card=Object.assign(new module.exports.NoteInput(),{expanded:true,typing:false});
+  const pending=card.requestNote(true);card.keyboardChanged(600);
+  assert.equal(card.typing,false);dialog.builder.finished('备注');assert.equal(await pending,'备注');
+  card.keyboardChanged(600);assert.equal(card.typing,false);dialog.onDidDisappear();
+  card.keyboardChanged(600);assert.equal(card.typing,true);card.keyboardChanged(0);assert.equal(card.typing,false);
+});
+
+test('开始、暂停和等待复用备注提示；取消保留原字段，填写生成同一批次',async()=>{
+  const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
+  const methods=['changeState','withStateNote','start','stop','wait'].map(name=>source.match(new RegExp('  (?:private )?async '+name+'\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
+  const module={exports:{}};
+  const code=ts.transpileModule('export class StateActions {'+methods+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const group=(task,modifications)=>({operations:[{type:'Modification',data:{path:task.fullPath,modifications}}],fileVersions:[{version:'v1'}]});
+  vm.runInThisContext('(function(module,exports,TaskStateCategory,TaskInlineSession,taskModificationGroup){'+code+'\n})')(module,module.exports,{Todo:'Todo',Doing:'Doing',Wait:'Wait'},{release(){}},group);
+  for(const [method,from,to] of [['start','Todo','Doing'],['stop','Doing','Todo'],['wait','Todo','Wait']]){
+    for(const note of [undefined,'状态说明']){
+      const task={state:{category:from},fullPath:{repoId:'repo',file:'a.org',titles:['Task']},editContent:{noteRequiredStates:[to]},taskStateOf:category=>({name:category}),scheduled:'2020-01-01'};
+      const card=Object.assign(new module.exports.StateActions(),{appeared:true,removed:false,expanded:true,actionsAvailable:()=>true,actionSource:async()=>task,requestNote:async()=>note});
+      const result=await card[method]();assert.equal(result.operations.length,note===undefined?1:2);
+      assert.deepEqual(result.operations.at(-1).data.modifications,[{field:'TODO',value:to}]);
+      if(note!==undefined)assert.equal(result.operations[0].data.note,note);
+    }
+  }
 });

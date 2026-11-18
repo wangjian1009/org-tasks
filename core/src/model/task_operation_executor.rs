@@ -159,6 +159,9 @@ impl WorkspaceState {
                 TaskOperation::Modification(data) => {
                     touched.insert(data.path.repo_id.clone());
                 }
+                TaskOperation::Note(data) => {
+                    touched.insert(data.path.repo_id.clone());
+                }
                 TaskOperation::Deletion(data) => {
                     touched.insert(data.path.repo_id.clone());
                 }
@@ -484,6 +487,9 @@ fn execute(
         TaskOperation::Modification(data) => {
             locate(&files[&key(&data.path)?].file, &data.path)?;
         }
+        TaskOperation::Note(data) => {
+            locate(&files[&key(&data.path)?].file, &data.path)?;
+        }
         TaskOperation::Deletion(data) => {
             locate(&files[&key(&data.path)?].file, &data.path)?;
         }
@@ -719,6 +725,13 @@ fn execute_inner(
                     replace(&mut item.file, range, value.as_bytes())?;
                 }
             }
+            Ok(Some(path_at(&item.file, offset)?))
+        }
+        TaskOperation::Note(data) => {
+            let item = files.get_mut(&key(&data.path)?).expect("已加载文件");
+            let headline = locate(&item.file, &data.path)?;
+            let offset = start(&headline);
+            super::task_state::add_note(&mut item.file, &headline, &data.note, chrono::Local::now().naive_local())?;
             Ok(Some(path_at(&item.file, offset)?))
         }
         TaskOperation::Deletion(data) => {
@@ -1775,6 +1788,41 @@ fn store_error(error: std::io::Error) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn notes_and_state_changes_commit_together_and_preserve_surrounding_bytes() {
+        let root = std::env::temp_dir().join(format!("task-note-{}", super::super::service::generate_repo_id().unwrap()));
+        fs::create_dir(&root).await.unwrap();
+        let source = "#+TODO: TODO WAIT(w@) | DONE\r\n* TODO Task\r\n:PROPERTIES:\r\n:ID: keep\r\n:END:\r\n正文\r\n:LOGBOOK:\r\n- Note taken on [2026-01-01 Thu 10:00] \\\\\r\n  已有备注\r\n:END:\r\n** Child\r\n原样保留\r\n* TODO Other\r\n不相关正文\r\n";
+        fs::write(root.join("a.org"), source).await.unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
+        let id = repo.id.clone();
+        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
+        let path = TaskPath { repo_id: id, file: Some("a.org".into()), titles: vec!["Task".into()], occurrence: 1 };
+        let note = TaskOperation::Note(TaskNoteAddition { path: path.clone(), note: "第一行 [[https://example.com][链接]]\n第二行\n* 文字标题".into() });
+        let state = TaskOperation::Modification(TaskModificationOperation { path: path.clone(), modifications: vec![TaskModification::Todo(Some("WAIT".into()))] });
+        let group = TaskOperationGroup { operations: vec![note.clone(), state], ..Default::default() };
+        workspace.execute_task_operations(&group).await.unwrap();
+        let saved = fs::read_to_string(root.join("a.org")).await.unwrap();
+        assert!(saved.contains("* WAIT Task\r\n:PROPERTIES:\r\n:ID: keep\r\n:END:\r\n"), "{saved}");
+        assert!(saved.contains("正文\r\n:LOGBOOK:"), "{saved}");
+        assert!(saved.ends_with("** Child\r\n原样保留\r\n* TODO Other\r\n不相关正文\r\n"));
+        assert!(saved.contains("  第二行\r\n  * 文字标题\r\n"));
+        let logs = super::super::task_log::task_logs(&orgize::Org::parse(&saved));
+        assert!(logs.iter().any(|log| matches!(log, TaskLog::TaskNote { note_html, .. } if note_html.contains("第二行"))));
+        let invalid = TaskOperation::Modification(TaskModificationOperation { path: path.clone(), modifications: vec![TaskModification::Todo(Some("INVALID".into()))] });
+        assert!(workspace.execute_task_operations(&TaskOperationGroup { operations: vec![note.clone(), invalid], ..Default::default() }).await.is_err());
+        assert_eq!(fs::read_to_string(root.join("a.org")).await.unwrap(), saved);
+        assert!(workspace.execute_task_operations(&TaskOperationGroup { operations: vec![note], file_versions: vec![TaskFileVersion { repo_id: path.repo_id.clone(), file: "a.org".into(), version: "stale".into() }], ..Default::default() }).await.is_err());
+        assert_eq!(fs::read_to_string(root.join("a.org")).await.unwrap(), saved);
+        for note in ["  ", "正文\n:END:\n* 注入标题", "正文\r:END:\r* 注入标题", "正文\0"] {
+            let operation = TaskOperation::Note(TaskNoteAddition { path: path.clone(), note: note.into() });
+            assert!(workspace.execute_task_operations(&TaskOperationGroup { operations: vec![operation], ..Default::default() }).await.is_err());
+            assert_eq!(fs::read_to_string(root.join("a.org")).await.unwrap(), saved);
+        }
+        workspace.stop().await.unwrap();
+        fs::remove_dir_all(root).await.unwrap();
+    }
     #[tokio::test]
     async fn repeated_operations_moves_and_trigger_read_and_save_each_file_once() {
         let root = std::env::temp_dir().join(format!("task-operation-io-{}", super::super::service::generate_repo_id().unwrap()));

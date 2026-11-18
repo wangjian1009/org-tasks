@@ -22,6 +22,8 @@ pub struct TaskChecklistItem {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskEditContent {
+    /// 当前快照中切换到这些状态时需要提示备注；继承与日志优先级由 Core 求值。
+    pub note_required_states: Vec<String>,
     pub own_tags: Vec<String>,
     pub notes: String,
     pub notes_html: String,
@@ -175,6 +177,8 @@ impl OrgFile {
             .collect::<String>();
         let checklist = checklist_lists(&headline).iter().flat_map(|list| project_checklist(self, list)).collect();
         Ok(TaskEditContent {
+            // 非法日志配置不妨碍读取；真实状态操作仍由写入入口报错。
+            note_required_states: super::task_state::note_required_states(self, &headline).unwrap_or_default(),
             own_tags: headline.tags().map(|tag| tag.to_string()).collect(),
             notes_html: if notes.trim().is_empty() { String::new() } else { super::text_link::editable_html(&notes) },
             notes,
@@ -192,6 +196,39 @@ impl OrgFile {
 mod tests {
     use super::*;
     use crate::{TaskModification, model::task_operation_executor::modify};
+
+    #[test]
+    fn state_note_requirements_resolve_enter_leave_and_inherited_overrides() {
+        let source = "#+TODO: TODO(t) WAIT(w@/!) NEXT(n!) | DONE(d@)\n* TODO Parent\n:PROPERTIES:\n:LOGGING: TODO(t) WAIT(w@/@) NEXT(n!) DONE(d)\n:END:\n** WAIT Child\n";
+        let file = file(source);
+        let child = file.path_headlines().into_iter().last().unwrap().0;
+        let states = file.task_edit_content(&child).unwrap().note_required_states;
+        assert!(states.contains(&"TODO".into()));
+        assert!(states.contains(&"WAIT".into()));
+        assert!(states.contains(&"DONE".into()));
+        assert!(!states.contains(&"NEXT".into()));
+        let disabled = file_with_logging_nil(source);
+        assert!(projection(&disabled).note_required_states.is_empty());
+    }
+
+    fn file_with_logging_nil(source: &str) -> OrgFile {
+        file(&source.replace("TODO(t) WAIT(w@/@) NEXT(n!) DONE(d)", "nil"))
+    }
+
+    #[test]
+    fn state_note_requirements_cover_closing_and_repeating_notes() {
+        for source in [
+            "#+STARTUP: lognotedone\n* TODO Task\n",
+            "#+STARTUP: lognoterepeat\n* TODO Task\nSCHEDULED: <2026-11-18 Wed +1d>\n",
+            "#+STARTUP: lognoterepeat\n* TODO Task\nSCHEDULED: <2026-11-18 Wed .+1w/2w>\n",
+        ] {
+            assert_eq!(projection(&file(source)).note_required_states, vec!["DONE"]);
+        }
+        assert!(projection(&file("#+STARTUP: lognoterepeat\n* TODO Task\n")).note_required_states.is_empty());
+        assert!(projection(&file("* TODO Task\n")).note_required_states.is_empty());
+        assert!(projection(&file("#+STARTUP: lognoterepeat\n* TODO Parent\n** DONE Child\nSCHEDULED: <2026-11-18 Wed +1d>\n")).note_required_states.is_empty());
+        assert!(projection(&file("#+TODO: TODO(t) | DONE(d!)\n#+STARTUP: lognotedone\n* TODO Task\n")).note_required_states.is_empty());
+    }
     fn file(source: &str) -> OrgFile {
         OrgFile::new(
             "repo".into(),

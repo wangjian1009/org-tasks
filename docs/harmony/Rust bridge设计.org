@@ -815,3 +815,9 @@ TaskOperationType 增加 ~Trash~ 与 ~Restore~ ，数据分别为 ~TaskTrash { p
 Workspace 新增 ~watchExternalFileChanges(monitor): Promise<number>~ 与 ~stopWatchingExternalFileChanges(id): void~ ，映射 Core 的 ~watch_external_file_changes~ 和句柄释放。C ABI 使用独立订阅表，C++ 在工作线程注册，复用数据回调的 TSFN 编组；Workspace 析构、注册后页面已关闭及失败路径均释放订阅和回调资源。
 
 回调对象为 ~{ type: 'externalFileChanged', changeFiles: [{ file: { repoId, path }, kind }] }~ ， ~kind~ 为 ~created~ 、 ~deleted~ 或 ~updated~ 。原 ~repositoryChanged~ wire 名称改为 ~notificationEvent~ ，保留现有精确增量字段并新增 ~notifications~ 。Bridge 不决定文件范围与通知条件，不扫描或解析文件；前者由 DataSetManager 根据查询选择刷新项，后者由 Core 在广播前完成。通知模块继续只接收通知列表订阅。完整模型见 [[file:../core/外部文件变化监控设计.org][外部文件变化监控设计]] 。
+
+* 日志备注操作与状态提示
+
+Rust 的 ~TaskNoteAddition { path, note }~ 以 ~{ type: 'Note', data: { path, note } }~ 通过原批量 worker 透传，不增加单次写入通道。~TaskEditContent.note_required_states~ 经原 ~editContent~ 对象映射为 ~noteRequiredStates~ ，C++ 和 ArkTS 均不解释 TODO 标记或继承属性。页面快照、缓存恢复与乐观字段投影保留该列表；最终状态规则仍由 Core 校验。
+
+TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet 提交；完成、重新打开、开始、暂停、等待以及整理中的状态操作均通过统一备注提示。输入非空备注后将 Note 放在同批次状态修改前，取消与遮罩关闭仅省略 Note；页面退出或任务删除结束等待并丢弃整个待提交动作。

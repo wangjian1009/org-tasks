@@ -688,6 +688,7 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
                 paths.push(&v.position.parent);
             }
             TaskOperation::Modification(v) => paths.push(&v.path),
+            TaskOperation::Note(v) => paths.push(&v.path),
             TaskOperation::Deletion(v) => paths.push(&v.path),
             TaskOperation::Trash(v) => paths.push(&v.path),
             TaskOperation::Restore(v) => paths.push(&v.path),
@@ -1443,6 +1444,7 @@ fn remap_operation(
             }
         }
         TaskOperation::Modification(v) => path(&mut v.path, id, source)?,
+        TaskOperation::Note(v) => path(&mut v.path, id, source)?,
         TaskOperation::Deletion(v) => path(&mut v.path, id, source)?,
         TaskOperation::Movement(v) => {
             path(&mut v.path, id, source)?;

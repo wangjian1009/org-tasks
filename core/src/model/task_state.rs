@@ -133,6 +133,44 @@ fn node_at(file: &OrgFile, offset: usize) -> Result<Headline, CoreError> {
         .ok_or(CoreError::InvalidInput("状态修改破坏了标题结构"))
 }
 
+/// 复用状态写入的有效日志配置，宿主不解释 TODO 后缀或继承属性。
+pub(super) fn note_required_states(file: &OrgFile, headline: &Headline) -> Result<Vec<String>, CoreError> {
+    let settings = Logging::load(file, headline)?;
+    let previous = headline.todo_keyword().map(|value| value.to_string());
+    let was_done = previous.as_deref().is_some_and(|state| file.todo.is_done(state));
+    let repeating = settings.repeat == Some(TodoLogAction::Note)
+        && repeat_timestamps(headline).values().any(|(_, raw)| repeater(raw).is_some());
+    Ok(file.todo.workflows.iter().flat_map(|flow| &flow.states).filter(|state| {
+        let action = settings.states.get(&state.name).and_then(|pair| pair.0)
+            .or_else(|| previous.as_ref().and_then(|name| settings.states.get(name)).and_then(|pair| pair.1));
+        let entered_done = file.todo.is_done(&state.name) && !was_done;
+        action == Some(TodoLogAction::Note)
+            || (entered_done && repeating && settings.repeat == Some(TodoLogAction::Note))
+            || (entered_done && action.is_none() && settings.done == Some(TodoLogAction::Note))
+    }).map(|state| state.name.clone()).collect())
+}
+
+pub(super) fn add_note(file: &mut OrgFile, headline: &Headline, note: &str, now: NaiveDateTime) -> Result<(), CoreError> {
+    let text = note.replace("\r\n", "\n").replace('\r', "\n");
+    if text.trim().is_empty() || text.contains('\0') || text.lines().any(|line| {
+        let text = line.trim();
+        text.starts_with(':') && text.ends_with(':')
+    }) {
+        return Err(CoreError::InvalidInput("备注不能为空或包含 drawer 标记及 NUL"));
+    }
+    let nl = newline(file);
+    let mut log = format!("- Note taken on {} \\\\", now.format("[%Y-%m-%d %a %H:%M]"));
+    for line in text.trim_end().split('\n') {
+        log.push_str(nl);
+        log.push_str("  ");
+        log.push_str(line);
+    }
+    // 显式备注始终进入 LOGBOOK；自动状态日志仍尊重原配置的存放位置。
+    let mut settings = Logging::load(file, headline)?;
+    settings.drawer = Some("LOGBOOK".into());
+    add_log(file, headline, &settings, &log)
+}
+
 fn set_keyword(
     file: &mut OrgFile,
     headline: &Headline,
@@ -780,10 +818,7 @@ pub(super) fn mask_repeater_windows(source: &str) -> String {
     String::from_utf8(bytes).expect("只替换 ASCII 重复窗口")
 }
 
-fn repeat_edits(
-    headline: &Headline,
-    now: NaiveDateTime,
-) -> Result<Vec<(Range<usize>, String)>, CoreError> {
+fn repeat_timestamps(headline: &Headline) -> BTreeMap<usize, (usize, String)> {
     let mut timestamps = BTreeMap::new();
     for node in headline.syntax().descendants() {
         if node
@@ -824,8 +859,15 @@ fn repeat_edits(
             }
         }
     }
+    timestamps
+}
+
+fn repeat_edits(
+    headline: &Headline,
+    now: NaiveDateTime,
+) -> Result<Vec<(Range<usize>, String)>, CoreError> {
     let mut edits = Vec::new();
-    for (begin, (end, raw)) in timestamps {
+    for (begin, (end, raw)) in repeat_timestamps(headline) {
         if repeater(&raw).is_some() {
             edits.push((begin..end, shift(&raw, now)?));
         }

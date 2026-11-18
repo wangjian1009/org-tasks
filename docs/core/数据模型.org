@@ -1049,7 +1049,7 @@ logbook\_html: String \\
 
 * 统一任务操作模型
 
-以下类型均定义于 ~core::model~ 。 ~TaskOperationGroup~ 代表一次批量修改， ~operations~ 按列表顺序执行。各类操作分别拥有独立数据结构，不共享输入基类。JSON 操作以 ~type~ 区分 ~FileNew~ 、 ~FileHaderModification~ 、 ~Creation~ 、 ~Modification~ 、 ~Movement~ 、 ~Deletion~ 、 ~Trash~ 、 ~Restore~ 和 ~ConfilictSelection~ ，对应数据位于 ~data~ ；结构体字段使用 camelCase。
+以下类型均定义于 ~core::model~ 。 ~TaskOperationGroup~ 代表一次批量修改， ~operations~ 按列表顺序执行。各类操作分别拥有独立数据结构，不共享输入基类。JSON 操作以 ~type~ 区分 ~FileNew~ 、 ~FileHaderModification~ 、 ~Creation~ 、 ~Modification~ 、 ~Note~ 、 ~Movement~ 、 ~Deletion~ 、 ~Trash~ 、 ~Restore~ 和 ~ConfilictSelection~ ，对应数据位于 ~data~ ；结构体字段使用 camelCase。
 
 ~operation_id~ 是可选操作来源标识，JSON 为 ~operationId~ ，缺省或空值表示 ~None~ 。实际提交成功后，同一操作产生的仓库数据变化通知透传该标识；它不改变操作规则和事务语义，也不作为幂等键。同步、重置和旧调用无来源标识时，通知保留空值。
 
@@ -1080,6 +1080,7 @@ pub enum TaskOperation {
     FileHaderModification(FileHaderModification),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
+    Note(TaskNoteAddition),
     Movement(TaskMovement),
     Deletion(TaskDeletion),
     Trash(TaskTrash),
@@ -1120,6 +1121,13 @@ impl TaskCreation {
         Self {position,title,body:String::new(),state:None,priority:None,tags:Vec::new(),
             scheduled:None,deadline:None}
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskNoteAddition {
+    pub path: TaskPath,
+    pub note: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1255,6 +1263,18 @@ pub struct TaskFileInitialTask {
 
 模板实际文件头中的空 ~SETUPFILE~ 声明在仓库根目录存在 ~.setup.org~ 时补全引用路径，否则保留空声明；该字段不作为模板参数，读取设置时忽略空路径。模板真实属性抽屉中的空 ~ID~ 独立生成 UUID v4，已有 ID 及源码块中的字面文本保留；生成后随新文件持久化，读取或移动不重新生成。模板、设置和目标的读取依赖参与提交前校验；源版本变化、任意初始化失败或普通提交失败时不留下新文件或部分迁移。成功的新文件及其任务进入既有变更通知与操作历史。
 
+** 独立日志备注
+
+~TaskOperation::Note(TaskNoteAddition { path, note })~ 向当前标题真实 LOGBOOK 添加一条 ~Note taken on~ 记录。时间由 Core 使用当前本地时间生成，多行内容按列表续行写入，沿用文件换行风格与日志顺序；没有 LOGBOOK 时在规划、属性之后创建。空白、NUL 和 drawer 标记输入拒绝，未涉及正文、属性、清单与子标题保持原样。显式备注固定进入 LOGBOOK，不受自动日志的存放位置配置影响。
+
+状态切换需要备注时，Note 放在状态 Modification 之前，与状态操作共享文件版本、事务、事件和回退；该顺序保证重复任务修改标题时间戳后仍能准确定位原任务。备注保持独立记录，不填入状态日志说明。取消输入不添加 Note，原状态、重复调度与触发器继续执行。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskOperationGroup}{operations: Vec}{}
+\umlclass[x=6,y=0]{TaskNoteAddition}{path: TaskPath \\ note: String}{}
+\umldep{TaskOperationGroup}{TaskNoteAddition}
+\end{tikzpicture}
+
 ** 创建与字段修改
 
 创建显式指定标题、插入位置和可选状态；未提供状态时创建无状态标题。状态须属于目标文件有效 TODO 配置；宿主需要创建任务时从文件元信息取得初始状态。正文不允许引入额外标题。Core 在每次创建时自动生成精确到分钟的本地非活动 ~CREATED~ 时间戳；创建参数不接受创建时间开关或关闭时间。创建为有效完成状态时，只有文件的关闭日志配置启用才生成 ~CLOSED~ ；配置关闭说明时同时记录空说明日志，不模拟一次进入状态的切换。
@@ -1303,7 +1323,7 @@ pub struct TaskFileInitialTask {
 
 *** 配置驱动的日志
 
-应用默认关闭完成、普通状态及重复日志：没有对应配置时不生成关闭时间或新的日志项，已有日志保持原样。重复任务的 ~LAST_REPEAT~ 仅在重复日志启用或已有真实 CLOCK 时按 Org 规则更新。关键词 ~!~ 记录进入状态时间， ~@~ 记录带时间的说明，斜线后的标记记录离开状态；目标状态有进入日志时优先使用目标配置，不重复记录来源日志。当前接口不接收说明文本， ~@~ 按 Org 允许的空说明确认方式记录。清除为无状态不写状态日志；显式重复设置同一状态时，按 Org 的关键词配置记录。
+应用默认关闭完成、普通状态及重复日志：没有对应配置时不生成关闭时间或新的日志项，已有日志保持原样。重复任务的 ~LAST_REPEAT~ 仅在重复日志启用或已有真实 CLOCK 时按 Org 规则更新。关键词 ~!~ 记录进入状态时间， ~@~ 记录带时间的说明，斜线后的标记记录离开状态；目标状态有进入日志时优先使用目标配置，不重复记录来源日志。状态操作不接收说明文本；宿主按 ~TaskEditContent.note_required_states~ 提示输入，将独立 ~Note~ 与状态修改放入同一操作组。取消输入仅省略 Note， ~@~ 仍按空说明方式记录状态日志。清除为无状态不写状态日志；显式重复设置同一状态时，按 Org 的关键词配置记录。
 
 重新打开完成或取消任务时，宿主仅提交有效待办状态；Core 清理自身 ~CLOSED~ ，保留已有状态日志、关闭说明和 CLOCK，不修改计划、截止、重复日期或 ~LAST_REPEAT~ 。是否新增重新打开日志仅由目标进入标记或来源离开标记决定，只有关闭日志配置时不自动新增状态日志。即使日志已禁用，本应用仍清理旧关闭时间；这是与 org-mode 在关闭日志禁用时保留旧 ~CLOSED~ 的明确差异。
 
@@ -1616,6 +1636,7 @@ after: Option\textless Bytes\textgreater}{}
 
 #+begin_src rust
 pub struct TaskEditContent {
+    pub note_required_states: Vec<String>,
     pub own_tags: Vec<String>,
     pub notes: String,
     pub notes_html: String,
@@ -1644,6 +1665,8 @@ pub enum TaskChecklistChange {
 }
 #+end_src
 
+~note_required_states~ 按当前状态和目标状态列出需要提示备注的有效状态名。Core 复用状态写入的进入优先于离开规则，解析继承的 LOGGING、文件与 SETUPFILE 配置，并涵盖关闭与重复说明配置；该值只属于当前快照，不持久化。无状态目标不写状态日志，因此不在该列表中。非法日志配置不阻止读取，真实写入仍报错。
+
 ~notes_html~ 由 Core 对相同的 ~notes~ 生成安全展示片段，复用显式链接、裸链接、行内格式与正文转义规则；它不进入持久化、同步或写入参数。Harmony 以 ~notesHtml~ 原样透传，宿主只切换展示与原始备注输入，不从 HTML 重建备注或清单。
 
 条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态修改 checkbox token，并由 Core 重算所属标题中已有的统计节点；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
@@ -1669,7 +1692,7 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 #+end_src
 
 \begin{tikzpicture}
-\umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ notes\_html: String \\ own\_tags: Vec}{}
+\umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ notes\_html: String \\ own\_tags: Vec \\ note\_required\_states: Vec}{}
 \umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ sibling\_group: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
 \umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove \\ Move}{}
 \umlclass[x=7,y=-4]{TaskPlanningInfo}{date: String}{}

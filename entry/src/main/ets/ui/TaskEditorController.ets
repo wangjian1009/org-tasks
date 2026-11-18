@@ -8,6 +8,7 @@ export interface TaskEditorActions {
   setSchedule(value: CoreTaskPlanningEdit | null, allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   setDeadline(value: CoreTaskPlanningEdit | null, allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   remove(allowed?: () => boolean, expectedVersion?: string): Promise<CoreTaskOperationGroup | undefined>
+  startNote(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   startMove(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   startSchedule(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   startDeadline(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
@@ -35,6 +36,10 @@ export class TaskEditorController {
   canDelete(): boolean { return this.editor?.deletionAvailable() ?? false }
   isBound(): boolean { return this.editor !== undefined }
 
+  async startNote(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    if (allowed() && this.canActivate()) return await this.editor?.startNote(allowed)
+    return undefined
+  }
   async startMove(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     if (allowed() && this.canActivate()) return await this.editor?.startMove(allowed)
     return undefined

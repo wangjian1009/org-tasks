@@ -5,7 +5,7 @@ import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskP
 import { TaskEditorController } from '../../ui/TaskEditorController'
 import { TaskEditorActionResult } from '../../ui/TaskEditorActionResult'
 import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
-import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskPlanningEdit, CoreTaskOperationGroup, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
+import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskModificationOperation, CoreTaskPlanningEdit, CoreTaskOperationGroup, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineSession } from '../../services/TaskInlineService'
 import { DataSet, TaskDataChange } from '../../services/DataSet'
 import { InboxService } from '../../services/InboxService'
@@ -15,6 +15,7 @@ import { TaskDateDialog } from './TaskDateDialog'
 import { TaskRepeatDialog } from './TaskRepeatDialog'
 import { repeatSummary } from '../../ui/TaskRepeatPresentation'
 import { TaskTagsDialog } from './TaskTagsDialog'
+import { TaskNoteDialog } from './TaskNoteDialog'
 import { MoveToTarget } from './MoveToTarget'
 import { RefileSection, refileSections } from '../../ui/MoveToTargetPresentation'
 import { PopupMenuButton } from '../controls/PopupMenuButton'
@@ -132,6 +133,9 @@ export struct TaskEditor {
   private dateDialog: CustomDialogController | undefined = undefined
   private tagsDialog: CustomDialogController | undefined = undefined
   private repeatDialog: CustomDialogController | undefined = undefined
+  private noteDialog: CustomDialogController | undefined = undefined
+  private noteFinish: ((note: string | undefined) => void) | undefined = undefined
+  private noteInputOpen: boolean = false
   private pending: Promise<void> = Promise.resolve()
   private checkSaving: Promise<boolean> | undefined = undefined
   private continueCheck: boolean = false
@@ -156,6 +160,8 @@ export struct TaskEditor {
     (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
     (key: string) => { this.getUIContext().getFocusController().requestFocus(key) })
   private keyboardChanged = (height: number): void => {
+    // 备注窗口独占输入；不能把其键盘视为卡片正文输入并阻止返回的操作组。
+    if (this.noteInputOpen) return
     if (!this.expanded) return
     this.typing = height > 0
     AppStorage.setOrCreate('taskInlineTyping', this.typing)
@@ -204,6 +210,50 @@ export struct TaskEditor {
   async start(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     return await this.changeState([TaskStateCategory.Todo, TaskStateCategory.Wait], TaskStateCategory.Doing, allowed)
   }
+  private async requestNote(stateChange: boolean): Promise<string | undefined> {
+    return await new Promise<string | undefined>((resolve) => {
+      this.noteInputOpen = true
+      let settled: boolean = false
+      const finish = (note: string | undefined): void => {
+        if (settled) return
+        settled = true; this.noteFinish = undefined; resolve(note)
+      }
+      this.noteFinish = finish
+      this.noteDialog = new CustomDialogController({
+        builder: TaskNoteDialog({ stateChange, finished: finish }),
+        customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+        onDidDisappear: (): void => { this.noteInputOpen = false },
+        onWillDismiss: (action: DismissDialogAction): void => { finish(undefined); action.dismiss() }
+      })
+      this.noteDialog.open()
+    })
+  }
+  private async withStateNote(source: CoreTask, group: CoreTaskOperationGroup, allowed: () => boolean): Promise<CoreTaskOperationGroup | undefined> {
+    const required = source.editContent.noteRequiredStates ?? []
+    const needsNote = group.operations.some((operation): boolean => {
+      if (operation.type !== 'Modification') return false
+      const data = operation.data as CoreTaskModificationOperation
+      return data.modifications.some((change: CoreTaskModification): boolean =>
+        change.field === 'TODO' && typeof change.value === 'string' && required.includes(change.value))
+    })
+    if (needsNote) {
+      const note = await this.requestNote(true)
+      if (note !== undefined && note.trim()) group.operations.unshift({ type: 'Note', data: { path: source.fullPath, note } })
+    }
+    return this.appeared && !this.removed && allowed() ? group : undefined
+  }
+  async startNote(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    if (!this.actionsAvailable() || !allowed()) return undefined
+    this.completing = true
+    try {
+      const source = await this.actionSource(allowed)
+      if (!source) return undefined
+      const note = await this.requestNote(false)
+      if (note === undefined || !note.trim() || !this.appeared || this.removed || !allowed()) return undefined
+      return { operations: [{ type: 'Note', data: { path: source.fullPath, note } }],
+        fileVersions: [{ repoId: source.repoId, file: source.filePath, version: source.fileVersion }] }
+    } finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
+  }
   async stop(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     return await this.changeState([TaskStateCategory.Doing], TaskStateCategory.Todo, allowed)
   }
@@ -227,7 +277,7 @@ export struct TaskEditor {
         const today = `${now.getFullYear().toString().padStart(4, '0')}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
         if (!source.scheduled || source.scheduled > today) modifications.push({ field: 'SCHEDULE', value: { date: today } })
       }
-      return taskModificationGroup(source, modifications)
+      return await this.withStateNote(source, taskModificationGroup(source, modifications), allowed)
     }
     finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
   }
@@ -293,7 +343,7 @@ export struct TaskEditor {
       if (!source || !allowed()) return
       const groups = await InboxService.operationGroups(this.getUIContext().getHostContext()!, [source], destination)
       if (!this.appeared || !allowed()) return
-      return groups[0]
+      return await this.withStateNote(source, groups[0], allowed)
     }
     finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
   }
@@ -391,11 +441,18 @@ export struct TaskEditor {
     this.completing = true
     try {
       if (!await this.prepare() || !await this.finish(false)) return
-      const state = this.value().taskStateOf(category)
-      if (this.value().state === null || this.value().isDone() !== reopen || !state) return
-      if (await this.persist([{ field: 'TODO', value: state.name }])) {
-        this.expanded = false
-      }
+      await this.localDataSet().settle()
+      const source = await this.currentTask()
+      const state = source.taskStateOf(category)
+      if (source.state === null || source.isDone() !== reopen || !state) return
+      const group = await this.withStateNote(source, taskModificationGroup(source, [{ field: 'TODO', value: state.name }]), () => this.appeared && !this.removed)
+      if (!group) return
+      await this.localDataSet().submitOperationGroup(group, () => this.appeared && !this.removed)
+      const current = this.localDataSet().getTask(this.taskId)
+      if (current) this.applySnapshot(current)
+      else this.removeDeletedTask()
+      this.expanded = false
+    } catch (error) { this.actionError(error as Error)
     } finally {
       this.completing = false
       if (!this.expanded) TaskInlineSession.release(this.ownerKey)
@@ -437,6 +494,7 @@ export struct TaskEditor {
     this.checkFocus.cancel()
     this.cancelCheckDrag()
     this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
+    this.noteFinish?.(undefined); this.noteDialog?.close()
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
@@ -474,6 +532,7 @@ export struct TaskEditor {
     this.cancelCheckDrag()
     this.checkFocus.dispose()
     this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
+    this.noteFinish?.(undefined); this.noteDialog?.close()
     if (this.hostWindow) this.hostWindow.off('keyboardHeightChange', this.keyboardChanged)
     TaskInlineSession.release(this.ownerKey)
   }
@@ -1509,7 +1568,8 @@ export struct TaskEditor {
   moreItems(): PopupMenuItem[] {
     const items: PopupMenuItem[] = []
     if (!this.readOnly) {
-      items.push({ title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
+      items.push({ title: '备注…', icon: $r('app.media.ui_note'), action: () => { this.emitAction(this.startNote()) } },
+        { title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
         { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
     if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {

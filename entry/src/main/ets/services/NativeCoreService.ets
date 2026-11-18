@@ -20,6 +20,7 @@ import {
   TaskMergePlan as NativeTaskMergePlan,
   TaskConfilictSelection as NativeTaskConfilictSelection,
   TaskModification as NativeTaskModification,
+  TaskModificationOperation as NativeTaskModificationOperation,
   TaskChecklistItem as NativeTaskChecklistItem,
   TaskChecklistChange as NativeTaskChecklistChange,
   TaskPlanningTime as NativeTaskPlanningTime,
@@ -116,6 +117,7 @@ export type CoreFileHeaderValue = NativeFileHeaderValue
 
 // 逻辑身份、state、category、hasList、hasText、isRepeating、isHabit 与 properties 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTaskChecklistItem = NativeTaskChecklistItem
+// editContent.noteRequiredStates 由 Core 计算；Note 操作通过统一批次原样透传。
 // 包含 move / beforeId；与 siblingGroup 一起透传，排序规则由 Core 验证。
 export type CoreTaskChecklistChange = NativeTaskChecklistChange
 export type CoreTaskPlanningTime = NativeTaskPlanningTime
@@ -196,6 +198,7 @@ export type CoreHttpUiHandler = HttpUiHandler
 export type CoreHttpUiRequest = HttpUiRequest
 export type CoreHttpUiResponse = HttpUiResponse
 export type CoreHttpServerInfo = NativeHttpServerInfo
+export type CoreTaskModificationOperation = NativeTaskModificationOperation
 export type CoreTaskModification = NativeTaskModification
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
