@@ -19,9 +19,9 @@ export enum TaskOperation {
   Select = 'select'
 }
 
-type TaskCommonOperation = TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
+type TaskCommonOperation = TaskOperation.Wait | TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
   TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
-export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.Wait | TaskOperation.Project
+export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
 type TaskMenuOperation = TaskSingleOperation | TaskBatchAction
@@ -60,7 +60,9 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
     case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
-    case 'planned': case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'planned': return taskActionPolicy({ singleOperations: [TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete],
+      bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
   }
@@ -136,7 +138,7 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {
   return taskOperationMenu(policy.bulkOperations, (action: TaskMenuOperation): void => {
-    if (action !== TaskOperation.ToggleState && action !== TaskOperation.Wait && action !== TaskOperation.Project) activate(action)
+    if (action !== TaskOperation.ToggleState && action !== TaskOperation.Project) activate(action)
   })
 }
 

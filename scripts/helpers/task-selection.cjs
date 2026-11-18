@@ -17,7 +17,7 @@ const actions = compile('ui/TaskActionPresentation');
 const groups = compile('services/TaskOperationGroups');
 const task = (id, name='NEXT', version='v1') => ({id,repoId:'repo',filePath:'tasks.org',fileVersion:version,heading:id,
   fullPath:{repoId:'repo',file:'tasks.org',titles:[id],occurrence:1},
-  taskStateOf(category){assert.equal(category,'Todo');return name ? {name} : null;}});
+  taskStateOf(category){assert.ok(['Todo','Wait'].includes(category));return name ? {name:category==='Wait'?'HOLD':name} : null;}});
 function fixture() {
   const writes=[],dialogs=[],operations=[],rows=new Map([['A',task('A')],['B',task('B')]]);
   let fail, wait, saveAllowed=true, saveWait;
@@ -29,7 +29,7 @@ function fixture() {
         operations:[{type:{trash:'Trash',restore:'Restore',clear:'Deletion'}[action],data:{path:t.fullPath}}],
         fileVersions:[{repoId:t.repoId,file:t.filePath,version:t.fileVersion}]})));
     }}}, './TaskOperationGroups':groups,'../ui/TaskActionPresentation':actions,
-    '../ui/TaskStatePresentation':{TaskStateCategory:{Todo:'Todo'}}
+    '../ui/TaskStatePresentation':{TaskStateCategory:{Todo:'Todo',Wait:'Wait'}}
   });
   const confirmation=compile('components/editors/TaskRecordConfirmation', {
     '../../ui/TaskActionPresentation':actions,'../../ui/Theme':{UiColor:{error:'red'}}});

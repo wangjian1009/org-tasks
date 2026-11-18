@@ -127,9 +127,9 @@ function fixture() {
       assert.ok(match,'未找到方法 '+method); return match[0];
     });
     const View=load(name,prelude+'\nexport class QueryPage {\n'+chunks.join('\n')+'\n}').QueryPage;
-    const view=Object.assign(new View(),{stops:[],selectedPlanRegion:null,planGroups:[],planRegionOptions:[],logbookTaskGroups:[],listHeight:0,recentLayoutReady:false,recentLayoutPending:false,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
+    const view=Object.assign(new View(),{stops:[],plannedSelection:{selecting:false,busy:false,blocked:()=>false},selectedPlanRegion:null,planGroups:[],planRegionOptions:[],logbookTaskGroups:[],listHeight:0,recentLayoutReady:false,recentLayoutPending:false,requestId:0,tasks:[],visibleTasks:[],records:[],recentGroups:[],
       selectedTags:[],includeUntagged:false,tagOptions:[],tagGroups:[],sections:[],timedItems:[],priorityOrder:[],visible:false,
-      getUIContext:()=>({getHostContext:()=>({})}),closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
+      getUIContext:()=>({getHostContext:()=>({})}),selection:{selecting:false,busy:false},connectSelection(){},closeTargetPopup(){},measureRows(){},async openEntryMemo(){}});
     if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
     return view;
   }
@@ -429,7 +429,7 @@ test('页面批次只读取任务与文件，不能写共享通知快照',async(
   assert.equal(f.writes.some(write=>write.key==='coreNotifications'),false);
 });
 
-test('收件箱移动浮层已打开时，列表刷新仍只有一个混合查询',async()=>{
+test('收件箱列表通过同一混合查询接收当前快照，不再维护页面移动源副本',async()=>{
   const f=fixture(),page=f.page('pages/Inbox',['loadRecords']),current={id:'selected'};
   page.selected={id:'selected',fileVersion:'previous'};
   f.query(batch=>batch.map(request=>{
@@ -438,7 +438,7 @@ test('收件箱移动浮层已打开时，列表刷新仍只有一个混合查�
     return {type:'task',result:{tasks:request.query.expression.startsWith('cr.')?[]:[current],categories:[]}};
   }));
   await page.loadRecords();
-  assert.equal(page.message,'');assert.equal(f.batches.length,1);assert.equal(page.selected,current);
+  assert.equal(page.message,'');assert.equal(f.batches.length,1);assert.deepEqual(page.records,[current]);
 });
 
 
@@ -626,4 +626,16 @@ test('今天页挂载时先展示已恢复的共享缓存，不等待仍在进�
  const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);page.view='today';const loading=page.loadTasks();
  await settleSidebar();assert.equal(page.tasks,rows);assert.equal(page.loading,false);assert.equal(page.pageReady,false);assert.equal(f.batches.length,1);
  release();await loading;
+});
+
+test('计划多选期间固定已加载布局并阻止范围切换，结束后应用最新成员',async()=>{
+ const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter','selectPlanRegion']);
+ let rows=[plannedTask('selected','core-a','plan.org','工作','选择项目')];
+ f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
+ page.view='planned';await page.loadTasks();const groups=page.planGroups;const selected=page.planRegionOptions.find(region=>region.kind==='project');page.selectedPlanRegion=selected;
+ page.plannedSelection.selecting=true;rows=[];await page.rangeDataSet.refresh();
+ assert.equal(page.tasks.length,1);assert.equal(page.planGroups,groups);assert.equal(page.selectedPlanRegion,selected);
+ const calls=f.batches.length;await page.selectPlanRegion({key:'other',kind:'category',category:'其他'});
+ assert.equal(page.selectedPlanRegion,selected);assert.equal(f.batches.length,calls);
+ page.plannedSelection.selecting=false;page.applyPageSnapshot();assert.deepEqual(page.tasks,[]);assert.ok(page.planGroups.every(group=>group.items.length===0));
 });

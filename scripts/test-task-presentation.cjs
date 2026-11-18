@@ -975,3 +975,32 @@ test('时刻来源独立于日期策略，支持创建、计划、截止、完�
   assert.equal(taskTimeForDisplay(task('invalid', { closedAt: NaN }), TaskTimeDisplay.Closed), '');
   assert.equal(presentation.taskDateForDisplay(timestamps, presentation.TaskDateDisplay.Creation), '2026-11-14');
 });
+
+function plannedListFixture() {
+  const file=path.resolve('entry/src/main/ets/components/PlannedTaskList.ets'),source=fs.readFileSync(file,'utf8');
+  const methods=['taskDataSet','allTasks','region','taskKey','task','scheduleItem','dateDisplay','regionPolicy'].map(name=>{
+    const start=source.indexOf('  private '+name+'(');assert.ok(start>=0,name);
+    const open=source.indexOf('{',start);let depth=0;
+    for(let i=open;i<source.length;i++){if(source[i]==='{')depth++;if(source[i]==='}'&&--depth===0)return source.slice(start,i+1);}
+    assert.fail('未结束的方法 '+name);
+  }).join('\n');
+  const code=ts.transpileModule('export class PlannedList {'+methods+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const module={exports:{}},TaskDateDisplay={None:'none',Schedule:'schedule',Deadline:'deadline'},RegionAreaPolicy={None:'none',Project:'project',Category:'category'};
+  vm.runInThisContext('(function(module,exports,TaskDateDisplay,RegionAreaPolicy,plannedTaskDate){'+code+'\n})')(module,module.exports,TaskDateDisplay,RegionAreaPolicy,t=>t.scheduled);
+  const row=task('item',{scheduled:'2026-12-28',projectName:'项目'}),live=new Map([[row.id,row]]);
+  const group={key:'group',kind:'month',items:[{task:row}],scheduleItems:[{task:row,timeDisplay:'schedule'}],groups:[]};
+  const list=Object.assign(new module.exports.PlannedList(),{groups:[group],dataSet:{taskKey:id=>id,getTask:id=>live.get(id)}});
+  return {list,row,live,group};
+}
+test('计划改期使旧分组和日程行离开时，旧控件查询可安全收尾',()=>{
+  const f=plannedListFixture();assert.equal(f.list.scheduleItem('group','item').timeDisplay,'schedule');
+  assert.equal(f.list.dateDisplay('group','item'),'schedule');assert.equal(f.list.regionPolicy('group','item'),'project');
+  f.list.groups=[];
+  assert.equal(f.list.scheduleItem('group','item'),undefined);assert.equal(f.list.region('group','old'),undefined);
+  assert.equal(f.list.dateDisplay('group','item'),'none');assert.equal(f.list.regionPolicy('group','item'),'none');
+});
+test('计划选择期间源记录移出仍可使用冻结行快照，布局释放后不访问已移除记录',()=>{
+  const f=plannedListFixture();f.live.clear();assert.equal(f.list.task('item'),f.row);
+  f.list.groups=[];assert.equal(f.list.task('item'),undefined);
+  assert.equal(f.list.dateDisplay('group','item'),'none');assert.equal(f.list.regionPolicy('group','item'),'none');
+});

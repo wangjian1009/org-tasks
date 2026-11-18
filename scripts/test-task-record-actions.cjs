@@ -87,3 +87,21 @@ test('部分恢复后未选中的存活行仍可加入选择，使用本次成�
   f.dataSet.submitOperationGroup=async(group)=>{f.writes.push(group);f.rows.clear();};
   await f.selection.execute(f.context,'restore');assert.equal(f.writes[0].fileVersions[0].version,'v2');assert.equal(f.writes[0].operations.length,2);
 });
+
+test('批量等待使用各文件有效 Wait 状态，仅生成 TODO 修改并一次经 DataSet 提交',async()=>{
+ const f=fixture();f.enable(['wait']);f.rows.get('B').taskStateOf=category=>{assert.equal(category,'Wait');return {name:'WAITING'};};
+ await f.selection.start('B');f.selection.toggle('A');await f.selection.execute(f.context,'wait');
+ assert.equal(f.writes.length,1);assert.deepEqual(f.writes[0].operations.map(op=>op.data.modifications),[
+  [{field:'TODO',value:'WAITING'}],[{field:'TODO',value:'HOLD'}]]);
+ assert.equal(f.dialogs.length,0);assert.equal(f.selection.selecting,false);
+});
+test('批量等待遇到缺失状态、混合版本或版本冲突整组拒绝，保留选择',async()=>{
+ const f=fixture();f.enable(['wait']);f.rows.set('B',task('B',null));await f.selection.start('A');f.selection.toggle('B');
+ await f.selection.execute(f.context,'wait');assert.equal(f.writes.length,0);assert.match(f.selection.message,/等待状态/);
+ assert.deepEqual(f.selection.selectedKeys,['A','B']);
+ const g=fixture();g.enable(['wait']);g.rows.set('B',task('B','NEXT','v2'));await g.selection.start('A');g.selection.toggle('B');
+ await g.selection.execute(g.context,'wait');assert.equal(g.writes.length,0);assert.equal(g.selection.invalid,true);
+ const h=fixture();h.enable(['wait']);await h.selection.start('A');h.selection.toggle('B');
+ h.fail(Object.assign(new Error('源版本变化'),{code:'invalidState'}));await h.selection.execute(h.context,'wait');
+ assert.equal(h.writes.length,1);assert.equal(h.selection.selecting,true);assert.equal(h.selection.invalid,true);
+});

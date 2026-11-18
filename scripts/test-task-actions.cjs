@@ -145,7 +145,7 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
   assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
   assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'wait', 'someday', 'delete']);
-  for (const page of ['planned', 'waiting', 'anytime', 'someday', 'recent']) {
+  for (const page of ['waiting', 'anytime', 'someday', 'recent']) {
     assert.deepEqual(pagePolicy(page).singleOperations, ['delete']);
   }
 });
@@ -304,4 +304,13 @@ test('今天左滑严格按开始暂停、等待、某天、删除排序，右�
   assert.ok(!policy.singleOperations.includes('select'));
   const unsupported=taskSingleMenu(policy.singleOperations,()=>{});
   assert.deepEqual(unsupported.map(item=>item.id),['wait','someday','delete']);
+});
+
+test('计划独立配置左滑三项与五项批量，固定追加多选并保留右滑改期',()=>{
+ const policy=pagePolicy('planned');
+ assert.deepEqual(taskSwipeMenu(policy,()=>{}).map(item=>item.id),['wait','someday','delete','select']);
+ const invoked=[];const items=taskBatchMenu(policy,action=>invoked.push(action));
+ assert.deepEqual(items.map(item=>item.id),['schedule','deadline','wait','someday','delete']);
+ items[2].action();assert.deepEqual(invoked,['wait']);assert.equal(policy.rightSwipeAction,'schedule');
+ assert.deepEqual(taskBatchMenu(pagePolicy('today'),()=>{}),[]);
 });
