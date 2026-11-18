@@ -266,6 +266,24 @@ export struct TaskEditor {
   async wait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     return await this.changeState(undefined, TaskStateCategory.Wait, allowed)
   }
+  async toggleWait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    if (!this.actionsAvailable() || !allowed()) return
+    this.completing = true
+    try {
+      const source = await this.actionSource(allowed)
+      if (!source || !allowed()) return
+      const category = source.state?.category
+      const to = category === TaskStateCategory.Wait ? TaskStateCategory.Todo :
+        (category === TaskStateCategory.Todo || category === TaskStateCategory.Doing) ? TaskStateCategory.Wait : undefined
+      if (to === undefined) return
+      const state = source.taskStateOf(to)
+      if (!state) {
+        if (to === TaskStateCategory.Wait) throw new Error('文件没有可用的等待状态，请检查 TODO 流程')
+        return
+      }
+      return await this.withStateNote(source, taskModificationGroup(source, [{ field: 'TODO', value: state.name }]), allowed)
+    } finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
+  }
   private async changeState(from: TaskStateCategory[] | undefined, to: TaskStateCategory, allowed: () => boolean): Promise<CoreTaskOperationGroup | undefined> {
     if (!this.actionsAvailable() || !allowed()) return
     this.completing = true

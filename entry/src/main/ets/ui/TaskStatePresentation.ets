@@ -16,6 +16,14 @@ export function taskStateToggleCategory(task: CoreTask | undefined): TaskStateCa
   return target && task?.taskStateOf(target) ? target : null
 }
 
+// 等待操作按当前状态在 Wait 与 Todo 之间切换；仅在目标状态存在时提供入口。
+export function taskStateToggleWaitCategory(task: CoreTask | undefined): TaskStateCategory | null {
+  const category = task?.state?.category
+  const target = category === TaskStateCategory.Wait ? TaskStateCategory.Todo :
+    (category === TaskStateCategory.Todo || category === TaskStateCategory.Doing) ? TaskStateCategory.Wait : null
+  return target && task?.taskStateOf(target) ? target : null
+}
+
 export function taskStateCategoryLabel(category: NativeTaskStateCategory | null | undefined): string {
   switch (category) {
     case TaskStateCategory.Todo: return '待办'

@@ -144,11 +144,11 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   const policy = taskActionPolicy(input);
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
   assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
-  assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'wait', 'someday', 'delete']);
-  assert.deepEqual(pagePolicy('waiting').singleOperations, ['reopen', 'someday', 'delete']);
-  assert.deepEqual(pagePolicy('anytime').singleOperations, ['wait', 'someday', 'delete']);
+  assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
+  assert.deepEqual(pagePolicy('waiting').singleOperations, ['toggleWait', 'someday', 'delete']);
+  assert.deepEqual(pagePolicy('anytime').singleOperations, ['toggleWait', 'someday', 'delete']);
   assert.deepEqual(pagePolicy('someday').singleOperations, ['restore', 'delete']);
-  assert.deepEqual(pagePolicy('recent').singleOperations, ['toggleState', 'wait', 'someday', 'delete']);
+  assert.deepEqual(pagePolicy('recent').singleOperations, ['toggleState', 'toggleWait', 'someday', 'delete']);
 });
 
 test('状态切换复用单条操作数组和菜单，状态只控制形态，数组控制启用及顺序', () => {
@@ -185,11 +185,13 @@ function swipeCard(page) {
   return { state, editor, controller, calls };
 }
 
-test('等待页恢复待办、某天与删除按规划排序', () => {
+test('等待页状态切换、某天与删除按规划排序', () => {
   const menu = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, 'Doing')
-  assert.deepEqual(menu.map(item => item.id), ['reopen', 'someday', 'delete', 'select'])
-  assert.equal(menu[0].title, '恢复')
-  assert.equal(menu[0].label, '恢复为待办')
+  assert.deepEqual(menu.map(item => item.id), ['someday', 'delete', 'select'])
+  const waiting = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, null, 'Todo')
+  assert.deepEqual(waiting.map(item => item.id), ['toggleWait', 'someday', 'delete', 'select'])
+  assert.equal(waiting[0].title, '恢复')
+  assert.equal(waiting[0].label, '恢复为待办')
 })
 
 test('今天、计划、随时、某天与最近新增均由外层右滑设置计划，日志簿关闭右滑', () => {
@@ -304,19 +306,19 @@ test('日志簿单条与批量均仅提供删除', () => {
 test('今天左滑严格按开始暂停、等待、某天、删除排序，右滑改期且批量关闭', () => {
   const policy=pagePolicy('today');
   for(const [target,title] of [['Doing','开始'],['Todo','暂停']]){
-    const items=taskSingleMenu(policy.singleOperations,()=>{},target);
-    assert.deepEqual(items.map(item=>item.id),['toggleState','wait','someday','delete']);
+    const items=taskSingleMenu(policy.singleOperations,()=>{},target,'Wait');
+    assert.deepEqual(items.map(item=>item.id),['toggleState','toggleWait','someday','delete']);
     assert.deepEqual(items.map(item=>item.title),[title,'等待','某天','删除']);
   }
   assert.deepEqual(taskBatchMenu(policy,()=>{}),[]);assert.equal(policy.rightSwipeAction,'schedule');
   assert.ok(!policy.singleOperations.includes('select'));
   const unsupported=taskSingleMenu(policy.singleOperations,()=>{});
-  assert.deepEqual(unsupported.map(item=>item.id),['wait','someday','delete']);
+  assert.deepEqual(unsupported.map(item=>item.id),['someday','delete']);
 });
 
 test('计划独立配置左滑三项与四项批量，固定追加多选并保留右滑改期',()=>{
  const policy=pagePolicy('planned');
- assert.deepEqual(taskSwipeMenu(policy,()=>{}).map(item=>item.id),['wait','someday','delete','select']);
+ assert.deepEqual(taskSwipeMenu(policy,()=>{},null,'Wait').map(item=>item.id),['toggleWait','someday','delete','select']);
  const invoked=[];const items=taskBatchMenu(policy,action=>invoked.push(action));
  assert.deepEqual(items.map(item=>item.id),['schedule','deadline','someday','delete']);
  items[2].action();assert.deepEqual(invoked,['someday']);assert.equal(policy.rightSwipeAction,'schedule');
@@ -327,17 +329,17 @@ test('计划独立配置左滑三项与四项批量，固定追加多选并保�
 test('八个页面区域的单条与批量菜单严格遵循交付规划', () => {
   const expected = {
     inbox: [['move','someday','memo','project','delete'],['move','someday','memo','merge','delete']],
-    recent: [['toggleState','wait','someday','delete'],[]],
-    today: [['toggleState','wait','someday','delete'],[]],
-    waiting: [['reopen','someday','delete'],[]],
-    planned: [['wait','someday','delete'],['schedule','deadline','someday','delete']],
-    anytime: [['wait','someday','delete'],['schedule','deadline','someday','delete']],
+    recent: [['toggleState','toggleWait','someday','delete'],[]],
+    today: [['toggleState','toggleWait','someday','delete'],[]],
+    waiting: [['toggleWait','someday','delete'],[]],
+    planned: [['toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
+    anytime: [['toggleWait','someday','delete'],['schedule','deadline','someday','delete']],
     someday: [['restore','delete'],['restore','delete']],
     logbook: [['delete'],['delete']]
   };
   for (const [page,[single,bulk]] of Object.entries(expected)) {
     const policy = pagePolicy(page);
-    assert.deepEqual(taskSingleMenu(policy.singleOperations,()=>{},'Doing').map(item=>item.id),single,page);
+    assert.deepEqual(taskSingleMenu(policy.singleOperations,()=>{},'Doing','Wait').map(item=>item.id),single,page);
     assert.deepEqual(taskBatchMenu(policy,()=>{}).map(item=>item.id),bulk,page);
   }
 });

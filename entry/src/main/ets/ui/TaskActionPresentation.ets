@@ -4,6 +4,7 @@ export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'waiting' | 'anytim
 
 export enum TaskOperation {
   ToggleState = 'toggleState',
+  ToggleWait = 'toggleWait',
   Wait = 'wait',
   Move = 'move',
   Project = 'project',
@@ -21,9 +22,9 @@ export enum TaskOperation {
 
 type TaskCommonOperation = TaskOperation.Wait | TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
   TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
-export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.Project
+export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.ToggleWait | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
-export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
+export type TaskBatchAction = TaskCommonOperation | TaskOperation.Merge
 type TaskMenuOperation = TaskSingleOperation | TaskBatchAction
 type TaskToggleStateCategory = TaskStateCategory | null
 export type TaskRightSwipeAction = TaskOperation.Schedule | TaskOperation.Move
@@ -59,10 +60,10 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'today': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
-    case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete],
+    case 'today': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
+    case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.Reopen, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Restore, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
@@ -71,7 +72,8 @@ export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy
 }
 
 function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: TaskMenuOperation) => void,
-  toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
+  toggleStateCategory: TaskToggleStateCategory = null,
+  toggleWaitCategory: TaskToggleStateCategory = null): TaskActionItem[] {
   const items: TaskActionItem[] = []
   for (const operation of operations) {
     switch (operation) {
@@ -80,6 +82,14 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
           const start = toggleStateCategory === 'Doing'
           items.push({ id: operation, title: start ? '开始' : '暂停', label: start ? '开始任务' : '暂停任务',
             icon: start ? $r('app.media.ui_task_start') : $r('app.media.ui_task_pause'), action: () => activate(operation) })
+        }
+        break
+      case TaskOperation.ToggleWait:
+        if (toggleWaitCategory === 'Wait' || toggleWaitCategory === 'Todo') {
+          const waiting = toggleWaitCategory === 'Wait'
+          items.push({ id: operation, title: waiting ? '等待' : '恢复', label: waiting ? '设为等待' : '恢复为待办',
+            icon: waiting ? $r('app.media.ui_task_waiting') : $r('app.media.ui_action_restore'),
+            busyTitle: waiting ? '设置中…' : '恢复中…', action: () => activate(operation) })
         }
         break
       case TaskOperation.Wait:
@@ -125,22 +135,27 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
 }
 
 export function taskSingleMenu(operations: TaskSingleOperation[], activate: (action: TaskSingleOperation) => void,
-  toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
+  toggleStateCategory: TaskToggleStateCategory = null,
+  toggleWaitCategory: TaskToggleStateCategory = null): TaskActionItem[] {
+  // 只有等待切换时，第三个参数也可直接传入其状态，兼容单一状态操作的调用点。
+  const waitCategory = toggleWaitCategory ??
+    (operations.includes(TaskOperation.ToggleWait) && !operations.includes(TaskOperation.ToggleState) ? toggleStateCategory : null)
   return taskOperationMenu(operations, (action: TaskMenuOperation): void => {
     if (action !== TaskOperation.Merge) activate(action)
-  }, toggleStateCategory)
+  }, toggleStateCategory, waitCategory)
 }
 
 export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: TaskSwipeAction) => void,
-  toggleStateCategory: TaskToggleStateCategory = null): TaskActionItem[] {
-  const items = taskSingleMenu(policy.singleOperations, activate, toggleStateCategory)
+  toggleStateCategory: TaskToggleStateCategory = null,
+  toggleWaitCategory: TaskToggleStateCategory = null): TaskActionItem[] {
+  const items = taskSingleMenu(policy.singleOperations, activate, toggleStateCategory, toggleWaitCategory)
   items.push({ id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action: () => activate(TaskOperation.Select) })
   return items
 }
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {
   return taskOperationMenu(policy.bulkOperations, (action: TaskMenuOperation): void => {
-    if (action !== TaskOperation.ToggleState && action !== TaskOperation.Project) activate(action)
+    if (action !== TaskOperation.ToggleState && action !== TaskOperation.ToggleWait && action !== TaskOperation.Project) activate(action)
   })
 }
 

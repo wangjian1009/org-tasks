@@ -37,7 +37,7 @@ function fixture() {
   const calls = [], guards = [], submitted = [], messages = []; let editable = true, deletable = true, state, write = async () => {};
   const controller = new TaskEditorController(group => { state.receiveOperation(group).catch(error => messages.push(error.message)); });
   const editor = { actionsAvailable: () => editable, deletionAvailable: () => deletable };
-  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'moveToSomeday', 'convertToMemo']) {
+  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'toggleWait', 'moveToSomeday', 'convertToMemo']) {
     editor[method] = async allowed => {
       guards.push(allowed); if (allowed()) calls.push(method);
       if (allowed()) return groupBuilders.taskModificationGroup({ repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1', fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['任务'] } }, [{ field: 'TODO', value: method }]);
@@ -50,11 +50,11 @@ function fixture() {
     dataSet: { async submitOperationGroup(group, allowed) { assert.equal(allowed(), true); submitted.push(group); await write(); } }, singleOperations: [], recordActionPending: false, toggleStateCategory: null, rightSwipeAction: undefined });
   return { state, calls, guards, submitted, messages, controller, writeWith: fn => write = fn, editable: value => editable = value, deletable: value => deletable = value };
 }
-test('七种单条操作全部调用编辑器接口，开始／暂停使用同一枚举的不同形态', async () => {
+test('状态、规划和整理操作全部调用编辑器接口，开始／暂停与等待／恢复使用同一枚举的不同形态', async () => {
   for (const [action, target, method] of [['move', null, 'startMove'], ['schedule', null, 'startSchedule'],
     ['deadline', null, 'startDeadline'], ['delete', null, 'startDelete'], ['someday', null, 'moveToSomeday'],
-    ['memo', null, 'convertToMemo'], ['wait', null, 'wait'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
-    const f = fixture(); f.state.singleOperations = [action]; f.state.toggleStateCategory = target;
+    ['memo', null, 'convertToMemo'], ['toggleWait', 'Wait', 'toggleWait'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
+    const f = fixture(); f.state.singleOperations = [action]; f.state.toggleStateCategory = target; f.state.toggleWaitCategory = target;
     await f.state.activateOperation(action); assert.deepEqual(f.calls, [method]);
     assert.equal(f.submitted.length, 1);
   }
@@ -73,6 +73,11 @@ test('目标状态存在时才显示切换，等待可开始，完成、取消�
   }
   assert.equal(states.taskStateToggleCategory(task('Todo', false)), null);
   assert.equal(states.taskStateToggleCategory(undefined), null);
+  for (const [category, expected] of [['Todo', 'Wait'], ['Doing', 'Wait'], ['Wait', 'Todo'], ['Done', null], ['Cancel', null], [null, null]]) {
+    assert.equal(states.taskStateToggleWaitCategory(task(category)), expected);
+  }
+  assert.equal(states.taskStateToggleWaitCategory(task('Todo', false)), null);
+  assert.equal(states.taskStateToggleWaitCategory(undefined), null);
 });
 test('左右滑共用宿主禁用状态，右滑完成时重新检查编辑器和配置', async () => {
   const f = fixture(); f.state.singleOperations = ['schedule']; f.state.rightSwipeAction = 'schedule';
@@ -194,10 +199,10 @@ test('记录操作准备期间阻止重入，菜单撤销或数据集重绑会�
   finish({committed:false,retainedKeys:[]});await pending;assert.equal(f.state.recordActionPending,false);
 });
 
-test('等待 Action 复用启用数组和提交入口，撤销配置或编辑器失效后不执行',async()=>{
-  const f=fixture();f.state.singleOperations=['wait'];await f.state.activateOperation('wait');
-  assert.deepEqual(f.calls,['wait']);assert.equal(f.submitted.length,1);
-  f.state.singleOperations=[];assert.equal(f.guards[0](),false);await f.state.activateOperation('wait');
-  f.state.singleOperations=['wait'];f.controller.release();await f.state.activateOperation('wait');
+test('等待／恢复 Action 复用启用数组和提交入口，撤销配置或编辑器失效后不执行',async()=>{
+  const f=fixture();f.state.singleOperations=['toggleWait'];f.state.toggleWaitCategory='Wait';await f.state.activateOperation('toggleWait');
+  assert.deepEqual(f.calls,['toggleWait']);assert.equal(f.submitted.length,1);
+  f.state.singleOperations=[];assert.equal(f.guards[0](),false);await f.state.activateOperation('toggleWait');
+  f.state.singleOperations=['toggleWait'];f.controller.release();await f.state.activateOperation('toggleWait');
   assert.equal(f.submitted.length,1);
 });

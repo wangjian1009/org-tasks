@@ -10,7 +10,7 @@ import { DataSet } from '../services/DataSet'
 import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
 import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy } from '../ui/TaskActionPresentation'
-import { TaskStateCategory, taskStateToggleCategory } from '../ui/TaskStatePresentation'
+import { TaskStateCategory, taskStateToggleCategory, taskStateToggleWaitCategory } from '../ui/TaskStatePresentation'
 import { TaskEditorController } from '../ui/TaskEditorController'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { RegionAreaPolicy, TaskDateDisplay, TaskTimeDisplay } from '../ui/TaskListPresentation'
@@ -68,6 +68,7 @@ export struct TaskSwipeItem {
   @State submitting: boolean = false
   @Prop @Watch('operationsChanged') singleOperations: TaskSingleOperation[] = []
   @State toggleStateCategory: TaskStateCategory | null = null
+  @State toggleWaitCategory: TaskStateCategory | null = null
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   @BuilderParam content: (controller: TaskEditorController) => void = this.taskEditor
@@ -88,9 +89,12 @@ export struct TaskSwipeItem {
   operationsChanged(): void {
     this.stopWatching?.(); this.stopWatching = undefined
     this.toggleStateCategory = null
-    if (!this.active || !this.singleOperations.includes(TaskOperation.ToggleState)) return
+    this.toggleWaitCategory = null
+    if (!this.active || (!this.singleOperations.includes(TaskOperation.ToggleState) && !this.singleOperations.includes(TaskOperation.ToggleWait))) return
     this.stopWatching = this.taskDataSet().watchTask(this.taskId, (change): void => {
-      if (this.active && this.singleOperations.includes(TaskOperation.ToggleState)) this.toggleStateCategory = taskStateToggleCategory(change.task)
+      if (!this.active) return
+      if (this.singleOperations.includes(TaskOperation.ToggleState)) this.toggleStateCategory = taskStateToggleCategory(change.task)
+      if (this.singleOperations.includes(TaskOperation.ToggleWait)) this.toggleWaitCategory = taskStateToggleWaitCategory(change.task)
     })
   }
 
@@ -132,6 +136,9 @@ export struct TaskSwipeItem {
         case TaskOperation.ToggleState:
           if (this.toggleStateCategory === TaskStateCategory.Doing) group = await this.controller.start(allowed)
           else if (this.toggleStateCategory === TaskStateCategory.Todo) group = await this.controller.stop(allowed)
+          break
+        case TaskOperation.ToggleWait:
+          group = await this.controller.toggleWait(allowed)
           break
         case TaskOperation.Wait: group = await this.controller.wait(allowed); break
         case TaskOperation.Delete: group = await this.controller.startDelete(allowed); break
@@ -256,8 +263,8 @@ export struct TaskSwipeItem {
 
   swipeMenuItems(): TaskActionItem[] {
     const activate = (action: TaskOperation): void => { this.activateOperation(action) }
-    return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory) :
-      taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory)
+    return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory, this.toggleWaitCategory) :
+      taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
   }
 
   @Builder

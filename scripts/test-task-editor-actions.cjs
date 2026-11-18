@@ -26,7 +26,7 @@ function method(name) {
   }
 }
 const methods = ['actionsAvailable', 'deletionAvailable', 'localDataSet', 'currentTask', 'actionError', 'actionSource', 'emitAction',
-  'start', 'stop', 'wait', 'changeState', 'withStateNote', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
+  'start', 'stop', 'wait', 'toggleWait', 'changeState', 'withStateNote', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
   'moveToSomeday', 'convertToMemo', 'organize', 'setSchedule', 'setDeadline', 'planningGroup',
   'startSchedule', 'startDeadline', 'startDate', 'aboutToDisappear'].map(method).join('\n');
 function task(category = 'Todo', target = 'INPROGRESS') {
@@ -196,6 +196,16 @@ test('等待仅返回文件有效 Wait 状态修改，使用保存后的版本�
   }
   const existing=fixture('Wait');assert.equal(await existing.state.wait(),undefined);
   const missing=fixture('Todo',null);await assert.rejects(missing.state.wait(),/没有可用的等待状态/);
+});
+test('等待与恢复共用 toggleWait 接口，根据当前状态返回对应 TODO 修改', async () => {
+  for (const [category, expected] of [['Todo', 'HOLD'], ['Doing', 'HOLD'], ['Wait', 'TODO']]) {
+    const f = fixture(category); f.settleWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
+    const group = await f.state.toggleWait();
+    assert.deepEqual(group.operations[0].data.modifications, [{ field: 'TODO', value: expected }]);
+    assert.equal(group.fileVersions[0].version, 'saved'); assert.equal(f.emitted.length, 0);
+  }
+  const done = fixture('Done'); assert.equal(await done.state.toggleWait(), undefined);
+  const missing = fixture('Todo', null); await assert.rejects(missing.state.toggleWait());
 });
 test('等待在保存失败、菜单撤销、页面离开或任务消失后不生成操作组',async()=>{
   const failed=fixture();failed.saveWith(async()=>false);assert.equal(await failed.state.wait(),undefined);

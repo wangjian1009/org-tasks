@@ -15,6 +15,7 @@ export interface TaskEditorActions {
   startDelete(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   start(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   wait(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
+  toggleWait(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   stop(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   moveToSomeday(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   convertToMemo(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
@@ -66,6 +67,10 @@ export class TaskEditorController {
   }
   async wait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     if (allowed() && this.canActivate()) return await this.editor?.wait(allowed)
+    return undefined
+  }
+  async toggleWait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    if (allowed() && this.canActivate()) return await this.editor?.toggleWait(allowed)
     return undefined
   }
   async moveToSomeday(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
