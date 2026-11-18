@@ -36,24 +36,22 @@ function pagePolicy(page) {
 
 function checkDeferredSwipeMenu(expression, filename) {
   const { options } = compile('export function options(record) { return ' + expression + '; }', filename, { actions });
-  const renders = [], activated = [], record = { id: 'source-record' };
+  const record = { id: 'source-record' };
   const page = { pageReady: true, actionPolicy: pagePolicy('inbox'), listScroller: {},
-    taskDataSet: () => ({ taskKey: id => id }),
-    swipeMenu(value, activate) { renders.push([this, value]); activate(TaskOperation.Schedule); } };
+    selection: {selecting:false,starting:false,busy:false},
+    taskDataSet: () => ({ taskKey: id => id }) };
   const value = options.call(page, record);
-  assert.deepEqual(renders, []);
-  assert.equal(typeof value.menuContent, 'function'); value.menuContent(action => activated.push([record, action]));
-  assert.deepEqual(renders, [[page, record]]);
-  assert.equal(value.rightSwipeAction, TaskOperation.Schedule); assert.equal(value.rightAction, undefined);
-  assert.deepEqual(activated, [[record, 'schedule']]);
-  renders.length = 0; page.actionPolicy = taskActionPolicy();
-  assert.equal(options.call(page, record).rightSwipeAction, undefined);
-  for (const flag of ['selectingRecords', 'actionBusy', 'selectionStarting', 'mergeBusy', 'selected']) {
-    page[flag] = true; assert.equal(options.call(page, record).busy, true, flag);
-    if (flag === 'selectionStarting') assert.equal(options.call(page, record).interactionEnabled, false);
-    page[flag] = false;
+  assert.equal(value.menuContent, undefined);
+  assert.equal(value.selection,page.selection);
+  assert.equal(value.menuIdPrefix,'inbox_swipe');
+  assert.equal(value.rightSwipeAction,TaskOperation.Schedule);
+  for(const flag of ['selecting','starting','busy']){
+    page.selection[flag]=true;assert.equal(options.call(page,record).busy,true,flag);
+    if(flag==='starting')assert.equal(options.call(page,record).interactionEnabled,false);
+    page.selection[flag]=false;
   }
-  assert.deepEqual(renders, []);
+  page.actionBusy=true;assert.equal(options.call(page,record).busy,true);
+
 }
 
 test('收件箱向统一控件注册菜单和右滑回调，普通布局不创建菜单节点', () => {
@@ -121,7 +119,7 @@ test('ArkUI 编译产物保留统一控件的菜单回调，不参与普通列�
   function visit(node) {
     if (ts.isNewExpression(node) && node.expression.getText(source) === 'TaskSwipeItem') {
       const options = node.arguments?.[1];
-      if (options && ts.isObjectLiteralExpression(options) && options.properties.some(p => p.name?.getText(source) === 'menuContent')) {
+      if (options && ts.isObjectLiteralExpression(options) && options.properties.some(p => p.name?.getText(source) === 'selection')) {
         const properties = options.properties.filter(p => p.name?.getText(source) !== 'content').map(p => p.getText(source));
         checkDeferredSwipeMenu('({' + properties.join(',') + '})', emittedInbox); checked++;
       }
@@ -204,28 +202,11 @@ test('外部控制器仅作用于绑定卡片，卡片离开后不再打开编�
   b.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(b.calls, ['schedule']);
 });
 
-test('收件箱右滑的单条计划日期允许提交，左滑移动沿用同一入口，批量能力仍独立校验', async () => {
-  const source = fs.readFileSync('entry/src/main/ets/pages/Inbox.ets', 'utf8');
-  const method = source.match(/  async performSelected\([^\n]+\n[\s\S]*?\n  \}/)[0];
-  const writes = [];
-  const { Inbox } = compile("import { taskBatchMenu, taskSwipeMenu } from 'actions'; import { InboxService } from 'service'; import { TaskSwipeOperations } from 'submit'; export class Inbox {" + method + '}', 'Inbox.ets', {
-    actions, service: { InboxService: { async operationGroups(...args) { return [{ args }]; } } }, submit: { TaskSwipeOperations: { async submit(_dataSet, groups, allowed) { assert.equal(!!allowed(), true); writes.push(groups[0].args); } } }
-  });
-  const record = { id: 'source' }, date = { date: '2026-11-17' };
-  const page = Object.assign(new Inbox(), { visible: true, actionPolicy: pagePolicy('inbox'), records: [record],
-    tasksDataSet: { async operate(work) { await work('operation'); } },
-    getUIContext: () => ({ getHostContext: () => ({}) }), selectedRecords: () => [record],
-    resetSelection() {}, async loadRecords() {} });
-  assert.equal(await page.performSelected('schedule', undefined, date, [record]), true);
-  assert.equal(writes.length, 1); assert.equal(writes[0][2], 'schedule'); assert.equal(writes[0][4], date);
-  assert.equal(await page.performSelected('move', { id: 'target' }, undefined, [record]), true);
-  assert.equal(writes[1][2], 'move');
-  assert.equal(await page.performSelected('schedule', undefined, date, [record, record]), false);
-  page.selectingRecords = true;
-  assert.equal(await page.performSelected('schedule', undefined, date, [record]), false);
-  page.selectingRecords = false; page.actionPolicy = taskActionPolicy();
-  assert.equal(await page.performSelected('schedule', undefined, date, [record]), false);
-  assert.equal(writes.length, 2);
+test('收件箱单条右滑和移动通过编辑器执行，不依赖批量启用数组', async () => {
+  const f=swipeCard('inbox');f.state.singleOperations=[TaskOperation.Move];
+  await f.state.activateOperation(TaskOperation.Schedule);await f.state.activateOperation(TaskOperation.Move);
+  assert.deepEqual(f.calls,['schedule','move']);
+  f.state.singleOperations=[];await f.state.activateOperation(TaskOperation.Move);assert.deepEqual(f.calls,['schedule','move']);
 });
 
 test('输入、清单触摸与拖动或操作忙碌时不执行右滑', () => {

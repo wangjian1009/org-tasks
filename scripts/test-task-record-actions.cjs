@@ -6,53 +6,7 @@ const { test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
   console.log('用法: node scripts/test-task-record-actions.cjs\n验证重新打开、原位置恢复、永久清除、操作确认、多选快照与失败保留。'); process.exit(0);
 }
-const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
-function compile(name, mocks = {}) {
-  const file = `entry/src/main/ets/${name}.ets`;
-  const source = fs.readFileSync(file, 'utf8').replace(/^@Observed\n/gm, '');
-  const code = ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
-  const module = {exports:{}};
-  vm.runInThisContext('(function(require,module,exports,$r){'+code+'\n})', {filename:file})(dependency => {
-    assert.ok(Object.hasOwn(mocks,dependency),`缺少替身 ${dependency}`); return mocks[dependency];
-  }, module,module.exports, name=>name);
-  return module.exports;
-}
-const actions = compile('ui/TaskActionPresentation');
-const groups = compile('services/TaskOperationGroups');
-const task = (id, name='NEXT', version='v1') => ({id,repoId:'repo',filePath:'tasks.org',fileVersion:version,heading:id,
-  fullPath:{repoId:'repo',file:'tasks.org',titles:[id],occurrence:1},
-  taskStateOf(category){assert.equal(category,'Todo');return name ? {name} : null;}});
-function fixture() {
-  const writes=[],dialogs=[],operations=[],rows=new Map([['A',task('A')],['B',task('B')]]);
-  let fail, wait, saveAllowed=true, saveWait;
-  const {TaskRecordOperations: service}=compile('services/TaskRecordOperations', {
-    './AppConfigService':{AppConfigService:{load:async()=>({repos:[]})}},
-    './NativeCoreService':{NativeCoreService:{workspaceFor:async()=>({})}},
-    './TrashService':{TrashService:{group:async(_config,_workspace,tasks,action)=>{
-      operations.push(action);return groups.mergeTaskOperationGroups(tasks.map(t=>({
-        operations:[{type:{trash:'Trash',restore:'Restore',clear:'Deletion'}[action],data:{path:t.fullPath}}],
-        fileVersions:[{repoId:t.repoId,file:t.filePath,version:t.fileVersion}]})));
-    }}}, './TaskOperationGroups':groups,'../ui/TaskActionPresentation':actions,
-    '../ui/TaskStatePresentation':{TaskStateCategory:{Todo:'Todo'}}
-  });
-  const {TaskRecordActionController: Runner}=compile('ui/TaskRecordActionController',{
-    '../services/TaskRecordOperations':{TaskRecordOperations:service},'./TaskActionPresentation':actions,'./Theme':{UiColor:{error:'red'}}});
-  const session={end:async()=>{if(saveWait)await saveWait;return saveAllowed}};
-  const {TaskSelectionController: Selection}=compile('ui/TaskSelectionController',{
-    '../services/NativeCoreService':{coreErrorMessage:error=>error.message},
-    '../services/TaskInlineService':{TaskInlineSession:session},
-    '../services/TaskRecordOperations':{TaskRecordOperations:service},'./TaskActionPresentation':actions,
-    './TaskRecordActionController':{TaskRecordActionController:Runner}
-  });
-  const dataSet={identity:'scope',isReady:()=>true,error:'',taskKey:id=>id,getTask:id=>rows.get(id),settle:async()=>{},
-    submitOperationGroup:async(group,allowed)=>{assert.equal(allowed(),true);writes.push(group);if(wait)await wait;if(fail)throw fail;}};
-  const context={getHostContext:()=>({}),showAlertDialog:dialog=>dialogs.push(dialog)};
-  const selection=new Selection();let enabled=['delete','reopen','restore','clear'],ready=true;
-  selection.connect(dataSet,()=>Array.from(rows.values()),()=>enabled,()=>ready,{closeAllSwipeActions(){}});
-  return {service,Runner,selection,dataSet,context,writes,dialogs,rows,operations,
-    fail:error=>fail=error,wait:value=>wait=value,save:value=>saveAllowed=value,saveWait:value=>saveWait=value,
-    enable:value=>enabled=value,ready:value=>ready=value};
-}
+const {compile,fixture,task,groups,actions}=require('./helpers/task-selection.cjs');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 test('Reopen 按每个文件有效 Todo 状态规划单组，不清空其他字段；混合版本与缺失状态拒绝整组',async()=>{
   const f=fixture(), a=task('A','NEXT'), b=task('B','OPEN');

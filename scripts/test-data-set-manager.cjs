@@ -383,7 +383,7 @@ test('收件箱两个启动生命周期复用一次四项批量读取，初始�
    module,module.exports,{create:(_context,page,definitions)=>f.manager(page,definitions)},
    {prepareConfigured:()=>({task:{type:'task',query:{includeFiles:[reference]}},file:{type:'file',query:{includeFiles:[reference]}},reference})},
    {shared:{watchExternalLeaveGuard:()=>()=>{}}},()=>({files:[],repositoryBindings:[]}));
-  const page=Object.assign(new module.exports.Inbox(),{stops:[],applyPageSnapshot(){},prepareRecentLayout(){},getUIContext:()=>({getHostContext:()=>f.context})});
+  const page=Object.assign(new module.exports.Inbox(),{stops:[],selection:{},connectSelection(){},applyPageSnapshot(){},prepareRecentLayout(){},getUIContext:()=>({getHostContext:()=>f.context})});
   const hold=f.holdWorkspace();
   page.aboutToAppear();page.onPageShow();
   hold.resolve();await page.dataManager.start();

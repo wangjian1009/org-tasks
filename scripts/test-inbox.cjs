@@ -40,7 +40,7 @@ function snapshotFixture() {
   const state = Object.assign(new module.exports.InboxSnapshot(), {
     tasksDataSet: dataSet(), targetDataSet: dataSet(), recentDataSet: dataSet(),
     records: [], recentGroups: [], loading: true, recentLayoutReady: false, recentLayoutPending: false,
-    listHeight: 0, visible: true, selectingRecords: false, mergeBusy: false,
+    listHeight: 0, visible: true, selection: {selecting:false,busy:false},
     measureRows() {}, getUIContext: () => ({ postFrameCallback: frame => frames.push(frame) })
   });
   const task = id => ({ id, createdAt: Date.now(), project: () => null });
@@ -158,7 +158,7 @@ function captureFixture() {
     { RESIZE: 'resize' }, { Hidden: 'hidden', Visible: 'visible' }, error => error.message);
   const state = Object.assign(new module.exports.InboxCapture(), {
     visible: true, captureOpen: false, drawerOpen: false, actionBusy: false, selected: undefined,
-    selectingRecords: false, selectionStarting: false, inlineActive: '', inlineTyping: false,
+    selection: {selecting:false,starting:false}, inlineActive: '', inlineTyping: false,
     captureTitle: '保留的捕捉草稿',
     getUIContext: () => ({ getKeyboardAvoidMode: () => keyboardMode, setKeyboardAvoidMode: mode => { keyboardMode = mode; },
       getPromptAction: () => ({ showToast: ({ message }) => messages.push(message) }) })
@@ -200,7 +200,7 @@ test('原位编辑保存失败或页面离开时不打开捕捉，异常可反�
 
 test('抽屉、移动浮层与多选期间继续隐藏新增按钮，关闭后恢复', () => {
   const f = captureFixture();
-  for (const [key, value] of [['drawerOpen', true], ['selected', {}], ['selectingRecords', true], ['selectionStarting', true]]) {
+  for (const [key, value] of [['drawerOpen', true], ['selection', {selecting:true}], ['selection', {starting:true}]]) {
     const previous = f.state[key]; f.state[key] = value;
     assert.equal(f.state.buttonVisibility(), 'hidden');
     f.state[key] = previous;
@@ -337,64 +337,6 @@ test('通用移动保留跨仓库源目标版本与身份，只为启用同步�
       { repoId: 'core-b', file: 'projects.org', version: 'target-version' }
     ]
   }]);
-});
-
-function moveRetryFixture() {
-  const filename = 'entry/src/main/ets/pages/Inbox.ets';
-  const source = fs.readFileSync(filename, 'utf8');
-  const methods = ['refreshMoveTargets', 'loadTargets', 'closeTargetPopup'].map(name =>
-    source.match(new RegExp(`  (?:async )?${name}\\(\\) \\{[\\s\\S]*?\\n  \\}\\n`))[0]).join('');
-  const code = ts.transpileModule('export class MoveRetry {' + methods + '}', {
-    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
-  }).outputText;
-  const module = { exports: {} }, calls = [];
-  const current = { id: 'source', fileVersion: 'fresh-source-version' };
-  const freshTarget = { ...target('r', 'Work'), projectName: 'Website', fileVersion: 'fresh-target-version' };
-  let find = async () => current, targets = async () => [freshTarget];
-  vm.runInThisContext('(function(module,exports,TaskInlineService,MoveToTargetService,refileSections,coreErrorMessage){' + code + '\n})', { filename })(
-    module, module.exports,
-    { async find(_context, source) { calls.push(['source', source]); return await find(); } },
-    { async targets() { calls.push(['targets']); return await targets(); } },
-    load('ui/MoveToTargetPresentation', {}).refileSections, error => error.message);
-  const original = { id: 'source', fileVersion: 'stale-source-version' };
-  const state = Object.assign(new module.exports.MoveRetry(), {
-    tasksDataSet:{async getTask(_id){calls.push(['source',original]);return await find();},async moveTargets(){calls.push(['targets']);return await targets();}},
-    selected: original, actionBusy: false, targetsLoading: false, targetRequest: 0, visible: true,
-    targetSections: [], popupMessage: '文件版本冲突', getUIContext: () => ({ getHostContext: () => ({}) })
-  });
-  return { state, calls, original, current, freshTarget, findWith: fn => find = fn, targetsWith: fn => targets = fn };
-}
-
-test('收件箱移动重试按顺序重读源与目标版本，刷新后归入项目分组', async () => {
-  const f = moveRetryFixture();
-  await f.state.refreshMoveTargets();
-  assert.deepEqual(f.calls, [['source', f.original], ['targets']]);
-  assert.equal(f.state.selected, f.current);
-  assert.equal(f.state.targetSections[0].kind, 'project');
-  assert.equal(f.state.targetSections[0].targets[0], f.freshTarget);
-  assert.equal(f.state.popupMessage, '');
-  assert.equal(f.state.actionBusy, false);
-  assert.equal(f.state.targetsLoading, false);
-});
-
-test('移动重试在源消失或读取失败时停止，保留错误并阻止重复重读', async () => {
-  const missing = moveRetryFixture(); missing.findWith(async () => undefined);
-  await missing.state.refreshMoveTargets();
-  assert.equal(missing.state.selected, undefined);
-  assert.deepEqual(missing.state.targetSections, []);
-  assert.equal(missing.calls.length, 1);
-  const failed = moveRetryFixture(); failed.findWith(async () => { throw new Error('源读取失败'); });
-  await failed.state.refreshMoveTargets();
-  assert.equal(failed.state.selected, failed.original);
-  assert.equal(failed.state.popupMessage, '源读取失败');
-  assert.equal(failed.calls.length, 1);
-  const busy = moveRetryFixture(); let finish;
-  busy.findWith(() => new Promise(resolve => { finish = resolve; }));
-  const pending = busy.state.refreshMoveTargets();
-  await busy.state.refreshMoveTargets();
-  assert.equal(busy.calls.length, 1);
-  finish(busy.current); await pending;
-  assert.equal(busy.calls.length, 2);
 });
 
 test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与清除规划选项', async () => {
@@ -535,68 +477,6 @@ test('批量备忘只读取一次共同目标；批量删除不拆成多次提�
     assert.equal(queries, action === 'memo' ? 1 : 0);
     assert.deepEqual(f.requests[0].operations.map(op => op.type), action === 'memo' ? ['Modification', 'Movement', 'Modification', 'Movement'] : ['Trash', 'Trash']);
   }
-});
-
-function batchFixture() {
-  const filename = 'entry/src/main/ets/pages/Inbox.ets', full = fs.readFileSync(filename, 'utf8');
-  const method = full.match(/  async performSelected\([^\n]+\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
-  const code = ts.transpileModule('export class Batch {' + method + '}', { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
-  const module = { exports: {} }, calls = [];
-  let write = async () => {};
-  vm.runInThisContext('(function(module,exports,InboxService,coreErrorMessage,taskBatchMenu,taskSwipeMenu,TaskSwipeOperations){' + code + '\n})', { filename })(module, module.exports,
-    { operationGroups: async (...args) => [{ args }] }, error => error.message,
-    load('ui/TaskActionPresentation', {}).taskBatchMenu, load('ui/TaskActionPresentation', {}).taskSwipeMenu,
-    { async submit(_dataSet, groups, allowed) { if (!allowed()) throw new Error('操作已取消'); calls.push(groups[0].args); await write(); } });
-  const records = ['first', 'second', 'third'].map(id => ({ id, fileVersion: 'snapshot' }));
-  const state = Object.assign(new module.exports.Batch(), { visible: true, records, mergeBusy: false, actionBusy: false, mergeInvalid: false,
-    selectingRecords: true, selectedRecordIds: ['third', 'first'], refreshes: 0,
-    tasksDataSet:{async operate(work){await work('test/batch');}},
-    actionPolicy: { singleOperations: [], bulkOperations: ['move', 'schedule', 'deadline', 'someday', 'memo', 'delete'] },
-    selectedRecords() { return this.selectedRecordIds.map(id => this.records.find(record => record.id === id)); },
-    resetSelection() { this.selectedRecordIds = []; this.selectingRecords = false; },
-    async loadRecords() { this.refreshes++; }, getUIContext: () => ({ getHostContext: () => ({}) }) });
-  return { state, calls, writeWith(fn) { write = fn; } };
-}
-
-test('批量提交防止连续点击，成功后退出选择并刷新，移出按源顺序逆序执行', async () => {
-  const f = batchFixture(); let finish;
-  f.writeWith(() => new Promise(resolve => { finish = resolve; }));
-  const first = f.state.performSelected('delete');
-  assert.equal(await f.state.performSelected('delete'), false);
-  assert.equal(f.calls.length, 1);
-  assert.deepEqual(f.calls[0][1].map(record => record.id), ['third', 'first']);
-  finish(); assert.equal(await first, true);
-  assert.equal(f.state.mergeBusy, false); assert.equal(f.state.selectingRecords, false); assert.equal(f.state.refreshes, 1);
-});
-
-test('批量提交失败保留选择顺序和版本，版本失效不能直接重复提交', async () => {
-  const f = batchFixture();
-  f.writeWith(async () => { throw Object.assign(new Error('文件版本已变化'), { code: 'invalidState' }); });
-  assert.equal(await f.state.performSelected('deadline', undefined, '2026-11-20'), false);
-  assert.deepEqual(f.state.selectedRecordIds, ['third', 'first']);
-  assert.equal(f.state.mergeMessage, '文件版本已变化'); assert.equal(f.state.popupMessage, '文件版本已变化');
-  assert.equal(f.state.mergeInvalid, true); assert.equal(f.state.mergeBusy, false); assert.equal(f.state.refreshes, 0);
-  assert.equal(await f.state.performSelected('delete'), false); assert.equal(f.calls.length, 1);
-});
-
-
-test('批量动作提交时再次检查操作列表，移除后不写入；单条日期不依赖批量列表', async () => {
-  const flags = { Move: 'move', Schedule: 'schedule', Deadline: 'deadline', Someday: 'someday', Memo: 'memo', Delete: 'delete' };
-  for (const action of Object.values(flags)) {
-    const f = batchFixture();
-    f.state.actionPolicy.singleOperations = [action];
-    f.state.actionPolicy.bulkOperations = [];
-    assert.equal(await f.state.performSelected(action), false, action);
-    assert.deepEqual(f.calls, []);
-    f.state.actionPolicy.singleOperations = [];
-    f.state.actionPolicy.bulkOperations = [action];
-    assert.equal(await f.state.performSelected(action), true, action);
-    assert.equal(f.calls.length, 1);
-  }
-  const single = batchFixture(); single.state.selectingRecords = false;
-  single.state.actionPolicy = { singleOperations: ['schedule'], bulkOperations: [] };
-  assert.equal(await single.state.performSelected('schedule', undefined, '2026-11-20', [single.state.records[0]]), true);
-  assert.equal(single.calls.length, 1);
 });
 
 test('规划批量备忘只返回逐条修改组并固定源与目标版本，不执行请求', async () => {

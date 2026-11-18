@@ -22,7 +22,7 @@ class InboxMergeChangedError extends Error {
 
 // 只编排配置与 Core 请求，不解析 Org 或在宿主实现任务移动。
 export class InboxService {
-  static async merge(context: Context, records: CoreTask[], operationId?: string): Promise<CoreTaskPath> {
+  static async mergePlan(context: Context, records: CoreTask[]): Promise<CoreTaskMergePlan> {
     if (records.length < 2) throw new Error('请至少选择两条记录')
     const first = records[0]
     if (records.some(item => item.repoId !== first.repoId || item.filePath !== first.filePath || item.fileVersion !== first.fileVersion)) {
@@ -39,9 +39,7 @@ export class InboxService {
     const request: CoreTaskMergeRequest = { paths: records.map(item => item.fullPath), fileVersion: first.fileVersion }
     const plan: CoreTaskMergePlan = await workspace.taskMergeOperations(request)
 
-    if (operationId) plan.operationGroup.operationId = operationId
-    await workspace.executeTaskOperations(plan.operationGroup)
-    return plan.mainPath
+    return plan
   }
 
   static async load(config: AppConfig): Promise<InboxSnapshot> {

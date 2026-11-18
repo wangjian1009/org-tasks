@@ -44,6 +44,7 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
     TaskInlineMissingError: Missing, coreErrorMessage: error => error.message, UiColor: { error: 'red' },
     InboxService: { async operationGroups(_context, records, action) {
       planned.push([records[0].fileVersion, action]);
+      if(action==='delete')return [{operations:[{type:'Trash',data:{path:records[0].fullPath}}],fileVersions:[{repoId:records[0].repoId,file:records[0].filePath,version:records[0].fileVersion}]}];
       return [groupBuilders.taskModificationGroup(records[0], [{ field: 'TODO', value: action === 'memo' ? null : 'TODO' }])];
     } }, CustomDialogController: Dialog, TaskDateDialog: options => { dates.push(options); return options; }, DialogAlignment: { Center: 'center' } });
   const state = Object.assign(new Editor(), { taskId: 'key', task: task(category, target), appeared: true,
@@ -90,7 +91,7 @@ test('生成阶段锁定编辑器，等待期间撤销启用或离开页面不�
 test('移动、日期和删除直接接口均返回可组合的修改组，不打开弹窗或提交', async () => {
   const target = { repoId: 'repo', path: 'target.org', fileVersion: 'target-v1', fullPath: { repoId: 'repo', file: 'target.org', titles: [] } };
   for (const [method, args, type, field] of [['moveTo', [target], 'Movement'], ['setSchedule', [{ date: '2026-11-18' }], 'Modification', 'SCHEDULE'],
-    ['setDeadline', [null], 'Modification', 'DEADLINE'], ['remove', [], 'Deletion']]) {
+    ['setDeadline', [null], 'Modification', 'DEADLINE'], ['remove', [], 'Trash']]) {
     const f = fixture(), group = await f.state[method](...args);
     assert.equal(group.operations[0].type, type); if (field) assert.equal(group.operations[0].data.modifications[0].field, field);
     assert.equal(f.dialogs.length, 0); assert.equal(f.emitted.length, 0);
@@ -102,7 +103,7 @@ test('startDelete 等待用户确认后返回删除组，窗口不执行提交�
   const pending = f.state.startDelete().then(group => { finished = true; return group; }); await tick();
   assert.equal(finished, false); assert.equal(f.emitted.length, 0);
   f.dialogs[0].secondaryButton.action(); f.dialogs[0].secondaryButton.action();
-  const group = await pending; assert.equal(group.operations[0].type, 'Deletion'); assert.equal(f.emitted.length, 0);
+  const group = await pending; assert.equal(group.operations[0].type, 'Trash'); assert.equal(f.emitted.length, 0);
   assert.equal(f.state.pendingAction, undefined);
 });
 test('取消、启用条件撤销或页面退出均返回 undefined，不产生修改', async () => {
@@ -132,7 +133,7 @@ test('移动面板返回移动组，取消不返回，源和目标版本均属�
 });
 test('只读日志可返回删除数据，不开放状态与其他编辑', async () => {
   const f = fixture(); f.state.readOnly = true; f.state.allowDeletion = true; assert.equal(await f.state.start(), undefined);
-  const pending = f.state.startDelete(); await tick(); f.dialogs[0].secondaryButton.action(); assert.equal((await pending).operations[0].type, 'Deletion');
+  const pending = f.state.startDelete(); await tick(); f.dialogs[0].secondaryButton.action(); assert.equal((await pending).operations[0].type, 'Trash');
   const disabled = fixture(); disabled.state.readOnly = true; assert.equal(await disabled.state.startDelete(), undefined);
 });
 test('整理接口只返回修改组，不执行请求', async () => {
