@@ -4,6 +4,7 @@ export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'waiting' | 'anytim
 
 export enum TaskOperation {
   ToggleState = 'toggleState',
+  Wait = 'wait',
   Move = 'move',
   Project = 'project',
   Schedule = 'schedule',
@@ -20,7 +21,7 @@ export enum TaskOperation {
 
 type TaskCommonOperation = TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
   TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
-export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.Project
+export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.Wait | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
 type TaskMenuOperation = TaskSingleOperation | TaskBatchAction
@@ -58,7 +59,7 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
   switch (page) {
-    case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'today': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.Wait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
     case 'planned': case 'waiting': case 'anytime': case 'someday': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
     default: return taskActionPolicy()
@@ -77,6 +78,9 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
             icon: start ? $r('app.media.ui_task_start') : $r('app.media.ui_task_pause'), action: () => activate(operation) })
         }
         break
+      case TaskOperation.Wait:
+        items.push({ id: operation, title: '等待', label: '设为等待', icon: $r('app.media.nav_waiting'), busyTitle: '设置中…', action: () => activate(operation) })
+        break
       case TaskOperation.Project:
         items.push({ id: operation, title: '项目', label: '转换为项目', icon: $r('app.media.ui_folder'), busyTitle: '创建中…', action: () => activate(operation) })
         break
@@ -90,7 +94,7 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
         items.push({ id: operation, title: '截止', label: '设置截止日期', icon: $r('app.media.ui_task_deadline'), busyTitle: '设置中…', action: () => activate(operation) })
         break
       case TaskOperation.Someday:
-        items.push({ id: operation, title: '将来', label: '将来，也许', icon: $r('app.media.nav_someday'), busyTitle: '整理中…', action: () => activate(operation) })
+        items.push({ id: operation, title: '某天', label: '移入某天', icon: $r('app.media.nav_someday'), busyTitle: '整理中…', action: () => activate(operation) })
         break
       case TaskOperation.Memo:
         items.push({ id: operation, title: '备忘', label: '转换为备忘', icon: $r('app.media.nav_memo'), busyTitle: '转换中…', action: () => activate(operation) })
@@ -132,7 +136,7 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {
   return taskOperationMenu(policy.bulkOperations, (action: TaskMenuOperation): void => {
-    if (action !== TaskOperation.ToggleState && action !== TaskOperation.Project) activate(action)
+    if (action !== TaskOperation.ToggleState && action !== TaskOperation.Wait && action !== TaskOperation.Project) activate(action)
   })
 }
 

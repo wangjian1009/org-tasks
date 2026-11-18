@@ -26,13 +26,13 @@ function method(name) {
   }
 }
 const methods = ['actionsAvailable', 'deletionAvailable', 'localDataSet', 'currentTask', 'actionError', 'actionSource', 'emitAction',
-  'start', 'stop', 'changeState', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
+  'start', 'stop', 'wait', 'changeState', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
   'moveToSomeday', 'convertToMemo', 'organize', 'setSchedule', 'setDeadline', 'planningGroup',
   'startSchedule', 'startDeadline', 'startDate', 'aboutToDisappear'].map(method).join('\n');
 function task(category = 'Todo', target = 'INPROGRESS') {
   return { id: 'task', heading: '验收任务', repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1',
     fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['验收任务'] }, state: category ? { category } : null,
-    editContent: {}, taskStateOf(category) { return target ? { name: category === 'Doing' ? target : 'TODO', category } : null; } };
+    editContent: {}, taskStateOf(category) { return target ? { name: category === 'Doing' ? target : category === 'Wait' ? 'HOLD' : 'TODO', category } : null; } };
 }
 function fixture(category = 'Todo', target = 'INPROGRESS') {
   const events = [], dialogs = [], messages = [], dates = [], emitted = [], planned = [];
@@ -40,7 +40,7 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
   class Missing extends Error {}
   class Dialog { constructor(options) { this.options = options; } open() { dialogs.push(this.options); } close() { this.options.onWillDismiss?.({ dismiss() {} }); } }
   const { Editor } = compile('export class Editor {' + methods + '}', { ...groupBuilders, TaskEditorActionResult, refileSections: values => [{ targets: values }],
-    TaskStateCategory: { Todo: 'Todo', Doing: 'Doing' }, TaskInlineSession: { release: key => events.push(['release', key]) },
+    TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait' }, TaskInlineSession: { release: key => events.push(['release', key]) },
     TaskInlineMissingError: Missing, coreErrorMessage: error => error.message, UiColor: { error: 'red' },
     InboxService: { async operationGroups(_context, records, action) {
       planned.push([records[0].fileVersion, action]);
@@ -65,7 +65,7 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
     saveWith: fn => save = fn, settleWith: fn => settle = fn };
 }
 test('start／stop 返回保存后版本的 TODO 修改组，生成阶段不执行任务动作', async () => {
-  for (const [category, action, expected] of [['Todo', 'start', 'INPROGRESS'], ['Doing', 'stop', 'TODO']]) {
+  for (const [category, action, expected] of [['Todo', 'start', 'INPROGRESS'], ['Wait', 'start', 'INPROGRESS'], ['Doing', 'stop', 'TODO']]) {
     const f = fixture(category); f.settleWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
     const group = await f.state[action]();
     assert.deepEqual(group.operations[0].data.modifications, [{ field: 'TODO', value: expected }]);
@@ -173,4 +173,22 @@ test('移动目标读取期间取消会忽略迟到结果，显式刷新更新�
   const refreshed = fixture(); const editing = refreshed.state.startMove(); await tick();
   refreshed.state.task = { ...refreshed.state.task, fileVersion: 'v2' }; await refreshed.state.refreshMove(); refreshed.state.confirmMove(target);
   assert.equal((await editing).fileVersions[0].version, 'v2'); assert.equal(refreshed.emitted.length, 0);
+});
+
+test('等待仅返回文件有效 Wait 状态修改，使用保存后的版本，其他字段由 Core 保留',async()=>{
+  for(const category of ['Todo','Doing']){
+    const f=fixture(category);f.settleWith(async()=>{f.state.task={...f.state.task,fileVersion:'saved'};});
+    const group=await f.state.wait();assert.deepEqual(group.operations[0].data.modifications,[{field:'TODO',value:'HOLD'}]);
+    assert.equal(group.fileVersions[0].version,'saved');assert.equal(f.emitted.length,0);assert.equal(f.dialogs.length,0);
+  }
+  const existing=fixture('Wait');assert.equal(await existing.state.wait(),undefined);
+  const missing=fixture('Todo',null);await assert.rejects(missing.state.wait(),/没有可用的等待状态/);
+});
+test('等待在保存失败、菜单撤销、页面离开或任务消失后不生成操作组',async()=>{
+  const failed=fixture();failed.saveWith(async()=>false);assert.equal(await failed.state.wait(),undefined);
+  for(const mode of ['policy','leave']){
+    const f=fixture();let allowed=true;f.settleWith(async()=>{if(mode==='policy')allowed=false;else f.state.appeared=false;});
+    assert.equal(await f.state.wait(()=>allowed),undefined);assert.equal(f.state.completing,false);
+  }
+  const gone=fixture();gone.settleWith(async()=>{gone.state.task=undefined;});await assert.rejects(gone.state.wait());
 });

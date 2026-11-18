@@ -201,19 +201,25 @@ export struct TaskEditor {
   }
 
   async start(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
-    return await this.changeState(TaskStateCategory.Todo, TaskStateCategory.Doing, allowed)
+    return await this.changeState([TaskStateCategory.Todo, TaskStateCategory.Wait], TaskStateCategory.Doing, allowed)
   }
   async stop(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
-    return await this.changeState(TaskStateCategory.Doing, TaskStateCategory.Todo, allowed)
+    return await this.changeState([TaskStateCategory.Doing], TaskStateCategory.Todo, allowed)
   }
-  private async changeState(from: TaskStateCategory, to: TaskStateCategory, allowed: () => boolean): Promise<CoreTaskOperationGroup | undefined> {
+  async wait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    return await this.changeState(undefined, TaskStateCategory.Wait, allowed)
+  }
+  private async changeState(from: TaskStateCategory[] | undefined, to: TaskStateCategory, allowed: () => boolean): Promise<CoreTaskOperationGroup | undefined> {
     if (!this.actionsAvailable() || !allowed()) return
     this.completing = true
     try {
       const source = await this.actionSource(allowed)
-      if (!source || source.state?.category !== from || !allowed()) return
+      if (!source || !allowed() || (from !== undefined && !from.some(category => source.state?.category === category)) || source.state?.category === to) return
       const state = source.taskStateOf(to)
-      if (!state) return
+      if (!state) {
+        if (to === TaskStateCategory.Wait) throw new Error('文件没有可用的等待状态，请检查 TODO 流程')
+        return
+      }
       return taskModificationGroup(source, [{ field: 'TODO', value: state.name }])
     }
     finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }

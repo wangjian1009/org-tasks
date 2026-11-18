@@ -144,7 +144,7 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   const policy = taskActionPolicy(input);
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
   assert.deepEqual(input, { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] });
-  assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'delete']);
+  assert.deepEqual(pagePolicy('today').singleOperations, ['toggleState', 'wait', 'someday', 'delete']);
   for (const page of ['planned', 'waiting', 'anytime', 'someday', 'recent']) {
     assert.deepEqual(pagePolicy(page).singleOperations, ['delete']);
   }
@@ -290,4 +290,18 @@ test('日志簿左滑进入多选，批量恢复由操作列表独立控制', ()
   assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['delete']);
   policy.bulkOperations = [];
   assert.deepEqual(taskBatchMenu(policy, () => {}), []);
+});
+
+// 今天只接入单条菜单，不连接选择控制器。
+test('今天左滑严格按开始暂停、等待、某天、删除排序，右滑改期且批量关闭', () => {
+  const policy=pagePolicy('today');
+  for(const [target,title] of [['Doing','开始'],['Todo','暂停']]){
+    const items=taskSingleMenu(policy.singleOperations,()=>{},target);
+    assert.deepEqual(items.map(item=>item.id),['toggleState','wait','someday','delete']);
+    assert.deepEqual(items.map(item=>item.title),[title,'等待','某天','删除']);
+  }
+  assert.deepEqual(taskBatchMenu(policy,()=>{}),[]);assert.equal(policy.rightSwipeAction,'schedule');
+  assert.ok(!policy.singleOperations.includes('select'));
+  const unsupported=taskSingleMenu(policy.singleOperations,()=>{});
+  assert.deepEqual(unsupported.map(item=>item.id),['wait','someday','delete']);
 });

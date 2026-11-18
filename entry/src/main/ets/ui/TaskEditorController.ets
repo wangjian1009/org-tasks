@@ -13,6 +13,7 @@ export interface TaskEditorActions {
   startDeadline(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   startDelete(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   start(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
+  wait(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   stop(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   moveToSomeday(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
   convertToMemo(allowed?: () => boolean): Promise<CoreTaskOperationGroup | undefined>
@@ -56,6 +57,10 @@ export class TaskEditorController {
   }
   async stop(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     if (allowed() && this.canActivate()) return await this.editor?.stop(allowed)
+    return undefined
+  }
+  async wait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    if (allowed() && this.canActivate()) return await this.editor?.wait(allowed)
     return undefined
   }
   async moveToSomeday(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {

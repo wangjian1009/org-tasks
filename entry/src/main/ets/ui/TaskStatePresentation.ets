@@ -11,7 +11,7 @@ export enum TaskStateCategory {
 
 export function taskStateToggleCategory(task: CoreTask | undefined): TaskStateCategory | null {
   const category = task?.state?.category
-  const target = category === TaskStateCategory.Todo ? TaskStateCategory.Doing :
+  const target = (category === TaskStateCategory.Todo || category === TaskStateCategory.Wait) ? TaskStateCategory.Doing :
     category === TaskStateCategory.Doing ? TaskStateCategory.Todo : null
   return target && task?.taskStateOf(target) ? target : null
 }

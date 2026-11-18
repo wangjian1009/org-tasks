@@ -37,7 +37,7 @@ function fixture() {
   const calls = [], guards = [], submitted = [], messages = []; let editable = true, deletable = true, state, write = async () => {};
   const controller = new TaskEditorController(group => { state.receiveOperation(group).catch(error => messages.push(error.message)); });
   const editor = { actionsAvailable: () => editable, deletionAvailable: () => deletable };
-  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'moveToSomeday', 'convertToMemo']) {
+  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'moveToSomeday', 'convertToMemo']) {
     editor[method] = async allowed => {
       guards.push(allowed); if (allowed()) calls.push(method);
       if (allowed()) return groupBuilders.taskModificationGroup({ repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1', fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['任务'] } }, [{ field: 'TODO', value: method }]);
@@ -53,7 +53,7 @@ function fixture() {
 test('七种单条操作全部调用编辑器接口，开始／暂停使用同一枚举的不同形态', async () => {
   for (const [action, target, method] of [['move', null, 'startMove'], ['schedule', null, 'startSchedule'],
     ['deadline', null, 'startDeadline'], ['delete', null, 'startDelete'], ['someday', null, 'moveToSomeday'],
-    ['memo', null, 'convertToMemo'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
+    ['memo', null, 'convertToMemo'], ['wait', null, 'wait'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
     const f = fixture(); f.state.singleOperations = [action]; f.state.toggleStateCategory = target;
     await f.state.activateOperation(action); assert.deepEqual(f.calls, [method]);
     assert.equal(f.submitted.length, 1);
@@ -67,8 +67,8 @@ test('启用数组决定菜单顺序，移除操作后旧回调和编辑器保�
   menu[1].action(); await f.state.activateOperation('delete'); assert.deepEqual(f.calls, ['startDelete']);
   assert.equal(f.state.leftSwipeAvailable(), false);
 });
-test('目标状态存在时才显示切换，等待、完成、取消、备忘只保留其他操作', () => {
-  for (const [category, expected] of [['Todo', 'Doing'], ['Doing', 'Todo'], ['Wait', null], ['Done', null], ['Cancel', null], [null, null]]) {
+test('目标状态存在时才显示切换，等待可开始，完成、取消和备忘保留其他操作', () => {
+  for (const [category, expected] of [['Todo', 'Doing'], ['Doing', 'Todo'], ['Wait', 'Doing'], ['Done', null], ['Cancel', null], [null, null]]) {
     assert.equal(states.taskStateToggleCategory(task(category)), expected);
   }
   assert.equal(states.taskStateToggleCategory(task('Todo', false)), null);
@@ -192,4 +192,12 @@ test('记录操作准备期间阻止重入，菜单撤销或数据集重绑会�
   assert.equal(f.state.recordActionPending,true);await f.state.activateOperation('restore');assert.equal(allowed(),true);
   f.state.dataSet.identity='new-scope';assert.equal(allowed(),false);
   finish({committed:false,retainedKeys:[]});await pending;assert.equal(f.state.recordActionPending,false);
+});
+
+test('等待 Action 复用启用数组和提交入口，撤销配置或编辑器失效后不执行',async()=>{
+  const f=fixture();f.state.singleOperations=['wait'];await f.state.activateOperation('wait');
+  assert.deepEqual(f.calls,['wait']);assert.equal(f.submitted.length,1);
+  f.state.singleOperations=[];assert.equal(f.guards[0](),false);await f.state.activateOperation('wait');
+  f.state.singleOperations=['wait'];f.controller.release();await f.state.activateOperation('wait');
+  assert.equal(f.submitted.length,1);
 });

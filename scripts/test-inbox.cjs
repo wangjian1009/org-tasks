@@ -339,38 +339,58 @@ test('通用移动保留跨仓库源目标版本与身份，只为启用同步�
   }]);
 });
 
-test('将来，也许只使用已配置文件的首个 REFILE，提交 TODO 与清除规划选项', async () => {
-  const requests = [];
-  const queries = [];
-  let hasTargets = true;
-  const first = { ...target('core-id', 'Later'), path: 'someday.org', fullPath: { repoId: 'core-id', file: 'someday.org', titles: ['Later'], occurrence: 2 } };
-  let initialState = 'OPEN';
-  const repo = { id: 'core-id', rootDirectory: '/repo', async load() {} };
+function somedayFixture() {
+  const requests = [], queries = [];
+  const config = { repos: [{ id: 'host-id', rootDirectory: '/repo' }], somedayRepoId: 'host-id', somedayFile: 'someday.org' };
+  let metadata = { path: 'someday.org', isIgnore: false, fileVersion: 'target-version' };
   const { InboxService } = load('services/InboxService', {
-    './AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'host-id', rootDirectory: '/repo', webdavEnabled: true }], somedayRepoId: 'host-id', somedayFile: 'someday.org' }; } } },
+    './AppConfigService': { AppConfigService: { async load() { return config; } } },
     './FileTargetService': { configuredFileTarget: config => ({ repoId: config.somedayRepoId, path: config.somedayFile }) },
-    './NativeCoreService': { taskResult:value=>value.result, fileResult:value=>value.result, NativeCoreService: { async workspaceFor() { return { async repos() { return [repo]; }, async query(batch){return batch.map(()=>({type:'file',result:[{path:'someday.org',isIgnore:false,taskStateOf(category){ assert.equal(category,'Todo'); return initialState ? {name:initialState,category} : null; }}]}));},
-      async refileTargets(query) { queries.push(query); return hasTargets ? [first] : []; }, async executeTaskOperations(group) { requests.push(group); } }; } } }
+    './NativeCoreService': { taskResult: value => value.result, fileResult: value => value.result,
+      NativeCoreService: { async workspaceFor() { return {
+        async repos() { return [{ id: 'core-id', rootDirectory: '/repo' }]; },
+        async query(batch) { queries.push(batch); return [{ type: 'file', result: metadata ? [metadata] : [] }]; },
+        async refileTargets() { assert.fail('Trash 到指定文件不查询 REFILE'); },
+        async executeTaskOperations(group) { requests.push(group); }
+      }; } }
+    }
   });
-  const task = { repoId: 'source', filePath: 'inbox.org', fileVersion: 'old', fullPath: { repoId: 'source', file: 'inbox.org', titles: ['Item'], occurrence: 2 } };
-  await InboxService.perform({}, task, 'someday');
-  assert.deepEqual(queries[0], { files: [{ repoId: 'core-id', path: 'someday.org' }] });
-  assert.deepEqual(requests[0], { operations: [
-    { type: 'Modification', data: { path: task.fullPath, modifications: [
-      { field: 'TODO', value: 'OPEN' }, { field: 'SCHEDULE', value: null },
-      { field: 'DEADLINE', value: null }
-    ] } },
-    { type: 'Movement', data: { path: task.fullPath, position: { parent: first.fullPath } } }
-  ], fileVersions: [
+  const task = { repoId: 'source', filePath: 'inbox.org', fileVersion: 'old',
+    fullPath: { repoId: 'source', file: 'inbox.org', titles: ['Item'], occurrence: 2 },
+    state: { name: 'DOING', category: 'Doing' }, scheduled: '2026-11-20', deadline: '2026-11-21' };
+  return { InboxService, requests, queries, config, task, metadata: value => { metadata = value; } };
+}
+
+test('将来只规划到配置文件的 Trash，保留源和目标版本，不要求 REFILE 或待办配置', async () => {
+  const f = somedayFixture();
+  const groups = await f.InboxService.operationGroups({}, [f.task], 'someday');
+  assert.equal(f.requests.length, 0);
+  assert.deepEqual(f.queries, [[{ type: 'file', query: { includeFiles: [{ repoId: 'core-id', path: 'someday.org' }] } }]]);
+  assert.deepEqual(groups, [{ operations: [{ type: 'Trash', data: { path: f.task.fullPath,
+    target: { repoId: 'core-id', path: 'someday.org' } } }], fileVersions: [
     { repoId: 'source', file: 'inbox.org', version: 'old' },
     { repoId: 'core-id', file: 'someday.org', version: 'target-version' }
-  ]});
-  initialState = null;
-  await assert.rejects(InboxService.perform({}, task, 'someday'), /待办状态/);
-  initialState = 'OPEN';
-  hasTargets = false;
-  await assert.rejects(InboxService.perform({}, task, 'someday'), /REFILE/);
-  assert.equal(requests.length, 1);
+  ] }]);
+  assert.equal(f.task.state.name, 'DOING');assert.equal(f.task.scheduled, '2026-11-20');
+});
+
+test('批量将来合并全部 Trash 后一次提交，目标只读取一次且不生成字段修改或 Movement', async () => {
+  const f = somedayFixture(), second = { ...f.task, fullPath: { ...f.task.fullPath, titles: ['Second'] } };
+  await f.InboxService.performMany({}, [f.task, second], 'someday');
+  assert.equal(f.requests.length, 1);assert.equal(f.queries.length, 1);
+  assert.deepEqual(f.requests[0].operations, [f.task, second].map(task => ({ type: 'Trash', data: {
+    path: task.fullPath, target: { repoId: 'core-id', path: 'someday.org' } } })));
+  assert.equal(f.requests[0].fileVersions.length, 2);
+});
+
+test('将来目标未配置、已消失或被忽略时拒绝，保留源且不回退到其他文件', async () => {
+  for (const mode of ['unconfigured', 'missing', 'ignored']) {
+    const f = somedayFixture();
+    if (mode === 'unconfigured') f.config.somedayFile = '';
+    else f.metadata(mode === 'missing' ? undefined : { path: 'someday.org', isIgnore: true, fileVersion: 'new' });
+    await assert.rejects(f.InboxService.perform({}, f.task, 'someday'), /设置.*选择|失效/);
+    assert.equal(f.requests.length, 0);
+  }
 });
 
 test('移动分组与组内目标按最近选择排序，身份忽略版本与字节位置', () => {

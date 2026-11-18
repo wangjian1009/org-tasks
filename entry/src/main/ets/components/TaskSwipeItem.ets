@@ -128,6 +128,7 @@ export struct TaskSwipeItem {
           if (this.toggleStateCategory === TaskStateCategory.Doing) group = await this.controller.start(allowed)
           else if (this.toggleStateCategory === TaskStateCategory.Todo) group = await this.controller.stop(allowed)
           break
+        case TaskOperation.Wait: group = await this.controller.wait(allowed); break
         case TaskOperation.Delete: group = await this.controller.startDelete(allowed); break
         case TaskOperation.Move: group = await this.controller.startMove(allowed); break
         case TaskOperation.Schedule: group = await this.controller.startSchedule(allowed); break

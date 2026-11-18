@@ -1,5 +1,4 @@
 import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
-import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
@@ -101,16 +100,14 @@ export class InboxService {
       const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId: repo.id, path: selected.path }] } }]))[0])
       const metadata = files.find(file => file.path === selected.path && !file.isIgnore)
       if (!metadata) throw new Error('将来，也许文件已失效，请在设置中重新选择')
-      const first = (await workspace.refileTargets({ files: [{ repoId: repo.id, path: selected.path }] }))[0]
-      if (!first) throw new Error('请在将来，也许文件中添加 REFILE 标题')
-      target = first
-      parent = first.fullPath
-      const state = metadata.taskStateOf(TaskStateCategory.Todo)
-      if (!state) throw new Error('目标文件没有可用的待办状态，请检查状态分类与 TODO 流程')
-      modifications = [
-        { field: 'TODO', value: state.name }, { field: 'SCHEDULE', value: null },
-        { field: 'DEADLINE', value: null }
-      ]
+      // 复用 Core Trash 的来源记录与叶节点规则，直接归入配置文件头。
+      return tasks.map((task: CoreTask): CoreTaskOperationGroup => ({
+        operations: [{ type: 'Trash', data: { path: task.fullPath, target: { repoId: repo.id, path: selected.path } } }],
+        fileVersions: [
+          { repoId: task.repoId, file: task.filePath, version: task.fileVersion },
+          { repoId: repo.id, file: selected.path, version: metadata.fileVersion }
+        ]
+      }))
     } else if (action === 'memo') {
       const selected = configuredFileTarget(config, 'memo')
       const settings = config.repos.find((item: RepoConfig) => item.id === selected.repoId)
@@ -135,7 +132,7 @@ export class InboxService {
       }
       const fileVersions: CoreTaskFileVersion[] = [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }]
       if (destinationVersion) fileVersions.push(destinationVersion)
-      if (target && (action === 'someday' || action === 'move')) fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
+      if (target && action === 'move') fileVersions.push({ repoId: target.repoId, file: target.path, version: target.fileVersion })
       groups.push({ operations, fileVersions })
     }
     return groups
