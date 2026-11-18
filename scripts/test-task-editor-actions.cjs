@@ -26,7 +26,7 @@ function method(name) {
   }
 }
 const methods = ['actionsAvailable', 'deletionAvailable', 'localDataSet', 'currentTask', 'actionError', 'actionSource', 'emitAction',
-  'start', 'stop', 'wait', 'changeState', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
+  'start', 'stop', 'wait', 'changeState', 'withStateNote', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
   'moveToSomeday', 'convertToMemo', 'organize', 'setSchedule', 'setDeadline', 'planningGroup',
   'startSchedule', 'startDeadline', 'startDate', 'aboutToDisappear'].map(method).join('\n');
 function task(category = 'Todo', target = 'INPROGRESS') {
